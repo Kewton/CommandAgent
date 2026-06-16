@@ -28,6 +28,10 @@ Default local endpoint:
 OLLAMA_HOST=http://127.0.0.1:11434
 ```
 
+For client use, bare host values are normalized. `OLLAMA_HOST=0.0.0.0` is
+treated as `http://127.0.0.1:11434` because `0.0.0.0` is a server bind address,
+not a useful client target.
+
 ## Gemini
 
 Gemini uses the Generative Language API `models/{model}:generateContent`

@@ -385,7 +385,29 @@ fn to_ollama_tools(tools: &[ToolSpec]) -> Vec<OllamaToolDefinition> {
 }
 
 fn normalize_base_url(base_url: &str) -> String {
-    base_url.trim_end_matches('/').to_string()
+    let mut value = base_url.trim().trim_end_matches('/').to_string();
+    if value == "0.0.0.0" {
+        value = "127.0.0.1:11434".to_string();
+    }
+    if !value.contains("://") {
+        value = format!("http://{value}");
+    }
+    add_default_ollama_port(value)
+}
+
+fn add_default_ollama_port(value: String) -> String {
+    let Some((scheme, rest)) = value.split_once("://") else {
+        return value;
+    };
+    let (authority, path) = rest
+        .split_once('/')
+        .map(|(authority, path)| (authority, format!("/{path}")))
+        .unwrap_or((rest, String::new()));
+    if authority.contains(':') || authority.starts_with('[') {
+        value
+    } else {
+        format!("{scheme}://{authority}:11434{path}")
+    }
 }
 
 #[cfg(test)]
@@ -415,6 +437,20 @@ mod tests {
             transport.calls(),
             vec!["GET http://127.0.0.1:11434/api/tags"]
         );
+    }
+
+    #[test]
+    fn normalizes_common_ollama_host_values() {
+        assert_eq!(
+            normalize_base_url("http://127.0.0.1:11434/"),
+            "http://127.0.0.1:11434"
+        );
+        assert_eq!(
+            normalize_base_url("127.0.0.1:11434"),
+            "http://127.0.0.1:11434"
+        );
+        assert_eq!(normalize_base_url("localhost"), "http://localhost:11434");
+        assert_eq!(normalize_base_url("0.0.0.0"), "http://127.0.0.1:11434");
     }
 
     #[test]

@@ -58,4 +58,5 @@ docs/eval/mvp-uat.md
 
 Result: pre-signoff UAT found that slash-command runtime dispatch is still
 missing. This gap has since been addressed with REPL slash-command dispatch and
-regression tests; live UAT remains pending.
+regression tests. A live 27B `/plan-run --profile docs` UAT passed; larger live
+UAT remains pending.

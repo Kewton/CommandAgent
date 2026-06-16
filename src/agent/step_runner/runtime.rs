@@ -98,9 +98,14 @@ where
     ) -> Result<StepPlan, String> {
         let prompt = plan_generation_prompt(goal, profile, style);
         let text = planner_text(self.planner, &self.planner_config, &prompt)?;
-        let plan = extract_plan_from_response(&text).map_err(|err| err.to_string())?;
-        lint_step_plan(&plan).map_err(|err| format!("plan lint failed: {err}"))?;
-        Ok(plan)
+        match parse_and_lint_step_plan(&text) {
+            Ok(plan) => Ok(plan),
+            Err(err) => {
+                let correction = plan_correction_prompt(goal, &text, &err, "step plan");
+                let corrected = planner_text(self.planner, &self.planner_config, &correction)?;
+                parse_and_lint_step_plan(&corrected)
+            }
+        }
     }
 
     fn generate_ultra_plan(
@@ -111,8 +116,15 @@ where
     ) -> Result<UltraPlan, String> {
         let prompt = ultra_plan_generation_prompt(goal, profile, style, "new");
         let text = planner_text(self.planner, &self.planner_config, &prompt)?;
-        let plan = parse_ultra_plan_yaml(&text).map_err(|err| err.to_string())?;
-        Ok(plan)
+        match parse_ultra_plan_yaml(&text) {
+            Ok(plan) => Ok(plan),
+            Err(err) => {
+                let correction =
+                    plan_correction_prompt(goal, &text, &err.to_string(), "ultra plan");
+                let corrected = planner_text(self.planner, &self.planner_config, &correction)?;
+                parse_ultra_plan_yaml(&corrected).map_err(|err| err.to_string())
+            }
+        }
     }
 
     fn execute_ultra_plan(&mut self, plan: &UltraPlan) -> Result<String, String> {
@@ -131,8 +143,15 @@ where
             ));
             let prompt = phase_step_plan_prompt(plan, phase, &snapshot, &profile_contract);
             let text = planner_text(self.planner, &self.planner_config, &prompt)?;
-            let step_plan = extract_plan_from_response(&text).map_err(|err| err.to_string())?;
-            lint_step_plan(&step_plan).map_err(|err| format!("plan lint failed: {err}"))?;
+            let step_plan = match parse_and_lint_step_plan(&text) {
+                Ok(plan) => plan,
+                Err(err) => {
+                    let correction =
+                        plan_correction_prompt(&phase.goal, &text, &err, "phase step plan");
+                    let corrected = planner_text(self.planner, &self.planner_config, &correction)?;
+                    parse_and_lint_step_plan(&corrected)?
+                }
+            };
             let path = save_step_plan(self.cwd, &step_plan).map_err(|err| err.to_string())?;
             lines.push(format!(
                 "phase {}: step plan {}",
@@ -255,6 +274,27 @@ where
         tool_call_mode: config.tool_call_mode,
     })?;
     Ok(response.content)
+}
+
+fn parse_and_lint_step_plan(text: &str) -> Result<StepPlan, String> {
+    let plan = extract_plan_from_response(text).map_err(|err| err.to_string())?;
+    lint_step_plan(&plan).map_err(|err| format!("plan lint failed: {err}"))?;
+    Ok(plan)
+}
+
+fn plan_correction_prompt(
+    original_goal: &str,
+    invalid_plan: &str,
+    error: &str,
+    plan_kind: &str,
+) -> String {
+    format!(
+        "The generated CommandAgent {plan_kind} is invalid and must be corrected.\n\
+Original goal:\n{original_goal}\n\n\
+Validation error:\n{error}\n\n\
+Invalid plan:\n{invalid_plan}\n\n\
+Return only corrected YAML using the required CommandAgent schema."
+    )
 }
 
 fn step_prompt(plan: &StepPlan, step: &StepPlanStep) -> Result<String, String> {
@@ -429,6 +469,45 @@ mod tests {
 
         assert!(output.contains("step write-readme: ok"));
         assert_eq!(fs::read_to_string(root.join("README.md")).unwrap(), "ok");
+    }
+
+    #[test]
+    fn invalid_step_plan_gets_one_correction_attempt() {
+        let root = temp_workspace("plan-correction");
+        let invalid_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n- id: \"write-readme\"\n  instruction: \"Create README.md.\"\n  expected_paths:\n    - \"README.md\"\n  verify:\n    - \"cat README.md\"\n";
+        let corrected_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"cat README.md\"\n";
+        let mut planner = MockClient::new(vec![
+            ChatResponse {
+                content: invalid_yaml.to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: corrected_yaml.to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+        let mut executor = MockClient::new(vec![]);
+        let command = SlashCommand {
+            kind: SlashCommandKind::PlanSteps,
+            profile: Some("docs".to_string()),
+            style: None,
+            argument: "Create docs".to_string(),
+        };
+
+        let output = SlashRuntime {
+            executor: &mut executor,
+            planner: &mut planner,
+            cwd: &root,
+            loop_config: MinimalLoopConfig::default(),
+            planner_config: PlannerRuntimeConfig {
+                model: "planner".to_string(),
+                tool_call_mode: ToolCallMode::XmlFallback,
+            },
+        }
+        .run(command)
+        .unwrap();
+
+        assert!(output.contains("created step plan"));
     }
 
     struct MockClient {
