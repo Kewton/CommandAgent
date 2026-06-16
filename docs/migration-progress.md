@@ -49,3 +49,13 @@ scripts/eval_smoke.sh
 ```
 
 Result: passed.
+
+Latest UAT:
+
+```text
+docs/eval/mvp-uat.md
+```
+
+Result: pre-signoff UAT found that slash-command runtime dispatch is still
+missing. MVP sign-off is blocked until `/ultra-plan-run` is wired through the
+REPL.
