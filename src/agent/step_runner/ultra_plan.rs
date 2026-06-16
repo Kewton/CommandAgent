@@ -104,6 +104,12 @@ pub fn parse_ultra_plan_yaml(yaml: &str) -> Result<UltraPlan, UltraPlanError> {
                 ));
             };
             phase.goal = parse_yaml_string(value.trim())?;
+        } else if is_ignored_phase_annotation(line) {
+            let Some(_phase) = current_phase.as_mut() else {
+                return Err(UltraPlanError::InvalidYaml(
+                    "phase annotation appears before phase id".to_string(),
+                ));
+            };
         } else {
             return Err(UltraPlanError::InvalidYaml(format!(
                 "unexpected line: {line}"
@@ -221,6 +227,14 @@ fn phase_id_value(line: &str) -> Option<&str> {
 fn phase_field_value<'a>(line: &'a str, field: &str) -> Option<&'a str> {
     line.strip_prefix(&format!("    {field}:"))
         .or_else(|| line.strip_prefix(&format!("  {field}:")))
+}
+
+fn is_ignored_phase_annotation(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    matches!(
+        trimmed.split_once(':').map(|(key, _)| key),
+        Some("steps" | "expected_paths" | "verify" | "instruction")
+    ) || trimmed.starts_with("- ")
 }
 
 fn slug(value: &str) -> Option<String> {
@@ -342,6 +356,29 @@ phases:
         assert_eq!(plan.phases.len(), 2);
         assert_eq!(plan.phases[0].id, "scaffold");
         assert_eq!(plan.phases[1].goal, "Verify build.");
+    }
+
+    #[test]
+    fn ignores_common_nested_step_annotations_in_phase_plan() {
+        let yaml = r#"
+goal: Build app
+profile: nextjs
+style: default
+intent: new
+phases:
+  - id: scaffold
+    goal: Create files.
+    steps:
+      - id: create-package
+        instruction: Create package.json.
+  - id: verify
+    goal: Verify build.
+"#;
+
+        let plan = parse_ultra_plan_yaml(yaml).unwrap();
+
+        assert_eq!(plan.phases.len(), 2);
+        assert_eq!(plan.phases[0].goal, "Create files.");
     }
 
     #[test]

@@ -322,6 +322,7 @@ fn is_step_field(line: &str, field: &str) -> bool {
 fn list_item_value(line: &str) -> Option<&str> {
     line.strip_prefix("      - ")
         .or_else(|| line.strip_prefix("    - "))
+        .or_else(|| line.strip_prefix("   - "))
         .or_else(|| line.strip_prefix("  - "))
 }
 
@@ -455,6 +456,29 @@ mod tests {
             vec!["package.json", "app/page.tsx"]
         );
         assert_eq!(plan.steps[0].verify, vec!["cat package.json"]);
+    }
+
+    #[test]
+    fn accepts_three_space_list_item_indentation_drift() {
+        let yaml = r#"
+goal: Build app
+profile: nextjs
+style: default
+steps:
+  - id: create-files
+    instruction: Create files.
+    expected_paths:
+   - package.json
+   - app/page.tsx
+    verify: []
+"#;
+
+        let plan = parse_step_plan_yaml(yaml).unwrap();
+
+        assert_eq!(
+            plan.steps[0].expected_paths,
+            vec!["package.json", "app/page.tsx"]
+        );
     }
 
     #[test]
