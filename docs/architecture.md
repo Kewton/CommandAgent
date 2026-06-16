@@ -105,6 +105,11 @@ non-file `expected_paths`, JSON/property selectors, version strings, path
 escape, and steps that clearly mix file-changing setup with final verification.
 It does not force a framework-specific project structure.
 
+Verification is deterministic. It runs only commands accepted by the local Bash
+policy, detects dependency-missing cases before fake success is possible, and
+compresses failures into bounded diagnostics plus nearby source excerpts when a
+file/line reference is present.
+
 ## Minimal Loop
 
 The minimal loop owns one coding-agent session:

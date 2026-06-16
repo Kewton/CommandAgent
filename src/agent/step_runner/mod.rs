@@ -1,4 +1,5 @@
 pub mod plan_lint;
+pub mod verify;
 
 use crate::util::workspace_paths::plans_dir;
 use serde_json::Value;

@@ -29,6 +29,7 @@ visible from commits, not only from local workspace notes.
 | CA-0602 | Done | Slash command parser, profile/style options, and safe repair-prompt file references. |
 | CA-0701 | Done | Step plan schema, YAML render/load, generation/correction prompts, and plan saving. |
 | CA-0702 | Done | Plan lint for expected path type, setup/verify separation, and verification-only regression. |
+| CA-0703 | Done | Deterministic verifier, dependency_missing, diagnostic/source excerpts, and evaluation docs. |
 
 Latest verification:
 
