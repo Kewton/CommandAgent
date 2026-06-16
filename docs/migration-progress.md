@@ -57,5 +57,5 @@ docs/eval/mvp-uat.md
 ```
 
 Result: pre-signoff UAT found that slash-command runtime dispatch is still
-missing. MVP sign-off is blocked until `/ultra-plan-run` is wired through the
-REPL.
+missing. This gap has since been addressed with REPL slash-command dispatch and
+regression tests; live UAT remains pending.

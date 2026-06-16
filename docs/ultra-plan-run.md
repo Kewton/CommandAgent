@@ -80,7 +80,7 @@ deliberately user-visible so CommandAgent does not hide unbounded retries.
 
 ## Current MVP Limit
 
-The parser, schemas, verifier, repair artifacts, profile contracts, and ultra
-execution core are present. Full REPL slash-command execution is still being
-wired during migration, so live behavior should be verified with the current
-binary before publishing a workflow as supported.
+The parser, schemas, verifier, repair artifacts, profile contracts, ultra
+execution core, and REPL dispatch are present. Live behavior still depends on
+the selected model and local toolchain, so complex workflows should be verified
+with the current binary before publishing them as supported.

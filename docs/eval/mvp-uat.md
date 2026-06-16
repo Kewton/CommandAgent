@@ -26,12 +26,12 @@ curl -fsS http://127.0.0.1:11434/api/tags
 | Ollama connection | Pass | Local Ollama is reachable and includes coding models. |
 | REPL prompt loop | Covered by unit tests | `agent::repl` tests pass in smoke. |
 | Simple file create live UAT | Not run yet | Requires a live model run after slash execution gap is resolved. |
-| Next.js small app live UAT | Blocked | `/ultra-plan-run` REPL execution is not fully wired. |
-| Repair fallback live UAT | Blocked | Depends on `/ultra-plan-run` REPL execution wiring. |
-| Planner/executor split live UAT | Blocked | Config exists, but slash command runtime dispatch is not wired. |
+| Next.js small app live UAT | Pending | `/ultra-plan-run` REPL dispatch is now wired; live model run still needed. |
+| Repair fallback live UAT | Pending | Runtime dispatch exists; live failure/repair scenario still needed. |
+| Planner/executor split live UAT | Pending | Config and dispatcher exist; live mixed-provider run still needed. |
 | Python/Rust smoke live UAT | Not run yet | Should run after planner/step execution wiring lands. |
 
-## Blocking Finding
+## Previous Blocking Finding
 
 `/ultra-plan-run` is an MVP feature, but the current REPL only sends every
 non-exit line to the minimal loop. `agent/slash_command` can parse plan
@@ -39,26 +39,10 @@ commands, and `agent/step_runner` contains schemas, verifier, repair artifacts,
 profiles, and ultra execution core. The missing piece is runtime dispatch from
 REPL slash commands into planner generation and step execution.
 
-This should not be treated as a release-ready limitation. It is a pre-signoff
-implementation gap.
+Status update: this gap has been addressed in code with a REPL dispatch path
+and regression tests. Live UAT remains pending.
 
 ## Next Required Work
 
-Add REPL slash-command dispatch for at least:
-
-- `/plan-steps`
-- `/plan-run`
-- `/run-plan`
-- `/ultra-plan`
-- `/ultra-plan-run`
-- `/run-ultra-plan`
-
-The dispatcher should preserve the existing boundaries:
-
-- provider layer remains transport-only
-- step runner owns plan generation, lint, verify, and repair
-- minimal loop remains the single execution engine
-- failed phases stop and produce visible reports
-
-After that, rerun this UAT with live simple file, Next.js, repair fallback,
+Rerun this UAT with live simple file, Next.js, repair fallback,
 planner/executor split, Python, and Rust checks.

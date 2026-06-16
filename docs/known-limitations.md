@@ -2,9 +2,9 @@
 
 CommandAgent is still in MVP migration.
 
-- Full REPL slash-command execution for plan/ultra-plan commands is not fully
-  wired yet. The parser, schemas, verifier, repair artifacts, profile contracts,
-  and ultra execution core are present.
+- REPL slash-command execution is now wired for plan and ultra-plan commands,
+  but live LLM UAT is still required before treating complex workflows as
+  release-grade.
 - `/ultra-plan-run` is intentionally phase-bounded. A failed phase stops the
   run and asks for explicit repair/replanning instead of continuing silently.
 - Live LLM behavior depends on local model quality, quantization, provider

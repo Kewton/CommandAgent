@@ -1,9 +1,11 @@
 use crate::agent::minimal_loop::loop_run::{ChatClient, MinimalLoopConfig, run_session};
 use crate::agent::repl::{MinimalReplRunner, run_repl};
+use crate::agent::step_runner::runtime::PlannerRuntimeConfig;
 use crate::config::{Config, Provider};
 use crate::providers::gemini::{DEFAULT_GEMINI_BASE_URL, GeminiClient};
 use crate::providers::ollama::OllamaClient;
 use crate::providers::openai::{DEFAULT_OPENAI_BASE_URL, OpenAiClient};
+use crate::providers::planner::resolve_targets;
 use crate::providers::{ChatRequest, ChatResponse, request_tool_mode};
 use std::ffi::OsString;
 use std::io::{self, IsTerminal};
@@ -115,8 +117,24 @@ fn run_one_shot(config: Config, prompt: &str) -> Result<(), String> {
 }
 
 fn run_interactive(config: Config) -> Result<(), String> {
-    let client = runtime_client(&config)?;
-    let mut runner = MinimalReplRunner::new(client, &config.cwd, minimal_loop_config(&config))?;
+    let targets = resolve_targets(&config);
+    let client = runtime_client_for(&config, targets.executor.provider)?;
+    let planner_client = runtime_client_for(&config, targets.planner.provider)?;
+    let planner_config = PlannerRuntimeConfig {
+        model: targets
+            .planner
+            .model
+            .clone()
+            .unwrap_or_else(|| "default".to_string()),
+        tool_call_mode: request_tool_mode(targets.planner.provider),
+    };
+    let mut runner = MinimalReplRunner::new(
+        client,
+        planner_client,
+        &config.cwd,
+        minimal_loop_config(&config),
+        planner_config,
+    )?;
     let stdin = io::stdin();
     let stdout = io::stdout();
     run_repl(stdin.lock(), stdout.lock(), &mut runner).map_err(|err| err.to_string())
@@ -135,8 +153,12 @@ fn minimal_loop_config(config: &Config) -> MinimalLoopConfig {
 }
 
 fn runtime_client(config: &Config) -> Result<RuntimeClient, String> {
+    runtime_client_for(config, config.provider)
+}
+
+fn runtime_client_for(config: &Config, provider: Provider) -> Result<RuntimeClient, String> {
     let timeout = Duration::from_secs(config.timeout_secs);
-    match config.provider {
+    match provider {
         Provider::Ollama => {
             let base_url = std::env::var("OLLAMA_HOST")
                 .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string());

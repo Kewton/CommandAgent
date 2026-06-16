@@ -1,6 +1,8 @@
 use crate::agent::minimal_loop::loop_run::{
     ChatClient, MinimalLoopConfig, MinimalLoopError, run_session,
 };
+use crate::agent::slash_command::parse_slash_command;
+use crate::agent::step_runner::runtime::{PlannerRuntimeConfig, SlashRuntime};
 use crate::session::store::{SessionRole, SessionStore};
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
@@ -51,30 +53,37 @@ where
     }
 }
 
-pub struct MinimalReplRunner<C> {
+pub struct MinimalReplRunner<C, P> {
     client: C,
+    planner_client: P,
     cwd: PathBuf,
     loop_config: MinimalLoopConfig,
+    planner_config: PlannerRuntimeConfig,
     store: SessionStore,
     snapshot: crate::session::store::SessionSnapshot,
 }
 
-impl<C> MinimalReplRunner<C>
+impl<C, P> MinimalReplRunner<C, P>
 where
     C: ChatClient,
+    P: ChatClient,
 {
     pub fn new(
         client: C,
+        planner_client: P,
         cwd: impl AsRef<Path>,
         loop_config: MinimalLoopConfig,
+        planner_config: PlannerRuntimeConfig,
     ) -> Result<Self, String> {
         let cwd = cwd.as_ref().to_path_buf();
         let store = SessionStore::new(&cwd).map_err(|err| err.to_string())?;
         let snapshot = store.create();
         Ok(Self {
             client,
+            planner_client,
             cwd,
             loop_config,
+            planner_config,
             store,
             snapshot,
         })
@@ -85,11 +94,28 @@ where
     }
 }
 
-impl<C> ReplTurnRunner for MinimalReplRunner<C>
+impl<C, P> ReplTurnRunner for MinimalReplRunner<C, P>
 where
     C: ChatClient,
+    P: ChatClient,
 {
     fn run_turn(&mut self, prompt: &str) -> Result<String, String> {
+        if let Some(command) =
+            parse_slash_command(prompt, &self.cwd).map_err(|err| err.to_string())?
+        {
+            let mut runtime = SlashRuntime {
+                executor: &mut self.client,
+                planner: &mut self.planner_client,
+                cwd: &self.cwd,
+                loop_config: self.loop_config.clone(),
+                planner_config: self.planner_config.clone(),
+            };
+            let answer = runtime.run(command)?;
+            self.snapshot.push(SessionRole::User, prompt);
+            self.snapshot.push(SessionRole::Assistant, answer.clone());
+            return Ok(answer);
+        }
+
         let result = run_session(
             &mut self.client,
             &self.cwd,
@@ -141,8 +167,11 @@ fn format_loop_error(err: MinimalLoopError) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::{ChatRequest, ChatResponse, ToolCall, ToolCallMode};
     use std::collections::VecDeque;
+    use std::fs;
     use std::io::Cursor;
+    use std::path::PathBuf;
 
     #[test]
     fn repl_skips_empty_lines_and_exits() {
@@ -188,6 +217,48 @@ mod tests {
         assert!(text.contains("ok"));
     }
 
+    #[test]
+    fn minimal_repl_dispatches_plan_run_slash_command() {
+        let root = temp_workspace("slash-plan-run");
+        let plan_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"cat README.md\"\n";
+        let planner = MockChatClient::new(vec![ChatResponse {
+            content: plan_yaml.to_string(),
+            tool_calls: Vec::new(),
+        }]);
+        let executor = MockChatClient::new(vec![
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    name: "Write".to_string(),
+                    args_json: r#"{"path":"README.md","content":"ok"}"#.to_string(),
+                }],
+            },
+            ChatResponse {
+                content: "Created README.md.".to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+        let mut runner = MinimalReplRunner::new(
+            executor,
+            planner,
+            &root,
+            MinimalLoopConfig::default(),
+            PlannerRuntimeConfig {
+                model: "planner".to_string(),
+                tool_call_mode: ToolCallMode::XmlFallback,
+            },
+        )
+        .unwrap();
+        let input = Cursor::new("/plan-run --profile docs Create README\n/exit\n");
+        let mut output = Vec::new();
+
+        run_repl(input, &mut output, &mut runner).unwrap();
+
+        assert_eq!(fs::read_to_string(root.join("README.md")).unwrap(), "ok");
+        let text = String::from_utf8(output).unwrap();
+        assert!(text.contains("step write-readme: ok"));
+    }
+
     struct MockRunner {
         responses: VecDeque<Result<String, String>>,
         prompts: Vec<String>,
@@ -216,5 +287,33 @@ mod tests {
             self.save_count += 1;
             Ok(())
         }
+    }
+
+    struct MockChatClient {
+        responses: VecDeque<ChatResponse>,
+    }
+
+    impl MockChatClient {
+        fn new(responses: Vec<ChatResponse>) -> Self {
+            Self {
+                responses: VecDeque::from(responses),
+            }
+        }
+    }
+
+    impl ChatClient for MockChatClient {
+        fn chat(&mut self, _request: &ChatRequest) -> Result<ChatResponse, String> {
+            self.responses
+                .pop_front()
+                .ok_or_else(|| "missing mock response".to_string())
+        }
+    }
+
+    fn temp_workspace(name: &str) -> PathBuf {
+        let path =
+            std::env::temp_dir().join(format!("commandagent-repl-{}-{}", name, std::process::id()));
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir_all(&path).unwrap();
+        path
     }
 }
