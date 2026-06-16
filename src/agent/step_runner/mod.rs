@@ -50,6 +50,7 @@ Rules:\n\
 - File creation or modification steps must be executable with Write/Edit, not shell scaffolding.\n\
 - expected_paths must be actual file paths, not package names or concepts.\n\
 - If no file path is expected for a step, use an empty list.\n\
+- Do not include tool-call fields such as action, path, content, old, or new in the plan.\n\
 \n\
 Goal: {goal}\n\
 Profile: {profile}\n\
@@ -78,6 +79,7 @@ pub fn invalid_plan_correction_prompt(
 Original goal:\n{original_goal}\n\n\
 Validation error:\n{error}\n\n\
 Invalid plan:\n{invalid_plan}\n\n\
+If the invalid plan includes tool-call fields such as action, path, content, old, or new, rewrite them into instruction and expected_paths fields.\n\
 Return only corrected YAML using the required CommandAgent step plan schema."
     )
 }
@@ -193,6 +195,13 @@ pub fn parse_step_plan_yaml(yaml: &str) -> Result<StepPlan, PlanError> {
                     ));
                 }
             }
+        } else if is_ignored_step_annotation(line) {
+            let Some(_step) = current_step.as_mut() else {
+                return Err(PlanError::InvalidYaml(
+                    "step annotation appears before step id".to_string(),
+                ));
+            };
+            current_list = None;
         } else {
             return Err(PlanError::InvalidYaml(format!("unexpected line: {line}")));
         }
@@ -314,6 +323,13 @@ fn list_item_value(line: &str) -> Option<&str> {
     line.strip_prefix("      - ")
         .or_else(|| line.strip_prefix("    - "))
         .or_else(|| line.strip_prefix("  - "))
+}
+
+fn is_ignored_step_annotation(line: &str) -> bool {
+    matches!(
+        line.trim_start().split_once(':').map(|(key, _)| key),
+        Some("action")
+    ) && (line.starts_with("  ") || line.starts_with("    "))
 }
 
 fn parse_inline_empty_list(value: &str) -> Result<bool, PlanError> {
@@ -442,6 +458,16 @@ mod tests {
     }
 
     #[test]
+    fn ignores_common_model_action_annotation() {
+        let yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: create-readme\n    action: write\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - README.md\n    verify:\n      - cat README.md\n";
+
+        let plan = parse_step_plan_yaml(yaml).unwrap();
+
+        assert_eq!(plan.steps[0].id, "create-readme");
+        assert_eq!(plan.steps[0].instruction, "Create README.md.");
+    }
+
+    #[test]
     fn validates_duplicate_step_ids() {
         let mut plan = sample_plan();
         plan.steps.push(plan.steps[0].clone());
@@ -471,6 +497,7 @@ mod tests {
         assert!(prompt.contains("Return only YAML"));
         assert!(prompt.contains("Goal: Build docs"));
         assert!(prompt.contains("Profile: docs"));
+        assert!(prompt.contains("Do not include tool-call fields"));
     }
 
     #[test]

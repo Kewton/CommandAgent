@@ -417,6 +417,7 @@ Original goal:\n{original_goal}\n\n\
 Validation error:\n{error}\n\n\
 Invalid plan:\n{invalid_plan}\n\n\
 If the error mentions shell scaffolding, replace that step with explicit file creation or editing instructions that can be completed with Write/Edit.\n\
+If the error mentions action/path/content/old/new fields, rewrite those tool-call fields into step instruction and expected_paths fields.\n\
 Return only corrected YAML using the required CommandAgent schema."
     )
 }

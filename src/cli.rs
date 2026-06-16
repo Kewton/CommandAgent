@@ -1,6 +1,8 @@
 use crate::agent::minimal_loop::loop_run::{ChatClient, MinimalLoopConfig, run_session};
 use crate::agent::repl::{MinimalReplRunner, run_repl};
+use crate::agent::slash_command::parse_slash_command;
 use crate::agent::step_runner::runtime::PlannerRuntimeConfig;
+use crate::agent::step_runner::runtime::SlashRuntime;
 use crate::config::{Config, Provider};
 use crate::providers::gemini::{DEFAULT_GEMINI_BASE_URL, GeminiClient};
 use crate::providers::ollama::OllamaClient;
@@ -97,11 +99,40 @@ Options:\n\
 \n\
 CommandAgent is a minimal local-first coding agent. The MVP migration keeps\n\
 only the minimal loop, interactive REPL, provider adapters, built-in tools,\n\
-and /ultra-plan-run style step execution."
+and /ultra-plan-run style step execution. PROMPT may be a slash command such\n\
+as `/plan-run --profile python ...` for non-interactive execution."
     );
 }
 
 fn run_one_shot(config: Config, prompt: &str) -> Result<(), String> {
+    if let Some(command) =
+        parse_slash_command(prompt, &config.cwd).map_err(|err| err.to_string())?
+    {
+        let targets = resolve_targets(&config);
+        let mut client = runtime_client_for(&config, targets.executor.provider)?;
+        let mut planner_client = runtime_client_for(&config, targets.planner.provider)?;
+        let planner_config = PlannerRuntimeConfig {
+            model: targets
+                .planner
+                .model
+                .clone()
+                .unwrap_or_else(|| "default".to_string()),
+            tool_call_mode: request_tool_mode(targets.planner.provider),
+        };
+        let output = SlashRuntime {
+            executor: &mut client,
+            planner: &mut planner_client,
+            cwd: &config.cwd,
+            loop_config: minimal_loop_config(&config),
+            planner_config,
+        }
+        .run(command)?;
+        if !output.trim().is_empty() {
+            println!("{}", output.trim());
+        }
+        return Ok(());
+    }
+
     let mut client = runtime_client(&config)?;
     let result = run_session(
         &mut client,

@@ -80,6 +80,10 @@ def run_case(repo, root, binary, case, run_index, args):
     meta_path = run_dir / "meta.json"
 
     started = time.time()
+    prompt = (
+        f"/plan-run --profile {case['profile']} --style {case['style']} "
+        f"{case['prompt']}"
+    )
     command = [
         str((repo / binary).resolve()),
         "--provider",
@@ -89,7 +93,7 @@ def run_case(repo, root, binary, case, run_index, args):
         "--max-iterations",
         "8",
         "--yes",
-        case["prompt"],
+        prompt,
     ]
     if args.dry_run:
         rc = 0
@@ -124,6 +128,8 @@ def run_case(repo, root, binary, case, run_index, args):
         "model": args.model,
         "profile": case.get("profile"),
         "style": case.get("style"),
+        "mode": "plan-run",
+        "prompt": prompt,
         "binary": str((repo / binary).resolve()),
         "commit": git_value(repo, "rev-parse", "HEAD"),
         "dirty": bool(git_value(repo, "status", "--short")),
