@@ -2,6 +2,7 @@ id: large-rust-app-new
 title: New Rust CLI app
 profile: rust
 style: default
+mode: ultra-plan-run
 intent: new
 prompt: "Create a Rust CLI with argument parsing, file input support, unit tests, and clear errors."
 expected_artifacts:

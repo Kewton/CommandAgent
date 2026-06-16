@@ -2,7 +2,9 @@ id: large-fastapi-app-modify
 title: Modify an existing FastAPI app
 profile: python
 style: default
+mode: ultra-plan-run
 intent: modify
+fixture: eval/fixtures/large/fastapi-app-modify
 prompt: "Add request validation, error handling, and tests to an existing FastAPI service."
 expected_artifacts:
   - app/main.py

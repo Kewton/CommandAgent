@@ -31,6 +31,8 @@ def read_case(path):
     data = {
         "expected_artifacts": [],
         "verify": [],
+        "mode": "plan-run",
+        "fixture": None,
     }
     current_list = None
     with open(path, encoding="utf-8") as handle:
@@ -43,7 +45,7 @@ def read_case(path):
                 key, value = line.split(":", 1)
                 key = key.strip()
                 value = unquote(value.strip())
-                if key in {"id", "title", "profile", "style", "intent", "prompt"}:
+                if key in {"id", "title", "profile", "style", "intent", "prompt", "mode", "fixture"}:
                     data[key] = value
                     current_list = None
                 elif key in {"expected_artifacts", "verify"}:
@@ -55,6 +57,8 @@ def read_case(path):
     for required in ["id", "profile", "style", "prompt"]:
         if required not in data:
             raise SystemExit(f"{path}: missing required field {required}")
+    if data["mode"] not in {"plan-run", "ultra-plan-run"}:
+        raise SystemExit(f"{path}: unsupported mode {data['mode']}")
     return data
 
 
@@ -80,8 +84,15 @@ def run_case(repo, root, binary, case, run_index, args):
     meta_path = run_dir / "meta.json"
 
     started = time.time()
+    if case.get("fixture"):
+        fixture = (repo / case["fixture"]).resolve()
+        if not fixture.is_dir():
+            raise SystemExit(f"{case['id']}: fixture not found: {fixture}")
+        shutil.copytree(fixture, workdir, dirs_exist_ok=True)
+
+    mode = case.get("mode", "plan-run")
     prompt = (
-        f"/plan-run --profile {case['profile']} --style {case['style']} "
+        f"/{mode} --profile {case['profile']} --style {case['style']} "
         f"{case['prompt']}"
     )
     command = [
@@ -128,7 +139,8 @@ def run_case(repo, root, binary, case, run_index, args):
         "model": args.model,
         "profile": case.get("profile"),
         "style": case.get("style"),
-        "mode": "plan-run",
+        "mode": mode,
+        "fixture": case.get("fixture"),
         "prompt": prompt,
         "binary": str((repo / binary).resolve()),
         "commit": git_value(repo, "rev-parse", "HEAD"),

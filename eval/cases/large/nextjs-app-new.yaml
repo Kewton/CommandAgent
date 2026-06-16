@@ -2,6 +2,7 @@ id: large-nextjs-app-new
 title: New Next.js app
 profile: nextjs
 style: default
+mode: ultra-plan-run
 intent: new
 prompt: "Create a polished browser game as a Next.js app that can run on port 3011."
 expected_artifacts:

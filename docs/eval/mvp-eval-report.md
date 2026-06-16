@@ -88,10 +88,9 @@ MVP runtime sign-off is partially complete:
 
 Release-quality eval requires follow-up work:
 
-1. Add per-case execution mode so large cases can run through `/ultra-plan-run`.
-2. Add fixture seeding for modify cases.
+1. Re-run large eval after the per-case `/ultra-plan-run` mode and fixture
+   seeding changes.
 3. Keep `runs=1` as MVP smoke sign-off and use `runs=3` for release-quality
    stability checks.
 4. Avoid tuning the planner parser for every model-specific YAML drift unless
    the drift exposes a clear common contract bug.
-

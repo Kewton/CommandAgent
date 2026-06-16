@@ -2,6 +2,7 @@ id: large-fastapi-app-new
 title: New FastAPI app
 profile: python
 style: default
+mode: ultra-plan-run
 intent: new
 prompt: "Create a FastAPI service with health, items CRUD routes, tests, and local run instructions."
 expected_artifacts:

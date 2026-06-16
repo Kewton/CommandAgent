@@ -18,11 +18,10 @@ failure category, and case. `scripts/eval_report.py <root> --recheck` rechecks
 existing workspaces against current case `required_paths` and writes
 `recheck_summary.tsv` without overwriting the original summary.
 
-The current eval runner executes cases through `/plan-run` so that benchmark
-behavior matches the interactive MVP workflow. Large cases are currently
-preliminary: they need per-case mode selection for `/ultra-plan-run` and fixture
-seeding for modification tasks before they should be used as release-quality
-comparisons.
+The eval runner executes cases through the mode declared in each case. Omitted
+mode defaults to `/plan-run`; large cases should normally use `/ultra-plan-run`.
+Modification cases can declare a fixture directory, which is copied into each
+run workspace before execution.
 
 Large task eval uses:
 

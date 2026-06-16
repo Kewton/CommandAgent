@@ -2,7 +2,9 @@ id: large-nextjs-app-modify
 title: Modify an existing Next.js app
 profile: nextjs
 style: default
+mode: ultra-plan-run
 intent: modify
+fixture: eval/fixtures/large/nextjs-app-modify
 prompt: "Improve an existing Next.js dashboard with an analytics panel and keep npm run build passing."
 expected_artifacts:
   - package.json

@@ -14,11 +14,11 @@ CommandAgent is still in MVP migration.
   the user's permissions.
 - `.env` loading is not implemented inside CommandAgent. Export provider API
   keys in the shell or use an external env loader.
-- The eval runner has dry-run wiring and real binary execution paths, but large
-  semantic checks are still intentionally explicit and conservative. The first
-  MVP eval report shows that large cases need fixture seeding and per-case
-  `/ultra-plan-run` execution mode before they are suitable as release-quality
-  gates.
+- The eval runner has dry-run wiring, real binary execution paths, per-case
+  `/plan-run` / `/ultra-plan-run` mode, and fixture seeding for modification
+  cases. Large semantic checks are still intentionally explicit and conservative;
+  the updated large suite needs a fresh real run before it can be treated as a
+  release-quality gate.
 - Provider API support is MVP-level. Ollama, Gemini, and OpenAI share one thin
   chat contract, but provider-specific tool surfaces beyond Ollama native tools
   are not implemented.

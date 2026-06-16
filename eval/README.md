@@ -11,6 +11,7 @@ id: smoke-docs-readme
 title: Update README
 profile: docs
 style: default
+mode: plan-run
 intent: docs
 prompt: "Create README.md with a short usage note."
 expected_artifacts:
@@ -31,11 +32,15 @@ Required fields:
 - `id`: stable case id
 - `profile`: one of the MVP profiles
 - `style`: `default`, `tdd`, or `test-hardening`
+- `mode`: optional, `plan-run` or `ultra-plan-run`; defaults to `plan-run`
 - `intent`: broad task intent
 - `prompt`: user-facing task prompt
 - `expected_artifacts`: concrete repository-relative files
 - `verify`: deterministic local commands when available
 - `success_check`: post-run check contract
+- `fixture`: optional repository-relative directory copied into each run
+  workspace before execution. Use this for modification cases that need an
+  existing project.
 
 ## Semantic Check Policy
 
@@ -55,3 +60,6 @@ criterion for MVP sign-off.
 - `smoke`: fast cases for runner wiring
 - `small`: future small/medium regression cases
 - `large`: six MVP large-task cases covering Next.js, FastAPI, and Rust
+
+Large cases should usually set `mode: ultra-plan-run`. Modification cases should
+use fixtures instead of expecting the model to invent an existing project.
