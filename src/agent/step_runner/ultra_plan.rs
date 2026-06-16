@@ -89,7 +89,7 @@ pub fn parse_ultra_plan_yaml(yaml: &str) -> Result<UltraPlan, UltraPlanError> {
         } else if let Some(value) = line.strip_prefix("intent:") {
             intent = Some(parse_yaml_string(value.trim())?);
         } else if line == "phases:" {
-        } else if let Some(value) = line.strip_prefix("  - id:") {
+        } else if let Some(value) = phase_id_value(line) {
             if let Some(phase) = current_phase.take() {
                 phases.push(phase);
             }
@@ -97,7 +97,7 @@ pub fn parse_ultra_plan_yaml(yaml: &str) -> Result<UltraPlan, UltraPlanError> {
                 id: parse_yaml_string(value.trim())?,
                 goal: String::new(),
             });
-        } else if let Some(value) = line.strip_prefix("    goal:") {
+        } else if let Some(value) = phase_field_value(line, "goal") {
             let Some(phase) = current_phase.as_mut() else {
                 return Err(UltraPlanError::InvalidYaml(
                     "phase goal appears before phase id".to_string(),
@@ -213,6 +213,16 @@ fn parse_yaml_string(value: &str) -> Result<String, UltraPlanError> {
     }
 }
 
+fn phase_id_value(line: &str) -> Option<&str> {
+    line.strip_prefix("  - id:")
+        .or_else(|| line.strip_prefix("- id:"))
+}
+
+fn phase_field_value<'a>(line: &'a str, field: &str) -> Option<&'a str> {
+    line.strip_prefix(&format!("    {field}:"))
+        .or_else(|| line.strip_prefix(&format!("  {field}:")))
+}
+
 fn slug(value: &str) -> Option<String> {
     let mut out = String::new();
     for ch in value.chars() {
@@ -311,6 +321,27 @@ mod tests {
             err,
             UltraPlanError::DuplicatePhaseId("scaffold".to_string())
         );
+    }
+
+    #[test]
+    fn accepts_common_model_phase_indentation_drift() {
+        let yaml = r#"
+goal: Build app
+profile: nextjs
+style: default
+intent: new
+phases:
+- id: scaffold
+  goal: Create files.
+- id: verify
+  goal: Verify build.
+"#;
+
+        let plan = parse_ultra_plan_yaml(yaml).unwrap();
+
+        assert_eq!(plan.phases.len(), 2);
+        assert_eq!(plan.phases[0].id, "scaffold");
+        assert_eq!(plan.phases[1].goal, "Verify build.");
     }
 
     #[test]
