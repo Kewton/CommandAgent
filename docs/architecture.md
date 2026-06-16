@@ -105,6 +105,11 @@ phases. Each phase is later turned into a step plan. Ultra planning does not run
 tools by itself; it only creates bounded phase contracts under
 `.commandagent/plans/ultra-plan-*.yaml`.
 
+Ultra execution is phase-oriented. For each phase, CommandAgent builds a
+phase-local step-planning prompt with a bounded workspace snapshot and profile
+contract, then delegates to a step-plan executor. A phase failure stops the run
+and returns a readable phase report instead of continuing with stale context.
+
 Plan linting is a separate pass. It rejects obvious schema-contract mistakes:
 non-file `expected_paths`, JSON/property selectors, version strings, path
 escape, and steps that clearly mix file-changing setup with final verification.

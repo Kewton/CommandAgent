@@ -32,6 +32,7 @@ visible from commits, not only from local workspace notes.
 | CA-0703 | Done | Deterministic verifier, dependency_missing, diagnostic/source excerpts, and evaluation docs. |
 | CA-0704 | Done | Repair budget, exhausted report, short repair packet, and suggested replan command. |
 | CA-0801 | Done | Ultra plan schema, phase generation prompt, phase validation, and ultra-plan saving. |
+| CA-0802 | Done | Ultra phase execution core, phase prompt construction, workspace snapshot, and failure-stop report. |
 
 Latest verification:
 
