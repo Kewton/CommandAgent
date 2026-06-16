@@ -61,6 +61,9 @@ paths are resolved under the workspace root. Parent traversal and symlink escape
 are rejected before a tool reads or writes data.
 
 State lives under `.commandagent/`, including plans, repairs, and sessions.
+Sessions are stored at `.commandagent/sessions/<id>/session.json`. The MVP
+supports save/load and `--resume` plumbing, but does not migrate historical
+state directories.
 
 Search tools walk the workspace deterministically and skip hidden paths by
 default. Search output is bounded so a tool result cannot flood the next model
