@@ -39,8 +39,19 @@ Gemini uses XML fallback tool calls by default.
 
 ## OpenAI
 
-OpenAI is a planned provider adapter. It uses XML fallback tool calls by default
-unless native tool support is deliberately added later.
+OpenAI uses the Responses API `/responses` endpoint. User/system/tool messages
+are encoded with `input_text`; previous assistant messages are encoded with
+`output_text`. This distinction is part of the provider contract because sending
+assistant history as `input_text` causes API request failures.
+
+OpenAI provider smoke is opt-in because it requires network access and
+`OPENAI_API_KEY`:
+
+```bash
+OPENAI_API_KEY=... OPENAI_MODEL=gpt-5.4-mini scripts/provider_smoke_openai.sh
+```
+
+OpenAI uses XML fallback tool calls by default.
 
 The canonical fallback format is:
 
