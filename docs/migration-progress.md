@@ -39,6 +39,7 @@ visible from commits, not only from local workspace notes.
 | CA-0903 | Done | Eval report generation and recheck_summary.tsv for existing run roots. |
 | CA-0904 | Done | Large eval wrapper with runs=1 MVP default and runs=3 release-quality mode. |
 | CA-1001 | Done | README quickstart, provider examples, eval commands, and known limitations link. |
+| CA-1002 | Done | Philosophy, architecture, and minimal-only ADR clarify legacy removal, sidecar deferral, and responsibility boundaries. |
 
 Latest verification:
 

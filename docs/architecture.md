@@ -1,14 +1,17 @@
 # Architecture
 
 CommandAgent is built around a small set of modules with explicit boundaries.
+The boundary is more important than the module name: when a feature crosses a
+boundary, it should be split before more behavior is added.
 
 ## Runtime
 
-- `cli`: parses command-line options and starts the selected mode.
+- `cli`: parses command-line options and starts one-shot or REPL mode.
 - `config`: merges CLI, environment, and `.commandagent/config`.
 - `providers`: hides model transport differences behind a thin chat contract.
-- `agent/minimal_loop`: runs the tool-call loop.
+- `agent/minimal_loop`: runs one tool-call execution session.
 - `agent/repl`: provides interactive use when no prompt is passed.
+- `agent/slash_command`: parses interactive planning commands.
 - `agent/step_runner`: implements plan and ultra-plan execution.
 - `tools`: built-in deterministic capabilities.
 - `session`: stores messages, llm-io logs, and resumable state.
@@ -16,15 +19,26 @@ CommandAgent is built around a small set of modules with explicit boundaries.
 - `util`: shared workspace path and file classification helpers.
 - `tui`: terminal rendering.
 
+## Boundary Summary
+
+| Layer | Owns | Must Not Own |
+| --- | --- | --- |
+| Provider | HTTP/API transport, provider-specific payload shapes | Planning, repair policy, profile behavior |
+| Minimal loop | Tool-call execution, observations, bounded completion guards | Multi-step plans, domain profiles, unbounded retry |
+| Profile | Small domain facts, verifier hints, protected prefixes | Workflow control, hidden task-specific agents |
+| Step runner | Plan schema, lint, verifier, repair packet, ultra phase order | Provider transport, low-level tool implementation |
+| Tools | Deterministic workspace actions | Task interpretation or planning |
+| Eval | Run roots, summaries, recheck, reports | Runtime behavior changes |
+
+This separation is the main defense against rebuilding the removed legacy stack
+under new names.
+
 ## REPL
 
 When no prompt argument is supplied and stdin is a TTY, `cli` starts the minimal
 REPL. The REPL owns only line input, `/exit` and `/quit`, empty-line skipping,
 and per-turn session saving. Actual work is delegated to a `ReplTurnRunner`;
 the production runner calls the minimal loop, while tests use a mock runner.
-
-This keeps interactive UX separate from provider transport and from future
-slash-command planning features.
 
 Slash command parsing is a separate module. It recognizes plan/ultra-plan
 commands, `--profile`, `--style`, and bounded `$(cat ...)` repair prompt
@@ -46,7 +60,9 @@ Current provider capability contract:
 - `gemini`: XML fallback tool calls by default
 - `openai`: XML fallback tool calls by default
 
-The provider layer does not own planning, repair, or profile behavior.
+The provider layer does not own planning, repair, profiles, or evaluation. A
+provider-specific bug fix belongs in the provider module; a behavioral policy
+belongs in the minimal loop or step runner only if it is provider-independent.
 
 ## Tool Contract
 
@@ -75,6 +91,12 @@ All file tools and session writes must go through path confinement. Relative
 paths are resolved under the workspace root. Parent traversal and symlink escape
 are rejected before a tool reads or writes data.
 
+Search tools walk the workspace deterministically and skip hidden paths by
+default. Search output is bounded so a tool result cannot flood the next model
+turn.
+
+## State and Logs
+
 State lives under `.commandagent/`, including plans, repairs, and sessions.
 Sessions are stored at `.commandagent/sessions/<id>/session.json`. The MVP
 supports save/load and `--resume` plumbing, but does not migrate historical
@@ -85,20 +107,21 @@ LLM request/response observations are stored as JSON Lines at
 metadata, tool-call mode, and payload. Secret-bearing keys such as API keys,
 authorization headers, and tokens are redacted before writing.
 
-Search tools walk the workspace deterministically and skip hidden paths by
-default. Search output is bounded so a tool result cannot flood the next model
-turn.
-
 ## Step Runner Boundary
 
 The step runner owns planning, linting, verification, and bounded repair. The
-minimal loop owns single-turn execution. Profiles add small contracts and
+minimal loop owns single-step execution. Profiles add small contracts and
 verifiers, not full domain-specific agents.
 
 Step plans use a small CommandAgent-owned YAML schema: goal, profile, style, and
 ordered steps with instruction, expected paths, and verifier commands. The YAML
 reader/writer intentionally supports only this schema so planning remains a
 bounded contract instead of an open-ended document format.
+
+Plan linting is a separate pass. It rejects obvious schema-contract mistakes:
+non-file `expected_paths`, JSON/property selectors, version strings, path
+escape, and steps that clearly mix file-changing setup with final verification.
+It does not force a framework-specific project structure.
 
 Ultra plans are one level higher: goal, profile, style, intent, and ordered
 phases. Each phase is later turned into a step plan. Ultra planning does not run
@@ -110,15 +133,6 @@ phase-local step-planning prompt with a bounded workspace snapshot and profile
 contract, then delegates to a step-plan executor. A phase failure stops the run
 and returns a readable phase report instead of continuing with stale context.
 
-Profiles are intentionally small. They provide profile text, optional verifier
-commands, and optional protected path prefixes. They do not own planning logic
-or run domain-specific agents.
-
-Plan linting is a separate pass. It rejects obvious schema-contract mistakes:
-non-file `expected_paths`, JSON/property selectors, version strings, path
-escape, and steps that clearly mix file-changing setup with final verification.
-It does not force a framework-specific project structure.
-
 Verification is deterministic. It runs only commands accepted by the local Bash
 policy, detects dependency-missing cases before fake success is possible, and
 compresses failures into bounded diagnostics plus nearby source excerpts when a
@@ -129,6 +143,17 @@ file-changing attempts. When repair is exhausted, CommandAgent writes a short
 replan packet under `.commandagent/repairs` and suggests an explicit
 `/ultra-plan-run --profile <profile> "$(cat ...)"` command instead of hiding an
 unbounded retry loop.
+
+## Profile Boundary
+
+Profiles are intentionally small. They provide profile text, optional verifier
+commands, and optional protected path prefixes. They do not own planning logic
+or run domain-specific agents.
+
+The current profile set is MVP-sized: `generic`, `nextjs`, `python`, `rust`,
+`investigation`, `docs`, `data-analysis`, and `data-pipeline`. A new profile
+must justify why the generic contract plus explicit user instructions are not
+enough.
 
 ## Minimal Loop
 
@@ -160,3 +185,10 @@ The loop has three narrow completion guards:
 
 These guards do not inspect task semantics. They only react to observable
 session facts and are capped to avoid unbounded repair behavior.
+
+## Removed Legacy Surface
+
+CommandAgent has no legacy engine, sidecar route, case memory, anti-pattern
+retrieval, Photon/PAM advisory layer, or old repair job system. If one of those
+ideas becomes necessary, it must be reintroduced through the admission rule in
+`docs/philosophy.md`, with a narrow trigger and an eval plan.
