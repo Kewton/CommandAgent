@@ -95,6 +95,11 @@ The step runner owns planning, linting, verification, and bounded repair. The
 minimal loop owns single-turn execution. Profiles add small contracts and
 verifiers, not full domain-specific agents.
 
+Step plans use a small CommandAgent-owned YAML schema: goal, profile, style, and
+ordered steps with instruction, expected paths, and verifier commands. The YAML
+reader/writer intentionally supports only this schema so planning remains a
+bounded contract instead of an open-ended document format.
+
 ## Minimal Loop
 
 The minimal loop owns one coding-agent session:

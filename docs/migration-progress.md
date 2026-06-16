@@ -27,6 +27,7 @@ visible from commits, not only from local workspace notes.
 | CA-0502 | Done | Minimal loop future-action, completion-without-write, and requested-artifact feedback guard tests. |
 | CA-0601 | Done | Minimal REPL line loop, prompt routing, per-turn session save, and usage docs. |
 | CA-0602 | Done | Slash command parser, profile/style options, and safe repair-prompt file references. |
+| CA-0701 | Done | Step plan schema, YAML render/load, generation/correction prompts, and plan saving. |
 
 Latest verification:
 

@@ -98,3 +98,19 @@ commands, plus bounded file references such as:
 
 File references are resolved inside the current workspace and cannot escape it.
 The REPL itself handles `/exit` and `/quit`.
+
+Step plans are stored under `.commandagent/plans` as CommandAgent-owned YAML.
+The current schema is:
+
+```yaml
+goal: "..."
+profile: "generic"
+style: "default"
+steps:
+  - id: "short-slug"
+    instruction: "one concrete action"
+    expected_paths:
+      - "relative/file/path"
+    verify:
+      - "local verification command"
+```
