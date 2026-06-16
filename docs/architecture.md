@@ -100,6 +100,11 @@ ordered steps with instruction, expected paths, and verifier commands. The YAML
 reader/writer intentionally supports only this schema so planning remains a
 bounded contract instead of an open-ended document format.
 
+Ultra plans are one level higher: goal, profile, style, intent, and ordered
+phases. Each phase is later turned into a step plan. Ultra planning does not run
+tools by itself; it only creates bounded phase contracts under
+`.commandagent/plans/ultra-plan-*.yaml`.
+
 Plan linting is a separate pass. It rejects obvious schema-contract mistakes:
 non-file `expected_paths`, JSON/property selectors, version strings, path
 escape, and steps that clearly mix file-changing setup with final verification.

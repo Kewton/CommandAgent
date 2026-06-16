@@ -114,3 +114,6 @@ steps:
     verify:
       - "local verification command"
 ```
+
+Ultra plans are saved in the same directory as `ultra-plan-*.yaml` and contain
+phase goals. A later execution step turns each phase into a step plan.
