@@ -36,6 +36,7 @@ visible from commits, not only from local workspace notes.
 | CA-0803 | Done | MVP profile contracts, Next.js verifier hint, data raw-input protection, and profiles docs. |
 | CA-0901 | Done | Eval case schema docs, three smoke cases, and six large-task skeleton cases. |
 | CA-0902 | Done | Eval slice runner with run roots, meta.json, stdout/stderr, workspace, and summary.tsv. |
+| CA-0903 | Done | Eval report generation and recheck_summary.tsv for existing run roots. |
 
 Latest verification:
 

@@ -13,6 +13,11 @@ writes a timestamped root containing per-run `meta.json`, stdout/stderr, a
 workspace directory, and `summary.tsv`. Use `--dry-run` for offline wiring
 checks.
 
+`scripts/eval_report.py <root>` summarizes `summary.tsv` by headline success,
+failure category, and case. `scripts/eval_report.py <root> --recheck` rechecks
+existing workspaces against current case `required_paths` and writes
+`recheck_summary.tsv` without overwriting the original summary.
+
 ## Verifier Failure Shape
 
 Each verifier failure records:

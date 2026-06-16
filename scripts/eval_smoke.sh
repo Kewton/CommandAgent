@@ -21,7 +21,10 @@ scripts/check_branding.sh
 
 echo "== eval dry run =="
 tmp_eval="$(mktemp -d)"
-scripts/eval_agent_slice.sh --dry-run --out "$tmp_eval" --runs 1 >/dev/null
+eval_root="$(scripts/eval_agent_slice.sh --dry-run --out "$tmp_eval" --runs 1)"
 test -f "$tmp_eval"/*/summary.tsv
+scripts/eval_report.py "$eval_root" >/dev/null
+scripts/eval_report.py "$eval_root" --recheck >/dev/null
+test -f "$eval_root/recheck_summary.tsv"
 
 echo "offline smoke passed"
