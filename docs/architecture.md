@@ -110,6 +110,10 @@ phase-local step-planning prompt with a bounded workspace snapshot and profile
 contract, then delegates to a step-plan executor. A phase failure stops the run
 and returns a readable phase report instead of continuing with stale context.
 
+Profiles are intentionally small. They provide profile text, optional verifier
+commands, and optional protected path prefixes. They do not own planning logic
+or run domain-specific agents.
+
 Plan linting is a separate pass. It rejects obvious schema-contract mistakes:
 non-file `expected_paths`, JSON/property selectors, version strings, path
 escape, and steps that clearly mix file-changing setup with final verification.

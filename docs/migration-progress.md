@@ -33,6 +33,7 @@ visible from commits, not only from local workspace notes.
 | CA-0704 | Done | Repair budget, exhausted report, short repair packet, and suggested replan command. |
 | CA-0801 | Done | Ultra plan schema, phase generation prompt, phase validation, and ultra-plan saving. |
 | CA-0802 | Done | Ultra phase execution core, phase prompt construction, workspace snapshot, and failure-stop report. |
+| CA-0803 | Done | MVP profile contracts, Next.js verifier hint, data raw-input protection, and profiles docs. |
 
 Latest verification:
 

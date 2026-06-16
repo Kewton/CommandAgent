@@ -1,4 +1,5 @@
 pub mod plan_lint;
+pub mod profiles;
 pub mod repair;
 pub mod ultra_plan;
 pub mod ultra_run;
