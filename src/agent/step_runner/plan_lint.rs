@@ -34,6 +34,12 @@ fn lint_expected_path(path: &str) -> Result<(), PlanLintError> {
             reason: "expected_paths must be file paths, not JSON/property selectors".to_string(),
         });
     }
+    if trimmed.contains('*') || trimmed.contains('?') || trimmed.contains('{') {
+        return Err(PlanLintError::InvalidExpectedPath {
+            path: path.to_string(),
+            reason: "expected_paths must be concrete files, not glob patterns".to_string(),
+        });
+    }
     if looks_like_version(trimmed) {
         return Err(PlanLintError::InvalidExpectedPath {
             path: path.to_string(),
@@ -246,6 +252,15 @@ mod tests {
     #[test]
     fn rejects_json_property_paths_as_expected_paths() {
         let plan = plan_with_paths("nextjs", vec!["package.json:scripts.build"]);
+
+        let err = lint_step_plan(&plan).unwrap_err();
+
+        assert!(matches!(err, PlanLintError::InvalidExpectedPath { .. }));
+    }
+
+    #[test]
+    fn rejects_globs_as_expected_paths() {
+        let plan = plan_with_paths("python", vec!["app/routes/*.py"]);
 
         let err = lint_step_plan(&plan).unwrap_err();
 
