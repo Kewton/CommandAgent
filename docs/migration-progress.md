@@ -60,3 +60,14 @@ Result: REPL slash-command dispatch is wired and covered by regression tests.
 Live UAT now passes for docs, Python, Rust, a Next.js file-set workflow,
 planner/executor split, and repair fallback prompt saving. Larger
 `/ultra-plan-run` sign-off remains pending.
+
+Latest eval sign-off:
+
+```text
+docs/eval/mvp-eval-report.md
+```
+
+Result: offline smoke and live UAT pass. Clean `/plan-run` smoke eval is not yet
+stable enough to be a release gate, and the preliminary large eval needs
+fixture seeding plus `/ultra-plan-run` mode support before it can be treated as a
+release-quality benchmark.
