@@ -17,8 +17,8 @@ CommandAgent is still in MVP migration.
 - The eval runner has dry-run wiring, real binary execution paths, per-case
   `/plan-run` / `/ultra-plan-run` mode, and fixture seeding for modification
   cases. Large semantic checks are still intentionally explicit and conservative;
-  the updated large suite needs a fresh real run before it can be treated as a
-  release-quality gate.
+  the latest fresh large run is 0/6 and needs triage before it can be treated as
+  a release-quality gate.
 - Provider API support is MVP-level. Ollama, Gemini, and OpenAI share one thin
   chat contract, but provider-specific tool surfaces beyond Ollama native tools
   are not implemented.

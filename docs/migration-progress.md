@@ -69,5 +69,5 @@ docs/eval/mvp-eval-report.md
 
 Result: offline smoke and live UAT pass. Clean `/plan-run` smoke eval is not yet
 stable enough to be a release gate. The large eval runner now supports per-case
-`/ultra-plan-run` mode and fixture seeding; a fresh real large run is still
-needed before treating it as a release-quality benchmark.
+`/ultra-plan-run` mode and fixture seeding, and a fresh clean large run exists,
+but large eval is still 0/6 and needs triage before release-quality use.

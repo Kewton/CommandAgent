@@ -31,6 +31,13 @@ The preliminary large root was produced earlier during migration:
 Because the large root is dirty and predates the final plan-run eval wiring, it
 is useful for triage but not for release-quality comparison.
 
+The latest large root after per-case mode, fixtures, and YAML drift fixes used:
+
+- root: `eval/runs/mvp-large-fresh/20260617T003924`
+- commit: `49ffc3b63a73505ec406d6bda9c94d29a0196d10`
+- dirty: `false`
+- mode: `ultra-plan-run`
+
 ## Offline Smoke
 
 `scripts/eval_smoke.sh` passes. This covers formatting, unit tests, release
@@ -57,14 +64,26 @@ Interpretation:
 | Root | Model | Result | Notes |
 | --- | --- | ---: | --- |
 | `eval/runs/mvp-large/20260617T000606` | `qwen3.6:27b-coding-nvfp4` | 0/6 | Preliminary only; dirty root, plan-run mode, no fixture seeding for modify cases. |
+| `eval/runs/mvp-large-fresh/20260617T002756` | `qwen3.6:27b-coding-nvfp4` | 0/6 | Clean root after mode/fixture support; all cases stopped at ultra-plan YAML parsing. |
+| `eval/runs/mvp-large-fresh/20260617T003233` | `qwen3.6:27b-coding-nvfp4` | 0/6 | Clean root after ultra-plan indentation fix; reached execution and repair in several cases. |
+| `eval/runs/mvp-large-fresh/20260617T003924` | `qwen3.6:27b-coding-nvfp4` | 0/6 | Clean root after step-list and nested-phase drift fixes; no parser-wide immediate failure remains. |
 
 Observed direct reasons:
 
-- Next.js, FastAPI, and Rust modify cases lack seeded existing projects.
-- Large tasks are closer to `/ultra-plan-run` workloads than single `/plan-run`
-  workloads.
-- Some failures are expected artifact misses; this is valid triage data but not
-  a fair release-quality benchmark.
+- `large-fastapi-app-modify`: model planned inspection of `app/routes/*.py`
+  although fixture routes live directly in `app/main.py`; repair prompt saved.
+- `large-fastapi-app-new`: plan lint rejected a step that mixed setup/editing and
+  verification.
+- `large-nextjs-app-modify`: model attempted a blocked compound shell command
+  during inspection; repair prompt saved.
+- `large-nextjs-app-new`: dependency install was blocked by offline policy, so
+  the Next.js app was not completed.
+- `large-rust-app-modify`: a phase reached `max_iterations` before creating
+  `src/lib.rs`; repair prompt saved.
+- `large-rust-app-new`: plan lint rejected a step that mixed tests/editing and
+  verification.
+
+This is valid triage data, but not a release-quality benchmark yet.
 
 ## Regression Checks
 
@@ -84,13 +103,14 @@ MVP runtime sign-off is partially complete:
 - Live UAT: pass for docs, Python, Rust, Next.js file-set, planner/executor
   split, and repair fallback.
 - Clean eval smoke: not yet stable.
-- Large eval: preliminary only.
+- Large eval: fresh clean run exists, but result is 0/6 and not release-ready.
 
 Release-quality eval requires follow-up work:
 
-1. Re-run large eval after the per-case `/ultra-plan-run` mode and fixture
-   seeding changes.
-3. Keep `runs=1` as MVP smoke sign-off and use `runs=3` for release-quality
+1. Triage the latest large root before adding more runtime control. The highest
+   signal issues are plan-lint false positives versus real mixed steps, blocked
+   inspection/install commands, and max-iteration exits.
+2. Keep `runs=1` as MVP smoke sign-off and use `runs=3` for release-quality
    stability checks.
-4. Avoid tuning the planner parser for every model-specific YAML drift unless
+3. Avoid tuning the planner parser for every model-specific YAML drift unless
    the drift exposes a clear common contract bug.
