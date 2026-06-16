@@ -1,6 +1,8 @@
 # Usage
 
-CommandAgent is currently in migration bootstrap.
+CommandAgent is a minimal coding-agent CLI. It has one execution engine: the
+minimal loop. Large task helpers build explicit plans around that loop instead
+of switching engines.
 
 ## Basic Commands
 
@@ -20,6 +22,13 @@ commandagent>
 
 Blank lines are ignored. `/exit` and `/quit` end the REPL. Each successful turn
 runs the minimal loop and saves a session under `.commandagent/sessions`.
+
+The interactive prompt is an application prompt, not a shell command. Slash
+commands must be typed after `commandagent>`:
+
+```text
+commandagent> /ultra-plan-run --profile nextjs Create a Next.js app on port 3011
+```
 
 ## Configuration
 
@@ -61,6 +70,11 @@ GEMINI_API_KEY=...
 OPENAI_API_KEY=...
 ```
 
+`.env` files are not loaded by CommandAgent itself in the MVP. Export variables
+in the shell or use an external env loader.
+
+## Providers
+
 Provider examples:
 
 ```bash
@@ -79,8 +93,14 @@ commandagent \
   --planner-model gemini-3.5-flash
 ```
 
-Interactive slash commands use the same parser as the future step runner. The
-parser recognizes:
+`--provider` selects the execution model. `--planner-provider` selects the
+model used for plan generation. If planner options are omitted, planning uses
+the executor provider/model.
+
+## Slash Commands
+
+Interactive slash commands use the same parser as the step runner. The parser
+recognizes:
 
 - `/plan-steps`
 - `/plan-run`
@@ -88,6 +108,15 @@ parser recognizes:
 - `/ultra-plan`
 - `/ultra-plan-run`
 - `/run-ultra-plan`
+
+The distinction:
+
+- `/plan-steps`: generate and save a step plan.
+- `/plan-run`: generate a step plan and run it.
+- `/run-plan`: run an existing step plan file.
+- `/ultra-plan`: generate and save a phase plan for a larger task.
+- `/ultra-plan-run`: generate phases, then run each phase through step plans.
+- `/run-ultra-plan`: run an existing ultra plan file.
 
 The parser also accepts leading `--profile` and `--style` options for plan
 commands, plus bounded file references such as:
@@ -98,6 +127,42 @@ commands, plus bounded file references such as:
 
 File references are resolved inside the current workspace and cannot escape it.
 The REPL itself handles `/exit` and `/quit`.
+
+## Profile vs Style
+
+`--profile` chooses the domain contract. It changes facts and checks that should
+be true for the task, such as `nextjs`, `python`, `rust`, `docs`,
+`investigation`, `data-analysis`, or `data-pipeline`.
+
+`--style` changes how the work should be approached inside the same domain.
+Current styles are intentionally small:
+
+- `default`: implement with practical checks.
+- `tdd`: prefer tests or failing checks before implementation when reasonable.
+- `test-hardening`: focus on improving verification and regression coverage.
+
+Use `--profile` for the kind of project. Use `--style` for the development
+method.
+
+## Repair Suggested Command
+
+When bounded repair fails, CommandAgent saves a short replan packet:
+
+```text
+.commandagent/repairs/repair-verify-build-1234567890.md
+```
+
+It also prints a suggested command:
+
+```text
+/ultra-plan-run --profile nextjs "$(cat .commandagent/repairs/repair-verify-build-1234567890.md)"
+```
+
+Run that command from the interactive `commandagent>` prompt. The saved repair
+packet is intentionally shorter than the full failure log so it can be reused as
+a new explicit task without hitting slash-command length limits.
+
+## Plan File Shape
 
 Step plans are stored under `.commandagent/plans` as CommandAgent-owned YAML.
 The current schema is:

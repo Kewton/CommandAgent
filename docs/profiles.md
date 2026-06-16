@@ -24,6 +24,34 @@ uses `next build` must not be changed to fake success. If `node_modules/.bin/nex
 is missing, CommandAgent should install dependencies when allowed or stop with
 `dependency_missing`.
 
+Use:
+
+```text
+/ultra-plan-run --profile nextjs Create a Next.js app on port 3011
+```
+
+The profile supplies Next.js-specific facts. It does not force a particular
+component tree or router layout.
+
+## Python Contract
+
+The `python` profile is for scripts, libraries, and tests. It prefers local
+verification such as `python -m pytest` when a test suite exists or is created.
+It should not mutate unrelated virtual environments.
+
+## Rust Contract
+
+The `rust` profile is for Rust CLI/library changes. It prefers `cargo test` as
+the deterministic verifier and keeps generated files within the workspace.
+
+## Investigation And Docs
+
+`investigation` is read-first. It is suitable for diagnosis reports and should
+avoid edits unless the user explicitly asks for fixes.
+
+`docs` is for documentation changes. It should preserve source behavior and use
+lightweight checks where available.
+
 ## Data Contracts
 
 Data profiles protect raw input prefixes:
@@ -35,3 +63,15 @@ Data profiles protect raw input prefixes:
 
 Derived outputs should be written elsewhere so reruns are reproducible and raw
 inputs remain inspectable.
+
+## Profile vs Style
+
+Profiles describe the domain. Styles describe the development method. For
+example:
+
+```text
+/ultra-plan-run --profile rust --style tdd Add parser coverage
+```
+
+This means "use the Rust contract, and prefer test-first steps." It does not
+create a separate Rust-specific TDD engine.

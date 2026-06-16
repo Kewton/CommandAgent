@@ -22,6 +22,12 @@ OLLAMA_HOST=http://127.0.0.1:11434 scripts/provider_smoke_ollama.sh
 This smoke is intentionally not part of `scripts/eval_smoke.sh` because it
 requires a running local service.
 
+Default local endpoint:
+
+```bash
+OLLAMA_HOST=http://127.0.0.1:11434
+```
+
 ## Gemini
 
 Gemini uses the Generative Language API `models/{model}:generateContent`
@@ -36,6 +42,16 @@ GEMINI_API_KEY=... GEMINI_MODEL=gemini-3.5-flash scripts/provider_smoke_gemini.s
 ```
 
 Gemini uses XML fallback tool calls by default.
+
+Example mixed planner/executor usage:
+
+```bash
+commandagent \
+  --provider ollama \
+  --model qwen3.6:35b-a3b-coding-nvfp4 \
+  --planner-provider gemini \
+  --planner-model gemini-3.5-flash
+```
 
 ## OpenAI
 
@@ -52,6 +68,16 @@ OPENAI_API_KEY=... OPENAI_MODEL=gpt-5.4-mini scripts/provider_smoke_openai.sh
 ```
 
 OpenAI uses XML fallback tool calls by default.
+
+OpenAI can also be used as only the planner:
+
+```bash
+commandagent \
+  --provider gemini \
+  --model gemini-3.1-flash-lite \
+  --planner-provider openai \
+  --planner-model gpt-5.4-mini
+```
 
 The canonical fallback format is:
 
