@@ -2,9 +2,9 @@
 
 CommandAgent is still in MVP migration.
 
-- REPL slash-command execution is now wired for plan and ultra-plan commands,
-  but live LLM UAT is still required before treating complex workflows as
-  release-grade.
+- REPL slash-command execution is wired for plan and ultra-plan commands.
+  Simple docs, Python, and Rust `/plan-run` live UAT passes with the 27B Ollama
+  model, but complex workflows still need live UAT before release sign-off.
 - `/ultra-plan-run` is intentionally phase-bounded. A failed phase stops the
   run and asks for explicit repair/replanning instead of continuing silently.
 - Live LLM behavior depends on local model quality, quantization, provider

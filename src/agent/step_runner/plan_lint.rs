@@ -7,6 +7,7 @@ pub fn lint_step_plan(plan: &StepPlan) -> Result<(), PlanLintError> {
             lint_expected_path(path)?;
         }
         lint_setup_verify_boundary(&step.id, &step.instruction, !step.expected_paths.is_empty())?;
+        lint_profile_scaffolding(plan.profile.as_str(), &step.id, &step.instruction)?;
     }
     Ok(())
 }
@@ -89,6 +90,22 @@ fn lint_setup_verify_boundary(
     Ok(())
 }
 
+fn lint_profile_scaffolding(
+    profile: &str,
+    step_id: &str,
+    instruction: &str,
+) -> Result<(), PlanLintError> {
+    let lower = instruction.to_ascii_lowercase();
+    if profile == "rust" && contains_any(&lower, &["cargo init", "cargo new"]) {
+        return Err(PlanLintError::ShellScaffold {
+            step_id: step_id.to_string(),
+            command: "cargo init/new".to_string(),
+            guidance: "create Cargo.toml and src/main.rs with Write/Edit".to_string(),
+        });
+    }
+    Ok(())
+}
+
 fn contains_any(text: &str, needles: &[&str]) -> bool {
     needles.iter().any(|needle| text.contains(needle))
 }
@@ -146,8 +163,18 @@ fn looks_like_version(value: &str) -> bool {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlanLintError {
-    InvalidExpectedPath { path: String, reason: String },
-    MixedSetupAndVerify { step_id: String },
+    InvalidExpectedPath {
+        path: String,
+        reason: String,
+    },
+    MixedSetupAndVerify {
+        step_id: String,
+    },
+    ShellScaffold {
+        step_id: String,
+        command: String,
+        guidance: String,
+    },
 }
 
 impl std::fmt::Display for PlanLintError {
@@ -159,6 +186,14 @@ impl std::fmt::Display for PlanLintError {
             Self::MixedSetupAndVerify { step_id } => write!(
                 f,
                 "step `{step_id}` mixes setup/editing work with verification; split it into separate steps"
+            ),
+            Self::ShellScaffold {
+                step_id,
+                command,
+                guidance,
+            } => write!(
+                f,
+                "step `{step_id}` uses shell scaffolding `{command}`; {guidance}"
             ),
         }
     }
@@ -246,6 +281,32 @@ mod tests {
             err,
             PlanLintError::MixedSetupAndVerify {
                 step_id: "create-and-build".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_rust_cargo_init_scaffolding() {
+        let plan = StepPlan {
+            goal: "create rust app".to_string(),
+            profile: "rust".to_string(),
+            style: "default".to_string(),
+            steps: vec![StepPlanStep {
+                id: "init-project".to_string(),
+                instruction: "Initialize a new Rust project using cargo init.".to_string(),
+                expected_paths: vec!["Cargo.toml".to_string(), "src/main.rs".to_string()],
+                verify: vec!["test -f Cargo.toml".to_string()],
+            }],
+        };
+
+        let err = lint_step_plan(&plan).unwrap_err();
+
+        assert_eq!(
+            err,
+            PlanLintError::ShellScaffold {
+                step_id: "init-project".to_string(),
+                command: "cargo init/new".to_string(),
+                guidance: "create Cargo.toml and src/main.rs with Write/Edit".to_string()
             }
         );
     }

@@ -15,6 +15,8 @@ scripts/eval_agent_slice.sh --dry-run --out /tmp/commandagent-uat-eval --runs 1
 scripts/eval_large_tasks.sh --dry-run --out /tmp/commandagent-uat-large --runs 1
 curl -fsS http://127.0.0.1:11434/api/tags
 /usr/bin/expect -c '<run /plan-run --profile docs with qwen3.6:27b-coding-nvfp4>'
+/usr/bin/expect -c '<run /plan-run --profile python with qwen3.6:27b-coding-nvfp4>'
+/usr/bin/expect -c '<run /plan-run --profile rust with qwen3.6:27b-coding-nvfp4>'
 ```
 
 ## Results
@@ -27,10 +29,11 @@ curl -fsS http://127.0.0.1:11434/api/tags
 | Ollama connection | Pass | Local Ollama is reachable and includes coding models. |
 | REPL prompt loop | Covered by unit tests | `agent::repl` tests pass in smoke. |
 | Simple file create live UAT | Pass | `/plan-run --profile docs` with `qwen3.6:27b-coding-nvfp4` created `README.md`, saved a plan, and saved a session. |
+| Python smoke live UAT | Pass | `/plan-run --profile python` created `hello.py`, verified `python3 hello.py`, saved a plan, and saved a session. |
+| Rust smoke live UAT | Pass | `/plan-run --profile rust` created `Cargo.toml` and `src/main.rs`, verified `cargo run`, saved a plan, and saved a session. |
 | Next.js small app live UAT | Pending | `/ultra-plan-run` REPL dispatch is now wired; live model run still needed. |
 | Repair fallback live UAT | Pending | Runtime dispatch exists; live failure/repair scenario still needed. |
 | Planner/executor split live UAT | Pending | Config and dispatcher exist; live mixed-provider run still needed. |
-| Python/Rust smoke live UAT | Not run yet | Should run after planner/step execution wiring lands. |
 
 ## Live Notes
 
@@ -45,6 +48,21 @@ The successful 27B run produced:
 - `/private/tmp/commandagent-live-uat-docs27b/.commandagent/plans/plan-*.yaml`
 - `/private/tmp/commandagent-live-uat-docs27b/.commandagent/sessions/*/session.json`
 
+The successful Python run produced:
+
+- `/private/tmp/commandagent-live-uat-python/hello.py`
+- `/private/tmp/commandagent-live-uat-python/.commandagent/plans/plan-*.yaml`
+- `/private/tmp/commandagent-live-uat-python/.commandagent/sessions/*/session.json`
+- Manual verification: `python3 hello.py` printed `hello commandagent`.
+
+The successful Rust run produced:
+
+- `/private/tmp/commandagent-live-uat-rust/Cargo.toml`
+- `/private/tmp/commandagent-live-uat-rust/src/main.rs`
+- `/private/tmp/commandagent-live-uat-rust/.commandagent/plans/plan-*.yaml`
+- `/private/tmp/commandagent-live-uat-rust/.commandagent/sessions/*/session.json`
+- Manual verification: `cargo run` printed `hello commandagent`.
+
 ## Previous Blocking Finding
 
 `/ultra-plan-run` is an MVP feature, but the current REPL only sends every
@@ -58,5 +76,5 @@ and regression tests. Live UAT remains pending.
 
 ## Next Required Work
 
-Rerun this UAT with live simple file, Next.js, repair fallback,
-planner/executor split, Python, and Rust checks.
+Run the remaining live checks for Next.js, repair fallback, and
+planner/executor split.

@@ -56,7 +56,6 @@ Latest UAT:
 docs/eval/mvp-uat.md
 ```
 
-Result: pre-signoff UAT found that slash-command runtime dispatch is still
-missing. This gap has since been addressed with REPL slash-command dispatch and
-regression tests. A live 27B `/plan-run --profile docs` UAT passed; larger live
-UAT remains pending.
+Result: REPL slash-command dispatch is wired and covered by regression tests.
+Live 27B `/plan-run` UAT now passes for docs, Python, and Rust smoke workflows.
+Next.js, repair fallback, and planner/executor split live UAT remain pending.

@@ -161,6 +161,9 @@ fn classify_simple(command: &str) -> PolicyDecision {
     ) {
         return allowed(CommandClass::BuildTest);
     }
+    if starts_with_any(&lower, &["cargo run"]) {
+        return allowed(CommandClass::ScriptRun);
+    }
     if starts_with_any(
         &lower,
         &["python ", "python3 ", "node ", "deno run ", "ruby "],
@@ -170,7 +173,8 @@ fn classify_simple(command: &str) -> PolicyDecision {
     if starts_with_any(
         &lower,
         &[
-            "pwd", "ls", "cat ", "sed -n ", "head ", "tail ", "wc ", "find ",
+            "pwd", "ls", "cat ", "sed -n ", "head ", "tail ", "wc ", "find ", "test -f ",
+            "test -d ", "grep -q ",
         ],
     ) {
         return allowed(CommandClass::ReadOnly);
@@ -270,11 +274,35 @@ mod tests {
     }
 
     #[test]
+    fn allows_cargo_run_as_local_script_run() {
+        let root = temp_workspace("cargo-run");
+        let decision = enforce_offline_policy("cargo run", &root);
+
+        assert_eq!(decision.class, CommandClass::ScriptRun);
+        assert!(decision.allowed);
+    }
+
+    #[test]
     fn blocks_three_part_chaining() {
         let root = temp_workspace("chain");
         let decision = enforce_offline_policy("cd . && python3 script.py && rm file", &root);
 
         assert!(!decision.allowed);
+    }
+
+    #[test]
+    fn allows_read_only_shell_checks() {
+        let root = temp_workspace("read-only-checks");
+
+        for command in [
+            "test -f Cargo.toml",
+            "test -d src",
+            "grep -q hello src/main.rs",
+        ] {
+            let decision = enforce_offline_policy(command, &root);
+            assert_eq!(decision.class, CommandClass::ReadOnly, "{command}");
+            assert!(decision.allowed, "{command}");
+        }
     }
 
     #[test]

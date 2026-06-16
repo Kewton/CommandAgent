@@ -47,13 +47,25 @@ steps:\n\
 Rules:\n\
 - Keep steps small and executable.\n\
 - Do not mix setup and final verification in the same step.\n\
+- File creation or modification steps must be executable with Write/Edit, not shell scaffolding.\n\
 - expected_paths must be actual file paths, not package names or concepts.\n\
 - If no file path is expected for a step, use an empty list.\n\
 \n\
 Goal: {goal}\n\
 Profile: {profile}\n\
-Style: {style}"
+Style: {style}\n\
+Profile guidance:\n{profile_guidance}",
+        profile_guidance = plan_profile_guidance(profile)
     )
+}
+
+fn plan_profile_guidance(profile: &str) -> &'static str {
+    match profile {
+        "rust" => {
+            "For new Rust projects, plan explicit file creation for Cargo.toml and src/main.rs. Do not plan cargo init or cargo new shell scaffolding."
+        }
+        _ => "No additional profile-specific plan guidance.",
+    }
 }
 
 pub fn invalid_plan_correction_prompt(
@@ -123,7 +135,7 @@ pub fn parse_step_plan_yaml(yaml: &str) -> Result<StepPlan, PlanError> {
             current_list = None;
         } else if line == "steps:" {
             current_list = None;
-        } else if let Some(value) = line.strip_prefix("  - id:") {
+        } else if let Some(value) = step_id_value(line) {
             if let Some(step) = current_step.take() {
                 steps.push(step);
             }
@@ -134,7 +146,7 @@ pub fn parse_step_plan_yaml(yaml: &str) -> Result<StepPlan, PlanError> {
                 verify: Vec::new(),
             });
             current_list = None;
-        } else if let Some(value) = line.strip_prefix("    instruction:") {
+        } else if let Some(value) = step_field_value(line, "instruction") {
             let Some(step) = current_step.as_mut() else {
                 return Err(PlanError::InvalidYaml(
                     "instruction appears before step id".to_string(),
@@ -142,11 +154,29 @@ pub fn parse_step_plan_yaml(yaml: &str) -> Result<StepPlan, PlanError> {
             };
             step.instruction = parse_yaml_string(value.trim())?;
             current_list = None;
-        } else if line == "    expected_paths:" {
+        } else if is_step_field(line, "expected_paths") {
             current_list = Some(ListField::ExpectedPaths);
-        } else if line == "    verify:" {
+        } else if let Some(value) = step_field_value(line, "expected_paths") {
+            if parse_inline_empty_list(value.trim())? {
+                let Some(_step) = current_step.as_mut() else {
+                    return Err(PlanError::InvalidYaml(
+                        "expected_paths appears before step id".to_string(),
+                    ));
+                };
+                current_list = None;
+            }
+        } else if is_step_field(line, "verify") {
             current_list = Some(ListField::Verify);
-        } else if let Some(value) = line.strip_prefix("      - ") {
+        } else if let Some(value) = step_field_value(line, "verify") {
+            if parse_inline_empty_list(value.trim())? {
+                let Some(_step) = current_step.as_mut() else {
+                    return Err(PlanError::InvalidYaml(
+                        "verify appears before step id".to_string(),
+                    ));
+                };
+                current_list = None;
+            }
+        } else if let Some(value) = list_item_value(line) {
             let Some(step) = current_step.as_mut() else {
                 return Err(PlanError::InvalidYaml(
                     "list item appears before step id".to_string(),
@@ -266,6 +296,35 @@ fn parse_yaml_string(value: &str) -> Result<String, PlanError> {
     }
 }
 
+fn step_id_value(line: &str) -> Option<&str> {
+    line.strip_prefix("  - id:")
+        .or_else(|| line.strip_prefix("- id:"))
+}
+
+fn step_field_value<'a>(line: &'a str, field: &str) -> Option<&'a str> {
+    line.strip_prefix(&format!("    {field}:"))
+        .or_else(|| line.strip_prefix(&format!("  {field}:")))
+}
+
+fn is_step_field(line: &str, field: &str) -> bool {
+    line == format!("    {field}:") || line == format!("  {field}:")
+}
+
+fn list_item_value(line: &str) -> Option<&str> {
+    line.strip_prefix("      - ")
+        .or_else(|| line.strip_prefix("    - "))
+}
+
+fn parse_inline_empty_list(value: &str) -> Result<bool, PlanError> {
+    if value == "[]" {
+        Ok(true)
+    } else {
+        Err(PlanError::InvalidYaml(format!(
+            "unsupported inline list value: {value}"
+        )))
+    }
+}
+
 fn slug(value: &str) -> Option<String> {
     let mut out = String::new();
     for ch in value.chars() {
@@ -348,6 +407,27 @@ mod tests {
     }
 
     #[test]
+    fn accepts_inline_empty_step_lists() {
+        let yaml = "goal: \"Run check\"\nprofile: \"python\"\nstyle: \"default\"\nsteps:\n  - id: \"inspect\"\n    instruction: \"Inspect workspace.\"\n    expected_paths: []\n    verify: []\n";
+
+        let plan = parse_step_plan_yaml(yaml).unwrap();
+
+        assert!(plan.steps[0].expected_paths.is_empty());
+        assert!(plan.steps[0].verify.is_empty());
+    }
+
+    #[test]
+    fn accepts_common_model_step_indentation_drift() {
+        let yaml = "goal: \"Create Rust CLI\"\nprofile: \"rust\"\nstyle: \"default\"\nsteps:\n- id: create-cargo-toml\n  instruction: \"Create Cargo.toml.\"\n  expected_paths:\n    - Cargo.toml\n  verify:\n    - test -f Cargo.toml\n";
+
+        let plan = parse_step_plan_yaml(yaml).unwrap();
+
+        assert_eq!(plan.steps[0].id, "create-cargo-toml");
+        assert_eq!(plan.steps[0].expected_paths, vec!["Cargo.toml"]);
+        assert_eq!(plan.steps[0].verify, vec!["test -f Cargo.toml"]);
+    }
+
+    #[test]
     fn validates_duplicate_step_ids() {
         let mut plan = sample_plan();
         plan.steps.push(plan.steps[0].clone());
@@ -377,6 +457,15 @@ mod tests {
         assert!(prompt.contains("Return only YAML"));
         assert!(prompt.contains("Goal: Build docs"));
         assert!(prompt.contains("Profile: docs"));
+    }
+
+    #[test]
+    fn generation_prompt_warns_rust_against_shell_scaffolding() {
+        let prompt = plan_generation_prompt("Build Rust CLI", "rust", "default");
+
+        assert!(prompt.contains("Cargo.toml"));
+        assert!(prompt.contains("src/main.rs"));
+        assert!(prompt.contains("Do not plan cargo init or cargo new"));
     }
 
     #[test]

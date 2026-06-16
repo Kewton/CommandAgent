@@ -98,12 +98,12 @@ where
     ) -> Result<StepPlan, String> {
         let prompt = plan_generation_prompt(goal, profile, style);
         let text = planner_text(self.planner, &self.planner_config, &prompt)?;
-        match parse_and_lint_step_plan(&text) {
+        match parse_generated_step_plan(&text, goal, profile, style) {
             Ok(plan) => Ok(plan),
             Err(err) => {
                 let correction = plan_correction_prompt(goal, &text, &err, "step plan");
                 let corrected = planner_text(self.planner, &self.planner_config, &correction)?;
-                parse_and_lint_step_plan(&corrected)
+                parse_generated_step_plan(&corrected, goal, profile, style)
             }
         }
     }
@@ -143,15 +143,22 @@ where
             ));
             let prompt = phase_step_plan_prompt(plan, phase, &snapshot, &profile_contract);
             let text = planner_text(self.planner, &self.planner_config, &prompt)?;
-            let step_plan = match parse_and_lint_step_plan(&text) {
-                Ok(plan) => plan,
-                Err(err) => {
-                    let correction =
-                        plan_correction_prompt(&phase.goal, &text, &err, "phase step plan");
-                    let corrected = planner_text(self.planner, &self.planner_config, &correction)?;
-                    parse_and_lint_step_plan(&corrected)?
-                }
-            };
+            let step_plan =
+                match parse_generated_step_plan(&text, &phase.goal, &plan.profile, &plan.style) {
+                    Ok(plan) => plan,
+                    Err(err) => {
+                        let correction =
+                            plan_correction_prompt(&phase.goal, &text, &err, "phase step plan");
+                        let corrected =
+                            planner_text(self.planner, &self.planner_config, &correction)?;
+                        parse_generated_step_plan(
+                            &corrected,
+                            &phase.goal,
+                            &plan.profile,
+                            &plan.style,
+                        )?
+                    }
+                };
             let path = save_step_plan(self.cwd, &step_plan).map_err(|err| err.to_string())?;
             lines.push(format!(
                 "phase {}: step plan {}",
@@ -185,8 +192,16 @@ where
         let mut config = self.loop_config.clone();
         config.expected_artifacts = step.expected_paths.clone();
         let prompt = step_prompt(plan, step)?;
-        let result = run_session(self.executor, self.cwd, &prompt, config.clone())
-            .map_err(|err| err.to_string())?;
+        let result = match run_session(self.executor, self.cwd, &prompt, config.clone()) {
+            Ok(result) => result,
+            Err(err) => {
+                let failures = verify_step(self.cwd, step)?;
+                if failures.is_empty() {
+                    return Ok(());
+                }
+                return Err(err.to_string());
+            }
+        };
         let failures = verify_step(self.cwd, step)?;
         if failures.is_empty() {
             return Ok(());
@@ -282,6 +297,46 @@ fn parse_and_lint_step_plan(text: &str) -> Result<StepPlan, String> {
     Ok(plan)
 }
 
+fn parse_generated_step_plan(
+    text: &str,
+    goal: &str,
+    profile: &str,
+    style: &str,
+) -> Result<StepPlan, String> {
+    let normalized = ensure_generated_plan_header(text, goal, profile, style);
+    parse_and_lint_step_plan(&normalized)
+}
+
+fn ensure_generated_plan_header(text: &str, goal: &str, profile: &str, style: &str) -> String {
+    let body = strip_markdown_fence(text.trim());
+    let mut out = String::new();
+    out.push_str(&format!("goal: {}\n", yaml_quote(goal)));
+    out.push_str(&format!("profile: {}\n", yaml_quote(profile)));
+    out.push_str(&format!("style: {}\n", yaml_quote(style)));
+    for line in body.lines() {
+        if line.starts_with("goal:") || line.starts_with("profile:") || line.starts_with("style:") {
+            continue;
+        }
+        out.push_str(line);
+        out.push('\n');
+    }
+    out
+}
+
+fn strip_markdown_fence(text: &str) -> &str {
+    if let Some(rest) = text.strip_prefix("```yaml") {
+        return rest.trim().strip_suffix("```").unwrap_or(rest).trim();
+    }
+    if let Some(rest) = text.strip_prefix("```") {
+        return rest.trim().strip_suffix("```").unwrap_or(rest).trim();
+    }
+    text
+}
+
+fn yaml_quote(value: &str) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
+}
+
 fn plan_correction_prompt(
     original_goal: &str,
     invalid_plan: &str,
@@ -293,6 +348,7 @@ fn plan_correction_prompt(
 Original goal:\n{original_goal}\n\n\
 Validation error:\n{error}\n\n\
 Invalid plan:\n{invalid_plan}\n\n\
+If the error mentions shell scaffolding, replace that step with explicit file creation or editing instructions that can be completed with Write/Edit.\n\
 Return only corrected YAML using the required CommandAgent schema."
     )
 }
@@ -472,6 +528,47 @@ mod tests {
     }
 
     #[test]
+    fn plan_run_accepts_verified_step_after_max_iterations() {
+        let root = temp_workspace("plan-run-verified-max");
+        let plan_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"cat README.md\"\n";
+        let mut planner = MockClient::new(vec![ChatResponse {
+            content: plan_yaml.to_string(),
+            tool_calls: Vec::new(),
+        }]);
+        let mut executor = MockClient::new(vec![ChatResponse {
+            content: String::new(),
+            tool_calls: vec![ToolCall {
+                name: "Write".to_string(),
+                args_json: r#"{"path":"README.md","content":"ok"}"#.to_string(),
+            }],
+        }]);
+        let command = SlashCommand {
+            kind: SlashCommandKind::PlanRun,
+            profile: Some("docs".to_string()),
+            style: None,
+            argument: "Create docs".to_string(),
+        };
+        let mut loop_config = MinimalLoopConfig::default();
+        loop_config.max_iterations = 1;
+
+        let output = SlashRuntime {
+            executor: &mut executor,
+            planner: &mut planner,
+            cwd: &root,
+            loop_config,
+            planner_config: PlannerRuntimeConfig {
+                model: "planner".to_string(),
+                tool_call_mode: ToolCallMode::XmlFallback,
+            },
+        }
+        .run(command)
+        .unwrap();
+
+        assert!(output.contains("step write-readme: ok"));
+        assert_eq!(fs::read_to_string(root.join("README.md")).unwrap(), "ok");
+    }
+
+    #[test]
     fn invalid_step_plan_gets_one_correction_attempt() {
         let root = temp_workspace("plan-correction");
         let invalid_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n- id: \"write-readme\"\n  instruction: \"Create README.md.\"\n  expected_paths:\n    - \"README.md\"\n  verify:\n    - \"cat README.md\"\n";
@@ -508,6 +605,29 @@ mod tests {
         .unwrap();
 
         assert!(output.contains("created step plan"));
+    }
+
+    #[test]
+    fn generated_step_plan_can_omit_known_header_fields() {
+        let text = "steps:\n  - id: \"write-readme\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify: []\n";
+
+        let plan = parse_generated_step_plan(text, "Create docs", "docs", "default").unwrap();
+
+        assert_eq!(plan.goal, "Create docs");
+        assert_eq!(plan.profile, "docs");
+        assert_eq!(plan.style, "default");
+        assert_eq!(plan.steps[0].id, "write-readme");
+    }
+
+    #[test]
+    fn generated_step_plan_uses_requested_profile_over_model_profile() {
+        let text = "goal: \"Create Rust CLI\"\nprofile: \"rust cli developer\"\nstyle: \"careful\"\nsteps:\n  - id: \"write-main\"\n    instruction: \"Create src/main.rs.\"\n    expected_paths:\n      - \"src/main.rs\"\n    verify: []\n";
+
+        let plan = parse_generated_step_plan(text, "Create Rust CLI", "rust", "default").unwrap();
+
+        assert_eq!(plan.goal, "Create Rust CLI");
+        assert_eq!(plan.profile, "rust");
+        assert_eq!(plan.style, "default");
     }
 
     struct MockClient {

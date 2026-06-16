@@ -69,7 +69,7 @@ pub fn profile_contract(id: ProfileId) -> ProfileContract {
         },
         ProfileId::Rust => ProfileContract {
             id,
-            text: "For Rust work, keep Cargo.toml honest, use idiomatic modules, and verify with cargo test or cargo build.".to_string(),
+            text: "For Rust work, keep Cargo.toml honest, use idiomatic modules, and verify with cargo test, cargo build, or cargo run when requested. For new minimal projects, create Cargo.toml and src/main.rs with Write/Edit instead of cargo init or cargo new.".to_string(),
             verifier_commands: vec!["cargo test".to_string()],
             protected_path_prefixes: Vec::new(),
         },
@@ -167,6 +167,15 @@ mod tests {
         assert!(contract.text.contains("next/react/react-dom"));
         assert!(contract.text.contains("never fake build success"));
         assert_eq!(contract.verifier_commands, vec!["npm run build"]);
+    }
+
+    #[test]
+    fn rust_profile_keeps_scaffolding_in_file_tools() {
+        let contract = profile_contract(ProfileId::Rust);
+
+        assert!(contract.text.contains("Cargo.toml"));
+        assert!(contract.text.contains("src/main.rs"));
+        assert!(contract.text.contains("instead of cargo init or cargo new"));
     }
 
     #[test]
