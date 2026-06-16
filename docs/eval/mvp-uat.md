@@ -17,6 +17,9 @@ curl -fsS http://127.0.0.1:11434/api/tags
 /usr/bin/expect -c '<run /plan-run --profile docs with qwen3.6:27b-coding-nvfp4>'
 /usr/bin/expect -c '<run /plan-run --profile python with qwen3.6:27b-coding-nvfp4>'
 /usr/bin/expect -c '<run /plan-run --profile rust with qwen3.6:27b-coding-nvfp4>'
+/usr/bin/expect -c '<run /plan-run --profile nextjs with qwen3.6:27b-coding-nvfp4>'
+/usr/bin/expect -c '<run /plan-run with planner qwen3.6:27b and executor qwen3.6:35b>'
+/usr/bin/expect -c '<run /run-plan repair fallback fixture with qwen3.6:27b-coding-nvfp4>'
 ```
 
 ## Results
@@ -31,9 +34,9 @@ curl -fsS http://127.0.0.1:11434/api/tags
 | Simple file create live UAT | Pass | `/plan-run --profile docs` with `qwen3.6:27b-coding-nvfp4` created `README.md`, saved a plan, and saved a session. |
 | Python smoke live UAT | Pass | `/plan-run --profile python` created `hello.py`, verified `python3 hello.py`, saved a plan, and saved a session. |
 | Rust smoke live UAT | Pass | `/plan-run --profile rust` created `Cargo.toml` and `src/main.rs`, verified `cargo run`, saved a plan, and saved a session. |
-| Next.js small app live UAT | Pending | `/ultra-plan-run` REPL dispatch is now wired; live model run still needed. |
-| Repair fallback live UAT | Pending | Runtime dispatch exists; live failure/repair scenario still needed. |
-| Planner/executor split live UAT | Pending | Config and dispatcher exist; live mixed-provider run still needed. |
+| Next.js small app live UAT | Pass | `/plan-run --profile nextjs` created `package.json`, `app/layout.tsx`, and `app/page.tsx` for port 3011, saved a plan, and saved a session. This was a file-set UAT, not a dependency-install/build UAT. |
+| Repair fallback live UAT | Pass | `/run-plan` with an intentionally failing verifier saved `.commandagent/repairs/repair-*.md` and printed a suggested `/ultra-plan-run --profile docs "$(cat ...)"` command. |
+| Planner/executor split live UAT | Pass | Planner `qwen3.6:27b-coding-nvfp4` and executor `qwen3.6:35b-a3b-coding-nvfp4` created `SPLIT.md`, saved a plan, and saved a session. |
 
 ## Live Notes
 
@@ -63,6 +66,27 @@ The successful Rust run produced:
 - `/private/tmp/commandagent-live-uat-rust/.commandagent/sessions/*/session.json`
 - Manual verification: `cargo run` printed `hello commandagent`.
 
+The successful Next.js file-set run produced:
+
+- `/private/tmp/commandagent-live-uat-nextjs/package.json`
+- `/private/tmp/commandagent-live-uat-nextjs/app/layout.tsx`
+- `/private/tmp/commandagent-live-uat-nextjs/app/page.tsx`
+- `/private/tmp/commandagent-live-uat-nextjs/.commandagent/plans/plan-*.yaml`
+- `/private/tmp/commandagent-live-uat-nextjs/.commandagent/sessions/*/session.json`
+
+The successful planner/executor split run produced:
+
+- `/private/tmp/commandagent-live-uat-split/SPLIT.md`
+- `/private/tmp/commandagent-live-uat-split/.commandagent/plans/plan-*.yaml`
+- `/private/tmp/commandagent-live-uat-split/.commandagent/sessions/*/session.json`
+
+The successful repair fallback run produced:
+
+- `/private/tmp/commandagent-live-uat-repair/.commandagent/repairs/repair-*.md`
+- A suggested command using the saved repair prompt file.
+- Repair packet contents included the failing verifier command and missing-path
+  summary.
+
 ## Previous Blocking Finding
 
 `/ultra-plan-run` is an MVP feature, but the current REPL only sends every
@@ -76,5 +100,5 @@ and regression tests. Live UAT remains pending.
 
 ## Next Required Work
 
-Run the remaining live checks for Next.js, repair fallback, and
-planner/executor split.
+Remaining live sign-off work is full `/ultra-plan-run` on a larger task and
+release-quality eval runs. The MVP smoke paths above now pass.

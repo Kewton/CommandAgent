@@ -20,6 +20,8 @@ use crate::safety::path_guard::PathGuard;
 use std::fs;
 use std::path::Path;
 
+const MAX_REPAIR_TURNS: usize = 3;
+
 #[derive(Debug, Clone)]
 pub struct PlannerRuntimeConfig {
     pub model: String,
@@ -199,7 +201,13 @@ where
                 if failures.is_empty() {
                     return Ok(());
                 }
-                return Err(err.to_string());
+                return self.repair_step_after_turn_error(
+                    plan,
+                    step,
+                    config,
+                    err.to_string(),
+                    failures,
+                );
             }
         };
         let failures = verify_step(self.cwd, step)?;
@@ -210,19 +218,60 @@ where
         self.repair_step(plan, step, config, result, failures)
     }
 
+    fn repair_step_after_turn_error(
+        &mut self,
+        plan: &StepPlan,
+        step: &StepPlanStep,
+        config: MinimalLoopConfig,
+        turn_error: String,
+        failures: Vec<VerificationFailure>,
+    ) -> Result<(), String> {
+        self.repair_step_with_state(
+            plan,
+            step,
+            config,
+            failures,
+            Vec::new(),
+            0,
+            Some(turn_error),
+        )
+    }
+
     fn repair_step(
         &mut self,
         plan: &StepPlan,
         step: &StepPlanStep,
         config: MinimalLoopConfig,
         first_result: RunResult,
+        failures: Vec<VerificationFailure>,
+    ) -> Result<(), String> {
+        self.repair_step_with_state(
+            plan,
+            step,
+            config,
+            failures,
+            changed_file_markers(&first_result),
+            usize::from(result_changed_files(&first_result)),
+            None,
+        )
+    }
+
+    fn repair_step_with_state(
+        &mut self,
+        plan: &StepPlan,
+        step: &StepPlanStep,
+        config: MinimalLoopConfig,
         mut failures: Vec<VerificationFailure>,
+        mut changed_files: Vec<String>,
+        mut file_changing_attempts: usize,
+        initial_turn_error: Option<String>,
     ) -> Result<(), String> {
         let budget = RepairBudget::default();
-        let mut file_changing_attempts = usize::from(result_changed_files(&first_result));
-        let mut changed_files = changed_file_markers(&first_result);
+        let mut repair_turns = 0usize;
 
-        while budget.allows_next_attempt(file_changing_attempts) {
+        while budget.allows_next_attempt(file_changing_attempts) && repair_turns < MAX_REPAIR_TURNS
+        {
+            repair_turns += 1;
             let context = RepairContext {
                 step_id: step.id.clone(),
                 original_goal: plan.goal.clone(),
@@ -234,8 +283,13 @@ where
                 changed_files: changed_files.clone(),
             };
             let prompt = build_repair_prompt(&context);
-            let result = run_session(self.executor, self.cwd, &prompt, config.clone())
-                .map_err(|err| err.to_string())?;
+            let result = match run_session(self.executor, self.cwd, &prompt, config.clone()) {
+                Ok(result) => result,
+                Err(err) => {
+                    failures.push(turn_error_failure("repair turn", err.to_string()));
+                    break;
+                }
+            };
             if result_changed_files(&result) {
                 file_changing_attempts += 1;
             }
@@ -257,10 +311,24 @@ where
             changed_files,
         };
         let saved = save_repair_prompt(self.cwd, &context).map_err(|err| err.to_string())?;
+        let initial = initial_turn_error
+            .map(|err| format!("initial turn error: {err}\n"))
+            .unwrap_or_default();
         Err(format!(
-            "step {} failed verification; repair prompt saved: {}\nsuggested command: {}",
+            "{initial}step {} failed verification; repair prompt saved: {}\nsuggested command: {}",
             step.id, saved.relative_path, saved.suggested_command
         ))
+    }
+}
+
+fn turn_error_failure(command: &str, error: String) -> VerificationFailure {
+    VerificationFailure {
+        command: command.to_string(),
+        reason: "turn_error".to_string(),
+        stdout_excerpt: String::new(),
+        stderr_excerpt: String::new(),
+        diagnostic_excerpt: error,
+        source_excerpt: None,
     }
 }
 
@@ -566,6 +634,46 @@ mod tests {
 
         assert!(output.contains("step write-readme: ok"));
         assert_eq!(fs::read_to_string(root.join("README.md")).unwrap(), "ok");
+    }
+
+    #[test]
+    fn plan_run_saves_repair_prompt_after_initial_turn_error() {
+        let root = temp_workspace("plan-run-repair-after-error");
+        fs::write(root.join("README.md"), "fixture").unwrap();
+        let plan_yaml = "goal: \"Verify docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"verify-readme\"\n    instruction: \"Inspect README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"grep -q __missing_marker__ /dev/null\"\n";
+        let mut planner = MockClient::new(vec![ChatResponse {
+            content: plan_yaml.to_string(),
+            tool_calls: Vec::new(),
+        }]);
+        let mut executor = MockClient::new(vec![ChatResponse {
+            content: "Let me verify README.md.".to_string(),
+            tool_calls: Vec::new(),
+        }]);
+        let command = SlashCommand {
+            kind: SlashCommandKind::PlanRun,
+            profile: Some("docs".to_string()),
+            style: None,
+            argument: "Verify docs".to_string(),
+        };
+        let mut loop_config = MinimalLoopConfig::default();
+        loop_config.max_iterations = 1;
+
+        let err = SlashRuntime {
+            executor: &mut executor,
+            planner: &mut planner,
+            cwd: &root,
+            loop_config,
+            planner_config: PlannerRuntimeConfig {
+                model: "planner".to_string(),
+                tool_call_mode: ToolCallMode::XmlFallback,
+            },
+        }
+        .run(command)
+        .unwrap_err();
+
+        assert!(err.contains("initial turn error"));
+        assert!(err.contains("repair prompt saved"));
+        assert!(root.join(".commandagent/repairs").exists());
     }
 
     #[test]

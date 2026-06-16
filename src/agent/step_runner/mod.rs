@@ -313,6 +313,7 @@ fn is_step_field(line: &str, field: &str) -> bool {
 fn list_item_value(line: &str) -> Option<&str> {
     line.strip_prefix("      - ")
         .or_else(|| line.strip_prefix("    - "))
+        .or_else(|| line.strip_prefix("  - "))
 }
 
 fn parse_inline_empty_list(value: &str) -> Result<bool, PlanError> {
@@ -425,6 +426,19 @@ mod tests {
         assert_eq!(plan.steps[0].id, "create-cargo-toml");
         assert_eq!(plan.steps[0].expected_paths, vec!["Cargo.toml"]);
         assert_eq!(plan.steps[0].verify, vec!["test -f Cargo.toml"]);
+    }
+
+    #[test]
+    fn accepts_common_model_list_item_indentation_drift() {
+        let yaml = "goal: \"Create Next app\"\nprofile: \"nextjs\"\nstyle: \"default\"\nsteps:\n  - id: create-files\n    instruction: \"Create Next.js files.\"\n    expected_paths:\n  - package.json\n  - app/page.tsx\n    verify:\n  - cat package.json\n";
+
+        let plan = parse_step_plan_yaml(yaml).unwrap();
+
+        assert_eq!(
+            plan.steps[0].expected_paths,
+            vec!["package.json", "app/page.tsx"]
+        );
+        assert_eq!(plan.steps[0].verify, vec!["cat package.json"]);
     }
 
     #[test]

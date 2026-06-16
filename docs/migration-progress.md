@@ -57,5 +57,6 @@ docs/eval/mvp-uat.md
 ```
 
 Result: REPL slash-command dispatch is wired and covered by regression tests.
-Live 27B `/plan-run` UAT now passes for docs, Python, and Rust smoke workflows.
-Next.js, repair fallback, and planner/executor split live UAT remain pending.
+Live UAT now passes for docs, Python, Rust, a Next.js file-set workflow,
+planner/executor split, and repair fallback prompt saving. Larger
+`/ultra-plan-run` sign-off remains pending.
