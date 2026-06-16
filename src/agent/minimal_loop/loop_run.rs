@@ -1,3 +1,7 @@
+use crate::agent::minimal_loop::guards::{
+    completion_without_write_feedback, future_action_feedback, is_file_change_tool,
+    missing_artifacts, requested_artifact_feedback,
+};
 use crate::agent::minimal_loop::prompt::{
     parser_failure_feedback, system_prompt, violates_final_answer_contract,
 };
@@ -53,6 +57,10 @@ pub struct MinimalLoopConfig {
     pub model: String,
     pub max_iterations: usize,
     pub initial_tool_call_mode: ToolCallMode,
+    pub expected_artifacts: Vec<String>,
+    pub enable_completion_without_write_feedback: bool,
+    pub enable_requested_artifact_feedback: bool,
+    pub enable_future_action_feedback: bool,
 }
 
 impl Default for MinimalLoopConfig {
@@ -61,6 +69,10 @@ impl Default for MinimalLoopConfig {
             model: "default".to_string(),
             max_iterations: 8,
             initial_tool_call_mode: ToolCallMode::Native,
+            expected_artifacts: Vec::new(),
+            enable_completion_without_write_feedback: true,
+            enable_requested_artifact_feedback: true,
+            enable_future_action_feedback: true,
         }
     }
 }
@@ -88,6 +100,7 @@ pub enum MinimalLoopError {
     ToolArgs(String),
     Tool(String),
     FinalAnswerContract(String),
+    MissingArtifacts(Vec<String>),
 }
 
 impl std::fmt::Display for MinimalLoopError {
@@ -99,6 +112,9 @@ impl std::fmt::Display for MinimalLoopError {
             Self::Tool(message) => write!(f, "tool error: {}", message),
             Self::FinalAnswerContract(message) => {
                 write!(f, "assistant violated final answer contract: {}", message)
+            }
+            Self::MissingArtifacts(paths) => {
+                write!(f, "missing expected artifacts: {}", paths.join(", "))
             }
         }
     }
@@ -130,6 +146,10 @@ where
     ];
     let mut tool_results = Vec::new();
     let mut mode = config.initial_tool_call_mode;
+    let mut file_change_count = 0usize;
+    let mut future_action_feedback_sent = false;
+    let mut completion_without_write_feedback_sent = false;
+    let mut requested_artifact_feedback_sent = false;
 
     for iteration in 1..=config.max_iterations {
         let request = ChatRequest {
@@ -150,6 +170,9 @@ where
             Ok(calls) if !calls.is_empty() => {
                 for call in calls {
                     let record = executor.execute(&call)?;
+                    if record.ok && is_file_change_tool(&record.name) {
+                        file_change_count += 1;
+                    }
                     messages.push(ChatMessage {
                         role: ChatRole::Tool,
                         content: record.output.clone(),
@@ -159,8 +182,42 @@ where
             }
             Ok(_) => {
                 if violates_final_answer_contract(&response.content) {
+                    if config.enable_future_action_feedback && !future_action_feedback_sent {
+                        future_action_feedback_sent = true;
+                        messages.push(ChatMessage {
+                            role: ChatRole::User,
+                            content: future_action_feedback(),
+                        });
+                        continue;
+                    }
                     return Err(MinimalLoopError::FinalAnswerContract(response.content));
                 }
+
+                let missing = missing_artifacts(&guard, &config.expected_artifacts);
+                if config.enable_requested_artifact_feedback && !missing.is_empty() {
+                    if !requested_artifact_feedback_sent {
+                        requested_artifact_feedback_sent = true;
+                        messages.push(ChatMessage {
+                            role: ChatRole::User,
+                            content: requested_artifact_feedback(&missing),
+                        });
+                        continue;
+                    }
+                    return Err(MinimalLoopError::MissingArtifacts(missing));
+                }
+
+                if config.enable_completion_without_write_feedback
+                    && file_change_count == 0
+                    && !completion_without_write_feedback_sent
+                {
+                    completion_without_write_feedback_sent = true;
+                    messages.push(ChatMessage {
+                        role: ChatRole::User,
+                        content: completion_without_write_feedback(),
+                    });
+                    continue;
+                }
+
                 return Ok(RunResult {
                     final_answer: response.content,
                     iterations: iteration,
@@ -345,6 +402,10 @@ mod tests {
                 content: "Recovered.".to_string(),
                 tool_calls: Vec::new(),
             },
+            ChatResponse {
+                content: "No file changes were needed.".to_string(),
+                tool_calls: Vec::new(),
+            },
         ]);
 
         let result = run_session(
@@ -358,17 +419,66 @@ mod tests {
         assert_eq!(result.tool_call_mode, ToolCallMode::XmlFallback);
         assert_eq!(
             client.modes,
-            vec![ToolCallMode::Native, ToolCallMode::XmlFallback]
+            vec![
+                ToolCallMode::Native,
+                ToolCallMode::XmlFallback,
+                ToolCallMode::XmlFallback
+            ]
         );
     }
 
     #[test]
-    fn rejects_future_tool_action_as_final_answer() {
+    fn future_action_feedback_prompts_for_tool_call() {
+        let root = temp_workspace("future-feedback");
+        let mut client = MockClient::new(vec![
+            ChatResponse {
+                content: "Now I'll create the files.".to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    name: "Write".to_string(),
+                    args_json: r#"{"path":"created.txt","content":"ok"}"#.to_string(),
+                }],
+            },
+            ChatResponse {
+                content: "Created created.txt.".to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+
+        let result = run_session(
+            &mut client,
+            &root,
+            "create files",
+            MinimalLoopConfig::default(),
+        )
+        .unwrap();
+
+        assert_eq!(result.final_answer, "Created created.txt.");
+        assert_eq!(fs::read_to_string(root.join("created.txt")).unwrap(), "ok");
+        assert!(result.messages.iter().any(|message| {
+            message.role == ChatRole::User
+                && message
+                    .content
+                    .contains("You described a future tool action")
+        }));
+    }
+
+    #[test]
+    fn repeated_future_action_after_feedback_is_rejected() {
         let root = temp_workspace("final-contract");
-        let mut client = MockClient::new(vec![ChatResponse {
-            content: "Now I'll create the files.".to_string(),
-            tool_calls: Vec::new(),
-        }]);
+        let mut client = MockClient::new(vec![
+            ChatResponse {
+                content: "Now I'll create the files.".to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: "Let me write the file now.".to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
 
         let err = run_session(
             &mut client,
@@ -407,6 +517,114 @@ mod tests {
         .unwrap();
 
         assert_eq!(fs::read_to_string(root.join("a.txt")).unwrap(), "x");
+    }
+
+    #[test]
+    fn completion_without_write_feedback_fires_once_then_accepts_no_change_completion() {
+        let root = temp_workspace("completion-no-write");
+        let mut client = MockClient::new(vec![
+            ChatResponse {
+                content: "Done.".to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: "No file changes were needed for this task.".to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+
+        let result = run_session(
+            &mut client,
+            &root,
+            "answer a question",
+            MinimalLoopConfig::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            result.final_answer,
+            "No file changes were needed for this task."
+        );
+        assert!(result.messages.iter().any(|message| {
+            message.role == ChatRole::User
+                && message.content.contains("No file changes have been made")
+        }));
+    }
+
+    #[test]
+    fn requested_artifact_feedback_prompts_for_missing_path() {
+        let root = temp_workspace("missing-artifact");
+        let mut client = MockClient::new(vec![
+            ChatResponse {
+                content: "Done.".to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    name: "Write".to_string(),
+                    args_json: r#"{"path":"dist/report.md","content":"ok"}"#.to_string(),
+                }],
+            },
+            ChatResponse {
+                content: "Created dist/report.md.".to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+
+        let result = run_session(
+            &mut client,
+            &root,
+            "create a report",
+            MinimalLoopConfig {
+                expected_artifacts: vec!["dist/report.md".to_string()],
+                ..MinimalLoopConfig::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(result.final_answer, "Created dist/report.md.");
+        assert_eq!(
+            fs::read_to_string(root.join("dist/report.md")).unwrap(),
+            "ok"
+        );
+        assert!(result.messages.iter().any(|message| {
+            message.role == ChatRole::User
+                && message
+                    .content
+                    .contains("requested artifact paths are still missing")
+        }));
+    }
+
+    #[test]
+    fn requested_artifact_missing_after_feedback_is_error() {
+        let root = temp_workspace("missing-artifact-error");
+        let mut client = MockClient::new(vec![
+            ChatResponse {
+                content: "Done.".to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: "No changes needed.".to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+
+        let err = run_session(
+            &mut client,
+            &root,
+            "create a report",
+            MinimalLoopConfig {
+                expected_artifacts: vec!["dist/report.md".to_string()],
+                ..MinimalLoopConfig::default()
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            err,
+            MinimalLoopError::MissingArtifacts(vec!["dist/report.md".to_string()])
+        );
     }
 
     struct MockClient {

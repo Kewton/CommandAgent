@@ -32,3 +32,13 @@ contract. Adding another feedback loop is the last resort.
 The minimal loop is intentionally small: provider call, tool execution,
 observation append, and final-answer validation. Planning, repair, and profile
 contracts live outside the loop.
+
+Minimal-loop feedback is allowed only when it is triggered by deterministic
+session facts:
+
+- the assistant described a future tool action without issuing a tool call
+- no Write/Edit has happened before a no-tool completion
+- explicitly requested artifact paths are still missing
+
+Each feedback guard is bounded. It may clarify the current contradiction once,
+but it must not become a hidden planner or retry engine.

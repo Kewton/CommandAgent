@@ -97,3 +97,16 @@ and XML fallback are both represented through the shared `ToolCall` type.
 Malformed tool-call parsing in native mode downgrades the session to XML
 fallback mode. The parser feedback shows the XML format example only after this
 mode transition.
+
+The loop has three narrow completion guards:
+
+- future-action feedback: a no-tool response that says it will create, edit,
+  read, run, or verify something is not accepted as a final answer on the first
+  occurrence
+- completion-without-write feedback: a no-tool completion before any Write/Edit
+  receives one neutral reminder that file-changing tasks require tools
+- requested-artifact feedback: configured expected paths are checked before
+  completion, and missing paths receive one direct reminder
+
+These guards do not inspect task semantics. They only react to observable
+session facts and are capped to avoid unbounded repair behavior.
