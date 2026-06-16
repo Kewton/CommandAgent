@@ -1,0 +1,18 @@
+id: smoke-python-script
+title: Create a small Python script
+profile: python
+style: default
+intent: new
+prompt: "Create scripts/slugify.py with a slugify(text) function and a tiny CLI example."
+expected_artifacts:
+  - scripts/slugify.py
+verify:
+  - python3 scripts/slugify.py
+success_check:
+  type: semantic
+  required_paths:
+    - scripts/slugify.py
+  must_include:
+    scripts/slugify.py:
+      - slugify
+      - __main__

@@ -1,0 +1,21 @@
+id: large-fastapi-app-new
+title: New FastAPI app
+profile: python
+style: default
+intent: new
+prompt: "Create a FastAPI service with health, items CRUD routes, tests, and local run instructions."
+expected_artifacts:
+  - app/main.py
+  - tests/test_app.py
+  - requirements.txt
+verify:
+  - python3 -m pytest
+success_check:
+  type: semantic
+  required_paths:
+    - app/main.py
+    - tests/test_app.py
+  must_include:
+    app/main.py:
+      - FastAPI
+      - health

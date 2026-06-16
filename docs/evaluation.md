@@ -4,6 +4,10 @@ CommandAgent evaluation treats verifier output as first-class triage data.
 Failures should show what command ran, why it failed, and the smallest useful
 evidence packet for repair.
 
+Eval case YAML lives under `eval/cases`. Case sets are split into `smoke`,
+`small`, and `large`. Large cases should use semantic checks based on required
+artifacts, verifier commands, and content signals rather than line count alone.
+
 ## Verifier Failure Shape
 
 Each verifier failure records:

@@ -1,0 +1,20 @@
+id: smoke-rust-cli
+title: Create a tiny Rust CLI
+profile: rust
+style: default
+intent: new
+prompt: "Create a minimal Cargo Rust CLI that prints hello from CommandAgent."
+expected_artifacts:
+  - Cargo.toml
+  - src/main.rs
+verify:
+  - cargo build
+success_check:
+  type: semantic
+  required_paths:
+    - Cargo.toml
+    - src/main.rs
+  must_include:
+    src/main.rs:
+      - fn main
+      - CommandAgent

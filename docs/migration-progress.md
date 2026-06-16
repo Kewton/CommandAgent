@@ -34,6 +34,7 @@ visible from commits, not only from local workspace notes.
 | CA-0801 | Done | Ultra plan schema, phase generation prompt, phase validation, and ultra-plan saving. |
 | CA-0802 | Done | Ultra phase execution core, phase prompt construction, workspace snapshot, and failure-stop report. |
 | CA-0803 | Done | MVP profile contracts, Next.js verifier hint, data raw-input protection, and profiles docs. |
+| CA-0901 | Done | Eval case schema docs, three smoke cases, and six large-task skeleton cases. |
 
 Latest verification:
 

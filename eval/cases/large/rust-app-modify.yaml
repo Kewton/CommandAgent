@@ -1,0 +1,18 @@
+id: large-rust-app-modify
+title: Modify an existing Rust app
+profile: rust
+style: default
+intent: modify
+prompt: "Refactor an existing Rust CLI into modules, add error handling, and keep cargo test passing."
+expected_artifacts:
+  - Cargo.toml
+  - src/main.rs
+verify:
+  - cargo test
+success_check:
+  type: semantic
+  required_paths:
+    - src/main.rs
+  must_include:
+    src/main.rs:
+      - fn main

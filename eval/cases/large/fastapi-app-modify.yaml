@@ -1,0 +1,18 @@
+id: large-fastapi-app-modify
+title: Modify an existing FastAPI app
+profile: python
+style: default
+intent: modify
+prompt: "Add request validation, error handling, and tests to an existing FastAPI service."
+expected_artifacts:
+  - app/main.py
+  - tests/test_app.py
+verify:
+  - python3 -m pytest
+success_check:
+  type: semantic
+  required_paths:
+    - tests/test_app.py
+  must_include:
+    tests/test_app.py:
+      - test_

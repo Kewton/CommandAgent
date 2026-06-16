@@ -1,0 +1,18 @@
+id: smoke-docs-readme
+title: Create a short README
+profile: docs
+style: default
+intent: docs
+prompt: "Create README.md with a short CommandAgent usage note."
+expected_artifacts:
+  - README.md
+verify:
+  - cat README.md
+success_check:
+  type: semantic
+  required_paths:
+    - README.md
+  must_include:
+    README.md:
+      - CommandAgent
+      - usage

@@ -1,0 +1,19 @@
+id: large-nextjs-app-modify
+title: Modify an existing Next.js app
+profile: nextjs
+style: default
+intent: modify
+prompt: "Improve an existing Next.js dashboard with an analytics panel and keep npm run build passing."
+expected_artifacts:
+  - package.json
+  - app/page.tsx
+  - components/AnalyticsPanel.tsx
+verify:
+  - npm run build
+success_check:
+  type: semantic
+  required_paths:
+    - components/AnalyticsPanel.tsx
+  must_include:
+    components/AnalyticsPanel.tsx:
+      - Analytics

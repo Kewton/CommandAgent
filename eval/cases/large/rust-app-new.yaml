@@ -1,0 +1,19 @@
+id: large-rust-app-new
+title: New Rust CLI app
+profile: rust
+style: default
+intent: new
+prompt: "Create a Rust CLI with argument parsing, file input support, unit tests, and clear errors."
+expected_artifacts:
+  - Cargo.toml
+  - src/main.rs
+verify:
+  - cargo test
+success_check:
+  type: semantic
+  required_paths:
+    - Cargo.toml
+    - src/main.rs
+  must_include:
+    src/main.rs:
+      - fn main
