@@ -1,3 +1,5 @@
+pub mod plan_lint;
+
 use crate::util::workspace_paths::plans_dir;
 use serde_json::Value;
 use std::collections::HashSet;
