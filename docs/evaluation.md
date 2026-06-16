@@ -8,6 +8,11 @@ Eval case YAML lives under `eval/cases`. Case sets are split into `smoke`,
 `small`, and `large`. Large cases should use semantic checks based on required
 artifacts, verifier commands, and content signals rather than line count alone.
 
+`scripts/eval_agent_slice.sh` runs a case directory with the release binary and
+writes a timestamped root containing per-run `meta.json`, stdout/stderr, a
+workspace directory, and `summary.tsv`. Use `--dry-run` for offline wiring
+checks.
+
 ## Verifier Failure Shape
 
 Each verifier failure records:

@@ -19,4 +19,9 @@ target/release/commandagent --help >/dev/null
 echo "== branding =="
 scripts/check_branding.sh
 
+echo "== eval dry run =="
+tmp_eval="$(mktemp -d)"
+scripts/eval_agent_slice.sh --dry-run --out "$tmp_eval" --runs 1 >/dev/null
+test -f "$tmp_eval"/*/summary.tsv
+
 echo "offline smoke passed"
