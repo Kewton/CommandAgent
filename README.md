@@ -18,6 +18,7 @@ repair systems are intentionally out of scope.
 
 - `docs/philosophy.md`
 - `docs/architecture.md`
+- `docs/providers.md`
 - `docs/usage.md`
 - `docs/adr/0001-minimal-only.md`
 

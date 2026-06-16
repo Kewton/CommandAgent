@@ -1,3 +1,4 @@
+pub mod ollama;
 pub mod planner;
 
 use crate::config::Provider;
