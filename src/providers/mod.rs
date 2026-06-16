@@ -1,5 +1,6 @@
 pub mod ollama;
 pub mod planner;
+pub mod xml_fallback;
 
 use crate::config::Provider;
 
