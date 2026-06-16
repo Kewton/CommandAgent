@@ -65,6 +65,11 @@ Sessions are stored at `.commandagent/sessions/<id>/session.json`. The MVP
 supports save/load and `--resume` plumbing, but does not migrate historical
 state directories.
 
+LLM request/response observations are stored as JSON Lines at
+`.commandagent/logs/llm-io.jsonl`. The logger records provider, model, planner
+metadata, tool-call mode, and payload. Secret-bearing keys such as API keys,
+authorization headers, and tokens are redacted before writing.
+
 Search tools walk the workspace deterministically and skip hidden paths by
 default. Search output is bounded so a tool result cannot flood the next model
 turn.
