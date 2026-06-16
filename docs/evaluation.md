@@ -18,6 +18,21 @@ failure category, and case. `scripts/eval_report.py <root> --recheck` rechecks
 existing workspaces against current case `required_paths` and writes
 `recheck_summary.tsv` without overwriting the original summary.
 
+Large task eval uses:
+
+```bash
+scripts/eval_large_tasks.sh
+```
+
+The default is `runs=1` for MVP sign-off because each large case can be slow.
+Use release-quality mode when comparing stability:
+
+```bash
+scripts/eval_large_tasks.sh --release-quality
+```
+
+This runs each large case 3 times.
+
 ## Verifier Failure Shape
 
 Each verifier failure records:

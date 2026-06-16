@@ -37,6 +37,7 @@ visible from commits, not only from local workspace notes.
 | CA-0901 | Done | Eval case schema docs, three smoke cases, and six large-task skeleton cases. |
 | CA-0902 | Done | Eval slice runner with run roots, meta.json, stdout/stderr, workspace, and summary.tsv. |
 | CA-0903 | Done | Eval report generation and recheck_summary.tsv for existing run roots. |
+| CA-0904 | Done | Large eval wrapper with runs=1 MVP default and runs=3 release-quality mode. |
 
 Latest verification:
 

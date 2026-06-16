@@ -26,5 +26,7 @@ test -f "$tmp_eval"/*/summary.tsv
 scripts/eval_report.py "$eval_root" >/dev/null
 scripts/eval_report.py "$eval_root" --recheck >/dev/null
 test -f "$eval_root/recheck_summary.tsv"
+large_root="$(scripts/eval_large_tasks.sh --dry-run --out "$tmp_eval/large" --runs 1)"
+test -f "$large_root/summary.tsv"
 
 echo "offline smoke passed"
