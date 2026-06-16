@@ -16,6 +16,16 @@ CommandAgent is built around a small set of modules with explicit boundaries.
 - `util`: shared workspace path and file classification helpers.
 - `tui`: terminal rendering.
 
+## REPL
+
+When no prompt argument is supplied and stdin is a TTY, `cli` starts the minimal
+REPL. The REPL owns only line input, `/exit` and `/quit`, empty-line skipping,
+and per-turn session saving. Actual work is delegated to a `ReplTurnRunner`;
+the production runner calls the minimal loop, while tests use a mock runner.
+
+This keeps interactive UX separate from provider transport and from future
+slash-command planning features.
+
 ## Provider Boundary
 
 Provider abstraction is intentionally thin. Providers send chat turns and return

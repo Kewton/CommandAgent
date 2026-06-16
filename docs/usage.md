@@ -7,7 +7,19 @@ CommandAgent is currently in migration bootstrap.
 ```bash
 commandagent --help
 commandagent --version
+commandagent --provider ollama --model qwen3.6:35b-a3b-coding-nvfp4
+commandagent --provider ollama --model qwen3.6:35b-a3b-coding-nvfp4 "Create README.md"
 ```
+
+When started from a terminal without a prompt argument, CommandAgent opens the
+minimal interactive REPL:
+
+```text
+commandagent>
+```
+
+Blank lines are ignored. `/exit` and `/quit` end the REPL. Each successful turn
+runs the minimal loop and saves a session under `.commandagent/sessions`.
 
 ## Configuration
 
@@ -49,7 +61,7 @@ GEMINI_API_KEY=...
 OPENAI_API_KEY=...
 ```
 
-Future MVP usage will include:
+Provider examples:
 
 ```bash
 commandagent --provider ollama --model qwen3.6:35b-a3b-coding-nvfp4

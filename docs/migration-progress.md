@@ -25,6 +25,7 @@ visible from commits, not only from local workspace notes.
 | CA-0402 | Done | llm-io JSONL logging and secret masking tests. |
 | CA-0501 | Done | Minimal loop one-shot Write, XML fallback, downgrade, final-answer contract tests. |
 | CA-0502 | Done | Minimal loop future-action, completion-without-write, and requested-artifact feedback guard tests. |
+| CA-0601 | Done | Minimal REPL line loop, prompt routing, per-turn session save, and usage docs. |
 
 Latest verification:
 
