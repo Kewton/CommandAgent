@@ -30,6 +30,7 @@ visible from commits, not only from local workspace notes.
 | CA-0701 | Done | Step plan schema, YAML render/load, generation/correction prompts, and plan saving. |
 | CA-0702 | Done | Plan lint for expected path type, setup/verify separation, and verification-only regression. |
 | CA-0703 | Done | Deterministic verifier, dependency_missing, diagnostic/source excerpts, and evaluation docs. |
+| CA-0704 | Done | Repair budget, exhausted report, short repair packet, and suggested replan command. |
 
 Latest verification:
 

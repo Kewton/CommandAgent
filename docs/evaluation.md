@@ -24,3 +24,17 @@ with the explicit dependency-missing reason.
 
 Verifier evidence is deterministic context for the next repair or replanning
 step. It is not a semantic sidecar summary.
+
+## Repair Exhaustion
+
+Bounded repair should stop after the configured file-changing attempt budget.
+The exhaustion report records missing expected paths, repeated changed files,
+and verifier evidence. For explicit replanning, CommandAgent saves a short
+repair packet under `.commandagent/repairs` and suggests:
+
+```text
+/ultra-plan-run --profile <profile> "$(cat .commandagent/repairs/<file>.md)"
+```
+
+The saved packet is intentionally bounded so it can be fed back through the
+slash command parser without turning the whole failed session into a new goal.

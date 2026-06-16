@@ -110,6 +110,12 @@ policy, detects dependency-missing cases before fake success is possible, and
 compresses failures into bounded diagnostics plus nearby source excerpts when a
 file/line reference is present.
 
+Repair is bounded and evidence-driven. The default budget allows two
+file-changing attempts. When repair is exhausted, CommandAgent writes a short
+replan packet under `.commandagent/repairs` and suggests an explicit
+`/ultra-plan-run --profile <profile> "$(cat ...)"` command instead of hiding an
+unbounded retry loop.
+
 ## Minimal Loop
 
 The minimal loop owns one coding-agent session:

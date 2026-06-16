@@ -1,4 +1,5 @@
 pub mod plan_lint;
+pub mod repair;
 pub mod verify;
 
 use crate::util::workspace_paths::plans_dir;
