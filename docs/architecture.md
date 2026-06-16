@@ -26,6 +26,11 @@ the production runner calls the minimal loop, while tests use a mock runner.
 This keeps interactive UX separate from provider transport and from future
 slash-command planning features.
 
+Slash command parsing is a separate module. It recognizes plan/ultra-plan
+commands, `--profile`, `--style`, and bounded `$(cat ...)` repair prompt
+references. File references are resolved through path confinement before their
+contents are expanded.
+
 ## Provider Boundary
 
 Provider abstraction is intentionally thin. Providers send chat turns and return

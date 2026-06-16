@@ -79,7 +79,8 @@ commandagent \
   --planner-model gemini-3.5-flash
 ```
 
-Interactive slash commands planned for MVP:
+Interactive slash commands use the same parser as the future step runner. The
+parser recognizes:
 
 - `/plan-steps`
 - `/plan-run`
@@ -87,5 +88,13 @@ Interactive slash commands planned for MVP:
 - `/ultra-plan`
 - `/ultra-plan-run`
 - `/run-ultra-plan`
-- `/exit`
-- `/quit`
+
+The parser also accepts leading `--profile` and `--style` options for plan
+commands, plus bounded file references such as:
+
+```text
+/ultra-plan-run --profile nextjs "$(cat .commandagent/repairs/repair.md)"
+```
+
+File references are resolved inside the current workspace and cannot escape it.
+The REPL itself handles `/exit` and `/quit`.
