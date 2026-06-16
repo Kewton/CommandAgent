@@ -1,3 +1,4 @@
+pub mod gemini;
 pub mod ollama;
 pub mod planner;
 pub mod xml_fallback;

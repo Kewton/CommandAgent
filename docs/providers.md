@@ -22,10 +22,25 @@ OLLAMA_HOST=http://127.0.0.1:11434 scripts/provider_smoke_ollama.sh
 This smoke is intentionally not part of `scripts/eval_smoke.sh` because it
 requires a running local service.
 
-## Gemini and OpenAI
+## Gemini
 
-Gemini and OpenAI are planned provider adapters. They use XML fallback tool
-calls by default unless native tool support is deliberately added later.
+Gemini uses the Generative Language API `models/{model}:generateContent`
+endpoint. System messages are sent as `systemInstruction`; user and tool
+messages use the `user` role; assistant messages use Gemini's `model` role.
+
+Gemini provider smoke is opt-in because it requires network access and
+`GEMINI_API_KEY`:
+
+```bash
+GEMINI_API_KEY=... GEMINI_MODEL=gemini-3.5-flash scripts/provider_smoke_gemini.sh
+```
+
+Gemini uses XML fallback tool calls by default.
+
+## OpenAI
+
+OpenAI is a planned provider adapter. It uses XML fallback tool calls by default
+unless native tool support is deliberately added later.
 
 The canonical fallback format is:
 
