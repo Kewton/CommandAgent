@@ -28,3 +28,7 @@ agent-side orchestration.
 New mechanisms must start from observed failures. A change is preferred when it
 removes ambiguity, makes deterministic facts visible, or narrows an existing
 contract. Adding another feedback loop is the last resort.
+
+The minimal loop is intentionally small: provider call, tool execution,
+observation append, and final-answer validation. Planning, repair, and profile
+contracts live outside the loop.

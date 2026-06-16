@@ -79,3 +79,21 @@ turn.
 The step runner owns planning, linting, verification, and bounded repair. The
 minimal loop owns single-turn execution. Profiles add small contracts and
 verifiers, not full domain-specific agents.
+
+## Minimal Loop
+
+The minimal loop owns one coding-agent session:
+
+- build the system/user/tool context
+- call the active chat provider
+- execute tool calls
+- append tool observations
+- finish only when the assistant returns a completed final answer
+
+Provider transport is injected through a small `ChatClient` trait. This keeps
+Ollama, Gemini, and OpenAI transport details outside the loop. Native tool calls
+and XML fallback are both represented through the shared `ToolCall` type.
+
+Malformed tool-call parsing in native mode downgrades the session to XML
+fallback mode. The parser feedback shows the XML format example only after this
+mode transition.
