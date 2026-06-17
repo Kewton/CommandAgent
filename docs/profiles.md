@@ -43,6 +43,10 @@ It should not mutate unrelated virtual environments.
 
 The `rust` profile is for Rust CLI/library changes. It prefers `cargo test` as
 the deterministic verifier and keeps generated files within the workspace.
+For integration tests, references such as `CARGO_BIN_EXE_<name>` must match the
+actual Cargo binary name declared in `Cargo.toml`. Tests should reference the
+package, binary, module, and public item names that the project actually
+defines.
 
 ## Investigation And Docs
 

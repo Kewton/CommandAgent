@@ -71,6 +71,26 @@ does not look like a code-quality failure when the verifier was unavailable.
 Verifier evidence is deterministic context for the next repair or replanning
 step. It is not a semantic sidecar summary.
 
+## Recent Recovery Check
+
+The R5/R6 guard subset at
+`eval/runs/r5-r6-guard-subset/20260617T213505` was run from clean commit
+`8eff913`.
+
+Result:
+
+```text
+large-nextjs-app-modify  false  dependency_missing
+large-rust-app-modify    false  rc:1
+large-rust-app-new       true   ok
+```
+
+The key interpretation is that Next.js remains an environment/setup boundary,
+Rust modify moved past the prior missing-artifact/no-tool class and now fails on
+compile/edit-repair quality, and Rust new passed the current artifact/process
+contract. Details are in
+`docs/eval/triage/post-8eff913-r5-r6-guard-subset-20260617T213505.md`.
+
 ## Repair Exhaustion
 
 Bounded repair should stop after the configured file-changing attempt budget.
