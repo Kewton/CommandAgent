@@ -74,17 +74,27 @@ Missing expected paths:\n{missing}\n",
 
 fn repair_focus(failures: &[VerificationFailure]) -> String {
     let mut focus = Vec::new();
+    if failures.iter().any(has_concrete_source_failure) {
+        focus.push("- Concrete verifier failure: the verifier identified a source error or source excerpt. Fix that reported error first, before continuing feature work. Read the referenced file before editing; use Edit only with exact current target text, or Write for a coherent full-file replacement when exact target text is uncertain.".to_string());
+    }
     if failures
         .iter()
         .any(|failure| failure.reason == "edit_target_not_found")
     {
-        focus.push("- Edit target not found: current file content did not match the attempted Edit. Before any further Edit, call Read or Glob to inspect the current target file. Do not reuse old target text.".to_string());
+        focus.push("- Edit target not found: current file content did not match the attempted Edit. Do not call Edit from memory in the next repair turn. Call Read or Glob to inspect the current target file first. If exact target text is still uncertain, use Write to replace the full file with corrected content instead of retrying stale Edit text.".to_string());
     }
     if focus.is_empty() {
         "- none".to_string()
     } else {
         focus.join("\n")
     }
+}
+
+fn has_concrete_source_failure(failure: &VerificationFailure) -> bool {
+    failure.source_excerpt.is_some()
+        || failure.diagnostic_excerpt.contains("error[")
+        || failure.diagnostic_excerpt.contains("Type error")
+        || failure.diagnostic_excerpt.contains("Failed to compile")
 }
 
 pub fn repair_exhausted_report(
@@ -335,7 +345,9 @@ mod tests {
         assert!(prompt.contains("Use Edit only when you have exact current target text"));
         assert!(prompt.contains("If evidence says dependency_missing"));
         assert!(prompt.contains("Repair focus"));
-        assert!(prompt.contains("- none"));
+        assert!(prompt.contains("Concrete verifier failure"));
+        assert!(prompt.contains("Fix that reported error first"));
+        assert!(prompt.contains("Write for a coherent full-file replacement"));
     }
 
     #[test]
@@ -376,7 +388,8 @@ mod tests {
         assert!(prompt.contains("If evidence says dependency_missing"));
         assert!(prompt.contains("Repair focus"));
         assert!(prompt.contains("Edit target not found"));
-        assert!(prompt.contains("Do not reuse old target text"));
+        assert!(prompt.contains("Do not call Edit from memory"));
+        assert!(prompt.contains("use Write to replace the full file"));
     }
 
     fn sample_context() -> RepairContext {
