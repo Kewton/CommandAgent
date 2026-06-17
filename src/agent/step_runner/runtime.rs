@@ -568,6 +568,9 @@ Original goal:\n{original_goal}\n\n\
 Validation error:\n{error}\n\n\
 Invalid plan:\n{invalid_plan}\n\n\
 If the error mentions shell scaffolding, replace that step with explicit file creation or editing instructions that can be completed with Write/Edit.\n\
+If the error mentions optional inspection, inspect discovery, test -d, or test -f on a non-required inspect step, use kind: inspect with expected_paths: [] and verify: [].\n\
+If the error mentions invalid verifier commands, replace source-code grep with canonical build/test/check commands such as cargo check, cargo test, npm run build, python -m py_compile, or pytest. Keep grep only for literal docs/data/content checks.\n\
+If the error mentions shell chaining, split the verifier into simple commands or choose one canonical check. Do not use &&, ||, ;, pipes, redirection, or fallback-to-true syntax.\n\
 If the error mentions action/path/content/old/new fields, rewrite those tool-call fields into step instruction and expected_paths fields.\n\
 Return only corrected YAML using the required CommandAgent schema."
     )
@@ -1173,6 +1176,120 @@ mod tests {
             })
             .count();
         assert_eq!(invalid_count, 1);
+    }
+
+    #[test]
+    fn invalid_source_grep_step_plan_gets_one_correction_attempt() {
+        let root = temp_workspace("source-grep-plan-correction");
+        let invalid_yaml = "goal: \"Create Rust CLI\"\nprofile: \"rust\"\nstyle: \"default\"\nsteps:\n  - id: \"write-main\"\n    kind: \"create\"\n    instruction: \"Create src/main.rs.\"\n    expected_paths:\n      - \"src/main.rs\"\n    verify:\n      - \"grep -q clap src/main.rs\"\n";
+        let corrected_yaml = "goal: \"Create Rust CLI\"\nprofile: \"rust\"\nstyle: \"default\"\nsteps:\n  - id: \"write-main\"\n    kind: \"create\"\n    instruction: \"Create src/main.rs.\"\n    expected_paths:\n      - \"src/main.rs\"\n    verify:\n      - \"cargo check\"\n";
+        let mut planner = MockClient::new(vec![
+            ChatResponse {
+                content: invalid_yaml.to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: corrected_yaml.to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+        let mut executor = MockClient::new(vec![]);
+        let command = SlashCommand {
+            kind: SlashCommandKind::PlanSteps,
+            profile: Some("rust".to_string()),
+            style: None,
+            intent: Some("new".to_string()),
+            artifacts: Vec::new(),
+            argument: "Create Rust CLI".to_string(),
+        };
+
+        let output = SlashRuntime {
+            executor: &mut executor,
+            planner: &mut planner,
+            cwd: &root,
+            loop_config: MinimalLoopConfig::default(),
+            planner_config: PlannerRuntimeConfig {
+                model: "planner".to_string(),
+                tool_call_mode: ToolCallMode::XmlFallback,
+            },
+        }
+        .run(command)
+        .unwrap();
+
+        assert!(output.contains("created step plan"), "{output}");
+        let invalid_count = fs::read_dir(root.join(".commandagent/plans"))
+            .unwrap()
+            .flatten()
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("invalid-step-plan-")
+            })
+            .count();
+        assert_eq!(invalid_count, 1);
+    }
+
+    #[test]
+    fn invalid_phase_step_plan_gets_one_correction_attempt() {
+        let root = temp_workspace("phase-step-plan-correction");
+        let ultra_yaml = "goal: \"Create Rust CLI\"\nprofile: \"rust\"\nstyle: \"default\"\nintent: \"new\"\nphases:\n  - id: \"main\"\n    goal: \"Create main file.\"\n";
+        let invalid_step_yaml = "steps:\n  - id: \"write-main\"\n    kind: \"create\"\n    instruction: \"Create src/main.rs.\"\n    expected_paths:\n      - \"src/main.rs\"\n    verify:\n      - \"grep -q clap src/main.rs\"\n";
+        let corrected_step_yaml = "steps:\n  - id: \"write-main\"\n    kind: \"create\"\n    instruction: \"Create src/main.rs.\"\n    expected_paths:\n      - \"src/main.rs\"\n    verify: []\n";
+        let mut planner = MockClient::new(vec![
+            ChatResponse {
+                content: ultra_yaml.to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: invalid_step_yaml.to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: corrected_step_yaml.to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+        let mut executor = MockClient::new(vec![
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    name: "Write".to_string(),
+                    args_json: r#"{"path":"src/main.rs","content":"fn main() {}\n"}"#.to_string(),
+                }],
+            },
+            ChatResponse {
+                content: "Created src/main.rs.".to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+        let command = SlashCommand {
+            kind: SlashCommandKind::UltraPlanRun,
+            profile: Some("rust".to_string()),
+            style: None,
+            intent: Some("new".to_string()),
+            artifacts: vec!["src/main.rs".to_string()],
+            argument: "Create Rust CLI".to_string(),
+        };
+
+        let output = SlashRuntime {
+            executor: &mut executor,
+            planner: &mut planner,
+            cwd: &root,
+            loop_config: MinimalLoopConfig::default(),
+            planner_config: PlannerRuntimeConfig {
+                model: "planner".to_string(),
+                tool_call_mode: ToolCallMode::XmlFallback,
+            },
+        }
+        .run(command)
+        .unwrap();
+
+        assert!(output.contains("phase main: ok"), "{output}");
+        assert_eq!(
+            fs::read_to_string(root.join("src/main.rs")).unwrap(),
+            "fn main() {}\n"
+        );
     }
 
     struct MockClient {

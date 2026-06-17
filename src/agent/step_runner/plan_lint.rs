@@ -26,6 +26,7 @@ pub fn lint_step_plan_with_workspace(
             &step.instruction,
             &step.expected_paths,
         )?;
+        lint_inspect_verifier_boundary(&step.id, step.kind, &step.expected_paths, &step.verify)?;
         lint_setup_verify_boundary(
             &step.id,
             step.kind,
@@ -157,6 +158,28 @@ fn lint_optional_inspection_paths(
         return Err(PlanLintError::InvalidStepInstruction {
             step_id: step_id.to_string(),
             reason: "optional inspection targets must not be placed in expected_paths; use Read/Glob inspection and an empty expected_paths list"
+                .to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn lint_inspect_verifier_boundary(
+    step_id: &str,
+    kind: StepKind,
+    expected_paths: &[String],
+    verify: &[String],
+) -> Result<(), PlanLintError> {
+    if !matches!(kind, StepKind::Inspect) || !expected_paths.is_empty() || verify.is_empty() {
+        return Ok(());
+    }
+    if verify.iter().any(|command| {
+        let lower = command.trim().to_ascii_lowercase();
+        lower.starts_with("test -f ") || lower.starts_with("test -d ")
+    }) {
+        return Err(PlanLintError::InvalidStepInstruction {
+            step_id: step_id.to_string(),
+            reason: "inspect steps must not make optional file or directory discovery a fatal verifier; use verify: [] and observe with Read/Glob"
                 .to_string(),
         });
     }
@@ -644,6 +667,37 @@ mod tests {
             PlanLintError::InvalidStepInstruction {
                 step_id: "step".to_string(),
                 reason: "optional inspection targets must not be placed in expected_paths; use Read/Glob inspection and an empty expected_paths list".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_inspect_test_verifier_without_required_paths() {
+        let plan = StepPlan {
+            goal: "inspect components".to_string(),
+            profile: "nextjs".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::Modify,
+            required_artifacts: Vec::new(),
+            steps: vec![StepPlanStep {
+                id: "inspect-components".to_string(),
+                kind: StepKind::Inspect,
+                instruction: "Glob components directory to check if AnalyticsPanel already exists."
+                    .to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: Vec::new(),
+                verify: vec!["test -d components".to_string()],
+            }],
+        };
+
+        let err = lint_step_plan(&plan).unwrap_err();
+
+        assert_eq!(
+            err,
+            PlanLintError::InvalidStepInstruction {
+                step_id: "inspect-components".to_string(),
+                reason: "inspect steps must not make optional file or directory discovery a fatal verifier; use verify: [] and observe with Read/Glob"
+                    .to_string(),
             }
         );
     }
