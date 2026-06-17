@@ -69,7 +69,7 @@ pub fn profile_contract(id: ProfileId) -> ProfileContract {
         },
         ProfileId::Rust => ProfileContract {
             id,
-            text: "For Rust work, keep Cargo.toml honest, use idiomatic modules, and verify with cargo test, cargo build, or cargo run when requested. For new minimal projects, create Cargo.toml and src/main.rs with Write/Edit instead of cargo init or cargo new.".to_string(),
+            text: "For Rust work, keep Cargo.toml honest, use idiomatic modules, and verify with cargo test, cargo build, or cargo run when requested. For new minimal projects, create Cargo.toml and src/main.rs with Write/Edit instead of cargo init or cargo new. If integration tests use CARGO_BIN_EXE_<name>, ensure <name> matches the Cargo binary name defined by Cargo.toml; tests must reference actual package, binary, module, and public item names defined in the project.".to_string(),
             verifier_commands: vec!["cargo test".to_string()],
             protected_path_prefixes: Vec::new(),
         },
@@ -176,6 +176,8 @@ mod tests {
         assert!(contract.text.contains("Cargo.toml"));
         assert!(contract.text.contains("src/main.rs"));
         assert!(contract.text.contains("instead of cargo init or cargo new"));
+        assert!(contract.text.contains("CARGO_BIN_EXE_<name>"));
+        assert!(contract.text.contains("matches the Cargo binary name"));
     }
 
     #[test]

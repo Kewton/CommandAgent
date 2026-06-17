@@ -364,10 +364,12 @@ where
     ) -> Result<(), String> {
         let budget = RepairBudget::default();
         let mut repair_turns = 0usize;
+        let mut missing_artifact_no_tool_guard_sent = false;
 
         while budget.allows_next_attempt(file_changing_attempts) && repair_turns < MAX_REPAIR_TURNS
         {
             repair_turns += 1;
+            let missing_expected_paths = missing_paths(self.cwd, &step.expected_paths);
             let context = RepairContext {
                 step_id: step.id.clone(),
                 original_goal: plan.goal.clone(),
@@ -375,7 +377,7 @@ where
                 style: plan.style.clone(),
                 step_instruction: step.instruction.clone(),
                 verification_failures: failures.clone(),
-                missing_expected_paths: missing_paths(self.cwd, &step.expected_paths),
+                missing_expected_paths: missing_expected_paths.clone(),
                 changed_files: changed_files.clone(),
             };
             let prompt = build_repair_prompt(&context);
@@ -384,6 +386,16 @@ where
                 Err(err) => {
                     let error = err.to_string();
                     failures.push(turn_error_failure("repair turn", error.clone()));
+                    if should_send_missing_artifact_no_tool_guard(
+                        &error,
+                        &missing_expected_paths,
+                        missing_artifact_no_tool_guard_sent,
+                    ) {
+                        missing_artifact_no_tool_guard_sent = true;
+                        failures.push(missing_artifact_no_tool_guard_failure(
+                            &missing_expected_paths,
+                        ));
+                    }
                     if recoverable_repair_turn_error(&error)
                         && budget.allows_next_attempt(file_changing_attempts)
                         && repair_turns < MAX_REPAIR_TURNS
@@ -446,6 +458,33 @@ fn recoverable_repair_turn_error(error: &str) -> bool {
     error.contains("assistant violated final answer contract")
         || error.contains("missing expected artifacts")
         || error.contains("edit target was not found")
+}
+
+fn should_send_missing_artifact_no_tool_guard(
+    error: &str,
+    missing_expected_paths: &[String],
+    already_sent: bool,
+) -> bool {
+    !already_sent
+        && !missing_expected_paths.is_empty()
+        && (error.contains("assistant violated final answer contract")
+            || error.contains("missing expected artifacts"))
+}
+
+fn missing_artifact_no_tool_guard_failure(
+    missing_expected_paths: &[String],
+) -> VerificationFailure {
+    VerificationFailure {
+        command: "repair missing-artifact guard".to_string(),
+        reason: "missing_artifact_no_tool".to_string(),
+        stdout_excerpt: String::new(),
+        stderr_excerpt: String::new(),
+        diagnostic_excerpt: format!(
+            "The required path is still missing: {}. Do not describe the next action. Call Read, Glob, Write, or Edit in this response. If creating the missing file is required, call Write now.",
+            missing_expected_paths.join(", ")
+        ),
+        source_excerpt: None,
+    }
 }
 
 fn planner_text<C>(
@@ -955,6 +994,83 @@ mod tests {
             fs::read_to_string(root.join("README.md")).unwrap(),
             "recovered"
         );
+    }
+
+    #[test]
+    fn repair_adds_missing_artifact_no_tool_guard_once() {
+        let root = temp_workspace("repair-missing-artifact-no-tool-guard");
+        let step = StepPlanStep {
+            id: "write-readme".to_string(),
+            kind: StepKind::Create,
+            instruction: "Create README.md.".to_string(),
+            expected_result: ExpectedResult::Pass,
+            expected_paths: vec!["README.md".to_string()],
+            verify: vec!["cat README.md".to_string()],
+        };
+        let plan = StepPlan {
+            goal: "Create docs".to_string(),
+            profile: "docs".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::Document,
+            required_artifacts: Vec::new(),
+            steps: vec![step.clone()],
+        };
+        let mut executor = MockClient::new(vec![
+            ChatResponse {
+                content: "Let me read README.md first.".to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: "I'll create README.md now.".to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    name: "Write".to_string(),
+                    args_json: r#"{"path":"README.md","content":"guarded"}"#.to_string(),
+                }],
+            },
+            ChatResponse {
+                content: "Created README.md.".to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+        let mut planner = MockClient::new(Vec::new());
+        let mut config = MinimalLoopConfig::default();
+        config.expected_artifacts = step.expected_paths.clone();
+        let failures = vec![VerificationFailure {
+            command: "cat README.md".to_string(),
+            reason: "command_failed:1".to_string(),
+            stdout_excerpt: String::new(),
+            stderr_excerpt: "cat: README.md: No such file or directory".to_string(),
+            diagnostic_excerpt: String::new(),
+            source_excerpt: None,
+        }];
+
+        SlashRuntime {
+            executor: &mut executor,
+            planner: &mut planner,
+            cwd: &root,
+            loop_config: MinimalLoopConfig::default(),
+            planner_config: PlannerRuntimeConfig {
+                model: "planner".to_string(),
+                tool_call_mode: ToolCallMode::XmlFallback,
+            },
+        }
+        .repair_step_with_state(&plan, &step, config, failures, Vec::new(), 0, None)
+        .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(root.join("README.md")).unwrap(),
+            "guarded"
+        );
+        let guard_prompt_count = executor
+            .prompts
+            .iter()
+            .filter(|prompt| prompt.contains("The required path is still missing: README.md"))
+            .count();
+        assert_eq!(guard_prompt_count, 1);
     }
 
     #[test]
@@ -1616,18 +1732,27 @@ steps:
 
     struct MockClient {
         responses: VecDeque<ChatResponse>,
+        prompts: Vec<String>,
     }
 
     impl MockClient {
         fn new(responses: Vec<ChatResponse>) -> Self {
             Self {
                 responses: VecDeque::from(responses),
+                prompts: Vec::new(),
             }
         }
     }
 
     impl ChatClient for MockClient {
-        fn chat(&mut self, _request: &ChatRequest) -> Result<ChatResponse, String> {
+        fn chat(&mut self, request: &ChatRequest) -> Result<ChatResponse, String> {
+            self.prompts.push(
+                request
+                    .messages
+                    .last()
+                    .map(|message| message.content.clone())
+                    .unwrap_or_default(),
+            );
             self.responses
                 .pop_front()
                 .ok_or_else(|| "missing mock response".to_string())
