@@ -135,6 +135,14 @@ fn lint_verifier_command(step_id: &str, command: &str) -> Result<(), PlanLintErr
         });
     }
     let lower = trimmed.to_ascii_lowercase();
+    if lower == "true" {
+        return Err(PlanLintError::InvalidVerifierCommand {
+            step_id: step_id.to_string(),
+            command: command.to_string(),
+            reason: "no-op verifier is not allowed; use an empty verify list for report-only steps"
+                .to_string(),
+        });
+    }
     if starts_with_any(
         &lower,
         &[
@@ -215,6 +223,7 @@ fn lint_setup_verify_boundary(
             "validate ",
             "run build",
             "npm run build",
+            "cargo check",
             "cargo test",
             "cargo build",
             "pytest",
@@ -522,6 +531,16 @@ mod tests {
     fn rejects_unquoted_or_in_verifier() {
         let mut plan = plan_with_paths("generic", vec!["README.md"]);
         plan.steps[0].verify = vec!["test -f README.md || cat README.md".to_string()];
+
+        let err = lint_step_plan(&plan).unwrap_err();
+
+        assert!(matches!(err, PlanLintError::InvalidVerifierCommand { .. }));
+    }
+
+    #[test]
+    fn rejects_noop_true_verifier() {
+        let mut plan = plan_with_paths("generic", vec!["README.md"]);
+        plan.steps[0].verify = vec!["true".to_string()];
 
         let err = lint_step_plan(&plan).unwrap_err();
 

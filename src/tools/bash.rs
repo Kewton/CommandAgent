@@ -157,7 +157,13 @@ fn classify_simple(command: &str) -> PolicyDecision {
     }
     if starts_with_any(
         &lower,
-        &["npm run build", "npm test", "cargo test", "cargo build"],
+        &[
+            "npm run build",
+            "npm test",
+            "cargo check",
+            "cargo test",
+            "cargo build",
+        ],
     ) {
         return allowed(CommandClass::BuildTest);
     }
@@ -271,6 +277,15 @@ mod tests {
 
         assert_eq!(decision.class, CommandClass::Dangerous);
         assert!(!decision.allowed);
+    }
+
+    #[test]
+    fn allows_cargo_check_as_build_test() {
+        let root = temp_workspace("cargo-check");
+        let decision = enforce_offline_policy("cargo check", &root);
+
+        assert_eq!(decision.class, CommandClass::BuildTest);
+        assert!(decision.allowed);
     }
 
     #[test]

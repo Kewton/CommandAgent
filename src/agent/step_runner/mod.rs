@@ -205,7 +205,8 @@ Rules:\n\
 - If no file path is expected for a step, use an empty list.\n\
 - required_artifacts are final user-requested outputs and must be preserved exactly.\n\
 - setup prepares local dependencies or configuration; verify runs deterministic checks and must not change files.\n\
-- report steps explicitly report blockers such as dependency_missing or verifier_unavailable.\n\
+- report steps explicitly report blockers such as dependency_missing or verifier_unavailable and should use verify: [].\n\
+- Do not use true as a verifier; use an empty verify list for report-only steps.\n\
 - Do not include tool-call fields such as action, path, content, old, or new in the plan.\n\
 \n\
 Goal: {goal}\n\
@@ -852,6 +853,7 @@ steps:
         assert!(prompt.contains("npm run build"));
         assert!(prompt.contains("grep -q"));
         assert!(prompt.contains("prefer build/test/check commands"));
+        assert!(prompt.contains("Do not use true as a verifier"));
     }
 
     #[test]
