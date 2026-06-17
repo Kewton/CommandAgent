@@ -75,6 +75,30 @@ def git_value(repo, *args):
         return "unknown"
 
 
+def failure_evidence(workdir, stdout, stderr):
+    parts = [stdout, stderr]
+    repairs_dir = workdir / ".commandagent" / "repairs"
+    if repairs_dir.is_dir():
+        for path in sorted(repairs_dir.glob("*.md")):
+            try:
+                parts.append(path.read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                pass
+    return "\n".join(parts)
+
+
+def success_reason(workdir, rc, missing, stdout, stderr):
+    if missing:
+        return "missing:" + ",".join(missing)
+    if rc == 0:
+        return "ok"
+
+    evidence = failure_evidence(workdir, stdout, stderr)
+    if "dependency_missing" in evidence:
+        return "dependency_missing"
+    return f"rc:{rc}"
+
+
 def run_case(repo, root, binary, case, run_index, args):
     run_dir = root / case["id"] / f"run-{run_index}"
     workdir = run_dir / "workspace"
@@ -132,7 +156,7 @@ def run_case(repo, root, binary, case, run_index, args):
         path for path in case["expected_artifacts"] if not (workdir / path).exists()
     ]
     success = rc == 0 and not missing
-    reason = "ok" if success else ("missing:" + ",".join(missing) if missing else f"rc:{rc}")
+    reason = success_reason(workdir, rc, missing, stdout, stderr)
 
     meta = {
         "case_id": case["id"],

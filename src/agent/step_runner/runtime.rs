@@ -382,7 +382,14 @@ where
             let result = match run_session(self.executor, self.cwd, &prompt, config.clone()) {
                 Ok(result) => result,
                 Err(err) => {
-                    failures.push(turn_error_failure("repair turn", err.to_string()));
+                    let error = err.to_string();
+                    failures.push(turn_error_failure("repair turn", error.clone()));
+                    if recoverable_repair_turn_error(&error)
+                        && budget.allows_next_attempt(file_changing_attempts)
+                        && repair_turns < MAX_REPAIR_TURNS
+                    {
+                        continue;
+                    }
                     break;
                 }
             };
@@ -433,6 +440,12 @@ fn turn_error_failure(command: &str, error: String) -> VerificationFailure {
         diagnostic_excerpt: error,
         source_excerpt: None,
     }
+}
+
+fn recoverable_repair_turn_error(error: &str) -> bool {
+    error.contains("assistant violated final answer contract")
+        || error.contains("missing expected artifacts")
+        || error.contains("edit target was not found")
 }
 
 fn planner_text<C>(
@@ -883,6 +896,64 @@ mod tests {
         assert_eq!(
             fs::read_to_string(root.join("README.md")).unwrap(),
             "repaired"
+        );
+    }
+
+    #[test]
+    fn repair_retries_recoverable_final_answer_turn_error() {
+        let root = temp_workspace("repair-retry-final-answer-error");
+        let plan_yaml = "goal: \"Verify docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"verify-readme\"\n    kind: \"verify\"\n    instruction: \"Verify README exists.\"\n    expected_paths: []\n    verify:\n      - \"cat README.md\"\n";
+        let mut planner = MockClient::new(vec![ChatResponse {
+            content: plan_yaml.to_string(),
+            tool_calls: Vec::new(),
+        }]);
+        let mut executor = MockClient::new(vec![
+            ChatResponse {
+                content: "Let me create README.md now.".to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: "Now I'll create README.md.".to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    name: "Write".to_string(),
+                    args_json: r#"{"path":"README.md","content":"recovered"}"#.to_string(),
+                }],
+            },
+            ChatResponse {
+                content: "Created README.md.".to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+        let command = SlashCommand {
+            kind: SlashCommandKind::PlanRun,
+            profile: Some("docs".to_string()),
+            style: None,
+            intent: None,
+            artifacts: Vec::new(),
+            argument: "Verify docs".to_string(),
+        };
+
+        let output = SlashRuntime {
+            executor: &mut executor,
+            planner: &mut planner,
+            cwd: &root,
+            loop_config: MinimalLoopConfig::default(),
+            planner_config: PlannerRuntimeConfig {
+                model: "planner".to_string(),
+                tool_call_mode: ToolCallMode::XmlFallback,
+            },
+        }
+        .run(command)
+        .unwrap();
+
+        assert!(output.contains("step verify-readme: ok"), "{output}");
+        assert_eq!(
+            fs::read_to_string(root.join("README.md")).unwrap(),
+            "recovered"
         );
     }
 
