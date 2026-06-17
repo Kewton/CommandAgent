@@ -61,13 +61,30 @@ Step: {step}\n\
 Instruction: {instruction}\n\n\
 Use Read/Glob to inspect before editing. Use Bash only for one simple local command at a time. Do not use shell chaining or fallback syntax such as &&, ||, or ;. Use Write/Edit for file changes. Make only the changes needed for this step.\n\
 Treat turn_error evidence as actionable. If a prior response violated the final-answer contract by saying it would read, edit, run, or verify something, make the tool call now instead of describing the next action. If Edit failed because the target text or file was not found, do not retry Edit from memory. Use Read/Glob to inspect the exact current file first, or use Write to create/replace the missing file. Use Edit only when you have exact current target text from this repair turn. If evidence says dependency_missing, do not run npm install/npm ci or other dependency installation unless this step explicitly is dependency setup and the environment allows it; report the blocker instead of faking build success.\n\
+Repair focus:\n{focus}\n\
 Verification evidence:\n{evidence}\n\
 Missing expected paths:\n{missing}\n",
         step = context.step_id,
         instruction = context.step_instruction,
+        focus = repair_focus(&context.verification_failures),
         evidence = failure_evidence(&context.verification_failures),
         missing = bullet_list(&context.missing_expected_paths),
     )
+}
+
+fn repair_focus(failures: &[VerificationFailure]) -> String {
+    let mut focus = Vec::new();
+    if failures
+        .iter()
+        .any(|failure| failure.reason == "edit_target_not_found")
+    {
+        focus.push("- Edit target not found: current file content did not match the attempted Edit. Before any further Edit, call Read or Glob to inspect the current target file. Do not reuse old target text.".to_string());
+    }
+    if focus.is_empty() {
+        "- none".to_string()
+    } else {
+        focus.join("\n")
+    }
 }
 
 pub fn repair_exhausted_report(
@@ -317,6 +334,8 @@ mod tests {
         assert!(prompt.contains("do not retry Edit from memory"));
         assert!(prompt.contains("Use Edit only when you have exact current target text"));
         assert!(prompt.contains("If evidence says dependency_missing"));
+        assert!(prompt.contains("Repair focus"));
+        assert!(prompt.contains("- none"));
     }
 
     #[test]
@@ -337,10 +356,12 @@ mod tests {
         );
         context.verification_failures.push(VerificationFailure {
             command: "repair turn".to_string(),
-            reason: "turn_error".to_string(),
+            reason: "edit_target_not_found".to_string(),
             stdout_excerpt: String::new(),
             stderr_excerpt: String::new(),
-            diagnostic_excerpt: "tool error: edit target was not found".to_string(),
+            diagnostic_excerpt:
+                "Edit target was not found. The file state is stale for this Edit attempt."
+                    .to_string(),
             source_excerpt: None,
         });
 
@@ -348,11 +369,14 @@ mod tests {
 
         assert!(prompt.contains("initial turn"));
         assert!(prompt.contains("assistant violated final answer contract"));
-        assert!(prompt.contains("edit target was not found"));
+        assert!(prompt.contains("Edit target was not found"));
         assert!(prompt.contains("make the tool call now"));
         assert!(prompt.contains("do not retry Edit from memory"));
         assert!(prompt.contains("Use Edit only when you have exact current target text"));
         assert!(prompt.contains("If evidence says dependency_missing"));
+        assert!(prompt.contains("Repair focus"));
+        assert!(prompt.contains("Edit target not found"));
+        assert!(prompt.contains("Do not reuse old target text"));
     }
 
     fn sample_context() -> RepairContext {

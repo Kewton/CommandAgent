@@ -444,20 +444,37 @@ fn step_accepts_verifier_failure(step: &StepPlanStep) -> bool {
 }
 
 fn turn_error_failure(command: &str, error: String) -> VerificationFailure {
+    let (reason, diagnostic_excerpt) = turn_error_reason_and_diagnostic(&error);
     VerificationFailure {
         command: command.to_string(),
-        reason: "turn_error".to_string(),
+        reason: reason.to_string(),
         stdout_excerpt: String::new(),
         stderr_excerpt: String::new(),
-        diagnostic_excerpt: error,
+        diagnostic_excerpt,
         source_excerpt: None,
     }
+}
+
+fn turn_error_reason_and_diagnostic(error: &str) -> (&'static str, String) {
+    if is_edit_target_not_found(error) {
+        return (
+            "edit_target_not_found",
+            format!(
+                "Edit target was not found. The file state is stale for this Edit attempt. Read or Glob the current file first, then use Edit only with exact current target text from this repair turn, or Write when full replacement/creation is safer.\nOriginal error: {error}"
+            ),
+        );
+    }
+    ("turn_error", error.to_string())
 }
 
 fn recoverable_repair_turn_error(error: &str) -> bool {
     error.contains("assistant violated final answer contract")
         || error.contains("missing expected artifacts")
-        || error.contains("edit target was not found")
+        || is_edit_target_not_found(error)
+}
+
+fn is_edit_target_not_found(error: &str) -> bool {
+    error.contains("edit target was not found")
 }
 
 fn should_send_missing_artifact_no_tool_guard(
@@ -1071,6 +1088,23 @@ mod tests {
             .filter(|prompt| prompt.contains("The required path is still missing: README.md"))
             .count();
         assert_eq!(guard_prompt_count, 1);
+    }
+
+    #[test]
+    fn turn_error_failure_classifies_edit_target_not_found() {
+        let failure = turn_error_failure(
+            "repair turn",
+            "tool error: edit target was not found".to_string(),
+        );
+
+        assert_eq!(failure.reason, "edit_target_not_found");
+        assert!(failure.diagnostic_excerpt.contains("file state is stale"));
+        assert!(failure.diagnostic_excerpt.contains("Read or Glob"));
+        assert!(
+            failure
+                .diagnostic_excerpt
+                .contains("Original error: tool error: edit target was not found")
+        );
     }
 
     #[test]
