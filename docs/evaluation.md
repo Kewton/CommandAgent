@@ -110,6 +110,14 @@ class and reached a later Rust module compile error. Rust new failed in a
 different class: compile error plus stale Edit repair. Details are in
 `docs/eval/triage/post-ac4e833-rust-missing-path-contract-20260617T235542.md`.
 
+The R6 repair focus check at
+`eval/runs/r6-repair-file-fix-contract-rust-subset/20260618T004917` was run
+from clean commit `6f2df38`. Rust new passed the focused smoke. Rust modify
+still failed, but moved beyond the original missing-artifact/no-tool class and
+now looks like implementation-quality / phase-decomposition residue. Details
+are in
+`docs/eval/triage/post-6f2df38-r6-repair-focus-rust-subset-20260618T004917.md`.
+
 ## Repair Exhaustion
 
 Bounded repair should stop after the configured file-changing attempt budget.
