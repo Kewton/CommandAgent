@@ -212,6 +212,14 @@ fn lint_verifier_command(step_id: &str, command: &str) -> Result<(), PlanLintErr
                 .to_string(),
         });
     }
+    if is_wrong_language_py_compile(trimmed) {
+        return Err(PlanLintError::InvalidVerifierCommand {
+            step_id: step_id.to_string(),
+            command: command.to_string(),
+            reason: "python -m py_compile only verifies Python files; use the profile's build/test/check command for other source files"
+                .to_string(),
+        });
+    }
     if starts_with_any(
         &lower,
         &[
@@ -259,6 +267,21 @@ fn contains_unquoted_shell_control(command: &str) -> bool {
     }
 
     false
+}
+
+fn is_wrong_language_py_compile(command: &str) -> bool {
+    let lower = command.to_ascii_lowercase();
+    if !(lower.starts_with("python -m py_compile ") || lower.starts_with("python3 -m py_compile "))
+    {
+        return false;
+    }
+    command
+        .split_whitespace()
+        .skip_while(|part| *part != "py_compile")
+        .skip(1)
+        .filter(|part| !part.starts_with('-'))
+        .map(|part| part.trim_matches(|ch| ch == '\'' || ch == '"'))
+        .any(|path| !path.ends_with(".py"))
 }
 
 fn is_source_grep_verifier(command: &str) -> bool {
@@ -700,6 +723,24 @@ mod tests {
                     .to_string(),
             }
         );
+    }
+
+    #[test]
+    fn rejects_py_compile_for_non_python_source() {
+        let mut plan = plan_with_paths("rust", vec!["src/main.rs"]);
+        plan.steps[0].verify = vec!["python -m py_compile src/main.rs".to_string()];
+
+        let err = lint_step_plan(&plan).unwrap_err();
+
+        assert!(matches!(err, PlanLintError::InvalidVerifierCommand { .. }));
+    }
+
+    #[test]
+    fn accepts_py_compile_for_python_source() {
+        let mut plan = plan_with_paths("python", vec!["app/main.py"]);
+        plan.steps[0].verify = vec!["python -m py_compile app/main.py".to_string()];
+
+        lint_step_plan(&plan).unwrap();
     }
 
     #[test]
