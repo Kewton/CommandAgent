@@ -102,6 +102,14 @@ It failed earlier on repeated no-tool responses while `src/commands.rs` was
 still missing. Details are in
 `docs/eval/triage/post-b68b9ed-stale-edit-rust-modify-20260617T230748.md`.
 
+The missing expected path step-contract check at
+`eval/runs/rust-modify-missing-path-contract/20260617T235542` and
+`eval/runs/rust-new-missing-path-contract/20260618T000711` was run from clean
+commit `ac4e833`. Rust modify moved past the targeted missing-artifact/no-tool
+class and reached a later Rust module compile error. Rust new failed in a
+different class: compile error plus stale Edit repair. Details are in
+`docs/eval/triage/post-ac4e833-rust-missing-path-contract-20260617T235542.md`.
+
 ## Repair Exhaustion
 
 Bounded repair should stop after the configured file-changing attempt budget.
