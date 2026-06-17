@@ -59,7 +59,7 @@ pub fn build_repair_prompt(context: &RepairContext) -> String {
         "Repair the current CommandAgent step.\n\
 Step: {step}\n\
 Instruction: {instruction}\n\n\
-Use Read/Bash to inspect before editing. Make only the changes needed for this step.\n\
+Use Read/Glob to inspect before editing. Use Bash only for one simple local command at a time. Do not use shell chaining or fallback syntax such as &&, ||, or ;. Use Write/Edit for file changes. Make only the changes needed for this step.\n\
 Verification evidence:\n{evidence}\n\
 Missing expected paths:\n{missing}\n",
         step = context.step_id,
@@ -93,7 +93,7 @@ Missing expected paths:\n{missing}\n\
 Verification failures:\n{failures}\n\
 Changed files in failed repair attempts:\n{changed}\n\
 \n\
-Task: Replan only this failed step. Keep scope narrow. Preserve completed work.",
+Task: Replan only this failed step. Keep scope narrow. Preserve completed work. Use Read/Glob for inspection, Write/Edit for file changes, and only one simple local verifier command at a time; do not use shell chaining or fallback syntax.",
         step = context.step_id,
         goal = context.original_goal,
         profile = context.profile,
@@ -310,6 +310,8 @@ mod tests {
         assert!(prompt.contains("Verification evidence"));
         assert!(prompt.contains("app/page.tsx:3"));
         assert!(prompt.contains("Missing expected paths"));
+        assert!(prompt.contains("Do not use shell chaining"));
+        assert!(prompt.contains("Use Write/Edit for file changes"));
     }
 
     fn sample_context() -> RepairContext {

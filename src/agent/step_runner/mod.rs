@@ -198,10 +198,11 @@ Rules:\n\
 - File creation or modification steps must be executable with Write/Edit, not shell scaffolding.\n\
 - Do not create directory-only steps; Write creates parent directories automatically.\n\
 - Do not plan dependency installation as a required success step; dependency installs may be unavailable offline.\n\
-- expected_paths must be actual file paths, not package names, concepts, directories, or dependency caches.\n\
+- expected_paths must be actual required file outputs for this step, not package names, concepts, directories, optional inspection targets, or dependency caches.\n\
+- If a step says a file may exist, such as \"if it exists\" or \"if present\", do not put that file in expected_paths and do not require test -f for it. Inspect it with Read/Glob only when present.\n\
 - Verifier commands must be one simple local check each; split shell chaining into separate list items and avoid unquoted &&, ||, or ;.\n\
 - Prefer canonical verifier commands: test -f <path>, python -m py_compile <path.py>, python -m pytest <path-or-test>, cargo check, cargo test, npm run build, or grep -q <literal> <path>.\n\
-- For source-code behavior, prefer build/test/check commands over exact grep. Use grep -q only for literal documentation, data, or content requirements.\n\
+- For source-code behavior, prefer build/test/check commands over exact grep. Use grep -q only for literal documentation, data, or content requirements, not source-code semantics.\n\
 - If no file path is expected for a step, use an empty list.\n\
 - required_artifacts are final user-requested outputs and must be preserved exactly.\n\
 - setup prepares local dependencies or configuration; verify runs deterministic checks and must not change files.\n\
@@ -853,6 +854,8 @@ steps:
         assert!(prompt.contains("npm run build"));
         assert!(prompt.contains("grep -q"));
         assert!(prompt.contains("prefer build/test/check commands"));
+        assert!(prompt.contains("not source-code semantics"));
+        assert!(prompt.contains("if it exists"));
         assert!(prompt.contains("Do not use true as a verifier"));
     }
 

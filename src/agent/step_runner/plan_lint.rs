@@ -20,6 +20,12 @@ pub fn lint_step_plan_with_workspace(
             lint_verifier_command(&step.id, command)?;
         }
         lint_step_instruction(&step.id, step.kind, &step.instruction, &step.expected_paths)?;
+        lint_optional_inspection_paths(
+            &step.id,
+            step.kind,
+            &step.instruction,
+            &step.expected_paths,
+        )?;
         lint_setup_verify_boundary(
             &step.id,
             step.kind,
@@ -125,6 +131,38 @@ fn lint_step_instruction(
     Ok(())
 }
 
+fn lint_optional_inspection_paths(
+    step_id: &str,
+    kind: StepKind,
+    instruction: &str,
+    expected_paths: &[String],
+) -> Result<(), PlanLintError> {
+    if !matches!(kind, StepKind::Inspect) || expected_paths.is_empty() {
+        return Ok(());
+    }
+    let lower = instruction.to_ascii_lowercase();
+    if contains_any(
+        &lower,
+        &[
+            "if it exists",
+            "if exists",
+            "if present",
+            "if available",
+            "when present",
+            "if any",
+            "if there is",
+            "if there are",
+        ],
+    ) {
+        return Err(PlanLintError::InvalidStepInstruction {
+            step_id: step_id.to_string(),
+            reason: "optional inspection targets must not be placed in expected_paths; use Read/Glob inspection and an empty expected_paths list"
+                .to_string(),
+        });
+    }
+    Ok(())
+}
+
 fn lint_verifier_command(step_id: &str, command: &str) -> Result<(), PlanLintError> {
     let trimmed = command.trim();
     if contains_unquoted_shell_control(trimmed) {
@@ -140,6 +178,14 @@ fn lint_verifier_command(step_id: &str, command: &str) -> Result<(), PlanLintErr
             step_id: step_id.to_string(),
             command: command.to_string(),
             reason: "no-op verifier is not allowed; use an empty verify list for report-only steps"
+                .to_string(),
+        });
+    }
+    if is_source_grep_verifier(trimmed) {
+        return Err(PlanLintError::InvalidVerifierCommand {
+            step_id: step_id.to_string(),
+            command: command.to_string(),
+            reason: "source-code behavior must be verified with build/test/check commands; reserve grep -q for literal docs, data, or content checks"
                 .to_string(),
         });
     }
@@ -190,6 +236,43 @@ fn contains_unquoted_shell_control(command: &str) -> bool {
     }
 
     false
+}
+
+fn is_source_grep_verifier(command: &str) -> bool {
+    let lower = command.to_ascii_lowercase();
+    if !lower.starts_with("grep -q ") {
+        return false;
+    }
+    let Some(path) = command.split_whitespace().last() else {
+        return false;
+    };
+    let path = path.trim_matches(|ch| ch == '\'' || ch == '"');
+    is_source_file_path(path)
+}
+
+fn is_source_file_path(path: &str) -> bool {
+    matches!(
+        Path::new(path).extension().and_then(|ext| ext.to_str()),
+        Some(
+            "c" | "cc"
+                | "cpp"
+                | "cs"
+                | "go"
+                | "h"
+                | "hpp"
+                | "java"
+                | "js"
+                | "jsx"
+                | "kt"
+                | "php"
+                | "py"
+                | "rb"
+                | "rs"
+                | "swift"
+                | "ts"
+                | "tsx"
+        )
+    )
 }
 
 fn lint_setup_verify_boundary(
@@ -545,6 +628,42 @@ mod tests {
         let err = lint_step_plan(&plan).unwrap_err();
 
         assert!(matches!(err, PlanLintError::InvalidVerifierCommand { .. }));
+    }
+
+    #[test]
+    fn rejects_optional_inspection_expected_paths() {
+        let mut plan = plan_with_paths("rust", vec!["src/lib.rs"]);
+        plan.steps[0].kind = StepKind::Inspect;
+        plan.steps[0].instruction = "Read src/lib.rs if it exists.".to_string();
+        plan.steps[0].verify = vec!["test -f src/lib.rs".to_string()];
+
+        let err = lint_step_plan(&plan).unwrap_err();
+
+        assert_eq!(
+            err,
+            PlanLintError::InvalidStepInstruction {
+                step_id: "step".to_string(),
+                reason: "optional inspection targets must not be placed in expected_paths; use Read/Glob inspection and an empty expected_paths list".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_source_code_grep_verifier() {
+        let mut plan = plan_with_paths("rust", vec!["src/main.rs"]);
+        plan.steps[0].verify = vec![r##"grep -q "#\[derive(Parser)\]" src/main.rs"##.to_string()];
+
+        let err = lint_step_plan(&plan).unwrap_err();
+
+        assert!(matches!(err, PlanLintError::InvalidVerifierCommand { .. }));
+    }
+
+    #[test]
+    fn accepts_literal_grep_for_docs() {
+        let mut plan = plan_with_paths("docs", vec!["README.md"]);
+        plan.steps[0].verify = vec!["grep -q Usage README.md".to_string()];
+
+        lint_step_plan(&plan).unwrap();
     }
 
     #[test]
