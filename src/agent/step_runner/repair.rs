@@ -60,6 +60,7 @@ pub fn build_repair_prompt(context: &RepairContext) -> String {
 Step: {step}\n\
 Instruction: {instruction}\n\n\
 Use Read/Glob to inspect before editing. Use Bash only for one simple local command at a time. Do not use shell chaining or fallback syntax such as &&, ||, or ;. Use Write/Edit for file changes. Make only the changes needed for this step.\n\
+This is a repair turn after verifier failure. Do not spend the turn rerunning the same verifier command or promising to run it later; the runtime reruns verifier commands after your response. Use the turn to inspect and change files, or report a concrete blocker.\n\
 Treat turn_error evidence as actionable. If a prior response violated the final-answer contract by saying it would read, edit, run, or verify something, make the tool call now instead of describing the next action. If Edit failed because the target text or file was not found, do not retry Edit from memory. Use Read/Glob to inspect the exact current file first, or use Write to create/replace the missing file. Use Edit only when you have exact current target text from this repair turn. If evidence says dependency_missing, do not run npm install/npm ci or other dependency installation unless this step explicitly is dependency setup and the environment allows it; report the blocker instead of faking build success.\n\
 Repair focus:\n{focus}\n\
 Verification evidence:\n{evidence}\n\
@@ -340,6 +341,8 @@ mod tests {
         assert!(prompt.contains("Missing expected paths"));
         assert!(prompt.contains("Do not use shell chaining"));
         assert!(prompt.contains("Use Write/Edit for file changes"));
+        assert!(prompt.contains("the runtime reruns verifier commands"));
+        assert!(prompt.contains("Use the turn to inspect and change files"));
         assert!(prompt.contains("Treat turn_error evidence as actionable"));
         assert!(prompt.contains("do not retry Edit from memory"));
         assert!(prompt.contains("Use Edit only when you have exact current target text"));
