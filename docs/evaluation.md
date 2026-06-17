@@ -58,8 +58,15 @@ Each verifier failure records:
 `dependency_missing` means the verifier could not run honestly because required
 local dependencies are absent. For example, `npm run build` with a Next.js build
 script requires `node_modules/.bin/next`. CommandAgent must not rewrite build
-scripts to fake success; it should install dependencies when allowed, or stop
-with the explicit dependency-missing reason.
+scripts to fake success; it should install dependencies only when an explicit
+setup step and the evaluation environment allow it, or stop with the explicit
+dependency-missing reason.
+
+Treat `dependency_missing` as a cross-profile environment/setup boundary, not as
+a generic implementation failure. Next.js may report missing `node_modules`,
+Python/FastAPI may report missing virtualenv packages, and data tasks may report
+missing local tooling. Eval reports should keep this category separate so a run
+does not look like a code-quality failure when the verifier was unavailable.
 
 Verifier evidence is deterministic context for the next repair or replanning
 step. It is not a semantic sidecar summary.

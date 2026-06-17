@@ -60,6 +60,7 @@ pub fn build_repair_prompt(context: &RepairContext) -> String {
 Step: {step}\n\
 Instruction: {instruction}\n\n\
 Use Read/Glob to inspect before editing. Use Bash only for one simple local command at a time. Do not use shell chaining or fallback syntax such as &&, ||, or ;. Use Write/Edit for file changes. Make only the changes needed for this step.\n\
+Treat turn_error evidence as actionable. If a prior response violated the final-answer contract by saying it would read, edit, run, or verify something, make the tool call now instead of describing the next action. If Edit failed because the target text or file was not found, do not retry Edit from memory. Use Read/Glob to inspect the exact current file first, or use Write to create/replace the missing file. Use Edit only when you have exact current target text from this repair turn. If evidence says dependency_missing, do not run npm install/npm ci or other dependency installation unless this step explicitly is dependency setup and the environment allows it; report the blocker instead of faking build success.\n\
 Verification evidence:\n{evidence}\n\
 Missing expected paths:\n{missing}\n",
         step = context.step_id,
@@ -312,6 +313,46 @@ mod tests {
         assert!(prompt.contains("Missing expected paths"));
         assert!(prompt.contains("Do not use shell chaining"));
         assert!(prompt.contains("Use Write/Edit for file changes"));
+        assert!(prompt.contains("Treat turn_error evidence as actionable"));
+        assert!(prompt.contains("do not retry Edit from memory"));
+        assert!(prompt.contains("Use Edit only when you have exact current target text"));
+        assert!(prompt.contains("If evidence says dependency_missing"));
+    }
+
+    #[test]
+    fn repair_prompt_includes_turn_error_recovery_guidance() {
+        let mut context = sample_context();
+        context.verification_failures.insert(
+            0,
+            VerificationFailure {
+                command: "initial turn".to_string(),
+                reason: "turn_error".to_string(),
+                stdout_excerpt: String::new(),
+                stderr_excerpt: String::new(),
+                diagnostic_excerpt:
+                    "assistant violated final answer contract: Now let me verify the build"
+                        .to_string(),
+                source_excerpt: None,
+            },
+        );
+        context.verification_failures.push(VerificationFailure {
+            command: "repair turn".to_string(),
+            reason: "turn_error".to_string(),
+            stdout_excerpt: String::new(),
+            stderr_excerpt: String::new(),
+            diagnostic_excerpt: "tool error: edit target was not found".to_string(),
+            source_excerpt: None,
+        });
+
+        let prompt = build_repair_prompt(&context);
+
+        assert!(prompt.contains("initial turn"));
+        assert!(prompt.contains("assistant violated final answer contract"));
+        assert!(prompt.contains("edit target was not found"));
+        assert!(prompt.contains("make the tool call now"));
+        assert!(prompt.contains("do not retry Edit from memory"));
+        assert!(prompt.contains("Use Edit only when you have exact current target text"));
+        assert!(prompt.contains("If evidence says dependency_missing"));
     }
 
     fn sample_context() -> RepairContext {

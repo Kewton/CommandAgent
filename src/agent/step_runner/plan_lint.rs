@@ -26,6 +26,7 @@ pub fn lint_step_plan_with_workspace(
             &step.instruction,
             &step.expected_paths,
         )?;
+        lint_inspect_expected_paths_exist(&step.id, step.kind, &step.expected_paths, cwd)?;
         lint_inspect_verifier_boundary(&step.id, step.kind, &step.expected_paths, &step.verify)?;
         lint_setup_verify_boundary(
             &step.id,
@@ -187,6 +188,35 @@ fn lint_inspect_verifier_boundary(
     Ok(())
 }
 
+fn lint_inspect_expected_paths_exist(
+    step_id: &str,
+    kind: StepKind,
+    expected_paths: &[String],
+    cwd: Option<&Path>,
+) -> Result<(), PlanLintError> {
+    if !matches!(kind, StepKind::Inspect) || expected_paths.is_empty() {
+        return Ok(());
+    }
+    let Some(cwd) = cwd else {
+        return Ok(());
+    };
+    let missing: Vec<_> = expected_paths
+        .iter()
+        .filter(|path| !cwd.join(path).exists())
+        .cloned()
+        .collect();
+    if !missing.is_empty() {
+        return Err(PlanLintError::InvalidStepInstruction {
+            step_id: step_id.to_string(),
+            reason: format!(
+                "inspect expected_paths must already exist in the workspace; missing {}. Use expected_paths: [] and verify: [] for discovery, and enforce final artifacts only at the final boundary",
+                missing.join(", ")
+            ),
+        });
+    }
+    Ok(())
+}
+
 fn lint_verifier_command(step_id: &str, command: &str) -> Result<(), PlanLintError> {
     let trimmed = command.trim();
     if contains_unquoted_shell_control(trimmed) {
@@ -240,8 +270,27 @@ fn lint_verifier_command(step_id: &str, command: &str) -> Result<(), PlanLintErr
                 .to_string(),
         });
     }
+    if requires_dependency_cache(trimmed) {
+        return Err(PlanLintError::InvalidVerifierCommand {
+            step_id: step_id.to_string(),
+            command: command.to_string(),
+            reason: "verifier commands must not require generated dependency caches; report dependency_missing when local dependencies are unavailable".to_string(),
+        });
+    }
     Ok(())
 }
+
+fn requires_dependency_cache(command: &str) -> bool {
+    let lower = command.trim().to_ascii_lowercase();
+    if !(lower.starts_with("test -f ") || lower.starts_with("test -d ")) {
+        return false;
+    }
+    lower.contains("node_modules/")
+        || lower.ends_with(" node_modules")
+        || lower.contains(" .venv/")
+        || lower.ends_with(" .venv")
+}
+
 fn contains_unquoted_shell_control(command: &str) -> bool {
     let mut in_single = false;
     let mut in_double = false;
@@ -748,6 +797,64 @@ mod tests {
     }
 
     #[test]
+    fn rejects_inspect_expected_paths_missing_from_workspace() {
+        let root = temp_workspace("inspect-missing-path");
+        fs::write(root.join("Cargo.toml"), "[package]\nname = \"demo\"\n").unwrap();
+        let plan = StepPlan {
+            goal: "inspect rust project".to_string(),
+            profile: "rust".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::Modify,
+            required_artifacts: vec!["Cargo.toml".to_string(), "src/lib.rs".to_string()],
+            steps: vec![StepPlanStep {
+                id: "inspect-project-structure".to_string(),
+                kind: StepKind::Inspect,
+                instruction: "Inspect existing Cargo.toml, src/lib.rs, and src/main.rs."
+                    .to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec!["Cargo.toml".to_string(), "src/lib.rs".to_string()],
+                verify: vec![
+                    "test -f Cargo.toml".to_string(),
+                    "test -f src/lib.rs".to_string(),
+                ],
+            }],
+        };
+
+        let err = lint_step_plan_with_workspace(&plan, Some(&root)).unwrap_err();
+
+        assert_eq!(
+            err,
+            PlanLintError::InvalidStepInstruction {
+                step_id: "inspect-project-structure".to_string(),
+                reason: "inspect expected_paths must already exist in the workspace; missing src/lib.rs. Use expected_paths: [] and verify: [] for discovery, and enforce final artifacts only at the final boundary".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn accepts_inspect_expected_paths_that_exist_in_workspace() {
+        let root = temp_workspace("inspect-existing-path");
+        fs::write(root.join("Cargo.toml"), "[package]\nname = \"demo\"\n").unwrap();
+        let plan = StepPlan {
+            goal: "inspect rust project".to_string(),
+            profile: "rust".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::Modify,
+            required_artifacts: Vec::new(),
+            steps: vec![StepPlanStep {
+                id: "inspect-cargo".to_string(),
+                kind: StepKind::Inspect,
+                instruction: "Inspect existing Cargo.toml.".to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec!["Cargo.toml".to_string()],
+                verify: vec!["test -f Cargo.toml".to_string()],
+            }],
+        };
+
+        lint_step_plan_with_workspace(&plan, Some(&root)).unwrap();
+    }
+
+    #[test]
     fn rejects_py_compile_for_non_python_source() {
         let mut plan = plan_with_paths("rust", vec!["src/main.rs"]);
         plan.steps[0].verify = vec!["python -m py_compile src/main.rs".to_string()];
@@ -792,6 +899,26 @@ mod tests {
         let err = lint_step_plan(&plan).unwrap_err();
 
         assert!(matches!(err, PlanLintError::InvalidStepInstruction { .. }));
+    }
+
+    #[test]
+    fn rejects_dependency_cache_verifiers() {
+        let mut plan = plan_with_paths("nextjs", vec!["package.json"]);
+        plan.steps[0].kind = StepKind::Verify;
+        plan.steps[0].instruction = "Verify local dependencies are available.".to_string();
+        plan.steps[0].expected_paths.clear();
+        plan.steps[0].verify = vec!["test -f node_modules/.package-lock.json".to_string()];
+
+        let err = lint_step_plan(&plan).unwrap_err();
+
+        assert_eq!(
+            err,
+            PlanLintError::InvalidVerifierCommand {
+                step_id: "step".to_string(),
+                command: "test -f node_modules/.package-lock.json".to_string(),
+                reason: "verifier commands must not require generated dependency caches; report dependency_missing when local dependencies are unavailable".to_string(),
+            }
+        );
     }
 
     #[test]

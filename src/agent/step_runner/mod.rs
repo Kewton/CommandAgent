@@ -121,10 +121,11 @@ pub enum ExpectedResult {
 
 impl ExpectedResult {
     pub fn parse(value: &str) -> Result<Self, PlanError> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "pass" => Ok(Self::Pass),
-            "fail" => Ok(Self::Fail),
-            "unavailable" => Ok(Self::Unavailable),
+        let normalized = value.trim().to_ascii_lowercase().replace('_', "-");
+        match normalized.as_str() {
+            "pass" | "passed" | "success" | "successful" | "ok" | "available" => Ok(Self::Pass),
+            "fail" | "failed" | "failure" | "expected-failure" => Ok(Self::Fail),
+            "unavailable" | "not-available" | "not-available-yet" => Ok(Self::Unavailable),
             other => Err(PlanError::InvalidEnum {
                 field: "step.expected_result".to_string(),
                 value: other.to_string(),
@@ -725,6 +726,47 @@ mod tests {
         assert_eq!(plan.required_artifacts, vec!["app/main.py"]);
         assert_eq!(plan.steps[0].kind, StepKind::Create);
         assert_eq!(plan.steps[0].expected_paths, vec!["app/schemas.py"]);
+    }
+
+    #[test]
+    fn accepts_common_expected_result_aliases_but_renders_canonical_values() {
+        let yaml = "goal: \"Check availability\"
+profile: \"generic\"
+style: \"default\"
+steps:
+- id: inspect-tooling
+kind: inspect
+instruction: Inspect whether local tooling is available.
+expected_result: available
+expected_paths: []
+verify: []
+- id: red-test
+kind: verify
+instruction: Run an expected failing check.
+expected_result: expected_failure
+expected_paths: []
+verify:
+- cargo test
+- id: dependency-blocker
+kind: report
+instruction: Report unavailable dependency.
+expected_result: not_available
+expected_paths: []
+verify: []
+";
+
+        let plan = parse_step_plan_yaml(yaml).unwrap();
+        let rendered = render_step_plan_yaml(&plan);
+
+        assert_eq!(plan.steps[0].expected_result, ExpectedResult::Pass);
+        assert_eq!(plan.steps[1].expected_result, ExpectedResult::Fail);
+        assert_eq!(plan.steps[2].expected_result, ExpectedResult::Unavailable);
+        assert!(rendered.contains("expected_result: \"pass\""));
+        assert!(rendered.contains("expected_result: \"fail\""));
+        assert!(rendered.contains("expected_result: \"unavailable\""));
+        assert!(!rendered.contains("expected_result: \"available\""));
+        assert!(!rendered.contains("expected_failure"));
+        assert!(!rendered.contains("not_available"));
     }
 
     #[test]

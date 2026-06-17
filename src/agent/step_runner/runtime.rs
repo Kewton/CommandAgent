@@ -12,7 +12,7 @@ use crate::agent::step_runner::ultra_plan::{
 use crate::agent::step_runner::ultra_run::phase_step_plan_prompt;
 use crate::agent::step_runner::verify::{VerificationFailure, run_verifiers};
 use crate::agent::step_runner::{
-    ExpectedResult, StepPlan, StepPlanStep, WorkIntent, detect_work_intent,
+    ExpectedResult, StepKind, StepPlan, StepPlanStep, WorkIntent, detect_work_intent,
     extract_plan_from_response, parse_step_plan_yaml, plan_generation_prompt, save_step_plan,
 };
 use crate::providers::{ChatMessage, ChatRequest, ChatRole, ToolCallMode};
@@ -21,6 +21,7 @@ use std::fs;
 use std::path::Path;
 
 const MAX_REPAIR_TURNS: usize = 3;
+const MAX_INVALID_PLAN_CORRECTIONS: usize = 2;
 
 #[derive(Debug, Clone)]
 pub struct PlannerRuntimeConfig {
@@ -134,31 +135,52 @@ where
     ) -> Result<StepPlan, String> {
         let prompt = plan_generation_prompt(goal, profile, style, intent, required_artifacts);
         let text = planner_text(self.planner, &self.planner_config, &prompt)?;
-        match parse_generated_step_plan(
-            self.cwd,
-            &text,
+        self.parse_generated_step_plan_with_corrections(
+            text,
             goal,
             profile,
             style,
             intent,
             required_artifacts,
-        ) {
-            Ok(plan) => Ok(plan),
-            Err(err) => {
-                let _ = save_invalid_generated_plan(self.cwd, "step-plan", &text);
-                let correction = plan_correction_prompt(goal, &text, &err, "step plan");
-                let corrected = planner_text(self.planner, &self.planner_config, &correction)?;
-                parse_generated_step_plan(
-                    self.cwd,
-                    &corrected,
-                    goal,
-                    profile,
-                    style,
-                    intent,
-                    required_artifacts,
-                )
+            "step-plan",
+            "step plan",
+        )
+    }
+
+    fn parse_generated_step_plan_with_corrections(
+        &mut self,
+        initial_text: String,
+        goal: &str,
+        profile: &str,
+        style: &str,
+        intent: WorkIntent,
+        required_artifacts: &[String],
+        save_kind: &str,
+        prompt_kind: &str,
+    ) -> Result<StepPlan, String> {
+        let mut text = initial_text;
+        for attempt in 0..=MAX_INVALID_PLAN_CORRECTIONS {
+            match parse_generated_step_plan(
+                self.cwd,
+                &text,
+                goal,
+                profile,
+                style,
+                intent,
+                required_artifacts,
+            ) {
+                Ok(plan) => return Ok(plan),
+                Err(err) => {
+                    let _ = save_invalid_generated_plan(self.cwd, save_kind, &text);
+                    if attempt == MAX_INVALID_PLAN_CORRECTIONS {
+                        return Err(err);
+                    }
+                    let correction = plan_correction_prompt(goal, &text, &err, prompt_kind);
+                    text = planner_text(self.planner, &self.planner_config, &correction)?;
+                }
             }
         }
+        unreachable!("bounded invalid plan correction loop must return");
     }
 
     fn generate_ultra_plan(
@@ -206,32 +228,16 @@ where
             ));
             let prompt = phase_step_plan_prompt(plan, phase, &snapshot, &profile_contract);
             let text = planner_text(self.planner, &self.planner_config, &prompt)?;
-            let step_plan = match parse_generated_step_plan(
-                self.cwd,
-                &text,
+            let step_plan = self.parse_generated_step_plan_with_corrections(
+                text,
                 &phase.goal,
                 &plan.profile,
                 &plan.style,
                 WorkIntent::parse(&plan.intent).unwrap_or(WorkIntent::Unknown),
                 &plan.required_artifacts,
-            ) {
-                Ok(plan) => plan,
-                Err(err) => {
-                    let _ = save_invalid_generated_plan(self.cwd, "phase-step-plan", &text);
-                    let correction =
-                        plan_correction_prompt(&phase.goal, &text, &err, "phase step plan");
-                    let corrected = planner_text(self.planner, &self.planner_config, &correction)?;
-                    parse_generated_step_plan(
-                        self.cwd,
-                        &corrected,
-                        &phase.goal,
-                        &plan.profile,
-                        &plan.style,
-                        WorkIntent::parse(&plan.intent).unwrap_or(WorkIntent::Unknown),
-                        &plan.required_artifacts,
-                    )?
-                }
-            };
+                "phase-step-plan",
+                "phase step plan",
+            )?;
             let path = save_step_plan(self.cwd, &step_plan).map_err(|err| err.to_string())?;
             lines.push(format!(
                 "phase {}: step plan {}",
@@ -274,6 +280,13 @@ where
         if step.expected_result == ExpectedResult::Pass {
             config.expected_artifacts = step.expected_paths.clone();
         }
+        if matches!(step.kind, StepKind::Verify) && !step.verify.is_empty() {
+            let failures = verify_step(self.cwd, step)?;
+            if failures.is_empty() || step_accepts_verifier_failure(step) {
+                return Ok(());
+            }
+            return self.repair_step_with_state(plan, step, config, failures, Vec::new(), 0, None);
+        }
         let prompt = step_prompt(plan, step)?;
         let result = match run_session(self.executor, self.cwd, &prompt, config.clone()) {
             Ok(result) => result,
@@ -307,6 +320,8 @@ where
         turn_error: String,
         failures: Vec<VerificationFailure>,
     ) -> Result<(), String> {
+        let mut failures = failures;
+        failures.insert(0, turn_error_failure("initial turn", turn_error.clone()));
         self.repair_step_with_state(
             plan,
             step,
@@ -531,7 +546,13 @@ fn ensure_generated_plan_header(
 fn save_invalid_generated_plan(cwd: &Path, kind: &str, text: &str) -> Result<(), String> {
     let dir = crate::util::workspace_paths::plans_dir(cwd);
     fs::create_dir_all(&dir).map_err(|err| err.to_string())?;
-    let path = dir.join(format!("invalid-{kind}-{}.yaml", now_ms()));
+    let stamp = now_ms();
+    let mut path = dir.join(format!("invalid-{kind}-{stamp}.yaml"));
+    let mut suffix = 1;
+    while path.exists() {
+        path = dir.join(format!("invalid-{kind}-{stamp}-{suffix}.yaml"));
+        suffix += 1;
+    }
     fs::write(path, text).map_err(|err| err.to_string())
 }
 
@@ -568,8 +589,10 @@ Original goal:\n{original_goal}\n\n\
 Validation error:\n{error}\n\n\
 Invalid plan:\n{invalid_plan}\n\n\
 If the error mentions shell scaffolding, replace that step with explicit file creation or editing instructions that can be completed with Write/Edit.\n\
-If the error mentions optional inspection, inspect discovery, test -d, or test -f on a non-required inspect step, use kind: inspect with expected_paths: [] and verify: [].\n\
-If the error mentions invalid verifier commands, replace source-code grep with canonical build/test/check commands such as cargo check, cargo test, npm run build, python -m py_compile, or pytest. Keep grep only for literal docs/data/content checks.\n\
+If the error mentions optional inspection, inspect discovery, missing inspect expected_paths, test -d, or test -f on a non-required inspect step, use kind: inspect with expected_paths: [] and verify: [].\n\
+If the error mentions invalid verifier commands, remove every invalid verifier from the corrected YAML; do not keep the rejected command unchanged.\n\
+If the error mentions dependency installation, dependency caches, node_modules, .venv, or dependency_missing, do not plan npm install, npm ci, pip install, node_modules checks, or dependency-cache checks as required success work. Replace that work with a report step using expected_result: unavailable, expected_paths: [], and verify: [].\n\
+If the error mentions source-code behavior, source grep, or grep over source files, remove every grep verifier targeting source files such as .rs, .ts, .tsx, .js, .jsx, .py, .go, or .java. Replace source-code semantic checks with canonical build/test/check commands such as cargo check, cargo test, npm run build, python -m py_compile, or pytest. Keep grep only for literal docs/data/content checks.\n\
 If the error mentions mixed setup and verification, remove build/test/check commands from create/edit/setup steps and add a separate verify step.\n\
 If the error mentions shell chaining, split the verifier into simple commands or choose one canonical check. Do not use &&, ||, ;, pipes, redirection, or fallback-to-true syntax.\n\
 If the error mentions action/path/content/old/new fields, rewrite those tool-call fields into step instruction and expected_paths fields.\n\
@@ -699,7 +722,7 @@ mod tests {
     #[test]
     fn plan_steps_generates_and_saves_plan() {
         let root = temp_workspace("plan-steps");
-        let plan_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"cat README.md\"\n";
+        let plan_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    kind: \"create\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"cat README.md\"\n";
         let mut planner = MockClient::new(vec![ChatResponse {
             content: plan_yaml.to_string(),
             tool_calls: Vec::new(),
@@ -734,7 +757,7 @@ mod tests {
     #[test]
     fn plan_run_executes_step_and_verifier() {
         let root = temp_workspace("plan-run");
-        let plan_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"cat README.md\"\n";
+        let plan_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    kind: \"create\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"cat README.md\"\n";
         let mut planner = MockClient::new(vec![ChatResponse {
             content: plan_yaml.to_string(),
             tool_calls: Vec::new(),
@@ -779,9 +802,94 @@ mod tests {
     }
 
     #[test]
+    fn plan_run_executes_verify_step_without_llm_turn_when_verifier_passes() {
+        let root = temp_workspace("verify-step-direct-pass");
+        fs::write(root.join("README.md"), "ok").unwrap();
+        let plan_yaml = "goal: \"Verify docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"verify-readme\"\n    kind: \"verify\"\n    instruction: \"Verify README exists.\"\n    expected_paths: []\n    verify:\n      - \"cat README.md\"\n";
+        let mut planner = MockClient::new(vec![ChatResponse {
+            content: plan_yaml.to_string(),
+            tool_calls: Vec::new(),
+        }]);
+        let mut executor = MockClient::new(vec![]);
+        let command = SlashCommand {
+            kind: SlashCommandKind::PlanRun,
+            profile: Some("docs".to_string()),
+            style: None,
+            intent: None,
+            artifacts: Vec::new(),
+            argument: "Verify docs".to_string(),
+        };
+
+        let output = SlashRuntime {
+            executor: &mut executor,
+            planner: &mut planner,
+            cwd: &root,
+            loop_config: MinimalLoopConfig::default(),
+            planner_config: PlannerRuntimeConfig {
+                model: "planner".to_string(),
+                tool_call_mode: ToolCallMode::XmlFallback,
+            },
+        }
+        .run(command)
+        .unwrap();
+
+        assert!(output.contains("step verify-readme: ok"), "{output}");
+    }
+
+    #[test]
+    fn plan_run_repairs_verify_step_only_after_verifier_fails() {
+        let root = temp_workspace("verify-step-direct-repair");
+        let plan_yaml = "goal: \"Verify docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"verify-readme\"\n    kind: \"verify\"\n    instruction: \"Verify README exists.\"\n    expected_paths: []\n    verify:\n      - \"cat README.md\"\n";
+        let mut planner = MockClient::new(vec![ChatResponse {
+            content: plan_yaml.to_string(),
+            tool_calls: Vec::new(),
+        }]);
+        let mut executor = MockClient::new(vec![
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    name: "Write".to_string(),
+                    args_json: r#"{"path":"README.md","content":"repaired"}"#.to_string(),
+                }],
+            },
+            ChatResponse {
+                content: "Created README.md.".to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+        let command = SlashCommand {
+            kind: SlashCommandKind::PlanRun,
+            profile: Some("docs".to_string()),
+            style: None,
+            intent: None,
+            artifacts: Vec::new(),
+            argument: "Verify docs".to_string(),
+        };
+
+        let output = SlashRuntime {
+            executor: &mut executor,
+            planner: &mut planner,
+            cwd: &root,
+            loop_config: MinimalLoopConfig::default(),
+            planner_config: PlannerRuntimeConfig {
+                model: "planner".to_string(),
+                tool_call_mode: ToolCallMode::XmlFallback,
+            },
+        }
+        .run(command)
+        .unwrap();
+
+        assert!(output.contains("step verify-readme: ok"), "{output}");
+        assert_eq!(
+            fs::read_to_string(root.join("README.md")).unwrap(),
+            "repaired"
+        );
+    }
+
+    #[test]
     fn plan_run_does_not_enforce_required_artifacts_as_step_gate() {
         let root = temp_workspace("plan-run-final-artifact-pressure-only");
-        let plan_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"cat README.md\"\n";
+        let plan_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    kind: \"create\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"cat README.md\"\n";
         let mut planner = MockClient::new(vec![ChatResponse {
             content: plan_yaml.to_string(),
             tool_calls: Vec::new(),
@@ -829,7 +937,7 @@ mod tests {
     #[test]
     fn plan_run_accepts_verified_step_after_max_iterations() {
         let root = temp_workspace("plan-run-verified-max");
-        let plan_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"cat README.md\"\n";
+        let plan_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    kind: \"create\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"cat README.md\"\n";
         let mut planner = MockClient::new(vec![ChatResponse {
             content: plan_yaml.to_string(),
             tool_calls: Vec::new(),
@@ -873,7 +981,7 @@ mod tests {
     fn plan_run_saves_repair_prompt_after_initial_turn_error() {
         let root = temp_workspace("plan-run-repair-after-error");
         fs::write(root.join("README.md"), "fixture").unwrap();
-        let plan_yaml = "goal: \"Verify docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"verify-readme\"\n    instruction: \"Inspect README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"grep -q __missing_marker__ /dev/null\"\n";
+        let plan_yaml = "goal: \"Verify docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"verify-readme\"\n    kind: \"inspect\"\n    instruction: \"Inspect README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"grep -q __missing_marker__ /dev/null\"\n";
         let mut planner = MockClient::new(vec![ChatResponse {
             content: plan_yaml.to_string(),
             tool_calls: Vec::new(),
@@ -908,7 +1016,19 @@ mod tests {
 
         assert!(err.contains("initial turn error"));
         assert!(err.contains("repair prompt saved"));
-        assert!(root.join(".commandagent/repairs").exists());
+        let repair_dir = root.join(".commandagent/repairs");
+        assert!(repair_dir.exists());
+        let repair_text = fs::read_to_string(
+            fs::read_dir(repair_dir)
+                .unwrap()
+                .next()
+                .unwrap()
+                .unwrap()
+                .path(),
+        )
+        .unwrap();
+        assert!(repair_text.contains("initial turn"));
+        assert!(repair_text.contains("turn_error"));
     }
 
     #[test]
@@ -1129,6 +1249,39 @@ mod tests {
     }
 
     #[test]
+    fn plan_correction_prompt_explicitly_removes_source_grep_verifiers() {
+        let prompt = plan_correction_prompt(
+            "Create Rust CLI",
+            "verify:\n  - grep -q \"pub fn\" src/cli.rs",
+            "plan lint failed: step `create-cli-module` has invalid verifier command `grep -q \"pub fn\" src/cli.rs`: source-code behavior must be verified with build/test/check commands",
+            "phase step plan",
+        );
+
+        assert!(prompt.contains("remove every invalid verifier"));
+        assert!(prompt.contains("remove every grep verifier targeting source files"));
+        assert!(prompt.contains("do not keep the rejected command unchanged"));
+        assert!(prompt.contains("cargo check"));
+        assert!(prompt.contains("npm run build"));
+        assert!(prompt.contains("Keep grep only for literal docs/data/content checks"));
+    }
+
+    #[test]
+    fn plan_correction_prompt_converts_dependency_install_to_unavailable_report() {
+        let prompt = plan_correction_prompt(
+            "Add analytics panel",
+            "kind: setup\ninstruction: Install analytics library with npm install\nverify:\n  - test -f node_modules/.package-lock.json",
+            "plan lint failed: dependency installation must not be a required success step",
+            "phase step plan",
+        );
+
+        assert!(prompt.contains("do not plan npm install"));
+        assert!(prompt.contains("node_modules checks"));
+        assert!(prompt.contains("Replace that work with a report step"));
+        assert!(prompt.contains("expected_result: unavailable"));
+        assert!(prompt.contains("verify: []"));
+    }
+
+    #[test]
     fn invalid_step_plan_is_saved_before_correction() {
         let root = temp_workspace("invalid-plan-saved");
         let invalid_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"bad\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md or README.txt\"\n    verify:\n      - \"cat README.md\"\n";
@@ -1229,6 +1382,103 @@ mod tests {
             })
             .count();
         assert_eq!(invalid_count, 1);
+    }
+
+    #[test]
+    fn invalid_source_grep_step_plan_gets_second_bounded_correction_attempt() {
+        let root = temp_workspace("source-grep-plan-second-correction");
+        let invalid_yaml = "goal: \"Create Rust CLI\"
+profile: \"rust\"
+style: \"default\"
+steps:
+  - id: \"write-main\"
+    kind: \"create\"
+    instruction: \"Create src/main.rs.\"
+    expected_paths:
+      - \"src/main.rs\"
+    verify:
+      - \"grep -q clap src/main.rs\"
+";
+        let still_invalid_yaml = "goal: \"Create Rust CLI\"
+profile: \"rust\"
+style: \"default\"
+steps:
+  - id: \"write-main\"
+    kind: \"create\"
+    instruction: \"Create src/main.rs.\"
+    expected_paths:
+      - \"src/main.rs\"
+    verify:
+      - \"test -f src/main.rs\"
+      - \"grep -q fn src/main.rs\"
+";
+        let corrected_yaml = "goal: \"Create Rust CLI\"
+profile: \"rust\"
+style: \"default\"
+steps:
+  - id: \"write-main\"
+    kind: \"create\"
+    instruction: \"Create src/main.rs.\"
+    expected_paths:
+      - \"src/main.rs\"
+    verify:
+      - \"test -f src/main.rs\"
+  - id: \"verify-build\"
+    kind: \"verify\"
+    instruction: \"Run cargo check.\"
+    expected_paths: []
+    verify:
+      - \"cargo check\"
+";
+        let mut planner = MockClient::new(vec![
+            ChatResponse {
+                content: invalid_yaml.to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: still_invalid_yaml.to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: corrected_yaml.to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+        let mut executor = MockClient::new(vec![]);
+        let command = SlashCommand {
+            kind: SlashCommandKind::PlanSteps,
+            profile: Some("rust".to_string()),
+            style: None,
+            intent: Some("new".to_string()),
+            artifacts: Vec::new(),
+            argument: "Create Rust CLI".to_string(),
+        };
+
+        let output = SlashRuntime {
+            executor: &mut executor,
+            planner: &mut planner,
+            cwd: &root,
+            loop_config: MinimalLoopConfig::default(),
+            planner_config: PlannerRuntimeConfig {
+                model: "planner".to_string(),
+                tool_call_mode: ToolCallMode::XmlFallback,
+            },
+        }
+        .run(command)
+        .unwrap();
+
+        assert!(output.contains("created step plan"), "{output}");
+        let invalid_count = fs::read_dir(root.join(".commandagent/plans"))
+            .unwrap()
+            .flatten()
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("invalid-step-plan-")
+            })
+            .count();
+        assert_eq!(invalid_count, 2);
     }
 
     #[test]
