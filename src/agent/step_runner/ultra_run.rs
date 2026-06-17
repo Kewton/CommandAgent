@@ -1,5 +1,5 @@
 use crate::agent::step_runner::ultra_plan::{UltraPhase, UltraPlan};
-use crate::agent::step_runner::{StepPlan, plan_generation_prompt};
+use crate::agent::step_runner::{StepPlan, WorkIntent, plan_generation_prompt};
 use std::fs;
 use std::path::Path;
 
@@ -104,7 +104,13 @@ Ultra phase context:\n\
 Workspace snapshot:\n{workspace_snapshot}\n\n\
 Profile contract:\n{profile_contract}\n\n\
 Create a step plan only for this phase. Do not redo completed phases.",
-        plan_generation_prompt(&phase.goal, &plan.profile, &plan.style),
+        plan_generation_prompt(
+            &phase.goal,
+            &plan.profile,
+            &plan.style,
+            WorkIntent::parse(&plan.intent).unwrap_or(WorkIntent::Unknown),
+            &plan.required_artifacts,
+        ),
         original_goal = plan.goal,
         phase_id = phase.id,
         phase_goal = phase.goal,
@@ -145,6 +151,7 @@ pub fn workspace_snapshot(cwd: &Path) -> String {
 mod tests {
     use super::*;
     use crate::agent::step_runner::StepPlanStep;
+    use crate::agent::step_runner::{ExpectedResult, StepKind};
     use std::collections::VecDeque;
     use std::path::PathBuf;
 
@@ -253,6 +260,7 @@ mod tests {
             profile: "nextjs".to_string(),
             style: "default".to_string(),
             intent: "new".to_string(),
+            required_artifacts: vec!["app/page.tsx".to_string()],
             phases: vec![
                 UltraPhase {
                     id: "scaffold".to_string(),
@@ -271,9 +279,13 @@ mod tests {
             goal: "phase".to_string(),
             profile: "nextjs".to_string(),
             style: "default".to_string(),
+            intent: WorkIntent::New,
+            required_artifacts: Vec::new(),
             steps: vec![StepPlanStep {
                 id: id.to_string(),
+                kind: StepKind::Create,
                 instruction: "Do work.".to_string(),
+                expected_result: ExpectedResult::Pass,
                 expected_paths: Vec::new(),
                 verify: Vec::new(),
             }],

@@ -113,20 +113,24 @@ The step runner owns planning, linting, verification, and bounded repair. The
 minimal loop owns single-step execution. Profiles add small contracts and
 verifiers, not full domain-specific agents.
 
-Step plans use a small CommandAgent-owned YAML schema: goal, profile, style, and
-ordered steps with instruction, expected paths, and verifier commands. The YAML
-reader/writer intentionally supports only this schema so planning remains a
-bounded contract instead of an open-ended document format.
+Step plans use a small CommandAgent-owned YAML schema: goal, profile, style,
+intent, required final artifacts, and ordered steps with kind, instruction,
+expected result, expected paths, and verifier commands. The YAML reader/writer
+intentionally supports only this schema so planning remains a bounded contract
+instead of an open-ended document format. Missing fields in older plan files are
+defaulted on read and normalized on save.
 
 Plan linting is a separate pass. It rejects obvious schema-contract mistakes:
-non-file `expected_paths`, JSON/property selectors, version strings, path
-escape, and steps that clearly mix file-changing setup with final verification.
-It does not force a framework-specific project structure.
+non-file `expected_paths`, JSON/property selectors, alternative paths, glob
+patterns, version strings, path escape, and steps that clearly mix
+file-changing setup with final verification. Workspace-aware lint may check
+whether named paths already exist, but it is limited to shallow existence checks;
+it does not read file contents or force a framework-specific project structure.
 
-Ultra plans are one level higher: goal, profile, style, intent, and ordered
-phases. Each phase is later turned into a step plan. Ultra planning does not run
-tools by itself; it only creates bounded phase contracts under
-`.commandagent/plans/ultra-plan-*.yaml`.
+Ultra plans are one level higher: goal, profile, style, intent, required final
+artifacts, and ordered phases. Each phase is later turned into a step plan.
+Ultra planning does not run tools by itself; it only creates bounded phase
+contracts under `.commandagent/plans/ultra-plan-*.yaml`.
 
 Ultra execution is phase-oriented. For each phase, CommandAgent builds a
 phase-local step-planning prompt with a bounded workspace snapshot and profile

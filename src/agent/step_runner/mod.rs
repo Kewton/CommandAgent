@@ -18,27 +18,173 @@ pub struct StepPlan {
     pub goal: String,
     pub profile: String,
     pub style: String,
+    pub intent: WorkIntent,
+    pub required_artifacts: Vec<String>,
     pub steps: Vec<StepPlanStep>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StepPlanStep {
     pub id: String,
+    pub kind: StepKind,
     pub instruction: String,
+    pub expected_result: ExpectedResult,
     pub expected_paths: Vec<String>,
     pub verify: Vec<String>,
 }
 
-pub fn plan_generation_prompt(goal: &str, profile: &str, style: &str) -> String {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkIntent {
+    New,
+    Modify,
+    Investigate,
+    Document,
+    Data,
+    Unknown,
+}
+
+impl WorkIntent {
+    pub fn parse(value: &str) -> Result<Self, PlanError> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "new" | "create" => Ok(Self::New),
+            "modify" | "fix" | "enhance" | "refactor" => Ok(Self::Modify),
+            "investigate" | "triage" | "debug" => Ok(Self::Investigate),
+            "document" | "docs" => Ok(Self::Document),
+            "data" | "data-analysis" | "data-pipeline" => Ok(Self::Data),
+            "unknown" | "" => Ok(Self::Unknown),
+            other => Err(PlanError::InvalidEnum {
+                field: "intent".to_string(),
+                value: other.to_string(),
+            }),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::New => "new",
+            Self::Modify => "modify",
+            Self::Investigate => "investigate",
+            Self::Document => "document",
+            Self::Data => "data",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepKind {
+    Inspect,
+    Create,
+    Edit,
+    Setup,
+    Verify,
+    Repair,
+    Report,
+}
+
+impl StepKind {
+    pub fn parse(value: &str) -> Result<Self, PlanError> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "inspect" | "read" | "analyze" | "analyse" => Ok(Self::Inspect),
+            "create" => Ok(Self::Create),
+            "edit" | "modify" | "update" => Ok(Self::Edit),
+            "setup" | "install" | "configure" => Ok(Self::Setup),
+            "verify" | "check" | "test" | "shell" | "command" | "run" => Ok(Self::Verify),
+            "repair" | "fix" => Ok(Self::Repair),
+            "report" | "summarize" | "summarise" => Ok(Self::Report),
+            other => Err(PlanError::InvalidEnum {
+                field: "step.kind".to_string(),
+                value: other.to_string(),
+            }),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Inspect => "inspect",
+            Self::Create => "create",
+            Self::Edit => "edit",
+            Self::Setup => "setup",
+            Self::Verify => "verify",
+            Self::Repair => "repair",
+            Self::Report => "report",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExpectedResult {
+    Pass,
+    Fail,
+    Unavailable,
+}
+
+impl ExpectedResult {
+    pub fn parse(value: &str) -> Result<Self, PlanError> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "pass" => Ok(Self::Pass),
+            "fail" => Ok(Self::Fail),
+            "unavailable" => Ok(Self::Unavailable),
+            other => Err(PlanError::InvalidEnum {
+                field: "step.expected_result".to_string(),
+                value: other.to_string(),
+            }),
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pass => "pass",
+            Self::Fail => "fail",
+            Self::Unavailable => "unavailable",
+        }
+    }
+}
+
+pub fn detect_work_intent(goal: &str) -> WorkIntent {
+    let lower = goal.to_ascii_lowercase();
+    if contains_any(&lower, &["investigate", "triage", "debug", "原因", "調査"]) {
+        WorkIntent::Investigate
+    } else if contains_any(&lower, &["document", "docs", "readme", "ドキュメント"]) {
+        WorkIntent::Document
+    } else if contains_any(
+        &lower,
+        &["fix", "modify", "update", "repair", "修正", "改修"],
+    ) {
+        WorkIntent::Modify
+    } else if contains_any(&lower, &["data", "csv", "report", "分析", "整形"]) {
+        WorkIntent::Data
+    } else if contains_any(
+        &lower,
+        &["create", "build", "implement", "new", "作成", "開発"],
+    ) {
+        WorkIntent::New
+    } else {
+        WorkIntent::Unknown
+    }
+}
+
+pub fn plan_generation_prompt(
+    goal: &str,
+    profile: &str,
+    style: &str,
+    intent: WorkIntent,
+    required_artifacts: &[String],
+) -> String {
     format!(
         "Create a small step plan for CommandAgent.\n\
 Return only YAML in this schema:\n\
 goal: <string>\n\
 profile: <string>\n\
 style: <string>\n\
+intent: <new|modify|investigate|document|data|unknown>\n\
+required_artifacts:\n\
+  - <repository-relative final artifact path>\n\
 steps:\n\
   - id: <short-slug>\n\
+    kind: <inspect|create|edit|setup|verify|repair|report>\n\
     instruction: <concrete action for one minimal-loop turn>\n\
+    expected_result: <pass|fail|unavailable>\n\
     expected_paths:\n\
       - <repository-relative file path>\n\
     verify:\n\
@@ -46,16 +192,28 @@ steps:\n\
 \n\
 Rules:\n\
 - Keep steps small and executable.\n\
+- Use only canonical kind values in output: inspect, create, edit, setup, verify, repair, report.\n\
+- Use kind inspect instead of read/analyze, and kind verify instead of shell/run.\n\
 - Do not mix setup and final verification in the same step.\n\
 - File creation or modification steps must be executable with Write/Edit, not shell scaffolding.\n\
-- expected_paths must be actual file paths, not package names or concepts.\n\
+- Do not create directory-only steps; Write creates parent directories automatically.\n\
+- Do not plan dependency installation as a required success step; dependency installs may be unavailable offline.\n\
+- expected_paths must be actual file paths, not package names, concepts, directories, or dependency caches.\n\
+- Verifier commands must be one simple local check each; split shell chaining into separate list items and avoid &&, ||, or ;.\n\
 - If no file path is expected for a step, use an empty list.\n\
+- required_artifacts are final user-requested outputs and must be preserved exactly.\n\
+- setup prepares local dependencies or configuration; verify runs deterministic checks and must not change files.\n\
+- report steps explicitly report blockers such as dependency_missing or verifier_unavailable.\n\
 - Do not include tool-call fields such as action, path, content, old, or new in the plan.\n\
 \n\
 Goal: {goal}\n\
 Profile: {profile}\n\
 Style: {style}\n\
+Intent: {intent}\n\
+Required final artifacts:\n{artifacts}\n\
 Profile guidance:\n{profile_guidance}",
+        intent = intent.as_str(),
+        artifacts = bullet_list(required_artifacts),
         profile_guidance = plan_profile_guidance(profile)
     )
 }
@@ -94,12 +252,22 @@ pub fn render_step_plan_yaml(plan: &StepPlan) -> String {
     out.push_str(&format!("goal: {}\n", yaml_string(&plan.goal)));
     out.push_str(&format!("profile: {}\n", yaml_string(&plan.profile)));
     out.push_str(&format!("style: {}\n", yaml_string(&plan.style)));
+    out.push_str(&format!("intent: {}\n", yaml_string(plan.intent.as_str())));
+    out.push_str("required_artifacts:\n");
+    for path in &plan.required_artifacts {
+        out.push_str(&format!("  - {}\n", yaml_string(path)));
+    }
     out.push_str("steps:\n");
     for step in &plan.steps {
         out.push_str(&format!("  - id: {}\n", yaml_string(&step.id)));
+        out.push_str(&format!("    kind: {}\n", yaml_string(step.kind.as_str())));
         out.push_str(&format!(
             "    instruction: {}\n",
             yaml_string(&step.instruction)
+        ));
+        out.push_str(&format!(
+            "    expected_result: {}\n",
+            yaml_string(step.expected_result.as_str())
         ));
         out.push_str("    expected_paths:\n");
         for path in &step.expected_paths {
@@ -117,8 +285,10 @@ pub fn parse_step_plan_yaml(yaml: &str) -> Result<StepPlan, PlanError> {
     let mut goal = None;
     let mut profile = None;
     let mut style = None;
+    let mut intent = None;
+    let mut required_artifacts = Vec::new();
     let mut steps = Vec::new();
-    let mut current_step: Option<StepPlanStep> = None;
+    let mut current_step: Option<(StepPlanStep, bool)> = None;
     let mut current_list = None;
 
     for raw in yaml.lines() {
@@ -135,32 +305,63 @@ pub fn parse_step_plan_yaml(yaml: &str) -> Result<StepPlan, PlanError> {
         } else if let Some(value) = line.strip_prefix("style:") {
             style = Some(parse_yaml_string(value.trim())?);
             current_list = None;
+        } else if let Some(value) = line.strip_prefix("intent:") {
+            intent = Some(WorkIntent::parse(&parse_yaml_string(value.trim())?)?);
+            current_list = None;
+        } else if line == "required_artifacts:" {
+            current_list = Some(ListField::RequiredArtifacts);
+        } else if let Some(value) = line.strip_prefix("required_artifacts:") {
+            if parse_inline_empty_list(value.trim())? {
+                current_list = None;
+            }
         } else if line == "steps:" {
             current_list = None;
         } else if let Some(value) = step_id_value(line) {
-            if let Some(step) = current_step.take() {
-                steps.push(step);
+            if let Some((step, kind_explicit)) = current_step.take() {
+                steps.push(finalize_step(step, kind_explicit));
             }
-            current_step = Some(StepPlanStep {
-                id: parse_yaml_string(value.trim())?,
-                instruction: String::new(),
-                expected_paths: Vec::new(),
-                verify: Vec::new(),
-            });
+            current_step = Some((
+                StepPlanStep {
+                    id: parse_yaml_string(value.trim())?,
+                    kind: StepKind::Inspect,
+                    instruction: String::new(),
+                    expected_result: ExpectedResult::Pass,
+                    expected_paths: Vec::new(),
+                    verify: Vec::new(),
+                },
+                false,
+            ));
+            current_list = None;
+        } else if let Some(value) = step_field_value(line, "kind") {
+            let Some((step, kind_explicit)) = current_step.as_mut() else {
+                return Err(PlanError::InvalidYaml(
+                    "kind appears before step id".to_string(),
+                ));
+            };
+            step.kind = StepKind::parse(&parse_yaml_string(value.trim())?)?;
+            *kind_explicit = true;
             current_list = None;
         } else if let Some(value) = step_field_value(line, "instruction") {
-            let Some(step) = current_step.as_mut() else {
+            let Some((step, _kind_explicit)) = current_step.as_mut() else {
                 return Err(PlanError::InvalidYaml(
                     "instruction appears before step id".to_string(),
                 ));
             };
             step.instruction = parse_yaml_string(value.trim())?;
             current_list = None;
+        } else if let Some(value) = step_field_value(line, "expected_result") {
+            let Some((step, _kind_explicit)) = current_step.as_mut() else {
+                return Err(PlanError::InvalidYaml(
+                    "expected_result appears before step id".to_string(),
+                ));
+            };
+            step.expected_result = ExpectedResult::parse(&parse_yaml_string(value.trim())?)?;
+            current_list = None;
         } else if is_step_field(line, "expected_paths") {
             current_list = Some(ListField::ExpectedPaths);
         } else if let Some(value) = step_field_value(line, "expected_paths") {
             if parse_inline_empty_list(value.trim())? {
-                let Some(_step) = current_step.as_mut() else {
+                let Some((_step, _kind_explicit)) = current_step.as_mut() else {
                     return Err(PlanError::InvalidYaml(
                         "expected_paths appears before step id".to_string(),
                     ));
@@ -171,7 +372,7 @@ pub fn parse_step_plan_yaml(yaml: &str) -> Result<StepPlan, PlanError> {
             current_list = Some(ListField::Verify);
         } else if let Some(value) = step_field_value(line, "verify") {
             if parse_inline_empty_list(value.trim())? {
-                let Some(_step) = current_step.as_mut() else {
+                let Some((_step, _kind_explicit)) = current_step.as_mut() else {
                     return Err(PlanError::InvalidYaml(
                         "verify appears before step id".to_string(),
                     ));
@@ -179,12 +380,17 @@ pub fn parse_step_plan_yaml(yaml: &str) -> Result<StepPlan, PlanError> {
                 current_list = None;
             }
         } else if let Some(value) = list_item_value(line) {
-            let Some(step) = current_step.as_mut() else {
+            if matches!(current_list, Some(ListField::RequiredArtifacts)) {
+                required_artifacts.push(parse_yaml_string(value.trim())?);
+                continue;
+            }
+            let Some((step, _kind_explicit)) = current_step.as_mut() else {
                 return Err(PlanError::InvalidYaml(
                     "list item appears before step id".to_string(),
                 ));
             };
             match current_list {
+                Some(ListField::RequiredArtifacts) => unreachable!("handled before step list item"),
                 Some(ListField::ExpectedPaths) => {
                     step.expected_paths.push(parse_yaml_string(value.trim())?)
                 }
@@ -196,7 +402,7 @@ pub fn parse_step_plan_yaml(yaml: &str) -> Result<StepPlan, PlanError> {
                 }
             }
         } else if is_ignored_step_annotation(line) {
-            let Some(_step) = current_step.as_mut() else {
+            let Some((_step, _kind_explicit)) = current_step.as_mut() else {
                 return Err(PlanError::InvalidYaml(
                     "step annotation appears before step id".to_string(),
                 ));
@@ -207,14 +413,16 @@ pub fn parse_step_plan_yaml(yaml: &str) -> Result<StepPlan, PlanError> {
         }
     }
 
-    if let Some(step) = current_step.take() {
-        steps.push(step);
+    if let Some((step, kind_explicit)) = current_step.take() {
+        steps.push(finalize_step(step, kind_explicit));
     }
 
     let plan = StepPlan {
         goal: goal.ok_or_else(|| PlanError::MissingField("goal".to_string()))?,
         profile: profile.ok_or_else(|| PlanError::MissingField("profile".to_string()))?,
         style: style.unwrap_or_else(|| "default".to_string()),
+        intent: intent.unwrap_or(WorkIntent::Unknown),
+        required_artifacts,
         steps,
     };
     validate_step_plan(&plan)?;
@@ -313,17 +521,15 @@ fn step_id_value(line: &str) -> Option<&str> {
 fn step_field_value<'a>(line: &'a str, field: &str) -> Option<&'a str> {
     line.strip_prefix(&format!("    {field}:"))
         .or_else(|| line.strip_prefix(&format!("  {field}:")))
+        .or_else(|| line.strip_prefix(&format!("{field}:")))
 }
 
 fn is_step_field(line: &str, field: &str) -> bool {
-    line == format!("    {field}:") || line == format!("  {field}:")
+    line == format!("    {field}:") || line == format!("  {field}:") || line == format!("{field}:")
 }
 
 fn list_item_value(line: &str) -> Option<&str> {
-    line.strip_prefix("      - ")
-        .or_else(|| line.strip_prefix("    - "))
-        .or_else(|| line.strip_prefix("   - "))
-        .or_else(|| line.strip_prefix("  - "))
+    line.trim_start().strip_prefix("- ")
 }
 
 fn is_ignored_step_annotation(line: &str) -> bool {
@@ -368,8 +574,54 @@ fn now_ms() -> u128 {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ListField {
+    RequiredArtifacts,
     ExpectedPaths,
     Verify,
+}
+
+fn finalize_step(mut step: StepPlanStep, kind_explicit: bool) -> StepPlanStep {
+    if !kind_explicit {
+        step.kind = infer_step_kind(&step.instruction, &step.expected_paths, &step.verify);
+    }
+    step
+}
+
+fn infer_step_kind(instruction: &str, expected_paths: &[String], verify: &[String]) -> StepKind {
+    let lower = instruction.to_ascii_lowercase();
+    if contains_any(&lower, &["verify", "validate", "test", "build", "check"]) || !verify.is_empty()
+    {
+        StepKind::Verify
+    } else if contains_any(&lower, &["install", "configure", "setup"]) {
+        StepKind::Setup
+    } else if contains_any(&lower, &["fix", "repair"]) {
+        StepKind::Repair
+    } else if contains_any(&lower, &["report", "summarize"]) {
+        StepKind::Report
+    } else if contains_any(&lower, &["edit", "update", "modify"]) {
+        StepKind::Edit
+    } else if !expected_paths.is_empty()
+        || contains_any(&lower, &["create", "write", "add", "implement"])
+    {
+        StepKind::Create
+    } else {
+        StepKind::Inspect
+    }
+}
+
+fn contains_any(text: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| text.contains(needle))
+}
+
+fn bullet_list(values: &[String]) -> String {
+    if values.is_empty() {
+        "- none".to_string()
+    } else {
+        values
+            .iter()
+            .map(|value| format!("- {value}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -380,6 +632,7 @@ pub enum PlanError {
     InvalidStepId(String),
     DuplicateStepId(String),
     InvalidYaml(String),
+    InvalidEnum { field: String, value: String },
     Io { path: PathBuf, message: String },
 }
 
@@ -392,6 +645,7 @@ impl std::fmt::Display for PlanError {
             Self::InvalidStepId(id) => write!(f, "invalid step id: {id}"),
             Self::DuplicateStepId(id) => write!(f, "duplicate step id: {id}"),
             Self::InvalidYaml(message) => write!(f, "invalid plan YAML: {message}"),
+            Self::InvalidEnum { field, value } => write!(f, "invalid {field}: {value}"),
             Self::Io { path, message } => write!(f, "{}: {}", path.display(), message),
         }
     }
@@ -446,6 +700,32 @@ mod tests {
     }
 
     #[test]
+    fn accepts_unindented_step_fields() {
+        let yaml = "goal: \"Create schemas\"\nprofile: \"python\"\nstyle: \"default\"\nintent: modify\nrequired_artifacts:\n- app/main.py\nsteps:\n- id: create-schemas\nkind: create\ninstruction: Create app/schemas.py.\nexpected_result: pass\nexpected_paths:\n- app/schemas.py\nverify:\n- test -f app/schemas.py\n";
+
+        let plan = parse_step_plan_yaml(yaml).unwrap();
+
+        assert_eq!(plan.required_artifacts, vec!["app/main.py"]);
+        assert_eq!(plan.steps[0].kind, StepKind::Create);
+        assert_eq!(plan.steps[0].expected_paths, vec!["app/schemas.py"]);
+    }
+
+    #[test]
+    fn accepts_common_step_kind_aliases_but_renders_canonical_values() {
+        let yaml = "goal: \"Inspect and verify\"\nprofile: \"rust\"\nstyle: \"default\"\nsteps:\n- id: inspect-source\nkind: read\ninstruction: Read src/main.rs.\nexpected_paths:\n- src/main.rs\nverify:\n- test -f src/main.rs\n- id: analyze-source\nkind: analyze\ninstruction: Analyze source layout.\nexpected_paths: []\nverify: []\n- id: run-tests\nkind: shell\ninstruction: Run cargo test.\nexpected_paths: []\nverify:\n- cargo test\n";
+
+        let plan = parse_step_plan_yaml(yaml).unwrap();
+        let rendered = render_step_plan_yaml(&plan);
+
+        assert_eq!(plan.steps[0].kind, StepKind::Inspect);
+        assert_eq!(plan.steps[1].kind, StepKind::Inspect);
+        assert_eq!(plan.steps[2].kind, StepKind::Verify);
+        assert!(rendered.contains("kind: \"inspect\""));
+        assert!(rendered.contains("kind: \"verify\""));
+        assert!(!rendered.contains("kind: \"shell\""));
+    }
+
+    #[test]
     fn accepts_common_model_list_item_indentation_drift() {
         let yaml = "goal: \"Create Next app\"\nprofile: \"nextjs\"\nstyle: \"default\"\nsteps:\n  - id: create-files\n    instruction: \"Create Next.js files.\"\n    expected_paths:\n  - package.json\n  - app/page.tsx\n    verify:\n  - cat package.json\n";
 
@@ -456,6 +736,18 @@ mod tests {
             vec!["package.json", "app/page.tsx"]
         );
         assert_eq!(plan.steps[0].verify, vec!["cat package.json"]);
+    }
+
+    #[test]
+    fn accepts_arbitrary_list_item_indentation_drift() {
+        let yaml = "goal: \"Create Python app\"\nprofile: \"python\"\nstyle: \"default\"\nsteps:\n- id: create-init\n  instruction: Create init files.\n  expected_paths:\n     - app/__init__.py\n     - tests/__init__.py\n  verify:\n     - test -f app/__init__.py\n";
+
+        let plan = parse_step_plan_yaml(yaml).unwrap();
+
+        assert_eq!(
+            plan.steps[0].expected_paths,
+            vec!["app/__init__.py", "tests/__init__.py"]
+        );
     }
 
     #[test]
@@ -516,17 +808,20 @@ steps:
 
     #[test]
     fn generation_prompt_demands_yaml_only() {
-        let prompt = plan_generation_prompt("Build docs", "docs", "default");
+        let prompt =
+            plan_generation_prompt("Build docs", "docs", "default", WorkIntent::Document, &[]);
 
         assert!(prompt.contains("Return only YAML"));
         assert!(prompt.contains("Goal: Build docs"));
         assert!(prompt.contains("Profile: docs"));
+        assert!(prompt.contains("Intent: document"));
         assert!(prompt.contains("Do not include tool-call fields"));
     }
 
     #[test]
     fn generation_prompt_warns_rust_against_shell_scaffolding() {
-        let prompt = plan_generation_prompt("Build Rust CLI", "rust", "default");
+        let prompt =
+            plan_generation_prompt("Build Rust CLI", "rust", "default", WorkIntent::New, &[]);
 
         assert!(prompt.contains("Cargo.toml"));
         assert!(prompt.contains("src/main.rs"));
@@ -548,9 +843,13 @@ steps:
             goal: "Build docs".to_string(),
             profile: "docs".to_string(),
             style: "default".to_string(),
+            intent: WorkIntent::Document,
+            required_artifacts: vec!["README.md".to_string()],
             steps: vec![StepPlanStep {
                 id: "write-readme".to_string(),
+                kind: StepKind::Create,
                 instruction: "Create README.md with usage notes.".to_string(),
+                expected_result: ExpectedResult::Pass,
                 expected_paths: vec!["README.md".to_string()],
                 verify: vec!["cat README.md".to_string()],
             }],

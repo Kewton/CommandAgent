@@ -1,7 +1,7 @@
 use crate::agent::minimal_loop::guards::is_file_change_tool;
 use crate::agent::minimal_loop::loop_run::{ChatClient, MinimalLoopConfig, RunResult, run_session};
 use crate::agent::slash_command::{SlashCommand, SlashCommandKind};
-use crate::agent::step_runner::plan_lint::lint_step_plan;
+use crate::agent::step_runner::plan_lint::lint_step_plan_with_workspace;
 use crate::agent::step_runner::profiles::profile_contract_text;
 use crate::agent::step_runner::repair::{
     RepairBudget, RepairContext, build_repair_prompt, save_repair_prompt,
@@ -12,8 +12,8 @@ use crate::agent::step_runner::ultra_plan::{
 use crate::agent::step_runner::ultra_run::phase_step_plan_prompt;
 use crate::agent::step_runner::verify::{VerificationFailure, run_verifiers};
 use crate::agent::step_runner::{
-    StepPlan, StepPlanStep, extract_plan_from_response, parse_step_plan_yaml,
-    plan_generation_prompt, save_step_plan,
+    ExpectedResult, StepPlan, StepPlanStep, WorkIntent, detect_work_intent,
+    extract_plan_from_response, parse_step_plan_yaml, plan_generation_prompt, save_step_plan,
 };
 use crate::providers::{ChatMessage, ChatRequest, ChatRole, ToolCallMode};
 use crate::safety::path_guard::PathGuard;
@@ -44,9 +44,23 @@ where
     pub fn run(&mut self, command: SlashCommand) -> Result<String, String> {
         let profile = command.profile.unwrap_or_else(|| "generic".to_string());
         let style = command.style.unwrap_or_else(|| "default".to_string());
+        let intent = command
+            .intent
+            .as_deref()
+            .map(WorkIntent::parse)
+            .transpose()
+            .map_err(|err| err.to_string())?
+            .unwrap_or_else(|| detect_work_intent(&command.argument));
+        let artifacts = command.artifacts;
         match command.kind {
             SlashCommandKind::PlanSteps => {
-                let plan = self.generate_step_plan(&command.argument, &profile, &style)?;
+                let plan = self.generate_step_plan(
+                    &command.argument,
+                    &profile,
+                    &style,
+                    intent,
+                    &artifacts,
+                )?;
                 let path = save_step_plan(self.cwd, &plan).map_err(|err| err.to_string())?;
                 Ok(format!(
                     "created step plan: {}",
@@ -54,7 +68,13 @@ where
                 ))
             }
             SlashCommandKind::PlanRun => {
-                let plan = self.generate_step_plan(&command.argument, &profile, &style)?;
+                let plan = self.generate_step_plan(
+                    &command.argument,
+                    &profile,
+                    &style,
+                    intent,
+                    &artifacts,
+                )?;
                 let path = save_step_plan(self.cwd, &plan).map_err(|err| err.to_string())?;
                 let report = self.execute_step_plan(&plan)?;
                 Ok(format!(
@@ -68,7 +88,13 @@ where
                 self.execute_step_plan(&plan)
             }
             SlashCommandKind::UltraPlan => {
-                let plan = self.generate_ultra_plan(&command.argument, &profile, &style)?;
+                let plan = self.generate_ultra_plan(
+                    &command.argument,
+                    &profile,
+                    &style,
+                    intent,
+                    &artifacts,
+                )?;
                 let path = save_ultra_plan(self.cwd, &plan).map_err(|err| err.to_string())?;
                 Ok(format!(
                     "created ultra plan: {}",
@@ -76,7 +102,13 @@ where
                 ))
             }
             SlashCommandKind::UltraPlanRun => {
-                let plan = self.generate_ultra_plan(&command.argument, &profile, &style)?;
+                let plan = self.generate_ultra_plan(
+                    &command.argument,
+                    &profile,
+                    &style,
+                    intent,
+                    &artifacts,
+                )?;
                 let path = save_ultra_plan(self.cwd, &plan).map_err(|err| err.to_string())?;
                 let report = self.execute_ultra_plan(&plan)?;
                 Ok(format!(
@@ -97,15 +129,34 @@ where
         goal: &str,
         profile: &str,
         style: &str,
+        intent: WorkIntent,
+        required_artifacts: &[String],
     ) -> Result<StepPlan, String> {
-        let prompt = plan_generation_prompt(goal, profile, style);
+        let prompt = plan_generation_prompt(goal, profile, style, intent, required_artifacts);
         let text = planner_text(self.planner, &self.planner_config, &prompt)?;
-        match parse_generated_step_plan(&text, goal, profile, style) {
+        match parse_generated_step_plan(
+            self.cwd,
+            &text,
+            goal,
+            profile,
+            style,
+            intent,
+            required_artifacts,
+        ) {
             Ok(plan) => Ok(plan),
             Err(err) => {
+                let _ = save_invalid_generated_plan(self.cwd, "step-plan", &text);
                 let correction = plan_correction_prompt(goal, &text, &err, "step plan");
                 let corrected = planner_text(self.planner, &self.planner_config, &correction)?;
-                parse_generated_step_plan(&corrected, goal, profile, style)
+                parse_generated_step_plan(
+                    self.cwd,
+                    &corrected,
+                    goal,
+                    profile,
+                    style,
+                    intent,
+                    required_artifacts,
+                )
             }
         }
     }
@@ -115,16 +166,26 @@ where
         goal: &str,
         profile: &str,
         style: &str,
+        intent: WorkIntent,
+        required_artifacts: &[String],
     ) -> Result<UltraPlan, String> {
-        let prompt = ultra_plan_generation_prompt(goal, profile, style, "new");
+        let prompt = ultra_plan_generation_prompt(goal, profile, style, intent.as_str());
         let text = planner_text(self.planner, &self.planner_config, &prompt)?;
-        match parse_ultra_plan_yaml(&text) {
+        match parse_generated_ultra_plan(&text, goal, profile, style, intent, required_artifacts) {
             Ok(plan) => Ok(plan),
             Err(err) => {
+                let _ = save_invalid_generated_plan(self.cwd, "ultra-plan", &text);
                 let correction =
                     plan_correction_prompt(goal, &text, &err.to_string(), "ultra plan");
                 let corrected = planner_text(self.planner, &self.planner_config, &correction)?;
-                parse_ultra_plan_yaml(&corrected).map_err(|err| err.to_string())
+                parse_generated_ultra_plan(
+                    &corrected,
+                    goal,
+                    profile,
+                    style,
+                    intent,
+                    required_artifacts,
+                )
             }
         }
     }
@@ -145,22 +206,32 @@ where
             ));
             let prompt = phase_step_plan_prompt(plan, phase, &snapshot, &profile_contract);
             let text = planner_text(self.planner, &self.planner_config, &prompt)?;
-            let step_plan =
-                match parse_generated_step_plan(&text, &phase.goal, &plan.profile, &plan.style) {
-                    Ok(plan) => plan,
-                    Err(err) => {
-                        let correction =
-                            plan_correction_prompt(&phase.goal, &text, &err, "phase step plan");
-                        let corrected =
-                            planner_text(self.planner, &self.planner_config, &correction)?;
-                        parse_generated_step_plan(
-                            &corrected,
-                            &phase.goal,
-                            &plan.profile,
-                            &plan.style,
-                        )?
-                    }
-                };
+            let step_plan = match parse_generated_step_plan(
+                self.cwd,
+                &text,
+                &phase.goal,
+                &plan.profile,
+                &plan.style,
+                WorkIntent::parse(&plan.intent).unwrap_or(WorkIntent::Unknown),
+                &plan.required_artifacts,
+            ) {
+                Ok(plan) => plan,
+                Err(err) => {
+                    let _ = save_invalid_generated_plan(self.cwd, "phase-step-plan", &text);
+                    let correction =
+                        plan_correction_prompt(&phase.goal, &text, &err, "phase step plan");
+                    let corrected = planner_text(self.planner, &self.planner_config, &correction)?;
+                    parse_generated_step_plan(
+                        self.cwd,
+                        &corrected,
+                        &phase.goal,
+                        &plan.profile,
+                        &plan.style,
+                        WorkIntent::parse(&plan.intent).unwrap_or(WorkIntent::Unknown),
+                        &plan.required_artifacts,
+                    )?
+                }
+            };
             let path = save_step_plan(self.cwd, &step_plan).map_err(|err| err.to_string())?;
             lines.push(format!(
                 "phase {}: step plan {}",
@@ -169,6 +240,14 @@ where
             ));
             let report = self.execute_step_plan(&step_plan)?;
             lines.push(format!("phase {}: ok\n{}", phase.id, report));
+        }
+
+        let missing = missing_paths(self.cwd, &plan.required_artifacts);
+        if !missing.is_empty() {
+            return Err(format!(
+                "missing required final artifacts: {}",
+                missing.join(", ")
+            ));
         }
 
         Ok(lines.join("\n"))
@@ -187,18 +266,27 @@ where
             self.execute_step(plan, step)?;
             lines.push(format!("step {}: ok", step.id));
         }
+        let missing = missing_paths(self.cwd, &plan.required_artifacts);
+        if !missing.is_empty() {
+            return Err(format!(
+                "missing required final artifacts: {}",
+                missing.join(", ")
+            ));
+        }
         Ok(lines.join("\n"))
     }
 
     fn execute_step(&mut self, plan: &StepPlan, step: &StepPlanStep) -> Result<(), String> {
         let mut config = self.loop_config.clone();
-        config.expected_artifacts = step.expected_paths.clone();
+        if step.expected_result == ExpectedResult::Pass {
+            config.expected_artifacts = step.expected_paths.clone();
+        }
         let prompt = step_prompt(plan, step)?;
         let result = match run_session(self.executor, self.cwd, &prompt, config.clone()) {
             Ok(result) => result,
             Err(err) => {
                 let failures = verify_step(self.cwd, step)?;
-                if failures.is_empty() {
+                if failures.is_empty() || step_accepts_verifier_failure(step) {
                     return Ok(());
                 }
                 return self.repair_step_after_turn_error(
@@ -211,7 +299,7 @@ where
             }
         };
         let failures = verify_step(self.cwd, step)?;
-        if failures.is_empty() {
+        if failures.is_empty() || step_accepts_verifier_failure(step) {
             return Ok(());
         }
 
@@ -321,6 +409,13 @@ where
     }
 }
 
+fn step_accepts_verifier_failure(step: &StepPlanStep) -> bool {
+    matches!(
+        step.expected_result,
+        ExpectedResult::Fail | ExpectedResult::Unavailable
+    )
+}
+
 fn turn_error_failure(command: &str, error: String) -> VerificationFailure {
     VerificationFailure {
         command: command.to_string(),
@@ -359,36 +454,99 @@ where
     Ok(response.content)
 }
 
-fn parse_and_lint_step_plan(text: &str) -> Result<StepPlan, String> {
-    let plan = extract_plan_from_response(text).map_err(|err| err.to_string())?;
-    lint_step_plan(&plan).map_err(|err| format!("plan lint failed: {err}"))?;
-    Ok(plan)
-}
-
 fn parse_generated_step_plan(
+    cwd: &Path,
     text: &str,
     goal: &str,
     profile: &str,
     style: &str,
+    intent: WorkIntent,
+    required_artifacts: &[String],
 ) -> Result<StepPlan, String> {
-    let normalized = ensure_generated_plan_header(text, goal, profile, style);
-    parse_and_lint_step_plan(&normalized)
+    let normalized =
+        ensure_generated_plan_header(text, goal, profile, style, intent, required_artifacts);
+    let plan = extract_plan_from_response(&normalized).map_err(|err| err.to_string())?;
+    lint_step_plan_with_workspace(&plan, Some(cwd))
+        .map_err(|err| format!("plan lint failed: {err}"))?;
+    Ok(plan)
 }
 
-fn ensure_generated_plan_header(text: &str, goal: &str, profile: &str, style: &str) -> String {
+fn parse_generated_ultra_plan(
+    text: &str,
+    goal: &str,
+    profile: &str,
+    style: &str,
+    intent: WorkIntent,
+    required_artifacts: &[String],
+) -> Result<UltraPlan, String> {
+    let mut plan = parse_ultra_plan_yaml(text).map_err(|err| err.to_string())?;
+    plan.goal = goal.to_string();
+    plan.profile = profile.to_string();
+    plan.style = style.to_string();
+    plan.intent = intent.as_str().to_string();
+    plan.required_artifacts = required_artifacts.to_vec();
+    Ok(plan)
+}
+
+fn ensure_generated_plan_header(
+    text: &str,
+    goal: &str,
+    profile: &str,
+    style: &str,
+    intent: WorkIntent,
+    required_artifacts: &[String],
+) -> String {
     let body = strip_markdown_fence(text.trim());
     let mut out = String::new();
     out.push_str(&format!("goal: {}\n", yaml_quote(goal)));
     out.push_str(&format!("profile: {}\n", yaml_quote(profile)));
     out.push_str(&format!("style: {}\n", yaml_quote(style)));
+    out.push_str(&format!("intent: {}\n", yaml_quote(intent.as_str())));
+    out.push_str("required_artifacts:\n");
+    for path in required_artifacts {
+        out.push_str(&format!("  - {}\n", yaml_quote(path)));
+    }
+    let mut skip_model_required_artifacts = false;
     for line in body.lines() {
-        if line.starts_with("goal:") || line.starts_with("profile:") || line.starts_with("style:") {
+        if line.starts_with("required_artifacts:") {
+            skip_model_required_artifacts = true;
+            continue;
+        }
+        if skip_model_required_artifacts {
+            if line.starts_with("  - ")
+                || line.starts_with("    - ")
+                || line.starts_with("      - ")
+            {
+                continue;
+            }
+            skip_model_required_artifacts = false;
+        }
+        if line.starts_with("goal:")
+            || line.starts_with("profile:")
+            || line.starts_with("style:")
+            || line.starts_with("intent:")
+            || line.starts_with("required_artifacts:")
+        {
             continue;
         }
         out.push_str(line);
         out.push('\n');
     }
     out
+}
+
+fn save_invalid_generated_plan(cwd: &Path, kind: &str, text: &str) -> Result<(), String> {
+    let dir = crate::util::workspace_paths::plans_dir(cwd);
+    fs::create_dir_all(&dir).map_err(|err| err.to_string())?;
+    let path = dir.join(format!("invalid-{kind}-{}.yaml", now_ms()));
+    fs::write(path, text).map_err(|err| err.to_string())
+}
+
+fn now_ms() -> u128 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()
 }
 
 fn strip_markdown_fence(text: &str) -> &str {
@@ -429,17 +587,28 @@ fn step_prompt(plan: &StepPlan, step: &StepPlanStep) -> Result<String, String> {
 Overall goal: {goal}\n\
 Profile: {profile}\n\
 Style: {style}\n\
+Intent: {intent}\n\
+Required final artifacts:\n{artifacts}\n\
 Profile contract:\n{profile_contract}\n\n\
 Step id: {step_id}\n\
+Step kind: {kind}\n\
 Step instruction: {instruction}\n\
+Expected result: {expected_result}\n\
 Expected paths:\n{expected}\n\
 Verifier commands:\n{verify}\n\n\
-Do only this step. Use tools for file changes and local verification.",
+Do only this step. Use Write/Edit for file changes; Write creates parent directories automatically.\n\
+The runtime executes verifier commands after your response. Do not run listed verifier commands yourself unless the step kind is verify and the command is a single allowed local check.\n\
+Do not use compound Bash commands with &&, ||, or ;.\n\
+Do not install network dependencies unless the step explicitly asks for dependency setup and the environment allows it.",
         goal = plan.goal,
         profile = plan.profile,
         style = plan.style,
+        intent = plan.intent.as_str(),
+        artifacts = bullet_list(&plan.required_artifacts),
         step_id = step.id,
+        kind = step.kind.as_str(),
         instruction = step.instruction,
+        expected_result = step.expected_result.as_str(),
         expected = bullet_list(&step.expected_paths),
         verify = bullet_list(&step.verify),
     ))
@@ -460,7 +629,8 @@ fn load_step_plan(cwd: &Path, path: &str) -> Result<StepPlan, String> {
     let path = guard.resolve(path).map_err(|err| err.to_string())?;
     let text = fs::read_to_string(&path).map_err(|err| format!("{}: {err}", path.display()))?;
     let plan = parse_step_plan_yaml(&text).map_err(|err| err.to_string())?;
-    lint_step_plan(&plan).map_err(|err| format!("plan lint failed: {err}"))?;
+    lint_step_plan_with_workspace(&plan, Some(cwd))
+        .map_err(|err| format!("plan lint failed: {err}"))?;
     Ok(plan)
 }
 
@@ -531,6 +701,8 @@ mod tests {
             kind: SlashCommandKind::PlanSteps,
             profile: Some("docs".to_string()),
             style: None,
+            intent: None,
+            artifacts: Vec::new(),
             argument: "Create docs".to_string(),
         };
 
@@ -576,6 +748,8 @@ mod tests {
             kind: SlashCommandKind::PlanRun,
             profile: Some("docs".to_string()),
             style: None,
+            intent: None,
+            artifacts: Vec::new(),
             argument: "Create docs".to_string(),
         };
 
@@ -615,6 +789,8 @@ mod tests {
             kind: SlashCommandKind::PlanRun,
             profile: Some("docs".to_string()),
             style: None,
+            intent: None,
+            artifacts: Vec::new(),
             argument: "Create docs".to_string(),
         };
         let mut loop_config = MinimalLoopConfig::default();
@@ -654,6 +830,8 @@ mod tests {
             kind: SlashCommandKind::PlanRun,
             profile: Some("docs".to_string()),
             style: None,
+            intent: None,
+            artifacts: Vec::new(),
             argument: "Verify docs".to_string(),
         };
         let mut loop_config = MinimalLoopConfig::default();
@@ -697,6 +875,8 @@ mod tests {
             kind: SlashCommandKind::PlanSteps,
             profile: Some("docs".to_string()),
             style: None,
+            intent: None,
+            artifacts: Vec::new(),
             argument: "Create docs".to_string(),
         };
 
@@ -720,11 +900,23 @@ mod tests {
     fn generated_step_plan_can_omit_known_header_fields() {
         let text = "steps:\n  - id: \"write-readme\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify: []\n";
 
-        let plan = parse_generated_step_plan(text, "Create docs", "docs", "default").unwrap();
+        let root = temp_workspace("parse-generated-header");
+        let plan = parse_generated_step_plan(
+            &root,
+            text,
+            "Create docs",
+            "docs",
+            "default",
+            WorkIntent::New,
+            &[],
+        )
+        .unwrap();
 
         assert_eq!(plan.goal, "Create docs");
         assert_eq!(plan.profile, "docs");
         assert_eq!(plan.style, "default");
+        assert_eq!(plan.intent, WorkIntent::New);
+        assert!(plan.required_artifacts.is_empty());
         assert_eq!(plan.steps[0].id, "write-readme");
     }
 
@@ -732,11 +924,92 @@ mod tests {
     fn generated_step_plan_uses_requested_profile_over_model_profile() {
         let text = "goal: \"Create Rust CLI\"\nprofile: \"rust cli developer\"\nstyle: \"careful\"\nsteps:\n  - id: \"write-main\"\n    instruction: \"Create src/main.rs.\"\n    expected_paths:\n      - \"src/main.rs\"\n    verify: []\n";
 
-        let plan = parse_generated_step_plan(text, "Create Rust CLI", "rust", "default").unwrap();
+        let root = temp_workspace("parse-generated-profile");
+        let plan = parse_generated_step_plan(
+            &root,
+            text,
+            "Create Rust CLI",
+            "rust",
+            "default",
+            WorkIntent::New,
+            &[],
+        )
+        .unwrap();
 
         assert_eq!(plan.goal, "Create Rust CLI");
         assert_eq!(plan.profile, "rust");
         assert_eq!(plan.style, "default");
+    }
+
+    #[test]
+    fn generated_step_plan_uses_requested_artifacts_over_model_artifacts() {
+        let root = temp_workspace("parse-generated-artifacts");
+        let text = "required_artifacts:\n  - wrong/path.txt\nsteps:\n  - id: \"write-readme\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify: []\n";
+
+        let plan = parse_generated_step_plan(
+            &root,
+            text,
+            "Create docs",
+            "docs",
+            "default",
+            WorkIntent::Document,
+            &["README.md".to_string()],
+        )
+        .unwrap();
+
+        assert_eq!(plan.intent, WorkIntent::Document);
+        assert_eq!(plan.required_artifacts, vec!["README.md"]);
+    }
+
+    #[test]
+    fn invalid_step_plan_is_saved_before_correction() {
+        let root = temp_workspace("invalid-plan-saved");
+        let invalid_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"bad\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md or README.txt\"\n    verify:\n      - \"cat README.md\"\n";
+        let corrected_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"cat README.md\"\n";
+        let mut planner = MockClient::new(vec![
+            ChatResponse {
+                content: invalid_yaml.to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: corrected_yaml.to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+        let mut executor = MockClient::new(vec![]);
+        let command = SlashCommand {
+            kind: SlashCommandKind::PlanSteps,
+            profile: Some("docs".to_string()),
+            style: None,
+            intent: None,
+            artifacts: Vec::new(),
+            argument: "Create docs".to_string(),
+        };
+
+        SlashRuntime {
+            executor: &mut executor,
+            planner: &mut planner,
+            cwd: &root,
+            loop_config: MinimalLoopConfig::default(),
+            planner_config: PlannerRuntimeConfig {
+                model: "planner".to_string(),
+                tool_call_mode: ToolCallMode::XmlFallback,
+            },
+        }
+        .run(command)
+        .unwrap();
+
+        let invalid_count = fs::read_dir(root.join(".commandagent/plans"))
+            .unwrap()
+            .flatten()
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("invalid-step-plan-")
+            })
+            .count();
+        assert_eq!(invalid_count, 1);
     }
 
     struct MockClient {

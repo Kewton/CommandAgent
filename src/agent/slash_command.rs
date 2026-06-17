@@ -9,6 +9,8 @@ pub struct SlashCommand {
     pub kind: SlashCommandKind,
     pub profile: Option<String>,
     pub style: Option<String>,
+    pub intent: Option<String>,
+    pub artifacts: Vec<String>,
     pub argument: String,
 }
 
@@ -38,6 +40,8 @@ pub fn parse_slash_command(
     let tokens = tokenize_with_spans(rest)?;
     let mut profile = None;
     let mut style = None;
+    let mut intent = None;
+    let mut artifacts = Vec::new();
     let mut idx = 0usize;
 
     while idx < tokens.len() {
@@ -64,6 +68,30 @@ pub fn parse_slash_command(
         } else if let Some(value) = token.strip_prefix("--style=") {
             style = Some(value.to_string());
             idx += 1;
+        } else if token == "--intent" {
+            idx += 1;
+            let Some(value) = tokens.get(idx) else {
+                return Err(SlashCommandError::MissingOptionValue(
+                    "--intent".to_string(),
+                ));
+            };
+            intent = Some(value.text.clone());
+            idx += 1;
+        } else if let Some(value) = token.strip_prefix("--intent=") {
+            intent = Some(value.to_string());
+            idx += 1;
+        } else if token == "--artifact" {
+            idx += 1;
+            let Some(value) = tokens.get(idx) else {
+                return Err(SlashCommandError::MissingOptionValue(
+                    "--artifact".to_string(),
+                ));
+            };
+            artifacts.push(value.text.clone());
+            idx += 1;
+        } else if let Some(value) = token.strip_prefix("--artifact=") {
+            artifacts.push(value.to_string());
+            idx += 1;
         } else {
             break;
         }
@@ -81,6 +109,8 @@ pub fn parse_slash_command(
         kind,
         profile,
         style,
+        intent,
+        artifacts,
         argument,
     }))
 }
@@ -251,7 +281,7 @@ mod tests {
         let root = temp_workspace("ultra");
 
         let parsed = parse_slash_command(
-            r#"/ultra-plan-run --profile nextjs --style tdd "build a game""#,
+            r#"/ultra-plan-run --profile nextjs --style tdd --intent modify --artifact app/page.tsx "build a game""#,
             &root,
         )
         .unwrap()
@@ -260,6 +290,8 @@ mod tests {
         assert_eq!(parsed.kind, SlashCommandKind::UltraPlanRun);
         assert_eq!(parsed.profile.as_deref(), Some("nextjs"));
         assert_eq!(parsed.style.as_deref(), Some("tdd"));
+        assert_eq!(parsed.intent.as_deref(), Some("modify"));
+        assert_eq!(parsed.artifacts, vec!["app/page.tsx"]);
         assert_eq!(parsed.argument, "build a game");
     }
 

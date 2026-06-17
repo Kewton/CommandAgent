@@ -91,10 +91,12 @@ def run_case(repo, root, binary, case, run_index, args):
         shutil.copytree(fixture, workdir, dirs_exist_ok=True)
 
     mode = case.get("mode", "plan-run")
-    prompt = (
-        f"/{mode} --profile {case['profile']} --style {case['style']} "
-        f"{case['prompt']}"
-    )
+    option_parts = [f"/{mode}", "--profile", case["profile"], "--style", case["style"]]
+    if case.get("intent"):
+        option_parts.extend(["--intent", case["intent"]])
+    for artifact in case["expected_artifacts"]:
+        option_parts.extend(["--artifact", artifact])
+    prompt = " ".join(option_parts + [case["prompt"]])
     command = [
         str((repo / binary).resolve()),
         "--provider",
@@ -139,6 +141,8 @@ def run_case(repo, root, binary, case, run_index, args):
         "model": args.model,
         "profile": case.get("profile"),
         "style": case.get("style"),
+        "intent": case.get("intent"),
+        "expected_artifacts": case.get("expected_artifacts", []),
         "mode": mode,
         "fixture": case.get("fixture"),
         "prompt": prompt,

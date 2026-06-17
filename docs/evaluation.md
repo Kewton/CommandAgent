@@ -23,6 +23,11 @@ mode defaults to `/plan-run`; large cases should normally use `/ultra-plan-run`.
 Modification cases can declare a fixture directory, which is copied into each
 run workspace before execution.
 
+Case `intent` is passed to the slash command as `--intent`. Case
+`expected_artifacts` are passed as repeated `--artifact` flags and are also
+checked after the run. This keeps the runtime task contract and the success
+check contract aligned; expected artifacts are not only post-hoc eval checks.
+
 Large task eval uses:
 
 ```bash

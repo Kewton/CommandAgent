@@ -144,6 +144,24 @@ Current styles are intentionally small:
 Use `--profile` for the kind of project. Use `--style` for the development
 method.
 
+## Intent and Artifact Contracts
+
+`/plan-run` and `/ultra-plan-run` accept optional contract flags:
+
+```text
+/ultra-plan-run --profile nextjs --intent modify --artifact app/page.tsx "Update the dashboard"
+```
+
+`--intent` tells the planner what kind of work is being requested. Current
+values are `new`, `modify`, `investigate`, `document`, `data`, and `unknown`.
+When omitted, CommandAgent uses a small deterministic detector and falls back to
+`unknown` when the goal is ambiguous.
+
+`--artifact` declares a final user-requested output path. It can be repeated.
+Artifacts are not hidden benchmark hints; they are part of the task contract and
+are preserved in saved plan files. If no artifact is specified, normal generic
+behavior is unchanged.
+
 ## Repair Suggested Command
 
 When bounded repair fails, CommandAgent saves a short replan packet:
@@ -171,9 +189,14 @@ The current schema is:
 goal: "..."
 profile: "generic"
 style: "default"
+intent: "unknown"
+required_artifacts:
+  - "relative/final-output.md"
 steps:
   - id: "short-slug"
+    kind: "create"
     instruction: "one concrete action"
+    expected_result: "pass"
     expected_paths:
       - "relative/file/path"
     verify:

@@ -13,6 +13,7 @@ pub struct UltraPlan {
     pub profile: String,
     pub style: String,
     pub intent: String,
+    pub required_artifacts: Vec<String>,
     pub phases: Vec<UltraPhase>,
 }
 
@@ -34,7 +35,9 @@ Return only YAML in this schema:\n\
 goal: <string>\n\
 profile: <string>\n\
 style: <string>\n\
-intent: <new|modify|investigate|docs|data>\n\
+intent: <new|modify|investigate|document|data|unknown>\n\
+required_artifacts:\n\
+  - <repository-relative final artifact path>\n\
 phases:\n\
   - id: <short-slug>\n\
     goal: <phase goal to pass to /plan-run>\n\
@@ -43,6 +46,7 @@ Rules:\n\
 - Use 2 to {max} phases unless the task is truly tiny.\n\
 - Each phase must be independently useful and small enough for a step plan.\n\
 - Preserve the requested profile, style, and intent.\n\
+- Preserve required_artifacts exactly; they are final user-requested outputs.\n\
 - Do not include implementation details that belong inside a step plan.\n\
 \n\
 Goal: {goal}\n\
@@ -59,6 +63,10 @@ pub fn render_ultra_plan_yaml(plan: &UltraPlan) -> String {
     out.push_str(&format!("profile: {}\n", yaml_string(&plan.profile)));
     out.push_str(&format!("style: {}\n", yaml_string(&plan.style)));
     out.push_str(&format!("intent: {}\n", yaml_string(&plan.intent)));
+    out.push_str("required_artifacts:\n");
+    for path in &plan.required_artifacts {
+        out.push_str(&format!("  - {}\n", yaml_string(path)));
+    }
     out.push_str("phases:\n");
     for phase in &plan.phases {
         out.push_str(&format!("  - id: {}\n", yaml_string(&phase.id)));
@@ -72,15 +80,25 @@ pub fn parse_ultra_plan_yaml(yaml: &str) -> Result<UltraPlan, UltraPlanError> {
     let mut profile = None;
     let mut style = None;
     let mut intent = None;
+    let mut required_artifacts = Vec::new();
     let mut phases = Vec::new();
     let mut current_phase: Option<UltraPhase> = None;
+    let mut current_list = None;
+    let mut seen_phases = false;
 
     for raw in strip_yaml_fence(yaml).lines() {
         let line = raw.trim_end();
         if line.trim().is_empty() {
             continue;
         }
-        if let Some(value) = line.strip_prefix("goal:") {
+        if seen_phases && line.starts_with("goal:") && current_phase.is_some() {
+            let value = line.strip_prefix("goal:").unwrap();
+            let Some(phase) = current_phase.as_mut() else {
+                unreachable!("checked current_phase above")
+            };
+            phase.goal = parse_yaml_string(value.trim())?;
+            current_list = None;
+        } else if let Some(value) = line.strip_prefix("goal:") {
             goal = Some(parse_yaml_string(value.trim())?);
         } else if let Some(value) = line.strip_prefix("profile:") {
             profile = Some(parse_yaml_string(value.trim())?);
@@ -88,7 +106,15 @@ pub fn parse_ultra_plan_yaml(yaml: &str) -> Result<UltraPlan, UltraPlanError> {
             style = Some(parse_yaml_string(value.trim())?);
         } else if let Some(value) = line.strip_prefix("intent:") {
             intent = Some(parse_yaml_string(value.trim())?);
+        } else if line == "required_artifacts:" {
+            current_list = Some(ListField::RequiredArtifacts);
+        } else if let Some(value) = line.strip_prefix("required_artifacts:") {
+            if parse_inline_empty_list(value.trim())? {
+                current_list = None;
+            }
         } else if line == "phases:" {
+            current_list = None;
+            seen_phases = true;
         } else if let Some(value) = phase_id_value(line) {
             if let Some(phase) = current_phase.take() {
                 phases.push(phase);
@@ -97,6 +123,7 @@ pub fn parse_ultra_plan_yaml(yaml: &str) -> Result<UltraPlan, UltraPlanError> {
                 id: parse_yaml_string(value.trim())?,
                 goal: String::new(),
             });
+            current_list = None;
         } else if let Some(value) = phase_field_value(line, "goal") {
             let Some(phase) = current_phase.as_mut() else {
                 return Err(UltraPlanError::InvalidYaml(
@@ -104,6 +131,19 @@ pub fn parse_ultra_plan_yaml(yaml: &str) -> Result<UltraPlan, UltraPlanError> {
                 ));
             };
             phase.goal = parse_yaml_string(value.trim())?;
+            current_list = None;
+        } else if let Some(value) = list_item_value(line) {
+            match current_list {
+                Some(ListField::RequiredArtifacts) => {
+                    required_artifacts.push(parse_yaml_string(value.trim())?)
+                }
+                None if current_phase.is_some() => {}
+                None => {
+                    return Err(UltraPlanError::InvalidYaml(
+                        "list item appears outside a known list".to_string(),
+                    ));
+                }
+            }
         } else if is_ignored_phase_annotation(line) {
             let Some(_phase) = current_phase.as_mut() else {
                 return Err(UltraPlanError::InvalidYaml(
@@ -125,7 +165,8 @@ pub fn parse_ultra_plan_yaml(yaml: &str) -> Result<UltraPlan, UltraPlanError> {
         goal: goal.ok_or_else(|| UltraPlanError::MissingField("goal".to_string()))?,
         profile: profile.ok_or_else(|| UltraPlanError::MissingField("profile".to_string()))?,
         style: style.unwrap_or_else(|| "default".to_string()),
-        intent: intent.unwrap_or_else(|| "new".to_string()),
+        intent: intent.unwrap_or_else(|| "unknown".to_string()),
+        required_artifacts,
         phases,
     };
     validate_ultra_plan(&plan)?;
@@ -227,6 +268,28 @@ fn phase_id_value(line: &str) -> Option<&str> {
 fn phase_field_value<'a>(line: &'a str, field: &str) -> Option<&'a str> {
     line.strip_prefix(&format!("    {field}:"))
         .or_else(|| line.strip_prefix(&format!("  {field}:")))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ListField {
+    RequiredArtifacts,
+}
+
+fn list_item_value(line: &str) -> Option<&str> {
+    line.strip_prefix("- ")
+        .or_else(|| line.strip_prefix("  - "))
+        .or_else(|| line.strip_prefix("    - "))
+        .or_else(|| line.strip_prefix("      - "))
+}
+
+fn parse_inline_empty_list(value: &str) -> Result<bool, UltraPlanError> {
+    if value == "[]" {
+        Ok(true)
+    } else {
+        Err(UltraPlanError::InvalidYaml(format!(
+            "unsupported inline list value: {value}"
+        )))
+    }
 }
 
 fn is_ignored_phase_annotation(line: &str) -> bool {
@@ -382,6 +445,34 @@ phases:
     }
 
     #[test]
+    fn accepts_unindented_required_artifacts_and_phase_goals() {
+        let yaml = r#"
+goal: Build app
+profile: nextjs
+style: default
+intent: new
+required_artifacts:
+- package.json
+- app/page.tsx
+phases:
+- id: scaffold
+goal: Create project files.
+- id: verify
+goal: Verify the build.
+"#;
+
+        let plan = parse_ultra_plan_yaml(yaml).unwrap();
+
+        assert_eq!(
+            plan.required_artifacts,
+            vec!["package.json", "app/page.tsx"]
+        );
+        assert_eq!(plan.phases.len(), 2);
+        assert_eq!(plan.phases[0].goal, "Create project files.");
+        assert_eq!(plan.phases[1].goal, "Verify the build.");
+    }
+
+    #[test]
     fn saves_ultra_plan_under_plans_dir() {
         let root = temp_workspace("save");
         let plan = sample_plan();
@@ -406,6 +497,7 @@ phases:
             profile: "nextjs".to_string(),
             style: "default".to_string(),
             intent: "new".to_string(),
+            required_artifacts: vec!["app/page.tsx".to_string()],
             phases: vec![
                 UltraPhase {
                     id: "scaffold".to_string(),
