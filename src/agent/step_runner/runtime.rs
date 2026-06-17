@@ -287,7 +287,8 @@ where
             }
             return self.repair_step_with_state(plan, step, config, failures, Vec::new(), 0, None);
         }
-        let prompt = step_prompt(plan, step)?;
+        let missing_expected_paths = missing_paths(self.cwd, &step.expected_paths);
+        let prompt = step_prompt(plan, step, &missing_expected_paths)?;
         let result = match run_session(self.executor, self.cwd, &prompt, config.clone()) {
             Ok(result) => result,
             Err(err) => {
@@ -669,8 +670,13 @@ Return only corrected YAML using the required CommandAgent schema."
     )
 }
 
-fn step_prompt(plan: &StepPlan, step: &StepPlanStep) -> Result<String, String> {
+fn step_prompt(
+    plan: &StepPlan,
+    step: &StepPlanStep,
+    missing_expected_paths: &[String],
+) -> Result<String, String> {
     let profile_contract = profile_contract_text(&plan.profile).map_err(|err| err.to_string())?;
+    let missing_hint = missing_expected_paths_hint(step, missing_expected_paths);
     Ok(format!(
         "Run one CommandAgent step.\n\
 Overall goal: {goal}\n\
@@ -685,6 +691,7 @@ Step instruction: {instruction}\n\
 Expected result: {expected_result}\n\
 Expected paths:\n{expected}\n\
 Verifier commands:\n{verify}\n\n\
+{missing_hint}\
 Do only this step. Use Write/Edit for file changes; Write creates parent directories automatically.\n\
 The runtime executes verifier commands after your response. Do not run listed verifier commands yourself unless the step kind is verify and the command is a single allowed local check.\n\
 Do not use compound Bash commands with &&, ||, or ;.\n\
@@ -700,7 +707,29 @@ Do not install network dependencies unless the step explicitly asks for dependen
         expected_result = step.expected_result.as_str(),
         expected = bullet_list(&step.expected_paths),
         verify = bullet_list(&step.verify),
+        missing_hint = missing_hint,
     ))
+}
+
+fn missing_expected_paths_hint(step: &StepPlanStep, missing_expected_paths: &[String]) -> String {
+    if missing_expected_paths.is_empty()
+        || !matches!(
+            step.kind,
+            StepKind::Create | StepKind::Edit | StepKind::Repair
+        )
+    {
+        return String::new();
+    }
+
+    format!(
+        "Currently missing expected paths:\n{missing}\n\n\
+This step is not complete until the missing expected paths are created or the step reports a concrete blocker.\n\
+If this step is supposed to produce one of these paths, create or update it with Write/Edit.\n\
+If the path should not be created by this step, report a concrete blocker instead of pretending the step is complete.\n\
+If more context is required, use Read/Glob first, then continue to Write/Edit in the same turn when a file change is still required.\n\
+Do not finish with only a plan for the next action.\n\n",
+        missing = bullet_list(missing_expected_paths)
+    )
 }
 
 fn verify_step(cwd: &Path, step: &StepPlanStep) -> Result<Vec<VerificationFailure>, String> {
@@ -787,6 +816,90 @@ mod tests {
     use crate::providers::{ChatResponse, ToolCall};
     use std::collections::VecDeque;
     use std::path::PathBuf;
+
+    fn prompt_test_plan() -> StepPlan {
+        StepPlan {
+            goal: "Create command parser".to_string(),
+            profile: "rust".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::Modify,
+            required_artifacts: Vec::new(),
+            steps: Vec::new(),
+        }
+    }
+
+    fn prompt_test_step(kind: StepKind) -> StepPlanStep {
+        StepPlanStep {
+            id: "create-commands-module".to_string(),
+            kind,
+            instruction: "Create src/commands.rs with the command parser implementation."
+                .to_string(),
+            expected_result: ExpectedResult::Pass,
+            expected_paths: vec!["src/commands.rs".to_string()],
+            verify: vec!["cargo check".to_string()],
+        }
+    }
+
+    #[test]
+    fn step_prompt_shows_missing_paths_for_create_step() {
+        let plan = prompt_test_plan();
+        let step = prompt_test_step(StepKind::Create);
+        let prompt = step_prompt(&plan, &step, &["src/commands.rs".to_string()]).unwrap();
+
+        assert!(
+            prompt.contains("Currently missing expected paths"),
+            "{prompt}"
+        );
+        assert!(prompt.contains("- src/commands.rs"), "{prompt}");
+        assert!(
+            prompt.contains("create or update it with Write/Edit"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("Do not finish with only a plan"),
+            "{prompt}"
+        );
+    }
+
+    #[test]
+    fn step_prompt_shows_missing_paths_for_edit_step() {
+        let plan = prompt_test_plan();
+        let step = prompt_test_step(StepKind::Edit);
+        let prompt = step_prompt(&plan, &step, &["src/commands.rs".to_string()]).unwrap();
+
+        assert!(
+            prompt.contains("Currently missing expected paths"),
+            "{prompt}"
+        );
+        assert!(prompt.contains("concrete blocker"), "{prompt}");
+        assert!(prompt.contains("Write/Edit"), "{prompt}");
+    }
+
+    #[test]
+    fn step_prompt_omits_missing_hint_for_inspect_verify_report() {
+        let plan = prompt_test_plan();
+        for kind in [StepKind::Inspect, StepKind::Verify, StepKind::Report] {
+            let step = prompt_test_step(kind);
+            let prompt = step_prompt(&plan, &step, &["src/commands.rs".to_string()]).unwrap();
+
+            assert!(
+                !prompt.contains("Currently missing expected paths"),
+                "kind={kind:?}\n{prompt}"
+            );
+        }
+    }
+
+    #[test]
+    fn step_prompt_omits_missing_hint_when_no_missing_paths() {
+        let plan = prompt_test_plan();
+        let step = prompt_test_step(StepKind::Create);
+        let prompt = step_prompt(&plan, &step, &[]).unwrap();
+
+        assert!(
+            !prompt.contains("Currently missing expected paths"),
+            "{prompt}"
+        );
+    }
 
     #[test]
     fn plan_steps_generates_and_saves_plan() {
