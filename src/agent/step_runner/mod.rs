@@ -422,11 +422,22 @@ pub fn parse_step_plan_yaml(yaml: &str) -> Result<StepPlan, PlanError> {
         profile: profile.ok_or_else(|| PlanError::MissingField("profile".to_string()))?,
         style: style.unwrap_or_else(|| "default".to_string()),
         intent: intent.unwrap_or(WorkIntent::Unknown),
-        required_artifacts,
+        required_artifacts: dedupe_required_artifacts(required_artifacts),
         steps,
     };
     validate_step_plan(&plan)?;
     Ok(plan)
+}
+
+fn dedupe_required_artifacts(paths: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for path in paths {
+        if seen.insert(path.clone()) {
+            out.push(path);
+        }
+    }
+    out
 }
 
 pub fn validate_step_plan(plan: &StepPlan) -> Result<(), PlanError> {

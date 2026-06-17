@@ -166,11 +166,22 @@ pub fn parse_ultra_plan_yaml(yaml: &str) -> Result<UltraPlan, UltraPlanError> {
         profile: profile.ok_or_else(|| UltraPlanError::MissingField("profile".to_string()))?,
         style: style.unwrap_or_else(|| "default".to_string()),
         intent: intent.unwrap_or_else(|| "unknown".to_string()),
-        required_artifacts,
+        required_artifacts: dedupe_required_artifacts(required_artifacts),
         phases,
     };
     validate_ultra_plan(&plan)?;
     Ok(plan)
+}
+
+fn dedupe_required_artifacts(paths: Vec<String>) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut out = Vec::new();
+    for path in paths {
+        if seen.insert(path.clone()) {
+            out.push(path);
+        }
+    }
+    out
 }
 
 pub fn validate_ultra_plan(plan: &UltraPlan) -> Result<(), UltraPlanError> {
@@ -470,6 +481,33 @@ goal: Verify the build.
         assert_eq!(plan.phases.len(), 2);
         assert_eq!(plan.phases[0].goal, "Create project files.");
         assert_eq!(plan.phases[1].goal, "Verify the build.");
+    }
+
+    #[test]
+    fn dedupes_required_artifacts_stably() {
+        let yaml = r#"
+goal: Build app
+profile: nextjs
+style: default
+intent: new
+required_artifacts:
+- package.json
+- app/page.tsx
+- package.json
+- app/page.tsx
+phases:
+- id: scaffold
+goal: Create project files.
+- id: verify
+goal: Verify the build.
+"#;
+
+        let plan = parse_ultra_plan_yaml(yaml).unwrap();
+
+        assert_eq!(
+            plan.required_artifacts,
+            vec!["package.json", "app/page.tsx"]
+        );
     }
 
     #[test]

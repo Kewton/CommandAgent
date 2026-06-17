@@ -266,13 +266,6 @@ where
             self.execute_step(plan, step)?;
             lines.push(format!("step {}: ok", step.id));
         }
-        let missing = missing_paths(self.cwd, &plan.required_artifacts);
-        if !missing.is_empty() {
-            return Err(format!(
-                "missing required final artifacts: {}",
-                missing.join(", ")
-            ));
-        }
         Ok(lines.join("\n"))
     }
 
@@ -484,7 +477,7 @@ fn parse_generated_ultra_plan(
     plan.profile = profile.to_string();
     plan.style = style.to_string();
     plan.intent = intent.as_str().to_string();
-    plan.required_artifacts = required_artifacts.to_vec();
+    plan.required_artifacts = dedupe_required_artifacts(required_artifacts.iter().cloned());
     Ok(plan)
 }
 
@@ -649,6 +642,17 @@ fn missing_paths(cwd: &Path, paths: &[String]) -> Vec<String> {
         .collect()
 }
 
+fn dedupe_required_artifacts(paths: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut out = Vec::new();
+    for path in paths {
+        if seen.insert(path.clone()) {
+            out.push(path);
+        }
+    }
+    out
+}
+
 fn result_changed_files(result: &RunResult) -> bool {
     result
         .tool_results
@@ -768,6 +772,54 @@ mod tests {
 
         assert!(output.contains("step write-readme: ok"));
         assert_eq!(fs::read_to_string(root.join("README.md")).unwrap(), "ok");
+    }
+
+    #[test]
+    fn plan_run_does_not_enforce_required_artifacts_as_step_gate() {
+        let root = temp_workspace("plan-run-final-artifact-pressure-only");
+        let plan_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"cat README.md\"\n";
+        let mut planner = MockClient::new(vec![ChatResponse {
+            content: plan_yaml.to_string(),
+            tool_calls: Vec::new(),
+        }]);
+        let mut executor = MockClient::new(vec![
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    name: "Write".to_string(),
+                    args_json: r#"{"path":"README.md","content":"ok"}"#.to_string(),
+                }],
+            },
+            ChatResponse {
+                content: "Created README.md.".to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+        let command = SlashCommand {
+            kind: SlashCommandKind::PlanRun,
+            profile: Some("docs".to_string()),
+            style: None,
+            intent: None,
+            artifacts: vec!["FINAL.md".to_string()],
+            argument: "Create docs".to_string(),
+        };
+
+        let output = SlashRuntime {
+            executor: &mut executor,
+            planner: &mut planner,
+            cwd: &root,
+            loop_config: MinimalLoopConfig::default(),
+            planner_config: PlannerRuntimeConfig {
+                model: "planner".to_string(),
+                tool_call_mode: ToolCallMode::XmlFallback,
+            },
+        }
+        .run(command)
+        .unwrap();
+
+        assert!(output.contains("step write-readme: ok"));
+        assert!(root.join("README.md").exists());
+        assert!(!root.join("FINAL.md").exists());
     }
 
     #[test]
@@ -897,6 +949,117 @@ mod tests {
     }
 
     #[test]
+    fn ultra_plan_does_not_enforce_required_artifacts_between_phases() {
+        let root = temp_workspace("ultra-final-artifact-between-phases");
+        let ultra_yaml = "goal: \"Create final\"\nprofile: \"docs\"\nstyle: \"default\"\nintent: \"new\"\nphases:\n  - id: \"inspect\"\n    goal: \"Inspect existing files.\"\n  - id: \"create-final\"\n    goal: \"Create FINAL.md.\"\n";
+        let inspect_plan = "goal: \"Inspect existing files.\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"inspect\"\n    kind: \"inspect\"\n    instruction: \"Inspect current workspace.\"\n    expected_paths: []\n    verify: []\n";
+        let create_plan = "goal: \"Create FINAL.md.\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-final\"\n    kind: \"create\"\n    instruction: \"Create FINAL.md.\"\n    expected_paths:\n      - \"FINAL.md\"\n    verify:\n      - \"cat FINAL.md\"\n";
+        let mut planner = MockClient::new(vec![
+            ChatResponse {
+                content: ultra_yaml.to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: inspect_plan.to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: create_plan.to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+        let mut executor = MockClient::new(vec![
+            ChatResponse {
+                content: "Inspection complete.".to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    name: "Write".to_string(),
+                    args_json: r#"{"path":"FINAL.md","content":"done"}"#.to_string(),
+                }],
+            },
+            ChatResponse {
+                content: "Created FINAL.md.".to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+        let command = SlashCommand {
+            kind: SlashCommandKind::UltraPlanRun,
+            profile: Some("docs".to_string()),
+            style: None,
+            intent: Some("new".to_string()),
+            artifacts: vec!["FINAL.md".to_string()],
+            argument: "Create final".to_string(),
+        };
+
+        let output = SlashRuntime {
+            executor: &mut executor,
+            planner: &mut planner,
+            cwd: &root,
+            loop_config: MinimalLoopConfig::default(),
+            planner_config: PlannerRuntimeConfig {
+                model: "planner".to_string(),
+                tool_call_mode: ToolCallMode::XmlFallback,
+            },
+        }
+        .run(command)
+        .unwrap();
+
+        assert!(output.contains("phase inspect: ok"), "{output}");
+        assert!(output.contains("phase create-final: ok"), "{output}");
+        assert_eq!(fs::read_to_string(root.join("FINAL.md")).unwrap(), "done");
+    }
+
+    #[test]
+    fn ultra_plan_enforces_required_artifacts_at_final_boundary() {
+        let root = temp_workspace("ultra-final-artifact-final-boundary");
+        let ultra_yaml = "goal: \"Create final\"\nprofile: \"docs\"\nstyle: \"default\"\nintent: \"new\"\nphases:\n  - id: \"inspect\"\n    goal: \"Inspect existing files.\"\n";
+        let inspect_plan = "goal: \"Inspect existing files.\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"inspect\"\n    kind: \"inspect\"\n    instruction: \"Inspect current workspace.\"\n    expected_paths: []\n    verify: []\n";
+        let mut planner = MockClient::new(vec![
+            ChatResponse {
+                content: ultra_yaml.to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: inspect_plan.to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+        let mut executor = MockClient::new(vec![ChatResponse {
+            content: "Inspection complete.".to_string(),
+            tool_calls: Vec::new(),
+        }]);
+        let command = SlashCommand {
+            kind: SlashCommandKind::UltraPlanRun,
+            profile: Some("docs".to_string()),
+            style: None,
+            intent: Some("new".to_string()),
+            artifacts: vec!["FINAL.md".to_string()],
+            argument: "Create final".to_string(),
+        };
+
+        let err = SlashRuntime {
+            executor: &mut executor,
+            planner: &mut planner,
+            cwd: &root,
+            loop_config: MinimalLoopConfig::default(),
+            planner_config: PlannerRuntimeConfig {
+                model: "planner".to_string(),
+                tool_call_mode: ToolCallMode::XmlFallback,
+            },
+        }
+        .run(command)
+        .unwrap_err();
+
+        assert!(
+            err.contains("missing required final artifacts: FINAL.md"),
+            "{err}"
+        );
+    }
+
+    #[test]
     fn generated_step_plan_can_omit_known_header_fields() {
         let text = "steps:\n  - id: \"write-readme\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify: []\n";
 
@@ -944,7 +1107,7 @@ mod tests {
     #[test]
     fn generated_step_plan_uses_requested_artifacts_over_model_artifacts() {
         let root = temp_workspace("parse-generated-artifacts");
-        let text = "required_artifacts:\n  - wrong/path.txt\nsteps:\n  - id: \"write-readme\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify: []\n";
+        let text = "required_artifacts:\n  - wrong/path.txt\n  - README.md\nsteps:\n  - id: \"write-readme\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify: []\n";
 
         let plan = parse_generated_step_plan(
             &root,
@@ -953,7 +1116,7 @@ mod tests {
             "docs",
             "default",
             WorkIntent::Document,
-            &["README.md".to_string()],
+            &["README.md".to_string(), "README.md".to_string()],
         )
         .unwrap();
 
