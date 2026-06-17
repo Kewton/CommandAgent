@@ -15,6 +15,7 @@ matches="$(
   rg -n --hidden --glob '!target/**' --glob '!.git/**' "$pattern" . \
     | grep -v '^./scripts/check_branding.sh:' \
     | grep -v '^./docs/eval/triage/large-root-20260617T003924.md:' \
+    | grep -v '^./docs/eval/triage/large-root-20260617T110312.md:' \
     | grep -v '^./docs/adr/0002-contract-recovery.md:' || true
 )"
 

@@ -11,12 +11,15 @@ artifacts, verifier commands, and content signals rather than line count alone.
 `scripts/eval_agent_slice.sh` runs a case directory with the release binary and
 writes a timestamped root containing per-run `meta.json`, stdout/stderr, a
 workspace directory, and `summary.tsv`. Use `--dry-run` for offline wiring
-checks.
+checks. The runner records `success_check` in `meta.json` and applies semantic
+checks for required paths and required file content signals in addition to the
+process return code and expected artifacts.
 
 `scripts/eval_report.py <root>` summarizes `summary.tsv` by headline success,
 failure category, and case. `scripts/eval_report.py <root> --recheck` rechecks
-existing workspaces against current case `required_paths` and writes
-`recheck_summary.tsv` without overwriting the original summary.
+existing workspaces against current case `success_check.required_paths` and
+`success_check.must_include`, then writes `recheck_summary.tsv` without
+overwriting the original summary.
 
 The eval runner executes cases through the mode declared in each case. Omitted
 mode defaults to `/plan-run`; large cases should normally use `/ultra-plan-run`.

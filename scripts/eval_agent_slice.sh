@@ -33,18 +33,29 @@ def read_case(path):
         "verify": [],
         "mode": "plan-run",
         "fixture": None,
+        "success_check": {
+            "required_paths": [],
+            "must_include": {},
+        },
     }
     current_list = None
+    in_success_check = False
+    in_must_include = False
+    current_must_include_path = None
     with open(path, encoding="utf-8") as handle:
         for raw in handle:
             line = raw.rstrip("\n")
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
                 continue
+            indent = len(line) - len(line.lstrip(" "))
             if not line.startswith(" ") and ":" in line:
                 key, value = line.split(":", 1)
                 key = key.strip()
                 value = unquote(value.strip())
+                in_success_check = key == "success_check"
+                in_must_include = False
+                current_must_include_path = None
                 if key in {"id", "title", "profile", "style", "intent", "prompt", "mode", "fixture"}:
                     data[key] = value
                     current_list = None
@@ -52,6 +63,27 @@ def read_case(path):
                     current_list = key
                 else:
                     current_list = None
+            elif in_success_check:
+                if indent == 2 and stripped.startswith("type:"):
+                    data["success_check"]["type"] = unquote(stripped.split(":", 1)[1].strip())
+                    current_list = None
+                    in_must_include = False
+                elif indent == 2 and stripped == "required_paths:":
+                    current_list = "success_required_paths"
+                    in_must_include = False
+                elif indent == 2 and stripped == "must_include:":
+                    current_list = None
+                    in_must_include = True
+                    current_must_include_path = None
+                elif current_list == "success_required_paths" and stripped.startswith("- "):
+                    data["success_check"]["required_paths"].append(unquote(stripped[2:].strip()))
+                elif in_must_include and indent == 4 and stripped.endswith(":"):
+                    current_must_include_path = unquote(stripped[:-1].strip())
+                    data["success_check"]["must_include"].setdefault(current_must_include_path, [])
+                elif in_must_include and indent >= 6 and stripped.startswith("- ") and current_must_include_path:
+                    data["success_check"]["must_include"][current_must_include_path].append(
+                        unquote(stripped[2:].strip())
+                    )
             elif current_list and stripped.startswith("- "):
                 data[current_list].append(unquote(stripped[2:].strip()))
     for required in ["id", "profile", "style", "prompt"]:
@@ -87,9 +119,32 @@ def failure_evidence(workdir, stdout, stderr):
     return "\n".join(parts)
 
 
-def success_reason(workdir, rc, missing, stdout, stderr):
+def semantic_failures(workdir, case):
+    check = case.get("success_check") or {}
+    missing = [
+        path for path in check.get("required_paths", []) if not (workdir / path).exists()
+    ]
+    mismatches = []
+    for path, needles in check.get("must_include", {}).items():
+        target = workdir / path
+        if not target.exists():
+            if path not in missing:
+                missing.append(path)
+            continue
+        text = target.read_text(encoding="utf-8", errors="replace")
+        for needle in needles:
+            if needle not in text:
+                mismatches.append(f"{path}:{needle}")
+    return missing, mismatches
+
+
+def success_reason(workdir, rc, missing, semantic_missing, semantic_mismatches, stdout, stderr):
     if missing:
         return "missing:" + ",".join(missing)
+    if semantic_missing:
+        return "semantic_missing:" + ",".join(semantic_missing)
+    if semantic_mismatches:
+        return "semantic_mismatch:" + ",".join(semantic_mismatches)
     if rc == 0:
         return "ok"
 
@@ -155,8 +210,11 @@ def run_case(repo, root, binary, case, run_index, args):
     missing = [
         path for path in case["expected_artifacts"] if not (workdir / path).exists()
     ]
-    success = rc == 0 and not missing
-    reason = success_reason(workdir, rc, missing, stdout, stderr)
+    semantic_missing, semantic_mismatches = semantic_failures(workdir, case)
+    success = rc == 0 and not missing and not semantic_missing and not semantic_mismatches
+    reason = success_reason(
+        workdir, rc, missing, semantic_missing, semantic_mismatches, stdout, stderr
+    )
 
     meta = {
         "case_id": case["id"],
@@ -167,6 +225,7 @@ def run_case(repo, root, binary, case, run_index, args):
         "style": case.get("style"),
         "intent": case.get("intent"),
         "expected_artifacts": case.get("expected_artifacts", []),
+        "success_check": case.get("success_check", {}),
         "mode": mode,
         "fixture": case.get("fixture"),
         "prompt": prompt,

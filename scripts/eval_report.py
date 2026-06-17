@@ -22,24 +22,43 @@ def read_cases(cases_dir):
 
 
 def read_case(path):
-    data = {"required_paths": []}
+    data = {"required_paths": [], "must_include": {}}
+    in_success_check = False
     in_required_paths = False
+    in_must_include = False
+    current_must_include_path = None
     with open(path, encoding="utf-8") as handle:
         for raw in handle:
             line = raw.rstrip("\n")
             stripped = line.strip()
             if not stripped:
                 continue
+            indent = len(line) - len(line.lstrip(" "))
             if not line.startswith(" ") and ":" in line:
                 key, value = line.split(":", 1)
                 key = key.strip()
+                in_success_check = key == "success_check"
+                in_required_paths = False
+                in_must_include = False
+                current_must_include_path = None
                 if key == "id":
                     data["id"] = unquote(value.strip())
-                in_required_paths = False
-            elif stripped == "required_paths:":
+            elif in_success_check and indent == 2 and stripped == "required_paths:":
                 in_required_paths = True
+                in_must_include = False
+            elif in_success_check and indent == 2 and stripped == "must_include:":
+                in_required_paths = False
+                in_must_include = True
+                current_must_include_path = None
             elif in_required_paths and stripped.startswith("- "):
                 data["required_paths"].append(unquote(stripped[2:].strip()))
+            elif in_must_include and indent == 4 and stripped.endswith(":"):
+                current_must_include_path = unquote(stripped[:-1].strip())
+                data["must_include"].setdefault(current_must_include_path, [])
+            elif in_must_include and indent >= 6 and stripped.startswith("- ") and current_must_include_path:
+                data["must_include"][current_must_include_path].append(
+                    unquote(stripped[2:].strip())
+                )
     return data
 
 
@@ -66,13 +85,14 @@ def recheck(root, cases):
     rows = []
     for meta_path in sorted(root.glob("*/*/meta.json")):
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        case = cases.get(meta["case_id"], {"required_paths": []})
+        case = cases.get(meta["case_id"], {"required_paths": [], "must_include": {}})
         workspace = meta_path.parent / "workspace"
         missing = [
             path for path in case["required_paths"] if not (workspace / path).exists()
         ]
+        mismatches = semantic_mismatches(workspace, case, missing)
         rc = int(meta.get("rc", 1))
-        success = rc == 0 and not missing
+        success = rc == 0 and not missing and not mismatches
         rows.append(
             {
                 "case_id": meta["case_id"],
@@ -82,7 +102,15 @@ def recheck(root, cases):
                 "success": str(success).lower(),
                 "reason": "ok"
                 if success
-                else ("missing:" + ",".join(missing) if missing else f"rc:{rc}"),
+                else (
+                    "semantic_missing:" + ",".join(missing)
+                    if missing
+                    else (
+                        "semantic_mismatch:" + ",".join(mismatches)
+                        if mismatches
+                        else f"rc:{rc}"
+                    )
+                ),
             }
         )
     out = root / "recheck_summary.tsv"
@@ -90,11 +118,28 @@ def recheck(root, cases):
     return rows, out
 
 
+def semantic_mismatches(workspace, case, missing):
+    mismatches = []
+    for path, needles in case.get("must_include", {}).items():
+        target = workspace / path
+        if not target.exists():
+            if path not in missing:
+                missing.append(path)
+            continue
+        text = target.read_text(encoding="utf-8", errors="replace")
+        for needle in needles:
+            if needle not in text:
+                mismatches.append(f"{path}:{needle}")
+    return mismatches
+
+
 def categorize(reason):
     if reason == "ok":
         return "ok"
     if reason.startswith("missing:"):
         return "missing_artifact"
+    if reason.startswith("semantic_missing:") or reason.startswith("semantic_mismatch:"):
+        return "semantic_check_failed"
     if reason.startswith("rc:"):
         return "rc_nonzero"
     return "check_failed"
