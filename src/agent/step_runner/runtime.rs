@@ -570,6 +570,7 @@ Invalid plan:\n{invalid_plan}\n\n\
 If the error mentions shell scaffolding, replace that step with explicit file creation or editing instructions that can be completed with Write/Edit.\n\
 If the error mentions optional inspection, inspect discovery, test -d, or test -f on a non-required inspect step, use kind: inspect with expected_paths: [] and verify: [].\n\
 If the error mentions invalid verifier commands, replace source-code grep with canonical build/test/check commands such as cargo check, cargo test, npm run build, python -m py_compile, or pytest. Keep grep only for literal docs/data/content checks.\n\
+If the error mentions mixed setup and verification, remove build/test/check commands from create/edit/setup steps and add a separate verify step.\n\
 If the error mentions shell chaining, split the verifier into simple commands or choose one canonical check. Do not use &&, ||, ;, pipes, redirection, or fallback-to-true syntax.\n\
 If the error mentions action/path/content/old/new fields, rewrite those tool-call fields into step instruction and expected_paths fields.\n\
 Return only corrected YAML using the required CommandAgent schema."
@@ -1182,7 +1183,7 @@ mod tests {
     fn invalid_source_grep_step_plan_gets_one_correction_attempt() {
         let root = temp_workspace("source-grep-plan-correction");
         let invalid_yaml = "goal: \"Create Rust CLI\"\nprofile: \"rust\"\nstyle: \"default\"\nsteps:\n  - id: \"write-main\"\n    kind: \"create\"\n    instruction: \"Create src/main.rs.\"\n    expected_paths:\n      - \"src/main.rs\"\n    verify:\n      - \"grep -q clap src/main.rs\"\n";
-        let corrected_yaml = "goal: \"Create Rust CLI\"\nprofile: \"rust\"\nstyle: \"default\"\nsteps:\n  - id: \"write-main\"\n    kind: \"create\"\n    instruction: \"Create src/main.rs.\"\n    expected_paths:\n      - \"src/main.rs\"\n    verify:\n      - \"cargo check\"\n";
+        let corrected_yaml = "goal: \"Create Rust CLI\"\nprofile: \"rust\"\nstyle: \"default\"\nsteps:\n  - id: \"write-main\"\n    kind: \"create\"\n    instruction: \"Create src/main.rs.\"\n    expected_paths:\n      - \"src/main.rs\"\n    verify:\n      - \"test -f src/main.rs\"\n  - id: \"verify-build\"\n    kind: \"verify\"\n    instruction: \"Run cargo check.\"\n    expected_paths: []\n    verify:\n      - \"cargo check\"\n";
         let mut planner = MockClient::new(vec![
             ChatResponse {
                 content: invalid_yaml.to_string(),

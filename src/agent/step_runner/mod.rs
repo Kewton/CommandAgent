@@ -195,6 +195,7 @@ Rules:\n\
 - Use only canonical kind values in output: inspect, create, edit, setup, verify, repair, report.\n\
 - Use kind inspect instead of read/analyze, and kind verify instead of shell/run.\n\
 - Do not mix setup and final verification in the same step.\n\
+- If a create/edit/setup step produces new expected_paths, keep verifier commands to direct existence/syntax checks. Put npm run build, cargo check/test/build, pytest, or other integration checks in a separate verify step.\n\
 - File creation or modification steps must be executable with Write/Edit, not shell scaffolding.\n\
 - Do not create directory-only steps; Write creates parent directories automatically.\n\
 - Do not plan dependency installation as a required success step; dependency installs may be unavailable offline.\n\

@@ -31,6 +31,7 @@ pub fn lint_step_plan_with_workspace(
             &step.id,
             step.kind,
             &step.instruction,
+            &step.verify,
             !step.expected_paths.is_empty(),
             paths_exist(cwd, &step.expected_paths),
         )?;
@@ -325,6 +326,7 @@ fn lint_setup_verify_boundary(
     step_id: &str,
     kind: StepKind,
     instruction: &str,
+    verify_commands: &[String],
     has_expected_paths: bool,
     expected_paths_already_exist: bool,
 ) -> Result<(), PlanLintError> {
@@ -345,6 +347,7 @@ fn lint_setup_verify_boundary(
             "implement ",
         ],
     );
+    let verifier_has_build_test = verifier_runs_build_test(verify_commands);
     let verify = contains_any(
         &lower,
         &[
@@ -358,7 +361,7 @@ fn lint_setup_verify_boundary(
             "pytest",
             "test ",
         ],
-    );
+    ) || verifier_has_build_test;
 
     let explicit_sequence = contains_any(
         &lower,
@@ -376,12 +379,31 @@ fn lint_setup_verify_boundary(
         ],
     );
 
-    if has_expected_paths && !expected_paths_already_exist && setup && verify && explicit_sequence {
+    if has_expected_paths
+        && !expected_paths_already_exist
+        && setup
+        && verify
+        && (explicit_sequence || verifier_has_build_test)
+    {
         return Err(PlanLintError::MixedSetupAndVerify {
             step_id: step_id.to_string(),
         });
     }
     Ok(())
+}
+
+fn verifier_runs_build_test(commands: &[String]) -> bool {
+    commands.iter().any(|command| {
+        let lower = command.trim().to_ascii_lowercase();
+        lower == "npm run build"
+            || lower == "cargo check"
+            || lower == "cargo test"
+            || lower == "cargo build"
+            || lower.starts_with("python -m pytest")
+            || lower.starts_with("python3 -m pytest")
+            || lower == "pytest"
+            || lower.starts_with("pytest ")
+    })
 }
 
 fn paths_exist(cwd: Option<&Path>, paths: &[String]) -> bool {
@@ -808,6 +830,38 @@ mod tests {
             err,
             PlanLintError::MixedSetupAndVerify {
                 step_id: "create-and-build".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_new_artifact_create_step_with_build_verifier() {
+        let root = temp_workspace("new-artifact-build-verifier");
+        let plan = StepPlan {
+            goal: "create panel".to_string(),
+            profile: "nextjs".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::Modify,
+            required_artifacts: Vec::new(),
+            steps: vec![StepPlanStep {
+                id: "create-panel".to_string(),
+                kind: StepKind::Create,
+                instruction: "Create components/AnalyticsPanel.tsx.".to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec!["components/AnalyticsPanel.tsx".to_string()],
+                verify: vec![
+                    "test -f components/AnalyticsPanel.tsx".to_string(),
+                    "npm run build".to_string(),
+                ],
+            }],
+        };
+
+        let err = lint_step_plan_with_workspace(&plan, Some(&root)).unwrap_err();
+
+        assert_eq!(
+            err,
+            PlanLintError::MixedSetupAndVerify {
+                step_id: "create-panel".to_string()
             }
         );
     }
