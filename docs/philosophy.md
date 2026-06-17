@@ -17,11 +17,46 @@ machinery.
 - Keep one execution engine. There is no legacy engine switch.
 - Prefer deterministic checks before adding feedback mechanisms.
 - Keep runtime guards narrow, bounded, and observable.
+- Treat predictable behavior as a product requirement. A fix that raises one
+  benchmark but makes runtime behavior harder to anticipate is not admissible.
 - Do not turn profiles into hidden applications.
 - Split large work into explicit steps instead of relying on a single long
   conversation.
 - Keep planning, execution, verification, and repair as separate contracts.
 - Treat evaluation scripts and docs as part of the product.
+
+## Stability And Predictability
+
+CommandAgent should be boring in the parts that control execution. Local LLM
+output will vary, so the surrounding runtime must avoid adding avoidable
+nondeterminism.
+
+A runtime guard, repair rule, profile contract, or eval policy is acceptable
+only when it preserves these properties:
+
+- deterministic trigger: the condition is based on observable state such as a
+  missing expected path, a verifier result, or a specific tool error
+- bounded effect: the mechanism has a hard cap and cannot become a hidden retry
+  loop
+- stable scope: the mechanism applies to a narrow layer, such as repair context,
+  profile facts, verifier classification, or eval checks
+- observable outcome: logs, repair packets, or eval reports show why the
+  mechanism fired
+- provider-independent behavior: the policy does not depend on quirks of one
+  model or provider unless it is isolated in the provider transport layer
+
+Avoid changes that make behavior unstable:
+
+- retrying until success
+- running network or dependency setup implicitly during normal eval
+- accepting fake verifier success such as rewriting build scripts
+- adding provider-specific prompt branches for behavioral policy
+- broad no-tool guards that affect ordinary conversation or report-only tasks
+- semantic checks that over-specify implementation structure instead of external
+  behavior
+
+This means a slower or lower-success result can still be the correct outcome if
+the alternative is opaque, non-reproducible behavior.
 
 ## Why Legacy Is Removed
 
