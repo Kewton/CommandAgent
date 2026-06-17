@@ -71,3 +71,14 @@ Result: offline smoke and live UAT pass. Clean `/plan-run` smoke eval is not yet
 stable enough to be a release gate. The large eval runner now supports per-case
 `/ultra-plan-run` mode and fixture seeding, and a fresh clean large run exists,
 but large eval is still 0/6 and needs triage before release-quality use.
+
+Latest large triage:
+
+```text
+docs/eval/triage/large-root-20260617T003924.md
+```
+
+Result: completed. The root shows migration parity concerns around generated
+plan contracts, blocked read-only inspection commands, dependency policy for
+large Next.js cases, and max-iteration observability. No performance tuning was
+made as part of the triage.

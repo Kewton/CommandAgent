@@ -66,7 +66,7 @@ Interpretation:
 | `eval/runs/mvp-large/20260617T000606` | `qwen3.6:27b-coding-nvfp4` | 0/6 | Preliminary only; dirty root, plan-run mode, no fixture seeding for modify cases. |
 | `eval/runs/mvp-large-fresh/20260617T002756` | `qwen3.6:27b-coding-nvfp4` | 0/6 | Clean root after mode/fixture support; all cases stopped at ultra-plan YAML parsing. |
 | `eval/runs/mvp-large-fresh/20260617T003233` | `qwen3.6:27b-coding-nvfp4` | 0/6 | Clean root after ultra-plan indentation fix; reached execution and repair in several cases. |
-| `eval/runs/mvp-large-fresh/20260617T003924` | `qwen3.6:27b-coding-nvfp4` | 0/6 | Clean root after step-list and nested-phase drift fixes; no parser-wide immediate failure remains. |
+| `eval/runs/mvp-large-fresh/20260617T003924` | `qwen3.6:27b-coding-nvfp4` | 0/6 | Clean root after step-list and nested-phase drift fixes; no parser-wide immediate failure remains. Triage: `docs/eval/triage/large-root-20260617T003924.md`. |
 
 Observed direct reasons:
 
@@ -107,9 +107,10 @@ MVP runtime sign-off is partially complete:
 
 Release-quality eval requires follow-up work:
 
-1. Triage the latest large root before adding more runtime control. The highest
-   signal issues are plan-lint false positives versus real mixed steps, blocked
-   inspection/install commands, and max-iteration exits.
+1. Address the migration-scoped findings from
+   `docs/eval/triage/large-root-20260617T003924.md` before adding more runtime
+   control. The highest signal issues are plan-lint false positives versus real
+   mixed steps, blocked inspection/install commands, and max-iteration exits.
 2. Keep `runs=1` as MVP smoke sign-off and use `runs=3` for release-quality
    stability checks.
 3. Avoid tuning the planner parser for every model-specific YAML drift unless
