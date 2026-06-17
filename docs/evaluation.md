@@ -91,6 +91,14 @@ compile/edit-repair quality, and Rust new passed the current artifact/process
 contract. Details are in
 `docs/eval/triage/post-8eff913-r5-r6-guard-subset-20260617T213505.md`.
 
+The stale Edit-target evidence check at
+`eval/runs/stale-edit-target-rust-modify/20260617T230748` was run from clean
+commit `b68b9ed`. The code now classifies stale Edit failures as
+`edit_target_not_found`, but that run did not reproduce the stale Edit class.
+It failed earlier on repeated no-tool responses while `src/commands.rs` was
+still missing. Details are in
+`docs/eval/triage/post-b68b9ed-stale-edit-rust-modify-20260617T230748.md`.
+
 ## Repair Exhaustion
 
 Bounded repair should stop after the configured file-changing attempt budget.
