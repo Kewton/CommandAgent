@@ -127,7 +127,7 @@ fn lint_step_instruction(
 
 fn lint_verifier_command(step_id: &str, command: &str) -> Result<(), PlanLintError> {
     let trimmed = command.trim();
-    if trimmed.contains("&&") || trimmed.contains("||") || trimmed.contains(';') {
+    if contains_unquoted_shell_control(trimmed) {
         return Err(PlanLintError::InvalidVerifierCommand {
             step_id: step_id.to_string(),
             command: command.to_string(),
@@ -155,6 +155,33 @@ fn lint_verifier_command(step_id: &str, command: &str) -> Result<(), PlanLintErr
         });
     }
     Ok(())
+}
+fn contains_unquoted_shell_control(command: &str) -> bool {
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut escaped = false;
+    let mut chars = command.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' && in_double {
+            escaped = true;
+            continue;
+        }
+        match ch {
+            '\'' if !in_double => in_single = !in_single,
+            '"' if !in_single => in_double = !in_double,
+            ';' if !in_single && !in_double => return true,
+            '&' if !in_single && !in_double && chars.peek() == Some(&'&') => return true,
+            '|' if !in_single && !in_double && chars.peek() == Some(&'|') => return true,
+            _ => {}
+        }
+    }
+
+    false
 }
 
 fn lint_setup_verify_boundary(
@@ -466,6 +493,35 @@ mod tests {
     fn rejects_compound_verifier_commands() {
         let mut plan = plan_with_paths("generic", vec!["README.md"]);
         plan.steps[0].verify = vec!["test -f README.md && grep -q usage README.md".to_string()];
+
+        let err = lint_step_plan(&plan).unwrap_err();
+
+        assert!(matches!(err, PlanLintError::InvalidVerifierCommand { .. }));
+    }
+
+    #[test]
+    fn accepts_quoted_semicolon_in_python_verifier() {
+        let mut plan = plan_with_paths("python", vec!["app/main.py"]);
+        plan.steps[0].verify =
+            vec![r#"python -c "import ast; ast.parse(open('app/main.py').read())""#.to_string()];
+
+        lint_step_plan(&plan).unwrap();
+    }
+
+    #[test]
+    fn rejects_unquoted_semicolon_in_verifier() {
+        let mut plan = plan_with_paths("generic", vec!["README.md"]);
+        plan.steps[0].verify = vec!["test -f README.md; cat README.md".to_string()];
+
+        let err = lint_step_plan(&plan).unwrap_err();
+
+        assert!(matches!(err, PlanLintError::InvalidVerifierCommand { .. }));
+    }
+
+    #[test]
+    fn rejects_unquoted_or_in_verifier() {
+        let mut plan = plan_with_paths("generic", vec!["README.md"]);
+        plan.steps[0].verify = vec!["test -f README.md || cat README.md".to_string()];
 
         let err = lint_step_plan(&plan).unwrap_err();
 

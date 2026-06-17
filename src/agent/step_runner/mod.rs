@@ -199,7 +199,9 @@ Rules:\n\
 - Do not create directory-only steps; Write creates parent directories automatically.\n\
 - Do not plan dependency installation as a required success step; dependency installs may be unavailable offline.\n\
 - expected_paths must be actual file paths, not package names, concepts, directories, or dependency caches.\n\
-- Verifier commands must be one simple local check each; split shell chaining into separate list items and avoid &&, ||, or ;.\n\
+- Verifier commands must be one simple local check each; split shell chaining into separate list items and avoid unquoted &&, ||, or ;.\n\
+- Prefer canonical verifier commands: test -f <path>, python -m py_compile <path.py>, python -m pytest <path-or-test>, cargo check, cargo test, npm run build, or grep -q <literal> <path>.\n\
+- For source-code behavior, prefer build/test/check commands over exact grep. Use grep -q only for literal documentation, data, or content requirements.\n\
 - If no file path is expected for a step, use an empty list.\n\
 - required_artifacts are final user-requested outputs and must be preserved exactly.\n\
 - setup prepares local dependencies or configuration; verify runs deterministic checks and must not change files.\n\
@@ -837,6 +839,19 @@ steps:
         assert!(prompt.contains("Cargo.toml"));
         assert!(prompt.contains("src/main.rs"));
         assert!(prompt.contains("Do not plan cargo init or cargo new"));
+    }
+
+    #[test]
+    fn generation_prompt_lists_canonical_verifier_commands() {
+        let prompt =
+            plan_generation_prompt("Build app", "generic", "default", WorkIntent::New, &[]);
+
+        assert!(prompt.contains("test -f <path>"));
+        assert!(prompt.contains("python -m py_compile"));
+        assert!(prompt.contains("cargo test"));
+        assert!(prompt.contains("npm run build"));
+        assert!(prompt.contains("grep -q"));
+        assert!(prompt.contains("prefer build/test/check commands"));
     }
 
     #[test]
