@@ -12,8 +12,9 @@ CommandAgent is still in MVP migration.
   blocker instead of suggesting a repair replan.
 - Terminal progress is best-effort and TTY-aware. It improves visibility into
   plans, blocking planner/model/tool waits, steps, verifiers, artifact status,
-  and repair packets, but it is presentation-only and does not provide a fixed
-  footer or readline history and completion yet.
+  and repair packets, and includes an interactive startup logo. It is
+  presentation-only and does not provide a fixed footer, readline history and
+  completion, or signal-aware Ctrl-C resume messaging yet.
 - Live LLM behavior depends on local model quality, quantization, provider
   reliability, and local toolchains.
 - `Bash` is an offline policy guard, not a full OS sandbox. Commands run with

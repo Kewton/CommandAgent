@@ -38,12 +38,18 @@ step starts/finishes, tool summaries, verifier status, artifact status, bounded
 repair attempts, repair packet paths, and a standalone `next command:` block
 when a repair packet is saved.
 
+Interactive REPL startup also renders a compact CommandAgent ASCII-art logo
+above the startup context when stderr is a TTY. One-shot command output and
+non-TTY output do not include the logo.
+
 While a blocking planner, model, verifier, repair, or tool call is still
-running, CommandAgent emits bounded elapsed wait lines such as:
+running, CommandAgent updates an in-place elapsed spinner on stderr. The
+spinner line is cleared before confirmed progress lines such as
+`ultra plan: generated ...` are printed.
 
 ```text
-waiting: ultra plan generating profile=nextjs 2s
-waiting: model iter 1: gemini:gemini-3.1-flash-lite (native) 4s
+⠋ ultra plan generating profile=nextjs 0s
+⠙ ultra plan generating profile=nextjs 1s
 ```
 
 Progress is presentation-only. It is emitted to stderr and does not change
@@ -56,11 +62,15 @@ subset. Disable terminal decorations with:
 ```bash
 NO_COLOR=1
 COMMANDAGENT_NO_SPINNER=1
+COMMANDAGENT_NO_BANNER=1
 COMMANDAGENT_NO_MARKDOWN=1
 COMMANDAGENT_NO_EMOJI=1
 ```
 
-`COMMANDAGENT_NO_SPINNER=1` also suppresses transient progress rendering.
+`COMMANDAGENT_NO_SPINNER=1` disables only the in-place wait animation; normal
+phase, step, tool, verifier, artifact, and repair progress lines still render.
+`COMMANDAGENT_NO_BANNER=1` suppresses the startup logo but keeps the compact
+startup context.
 TUI output does not parse XML tool-call blocks; XML fallback parsing remains in
 provider/minimal-loop code.
 

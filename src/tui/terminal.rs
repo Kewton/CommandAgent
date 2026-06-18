@@ -4,16 +4,19 @@ use crate::agent::events::{
 use crate::config::{Config, Provider};
 use crate::providers::ToolCallMode;
 use crate::providers::planner::ProviderTargets;
+use crate::tui::banner::{StartupBanner, decide_banner_style, render_startup_banner};
 use crate::tui::env;
 use crate::tui::markdown::MarkdownRenderer;
 use crate::tui::progress::{paint, sanitize_for_progress, tool_color, truncate_chars};
-use crate::tui::spinner::WaitSpinner;
+use crate::tui::spinner::{WaitSpinner, WaitSpinnerConfig};
 use std::io::{self, Write};
 use std::path::Path;
 
 #[derive(Debug, Clone, Copy)]
 pub struct TerminalUiConfig {
     pub progress_enabled: bool,
+    pub spinner_enabled: bool,
+    pub banner_enabled: bool,
     pub color_enabled: bool,
     pub markdown_enabled: bool,
     pub utf8: bool,
@@ -23,8 +26,10 @@ impl TerminalUiConfig {
     pub fn from_env() -> Self {
         let env = env::detect();
         Self {
-            progress_enabled: env.spinner_enabled,
-            color_enabled: env.color_enabled,
+            progress_enabled: env.progress_enabled,
+            spinner_enabled: env.spinner_enabled,
+            banner_enabled: env.banner_enabled,
+            color_enabled: env.stderr_color_enabled,
             markdown_enabled: env.markdown_enabled,
             utf8: env.utf8_locale,
         }
@@ -46,7 +51,11 @@ impl TerminalUi<io::Stderr> {
         Self {
             writer: io::stderr(),
             config,
-            wait_spinner: WaitSpinner::new(config.progress_enabled),
+            wait_spinner: WaitSpinner::new(WaitSpinnerConfig {
+                enabled: config.spinner_enabled,
+                color_enabled: config.color_enabled,
+                utf8: config.utf8,
+            }),
             current_phase: None,
             current_step: None,
             last_tool: None,
@@ -59,7 +68,7 @@ impl<W: Write> TerminalUi<W> {
         Self {
             writer,
             config,
-            wait_spinner: WaitSpinner::new(false),
+            wait_spinner: WaitSpinner::disabled(),
             current_phase: None,
             current_step: None,
             last_tool: None,
@@ -71,6 +80,8 @@ impl<W: Write> TerminalUi<W> {
             writer,
             TerminalUiConfig {
                 progress_enabled: false,
+                spinner_enabled: false,
+                banner_enabled: false,
                 color_enabled: false,
                 markdown_enabled: false,
                 utf8: false,
@@ -105,18 +116,21 @@ impl<W: Write> TerminalUi<W> {
         if config.offline {
             flags.push("offline");
         }
-        let suffix = if flags.is_empty() {
-            String::new()
-        } else {
-            format!(" [{}]", flags.join(","))
-        };
-        self.write_line(&format!(
-            "CommandAgent {version} cwd={} provider={} planner={}{}",
-            sanitize_for_progress(cwd),
-            sanitize_for_progress(&executor),
-            sanitize_for_progress(&planner),
-            suffix
-        ))
+        let flags = flags.as_slice();
+        let style = decide_banner_style(
+            self.config.progress_enabled,
+            self.config.banner_enabled,
+            self.config.color_enabled,
+        );
+        let banner = render_startup_banner(&StartupBanner {
+            version,
+            cwd,
+            executor: &executor,
+            planner: &planner,
+            flags,
+            style,
+        });
+        self.write_raw(&banner)
     }
 
     fn write_line(&mut self, line: &str) -> io::Result<()> {
@@ -128,8 +142,17 @@ impl<W: Write> TerminalUi<W> {
         Ok(())
     }
 
-    fn start_wait(&mut self, label: impl Into<String>) {
+    fn write_raw(&mut self, text: &str) -> io::Result<()> {
         if self.config.progress_enabled {
+            self.wait_spinner.stop();
+            write!(self.writer, "{text}")?;
+            self.writer.flush()?;
+        }
+        Ok(())
+    }
+
+    fn start_wait(&mut self, label: impl Into<String>) {
+        if self.config.progress_enabled && self.config.spinner_enabled {
             self.wait_spinner.start(label);
         }
     }
@@ -448,7 +471,7 @@ pub fn render_final_answer(answer: &str) -> String {
     render_final_answer_with(
         answer,
         env.markdown_enabled,
-        env.color_enabled,
+        env.stdout_color_enabled,
         env.utf8_locale,
     )
 }
@@ -539,6 +562,8 @@ mod tests {
             Vec::new(),
             TerminalUiConfig {
                 progress_enabled: true,
+                spinner_enabled: false,
+                banner_enabled: false,
                 color_enabled: false,
                 markdown_enabled: false,
                 utf8: false,
@@ -577,6 +602,8 @@ mod tests {
             Vec::new(),
             TerminalUiConfig {
                 progress_enabled: true,
+                spinner_enabled: false,
+                banner_enabled: false,
                 color_enabled: false,
                 markdown_enabled: false,
                 utf8: false,
@@ -614,5 +641,109 @@ mod tests {
             compact_path(Path::new("/tmp/work"), &PathBuf::from("/tmp/work/a/b.txt")),
             "a/b.txt"
         );
+    }
+
+    #[test]
+    fn renders_plain_startup_context_when_banner_disabled() {
+        let root = PathBuf::from("/tmp/work");
+        let config = Config {
+            cwd: root,
+            provider: Provider::Gemini,
+            model: Some("gemini-3.1-flash-lite".to_string()),
+            planner_provider: None,
+            planner_model: Some("gemini-3.5-flash".to_string()),
+            context_budget: 1024,
+            max_iterations: 8,
+            timeout_secs: 120,
+            retries: 0,
+            yes: true,
+            offline: false,
+            state_dir: PathBuf::from(".commandagent"),
+            resume: None,
+            openai_api_key: None,
+            gemini_api_key: None,
+        };
+        let targets = ProviderTargets {
+            executor: crate::providers::planner::ModelTarget {
+                provider: Provider::Gemini,
+                model: Some("gemini-3.1-flash-lite".to_string()),
+            },
+            planner: crate::providers::planner::ModelTarget {
+                provider: Provider::Gemini,
+                model: Some("gemini-3.5-flash".to_string()),
+            },
+        };
+        let mut ui = TerminalUi::new(
+            Vec::new(),
+            TerminalUiConfig {
+                progress_enabled: true,
+                spinner_enabled: false,
+                banner_enabled: false,
+                color_enabled: false,
+                markdown_enabled: false,
+                utf8: false,
+            },
+        );
+
+        ui.render_startup_context("0.1.0", &config, &targets)
+            .unwrap();
+
+        let text = String::from_utf8(ui.into_inner()).unwrap();
+        assert_eq!(
+            text,
+            "CommandAgent 0.1.0 cwd=work provider=gemini:gemini-3.1-flash-lite planner=gemini:gemini-3.5-flash [yes]\n"
+        );
+    }
+
+    #[test]
+    fn renders_startup_logo_when_banner_enabled() {
+        let root = PathBuf::from("/tmp/work");
+        let config = Config {
+            cwd: root,
+            provider: Provider::Gemini,
+            model: Some("gemini-3.1-flash-lite".to_string()),
+            planner_provider: None,
+            planner_model: Some("gemini-3.5-flash".to_string()),
+            context_budget: 1024,
+            max_iterations: 8,
+            timeout_secs: 120,
+            retries: 0,
+            yes: true,
+            offline: false,
+            state_dir: PathBuf::from(".commandagent"),
+            resume: None,
+            openai_api_key: None,
+            gemini_api_key: None,
+        };
+        let targets = ProviderTargets {
+            executor: crate::providers::planner::ModelTarget {
+                provider: Provider::Gemini,
+                model: Some("gemini-3.1-flash-lite".to_string()),
+            },
+            planner: crate::providers::planner::ModelTarget {
+                provider: Provider::Gemini,
+                model: Some("gemini-3.5-flash".to_string()),
+            },
+        };
+        let mut ui = TerminalUi::new(
+            Vec::new(),
+            TerminalUiConfig {
+                progress_enabled: true,
+                spinner_enabled: false,
+                banner_enabled: true,
+                color_enabled: false,
+                markdown_enabled: false,
+                utf8: false,
+            },
+        );
+
+        ui.render_startup_context("0.1.0", &config, &targets)
+            .unwrap();
+
+        let text = String::from_utf8(ui.into_inner()).unwrap();
+        assert!(text.contains("____"));
+        assert!(text.contains("CommandAgent 0.1.0 cwd=work [yes]"));
+        assert!(text.contains("provider=gemini:gemini-3.1-flash-lite"));
+        assert!(text.contains("planner=gemini:gemini-3.5-flash"));
     }
 }

@@ -1,3 +1,4 @@
+pub mod banner;
 pub mod env;
 pub mod markdown;
 pub mod progress;

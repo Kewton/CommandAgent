@@ -56,16 +56,17 @@ The TUI is a passive observer. The runtime emits bounded events through
 a TTY. Non-TTY stdout remains script-friendly and does not receive progress
 text.
 
-Terminal progress can show plan generation, saved plan paths, plan previews,
-ultra phases, step starts/finishes, tool summaries, verifier status, artifact
-status, bounded repair attempts, repair packet paths, and a standalone
-suggested next command. These lines are evidence from existing runtime state;
-they do not change planning, verification, repair budgets, provider behavior,
-or tool policy.
+Terminal progress can show a startup logo, plan generation, saved plan paths,
+plan previews, ultra phases, step starts/finishes, tool summaries, verifier
+status, artifact status, bounded repair attempts, repair packet paths, and a
+standalone suggested next command. These lines are evidence from existing
+runtime state; they do not change planning, verification, repair budgets,
+provider behavior, or tool policy.
 
 For blocking planner, model, verifier, repair, and tool waits, the TUI can emit
-periodic elapsed `waiting: ... Ns` lines until the runtime emits completion,
-failure, or the next event.
+an in-place elapsed spinner until the runtime emits completion, failure, or the
+next event. Disabling the spinner affects only the active wait animation, not
+the ordinary append-only progress evidence.
 
 Assistant final answers are Markdown-formatted only when stdout is a TTY and
 Markdown rendering is enabled. The renderer supports a narrow subset and emits
