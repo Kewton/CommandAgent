@@ -5,122 +5,16 @@ use crate::agent::minimal_loop::guards::{
 use crate::agent::minimal_loop::prompt::{
     parser_failure_feedback, system_prompt, violates_final_answer_contract,
 };
-use crate::providers::gemini::{GeminiClient, GeminiTransport};
-use crate::providers::ollama::{OllamaClient, OllamaTransport};
-use crate::providers::openai::{OpenAiClient, OpenAiTransport};
 use crate::providers::xml_fallback::{extract_tool_calls, mode_after_parse_failure};
 use crate::providers::{ChatMessage, ChatRequest, ChatResponse, ChatRole, ToolCall, ToolCallMode};
 use crate::safety::path_guard::PathGuard;
-use crate::tools::bash::BashTool;
-use crate::tools::edit::EditTool;
-use crate::tools::glob::{GlobTool, SearchOptions};
-use crate::tools::grep::GrepTool;
-use crate::tools::read::ReadTool;
 use crate::tools::registry::file_tool_specs;
-use crate::tools::write::WriteTool;
-use serde_json::Value;
 use std::path::Path;
 
-pub trait ChatClient {
-    fn chat(&mut self, request: &ChatRequest) -> Result<ChatResponse, String>;
-}
-
-impl<T> ChatClient for OllamaClient<T>
-where
-    T: OllamaTransport,
-{
-    fn chat(&mut self, request: &ChatRequest) -> Result<ChatResponse, String> {
-        OllamaClient::chat(self, request).map_err(|err| err.to_string())
-    }
-}
-
-impl<T> ChatClient for GeminiClient<T>
-where
-    T: GeminiTransport,
-{
-    fn chat(&mut self, request: &ChatRequest) -> Result<ChatResponse, String> {
-        GeminiClient::chat(self, request).map_err(|err| err.to_string())
-    }
-}
-
-impl<T> ChatClient for OpenAiClient<T>
-where
-    T: OpenAiTransport,
-{
-    fn chat(&mut self, request: &ChatRequest) -> Result<ChatResponse, String> {
-        OpenAiClient::chat(self, request).map_err(|err| err.to_string())
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct MinimalLoopConfig {
-    pub model: String,
-    pub max_iterations: usize,
-    pub initial_tool_call_mode: ToolCallMode,
-    pub expected_artifacts: Vec<String>,
-    pub enable_completion_without_write_feedback: bool,
-    pub enable_requested_artifact_feedback: bool,
-    pub enable_future_action_feedback: bool,
-}
-
-impl Default for MinimalLoopConfig {
-    fn default() -> Self {
-        Self {
-            model: "default".to_string(),
-            max_iterations: 8,
-            initial_tool_call_mode: ToolCallMode::Native,
-            expected_artifacts: Vec::new(),
-            enable_completion_without_write_feedback: true,
-            enable_requested_artifact_feedback: true,
-            enable_future_action_feedback: true,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RunResult {
-    pub final_answer: String,
-    pub iterations: usize,
-    pub tool_call_mode: ToolCallMode,
-    pub tool_results: Vec<ToolExecutionRecord>,
-    pub messages: Vec<ChatMessage>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ToolExecutionRecord {
-    pub name: String,
-    pub ok: bool,
-    pub output: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum MinimalLoopError {
-    MaxIterations,
-    Model(String),
-    ToolArgs(String),
-    Tool(String),
-    FinalAnswerContract(String),
-    MissingArtifacts(Vec<String>),
-}
-
-impl std::fmt::Display for MinimalLoopError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::MaxIterations => write!(f, "minimal loop reached max iterations"),
-            Self::Model(message) => write!(f, "model error: {}", message),
-            Self::ToolArgs(message) => write!(f, "invalid tool arguments: {}", message),
-            Self::Tool(message) => write!(f, "tool error: {}", message),
-            Self::FinalAnswerContract(message) => {
-                write!(f, "assistant violated final answer contract: {}", message)
-            }
-            Self::MissingArtifacts(paths) => {
-                write!(f, "missing expected artifacts: {}", paths.join(", "))
-            }
-        }
-    }
-}
-
-impl std::error::Error for MinimalLoopError {}
+pub use super::client::ChatClient;
+pub use super::config::MinimalLoopConfig;
+pub use super::result::{MinimalLoopError, RunResult, ToolExecutionRecord};
+use super::tool_executor::ToolExecutor;
 
 pub fn run_session<C>(
     client: &mut C,
@@ -253,101 +147,6 @@ fn tool_calls_from_response(
         Err(err) if mode == ToolCallMode::Native => Err(err.to_string()),
         Err(err) => Err(err.to_string()),
     }
-}
-
-struct ToolExecutor<'a> {
-    read: ReadTool<'a>,
-    write: WriteTool<'a>,
-    edit: EditTool<'a>,
-    bash: BashTool<'a>,
-    glob: GlobTool<'a>,
-    grep: GrepTool<'a>,
-}
-
-impl<'a> ToolExecutor<'a> {
-    fn new(guard: &'a PathGuard) -> Self {
-        Self {
-            read: ReadTool::new(guard),
-            write: WriteTool::new(guard),
-            edit: EditTool::new(guard),
-            bash: BashTool::new(guard),
-            glob: GlobTool::new(guard),
-            grep: GrepTool::new(guard),
-        }
-    }
-
-    fn execute(&self, call: &ToolCall) -> Result<ToolExecutionRecord, MinimalLoopError> {
-        let args: Value = serde_json::from_str(&call.args_json)
-            .map_err(|err| MinimalLoopError::ToolArgs(err.to_string()))?;
-        let output = match call.name.as_str() {
-            "Read" => self
-                .read
-                .read(required_str(&args, "path")?)
-                .map_err(tool_err)?,
-            "Write" => {
-                self.write
-                    .write(
-                        required_str(&args, "path")?,
-                        required_str(&args, "content")?,
-                    )
-                    .map_err(tool_err)?;
-                "wrote file".to_string()
-            }
-            "Edit" => {
-                self.edit
-                    .replace_once(
-                        required_str(&args, "path")?,
-                        required_str(&args, "old")?,
-                        required_str(&args, "new")?,
-                    )
-                    .map_err(tool_err)?;
-                "edited file".to_string()
-            }
-            "Bash" => {
-                let output = self
-                    .bash
-                    .run(required_str(&args, "command")?)
-                    .map_err(tool_err)?;
-                format!(
-                    "status: {}\nstdout:\n{}\nstderr:\n{}",
-                    output.status, output.stdout, output.stderr
-                )
-            }
-            "Glob" => self
-                .glob
-                .glob(required_str(&args, "pattern")?, SearchOptions::default())
-                .map_err(tool_err)?
-                .into_iter()
-                .map(|path| path.display().to_string())
-                .collect::<Vec<_>>()
-                .join("\n"),
-            "Grep" => self
-                .grep
-                .grep(required_str(&args, "pattern")?, SearchOptions::default())
-                .map_err(tool_err)?
-                .into_iter()
-                .map(|m| format!("{}:{}:{}", m.path.display(), m.line_number, m.line))
-                .collect::<Vec<_>>()
-                .join("\n"),
-            other => return Err(MinimalLoopError::Tool(format!("unknown tool: {}", other))),
-        };
-
-        Ok(ToolExecutionRecord {
-            name: call.name.clone(),
-            ok: true,
-            output,
-        })
-    }
-}
-
-fn required_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, MinimalLoopError> {
-    args.get(key)
-        .and_then(Value::as_str)
-        .ok_or_else(|| MinimalLoopError::ToolArgs(format!("missing string field `{}`", key)))
-}
-
-fn tool_err(err: impl std::fmt::Display) -> MinimalLoopError {
-    MinimalLoopError::Tool(err.to_string())
 }
 
 #[cfg(test)]
