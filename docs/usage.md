@@ -97,6 +97,13 @@ commandagent \
 model used for plan generation. If planner options are omitted, planning uses
 the executor provider/model.
 
+CommandAgent has only one execution engine: the minimal loop. `--engine` is not
+a supported option. To start the interactive REPL, run `commandagent` from a
+terminal without a prompt argument.
+
+Live Gemini/OpenAI checks that use API keys are manual opt-in checks. They are
+not part of `cargo test`, default CI, or default eval/smoke scripts.
+
 ## Slash Commands
 
 Interactive slash commands use the same parser as the step runner. The parser

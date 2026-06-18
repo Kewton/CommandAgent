@@ -5,7 +5,9 @@ use crate::agent::minimal_loop::guards::{
 use crate::agent::minimal_loop::prompt::{
     parser_failure_feedback, system_prompt, violates_final_answer_contract,
 };
-use crate::providers::xml_fallback::{extract_tool_calls, mode_after_parse_failure};
+use crate::providers::xml_fallback::{
+    extract_tool_calls, mode_after_parse_failure, render_tool_calls,
+};
 use crate::providers::{ChatMessage, ChatRequest, ChatResponse, ChatRole, ToolCall, ToolCallMode};
 use crate::safety::path_guard::PathGuard;
 use crate::tools::registry::file_tool_specs;
@@ -28,10 +30,12 @@ where
     let guard =
         PathGuard::new(cwd.as_ref()).map_err(|err| MinimalLoopError::Tool(err.to_string()))?;
     let executor = ToolExecutor::new(&guard);
+    let mut mode = config.initial_tool_call_mode;
+    let tools = file_tool_specs();
     let mut messages = vec![
         ChatMessage {
             role: ChatRole::System,
-            content: system_prompt().to_string(),
+            content: system_prompt(mode, &tools),
         },
         ChatMessage {
             role: ChatRole::User,
@@ -39,7 +43,6 @@ where
         },
     ];
     let mut tool_results = Vec::new();
-    let mut mode = config.initial_tool_call_mode;
     let mut file_change_count = 0usize;
     let mut future_action_feedback_sent = false;
     let mut completion_without_write_feedback_sent = false;
@@ -49,19 +52,18 @@ where
         let request = ChatRequest {
             model: config.model.clone(),
             messages: messages.clone(),
-            tools: file_tool_specs(),
+            tools: tools.clone(),
             tool_call_mode: mode,
         };
         let response = client.chat(&request).map_err(MinimalLoopError::Model)?;
 
-        messages.push(ChatMessage {
-            role: ChatRole::Assistant,
-            content: response.content.clone(),
-        });
-
         let calls = tool_calls_from_response(&response, mode);
         match calls {
             Ok(calls) if !calls.is_empty() => {
+                messages.push(ChatMessage {
+                    role: ChatRole::Assistant,
+                    content: assistant_history_content(&response, &calls, mode),
+                });
                 for call in calls {
                     let record = executor.execute(&call)?;
                     if record.ok && is_file_change_tool(&record.name) {
@@ -75,6 +77,10 @@ where
                 }
             }
             Ok(_) => {
+                messages.push(ChatMessage {
+                    role: ChatRole::Assistant,
+                    content: response.content.clone(),
+                });
                 if violates_final_answer_contract(&response.content) {
                     if config.enable_future_action_feedback && !future_action_feedback_sent {
                         future_action_feedback_sent = true;
@@ -93,7 +99,7 @@ where
                         requested_artifact_feedback_sent = true;
                         messages.push(ChatMessage {
                             role: ChatRole::User,
-                            content: requested_artifact_feedback(&missing),
+                            content: requested_artifact_feedback(&missing, mode),
                         });
                         continue;
                     }
@@ -107,7 +113,7 @@ where
                     completion_without_write_feedback_sent = true;
                     messages.push(ChatMessage {
                         role: ChatRole::User,
-                        content: completion_without_write_feedback(),
+                        content: completion_without_write_feedback(mode),
                     });
                     continue;
                 }
@@ -121,6 +127,10 @@ where
                 });
             }
             Err(err) => {
+                messages.push(ChatMessage {
+                    role: ChatRole::Assistant,
+                    content: response.content.clone(),
+                });
                 mode = mode_after_parse_failure(mode);
                 messages.push(ChatMessage {
                     role: ChatRole::User,
@@ -146,6 +156,23 @@ fn tool_calls_from_response(
         Ok(_) => Ok(Vec::new()),
         Err(err) if mode == ToolCallMode::Native => Err(err.to_string()),
         Err(err) => Err(err.to_string()),
+    }
+}
+
+fn assistant_history_content(
+    response: &ChatResponse,
+    calls: &[ToolCall],
+    mode: ToolCallMode,
+) -> String {
+    if mode != ToolCallMode::XmlFallback {
+        return response.content.clone();
+    }
+
+    let rendered_calls = render_tool_calls(calls);
+    if response.content.trim().is_empty() {
+        rendered_calls
+    } else {
+        format!("{}\n{}", response.content, rendered_calls)
     }
 }
 

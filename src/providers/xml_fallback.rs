@@ -4,6 +4,12 @@ use serde_json::Value;
 pub const COMMANDAGENT_TOOL_CALL_TAG: &str = "commandagent_tool_call";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct XmlToolCallExtraction {
+    pub content: String,
+    pub tool_calls: Vec<ToolCall>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum XmlFallbackError {
     UnclosedToolCall { tag: String },
     InvalidJson { message: String },
@@ -42,28 +48,47 @@ pub fn strip_think_tags(input: &str) -> String {
 }
 
 pub fn extract_tool_calls(input: &str) -> Result<Vec<ToolCall>, XmlFallbackError> {
-    let stripped = strip_think_tags(input);
-    let mut calls = Vec::new();
+    Ok(extract_tool_calls_with_content(input)?.tool_calls)
+}
 
-    for tag in supported_tags() {
-        let mut remaining = stripped.as_str();
+pub fn render_tool_calls(tool_calls: &[ToolCall]) -> String {
+    tool_calls
+        .iter()
+        .map(render_tool_call)
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub fn extract_tool_calls_with_content(
+    input: &str,
+) -> Result<XmlToolCallExtraction, XmlFallbackError> {
+    let stripped = strip_think_tags(input);
+    let mut content = String::with_capacity(stripped.len());
+    let mut calls = Vec::new();
+    let mut remaining = stripped.as_str();
+
+    while let Some((start, tag)) = next_open_tag(remaining) {
         let open = format!("<{}>", tag);
         let close = format!("</{}>", tag);
+        content.push_str(&remaining[..start]);
 
-        while let Some(start) = remaining.find(&open) {
-            let after_open = &remaining[start + open.len()..];
-            let Some(end) = after_open.find(&close) else {
-                return Err(XmlFallbackError::UnclosedToolCall {
-                    tag: tag.to_string(),
-                });
-            };
-            let payload = after_open[..end].trim();
-            calls.push(parse_tool_call_payload(payload)?);
-            remaining = &after_open[end + close.len()..];
-        }
+        let after_open = &remaining[start + open.len()..];
+        let Some(end) = after_open.find(&close) else {
+            return Err(XmlFallbackError::UnclosedToolCall {
+                tag: tag.to_string(),
+            });
+        };
+        let payload = after_open[..end].trim();
+        calls.push(parse_tool_call_payload(payload)?);
+        remaining = &after_open[end + close.len()..];
     }
 
-    Ok(calls)
+    content.push_str(remaining);
+
+    Ok(XmlToolCallExtraction {
+        content: content.trim().to_string(),
+        tool_calls: calls,
+    })
 }
 
 pub fn mode_after_parse_failure(current: ToolCallMode) -> ToolCallMode {
@@ -99,6 +124,16 @@ fn parse_tool_call_payload(payload: &str) -> Result<ToolCall, XmlFallbackError> 
     })
 }
 
+fn render_tool_call(tool_call: &ToolCall) -> String {
+    let name = serde_json::to_string(&tool_call.name).unwrap_or_else(|_| "\"\"".to_string());
+    format!(
+        "<{tag}>{{\"name\":{name},\"args\":{args}}}</{tag}>",
+        tag = COMMANDAGENT_TOOL_CALL_TAG,
+        name = name,
+        args = tool_call.args_json
+    )
+}
+
 fn first_string(object: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<String> {
     keys.iter()
         .filter_map(|key| object.get(*key))
@@ -111,6 +146,13 @@ fn supported_tags() -> [&'static str; 2] {
 
 fn legacy_tool_call_tag() -> &'static str {
     concat!("an", "vil_tool_call")
+}
+
+fn next_open_tag(input: &str) -> Option<(usize, &'static str)> {
+    supported_tags()
+        .into_iter()
+        .filter_map(|tag| input.find(&format!("<{}>", tag)).map(|idx| (idx, tag)))
+        .min_by_key(|(idx, _)| *idx)
 }
 
 #[cfg(test)]
@@ -135,6 +177,46 @@ mod tests {
                 name: "Read".to_string(),
                 args_json: r#"{"path":"Cargo.toml"}"#.to_string(),
             }]
+        );
+    }
+
+    #[test]
+    fn extracts_calls_and_removes_xml_blocks_from_content() {
+        let extraction = extract_tool_calls_with_content(
+            r#"Before
+<commandagent_tool_call>{"name":"Read","args":{"path":"Cargo.toml"}}</commandagent_tool_call>
+After"#,
+        )
+        .unwrap();
+
+        assert_eq!(extraction.content, "Before\n\nAfter");
+        assert_eq!(extraction.tool_calls.len(), 1);
+        assert_eq!(extraction.tool_calls[0].name, "Read");
+    }
+
+    #[test]
+    fn preserves_tool_call_order_across_supported_tags() {
+        let legacy = legacy_tool_call_tag();
+        let input = format!(
+            r#"<commandagent_tool_call>{{"name":"Read","args":{{"path":"a"}}}}</commandagent_tool_call><{}>{{"name":"Write","arguments":{{"path":"b","content":"c"}}}}</{}>"#,
+            legacy, legacy
+        );
+        let calls = extract_tool_calls(&input).unwrap();
+
+        assert_eq!(calls[0].name, "Read");
+        assert_eq!(calls[1].name, "Write");
+    }
+
+    #[test]
+    fn renders_tool_calls_as_canonical_commandagent_xml() {
+        let rendered = render_tool_calls(&[ToolCall {
+            name: "Write".to_string(),
+            args_json: r#"{"path":"hello.txt","content":"ok"}"#.to_string(),
+        }]);
+
+        assert_eq!(
+            rendered,
+            r#"<commandagent_tool_call>{"name":"Write","args":{"path":"hello.txt","content":"ok"}}</commandagent_tool_call>"#
         );
     }
 

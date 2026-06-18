@@ -91,6 +91,10 @@ Options:\n\
   -V, --version              Print version\n\
       --provider PROVIDER    ollama, gemini, or openai\n\
       --model MODEL          executor model\n\
+      --planner-provider PROVIDER\n\
+                              planner provider; defaults to executor provider\n\
+      --planner-model MODEL  planner model; defaults to executor model\n\
+      --context-budget N     context budget passed through configuration\n\
       --max-iterations N     max loop iterations\n\
       --yes                  accept non-interactive defaults\n\
 \n\

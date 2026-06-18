@@ -1,22 +1,38 @@
 use crate::safety::path_guard::PathGuard;
+use crate::{agent::minimal_loop::prompt::xml_tool_call_format, providers::ToolCallMode};
 
 pub(crate) fn future_action_feedback() -> String {
     "You described a future tool action without calling a tool. If you need to create, edit, read, run, or verify something, call the tool now. Final answers must describe completed work, not planned next steps.".to_string()
 }
 
-pub(crate) fn completion_without_write_feedback() -> String {
-    "No file changes have been made in this session. If the task requires creating or modifying files, use Write or Edit now. If no file changes are needed, say that explicitly and finish.".to_string()
+pub(crate) fn completion_without_write_feedback(mode: ToolCallMode) -> String {
+    let base = "No file changes have been made in this session. If the task requires creating or modifying files, use Write or Edit now. If no file changes are needed, say that explicitly and finish.";
+    if mode == ToolCallMode::XmlFallback {
+        format!(
+            "{base}\nWhen a file change is required, emit one complete XML fallback tool call like this:\n{}",
+            xml_tool_call_format()
+        )
+    } else {
+        base.to_string()
+    }
 }
 
-pub(crate) fn requested_artifact_feedback(missing: &[String]) -> String {
-    format!(
+pub(crate) fn requested_artifact_feedback(missing: &[String], mode: ToolCallMode) -> String {
+    let mut feedback = format!(
         "The requested artifact paths are still missing:\n{}\nCreate the missing paths with Write/Edit now, or explain why they are not required.",
         missing
             .iter()
             .map(|path| format!("- {path}"))
             .collect::<Vec<_>>()
             .join("\n")
-    )
+    );
+    if mode == ToolCallMode::XmlFallback {
+        feedback.push_str(
+            "\nWhen creating a missing path, emit one complete XML fallback tool call like this:\n",
+        );
+        feedback.push_str(xml_tool_call_format());
+    }
+    feedback
 }
 
 pub(crate) fn missing_artifacts(guard: &PathGuard, expected_artifacts: &[String]) -> Vec<String> {
@@ -60,6 +76,18 @@ mod tests {
         assert!(is_file_change_tool("Edit"));
         assert!(!is_file_change_tool("Read"));
         assert!(!is_file_change_tool("Bash"));
+    }
+
+    #[test]
+    fn xml_feedback_includes_fallback_example() {
+        assert!(
+            completion_without_write_feedback(ToolCallMode::XmlFallback)
+                .contains("commandagent_tool_call")
+        );
+        assert!(
+            requested_artifact_feedback(&["dist/report.md".to_string()], ToolCallMode::XmlFallback)
+                .contains("\"args\"")
+        );
     }
 
     fn temp_workspace(name: &str) -> PathBuf {

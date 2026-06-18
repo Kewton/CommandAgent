@@ -20,7 +20,8 @@ CommandAgent is still in MVP migration.
   the latest fresh large run is 0/6 and needs triage before it can be treated as
   a release-quality gate.
 - Provider API support is MVP-level. Ollama, Gemini, and OpenAI share one thin
-  chat contract, but provider-specific tool surfaces beyond Ollama native tools
+  chat contract. Gemini and OpenAI use the shared XML fallback tool-call
+  contract; provider-specific native tool surfaces beyond Ollama native tools
   are not implemented.
 - Smaller planner models may fail to follow the strict plan YAML schema even
   after one correction attempt. Use a stronger planner model for MVP workflows

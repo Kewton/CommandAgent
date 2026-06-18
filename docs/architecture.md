@@ -65,6 +65,16 @@ The provider layer does not own planning, repair, profiles, or evaluation. A
 provider-specific bug fix belongs in the provider module; a behavioral policy
 belongs in the minimal loop or step runner only if it is provider-independent.
 
+XML fallback is a shared tool-call format, not provider-specific behavior.
+Gemini and OpenAI provider modules may parse XML fallback blocks from provider
+response text and return them as `ChatResponse.tool_calls`, while also removing
+the XML block from assistant content. The minimal loop still keeps XML
+extraction as a safety net so the execution contract remains provider
+independent. When XML fallback tool calls are parsed into `tool_calls`, the
+minimal loop renders those calls back into canonical XML in assistant history so
+API providers can see the prior tool call on the next turn. A single XML block
+must not result in duplicate tool execution.
+
 ## Tool Contract
 
 File creation is done with `Write`; parent directories are created

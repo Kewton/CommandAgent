@@ -1,4 +1,5 @@
 use crate::config::Provider;
+use crate::providers::xml_fallback::extract_tool_calls_with_content;
 use crate::providers::{
     ChatMessage, ChatProvider, ChatRequest, ChatResponse, ChatRole, ExecutorProvider,
     PlannerProvider,
@@ -274,9 +275,12 @@ fn parse_generate_content_response(body: &str) -> Result<ChatResponse, GeminiErr
         .collect::<Vec<_>>()
         .join("\n");
 
+    let extraction = extract_tool_calls_with_content(&content)
+        .map_err(|err| GeminiError::Json(err.to_string()))?;
+
     Ok(ChatResponse {
-        content,
-        tool_calls: Vec::new(),
+        content: extraction.content,
+        tool_calls: extraction.tool_calls,
     })
 }
 
@@ -397,6 +401,73 @@ mod tests {
         assert_eq!(response.content, "hello\nworld");
         assert!(response.tool_calls.is_empty());
         assert!(transport.calls()[0].contains("/models/gemini-3.5-flash:generateContent?key=key"));
+    }
+
+    #[test]
+    fn chat_parses_xml_tool_call_from_response_text() {
+        let transport = MockTransport::with_responses([Ok(HttpResponse {
+            status: 200,
+            body: r#"{"candidates":[{"content":{"parts":[{"text":"<commandagent_tool_call>{\"name\":\"Write\",\"args\":{\"path\":\"hello.txt\",\"content\":\"ok\"}}</commandagent_tool_call>"}]}}]}"#
+                .to_string(),
+        })]);
+        let client = GeminiClient::with_transport(
+            "https://example.test/v1beta/",
+            "key",
+            transport,
+            Duration::from_secs(1),
+            0,
+        );
+        let request = ChatRequest {
+            model: "gemini-3.5-flash".to_string(),
+            messages: vec![ChatMessage {
+                role: ChatRole::User,
+                content: "create file".to_string(),
+            }],
+            tools: Vec::new(),
+            tool_call_mode: ToolCallMode::XmlFallback,
+        };
+
+        let response = client.chat(&request).unwrap();
+
+        assert_eq!(response.content, "");
+        assert_eq!(response.tool_calls.len(), 1);
+        assert_eq!(response.tool_calls[0].name, "Write");
+        assert_eq!(
+            response.tool_calls[0].args_json,
+            r#"{"content":"ok","path":"hello.txt"}"#
+        );
+    }
+
+    #[test]
+    fn chat_rejects_malformed_xml_tool_call() {
+        let transport = MockTransport::with_responses([Ok(HttpResponse {
+            status: 200,
+            body: r#"{"candidates":[{"content":{"parts":[{"text":"<commandagent_tool_call>{\"name\":\"Read\"}"}]}}]}"#
+                .to_string(),
+        })]);
+        let client = GeminiClient::with_transport(
+            "https://example.test/v1beta/",
+            "key",
+            transport,
+            Duration::from_secs(1),
+            0,
+        );
+        let request = ChatRequest {
+            model: "gemini-3.5-flash".to_string(),
+            messages: vec![ChatMessage {
+                role: ChatRole::User,
+                content: "read file".to_string(),
+            }],
+            tools: Vec::new(),
+            tool_call_mode: ToolCallMode::XmlFallback,
+        };
+
+        let err = client.chat(&request).unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("unclosed <commandagent_tool_call>")
+        );
     }
 
     #[test]
