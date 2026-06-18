@@ -7,6 +7,25 @@ bounded step-runner architecture for larger tasks.
 Legacy engines, sidecar routing, Photon, case memory, PAM, and historical repair
 systems are intentionally out of scope.
 
+## Install
+
+Install the latest release:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Kewton/CommandAgent/main/scripts/install.sh | bash
+commandagent --help
+```
+
+Install a specific tag:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Kewton/CommandAgent/main/scripts/install.sh \
+  | COMMANDAGENT_VERSION=v0.1.0 bash
+```
+
+Source builds use the current stable Rust toolchain until MSRV is fixed. See
+`docs/install.md` for manual install, provider setup, and platform details.
+
 ## Quickstart
 
 Build from source:
@@ -109,8 +128,16 @@ scripts/eval_large_tasks.sh --dry-run
 MVP sign-off uses `runs=1` for large cases. Release-quality stability checks use
 `scripts/eval_large_tasks.sh --release-quality` for `runs=3`.
 
+## Release
+
+Releases are created from `v*` tags pushed from commits already on `main`.
+`.github/workflows/release.yml` builds Linux and macOS assets and publishes
+SHA-256 checksum files. See `docs/release.md` for the release operation.
+
 ## Docs
 
+- `docs/install.md`
+- `docs/release.md`
 - `docs/philosophy.md`
 - `docs/architecture.md`
 - `docs/usage.md`

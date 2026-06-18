@@ -1,0 +1,183 @@
+name: Live E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      provider:
+        description: Provider smoke target.
+        required: true
+        default: ollama
+        type: choice
+        options:
+          - ollama
+          - openai
+          - gemini
+          - all
+      eval_provider:
+        description: Provider used when large eval is enabled.
+        required: true
+        default: ollama
+        type: choice
+        options:
+          - ollama
+          - openai
+          - gemini
+      model:
+        description: Model for live evals. Leave as default to use provider defaults.
+        required: true
+        default: default
+        type: string
+      ollama_host:
+        description: Ollama host for self-hosted live validation.
+        required: true
+        default: http://127.0.0.1:11434
+        type: string
+      runner_labels:
+        description: JSON runner labels. Use ["ubuntu-latest"] for API-only smoke.
+        required: true
+        default: '["self-hosted"]'
+        type: string
+      run_large_eval:
+        description: Run scripts/eval_large_tasks.sh after provider smoke.
+        required: true
+        default: false
+        type: boolean
+      release_quality:
+        description: Use release-quality large eval settings.
+        required: true
+        default: false
+        type: boolean
+      runs:
+        description: Eval repetitions when release_quality is false.
+        required: true
+        default: "1"
+        type: string
+      cases_dir:
+        description: Eval cases directory for large eval.
+        required: true
+        default: eval/cases/large
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  OLLAMA_HOST: ${{ inputs.ollama_host }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+
+jobs:
+  live-e2e:
+    name: live-e2e
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Prepare result directory
+        run: |
+          mkdir -p live-results/eval
+          {
+            echo "workflow=${GITHUB_WORKFLOW}"
+            echo "run_id=${GITHUB_RUN_ID}"
+            echo "sha=${GITHUB_SHA}"
+            echo "provider=${{ inputs.provider }}"
+            echo "eval_provider=${{ inputs.eval_provider }}"
+            echo "model=${{ inputs.model }}"
+            echo "run_large_eval=${{ inputs.run_large_eval }}"
+            echo "release_quality=${{ inputs.release_quality }}"
+          } > live-results/meta.txt
+
+      - name: Provider smoke
+        env:
+          PROVIDER: ${{ inputs.provider }}
+          MODEL: ${{ inputs.model }}
+        run: |
+          set -euo pipefail
+
+          if [[ "$PROVIDER" == "ollama" || "$PROVIDER" == "all" ]]; then
+            scripts/provider_smoke_ollama.sh | tee live-results/ollama-smoke.txt
+          fi
+
+          if [[ "$PROVIDER" == "openai" || "$PROVIDER" == "all" ]]; then
+            if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+              if [[ "$PROVIDER" == "openai" ]]; then
+                echo "error: OPENAI_API_KEY is required for provider=openai" >&2
+                exit 2
+              fi
+              echo "openai provider smoke skipped: OPENAI_API_KEY is not configured" \
+                | tee live-results/openai-smoke.txt
+            else
+              if [[ "$MODEL" != "default" ]]; then
+                export OPENAI_MODEL="$MODEL"
+              fi
+              scripts/provider_smoke_openai.sh | tee live-results/openai-smoke.txt
+            fi
+          fi
+
+          if [[ "$PROVIDER" == "gemini" || "$PROVIDER" == "all" ]]; then
+            if [[ -z "${GEMINI_API_KEY:-}" ]]; then
+              if [[ "$PROVIDER" == "gemini" ]]; then
+                echo "error: GEMINI_API_KEY is required for provider=gemini" >&2
+                exit 2
+              fi
+              echo "gemini provider smoke skipped: GEMINI_API_KEY is not configured" \
+                | tee live-results/gemini-smoke.txt
+            else
+              if [[ "$MODEL" != "default" ]]; then
+                export GEMINI_MODEL="$MODEL"
+              fi
+              scripts/provider_smoke_gemini.sh | tee live-results/gemini-smoke.txt
+            fi
+          fi
+
+      - name: Large eval
+        if: ${{ inputs.run_large_eval }}
+        env:
+          EVAL_PROVIDER: ${{ inputs.eval_provider }}
+          MODEL: ${{ inputs.model }}
+          RUNS: ${{ inputs.runs }}
+          CASES_DIR: ${{ inputs.cases_dir }}
+          RELEASE_QUALITY: ${{ inputs.release_quality }}
+        run: |
+          set -euo pipefail
+
+          args=(
+            --provider "$EVAL_PROVIDER"
+            --out live-results/eval
+            --cases-dir "$CASES_DIR"
+          )
+
+          if [[ "$MODEL" != "default" ]]; then
+            args+=(--model "$MODEL")
+          fi
+
+          if [[ "$RELEASE_QUALITY" == "true" ]]; then
+            args=(--release-quality "${args[@]}")
+          else
+            args=(--runs "$RUNS" "${args[@]}")
+          fi
+
+          eval_root="$(scripts/eval_large_tasks.sh "${args[@]}")"
+          echo "$eval_root" > live-results/eval-root.txt
+          scripts/eval_report.py "$eval_root" > live-results/eval-report.txt
+          scripts/eval_report.py "$eval_root" --recheck > live-results/eval-recheck.txt
+
+      - name: Upload live validation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-e2e-${{ github.run_id }}
+          path: live-results

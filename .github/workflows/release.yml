@@ -1,0 +1,141 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  preflight:
+    name: preflight
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Validate release tag
+        id: version
+        run: |
+          set -euo pipefail
+
+          case "$GITHUB_REF_NAME" in
+            v*) ;;
+            *)
+              echo "error: release tag must start with v: $GITHUB_REF_NAME" >&2
+              exit 1
+              ;;
+          esac
+
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+          tag_version="${GITHUB_REF_NAME#v}"
+          cargo_version="$(
+            sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1
+          )"
+
+          if [[ -z "$cargo_version" ]]; then
+            echo "error: could not read package version from Cargo.toml" >&2
+            exit 1
+          fi
+
+          if [[ "$tag_version" != "$cargo_version" ]]; then
+            echo "error: tag version $tag_version does not match Cargo.toml $cargo_version" >&2
+            exit 1
+          fi
+
+          echo "version=$tag_version" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: build (${{ matrix.artifact }})
+    needs: preflight
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+            artifact: commandagent-linux-amd64
+          - target: aarch64-unknown-linux-gnu
+            runner: ubuntu-latest
+            artifact: commandagent-linux-arm64
+          - target: x86_64-apple-darwin
+            runner: macos-latest
+            artifact: commandagent-darwin-amd64
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+            artifact: commandagent-darwin-arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Install Linux arm64 linker
+        if: ${{ matrix.target == 'aarch64-unknown-linux-gnu' }}
+        run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build binary
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+          CC_aarch64_unknown_linux_gnu: aarch64-linux-gnu-gcc
+        run: cargo build --release --target "${{ matrix.target }}"
+
+      - name: Package binary
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/commandagent" "dist/${{ matrix.artifact }}"
+          gzip -n "dist/${{ matrix.artifact }}"
+          (
+            cd dist
+            shasum -a 256 "${{ matrix.artifact }}.gz" > "${{ matrix.artifact }}.gz.sha256"
+          )
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.artifact }}
+          path: dist/*
+
+  release:
+    name: release
+    needs: [preflight, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: release-*
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          ls -la artifacts
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            --verify-tag \
+            artifacts/*.gz \
+            artifacts/*.gz.sha256
