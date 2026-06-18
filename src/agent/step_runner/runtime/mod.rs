@@ -1,49 +1,36 @@
-use crate::agent::minimal_loop::guards::is_file_change_tool;
-use crate::agent::minimal_loop::loop_run::{ChatClient, MinimalLoopConfig, RunResult, run_session};
+use crate::agent::minimal_loop::loop_run::{ChatClient, MinimalLoopConfig, RunResult};
 use crate::agent::slash_command::{SlashCommand, SlashCommandKind};
-use crate::agent::step_runner::plan_lint::lint_step_plan_with_workspace;
-use crate::agent::step_runner::profiles::profile_contract_text;
-use crate::agent::step_runner::repair::{
-    RepairBudget, RepairContext, build_repair_prompt, save_repair_prompt,
-};
 use crate::agent::step_runner::ultra_plan::{
-    UltraPlan, parse_ultra_plan_yaml, save_ultra_plan, ultra_plan_generation_prompt,
+    UltraPlan, save_ultra_plan, ultra_plan_generation_prompt,
 };
-use crate::agent::step_runner::ultra_run::phase_step_plan_prompt;
-use crate::agent::step_runner::verify::{VerificationFailure, run_verifiers};
+use crate::agent::step_runner::verify::VerificationFailure;
 use crate::agent::step_runner::{
-    ExpectedResult, StepKind, StepPlan, StepPlanStep, WorkIntent, detect_work_intent,
-    extract_plan_from_response, parse_step_plan_yaml, plan_generation_prompt, save_step_plan,
+    StepPlan, StepPlanStep, WorkIntent, detect_work_intent, plan_generation_prompt, save_step_plan,
 };
-use crate::providers::{ChatMessage, ChatRequest, ChatRole, ToolCallMode};
-use crate::safety::path_guard::PathGuard;
-use std::fs;
+use crate::providers::ToolCallMode;
 use std::path::Path;
 
-const MAX_REPAIR_TURNS: usize = 3;
+mod execution;
+mod paths;
+mod planning;
+mod prompts;
+mod repair_loop;
+
+use execution::{load_step_plan, load_ultra_plan};
+use paths::display_path;
+use planning::{
+    StepPlanCorrectionContext, parse_generated_step_plan, parse_generated_ultra_plan, planner_text,
+    save_invalid_generated_plan,
+};
+use prompts::plan_correction_prompt;
+use repair_loop::RepairStepState;
+
 const MAX_INVALID_PLAN_CORRECTIONS: usize = 2;
 
 #[derive(Debug, Clone)]
 pub struct PlannerRuntimeConfig {
     pub model: String,
     pub tool_call_mode: ToolCallMode,
-}
-
-struct StepPlanCorrectionContext<'a> {
-    goal: &'a str,
-    profile: &'a str,
-    style: &'a str,
-    intent: WorkIntent,
-    required_artifacts: &'a [String],
-    save_kind: &'a str,
-    prompt_kind: &'a str,
-}
-
-struct RepairStepState {
-    failures: Vec<VerificationFailure>,
-    changed_files: Vec<String>,
-    file_changing_attempts: usize,
-    initial_turn_error: Option<String>,
 }
 
 pub struct SlashRuntime<'a, E, P> {
@@ -225,115 +212,11 @@ where
     }
 
     fn execute_ultra_plan(&mut self, plan: &UltraPlan) -> Result<String, String> {
-        let profile_contract =
-            profile_contract_text(&plan.profile).map_err(|err| err.to_string())?;
-        let snapshot = crate::agent::step_runner::ultra_run::workspace_snapshot(self.cwd);
-        let mut lines = Vec::new();
-        lines.push(format!("ultra plan: {} phases", plan.phases.len()));
-
-        for (idx, phase) in plan.phases.iter().enumerate() {
-            lines.push(format!(
-                "phase {}/{} {}: planning",
-                idx + 1,
-                plan.phases.len(),
-                phase.id
-            ));
-            let prompt = phase_step_plan_prompt(plan, phase, &snapshot, &profile_contract);
-            let text = planner_text(self.planner, &self.planner_config, &prompt)?;
-            let correction_context = StepPlanCorrectionContext {
-                goal: &phase.goal,
-                profile: &plan.profile,
-                style: &plan.style,
-                intent: WorkIntent::parse(&plan.intent).unwrap_or(WorkIntent::Unknown),
-                required_artifacts: &plan.required_artifacts,
-                save_kind: "phase-step-plan",
-                prompt_kind: "phase step plan",
-            };
-            let step_plan =
-                self.parse_generated_step_plan_with_corrections(text, correction_context)?;
-            let path = save_step_plan(self.cwd, &step_plan).map_err(|err| err.to_string())?;
-            lines.push(format!(
-                "phase {}: step plan {}",
-                phase.id,
-                display_path(self.cwd, &path)
-            ));
-            let report = self.execute_step_plan(&step_plan)?;
-            lines.push(format!("phase {}: ok\n{}", phase.id, report));
-        }
-
-        let missing = missing_paths(self.cwd, &plan.required_artifacts);
-        if !missing.is_empty() {
-            return Err(format!(
-                "missing required final artifacts: {}",
-                missing.join(", ")
-            ));
-        }
-
-        Ok(lines.join("\n"))
+        execution::execute_ultra_plan(self, plan)
     }
 
     fn execute_step_plan(&mut self, plan: &StepPlan) -> Result<String, String> {
-        let mut lines = Vec::new();
-        lines.push(format!("step plan: {} steps", plan.steps.len()));
-        for (idx, step) in plan.steps.iter().enumerate() {
-            lines.push(format!(
-                "step {}/{} {}: running",
-                idx + 1,
-                plan.steps.len(),
-                step.id
-            ));
-            self.execute_step(plan, step)?;
-            lines.push(format!("step {}: ok", step.id));
-        }
-        Ok(lines.join("\n"))
-    }
-
-    fn execute_step(&mut self, plan: &StepPlan, step: &StepPlanStep) -> Result<(), String> {
-        let mut config = self.loop_config.clone();
-        if step.expected_result == ExpectedResult::Pass {
-            config.expected_artifacts = step.expected_paths.clone();
-        }
-        if matches!(step.kind, StepKind::Verify) && !step.verify.is_empty() {
-            let failures = verify_step(self.cwd, step)?;
-            if failures.is_empty() || step_accepts_verifier_failure(step) {
-                return Ok(());
-            }
-            return self.repair_step_with_state(
-                plan,
-                step,
-                config,
-                RepairStepState {
-                    failures,
-                    changed_files: Vec::new(),
-                    file_changing_attempts: 0,
-                    initial_turn_error: None,
-                },
-            );
-        }
-        let missing_expected_paths = missing_paths(self.cwd, &step.expected_paths);
-        let prompt = step_prompt(plan, step, &missing_expected_paths)?;
-        let result = match run_session(self.executor, self.cwd, &prompt, config.clone()) {
-            Ok(result) => result,
-            Err(err) => {
-                let failures = verify_step(self.cwd, step)?;
-                if failures.is_empty() || step_accepts_verifier_failure(step) {
-                    return Ok(());
-                }
-                return self.repair_step_after_turn_error(
-                    plan,
-                    step,
-                    config,
-                    err.to_string(),
-                    failures,
-                );
-            }
-        };
-        let failures = verify_step(self.cwd, step)?;
-        if failures.is_empty() || step_accepts_verifier_failure(step) {
-            return Ok(());
-        }
-
-        self.repair_step(plan, step, config, result, failures)
+        execution::execute_step_plan(self, plan)
     }
 
     fn repair_step_after_turn_error(
@@ -344,19 +227,7 @@ where
         turn_error: String,
         failures: Vec<VerificationFailure>,
     ) -> Result<(), String> {
-        let mut failures = failures;
-        failures.insert(0, turn_error_failure("initial turn", turn_error.clone()));
-        self.repair_step_with_state(
-            plan,
-            step,
-            config,
-            RepairStepState {
-                failures,
-                changed_files: Vec::new(),
-                file_changing_attempts: 0,
-                initial_turn_error: Some(turn_error),
-            },
-        )
+        repair_loop::repair_step_after_turn_error(self, plan, step, config, turn_error, failures)
     }
 
     fn repair_step(
@@ -367,17 +238,7 @@ where
         first_result: RunResult,
         failures: Vec<VerificationFailure>,
     ) -> Result<(), String> {
-        self.repair_step_with_state(
-            plan,
-            step,
-            config,
-            RepairStepState {
-                failures,
-                changed_files: changed_file_markers(&first_result),
-                file_changing_attempts: usize::from(result_changed_files(&first_result)),
-                initial_turn_error: None,
-            },
-        )
+        repair_loop::repair_step(self, plan, step, config, first_result, failures)
     }
 
     fn repair_step_with_state(
@@ -385,549 +246,21 @@ where
         plan: &StepPlan,
         step: &StepPlanStep,
         config: MinimalLoopConfig,
-        mut state: RepairStepState,
+        state: RepairStepState,
     ) -> Result<(), String> {
-        let budget = RepairBudget::default();
-        let mut repair_turns = 0usize;
-        let mut missing_artifact_no_tool_guard_sent = false;
-
-        while budget.allows_next_attempt(state.file_changing_attempts)
-            && repair_turns < MAX_REPAIR_TURNS
-        {
-            repair_turns += 1;
-            let missing_expected_paths = missing_paths(self.cwd, &step.expected_paths);
-            let context = RepairContext {
-                step_id: step.id.clone(),
-                original_goal: plan.goal.clone(),
-                profile: plan.profile.clone(),
-                style: plan.style.clone(),
-                step_instruction: step.instruction.clone(),
-                verification_failures: state.failures.clone(),
-                missing_expected_paths: missing_expected_paths.clone(),
-                changed_files: state.changed_files.clone(),
-            };
-            let prompt = build_repair_prompt(&context);
-            let result = match run_session(self.executor, self.cwd, &prompt, config.clone()) {
-                Ok(result) => result,
-                Err(err) => {
-                    let error = err.to_string();
-                    state
-                        .failures
-                        .push(turn_error_failure("repair turn", error.clone()));
-                    if should_send_missing_artifact_no_tool_guard(
-                        &error,
-                        &missing_expected_paths,
-                        missing_artifact_no_tool_guard_sent,
-                    ) {
-                        missing_artifact_no_tool_guard_sent = true;
-                        state.failures.push(missing_artifact_no_tool_guard_failure(
-                            &missing_expected_paths,
-                        ));
-                    }
-                    if recoverable_repair_turn_error(&error)
-                        && budget.allows_next_attempt(state.file_changing_attempts)
-                        && repair_turns < MAX_REPAIR_TURNS
-                    {
-                        continue;
-                    }
-                    break;
-                }
-            };
-            if result_changed_files(&result) {
-                state.file_changing_attempts += 1;
-            }
-            state.changed_files.extend(changed_file_markers(&result));
-            state.failures = verify_step(self.cwd, step)?;
-            if state.failures.is_empty() {
-                return Ok(());
-            }
-        }
-
-        let context = RepairContext {
-            step_id: step.id.clone(),
-            original_goal: plan.goal.clone(),
-            profile: plan.profile.clone(),
-            style: plan.style.clone(),
-            step_instruction: step.instruction.clone(),
-            verification_failures: state.failures,
-            missing_expected_paths: missing_paths(self.cwd, &step.expected_paths),
-            changed_files: state.changed_files,
-        };
-        let saved = save_repair_prompt(self.cwd, &context).map_err(|err| err.to_string())?;
-        let initial = state
-            .initial_turn_error
-            .map(|err| format!("initial turn error: {err}\n"))
-            .unwrap_or_default();
-        Err(format!(
-            "{initial}step {} failed verification; repair prompt saved: {}\nsuggested command: {}",
-            step.id, saved.relative_path, saved.suggested_command
-        ))
+        repair_loop::repair_step_with_state(self, plan, step, config, state)
     }
-}
-
-fn step_accepts_verifier_failure(step: &StepPlanStep) -> bool {
-    matches!(
-        step.expected_result,
-        ExpectedResult::Fail | ExpectedResult::Unavailable
-    )
-}
-
-fn turn_error_failure(command: &str, error: String) -> VerificationFailure {
-    let (reason, diagnostic_excerpt) = turn_error_reason_and_diagnostic(&error);
-    VerificationFailure {
-        command: command.to_string(),
-        reason: reason.to_string(),
-        stdout_excerpt: String::new(),
-        stderr_excerpt: String::new(),
-        diagnostic_excerpt,
-        source_excerpt: None,
-    }
-}
-
-fn turn_error_reason_and_diagnostic(error: &str) -> (&'static str, String) {
-    if is_edit_target_not_found(error) {
-        return (
-            "edit_target_not_found",
-            format!(
-                "Edit target was not found. The file state is stale for this Edit attempt. Read or Glob the current file first, then use Edit only with exact current target text from this repair turn, or Write when full replacement/creation is safer.\nOriginal error: {error}"
-            ),
-        );
-    }
-    ("turn_error", error.to_string())
-}
-
-fn recoverable_repair_turn_error(error: &str) -> bool {
-    error.contains("assistant violated final answer contract")
-        || error.contains("missing expected artifacts")
-        || is_edit_target_not_found(error)
-}
-
-fn is_edit_target_not_found(error: &str) -> bool {
-    error.contains("edit target was not found")
-}
-
-fn should_send_missing_artifact_no_tool_guard(
-    error: &str,
-    missing_expected_paths: &[String],
-    already_sent: bool,
-) -> bool {
-    !already_sent
-        && !missing_expected_paths.is_empty()
-        && (error.contains("assistant violated final answer contract")
-            || error.contains("missing expected artifacts"))
-}
-
-fn missing_artifact_no_tool_guard_failure(
-    missing_expected_paths: &[String],
-) -> VerificationFailure {
-    VerificationFailure {
-        command: "repair missing-artifact guard".to_string(),
-        reason: "missing_artifact_no_tool".to_string(),
-        stdout_excerpt: String::new(),
-        stderr_excerpt: String::new(),
-        diagnostic_excerpt: format!(
-            "The required path is still missing: {}. Do not describe the next action. Call Read, Glob, Write, or Edit in this response. If creating the missing file is required, call Write now.",
-            missing_expected_paths.join(", ")
-        ),
-        source_excerpt: None,
-    }
-}
-
-fn planner_text<C>(
-    client: &mut C,
-    config: &PlannerRuntimeConfig,
-    prompt: &str,
-) -> Result<String, String>
-where
-    C: ChatClient,
-{
-    let response = client.chat(&ChatRequest {
-        model: config.model.clone(),
-        messages: vec![
-            ChatMessage {
-                role: ChatRole::System,
-                content: "You generate CommandAgent plan YAML. Return only the requested YAML."
-                    .to_string(),
-            },
-            ChatMessage {
-                role: ChatRole::User,
-                content: prompt.to_string(),
-            },
-        ],
-        tools: Vec::new(),
-        tool_call_mode: config.tool_call_mode,
-    })?;
-    Ok(response.content)
-}
-
-fn parse_generated_step_plan(
-    cwd: &Path,
-    text: &str,
-    goal: &str,
-    profile: &str,
-    style: &str,
-    intent: WorkIntent,
-    required_artifacts: &[String],
-) -> Result<StepPlan, String> {
-    let normalized =
-        ensure_generated_plan_header(text, goal, profile, style, intent, required_artifacts);
-    let plan = extract_plan_from_response(&normalized).map_err(|err| err.to_string())?;
-    lint_step_plan_with_workspace(&plan, Some(cwd))
-        .map_err(|err| format!("plan lint failed: {err}"))?;
-    Ok(plan)
-}
-
-fn parse_generated_ultra_plan(
-    text: &str,
-    goal: &str,
-    profile: &str,
-    style: &str,
-    intent: WorkIntent,
-    required_artifacts: &[String],
-) -> Result<UltraPlan, String> {
-    let mut plan = parse_ultra_plan_yaml(text).map_err(|err| err.to_string())?;
-    plan.goal = goal.to_string();
-    plan.profile = profile.to_string();
-    plan.style = style.to_string();
-    plan.intent = intent.as_str().to_string();
-    plan.required_artifacts = dedupe_required_artifacts(required_artifacts.iter().cloned());
-    Ok(plan)
-}
-
-fn ensure_generated_plan_header(
-    text: &str,
-    goal: &str,
-    profile: &str,
-    style: &str,
-    intent: WorkIntent,
-    required_artifacts: &[String],
-) -> String {
-    let body = strip_markdown_fence(text.trim());
-    let mut out = String::new();
-    out.push_str(&format!("goal: {}\n", yaml_quote(goal)));
-    out.push_str(&format!("profile: {}\n", yaml_quote(profile)));
-    out.push_str(&format!("style: {}\n", yaml_quote(style)));
-    out.push_str(&format!("intent: {}\n", yaml_quote(intent.as_str())));
-    out.push_str("required_artifacts:\n");
-    for path in required_artifacts {
-        out.push_str(&format!("  - {}\n", yaml_quote(path)));
-    }
-    let mut skip_model_required_artifacts = false;
-    for line in body.lines() {
-        if line.starts_with("required_artifacts:") {
-            skip_model_required_artifacts = true;
-            continue;
-        }
-        if skip_model_required_artifacts {
-            if line.starts_with("  - ")
-                || line.starts_with("    - ")
-                || line.starts_with("      - ")
-            {
-                continue;
-            }
-            skip_model_required_artifacts = false;
-        }
-        if line.starts_with("goal:")
-            || line.starts_with("profile:")
-            || line.starts_with("style:")
-            || line.starts_with("intent:")
-            || line.starts_with("required_artifacts:")
-        {
-            continue;
-        }
-        out.push_str(line);
-        out.push('\n');
-    }
-    out
-}
-
-fn save_invalid_generated_plan(cwd: &Path, kind: &str, text: &str) -> Result<(), String> {
-    let dir = crate::util::workspace_paths::plans_dir(cwd);
-    fs::create_dir_all(&dir).map_err(|err| err.to_string())?;
-    let stamp = now_ms();
-    let mut path = dir.join(format!("invalid-{kind}-{stamp}.yaml"));
-    let mut suffix = 1;
-    while path.exists() {
-        path = dir.join(format!("invalid-{kind}-{stamp}-{suffix}.yaml"));
-        suffix += 1;
-    }
-    fs::write(path, text).map_err(|err| err.to_string())
-}
-
-fn now_ms() -> u128 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-}
-
-fn strip_markdown_fence(text: &str) -> &str {
-    if let Some(rest) = text.strip_prefix("```yaml") {
-        return rest.trim().strip_suffix("```").unwrap_or(rest).trim();
-    }
-    if let Some(rest) = text.strip_prefix("```") {
-        return rest.trim().strip_suffix("```").unwrap_or(rest).trim();
-    }
-    text
-}
-
-fn yaml_quote(value: &str) -> String {
-    serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
-}
-
-fn plan_correction_prompt(
-    original_goal: &str,
-    invalid_plan: &str,
-    error: &str,
-    plan_kind: &str,
-) -> String {
-    format!(
-        "The generated CommandAgent {plan_kind} is invalid and must be corrected.\n\
-Original goal:\n{original_goal}\n\n\
-Validation error:\n{error}\n\n\
-Invalid plan:\n{invalid_plan}\n\n\
-If the error mentions shell scaffolding, replace that step with explicit file creation or editing instructions that can be completed with Write/Edit.\n\
-If the error mentions optional inspection, inspect discovery, missing inspect expected_paths, test -d, or test -f on a non-required inspect step, use kind: inspect with expected_paths: [] and verify: [].\n\
-If the error mentions invalid verifier commands, remove every invalid verifier from the corrected YAML; do not keep the rejected command unchanged.\n\
-If the error mentions dependency installation, dependency caches, node_modules, .venv, or dependency_missing, do not plan npm install, npm ci, pip install, node_modules checks, or dependency-cache checks as required success work. Replace that work with a report step using expected_result: unavailable, expected_paths: [], and verify: [].\n\
-If the error mentions source-code behavior, source grep, or grep over source files, remove every grep verifier targeting source files such as .rs, .ts, .tsx, .js, .jsx, .py, .go, or .java. Replace source-code semantic checks with canonical build/test/check commands such as cargo check, cargo test, npm run build, python -m py_compile, or pytest. Keep grep only for literal docs/data/content checks.\n\
-If the error mentions mixed setup and verification, remove build/test/check commands from create/edit/setup steps and add a separate verify step.\n\
-If the error mentions shell chaining, split the verifier into simple commands or choose one canonical check. Do not use &&, ||, ;, pipes, redirection, or fallback-to-true syntax.\n\
-If the error mentions action/path/content/old/new fields, rewrite those tool-call fields into step instruction and expected_paths fields.\n\
-Return only corrected YAML using the required CommandAgent schema."
-    )
-}
-
-fn step_prompt(
-    plan: &StepPlan,
-    step: &StepPlanStep,
-    missing_expected_paths: &[String],
-) -> Result<String, String> {
-    let profile_contract = profile_contract_text(&plan.profile).map_err(|err| err.to_string())?;
-    let missing_hint = missing_expected_paths_hint(step, missing_expected_paths);
-    Ok(format!(
-        "Run one CommandAgent step.\n\
-Overall goal: {goal}\n\
-Profile: {profile}\n\
-Style: {style}\n\
-Intent: {intent}\n\
-Required final artifacts:\n{artifacts}\n\
-Profile contract:\n{profile_contract}\n\n\
-Step id: {step_id}\n\
-Step kind: {kind}\n\
-Step instruction: {instruction}\n\
-Expected result: {expected_result}\n\
-Expected paths:\n{expected}\n\
-Verifier commands:\n{verify}\n\n\
-{missing_hint}\
-Do only this step. Use Write/Edit for file changes; Write creates parent directories automatically.\n\
-The runtime executes verifier commands after your response. Do not run listed verifier commands yourself unless the step kind is verify and the command is a single allowed local check.\n\
-Do not use compound Bash commands with &&, ||, or ;.\n\
-Do not install network dependencies unless the step explicitly asks for dependency setup and the environment allows it.",
-        goal = plan.goal,
-        profile = plan.profile,
-        style = plan.style,
-        intent = plan.intent.as_str(),
-        artifacts = bullet_list(&plan.required_artifacts),
-        step_id = step.id,
-        kind = step.kind.as_str(),
-        instruction = step.instruction,
-        expected_result = step.expected_result.as_str(),
-        expected = bullet_list(&step.expected_paths),
-        verify = bullet_list(&step.verify),
-        missing_hint = missing_hint,
-    ))
-}
-
-fn missing_expected_paths_hint(step: &StepPlanStep, missing_expected_paths: &[String]) -> String {
-    if missing_expected_paths.is_empty()
-        || !matches!(
-            step.kind,
-            StepKind::Create | StepKind::Edit | StepKind::Repair
-        )
-    {
-        return String::new();
-    }
-
-    format!(
-        "Currently missing expected paths:\n{missing}\n\n\
-This step is not complete until the missing expected paths are created or the step reports a concrete blocker.\n\
-If this step is supposed to produce one of these paths, create or update it with Write/Edit.\n\
-If the path should not be created by this step, report a concrete blocker instead of pretending the step is complete.\n\
-If more context is required, use Read/Glob first, then continue to Write/Edit in the same turn when a file change is still required.\n\
-Do not finish with only a plan for the next action.\n\n",
-        missing = bullet_list(missing_expected_paths)
-    )
-}
-
-fn verify_step(cwd: &Path, step: &StepPlanStep) -> Result<Vec<VerificationFailure>, String> {
-    let commands = if step.verify.is_empty() {
-        Vec::new()
-    } else {
-        step.verify.clone()
-    };
-    let report = run_verifiers(cwd, &commands).map_err(|err| err.to_string())?;
-    Ok(report.failures)
-}
-
-fn load_step_plan(cwd: &Path, path: &str) -> Result<StepPlan, String> {
-    let guard = PathGuard::new(cwd).map_err(|err| err.to_string())?;
-    let path = guard.resolve(path).map_err(|err| err.to_string())?;
-    let text = fs::read_to_string(&path).map_err(|err| format!("{}: {err}", path.display()))?;
-    let plan = parse_step_plan_yaml(&text).map_err(|err| err.to_string())?;
-    lint_step_plan_with_workspace(&plan, Some(cwd))
-        .map_err(|err| format!("plan lint failed: {err}"))?;
-    Ok(plan)
-}
-
-fn load_ultra_plan(cwd: &Path, path: &str) -> Result<UltraPlan, String> {
-    let guard = PathGuard::new(cwd).map_err(|err| err.to_string())?;
-    let path = guard.resolve(path).map_err(|err| err.to_string())?;
-    let text = fs::read_to_string(&path).map_err(|err| format!("{}: {err}", path.display()))?;
-    parse_ultra_plan_yaml(&text).map_err(|err| err.to_string())
-}
-
-fn missing_paths(cwd: &Path, paths: &[String]) -> Vec<String> {
-    paths
-        .iter()
-        .filter(|path| !cwd.join(path).exists())
-        .cloned()
-        .collect()
-}
-
-fn dedupe_required_artifacts(paths: impl IntoIterator<Item = String>) -> Vec<String> {
-    let mut seen = std::collections::HashSet::new();
-    let mut out = Vec::new();
-    for path in paths {
-        if seen.insert(path.clone()) {
-            out.push(path);
-        }
-    }
-    out
-}
-
-fn result_changed_files(result: &RunResult) -> bool {
-    result
-        .tool_results
-        .iter()
-        .any(|record| record.ok && is_file_change_tool(&record.name))
-}
-
-fn changed_file_markers(result: &RunResult) -> Vec<String> {
-    result
-        .tool_results
-        .iter()
-        .filter(|record| record.ok && is_file_change_tool(&record.name))
-        .map(|record| record.name.clone())
-        .collect()
-}
-
-fn bullet_list(values: &[String]) -> String {
-    if values.is_empty() {
-        "- none".to_string()
-    } else {
-        values
-            .iter()
-            .map(|value| format!("- {value}"))
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
-}
-
-fn display_path(cwd: &Path, path: &Path) -> String {
-    path.strip_prefix(cwd).unwrap_or(path).display().to_string()
 }
 
 #[cfg(test)]
 mod tests {
+    use super::repair_loop::turn_error_failure;
     use super::*;
-    use crate::providers::{ChatResponse, ToolCall};
+    use crate::agent::step_runner::{ExpectedResult, StepKind};
+    use crate::providers::{ChatRequest, ChatResponse, ToolCall};
     use std::collections::VecDeque;
+    use std::fs;
     use std::path::PathBuf;
-
-    fn prompt_test_plan() -> StepPlan {
-        StepPlan {
-            goal: "Create command parser".to_string(),
-            profile: "rust".to_string(),
-            style: "default".to_string(),
-            intent: WorkIntent::Modify,
-            required_artifacts: Vec::new(),
-            steps: Vec::new(),
-        }
-    }
-
-    fn prompt_test_step(kind: StepKind) -> StepPlanStep {
-        StepPlanStep {
-            id: "create-commands-module".to_string(),
-            kind,
-            instruction: "Create src/commands.rs with the command parser implementation."
-                .to_string(),
-            expected_result: ExpectedResult::Pass,
-            expected_paths: vec!["src/commands.rs".to_string()],
-            verify: vec!["cargo check".to_string()],
-        }
-    }
-
-    #[test]
-    fn step_prompt_shows_missing_paths_for_create_step() {
-        let plan = prompt_test_plan();
-        let step = prompt_test_step(StepKind::Create);
-        let prompt = step_prompt(&plan, &step, &["src/commands.rs".to_string()]).unwrap();
-
-        assert!(
-            prompt.contains("Currently missing expected paths"),
-            "{prompt}"
-        );
-        assert!(prompt.contains("- src/commands.rs"), "{prompt}");
-        assert!(
-            prompt.contains("create or update it with Write/Edit"),
-            "{prompt}"
-        );
-        assert!(
-            prompt.contains("Do not finish with only a plan"),
-            "{prompt}"
-        );
-    }
-
-    #[test]
-    fn step_prompt_shows_missing_paths_for_edit_step() {
-        let plan = prompt_test_plan();
-        let step = prompt_test_step(StepKind::Edit);
-        let prompt = step_prompt(&plan, &step, &["src/commands.rs".to_string()]).unwrap();
-
-        assert!(
-            prompt.contains("Currently missing expected paths"),
-            "{prompt}"
-        );
-        assert!(prompt.contains("concrete blocker"), "{prompt}");
-        assert!(prompt.contains("Write/Edit"), "{prompt}");
-    }
-
-    #[test]
-    fn step_prompt_omits_missing_hint_for_inspect_verify_report() {
-        let plan = prompt_test_plan();
-        for kind in [StepKind::Inspect, StepKind::Verify, StepKind::Report] {
-            let step = prompt_test_step(kind);
-            let prompt = step_prompt(&plan, &step, &["src/commands.rs".to_string()]).unwrap();
-
-            assert!(
-                !prompt.contains("Currently missing expected paths"),
-                "kind={kind:?}\n{prompt}"
-            );
-        }
-    }
-
-    #[test]
-    fn step_prompt_omits_missing_hint_when_no_missing_paths() {
-        let plan = prompt_test_plan();
-        let step = prompt_test_step(StepKind::Create);
-        let prompt = step_prompt(&plan, &step, &[]).unwrap();
-
-        assert!(
-            !prompt.contains("Currently missing expected paths"),
-            "{prompt}"
-        );
-    }
 
     #[test]
     fn plan_steps_generates_and_saves_plan() {
@@ -1624,39 +957,6 @@ mod tests {
 
         assert_eq!(plan.intent, WorkIntent::Document);
         assert_eq!(plan.required_artifacts, vec!["README.md"]);
-    }
-
-    #[test]
-    fn plan_correction_prompt_explicitly_removes_source_grep_verifiers() {
-        let prompt = plan_correction_prompt(
-            "Create Rust CLI",
-            "verify:\n  - grep -q \"pub fn\" src/cli.rs",
-            "plan lint failed: step `create-cli-module` has invalid verifier command `grep -q \"pub fn\" src/cli.rs`: source-code behavior must be verified with build/test/check commands",
-            "phase step plan",
-        );
-
-        assert!(prompt.contains("remove every invalid verifier"));
-        assert!(prompt.contains("remove every grep verifier targeting source files"));
-        assert!(prompt.contains("do not keep the rejected command unchanged"));
-        assert!(prompt.contains("cargo check"));
-        assert!(prompt.contains("npm run build"));
-        assert!(prompt.contains("Keep grep only for literal docs/data/content checks"));
-    }
-
-    #[test]
-    fn plan_correction_prompt_converts_dependency_install_to_unavailable_report() {
-        let prompt = plan_correction_prompt(
-            "Add analytics panel",
-            "kind: setup\ninstruction: Install analytics library with npm install\nverify:\n  - test -f node_modules/.package-lock.json",
-            "plan lint failed: dependency installation must not be a required success step",
-            "phase step plan",
-        );
-
-        assert!(prompt.contains("do not plan npm install"));
-        assert!(prompt.contains("node_modules checks"));
-        assert!(prompt.contains("Replace that work with a report step"));
-        assert!(prompt.contains("expected_result: unavailable"));
-        assert!(prompt.contains("verify: []"));
     }
 
     #[test]

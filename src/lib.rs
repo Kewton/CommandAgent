@@ -3,6 +3,7 @@ pub mod cli;
 pub mod config;
 pub mod logging;
 pub mod providers;
+pub mod runtime_client;
 pub mod safety;
 pub mod session;
 pub mod tools;

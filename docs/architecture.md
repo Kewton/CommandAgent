@@ -8,6 +8,7 @@ boundary, it should be split before more behavior is added.
 
 - `cli`: parses command-line options and starts one-shot or REPL mode.
 - `config`: merges CLI, environment, and `.commandagent/config`.
+- `runtime_client`: builds the configured executor and planner provider clients.
 - `providers`: hides model transport differences behind a thin chat contract.
 - `agent/minimal_loop`: runs one tool-call execution session.
 - `agent/repl`: provides interactive use when no prompt is passed.
