@@ -35,4 +35,8 @@ if [[ "$dry_run" == "1" ]]; then
   args+=(--dry-run)
 fi
 
-scripts/eval_agent_slice.sh "${args[@]}" "${extra_args[@]}"
+if [[ ${#extra_args[@]} -gt 0 ]]; then
+  scripts/eval_agent_slice.sh "${args[@]}" "${extra_args[@]}"
+else
+  scripts/eval_agent_slice.sh "${args[@]}"
+fi
