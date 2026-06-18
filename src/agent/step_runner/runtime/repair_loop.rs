@@ -152,6 +152,12 @@ where
     let budget = RepairBudget::default();
     let mut repair_turns = 0usize;
     let mut missing_artifact_no_tool_guard_sent = false;
+    let initial_missing_expected_paths = missing_paths(runtime.cwd, &step.expected_paths);
+    if let Some(message) =
+        dependency_missing_blocker_message(step, &state.failures, &initial_missing_expected_paths)
+    {
+        return Err(message);
+    }
 
     while budget.allows_next_attempt(state.file_changing_attempts)
         && repair_turns < MAX_REPAIR_TURNS
@@ -215,8 +221,20 @@ where
         if state.failures.is_empty() {
             return Ok(());
         }
+        let missing_expected_paths = missing_paths(runtime.cwd, &step.expected_paths);
+        if let Some(message) =
+            dependency_missing_blocker_message(step, &state.failures, &missing_expected_paths)
+        {
+            return Err(message);
+        }
     }
 
+    let missing_expected_paths = missing_paths(runtime.cwd, &step.expected_paths);
+    if let Some(message) =
+        dependency_missing_blocker_message(step, &state.failures, &missing_expected_paths)
+    {
+        return Err(message);
+    }
     let context = RepairContext {
         step_id: step.id.clone(),
         original_goal: plan.goal.clone(),
@@ -224,7 +242,7 @@ where
         style: plan.style.clone(),
         step_instruction: step.instruction.clone(),
         verification_failures: state.failures,
-        missing_expected_paths: missing_paths(runtime.cwd, &step.expected_paths),
+        missing_expected_paths,
         changed_files: state.changed_files,
     };
     let saved = save_repair_prompt(runtime.cwd, &context).map_err(|err| err.to_string())?;
@@ -242,4 +260,57 @@ where
         "{initial}step {} failed verification; repair prompt saved: {}\nsuggested command: {}",
         step.id, saved.relative_path, saved.suggested_command
     ))
+}
+
+fn dependency_missing_blocker_message(
+    step: &StepPlanStep,
+    failures: &[VerificationFailure],
+    missing_expected_paths: &[String],
+) -> Option<String> {
+    if failures.is_empty()
+        || !missing_expected_paths.is_empty()
+        || !failures
+            .iter()
+            .all(|failure| failure.reason == "dependency_missing")
+    {
+        return None;
+    }
+
+    let mut commands = Vec::new();
+    let mut diagnostics = Vec::new();
+    for failure in failures {
+        if !commands.contains(&failure.command) {
+            commands.push(failure.command.clone());
+        }
+        if !failure.diagnostic_excerpt.trim().is_empty() {
+            diagnostics.push(failure.diagnostic_excerpt.trim().to_string());
+        }
+    }
+
+    let mut message = format!(
+        "dependency_missing: step {} cannot be repaired by editing files.\n\n\
+This is an environment/setup blocker, not a code repair failure. Install project dependencies explicitly when allowed, then rerun the verifier.",
+        step.id
+    );
+    if !diagnostics.is_empty() {
+        message.push_str("\n\nVerifier evidence:\n");
+        message.push_str(&diagnostics.join("\n"));
+    }
+    message.push_str("\n\nRun dependency setup manually, for example:\n  npm install");
+    if commands.is_empty() {
+        message.push_str("\n\nThen rerun the original verifier.");
+    } else {
+        message.push_str("\n\nThen rerun:\n");
+        for command in commands {
+            message.push_str("  ");
+            message.push_str(&command);
+            message.push('\n');
+        }
+        if message.ends_with('\n') {
+            message.pop();
+        }
+    }
+    message
+        .push_str("\n\nCommandAgent did not create a repair prompt because this blocker requires explicit setup.");
+    Some(message)
 }

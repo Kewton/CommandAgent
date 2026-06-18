@@ -649,6 +649,57 @@ mod tests {
     }
 
     #[test]
+    fn dependency_missing_stops_without_repair_prompt() {
+        let root = temp_workspace("dependency-missing-terminal");
+        fs::write(
+            root.join("package.json"),
+            r#"{"scripts":{"build":"next build"},"dependencies":{"next":"14.0.0","react":"18.0.0","react-dom":"18.0.0"}}"#,
+        )
+        .unwrap();
+        let plan_yaml = "goal: \"Verify Next.js build\"\nprofile: \"nextjs\"\nstyle: \"default\"\nsteps:\n  - id: \"verify-build\"\n    kind: \"verify\"\n    instruction: \"Run npm run build.\"\n    expected_paths: []\n    verify:\n      - \"npm run build\"\n";
+        let mut planner = MockClient::new(vec![ChatResponse {
+            content: plan_yaml.to_string(),
+            tool_calls: Vec::new(),
+        }]);
+        let mut executor = MockClient::new(Vec::new());
+        let command = SlashCommand {
+            kind: SlashCommandKind::PlanRun,
+            profile: Some("nextjs".to_string()),
+            style: None,
+            intent: None,
+            artifacts: Vec::new(),
+            argument: "Verify Next.js build".to_string(),
+        };
+
+        let mut observer = CaptureObserver::default();
+        let err = SlashRuntime {
+            executor: &mut executor,
+            planner: &mut planner,
+            cwd: &root,
+            loop_config: MinimalLoopConfig::default(),
+            planner_config: PlannerRuntimeConfig {
+                model: "planner".to_string(),
+                tool_call_mode: ToolCallMode::XmlFallback,
+            },
+        }
+        .run_with_observer(command, &mut observer)
+        .unwrap_err();
+
+        assert!(err.contains("dependency_missing"), "{err}");
+        assert!(err.contains("environment/setup blocker"), "{err}");
+        assert!(err.contains("npm install"), "{err}");
+        assert!(err.contains("npm run build"), "{err}");
+        assert!(!err.contains("repair prompt saved"), "{err}");
+        assert!(!err.contains("suggested command"), "{err}");
+        assert!(executor.prompts.is_empty());
+        assert!(!root.join(".commandagent/repairs").exists());
+        assert!(!observer.events().iter().any(|event| matches!(
+            event,
+            RuntimeEvent::RepairAttemptStarted { .. } | RuntimeEvent::RepairExhausted { .. }
+        )));
+    }
+
+    #[test]
     fn repair_adds_missing_artifact_no_tool_guard_once() {
         let root = temp_workspace("repair-missing-artifact-no-tool-guard");
         let step = StepPlanStep {

@@ -66,6 +66,12 @@ repair prompt containing:
 - diagnostic lines
 - relevant source excerpts when available
 
+If every verifier failure is `dependency_missing` and the step's expected paths
+already exist, CommandAgent stops as a manual setup blocker instead of creating
+a repair prompt. For example, a Next.js `npm run build` verifier requires local
+`node_modules/.bin/next`; when it is absent, install dependencies explicitly
+outside repair and rerun the verifier.
+
 Repair is capped. If repair is exhausted, CommandAgent writes a short packet to
 `.commandagent/repairs/` and prints a suggested `/ultra-plan-run` command.
 

@@ -71,6 +71,11 @@ Python/FastAPI may report missing virtualenv packages, and data tasks may report
 missing local tooling. Eval reports should keep this category separate so a run
 does not look like a code-quality failure when the verifier was unavailable.
 
+When `dependency_missing` is the only verifier failure and expected paths are
+present, runtime repair should stop and report the setup blocker. It should not
+suggest a repair replan, try alternate local compilers through `npx`, or install
+dependencies implicitly.
+
 Verifier evidence is deterministic context for the next repair or replanning
 step. It is not a semantic sidecar summary.
 

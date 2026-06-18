@@ -8,6 +8,8 @@ CommandAgent is still in MVP migration.
   `/ultra-plan-run` workflows still need release sign-off.
 - `/ultra-plan-run` is intentionally phase-bounded. A failed phase stops the
   run and asks for explicit repair/replanning instead of continuing silently.
+  If the failure is only `dependency_missing`, the run stops as a manual setup
+  blocker instead of suggesting a repair replan.
 - Terminal progress is best-effort and TTY-aware. It improves visibility into
   plans, blocking planner/model/tool waits, steps, verifiers, artifact status,
   and repair packets, but it is presentation-only and does not provide a fixed
