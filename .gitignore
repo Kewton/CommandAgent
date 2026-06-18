@@ -1,5 +1,7 @@
 /target
 /eval/runs
+workspace/
+__pycache__/
 .env
 .env.*
 !.env.example
