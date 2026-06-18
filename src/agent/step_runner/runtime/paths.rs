@@ -1,11 +1,18 @@
 use crate::agent::minimal_loop::guards::is_file_change_tool;
 use crate::agent::minimal_loop::loop_run::RunResult;
+use crate::safety::path_guard::PathGuard;
 use std::path::Path;
 
 pub(super) fn missing_paths(cwd: &Path, paths: &[String]) -> Vec<String> {
+    let Ok(guard) = PathGuard::new(cwd) else {
+        return paths.to_vec();
+    };
     paths
         .iter()
-        .filter(|path| !cwd.join(path).exists())
+        .filter(|path| match guard.resolve(path.as_str()) {
+            Ok(resolved) => !resolved.exists(),
+            Err(_) => true,
+        })
         .cloned()
         .collect()
 }

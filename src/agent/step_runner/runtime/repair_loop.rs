@@ -1,7 +1,8 @@
 use super::SlashRuntime;
 use super::execution;
 use super::paths::{changed_file_markers, missing_paths, result_changed_files};
-use crate::agent::minimal_loop::loop_run::{ChatClient, MinimalLoopConfig, RunResult, run_session};
+use crate::agent::events::{RuntimeEvent, RuntimeObserver, bounded_event_text};
+use crate::agent::minimal_loop::loop_run::{ChatClient, MinimalLoopConfig, RunResult};
 use crate::agent::step_runner::repair::{
     RepairBudget, RepairContext, build_repair_prompt, save_repair_prompt,
 };
@@ -85,6 +86,7 @@ pub(super) fn repair_step_after_turn_error<E, P>(
     config: MinimalLoopConfig,
     turn_error: String,
     failures: Vec<VerificationFailure>,
+    observer: &mut dyn RuntimeObserver,
 ) -> Result<(), String>
 where
     E: ChatClient,
@@ -103,6 +105,7 @@ where
             file_changing_attempts: 0,
             initial_turn_error: Some(turn_error),
         },
+        observer,
     )
 }
 
@@ -113,6 +116,7 @@ pub(super) fn repair_step<E, P>(
     config: MinimalLoopConfig,
     first_result: RunResult,
     failures: Vec<VerificationFailure>,
+    observer: &mut dyn RuntimeObserver,
 ) -> Result<(), String>
 where
     E: ChatClient,
@@ -129,6 +133,7 @@ where
             file_changing_attempts: usize::from(result_changed_files(&first_result)),
             initial_turn_error: None,
         },
+        observer,
     )
 }
 
@@ -138,6 +143,7 @@ pub(super) fn repair_step_with_state<E, P>(
     step: &StepPlanStep,
     config: MinimalLoopConfig,
     mut state: RepairStepState,
+    observer: &mut dyn RuntimeObserver,
 ) -> Result<(), String>
 where
     E: ChatClient,
@@ -152,6 +158,12 @@ where
     {
         repair_turns += 1;
         let missing_expected_paths = missing_paths(runtime.cwd, &step.expected_paths);
+        observer.on_event(RuntimeEvent::RepairAttemptStarted {
+            step_id: bounded_event_text(&step.id),
+            attempt: repair_turns,
+            max_attempts: MAX_REPAIR_TURNS,
+            missing_expected_paths: missing_expected_paths.clone(),
+        });
         let context = RepairContext {
             step_id: step.id.clone(),
             original_goal: plan.goal.clone(),
@@ -163,7 +175,13 @@ where
             changed_files: state.changed_files.clone(),
         };
         let prompt = build_repair_prompt(&context);
-        let result = match run_session(runtime.executor, runtime.cwd, &prompt, config.clone()) {
+        let result = match crate::agent::minimal_loop::loop_run::run_session_with_observer(
+            runtime.executor,
+            runtime.cwd,
+            &prompt,
+            config.clone(),
+            observer,
+        ) {
             Ok(result) => result,
             Err(err) => {
                 let error = err.to_string();
@@ -193,7 +211,7 @@ where
             state.file_changing_attempts += 1;
         }
         state.changed_files.extend(changed_file_markers(&result));
-        state.failures = execution::verify_step(runtime.cwd, step)?;
+        state.failures = execution::verify_step_with_observer(runtime.cwd, step, observer)?;
         if state.failures.is_empty() {
             return Ok(());
         }
@@ -210,6 +228,12 @@ where
         changed_files: state.changed_files,
     };
     let saved = save_repair_prompt(runtime.cwd, &context).map_err(|err| err.to_string())?;
+    observer.on_event(RuntimeEvent::RepairExhausted {
+        step_id: bounded_event_text(&step.id),
+        repair_path: saved.relative_path.clone(),
+        suggested_command: saved.suggested_command.clone(),
+        missing_expected_paths: context.missing_expected_paths.clone(),
+    });
     let initial = state
         .initial_turn_error
         .map(|err| format!("initial turn error: {err}\n"))

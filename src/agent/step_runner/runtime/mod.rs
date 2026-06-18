@@ -1,3 +1,6 @@
+use crate::agent::events::{
+    NoopRuntimeObserver, PlanKind, RuntimeEvent, RuntimeObserver, bounded_event_text,
+};
 use crate::agent::minimal_loop::loop_run::{ChatClient, MinimalLoopConfig, RunResult};
 use crate::agent::slash_command::{SlashCommand, SlashCommandKind};
 use crate::agent::step_runner::ultra_plan::{
@@ -47,6 +50,15 @@ where
     P: ChatClient,
 {
     pub fn run(&mut self, command: SlashCommand) -> Result<String, String> {
+        let mut observer = NoopRuntimeObserver;
+        self.run_with_observer(command, &mut observer)
+    }
+
+    pub fn run_with_observer(
+        &mut self,
+        command: SlashCommand,
+        observer: &mut dyn RuntimeObserver,
+    ) -> Result<String, String> {
         let profile = command.profile.unwrap_or_else(|| "generic".to_string());
         let style = command.style.unwrap_or_else(|| "default".to_string());
         let intent = command
@@ -65,8 +77,14 @@ where
                     &style,
                     intent,
                     &artifacts,
+                    observer,
                 )?;
                 let path = save_step_plan(self.cwd, &plan).map_err(|err| err.to_string())?;
+                observer.on_event(RuntimeEvent::PlanSaved {
+                    kind: PlanKind::StepPlan,
+                    path: display_path(self.cwd, &path),
+                    item_ids: step_ids(&plan),
+                });
                 Ok(format!(
                     "created step plan: {}",
                     display_path(self.cwd, &path)
@@ -79,9 +97,15 @@ where
                     &style,
                     intent,
                     &artifacts,
+                    observer,
                 )?;
                 let path = save_step_plan(self.cwd, &plan).map_err(|err| err.to_string())?;
-                let report = self.execute_step_plan(&plan)?;
+                observer.on_event(RuntimeEvent::PlanSaved {
+                    kind: PlanKind::StepPlan,
+                    path: display_path(self.cwd, &path),
+                    item_ids: step_ids(&plan),
+                });
+                let report = self.execute_step_plan(&plan, observer)?;
                 Ok(format!(
                     "created step plan: {}\n{}",
                     display_path(self.cwd, &path),
@@ -90,7 +114,7 @@ where
             }
             SlashCommandKind::RunPlan => {
                 let plan = load_step_plan(self.cwd, &command.argument)?;
-                self.execute_step_plan(&plan)
+                self.execute_step_plan(&plan, observer)
             }
             SlashCommandKind::UltraPlan => {
                 let plan = self.generate_ultra_plan(
@@ -99,8 +123,14 @@ where
                     &style,
                     intent,
                     &artifacts,
+                    observer,
                 )?;
                 let path = save_ultra_plan(self.cwd, &plan).map_err(|err| err.to_string())?;
+                observer.on_event(RuntimeEvent::PlanSaved {
+                    kind: PlanKind::UltraPlan,
+                    path: display_path(self.cwd, &path),
+                    item_ids: phase_ids(&plan),
+                });
                 Ok(format!(
                     "created ultra plan: {}",
                     display_path(self.cwd, &path)
@@ -113,9 +143,15 @@ where
                     &style,
                     intent,
                     &artifacts,
+                    observer,
                 )?;
                 let path = save_ultra_plan(self.cwd, &plan).map_err(|err| err.to_string())?;
-                let report = self.execute_ultra_plan(&plan)?;
+                observer.on_event(RuntimeEvent::PlanSaved {
+                    kind: PlanKind::UltraPlan,
+                    path: display_path(self.cwd, &path),
+                    item_ids: phase_ids(&plan),
+                });
+                let report = self.execute_ultra_plan(&plan, observer)?;
                 Ok(format!(
                     "created ultra plan: {}\n{}",
                     display_path(self.cwd, &path),
@@ -124,7 +160,7 @@ where
             }
             SlashCommandKind::RunUltraPlan => {
                 let plan = load_ultra_plan(self.cwd, &command.argument)?;
-                self.execute_ultra_plan(&plan)
+                self.execute_ultra_plan(&plan, observer)
             }
         }
     }
@@ -136,7 +172,13 @@ where
         style: &str,
         intent: WorkIntent,
         required_artifacts: &[String],
+        observer: &mut dyn RuntimeObserver,
     ) -> Result<StepPlan, String> {
+        observer.on_event(RuntimeEvent::PlanGenerationStarted {
+            kind: PlanKind::StepPlan,
+            goal: bounded_event_text(goal),
+            profile: bounded_event_text(profile),
+        });
         let prompt = plan_generation_prompt(goal, profile, style, intent, required_artifacts);
         let text = planner_text(self.planner, &self.planner_config, &prompt)?;
         let correction_context = StepPlanCorrectionContext {
@@ -148,7 +190,12 @@ where
             save_kind: "step-plan",
             prompt_kind: "step plan",
         };
-        self.parse_generated_step_plan_with_corrections(text, correction_context)
+        let plan = self.parse_generated_step_plan_with_corrections(text, correction_context)?;
+        observer.on_event(RuntimeEvent::PlanGenerationFinished {
+            kind: PlanKind::StepPlan,
+            item_count: plan.steps.len(),
+        });
+        Ok(plan)
     }
 
     fn parse_generated_step_plan_with_corrections(
@@ -189,10 +236,23 @@ where
         style: &str,
         intent: WorkIntent,
         required_artifacts: &[String],
+        observer: &mut dyn RuntimeObserver,
     ) -> Result<UltraPlan, String> {
+        observer.on_event(RuntimeEvent::PlanGenerationStarted {
+            kind: PlanKind::UltraPlan,
+            goal: bounded_event_text(goal),
+            profile: bounded_event_text(profile),
+        });
         let prompt = ultra_plan_generation_prompt(goal, profile, style, intent.as_str());
         let text = planner_text(self.planner, &self.planner_config, &prompt)?;
-        match parse_generated_ultra_plan(&text, goal, profile, style, intent, required_artifacts) {
+        let plan = match parse_generated_ultra_plan(
+            &text,
+            goal,
+            profile,
+            style,
+            intent,
+            required_artifacts,
+        ) {
             Ok(plan) => Ok(plan),
             Err(err) => {
                 let _ = save_invalid_generated_plan(self.cwd, "ultra-plan", &text);
@@ -208,15 +268,28 @@ where
                     required_artifacts,
                 )
             }
-        }
+        }?;
+        observer.on_event(RuntimeEvent::PlanGenerationFinished {
+            kind: PlanKind::UltraPlan,
+            item_count: plan.phases.len(),
+        });
+        Ok(plan)
     }
 
-    fn execute_ultra_plan(&mut self, plan: &UltraPlan) -> Result<String, String> {
-        execution::execute_ultra_plan(self, plan)
+    fn execute_ultra_plan(
+        &mut self,
+        plan: &UltraPlan,
+        observer: &mut dyn RuntimeObserver,
+    ) -> Result<String, String> {
+        execution::execute_ultra_plan(self, plan, observer)
     }
 
-    fn execute_step_plan(&mut self, plan: &StepPlan) -> Result<String, String> {
-        execution::execute_step_plan(self, plan)
+    fn execute_step_plan(
+        &mut self,
+        plan: &StepPlan,
+        observer: &mut dyn RuntimeObserver,
+    ) -> Result<String, String> {
+        execution::execute_step_plan(self, plan, observer)
     }
 
     fn repair_step_after_turn_error(
@@ -226,8 +299,11 @@ where
         config: MinimalLoopConfig,
         turn_error: String,
         failures: Vec<VerificationFailure>,
+        observer: &mut dyn RuntimeObserver,
     ) -> Result<(), String> {
-        repair_loop::repair_step_after_turn_error(self, plan, step, config, turn_error, failures)
+        repair_loop::repair_step_after_turn_error(
+            self, plan, step, config, turn_error, failures, observer,
+        )
     }
 
     fn repair_step(
@@ -237,8 +313,9 @@ where
         config: MinimalLoopConfig,
         first_result: RunResult,
         failures: Vec<VerificationFailure>,
+        observer: &mut dyn RuntimeObserver,
     ) -> Result<(), String> {
-        repair_loop::repair_step(self, plan, step, config, first_result, failures)
+        repair_loop::repair_step(self, plan, step, config, first_result, failures, observer)
     }
 
     fn repair_step_with_state(
@@ -247,15 +324,25 @@ where
         step: &StepPlanStep,
         config: MinimalLoopConfig,
         state: RepairStepState,
+        observer: &mut dyn RuntimeObserver,
     ) -> Result<(), String> {
-        repair_loop::repair_step_with_state(self, plan, step, config, state)
+        repair_loop::repair_step_with_state(self, plan, step, config, state, observer)
     }
+}
+
+fn step_ids(plan: &StepPlan) -> Vec<String> {
+    plan.steps.iter().map(|step| step.id.clone()).collect()
+}
+
+fn phase_ids(plan: &UltraPlan) -> Vec<String> {
+    plan.phases.iter().map(|phase| phase.id.clone()).collect()
 }
 
 #[cfg(test)]
 mod tests {
     use super::repair_loop::turn_error_failure;
     use super::*;
+    use crate::agent::events::{ArtifactScope, ArtifactStatus, CaptureObserver, RuntimeEvent};
     use crate::agent::step_runner::{ExpectedResult, StepKind};
     use crate::providers::{ChatRequest, ChatResponse, ToolCall};
     use std::collections::VecDeque;
@@ -342,6 +429,80 @@ mod tests {
 
         assert!(output.contains("step write-readme: ok"));
         assert_eq!(fs::read_to_string(root.join("README.md")).unwrap(), "ok");
+    }
+
+    #[test]
+    fn plan_run_emits_step_runner_events() {
+        let root = temp_workspace("plan-run-events");
+        let plan_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    kind: \"create\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"cat README.md\"\n";
+        let mut planner = MockClient::new(vec![ChatResponse {
+            content: plan_yaml.to_string(),
+            tool_calls: Vec::new(),
+        }]);
+        let mut executor = MockClient::new(vec![
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    name: "Write".to_string(),
+                    args_json: r#"{"path":"README.md","content":"ok"}"#.to_string(),
+                }],
+            },
+            ChatResponse {
+                content: "Created README.md.".to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+        let command = SlashCommand {
+            kind: SlashCommandKind::PlanRun,
+            profile: Some("docs".to_string()),
+            style: None,
+            intent: None,
+            artifacts: Vec::new(),
+            argument: "Create docs".to_string(),
+        };
+        let mut observer = CaptureObserver::default();
+
+        let output = SlashRuntime {
+            executor: &mut executor,
+            planner: &mut planner,
+            cwd: &root,
+            loop_config: MinimalLoopConfig::default(),
+            planner_config: PlannerRuntimeConfig {
+                model: "planner".to_string(),
+                tool_call_mode: ToolCallMode::XmlFallback,
+            },
+        }
+        .run_with_observer(command, &mut observer)
+        .unwrap();
+
+        assert!(output.contains("step write-readme: ok"));
+        assert!(observer
+            .events()
+            .iter()
+            .any(|event| matches!(event, RuntimeEvent::PlanSaved { item_ids, .. } if item_ids == &vec!["write-readme".to_string()])));
+        assert!(observer.events().iter().any(|event| {
+            matches!(
+                event,
+                RuntimeEvent::StepStarted {
+                    step_id,
+                    index: 1,
+                    total: 1
+                } if step_id == "write-readme"
+            )
+        }));
+        assert!(observer.events().iter().any(|event| {
+            matches!(
+                event,
+                RuntimeEvent::VerifierStarted { step_id, command }
+                    if step_id == "write-readme" && command == "cat README.md"
+            )
+        }));
+        assert!(observer.events().iter().any(|event| {
+            matches!(
+                event,
+                RuntimeEvent::StepFinished { step_id, .. } if step_id == "write-readme"
+            )
+        }));
     }
 
     #[test]
@@ -541,6 +702,7 @@ mod tests {
             source_excerpt: None,
         }];
 
+        let mut observer = NoopRuntimeObserver;
         SlashRuntime {
             executor: &mut executor,
             planner: &mut planner,
@@ -561,6 +723,7 @@ mod tests {
                 file_changing_attempts: 0,
                 initial_turn_error: None,
             },
+            &mut observer,
         )
         .unwrap();
 
@@ -875,6 +1038,7 @@ mod tests {
             argument: "Create final".to_string(),
         };
 
+        let mut observer = CaptureObserver::default();
         let err = SlashRuntime {
             executor: &mut executor,
             planner: &mut planner,
@@ -885,13 +1049,21 @@ mod tests {
                 tool_call_mode: ToolCallMode::XmlFallback,
             },
         }
-        .run(command)
+        .run_with_observer(command, &mut observer)
         .unwrap_err();
 
         assert!(
             err.contains("missing required final artifacts: FINAL.md"),
             "{err}"
         );
+        assert!(observer.events().iter().any(|event| matches!(
+            event,
+            RuntimeEvent::ArtifactStatus {
+                scope: ArtifactScope::FinalRequiredArtifact,
+                path,
+                status: ArtifactStatus::Missing,
+            } if path == "FINAL.md"
+        )));
     }
 
     #[test]

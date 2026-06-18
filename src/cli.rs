@@ -1,4 +1,4 @@
-use crate::agent::minimal_loop::loop_run::{MinimalLoopConfig, run_session};
+use crate::agent::minimal_loop::loop_run::{MinimalLoopConfig, run_session_with_observer};
 use crate::agent::repl::{MinimalReplRunner, run_repl};
 use crate::agent::slash_command::parse_slash_command;
 use crate::agent::step_runner::runtime::PlannerRuntimeConfig;
@@ -7,6 +7,7 @@ use crate::config::Config;
 use crate::providers::planner::resolve_targets;
 use crate::providers::request_tool_mode;
 use crate::runtime_client::{runtime_client, runtime_client_for};
+use crate::tui::terminal::{TerminalUi, render_final_answer};
 use std::ffi::OsString;
 use std::io::{self, IsTerminal};
 use std::process::ExitCode;
@@ -120,6 +121,7 @@ fn run_one_shot(config: Config, prompt: &str) -> Result<(), String> {
                 .unwrap_or_else(|| "default".to_string()),
             tool_call_mode: request_tool_mode(targets.planner.provider),
         };
+        let mut ui = TerminalUi::stderr_from_env();
         let output = SlashRuntime {
             executor: &mut client,
             planner: &mut planner_client,
@@ -127,7 +129,7 @@ fn run_one_shot(config: Config, prompt: &str) -> Result<(), String> {
             loop_config: minimal_loop_config(&config),
             planner_config,
         }
-        .run(command)?;
+        .run_with_observer(command, &mut ui)?;
         if !output.trim().is_empty() {
             println!("{}", output.trim());
         }
@@ -135,15 +137,17 @@ fn run_one_shot(config: Config, prompt: &str) -> Result<(), String> {
     }
 
     let mut client = runtime_client(&config)?;
-    let result = run_session(
+    let mut ui = TerminalUi::stderr_from_env();
+    let result = run_session_with_observer(
         &mut client,
         &config.cwd,
         prompt,
         minimal_loop_config(&config),
+        &mut ui,
     )
     .map_err(|err| err.to_string())?;
     if !result.final_answer.trim().is_empty() {
-        println!("{}", result.final_answer.trim());
+        println!("{}", render_final_answer(&result.final_answer));
     }
     Ok(())
 }
@@ -167,6 +171,10 @@ fn run_interactive(config: Config) -> Result<(), String> {
         minimal_loop_config(&config),
         planner_config,
     )?;
+    let mut startup_ui = TerminalUi::stderr_from_env();
+    startup_ui
+        .render_startup_context(VERSION, &config, &targets)
+        .map_err(|err| err.to_string())?;
     let stdin = io::stdin();
     let stdout = io::stdout();
     run_repl(stdin.lock(), stdout.lock(), &mut runner).map_err(|err| err.to_string())

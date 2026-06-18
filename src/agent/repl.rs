@@ -1,15 +1,19 @@
 use crate::agent::minimal_loop::loop_run::{
-    ChatClient, MinimalLoopConfig, MinimalLoopError, run_session,
+    ChatClient, MinimalLoopConfig, MinimalLoopError, run_session_with_observer,
 };
 use crate::agent::slash_command::parse_slash_command;
 use crate::agent::step_runner::runtime::{PlannerRuntimeConfig, SlashRuntime};
 use crate::session::store::{SessionRole, SessionStore};
+use crate::tui::terminal::{TerminalUi, render_final_answer};
 use std::io::{BufRead, Write};
 use std::path::{Path, PathBuf};
 
 pub trait ReplTurnRunner {
     fn run_turn(&mut self, prompt: &str) -> Result<String, String>;
     fn save(&mut self) -> Result<(), String>;
+    fn format_answer(&mut self, answer: &str) -> String {
+        answer.trim().to_string()
+    }
 }
 
 pub fn run_repl<R, W, T>(mut input: R, mut output: W, runner: &mut T) -> Result<(), ReplError>
@@ -42,7 +46,7 @@ where
         match runner.run_turn(prompt) {
             Ok(answer) => {
                 if !answer.trim().is_empty() {
-                    writeln!(output, "{}", answer.trim())?;
+                    writeln!(output, "{}", runner.format_answer(&answer))?;
                 }
                 runner.save().map_err(ReplError::Runner)?;
             }
@@ -59,6 +63,7 @@ pub struct MinimalReplRunner<C, P> {
     cwd: PathBuf,
     loop_config: MinimalLoopConfig,
     planner_config: PlannerRuntimeConfig,
+    ui: TerminalUi<std::io::Stderr>,
     store: SessionStore,
     snapshot: crate::session::store::SessionSnapshot,
 }
@@ -84,6 +89,7 @@ where
             cwd,
             loop_config,
             planner_config,
+            ui: TerminalUi::stderr_from_env(),
             store,
             snapshot,
         })
@@ -110,17 +116,18 @@ where
                 loop_config: self.loop_config.clone(),
                 planner_config: self.planner_config.clone(),
             };
-            let answer = runtime.run(command)?;
+            let answer = runtime.run_with_observer(command, &mut self.ui)?;
             self.snapshot.push(SessionRole::User, prompt);
             self.snapshot.push(SessionRole::Assistant, answer.clone());
             return Ok(answer);
         }
 
-        let result = run_session(
+        let result = run_session_with_observer(
             &mut self.client,
             &self.cwd,
             prompt,
             self.loop_config.clone(),
+            &mut self.ui,
         )
         .map_err(format_loop_error)?;
 
@@ -134,6 +141,10 @@ where
         self.store
             .save(&mut self.snapshot)
             .map_err(|err| err.to_string())
+    }
+
+    fn format_answer(&mut self, answer: &str) -> String {
+        render_final_answer(answer)
     }
 }
 

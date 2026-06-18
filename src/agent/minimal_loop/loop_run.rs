@@ -1,3 +1,7 @@
+use crate::agent::events::{
+    ArtifactScope, ArtifactStatus, GuardFeedbackKind, NoopRuntimeObserver, RuntimeEvent,
+    RuntimeObserver, bounded_event_text,
+};
 use crate::agent::minimal_loop::guards::{
     completion_without_write_feedback, future_action_feedback, is_file_change_tool,
     missing_artifacts, requested_artifact_feedback,
@@ -12,6 +16,7 @@ use crate::providers::{ChatMessage, ChatRequest, ChatResponse, ChatRole, ToolCal
 use crate::safety::path_guard::PathGuard;
 use crate::tools::registry::file_tool_specs;
 use std::path::Path;
+use std::time::Instant;
 
 pub use super::client::ChatClient;
 pub use super::config::MinimalLoopConfig;
@@ -27,8 +32,29 @@ pub fn run_session<C>(
 where
     C: ChatClient,
 {
-    let guard =
-        PathGuard::new(cwd.as_ref()).map_err(|err| MinimalLoopError::Tool(err.to_string()))?;
+    let mut observer = NoopRuntimeObserver;
+    run_session_with_observer(client, cwd, user_prompt, config, &mut observer)
+}
+
+pub fn run_session_with_observer<C, O>(
+    client: &mut C,
+    cwd: impl AsRef<Path>,
+    user_prompt: &str,
+    config: MinimalLoopConfig,
+    observer: &mut O,
+) -> Result<RunResult, MinimalLoopError>
+where
+    C: ChatClient,
+    O: RuntimeObserver + ?Sized,
+{
+    let guard = match PathGuard::new(cwd.as_ref()) {
+        Ok(guard) => guard,
+        Err(err) => {
+            let err = MinimalLoopError::Tool(err.to_string());
+            emit_session_error(observer, &err);
+            return Err(err);
+        }
+    };
     let executor = ToolExecutor::new(&guard);
     let mut mode = config.initial_tool_call_mode;
     let tools = file_tool_specs();
@@ -55,7 +81,27 @@ where
             tools: tools.clone(),
             tool_call_mode: mode,
         };
-        let response = client.chat(&request).map_err(MinimalLoopError::Model)?;
+        observer.on_event(RuntimeEvent::ModelRequestStarted {
+            iteration,
+            model: request.model.clone(),
+            tool_call_mode: mode,
+        });
+        let started = Instant::now();
+        let response = match client.chat(&request) {
+            Ok(response) => response,
+            Err(err) => {
+                let err = MinimalLoopError::Model(err);
+                emit_session_error(observer, &err);
+                return Err(err);
+            }
+        };
+        observer.on_event(RuntimeEvent::ModelResponseReceived {
+            iteration,
+            tool_call_mode: mode,
+            tool_call_count: response.tool_calls.len(),
+            content_chars: response.content.chars().count(),
+            elapsed_ms: started.elapsed().as_millis(),
+        });
 
         let calls = tool_calls_from_response(&response, mode);
         match calls {
@@ -65,7 +111,32 @@ where
                     content: assistant_history_content(&response, &calls, mode),
                 });
                 for call in calls {
-                    let record = executor.execute(&call)?;
+                    observer.on_event(RuntimeEvent::ToolCallStarted {
+                        iteration,
+                        tool_name: call.name.clone(),
+                        args_summary: compact_tool_args_summary(&call),
+                    });
+                    let record = match executor.execute(&call) {
+                        Ok(record) => record,
+                        Err(err) => {
+                            observer.on_event(RuntimeEvent::ToolCallFinished {
+                                iteration,
+                                tool_name: call.name.clone(),
+                                ok: false,
+                                output_chars: 0,
+                                error: Some(bounded_event_text(err.to_string())),
+                            });
+                            emit_session_error(observer, &err);
+                            return Err(err);
+                        }
+                    };
+                    observer.on_event(RuntimeEvent::ToolCallFinished {
+                        iteration,
+                        tool_name: record.name.clone(),
+                        ok: record.ok,
+                        output_chars: record.output.chars().count(),
+                        error: None,
+                    });
                     if record.ok && is_file_change_tool(&record.name) {
                         file_change_count += 1;
                     }
@@ -84,26 +155,43 @@ where
                 if violates_final_answer_contract(&response.content) {
                     if config.enable_future_action_feedback && !future_action_feedback_sent {
                         future_action_feedback_sent = true;
+                        observer.on_event(RuntimeEvent::GuardFeedbackSent {
+                            iteration,
+                            kind: GuardFeedbackKind::FutureAction,
+                            tool_call_mode: mode,
+                            missing_artifacts: Vec::new(),
+                        });
                         messages.push(ChatMessage {
                             role: ChatRole::User,
                             content: future_action_feedback(),
                         });
                         continue;
                     }
-                    return Err(MinimalLoopError::FinalAnswerContract(response.content));
+                    let err = MinimalLoopError::FinalAnswerContract(response.content);
+                    emit_session_error(observer, &err);
+                    return Err(err);
                 }
 
                 let missing = missing_artifacts(&guard, &config.expected_artifacts);
+                emit_artifact_statuses(observer, &config.expected_artifacts, &missing);
                 if config.enable_requested_artifact_feedback && !missing.is_empty() {
                     if !requested_artifact_feedback_sent {
                         requested_artifact_feedback_sent = true;
+                        observer.on_event(RuntimeEvent::GuardFeedbackSent {
+                            iteration,
+                            kind: GuardFeedbackKind::RequestedArtifacts,
+                            tool_call_mode: mode,
+                            missing_artifacts: missing.clone(),
+                        });
                         messages.push(ChatMessage {
                             role: ChatRole::User,
                             content: requested_artifact_feedback(&missing, mode),
                         });
                         continue;
                     }
-                    return Err(MinimalLoopError::MissingArtifacts(missing));
+                    let err = MinimalLoopError::MissingArtifacts(missing);
+                    emit_session_error(observer, &err);
+                    return Err(err);
                 }
 
                 if config.enable_completion_without_write_feedback
@@ -111,6 +199,12 @@ where
                     && !completion_without_write_feedback_sent
                 {
                     completion_without_write_feedback_sent = true;
+                    observer.on_event(RuntimeEvent::GuardFeedbackSent {
+                        iteration,
+                        kind: GuardFeedbackKind::CompletionWithoutWrite,
+                        tool_call_mode: mode,
+                        missing_artifacts: Vec::new(),
+                    });
                     messages.push(ChatMessage {
                         role: ChatRole::User,
                         content: completion_without_write_feedback(mode),
@@ -118,6 +212,10 @@ where
                     continue;
                 }
 
+                observer.on_event(RuntimeEvent::FinalAnswerAccepted {
+                    iteration,
+                    answer_chars: response.content.chars().count(),
+                });
                 return Ok(RunResult {
                     final_answer: response.content,
                     iterations: iteration,
@@ -131,7 +229,14 @@ where
                     role: ChatRole::Assistant,
                     content: response.content.clone(),
                 });
+                let previous_mode = mode;
                 mode = mode_after_parse_failure(mode);
+                observer.on_event(RuntimeEvent::ParserFeedbackSent {
+                    iteration,
+                    previous_tool_call_mode: previous_mode,
+                    next_tool_call_mode: mode,
+                    error: bounded_event_text(&err),
+                });
                 messages.push(ChatMessage {
                     role: ChatRole::User,
                     content: parser_failure_feedback(&err),
@@ -140,7 +245,9 @@ where
         }
     }
 
-    Err(MinimalLoopError::MaxIterations)
+    let err = MinimalLoopError::MaxIterations;
+    emit_session_error(observer, &err);
+    Err(err)
 }
 
 fn tool_calls_from_response(
@@ -176,9 +283,63 @@ fn assistant_history_content(
     }
 }
 
+fn emit_session_error(observer: &mut (impl RuntimeObserver + ?Sized), err: &MinimalLoopError) {
+    observer.on_event(RuntimeEvent::SessionError {
+        message: bounded_event_text(err.to_string()),
+    });
+}
+
+fn emit_artifact_statuses(
+    observer: &mut (impl RuntimeObserver + ?Sized),
+    expected_artifacts: &[String],
+    missing: &[String],
+) {
+    for path in expected_artifacts {
+        let status = if missing.iter().any(|missing_path| missing_path == path) {
+            ArtifactStatus::Missing
+        } else {
+            ArtifactStatus::Ok
+        };
+        observer.on_event(RuntimeEvent::ArtifactStatus {
+            scope: ArtifactScope::StepExpectedPath,
+            path: bounded_event_text(path),
+            status,
+        });
+    }
+}
+
+fn compact_tool_args_summary(call: &ToolCall) -> String {
+    let Ok(args) = serde_json::from_str::<serde_json::Value>(&call.args_json) else {
+        return "invalid args".to_string();
+    };
+    let field = |key: &str| {
+        args.get(key)
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("")
+    };
+    let summary = match call.name.as_str() {
+        "Read" => field("path").to_string(),
+        "Write" => {
+            let content_bytes = field("content").len();
+            format!("{} {content_bytes}B", field("path"))
+        }
+        "Edit" => {
+            let new_bytes = field("new").len();
+            format!("{} {new_bytes}B", field("path"))
+        }
+        "Bash" => field("command").to_string(),
+        "Glob" | "Grep" => field("pattern").to_string(),
+        _ => call.args_json.clone(),
+    };
+    bounded_event_text(summary)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::events::{
+        ArtifactScope, ArtifactStatus, CaptureObserver, GuardFeedbackKind, RuntimeEvent,
+    };
     use std::collections::VecDeque;
     use std::fs;
     use std::path::PathBuf;
@@ -217,6 +378,64 @@ mod tests {
     }
 
     #[test]
+    fn observer_captures_bounded_tool_event_order() {
+        let root = temp_workspace("observer-write");
+        let mut client = MockClient::new(vec![
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    name: "Write".to_string(),
+                    args_json: r#"{"path":"nested/file.txt","content":"secret"}"#.to_string(),
+                }],
+            },
+            ChatResponse {
+                content: "Created nested/file.txt.".to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+        let mut observer = CaptureObserver::default();
+
+        let result = run_session_with_observer(
+            &mut client,
+            &root,
+            "create a file",
+            MinimalLoopConfig::default(),
+            &mut observer,
+        )
+        .unwrap();
+
+        assert_eq!(result.final_answer, "Created nested/file.txt.");
+        assert!(matches!(
+            observer.events()[0],
+            RuntimeEvent::ModelRequestStarted { iteration: 1, .. }
+        ));
+        assert!(observer.events().iter().any(|event| matches!(
+            event,
+            RuntimeEvent::ToolCallStarted {
+                iteration: 1,
+                tool_name,
+                args_summary
+            } if tool_name == "Write"
+                && args_summary == "nested/file.txt 6B"
+                && !args_summary.contains("secret")
+        )));
+        assert!(observer.events().iter().any(|event| matches!(
+            event,
+            RuntimeEvent::ToolCallFinished {
+                iteration: 1,
+                tool_name,
+                ok: true,
+                error: None,
+                ..
+            } if tool_name == "Write"
+        )));
+        assert!(observer.events().iter().any(|event| matches!(
+            event,
+            RuntimeEvent::FinalAnswerAccepted { iteration: 2, .. }
+        )));
+    }
+
+    #[test]
     fn parse_failure_downgrades_next_request_to_xml_fallback() {
         let root = temp_workspace("downgrade");
         let mut client = MockClient::new(vec![
@@ -251,6 +470,44 @@ mod tests {
                 ToolCallMode::XmlFallback
             ]
         );
+    }
+
+    #[test]
+    fn observer_reports_parser_feedback_without_raw_tool_xml() {
+        let root = temp_workspace("observer-parser");
+        let mut client = MockClient::new(vec![
+            ChatResponse {
+                content: "<commandagent_tool_call>{\"name\":\"Write\"".to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: "No changes needed.".to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+        let mut observer = CaptureObserver::default();
+
+        run_session_with_observer(
+            &mut client,
+            &root,
+            "inspect",
+            MinimalLoopConfig {
+                enable_completion_without_write_feedback: false,
+                ..MinimalLoopConfig::default()
+            },
+            &mut observer,
+        )
+        .unwrap();
+
+        assert!(observer.events().iter().any(|event| matches!(
+            event,
+            RuntimeEvent::ParserFeedbackSent {
+                previous_tool_call_mode: ToolCallMode::Native,
+                next_tool_call_mode: ToolCallMode::XmlFallback,
+                error,
+                ..
+            } if error == "unclosed <commandagent_tool_call> block"
+        )));
     }
 
     #[test]
@@ -450,6 +707,61 @@ mod tests {
         assert_eq!(
             err,
             MinimalLoopError::MissingArtifacts(vec!["dist/report.md".to_string()])
+        );
+    }
+
+    #[test]
+    fn observer_reports_step_expected_artifact_status_and_guard_feedback() {
+        let root = temp_workspace("observer-artifact");
+        let mut client = MockClient::new(vec![
+            ChatResponse {
+                content: "Done.".to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: "Still done.".to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+        let mut observer = CaptureObserver::default();
+
+        let err = run_session_with_observer(
+            &mut client,
+            &root,
+            "create a report",
+            MinimalLoopConfig {
+                expected_artifacts: vec!["dist/report.md".to_string()],
+                ..MinimalLoopConfig::default()
+            },
+            &mut observer,
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            err,
+            MinimalLoopError::MissingArtifacts(vec!["dist/report.md".to_string()])
+        );
+        assert!(observer.events().iter().any(|event| matches!(
+            event,
+            RuntimeEvent::ArtifactStatus {
+                scope: ArtifactScope::StepExpectedPath,
+                path,
+                status: ArtifactStatus::Missing,
+            } if path == "dist/report.md"
+        )));
+        assert!(observer.events().iter().any(|event| matches!(
+            event,
+            RuntimeEvent::GuardFeedbackSent {
+                kind: GuardFeedbackKind::RequestedArtifacts,
+                missing_artifacts,
+                ..
+            } if missing_artifacts == &vec!["dist/report.md".to_string()]
+        )));
+        assert!(
+            observer
+                .events()
+                .iter()
+                .any(|event| matches!(event, RuntimeEvent::SessionError { .. }))
         );
     }
 

@@ -18,7 +18,9 @@ boundary, it should be split before more behavior is added.
 - `session`: stores messages, llm-io logs, and resumable state.
 - `safety`: path confinement and host validation.
 - `util`: shared workspace path and file classification helpers.
-- `tui`: terminal rendering.
+- `agent/events`: shared passive runtime events for UI and tests.
+- `tui`: terminal rendering for interactive progress and final-answer
+  formatting.
 
 ## Boundary Summary
 
@@ -28,6 +30,7 @@ boundary, it should be split before more behavior is added.
 | Minimal loop | Tool-call execution, observations, bounded completion guards | Multi-step plans, domain profiles, unbounded retry |
 | Profile | Small domain facts, verifier hints, protected prefixes | Workflow control, hidden task-specific agents |
 | Step runner | Plan schema, lint, verifier, repair packet, ultra phase order | Provider transport, low-level tool implementation |
+| TUI | TTY-aware rendering of runtime events and final answers | Planning, repair, retry, provider parsing, filesystem policy |
 | Tools | Deterministic workspace actions | Task interpretation or planning |
 | Eval | Run roots, summaries, recheck, reports | Runtime behavior changes |
 
@@ -45,6 +48,37 @@ Slash command parsing is a separate module. It recognizes plan/ultra-plan
 commands, `--profile`, `--style`, and bounded `$(cat ...)` repair prompt
 references. File references are resolved through path confinement before their
 contents are expanded.
+
+## Terminal UI
+
+The TUI is a passive observer. The runtime emits bounded events through
+`agent/events`, and `src/tui` renders those events to stderr only when stderr is
+a TTY. Non-TTY stdout remains script-friendly and does not receive progress
+text.
+
+Terminal progress can show plan generation, saved plan paths, plan previews,
+ultra phases, step starts/finishes, tool summaries, verifier status, artifact
+status, bounded repair attempts, repair packet paths, and a standalone
+suggested next command. These lines are evidence from existing runtime state;
+they do not change planning, verification, repair budgets, provider behavior,
+or tool policy.
+
+For blocking planner, model, verifier, repair, and tool waits, the TUI can emit
+periodic elapsed `waiting: ... Ns` lines until the runtime emits completion,
+failure, or the next event.
+
+Assistant final answers are Markdown-formatted only when stdout is a TTY and
+Markdown rendering is enabled. The renderer supports a narrow subset and emits
+SGR-only ANSI escapes.
+
+XML fallback parsing remains in provider/minimal-loop code. TUI displays
+tool-call mode and parser feedback events but does not parse
+`<commandagent_tool_call>` blocks or infer tool behavior from assistant text.
+
+Artifact status uses the runtime's path-confined missing-path helpers. Step
+`expected_paths` are step-local gates. Ultra-plan `required_artifacts` are final
+user-requested outputs and are reported at the final ultra boundary, not as
+phase-local failures.
 
 ## Provider Boundary
 

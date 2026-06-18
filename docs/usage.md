@@ -30,6 +30,40 @@ commands must be typed after `commandagent>`:
 commandagent> /ultra-plan-run --profile nextjs Create a Next.js app on port 3011
 ```
 
+## Terminal Output
+
+When stderr is a TTY, CommandAgent prints progress lines for long-running work:
+planner generation, saved plan paths, compact plan previews, ultra phases,
+step starts/finishes, tool summaries, verifier status, artifact status, bounded
+repair attempts, repair packet paths, and a standalone `next command:` block
+when a repair packet is saved.
+
+While a blocking planner, model, verifier, repair, or tool call is still
+running, CommandAgent emits bounded elapsed wait lines such as:
+
+```text
+waiting: ultra plan generating profile=nextjs 2s
+waiting: model iter 1: gemini:gemini-3.1-flash-lite (native) 4s
+```
+
+Progress is presentation-only. It is emitted to stderr and does not change
+planning, verification, repair budgets, provider behavior, or tool policy.
+Non-TTY stdout remains plain for scripts.
+
+When stdout is a TTY, final answers may be rendered with a narrow Markdown
+subset. Disable terminal decorations with:
+
+```bash
+NO_COLOR=1
+COMMANDAGENT_NO_SPINNER=1
+COMMANDAGENT_NO_MARKDOWN=1
+COMMANDAGENT_NO_EMOJI=1
+```
+
+`COMMANDAGENT_NO_SPINNER=1` also suppresses transient progress rendering.
+TUI output does not parse XML tool-call blocks; XML fallback parsing remains in
+provider/minimal-loop code.
+
 ## Configuration
 
 CommandAgent merges configuration in this order:
@@ -168,6 +202,13 @@ When omitted, CommandAgent uses a small deterministic detector and falls back to
 Artifacts are not hidden benchmark hints; they are part of the task contract and
 are preserved in saved plan files. If no artifact is specified, normal generic
 behavior is unchanged.
+
+Artifact status in terminal progress distinguishes two scopes:
+
+- step `expected_paths`: step-local outputs that the minimal loop may enforce
+  before accepting a step completion
+- ultra `required_artifacts`: final user-requested outputs that are checked at
+  the final ultra-plan boundary
 
 ## Repair Suggested Command
 

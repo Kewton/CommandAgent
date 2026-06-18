@@ -8,6 +8,10 @@ CommandAgent is still in MVP migration.
   `/ultra-plan-run` workflows still need release sign-off.
 - `/ultra-plan-run` is intentionally phase-bounded. A failed phase stops the
   run and asks for explicit repair/replanning instead of continuing silently.
+- Terminal progress is best-effort and TTY-aware. It improves visibility into
+  plans, blocking planner/model/tool waits, steps, verifiers, artifact status,
+  and repair packets, but it is presentation-only and does not provide a fixed
+  footer or readline history and completion yet.
 - Live LLM behavior depends on local model quality, quantization, provider
   reliability, and local toolchains.
 - `Bash` is an offline policy guard, not a full OS sandbox. Commands run with
