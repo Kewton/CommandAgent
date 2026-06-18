@@ -35,6 +35,32 @@ Architectural boundaries live in `AGENTS.md`, `docs/philosophy.md`, and
   worktree agent operations instead of silently manipulating another branch
   from the current checkout.
 
+## Repo-Local Codex Harness
+
+Repository-local Codex skills live under `.codex/skills`. They guide operator
+workflows such as issue work, PR creation, UAT, release checks, worktree
+cleanup, and dry-run issue orchestration. They do not change CommandAgent
+runtime behavior.
+
+Long reusable prompt bodies live under `.codex/prompts` and are loaded only when
+a skill needs them. Do not duplicate the same command body across many skills.
+
+Migrate historical source-command workflows as Codex skills, not as
+CommandAgent REPL slash commands. The runtime slash commands remain the
+commands documented in `docs/usage.md`.
+
+Generated harness artifacts should go under ignored workspace state, normally
+`workspace/management/runs/<run_id>/`, unless a summary is intentionally
+promoted into docs or eval evidence.
+
+When editing harness files:
+
+- keep `SKILL.md` frontmatter to `name` and `description`
+- check for stale Anvil references before finishing
+- keep mutating worktree, CommandMate, PR, merge, and UAT operations explicit
+  and off by default
+- run script compile and fixture/dry-run checks for Python harness changes
+
 ## Branch Dependencies
 
 Stack dependent branches from most deterministic to most behavioral:
@@ -127,6 +153,8 @@ Testing expectations by change type:
 | minimal loop guard | unit tests plus focused eval when behavior changes |
 | step runner / repair | unit tests plus focused eval for the target failure |
 | eval scripts | dry-run or recheck smoke plus script syntax check |
+| Codex harness skills/prompts | stale reference check plus manual frontmatter review |
+| Codex orchestration script | `python3 -m py_compile`, unit tests or fixture dry-run |
 
 ## Evaluation Strategy
 
