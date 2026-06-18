@@ -10,10 +10,42 @@ pub enum CommandClass {
     ScriptRun,
     BuildTest,
     DirectoryCreation,
+    EnvSetup,
     Network,
     Mutating,
     Dangerous,
     Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BashExecutionContext {
+    NormalToolCall,
+    DependencyRecovery,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BashPolicy {
+    pub offline: bool,
+    pub allow_env_setup: bool,
+    pub context: BashExecutionContext,
+}
+
+impl BashPolicy {
+    pub fn normal_tool_call(offline: bool) -> Self {
+        Self {
+            offline,
+            allow_env_setup: false,
+            context: BashExecutionContext::NormalToolCall,
+        }
+    }
+
+    pub fn dependency_recovery(offline: bool, allow_env_setup: bool) -> Self {
+        Self {
+            offline,
+            allow_env_setup,
+            context: BashExecutionContext::DependencyRecovery,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,15 +58,20 @@ pub struct PolicyDecision {
 
 pub struct BashTool<'a> {
     guard: &'a PathGuard,
+    policy: BashPolicy,
 }
 
 impl<'a> BashTool<'a> {
     pub fn new(guard: &'a PathGuard) -> Self {
-        Self { guard }
+        Self::with_policy(guard, BashPolicy::normal_tool_call(false))
+    }
+
+    pub fn with_policy(guard: &'a PathGuard, policy: BashPolicy) -> Self {
+        Self { guard, policy }
     }
 
     pub fn run(&self, command: &str) -> ToolResult<CommandOutput> {
-        let decision = enforce_offline_policy(command, self.guard.root());
+        let decision = enforce_bash_policy(command, self.guard.root(), self.policy);
         if !decision.allowed {
             return Err(ToolError::BashBlocked {
                 class: decision.class,
@@ -63,9 +100,20 @@ impl<'a> BashTool<'a> {
 }
 
 pub fn enforce_offline_policy(command: &str, cwd: &Path) -> PolicyDecision {
+    enforce_bash_policy(command, cwd, BashPolicy::normal_tool_call(false))
+}
+
+pub fn enforce_bash_policy(command: &str, cwd: &Path, policy: BashPolicy) -> PolicyDecision {
     let trimmed = command.trim();
     if trimmed.is_empty() {
         return blocked(CommandClass::Unknown, "empty bash command");
+    }
+
+    if has_unsupported_shell_syntax(trimmed) {
+        return blocked(
+            CommandClass::Unknown,
+            "compound shell commands, pipes, redirects, and shell substitutions are blocked",
+        );
     }
 
     if has_extra_chaining(trimmed) {
@@ -92,7 +140,7 @@ pub fn enforce_offline_policy(command: &str, cwd: &Path) -> PolicyDecision {
             return blocked(CommandClass::Dangerous, "cd wrapper escapes the workspace");
         }
 
-        let tail_decision = classify_simple(tail);
+        let tail_decision = classify_simple(tail, policy);
         if matches!(
             tail_decision.class,
             CommandClass::ReadOnly | CommandClass::ScriptRun | CommandClass::BuildTest
@@ -109,15 +157,18 @@ pub fn enforce_offline_policy(command: &str, cwd: &Path) -> PolicyDecision {
         );
     }
 
-    classify_simple(trimmed)
+    classify_simple(trimmed, policy)
 }
 
-fn classify_simple(command: &str) -> PolicyDecision {
+fn classify_simple(command: &str, policy: BashPolicy) -> PolicyDecision {
     let command = command.trim();
     let lower = command.to_ascii_lowercase();
 
     if starts_with_any(&lower, &["sudo ", "rm ", "rm -", "chmod ", "chown ", "dd "]) {
         return blocked(CommandClass::Dangerous, "dangerous shell command blocked");
+    }
+    if matches!(lower.as_str(), "npm install" | "npm ci" | "pnpm install") {
+        return env_setup_decision(policy);
     }
     if starts_with_any(
         &lower,
@@ -125,6 +176,7 @@ fn classify_simple(command: &str) -> PolicyDecision {
             "curl ",
             "wget ",
             "git clone ",
+            "npx ",
             "npm install",
             "npm ci",
             "pnpm install",
@@ -207,6 +259,14 @@ fn has_extra_chaining(command: &str) -> bool {
     command.contains(';') || command.contains("||") || command.matches("&&").count() > 1
 }
 
+fn has_unsupported_shell_syntax(command: &str) -> bool {
+    command.contains('|')
+        || command.contains('>')
+        || command.contains('<')
+        || command.contains("$(")
+        || command.contains('`')
+}
+
 fn starts_with_any(value: &str, prefixes: &[&str]) -> bool {
     prefixes
         .iter()
@@ -235,6 +295,28 @@ fn allowed(class: CommandClass) -> PolicyDecision {
     }
 }
 
+fn env_setup_decision(policy: BashPolicy) -> PolicyDecision {
+    if policy.offline {
+        return blocked(
+            CommandClass::EnvSetup,
+            "dependency setup is blocked because offline mode is enabled",
+        );
+    }
+    if policy.context != BashExecutionContext::DependencyRecovery {
+        return blocked(
+            CommandClass::EnvSetup,
+            "dependency setup is runtime-owned and only allowed during verifier dependency recovery",
+        );
+    }
+    if !policy.allow_env_setup {
+        return blocked(
+            CommandClass::EnvSetup,
+            "dependency setup requires explicit approval; rerun with --yes to allow it",
+        );
+    }
+    allowed(CommandClass::EnvSetup)
+}
+
 fn blocked(class: CommandClass, message: &str) -> PolicyDecision {
     PolicyDecision {
         class,
@@ -258,6 +340,116 @@ mod tests {
         assert_eq!(decision.class, CommandClass::DirectoryCreation);
         assert!(!decision.allowed);
         assert!(decision.message.unwrap().contains("use Write directly"));
+    }
+
+    #[test]
+    fn classifies_exact_env_setup_commands() {
+        let root = temp_workspace("env-setup-class");
+        let policy = BashPolicy::dependency_recovery(false, true);
+
+        for command in ["npm install", "npm ci", "pnpm install"] {
+            let decision = enforce_bash_policy(command, &root, policy);
+            assert_eq!(decision.class, CommandClass::EnvSetup, "{command}");
+            assert!(decision.allowed, "{command}");
+        }
+    }
+
+    #[test]
+    fn does_not_classify_env_setup_with_args() {
+        let root = temp_workspace("env-setup-args");
+        let decision = enforce_bash_policy(
+            "npm install lodash",
+            &root,
+            BashPolicy::dependency_recovery(false, true),
+        );
+
+        assert_ne!(decision.class, CommandClass::EnvSetup);
+        assert!(!decision.allowed);
+    }
+
+    #[test]
+    fn does_not_classify_env_setup_with_chaining() {
+        let root = temp_workspace("env-setup-chain");
+        let decision = enforce_bash_policy(
+            "npm install && npm run build",
+            &root,
+            BashPolicy::dependency_recovery(false, true),
+        );
+
+        assert_ne!(decision.class, CommandClass::EnvSetup);
+        assert!(!decision.allowed);
+    }
+
+    #[test]
+    fn keeps_npx_blocked() {
+        let root = temp_workspace("npx");
+        let decision = enforce_bash_policy(
+            "npx create-next-app",
+            &root,
+            BashPolicy::dependency_recovery(false, true),
+        );
+
+        assert_eq!(decision.class, CommandClass::Network);
+        assert!(!decision.allowed);
+    }
+
+    #[test]
+    fn blocks_env_setup_for_normal_tool_call_even_when_approved() {
+        let root = temp_workspace("normal-env-setup");
+        let decision = enforce_bash_policy(
+            "npm install",
+            &root,
+            BashPolicy {
+                offline: false,
+                allow_env_setup: true,
+                context: BashExecutionContext::NormalToolCall,
+            },
+        );
+
+        assert_eq!(decision.class, CommandClass::EnvSetup);
+        assert!(!decision.allowed);
+        assert!(decision.message.unwrap().contains("runtime-owned"));
+    }
+
+    #[test]
+    fn allows_env_setup_for_dependency_recovery_when_approved_online() {
+        let root = temp_workspace("approved-env-setup");
+        let decision = enforce_bash_policy(
+            "npm install",
+            &root,
+            BashPolicy::dependency_recovery(false, true),
+        );
+
+        assert_eq!(decision.class, CommandClass::EnvSetup);
+        assert!(decision.allowed);
+    }
+
+    #[test]
+    fn blocks_env_setup_for_dependency_recovery_when_offline() {
+        let root = temp_workspace("offline-env-setup");
+        let decision = enforce_bash_policy(
+            "npm install",
+            &root,
+            BashPolicy::dependency_recovery(true, true),
+        );
+
+        assert_eq!(decision.class, CommandClass::EnvSetup);
+        assert!(!decision.allowed);
+        assert!(decision.message.unwrap().contains("offline"));
+    }
+
+    #[test]
+    fn blocks_env_setup_for_dependency_recovery_when_unapproved() {
+        let root = temp_workspace("unapproved-env-setup");
+        let decision = enforce_bash_policy(
+            "npm install",
+            &root,
+            BashPolicy::dependency_recovery(false, false),
+        );
+
+        assert_eq!(decision.class, CommandClass::EnvSetup);
+        assert!(!decision.allowed);
+        assert!(decision.message.unwrap().contains("--yes"));
     }
 
     #[test]

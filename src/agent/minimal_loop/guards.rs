@@ -5,8 +5,8 @@ pub(crate) fn future_action_feedback() -> String {
     "You described a future tool action without calling a tool. If you need to create, edit, read, run, or verify something, call the tool now. Final answers must describe completed work, not planned next steps.".to_string()
 }
 
-pub(crate) fn completion_without_write_feedback(mode: ToolCallMode) -> String {
-    let base = "No file changes have been made in this session. If the task requires creating or modifying files, use Write or Edit now. If no file changes are needed, say that explicitly and finish.";
+pub(crate) fn action_required_feedback(mode: ToolCallMode) -> String {
+    let base = "This step requires concrete repository evidence, but no file-changing tool call has run yet. Call exactly one appropriate tool now, such as Write or Edit for a required file change, or finish only if the required evidence already exists.";
     if mode == ToolCallMode::XmlFallback {
         format!(
             "{base}\nWhen a file change is required, emit one complete XML fallback tool call like this:\n{}",
@@ -81,8 +81,7 @@ mod tests {
     #[test]
     fn xml_feedback_includes_fallback_example() {
         assert!(
-            completion_without_write_feedback(ToolCallMode::XmlFallback)
-                .contains("commandagent_tool_call")
+            action_required_feedback(ToolCallMode::XmlFallback).contains("commandagent_tool_call")
         );
         assert!(
             requested_artifact_feedback(&["dist/report.md".to_string()], ToolCallMode::XmlFallback)

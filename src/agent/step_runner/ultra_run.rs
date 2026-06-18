@@ -1,3 +1,4 @@
+use crate::agent::step_runner::runtime::phase_contract::PhaseWorkspaceContract;
 use crate::agent::step_runner::ultra_plan::{UltraPhase, UltraPlan};
 use crate::agent::step_runner::{StepPlan, WorkIntent, plan_generation_prompt};
 use std::fs;
@@ -42,14 +43,18 @@ where
     P: PhasePlanner,
     E: StepPlanExecutor,
 {
-    let snapshot = workspace_snapshot(cwd.as_ref());
+    let cwd = cwd.as_ref();
     let mut report = UltraRunReport {
         completed_phases: 0,
         phases: Vec::new(),
     };
 
     for phase in &plan.phases {
-        let prompt = phase_step_plan_prompt(plan, phase, &snapshot, profile_contract);
+        let snapshot = workspace_snapshot(cwd);
+        let phase_contract =
+            PhaseWorkspaceContract::collect(cwd, &plan.profile, &plan.required_artifacts).render();
+        let prompt =
+            phase_step_plan_prompt(plan, phase, &snapshot, &phase_contract, profile_contract);
         let step_plan = match planner.generate_step_plan(&prompt) {
             Ok(step_plan) => step_plan,
             Err(err) => {
@@ -93,6 +98,7 @@ pub fn phase_step_plan_prompt(
     plan: &UltraPlan,
     phase: &UltraPhase,
     workspace_snapshot: &str,
+    phase_contract: &str,
     profile_contract: &str,
 ) -> String {
     format!(
@@ -102,6 +108,7 @@ Ultra phase context:\n\
 - current phase id: {phase_id}\n\
 - current phase goal: {phase_goal}\n\n\
 Workspace snapshot:\n{workspace_snapshot}\n\n\
+Phase workspace contract:\n{phase_contract}\n\n\
 Profile contract:\n{profile_contract}\n\n\
 Create a step plan only for this phase. Do not redo completed phases.",
         plan_generation_prompt(
@@ -200,12 +207,39 @@ mod tests {
         let plan = sample_ultra_plan();
         let snapshot = workspace_snapshot(&root);
 
-        let prompt = phase_step_plan_prompt(&plan, &plan.phases[0], &snapshot, "Use Next.js.");
+        let prompt = phase_step_plan_prompt(
+            &plan,
+            &plan.phases[0],
+            &snapshot,
+            "- required_artifacts=app/page.tsx",
+            "Use Next.js.",
+        );
 
         assert!(prompt.contains("current phase id: scaffold"));
         assert!(prompt.contains("- README.md"));
+        assert!(prompt.contains("Phase workspace contract"));
+        assert!(prompt.contains("required_artifacts=app/page.tsx"));
         assert!(prompt.contains("Use Next.js."));
         assert!(prompt.contains("Do not redo completed phases"));
+    }
+
+    #[test]
+    fn refreshes_workspace_snapshot_before_each_phase() {
+        let root = temp_workspace("refresh");
+        let plan = sample_ultra_plan();
+        let mut planner =
+            MockPlanner::new(vec![Ok(sample_step_plan("p1")), Ok(sample_step_plan("p2"))]);
+        let mut executor = CreatingExecutor {
+            root: root.clone(),
+            inner: MockExecutor::new(vec![Ok(()), Ok(())]),
+        };
+
+        let report = run_ultra_plan(&root, &plan, "profile rules", &mut planner, &mut executor);
+
+        assert_eq!(report.completed_phases, 2);
+        assert_eq!(planner.prompts.len(), 2);
+        assert!(!planner.prompts[0].contains("phase1.txt"));
+        assert!(planner.prompts[1].contains("phase1.txt"));
     }
 
     struct MockPlanner {
@@ -251,6 +285,21 @@ mod tests {
             self.responses
                 .pop_front()
                 .unwrap_or_else(|| Err("missing mock execution".to_string()))
+        }
+    }
+
+    struct CreatingExecutor {
+        root: PathBuf,
+        inner: MockExecutor,
+    }
+
+    impl StepPlanExecutor for CreatingExecutor {
+        fn execute_step_plan(&mut self, plan: &StepPlan) -> Result<(), String> {
+            let result = self.inner.execute_step_plan(plan);
+            if plan.steps[0].id == "p1" {
+                fs::write(self.root.join("phase1.txt"), "done").unwrap();
+            }
+            result
         }
     }
 

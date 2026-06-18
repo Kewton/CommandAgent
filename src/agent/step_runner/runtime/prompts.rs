@@ -46,6 +46,7 @@ Expected result: {expected_result}\n\
 Expected paths:\n{expected}\n\
 Verifier commands:\n{verify}\n\n\
 {missing_hint}\
+Step tool policy: {policy}\n\
 Do only this step. Use Write/Edit for file changes; Write creates parent directories automatically.\n\
 The runtime executes verifier commands after your response. Do not run listed verifier commands yourself unless the step kind is verify and the command is a single allowed local check.\n\
 Do not use compound Bash commands with &&, ||, or ;.\n\
@@ -62,7 +63,23 @@ Do not install network dependencies unless the step explicitly asks for dependen
         expected = bullet_list(&step.expected_paths),
         verify = bullet_list(&step.verify),
         missing_hint = missing_hint,
+        policy = step_tool_policy_text(step.kind),
     ))
+}
+
+fn step_tool_policy_text(kind: StepKind) -> &'static str {
+    match kind {
+        StepKind::Inspect | StepKind::Report => {
+            "read-only; use Read/Glob/Grep or read-only Bash only, and do not call Write/Edit"
+        }
+        StepKind::Verify => "no mutation; run/check only and do not call Write/Edit",
+        StepKind::Setup => {
+            "setup/config file mutation only; do not edit source routes/components and do not run dependency installation yourself"
+        }
+        StepKind::Create | StepKind::Edit | StepKind::Repair => {
+            "file mutation allowed when needed; keep changes scoped to this step"
+        }
+    }
 }
 
 fn missing_expected_paths_hint(step: &StepPlanStep, missing_expected_paths: &[String]) -> String {

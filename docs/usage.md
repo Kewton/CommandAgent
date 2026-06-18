@@ -35,8 +35,8 @@ commandagent> /ultra-plan-run --profile nextjs Create a Next.js app on port 3011
 When stderr is a TTY, CommandAgent prints progress lines for long-running work:
 planner generation, saved plan paths, compact plan previews, ultra phases,
 step starts/finishes, tool summaries, verifier status, artifact status, bounded
-repair attempts, repair packet paths, and a standalone `next command:` block
-when a repair packet is saved.
+dependency setup, repair attempts, repair packet paths, and a standalone
+`next command:` block when a repair packet is saved.
 
 Interactive REPL startup also renders a compact CommandAgent ASCII-art logo
 above the startup context when stderr is a TTY. One-shot command output and
@@ -116,6 +116,38 @@ OPENAI_API_KEY=...
 
 `.env` files are not loaded by CommandAgent itself in the MVP. Export variables
 in the shell or use an external env loader.
+
+## Dependency Setup Recovery
+
+CommandAgent does not expose dependency installation as a normal model-issued
+Bash action. `Bash(npm install)`, `Bash(npm ci)`, and `Bash(pnpm install)` are
+blocked during ordinary tool execution, even with `--yes`.
+
+The step runner can perform one bounded dependency setup recovery when all of
+these are true:
+
+- a verifier reports only `dependency_missing`
+- the step's expected source paths already exist
+- setup is approved with `--yes` or `COMMANDAGENT_YES=true`
+- `--offline` is not set
+- lockfiles select one supported command
+
+Selection is deterministic:
+
+- `package-lock.json` -> `npm ci`
+- `pnpm-lock.yaml` -> `pnpm install`
+- no lockfile -> `npm install`
+
+`yarn.lock` is unsupported in this slice, and both `package-lock.json` plus
+`pnpm-lock.yaml` is treated as ambiguous. Setup runs once, with a bounded
+timeout, and verbose stdout/stderr logs are stored under `.commandagent/setup/`.
+After setup, CommandAgent reruns the original verifier once. If the failure is
+still `dependency_missing`, or setup fails/times out, the run stops with a
+setup blocker.
+
+`--yes` approves dependency setup side effects such as package lifecycle
+scripts inside the current workspace. Without `--yes`, or with `--offline`,
+CommandAgent stops and reports the blocker instead of installing dependencies.
 
 ## Providers
 

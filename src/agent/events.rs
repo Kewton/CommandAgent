@@ -34,6 +34,10 @@ pub enum RuntimeEvent {
         phase_id: String,
         error: String,
     },
+    ProfileVerificationFailed {
+        profile: String,
+        failures: Vec<String>,
+    },
     StepStarted {
         index: usize,
         total: usize,
@@ -60,6 +64,17 @@ pub enum RuntimeEvent {
         command: String,
         ok: bool,
         failure_count: usize,
+    },
+    DependencySetupStarted {
+        step_id: String,
+        command: String,
+    },
+    DependencySetupFinished {
+        step_id: String,
+        command: String,
+        ok: bool,
+        elapsed_ms: u128,
+        status: String,
     },
     RepairAttemptStarted {
         step_id: String,
@@ -127,7 +142,7 @@ pub enum RuntimeEvent {
 pub enum GuardFeedbackKind {
     FutureAction,
     RequestedArtifacts,
-    CompletionWithoutWrite,
+    ActionRequired,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

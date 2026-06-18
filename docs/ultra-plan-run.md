@@ -50,10 +50,18 @@ includes:
 - the current phase goal
 - the selected profile contract
 - the selected style
-- a bounded workspace snapshot
+- a freshly collected bounded workspace snapshot
+- a data-only phase workspace contract with visible entries, lockfiles,
+  package scripts, required final artifacts, and profile-projected fact lines
 
 The phase runner stops on the first failed phase. Continuing after a failed
 phase would make later phases depend on stale assumptions.
+
+After a phase step plan finishes, profile verification may run for profiles
+that define deterministic checks. For example, the Next.js profile can reject
+app-root ambiguity, build/dev script drift, missing framework dependencies,
+Tailwind config/dependency drift, and route integration drift for explicit
+artifact paths. Profile verification is read-only and does not auto-repair.
 
 ## Verification And Repair
 
@@ -67,10 +75,16 @@ repair prompt containing:
 - relevant source excerpts when available
 
 If every verifier failure is `dependency_missing` and the step's expected paths
-already exist, CommandAgent stops as a manual setup blocker instead of creating
-a repair prompt. For example, a Next.js `npm run build` verifier requires local
-`node_modules/.bin/next`; when it is absent, install dependencies explicitly
-outside repair and rerun the verifier.
+already exist, CommandAgent treats the problem as setup recovery, not source
+repair. With `--yes` and without `--offline`, it runs one deterministic setup
+command selected from lockfiles (`npm ci`, `pnpm install`, or `npm install`),
+stores setup logs under `.commandagent/setup/`, and reruns the original
+verifier once. If setup is not approved, offline, unsupported, ambiguous,
+fails, times out, or still leaves `dependency_missing`, CommandAgent stops with
+a setup blocker instead of creating a repair prompt.
+
+Normal model-issued `Bash(npm install)` remains blocked. Dependency setup is
+runtime-owned and is triggered only by verifier evidence.
 
 Repair is capped. If repair is exhausted, CommandAgent writes a short packet to
 `.commandagent/repairs/` and prints a suggested `/ultra-plan-run` command.
@@ -82,7 +96,9 @@ commandagent> /ultra-plan-run --profile nextjs "$(cat .commandagent/repairs/repa
 ```
 
 This starts a new explicit task using the compact repair packet. It is
-deliberately user-visible so CommandAgent does not hide unbounded retries.
+deliberately user-visible so CommandAgent does not hide unbounded retries. It
+is a standalone repair plan; the original ultra plan remains incomplete until
+the user explicitly resumes or replans it.
 
 ## Current MVP Limit
 

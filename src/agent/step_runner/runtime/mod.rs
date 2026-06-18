@@ -15,9 +15,11 @@ use std::path::Path;
 
 mod execution;
 mod paths;
+pub(crate) mod phase_contract;
 mod planning;
 mod prompts;
 mod repair_loop;
+mod setup;
 
 use execution::{load_step_plan, load_ultra_plan};
 use paths::display_path;
@@ -773,6 +775,7 @@ mod tests {
                 changed_files: Vec::new(),
                 file_changing_attempts: 0,
                 initial_turn_error: None,
+                dependency_setup_attempted: false,
             },
             &mut observer,
         )
@@ -856,8 +859,8 @@ mod tests {
     }
 
     #[test]
-    fn plan_run_accepts_verified_step_after_max_iterations() {
-        let root = temp_workspace("plan-run-verified-max");
+    fn plan_run_does_not_hide_max_iterations_behind_successful_verifier() {
+        let root = temp_workspace("plan-run-max-is-fatal");
         let plan_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    kind: \"create\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"cat README.md\"\n";
         let mut planner = MockClient::new(vec![ChatResponse {
             content: plan_yaml.to_string(),
@@ -883,7 +886,7 @@ mod tests {
             ..MinimalLoopConfig::default()
         };
 
-        let output = SlashRuntime {
+        let err = SlashRuntime {
             executor: &mut executor,
             planner: &mut planner,
             cwd: &root,
@@ -894,10 +897,53 @@ mod tests {
             },
         }
         .run(command)
-        .unwrap();
+        .unwrap_err();
 
-        assert!(output.contains("step write-readme: ok"));
+        assert!(err.contains("initial turn error"), "{err}");
+        assert!(err.contains("minimal loop reached max iterations"), "{err}");
         assert_eq!(fs::read_to_string(root.join("README.md")).unwrap(), "ok");
+    }
+
+    #[test]
+    fn plan_run_does_not_hide_invalid_tool_args_behind_empty_verifier() {
+        let root = temp_workspace("plan-run-invalid-tool-args");
+        let plan_yaml = "goal: \"Inspect workspace\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"inspect\"\n    kind: \"inspect\"\n    instruction: \"Inspect current workspace.\"\n    expected_paths: []\n    verify: []\n";
+        let mut planner = MockClient::new(vec![ChatResponse {
+            content: plan_yaml.to_string(),
+            tool_calls: Vec::new(),
+        }]);
+        let mut executor = MockClient::new(vec![ChatResponse {
+            content: String::new(),
+            tool_calls: vec![ToolCall {
+                name: "Glob".to_string(),
+                args_json: "{}".to_string(),
+            }],
+        }]);
+        let command = SlashCommand {
+            kind: SlashCommandKind::PlanRun,
+            profile: Some("docs".to_string()),
+            style: None,
+            intent: None,
+            artifacts: Vec::new(),
+            argument: "Inspect workspace".to_string(),
+        };
+
+        let err = SlashRuntime {
+            executor: &mut executor,
+            planner: &mut planner,
+            cwd: &root,
+            loop_config: MinimalLoopConfig::default(),
+            planner_config: PlannerRuntimeConfig {
+                model: "planner".to_string(),
+                tool_call_mode: ToolCallMode::XmlFallback,
+            },
+        }
+        .run(command)
+        .unwrap_err();
+
+        assert!(err.contains("initial turn error"), "{err}");
+        assert!(err.contains("invalid tool arguments"), "{err}");
+        assert!(!err.contains("step inspect: ok"), "{err}");
     }
 
     #[test]
@@ -1114,6 +1160,72 @@ mod tests {
                 path,
                 status: ArtifactStatus::Missing,
             } if path == "FINAL.md"
+        )));
+    }
+
+    #[test]
+    fn ultra_plan_fails_phase_on_nextjs_profile_verification() {
+        let root = temp_workspace("ultra-nextjs-profile-failure");
+        let ultra_yaml = "goal: \"Create Next.js app on port 3011\"\nprofile: \"nextjs\"\nstyle: \"default\"\nintent: \"new\"\nphases:\n  - id: \"scaffold\"\n    goal: \"Create app files.\"\n";
+        let scaffold_plan = "goal: \"Create app files.\"\nprofile: \"nextjs\"\nstyle: \"default\"\nsteps:\n  - id: \"create-app\"\n    kind: \"create\"\n    instruction: \"Create package.json and app/page.tsx.\"\n    expected_paths:\n      - \"package.json\"\n      - \"app/page.tsx\"\n    verify:\n      - \"test -f package.json\"\n      - \"test -f app/page.tsx\"\n";
+        let mut planner = MockClient::new(vec![
+            ChatResponse {
+                content: ultra_yaml.to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: scaffold_plan.to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+        let mut executor = MockClient::new(vec![
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![
+                    ToolCall {
+                        name: "Write".to_string(),
+                        args_json: r#"{"path":"package.json","content":"{\"scripts\":{\"dev\":\"next dev\",\"build\":\"next build\"},\"dependencies\":{\"next\":\"latest\",\"react\":\"latest\",\"react-dom\":\"latest\"}}"}"#.to_string(),
+                    },
+                    ToolCall {
+                        name: "Write".to_string(),
+                        args_json: r#"{"path":"app/page.tsx","content":"export default function Page() { return null }"}"#.to_string(),
+                    },
+                ],
+            },
+            ChatResponse {
+                content: "Created app files.".to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+        let command = SlashCommand {
+            kind: SlashCommandKind::UltraPlanRun,
+            profile: Some("nextjs".to_string()),
+            style: None,
+            intent: Some("new".to_string()),
+            artifacts: Vec::new(),
+            argument: "Create Next.js app on port 3011".to_string(),
+        };
+
+        let mut observer = CaptureObserver::default();
+        let err = SlashRuntime {
+            executor: &mut executor,
+            planner: &mut planner,
+            cwd: &root,
+            loop_config: MinimalLoopConfig::default(),
+            planner_config: PlannerRuntimeConfig {
+                model: "planner".to_string(),
+                tool_call_mode: ToolCallMode::XmlFallback,
+            },
+        }
+        .run_with_observer(command, &mut observer)
+        .unwrap_err();
+
+        assert!(err.contains("profile verification failed"), "{err}");
+        assert!(err.contains("nextjs_dev_port_drift"), "{err}");
+        assert!(observer.events().iter().any(|event| matches!(
+            event,
+            RuntimeEvent::ProfileVerificationFailed { profile, failures }
+                if profile == "nextjs" && failures.iter().any(|failure| failure.contains("nextjs_dev_port_drift"))
         )));
     }
 

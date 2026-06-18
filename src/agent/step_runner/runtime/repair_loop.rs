@@ -1,13 +1,19 @@
 use super::SlashRuntime;
 use super::execution;
 use super::paths::{changed_file_markers, missing_paths, result_changed_files};
+use super::setup::{
+    DependencySetupDisposition, DependencySetupRunner, SetupRunStatus, ShellDependencySetupRunner,
+    dependency_missing_blocker_message, dependency_setup_disposition, setup_failed_blocker_message,
+};
 use crate::agent::events::{RuntimeEvent, RuntimeObserver, bounded_event_text};
+use crate::agent::minimal_loop::config::{ActionRequirement, StepToolPolicy};
 use crate::agent::minimal_loop::loop_run::{ChatClient, MinimalLoopConfig, RunResult};
 use crate::agent::step_runner::repair::{
     RepairBudget, RepairContext, build_repair_prompt, save_repair_prompt,
 };
 use crate::agent::step_runner::verify::VerificationFailure;
 use crate::agent::step_runner::{StepPlan, StepPlanStep};
+use std::time::Instant;
 
 const MAX_REPAIR_TURNS: usize = 3;
 
@@ -16,6 +22,7 @@ pub(super) struct RepairStepState {
     pub(super) changed_files: Vec<String>,
     pub(super) file_changing_attempts: usize,
     pub(super) initial_turn_error: Option<String>,
+    pub(super) dependency_setup_attempted: bool,
 }
 
 pub(super) fn turn_error_failure(command: &str, error: String) -> VerificationFailure {
@@ -44,6 +51,7 @@ fn turn_error_reason_and_diagnostic(error: &str) -> (&'static str, String) {
 
 pub(super) fn recoverable_repair_turn_error(error: &str) -> bool {
     error.contains("assistant violated final answer contract")
+        || error.contains("assistant did not provide required repository evidence")
         || error.contains("missing expected artifacts")
         || is_edit_target_not_found(error)
 }
@@ -104,6 +112,7 @@ where
             changed_files: Vec::new(),
             file_changing_attempts: 0,
             initial_turn_error: Some(turn_error),
+            dependency_setup_attempted: false,
         },
         observer,
     )
@@ -132,6 +141,7 @@ where
             changed_files: changed_file_markers(&first_result),
             file_changing_attempts: usize::from(result_changed_files(&first_result)),
             initial_turn_error: None,
+            dependency_setup_attempted: false,
         },
         observer,
     )
@@ -153,10 +163,17 @@ where
     let mut repair_turns = 0usize;
     let mut missing_artifact_no_tool_guard_sent = false;
     let initial_missing_expected_paths = missing_paths(runtime.cwd, &step.expected_paths);
-    if let Some(message) =
-        dependency_missing_blocker_message(step, &state.failures, &initial_missing_expected_paths)
-    {
-        return Err(message);
+    match try_dependency_setup_recovery(
+        runtime,
+        step,
+        &config,
+        &mut state,
+        &initial_missing_expected_paths,
+        observer,
+    )? {
+        DependencyRecoveryResult::Recovered => return Ok(()),
+        DependencyRecoveryResult::Blocked(message) => return Err(message),
+        DependencyRecoveryResult::ContinueRepair | DependencyRecoveryResult::NotApplicable => {}
     }
 
     while budget.allows_next_attempt(state.file_changing_attempts)
@@ -181,11 +198,14 @@ where
             changed_files: state.changed_files.clone(),
         };
         let prompt = build_repair_prompt(&context);
+        let mut repair_config = config.clone();
+        repair_config.action_requirement = ActionRequirement::Required;
+        repair_config.step_tool_policy = StepToolPolicy::FileMutationAllowed;
         let result = match crate::agent::minimal_loop::loop_run::run_session_with_observer(
             runtime.executor,
             runtime.cwd,
             &prompt,
-            config.clone(),
+            repair_config,
             observer,
         ) {
             Ok(result) => result,
@@ -222,18 +242,32 @@ where
             return Ok(());
         }
         let missing_expected_paths = missing_paths(runtime.cwd, &step.expected_paths);
-        if let Some(message) =
-            dependency_missing_blocker_message(step, &state.failures, &missing_expected_paths)
-        {
-            return Err(message);
+        match try_dependency_setup_recovery(
+            runtime,
+            step,
+            &config,
+            &mut state,
+            &missing_expected_paths,
+            observer,
+        )? {
+            DependencyRecoveryResult::Recovered => return Ok(()),
+            DependencyRecoveryResult::Blocked(message) => return Err(message),
+            DependencyRecoveryResult::ContinueRepair | DependencyRecoveryResult::NotApplicable => {}
         }
     }
 
     let missing_expected_paths = missing_paths(runtime.cwd, &step.expected_paths);
-    if let Some(message) =
-        dependency_missing_blocker_message(step, &state.failures, &missing_expected_paths)
-    {
-        return Err(message);
+    match try_dependency_setup_recovery(
+        runtime,
+        step,
+        &config,
+        &mut state,
+        &missing_expected_paths,
+        observer,
+    )? {
+        DependencyRecoveryResult::Recovered => return Ok(()),
+        DependencyRecoveryResult::Blocked(message) => return Err(message),
+        DependencyRecoveryResult::ContinueRepair | DependencyRecoveryResult::NotApplicable => {}
     }
     let context = RepairContext {
         step_id: step.id.clone(),
@@ -262,55 +296,109 @@ where
     ))
 }
 
-fn dependency_missing_blocker_message(
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum DependencyRecoveryResult {
+    NotApplicable,
+    Recovered,
+    ContinueRepair,
+    Blocked(String),
+}
+
+fn try_dependency_setup_recovery<E, P>(
+    runtime: &mut SlashRuntime<'_, E, P>,
     step: &StepPlanStep,
-    failures: &[VerificationFailure],
+    config: &MinimalLoopConfig,
+    state: &mut RepairStepState,
     missing_expected_paths: &[String],
-) -> Option<String> {
-    if failures.is_empty()
-        || !missing_expected_paths.is_empty()
-        || !failures
-            .iter()
-            .all(|failure| failure.reason == "dependency_missing")
-    {
-        return None;
-    }
+    observer: &mut dyn RuntimeObserver,
+) -> Result<DependencyRecoveryResult, String>
+where
+    E: ChatClient,
+    P: ChatClient,
+{
+    try_dependency_setup_recovery_with_runner(
+        runtime,
+        step,
+        config,
+        state,
+        missing_expected_paths,
+        observer,
+        &ShellDependencySetupRunner,
+    )
+}
 
-    let mut commands = Vec::new();
-    let mut diagnostics = Vec::new();
-    for failure in failures {
-        if !commands.contains(&failure.command) {
-            commands.push(failure.command.clone());
-        }
-        if !failure.diagnostic_excerpt.trim().is_empty() {
-            diagnostics.push(failure.diagnostic_excerpt.trim().to_string());
-        }
-    }
-
-    let mut message = format!(
-        "dependency_missing: step {} cannot be repaired by editing files.\n\n\
-This is an environment/setup blocker, not a code repair failure. Install project dependencies explicitly when allowed, then rerun the verifier.",
-        step.id
+fn try_dependency_setup_recovery_with_runner<E, P, R>(
+    runtime: &mut SlashRuntime<'_, E, P>,
+    step: &StepPlanStep,
+    config: &MinimalLoopConfig,
+    state: &mut RepairStepState,
+    missing_expected_paths: &[String],
+    observer: &mut dyn RuntimeObserver,
+    runner: &R,
+) -> Result<DependencyRecoveryResult, String>
+where
+    E: ChatClient,
+    P: ChatClient,
+    R: DependencySetupRunner,
+{
+    let disposition = dependency_setup_disposition(
+        runtime.cwd,
+        &step.id,
+        &state.failures,
+        missing_expected_paths,
+        config.dependency_setup_policy,
+        state.dependency_setup_attempted,
     );
-    if !diagnostics.is_empty() {
-        message.push_str("\n\nVerifier evidence:\n");
-        message.push_str(&diagnostics.join("\n"));
-    }
-    message.push_str("\n\nRun dependency setup manually, for example:\n  npm install");
-    if commands.is_empty() {
-        message.push_str("\n\nThen rerun the original verifier.");
-    } else {
-        message.push_str("\n\nThen rerun:\n");
-        for command in commands {
-            message.push_str("  ");
-            message.push_str(&command);
-            message.push('\n');
+
+    let command = match disposition {
+        DependencySetupDisposition::NotApplicable => {
+            return Ok(DependencyRecoveryResult::NotApplicable);
         }
-        if message.ends_with('\n') {
-            message.pop();
+        DependencySetupDisposition::Blocked(message) => {
+            return Ok(DependencyRecoveryResult::Blocked(message));
         }
+        DependencySetupDisposition::Attempt(command) => command,
+    };
+
+    state.dependency_setup_attempted = true;
+    observer.on_event(RuntimeEvent::DependencySetupStarted {
+        step_id: bounded_event_text(&step.id),
+        command: bounded_event_text(command.as_shell_command()),
+    });
+    let started = Instant::now();
+    let status = runner.run_setup(runtime.cwd, command, config.dependency_setup_policy);
+    observer.on_event(RuntimeEvent::DependencySetupFinished {
+        step_id: bounded_event_text(&step.id),
+        command: bounded_event_text(command.as_shell_command()),
+        ok: status.ok(),
+        elapsed_ms: started.elapsed().as_millis(),
+        status: bounded_event_text(status.label()),
+    });
+
+    if !matches!(status, SetupRunStatus::Success) {
+        return Ok(DependencyRecoveryResult::Blocked(
+            setup_failed_blocker_message(&step.id, command, &status),
+        ));
     }
-    message
-        .push_str("\n\nCommandAgent did not create a repair prompt because this blocker requires explicit setup.");
-    Some(message)
+
+    state.failures = execution::verify_step_with_observer(runtime.cwd, step, observer)?;
+    if state.failures.is_empty() {
+        return Ok(DependencyRecoveryResult::Recovered);
+    }
+
+    if state
+        .failures
+        .iter()
+        .all(|failure| failure.reason == "dependency_missing")
+    {
+        return Ok(DependencyRecoveryResult::Blocked(
+            dependency_missing_blocker_message(
+                &step.id,
+                &state.failures,
+                "Dependency setup completed once, but the verifier still reports missing dependencies.",
+            ),
+        ));
+    }
+
+    Ok(DependencyRecoveryResult::ContinueRepair)
 }

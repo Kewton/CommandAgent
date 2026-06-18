@@ -58,10 +58,11 @@ text.
 
 Terminal progress can show a startup logo, plan generation, saved plan paths,
 plan previews, ultra phases, step starts/finishes, tool summaries, verifier
-status, artifact status, bounded repair attempts, repair packet paths, and a
-standalone suggested next command. These lines are evidence from existing
-runtime state; they do not change planning, verification, repair budgets,
-provider behavior, or tool policy.
+status, dependency setup start/finish, profile verification failures, artifact
+status, bounded repair attempts, repair packet paths, and a standalone
+suggested next command. These lines are evidence from existing runtime state;
+they do not change planning, verification, repair budgets, provider behavior,
+or tool policy.
 
 For blocking planner, model, verifier, repair, and tool waits, the TUI can emit
 an in-place elapsed spinner until the runtime emits completion, failure, or the
@@ -120,6 +121,13 @@ not for creating directories before `Write`.
 script-run, and build-test commands are allowed when they remain inside the
 workspace; dangerous or network actions are blocked.
 
+Dependency setup commands are a narrow exception class, not ordinary Bash
+capability. `npm install`, `npm ci`, and `pnpm install` classify as `EnvSetup`.
+They remain blocked for normal model-issued `Bash` tool calls, even when
+`--yes` is set. The step runner may run one `EnvSetup` command only after a
+verifier returns `dependency_missing`, expected source paths are present,
+setup is approved, and offline mode is disabled.
+
 Directory creation through `Bash` is blocked with guidance to use `Write`
 instead. The `Write` tool creates parent directories automatically, so `mkdir`
 is not part of the normal file creation path.
@@ -136,6 +144,14 @@ remain blocked.
 All file tools and session writes must go through path confinement. Relative
 paths are resolved under the workspace root. Parent traversal and symlink escape
 are rejected before a tool reads or writes data.
+
+Step execution also carries a step tool policy from the step runner into the
+minimal-loop executor. Inspect and report steps are read-only. Verify steps are
+no-mutation checks. Setup steps may change setup/config files such as
+`package.json`, `tsconfig.json`, `next.config.*`, `tailwind.config.*`, and
+`postcss.config.*`, but source route/component edits belong to create, edit, or
+repair steps. Repair turns are explicit bounded repair sessions and may mutate
+files within the normal file-tool and path-confinement rules.
 
 Search tools walk the workspace deterministically and skip hidden paths by
 default. Search output is bounded so a tool result cannot flood the next model
@@ -179,26 +195,43 @@ Ultra planning does not run tools by itself; it only creates bounded phase
 contracts under `.commandagent/plans/ultra-plan-*.yaml`.
 
 Ultra execution is phase-oriented. For each phase, CommandAgent builds a
-phase-local step-planning prompt with a bounded workspace snapshot and profile
-contract, then delegates to a step-plan executor. A phase failure stops the run
-and returns a readable phase report instead of continuing with stale context.
+phase-local step-planning prompt with a freshly collected bounded workspace
+snapshot, a data-only phase workspace contract, and the selected profile
+contract, then delegates to a step-plan executor. The phase contract contains
+generic facts such as visible root entries, lockfiles, package scripts, final
+required artifacts, and profile-projected summary lines. It does not choose a
+framework-specific workflow or mutate files. A phase failure stops the run and
+returns a readable phase report instead of continuing with stale context.
 
 Verification is deterministic. It runs only commands accepted by the local Bash
 policy, detects dependency-missing cases before fake success is possible, and
 compresses failures into bounded diagnostics plus nearby source excerpts when a
 file/line reference is present.
 
+When every verifier failure is `dependency_missing` and expected paths are
+present, the step runner checks the setup policy before repair. With `--yes`
+and online mode, it selects one deterministic setup command from lockfiles,
+runs it once with a bounded timeout, writes setup logs under
+`.commandagent/setup/`, reruns the original verifier once, and continues only
+if the evidence improves. Without approval, in offline mode, or after exhausted
+setup recovery, it stops with a clear blocker instead of creating a repair
+packet.
+
 Repair is bounded and evidence-driven. The default budget allows two
 file-changing attempts. When repair is exhausted, CommandAgent writes a short
 replan packet under `.commandagent/repairs` and suggests an explicit
 `/ultra-plan-run --profile <profile> "$(cat ...)"` command instead of hiding an
-unbounded retry loop.
+unbounded retry loop. That suggested command starts a standalone repair plan;
+it is not reported as completion of the original ultra plan unless the original
+plan is explicitly resumed or replanned and finishes.
 
 ## Profile Boundary
 
 Profiles are intentionally small. They provide profile text, optional verifier
-commands, and optional protected path prefixes. They do not own planning logic
-or run domain-specific agents.
+commands, optional protected path prefixes, read-only fact summaries, and
+read-only profile verification. They do not own planning logic, edit files, or
+run domain-specific agents. Profile verification can fail a phase with explicit
+diagnostics, but it does not auto-repair.
 
 The current profile set is MVP-sized: `generic`, `nextjs`, `python`, `rust`,
 `investigation`, `docs`, `data-analysis`, and `data-pipeline`. A new profile

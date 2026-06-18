@@ -51,7 +51,14 @@ pub fn lint_step_plan_with_workspace(
             !step.expected_paths.is_empty(),
             paths_exist(cwd, &step.expected_paths),
         )?;
-        lint_profile_scaffolding(plan.profile.as_str(), &step.id, &step.instruction)?;
+        lint_profile_scaffolding(
+            plan.profile.as_str(),
+            &step.id,
+            step.kind,
+            &step.instruction,
+            &step.expected_paths,
+            cwd,
+        )?;
     }
     Ok(())
 }
@@ -444,6 +451,45 @@ mod tests {
     }
 
     #[test]
+    fn rejects_inspect_step_that_creates_files() {
+        let mut plan = plan_with_paths("nextjs", vec!["package.json"]);
+        plan.steps[0].kind = StepKind::Inspect;
+        plan.steps[0].instruction = "Inspect the workspace and create package.json.".to_string();
+        plan.steps[0].expected_paths.clear();
+
+        let err = lint_step_plan(&plan).unwrap_err();
+
+        assert_eq!(
+            err,
+            PlanLintError::InvalidStepInstruction {
+                step_id: "step".to_string(),
+                reason: "inspect steps are read-only; move file creation or edits into create/edit/repair steps".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_verify_step_that_fixes_files() {
+        let mut plan = plan_with_paths("nextjs", vec!["package.json"]);
+        plan.steps[0].kind = StepKind::Verify;
+        plan.steps[0].instruction = "Run npm run build and fix package.json if needed.".to_string();
+        plan.steps[0].expected_paths.clear();
+        plan.steps[0].verify = vec!["npm run build".to_string()];
+
+        let err = lint_step_plan(&plan).unwrap_err();
+
+        assert_eq!(
+            err,
+            PlanLintError::InvalidStepInstruction {
+                step_id: "step".to_string(),
+                reason:
+                    "verify steps must not mutate files; move fixes into create/edit/repair steps"
+                        .to_string(),
+            }
+        );
+    }
+
+    #[test]
     fn rejects_obvious_setup_and_verify_mix() {
         let plan = StepPlan {
             goal: "build app".to_string(),
@@ -560,6 +606,71 @@ mod tests {
                 guidance: "create Cargo.toml and src/main.rs with Write/Edit".to_string()
             }
         );
+    }
+
+    #[test]
+    fn rejects_nextjs_root_drift_from_src_app_to_app() {
+        let root = temp_workspace("nextjs-src-app-drift");
+        fs::create_dir_all(root.join("src/app")).unwrap();
+        fs::write(
+            root.join("src/app/page.tsx"),
+            "export default function Page() {}",
+        )
+        .unwrap();
+        let plan = StepPlan {
+            goal: "add route".to_string(),
+            profile: "nextjs".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::Modify,
+            required_artifacts: Vec::new(),
+            steps: vec![StepPlanStep {
+                id: "create-page".to_string(),
+                kind: StepKind::Create,
+                instruction: "Create app/page.tsx.".to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec!["app/page.tsx".to_string()],
+                verify: vec!["test -f app/page.tsx".to_string()],
+            }],
+        };
+
+        let err = lint_step_plan_with_workspace(&plan, Some(&root)).unwrap_err();
+
+        assert_eq!(
+            err,
+            PlanLintError::InvalidStepInstruction {
+                step_id: "create-page".to_string(),
+                reason: "Next.js workspace already uses src/app; creating app/page.tsx would split the app root unless this is an explicit migration"
+                    .to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn accepts_nextjs_explicit_root_migration() {
+        let root = temp_workspace("nextjs-root-migration");
+        fs::create_dir_all(root.join("src/app")).unwrap();
+        fs::write(
+            root.join("src/app/page.tsx"),
+            "export default function Page() {}",
+        )
+        .unwrap();
+        let plan = StepPlan {
+            goal: "migrate route".to_string(),
+            profile: "nextjs".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::Modify,
+            required_artifacts: Vec::new(),
+            steps: vec![StepPlanStep {
+                id: "migrate-page".to_string(),
+                kind: StepKind::Create,
+                instruction: "Migrate the app root by creating app/page.tsx.".to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec!["app/page.tsx".to_string()],
+                verify: vec!["test -f app/page.tsx".to_string()],
+            }],
+        };
+
+        lint_step_plan_with_workspace(&plan, Some(&root)).unwrap();
     }
 
     fn plan_with_paths(profile: &str, paths: Vec<&str>) -> StepPlan {

@@ -235,6 +235,22 @@ impl<W: Write> TerminalUi<W> {
                 sanitize_for_progress(&phase_id),
                 sanitize_for_progress(&error)
             )),
+            RuntimeEvent::ProfileVerificationFailed { profile, failures } => {
+                self.write_line(&format!(
+                    "profile verification {}: failed",
+                    sanitize_for_progress(&profile)
+                ))?;
+                for failure in failures.iter().take(6) {
+                    self.write_line(&format!(
+                        "profile failure: {}",
+                        sanitize_for_progress(failure)
+                    ))?;
+                }
+                if failures.len() > 6 {
+                    self.write_line(&format!("profile failure: ... +{}", failures.len() - 6))?;
+                }
+                Ok(())
+            }
             RuntimeEvent::StepStarted {
                 index,
                 total,
@@ -307,6 +323,27 @@ impl<W: Write> TerminalUi<W> {
                     )
                 }
             )),
+            RuntimeEvent::DependencySetupStarted { step_id, command } => {
+                let step_id = sanitize_for_progress(&step_id);
+                let command = truncate_chars(&sanitize_for_progress(&command), 72);
+                self.write_line(&format!("dependency setup {step_id}: {command}"))?;
+                self.start_wait(format!("dependency setup {step_id}: {command}"));
+                Ok(())
+            }
+            RuntimeEvent::DependencySetupFinished {
+                step_id,
+                command,
+                ok,
+                elapsed_ms,
+                status,
+            } => self.write_line(&format!(
+                "dependency setup {}: {} in {}ms ({}) {}",
+                sanitize_for_progress(&step_id),
+                if ok { "ok" } else { "failed" },
+                elapsed_ms,
+                sanitize_for_progress(&status),
+                truncate_chars(&sanitize_for_progress(&command), 60)
+            )),
             RuntimeEvent::RepairAttemptStarted {
                 step_id,
                 attempt,
@@ -352,6 +389,9 @@ impl<W: Write> TerminalUi<W> {
                     ))?;
                 }
                 self.write_line(&format!("repair: {}", sanitize_for_progress(&repair_path)))?;
+                self.write_line(
+                    "repair note: suggested command starts a standalone repair plan; original ultra plan remains incomplete until explicitly resumed or replanned",
+                )?;
                 self.write_line("next command:")?;
                 self.write_line(&suggested_command)
             }
@@ -514,7 +554,7 @@ fn guard_label(kind: GuardFeedbackKind) -> &'static str {
     match kind {
         GuardFeedbackKind::FutureAction => "future action feedback",
         GuardFeedbackKind::RequestedArtifacts => "requested artifact feedback",
-        GuardFeedbackKind::CompletionWithoutWrite => "completion without write feedback",
+        GuardFeedbackKind::ActionRequired => "action required feedback",
     }
 }
 
@@ -619,8 +659,33 @@ mod tests {
 
         let text = String::from_utf8(ui.into_inner()).unwrap();
         assert!(text.contains("repair: .commandagent/repairs/repair.md"));
+        assert!(text.contains("standalone repair plan"));
         assert!(text.contains("next command:"));
         assert!(text.contains("/plan-run"));
+    }
+
+    #[test]
+    fn renders_profile_verification_failure() {
+        let mut ui = TerminalUi::new(
+            Vec::new(),
+            TerminalUiConfig {
+                progress_enabled: true,
+                spinner_enabled: false,
+                banner_enabled: false,
+                color_enabled: false,
+                markdown_enabled: false,
+                utf8: false,
+            },
+        );
+
+        ui.on_event(RuntimeEvent::ProfileVerificationFailed {
+            profile: "nextjs".to_string(),
+            failures: vec!["nextjs_dev_port_drift: scripts.dev lost 3011".to_string()],
+        });
+
+        let text = String::from_utf8(ui.into_inner()).unwrap();
+        assert!(text.contains("profile verification nextjs: failed"));
+        assert!(text.contains("nextjs_dev_port_drift"));
     }
 
     #[test]

@@ -6,9 +6,13 @@ use super::repair_loop::RepairStepState;
 use crate::agent::events::{
     ArtifactScope, ArtifactStatus, PlanKind, RuntimeEvent, RuntimeObserver, bounded_event_text,
 };
+use crate::agent::minimal_loop::config::{ActionRequirement, StepToolPolicy};
 use crate::agent::minimal_loop::loop_run::ChatClient;
 use crate::agent::step_runner::plan_lint::lint_step_plan_with_workspace;
-use crate::agent::step_runner::profiles::profile_contract_text;
+use crate::agent::step_runner::profiles::{
+    ProfileVerificationContext, profile_contract_text, profile_fact_summary, verify_profile,
+};
+use crate::agent::step_runner::runtime::phase_contract::PhaseWorkspaceContract;
 use crate::agent::step_runner::ultra_plan::{UltraPlan, parse_ultra_plan_yaml};
 use crate::agent::step_runner::ultra_run::phase_step_plan_prompt;
 use crate::agent::step_runner::verify::{VerificationFailure, run_verifiers};
@@ -30,7 +34,6 @@ where
     P: ChatClient,
 {
     let profile_contract = profile_contract_text(&plan.profile).map_err(|err| err.to_string())?;
-    let snapshot = crate::agent::step_runner::ultra_run::workspace_snapshot(runtime.cwd);
     let mut lines = Vec::new();
     lines.push(format!("ultra plan: {} phases", plan.phases.len()));
 
@@ -46,7 +49,17 @@ where
             plan.phases.len(),
             phase.id
         ));
-        let prompt = phase_step_plan_prompt(plan, phase, &snapshot, &profile_contract);
+        let snapshot = crate::agent::step_runner::ultra_run::workspace_snapshot(runtime.cwd);
+        let phase_contract =
+            PhaseWorkspaceContract::collect(runtime.cwd, &plan.profile, &plan.required_artifacts);
+        let phase_contract_rendered = phase_contract.render();
+        let prompt = phase_step_plan_prompt(
+            plan,
+            phase,
+            &snapshot,
+            &phase_contract_rendered,
+            &profile_contract,
+        );
         let text = planner_text(runtime.planner, &runtime.planner_config, &prompt)?;
         let correction_context = StepPlanCorrectionContext {
             goal: &phase.goal,
@@ -82,6 +95,22 @@ where
                 return Err(err);
             }
         };
+        if let Err(err) = verify_phase_profile(
+            runtime.cwd,
+            plan,
+            phase,
+            &step_plan,
+            &phase_contract,
+            observer,
+        ) {
+            observer.on_event(RuntimeEvent::UltraPhaseFailed {
+                index: idx + 1,
+                total: plan.phases.len(),
+                phase_id: bounded_event_text(&phase.id),
+                error: bounded_event_text(&err),
+            });
+            return Err(err);
+        }
         observer.on_event(RuntimeEvent::UltraPhaseFinished {
             index: idx + 1,
             total: plan.phases.len(),
@@ -100,6 +129,50 @@ where
     }
 
     Ok(lines.join("\n"))
+}
+
+fn verify_phase_profile(
+    cwd: &Path,
+    plan: &UltraPlan,
+    phase: &crate::agent::step_runner::ultra_plan::UltraPhase,
+    step_plan: &StepPlan,
+    phase_contract: &PhaseWorkspaceContract,
+    observer: &mut dyn RuntimeObserver,
+) -> Result<(), String> {
+    let profile_facts = profile_fact_summary(&plan.profile, cwd)
+        .map_err(|err| err.to_string())?
+        .lines;
+    let expected_paths = step_plan
+        .steps
+        .iter()
+        .flat_map(|step| step.expected_paths.iter().cloned())
+        .collect::<Vec<_>>();
+    let context = ProfileVerificationContext {
+        goal_excerpt: bounded_event_text(format!("{} {}", plan.goal, phase.goal)),
+        required_artifacts: plan.required_artifacts.clone(),
+        expected_paths,
+        phase_contract_facts: phase_contract.fact_lines(),
+        profile_facts,
+    };
+    let failures = verify_profile(&plan.profile, cwd, &context).map_err(|err| err.to_string())?;
+    if failures.is_empty() {
+        return Ok(());
+    }
+
+    let rendered = failures
+        .iter()
+        .map(|failure| bounded_event_text(failure.render()))
+        .collect::<Vec<_>>();
+    observer.on_event(RuntimeEvent::ProfileVerificationFailed {
+        profile: bounded_event_text(&plan.profile),
+        failures: rendered.clone(),
+    });
+    Err(format!(
+        "profile verification failed for {} after phase {}: {}. Run an explicit repair or replan command; the runtime did not continue automatically.",
+        plan.profile,
+        phase.id,
+        rendered.join("; ")
+    ))
 }
 
 pub(super) fn execute_step_plan<E, P>(
@@ -159,6 +232,9 @@ where
     if step.expected_result == ExpectedResult::Pass {
         config.expected_artifacts = step.expected_paths.clone();
     }
+    config.step_tool_policy = step_tool_policy_for_step(step);
+    let missing_expected_paths = missing_paths(runtime.cwd, &step.expected_paths);
+    config.action_requirement = action_requirement_for_step(step, &missing_expected_paths);
     if matches!(step.kind, StepKind::Verify) && !step.verify.is_empty() {
         let failures = verify_step_with_observer(runtime.cwd, step, observer)?;
         if failures.is_empty() || step_accepts_verifier_failure(step) {
@@ -173,11 +249,11 @@ where
                 changed_files: Vec::new(),
                 file_changing_attempts: 0,
                 initial_turn_error: None,
+                dependency_setup_attempted: false,
             },
             observer,
         );
     }
-    let missing_expected_paths = missing_paths(runtime.cwd, &step.expected_paths);
     let prompt = step_prompt(plan, step, &missing_expected_paths)?;
     let result = match crate::agent::minimal_loop::loop_run::run_session_with_observer(
         runtime.executor,
@@ -188,18 +264,18 @@ where
     ) {
         Ok(result) => result,
         Err(err) => {
+            let turn_error = err.to_string();
             let failures = verify_step_with_observer(runtime.cwd, step, observer)?;
+            if fatal_turn_error_for_step(&err) {
+                return runtime.repair_step_after_turn_error(
+                    plan, step, config, turn_error, failures, observer,
+                );
+            }
             if failures.is_empty() || step_accepts_verifier_failure(step) {
                 return Ok(());
             }
-            return runtime.repair_step_after_turn_error(
-                plan,
-                step,
-                config,
-                err.to_string(),
-                failures,
-                observer,
-            );
+            return runtime
+                .repair_step_after_turn_error(plan, step, config, turn_error, failures, observer);
         }
     };
     let failures = verify_step_with_observer(runtime.cwd, step, observer)?;
@@ -215,6 +291,44 @@ fn step_accepts_verifier_failure(step: &StepPlanStep) -> bool {
         step.expected_result,
         ExpectedResult::Fail | ExpectedResult::Unavailable
     )
+}
+
+fn action_requirement_for_step(
+    step: &StepPlanStep,
+    missing_expected_paths: &[String],
+) -> ActionRequirement {
+    match step.kind {
+        StepKind::Create | StepKind::Edit | StepKind::Repair => ActionRequirement::Required,
+        StepKind::Setup
+            if !step.expected_paths.is_empty() || !missing_expected_paths.is_empty() =>
+        {
+            ActionRequirement::Required
+        }
+        _ => ActionRequirement::Optional,
+    }
+}
+
+fn step_tool_policy_for_step(step: &StepPlanStep) -> StepToolPolicy {
+    match step.kind {
+        StepKind::Inspect | StepKind::Report => StepToolPolicy::ReadOnly,
+        StepKind::Verify => StepToolPolicy::NoMutation,
+        StepKind::Setup => StepToolPolicy::SetupMutationOnly,
+        StepKind::Create | StepKind::Edit | StepKind::Repair => StepToolPolicy::FileMutationAllowed,
+    }
+}
+
+fn fatal_turn_error_for_step(error: &crate::agent::minimal_loop::result::MinimalLoopError) -> bool {
+    use crate::agent::minimal_loop::result::MinimalLoopError;
+
+    match error {
+        MinimalLoopError::MaxIterations
+        | MinimalLoopError::ToolArgs(_)
+        | MinimalLoopError::Tool(_) => true,
+        MinimalLoopError::Model(_)
+        | MinimalLoopError::FinalAnswerContract(_)
+        | MinimalLoopError::ActionRequiredNoEvidence(_)
+        | MinimalLoopError::MissingArtifacts(_) => false,
+    }
 }
 
 pub(super) fn verify_step_with_observer(

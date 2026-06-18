@@ -53,6 +53,9 @@ Rules:\n\
 - Keep steps small and executable.\n\
 - Use only canonical kind values in output: inspect, create, edit, setup, verify, repair, report.\n\
 - Use kind inspect instead of read/analyze, and kind verify instead of shell/run.\n\
+- Inspect and report steps are read-only; do not plan file creation or edits inside them.\n\
+- Verify steps are no-mutation checks; do not plan fixes, edits, writes, or package rewrites inside verify steps.\n\
+- Create, edit, and repair steps own source file mutation. Setup steps may only change setup/config files.\n\
 - Do not mix setup and final verification in the same step.\n\
 - If a create/edit/setup step produces new expected_paths, keep verifier commands to direct existence/syntax checks. Put npm run build, cargo check/test/build, pytest, or other integration checks in a separate verify step.\n\
 - File creation or modification steps must be executable with Write/Edit, not shell scaffolding.\n\

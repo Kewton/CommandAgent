@@ -1,5 +1,6 @@
 mod support;
 
+use commandagent::agent::minimal_loop::config::ActionRequirement;
 use commandagent::agent::minimal_loop::loop_run::{
     MinimalLoopConfig, MinimalLoopError, run_session,
 };
@@ -19,10 +20,6 @@ fn xml_parse_failure_downgrades_public_session() {
             content: "No changes needed.".to_string(),
             tool_calls: Vec::new(),
         },
-        ChatResponse {
-            content: "No file changes were needed.".to_string(),
-            tool_calls: Vec::new(),
-        },
     ]);
 
     let result = run_session(
@@ -34,23 +31,15 @@ fn xml_parse_failure_downgrades_public_session() {
     .unwrap();
 
     assert_eq!(result.tool_call_mode, ToolCallMode::XmlFallback);
-    assert_eq!(client.requests().len(), 3);
+    assert_eq!(client.requests().len(), 2);
     assert_eq!(client.requests()[0].tool_call_mode, ToolCallMode::Native);
     assert_eq!(
         client.requests()[1].tool_call_mode,
         ToolCallMode::XmlFallback
     );
-    assert_eq!(
-        client.requests()[2].tool_call_mode,
-        ToolCallMode::XmlFallback
-    );
     assert!(request_contains_user_message(
         &client.requests()[1],
         "Use XML fallback format"
-    ));
-    assert!(request_contains_user_message(
-        &client.requests()[2],
-        "No file changes have been made"
     ));
 }
 
@@ -101,12 +90,20 @@ fn xml_fallback_prompt_exposes_tool_argument_shapes() {
             tool_calls: Vec::new(),
         },
         ChatResponse {
-            content: "No file changes were needed.".to_string(),
+            content: String::new(),
+            tool_calls: vec![ToolCall {
+                name: "Write".to_string(),
+                args_json: r#"{"path":"out.txt","content":"ok"}"#.to_string(),
+            }],
+        },
+        ChatResponse {
+            content: "Created out.txt.".to_string(),
             tool_calls: Vec::new(),
         },
     ]);
     let config = MinimalLoopConfig {
         initial_tool_call_mode: ToolCallMode::XmlFallback,
+        action_requirement: ActionRequirement::Required,
         ..MinimalLoopConfig::default()
     };
 
@@ -191,32 +188,37 @@ fn xml_fallback_tool_calls_are_preserved_in_assistant_history() {
 }
 
 #[test]
-fn completion_without_write_feedback_fires_once() {
-    let root = temp_workspace("no-write-feedback");
+fn action_required_feedback_fires_once() {
+    let root = temp_workspace("action-required-feedback");
     let mut client = MockChatClient::new(vec![
         ChatResponse {
             content: "No changes needed.".to_string(),
             tool_calls: Vec::new(),
         },
         ChatResponse {
-            content: "No file changes were needed.".to_string(),
+            content: String::new(),
+            tool_calls: vec![ToolCall {
+                name: "Write".to_string(),
+                args_json: r#"{"path":"out.txt","content":"ok"}"#.to_string(),
+            }],
+        },
+        ChatResponse {
+            content: "Created out.txt.".to_string(),
             tool_calls: Vec::new(),
         },
     ]);
+    let config = MinimalLoopConfig {
+        action_requirement: ActionRequirement::Required,
+        ..MinimalLoopConfig::default()
+    };
 
-    let result = run_session(
-        &mut client,
-        &root,
-        "summarize current state",
-        MinimalLoopConfig::default(),
-    )
-    .unwrap();
+    let result = run_session(&mut client, &root, "create out.txt", config).unwrap();
 
-    assert_eq!(result.iterations, 2);
-    assert_eq!(result.final_answer, "No file changes were needed.");
+    assert_eq!(result.iterations, 3);
+    assert_eq!(result.final_answer, "Created out.txt.");
     assert!(request_contains_user_message(
         &client.requests()[1],
-        "No file changes have been made"
+        "concrete repository evidence"
     ));
 }
 

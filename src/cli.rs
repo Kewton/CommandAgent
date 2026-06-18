@@ -1,3 +1,4 @@
+use crate::agent::minimal_loop::config::DependencySetupPolicy;
 use crate::agent::minimal_loop::loop_run::{MinimalLoopConfig, run_session_with_observer};
 use crate::agent::repl::{MinimalReplRunner, run_repl};
 use crate::agent::slash_command::parse_slash_command;
@@ -97,7 +98,8 @@ Options:\n\
       --planner-model MODEL  planner model; defaults to executor model\n\
       --context-budget N     context budget passed through configuration\n\
       --max-iterations N     max loop iterations\n\
-      --yes                  accept non-interactive defaults\n\
+      --yes                  approve non-interactive defaults, including one bounded dependency setup recovery\n\
+      --offline              block network/dependency setup recovery\n\
 \n\
 CommandAgent is a minimal local-first coding agent. The MVP migration keeps\n\
 only the minimal loop, interactive REPL, provider adapters, built-in tools,\n\
@@ -188,6 +190,11 @@ fn minimal_loop_config(config: &Config) -> MinimalLoopConfig {
             .unwrap_or_else(|| "default".to_string()),
         max_iterations: config.max_iterations as usize,
         initial_tool_call_mode: request_tool_mode(config.provider),
+        dependency_setup_policy: DependencySetupPolicy {
+            auto_approve: config.yes,
+            offline: config.offline,
+            timeout_secs: 600,
+        },
         ..MinimalLoopConfig::default()
     }
 }

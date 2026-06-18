@@ -8,8 +8,15 @@ CommandAgent is still in MVP migration.
   `/ultra-plan-run` workflows still need release sign-off.
 - `/ultra-plan-run` is intentionally phase-bounded. A failed phase stops the
   run and asks for explicit repair/replanning instead of continuing silently.
-  If the failure is only `dependency_missing`, the run stops as a manual setup
-  blocker instead of suggesting a repair replan.
+  If the failure is only `dependency_missing`, approved online runs may perform
+  one setup attempt and verifier retry. Without approval, in offline mode, or
+  after exhausted setup recovery, the run stops as a setup blocker instead of
+  suggesting a repair replan.
+- Phase-boundary profile verification is deterministic and read-only. It can
+  catch structural contract drift such as Next.js app-root ambiguity, package
+  script drift, and Tailwind dependency/config mismatch, but it does not score
+  UI quality semantically and does not auto-resume the original ultra plan
+  after a standalone repair command.
 - Terminal progress is best-effort and TTY-aware. It improves visibility into
   plans, blocking planner/model/tool waits, steps, verifiers, artifact status,
   and repair packets, and includes an interactive startup logo. It is
@@ -19,6 +26,9 @@ CommandAgent is still in MVP migration.
   reliability, and local toolchains.
 - `Bash` is an offline policy guard, not a full OS sandbox. Commands run with
   the user's permissions.
+- Dependency setup recovery currently supports only npm/pnpm lockfile evidence
+  for `npm run build` style Next.js verification. It does not support Yarn,
+  `npx`, arbitrary package-manager commands, or model-issued install steps.
 - `.env` loading is not implemented inside CommandAgent. Export provider API
   keys in the shell or use an external env loader.
 - The eval runner has dry-run wiring, real binary execution paths, per-case

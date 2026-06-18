@@ -61,9 +61,9 @@ Each verifier failure records:
 `dependency_missing` means the verifier could not run honestly because required
 local dependencies are absent. For example, `npm run build` with a Next.js build
 script requires `node_modules/.bin/next`. CommandAgent must not rewrite build
-scripts to fake success; it should install dependencies only when an explicit
-setup step and the evaluation environment allow it, or stop with the explicit
-dependency-missing reason.
+scripts to fake success. In approved online runs, runtime dependency recovery
+may run one deterministic setup command and rerun the original verifier once.
+Otherwise it should stop with the explicit dependency-missing reason.
 
 Treat `dependency_missing` as a cross-profile environment/setup boundary, not as
 a generic implementation failure. Next.js may report missing `node_modules`,
@@ -72,12 +72,28 @@ missing local tooling. Eval reports should keep this category separate so a run
 does not look like a code-quality failure when the verifier was unavailable.
 
 When `dependency_missing` is the only verifier failure and expected paths are
-present, runtime repair should stop and report the setup blocker. It should not
-suggest a repair replan, try alternate local compilers through `npx`, or install
-dependencies implicitly.
+present, runtime repair should first consult setup policy. `--yes` approves one
+bounded setup attempt when offline mode is false. No `--yes`, `--offline`,
+unsupported package manager evidence, ambiguous lockfiles, setup failure,
+setup timeout, or repeated `dependency_missing` should stop with a setup
+blocker. The runtime should not suggest a repair replan, try alternate local
+compilers through `npx`, or continue phases after unrecovered setup failure.
+
+Eval reports for dependency-sensitive cases should record whether setup was
+allowed, whether `.commandagent/setup/` logs were produced, and whether the
+final failure changed from `dependency_missing` to a real build/source error
+after setup. This keeps dependency setup separate from implementation quality.
 
 Verifier evidence is deterministic context for the next repair or replanning
 step. It is not a semantic sidecar summary.
+
+For `/ultra-plan-run` cases, eval reports should also distinguish original
+ultra-plan completion from standalone repair-plan completion. A suggested
+repair command starts a separate explicit repair plan; it does not mean the
+original phase list finished. When profile verification is active, reports
+should record the selected profile, profile verification result, selected app
+root when applicable, and whether failures are contract violations such as
+`phase_profile_consistency` rather than build or dependency failures.
 
 ## Recent Recovery Check
 

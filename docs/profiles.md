@@ -21,8 +21,10 @@ MVP profiles:
 
 New Next.js apps need honest dependencies and build scripts. A build script that
 uses `next build` must not be changed to fake success. If `node_modules/.bin/next`
-is missing, CommandAgent should install dependencies when allowed or stop with
-`dependency_missing`.
+is missing, CommandAgent reports `dependency_missing`. With approved online
+setup recovery (`--yes` and no `--offline`), the step runner may run one
+deterministic npm/pnpm setup command and rerun `npm run build` once. Otherwise
+it stops with the setup blocker.
 
 Use:
 
@@ -32,6 +34,27 @@ Use:
 
 The profile supplies Next.js-specific facts. It does not force a particular
 component tree or router layout.
+
+During ultra phase execution, the Next.js profile may also provide read-only
+fact summaries and phase-boundary verification. The checks are deterministic
+and limited to observed project facts:
+
+- do not split the route root between `app/` and `src/app/` unless the plan is
+  explicitly migrating the root
+- keep `scripts.build` as `next build`
+- preserve a requested dev port such as `3011` in `scripts.dev`
+- keep `next`, `react`, and `react-dom` dependencies when a Next.js route is
+  present
+- catch obvious Next.js/React peer dependency conflicts, such as Next.js 14
+  with exact React pins below 18.2
+- if CSS uses `@tailwind`, keep matching Tailwind/PostCSS config and
+  dependencies
+- avoid tsconfig settings that exclude the selected route root
+- when an explicit component or source artifact is part of the contract, make
+  it reachable from the selected route by import or direct reference
+
+These checks can fail a phase with visible diagnostics. They do not edit files,
+score UI quality, or run a hidden Next.js workflow.
 
 ## Python Contract
 

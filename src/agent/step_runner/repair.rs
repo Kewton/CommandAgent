@@ -122,6 +122,10 @@ Missing expected paths:\n{missing}\n\
 Verification failures:\n{failures}\n\
 Changed files in failed repair attempts:\n{changed}\n\
 \n\
+Continuation semantics:\n\
+- Running the suggested command starts a standalone repair plan for this failed step.\n\
+- The original ultra plan remains incomplete until it is explicitly resumed or replanned.\n\
+\n\
 Task: Replan only this failed step. Keep scope narrow. Preserve completed work. Use Read/Glob for inspection, Write/Edit for file changes, and only one simple local verifier command at a time; do not use shell chaining or fallback syntax.",
         step = context.step_id,
         goal = context.original_goal,
@@ -330,6 +334,9 @@ mod tests {
         assert_eq!(parsed.kind, SlashCommandKind::UltraPlanRun);
         assert_eq!(parsed.profile.as_deref(), Some("nextjs"));
         assert!(parsed.argument.len() <= MAX_REPLAN_PACKET_BYTES);
+        let packet = fs::read_to_string(saved.path).unwrap();
+        assert!(packet.contains("standalone repair plan"));
+        assert!(packet.contains("original ultra plan remains incomplete"));
     }
 
     #[test]

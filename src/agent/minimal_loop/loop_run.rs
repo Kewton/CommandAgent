@@ -2,9 +2,10 @@ use crate::agent::events::{
     ArtifactScope, ArtifactStatus, GuardFeedbackKind, NoopRuntimeObserver, RuntimeEvent,
     RuntimeObserver, bounded_event_text,
 };
+use crate::agent::minimal_loop::config::ActionRequirement;
 use crate::agent::minimal_loop::guards::{
-    completion_without_write_feedback, future_action_feedback, is_file_change_tool,
-    missing_artifacts, requested_artifact_feedback,
+    action_required_feedback, future_action_feedback, is_file_change_tool, missing_artifacts,
+    requested_artifact_feedback,
 };
 use crate::agent::minimal_loop::prompt::{
     parser_failure_feedback, system_prompt, violates_final_answer_contract,
@@ -55,7 +56,11 @@ where
             return Err(err);
         }
     };
-    let executor = ToolExecutor::new(&guard);
+    let executor = ToolExecutor::new(
+        &guard,
+        config.dependency_setup_policy,
+        config.step_tool_policy,
+    );
     let mut mode = config.initial_tool_call_mode;
     let tools = file_tool_specs();
     let mut messages = vec![
@@ -71,7 +76,7 @@ where
     let mut tool_results = Vec::new();
     let mut file_change_count = 0usize;
     let mut future_action_feedback_sent = false;
-    let mut completion_without_write_feedback_sent = false;
+    let mut action_required_feedback_sent = false;
     let mut requested_artifact_feedback_sent = false;
 
     for iteration in 1..=config.max_iterations {
@@ -195,21 +200,30 @@ where
                 }
 
                 if config.enable_completion_without_write_feedback
+                    && config.action_requirement == ActionRequirement::Required
                     && file_change_count == 0
-                    && !completion_without_write_feedback_sent
+                    && !action_required_feedback_sent
                 {
-                    completion_without_write_feedback_sent = true;
+                    action_required_feedback_sent = true;
                     observer.on_event(RuntimeEvent::GuardFeedbackSent {
                         iteration,
-                        kind: GuardFeedbackKind::CompletionWithoutWrite,
+                        kind: GuardFeedbackKind::ActionRequired,
                         tool_call_mode: mode,
                         missing_artifacts: Vec::new(),
                     });
                     messages.push(ChatMessage {
                         role: ChatRole::User,
-                        content: completion_without_write_feedback(mode),
+                        content: action_required_feedback(mode),
                     });
                     continue;
+                } else if config.enable_completion_without_write_feedback
+                    && config.action_requirement == ActionRequirement::Required
+                    && file_change_count == 0
+                    && action_required_feedback_sent
+                {
+                    let err = MinimalLoopError::ActionRequiredNoEvidence(response.content);
+                    emit_session_error(observer, &err);
+                    return Err(err);
                 }
 
                 observer.on_event(RuntimeEvent::FinalAnswerAccepted {
@@ -340,6 +354,7 @@ mod tests {
     use crate::agent::events::{
         ArtifactScope, ArtifactStatus, CaptureObserver, GuardFeedbackKind, RuntimeEvent,
     };
+    use crate::agent::minimal_loop::config::ActionRequirement;
     use std::collections::VecDeque;
     use std::fs;
     use std::path::PathBuf;
@@ -447,10 +462,6 @@ mod tests {
                 content: "Recovered.".to_string(),
                 tool_calls: Vec::new(),
             },
-            ChatResponse {
-                content: "No file changes were needed.".to_string(),
-                tool_calls: Vec::new(),
-            },
         ]);
 
         let result = run_session(
@@ -464,11 +475,7 @@ mod tests {
         assert_eq!(result.tool_call_mode, ToolCallMode::XmlFallback);
         assert_eq!(
             client.modes,
-            vec![
-                ToolCallMode::Native,
-                ToolCallMode::XmlFallback,
-                ToolCallMode::XmlFallback
-            ]
+            vec![ToolCallMode::Native, ToolCallMode::XmlFallback]
         );
     }
 
@@ -603,18 +610,12 @@ mod tests {
     }
 
     #[test]
-    fn completion_without_write_feedback_fires_once_then_accepts_no_change_completion() {
-        let root = temp_workspace("completion-no-write");
-        let mut client = MockClient::new(vec![
-            ChatResponse {
-                content: "Done.".to_string(),
-                tool_calls: Vec::new(),
-            },
-            ChatResponse {
-                content: "No file changes were needed for this task.".to_string(),
-                tool_calls: Vec::new(),
-            },
-        ]);
+    fn direct_conversation_accepts_prose_without_action_required() {
+        let root = temp_workspace("conversation-prose");
+        let mut client = MockClient::new(vec![ChatResponse {
+            content: "Done.".to_string(),
+            tool_calls: Vec::new(),
+        }]);
 
         let result = run_session(
             &mut client,
@@ -624,14 +625,93 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(
-            result.final_answer,
-            "No file changes were needed for this task."
+        assert_eq!(result.final_answer, "Done.");
+        assert_eq!(result.messages.len(), 3);
+        assert!(
+            !result
+                .messages
+                .iter()
+                .any(|message| message.content.contains("concrete repository evidence"))
         );
+    }
+
+    #[test]
+    fn action_required_feedback_prompts_for_tool_call() {
+        let root = temp_workspace("action-required-feedback");
+        let mut client = MockClient::new(vec![
+            ChatResponse {
+                content: "Done.".to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    name: "Write".to_string(),
+                    args_json: r#"{"path":"created.txt","content":"ok"}"#.to_string(),
+                }],
+            },
+            ChatResponse {
+                content: "Created created.txt.".to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+        let mut observer = CaptureObserver::default();
+
+        let result = run_session_with_observer(
+            &mut client,
+            &root,
+            "create a file",
+            MinimalLoopConfig {
+                action_requirement: ActionRequirement::Required,
+                ..MinimalLoopConfig::default()
+            },
+            &mut observer,
+        )
+        .unwrap();
+
+        assert_eq!(result.final_answer, "Created created.txt.");
+        assert_eq!(fs::read_to_string(root.join("created.txt")).unwrap(), "ok");
         assert!(result.messages.iter().any(|message| {
             message.role == ChatRole::User
-                && message.content.contains("No file changes have been made")
+                && message
+                    .content
+                    .contains("requires concrete repository evidence")
         }));
+        assert!(observer.events().iter().any(|event| matches!(
+            event,
+            RuntimeEvent::GuardFeedbackSent {
+                kind: GuardFeedbackKind::ActionRequired,
+                ..
+            }
+        )));
+    }
+
+    #[test]
+    fn repeated_action_required_prose_returns_explicit_error() {
+        let root = temp_workspace("action-required-error");
+        let mut client = MockClient::new(vec![
+            ChatResponse {
+                content: "Done.".to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: "Still done.".to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+
+        let err = run_session(
+            &mut client,
+            &root,
+            "create a file",
+            MinimalLoopConfig {
+                action_requirement: ActionRequirement::Required,
+                ..MinimalLoopConfig::default()
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, MinimalLoopError::ActionRequiredNoEvidence(_)));
     }
 
     #[test]

@@ -23,6 +23,7 @@ pub enum MinimalLoopError {
     ToolArgs(String),
     Tool(String),
     FinalAnswerContract(String),
+    ActionRequiredNoEvidence(String),
     MissingArtifacts(Vec<String>),
 }
 
@@ -35,6 +36,13 @@ impl std::fmt::Display for MinimalLoopError {
             Self::Tool(message) => write!(f, "tool error: {}", message),
             Self::FinalAnswerContract(message) => {
                 write!(f, "assistant violated final answer contract: {}", message)
+            }
+            Self::ActionRequiredNoEvidence(message) => {
+                write!(
+                    f,
+                    "assistant did not provide required repository evidence: {}",
+                    message
+                )
             }
             Self::MissingArtifacts(paths) => {
                 write!(f, "missing expected artifacts: {}", paths.join(", "))
