@@ -194,9 +194,7 @@ impl RawConfig {
         while let Some(arg) = args.next() {
             let arg = arg.to_string_lossy();
 
-            if arg == "--" {
-                break;
-            } else if !arg.starts_with('-') {
+            if arg == "--" || !arg.starts_with('-') {
                 break;
             } else if arg == "--yes" {
                 self.set("yes", "true");

@@ -56,7 +56,7 @@ promoted into docs or eval evidence.
 When editing harness files:
 
 - keep `SKILL.md` frontmatter to `name` and `description`
-- check for stale Anvil references before finishing
+- check for stale source-repository references before finishing
 - keep mutating worktree, CommandMate, PR, merge, and UAT operations explicit
   and off by default
 - run script compile and fixture/dry-run checks for Python harness changes

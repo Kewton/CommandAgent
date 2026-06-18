@@ -77,10 +77,9 @@ ln -sfn "$PWD/target/release/commandagent" "$HOME/.local/bin/commandagentdev"
 commandagentdev --version
 ```
 
-This matches the local `anvildev` setup pattern. The symlink keeps pointing at
-the same checkout's `target/release/commandagent`, so later
-`cargo build --release` runs update what `commandagentdev` executes without
-recreating the symlink.
+This keeps the alias tied to this checkout's `target/release/commandagent`, so
+later `cargo build --release` runs update what `commandagentdev` executes
+without recreating the symlink.
 
 ## Provider Setup
 
