@@ -108,7 +108,13 @@ Use targeted tests where possible:
 ```bash
 cargo test step_runner::repair
 cargo test providers::openai
+cargo test --test runtime_flow
 ```
+
+Integration tests under `tests/` cover public runtime flows such as the minimal
+loop, slash-command execution, and provider-free CLI smoke. Keep them offline
+and deterministic; use mock chat clients and temp workspaces rather than live
+providers.
 
 Testing expectations by change type:
 
