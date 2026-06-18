@@ -136,6 +136,20 @@ test strategy, follow `docs/development.md`. This file defines architectural and
 behavioral boundaries for agents; detailed development workflow belongs in the
 development document.
 
+Branch and worktree operation rules:
+
+- The existing `ci/phase1-default-ci` checkout may continue as-is.
+- For any later work on a different branch, create or use a separate
+  `git worktree`; do not switch the active checkout away from its current
+  branch for unrelated work.
+- When Codex operates against another branch or worktree, use the CommandMate
+  CLI entrypoint available in this environment as `commandmatedev` (the
+  commandmatecli wrapper). Check usage with `commandmatedev --help` and start
+  the server with `commandmatedev start --daemon` when worktree coordination is
+  required.
+- Future sessions must preserve these rules before changing branches,
+  coordinating worktrees, or performing branch-targeted operations.
+
 When working on code:
 
 - Read the relevant docs before changing behavior.

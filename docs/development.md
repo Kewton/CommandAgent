@@ -19,6 +19,22 @@ Architectural boundaries live in `AGENTS.md`, `docs/philosophy.md`, and
 - Do not mix unrelated runtime, profile, provider, and eval changes in one
   branch unless the dependency is explicit and documented.
 
+## Worktree And CommandMate Operations
+
+- The existing `ci/phase1-default-ci` checkout may remain in place for the CI
+  setup work already in progress.
+- For any later work on a different branch, create or use a separate
+  `git worktree`; do not repurpose the current checkout by switching branches.
+- When Codex operates against another branch or worktree, coordinate through the
+  CommandMate CLI available as `commandmatedev` in this environment. Treat it as
+  the commandmatecli entrypoint referenced in task notes.
+- Check usage with `commandmatedev --help`. If worktree coordination is needed
+  and the server is stopped, start it with `commandmatedev start --daemon`.
+- Use `commandmatedev ls`, `commandmatedev send`, `commandmatedev wait`,
+  `commandmatedev capture`, and `commandmatedev respond` for registered
+  worktree agent operations instead of silently manipulating another branch
+  from the current checkout.
+
 ## Branch Dependencies
 
 Stack dependent branches from most deterministic to most behavioral:
