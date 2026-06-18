@@ -29,6 +29,23 @@ pub struct PlannerRuntimeConfig {
     pub tool_call_mode: ToolCallMode,
 }
 
+struct StepPlanCorrectionContext<'a> {
+    goal: &'a str,
+    profile: &'a str,
+    style: &'a str,
+    intent: WorkIntent,
+    required_artifacts: &'a [String],
+    save_kind: &'a str,
+    prompt_kind: &'a str,
+}
+
+struct RepairStepState {
+    failures: Vec<VerificationFailure>,
+    changed_files: Vec<String>,
+    file_changing_attempts: usize,
+    initial_turn_error: Option<String>,
+}
+
 pub struct SlashRuntime<'a, E, P> {
     pub executor: &'a mut E,
     pub planner: &'a mut P,
@@ -135,47 +152,42 @@ where
     ) -> Result<StepPlan, String> {
         let prompt = plan_generation_prompt(goal, profile, style, intent, required_artifacts);
         let text = planner_text(self.planner, &self.planner_config, &prompt)?;
-        self.parse_generated_step_plan_with_corrections(
-            text,
+        let correction_context = StepPlanCorrectionContext {
             goal,
             profile,
             style,
             intent,
             required_artifacts,
-            "step-plan",
-            "step plan",
-        )
+            save_kind: "step-plan",
+            prompt_kind: "step plan",
+        };
+        self.parse_generated_step_plan_with_corrections(text, correction_context)
     }
 
     fn parse_generated_step_plan_with_corrections(
         &mut self,
         initial_text: String,
-        goal: &str,
-        profile: &str,
-        style: &str,
-        intent: WorkIntent,
-        required_artifacts: &[String],
-        save_kind: &str,
-        prompt_kind: &str,
+        context: StepPlanCorrectionContext<'_>,
     ) -> Result<StepPlan, String> {
         let mut text = initial_text;
         for attempt in 0..=MAX_INVALID_PLAN_CORRECTIONS {
             match parse_generated_step_plan(
                 self.cwd,
                 &text,
-                goal,
-                profile,
-                style,
-                intent,
-                required_artifacts,
+                context.goal,
+                context.profile,
+                context.style,
+                context.intent,
+                context.required_artifacts,
             ) {
                 Ok(plan) => return Ok(plan),
                 Err(err) => {
-                    let _ = save_invalid_generated_plan(self.cwd, save_kind, &text);
+                    let _ = save_invalid_generated_plan(self.cwd, context.save_kind, &text);
                     if attempt == MAX_INVALID_PLAN_CORRECTIONS {
                         return Err(err);
                     }
-                    let correction = plan_correction_prompt(goal, &text, &err, prompt_kind);
+                    let correction =
+                        plan_correction_prompt(context.goal, &text, &err, context.prompt_kind);
                     text = planner_text(self.planner, &self.planner_config, &correction)?;
                 }
             }
@@ -228,16 +240,17 @@ where
             ));
             let prompt = phase_step_plan_prompt(plan, phase, &snapshot, &profile_contract);
             let text = planner_text(self.planner, &self.planner_config, &prompt)?;
-            let step_plan = self.parse_generated_step_plan_with_corrections(
-                text,
-                &phase.goal,
-                &plan.profile,
-                &plan.style,
-                WorkIntent::parse(&plan.intent).unwrap_or(WorkIntent::Unknown),
-                &plan.required_artifacts,
-                "phase-step-plan",
-                "phase step plan",
-            )?;
+            let correction_context = StepPlanCorrectionContext {
+                goal: &phase.goal,
+                profile: &plan.profile,
+                style: &plan.style,
+                intent: WorkIntent::parse(&plan.intent).unwrap_or(WorkIntent::Unknown),
+                required_artifacts: &plan.required_artifacts,
+                save_kind: "phase-step-plan",
+                prompt_kind: "phase step plan",
+            };
+            let step_plan =
+                self.parse_generated_step_plan_with_corrections(text, correction_context)?;
             let path = save_step_plan(self.cwd, &step_plan).map_err(|err| err.to_string())?;
             lines.push(format!(
                 "phase {}: step plan {}",
@@ -285,7 +298,17 @@ where
             if failures.is_empty() || step_accepts_verifier_failure(step) {
                 return Ok(());
             }
-            return self.repair_step_with_state(plan, step, config, failures, Vec::new(), 0, None);
+            return self.repair_step_with_state(
+                plan,
+                step,
+                config,
+                RepairStepState {
+                    failures,
+                    changed_files: Vec::new(),
+                    file_changing_attempts: 0,
+                    initial_turn_error: None,
+                },
+            );
         }
         let missing_expected_paths = missing_paths(self.cwd, &step.expected_paths);
         let prompt = step_prompt(plan, step, &missing_expected_paths)?;
@@ -327,10 +350,12 @@ where
             plan,
             step,
             config,
-            failures,
-            Vec::new(),
-            0,
-            Some(turn_error),
+            RepairStepState {
+                failures,
+                changed_files: Vec::new(),
+                file_changing_attempts: 0,
+                initial_turn_error: Some(turn_error),
+            },
         )
     }
 
@@ -346,10 +371,12 @@ where
             plan,
             step,
             config,
-            failures,
-            changed_file_markers(&first_result),
-            usize::from(result_changed_files(&first_result)),
-            None,
+            RepairStepState {
+                failures,
+                changed_files: changed_file_markers(&first_result),
+                file_changing_attempts: usize::from(result_changed_files(&first_result)),
+                initial_turn_error: None,
+            },
         )
     }
 
@@ -358,16 +385,14 @@ where
         plan: &StepPlan,
         step: &StepPlanStep,
         config: MinimalLoopConfig,
-        mut failures: Vec<VerificationFailure>,
-        mut changed_files: Vec<String>,
-        mut file_changing_attempts: usize,
-        initial_turn_error: Option<String>,
+        mut state: RepairStepState,
     ) -> Result<(), String> {
         let budget = RepairBudget::default();
         let mut repair_turns = 0usize;
         let mut missing_artifact_no_tool_guard_sent = false;
 
-        while budget.allows_next_attempt(file_changing_attempts) && repair_turns < MAX_REPAIR_TURNS
+        while budget.allows_next_attempt(state.file_changing_attempts)
+            && repair_turns < MAX_REPAIR_TURNS
         {
             repair_turns += 1;
             let missing_expected_paths = missing_paths(self.cwd, &step.expected_paths);
@@ -377,28 +402,30 @@ where
                 profile: plan.profile.clone(),
                 style: plan.style.clone(),
                 step_instruction: step.instruction.clone(),
-                verification_failures: failures.clone(),
+                verification_failures: state.failures.clone(),
                 missing_expected_paths: missing_expected_paths.clone(),
-                changed_files: changed_files.clone(),
+                changed_files: state.changed_files.clone(),
             };
             let prompt = build_repair_prompt(&context);
             let result = match run_session(self.executor, self.cwd, &prompt, config.clone()) {
                 Ok(result) => result,
                 Err(err) => {
                     let error = err.to_string();
-                    failures.push(turn_error_failure("repair turn", error.clone()));
+                    state
+                        .failures
+                        .push(turn_error_failure("repair turn", error.clone()));
                     if should_send_missing_artifact_no_tool_guard(
                         &error,
                         &missing_expected_paths,
                         missing_artifact_no_tool_guard_sent,
                     ) {
                         missing_artifact_no_tool_guard_sent = true;
-                        failures.push(missing_artifact_no_tool_guard_failure(
+                        state.failures.push(missing_artifact_no_tool_guard_failure(
                             &missing_expected_paths,
                         ));
                     }
                     if recoverable_repair_turn_error(&error)
-                        && budget.allows_next_attempt(file_changing_attempts)
+                        && budget.allows_next_attempt(state.file_changing_attempts)
                         && repair_turns < MAX_REPAIR_TURNS
                     {
                         continue;
@@ -407,11 +434,11 @@ where
                 }
             };
             if result_changed_files(&result) {
-                file_changing_attempts += 1;
+                state.file_changing_attempts += 1;
             }
-            changed_files.extend(changed_file_markers(&result));
-            failures = verify_step(self.cwd, step)?;
-            if failures.is_empty() {
+            state.changed_files.extend(changed_file_markers(&result));
+            state.failures = verify_step(self.cwd, step)?;
+            if state.failures.is_empty() {
                 return Ok(());
             }
         }
@@ -422,12 +449,13 @@ where
             profile: plan.profile.clone(),
             style: plan.style.clone(),
             step_instruction: step.instruction.clone(),
-            verification_failures: failures,
+            verification_failures: state.failures,
             missing_expected_paths: missing_paths(self.cwd, &step.expected_paths),
-            changed_files,
+            changed_files: state.changed_files,
         };
         let saved = save_repair_prompt(self.cwd, &context).map_err(|err| err.to_string())?;
-        let initial = initial_turn_error
+        let initial = state
+            .initial_turn_error
             .map(|err| format!("initial turn error: {err}\n"))
             .unwrap_or_default();
         Err(format!(
@@ -1167,8 +1195,10 @@ mod tests {
             },
         ]);
         let mut planner = MockClient::new(Vec::new());
-        let mut config = MinimalLoopConfig::default();
-        config.expected_artifacts = step.expected_paths.clone();
+        let config = MinimalLoopConfig {
+            expected_artifacts: step.expected_paths.clone(),
+            ..MinimalLoopConfig::default()
+        };
         let failures = vec![VerificationFailure {
             command: "cat README.md".to_string(),
             reason: "command_failed:1".to_string(),
@@ -1188,7 +1218,17 @@ mod tests {
                 tool_call_mode: ToolCallMode::XmlFallback,
             },
         }
-        .repair_step_with_state(&plan, &step, config, failures, Vec::new(), 0, None)
+        .repair_step_with_state(
+            &plan,
+            &step,
+            config,
+            RepairStepState {
+                failures,
+                changed_files: Vec::new(),
+                file_changing_attempts: 0,
+                initial_turn_error: None,
+            },
+        )
         .unwrap();
 
         assert_eq!(
@@ -1291,8 +1331,10 @@ mod tests {
             artifacts: Vec::new(),
             argument: "Create docs".to_string(),
         };
-        let mut loop_config = MinimalLoopConfig::default();
-        loop_config.max_iterations = 1;
+        let loop_config = MinimalLoopConfig {
+            max_iterations: 1,
+            ..MinimalLoopConfig::default()
+        };
 
         let output = SlashRuntime {
             executor: &mut executor,
@@ -1332,8 +1374,10 @@ mod tests {
             artifacts: Vec::new(),
             argument: "Verify docs".to_string(),
         };
-        let mut loop_config = MinimalLoopConfig::default();
-        loop_config.max_iterations = 1;
+        let loop_config = MinimalLoopConfig {
+            max_iterations: 1,
+            ..MinimalLoopConfig::default()
+        };
 
         let err = SlashRuntime {
             executor: &mut executor,

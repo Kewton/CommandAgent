@@ -1,7 +1,10 @@
 /target
 /eval/runs
+workspace/
+__pycache__/
 .env
 .env.*
 !.env.example
+.commandmate.pid
 .DS_Store
 .commandagent/
