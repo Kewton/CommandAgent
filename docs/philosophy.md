@@ -95,6 +95,12 @@ tool argument name, a required artifact path, a selected profile fact, or an
 approved setup command. It must not invent a new workflow, broaden the task, or
 weaken the check that failed.
 
+Dependency setup remains verifier-owned. If a bounded repair changes package
+manager manifests, setup state may become stale for that verifier step.
+Approved online setup may run once for the new manifest fingerprint, then the
+original verifier must rerun. The repair turn itself still must not run
+dependency installation directly.
+
 This keeps the runtime layers separate:
 
 - Planning creates explicit contracts; recovery does not silently rewrite a
@@ -156,6 +162,13 @@ repair. The profile identifies the violated contract, deterministic target, and
 candidate artifacts. Recovery consumes that evidence and remains bounded under
 the shared execution contract; it must not decide profile semantics on behalf
 of the profile.
+
+Integration-style profile checks must separate existence from integration. A
+missing explicit artifact is a different contract violation from an existing
+artifact that is not wired into the selected entry point. For example, the
+Next.js profile reports `nextjs_integration_artifact_missing` before route
+integration is evaluated, and reports `nextjs_route_not_integrated` only for an
+existing explicit artifact that is not referenced by the selected route.
 
 ## Recovery Task Contracts
 

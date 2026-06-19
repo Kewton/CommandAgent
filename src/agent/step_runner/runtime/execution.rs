@@ -292,7 +292,7 @@ where
                 changed_files: Vec::new(),
                 file_changing_attempts: 0,
                 initial_turn_error: None,
-                dependency_setup_attempted: false,
+                dependency_setup_attempt_keys: Vec::new(),
                 dependency_setup_note: None,
                 contract_evidence: Vec::new(),
                 repair_attempt_ledger: Vec::new(),

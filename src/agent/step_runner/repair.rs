@@ -242,13 +242,23 @@ fn tool_protocol_recovery_task_section(context: &ToolProtocolCorrectionContext) 
     } else {
         context.required_fields.join(", ")
     };
+    let required_action = if context.tool == "Write"
+        && context.missing_field.as_deref() == Some("path")
+        && let Some(path) = context.target_path.as_deref()
+    {
+        format!(
+            "Emit exactly one valid Write tool call with path={path} and required fields: {required}."
+        )
+    } else {
+        format!(
+            "Emit exactly one valid {} tool call with required fields: {required}.",
+            context.tool
+        )
+    };
     let mut task = RecoveryTaskContract::new("tool_protocol")
         .with_contract_code(context.reason_code.clone())
         .with_blocker(format!("Tool call violated schema for {}", context.tool))
-        .with_required_action(format!(
-            "Emit exactly one valid {} tool call with required fields: {required}.",
-            context.tool
-        ))
+        .with_required_action(required_action)
         .with_allowed_tool(context.tool.clone())
         .with_disallowed_action("Do not answer in prose instead of a tool call.")
         .with_disallowed_action("Do not run dependency installation.")
@@ -571,6 +581,7 @@ fn profile_failure_contract_evidence(
 
 fn profile_repair_target(failure: &ProfileVerificationFailure) -> Option<String> {
     match failure.code.as_str() {
+        "nextjs_integration_artifact_missing" => failure.paths.first().cloned(),
         "nextjs_route_not_integrated" => failure.paths.first().cloned(),
         "nextjs_app_root_ambiguous" => None,
         _ => failure.paths.first().cloned(),
@@ -579,6 +590,13 @@ fn profile_repair_target(failure: &ProfileVerificationFailure) -> Option<String>
 
 fn profile_observed_expected_pair(failure: &ProfileVerificationFailure) -> String {
     match failure.code.as_str() {
+        "nextjs_integration_artifact_missing" => {
+            let artifact = failure.paths.first().map(String::as_str).unwrap_or("unknown");
+            let route = failure.paths.get(1).map(String::as_str).unwrap_or("unknown");
+            format!(
+                "observed={artifact} is missing before route integration; expected={artifact} exists before checking selected route {route}"
+            )
+        }
         "nextjs_route_not_integrated" => {
             let route = failure.paths.first().map(String::as_str).unwrap_or("unknown");
             let artifact = failure.paths.get(1).map(String::as_str).unwrap_or("unknown");
@@ -597,6 +615,9 @@ fn profile_observed_expected_pair(failure: &ProfileVerificationFailure) -> Strin
             "observed=package.json scripts.build is missing or drifted; expected=next build"
                 .to_string()
         }
+        "nextjs_dependency_version_conflict" => {
+            "observed=package.json pins Next.js and React peer versions that are incompatible; expected=next/react/react-dom versions are mutually compatible".to_string()
+        }
         _ => format!(
             "observed={}; expected=profile contract {} is satisfied",
             failure.message, failure.code
@@ -606,6 +627,14 @@ fn profile_observed_expected_pair(failure: &ProfileVerificationFailure) -> Strin
 
 fn profile_required_action(failure: &ProfileVerificationFailure) -> String {
     match failure.code.as_str() {
+        "nextjs_integration_artifact_missing" => {
+            let artifact = failure
+                .paths
+                .first()
+                .map(String::as_str)
+                .unwrap_or("the missing explicit artifact");
+            format!("create {artifact} before editing selected route integration")
+        }
         "nextjs_route_not_integrated" => {
             let route = failure
                 .paths
@@ -625,12 +654,23 @@ fn profile_required_action(failure: &ProfileVerificationFailure) -> String {
         "nextjs_tsconfig_excludes_route" => {
             "align tsconfig rootDir with the selected Next.js route root".to_string()
         }
+        "nextjs_dependency_version_conflict" => {
+            "edit package.json so next, react, and react-dom versions are mutually compatible; do not keep exact React pins below 18.2 with Next.js 14".to_string()
+        }
         _ => "fix the reported profile contract before adding feature work".to_string(),
     }
 }
 
 fn profile_repair_focus(failure: &ProfileVerificationFailure) -> String {
     match failure.code.as_str() {
+        "nextjs_integration_artifact_missing" => {
+            let artifact = failure
+                .paths
+                .first()
+                .map(String::as_str)
+                .unwrap_or("missing artifact");
+            format!("create missing explicit artifact {artifact} before route integration work")
+        }
         "nextjs_route_not_integrated" => {
             let route = failure
                 .paths
@@ -648,6 +688,10 @@ fn profile_repair_focus(failure: &ProfileVerificationFailure) -> String {
         }
         "nextjs_app_root_ambiguous" => {
             "choose one Next.js app root and remove or migrate the other root before continuing"
+                .to_string()
+        }
+        "nextjs_dependency_version_conflict" => {
+            "fix the package.json dependency version contract before adding feature work"
                 .to_string()
         }
         _ => profile_required_action(failure),
@@ -866,6 +910,58 @@ mod tests {
         assert!(
             packet.contains("integrate app/hooks/useGame.ts through selected route app/page.tsx")
         );
+    }
+
+    #[test]
+    fn profile_replan_packet_names_missing_integration_artifact_target() {
+        let mut context = sample_profile_context();
+        context.profile_failures = vec![ProfileVerificationFailure {
+            code: "nextjs_integration_artifact_missing".to_string(),
+            message: "explicit artifact `components/SpaceInvaders.tsx` does not exist before route integration with selected route `app/page.tsx`"
+                .to_string(),
+            paths: vec![
+                "components/SpaceInvaders.tsx".to_string(),
+                "app/page.tsx".to_string(),
+            ],
+        }];
+
+        let packet = build_profile_replan_packet(&context);
+
+        assert!(packet.contains("nextjs_integration_artifact_missing"));
+        assert!(packet.contains(
+            "required_action: create components/SpaceInvaders.tsx before editing selected route integration"
+        ));
+        assert!(packet.contains("repair_target: components/SpaceInvaders.tsx"));
+        assert!(packet.contains("candidate_artifacts: components/SpaceInvaders.tsx, app/page.tsx"));
+        assert!(packet.contains("missing artifact path exists, then profile verification"));
+        assert!(packet.contains(
+            "create missing explicit artifact components/SpaceInvaders.tsx before route integration work"
+        ));
+        assert!(!packet.contains("selected_route=app/page.tsx"));
+        assert!(!packet.contains("unintegrated_artifact=components/SpaceInvaders.tsx"));
+    }
+
+    #[test]
+    fn profile_replan_packet_names_dependency_version_repair_action() {
+        let mut context = sample_profile_context();
+        context.profile_failures = vec![ProfileVerificationFailure {
+            code: "nextjs_dependency_version_conflict".to_string(),
+            message: "Next.js 14 requires React peer versions compatible with 18.2 or newer; incompatible exact pins: react@18.0.0, react-dom@18.0.0"
+                .to_string(),
+            paths: vec!["package.json".to_string()],
+        }];
+
+        let packet = build_profile_replan_packet(&context);
+
+        assert!(packet.contains("nextjs_dependency_version_conflict"));
+        assert!(packet.contains("repair_target: package.json"));
+        assert!(packet.contains(
+            "edit package.json so next, react, and react-dom versions are mutually compatible"
+        ));
+        assert!(packet.contains("do not keep exact React pins below 18.2 with Next.js 14"));
+        assert!(packet.contains(
+            "observed=package.json pins Next.js and React peer versions that are incompatible"
+        ));
     }
 
     #[test]

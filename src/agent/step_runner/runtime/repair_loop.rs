@@ -2,8 +2,9 @@ use super::SlashRuntime;
 use super::execution;
 use super::paths::{changed_file_markers, missing_paths, result_changed_files};
 use super::setup::{
-    DependencySetupDisposition, DependencySetupRunner, SetupRunStatus, ShellDependencySetupRunner,
-    dependency_missing_blocker_message, dependency_setup_disposition, setup_failed_blocker_message,
+    DependencySetupDisposition, DependencySetupRunner, SetupCommand, SetupRunStatus,
+    ShellDependencySetupRunner, dependency_missing_blocker_message, dependency_setup_disposition,
+    manifest_fingerprint, setup_failed_blocker_message,
 };
 use crate::agent::events::{RuntimeEvent, RuntimeObserver, bounded_event_text};
 use crate::agent::minimal_loop::config::{ActionRequirement, StepToolPolicy};
@@ -31,7 +32,7 @@ pub(super) struct RepairStepState {
     pub(super) changed_files: Vec<String>,
     pub(super) file_changing_attempts: usize,
     pub(super) initial_turn_error: Option<String>,
-    pub(super) dependency_setup_attempted: bool,
+    pub(super) dependency_setup_attempt_keys: Vec<String>,
     pub(super) dependency_setup_note: Option<String>,
     pub(super) contract_evidence: Vec<ContractEvidence>,
     pub(super) repair_attempt_ledger: Vec<String>,
@@ -233,7 +234,7 @@ where
             changed_files: Vec::new(),
             file_changing_attempts: 0,
             initial_turn_error: Some(turn_error_text),
-            dependency_setup_attempted: false,
+            dependency_setup_attempt_keys: Vec::new(),
             dependency_setup_note: None,
             contract_evidence,
             repair_attempt_ledger: Vec::new(),
@@ -264,7 +265,7 @@ where
             changed_files: changed_file_markers(&first_result),
             file_changing_attempts: usize::from(result_changed_files(&first_result)),
             initial_turn_error: None,
-            dependency_setup_attempted: false,
+            dependency_setup_attempt_keys: Vec::new(),
             dependency_setup_note: None,
             contract_evidence: Vec::new(),
             repair_attempt_ledger: Vec::new(),
@@ -532,15 +533,25 @@ fn push_tool_arg_contract_evidence(
     } else {
         arg_error.required_fields().join(", ")
     };
+    let required_action = if arg_error.tool_name() == "Write"
+        && arg_error.missing_field() == Some("path")
+        && let Some(path) = target_path.as_deref()
+    {
+        format!(
+            "emit exactly one valid Write tool call with path={path} and required fields: {required_fields}"
+        )
+    } else {
+        format!(
+            "emit exactly one valid {} tool call with required fields: {required_fields}",
+            arg_error.tool_name()
+        )
+    };
     let mut evidence = ContractEvidence::new("tool_protocol")
         .with_failed_step(step.id.clone())
         .with_violated_contract(arg_error.reason_code())
         .with_reason_code(arg_error.reason_code())
         .with_tool(arg_error.tool_name())
-        .with_required_action(format!(
-            "emit exactly one valid {} tool call with required fields: {required_fields}",
-            arg_error.tool_name()
-        ))
+        .with_required_action(required_action)
         .with_diagnostic(arg_error.diagnostic_excerpt());
     if let Some(field) = arg_error.missing_field() {
         evidence = evidence.with_target_field(field);
@@ -899,7 +910,6 @@ where
         &state.failures,
         missing_expected_paths,
         config.dependency_setup_policy,
-        state.dependency_setup_attempted,
     );
 
     let command = match disposition {
@@ -912,7 +922,24 @@ where
         DependencySetupDisposition::Attempt(command) => command,
     };
 
-    state.dependency_setup_attempted = true;
+    let before_setup_key = dependency_setup_attempt_key(runtime.cwd, &step.id, command);
+    if state
+        .dependency_setup_attempt_keys
+        .iter()
+        .any(|spent| spent == &before_setup_key)
+    {
+        return Ok(DependencyRecoveryResult::Blocked(
+            dependency_missing_blocker_message(
+                &step.id,
+                &state.failures,
+                "Dependency setup was already attempted once for this verifier step, setup command, and manifest fingerprint, but the verifier still reports missing dependencies.",
+            ),
+        ));
+    }
+    push_setup_attempt_key(
+        &mut state.dependency_setup_attempt_keys,
+        before_setup_key.clone(),
+    );
     observer.on_event(RuntimeEvent::DependencySetupStarted {
         step_id: bounded_event_text(&step.id),
         command: bounded_event_text(command.as_shell_command()),
@@ -932,14 +959,21 @@ where
             setup_failed_blocker_message(&step.id, command, &status),
         ));
     }
+    let after_setup_key = dependency_setup_attempt_key(runtime.cwd, &step.id, command);
+    push_setup_attempt_key(
+        &mut state.dependency_setup_attempt_keys,
+        after_setup_key.clone(),
+    );
 
     state.failures = execution::verify_step_with_observer(runtime.cwd, step, observer)?;
     if state.failures.is_empty() {
         return Ok(DependencyRecoveryResult::Recovered);
     }
     state.dependency_setup_note = Some(format!(
-        "dependency_setup_attempted=true; dependency_setup_command={}; dependency_setup_result=success; verifier_rerun_result=failed",
-        command.as_shell_command()
+        "dependency_setup_attempted=true; dependency_setup_command={}; dependency_setup_result=success; verifier_rerun_result=failed; setup_attempt_key_before={}; setup_attempt_key_after={}",
+        command.as_shell_command(),
+        before_setup_key,
+        after_setup_key,
     ));
 
     if state
@@ -957,6 +991,24 @@ where
     }
 
     Ok(DependencyRecoveryResult::ContinueRepair)
+}
+
+fn dependency_setup_attempt_key(
+    cwd: &std::path::Path,
+    step_id: &str,
+    command: SetupCommand,
+) -> String {
+    format!(
+        "step={step_id};command={};manifest={}",
+        command.as_shell_command(),
+        manifest_fingerprint(cwd).key()
+    )
+}
+
+fn push_setup_attempt_key(keys: &mut Vec<String>, key: String) {
+    if !keys.iter().any(|existing| existing == &key) {
+        keys.push(key);
+    }
 }
 
 #[cfg(test)]
@@ -1128,7 +1180,9 @@ mod tests {
         assert!(rendered.contains("target_field: path"));
         assert!(rendered.contains("target_path: src/components/GameCanvas.tsx"));
         assert!(rendered.contains("required_fields: path, content"));
-        assert!(rendered.contains("required_action: emit exactly one valid Write tool call"));
+        assert!(rendered.contains(
+            "required_action: emit exactly one valid Write tool call with path=src/components/GameCanvas.tsx"
+        ));
     }
 
     #[test]
@@ -1236,6 +1290,41 @@ mod tests {
     }
 
     #[test]
+    fn dependency_setup_attempt_key_is_stable_for_same_manifest() {
+        let root = temp_workspace("setup-key-stable");
+        std::fs::write(
+            root.join("package.json"),
+            r#"{"scripts":{"build":"next build"}}"#,
+        )
+        .unwrap();
+
+        let first = dependency_setup_attempt_key(&root, "verify-build", SetupCommand::NpmInstall);
+        let second = dependency_setup_attempt_key(&root, "verify-build", SetupCommand::NpmInstall);
+
+        assert_eq!(first, second);
+    }
+
+    #[test]
+    fn dependency_setup_attempt_key_changes_after_manifest_edit() {
+        let root = temp_workspace("setup-key-manifest-change");
+        std::fs::write(
+            root.join("package.json"),
+            r#"{"scripts":{"build":"next build"}}"#,
+        )
+        .unwrap();
+
+        let before = dependency_setup_attempt_key(&root, "verify-build", SetupCommand::NpmInstall);
+        std::fs::write(
+            root.join("package.json"),
+            r#"{"scripts":{"build":"next build"},"dependencies":{"@tailwindcss/postcss":"latest"}}"#,
+        )
+        .unwrap();
+        let after = dependency_setup_attempt_key(&root, "verify-build", SetupCommand::NpmInstall);
+
+        assert_ne!(before, after);
+    }
+
+    #[test]
     fn dependency_setup_note_is_verifier_diagnostic_context() {
         let failure = VerificationFailure {
             command: "npm run build".to_string(),
@@ -1329,7 +1418,7 @@ mod tests {
             changed_files: Vec::new(),
             file_changing_attempts: 0,
             initial_turn_error: None,
-            dependency_setup_attempted: false,
+            dependency_setup_attempt_keys: Vec::new(),
             dependency_setup_note: None,
             contract_evidence: Vec::new(),
             repair_attempt_ledger: Vec::new(),
@@ -1337,5 +1426,16 @@ mod tests {
             pending_tool_arg_error: None,
             pending_tool_arg_error_source: None,
         }
+    }
+
+    fn temp_workspace(name: &str) -> std::path::PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "commandagent-repair-loop-{}-{}",
+            name,
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&path);
+        std::fs::create_dir_all(&path).unwrap();
+        path
     }
 }

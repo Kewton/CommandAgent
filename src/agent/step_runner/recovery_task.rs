@@ -377,6 +377,12 @@ fn success_check(evidence: &ContractEvidence) -> Option<String> {
         "tool_protocol" => Some("tool schema validation".to_string()),
         "step_policy" => Some("step tool policy".to_string()),
         "verifier" => evidence.command.clone(),
+        "profile_verification"
+            if contract_code(evidence).as_deref()
+                == Some("nextjs_integration_artifact_missing") =>
+        {
+            Some("missing artifact path exists, then profile verification".to_string())
+        }
         "profile_verification" => Some("profile verification".to_string()),
         _ => None,
     }
@@ -417,7 +423,20 @@ fn disallowed_actions(evidence: &ContractEvidence) -> Vec<String> {
         ],
         "profile_verification" => vec![
             "Do not add unrelated feature work before fixing the profile contract.".to_string(),
-        ],
+        ]
+        .into_iter()
+        .chain(match contract_code(evidence).as_deref() {
+            Some("nextjs_integration_artifact_missing") => vec![
+                "Do not edit selected route integration before the missing artifact exists."
+                    .to_string(),
+            ],
+            Some("nextjs_route_not_integrated") => vec![
+                "Do not create placeholder artifacts when the unintegrated artifact already exists."
+                    .to_string(),
+            ],
+            _ => Vec::new(),
+        })
+        .collect(),
         _ => Vec::new(),
     }
 }
@@ -576,6 +595,38 @@ mod tests {
         assert!(rendered.contains("repair_target: app/page.tsx"));
         assert!(rendered.contains("candidate_artifacts: app/page.tsx, app/hooks/useGame.ts"));
         assert!(rendered.contains("success_check: profile verification"));
+        assert!(rendered.contains("execution_envelope: file_mutation_repair"));
+    }
+
+    #[test]
+    fn profile_missing_artifact_task_targets_artifact_creation() {
+        let evidence = ContractEvidence::new("profile_verification")
+            .with_failed_step("phase-ui")
+            .with_violated_contract("nextjs_integration_artifact_missing")
+            .with_repair_target("components/SpaceInvaders.tsx")
+            .with_candidate_artifacts(vec!["components/SpaceInvaders.tsx", "app/page.tsx"])
+            .with_required_action(
+                "create components/SpaceInvaders.tsx before editing selected route integration",
+            );
+
+        let rendered = RecoveryTaskContract::from_contract_evidence(&evidence)
+            .unwrap()
+            .render()
+            .unwrap();
+
+        assert!(
+            rendered.contains("Profile verification failed: nextjs_integration_artifact_missing")
+        );
+        assert!(rendered.contains("repair_target: components/SpaceInvaders.tsx"));
+        assert!(
+            rendered.contains("candidate_artifacts: components/SpaceInvaders.tsx, app/page.tsx")
+        );
+        assert!(rendered.contains("missing artifact path exists, then profile verification"));
+        assert!(
+            rendered.contains(
+                "Do not edit selected route integration before the missing artifact exists"
+            )
+        );
         assert!(rendered.contains("execution_envelope: file_mutation_repair"));
     }
 

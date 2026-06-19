@@ -29,6 +29,32 @@ impl SetupCommand {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ManifestFingerprint {
+    package_json: Option<String>,
+    package_lock: Option<String>,
+    pnpm_lock: Option<String>,
+}
+
+impl ManifestFingerprint {
+    pub(super) fn key(&self) -> String {
+        format!(
+            "package_json={};package_lock={};pnpm_lock={}",
+            self.package_json.as_deref().unwrap_or("missing"),
+            self.package_lock.as_deref().unwrap_or("missing"),
+            self.pnpm_lock.as_deref().unwrap_or("missing")
+        )
+    }
+}
+
+pub(super) fn manifest_fingerprint(cwd: &Path) -> ManifestFingerprint {
+    ManifestFingerprint {
+        package_json: file_fingerprint(&cwd.join("package.json")),
+        package_lock: file_fingerprint(&cwd.join("package-lock.json")),
+        pnpm_lock: file_fingerprint(&cwd.join("pnpm-lock.yaml")),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum SetupSelectionError {
     UnsupportedVerifier(String),
     UnsupportedYarnLock,
@@ -202,7 +228,6 @@ pub(super) fn dependency_setup_disposition(
     failures: &[VerificationFailure],
     missing_expected_paths: &[String],
     policy: DependencySetupPolicy,
-    already_attempted: bool,
 ) -> DependencySetupDisposition {
     if failures.is_empty()
         || !missing_expected_paths.is_empty()
@@ -213,13 +238,6 @@ pub(super) fn dependency_setup_disposition(
         return DependencySetupDisposition::NotApplicable;
     }
 
-    if already_attempted {
-        return DependencySetupDisposition::Blocked(dependency_missing_blocker_message(
-            step_id,
-            failures,
-            "Dependency setup was already attempted once, but the verifier still reports missing dependencies.",
-        ));
-    }
     if policy.offline {
         return DependencySetupDisposition::Blocked(dependency_missing_blocker_message(
             step_id,
@@ -402,6 +420,20 @@ fn read_tail_excerpt(path: &Path) -> String {
     String::from_utf8_lossy(&bytes).trim().to_string()
 }
 
+fn file_fingerprint(path: &Path) -> Option<String> {
+    let bytes = fs::read(path).ok()?;
+    Some(format!("{}:{:016x}", bytes.len(), stable_hash(&bytes)))
+}
+
+fn stable_hash(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
 fn empty_excerpt(value: &str) -> &str {
     if value.trim().is_empty() {
         "(no stderr output captured; full logs are under .commandagent/setup/)"
@@ -488,6 +520,42 @@ mod tests {
         .unwrap();
 
         assert_eq!(command, None);
+    }
+
+    #[test]
+    fn manifest_fingerprint_changes_when_package_manifest_changes() {
+        let root = temp_workspace("manifest-fingerprint-package");
+        fs::write(
+            root.join("package.json"),
+            r#"{"dependencies":{"next":"14"}}"#,
+        )
+        .unwrap();
+
+        let before = manifest_fingerprint(&root).key();
+        fs::write(
+            root.join("package.json"),
+            r#"{"dependencies":{"next":"14","react":"18"}}"#,
+        )
+        .unwrap();
+        let after = manifest_fingerprint(&root).key();
+
+        assert_ne!(before, after);
+    }
+
+    #[test]
+    fn manifest_fingerprint_changes_when_lockfile_is_created() {
+        let root = temp_workspace("manifest-fingerprint-lock");
+        fs::write(
+            root.join("package.json"),
+            r#"{"dependencies":{"next":"14"}}"#,
+        )
+        .unwrap();
+
+        let before = manifest_fingerprint(&root).key();
+        fs::write(root.join("package-lock.json"), "{}").unwrap();
+        let after = manifest_fingerprint(&root).key();
+
+        assert_ne!(before, after);
     }
 
     #[test]

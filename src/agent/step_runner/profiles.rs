@@ -501,6 +501,16 @@ fn verify_nextjs_profile(
             if explicit_path == route {
                 continue;
             }
+            if !cwd.join(&explicit_path).exists() {
+                failures.push(ProfileVerificationFailure::new(
+                    "nextjs_integration_artifact_missing",
+                    format!(
+                        "explicit artifact `{explicit_path}` does not exist before route integration with selected route `{route}`"
+                    ),
+                    vec![explicit_path, route.to_string()],
+                ));
+                continue;
+            }
             let stem = Path::new(&explicit_path)
                 .file_stem()
                 .and_then(|stem| stem.to_str())
@@ -1409,6 +1419,51 @@ mod tests {
             failures
                 .iter()
                 .any(|failure| failure.code == "nextjs_route_not_integrated"),
+            "{failures:?}"
+        );
+    }
+
+    #[test]
+    fn nextjs_verification_reports_missing_integration_artifact_before_route_drift() {
+        let root = temp_workspace("verify-missing-integration-artifact");
+        write_minimal_next_app(&root, r#"{"dev":"next dev -p 3011","build":"next build"}"#);
+        let mut context = context_with_goal("run on port 3011");
+        context.expected_paths = vec!["components/SpaceInvaders.tsx".to_string()];
+
+        let failures = verify_profile("nextjs", &root, &context).unwrap();
+
+        let missing = failures
+            .iter()
+            .find(|failure| failure.code == "nextjs_integration_artifact_missing")
+            .expect("missing integration artifact failure");
+        assert_eq!(
+            missing.paths,
+            vec![
+                "components/SpaceInvaders.tsx".to_string(),
+                "app/page.tsx".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn nextjs_missing_integration_artifact_does_not_emit_route_not_integrated() {
+        let root = temp_workspace("verify-missing-not-route-drift");
+        write_minimal_next_app(&root, r#"{"dev":"next dev -p 3011","build":"next build"}"#);
+        let mut context = context_with_goal("run on port 3011");
+        context.required_artifacts = vec!["components/SpaceInvaders.tsx".to_string()];
+
+        let failures = verify_profile("nextjs", &root, &context).unwrap();
+
+        assert!(
+            failures
+                .iter()
+                .any(|failure| failure.code == "nextjs_integration_artifact_missing"),
+            "{failures:?}"
+        );
+        assert!(
+            failures
+                .iter()
+                .all(|failure| failure.code != "nextjs_route_not_integrated"),
             "{failures:?}"
         );
     }

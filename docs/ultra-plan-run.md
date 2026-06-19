@@ -146,6 +146,12 @@ verifier once. If setup is not approved, offline, unsupported, ambiguous,
 fails, times out, or still leaves `dependency_missing`, CommandAgent stops with
 a setup blocker instead of creating a repair prompt.
 
+If a later bounded repair changes package-manager manifests such as
+`package.json`, `package-lock.json`, or `pnpm-lock.yaml`, the setup attempt
+state is keyed by the new manifest fingerprint. Approved online setup may run
+once for that changed manifest state and then rerun the same verifier. This is
+still verifier-owned setup, not repair-turn authority.
+
 Normal model-issued `Bash(npm install)` remains blocked. Dependency setup is
 runtime-owned and is triggered only by verifier evidence.
 
@@ -179,6 +185,9 @@ suggested command starts a standalone repair plan; it is not hidden continuation
 of the original ultra plan. For Next.js route integration failures, the packet
 also names the selected route and unintegrated artifact so the standalone
 repair plan receives deterministic target evidence instead of only prose.
+For Next.js missing integration artifacts, the packet names the missing
+artifact itself as the repair target and requires creating it before route
+integration is checked.
 
 ## Repair Replan Example
 

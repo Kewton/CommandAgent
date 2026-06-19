@@ -108,6 +108,20 @@ fn dependency_missing_failure(
         .resolve("node_modules/.bin/next")
         .map_err(VerifyError::Path)?;
     if next_bin.exists() {
+        if let Some(missing_packages) = missing_package_dependencies(guard, &package)? {
+            let message = format!(
+                "dependency_missing: verifier_unavailable: npm run build requires package.json dependencies to be installed, but node_modules is missing: {}. Run dependency setup when allowed, then rerun npm run build; do not change scripts.build away from next build to fake success.",
+                missing_packages.join(", ")
+            );
+            return Ok(Some(VerificationFailure {
+                command: command.to_string(),
+                reason: "dependency_missing".to_string(),
+                stdout_excerpt: String::new(),
+                stderr_excerpt: String::new(),
+                diagnostic_excerpt: message,
+                source_excerpt: None,
+            }));
+        }
         return Ok(None);
     }
 
@@ -120,6 +134,78 @@ fn dependency_missing_failure(
         diagnostic_excerpt: message,
         source_excerpt: None,
     }))
+}
+
+fn missing_package_dependencies(
+    guard: &PathGuard,
+    package: &str,
+) -> Result<Option<Vec<String>>, VerifyError> {
+    let dependencies = package_dependency_keys(package);
+    if dependencies.is_empty() {
+        return Ok(None);
+    }
+    let mut missing = Vec::new();
+    for dep in dependencies {
+        let Some(path) = node_module_dependency_path(&dep) else {
+            continue;
+        };
+        let resolved = guard.resolve(&path).map_err(VerifyError::Path)?;
+        if !resolved.exists() {
+            missing.push(dep);
+        }
+    }
+    if missing.is_empty() {
+        Ok(None)
+    } else {
+        missing.truncate(8);
+        Ok(Some(missing))
+    }
+}
+
+fn package_dependency_keys(package: &str) -> Vec<String> {
+    let Ok(value) = serde_json::from_str::<Value>(package) else {
+        return Vec::new();
+    };
+    let mut keys = Vec::new();
+    for section in ["dependencies", "devDependencies"] {
+        let Some(object) = value.get(section).and_then(Value::as_object) else {
+            continue;
+        };
+        for name in object.keys() {
+            if !keys.iter().any(|existing| existing == name) {
+                keys.push(name.clone());
+            }
+        }
+    }
+    keys
+}
+
+fn node_module_dependency_path(name: &str) -> Option<String> {
+    if name.starts_with('@') {
+        let mut parts = name.split('/');
+        let scope = parts.next()?;
+        let package = parts.next()?;
+        if parts.next().is_some() || package.is_empty() {
+            return None;
+        }
+        if safe_package_segment(scope) && safe_package_segment(package) {
+            return Some(format!("node_modules/{scope}/{package}"));
+        }
+        return None;
+    }
+    if safe_package_segment(name) && !name.contains('/') {
+        Some(format!("node_modules/{name}"))
+    } else {
+        None
+    }
+}
+
+fn safe_package_segment(value: &str) -> bool {
+    !value.is_empty()
+        && !value.contains("..")
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '@' | '-' | '_' | '.'))
 }
 
 fn package_uses_next_build(package: &str) -> bool {
@@ -273,6 +359,36 @@ mod tests {
             report.failures[0]
                 .diagnostic_excerpt
                 .contains("node_modules/.bin/next")
+        );
+    }
+
+    #[test]
+    fn reports_dependency_missing_for_manifest_dependency_not_installed() {
+        let root = temp_workspace("dependency-missing-stale-manifest");
+        fs::create_dir_all(root.join("node_modules/.bin")).unwrap();
+        fs::create_dir_all(root.join("node_modules/next")).unwrap();
+        fs::create_dir_all(root.join("node_modules/react")).unwrap();
+        fs::create_dir_all(root.join("node_modules/react-dom")).unwrap();
+        fs::write(root.join("node_modules/.bin/next"), "").unwrap();
+        fs::write(
+            root.join("package.json"),
+            r#"{"scripts":{"build":"next build"},"dependencies":{"next":"14.2.0","react":"18.2.0","react-dom":"18.2.0","@tailwindcss/postcss":"latest"}}"#,
+        )
+        .unwrap();
+
+        let report = run_verifiers(&root, &["npm run build".to_string()]).unwrap();
+
+        assert!(!report.ok);
+        assert_eq!(report.failures[0].reason, "dependency_missing");
+        assert!(
+            report.failures[0]
+                .diagnostic_excerpt
+                .contains("@tailwindcss/postcss")
+        );
+        assert!(
+            report.failures[0]
+                .diagnostic_excerpt
+                .contains("package.json dependencies")
         );
     }
 

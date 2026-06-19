@@ -87,6 +87,13 @@ and limited to observed project facts:
 - when an explicit component or source artifact is part of the contract, make
   it reachable from the selected route by import or direct reference
 
+Route integration verification is two-stage. If the explicit component/source
+artifact is missing, the profile reports
+`nextjs_integration_artifact_missing` and does not also report
+`nextjs_route_not_integrated` for that artifact. `nextjs_route_not_integrated`
+is reserved for an existing explicit artifact that is not imported or
+referenced by the selected route.
+
 These checks can fail a phase with visible diagnostics. They do not edit files,
 score UI quality, or run a hidden Next.js workflow.
 
@@ -118,7 +125,8 @@ dev port across later edits, while keeping recovery bounded and visible.
 
 Profile verification failures are rendered into the common contract-evidence
 payload when the profile check has deterministic facts. For Next.js, mixed
-`app/` and `src/app/` roots are reported as app-root contract evidence, and a
+`app/` and `src/app/` roots are reported as app-root contract evidence, missing
+integration artifacts report the missing artifact as the repair target, and a
 route-integration failure reports the selected route as the repair target plus
 the unintegrated artifact as a candidate artifact. This is still evidence
 rendering only. Profiles must not carry retry authority, semantic confidence,

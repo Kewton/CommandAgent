@@ -140,6 +140,14 @@ as a route-integration artifact. Eval reports should record the artifact kind,
 provenance, selected route, and whether the failure came from an explicit
 required/expected artifact or only from workspace observation.
 
+Next.js route integration reports should distinguish missing artifacts from
+integration drift. `profile_verification:nextjs_integration_artifact_missing`
+means the explicit artifact did not exist and the repair target should be that
+artifact path. `profile_verification:nextjs_route_not_integrated` means the
+artifact exists but is not imported or referenced by the selected route, so the
+selected route is the repair target. Do not collapse these into one route
+integration category.
+
 ## Recent Recovery Check
 
 The R5/R6 guard subset at
@@ -267,3 +275,7 @@ Interpretation rules:
 - Do not treat recovery-task clarity as app-quality success. For example, a
   Next.js game can still be visually poor after the repair packet correctly
   identified a build or route-integration task.
+- For dependency-sensitive verifier failures, record whether a repair changed
+  package-manager manifests and therefore produced a new setup fingerprint. If
+  runtime-owned setup ran again, report it as one setup attempt for the changed
+  manifest fingerprint, not as model-issued dependency installation.
