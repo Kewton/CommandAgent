@@ -24,7 +24,20 @@ machinery.
   conversation.
 - Keep planning, execution, verification, and repair as separate contracts.
 - Treat recovery as contract correction, not hidden autonomy.
+- Treat recovery tasks as first-class tasks: clarify what to fix before asking
+  the minimal loop to execute the repair.
 - Treat evaluation scripts and docs as part of the product.
+
+CommandAgent's control model is therefore:
+
+```text
+Planning Contract -> Execution Contract
+classified failure -> Recovery Task Contract -> Execution Contract
+```
+
+The third contract is a clarity boundary, not a third engine. It exists so a
+failed verifier/profile/tool-policy check can produce an explicit repair task
+instead of delegating repair-strategy selection to the minimal loop.
 
 ## Stability And Predictability
 
@@ -94,6 +107,44 @@ Repeated recovery must remain bounded by failure class and step. If the same
 classified violation repeats after the allowed correction, CommandAgent should
 stop with explicit evidence and a user-visible repair or replan path.
 
+## Recovery Task Contracts
+
+The minimal loop is an execution session, not the owner of recovery planning.
+It is useful when the task is already clear, but it should not be asked to infer
+the repair strategy from a broad verifier or profile failure. A repair turn
+should receive a recovery task contract in the same spirit as a normal step
+contract.
+
+When deterministic evidence is specific enough, the step runner, verifier, or
+profile layer should translate the failure into explicit repair instructions
+before delegating to the minimal loop. A recovery task contract may state:
+
+- the current blocker and violated contract
+- what must be fixed
+- the repair target or candidate artifact paths
+- a small execution envelope derived from the failure class
+- allowed tools or paths when the target is known
+- disallowed actions, such as dependency setup in an ordinary repair turn
+- required action, such as integrating an artifact through a selected route
+- the original guard, verifier, or profile check that remains the authority
+
+The execution envelope is a constraint on the next Execution Contract, not a
+new executor. For example, a `step_policy:read_only_step_mutation` failure uses
+a read-only envelope that requires repository read evidence from `Read`,
+`Glob`, `Grep`, or read-only `Bash`; verifier/profile source repair keeps the
+file-mutation repair envelope. This prevents a recovery task that says
+"read-only" from being run as a mutation-allowed file repair.
+
+This does not turn recovery into a workflow engine. The contract narrows the
+next repair turn; it does not choose future phases, add attempts, run hidden
+jobs, or replace the verifier. If the runtime cannot form a deterministic
+recovery task contract or execution envelope, it should fall back to explicit
+bounded failure evidence instead of asking the minimal loop to guess.
+
+In short, CommandAgent's minimalism means minimal hidden authority, not minimal
+repair clarity. Recovery authority is admissible only when it is visible,
+bounded, and explainable from the failed contract.
+
 ## Structured Contract Evidence
 
 Contract correction may use structured evidence when the evidence is produced
@@ -107,15 +158,21 @@ contract. It may include fields such as:
 - guard or verifier name
 - failed step or phase id
 - violated contract code
+- failure signature, failure kind, or diagnostic code
 - target field, path, command, or tool
+- candidate artifacts, repair target, and related source excerpt when the
+  rejecting verifier or profile check already identified them
+- bounded prior attempts or repair attempt ledger entries
 - exact missing literals, required paths, or required tool arguments
 - bounded diagnostic text from the rejecting guard
 
 The correction prompt may render this evidence to remove ambiguity, for example
 by telling the planner that a `package.json` step must literally mention
 `next`, `react`, and `react-dom`. The evidence must come from existing
-contracts such as plan lint, profile obligations, tool schemas, dependency
-setup policy, or verifier output.
+contracts such as plan lint, profile obligations, tool schemas, step policy, or
+verifier output. Dependency setup results may be attached only as diagnostic
+context to verifier evidence after one approved setup attempt; setup is not a
+separate hidden recovery producer.
 
 Structured evidence must not include semantic guesses, memory retrieval,
 sidecar judgments, hidden task state, or provider/model-specific policy. It
@@ -126,8 +183,10 @@ The common evidence shape is a boundary, not a common recovery engine.
 Producers detect deterministic failures, evidence carries exact facts,
 consumers render those facts into existing bounded prompts or packets, and
 orchestration keeps the original retry and stop rules. Evidence must not carry
-target authority, retry state, semantic confidence, sidecar or memory
-references, or any instruction to continue automatically.
+retry authority, semantic confidence, sidecar or memory references, or any
+instruction to continue automatically. A repair target is admissible only when
+it is deterministically selected by the failing verifier/profile contract, such
+as a compiler source path or a selected Next.js route.
 
 ## Why Legacy Is Removed
 

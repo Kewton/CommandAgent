@@ -1,6 +1,7 @@
 pub mod correction_evidence;
 pub mod plan_lint;
 pub mod profiles;
+pub mod recovery_task;
 pub mod repair;
 pub mod runtime;
 pub mod ultra_plan;

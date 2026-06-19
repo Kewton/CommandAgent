@@ -19,6 +19,23 @@ CommandAgent is still in MVP migration.
   while fixing a failed verifier. Repeated malformed tool calls still stop as
   `tool_args_*`. This improves protocol recovery and attribution but does not
   guarantee app-quality completion.
+- Repair packets now carry structured contract evidence for tool protocol
+  failures, read-only step-policy violations, verifier failures, and selected
+  profile verification failures. Verifier/profile evidence can include a
+  failure signature, repair target, candidate artifacts, related source excerpt,
+  and bounded attempt ledger. This makes standalone repair inputs clearer, but
+  it does not increase retry budgets, auto-resume failed phases, or score
+  UI/game quality.
+- Repair prompts and saved repair packets may now render a `Recovery task`
+  section derived from deterministic evidence. This clarifies what the next
+  bounded repair turn should do, what is out of scope, and which original check
+  remains authoritative. It is still not a recovery engine, semantic planner,
+  hidden continuation mechanism, or guarantee of final artifact quality.
+- Recovery tasks can carry a small execution envelope. The current read-only
+  envelope keeps `step_policy:read_only_step_mutation` repair turns read-only
+  and accepts only concrete repository read evidence. This improves contract
+  alignment, but it does not make weak plans, poor UI/game output, or unrelated
+  verifier failures converge automatically.
 - Phase-boundary profile verification is deterministic and read-only. It can
   catch structural contract drift such as Next.js app-root ambiguity, package
   script drift, and Tailwind dependency/config mismatch, but it does not score

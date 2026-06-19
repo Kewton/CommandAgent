@@ -17,6 +17,18 @@ pub(crate) fn action_required_feedback(mode: ToolCallMode) -> String {
     }
 }
 
+pub(crate) fn repository_evidence_required_feedback(mode: ToolCallMode) -> String {
+    let base = "This step requires concrete repository read evidence. Call exactly one read-only tool now, such as Read, Glob, Grep, or read-only Bash. Do not use Write/Edit.";
+    if mode == ToolCallMode::XmlFallback {
+        format!(
+            "{base}\nWhen repository evidence is required, emit one complete XML fallback tool call like this:\n{}",
+            xml_tool_call_format()
+        )
+    } else {
+        base.to_string()
+    }
+}
+
 pub(crate) fn requested_artifact_feedback(missing: &[String], mode: ToolCallMode) -> String {
     let mut feedback = format!(
         "The requested artifact paths are still missing:\n{}\nCreate the missing paths with Write/Edit now, or explain why they are not required.",
@@ -82,6 +94,15 @@ mod tests {
     fn xml_feedback_includes_fallback_example() {
         assert!(
             action_required_feedback(ToolCallMode::XmlFallback).contains("commandagent_tool_call")
+        );
+        assert!(
+            repository_evidence_required_feedback(ToolCallMode::XmlFallback)
+                .contains("read-only tool")
+        );
+        assert!(
+            !repository_evidence_required_feedback(ToolCallMode::Native).contains("Write/Edit.")
+                || repository_evidence_required_feedback(ToolCallMode::Native)
+                    .contains("Do not use Write/Edit")
         );
         assert!(
             requested_artifact_feedback(&["dist/report.md".to_string()], ToolCallMode::XmlFallback)

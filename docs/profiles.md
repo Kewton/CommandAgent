@@ -81,10 +81,13 @@ current profile facts collected from disk immediately before the step or repair
 turn. This helps preserve contracts such as the selected app root and requested
 dev port across later edits, while keeping recovery bounded and visible.
 
-Profile verification failures may later be adapted into the common
-contract-evidence payload, but that would still be evidence rendering only.
-Profiles must not carry target authority, retry state, semantic confidence, or
-workflow decisions.
+Profile verification failures are rendered into the common contract-evidence
+payload when the profile check has deterministic facts. For Next.js, mixed
+`app/` and `src/app/` roots are reported as app-root contract evidence, and a
+route-integration failure reports the selected route as the repair target plus
+the unintegrated artifact as a candidate artifact. This is still evidence
+rendering only. Profiles must not carry retry authority, semantic confidence,
+or workflow decisions.
 
 ## Python Contract
 

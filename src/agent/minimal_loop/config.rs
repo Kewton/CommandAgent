@@ -21,6 +21,7 @@ impl Default for DependencySetupPolicy {
 pub enum ActionRequirement {
     Optional,
     Required,
+    RepositoryEvidenceRequired,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

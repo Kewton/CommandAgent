@@ -97,7 +97,9 @@ step. Repair prompts may also include active profile contract facts collected
 from the current workspace, such as a selected Next.js app root or requested
 dev port. These facts are evidence to preserve during bounded repair. They are
 not a semantic sidecar summary, automatic repair loop, or profile-specific
-workflow.
+workflow. When a verifier still fails after one approved dependency setup
+attempt, eval reports should treat the setup result as diagnostic context on
+the verifier failure, not as a separate recovery loop.
 
 Tool-call schema failures are separate from verifier evidence. If a parsed
 tool call is missing a required field such as `Write.path`, CommandAgent
@@ -111,6 +113,12 @@ session. Eval reports should keep `tool_args_*` separate from
 `dependency_missing`, `profile_verification:*`, semantic checks, and app-quality
 failures, including cases where protocol correction succeeds and a later
 verifier or app-quality failure remains.
+
+Read-only step-policy failures are also separate from verifier evidence. If an
+`inspect`, `verify`, or `report` step attempts `Write`, `Edit`, or mutating
+`Bash`, the actionable class is `step_policy:read_only_step_mutation`. Eval
+reports should record the failed step kind, failed tool, and whether the saved
+repair packet carried that structured contract evidence.
 
 For `/ultra-plan-run` cases, eval reports should also distinguish original
 ultra-plan completion from standalone repair-plan completion. A suggested
@@ -185,27 +193,70 @@ slash command parser without turning the whole failed session into a new goal.
 
 ## Structured Contract Evidence
 
-Some planning failures are rejected before execution by deterministic guards
-such as plan lint or profile obligations. When the guard knows exact correction
-facts, eval reports should distinguish the guard failure from the post-run
-missing-artifact summary. For example, `missing:package.json,app/page.tsx` can
-be a secondary artifact check while the actionable runtime cause is a
-`nextjs_dependencies_required` plan-lint failure.
+Some failures are rejected by deterministic guards that already know exact
+correction facts. Current producers are plan lint/profile obligations, tool
+protocol schema checks, read-only step-policy checks, and verifier failures.
+Eval reports should distinguish the guard failure from secondary post-run
+summaries. For example, `missing:package.json,app/page.tsx` can be a secondary
+artifact check while the actionable runtime cause is a
+`nextjs_dependencies_required` plan-lint failure; similarly, a blank page after
+repair can be secondary if the saved repair packet first shows
+`tool_protocol`, `step_policy`, `verifier`, or profile verification evidence
+that was not resolved.
 
-Bounded plan correction may render structured contract evidence into the
-correction prompt. The evidence should be evaluated as input clarity, not as a
-new recovery loop. Record whether the run moved past the exact violated
-contract, whether the original guard still failed after bounded correction, or
-whether a later independent failure class appeared.
+Bounded correction and repair may render structured contract evidence into
+prompts or repair packets. The evidence should be evaluated as input clarity,
+not as a new recovery loop. Record whether the run moved past the exact
+violated contract, whether the original guard still failed after bounded
+correction, or whether a later independent failure class appeared.
 
 When evaluating evidence changes, distinguish the layer under test:
 
 - producer: the deterministic guard that emitted evidence;
-- payload: the exact fields carried, such as missing literals or paths;
-- consumer: the prompt, repair packet, or eval report that rendered it;
+- payload: the exact fields carried, such as missing literals, paths, failure
+  signature, failure kind, repair target, candidate artifacts, related source
+  excerpt, or prior attempt ledger;
+- consumer: the recovery task, prompt, repair packet, or eval report that
+  rendered it;
 - orchestration: the unchanged bounded retry and stop behavior.
 
 Do not report a run as fixed merely because evidence became clearer. Report
 whether the targeted failure class moved, whether a new independent class
 appeared, and whether the post-run artifact summary differs from the actionable
 runtime cause.
+
+## Recovery Task Contract Reporting
+
+When a repair prompt or saved repair packet contains a `Recovery task` section,
+eval reports should record it separately from raw contract evidence. The
+section is the clarified repair task passed to the minimal loop; it is not
+another engine and it does not imply the run should continue automatically.
+
+Record these fields when present:
+
+- source, such as `verifier`, `profile_verification`, `tool_protocol`, or
+  `step_policy`;
+- failed step and contract code;
+- blocker and required action;
+- repair target or bounded candidate artifacts;
+- execution envelope;
+- tool policy used for the next repair turn;
+- evidence requirement, such as file change or repository read evidence;
+- evidence-producing tool, if a repair turn satisfied the requirement;
+- disallowed actions;
+- success check, such as the original verifier command or profile check;
+- evidence signature.
+
+Interpretation rules:
+
+- If the same signature repeats after the bounded repair task, report
+  non-convergence under the same failure class.
+- If the signature changes, report the new independent failure class.
+- If the recovery task is absent, report whether the evidence was too broad to
+  form a deterministic task.
+- If a read-only recovery task is present, report whether the repair turn used
+  the read-only envelope and whether prose-only output was rejected for missing
+  repository read evidence.
+- Do not treat recovery-task clarity as app-quality success. For example, a
+  Next.js game can still be visually poor after the repair packet correctly
+  identified a build or route-integration task.

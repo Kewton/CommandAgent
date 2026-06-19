@@ -2,10 +2,10 @@ use crate::agent::events::{
     ArtifactScope, ArtifactStatus, GuardFeedbackKind, NoopRuntimeObserver, RuntimeEvent,
     RuntimeObserver, bounded_event_text,
 };
-use crate::agent::minimal_loop::config::ActionRequirement;
+use crate::agent::minimal_loop::config::{ActionRequirement, StepToolPolicy};
 use crate::agent::minimal_loop::guards::{
     action_required_feedback, future_action_feedback, is_file_change_tool, missing_artifacts,
-    requested_artifact_feedback,
+    repository_evidence_required_feedback, requested_artifact_feedback,
 };
 use crate::agent::minimal_loop::prompt::{
     parser_failure_feedback, system_prompt, violates_final_answer_contract,
@@ -75,6 +75,7 @@ where
     ];
     let mut tool_results = Vec::new();
     let mut file_change_count = 0usize;
+    let mut repository_evidence_count = 0usize;
     let mut future_action_feedback_sent = false;
     let mut action_required_feedback_sent = false;
     let mut requested_artifact_feedback_sent = false;
@@ -145,6 +146,11 @@ where
                     if record.ok && is_file_change_tool(&record.name) {
                         file_change_count += 1;
                     }
+                    if record.ok
+                        && is_repository_evidence_tool(&record.name, config.step_tool_policy)
+                    {
+                        repository_evidence_count += 1;
+                    }
                     messages.push(ChatMessage {
                         role: ChatRole::Tool,
                         content: record.output.clone(),
@@ -200,8 +206,11 @@ where
                 }
 
                 if config.enable_completion_without_write_feedback
-                    && config.action_requirement == ActionRequirement::Required
-                    && file_change_count == 0
+                    && !action_requirement_satisfied(
+                        config.action_requirement,
+                        file_change_count,
+                        repository_evidence_count,
+                    )
                     && !action_required_feedback_sent
                 {
                     action_required_feedback_sent = true;
@@ -211,14 +220,25 @@ where
                         tool_call_mode: mode,
                         missing_artifacts: Vec::new(),
                     });
+                    let feedback = match config.action_requirement {
+                        ActionRequirement::RepositoryEvidenceRequired => {
+                            repository_evidence_required_feedback(mode)
+                        }
+                        ActionRequirement::Optional | ActionRequirement::Required => {
+                            action_required_feedback(mode)
+                        }
+                    };
                     messages.push(ChatMessage {
                         role: ChatRole::User,
-                        content: action_required_feedback(mode),
+                        content: feedback,
                     });
                     continue;
                 } else if config.enable_completion_without_write_feedback
-                    && config.action_requirement == ActionRequirement::Required
-                    && file_change_count == 0
+                    && !action_requirement_satisfied(
+                        config.action_requirement,
+                        file_change_count,
+                        repository_evidence_count,
+                    )
                     && action_required_feedback_sent
                 {
                     let err = MinimalLoopError::ActionRequiredNoEvidence(response.content);
@@ -262,6 +282,23 @@ where
     let err = MinimalLoopError::MaxIterations;
     emit_session_error(observer, &err);
     Err(err)
+}
+
+fn action_requirement_satisfied(
+    requirement: ActionRequirement,
+    file_change_count: usize,
+    repository_evidence_count: usize,
+) -> bool {
+    match requirement {
+        ActionRequirement::Optional => true,
+        ActionRequirement::Required => file_change_count > 0,
+        ActionRequirement::RepositoryEvidenceRequired => repository_evidence_count > 0,
+    }
+}
+
+fn is_repository_evidence_tool(name: &str, policy: StepToolPolicy) -> bool {
+    matches!(name, "Read" | "Glob" | "Grep")
+        || (name == "Bash" && matches!(policy, StepToolPolicy::ReadOnly))
 }
 
 fn tool_calls_from_response(
@@ -354,7 +391,7 @@ mod tests {
     use crate::agent::events::{
         ArtifactScope, ArtifactStatus, CaptureObserver, GuardFeedbackKind, RuntimeEvent,
     };
-    use crate::agent::minimal_loop::config::ActionRequirement;
+    use crate::agent::minimal_loop::config::{ActionRequirement, StepToolPolicy};
     use std::collections::VecDeque;
     use std::fs;
     use std::path::PathBuf;
@@ -706,6 +743,86 @@ mod tests {
             "create a file",
             MinimalLoopConfig {
                 action_requirement: ActionRequirement::Required,
+                ..MinimalLoopConfig::default()
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, MinimalLoopError::ActionRequiredNoEvidence(_)));
+    }
+
+    #[test]
+    fn repository_evidence_required_accepts_read_tool() {
+        let root = temp_workspace("repository-evidence-read");
+        fs::write(
+            root.join("package.json"),
+            r#"{"scripts":{"build":"next build"}}"#,
+        )
+        .unwrap();
+        let mut client = MockClient::new(vec![
+            ChatResponse {
+                content: "Already checked package.json.".to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    name: "Read".to_string(),
+                    args_json: r#"{"path":"package.json"}"#.to_string(),
+                }],
+            },
+            ChatResponse {
+                content: "Read package.json and confirmed the build script.".to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+
+        let result = run_session(
+            &mut client,
+            &root,
+            "inspect package.json",
+            MinimalLoopConfig {
+                action_requirement: ActionRequirement::RepositoryEvidenceRequired,
+                step_tool_policy: StepToolPolicy::ReadOnly,
+                ..MinimalLoopConfig::default()
+            },
+        )
+        .unwrap();
+
+        assert_eq!(
+            result.final_answer,
+            "Read package.json and confirmed the build script."
+        );
+        assert!(result.messages.iter().any(|message| {
+            message.role == ChatRole::User
+                && message
+                    .content
+                    .contains("requires concrete repository read evidence")
+        }));
+        assert_eq!(result.tool_results[0].name, "Read");
+    }
+
+    #[test]
+    fn repository_evidence_required_rejects_repeated_prose() {
+        let root = temp_workspace("repository-evidence-prose");
+        let mut client = MockClient::new(vec![
+            ChatResponse {
+                content: "package.json looks fine.".to_string(),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: "I already inspected package.json.".to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+
+        let err = run_session(
+            &mut client,
+            &root,
+            "inspect package.json",
+            MinimalLoopConfig {
+                action_requirement: ActionRequirement::RepositoryEvidenceRequired,
+                step_tool_policy: StepToolPolicy::ReadOnly,
                 ..MinimalLoopConfig::default()
             },
         )

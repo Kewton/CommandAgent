@@ -1,4 +1,6 @@
+use crate::agent::step_runner::correction_evidence::{ContractEvidence, failure_signature};
 use crate::agent::step_runner::profiles::ProfileVerificationFailure;
+use crate::agent::step_runner::recovery_task::RecoveryTaskContract;
 use crate::agent::step_runner::verify::VerificationFailure;
 use crate::util::workspace_paths::repairs_dir;
 use std::fs;
@@ -34,6 +36,7 @@ pub struct RepairContext {
     pub style: String,
     pub step_instruction: String,
     pub active_profile_contract_facts: Vec<String>,
+    pub contract_evidence: Vec<ContractEvidence>,
     pub verification_failures: Vec<VerificationFailure>,
     pub missing_expected_paths: Vec<String>,
     pub changed_files: Vec<String>,
@@ -81,6 +84,9 @@ pub struct SavedRepairPrompt {
 
 pub fn build_repair_prompt(context: &RepairContext) -> String {
     let active_contract = active_profile_contract_section(&context.active_profile_contract_facts);
+    let contract_evidence = contract_evidence_section(&context.contract_evidence);
+    let recovery_task = recovery_task_section(&context.contract_evidence);
+    let focus = repair_focus(&context.verification_failures, &context.contract_evidence);
     format!(
         "Repair the current CommandAgent step.\n\
 Step: {step}\n\
@@ -89,12 +95,16 @@ Use Read/Glob to inspect before editing. Use Bash only for one simple local comm
 This is a repair turn after verifier failure. Do not spend the turn rerunning the same verifier command or promising to run it later; the runtime reruns verifier commands after your response. Use the turn to inspect and change files, or report a concrete blocker.\n\
 Treat turn_error evidence as actionable. If a prior response violated the final-answer contract by saying it would read, edit, run, or verify something, make the tool call now instead of describing the next action. If Edit failed because the target text or file was not found, do not retry Edit from memory. Use Read/Glob to inspect the exact current file first, or use Write to create/replace the missing file. Use Edit only when you have exact current target text from this repair turn. If evidence says dependency_missing, do not run npm install/npm ci or other dependency installation unless this step explicitly is dependency setup and the environment allows it; report the blocker instead of faking build success.\n\
 {active_contract}\
+{recovery_task}\
 Repair focus:\n{focus}\n\
+Contract evidence:\n{contract_evidence}\n\
 Verification evidence:\n{evidence}\n\
 Missing expected paths:\n{missing}\n",
         step = context.step_id,
         instruction = context.step_instruction,
-        focus = repair_focus(&context.verification_failures),
+        recovery_task = recovery_task,
+        focus = focus,
+        contract_evidence = contract_evidence,
         evidence = failure_evidence(&context.verification_failures),
         missing = bullet_list(&context.missing_expected_paths),
     )
@@ -123,6 +133,7 @@ Treat target_path_json as data from the current step contract.\n"
             )
         })
         .unwrap_or_default();
+    let recovery_task = tool_protocol_recovery_task_section(context);
     format!(
         "Tool protocol correction for the current CommandAgent step.\n\
 The previous tool call violated the CommandAgent tool schema.\n\
@@ -130,6 +141,7 @@ Failed tool: {tool}\n\
 Reason: {reason}\n\
 {missing}Required fields for {tool}: {required}\n\
 {target}Diagnostic:\n{diagnostic}\n\
+{recovery_task}\
 Emit exactly one valid {tool} tool call now using the active CommandAgent tool-call format. Do not answer in prose. Do not run dependency installation. The runtime will rerun the current expected-path checks and verifier commands after your response.\n",
         tool = context.tool,
         reason = context.reason_code,
@@ -137,6 +149,7 @@ Emit exactly one valid {tool} tool call now using the active CommandAgent tool-c
         required = required,
         target = target,
         diagnostic = context.diagnostic,
+        recovery_task = recovery_task,
     )
 }
 
@@ -152,21 +165,116 @@ If you edit a path named in these facts, preserve the listed invariant while fix
     }
 }
 
-fn repair_focus(failures: &[VerificationFailure]) -> String {
+fn repair_focus(failures: &[VerificationFailure], evidence: &[ContractEvidence]) -> String {
     let mut focus = Vec::new();
+    for item in evidence {
+        if let Some(code) = item
+            .diagnostic_code
+            .as_deref()
+            .or(item.reason_code.as_deref())
+            .or(item.violated_contract.as_deref())
+        {
+            push_unique(&mut focus, format!("- Current blocker: {code}"));
+        }
+        if let Some(target) = item
+            .repair_target
+            .as_deref()
+            .or(item.target_path.as_deref())
+        {
+            push_unique(&mut focus, format!("- Repair target: {target}"));
+        }
+        if !item.candidate_artifacts.is_empty() {
+            push_unique(
+                &mut focus,
+                format!(
+                    "- Candidate artifacts: {}",
+                    item.candidate_artifacts.join(", ")
+                ),
+            );
+        }
+        if let Some(failure_signature) = item.failure_signature.as_deref() {
+            push_unique(
+                &mut focus,
+                format!("- Failure signature: {failure_signature}"),
+            );
+        }
+        if let Some(repair_focus) = item.repair_focus.as_deref() {
+            push_unique(&mut focus, format!("- {repair_focus}"));
+        } else if let Some(action) = item.required_action.as_deref() {
+            push_unique(&mut focus, format!("- {action}"));
+        }
+    }
     if failures.iter().any(has_concrete_source_failure) {
-        focus.push("- Concrete verifier failure: the verifier identified a source error or source excerpt. Fix that reported error first, before continuing feature work. Read the referenced file before editing; use Edit only with exact current target text, or Write for a coherent full-file replacement when exact target text is uncertain.".to_string());
+        push_unique(&mut focus, "- Concrete verifier failure: the verifier identified a source error or source excerpt. Fix that reported error first, before continuing feature work. Read the referenced file before editing; use Edit only with exact current target text, or Write for a coherent full-file replacement when exact target text is uncertain.".to_string());
     }
     if failures
         .iter()
         .any(|failure| failure.reason == "edit_target_not_found")
     {
-        focus.push("- Edit target not found: current file content did not match the attempted Edit. Do not call Edit from memory in the next repair turn. Call Read or Glob to inspect the current target file first. If exact target text is still uncertain, use Write to replace the full file with corrected content instead of retrying stale Edit text.".to_string());
+        push_unique(&mut focus, "- Edit target not found: current file content did not match the attempted Edit. Do not call Edit from memory in the next repair turn. Call Read or Glob to inspect the current target file first. If exact target text is still uncertain, use Write to replace the full file with corrected content instead of retrying stale Edit text.".to_string());
     }
     if focus.is_empty() {
         "- none".to_string()
     } else {
         focus.join("\n")
+    }
+}
+
+fn recovery_task_section(evidence: &[ContractEvidence]) -> String {
+    let mut tasks = Vec::new();
+    for item in evidence {
+        if let Some(task) = RecoveryTaskContract::from_contract_evidence(item)
+            && !tasks.contains(&task)
+        {
+            tasks.push(task);
+        }
+    }
+    if tasks.is_empty() {
+        String::new()
+    } else {
+        format!("Recovery task:\n{}\n", recovery_task_list(&tasks))
+    }
+}
+
+fn tool_protocol_recovery_task_section(context: &ToolProtocolCorrectionContext) -> String {
+    let required = if context.required_fields.is_empty() {
+        "the required fields".to_string()
+    } else {
+        context.required_fields.join(", ")
+    };
+    let mut task = RecoveryTaskContract::new("tool_protocol")
+        .with_contract_code(context.reason_code.clone())
+        .with_blocker(format!("Tool call violated schema for {}", context.tool))
+        .with_required_action(format!(
+            "Emit exactly one valid {} tool call with required fields: {required}.",
+            context.tool
+        ))
+        .with_allowed_tool(context.tool.clone())
+        .with_disallowed_action("Do not answer in prose instead of a tool call.")
+        .with_disallowed_action("Do not run dependency installation.")
+        .with_success_check("tool schema validation");
+    if let Some(path) = context.target_path.clone() {
+        task = task
+            .with_repair_target(path.clone())
+            .with_candidate_artifact(path);
+    }
+    format!("Recovery task:\n{}\n", recovery_task_list(&[task]))
+}
+
+fn recovery_task_list(tasks: &[RecoveryTaskContract]) -> String {
+    tasks
+        .iter()
+        .filter_map(RecoveryTaskContract::render)
+        .map(|rendered| indent(&rendered, "  "))
+        .enumerate()
+        .map(|(index, rendered)| format!("- task {}:\n{}", index + 1, rendered))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn push_unique(values: &mut Vec<String>, value: String) {
+    if !values.iter().any(|existing| existing == &value) {
+        values.push(value);
     }
 }
 
@@ -199,6 +307,9 @@ pub fn build_replan_packet(context: &RepairContext) -> String {
             bullet_list(&context.active_profile_contract_facts)
         )
     };
+    let contract_evidence = contract_evidence_section(&context.contract_evidence);
+    let recovery_task = recovery_task_section(&context.contract_evidence);
+    let focus = repair_focus(&context.verification_failures, &context.contract_evidence);
     let packet = format!(
         "Repair failed step: {step}\n\
 Original goal: {goal}\n\
@@ -206,9 +317,18 @@ Profile: {profile}\n\
 Style: {style}\n\
 Step instruction: {instruction}\n\
 {active_contract}\
+{recovery_task}\
+Repair focus:\n{focus}\n\
 Missing expected paths:\n{missing}\n\
+Contract evidence:\n{contract_evidence}\n\
 Verification failures:\n{failures}\n\
 Changed files in failed repair attempts:\n{changed}\n\
+\n\
+Replan focus:\n\
+- Address the contract evidence first.\n\
+- If guard=verifier, fix the command failure before feature work.\n\
+- If guard=step_policy, do not put mutation in inspect/report steps.\n\
+- If guard=tool_protocol, emit valid tool calls with required fields.\n\
 \n\
 Continuation semantics:\n\
 - Running the suggested command starts a standalone repair plan for this failed step.\n\
@@ -221,7 +341,10 @@ Task: Replan only this failed step. Keep scope narrow. Preserve completed work. 
         style = context.style,
         instruction = context.step_instruction,
         active_contract = active_contract,
+        recovery_task = recovery_task,
+        focus = focus,
         missing = bullet_list(&context.missing_expected_paths),
+        contract_evidence = contract_evidence,
         failures = failure_evidence(&context.verification_failures),
         changed = bullet_list(&context.changed_files),
     );
@@ -230,6 +353,10 @@ Task: Replan only this failed step. Keep scope narrow. Preserve completed work. 
 
 pub fn build_profile_replan_packet(context: &ProfileRepairContext) -> String {
     let route_targets = profile_route_integration_targets(&context.profile_failures);
+    let profile_contract_evidence = profile_contract_evidence(context);
+    let recovery_task = recovery_task_section(&profile_contract_evidence);
+    let focus = repair_focus(&[], &profile_contract_evidence);
+    let contract_evidence = contract_evidence_section(&profile_contract_evidence);
     let packet = format!(
         "Repair failed profile verification after ultra phase: {phase}\n\
 Original goal: {goal}\n\
@@ -237,6 +364,9 @@ Phase goal: {phase_goal}\n\
 Profile: {profile}\n\
 Style: {style}\n\
 Expected paths from completed phase:\n{expected}\n\
+{recovery_task}\
+Repair focus:\n{focus}\n\
+Contract evidence:\n{contract_evidence}\n\
 Profile verification failures:\n{failures}\n\
 {route_targets}\
 Phase contract facts:\n{phase_facts}\n\
@@ -253,6 +383,9 @@ Task: Replan only the failed profile contract. Keep scope narrow. Preserve compl
         profile = context.profile,
         style = context.style,
         expected = bullet_list(&context.expected_paths),
+        recovery_task = recovery_task,
+        focus = focus,
+        contract_evidence = contract_evidence,
         failures = profile_failure_evidence(&context.profile_failures),
         route_targets = route_targets,
         phase_facts = bullet_list(&context.phase_contract_facts),
@@ -354,6 +487,20 @@ fn failure_evidence(failures: &[VerificationFailure]) -> String {
     out.join("\n")
 }
 
+fn contract_evidence_section(evidence: &[ContractEvidence]) -> String {
+    if evidence.is_empty() {
+        return "- none".to_string();
+    }
+    evidence
+        .iter()
+        .filter_map(ContractEvidence::render)
+        .map(|rendered| indent(&rendered, "  "))
+        .enumerate()
+        .map(|(index, rendered)| format!("- evidence {}:\n{}", index + 1, rendered))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 fn profile_failure_evidence(failures: &[ProfileVerificationFailure]) -> String {
     if failures.is_empty() {
         return "- none".to_string();
@@ -381,6 +528,129 @@ fn profile_route_integration_targets(failures: &[ProfileVerificationFailure]) ->
         String::new()
     } else {
         format!("Route integration targets:\n{}\n", targets.join("\n"))
+    }
+}
+
+fn profile_contract_evidence(context: &ProfileRepairContext) -> Vec<ContractEvidence> {
+    context
+        .profile_failures
+        .iter()
+        .map(|failure| profile_failure_contract_evidence(&context.phase_id, failure))
+        .collect()
+}
+
+fn profile_failure_contract_evidence(
+    phase_id: &str,
+    failure: &ProfileVerificationFailure,
+) -> ContractEvidence {
+    let repair_target = profile_repair_target(failure);
+    let mut evidence = ContractEvidence::new("profile_verification")
+        .with_failed_step(phase_id.to_string())
+        .with_violated_contract(failure.code.clone())
+        .with_reason_code(failure.code.clone())
+        .with_failure_kind("profile_contract_failed")
+        .with_diagnostic_code(failure.code.clone())
+        .with_failure_signature(failure_signature([
+            "profile_verification",
+            phase_id,
+            &failure.code,
+            repair_target.as_deref().unwrap_or(""),
+        ]))
+        .with_candidate_artifacts(failure.paths.clone())
+        .with_observed_expected_pairs(vec![profile_observed_expected_pair(failure)])
+        .with_required_action(profile_required_action(failure))
+        .with_repair_focus(profile_repair_focus(failure))
+        .with_diagnostic(failure.message.clone());
+    if let Some(target) = repair_target {
+        evidence = evidence
+            .with_target_path(target.clone())
+            .with_repair_target(target);
+    }
+    evidence
+}
+
+fn profile_repair_target(failure: &ProfileVerificationFailure) -> Option<String> {
+    match failure.code.as_str() {
+        "nextjs_route_not_integrated" => failure.paths.first().cloned(),
+        "nextjs_app_root_ambiguous" => None,
+        _ => failure.paths.first().cloned(),
+    }
+}
+
+fn profile_observed_expected_pair(failure: &ProfileVerificationFailure) -> String {
+    match failure.code.as_str() {
+        "nextjs_route_not_integrated" => {
+            let route = failure.paths.first().map(String::as_str).unwrap_or("unknown");
+            let artifact = failure.paths.get(1).map(String::as_str).unwrap_or("unknown");
+            format!(
+                "observed={artifact} is not referenced from {route}; expected=selected route imports or references artifact"
+            )
+        }
+        "nextjs_app_root_ambiguous" => {
+            "observed=app/ and src/app/ routes are mixed; expected=one selected Next.js app root"
+                .to_string()
+        }
+        "nextjs_dev_port_drift" => {
+            "observed=package.json scripts.dev does not preserve requested port; expected=next dev on requested port".to_string()
+        }
+        "nextjs_build_script_drift" => {
+            "observed=package.json scripts.build is missing or drifted; expected=next build"
+                .to_string()
+        }
+        _ => format!(
+            "observed={}; expected=profile contract {} is satisfied",
+            failure.message, failure.code
+        ),
+    }
+}
+
+fn profile_required_action(failure: &ProfileVerificationFailure) -> String {
+    match failure.code.as_str() {
+        "nextjs_route_not_integrated" => {
+            let route = failure
+                .paths
+                .first()
+                .map(String::as_str)
+                .unwrap_or("selected route");
+            let artifact = failure
+                .paths
+                .get(1)
+                .map(String::as_str)
+                .unwrap_or("the unintegrated artifact");
+            format!("edit {route} so it imports or references {artifact}")
+        }
+        "nextjs_app_root_ambiguous" => {
+            "consolidate Next.js route files under one selected app root".to_string()
+        }
+        "nextjs_tsconfig_excludes_route" => {
+            "align tsconfig rootDir with the selected Next.js route root".to_string()
+        }
+        _ => "fix the reported profile contract before adding feature work".to_string(),
+    }
+}
+
+fn profile_repair_focus(failure: &ProfileVerificationFailure) -> String {
+    match failure.code.as_str() {
+        "nextjs_route_not_integrated" => {
+            let route = failure
+                .paths
+                .first()
+                .map(String::as_str)
+                .unwrap_or("selected route");
+            let artifact = failure
+                .paths
+                .get(1)
+                .map(String::as_str)
+                .unwrap_or("unintegrated artifact");
+            format!(
+                "integrate {artifact} through selected route {route} before adding new feature work"
+            )
+        }
+        "nextjs_app_root_ambiguous" => {
+            "choose one Next.js app root and remove or migrate the other root before continuing"
+                .to_string()
+        }
+        _ => profile_required_action(failure),
     }
 }
 
@@ -521,6 +791,12 @@ mod tests {
         let packet = fs::read_to_string(saved.path).unwrap();
         assert!(packet.contains("standalone repair plan"));
         assert!(packet.contains("original ultra plan remains incomplete"));
+        assert!(packet.contains("Contract evidence"));
+        assert!(packet.contains("Recovery task"));
+        assert!(packet.contains("success_check: npm run build"));
+        assert!(packet.contains("guard: verifier"));
+        assert!(packet.contains("Replan focus"));
+        assert!(packet.contains("Address the contract evidence first"));
     }
 
     #[test]
@@ -552,7 +828,14 @@ mod tests {
         assert_eq!(parsed.profile.as_deref(), Some("nextjs"));
         let packet = fs::read_to_string(saved.path).unwrap();
         assert!(packet.contains("Repair failed profile verification"));
+        assert!(packet.contains("Contract evidence"));
+        assert!(packet.contains("Recovery task"));
+        assert!(packet.contains("success_check: profile verification"));
+        assert!(packet.contains("guard: profile_verification"));
         assert!(packet.contains("nextjs_dev_port_drift"));
+        assert!(packet.contains("profile_contract_failed"));
+        assert!(packet.contains("Repair focus"));
+        assert!(packet.contains("Current blocker: nextjs_dev_port_drift"));
         assert!(packet.contains("profile.obligation.nextjs_dev_port_required"));
         assert!(packet.contains("standalone repair plan"));
         assert!(packet.contains("original ultra plan remains incomplete"));
@@ -571,9 +854,41 @@ mod tests {
         let packet = build_profile_replan_packet(&context);
 
         assert!(packet.contains("Route integration targets"));
+        assert!(packet.contains("Recovery task"));
+        assert!(packet.contains(
+            "required_action: edit app/page.tsx so it imports or references app/hooks/useGame.ts"
+        ));
         assert!(packet.contains("selected_route=app/page.tsx"));
         assert!(packet.contains("unintegrated_artifact=app/hooks/useGame.ts"));
         assert!(packet.contains("selected route imports or references"));
+        assert!(packet.contains("repair_target: app/page.tsx"));
+        assert!(packet.contains("candidate_artifacts: app/page.tsx, app/hooks/useGame.ts"));
+        assert!(
+            packet.contains("integrate app/hooks/useGame.ts through selected route app/page.tsx")
+        );
+    }
+
+    #[test]
+    fn profile_contract_evidence_names_mixed_roots_without_arbitrary_target() {
+        let context = ProfileRepairContext {
+            profile_failures: vec![ProfileVerificationFailure {
+                code: "nextjs_app_root_ambiguous".to_string(),
+                message: "both root app and src/app routes are present".to_string(),
+                paths: vec!["app/page.tsx".to_string(), "src/app/page.tsx".to_string()],
+            }],
+            ..sample_profile_context()
+        };
+
+        let packet = build_profile_replan_packet(&context);
+
+        assert!(packet.contains("guard: profile_verification"));
+        assert!(packet.contains(
+            "failure_signature: profile_verification|setup-canvas|nextjs_app_root_ambiguous"
+        ));
+        assert!(packet.contains("candidate_artifacts: app/page.tsx, src/app/page.tsx"));
+        assert!(packet.contains("observed=app/ and src/app/ routes are mixed"));
+        assert!(packet.contains("choose one Next.js app root"));
+        assert!(!packet.contains("repair_target: app/page.tsx"));
     }
 
     #[test]
@@ -581,6 +896,12 @@ mod tests {
         let prompt = build_repair_prompt(&sample_context());
 
         assert!(prompt.contains("Verification evidence"));
+        assert!(prompt.contains("Recovery task"));
+        assert!(prompt.contains("blocker: Verifier command failed: npm run build"));
+        assert!(prompt.contains("success_check: npm run build"));
+        assert!(prompt.contains("Contract evidence"));
+        assert!(prompt.contains("guard: verifier"));
+        assert!(prompt.contains("command: npm run build"));
         assert!(prompt.contains("app/page.tsx:3"));
         assert!(prompt.contains("Missing expected paths"));
         assert!(prompt.contains("Do not use shell chaining"));
@@ -599,6 +920,38 @@ mod tests {
         assert!(prompt.contains("nextjs.app_root=src/app"));
         assert!(prompt.contains("nextjs_dev_port_required"));
         assert!(prompt.contains("preserve the listed invariant"));
+    }
+
+    #[test]
+    fn contract_evidence_section_renders_multiple_records() {
+        let context = RepairContext {
+            contract_evidence: vec![
+                ContractEvidence::new("tool_protocol")
+                    .with_failed_step("create-game-canvas")
+                    .with_violated_contract("tool_args_missing_required_field")
+                    .with_reason_code("tool_args_missing_required_field")
+                    .with_tool("Write")
+                    .with_target_field("path"),
+                ContractEvidence::new("step_policy")
+                    .with_failed_step("inspect-source")
+                    .with_violated_contract("read_only_step_mutation")
+                    .with_tool("Write")
+                    .with_required_action("move mutation into edit/create/repair step"),
+            ],
+            ..sample_context()
+        };
+
+        let packet = build_replan_packet(&context);
+
+        assert!(packet.contains("- evidence 1:"));
+        assert!(packet.contains("Recovery task"));
+        assert!(packet.contains("Tool call violated schema for Write"));
+        assert!(packet.contains("Step tool policy rejected Write"));
+        assert!(packet.contains("guard: tool_protocol"));
+        assert!(packet.contains("tool: Write"));
+        assert!(packet.contains("- evidence 2:"));
+        assert!(packet.contains("guard: step_policy"));
+        assert!(packet.len() <= MAX_REPLAN_PACKET_BYTES);
     }
 
     #[test]
@@ -655,6 +1008,11 @@ mod tests {
         });
 
         assert!(prompt.contains("Tool protocol correction"));
+        assert!(prompt.contains("Recovery task"));
+        assert!(prompt.contains("required_action: Emit exactly one valid Write tool call"));
+        assert!(prompt.contains("repair_target: tailwind.config.js"));
+        assert!(prompt.contains("allowed_tools: Write"));
+        assert!(prompt.contains("success_check: tool schema validation"));
         assert!(prompt.contains("Failed tool: Write"));
         assert!(prompt.contains("Reason: tool_args_missing_required_field"));
         assert!(prompt.contains("Missing required field: path"));
@@ -695,6 +1053,15 @@ mod tests {
                 "nextjs.app_root=src/app".to_string(),
                 "profile.obligation.nextjs_dev_port_required=port; paths=package.json; expected=scripts.dev contains next dev and 3011".to_string(),
             ],
+            contract_evidence: vec![ContractEvidence::new("verifier")
+                .with_failed_step("verify-build")
+                .with_violated_contract("command_failed:1")
+                .with_reason_code("command_failed:1")
+                .with_command("npm run build")
+                .with_required_action(
+                    "fix the reported verifier failure before adding feature work",
+                )
+                .with_diagnostic("Type error: mismatch")],
             verification_failures: vec![VerificationFailure {
                 command: "npm run build".to_string(),
                 reason: "command_failed:1".to_string(),

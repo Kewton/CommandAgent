@@ -65,7 +65,7 @@ Expected paths:\n{expected}\n\
 Verifier commands:\n{verify}\n\n\
 {missing_hint}\
 Step tool policy: {policy}\n\
-Do only this step. Use Write/Edit for file changes; Write creates parent directories automatically.\n\
+{action_guidance}\n\
 Preserve the active profile contract facts while doing only this step.\n\
 The runtime executes verifier commands after your response. Do not run listed verifier commands yourself unless the step kind is verify and the command is a single allowed local check.\n\
 Do not use compound Bash commands with &&, ||, or ;.\n\
@@ -84,6 +84,7 @@ Do not install network dependencies unless the step explicitly asks for dependen
         verify = bullet_list(&step.verify),
         missing_hint = missing_hint,
         policy = step_tool_policy_text(step.kind),
+        action_guidance = step_action_guidance(step.kind),
     ))
 }
 
@@ -110,6 +111,23 @@ fn step_tool_policy_text(kind: StepKind) -> &'static str {
         }
         StepKind::Create | StepKind::Edit | StepKind::Repair => {
             "file mutation allowed when needed; keep changes scoped to this step"
+        }
+    }
+}
+
+fn step_action_guidance(kind: StepKind) -> &'static str {
+    match kind {
+        StepKind::Inspect | StepKind::Report => {
+            "Do only this step. Produce concrete repository read evidence with Read, Glob, Grep, or read-only Bash. Do not use Write/Edit."
+        }
+        StepKind::Verify => {
+            "Do only this step. Run or report the requested local check only; do not change files."
+        }
+        StepKind::Setup => {
+            "Do only this step. Use Write/Edit only for setup or configuration files; Write creates parent directories automatically."
+        }
+        StepKind::Create | StepKind::Edit | StepKind::Repair => {
+            "Do only this step. Use Write/Edit for file changes; Write creates parent directories automatically."
         }
     }
 }
@@ -241,6 +259,28 @@ mod tests {
 
             assert!(
                 !prompt.contains("Currently missing expected paths"),
+                "kind={kind:?}\n{prompt}"
+            );
+        }
+    }
+
+    #[test]
+    fn inspect_and_report_prompts_require_read_evidence() {
+        let plan = prompt_test_plan();
+        for kind in [StepKind::Inspect, StepKind::Report] {
+            let step = prompt_test_step(kind);
+            let prompt = step_prompt(&plan, &step, &[], &empty_contract("rust")).unwrap();
+
+            assert!(
+                prompt.contains("Produce concrete repository read evidence"),
+                "kind={kind:?}\n{prompt}"
+            );
+            assert!(
+                prompt.contains("Read, Glob, Grep, or read-only Bash"),
+                "kind={kind:?}\n{prompt}"
+            );
+            assert!(
+                !prompt.contains("Write creates parent directories automatically"),
                 "kind={kind:?}\n{prompt}"
             );
         }

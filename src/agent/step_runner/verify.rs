@@ -159,13 +159,28 @@ fn diagnostic_excerpt(text: &str) -> String {
 fn source_excerpt(guard: &PathGuard, text: &str) -> Option<SourceExcerpt> {
     let (path, line) = first_source_reference(text)?;
     let resolved = guard.resolve(&path).ok()?;
+    let display_path = resolved
+        .strip_prefix(guard.root())
+        .ok()
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .unwrap_or(path);
+    if ignored_source_excerpt_path(&display_path) {
+        return None;
+    }
     let body = fs::read_to_string(&resolved).ok()?;
     let excerpt = line_window(&body, line, 2);
     Some(SourceExcerpt {
-        path,
+        path: display_path,
         line,
         excerpt,
     })
+}
+
+fn ignored_source_excerpt_path(path: &str) -> bool {
+    path.starts_with("node_modules/")
+        || path.contains("/node_modules/")
+        || path.starts_with(".next/")
+        || path.contains("/.next/")
 }
 
 fn first_source_reference(text: &str) -> Option<(String, usize)> {
@@ -289,6 +304,31 @@ mod tests {
         assert_eq!(excerpt.path, "app/page.tsx");
         assert_eq!(excerpt.line, 3);
         assert!(excerpt.excerpt.contains(">3: const value"));
+    }
+
+    #[test]
+    fn skips_dependency_source_excerpt() {
+        let root = temp_workspace("dependency-excerpt");
+        fs::create_dir_all(root.join("node_modules/tailwindcss/dist")).unwrap();
+        fs::write(
+            root.join("node_modules/tailwindcss/dist/lib.js"),
+            "line1\nline2\nthrow new Error('plugin')\nline4\n",
+        )
+        .unwrap();
+        let guard = PathGuard::new(&root).unwrap();
+        let output = CommandOutput {
+            status: 1,
+            stdout: String::new(),
+            stderr: format!(
+                "Error evaluating Node.js code\n{}:3:1\nError: plugin failure\n",
+                root.join("node_modules/tailwindcss/dist/lib.js").display()
+            ),
+        };
+
+        let failure = summarize_command_failure(&guard, "npm run build", &output);
+
+        assert!(failure.source_excerpt.is_none());
+        assert!(failure.diagnostic_excerpt.contains("plugin failure"));
     }
 
     #[test]

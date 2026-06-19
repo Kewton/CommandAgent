@@ -4,6 +4,37 @@ CommandAgent is built around a small set of modules with explicit boundaries.
 The boundary is more important than the module name: when a feature crosses a
 boundary, it should be split before more behavior is added.
 
+## Contract Architecture
+
+CommandAgent has three first-class contracts:
+
+- Planning Contract: turns a user goal into explicit step or phase contracts,
+  profile obligations, expected artifacts, and lintable success conditions.
+- Execution Contract: gives the minimal loop one clear executable task, a tool
+  policy, path safety, observations, and bounded completion guards.
+- Recovery Task Contract: turns a classified deterministic failure into a clear
+  repair instruction for the minimal loop.
+
+The Recovery Task Contract is not an execution engine. It does not choose new
+phases, retry until success, or continue hidden work. It is a contract layer
+that prepares the next bounded repair turn when a guard, verifier, or profile
+check already knows enough to name the blocker, violated contract, target or
+candidate paths, required action, disallowed actions, and the original
+guard/verifier that will judge the repair.
+
+In short, planning and recovery clarify what should be done; the minimal loop
+executes the already-clarified task. If CommandAgent cannot form a deterministic
+recovery task, it should stop with structured evidence instead of asking the
+minimal loop to infer the repair strategy from broad failure prose.
+
+Recovery Task Contract may also carry a small execution envelope. The envelope
+is selected from deterministic failure evidence and consumed by the Execution
+Contract before the next bounded repair turn. It is intentionally narrow:
+`read_only_step_mutation` selects a read-only tool policy plus repository-read
+evidence requirement; verifier/profile repair keeps file-mutation repair
+semantics; tool-protocol correction keeps the current schema-correction path.
+The envelope must not add retry authority or provider/model-specific behavior.
+
 ## Runtime
 
 - `cli`: parses command-line options and starts one-shot or REPL mode.
@@ -27,9 +58,9 @@ boundary, it should be split before more behavior is added.
 | Layer | Owns | Must Not Own |
 | --- | --- | --- |
 | Provider | HTTP/API transport, provider-specific payload shapes | Planning, repair policy, profile behavior |
-| Minimal loop | Tool-call execution, observations, bounded completion guards | Multi-step plans, domain profiles, unbounded retry |
-| Profile | Small domain facts, verifier hints, protected prefixes | Workflow control, hidden task-specific agents |
-| Step runner | Plan schema, lint, verifier, repair packet, ultra phase order | Provider transport, low-level tool implementation |
+| Minimal loop | Tool-call execution, observations, bounded completion guards | Multi-step plans, recovery strategy, domain profiles, unbounded retry |
+| Profile | Small domain facts, verifier hints, protected prefixes | Workflow control, hidden task-specific agents, execution policy |
+| Step runner | Plan schema, lint, verifier, recovery task contracts, repair packet, ultra phase order | Provider transport, low-level tool implementation |
 | TUI | TTY-aware rendering of runtime events and final answers | Planning, repair, retry, provider parsing, filesystem policy |
 | Tools | Deterministic workspace actions | Task interpretation or planning |
 | Eval | Run roots, summaries, recheck, reports | Runtime behavior changes |
@@ -254,9 +285,17 @@ The evidence pipeline has four responsibilities:
 - orchestration reruns the original guard or verifier under the existing
   bounded rules.
 
-The current common producer is plan-lint/profile-obligation evidence. Verifier,
-profile-verification, tool-protocol, and dependency-setup adapters are future
-rollouts, not current shared automation.
+The current common producers are plan-lint/profile-obligation evidence,
+tool-protocol schema failures, read-only step-policy violations, and verifier
+failures. Verifier evidence may include a stable failure signature, failure
+kind, diagnostic code, candidate artifact paths, a single repair target, a
+related source excerpt, and a bounded repair-attempt ledger when those facts
+come from the verifier result. Profile verification uses the same evidence
+payload inside its existing profile repair packet; for Next.js, this currently
+covers selected-route integration and mixed app-root failures. Dependency setup
+is not a standalone producer; if one approved setup attempt runs and the
+verifier still fails, the setup result is attached as diagnostic context to the
+verifier evidence.
 
 Verification is deterministic. It runs only commands accepted by the local Bash
 policy, detects dependency-missing cases before fake success is possible, and
@@ -272,14 +311,28 @@ if the evidence improves. Without approval, in offline mode, or after exhausted
 setup recovery, it stops with a clear blocker instead of creating a repair
 packet.
 
-Repair is bounded and evidence-driven. Repair prompts include verifier
-failures, missing expected paths, changed-file evidence, and the active profile
-contract facts collected for the current step so repairs can preserve
-contracts such as a selected Next.js app root or dev port. The default budget
-allows two file-changing attempts. A structured tool-argument schema failure
-can spend one separate current-step protocol-correction flag before ordinary
-verifier repair continues; it does not increase the verifier-repair budget or
-create a retry-until-success loop. When repair is exhausted,
+Repair is bounded and evidence-driven. Repair prompts include structured
+contract evidence, verifier failures, missing expected paths, changed-file
+evidence, and the active profile contract facts collected for the current step
+so repairs can preserve contracts such as a selected Next.js app root or dev
+port. When deterministic evidence is specific enough, the repair prompt renders
+a `Recovery task` section before repair focus and evidence provenance. That
+section states what to fix, which paths are in scope, which actions are
+disallowed, which execution envelope applies, and which original verifier,
+profile check, tool schema, or step policy will judge the result. For read-only
+step-policy recovery, the repair turn uses `StepToolPolicy::ReadOnly` and
+`RepositoryEvidenceRequired`, so prose-only answers are rejected while actual
+read evidence can satisfy the turn. A repair-focus block may still summarize
+the current blocker, failure signature, repair target, candidate artifacts, and
+required action from the same deterministic evidence. The default budget allows
+two file-changing attempts. A structured
+tool-argument schema failure can spend one separate current-step
+protocol-correction flag before ordinary verifier repair continues; it does
+not increase the verifier-repair budget or create a retry-until-success loop.
+Read-only step-policy violations and verifier failures are rendered into the
+same repair/replan evidence path so standalone repair has the failed tool,
+command, contract, target, source excerpt, and bounded diagnostic instead of
+only prose. When repair is exhausted,
 CommandAgent writes a short replan packet under `.commandagent/repairs` and
 suggests an explicit
 `/ultra-plan-run --profile <profile> "$(cat ...)"` command instead of hiding an
@@ -316,6 +369,13 @@ The minimal loop owns one coding-agent session:
 Provider transport is injected through a small `ChatClient` trait. This keeps
 Ollama, Gemini, and OpenAI transport details outside the loop. Native tool calls
 and XML fallback are both represented through the shared `ToolCall` type.
+
+The minimal loop should not decide what a failed repair task is. Its input must
+already define the task clearly enough to execute. For repair, that means the
+step runner, verifier, or profile layer owns the recovery task contract when a
+deterministic failure can identify the blocker, target, required action, and
+disallowed actions. The minimal loop executes that bounded task and the
+original guard/verifier/profile check remains the success authority.
 
 Malformed tool-call parsing in native mode downgrades the session to XML
 fallback mode. The parser feedback shows the XML format example only after this

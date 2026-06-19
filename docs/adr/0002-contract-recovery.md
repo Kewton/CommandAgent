@@ -51,6 +51,9 @@ CommandAgent also admits minimal contract recovery:
   explicit
 - recovery must use a narrow action that preserves the original step or phase
   boundary
+- recovery should define a clear recovery task before delegating to the minimal
+  loop when deterministic evidence identifies the blocker, target, and required
+  action
 - recovery must rerun the original guard or verifier instead of replacing the
   check
 - recovery must stop boundedly with evidence if the same class repeats
@@ -62,19 +65,52 @@ mutation. The correction must remain provider-independent and must not turn
 into dependency setup, profile-specific workflow, or retry-until-success
 behavior.
 
-Plan and verifier correction may also carry structured contract evidence when
-the rejecting guard already knows the violated contract. The evidence is
-limited to local facts such as the failed step id, contract code, target field,
-rejected command or path, exact missing literals, required paths, required tool
-arguments, and bounded diagnostic text. It is rendered into the existing
+Plan lint, tool protocol guards, read-only step-policy guards, and verifier
+failures may carry structured contract evidence when the rejecting guard
+already knows the violated contract. The evidence is limited to local facts
+such as the failed step id, contract code, target field, rejected command or
+path, exact missing literals, required paths, required tool arguments, and
+bounded diagnostic text. Verifier and profile failures may also carry a stable
+failure signature, failure kind or diagnostic code, candidate artifacts, a
+single deterministic repair target, related source excerpt, observed/expected
+pair, and bounded prior-attempt ledger. It is rendered into the existing
 bounded correction or repair prompt; it does not create a new recovery loop.
 
 The shared evidence type is only a data boundary. It does not imply shared
-automation across plan lint, verification, profile checks, tool protocol, or
-dependency setup. Future producers should be added only when a concrete
-observed failure needs that evidence, and they must not add retry state, target
-authority, semantic confidence, sidecar output, memory references, or provider
-policy.
+automation across plan lint, verification, profile checks, tool protocol,
+step policy, or dependency setup. Dependency setup is not a standalone
+evidence producer in the current design; after one approved setup attempt, its
+result may be attached only as diagnostic context to a remaining verifier
+failure. Future producers should be added only when a concrete observed
+failure needs that evidence, and they must not add retry authority, semantic
+confidence, sidecar output, memory references, provider policy, or hidden
+workflow state. Repair targets are allowed only when the failing deterministic
+check selects them, such as a compiler source path or selected Next.js route.
+
+Recovery tasks are first-class contracts. The minimal loop remains an executor;
+it should not be responsible for deciding the repair strategy from broad
+failure prose. When a guard, verifier, or profile check can deterministically
+identify the failure class, target, and required action, the repair layer may
+render a recovery task contract that names what to fix, what paths or tools are
+allowed, what actions are disallowed, and which original verifier or profile
+check will judge the result. This is still bounded repair context. It does not
+add a new planner, hidden continuation, retry budget, provider-specific branch,
+or profile-owned workflow.
+
+Recovery tasks may also carry a deterministic execution envelope. The envelope
+is selected from the same contract evidence and constrains the existing
+Execution Contract. A read-only step-policy failure selects read-only tools and
+repository-read evidence; verifier/profile repair selects the existing
+file-mutation repair behavior; tool-protocol correction keeps schema-correction
+semantics. The envelope is not model-selected, does not weaken the original
+guard, and does not authorize hidden continuation.
+
+The resulting architecture has three peer contract surfaces: Planning Contract,
+Execution Contract, and Recovery Task Contract. Planning Contract clarifies the
+normal work, Execution Contract runs one clarified task in the minimal loop, and
+Recovery Task Contract clarifies the repair work after a classified failure.
+Only the Execution Contract delegates to the execution engine; the other two
+contracts prepare bounded instructions for it.
 
 ## Non-Decisions
 
@@ -109,6 +145,12 @@ Structured evidence is admitted because it reduces ambiguity in an already
 bounded correction path. It should be removed or narrowed if it starts carrying
 semantic guesses, remembered cases, sidecar advice, provider-specific policy,
 or workflow state.
+
+Structured evidence alone is not always sufficient. If the evidence identifies
+the repair target and required action, the correct minimal response is to make
+the recovery task explicit before calling the minimal loop, not to ask the
+minimal loop to infer what should be done. This preserves the execution/planning
+boundary while improving repair convergence.
 
 ## Consequences
 

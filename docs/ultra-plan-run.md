@@ -80,11 +80,14 @@ literals, or required paths, such as `react-dom` for a Next.js package
 obligation. It is not a retry expansion: the original guard reruns unchanged
 and the run still stops if the bounded correction fails.
 
-This common evidence layer is currently implemented for plan-lint/profile
-obligations. Other deterministic sources, such as verifier failures, profile
-verification failures, tool protocol failures, and dependency setup blockers,
-may later provide the same kind of bounded evidence, but only through existing
-correction or repair prompts. They must not add hidden continuation or new
+This common evidence layer is implemented for plan-lint/profile obligations,
+tool protocol failures, read-only step-policy violations, and verifier
+failures. Profile verification also renders shared contract evidence inside
+its existing profile repair packet when the profile check has deterministic
+facts, such as a selected Next.js route or mixed app roots. Dependency setup is
+represented only as diagnostic context on a remaining verifier failure after
+one approved setup attempt. These evidence producers render through existing
+correction or repair prompts; they must not add hidden continuation or new
 retry budgets.
 
 The same phase contract is carried as an active contract during step
@@ -109,11 +112,22 @@ Verification is deterministic. It runs profile or plan verifier commands through
 the Bash offline policy. If verification fails, CommandAgent creates a bounded
 repair prompt containing:
 
+- a recovery task section when deterministic evidence can state the repair task
 - missing expected paths
 - verifier commands
 - diagnostic lines
 - relevant source excerpts when available
 - active profile contract facts for the current step
+
+The recovery task section is the repair instruction. It may name the blocker,
+required action, repair target or candidate artifacts, disallowed actions, and
+the original verifier/profile/tool-policy check that will judge the repair. It
+may also name an execution envelope, tool policy, and evidence requirement for
+the next bounded repair turn. For example, read-only step-policy recovery runs
+with a read-only tool policy and requires repository read evidence instead of a
+file change. It does not create another execution engine: the minimal loop
+still receives one bounded repair turn and the original verifier or guard
+reruns unchanged.
 
 If every verifier failure is `dependency_missing` and the step's expected paths
 already exist, CommandAgent treats the problem as setup recovery, not source
@@ -139,6 +153,14 @@ fixing a failed verifier, because the repair turn is an explicit
 mutation-allowed session. It then reruns the same expected-path checks and
 verifier commands. Repeated malformed tool calls stop explicitly and do not
 count as original ultra-plan completion.
+
+If a read-only step such as `inspect` or `report` attempts mutation,
+CommandAgent records a `step_policy` evidence entry with the failed tool and
+the `read_only_step_mutation` contract. The normal repair/replan path receives
+that evidence. The selected recovery envelope keeps the repair turn read-only,
+so `Read`, `Glob`, `Grep`, or read-only `Bash` can provide repository evidence,
+while `Write`, `Edit`, mutating `Bash`, and prose-only repair remain failures.
+The runtime does not silently move the mutation into a different step.
 
 Repair is capped. If repair is exhausted, CommandAgent writes a short packet to
 `.commandagent/repairs/` and prints a suggested `/ultra-plan-run` command.
