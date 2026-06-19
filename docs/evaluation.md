@@ -16,10 +16,18 @@ checks for required paths and required file content signals in addition to the
 process return code and expected artifacts.
 
 `scripts/eval_report.py <root>` summarizes `summary.tsv` by headline success,
-failure category, and case. `scripts/eval_report.py <root> --recheck` rechecks
-existing workspaces against current case `success_check.required_paths` and
-`success_check.must_include`, then writes `recheck_summary.tsv` without
-overwriting the original summary.
+failure category, and case. The eval slice runner classifies explicit profile
+contract stops as `profile_verification:<code>` when the runtime reports a
+profile verification failure such as `nextjs_dev_port_drift`. This keeps
+profile-contract drift separate from generic `rc:<status>` failures and from
+dependency setup boundaries. The runner also classifies structured tool-call
+schema failures as `tool_args_missing_required_field:<field>` or
+`tool_args_invalid_json` when stderr or repair packets show that the model
+emitted invalid tool arguments. `scripts/eval_report.py` groups these rows
+under the `tool_call_schema_failure` category. `scripts/eval_report.py <root>
+--recheck` rechecks existing workspaces against current case
+`success_check.required_paths` and `success_check.must_include`, then writes
+`recheck_summary.tsv` without overwriting the original summary.
 
 The eval runner executes cases through the mode declared in each case. Omitted
 mode defaults to `/plan-run`; large cases should normally use `/ultra-plan-run`.
@@ -85,7 +93,24 @@ final failure changed from `dependency_missing` to a real build/source error
 after setup. This keeps dependency setup separate from implementation quality.
 
 Verifier evidence is deterministic context for the next repair or replanning
-step. It is not a semantic sidecar summary.
+step. Repair prompts may also include active profile contract facts collected
+from the current workspace, such as a selected Next.js app root or requested
+dev port. These facts are evidence to preserve during bounded repair. They are
+not a semantic sidecar summary, automatic repair loop, or profile-specific
+workflow.
+
+Tool-call schema failures are separate from verifier evidence. If a parsed
+tool call is missing a required field such as `Write.path`, CommandAgent
+classifies the failure before verifier/profile interpretation. For eligible
+file-changing initial steps, the runtime may issue one strict tool protocol
+correction using deterministic schema evidence and a target path from missing
+expected paths or a single current-step `expected_paths` entry when available.
+Repair turns may also correct malformed `Write` or `Edit` calls while fixing a
+failed verifier, because the repair turn is an explicit mutation-allowed
+session. Eval reports should keep `tool_args_*` separate from
+`dependency_missing`, `profile_verification:*`, semantic checks, and app-quality
+failures, including cases where protocol correction succeeds and a later
+verifier or app-quality failure remains.
 
 For `/ultra-plan-run` cases, eval reports should also distinguish original
 ultra-plan completion from standalone repair-plan completion. A suggested
@@ -93,7 +118,12 @@ repair command starts a separate explicit repair plan; it does not mean the
 original phase list finished. When profile verification is active, reports
 should record the selected profile, profile verification result, selected app
 root when applicable, and whether failures are contract violations such as
-`phase_profile_consistency` rather than build or dependency failures.
+`profile_verification:nextjs_dev_port_drift` rather than build or dependency
+failures. For Next.js route-integration failures, reports should record the
+selected route and explicit artifact when the repair packet provides them, for
+example `app/page.tsx` and `app/hooks/useGame.ts`. When investigating profile
+drift, reports should also note whether the step and repair prompts carried
+active profile contract facts before the drift occurred.
 
 ## Recent Recovery Check
 
@@ -152,3 +182,30 @@ repair packet under `.commandagent/repairs` and suggests:
 
 The saved packet is intentionally bounded so it can be fed back through the
 slash command parser without turning the whole failed session into a new goal.
+
+## Structured Contract Evidence
+
+Some planning failures are rejected before execution by deterministic guards
+such as plan lint or profile obligations. When the guard knows exact correction
+facts, eval reports should distinguish the guard failure from the post-run
+missing-artifact summary. For example, `missing:package.json,app/page.tsx` can
+be a secondary artifact check while the actionable runtime cause is a
+`nextjs_dependencies_required` plan-lint failure.
+
+Bounded plan correction may render structured contract evidence into the
+correction prompt. The evidence should be evaluated as input clarity, not as a
+new recovery loop. Record whether the run moved past the exact violated
+contract, whether the original guard still failed after bounded correction, or
+whether a later independent failure class appeared.
+
+When evaluating evidence changes, distinguish the layer under test:
+
+- producer: the deterministic guard that emitted evidence;
+- payload: the exact fields carried, such as missing literals or paths;
+- consumer: the prompt, repair packet, or eval report that rendered it;
+- orchestration: the unchanged bounded retry and stop behavior.
+
+Do not report a run as fixed merely because evidence became clearer. Report
+whether the targeted failure class moved, whether a new independent class
+appeared, and whether the post-run artifact summary differs from the actionable
+runtime cause.

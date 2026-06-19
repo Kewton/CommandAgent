@@ -12,11 +12,22 @@ CommandAgent is still in MVP migration.
   one setup attempt and verifier retry. Without approval, in offline mode, or
   after exhausted setup recovery, the run stops as a setup blocker instead of
   suggesting a repair replan.
+- Tool-call schema failures are now classified separately from verifier and
+  profile failures. A missing required field such as `Write.path` can receive
+  one strict current-step protocol correction for eligible file-changing initial
+  steps, and repair turns may also correct malformed `Write` or `Edit` calls
+  while fixing a failed verifier. Repeated malformed tool calls still stop as
+  `tool_args_*`. This improves protocol recovery and attribution but does not
+  guarantee app-quality completion.
 - Phase-boundary profile verification is deterministic and read-only. It can
   catch structural contract drift such as Next.js app-root ambiguity, package
   script drift, and Tailwind dependency/config mismatch, but it does not score
   UI quality semantically and does not auto-resume the original ultra plan
-  after a standalone repair command.
+  after a standalone repair command. Profile obligations can steer generated
+  phase step plans away from known package contract drift and Next.js
+  route-integration drift for explicit UI/game artifacts. Active step/repair
+  prompts now carry refreshed profile facts, but these are narrow
+  deterministic facts, not a full domain workflow or generic artifact graph.
 - Terminal progress is best-effort and TTY-aware. It improves visibility into
   plans, blocking planner/model/tool waits, steps, verifiers, artifact status,
   and repair packets, and includes an interactive startup logo. It is

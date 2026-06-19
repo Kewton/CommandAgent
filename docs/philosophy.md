@@ -23,6 +23,7 @@ machinery.
 - Split large work into explicit steps instead of relying on a single long
   conversation.
 - Keep planning, execution, verification, and repair as separate contracts.
+- Treat recovery as contract correction, not hidden autonomy.
 - Treat evaluation scripts and docs as part of the product.
 
 ## Stability And Predictability
@@ -57,6 +58,76 @@ Avoid changes that make behavior unstable:
 
 This means a slower or lower-success result can still be the correct outcome if
 the alternative is opaque, non-reproducible behavior.
+
+## Recovery As Contract Correction
+
+Recovery is admissible only when it corrects a classified contract violation.
+It is not a hidden form of autonomy, a second planner, or a way to keep trying
+until the model happens to succeed.
+
+The shape of an acceptable recovery mechanism is:
+
+```text
+classified failure -> violated contract -> narrow correction action
+  -> rerun the original guard/verifier -> success or explicit bounded stop
+```
+
+The recovery action must preserve the original goal, step or phase boundary,
+verifier command, profile contract, and tool policy. It may provide missing
+contract information that is already deterministically known, such as a missing
+tool argument name, a required artifact path, a selected profile fact, or an
+approved setup command. It must not invent a new workflow, broaden the task, or
+weaken the check that failed.
+
+This keeps the runtime layers separate:
+
+- Planning creates explicit contracts; recovery does not silently rewrite a
+  failed plan into a new plan.
+- Execution runs one tool-call session; recovery may correct a tool protocol
+  violation only when the violated tool schema is known before mutation.
+- Verification judges the original contract; recovery must rerun the same
+  verifier or guard instead of replacing it with an easier check.
+- Profiles provide small deterministic facts and obligations; recovery may
+  preserve those facts but must not turn the profile into a domain workflow.
+
+Repeated recovery must remain bounded by failure class and step. If the same
+classified violation repeats after the allowed correction, CommandAgent should
+stop with explicit evidence and a user-visible repair or replan path.
+
+## Structured Contract Evidence
+
+Contract correction may use structured evidence when the evidence is produced
+by the guard that rejected the plan, tool call, verifier, or profile contract.
+This is a way to make known facts more explicit. It is not permission to add a
+new controller.
+
+An admissible evidence packet is small, deterministic, and local to the failed
+contract. It may include fields such as:
+
+- guard or verifier name
+- failed step or phase id
+- violated contract code
+- target field, path, command, or tool
+- exact missing literals, required paths, or required tool arguments
+- bounded diagnostic text from the rejecting guard
+
+The correction prompt may render this evidence to remove ambiguity, for example
+by telling the planner that a `package.json` step must literally mention
+`next`, `react`, and `react-dom`. The evidence must come from existing
+contracts such as plan lint, profile obligations, tool schemas, dependency
+setup policy, or verifier output.
+
+Structured evidence must not include semantic guesses, memory retrieval,
+sidecar judgments, hidden task state, or provider/model-specific policy. It
+must not select a new workflow, add retries, weaken the original guard, or
+continue after the bounded correction has failed.
+
+The common evidence shape is a boundary, not a common recovery engine.
+Producers detect deterministic failures, evidence carries exact facts,
+consumers render those facts into existing bounded prompts or packets, and
+orchestration keeps the original retry and stop rules. Evidence must not carry
+target authority, retry state, semantic confidence, sidecar or memory
+references, or any instruction to continue automatically.
 
 ## Why Legacy Is Removed
 
@@ -120,6 +191,13 @@ session facts:
 - the assistant described a future tool action without issuing a tool call
 - no Write/Edit has happened before a no-tool completion
 - explicitly requested artifact paths are still missing
+
+Tool-call schema rejection is also deterministic: a parsed tool call either has
+the required JSON fields for the selected tool or it does not. The minimal loop
+rejects that call before mutation. The step runner may include that structured
+schema failure in one bounded contract correction for the current step, but it
+must not become a provider-specific prompt branch, a dependency setup trigger,
+or a retry-until-success loop.
 
 Each feedback guard is bounded. It may clarify the current contradiction once,
 but it must not become a hidden planner or retry engine.

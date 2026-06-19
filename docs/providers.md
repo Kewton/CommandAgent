@@ -110,6 +110,18 @@ The payload must be a JSON object. Supported name keys are `name`, `tool`, and
 docs, and tests should use `args`. `arguments` remains accepted only for
 migration tolerance.
 
+After a provider or XML fallback parser returns a tool call, all providers share
+the same minimal-loop tool schema contract. Missing required arguments such as
+`Write.path`, `Write.content`, or `Bash.command` are rejected as structured
+tool-argument failures before any tool mutation. The step runner may expose
+that evidence through one bounded tool protocol correction, but providers do
+not own that repair policy.
+
+Tool protocol failures can align with the common contract-evidence shape in a
+future step-runner adapter, but providers still remain transport-only. Provider
+modules must not choose repair strategy, alter retry budgets, or add
+model-specific behavioral policy.
+
 Built-in argument shapes:
 
 | Tool | Args |

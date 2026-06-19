@@ -153,6 +153,23 @@ no-mutation checks. Setup steps may change setup/config files such as
 repair steps. Repair turns are explicit bounded repair sessions and may mutate
 files within the normal file-tool and path-confinement rules.
 
+Tool-call schema failures are execution-contract failures. After a provider or
+XML fallback parser has produced a tool call, the minimal-loop executor rejects
+missing required fields and invalid JSON arguments before any tool mutation.
+The step runner classifies structured tool argument failures such as
+`tool_args_missing_required_field` and may issue one strict current-step tool
+protocol correction before normal repair resumes. Initial turns only receive
+that correction for steps that can mutate by contract. Repair turns may also
+correct malformed `Write` or `Edit` calls while fixing a failed verifier, such
+as a `verify` step whose build check failed, because the repair turn itself is
+an explicit mutation-allowed session. The correction prompt names the failed
+tool, missing or invalid argument, required fields, and a deterministic target
+path when the step contract provides one: missing expected paths are preferred,
+otherwise a single step `expected_paths` entry can be used as data. Repeated
+schema failures stop explicitly and are reported in repair packets and eval
+summaries. This is not provider policy, profile verification, dependency setup,
+or verifier success.
+
 Search tools walk the workspace deterministically and skip hidden paths by
 default. Search output is bounded so a tool result cannot flood the next model
 turn.
@@ -199,9 +216,47 @@ phase-local step-planning prompt with a freshly collected bounded workspace
 snapshot, a data-only phase workspace contract, and the selected profile
 contract, then delegates to a step-plan executor. The phase contract contains
 generic facts such as visible root entries, lockfiles, package scripts, final
-required artifacts, and profile-projected summary lines. It does not choose a
-framework-specific workflow or mutate files. A phase failure stops the run and
-returns a readable phase report instead of continuing with stale context.
+required artifacts, profile-projected summary lines, and profile-projected
+obligations. Profile obligations are deterministic fact lines, not executable
+workflow. They may be used by step-plan lint to reject a generated phase plan
+that edits a contract-bearing file such as `package.json` while omitting a
+required profile literal such as the requested Next.js dev port. For Next.js,
+the same lint path may reject a generated create/edit/repair source step that
+creates an explicit UI/game artifact but does not mention the selected route in
+the step instruction or `expected_paths`. This is a narrow profile contract
+projection, not a generic artifact graph or framework workflow. The normal
+bounded plan-correction path handles rejected plans. The phase contract is also
+rendered as an active step contract before each executable step. The runtime
+refreshes current profile facts from disk immediately before the step prompt
+and before verifier-repair prompts, then asks the model to preserve those facts
+while doing only the current step. This is prompt context and repair evidence
+only; it does not mutate files, retry secretly, or turn the profile into a
+workflow engine. The phase contract does not choose a framework-specific
+workflow or mutate files. A phase failure stops the run and returns a readable
+phase report instead of continuing with stale context. If the failed phase has
+already mutated files, read-only profile verification may still run at that
+failed boundary to report any profile drift alongside the step failure.
+
+When plan lint rejects a generated step plan with deterministic contract facts,
+the rejection may carry structured contract correction evidence into the
+existing bounded plan-correction prompt. For example, a Next.js package step
+that omits `react-dom` from a dependency obligation can render the failed step,
+violated contract, required literals, and missing literals. This evidence is a
+prompt payload only: the original lint guard reruns unchanged, correction
+budgets do not increase, and no provider/model-specific branch is introduced.
+
+The evidence pipeline has four responsibilities:
+
+- producers detect deterministic failures;
+- the common evidence payload carries exact bounded facts;
+- consumers render those facts into existing correction or repair prompts and
+  packets;
+- orchestration reruns the original guard or verifier under the existing
+  bounded rules.
+
+The current common producer is plan-lint/profile-obligation evidence. Verifier,
+profile-verification, tool-protocol, and dependency-setup adapters are future
+rollouts, not current shared automation.
 
 Verification is deterministic. It runs only commands accepted by the local Bash
 policy, detects dependency-missing cases before fake success is possible, and
@@ -217,9 +272,16 @@ if the evidence improves. Without approval, in offline mode, or after exhausted
 setup recovery, it stops with a clear blocker instead of creating a repair
 packet.
 
-Repair is bounded and evidence-driven. The default budget allows two
-file-changing attempts. When repair is exhausted, CommandAgent writes a short
-replan packet under `.commandagent/repairs` and suggests an explicit
+Repair is bounded and evidence-driven. Repair prompts include verifier
+failures, missing expected paths, changed-file evidence, and the active profile
+contract facts collected for the current step so repairs can preserve
+contracts such as a selected Next.js app root or dev port. The default budget
+allows two file-changing attempts. A structured tool-argument schema failure
+can spend one separate current-step protocol-correction flag before ordinary
+verifier repair continues; it does not increase the verifier-repair budget or
+create a retry-until-success loop. When repair is exhausted,
+CommandAgent writes a short replan packet under `.commandagent/repairs` and
+suggests an explicit
 `/ultra-plan-run --profile <profile> "$(cat ...)"` command instead of hiding an
 unbounded retry loop. That suggested command starts a standalone repair plan;
 it is not reported as completion of the original ultra plan unless the original
@@ -229,9 +291,12 @@ plan is explicitly resumed or replanned and finishes.
 
 Profiles are intentionally small. They provide profile text, optional verifier
 commands, optional protected path prefixes, read-only fact summaries, and
-read-only profile verification. They do not own planning logic, edit files, or
-run domain-specific agents. Profile verification can fail a phase with explicit
-diagnostics, but it does not auto-repair.
+read-only profile obligations and verification. They do not own planning logic,
+edit files, or run domain-specific agents. Profile obligations are projected
+into common step-plan lint and active step/repair prompt facts; profile
+verification can fail a phase with explicit diagnostics and a bounded
+standalone repair packet, but it does not auto-repair or auto-resume the
+original ultra plan.
 
 The current profile set is MVP-sized: `generic`, `nextjs`, `python`, `rust`,
 `investigation`, `docs`, `data-analysis`, and `data-pipeline`. A new profile

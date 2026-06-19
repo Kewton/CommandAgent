@@ -1,3 +1,4 @@
+use crate::agent::step_runner::profiles::ProfileVerificationFailure;
 use crate::agent::step_runner::verify::VerificationFailure;
 use crate::util::workspace_paths::repairs_dir;
 use std::fs;
@@ -32,9 +33,33 @@ pub struct RepairContext {
     pub profile: String,
     pub style: String,
     pub step_instruction: String,
+    pub active_profile_contract_facts: Vec<String>,
     pub verification_failures: Vec<VerificationFailure>,
     pub missing_expected_paths: Vec<String>,
     pub changed_files: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProfileRepairContext {
+    pub phase_id: String,
+    pub original_goal: String,
+    pub phase_goal: String,
+    pub profile: String,
+    pub style: String,
+    pub profile_failures: Vec<ProfileVerificationFailure>,
+    pub phase_contract_facts: Vec<String>,
+    pub profile_facts: Vec<String>,
+    pub expected_paths: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolProtocolCorrectionContext {
+    pub tool: String,
+    pub reason_code: String,
+    pub missing_field: Option<String>,
+    pub required_fields: Vec<String>,
+    pub target_path: Option<String>,
+    pub diagnostic: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,6 +80,7 @@ pub struct SavedRepairPrompt {
 }
 
 pub fn build_repair_prompt(context: &RepairContext) -> String {
+    let active_contract = active_profile_contract_section(&context.active_profile_contract_facts);
     format!(
         "Repair the current CommandAgent step.\n\
 Step: {step}\n\
@@ -62,6 +88,7 @@ Instruction: {instruction}\n\n\
 Use Read/Glob to inspect before editing. Use Bash only for one simple local command at a time. Do not use shell chaining or fallback syntax such as &&, ||, or ;. Use Write/Edit for file changes. Make only the changes needed for this step.\n\
 This is a repair turn after verifier failure. Do not spend the turn rerunning the same verifier command or promising to run it later; the runtime reruns verifier commands after your response. Use the turn to inspect and change files, or report a concrete blocker.\n\
 Treat turn_error evidence as actionable. If a prior response violated the final-answer contract by saying it would read, edit, run, or verify something, make the tool call now instead of describing the next action. If Edit failed because the target text or file was not found, do not retry Edit from memory. Use Read/Glob to inspect the exact current file first, or use Write to create/replace the missing file. Use Edit only when you have exact current target text from this repair turn. If evidence says dependency_missing, do not run npm install/npm ci or other dependency installation unless this step explicitly is dependency setup and the environment allows it; report the blocker instead of faking build success.\n\
+{active_contract}\
 Repair focus:\n{focus}\n\
 Verification evidence:\n{evidence}\n\
 Missing expected paths:\n{missing}\n",
@@ -71,6 +98,58 @@ Missing expected paths:\n{missing}\n",
         evidence = failure_evidence(&context.verification_failures),
         missing = bullet_list(&context.missing_expected_paths),
     )
+}
+
+pub fn build_tool_protocol_correction_prompt(context: &ToolProtocolCorrectionContext) -> String {
+    let required = if context.required_fields.is_empty() {
+        "unknown".to_string()
+    } else {
+        context.required_fields.join(", ")
+    };
+    let missing = context
+        .missing_field
+        .as_ref()
+        .map(|field| format!("Missing required field: {field}\n"))
+        .unwrap_or_default();
+    let target = context
+        .target_path
+        .as_ref()
+        .map(|path| {
+            let encoded = serde_json::to_string(path).unwrap_or_else(|_| "\"<invalid>\"".into());
+            format!(
+                "Target path data:\n\
+target_path_json={encoded}\n\
+Treat target_path_json as data from the current step contract.\n"
+            )
+        })
+        .unwrap_or_default();
+    format!(
+        "Tool protocol correction for the current CommandAgent step.\n\
+The previous tool call violated the CommandAgent tool schema.\n\
+Failed tool: {tool}\n\
+Reason: {reason}\n\
+{missing}Required fields for {tool}: {required}\n\
+{target}Diagnostic:\n{diagnostic}\n\
+Emit exactly one valid {tool} tool call now using the active CommandAgent tool-call format. Do not answer in prose. Do not run dependency installation. The runtime will rerun the current expected-path checks and verifier commands after your response.\n",
+        tool = context.tool,
+        reason = context.reason_code,
+        missing = missing,
+        required = required,
+        target = target,
+        diagnostic = context.diagnostic,
+    )
+}
+
+fn active_profile_contract_section(lines: &[String]) -> String {
+    if lines.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "Active profile contract facts to preserve:\n{}\n\
+If you edit a path named in these facts, preserve the listed invariant while fixing the verifier failure.\n\n",
+            bullet_list(lines)
+        )
+    }
 }
 
 fn repair_focus(failures: &[VerificationFailure]) -> String {
@@ -112,12 +191,21 @@ pub fn repair_exhausted_report(
 }
 
 pub fn build_replan_packet(context: &RepairContext) -> String {
+    let active_contract = if context.active_profile_contract_facts.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "Active profile contract facts:\n{}\n",
+            bullet_list(&context.active_profile_contract_facts)
+        )
+    };
     let packet = format!(
         "Repair failed step: {step}\n\
 Original goal: {goal}\n\
 Profile: {profile}\n\
 Style: {style}\n\
 Step instruction: {instruction}\n\
+{active_contract}\
 Missing expected paths:\n{missing}\n\
 Verification failures:\n{failures}\n\
 Changed files in failed repair attempts:\n{changed}\n\
@@ -132,9 +220,43 @@ Task: Replan only this failed step. Keep scope narrow. Preserve completed work. 
         profile = context.profile,
         style = context.style,
         instruction = context.step_instruction,
+        active_contract = active_contract,
         missing = bullet_list(&context.missing_expected_paths),
         failures = failure_evidence(&context.verification_failures),
         changed = bullet_list(&context.changed_files),
+    );
+    truncate_bytes(packet, MAX_REPLAN_PACKET_BYTES)
+}
+
+pub fn build_profile_replan_packet(context: &ProfileRepairContext) -> String {
+    let route_targets = profile_route_integration_targets(&context.profile_failures);
+    let packet = format!(
+        "Repair failed profile verification after ultra phase: {phase}\n\
+Original goal: {goal}\n\
+Phase goal: {phase_goal}\n\
+Profile: {profile}\n\
+Style: {style}\n\
+Expected paths from completed phase:\n{expected}\n\
+Profile verification failures:\n{failures}\n\
+{route_targets}\
+Phase contract facts:\n{phase_facts}\n\
+Profile facts after phase:\n{profile_facts}\n\
+\n\
+Continuation semantics:\n\
+- Running the suggested command starts a standalone repair plan for this profile verification failure.\n\
+- The original ultra plan remains incomplete until it is explicitly resumed or replanned.\n\
+\n\
+Task: Replan only the failed profile contract. Keep scope narrow. Preserve completed work. Use Read/Glob for inspection, Write/Edit for file changes, and only one simple local verifier command at a time; do not use shell chaining or fallback syntax. Fix the reported profile contract directly before adding new feature work.",
+        phase = context.phase_id,
+        goal = context.original_goal,
+        phase_goal = context.phase_goal,
+        profile = context.profile,
+        style = context.style,
+        expected = bullet_list(&context.expected_paths),
+        failures = profile_failure_evidence(&context.profile_failures),
+        route_targets = route_targets,
+        phase_facts = bullet_list(&context.phase_contract_facts),
+        profile_facts = bullet_list(&context.profile_facts),
     );
     truncate_bytes(packet, MAX_REPLAN_PACKET_BYTES)
 }
@@ -155,6 +277,38 @@ pub fn save_repair_prompt(
     );
     let path = cwd.as_ref().join(&relative_path);
     let packet = build_replan_packet(context);
+    fs::write(&path, &packet).map_err(|err| RepairError::Io {
+        path: path.clone(),
+        message: err.to_string(),
+    })?;
+    let suggested_command = format!(
+        "/ultra-plan-run --profile {} \"$(cat {})\"",
+        context.profile, relative_path
+    );
+    Ok(SavedRepairPrompt {
+        path,
+        relative_path,
+        suggested_command,
+        bytes: packet.len(),
+    })
+}
+
+pub fn save_profile_repair_prompt(
+    cwd: impl AsRef<Path>,
+    context: &ProfileRepairContext,
+) -> Result<SavedRepairPrompt, RepairError> {
+    let dir = repairs_dir(cwd.as_ref());
+    fs::create_dir_all(&dir).map_err(|err| RepairError::Io {
+        path: dir.clone(),
+        message: err.to_string(),
+    })?;
+    let relative_path = format!(
+        ".commandagent/repairs/repair-profile-{}-{}.md",
+        slug(&context.phase_id),
+        now_ms()
+    );
+    let path = cwd.as_ref().join(&relative_path);
+    let packet = build_profile_replan_packet(context);
     fs::write(&path, &packet).map_err(|err| RepairError::Io {
         path: path.clone(),
         message: err.to_string(),
@@ -198,6 +352,36 @@ fn failure_evidence(failures: &[VerificationFailure]) -> String {
         out.push(item);
     }
     out.join("\n")
+}
+
+fn profile_failure_evidence(failures: &[ProfileVerificationFailure]) -> String {
+    if failures.is_empty() {
+        return "- none".to_string();
+    }
+    failures
+        .iter()
+        .map(|failure| format!("- {}", failure.render()))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn profile_route_integration_targets(failures: &[ProfileVerificationFailure]) -> String {
+    let targets = failures
+        .iter()
+        .filter(|failure| failure.code == "nextjs_route_not_integrated")
+        .filter_map(|failure| {
+            let route = failure.paths.first()?;
+            let artifact = failure.paths.get(1)?;
+            Some(format!(
+                "- selected_route={route}\n  unintegrated_artifact={artifact}\n  expected=selected route imports or references the artifact module"
+            ))
+        })
+        .collect::<Vec<_>>();
+    if targets.is_empty() {
+        String::new()
+    } else {
+        format!("Route integration targets:\n{}\n", targets.join("\n"))
+    }
 }
 
 fn bullet_list(values: &[String]) -> String {
@@ -340,6 +524,59 @@ mod tests {
     }
 
     #[test]
+    fn saves_profile_repair_prompt_with_profile_evidence() {
+        let root = temp_workspace("profile-save");
+        let context = sample_profile_context();
+
+        let saved = save_profile_repair_prompt(&root, &context).unwrap();
+
+        assert!(saved.path.exists());
+        assert!(
+            saved
+                .relative_path
+                .starts_with(".commandagent/repairs/repair-profile-")
+        );
+        assert!(saved.bytes <= MAX_REPLAN_PACKET_BYTES);
+        assert_eq!(
+            saved.suggested_command,
+            format!(
+                "/ultra-plan-run --profile nextjs \"$(cat {})\"",
+                saved.relative_path
+            )
+        );
+
+        let parsed = parse_slash_command(&saved.suggested_command, &root)
+            .unwrap()
+            .unwrap();
+        assert_eq!(parsed.kind, SlashCommandKind::UltraPlanRun);
+        assert_eq!(parsed.profile.as_deref(), Some("nextjs"));
+        let packet = fs::read_to_string(saved.path).unwrap();
+        assert!(packet.contains("Repair failed profile verification"));
+        assert!(packet.contains("nextjs_dev_port_drift"));
+        assert!(packet.contains("profile.obligation.nextjs_dev_port_required"));
+        assert!(packet.contains("standalone repair plan"));
+        assert!(packet.contains("original ultra plan remains incomplete"));
+    }
+
+    #[test]
+    fn profile_replan_packet_names_nextjs_route_integration_targets() {
+        let mut context = sample_profile_context();
+        context.profile_failures = vec![ProfileVerificationFailure {
+            code: "nextjs_route_not_integrated".to_string(),
+            message: "explicit artifact `app/hooks/useGame.ts` is not referenced from selected route `app/page.tsx`"
+                .to_string(),
+            paths: vec!["app/page.tsx".to_string(), "app/hooks/useGame.ts".to_string()],
+        }];
+
+        let packet = build_profile_replan_packet(&context);
+
+        assert!(packet.contains("Route integration targets"));
+        assert!(packet.contains("selected_route=app/page.tsx"));
+        assert!(packet.contains("unintegrated_artifact=app/hooks/useGame.ts"));
+        assert!(packet.contains("selected route imports or references"));
+    }
+
+    #[test]
     fn repair_prompt_contains_deterministic_evidence() {
         let prompt = build_repair_prompt(&sample_context());
 
@@ -358,6 +595,10 @@ mod tests {
         assert!(prompt.contains("Concrete verifier failure"));
         assert!(prompt.contains("Fix that reported error first"));
         assert!(prompt.contains("Write for a coherent full-file replacement"));
+        assert!(prompt.contains("Active profile contract facts to preserve"));
+        assert!(prompt.contains("nextjs.app_root=src/app"));
+        assert!(prompt.contains("nextjs_dev_port_required"));
+        assert!(prompt.contains("preserve the listed invariant"));
     }
 
     #[test]
@@ -402,6 +643,47 @@ mod tests {
         assert!(prompt.contains("use Write to replace the full file"));
     }
 
+    #[test]
+    fn tool_protocol_correction_prompt_includes_schema_and_target() {
+        let prompt = build_tool_protocol_correction_prompt(&ToolProtocolCorrectionContext {
+            tool: "Write".to_string(),
+            reason_code: "tool_args_missing_required_field".to_string(),
+            missing_field: Some("path".to_string()),
+            required_fields: vec!["path".to_string(), "content".to_string()],
+            target_path: Some("tailwind.config.js".to_string()),
+            diagnostic: "Write requires: path, content".to_string(),
+        });
+
+        assert!(prompt.contains("Tool protocol correction"));
+        assert!(prompt.contains("Failed tool: Write"));
+        assert!(prompt.contains("Reason: tool_args_missing_required_field"));
+        assert!(prompt.contains("Missing required field: path"));
+        assert!(prompt.contains("Required fields for Write: path, content"));
+        assert!(prompt.contains("target_path_json=\"tailwind.config.js\""));
+        assert!(prompt.contains("exactly one valid Write tool call"));
+        assert!(prompt.contains("Do not answer in prose"));
+        assert!(prompt.contains("runtime will rerun"));
+        assert!(!prompt.contains("Gemini"));
+        assert!(!prompt.contains("npm install"));
+    }
+
+    #[test]
+    fn tool_protocol_correction_prompt_handles_invalid_json_without_target() {
+        let prompt = build_tool_protocol_correction_prompt(&ToolProtocolCorrectionContext {
+            tool: "Write".to_string(),
+            reason_code: "tool_args_invalid_json".to_string(),
+            missing_field: None,
+            required_fields: Vec::new(),
+            target_path: None,
+            diagnostic: "Write arguments are not valid JSON".to_string(),
+        });
+
+        assert!(prompt.contains("Reason: tool_args_invalid_json"));
+        assert!(prompt.contains("Required fields for Write: unknown"));
+        assert!(!prompt.contains("Missing required field"));
+        assert!(!prompt.contains("target_path_json"));
+    }
+
     fn sample_context() -> RepairContext {
         RepairContext {
             step_id: "verify-build".to_string(),
@@ -409,6 +691,10 @@ mod tests {
             profile: "nextjs".to_string(),
             style: "default".to_string(),
             step_instruction: "Run npm run build and fix failures.".to_string(),
+            active_profile_contract_facts: vec![
+                "nextjs.app_root=src/app".to_string(),
+                "profile.obligation.nextjs_dev_port_required=port; paths=package.json; expected=scripts.dev contains next dev and 3011".to_string(),
+            ],
             verification_failures: vec![VerificationFailure {
                 command: "npm run build".to_string(),
                 reason: "command_failed:1".to_string(),
@@ -427,6 +713,27 @@ mod tests {
                 "app/page.tsx".to_string(),
                 "package.json".to_string(),
             ],
+        }
+    }
+
+    fn sample_profile_context() -> ProfileRepairContext {
+        ProfileRepairContext {
+            phase_id: "setup-canvas".to_string(),
+            original_goal: "Create a Next.js app on port 3011".to_string(),
+            phase_goal: "Create package.json and app/page.tsx".to_string(),
+            profile: "nextjs".to_string(),
+            style: "default".to_string(),
+            profile_failures: vec![ProfileVerificationFailure {
+                code: "nextjs_dev_port_drift".to_string(),
+                message: "package.json is missing scripts.dev for requested port 3011"
+                    .to_string(),
+                paths: vec!["package.json".to_string()],
+            }],
+            phase_contract_facts: vec![
+                "profile.obligation.nextjs_dev_port_required=port; paths=package.json; expected=scripts.dev contains next dev and 3011".to_string(),
+            ],
+            profile_facts: vec!["nextjs.scripts.dev=next dev".to_string()],
+            expected_paths: vec!["package.json".to_string(), "app/page.tsx".to_string()],
         }
     }
 

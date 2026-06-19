@@ -165,6 +165,55 @@ impl ProfileVerificationFailure {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProfileObligationContext {
+    pub goal_excerpt: String,
+    pub required_artifacts: Vec<String>,
+    pub phase_contract_facts: Vec<String>,
+    pub profile_facts: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProfileObligation {
+    pub code: String,
+    pub message: String,
+    pub paths: Vec<String>,
+    pub expected: Option<String>,
+}
+
+impl ProfileObligation {
+    fn new(
+        code: &str,
+        message: impl Into<String>,
+        paths: Vec<String>,
+        expected: Option<String>,
+    ) -> Self {
+        Self {
+            code: code.to_string(),
+            message: message.into(),
+            paths,
+            expected,
+        }
+    }
+
+    pub fn render(&self) -> String {
+        let mut out = if self.paths.is_empty() {
+            format!("{}: {}", self.code, self.message)
+        } else {
+            format!(
+                "{}: {} ({})",
+                self.code,
+                self.message,
+                self.paths.join(", ")
+            )
+        };
+        if let Some(expected) = &self.expected {
+            out.push_str(&format!(" expected={expected}"));
+        }
+        out
+    }
+}
+
 pub fn profile_fact_summary(profile: &str, cwd: &Path) -> Result<ProfileFactSummary, ProfileError> {
     match ProfileId::parse(profile)? {
         ProfileId::NextJs => Ok(nextjs_fact_summary(cwd)),
@@ -181,6 +230,46 @@ pub fn verify_profile(
         ProfileId::NextJs => Ok(verify_nextjs_profile(cwd, context)),
         _ => Ok(Vec::new()),
     }
+}
+
+pub fn profile_obligations(
+    profile: &str,
+    context: &ProfileObligationContext,
+) -> Result<Vec<ProfileObligation>, ProfileError> {
+    match ProfileId::parse(profile)? {
+        ProfileId::NextJs => Ok(nextjs_profile_obligations(context)),
+        _ => Ok(Vec::new()),
+    }
+}
+
+pub fn render_profile_obligations(obligations: &[ProfileObligation]) -> Vec<String> {
+    obligations
+        .iter()
+        .map(|obligation| {
+            let paths = if obligation.paths.is_empty() {
+                "none".to_string()
+            } else {
+                obligation
+                    .paths
+                    .iter()
+                    .map(|path| bounded_value(path))
+                    .collect::<Vec<_>>()
+                    .join(",")
+            };
+            let expected = obligation
+                .expected
+                .as_deref()
+                .map(bounded_value)
+                .unwrap_or_else(|| "none".to_string());
+            format!(
+                "profile.obligation.{}={}; paths={}; expected={}",
+                obligation.code,
+                bounded_value(&obligation.message),
+                paths,
+                expected
+            )
+        })
+        .collect()
 }
 
 fn data_protected_prefixes() -> Vec<String> {
@@ -438,6 +527,176 @@ fn verify_nextjs_profile(
     failures
 }
 
+fn nextjs_profile_obligations(context: &ProfileObligationContext) -> Vec<ProfileObligation> {
+    let mut obligations = Vec::new();
+    if nextjs_app_requested(context) {
+        obligations.push(ProfileObligation::new(
+            "nextjs_build_script_required",
+            "package.json scripts.build must remain an honest Next.js build",
+            vec!["package.json".to_string()],
+            Some("scripts.build == next build".to_string()),
+        ));
+        obligations.push(ProfileObligation::new(
+            "nextjs_dependencies_required",
+            "package.json dependencies must include the runtime packages for a Next.js app",
+            vec!["package.json".to_string()],
+            Some("dependencies include next, react, react-dom".to_string()),
+        ));
+    }
+    if obligation_context_requires_literal(context, "3011") {
+        obligations.push(ProfileObligation::new(
+            "nextjs_dev_port_required",
+            "package.json scripts.dev must preserve the requested development port",
+            vec!["package.json".to_string()],
+            Some("scripts.dev contains next dev and 3011".to_string()),
+        ));
+    }
+    if nextjs_tailwind_requested(context) {
+        obligations.push(ProfileObligation::new(
+            "nextjs_tailwind_dependencies_required",
+            "package.json dependencies must include Tailwind runtime tooling when Tailwind directives or config are requested",
+            vec!["package.json".to_string()],
+            Some("dependencies include tailwindcss, postcss, autoprefixer".to_string()),
+        ));
+    }
+    if let Some((route, artifact)) = nextjs_route_integration_obligation_target(context) {
+        obligations.push(ProfileObligation::new(
+            "nextjs_route_integration_required",
+            "selected Next.js route must import or reference explicit UI/game source artifacts",
+            vec![route.clone(), artifact.clone()],
+            Some(format!(
+                "selected route `{route}` references `{artifact}` or its module name"
+            )),
+        ));
+    }
+    obligations
+}
+
+fn nextjs_app_requested(context: &ProfileObligationContext) -> bool {
+    let goal = context.goal_excerpt.to_ascii_lowercase();
+    if goal.contains("next.js") || goal.contains("nextjs") || goal.contains("next js") {
+        return true;
+    }
+    context
+        .required_artifacts
+        .iter()
+        .chain(context.phase_contract_facts.iter())
+        .chain(context.profile_facts.iter())
+        .any(|value| {
+            value.contains("app/page.")
+                || value.contains("src/app/page.")
+                || value.contains("pages/index.")
+                || (value.contains("nextjs.routes=") && !value.contains("nextjs.routes=none"))
+                || (value.contains("nextjs.app_root=")
+                    && !value.contains("nextjs.app_root=unknown"))
+        })
+}
+
+fn nextjs_tailwind_requested(context: &ProfileObligationContext) -> bool {
+    let goal = context.goal_excerpt.to_ascii_lowercase();
+    if goal.contains("tailwind") {
+        return true;
+    }
+    context
+        .required_artifacts
+        .iter()
+        .chain(context.phase_contract_facts.iter())
+        .chain(context.profile_facts.iter())
+        .any(|value| {
+            let lower = value.to_ascii_lowercase();
+            lower.contains("tailwind.config")
+                || lower.contains("postcss.config")
+                || (lower.contains("nextjs.tailwind_css=")
+                    && !lower.contains("nextjs.tailwind_css=none"))
+                || lower.contains("@tailwind")
+        })
+}
+
+fn obligation_context_requires_literal(context: &ProfileObligationContext, literal: &str) -> bool {
+    context.goal_excerpt.contains(literal)
+        || context
+            .required_artifacts
+            .iter()
+            .chain(context.phase_contract_facts.iter())
+            .chain(context.profile_facts.iter())
+            .any(|value| value.contains(literal))
+}
+
+fn nextjs_route_integration_obligation_target(
+    context: &ProfileObligationContext,
+) -> Option<(String, String)> {
+    let route = selected_nextjs_route_from_obligation_context(context)?;
+    let artifact = explicit_obligation_integration_paths(context)
+        .into_iter()
+        .find(|path| path != &route)?;
+    Some((route, artifact))
+}
+
+fn selected_nextjs_route_from_obligation_context(
+    context: &ProfileObligationContext,
+) -> Option<String> {
+    let mut root = None;
+    let mut routes = Vec::new();
+    for value in context
+        .required_artifacts
+        .iter()
+        .chain(context.phase_contract_facts.iter())
+        .chain(context.profile_facts.iter())
+    {
+        if let Some(value) = value.strip_prefix("nextjs.app_root=")
+            && !matches!(value, "unknown" | "mixed")
+        {
+            root = Some(value.to_string());
+        }
+        if let Some(value) = value.strip_prefix("nextjs.routes=") {
+            for route in value.split(',') {
+                if route != "none" && is_nextjs_route_infra_path(route) {
+                    routes.push(route.to_string());
+                }
+            }
+        }
+        for token in value.split([',', ' ', '=']) {
+            if is_nextjs_route_infra_path(token) && !routes.iter().any(|route| route == token) {
+                routes.push(token.to_string());
+            }
+        }
+    }
+    if let Some(root) = root {
+        routes
+            .into_iter()
+            .find(|route| nextjs_route_matches_root(route, &root))
+    } else {
+        routes.into_iter().next()
+    }
+}
+
+fn explicit_obligation_integration_paths(context: &ProfileObligationContext) -> Vec<String> {
+    let mut paths = context
+        .required_artifacts
+        .iter()
+        .filter(|path| nextjs_route_integration_candidate(path))
+        .cloned()
+        .collect::<Vec<_>>();
+    for fact in context
+        .phase_contract_facts
+        .iter()
+        .chain(context.profile_facts.iter())
+    {
+        if fact.starts_with("profile.obligation.") {
+            continue;
+        }
+        for token in fact.split([',', ' ', '=']) {
+            if nextjs_route_integration_candidate(token) && !paths.iter().any(|path| path == token)
+            {
+                paths.push(token.to_string());
+            }
+        }
+    }
+    paths.sort();
+    paths.dedup();
+    paths
+}
+
 fn collect_nextjs_facts(cwd: &Path) -> NextJsFacts {
     let mut facts = NextJsFacts::default();
     let package_path = cwd.join("package.json");
@@ -648,6 +907,19 @@ fn selected_route_file(facts: &NextJsFacts) -> Option<String> {
         .cloned()
 }
 
+pub(crate) fn nextjs_selected_route_from_workspace(cwd: &Path) -> Option<String> {
+    selected_route_file(&collect_nextjs_facts(cwd))
+}
+
+fn nextjs_route_matches_root(route: &str, root: &str) -> bool {
+    match root {
+        "app" => route.starts_with("app/"),
+        "src/app" => route.starts_with("src/app/"),
+        "pages" => route.contains("pages/"),
+        _ => false,
+    }
+}
+
 fn context_requires_literal(context: &ProfileVerificationContext, literal: &str) -> bool {
     context.goal_excerpt.contains(literal)
         || context
@@ -668,6 +940,9 @@ fn explicit_integration_paths(context: &ProfileVerificationContext) -> Vec<Strin
         .cloned()
         .collect::<Vec<_>>();
     for fact in &context.phase_contract_facts {
+        if fact.starts_with("profile.obligation.") {
+            continue;
+        }
         for token in fact.split([',', ' ', '=']) {
             if is_source_like_path(token) && !paths.iter().any(|path| path == token) {
                 paths.push(token.to_string());
@@ -695,6 +970,10 @@ fn is_nextjs_route_infra_path(path: &str) -> bool {
             | "src/pages/index.tsx"
             | "src/pages/index.jsx"
     )
+}
+
+pub(crate) fn nextjs_route_integration_candidate(path: &str) -> bool {
+    is_source_like_path(path) && !is_nextjs_route_infra_path(path) && !is_nextjs_setup_path(path)
 }
 
 fn is_source_like_path(path: &str) -> bool {
@@ -871,6 +1150,139 @@ mod tests {
     }
 
     #[test]
+    fn nextjs_obligations_include_requested_dev_port() {
+        let obligations = profile_obligations(
+            "nextjs",
+            &obligation_context_with_goal("Create a Next.js app on port 3011"),
+        )
+        .unwrap();
+
+        assert!(
+            obligations
+                .iter()
+                .any(|obligation| obligation.code == "nextjs_dev_port_required")
+        );
+    }
+
+    #[test]
+    fn nextjs_obligations_include_build_and_dependencies_for_app_artifact() {
+        let mut context = obligation_context_with_goal("Create app");
+        context.required_artifacts = vec!["app/page.tsx".to_string()];
+
+        let obligations = profile_obligations("nextjs", &context).unwrap();
+
+        assert!(
+            obligations
+                .iter()
+                .any(|obligation| obligation.code == "nextjs_build_script_required")
+        );
+        assert!(
+            obligations
+                .iter()
+                .any(|obligation| obligation.code == "nextjs_dependencies_required")
+        );
+    }
+
+    #[test]
+    fn nextjs_obligations_include_tailwind_dependencies_when_requested() {
+        let obligations = profile_obligations(
+            "nextjs",
+            &obligation_context_with_goal("Create a Next.js app with Tailwind CSS"),
+        )
+        .unwrap();
+
+        let obligation = obligations
+            .iter()
+            .find(|obligation| obligation.code == "nextjs_tailwind_dependencies_required")
+            .expect("tailwind dependency obligation");
+        assert_eq!(
+            obligation.expected.as_deref(),
+            Some("dependencies include tailwindcss, postcss, autoprefixer")
+        );
+    }
+
+    #[test]
+    fn nextjs_obligations_include_route_integration_for_explicit_source_artifact() {
+        let mut context = obligation_context_with_goal("Create a Next.js game");
+        context.required_artifacts = vec!["app/hooks/useGame.ts".to_string()];
+        context.profile_facts = vec![
+            "nextjs.routes=app/page.tsx".to_string(),
+            "nextjs.app_root=app".to_string(),
+        ];
+
+        let obligations = profile_obligations("nextjs", &context).unwrap();
+
+        let obligation = obligations
+            .iter()
+            .find(|obligation| obligation.code == "nextjs_route_integration_required")
+            .expect("route integration obligation");
+        assert_eq!(
+            obligation.paths,
+            vec![
+                "app/page.tsx".to_string(),
+                "app/hooks/useGame.ts".to_string()
+            ]
+        );
+        assert_eq!(
+            obligation.expected.as_deref(),
+            Some(
+                "selected route `app/page.tsx` references `app/hooks/useGame.ts` or its module name"
+            )
+        );
+    }
+
+    #[test]
+    fn nextjs_obligations_do_not_require_route_integration_for_setup_paths_only() {
+        let mut context = obligation_context_with_goal("Create a Next.js app");
+        context.required_artifacts = vec![
+            "package.json".to_string(),
+            "app/page.tsx".to_string(),
+            "tailwind.config.js".to_string(),
+        ];
+        context.profile_facts = vec![
+            "nextjs.routes=app/page.tsx".to_string(),
+            "nextjs.app_root=app".to_string(),
+        ];
+
+        let obligations = profile_obligations("nextjs", &context).unwrap();
+
+        assert!(
+            obligations
+                .iter()
+                .all(|obligation| obligation.code != "nextjs_route_integration_required")
+        );
+    }
+
+    #[test]
+    fn generic_profile_has_no_profile_obligations() {
+        let obligations = profile_obligations(
+            "generic",
+            &obligation_context_with_goal("Create a Next.js app on port 3011"),
+        )
+        .unwrap();
+
+        assert!(obligations.is_empty());
+    }
+
+    #[test]
+    fn renders_profile_obligations_as_bounded_fact_lines() {
+        let obligations = vec![ProfileObligation {
+            code: "nextjs_dev_port_required".to_string(),
+            message: "x".repeat(200),
+            paths: vec!["package.json".to_string()],
+            expected: Some("scripts.dev contains next dev and 3011".to_string()),
+        }];
+
+        let rendered = render_profile_obligations(&obligations);
+
+        assert_eq!(rendered.len(), 1);
+        assert!(rendered[0].starts_with("profile.obligation.nextjs_dev_port_required="));
+        assert!(rendered[0].contains("paths=package.json"));
+        assert!(rendered[0].contains("expected=scripts.dev contains next dev and 3011"));
+        assert!(rendered[0].contains("..."));
+    }
+
+    #[test]
     fn nextjs_verification_enforces_requested_port() {
         let root = temp_workspace("verify-port");
         write_minimal_next_app(&root, r#"{"dev":"next dev","build":"next build"}"#);
@@ -990,6 +1402,85 @@ mod tests {
     }
 
     #[test]
+    fn nextjs_verification_rejects_disconnected_source_artifact() {
+        let root = temp_workspace("verify-route-disconnected");
+        write_minimal_next_app(&root, r#"{"dev":"next dev -p 3011","build":"next build"}"#);
+        fs::create_dir_all(root.join("app/hooks")).unwrap();
+        fs::write(
+            root.join("app/hooks/useGame.ts"),
+            "export function useGame() {}",
+        )
+        .unwrap();
+        let mut context = context_with_goal("run on port 3011");
+        context.expected_paths = vec!["app/hooks/useGame.ts".to_string()];
+
+        let failures = verify_profile("nextjs", &root, &context).unwrap();
+
+        assert!(
+            failures
+                .iter()
+                .any(|failure| failure.code == "nextjs_route_not_integrated"),
+            "{failures:?}"
+        );
+    }
+
+    #[test]
+    fn nextjs_verification_accepts_source_artifact_stem_reference_from_route() {
+        let root = temp_workspace("verify-route-stem-reference");
+        write_minimal_next_app(&root, r#"{"dev":"next dev -p 3011","build":"next build"}"#);
+        fs::write(
+            root.join("app/page.tsx"),
+            "import { useGame } from './hooks/useGame'; export default function Page() { useGame(); return null }",
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("app/hooks")).unwrap();
+        fs::write(
+            root.join("app/hooks/useGame.ts"),
+            "export function useGame() {}",
+        )
+        .unwrap();
+        let mut context = context_with_goal("run on port 3011");
+        context.expected_paths = vec!["app/hooks/useGame.ts".to_string()];
+
+        let failures = verify_profile("nextjs", &root, &context).unwrap();
+
+        assert!(
+            failures
+                .iter()
+                .all(|failure| failure.code != "nextjs_route_not_integrated"),
+            "{failures:?}"
+        );
+    }
+
+    #[test]
+    fn nextjs_verification_accepts_source_artifact_path_reference_from_route() {
+        let root = temp_workspace("verify-route-path-reference");
+        write_minimal_next_app(&root, r#"{"dev":"next dev -p 3011","build":"next build"}"#);
+        fs::write(
+            root.join("app/page.tsx"),
+            "const modulePath = 'app/hooks/useGame'; export default function Page() { return modulePath }",
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("app/hooks")).unwrap();
+        fs::write(
+            root.join("app/hooks/useGame.ts"),
+            "export function useGame() {}",
+        )
+        .unwrap();
+        let mut context = context_with_goal("run on port 3011");
+        context.expected_paths = vec!["app/hooks/useGame.ts".to_string()];
+
+        let failures = verify_profile("nextjs", &root, &context).unwrap();
+
+        assert!(
+            failures
+                .iter()
+                .all(|failure| failure.code != "nextjs_route_not_integrated"),
+            "{failures:?}"
+        );
+    }
+
+    #[test]
     fn nextjs_verification_does_not_require_layout_import_from_page() {
         let root = temp_workspace("verify-layout-infra");
         write_minimal_next_app(&root, r#"{"dev":"next dev -p 3011","build":"next build"}"#);
@@ -1011,11 +1502,39 @@ mod tests {
         );
     }
 
+    #[test]
+    fn nextjs_verification_ignores_profile_obligation_text_as_integration_path() {
+        let root = temp_workspace("verify-obligation-text");
+        write_minimal_next_app(&root, r#"{"dev":"next dev -p 3011","build":"next build"}"#);
+        let mut context = context_with_goal("run on port 3011");
+        context.phase_contract_facts = vec![
+            "profile.obligation.nextjs_dependencies_required=package.json dependencies must include the runtime packages for a Next.js app; paths=package.json; expected=dependencies include next, react, react-dom".to_string(),
+        ];
+
+        let failures = verify_profile("nextjs", &root, &context).unwrap();
+
+        assert!(
+            failures
+                .iter()
+                .all(|failure| failure.code != "nextjs_route_not_integrated"),
+            "{failures:?}"
+        );
+    }
+
     fn context_with_goal(goal: &str) -> ProfileVerificationContext {
         ProfileVerificationContext {
             goal_excerpt: goal.to_string(),
             required_artifacts: Vec::new(),
             expected_paths: Vec::new(),
+            phase_contract_facts: Vec::new(),
+            profile_facts: Vec::new(),
+        }
+    }
+
+    fn obligation_context_with_goal(goal: &str) -> ProfileObligationContext {
+        ProfileObligationContext {
+            goal_excerpt: goal.to_string(),
+            required_artifacts: Vec::new(),
             phase_contract_facts: Vec::new(),
             profile_facts: Vec::new(),
         }

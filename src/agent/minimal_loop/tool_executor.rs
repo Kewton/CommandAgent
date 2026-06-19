@@ -1,5 +1,5 @@
 use super::config::{DependencySetupPolicy, StepToolPolicy};
-use super::result::{MinimalLoopError, ToolExecutionRecord};
+use super::result::{MinimalLoopError, ToolArgError, ToolExecutionRecord};
 use crate::providers::ToolCall;
 use crate::safety::path_guard::PathGuard;
 use crate::tools::bash::{BashPolicy, BashTool, CommandClass, enforce_bash_policy};
@@ -46,19 +46,19 @@ impl<'a> ToolExecutor<'a> {
     }
 
     pub(super) fn execute(&self, call: &ToolCall) -> Result<ToolExecutionRecord, MinimalLoopError> {
-        let args: Value = serde_json::from_str(&call.args_json)
-            .map_err(|err| MinimalLoopError::ToolArgs(err.to_string()))?;
+        let args: Value =
+            serde_json::from_str(&call.args_json).map_err(|err| invalid_json(call, err))?;
         self.enforce_step_tool_policy(call.name.as_str(), &args)?;
         let output = match call.name.as_str() {
             "Read" => self
                 .read
-                .read(required_str(&args, "path")?)
+                .read(required_str_for_tool(&args, "Read", "path")?)
                 .map_err(tool_err)?,
             "Write" => {
                 self.write
                     .write(
-                        required_str(&args, "path")?,
-                        required_str(&args, "content")?,
+                        required_str_for_tool(&args, "Write", "path")?,
+                        required_str_for_tool(&args, "Write", "content")?,
                     )
                     .map_err(tool_err)?;
                 "wrote file".to_string()
@@ -66,9 +66,9 @@ impl<'a> ToolExecutor<'a> {
             "Edit" => {
                 self.edit
                     .replace_once(
-                        required_str(&args, "path")?,
-                        required_str(&args, "old")?,
-                        required_str(&args, "new")?,
+                        required_str_for_tool(&args, "Edit", "path")?,
+                        required_str_for_tool(&args, "Edit", "old")?,
+                        required_str_for_tool(&args, "Edit", "new")?,
                     )
                     .map_err(tool_err)?;
                 "edited file".to_string()
@@ -76,7 +76,7 @@ impl<'a> ToolExecutor<'a> {
             "Bash" => {
                 let output = self
                     .bash
-                    .run(required_str(&args, "command")?)
+                    .run(required_str_for_tool(&args, "Bash", "command")?)
                     .map_err(tool_err)?;
                 format!(
                     "status: {}\nstdout:\n{}\nstderr:\n{}",
@@ -85,7 +85,10 @@ impl<'a> ToolExecutor<'a> {
             }
             "Glob" => self
                 .glob
-                .glob(required_str(&args, "pattern")?, SearchOptions::default())
+                .glob(
+                    required_str_for_tool(&args, "Glob", "pattern")?,
+                    SearchOptions::default(),
+                )
                 .map_err(tool_err)?
                 .into_iter()
                 .map(|path| path.display().to_string())
@@ -93,7 +96,10 @@ impl<'a> ToolExecutor<'a> {
                 .join("\n"),
             "Grep" => self
                 .grep
-                .grep(required_str(&args, "pattern")?, SearchOptions::default())
+                .grep(
+                    required_str_for_tool(&args, "Grep", "pattern")?,
+                    SearchOptions::default(),
+                )
                 .map_err(tool_err)?
                 .into_iter()
                 .map(|m| format!("{}:{}:{}", m.path.display(), m.line_number, m.line))
@@ -133,7 +139,7 @@ impl<'a> ToolExecutor<'a> {
         match tool_name {
             "Read" | "Glob" | "Grep" => Ok(()),
             "Bash" => {
-                let command = required_str(args, "command")?;
+                let command = required_str_for_tool(args, "Bash", "command")?;
                 let decision = enforce_bash_policy(
                     command,
                     self.guard.root(),
@@ -166,7 +172,7 @@ impl<'a> ToolExecutor<'a> {
             "Read" | "Glob" | "Grep" => Ok(()),
             "Bash" => self.enforce_read_only(tool_name, args),
             "Write" | "Edit" => {
-                let path = required_str(args, "path")?;
+                let path = required_str_for_tool(args, tool_name, "path")?;
                 if is_setup_or_config_path(Path::new(path)) {
                     Ok(())
                 } else {
@@ -180,10 +186,40 @@ impl<'a> ToolExecutor<'a> {
     }
 }
 
-fn required_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, MinimalLoopError> {
-    args.get(key)
-        .and_then(Value::as_str)
-        .ok_or_else(|| MinimalLoopError::ToolArgs(format!("missing string field `{}`", key)))
+fn required_str_for_tool<'a>(
+    args: &'a Value,
+    tool_name: &str,
+    key: &str,
+) -> Result<&'a str, MinimalLoopError> {
+    args.get(key).and_then(Value::as_str).ok_or_else(|| {
+        MinimalLoopError::ToolArgs(ToolArgError::MissingRequiredStringField {
+            tool: tool_name.to_string(),
+            field: key.to_string(),
+            required_fields: required_fields_for_tool(tool_name)
+                .iter()
+                .map(|field| (*field).to_string())
+                .collect(),
+        })
+    })
+}
+
+fn invalid_json(call: &ToolCall, err: serde_json::Error) -> MinimalLoopError {
+    MinimalLoopError::ToolArgs(ToolArgError::InvalidJson {
+        tool: call.name.clone(),
+        message: err.to_string(),
+    })
+}
+
+fn required_fields_for_tool(tool_name: &str) -> &'static [&'static str] {
+    match tool_name {
+        "Read" => &["path"],
+        "Write" => &["path", "content"],
+        "Edit" => &["path", "old", "new"],
+        "Bash" => &["command"],
+        "Glob" => &["pattern"],
+        "Grep" => &["pattern"],
+        _ => &[],
+    }
 }
 
 fn tool_err(err: impl std::fmt::Display) -> MinimalLoopError {
@@ -334,6 +370,93 @@ mod tests {
         assert!(root.join("package.json").exists());
         assert!(err.to_string().contains("tool_policy_violation"));
         assert!(!root.join("app/page.tsx").exists());
+    }
+
+    #[test]
+    fn write_missing_path_reports_tool_arg_schema_failure() {
+        let root = temp_workspace("missing-write-path");
+        let guard = PathGuard::new(&root).unwrap();
+        let executor = ToolExecutor::new(
+            &guard,
+            DependencySetupPolicy::default(),
+            StepToolPolicy::FileMutationAllowed,
+        );
+
+        let err = executor
+            .execute(&call("Write", json!({"content":"x"})))
+            .unwrap_err();
+
+        let MinimalLoopError::ToolArgs(arg_error) = err else {
+            panic!("expected ToolArgs, got {err:?}");
+        };
+        assert_eq!(arg_error.reason_code(), "tool_args_missing_required_field");
+        assert_eq!(arg_error.tool_name(), "Write");
+        assert_eq!(arg_error.missing_field(), Some("path"));
+        assert_eq!(arg_error.required_fields().len(), 2);
+        assert_eq!(arg_error.required_fields()[0], "path");
+        assert_eq!(arg_error.required_fields()[1], "content");
+        assert!(
+            arg_error
+                .to_string()
+                .contains("required fields: path, content")
+        );
+    }
+
+    #[test]
+    fn invalid_json_reports_tool_arg_schema_failure() {
+        let root = temp_workspace("invalid-json");
+        let guard = PathGuard::new(&root).unwrap();
+        let executor = ToolExecutor::new(
+            &guard,
+            DependencySetupPolicy::default(),
+            StepToolPolicy::FileMutationAllowed,
+        );
+
+        let err = executor
+            .execute(&ToolCall {
+                name: "Write".to_string(),
+                args_json: "{".to_string(),
+            })
+            .unwrap_err();
+
+        let MinimalLoopError::ToolArgs(arg_error) = err else {
+            panic!("expected ToolArgs, got {err:?}");
+        };
+        assert_eq!(arg_error.reason_code(), "tool_args_invalid_json");
+        assert_eq!(arg_error.tool_name(), "Write");
+        assert!(
+            arg_error
+                .to_string()
+                .contains("arguments are not valid JSON")
+        );
+    }
+
+    #[test]
+    fn setup_policy_violation_stays_tool_error() {
+        let root = temp_workspace("setup-policy-is-not-schema");
+        let guard = PathGuard::new(&root).unwrap();
+        let executor = ToolExecutor::new(
+            &guard,
+            DependencySetupPolicy::default(),
+            StepToolPolicy::SetupMutationOnly,
+        );
+
+        let err = executor
+            .execute(&call(
+                "Write",
+                json!({"path":"src/main.rs","content":"fn main() {}"}),
+            ))
+            .unwrap_err();
+
+        assert!(matches!(err, MinimalLoopError::Tool(_)));
+        assert!(err.to_string().contains("tool_policy_violation"));
+    }
+
+    #[test]
+    fn required_fields_metadata_matches_current_tool_schema() {
+        assert_eq!(required_fields_for_tool("Write"), ["path", "content"]);
+        assert_eq!(required_fields_for_tool("Edit"), ["path", "old", "new"]);
+        assert_eq!(required_fields_for_tool("Bash"), ["command"]);
     }
 
     fn call(name: &str, args: serde_json::Value) -> ToolCall {

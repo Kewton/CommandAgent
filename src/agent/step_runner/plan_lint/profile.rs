@@ -19,6 +19,21 @@ pub(super) fn lint_profile_scaffolding(
         });
     }
     if profile == "nextjs" {
+        if contains_any(
+            &lower,
+            &[
+                "create-next-app",
+                "npm create next-app",
+                "pnpm create next-app",
+                "yarn create next-app",
+            ],
+        ) {
+            return Err(PlanLintError::ShellScaffold {
+                step_id: step_id.to_string(),
+                command: "create-next-app".to_string(),
+                guidance: "create package.json and app/page.tsx with Write/Edit".to_string(),
+            });
+        }
         lint_nextjs_root_drift(step_id, kind, &lower, expected_paths, cwd)?;
         if contains_any(&lower, &["build script"]) && contains_any(&lower, &["echo ok", "true"]) {
             return Err(PlanLintError::InvalidStepInstruction {

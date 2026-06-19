@@ -1,4 +1,8 @@
-use crate::agent::step_runner::StepPlan;
+use crate::agent::step_runner::correction_evidence::PlanCorrectionEvidence;
+use crate::agent::step_runner::profiles::{
+    ProfileObligation, nextjs_route_integration_candidate, nextjs_selected_route_from_workspace,
+};
+use crate::agent::step_runner::{StepKind, StepPlan};
 use std::path::Path;
 
 mod instructions;
@@ -63,6 +67,229 @@ pub fn lint_step_plan_with_workspace(
     Ok(())
 }
 
+pub fn lint_step_plan_with_workspace_and_obligations(
+    plan: &StepPlan,
+    cwd: Option<&Path>,
+    obligations: &[ProfileObligation],
+) -> Result<(), PlanLintError> {
+    lint_step_plan_with_workspace(plan, cwd)?;
+    lint_profile_obligations(plan, cwd, obligations)
+}
+
+fn lint_profile_obligations(
+    plan: &StepPlan,
+    cwd: Option<&Path>,
+    obligations: &[ProfileObligation],
+) -> Result<(), PlanLintError> {
+    lint_package_profile_obligations(plan, obligations)?;
+    lint_nextjs_route_integration_obligations(plan, cwd, obligations)
+}
+
+fn lint_package_profile_obligations(
+    plan: &StepPlan,
+    obligations: &[ProfileObligation],
+) -> Result<(), PlanLintError> {
+    let package_steps = plan
+        .steps
+        .iter()
+        .filter(|step| {
+            matches!(
+                step.kind,
+                StepKind::Create | StepKind::Edit | StepKind::Setup | StepKind::Repair
+            ) && step_mentions_package_json(step)
+        })
+        .collect::<Vec<_>>();
+    if package_steps.is_empty() {
+        return Ok(());
+    }
+    let first_step_id = package_steps[0].id.clone();
+    let package_plan_text = package_steps
+        .iter()
+        .map(|step| {
+            format!(
+                "{}\n{}",
+                step.instruction.to_ascii_lowercase(),
+                step.verify.join("\n").to_ascii_lowercase()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut missing = Vec::new();
+    let mut violated_contracts = Vec::new();
+    let mut required_literals = Vec::new();
+    let mut missing_literals = Vec::new();
+    for obligation in obligations {
+        match obligation.code.as_str() {
+            "nextjs_dev_port_required" if !package_plan_text.contains("3011") => {
+                missing.push("nextjs_dev_port_required: requested port 3011");
+                violated_contracts.push("nextjs_dev_port_required".to_string());
+                collect_missing_literals(
+                    &package_plan_text,
+                    &["3011"],
+                    &mut required_literals,
+                    &mut missing_literals,
+                );
+            }
+            "nextjs_build_script_required" if !package_plan_text.contains("next build") => {
+                missing.push("nextjs_build_script_required: scripts.build as next build");
+                violated_contracts.push("nextjs_build_script_required".to_string());
+                collect_missing_literals(
+                    &package_plan_text,
+                    &["next build"],
+                    &mut required_literals,
+                    &mut missing_literals,
+                );
+            }
+            "nextjs_dependencies_required"
+                if !["next", "react", "react-dom"]
+                    .iter()
+                    .all(|dep| package_plan_text.contains(dep)) =>
+            {
+                missing.push("nextjs_dependencies_required: next, react, and react-dom");
+                violated_contracts.push("nextjs_dependencies_required".to_string());
+                collect_missing_literals(
+                    &package_plan_text,
+                    &["next", "react", "react-dom"],
+                    &mut required_literals,
+                    &mut missing_literals,
+                );
+            }
+            "nextjs_tailwind_dependencies_required"
+                if !["tailwindcss", "postcss", "autoprefixer"]
+                    .iter()
+                    .all(|dep| package_plan_text.contains(dep)) =>
+            {
+                missing.push(
+                    "nextjs_tailwind_dependencies_required: tailwindcss, postcss, and autoprefixer",
+                );
+                violated_contracts.push("nextjs_tailwind_dependencies_required".to_string());
+                collect_missing_literals(
+                    &package_plan_text,
+                    &["tailwindcss", "postcss", "autoprefixer"],
+                    &mut required_literals,
+                    &mut missing_literals,
+                );
+            }
+            _ => {}
+        }
+    }
+    if !missing.is_empty() {
+        let reason = format!(
+            "profile obligations require package.json work to mention {}",
+            missing.join("; ")
+        );
+        return Err(PlanLintError::ContractViolation {
+            step_id: first_step_id,
+            reason: reason.clone(),
+            evidence: PlanCorrectionEvidence::new("plan_lint.profile_obligations")
+                .with_failed_step(package_steps[0].id.clone())
+                .with_violated_contract(violated_contracts.join(", "))
+                .with_target_field("instruction")
+                .with_required_literals(required_literals)
+                .with_missing_literals(missing_literals)
+                .with_required_action(
+                    "include these exact package/profile literals in the corrected package.json step instruction"
+                )
+                .with_diagnostic(reason),
+        });
+    }
+    Ok(())
+}
+
+fn lint_nextjs_route_integration_obligations(
+    plan: &StepPlan,
+    cwd: Option<&Path>,
+    obligations: &[ProfileObligation],
+) -> Result<(), PlanLintError> {
+    if plan.profile != "nextjs" {
+        return Ok(());
+    }
+    let selected_route = selected_route_from_route_obligations(obligations)
+        .or_else(|| cwd.and_then(nextjs_selected_route_from_workspace));
+    let Some(selected_route) = selected_route else {
+        return Ok(());
+    };
+    for step in plan.steps.iter().filter(|step| {
+        matches!(
+            step.kind,
+            StepKind::Create | StepKind::Edit | StepKind::Repair
+        )
+    }) {
+        let Some(candidate) = step
+            .expected_paths
+            .iter()
+            .find(|path| nextjs_route_integration_candidate(path))
+        else {
+            continue;
+        };
+        if step
+            .expected_paths
+            .iter()
+            .any(|path| path == &selected_route)
+            || step.instruction.contains(&selected_route)
+        {
+            continue;
+        }
+        let reason = format!(
+            "profile obligations require Next.js route integration: step creates or edits {candidate} but does not mention selected route {selected_route} in instruction or expected_paths"
+        );
+        return Err(PlanLintError::ContractViolation {
+            step_id: step.id.clone(),
+            reason: reason.clone(),
+            evidence: PlanCorrectionEvidence::new("plan_lint.profile_obligations")
+                .with_failed_step(step.id.clone())
+                .with_violated_contract("nextjs_route_integration_required")
+                .with_target_field("instruction_or_expected_paths")
+                .with_required_paths(vec![selected_route.clone()])
+                .with_missing_paths(vec![selected_route])
+                .with_rejected_value(candidate.clone())
+                .with_required_action(
+                    "include the selected route in expected_paths or explicitly mention updating it"
+                )
+                .with_diagnostic(reason),
+        });
+    }
+    Ok(())
+}
+
+fn collect_missing_literals(
+    text: &str,
+    required: &[&str],
+    required_literals: &mut Vec<String>,
+    missing_literals: &mut Vec<String>,
+) {
+    for literal in required {
+        push_unique(required_literals, literal);
+        if !text.contains(literal) {
+            push_unique(missing_literals, literal);
+        }
+    }
+}
+
+fn push_unique(values: &mut Vec<String>, value: &str) {
+    if !values.iter().any(|existing| existing == value) {
+        values.push(value.to_string());
+    }
+}
+
+fn selected_route_from_route_obligations(obligations: &[ProfileObligation]) -> Option<String> {
+    obligations
+        .iter()
+        .find(|obligation| obligation.code == "nextjs_route_integration_required")
+        .and_then(|obligation| obligation.paths.first())
+        .cloned()
+}
+
+fn step_mentions_package_json(step: &crate::agent::step_runner::StepPlanStep) -> bool {
+    step.expected_paths
+        .iter()
+        .any(|path| path == "package.json")
+        || step
+            .instruction
+            .to_ascii_lowercase()
+            .contains("package.json")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PlanLintError {
     InvalidExpectedPath {
@@ -86,6 +313,20 @@ pub enum PlanLintError {
         step_id: String,
         reason: String,
     },
+    ContractViolation {
+        step_id: String,
+        reason: String,
+        evidence: PlanCorrectionEvidence,
+    },
+}
+
+impl PlanLintError {
+    pub fn correction_evidence(&self) -> Option<&PlanCorrectionEvidence> {
+        match self {
+            Self::ContractViolation { evidence, .. } => Some(evidence),
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Display for PlanLintError {
@@ -117,6 +358,11 @@ impl std::fmt::Display for PlanLintError {
             Self::InvalidStepInstruction { step_id, reason } => {
                 write!(f, "step `{step_id}` has invalid instruction: {reason}")
             }
+            Self::ContractViolation {
+                step_id, reason, ..
+            } => {
+                write!(f, "step `{step_id}` has invalid instruction: {reason}")
+            }
         }
     }
 }
@@ -126,6 +372,7 @@ impl std::error::Error for PlanLintError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agent::step_runner::profiles::ProfileObligation;
     use crate::agent::step_runner::{ExpectedResult, StepKind, StepPlan, StepPlanStep, WorkIntent};
     use std::fs;
 
@@ -195,6 +442,15 @@ mod tests {
         let err = lint_step_plan(&plan).unwrap_err();
 
         assert!(matches!(err, PlanLintError::InvalidExpectedPath { .. }));
+    }
+
+    #[test]
+    fn generic_lint_error_has_no_contract_evidence() {
+        let plan = plan_with_paths("nextjs", vec!["app/layout.tsx or app/layout.ts"]);
+
+        let err = lint_step_plan(&plan).unwrap_err();
+
+        assert!(err.correction_evidence().is_none(), "{err:?}");
     }
 
     #[test]
@@ -439,6 +695,294 @@ mod tests {
     }
 
     #[test]
+    fn obligation_lint_rejects_package_step_missing_requested_port() {
+        let mut plan = plan_with_paths("nextjs", vec!["package.json"]);
+        plan.steps[0].instruction =
+            "Create package.json with next build and next/react/react-dom dependencies."
+                .to_string();
+
+        let err = lint_step_plan_with_workspace_and_obligations(
+            &plan,
+            None,
+            &[nextjs_obligation("nextjs_dev_port_required")],
+        )
+        .unwrap_err();
+
+        assert_contract_violation(
+            err,
+            "step",
+            "profile obligations require package.json work to mention nextjs_dev_port_required: requested port 3011",
+            "nextjs_dev_port_required",
+            &["3011"],
+            &["3011"],
+        );
+    }
+
+    #[test]
+    fn obligation_lint_rejects_package_step_missing_tailwind_dependencies() {
+        let mut plan = plan_with_paths("nextjs", vec!["package.json"]);
+        plan.steps[0].instruction =
+            "Create package.json with next build and next/react/react-dom dependencies."
+                .to_string();
+
+        let err = lint_step_plan_with_workspace_and_obligations(
+            &plan,
+            None,
+            &[nextjs_obligation("nextjs_tailwind_dependencies_required")],
+        )
+        .unwrap_err();
+
+        assert_contract_violation(
+            err,
+            "step",
+            "profile obligations require package.json work to mention nextjs_tailwind_dependencies_required: tailwindcss, postcss, and autoprefixer",
+            "nextjs_tailwind_dependencies_required",
+            &["tailwindcss", "postcss", "autoprefixer"],
+            &["tailwindcss", "postcss", "autoprefixer"],
+        );
+    }
+
+    #[test]
+    fn nextjs_dependency_obligation_reports_missing_react_dom() {
+        let mut plan = plan_with_paths("nextjs", vec!["package.json"]);
+        plan.steps[0].id = "create-package-json".to_string();
+        plan.steps[0].instruction =
+            "Create package.json with scripts.build as next build and dependencies next and react."
+                .to_string();
+
+        let err = lint_step_plan_with_workspace_and_obligations(
+            &plan,
+            None,
+            &[nextjs_obligation("nextjs_dependencies_required")],
+        )
+        .unwrap_err();
+
+        assert_contract_violation(
+            err,
+            "create-package-json",
+            "profile obligations require package.json work to mention nextjs_dependencies_required: next, react, and react-dom",
+            "nextjs_dependencies_required",
+            &["next", "react", "react-dom"],
+            &["react-dom"],
+        );
+    }
+
+    #[test]
+    fn obligation_lint_accepts_package_step_with_profile_contract_literals() {
+        let mut plan = plan_with_paths("nextjs", vec!["package.json"]);
+        plan.steps[0].instruction =
+            "Create package.json with scripts.dev as next dev -p 3011, scripts.build as next build, and dependencies next, react, react-dom, tailwindcss, postcss, and autoprefixer."
+                .to_string();
+
+        lint_step_plan_with_workspace_and_obligations(
+            &plan,
+            None,
+            &[
+                nextjs_obligation("nextjs_dev_port_required"),
+                nextjs_obligation("nextjs_build_script_required"),
+                nextjs_obligation("nextjs_dependencies_required"),
+                nextjs_obligation("nextjs_tailwind_dependencies_required"),
+            ],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn obligation_lint_accepts_contract_literals_split_across_package_steps() {
+        let plan = StepPlan {
+            goal: "Create Next.js app".to_string(),
+            profile: "nextjs".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::New,
+            required_artifacts: Vec::new(),
+            steps: vec![
+                StepPlanStep {
+                    id: "setup-project".to_string(),
+                    kind: StepKind::Setup,
+                    instruction: "Create package.json with scripts.build as next build and dependencies next, react, and react-dom."
+                        .to_string(),
+                    expected_result: ExpectedResult::Pass,
+                    expected_paths: vec!["package.json".to_string(), "app/page.tsx".to_string()],
+                    verify: vec!["test -f package.json".to_string()],
+                },
+                StepPlanStep {
+                    id: "configure-port".to_string(),
+                    kind: StepKind::Edit,
+                    instruction: "Update package.json scripts.dev to next dev -p 3011."
+                        .to_string(),
+                    expected_result: ExpectedResult::Pass,
+                    expected_paths: vec!["package.json".to_string()],
+                    verify: vec!["test -f package.json".to_string()],
+                },
+            ],
+        };
+
+        lint_step_plan_with_workspace_and_obligations(
+            &plan,
+            None,
+            &[
+                nextjs_obligation("nextjs_dev_port_required"),
+                nextjs_obligation("nextjs_build_script_required"),
+                nextjs_obligation("nextjs_dependencies_required"),
+            ],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn obligation_lint_requires_dev_port_for_existing_package_edits() {
+        let root = temp_workspace("nextjs-existing-package-obligation");
+        fs::write(
+            root.join("package.json"),
+            r#"{"scripts":{"dev":"next dev -p 3011","build":"next build"}}"#,
+        )
+        .unwrap();
+        let plan = StepPlan {
+            goal: "Update dependencies".to_string(),
+            profile: "nextjs".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::New,
+            required_artifacts: Vec::new(),
+            steps: vec![StepPlanStep {
+                id: "update-dependencies".to_string(),
+                kind: StepKind::Edit,
+                instruction: "Update package.json to include next, react, and react-dom as dependencies and ensure scripts.build remains set to next build.".to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec!["package.json".to_string()],
+                verify: Vec::new(),
+            }],
+        };
+
+        let err = lint_step_plan_with_workspace_and_obligations(
+            &plan,
+            Some(&root),
+            &[
+                nextjs_obligation("nextjs_dev_port_required"),
+                nextjs_obligation("nextjs_build_script_required"),
+                nextjs_obligation("nextjs_dependencies_required"),
+            ],
+        )
+        .unwrap_err();
+
+        assert_contract_violation(
+            err,
+            "update-dependencies",
+            "profile obligations require package.json work to mention nextjs_dev_port_required: requested port 3011",
+            "nextjs_dev_port_required",
+            &["3011"],
+            &["3011"],
+        );
+    }
+
+    #[test]
+    fn obligation_lint_rejects_nextjs_source_step_missing_selected_route() {
+        let mut plan = plan_with_paths("nextjs", vec!["app/hooks/useGame.ts"]);
+        plan.steps[0].instruction = "Create app/hooks/useGame.ts.".to_string();
+
+        let err = lint_step_plan_with_workspace_and_obligations(
+            &plan,
+            None,
+            &[nextjs_route_obligation(
+                "app/page.tsx",
+                "app/hooks/useGame.ts",
+            )],
+        )
+        .unwrap_err();
+
+        assert_route_contract_violation(err, "step", "app/page.tsx", "app/hooks/useGame.ts");
+    }
+
+    #[test]
+    fn nextjs_route_obligation_reports_missing_selected_route() {
+        let mut plan = plan_with_paths("nextjs", vec!["app/hooks/useGame.ts"]);
+        plan.steps[0].id = "create-game-hook".to_string();
+        plan.steps[0].instruction = "Create app/hooks/useGame.ts.".to_string();
+
+        let err = lint_step_plan_with_workspace_and_obligations(
+            &plan,
+            None,
+            &[nextjs_route_obligation(
+                "app/page.tsx",
+                "app/hooks/useGame.ts",
+            )],
+        )
+        .unwrap_err();
+
+        assert_route_contract_violation(
+            err,
+            "create-game-hook",
+            "app/page.tsx",
+            "app/hooks/useGame.ts",
+        );
+    }
+
+    #[test]
+    fn obligation_lint_accepts_nextjs_source_step_with_selected_route_expected_path() {
+        let mut plan = plan_with_paths("nextjs", vec!["app/hooks/useGame.ts", "app/page.tsx"]);
+        plan.steps[0].instruction = "Create app/hooks/useGame.ts.".to_string();
+
+        lint_step_plan_with_workspace_and_obligations(
+            &plan,
+            None,
+            &[nextjs_route_obligation(
+                "app/page.tsx",
+                "app/hooks/useGame.ts",
+            )],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn obligation_lint_accepts_nextjs_source_step_with_selected_route_instruction() {
+        let mut plan = plan_with_paths("nextjs", vec!["app/hooks/useGame.ts"]);
+        plan.steps[0].instruction =
+            "Create app/hooks/useGame.ts and wire it from app/page.tsx.".to_string();
+
+        lint_step_plan_with_workspace_and_obligations(
+            &plan,
+            None,
+            &[nextjs_route_obligation(
+                "app/page.tsx",
+                "app/hooks/useGame.ts",
+            )],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn obligation_lint_uses_workspace_selected_route_when_obligation_is_absent() {
+        let root = temp_workspace("nextjs-route-workspace-obligation");
+        fs::create_dir_all(root.join("app")).unwrap();
+        fs::write(
+            root.join("app/page.tsx"),
+            "export default function Page() {}",
+        )
+        .unwrap();
+        let mut plan = plan_with_paths("nextjs", vec!["app/hooks/useGame.ts"]);
+        plan.steps[0].instruction = "Create app/hooks/useGame.ts.".to_string();
+
+        let err =
+            lint_step_plan_with_workspace_and_obligations(&plan, Some(&root), &[]).unwrap_err();
+
+        assert_route_contract_violation(err, "step", "app/page.tsx", "app/hooks/useGame.ts");
+    }
+
+    #[test]
+    fn obligation_lint_does_not_treat_nextjs_config_as_route_integration_source() {
+        let root = temp_workspace("nextjs-route-config");
+        fs::create_dir_all(root.join("app")).unwrap();
+        fs::write(
+            root.join("app/page.tsx"),
+            "export default function Page() {}",
+        )
+        .unwrap();
+        let mut plan = plan_with_paths("nextjs", vec!["tailwind.config.js"]);
+        plan.steps[0].instruction = "Create tailwind.config.js.".to_string();
+
+        lint_step_plan_with_workspace_and_obligations(&plan, Some(&root), &[]).unwrap();
+    }
+
+    #[test]
     fn rejects_directory_only_steps() {
         let mut plan = plan_with_paths("rust", vec!["Cargo.toml"]);
         plan.steps[0].kind = StepKind::Setup;
@@ -609,6 +1153,38 @@ mod tests {
     }
 
     #[test]
+    fn rejects_nextjs_create_next_app_scaffolding() {
+        let plan = StepPlan {
+            goal: "create next app".to_string(),
+            profile: "nextjs".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::New,
+            required_artifacts: Vec::new(),
+            steps: vec![StepPlanStep {
+                id: "setup-project".to_string(),
+                kind: StepKind::Setup,
+                instruction:
+                    "Initialize a new Next.js project using create-next-app with TypeScript."
+                        .to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec!["package.json".to_string(), "app/page.tsx".to_string()],
+                verify: vec!["test -f package.json".to_string()],
+            }],
+        };
+
+        let err = lint_step_plan(&plan).unwrap_err();
+
+        assert_eq!(
+            err,
+            PlanLintError::ShellScaffold {
+                step_id: "setup-project".to_string(),
+                command: "create-next-app".to_string(),
+                guidance: "create package.json and app/page.tsx with Write/Edit".to_string()
+            }
+        );
+    }
+
+    #[test]
     fn rejects_nextjs_root_drift_from_src_app_to_app() {
         let root = temp_workspace("nextjs-src-app-drift");
         fs::create_dir_all(root.join("src/app")).unwrap();
@@ -640,6 +1216,43 @@ mod tests {
             PlanLintError::InvalidStepInstruction {
                 step_id: "create-page".to_string(),
                 reason: "Next.js workspace already uses src/app; creating app/page.tsx would split the app root unless this is an explicit migration"
+                    .to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn rejects_nextjs_root_drift_from_app_to_src_app() {
+        let root = temp_workspace("nextjs-app-drift");
+        fs::create_dir_all(root.join("app")).unwrap();
+        fs::write(
+            root.join("app/page.tsx"),
+            "export default function Page() {}",
+        )
+        .unwrap();
+        let plan = StepPlan {
+            goal: "add route".to_string(),
+            profile: "nextjs".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::Modify,
+            required_artifacts: Vec::new(),
+            steps: vec![StepPlanStep {
+                id: "create-page".to_string(),
+                kind: StepKind::Create,
+                instruction: "Create src/app/page.tsx.".to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec!["src/app/page.tsx".to_string()],
+                verify: vec!["test -f src/app/page.tsx".to_string()],
+            }],
+        };
+
+        let err = lint_step_plan_with_workspace(&plan, Some(&root)).unwrap_err();
+
+        assert_eq!(
+            err,
+            PlanLintError::InvalidStepInstruction {
+                step_id: "create-page".to_string(),
+                reason: "Next.js workspace already uses app; creating src/app/page.tsx would split the app root unless this is an explicit migration"
                     .to_string(),
             }
         );
@@ -688,6 +1301,106 @@ mod tests {
                 expected_paths: paths.into_iter().map(ToString::to_string).collect(),
                 verify: Vec::new(),
             }],
+        }
+    }
+
+    fn nextjs_obligation(code: &str) -> ProfileObligation {
+        ProfileObligation {
+            code: code.to_string(),
+            message: code.to_string(),
+            paths: vec!["package.json".to_string()],
+            expected: None,
+        }
+    }
+
+    fn nextjs_route_obligation(route: &str, artifact: &str) -> ProfileObligation {
+        ProfileObligation {
+            code: "nextjs_route_integration_required".to_string(),
+            message:
+                "selected Next.js route must import or reference explicit UI/game source artifacts"
+                    .to_string(),
+            paths: vec![route.to_string(), artifact.to_string()],
+            expected: Some(format!(
+                "selected route `{route}` references `{artifact}` or its module name"
+            )),
+        }
+    }
+
+    fn assert_contract_violation(
+        err: PlanLintError,
+        expected_step: &str,
+        expected_reason: &str,
+        expected_contract: &str,
+        expected_required_literals: &[&str],
+        expected_missing_literals: &[&str],
+    ) {
+        match err {
+            PlanLintError::ContractViolation {
+                step_id,
+                reason,
+                evidence,
+            } => {
+                assert_eq!(step_id, expected_step);
+                assert_eq!(reason, expected_reason);
+                assert_eq!(evidence.failed_step.as_deref(), Some(expected_step));
+                assert_eq!(
+                    evidence.violated_contract.as_deref(),
+                    Some(expected_contract)
+                );
+                assert_eq!(evidence.target_field.as_deref(), Some("instruction"));
+                assert_eq!(
+                    evidence.required_literals,
+                    expected_required_literals
+                        .iter()
+                        .map(|value| value.to_string())
+                        .collect::<Vec<_>>()
+                );
+                assert_eq!(
+                    evidence.missing_literals,
+                    expected_missing_literals
+                        .iter()
+                        .map(|value| value.to_string())
+                        .collect::<Vec<_>>()
+                );
+                let rendered = evidence.render().unwrap();
+                assert!(rendered.contains(expected_contract), "{rendered}");
+            }
+            other => panic!("expected contract violation, got {other:?}"),
+        }
+    }
+
+    fn assert_route_contract_violation(
+        err: PlanLintError,
+        expected_step: &str,
+        expected_route: &str,
+        expected_artifact: &str,
+    ) {
+        match err {
+            PlanLintError::ContractViolation {
+                step_id,
+                reason,
+                evidence,
+            } => {
+                assert_eq!(step_id, expected_step);
+                assert_eq!(
+                    reason,
+                    format!(
+                        "profile obligations require Next.js route integration: step creates or edits {expected_artifact} but does not mention selected route {expected_route} in instruction or expected_paths"
+                    )
+                );
+                assert_eq!(
+                    evidence.violated_contract.as_deref(),
+                    Some("nextjs_route_integration_required")
+                );
+                assert_eq!(
+                    evidence.target_field.as_deref(),
+                    Some("instruction_or_expected_paths")
+                );
+                assert_eq!(evidence.required_paths, vec![expected_route.to_string()]);
+                assert_eq!(evidence.missing_paths, vec![expected_route.to_string()]);
+                assert_eq!(evidence.rejected_value.as_deref(), Some(expected_artifact));
+            }
+            other => panic!("expected route contract violation, got {other:?}"),
         }
     }
 

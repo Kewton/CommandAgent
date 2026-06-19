@@ -1,3 +1,4 @@
+pub mod correction_evidence;
 pub mod plan_lint;
 pub mod profiles;
 pub mod repair;

@@ -7,6 +7,7 @@ python3 - "$repo_root" "$@" <<'PY'
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -119,6 +120,28 @@ def failure_evidence(workdir, stdout, stderr):
     return "\n".join(parts)
 
 
+def runtime_failure_reason(evidence):
+    profile_match = re.search(
+        r"profile verification failed[^\n]*?:\s*([a-z0-9_]+):", evidence
+    )
+    if profile_match:
+        return "profile_verification:" + profile_match.group(1)
+    tool_missing_match = re.search(
+        r"tool_args_missing_required_field[\s\S]*?required string field `([^`]+)` was missing",
+        evidence,
+    )
+    if tool_missing_match:
+        return "tool_args_missing_required_field:" + tool_missing_match.group(1)
+    tool_missing_match = re.search(r"missing string field `([^`]+)`", evidence)
+    if "invalid tool arguments" in evidence and tool_missing_match:
+        return "tool_args_missing_required_field:" + tool_missing_match.group(1)
+    if "tool_args_invalid_json" in evidence or "arguments are not valid JSON" in evidence:
+        return "tool_args_invalid_json"
+    if "dependency_missing" in evidence:
+        return "dependency_missing"
+    return None
+
+
 def semantic_failures(workdir, case):
     check = case.get("success_check") or {}
     missing = [
@@ -139,6 +162,12 @@ def semantic_failures(workdir, case):
 
 
 def success_reason(workdir, rc, missing, semantic_missing, semantic_mismatches, stdout, stderr):
+    evidence = ""
+    if rc != 0:
+        evidence = failure_evidence(workdir, stdout, stderr)
+        runtime_reason = runtime_failure_reason(evidence)
+        if runtime_reason:
+            return runtime_reason
     if missing:
         return "missing:" + ",".join(missing)
     if semantic_missing:
@@ -148,9 +177,6 @@ def success_reason(workdir, rc, missing, semantic_missing, semantic_mismatches, 
     if rc == 0:
         return "ok"
 
-    evidence = failure_evidence(workdir, stdout, stderr)
-    if "dependency_missing" in evidence:
-        return "dependency_missing"
     return f"rc:{rc}"
 
 

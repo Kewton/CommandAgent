@@ -56,6 +56,36 @@ and limited to observed project facts:
 These checks can fail a phase with visible diagnostics. They do not edit files,
 score UI quality, or run a hidden Next.js workflow.
 
+Phase step planning also receives a small set of profile obligations derived
+from the original goal, required artifacts, and current workspace facts. These
+obligations are data-only facts rendered into the phase contract. For Next.js,
+they can require package.json work to explicitly preserve `scripts.build` as
+`next build`, include `next`, `react`, and `react-dom`, and preserve a requested
+dev port such as `3011` in `scripts.dev`. When Tailwind directives or config
+are requested, the same obligation path can require `tailwindcss`, `postcss`,
+and `autoprefixer` to be mentioned in package.json work. When the selected
+route is known and an explicit UI/game source artifact is part of the phase
+contract, Next.js can also project a route-integration obligation requiring the
+generated step plan to mention the selected route in the source-editing step
+instruction or `expected_paths`. Step-plan lint uses these facts only to reject
+generated package.json or Next.js source steps that omit the relevant
+obligation. If that happens, the existing bounded plan correction path is used;
+the profile still does not run a workflow engine or repair files by itself.
+This route-integration obligation is intentionally Next.js-specific for now;
+common artifact graph behavior should wait for another observed cross-profile
+failure class.
+
+During execution, the shared step runner renders an active profile contract
+into each step prompt and repair prompt. It combines phase contract facts with
+current profile facts collected from disk immediately before the step or repair
+turn. This helps preserve contracts such as the selected app root and requested
+dev port across later edits, while keeping recovery bounded and visible.
+
+Profile verification failures may later be adapted into the common
+contract-evidence payload, but that would still be evidence rendering only.
+Profiles must not carry target authority, retry state, semantic confidence, or
+workflow decisions.
+
 ## Python Contract
 
 The `python` profile is for scripts, libraries, and tests. It prefers local

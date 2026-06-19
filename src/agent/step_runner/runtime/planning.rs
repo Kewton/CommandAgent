@@ -1,6 +1,9 @@
 use super::PlannerRuntimeConfig;
 use crate::agent::minimal_loop::loop_run::ChatClient;
-use crate::agent::step_runner::plan_lint::lint_step_plan_with_workspace;
+use crate::agent::step_runner::correction_evidence::PlanCorrectionEvidence;
+use crate::agent::step_runner::plan_lint::PlanLintError;
+use crate::agent::step_runner::plan_lint::lint_step_plan_with_workspace_and_obligations;
+use crate::agent::step_runner::profiles::ProfileObligation;
 use crate::agent::step_runner::ultra_plan::{UltraPlan, parse_ultra_plan_yaml};
 use crate::agent::step_runner::{StepPlan, WorkIntent, extract_plan_from_response};
 use crate::providers::{ChatMessage, ChatRequest, ChatRole};
@@ -13,8 +16,46 @@ pub(super) struct StepPlanCorrectionContext<'a> {
     pub(super) style: &'a str,
     pub(super) intent: WorkIntent,
     pub(super) required_artifacts: &'a [String],
+    pub(super) profile_obligations: &'a [ProfileObligation],
     pub(super) save_kind: &'a str,
     pub(super) prompt_kind: &'a str,
+}
+
+pub(super) struct GeneratedStepPlanContext<'a> {
+    pub(super) goal: &'a str,
+    pub(super) profile: &'a str,
+    pub(super) style: &'a str,
+    pub(super) intent: WorkIntent,
+    pub(super) required_artifacts: &'a [String],
+    pub(super) profile_obligations: &'a [ProfileObligation],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct GeneratedPlanError {
+    pub(super) message: String,
+    pub(super) correction_evidence: Option<PlanCorrectionEvidence>,
+}
+
+impl GeneratedPlanError {
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            correction_evidence: None,
+        }
+    }
+
+    fn from_lint(error: PlanLintError) -> Self {
+        Self {
+            message: format!("plan lint failed: {error}"),
+            correction_evidence: error.correction_evidence().cloned(),
+        }
+    }
+}
+
+impl std::fmt::Display for GeneratedPlanError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
 }
 
 pub(super) fn planner_text<C>(
@@ -47,17 +88,20 @@ where
 pub(super) fn parse_generated_step_plan(
     cwd: &Path,
     text: &str,
-    goal: &str,
-    profile: &str,
-    style: &str,
-    intent: WorkIntent,
-    required_artifacts: &[String],
-) -> Result<StepPlan, String> {
-    let normalized =
-        ensure_generated_plan_header(text, goal, profile, style, intent, required_artifacts);
-    let plan = extract_plan_from_response(&normalized).map_err(|err| err.to_string())?;
-    lint_step_plan_with_workspace(&plan, Some(cwd))
-        .map_err(|err| format!("plan lint failed: {err}"))?;
+    context: &GeneratedStepPlanContext<'_>,
+) -> Result<StepPlan, GeneratedPlanError> {
+    let normalized = ensure_generated_plan_header(
+        text,
+        context.goal,
+        context.profile,
+        context.style,
+        context.intent,
+        context.required_artifacts,
+    );
+    let plan = extract_plan_from_response(&normalized)
+        .map_err(|err| GeneratedPlanError::new(err.to_string()))?;
+    lint_step_plan_with_workspace_and_obligations(&plan, Some(cwd), context.profile_obligations)
+        .map_err(GeneratedPlanError::from_lint)?;
     Ok(plan)
 }
 

@@ -2,7 +2,7 @@ use super::SlashRuntime;
 use super::paths::{display_path, missing_paths};
 use super::planning::{StepPlanCorrectionContext, planner_text};
 use super::prompts::step_prompt;
-use super::repair_loop::RepairStepState;
+use super::repair_loop::{RepairStepRequest, RepairStepState};
 use crate::agent::events::{
     ArtifactScope, ArtifactStatus, PlanKind, RuntimeEvent, RuntimeObserver, bounded_event_text,
 };
@@ -12,7 +12,10 @@ use crate::agent::step_runner::plan_lint::lint_step_plan_with_workspace;
 use crate::agent::step_runner::profiles::{
     ProfileVerificationContext, profile_contract_text, profile_fact_summary, verify_profile,
 };
-use crate::agent::step_runner::runtime::phase_contract::PhaseWorkspaceContract;
+use crate::agent::step_runner::repair::{ProfileRepairContext, save_profile_repair_prompt};
+use crate::agent::step_runner::runtime::phase_contract::{
+    ActiveStepContract, PhaseWorkspaceContract, current_profile_facts,
+};
 use crate::agent::step_runner::ultra_plan::{UltraPlan, parse_ultra_plan_yaml};
 use crate::agent::step_runner::ultra_run::phase_step_plan_prompt;
 use crate::agent::step_runner::verify::{VerificationFailure, run_verifiers};
@@ -50,8 +53,14 @@ where
             phase.id
         ));
         let snapshot = crate::agent::step_runner::ultra_run::workspace_snapshot(runtime.cwd);
-        let phase_contract =
-            PhaseWorkspaceContract::collect(runtime.cwd, &plan.profile, &plan.required_artifacts);
+        let phase_contract = PhaseWorkspaceContract::collect_with_goal(
+            runtime.cwd,
+            &plan.profile,
+            &plan.required_artifacts,
+            &format!("{} {}", plan.goal, phase.goal),
+        );
+        let active_contract_seed =
+            ActiveStepContract::from_phase_contract(&plan.profile, &phase_contract, Vec::new());
         let phase_contract_rendered = phase_contract.render();
         let prompt = phase_step_plan_prompt(
             plan,
@@ -67,6 +76,7 @@ where
             style: &plan.style,
             intent: WorkIntent::parse(&plan.intent).unwrap_or(WorkIntent::Unknown),
             required_artifacts: &plan.required_artifacts,
+            profile_obligations: &phase_contract.profile_obligations,
             save_kind: "phase-step-plan",
             prompt_kind: "phase step plan",
         };
@@ -83,9 +93,20 @@ where
             phase.id,
             display_path(runtime.cwd, &path)
         ));
-        let report = match execute_step_plan(runtime, &step_plan, observer) {
+        let report = match execute_step_plan(runtime, &step_plan, &active_contract_seed, observer) {
             Ok(report) => report,
             Err(err) => {
+                let err = match verify_phase_profile(
+                    runtime.cwd,
+                    plan,
+                    phase,
+                    &step_plan,
+                    &phase_contract,
+                    observer,
+                ) {
+                    Ok(()) => err,
+                    Err(profile_err) => format!("{err}\n{profile_err}"),
+                };
                 observer.on_event(RuntimeEvent::UltraPhaseFailed {
                     index: idx + 1,
                     total: plan.phases.len(),
@@ -150,9 +171,9 @@ fn verify_phase_profile(
     let context = ProfileVerificationContext {
         goal_excerpt: bounded_event_text(format!("{} {}", plan.goal, phase.goal)),
         required_artifacts: plan.required_artifacts.clone(),
-        expected_paths,
+        expected_paths: expected_paths.clone(),
         phase_contract_facts: phase_contract.fact_lines(),
-        profile_facts,
+        profile_facts: profile_facts.clone(),
     };
     let failures = verify_profile(&plan.profile, cwd, &context).map_err(|err| err.to_string())?;
     if failures.is_empty() {
@@ -167,17 +188,35 @@ fn verify_phase_profile(
         profile: bounded_event_text(&plan.profile),
         failures: rendered.clone(),
     });
+    let saved = save_profile_repair_prompt(
+        cwd,
+        &ProfileRepairContext {
+            phase_id: phase.id.clone(),
+            original_goal: plan.goal.clone(),
+            phase_goal: phase.goal.clone(),
+            profile: plan.profile.clone(),
+            style: plan.style.clone(),
+            profile_failures: failures,
+            phase_contract_facts: phase_contract.fact_lines(),
+            profile_facts,
+            expected_paths,
+        },
+    )
+    .map_err(|err| err.to_string())?;
     Err(format!(
-        "profile verification failed for {} after phase {}: {}. Run an explicit repair or replan command; the runtime did not continue automatically.",
+        "profile verification failed for {} after phase {}: {}.\nprofile repair prompt saved: {}\nsuggested command: {}\nRun an explicit repair or replan command; the runtime did not continue automatically.",
         plan.profile,
         phase.id,
-        rendered.join("; ")
+        rendered.join("; "),
+        saved.relative_path,
+        saved.suggested_command
     ))
 }
 
 pub(super) fn execute_step_plan<E, P>(
     runtime: &mut SlashRuntime<'_, E, P>,
     plan: &StepPlan,
+    contract_seed: &ActiveStepContract,
     observer: &mut dyn RuntimeObserver,
 ) -> Result<String, String>
 where
@@ -198,7 +237,7 @@ where
             plan.steps.len(),
             step.id
         ));
-        if let Err(err) = execute_step(runtime, plan, step, observer) {
+        if let Err(err) = execute_step(runtime, plan, step, contract_seed, observer) {
             observer.on_event(RuntimeEvent::StepFailed {
                 index: idx + 1,
                 total: plan.steps.len(),
@@ -222,6 +261,7 @@ pub(super) fn execute_step<E, P>(
     runtime: &mut SlashRuntime<'_, E, P>,
     plan: &StepPlan,
     step: &StepPlanStep,
+    contract_seed: &ActiveStepContract,
     observer: &mut dyn RuntimeObserver,
 ) -> Result<(), String>
 where
@@ -241,20 +281,28 @@ where
             return Ok(());
         }
         return runtime.repair_step_with_state(
-            plan,
-            step,
-            config,
+            RepairStepRequest {
+                plan,
+                step,
+                config,
+                contract_seed,
+            },
             RepairStepState {
                 failures,
                 changed_files: Vec::new(),
                 file_changing_attempts: 0,
                 initial_turn_error: None,
                 dependency_setup_attempted: false,
+                tool_arg_schema_correction_spent: false,
+                pending_tool_arg_error: None,
+                pending_tool_arg_error_source: None,
             },
             observer,
         );
     }
-    let prompt = step_prompt(plan, step, &missing_expected_paths)?;
+    let active_contract =
+        contract_seed.with_current_profile_facts(current_profile_facts(&plan.profile, runtime.cwd));
+    let prompt = step_prompt(plan, step, &missing_expected_paths, &active_contract)?;
     let result = match crate::agent::minimal_loop::loop_run::run_session_with_observer(
         runtime.executor,
         runtime.cwd,
@@ -264,18 +312,34 @@ where
     ) {
         Ok(result) => result,
         Err(err) => {
-            let turn_error = err.to_string();
             let failures = verify_step_with_observer(runtime.cwd, step, observer)?;
             if fatal_turn_error_for_step(&err) {
                 return runtime.repair_step_after_turn_error(
-                    plan, step, config, turn_error, failures, observer,
+                    RepairStepRequest {
+                        plan,
+                        step,
+                        config,
+                        contract_seed,
+                    },
+                    err,
+                    failures,
+                    observer,
                 );
             }
             if failures.is_empty() || step_accepts_verifier_failure(step) {
                 return Ok(());
             }
-            return runtime
-                .repair_step_after_turn_error(plan, step, config, turn_error, failures, observer);
+            return runtime.repair_step_after_turn_error(
+                RepairStepRequest {
+                    plan,
+                    step,
+                    config,
+                    contract_seed,
+                },
+                err,
+                failures,
+                observer,
+            );
         }
     };
     let failures = verify_step_with_observer(runtime.cwd, step, observer)?;
@@ -283,7 +347,17 @@ where
         return Ok(());
     }
 
-    runtime.repair_step(plan, step, config, result, failures, observer)
+    runtime.repair_step(
+        RepairStepRequest {
+            plan,
+            step,
+            config,
+            contract_seed,
+        },
+        result,
+        failures,
+        observer,
+    )
 }
 
 fn step_accepts_verifier_failure(step: &StepPlanStep) -> bool {

@@ -140,6 +140,12 @@ def categorize(reason):
         return "missing_artifact"
     if reason.startswith("semantic_missing:") or reason.startswith("semantic_mismatch:"):
         return "semantic_check_failed"
+    if reason.startswith("profile_verification:"):
+        return "profile_verification"
+    if reason.startswith("tool_args_") or reason.startswith("tool_protocol_failure:"):
+        return "tool_call_schema_failure"
+    if reason == "dependency_missing":
+        return "dependency_missing"
     if reason.startswith("rc:"):
         return "rc_nonzero"
     return "check_failed"

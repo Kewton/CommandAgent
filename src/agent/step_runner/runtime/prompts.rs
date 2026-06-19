@@ -1,4 +1,6 @@
+use crate::agent::step_runner::correction_evidence::PlanCorrectionEvidence;
 use crate::agent::step_runner::profiles::profile_contract_text;
+use crate::agent::step_runner::runtime::phase_contract::ActiveStepContract;
 use crate::agent::step_runner::{StepKind, StepPlan, StepPlanStep};
 
 pub(super) fn plan_correction_prompt(
@@ -6,11 +8,14 @@ pub(super) fn plan_correction_prompt(
     invalid_plan: &str,
     error: &str,
     plan_kind: &str,
+    correction_evidence: Option<&PlanCorrectionEvidence>,
 ) -> String {
+    let evidence_section = correction_evidence_section(correction_evidence);
     format!(
         "The generated CommandAgent {plan_kind} is invalid and must be corrected.\n\
 Original goal:\n{original_goal}\n\n\
 Validation error:\n{error}\n\n\
+{evidence_section}\
 Invalid plan:\n{invalid_plan}\n\n\
 If the error mentions shell scaffolding, replace that step with explicit file creation or editing instructions that can be completed with Write/Edit.\n\
 If the error mentions optional inspection, inspect discovery, missing inspect expected_paths, test -d, or test -f on a non-required inspect step, use kind: inspect with expected_paths: [] and verify: [].\n\
@@ -24,12 +29,24 @@ Return only corrected YAML using the required CommandAgent schema."
     )
 }
 
+fn correction_evidence_section(evidence: Option<&PlanCorrectionEvidence>) -> String {
+    let Some(rendered) = evidence.and_then(PlanCorrectionEvidence::render) else {
+        return String::new();
+    };
+    format!(
+        "{rendered}\n\
+Copy exact required literals and paths from this evidence into the corrected YAML. Do not paraphrase required literals or paths.\n\n"
+    )
+}
+
 pub(super) fn step_prompt(
     plan: &StepPlan,
     step: &StepPlanStep,
     missing_expected_paths: &[String],
+    active_contract: &ActiveStepContract,
 ) -> Result<String, String> {
     let profile_contract = profile_contract_text(&plan.profile).map_err(|err| err.to_string())?;
+    let active_contract_section = active_profile_contract_section(active_contract);
     let missing_hint = missing_expected_paths_hint(step, missing_expected_paths);
     Ok(format!(
         "Run one CommandAgent step.\n\
@@ -39,6 +56,7 @@ Style: {style}\n\
 Intent: {intent}\n\
 Required final artifacts:\n{artifacts}\n\
 Profile contract:\n{profile_contract}\n\n\
+{active_contract_section}\
 Step id: {step_id}\n\
 Step kind: {kind}\n\
 Step instruction: {instruction}\n\
@@ -48,6 +66,7 @@ Verifier commands:\n{verify}\n\n\
 {missing_hint}\
 Step tool policy: {policy}\n\
 Do only this step. Use Write/Edit for file changes; Write creates parent directories automatically.\n\
+Preserve the active profile contract facts while doing only this step.\n\
 The runtime executes verifier commands after your response. Do not run listed verifier commands yourself unless the step kind is verify and the command is a single allowed local check.\n\
 Do not use compound Bash commands with &&, ||, or ;.\n\
 Do not install network dependencies unless the step explicitly asks for dependency setup and the environment allows it.",
@@ -56,6 +75,7 @@ Do not install network dependencies unless the step explicitly asks for dependen
         style = plan.style,
         intent = plan.intent.as_str(),
         artifacts = bullet_list(&plan.required_artifacts),
+        active_contract_section = active_contract_section,
         step_id = step.id,
         kind = step.kind.as_str(),
         instruction = step.instruction,
@@ -65,6 +85,18 @@ Do not install network dependencies unless the step explicitly asks for dependen
         missing_hint = missing_hint,
         policy = step_tool_policy_text(step.kind),
     ))
+}
+
+fn active_profile_contract_section(active_contract: &ActiveStepContract) -> String {
+    let lines = active_contract.rendered_lines();
+    if lines.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "Active profile contract facts:\n{}\n\n",
+            bullet_list(&lines)
+        )
+    }
 }
 
 fn step_tool_policy_text(kind: StepKind) -> &'static str {
@@ -143,11 +175,21 @@ mod tests {
         }
     }
 
+    fn empty_contract(profile: &str) -> ActiveStepContract {
+        ActiveStepContract::empty(profile)
+    }
+
     #[test]
     fn step_prompt_shows_missing_paths_for_create_step() {
         let plan = prompt_test_plan();
         let step = prompt_test_step(StepKind::Create);
-        let prompt = step_prompt(&plan, &step, &["src/commands.rs".to_string()]).unwrap();
+        let prompt = step_prompt(
+            &plan,
+            &step,
+            &["src/commands.rs".to_string()],
+            &empty_contract("rust"),
+        )
+        .unwrap();
 
         assert!(
             prompt.contains("Currently missing expected paths"),
@@ -168,7 +210,13 @@ mod tests {
     fn step_prompt_shows_missing_paths_for_edit_step() {
         let plan = prompt_test_plan();
         let step = prompt_test_step(StepKind::Edit);
-        let prompt = step_prompt(&plan, &step, &["src/commands.rs".to_string()]).unwrap();
+        let prompt = step_prompt(
+            &plan,
+            &step,
+            &["src/commands.rs".to_string()],
+            &empty_contract("rust"),
+        )
+        .unwrap();
 
         assert!(
             prompt.contains("Currently missing expected paths"),
@@ -183,7 +231,13 @@ mod tests {
         let plan = prompt_test_plan();
         for kind in [StepKind::Inspect, StepKind::Verify, StepKind::Report] {
             let step = prompt_test_step(kind);
-            let prompt = step_prompt(&plan, &step, &["src/commands.rs".to_string()]).unwrap();
+            let prompt = step_prompt(
+                &plan,
+                &step,
+                &["src/commands.rs".to_string()],
+                &empty_contract("rust"),
+            )
+            .unwrap();
 
             assert!(
                 !prompt.contains("Currently missing expected paths"),
@@ -196,12 +250,48 @@ mod tests {
     fn step_prompt_omits_missing_hint_when_no_missing_paths() {
         let plan = prompt_test_plan();
         let step = prompt_test_step(StepKind::Create);
-        let prompt = step_prompt(&plan, &step, &[]).unwrap();
+        let prompt = step_prompt(&plan, &step, &[], &empty_contract("rust")).unwrap();
 
         assert!(
             !prompt.contains("Currently missing expected paths"),
             "{prompt}"
         );
+    }
+
+    #[test]
+    fn step_prompt_includes_active_profile_contract_facts() {
+        let mut plan = prompt_test_plan();
+        plan.profile = "nextjs".to_string();
+        let step = prompt_test_step(StepKind::Edit);
+        let active = ActiveStepContract {
+            profile: "nextjs".to_string(),
+            base_phase_contract_facts: vec!["nextjs.app_root=src/app".to_string()],
+            profile_obligations: vec![crate::agent::step_runner::profiles::ProfileObligation {
+                code: "nextjs_dev_port_required".to_string(),
+                message: "scripts.dev must preserve requested port".to_string(),
+                paths: vec!["package.json".to_string()],
+                expected: Some("scripts.dev contains next dev and 3011".to_string()),
+            }],
+            current_profile_facts: Vec::new(),
+        };
+
+        let prompt = step_prompt(&plan, &step, &[], &active).unwrap();
+
+        assert!(prompt.contains("Active profile contract facts"));
+        assert!(prompt.contains("nextjs.app_root=src/app"));
+        assert!(prompt.contains("nextjs_dev_port_required"));
+        assert!(prompt.contains("scripts.dev contains next dev and 3011"));
+        assert!(prompt.contains("Preserve the active profile contract facts"));
+    }
+
+    #[test]
+    fn step_prompt_omits_active_contract_when_empty() {
+        let plan = prompt_test_plan();
+        let step = prompt_test_step(StepKind::Edit);
+
+        let prompt = step_prompt(&plan, &step, &[], &empty_contract("rust")).unwrap();
+
+        assert!(!prompt.contains("Active profile contract facts"));
     }
 
     #[test]
@@ -211,6 +301,7 @@ mod tests {
             "verify:\n  - grep -q \"pub fn\" src/cli.rs",
             "plan lint failed: step `create-cli-module` has invalid verifier command `grep -q \"pub fn\" src/cli.rs`: source-code behavior must be verified with build/test/check commands",
             "phase step plan",
+            None,
         );
 
         assert!(prompt.contains("remove every invalid verifier"));
@@ -228,6 +319,7 @@ mod tests {
             "kind: setup\ninstruction: Install analytics library with npm install\nverify:\n  - test -f node_modules/.package-lock.json",
             "plan lint failed: dependency installation must not be a required success step",
             "phase step plan",
+            None,
         );
 
         assert!(prompt.contains("do not plan npm install"));
@@ -235,5 +327,42 @@ mod tests {
         assert!(prompt.contains("Replace that work with a report step"));
         assert!(prompt.contains("expected_result: unavailable"));
         assert!(prompt.contains("verify: []"));
+    }
+
+    #[test]
+    fn plan_correction_prompt_includes_contract_evidence() {
+        let evidence = PlanCorrectionEvidence {
+            guard: "plan_lint.profile_obligations".to_string(),
+            failed_step: Some("create-package-json".to_string()),
+            violated_contract: Some("nextjs_dependencies_required".to_string()),
+            target_field: Some("instruction".to_string()),
+            required_literals: vec![
+                "next".to_string(),
+                "react".to_string(),
+                "react-dom".to_string(),
+            ],
+            missing_literals: vec!["react-dom".to_string()],
+            required_action: Some(
+                "include these exact package literals in the corrected package.json step instruction"
+                    .to_string(),
+            ),
+            ..Default::default()
+        };
+
+        let prompt = plan_correction_prompt(
+            "Create Next.js app",
+            "steps:\n- id: create-package-json",
+            "plan lint failed: missing dependency literals",
+            "phase step plan",
+            Some(&evidence),
+        );
+
+        assert!(prompt.contains("Contract correction evidence"));
+        assert!(prompt.contains("- failed_step: create-package-json"));
+        assert!(prompt.contains("- violated_contract: nextjs_dependencies_required"));
+        assert!(prompt.contains("- required_literals: next, react, react-dom"));
+        assert!(prompt.contains("- missing_literals: react-dom"));
+        assert!(prompt.contains("Copy exact required literals and paths"));
+        assert!(prompt.contains("Do not paraphrase required literals or paths"));
     }
 }

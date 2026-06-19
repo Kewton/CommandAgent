@@ -51,8 +51,13 @@ where
 
     for phase in &plan.phases {
         let snapshot = workspace_snapshot(cwd);
-        let phase_contract =
-            PhaseWorkspaceContract::collect(cwd, &plan.profile, &plan.required_artifacts).render();
+        let phase_contract = PhaseWorkspaceContract::collect_with_goal(
+            cwd,
+            &plan.profile,
+            &plan.required_artifacts,
+            &format!("{} {}", plan.goal, phase.goal),
+        )
+        .render();
         let prompt =
             phase_step_plan_prompt(plan, phase, &snapshot, &phase_contract, profile_contract);
         let step_plan = match planner.generate_step_plan(&prompt) {
