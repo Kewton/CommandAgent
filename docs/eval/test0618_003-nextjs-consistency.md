@@ -361,14 +361,15 @@ Classification:
 - not dependency setup
 - not UI or gameplay quality
 
-Anvil comparison:
+Legacy comparison:
 
-- Anvil also rejects missing required tool fields in its tool registry.
-- Anvil additionally classifies malformed tool-call behavior as
+- The legacy engine also rejected missing required tool fields in its tool
+  registry.
+- The legacy engine additionally classified malformed tool-call behavior as
   `ToolProtocolFailure` / `tool_call_format_error` and has broader bounded
   recovery notes.
-- CommandAgent does not port Anvil's broader reminder, sidecar, case-memory,
-  or recovery-job stack. It adopts only the small common-contract idea:
+- CommandAgent does not port the broader reminder, sidecar, case-memory, or
+  recovery-job stack. It adopts only the small common-contract idea:
   tool-call schema failure is distinct from verifier failure and profile
   failure.
 
@@ -576,7 +577,7 @@ Design interpretation:
 
 - The change is Next.js-only and uses existing profile obligation, plan-lint,
   profile verification, and repair packet channels.
-- It does not add a generic artifact graph, hidden retry loop, Anvil
+- It does not add a generic artifact graph, hidden retry loop, legacy
   focused-edit stack, provider-specific prompt branch, or automatic original
   ultra-plan resume.
 - Cross-profile rollout is deferred until another observed failure justifies a

@@ -181,7 +181,7 @@ fn lint_package_profile_obligations(
         return Err(PlanLintError::ContractViolation {
             step_id: first_step_id,
             reason: reason.clone(),
-            evidence: PlanCorrectionEvidence::new("plan_lint.profile_obligations")
+            evidence: Box::new(PlanCorrectionEvidence::new("plan_lint.profile_obligations")
                 .with_failed_step(package_steps[0].id.clone())
                 .with_violated_contract(violated_contracts.join(", "))
                 .with_target_field("instruction")
@@ -190,7 +190,7 @@ fn lint_package_profile_obligations(
                 .with_required_action(
                     "include these exact package/profile literals in the corrected package.json step instruction"
                 )
-                .with_diagnostic(reason),
+                .with_diagnostic(reason)),
         });
     }
     Ok(())
@@ -236,7 +236,7 @@ fn lint_nextjs_route_integration_obligations(
         return Err(PlanLintError::ContractViolation {
             step_id: step.id.clone(),
             reason: reason.clone(),
-            evidence: PlanCorrectionEvidence::new("plan_lint.profile_obligations")
+            evidence: Box::new(PlanCorrectionEvidence::new("plan_lint.profile_obligations")
                 .with_failed_step(step.id.clone())
                 .with_violated_contract("nextjs_route_integration_required")
                 .with_target_field("instruction_or_expected_paths")
@@ -246,7 +246,7 @@ fn lint_nextjs_route_integration_obligations(
                 .with_required_action(
                     "include the selected route in expected_paths or explicitly mention updating it"
                 )
-                .with_diagnostic(reason),
+                .with_diagnostic(reason)),
         });
     }
     Ok(())
@@ -316,14 +316,14 @@ pub enum PlanLintError {
     ContractViolation {
         step_id: String,
         reason: String,
-        evidence: PlanCorrectionEvidence,
+        evidence: Box<PlanCorrectionEvidence>,
     },
 }
 
 impl PlanLintError {
     pub fn correction_evidence(&self) -> Option<&PlanCorrectionEvidence> {
         match self {
-            Self::ContractViolation { evidence, .. } => Some(evidence),
+            Self::ContractViolation { evidence, .. } => Some(evidence.as_ref()),
             _ => None,
         }
     }

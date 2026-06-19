@@ -229,7 +229,7 @@ where
                         &text,
                         &err.message,
                         context.prompt_kind,
-                        err.correction_evidence.as_ref(),
+                        err.correction_evidence.as_deref(),
                     );
                     text = planner_text(self.planner, &self.planner_config, &correction)?;
                 }

@@ -33,7 +33,7 @@ pub(super) struct GeneratedStepPlanContext<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct GeneratedPlanError {
     pub(super) message: String,
-    pub(super) correction_evidence: Option<PlanCorrectionEvidence>,
+    pub(super) correction_evidence: Option<Box<PlanCorrectionEvidence>>,
 }
 
 impl GeneratedPlanError {
@@ -47,7 +47,7 @@ impl GeneratedPlanError {
     fn from_lint(error: PlanLintError) -> Self {
         Self {
             message: format!("plan lint failed: {error}"),
-            correction_evidence: error.correction_evidence().cloned(),
+            correction_evidence: error.correction_evidence().cloned().map(Box::new),
         }
     }
 }
