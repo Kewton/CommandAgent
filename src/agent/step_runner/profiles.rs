@@ -1,3 +1,4 @@
+use crate::agent::step_runner::profile_artifact::{ArtifactProvenance, classify_profile_artifact};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -497,11 +498,7 @@ fn verify_nextjs_profile(
         }
 
         for explicit_path in explicit_integration_paths(context) {
-            if explicit_path == route
-                || is_nextjs_route_infra_path(&explicit_path)
-                || is_nextjs_setup_path(&explicit_path)
-                || !is_source_like_path(&explicit_path)
-            {
+            if explicit_path == route {
                 continue;
             }
             let stem = Path::new(&explicit_path)
@@ -674,24 +671,14 @@ fn explicit_obligation_integration_paths(context: &ProfileObligationContext) -> 
     let mut paths = context
         .required_artifacts
         .iter()
-        .filter(|path| nextjs_route_integration_candidate(path))
+        .filter(|path| {
+            nextjs_route_integration_candidate_with_provenance(
+                path,
+                ArtifactProvenance::PhaseRequiredArtifact,
+            )
+        })
         .cloned()
         .collect::<Vec<_>>();
-    for fact in context
-        .phase_contract_facts
-        .iter()
-        .chain(context.profile_facts.iter())
-    {
-        if fact.starts_with("profile.obligation.") {
-            continue;
-        }
-        for token in fact.split([',', ' ', '=']) {
-            if nextjs_route_integration_candidate(token) && !paths.iter().any(|path| path == token)
-            {
-                paths.push(token.to_string());
-            }
-        }
-    }
     paths.sort();
     paths.dedup();
     paths
@@ -935,20 +922,20 @@ fn explicit_integration_paths(context: &ProfileVerificationContext) -> Vec<Strin
     let mut paths = context
         .required_artifacts
         .iter()
-        .chain(context.expected_paths.iter())
-        .filter(|path| is_source_like_path(path))
+        .filter(|path| {
+            nextjs_route_integration_candidate_with_provenance(
+                path,
+                ArtifactProvenance::PhaseRequiredArtifact,
+            )
+        })
+        .chain(context.expected_paths.iter().filter(|path| {
+            nextjs_route_integration_candidate_with_provenance(
+                path,
+                ArtifactProvenance::StepExpectedPath,
+            )
+        }))
         .cloned()
         .collect::<Vec<_>>();
-    for fact in &context.phase_contract_facts {
-        if fact.starts_with("profile.obligation.") {
-            continue;
-        }
-        for token in fact.split([',', ' ', '=']) {
-            if is_source_like_path(token) && !paths.iter().any(|path| path == token) {
-                paths.push(token.to_string());
-            }
-        }
-    }
     paths.sort();
     paths.dedup();
     paths
@@ -973,36 +960,16 @@ fn is_nextjs_route_infra_path(path: &str) -> bool {
 }
 
 pub(crate) fn nextjs_route_integration_candidate(path: &str) -> bool {
-    is_source_like_path(path) && !is_nextjs_route_infra_path(path) && !is_nextjs_setup_path(path)
+    nextjs_route_integration_candidate_with_provenance(path, ArtifactProvenance::StepExpectedPath)
 }
 
-fn is_source_like_path(path: &str) -> bool {
-    matches!(
-        Path::new(path).extension().and_then(|ext| ext.to_str()),
-        Some("tsx" | "jsx" | "ts" | "js")
-    )
-}
-
-fn is_nextjs_setup_path(path: &str) -> bool {
-    let name = Path::new(path)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or_default();
-    matches!(
-        name,
-        "package.json"
-            | "tsconfig.json"
-            | "next.config.js"
-            | "next.config.mjs"
-            | "next.config.ts"
-            | "tailwind.config.js"
-            | "tailwind.config.cjs"
-            | "tailwind.config.mjs"
-            | "tailwind.config.ts"
-            | "postcss.config.js"
-            | "postcss.config.cjs"
-            | "postcss.config.mjs"
-    )
+fn nextjs_route_integration_candidate_with_provenance(
+    path: &str,
+    provenance: ArtifactProvenance,
+) -> bool {
+    classify_profile_artifact(ProfileId::NextJs, path, provenance)
+        .eligibility
+        .route_integration
 }
 
 fn push_optional_fact(lines: &mut Vec<String>, key: &str, value: Option<&str>) {
@@ -1254,6 +1221,28 @@ mod tests {
     }
 
     #[test]
+    fn nextjs_obligations_do_not_use_workspace_entries_for_route_integration() {
+        let mut context = obligation_context_with_goal("Create a Next.js app");
+        context.phase_contract_facts = vec![
+            "workspace.entries=app/,components/,next-env.d.ts".to_string(),
+            "workspace.entries=components/Game.tsx".to_string(),
+        ];
+        context.profile_facts = vec![
+            "nextjs.routes=app/page.tsx".to_string(),
+            "nextjs.app_root=app".to_string(),
+        ];
+
+        let obligations = profile_obligations("nextjs", &context).unwrap();
+
+        assert!(
+            obligations
+                .iter()
+                .all(|obligation| obligation.code != "nextjs_route_integration_required"),
+            "{obligations:?}"
+        );
+    }
+
+    #[test]
     fn generic_profile_has_no_profile_obligations() {
         let obligations = profile_obligations(
             "generic",
@@ -1491,6 +1480,47 @@ mod tests {
         .unwrap();
         let mut context = context_with_goal("run on port 3011");
         context.expected_paths = vec!["app/page.tsx".to_string(), "app/layout.tsx".to_string()];
+
+        let failures = verify_profile("nextjs", &root, &context).unwrap();
+
+        assert!(
+            failures
+                .iter()
+                .all(|failure| failure.code != "nextjs_route_not_integrated"),
+            "{failures:?}"
+        );
+    }
+
+    #[test]
+    fn nextjs_verification_ignores_workspace_observed_next_env_declaration() {
+        let root = temp_workspace("verify-next-env-workspace-entry");
+        write_minimal_next_app(&root, r#"{"dev":"next dev -p 3011","build":"next build"}"#);
+        fs::write(
+            root.join("next-env.d.ts"),
+            "/// <reference types=\"next\" />",
+        )
+        .unwrap();
+        let mut context = context_with_goal("run on port 3011");
+        context.phase_contract_facts =
+            vec!["workspace.entries=app/,next-env.d.ts,package.json,tsconfig.json".to_string()];
+
+        let failures = verify_profile("nextjs", &root, &context).unwrap();
+
+        assert!(
+            failures
+                .iter()
+                .all(|failure| failure.code != "nextjs_route_not_integrated"),
+            "{failures:?}"
+        );
+    }
+
+    #[test]
+    fn nextjs_verification_ignores_required_generated_declarations() {
+        let root = temp_workspace("verify-generated-declaration");
+        write_minimal_next_app(&root, r#"{"dev":"next dev -p 3011","build":"next build"}"#);
+        let mut context = context_with_goal("run on port 3011");
+        context.required_artifacts =
+            vec!["next-env.d.ts".to_string(), "types/routes.d.ts".to_string()];
 
         let failures = verify_profile("nextjs", &root, &context).unwrap();
 

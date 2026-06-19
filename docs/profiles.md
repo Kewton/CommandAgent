@@ -1,8 +1,9 @@
 # Profiles
 
-Profiles are small contracts, not hidden applications. They provide a concise
-domain hint, optional verifier commands, and optional protected paths. Planning,
-execution, verification, and repair remain in the shared step runner.
+Profiles are structured domain contracts, not hidden applications. They provide
+a concise domain hint, optional verifier commands, optional protected paths,
+deterministic facts, and artifact classification. Planning, execution,
+verification, and repair remain in the shared step runner.
 
 MVP profiles:
 
@@ -16,6 +17,32 @@ MVP profiles:
 | `docs` | Documentation updates | none |
 | `data-analysis` | Local analysis with immutable raw inputs | none |
 | `data-pipeline` | Data extraction/transform/output tasks | none |
+
+## Artifact Classification
+
+Profile path reasoning goes through a shared classified-artifact boundary:
+
+```text
+profile + path + provenance
+  -> ClassifiedArtifact { path, provenance, kind, eligibility }
+  -> profile obligation / verification / recovery evidence
+```
+
+Rendered profile text is for prompts, repair packets, and reports. Runtime
+decisions must not parse rendered profile text or `workspace.entries` tokens
+back into contract artifacts. A workspace observation alone does not create a
+route-integration or source-integration obligation.
+
+The common classifier entrypoint is profile-independent. Profile-specific
+classifiers may assign kinds such as route entry, UI source, runtime source,
+test source, manifest, config, generated declaration, dependency cache, build
+output, raw input, derived output, or documentation.
+
+Future profile obligation, verification, and recovery-evidence producers must
+consume `ClassifiedArtifact` values. A producer needs observed deterministic
+failure evidence, bounded scope, tests for the positive and false-positive
+cases, and docs. It must not add workflow authority, retry authority, or
+provider/model-specific policy.
 
 ## Next.js Contract
 
@@ -34,6 +61,13 @@ Use:
 
 The profile supplies Next.js-specific facts. It does not force a particular
 component tree or router layout.
+
+The Next.js classifier distinguishes route entries such as `app/page.tsx`,
+route infrastructure such as `app/layout.tsx`, UI source artifacts such as
+`components/Game.tsx`, manifests/config files, generated declarations such as
+`next-env.d.ts`, dependency caches, and build output. Generated declarations,
+dependency caches, build output, setup files, and workspace-only observations
+are not route-integration artifacts.
 
 During ultra phase execution, the Next.js profile may also provide read-only
 fact summaries and phase-boundary verification. The checks are deterministic
@@ -67,13 +101,14 @@ and `autoprefixer` to be mentioned in package.json work. When the selected
 route is known and an explicit UI/game source artifact is part of the phase
 contract, Next.js can also project a route-integration obligation requiring the
 generated step plan to mention the selected route in the source-editing step
-instruction or `expected_paths`. Step-plan lint uses these facts only to reject
-generated package.json or Next.js source steps that omit the relevant
-obligation. If that happens, the existing bounded plan correction path is used;
-the profile still does not run a workflow engine or repair files by itself.
-This route-integration obligation is intentionally Next.js-specific for now;
-common artifact graph behavior should wait for another observed cross-profile
-failure class.
+instruction or `expected_paths`. That obligation is based on classified
+artifacts, not broad `*.ts`/`*.js` token scans. Step-plan lint uses these facts
+only to reject generated package.json or Next.js source steps that omit the
+relevant obligation. If that happens, the existing bounded plan correction path
+is used; the profile still does not run a workflow engine or repair files by
+itself. This route-integration obligation is intentionally Next.js-specific for
+now; common artifact graph behavior should wait for another observed
+cross-profile failure class.
 
 During execution, the shared step runner renders an active profile contract
 into each step prompt and repair prompt. It combines phase contract facts with
@@ -95,6 +130,11 @@ The `python` profile is for scripts, libraries, and tests. It prefers local
 verification such as `python -m pytest` when a test suite exists or is created.
 It should not mutate unrelated virtual environments.
 
+The Python classifier treats `*.py` runtime files, `tests/**/*.py`,
+`pyproject.toml`, requirements files, virtual environments, `__pycache__/`, and
+`*.pyc` differently so future producers can avoid treating dependency caches or
+build output as source repair targets.
+
 ## Rust Contract
 
 The `rust` profile is for Rust CLI/library changes. It prefers `cargo test` as
@@ -104,6 +144,10 @@ actual Cargo binary name declared in `Cargo.toml`. Tests should reference the
 package, binary, module, and public item names that the project actually
 defines.
 
+The Rust classifier distinguishes `Cargo.toml`, `src/**/*.rs`,
+`tests/**/*.rs`, `benches/**/*.rs`, `examples/**/*.rs`, config files, and
+`target/**` build output. No Rust obligation is added by classification alone.
+
 ## Investigation And Docs
 
 `investigation` is read-first. It is suitable for diagnosis reports and should
@@ -111,6 +155,10 @@ avoid edits unless the user explicitly asks for fixes.
 
 `docs` is for documentation changes. It should preserve source behavior and use
 lightweight checks where available.
+
+The docs classifier treats `README.md` and `docs/**/*.md` as documentation
+artifacts while treating generated output such as `site/**` or `dist/**` as
+build output.
 
 ## Data Contracts
 
@@ -123,6 +171,10 @@ Data profiles protect raw input prefixes:
 
 Derived outputs should be written elsewhere so reruns are reproducible and raw
 inputs remain inspectable.
+
+The data classifier marks raw input prefixes as protected inputs and derived
+locations such as `data/processed/**` and `reports/**` as derived output. It
+does not create a data workflow.
 
 ## Profile vs Style
 

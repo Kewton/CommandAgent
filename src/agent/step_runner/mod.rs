@@ -1,5 +1,6 @@
 pub mod correction_evidence;
 pub mod plan_lint;
+pub(crate) mod profile_artifact;
 pub mod profiles;
 pub mod recovery_task;
 pub mod repair;

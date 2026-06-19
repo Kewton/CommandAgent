@@ -20,6 +20,9 @@ machinery.
 - Treat predictable behavior as a product requirement. A fix that raises one
   benchmark but makes runtime behavior harder to anticipate is not admissible.
 - Do not turn profiles into hidden applications.
+- Treat profiles as structured domain contracts, not prompt-text buckets.
+- Keep profile facts, artifact classification, obligations, verification, and
+  recovery evidence separate.
 - Split large work into explicit steps instead of relying on a single long
   conversation.
 - Keep planning, execution, verification, and repair as separate contracts.
@@ -106,6 +109,53 @@ This keeps the runtime layers separate:
 Repeated recovery must remain bounded by failure class and step. If the same
 classified violation repeats after the allowed correction, CommandAgent should
 stop with explicit evidence and a user-visible repair or replan path.
+
+## Profile Contracts
+
+Profiles are structured domain contracts. They may describe domain facts,
+classify artifacts, project deterministic obligations, and verify
+profile-specific contracts. They must not own planning, execute tools, retry
+work, infer hidden workflow state, or become a provider/model-specific policy
+layer.
+
+Profile facts are observations. A fact such as a workspace entry, package
+script, route path, dependency list, or config file does not become an
+obligation by itself. Facts become obligations only after a profile classifier
+assigns deterministic meaning to them.
+
+Rendered profile text is for prompts, repair packets, and reports. Runtime
+decisions must consume structured facts and classified artifacts directly; they
+must not parse rendered profile text back into machine decisions. This keeps
+the boundary clear:
+
+```text
+structured facts -> classified artifacts -> obligations/verification
+structured facts -> rendered text -> prompts/reports only
+```
+
+A profile that reasons about paths must use an explicit artifact
+classification boundary. The minimum shape is:
+
+- observed path
+- provenance, such as user-required artifact, step expected path, workspace
+  observation, or profile fact
+- artifact kind, such as route entry, route infrastructure, UI/source artifact,
+  manifest, config, generated declaration, dependency cache, or raw input
+- contract eligibility, such as whether it may be used for route integration,
+  verification targeting, protected-path checks, or recovery targeting
+
+Obligation generation and profile verification must consume classified
+artifacts instead of broad path strings. For example, a generated framework
+declaration file may be observed in the workspace, but it is not a
+route-integration artifact unless the profile classifier explicitly marks it
+eligible. Workspace observation alone should not create a route-integration or
+source-integration obligation.
+
+Profile verification failures may emit structured contract evidence for
+repair. The profile identifies the violated contract, deterministic target, and
+candidate artifacts. Recovery consumes that evidence and remains bounded under
+the shared execution contract; it must not decide profile semantics on behalf
+of the profile.
 
 ## Recovery Task Contracts
 
@@ -216,8 +266,10 @@ by better deterministic evidence. It is not part of the MVP runtime contract.
   calls and returns assistant text plus optional tool calls.
 - Minimal loop: one execution session. It calls the provider, executes tools,
   appends observations, and applies bounded completion guards.
-- Profile: small domain contract. It can name verifier commands, protected
-  paths, and facts the model should know. It must not become a workflow engine.
+- Profile: structured domain contract. It can collect facts, classify
+  artifacts, project obligations, name verifier commands, protect paths, and
+  emit profile verification evidence. It must not parse rendered text back into
+  decisions or become a workflow engine.
 - Step runner: planning, linting, deterministic verification, and bounded
   repair. It orchestrates steps around the minimal loop without changing the
   loop into a planner.

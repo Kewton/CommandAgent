@@ -133,6 +133,13 @@ example `app/page.tsx` and `app/hooks/useGame.ts`. When investigating profile
 drift, reports should also note whether the step and repair prompts carried
 active profile contract facts before the drift occurred.
 
+Profile-classification false positives are a separate profile-contract
+diagnostic. For example, a generated framework declaration such as
+`next-env.d.ts` may be observed in the workspace, but it should not be reported
+as a route-integration artifact. Eval reports should record the artifact kind,
+provenance, selected route, and whether the failure came from an explicit
+required/expected artifact or only from workspace observation.
+
 ## Recent Recovery Check
 
 The R5/R6 guard subset at

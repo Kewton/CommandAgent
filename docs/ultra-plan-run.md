@@ -66,12 +66,15 @@ obligation, normal step-plan lint rejects the plan and the existing bounded
 plan correction path asks the planner to fix the plan. This is still common
 planning/lint behavior; profiles do not become workflow engines. Next.js also
 has a narrow route-integration obligation: if a selected route such as
-`app/page.tsx` is known and a source artifact such as `app/hooks/useGame.ts`
-is an explicit phase output, the generated source step must include the
-selected route in the instruction or `expected_paths`. This prevents a phase
-from creating isolated UI/game code while leaving the selected route unchanged.
-The rule is limited to the Next.js profile until another observed failure
-justifies a common contract.
+`app/page.tsx` is known and a classified UI source artifact such as
+`app/hooks/useGame.ts` is an explicit phase output, the generated source step
+must include the selected route in the instruction or `expected_paths`. This
+prevents a phase from creating isolated UI/game code while leaving the selected
+route unchanged. Workspace entries, generated declarations such as
+`next-env.d.ts`, dependency caches, and build output are context only; they do
+not become route-integration artifacts by token matching. The rule is limited
+to the Next.js profile until another observed failure justifies a common
+contract.
 
 When a deterministic lint/profile obligation rejects a generated phase step
 plan, the bounded correction prompt may include a compact contract evidence
@@ -89,6 +92,11 @@ represented only as diagnostic context on a remaining verifier failure after
 one approved setup attempt. These evidence producers render through existing
 correction or repair prompts; they must not add hidden continuation or new
 retry budgets.
+
+Profile obligation and verification producers consume classified artifacts
+rather than rendered profile text. Future producers for Python, Rust, docs, or
+data profiles should use the same classified-artifact boundary and must not
+scan `workspace.entries` as contract artifacts.
 
 The same phase contract is carried as an active contract during step
 execution. Before each executable step, CommandAgent refreshes current profile
