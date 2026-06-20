@@ -129,6 +129,13 @@ pub enum RuntimeEvent {
         output_chars: usize,
         error: Option<String>,
     },
+    ToolResultTruncated {
+        iteration: usize,
+        tool_name: String,
+        original_chars: usize,
+        returned_chars: usize,
+        reason: String,
+    },
     FinalAnswerAccepted {
         iteration: usize,
         answer_chars: usize,

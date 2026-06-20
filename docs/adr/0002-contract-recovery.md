@@ -259,3 +259,9 @@ Also revisit it if Recovery Policy Contract starts selecting speculative jobs,
 mutating state, expanding scope without evidence, or becoming a profile-owned
 workflow engine instead of a typed decision table for current deterministic
 failures.
+
+Also revisit it if Job/Event protocol, evidence envelopes, usage/cost records,
+or budget records start controlling execution instead of reporting and
+bounding it. These records may inform explicit recovery policy or external
+CommandMate decisions, but CommandAgent must not infer hidden retry,
+scheduling, provider switching, or approval UI behavior from telemetry alone.

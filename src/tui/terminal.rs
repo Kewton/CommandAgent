@@ -483,6 +483,17 @@ impl<W: Write> TerminalUi<W> {
                     ))
                 }
             }
+            RuntimeEvent::ToolResultTruncated {
+                tool_name,
+                original_chars,
+                returned_chars,
+                reason,
+                ..
+            } => self.write_line(&format!(
+                "tool: {} output truncated {original_chars}->{returned_chars} chars ({})",
+                sanitize_for_progress(&tool_name),
+                sanitize_for_progress(&reason)
+            )),
             RuntimeEvent::FinalAnswerAccepted { iteration, .. } => {
                 self.write_line(&format!("model iter {iteration}: final accepted"))
             }

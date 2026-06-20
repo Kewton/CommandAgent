@@ -1,4 +1,5 @@
 pub mod correction_evidence;
+pub mod evidence;
 pub mod plan_lint;
 pub(crate) mod profile_artifact;
 pub mod profiles;

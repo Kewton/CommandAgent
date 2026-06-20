@@ -555,6 +555,35 @@ instruction to continue automatically. A repair target is admissible only when
 it is deterministically selected by the failing verifier/profile contract, such
 as a compiler source path or a selected Next.js route.
 
+## Contract Telemetry
+
+Job/Event, Evidence, Usage, Cost, and Budget records are contract telemetry.
+They make runtime state, failure boundaries, and resource use visible to users,
+eval, CommandMate, and future external planner surfaces. They are not another
+execution engine.
+
+The admission rule for telemetry is the same as other contract mechanisms:
+
+- it must be derived from observable runtime facts;
+- it must have a versioned schema when persisted or exposed externally;
+- it must not increase retry authority, weaken guards, or continue work;
+- it must keep provider transport details separate from shared behavior;
+- it must remain replayable enough to explain what happened after the fact.
+
+The external Job/Event protocol exists so a separate orchestrator can observe
+and project job state without CommandAgent owning queueing, scheduling,
+approval UI, dashboards, or parallel execution. CommandAgent may emit a
+versioned event envelope, evidence payload, usage record, budget-exceeded
+record, or command accepted/rejected event. It must not turn those records into
+a hidden workflow controller.
+
+Budget enforcement is also a contract. `context_budget` should bound model
+requests, tool results, iterations, and cumulative usage where the runtime can
+measure or safely estimate them. When a budget is exceeded, the runtime should
+stop, shrink deterministic tool output, compact deterministic context, request
+an explicit replan, or request approval. It should not silently raise the
+budget, retry until success, or switch providers/models as a hidden policy.
+
 ## Why Legacy Is Removed
 
 The historical source repository's legacy engine accumulated many protective mechanisms:

@@ -140,6 +140,15 @@ where
                         output_chars: record.output.chars().count(),
                         error: None,
                     });
+                    if record.output_truncated {
+                        observer.on_event(RuntimeEvent::ToolResultTruncated {
+                            iteration,
+                            tool_name: record.name.clone(),
+                            original_chars: record.original_output_chars,
+                            returned_chars: record.output.chars().count(),
+                            reason: "max_output_chars".to_string(),
+                        });
+                    }
                     if record.ok && is_file_change_tool(&record.name) {
                         file_change_count += 1;
                     }

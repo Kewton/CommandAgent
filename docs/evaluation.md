@@ -341,3 +341,29 @@ Interpretation rules:
   package-manager manifests and therefore produced a new setup fingerprint. If
   runtime-owned setup ran again, report it as one setup attempt for the changed
   manifest fingerprint, not as model-issued dependency installation.
+
+## Versioned Event And Budget Reporting
+
+For changes that affect runtime events, evidence envelopes, usage records, or
+budget enforcement, eval should capture the versioned event stream when
+practical:
+
+```bash
+COMMANDAGENT_EVENT_JSONL=<run-root>/events.jsonl <command>
+```
+
+Reports should record:
+
+- `run_id`, `job_id`, and final projected job status;
+- whether event sequence numbers are monotonic;
+- whether unknown event or payload variants remain replay-safe;
+- evidence payload variant for the actionable failure;
+- usage availability, including provider/model and unavailable reason when
+  token metadata is absent;
+- budget-exceeded event or truncation event when output/context was bounded;
+- whether the runtime stopped, compacted, shrank tool output, requested replan,
+  or requested approval.
+
+Do not count clearer telemetry as task success by itself. The report should
+separate observability improvements from actual movement past the targeted
+failure class.

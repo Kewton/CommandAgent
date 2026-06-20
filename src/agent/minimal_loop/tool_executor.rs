@@ -1,5 +1,6 @@
 use super::config::{DependencySetupPolicy, StepToolPolicy};
 use super::result::{MinimalLoopError, ToolArgError, ToolExecutionRecord};
+use crate::agent::budget::{ToolResultBudget, enforce_tool_result_budget};
 use crate::providers::ToolCall;
 use crate::safety::path_guard::PathGuard;
 use crate::tools::bash::{BashPolicy, BashTool, CommandClass, enforce_bash_policy};
@@ -108,10 +109,14 @@ impl<'a> ToolExecutor<'a> {
             other => return Err(MinimalLoopError::Tool(format!("unknown tool: {}", other))),
         };
 
+        let (output, truncation) = enforce_tool_result_budget(output, ToolResultBudget::default());
+
         Ok(ToolExecutionRecord {
             name: call.name.clone(),
             ok: true,
             output,
+            output_truncated: truncation.truncated,
+            original_output_chars: truncation.original_chars,
         })
     }
 

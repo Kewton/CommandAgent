@@ -179,6 +179,7 @@ Record eval results with:
 - binary path
 - provider/model
 - eval root
+- event JSONL path when `COMMANDAGENT_EVENT_JSONL` is used
 - headline result
 - failure category
 - interpretation and follow-up decision
@@ -244,3 +245,24 @@ Before finishing a task, check:
 - Tests appropriate to the change ran.
 - Eval ran when behavior changed, or the reason it did not run is recorded.
 - Docs were updated when users or future agents need the decision.
+
+## Event Protocol And Budget Changes
+
+Changes to versioned Job/Event protocol, evidence envelopes, usage records, or
+budget behavior require compatibility tests. At minimum, verify:
+
+- schema version is present on persisted/external records;
+- unknown event or evidence variants are ignored or reported as unsupported
+  without panicking;
+- replay projection derives the expected job state from ordered events;
+- budget exceeded behavior is explicit and finite;
+- usage unavailable is recorded as unavailable instead of treated as failure.
+
+One-shot runs can record external events with:
+
+```bash
+COMMANDAGENT_EVENT_JSONL=/tmp/commandagent-events.jsonl commandagent "..."
+```
+
+Use this for focused eval evidence when the change affects event, usage,
+budget, or CommandMate-facing behavior.

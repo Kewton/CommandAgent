@@ -134,6 +134,11 @@ The envelope must not add retry authority or provider/model-specific behavior.
 - `safety`: path confinement and host validation.
 - `util`: shared workspace path and file classification helpers.
 - `agent/events`: shared passive runtime events for UI and tests.
+- `agent/event_protocol`: versioned external Job/Event envelopes, event JSONL
+  observer, command accepted/rejected events, and replayable job state
+  projection. It observes runtime events but does not schedule work.
+- `agent/budget`: budget contract data, budget decisions, and deterministic
+  tool-result truncation helpers.
 - `tui`: terminal rendering for interactive progress and final-answer
   formatting.
 
@@ -148,10 +153,50 @@ The envelope must not add retry authority or provider/model-specific behavior.
 | TUI | TTY-aware rendering of runtime events and final answers | Planning, repair, retry, provider parsing, filesystem policy |
 | Tools | Deterministic workspace actions | Task interpretation or planning |
 | Eval | Run roots, summaries, recheck, reports | Runtime behavior changes |
+| Event protocol | Versioned external events, command response events, replay projection | TUI rendering, queueing, scheduling, approval UI, retry policy |
+| Budget | Budget data, bounded tool-result truncation, explicit budget decisions | Provider/model selection, hidden continuation, verifier success policy |
 
 This separation is the main defense against rebuilding hidden legacy behavior
 under new names. The orchestration may become richer, but each decision must
 remain attributable to a contract surface.
+
+## Versioned Job/Event Boundary
+
+Runtime events remain passive internal observations for TUI and tests.
+CommandAgent can also adapt them into a versioned external event envelope:
+
+```text
+RuntimeEvent -> VersionedEvent(schema_version, run_id, job_id, sequence, payload)
+```
+
+The external protocol is append-only and replay-oriented. A projector can
+derive a durable job state such as planning, running, verifying, repairing,
+blocked, completed, failed, or cancelled from the event sequence. Unknown
+event types or unknown fields must not break replay. TUI continues to consume
+internal events and must not parse external JSONL display text.
+
+For one-shot runs, setting `COMMANDAGENT_EVENT_JSONL=/path/to/events.jsonl`
+records the versioned event stream while preserving normal stderr TUI output.
+This is an observability path for eval and CommandMate integration, not a new
+runtime control path.
+
+## Evidence, Usage, And Budget Records
+
+`ContractEvidence` remains readable for compatibility, but new evidence can be
+projected through an `EvidenceEnvelope` and typed `EvidencePayload` variants:
+planning, provider transport, tool protocol, step policy, verification,
+profile, setup, recovery attempt, or unsupported. Evidence describes what
+failed. Recovery Policy and Recovery Task still own what to do next.
+
+Provider usage is normalized into a common `ModelUsage` shape when provider
+responses expose token metadata. Missing usage is recorded as unavailable,
+not as a runtime failure. Cost records are separate from usage records and may
+remain unavailable when pricing is not configured.
+
+Tool results are subject to deterministic output budgeting. If a result is
+truncated, CommandAgent emits a truncation event and includes a marker in the
+tool observation. This prevents large local outputs from silently overwhelming
+model context while keeping the truncation observable.
 
 ## REPL
 
