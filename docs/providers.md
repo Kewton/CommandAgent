@@ -45,13 +45,28 @@ Gemini provider smoke is opt-in because it requires network access and
 GEMINI_API_KEY=... GEMINI_MODEL=gemini-3.5-flash scripts/provider_smoke_gemini.sh
 ```
 
-Gemini uses XML fallback tool calls by default. Response text is parsed for
-`<commandagent_tool_call>...</commandagent_tool_call>` blocks, and parsed blocks
-are returned as `ChatResponse.tool_calls` with the XML removed from assistant
-content. Malformed XML-like tool-call blocks are reported as provider parse
-errors. The minimal loop renders parsed XML fallback calls back into assistant
-history on the next request so the provider can see the tool call that produced
-the following tool result.
+Gemini uses native function calling by default. In native mode, CommandAgent
+sends built-in tools as `tools.functionDeclarations`, parses Gemini
+`functionCall` parts into the shared `ToolCall` contract, preserves the
+function call id/name in transcript metadata, and sends tool results back as
+Gemini `functionResponse` parts on the next request. The provider owns only
+this request/response serialization; it does not choose repair strategy,
+increase retries, or execute tools.
+
+Gemini's REST schema is not identical to the shared internal tool schema. The
+Gemini provider removes unsupported JSON-schema fields such as
+`additionalProperties` when serializing `functionDeclarations`; the internal
+schema remains unchanged for other providers. Gemini 3 function-calling history
+also requires preserving `thoughtSignature` on model `functionCall` parts and
+returning it unchanged in the next request history.
+
+XML fallback remains a compatibility path. If Gemini response text contains
+`<commandagent_tool_call>...</commandagent_tool_call>` blocks, they are still
+parsed and returned as `ChatResponse.tool_calls` with the XML removed from
+assistant content. Malformed native `functionCall` shape is surfaced as bounded
+tool-call parse evidence so the minimal loop can use its existing parser
+feedback and native-to-XML fallback downgrade. True transport, HTTP, and
+unparseable response-body failures remain provider/model errors.
 
 Example mixed planner/executor usage:
 
@@ -121,6 +136,12 @@ Tool protocol failures can align with the common contract-evidence shape in a
 future step-runner adapter, but providers still remain transport-only. Provider
 modules must not choose repair strategy, alter retry budgets, or add
 model-specific behavioral policy.
+
+Native providers consume the same built-in tool argument schemas. `Read`,
+`Write`, `Edit`, `Glob`, `Grep`, and `Bash` expose one provider-independent
+JSON schema boundary, and providers serialize that schema into their own native
+tool declaration format. XML fallback keeps the human-readable examples below
+for prompt compatibility.
 
 Built-in argument shapes:
 

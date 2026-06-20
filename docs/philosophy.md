@@ -23,6 +23,9 @@ machinery.
 - Treat profiles as structured domain contracts, not prompt-text buckets.
 - Keep profile facts, artifact classification, obligations, verification, and
   recovery evidence separate.
+- Treat task and step decomposition as contract data, not just planner prose.
+- Validate step kind, artifact role, and workspace scope before relying on the
+  execution guard.
 - Split large work into explicit steps instead of relying on a single long
   conversation.
 - Keep planning, execution, verification, and repair as separate contracts.
@@ -34,13 +37,13 @@ machinery.
 CommandAgent's control model is therefore:
 
 ```text
-Planning Contract -> Execution Contract
+Planning Contract -> Profile Contract -> Execution Contract
 classified failure -> Recovery Task Contract -> Execution Contract
 ```
 
-The third contract is a clarity boundary, not a third engine. It exists so a
-failed verifier/profile/tool-policy check can produce an explicit repair task
-instead of delegating repair-strategy selection to the minimal loop.
+The non-execution contracts are clarity boundaries, not additional engines.
+They exist so normal work and repair work can be narrowed before delegation to
+the minimal loop instead of asking the loop to infer strategy from broad prose.
 
 ## Stability And Predictability
 
@@ -74,6 +77,63 @@ Avoid changes that make behavior unstable:
 
 This means a slower or lower-success result can still be the correct outcome if
 the alternative is opaque, non-reproducible behavior.
+
+## Task And Step Decomposition
+
+Large-task reliability depends on making the work breakdown itself
+inspectable. Planning is not only YAML syntax. It is a contract that assigns
+responsibility to each step and names the artifacts that make the step done.
+
+The planner may propose a decomposition, but deterministic lint should validate
+the decomposition when the relevant facts are known:
+
+- `inspect` and `report` steps are read-only.
+- `verify` steps run checks and do not mutate the workspace.
+- `setup` steps may prepare dependency or configuration artifacts, but must not
+  create or edit application source, route, component, test, or documentation
+  artifacts.
+- `create`, `edit`, and `repair` steps own source, test, and documentation
+  mutation under the current task scope.
+- expected paths must be artifacts that the step owns, not arbitrary files that
+  happen to be observed or inspected.
+
+This makes step-kind accuracy a Planning Contract responsibility. The
+Execution Contract remains the final safety boundary, but a step such as
+`setup` attempting to create `app/globals.css` should be rejected by plan lint
+before the model reaches file tools. Runtime tool policy is the last defense,
+not the primary way to discover a bad decomposition.
+
+The useful lesson from larger historical control stacks is not that
+CommandAgent needs a hidden project manager. The lesson is that task contracts,
+artifact roles, workspace scope, and recovery targets are legitimate control
+data when they stay deterministic and visible:
+
+- A task contract records the goal, required artifacts, constraints, and
+  success checks that are already explicit or deterministically inferred.
+- An artifact role classifies paths as setup/config, implementation, test,
+  documentation, generated output, dependency cache, raw input, or derived
+  output before those paths are used for lint, verification, or repair.
+- Workspace scope names the paths and artifact classes that are in bounds for
+  the current task or step, and requires explicit evidence before expansion.
+- Recovery target hints name the file, artifact, or command that the rejecting
+  guard already identified as the repair target.
+
+These concepts should be adopted as small contract boundaries. They should not
+become an active hidden controller that chooses arbitrary future jobs, retries
+until success, or rewrites the user's task.
+
+When choosing between mechanisms, prefer this order:
+
+1. deterministic classifier or lint rule
+2. structured evidence and recovery target hints
+3. explicit recovery task contract under the original guard
+4. setup bootstrap only when verifier evidence proves dependency setup is the
+   blocker and the user or policy permits it
+5. job arbitration only after a separate design decision proves that narrower
+   contracts cannot classify the observed failure
+
+This preserves the practical value of stronger task contracts without
+recreating opaque orchestration.
 
 ## Recovery As Contract Correction
 
@@ -211,7 +271,8 @@ bounded, and explainable from the failed contract.
 ## Structured Contract Evidence
 
 Contract correction may use structured evidence when the evidence is produced
-by the guard that rejected the plan, tool call, verifier, or profile contract.
+by the guard that rejected the plan, provider transport response, tool call,
+verifier, or profile contract.
 This is a way to make known facts more explicit. It is not permission to add a
 new controller.
 
@@ -232,15 +293,18 @@ contract. It may include fields such as:
 The correction prompt may render this evidence to remove ambiguity, for example
 by telling the planner that a `package.json` step must literally mention
 `next`, `react`, and `react-dom`. The evidence must come from existing
-contracts such as plan lint, profile obligations, tool schemas, step policy, or
-verifier output. Dependency setup results may be attached only as diagnostic
-context to verifier evidence after one approved setup attempt; setup is not a
-separate hidden recovery producer.
+contracts such as plan lint, profile obligations, provider transport parsing,
+tool schemas, step policy, or verifier output. Dependency setup results may be
+attached only as diagnostic context to verifier evidence after one approved
+setup attempt; setup is not a separate hidden recovery producer.
 
 Structured evidence must not include semantic guesses, memory retrieval,
-sidecar judgments, hidden task state, or provider/model-specific policy. It
-must not select a new workflow, add retries, weaken the original guard, or
-continue after the bounded correction has failed.
+sidecar judgments, hidden task state, or provider/model-specific behavioral
+policy. Provider transport evidence may state that a shared response parser
+rejected malformed XML or JSON, but the repair instruction must stay shared and
+must not add a model-specific prompt branch. Evidence must not select a new
+workflow, add retries, weaken the original guard, or continue after the
+bounded correction has failed.
 
 The common evidence shape is a boundary, not a common recovery engine.
 Producers detect deterministic failures, evidence carries exact facts,

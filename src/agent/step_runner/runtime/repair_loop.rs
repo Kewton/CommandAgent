@@ -80,6 +80,12 @@ fn turn_error_reason_and_diagnostic(error: &MinimalLoopError) -> (&'static str, 
             ),
         );
     }
+    if let Some(code) = provider_transport_diagnostic_code(&rendered) {
+        return (
+            "provider_transport_parse_failure",
+            format!("Provider transport parse failure ({code}).\nOriginal error: {rendered}"),
+        );
+    }
     ("turn_error", rendered)
 }
 
@@ -222,7 +228,10 @@ where
         .as_ref()
         .map(|_| ToolProtocolCorrectionSource::InitialTurn);
     let mut contract_evidence = Vec::new();
-    if let Some(evidence) = read_only_mutation_contract_evidence(request.step, &turn_error) {
+    if let Some(evidence) = step_policy_contract_evidence(request.step, &turn_error) {
+        push_contract_evidence_once(&mut contract_evidence, evidence);
+    }
+    if let Some(evidence) = provider_transport_contract_evidence(request.step, &turn_error) {
         push_contract_evidence_once(&mut contract_evidence, evidence);
     }
     failures.insert(0, turn_error_failure("initial turn", &turn_error));
@@ -387,7 +396,10 @@ where
                         tool_protocol_correction_target_path(step, &missing_expected_paths),
                     );
                 }
-                if let Some(evidence) = read_only_mutation_contract_evidence(step, &err) {
+                if let Some(evidence) = step_policy_contract_evidence(step, &err) {
+                    push_contract_evidence_once(&mut state.contract_evidence, evidence);
+                }
+                if let Some(evidence) = provider_transport_contract_evidence(step, &err) {
                     push_contract_evidence_once(&mut state.contract_evidence, evidence);
                 }
                 let mut failure = turn_error_failure("repair turn", &err);
@@ -511,6 +523,10 @@ fn apply_repair_execution_envelope(
             config.action_requirement = ActionRequirement::RepositoryEvidenceRequired;
             config.step_tool_policy = StepToolPolicy::ReadOnly;
         }
+        Some(RecoveryExecutionEnvelope::SetupConfigMutation) => {
+            config.action_requirement = ActionRequirement::Required;
+            config.step_tool_policy = StepToolPolicy::SetupMutationOnly;
+        }
         Some(
             RecoveryExecutionEnvelope::FileMutationRepair
             | RecoveryExecutionEnvelope::ToolProtocolCorrection,
@@ -550,7 +566,21 @@ fn push_tool_arg_contract_evidence(
         .with_failed_step(step.id.clone())
         .with_violated_contract(arg_error.reason_code())
         .with_reason_code(arg_error.reason_code())
+        .with_failure_kind("tool_protocol_error")
+        .with_diagnostic_code(arg_error.reason_code())
+        .with_failure_signature(failure_signature([
+            "tool_protocol",
+            step.id.as_str(),
+            arg_error.tool_name(),
+            arg_error.reason_code(),
+            target_path.as_deref().unwrap_or(""),
+        ]))
         .with_tool(arg_error.tool_name())
+        .with_observed_expected_pairs(vec![format!(
+            "observed={}; expected=valid {} tool call with required fields: {required_fields}",
+            arg_error.diagnostic_excerpt(),
+            arg_error.tool_name()
+        )])
         .with_required_action(required_action)
         .with_diagnostic(arg_error.diagnostic_excerpt());
     if let Some(field) = arg_error.missing_field() {
@@ -560,41 +590,179 @@ fn push_tool_arg_contract_evidence(
         evidence = evidence.with_required_fields(arg_error.required_fields().iter().cloned());
     }
     if let Some(path) = target_path {
-        evidence = evidence.with_target_path(path);
+        evidence = evidence
+            .with_target_path(path.clone())
+            .with_candidate_artifacts(vec![path.clone()])
+            .with_repair_target(path);
     }
     push_contract_evidence_once(&mut state.contract_evidence, evidence);
 }
 
-fn read_only_mutation_contract_evidence(
+fn provider_transport_contract_evidence(
+    step: &StepPlanStep,
+    error: &MinimalLoopError,
+) -> Option<ContractEvidence> {
+    let MinimalLoopError::Model(message) = error else {
+        return None;
+    };
+    let diagnostic_code = provider_transport_diagnostic_code(message)?;
+    Some(
+        ContractEvidence::new("provider_transport")
+            .with_failed_step(step.id.clone())
+            .with_violated_contract("provider_transport_parse_failure")
+            .with_reason_code("provider_transport_parse_failure")
+            .with_failure_kind("provider_transport_parse_failure")
+            .with_diagnostic_code(diagnostic_code)
+            .with_failure_signature(failure_signature([
+                "provider_transport",
+                step.id.as_str(),
+                diagnostic_code,
+            ]))
+            .with_observed_expected_pairs(vec![format!(
+                "observed={message}; expected=provider response parses as ordinary assistant text, native tool call, or one complete XML fallback tool call"
+            )])
+            .with_required_action(
+                "produce one complete response that satisfies the shared tool-call transport contract; do not add provider-specific behavior or malformed XML/JSON",
+            )
+            .with_repair_focus(
+                "correct the response/tool-call shape before attempting file or verifier repair",
+            )
+            .with_diagnostic(message.clone()),
+    )
+}
+
+fn provider_transport_diagnostic_code(message: &str) -> Option<&'static str> {
+    let lower = message.to_ascii_lowercase();
+    let parse_like = lower.contains("json parse failed")
+        || lower.contains("xml")
+        || lower.contains("tool call")
+        || lower.contains("fallback")
+        || lower.contains("parse failed");
+    if !parse_like {
+        return None;
+    }
+    if lower.contains("tool call is missing a tool name") {
+        Some("xml_tool_call_missing_name")
+    } else if lower.contains("invalid tool call json") {
+        Some("xml_tool_call_invalid_json")
+    } else if lower.contains("tool arguments") || lower.contains("arguments") {
+        Some("xml_tool_call_invalid_arguments")
+    } else if lower.contains("unclosed") || lower.contains("missing closing") {
+        Some("xml_tool_call_unclosed")
+    } else {
+        Some("provider_response_parse_failure")
+    }
+}
+
+fn step_policy_contract_evidence(
     step: &StepPlanStep,
     error: &MinimalLoopError,
 ) -> Option<ContractEvidence> {
     let MinimalLoopError::Tool(message) = error else {
         return None;
     };
-    let tool = read_only_policy_tool(message)?;
-    Some(
-        ContractEvidence::new("step_policy")
-            .with_failed_step(step.id.clone())
-            .with_violated_contract("read_only_step_mutation")
-            .with_reason_code("read_only_step_mutation")
-            .with_tool(tool)
-            .with_required_action(
-                "use only read-only tools in inspect/report steps; move mutation into create/edit/repair steps",
-            )
-            .with_diagnostic(message.clone()),
-    )
+    let violation = step_policy_violation(message)?;
+    let mut evidence = ContractEvidence::new("step_policy")
+        .with_failed_step(step.id.clone())
+        .with_violated_contract(violation.code)
+        .with_reason_code(violation.code)
+        .with_failure_kind("step_policy_violation")
+        .with_diagnostic_code(violation.code)
+        .with_failure_signature(failure_signature([
+            "step_policy",
+            step.id.as_str(),
+            violation.code,
+            violation.tool,
+        ]))
+        .with_tool(violation.tool)
+        .with_observed_expected_pairs(vec![format!(
+            "observed={message}; expected={}",
+            violation.expected
+        )])
+        .with_required_action(violation.required_action)
+        .with_repair_focus(violation.repair_focus)
+        .with_diagnostic(message.clone());
+    if let Some(path) = violation.target_path {
+        evidence = evidence
+            .with_target_path(path.clone())
+            .with_candidate_artifacts(vec![path]);
+    }
+    Some(evidence)
 }
 
-fn read_only_policy_tool(message: &str) -> Option<String> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct StepPolicyViolation {
+    code: &'static str,
+    tool: &'static str,
+    target_path: Option<String>,
+    expected: &'static str,
+    required_action: &'static str,
+    repair_focus: &'static str,
+}
+
+fn step_policy_violation(message: &str) -> Option<StepPolicyViolation> {
+    if let Some(tool) = read_only_policy_tool(message) {
+        return Some(StepPolicyViolation {
+            code: "read_only_step_mutation",
+            tool,
+            target_path: None,
+            expected: "read-only step uses Read, Glob, Grep, or read-only Bash only",
+            required_action: "use only read-only tools in inspect/report steps; move mutation into create/edit/repair steps",
+            repair_focus: "provide concrete repository read evidence or replan mutation into a mutation-allowed step",
+        });
+    }
+    if let Some((tool, path)) = setup_source_mutation(message) {
+        return Some(StepPolicyViolation {
+            code: "setup_step_source_mutation",
+            tool,
+            target_path: Some(path),
+            expected: "setup step changes only package, lockfile, or configuration paths",
+            required_action: "do not edit source routes/components in setup steps; move source changes into create/edit/repair steps or keep setup changes to package/config files only",
+            repair_focus: "preserve the setup/source boundary before continuing this setup step",
+        });
+    }
+    if message.starts_with("bash command blocked as EnvSetup:") {
+        return Some(StepPolicyViolation {
+            code: "model_issued_dependency_setup",
+            tool: "Bash",
+            target_path: None,
+            expected: "dependency setup is performed only by verifier-owned bounded setup recovery",
+            required_action: "do not run dependency installation from a model tool call; report the setup blocker or let verifier-owned setup recovery handle dependency_missing",
+            repair_focus: "stop model-issued dependency setup and return concrete repository evidence or blocker",
+        });
+    }
+    None
+}
+
+fn setup_source_mutation(message: &str) -> Option<(&'static str, String)> {
+    let detail = message
+        .strip_prefix("tool_policy_violation: ")
+        .unwrap_or(message);
+    let marker = " may only change setup/config files in a setup step: ";
+    let (tool, path) = detail.split_once(marker)?;
+    match tool {
+        "Write" => Some(("Write", path.trim().to_string())),
+        "Edit" => Some(("Edit", path.trim().to_string())),
+        _ => None,
+    }
+}
+
+fn read_only_policy_tool(message: &str) -> Option<&'static str> {
     let detail = message
         .strip_prefix("tool_policy_violation: ")
         .unwrap_or(message);
     if detail.contains("not allowed in a read-only step") {
-        return detail.split_whitespace().next().map(str::to_string);
+        return detail
+            .split_whitespace()
+            .next()
+            .and_then(|tool| match tool {
+                "Write" => Some("Write"),
+                "Edit" => Some("Edit"),
+                _ => None,
+            });
     }
     if detail.starts_with("Bash command is not read-only for this step") {
-        return Some("Bash".to_string());
+        return Some("Bash");
     }
     None
 }
@@ -645,6 +813,8 @@ fn verifier_contract_evidence(
         .with_failure_signature(signature)
         .with_command(failure.command.clone())
         .with_candidate_artifacts(candidate_artifacts)
+        .with_observed_expected_pairs(vec![verifier_observed_expected_pair(failure)])
+        .with_affected_cases(vec![failure.command.clone()])
         .with_required_action("fix the reported verifier failure before adding feature work");
     if let Some(target) = repair_target {
         evidence = evidence
@@ -676,6 +846,21 @@ fn verifier_contract_evidence(
         evidence = evidence.with_diagnostic(diagnostic);
     }
     Some(evidence)
+}
+
+fn verifier_observed_expected_pair(failure: &VerificationFailure) -> String {
+    let diagnostic = verifier_diagnostic(failure, None);
+    if diagnostic.trim().is_empty() {
+        format!(
+            "observed={}; expected={} verifier passes",
+            failure.reason, failure.command
+        )
+    } else {
+        format!(
+            "observed={}; expected={} verifier passes",
+            diagnostic, failure.command
+        )
+    }
 }
 
 fn verifier_failure_kind(failure: &VerificationFailure) -> &'static str {
@@ -1176,18 +1361,78 @@ mod tests {
 
         assert!(rendered.contains("guard: tool_protocol"));
         assert!(rendered.contains("violated_contract: tool_args_missing_required_field"));
+        assert!(rendered.contains("failure_kind: tool_protocol_error"));
+        assert!(rendered.contains("diagnostic_code: tool_args_missing_required_field"));
+        assert!(rendered.contains(
+            "failure_signature: tool_protocol|step|Write|tool_args_missing_required_field|src/components/GameCanvas.tsx"
+        ));
         assert!(rendered.contains("tool: Write"));
         assert!(rendered.contains("target_field: path"));
         assert!(rendered.contains("target_path: src/components/GameCanvas.tsx"));
+        assert!(rendered.contains("candidate_artifacts: src/components/GameCanvas.tsx"));
+        assert!(rendered.contains("repair_target: src/components/GameCanvas.tsx"));
         assert!(rendered.contains("required_fields: path, content"));
+        assert!(rendered.contains("observed_expected_pairs: observed=The previous tool call for Write was invalid because required string field"));
         assert!(rendered.contains(
             "required_action: emit exactly one valid Write tool call with path=src/components/GameCanvas.tsx"
         ));
     }
 
     #[test]
+    fn provider_transport_contract_evidence_classifies_parse_failure() {
+        let evidence = provider_transport_contract_evidence(
+            &step(StepKind::Create),
+            &MinimalLoopError::Model(
+                "Gemini JSON parse failed: tool call is missing a tool name".to_string(),
+            ),
+        )
+        .unwrap();
+
+        let rendered = evidence.render().unwrap();
+
+        assert!(rendered.contains("guard: provider_transport"));
+        assert!(rendered.contains("violated_contract: provider_transport_parse_failure"));
+        assert!(rendered.contains("failure_kind: provider_transport_parse_failure"));
+        assert!(rendered.contains("diagnostic_code: xml_tool_call_missing_name"));
+        assert!(
+            rendered
+                .contains("failure_signature: provider_transport|step|xml_tool_call_missing_name")
+        );
+        assert!(rendered.contains("shared tool-call transport contract"));
+        assert!(rendered.contains("correct the response/tool-call shape"));
+    }
+
+    #[test]
+    fn turn_error_failure_classifies_provider_transport_parse_failure() {
+        let failure = turn_error_failure(
+            "initial turn",
+            &MinimalLoopError::Model(
+                "Gemini JSON parse failed: tool call is missing a tool name".to_string(),
+            ),
+        );
+
+        assert_eq!(failure.reason, "provider_transport_parse_failure");
+        assert!(
+            failure
+                .diagnostic_excerpt
+                .contains("Provider transport parse failure (xml_tool_call_missing_name)")
+        );
+    }
+
+    #[test]
+    fn non_parse_model_error_is_not_provider_transport_evidence() {
+        assert!(
+            provider_transport_contract_evidence(
+                &step(StepKind::Create),
+                &MinimalLoopError::Model("quota exhausted".to_string()),
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
     fn read_only_mutation_contract_evidence_classifies_step_policy() {
-        let evidence = read_only_mutation_contract_evidence(
+        let evidence = step_policy_contract_evidence(
             &step(StepKind::Inspect),
             &MinimalLoopError::Tool(
                 "tool_policy_violation: Write is not allowed in a read-only step".to_string(),
@@ -1199,8 +1444,63 @@ mod tests {
 
         assert!(rendered.contains("guard: step_policy"));
         assert!(rendered.contains("violated_contract: read_only_step_mutation"));
+        assert!(rendered.contains("failure_kind: step_policy_violation"));
+        assert!(rendered.contains("diagnostic_code: read_only_step_mutation"));
+        assert!(
+            rendered.contains("failure_signature: step_policy|step|read_only_step_mutation|Write")
+        );
         assert!(rendered.contains("tool: Write"));
+        assert!(rendered.contains("expected=read-only step uses Read, Glob, Grep"));
         assert!(rendered.contains("move mutation into create/edit/repair steps"));
+    }
+
+    #[test]
+    fn setup_source_mutation_contract_evidence_classifies_step_policy() {
+        let evidence = step_policy_contract_evidence(
+            &step(StepKind::Setup),
+            &MinimalLoopError::Tool(
+                "tool_policy_violation: Write may only change setup/config files in a setup step: app/globals.css"
+                    .to_string(),
+            ),
+        )
+        .unwrap();
+
+        let rendered = evidence.render().unwrap();
+
+        assert!(rendered.contains("guard: step_policy"));
+        assert!(rendered.contains("violated_contract: setup_step_source_mutation"));
+        assert!(rendered.contains("failure_kind: step_policy_violation"));
+        assert!(rendered.contains("diagnostic_code: setup_step_source_mutation"));
+        assert!(
+            rendered
+                .contains("failure_signature: step_policy|step|setup_step_source_mutation|Write")
+        );
+        assert!(rendered.contains("tool: Write"));
+        assert!(rendered.contains("target_path: app/globals.css"));
+        assert!(!rendered.contains("repair_target: app/globals.css"));
+        assert!(rendered.contains("candidate_artifacts: app/globals.css"));
+        assert!(rendered.contains("expected=setup step changes only package"));
+        assert!(rendered.contains("do not edit source routes/components in setup steps"));
+    }
+
+    #[test]
+    fn model_issued_dependency_setup_contract_evidence_classifies_step_policy() {
+        let evidence = step_policy_contract_evidence(
+            &step(StepKind::Setup),
+            &MinimalLoopError::Tool(
+                "bash command blocked as EnvSetup: dependency setup is runtime-owned and only allowed during verifier dependency recovery"
+                    .to_string(),
+            ),
+        )
+        .unwrap();
+
+        let rendered = evidence.render().unwrap();
+
+        assert!(rendered.contains("guard: step_policy"));
+        assert!(rendered.contains("violated_contract: model_issued_dependency_setup"));
+        assert!(rendered.contains("tool: Bash"));
+        assert!(rendered.contains("verifier-owned bounded setup recovery"));
+        assert!(rendered.contains("do not run dependency installation from a model tool call"));
     }
 
     #[test]
@@ -1226,6 +1526,8 @@ mod tests {
             rendered.contains("failure_signature: verifier|step|npm run build|command_failed:1")
         );
         assert!(rendered.contains("command: npm run build"));
+        assert!(rendered.contains("affected_cases: npm run build"));
+        assert!(rendered.contains("observed_expected_pairs: observed=Type error: mismatch"));
         assert!(rendered.contains("Type error: mismatch"));
         assert!(rendered.contains("Failed to compile"));
     }
@@ -1377,6 +1679,19 @@ mod tests {
 
         assert_eq!(config.action_requirement, ActionRequirement::Required);
         assert_eq!(config.step_tool_policy, StepToolPolicy::FileMutationAllowed);
+    }
+
+    #[test]
+    fn setup_config_envelope_keeps_setup_mutation_policy() {
+        let mut config = MinimalLoopConfig::default();
+
+        apply_repair_execution_envelope(
+            &mut config,
+            Some(RecoveryExecutionEnvelope::SetupConfigMutation),
+        );
+
+        assert_eq!(config.action_requirement, ActionRequirement::Required);
+        assert_eq!(config.step_tool_policy, StepToolPolicy::SetupMutationOnly);
     }
 
     #[test]

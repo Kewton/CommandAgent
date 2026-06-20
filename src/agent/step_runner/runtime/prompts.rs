@@ -1,5 +1,6 @@
 use crate::agent::step_runner::correction_evidence::PlanCorrectionEvidence;
 use crate::agent::step_runner::profiles::profile_contract_text;
+use crate::agent::step_runner::recovery_task::RecoveryTaskContract;
 use crate::agent::step_runner::runtime::phase_contract::ActiveStepContract;
 use crate::agent::step_runner::{StepKind, StepPlan, StepPlanStep};
 
@@ -30,13 +31,28 @@ Return only corrected YAML using the required CommandAgent schema."
 }
 
 fn correction_evidence_section(evidence: Option<&PlanCorrectionEvidence>) -> String {
-    let Some(rendered) = evidence.and_then(PlanCorrectionEvidence::render) else {
+    let Some(evidence) = evidence else {
         return String::new();
     };
+    let Some(rendered) = evidence.render() else {
+        return String::new();
+    };
+    let recovery_task = RecoveryTaskContract::from_contract_evidence(evidence)
+        .and_then(|task| task.render())
+        .map(|rendered| format!("Recovery task:\n{}\n", indent(&rendered, "  ")))
+        .unwrap_or_default();
     format!(
         "{rendered}\n\
+{recovery_task}\
 Copy exact required literals and paths from this evidence into the corrected YAML. Do not paraphrase required literals or paths.\n\n"
     )
+}
+
+fn indent(text: &str, prefix: &str) -> String {
+    text.lines()
+        .map(|line| format!("{prefix}{line}"))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 pub(super) fn step_prompt(
@@ -402,6 +418,8 @@ mod tests {
         assert!(prompt.contains("- violated_contract: nextjs_dependencies_required"));
         assert!(prompt.contains("- required_literals: next, react, react-dom"));
         assert!(prompt.contains("- missing_literals: react-dom"));
+        assert!(prompt.contains("Recovery task:"));
+        assert!(prompt.contains("source: plan_lint.profile_obligations"));
         assert!(prompt.contains("Copy exact required literals and paths"));
         assert!(prompt.contains("Do not paraphrase required literals or paths"));
     }

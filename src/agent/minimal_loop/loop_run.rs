@@ -13,7 +13,10 @@ use crate::agent::minimal_loop::prompt::{
 use crate::providers::xml_fallback::{
     extract_tool_calls, mode_after_parse_failure, render_tool_calls,
 };
-use crate::providers::{ChatMessage, ChatRequest, ChatResponse, ChatRole, ToolCall, ToolCallMode};
+use crate::providers::{
+    ChatMessage, ChatRequest, ChatResponse, ChatRole, ToolCall, ToolCallMode,
+    tool_call_parse_error_from_content,
+};
 use crate::safety::path_guard::PathGuard;
 use crate::tools::registry::file_tool_specs;
 use std::path::Path;
@@ -64,14 +67,8 @@ where
     let mut mode = config.initial_tool_call_mode;
     let tools = file_tool_specs();
     let mut messages = vec![
-        ChatMessage {
-            role: ChatRole::System,
-            content: system_prompt(mode, &tools),
-        },
-        ChatMessage {
-            role: ChatRole::User,
-            content: user_prompt.to_string(),
-        },
+        ChatMessage::new(ChatRole::System, system_prompt(mode, &tools)),
+        ChatMessage::new(ChatRole::User, user_prompt),
     ];
     let mut tool_results = Vec::new();
     let mut file_change_count = 0usize;
@@ -112,10 +109,10 @@ where
         let calls = tool_calls_from_response(&response, mode);
         match calls {
             Ok(calls) if !calls.is_empty() => {
-                messages.push(ChatMessage {
-                    role: ChatRole::Assistant,
-                    content: assistant_history_content(&response, &calls, mode),
-                });
+                messages.push(ChatMessage::assistant_with_tool_calls(
+                    assistant_history_content(&response, &calls, mode),
+                    calls.clone(),
+                ));
                 for call in calls {
                     observer.on_event(RuntimeEvent::ToolCallStarted {
                         iteration,
@@ -151,18 +148,19 @@ where
                     {
                         repository_evidence_count += 1;
                     }
-                    messages.push(ChatMessage {
-                        role: ChatRole::Tool,
-                        content: record.output.clone(),
-                    });
+                    messages.push(ChatMessage::tool_result(
+                        record.output.clone(),
+                        call.name.clone(),
+                        call.id.clone(),
+                    ));
                     tool_results.push(record);
                 }
             }
             Ok(_) => {
-                messages.push(ChatMessage {
-                    role: ChatRole::Assistant,
-                    content: response.content.clone(),
-                });
+                messages.push(ChatMessage::new(
+                    ChatRole::Assistant,
+                    response.content.clone(),
+                ));
                 if violates_final_answer_contract(&response.content) {
                     if config.enable_future_action_feedback && !future_action_feedback_sent {
                         future_action_feedback_sent = true;
@@ -172,10 +170,7 @@ where
                             tool_call_mode: mode,
                             missing_artifacts: Vec::new(),
                         });
-                        messages.push(ChatMessage {
-                            role: ChatRole::User,
-                            content: future_action_feedback(),
-                        });
+                        messages.push(ChatMessage::new(ChatRole::User, future_action_feedback()));
                         continue;
                     }
                     let err = MinimalLoopError::FinalAnswerContract(response.content);
@@ -194,10 +189,10 @@ where
                             tool_call_mode: mode,
                             missing_artifacts: missing.clone(),
                         });
-                        messages.push(ChatMessage {
-                            role: ChatRole::User,
-                            content: requested_artifact_feedback(&missing, mode),
-                        });
+                        messages.push(ChatMessage::new(
+                            ChatRole::User,
+                            requested_artifact_feedback(&missing, mode),
+                        ));
                         continue;
                     }
                     let err = MinimalLoopError::MissingArtifacts(missing);
@@ -228,10 +223,7 @@ where
                             action_required_feedback(mode)
                         }
                     };
-                    messages.push(ChatMessage {
-                        role: ChatRole::User,
-                        content: feedback,
-                    });
+                    messages.push(ChatMessage::new(ChatRole::User, feedback));
                     continue;
                 } else if config.enable_completion_without_write_feedback
                     && !action_requirement_satisfied(
@@ -259,10 +251,10 @@ where
                 });
             }
             Err(err) => {
-                messages.push(ChatMessage {
-                    role: ChatRole::Assistant,
-                    content: response.content.clone(),
-                });
+                messages.push(ChatMessage::new(
+                    ChatRole::Assistant,
+                    response.content.clone(),
+                ));
                 let previous_mode = mode;
                 mode = mode_after_parse_failure(mode);
                 observer.on_event(RuntimeEvent::ParserFeedbackSent {
@@ -271,10 +263,10 @@ where
                     next_tool_call_mode: mode,
                     error: bounded_event_text(&err),
                 });
-                messages.push(ChatMessage {
-                    role: ChatRole::User,
-                    content: parser_failure_feedback(&err),
-                });
+                messages.push(ChatMessage::new(
+                    ChatRole::User,
+                    parser_failure_feedback(&err),
+                ));
             }
         }
     }
@@ -305,6 +297,10 @@ fn tool_calls_from_response(
     response: &ChatResponse,
     mode: ToolCallMode,
 ) -> Result<Vec<ToolCall>, String> {
+    if let Some(error) = tool_call_parse_error_from_content(&response.content) {
+        return Err(error);
+    }
+
     if !response.tool_calls.is_empty() {
         return Ok(response.tool_calls.clone());
     }
@@ -322,7 +318,7 @@ fn assistant_history_content(
     calls: &[ToolCall],
     mode: ToolCallMode,
 ) -> String {
-    if mode != ToolCallMode::XmlFallback {
+    if mode != ToolCallMode::XmlFallback && calls.iter().any(|call| call.id.is_some()) {
         return response.content.clone();
     }
 
@@ -403,6 +399,8 @@ mod tests {
             ChatResponse {
                 content: String::new(),
                 tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
                     name: "Write".to_string(),
                     args_json: r#"{"path":"nested/hello.txt","content":"hello"}"#.to_string(),
                 }],
@@ -436,6 +434,8 @@ mod tests {
             ChatResponse {
                 content: String::new(),
                 tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
                     name: "Write".to_string(),
                     args_json: r#"{"path":"nested/file.txt","content":"secret"}"#.to_string(),
                 }],
@@ -517,6 +517,37 @@ mod tests {
     }
 
     #[test]
+    fn provider_parse_evidence_downgrades_next_request_to_xml_fallback() {
+        let root = temp_workspace("provider-parse-evidence");
+        let mut client = MockClient::new(vec![
+            ChatResponse {
+                content: crate::providers::tool_call_parse_error_content(
+                    "gemini_native_function_call_missing_name",
+                ),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                content: "Recovered.".to_string(),
+                tool_calls: Vec::new(),
+            },
+        ]);
+
+        let result = run_session(
+            &mut client,
+            &root,
+            "create a file",
+            MinimalLoopConfig::default(),
+        )
+        .unwrap();
+
+        assert_eq!(result.tool_call_mode, ToolCallMode::XmlFallback);
+        assert_eq!(
+            client.modes,
+            vec![ToolCallMode::Native, ToolCallMode::XmlFallback]
+        );
+    }
+
+    #[test]
     fn observer_reports_parser_feedback_without_raw_tool_xml() {
         let root = temp_workspace("observer-parser");
         let mut client = MockClient::new(vec![
@@ -565,6 +596,8 @@ mod tests {
             ChatResponse {
                 content: String::new(),
                 tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
                     name: "Write".to_string(),
                     args_json: r#"{"path":"created.txt","content":"ok"}"#.to_string(),
                 }],
@@ -683,6 +716,8 @@ mod tests {
             ChatResponse {
                 content: String::new(),
                 tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
                     name: "Write".to_string(),
                     args_json: r#"{"path":"created.txt","content":"ok"}"#.to_string(),
                 }],
@@ -767,6 +802,8 @@ mod tests {
             ChatResponse {
                 content: String::new(),
                 tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
                     name: "Read".to_string(),
                     args_json: r#"{"path":"package.json"}"#.to_string(),
                 }],
@@ -842,6 +879,8 @@ mod tests {
             ChatResponse {
                 content: String::new(),
                 tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
                     name: "Write".to_string(),
                     args_json: r#"{"path":"dist/report.md","content":"ok"}"#.to_string(),
                 }],

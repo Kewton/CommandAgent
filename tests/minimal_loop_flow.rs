@@ -54,6 +54,8 @@ fn requested_artifact_feedback_is_public_behavior() {
         ChatResponse {
             content: String::new(),
             tool_calls: vec![ToolCall {
+                id: None,
+                thought_signature: None,
                 name: "Write".to_string(),
                 args_json: r#"{"path":"dist/report.md","content":"ok"}"#.to_string(),
             }],
@@ -92,6 +94,8 @@ fn xml_fallback_prompt_exposes_tool_argument_shapes() {
         ChatResponse {
             content: String::new(),
             tool_calls: vec![ToolCall {
+                id: None,
+                thought_signature: None,
                 name: "Write".to_string(),
                 args_json: r#"{"path":"out.txt","content":"ok"}"#.to_string(),
             }],
@@ -134,6 +138,8 @@ fn parsed_tool_calls_do_not_double_execute_xml_content() {
         ChatResponse {
             content: r#"<commandagent_tool_call>{"name":"Write","args":{"path":"out.txt","content":"from-content"}}</commandagent_tool_call>"#.to_string(),
             tool_calls: vec![ToolCall {
+                id: None,
+                thought_signature: None,
                 name: "Write".to_string(),
                 args_json: r#"{"path":"out.txt","content":"from-tool-call"}"#.to_string(),
             }],
@@ -166,6 +172,8 @@ fn xml_fallback_tool_calls_are_preserved_in_assistant_history() {
         ChatResponse {
             content: String::new(),
             tool_calls: vec![ToolCall {
+                id: None,
+                thought_signature: None,
                 name: "Write".to_string(),
                 args_json: r#"{"path":"out.txt","content":"ok"}"#.to_string(),
             }],
@@ -198,6 +206,8 @@ fn action_required_feedback_fires_once() {
         ChatResponse {
             content: String::new(),
             tool_calls: vec![ToolCall {
+                id: None,
+                thought_signature: None,
                 name: "Write".to_string(),
                 args_json: r#"{"path":"out.txt","content":"ok"}"#.to_string(),
             }],

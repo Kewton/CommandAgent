@@ -414,6 +414,8 @@ mod tests {
 
         let err = executor
             .execute(&ToolCall {
+                id: None,
+                thought_signature: None,
                 name: "Write".to_string(),
                 args_json: "{".to_string(),
             })
@@ -461,6 +463,8 @@ mod tests {
 
     fn call(name: &str, args: serde_json::Value) -> ToolCall {
         ToolCall {
+            id: None,
+            thought_signature: None,
             name: name.to_string(),
             args_json: serde_json::to_string(&args).unwrap(),
         }

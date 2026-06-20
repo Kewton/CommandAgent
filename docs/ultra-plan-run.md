@@ -83,11 +83,24 @@ literals, or required paths, such as `react-dom` for a Next.js package
 obligation. It is not a retry expansion: the original guard reruns unchanged
 and the run still stops if the bounded correction fails.
 
+Step decomposition is also a planning contract. For example, a generated
+`setup` step may own `package.json` or `tailwind.config.js`, but it may not own
+source artifacts such as `app/globals.css`, `src/app/globals.css`, or
+`src/app/page.tsx`. When profile artifact classification can identify that
+mismatch, plan lint rejects the step before execution and sends the rejected
+path, observed artifact role, allowed setup roles, and required split or
+kind-change action through the same bounded correction path. The runtime
+setup-source tool policy remains the final guard, not the primary detector.
+
 This common evidence layer is implemented for plan-lint/profile obligations,
-tool protocol failures, read-only step-policy violations, and verifier
-failures. Profile verification also renders shared contract evidence inside
-its existing profile repair packet when the profile check has deterministic
-facts, such as a selected Next.js route or mixed app roots. Dependency setup is
+provider transport parse failures, tool protocol failures, read-only
+step-policy violations, verifier failures, and profile verification failures.
+Provider transport evidence is limited to shared response-parser diagnostics;
+it does not add provider/model-specific policy. Profile verification also
+renders shared contract evidence inside its existing profile repair packet when
+the profile check has deterministic facts, such as a selected Next.js route,
+missing integration artifact, script/dependency drift, Tailwind/PostCSS drift,
+TypeScript alias/root drift, or mixed app roots. Dependency setup is
 represented only as diagnostic context on a remaining verifier failure after
 one approved setup attempt. These evidence producers render through existing
 correction or repair prompts; they must not add hidden continuation or new
@@ -133,9 +146,11 @@ the original verifier/profile/tool-policy check that will judge the repair. It
 may also name an execution envelope, tool policy, and evidence requirement for
 the next bounded repair turn. For example, read-only step-policy recovery runs
 with a read-only tool policy and requires repository read evidence instead of a
-file change. It does not create another execution engine: the minimal loop
-still receives one bounded repair turn and the original verifier or guard
-reruns unchanged.
+file change. Setup/source policy recovery keeps a setup/config-only mutation
+policy, so a setup step cannot repair itself by editing source routes or
+components. It does not create another execution engine: the minimal loop still
+receives one bounded repair turn and the original verifier or guard reruns
+unchanged.
 
 If every verifier failure is `dependency_missing` and the step's expected paths
 already exist, CommandAgent treats the problem as setup recovery, not source

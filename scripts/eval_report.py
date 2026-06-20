@@ -136,19 +136,52 @@ def semantic_mismatches(workspace, case, missing):
 def categorize(reason):
     if reason == "ok":
         return "ok"
-    if reason.startswith("missing:"):
-        return "missing_artifact"
-    if reason.startswith("semantic_missing:") or reason.startswith("semantic_mismatch:"):
-        return "semantic_check_failed"
+    if (
+        reason.startswith("planning:")
+        or reason.startswith("plan_lint")
+        or "invalid ultra plan" in reason
+        or "invalid step plan" in reason
+    ):
+        return "planning"
+    if (
+        reason.startswith("provider_transport")
+        or reason.startswith("provider_parse")
+        or "JSON parse failed" in reason
+        or "tool call is missing a tool name" in reason
+    ):
+        return "provider_transport"
+    if (
+        reason.startswith("tool_args_")
+        or reason.startswith("tool_protocol")
+        or reason.startswith("tool_protocol_failure:")
+    ):
+        return "tool_protocol"
+    if reason.startswith("step_policy:") or reason == "read_only_step_mutation":
+        return "step_policy"
     if reason.startswith("profile_verification:"):
-        return "profile_verification"
-    if reason.startswith("tool_args_") or reason.startswith("tool_protocol_failure:"):
-        return "tool_call_schema_failure"
-    if reason == "dependency_missing":
-        return "dependency_missing"
+        return "profile"
+    if (
+        reason == "dependency_missing"
+        or reason.startswith("setup:")
+        or reason.startswith("dependency_setup:")
+    ):
+        return "setup"
+    if (
+        reason.startswith("quality:")
+        or reason.startswith("app_quality:")
+        or "blank_ui" in reason
+        or "visual" in reason
+    ):
+        return "quality"
+    if reason.startswith("missing:"):
+        return "planning"
+    if reason.startswith("semantic_missing:") or reason.startswith("semantic_mismatch:"):
+        return "quality"
     if reason.startswith("rc:"):
-        return "rc_nonzero"
-    return "check_failed"
+        return "verifier"
+    if reason.startswith("command_failed:") or reason.startswith("blocked:"):
+        return "verifier"
+    return "unknown"
 
 
 def render_report(rows):

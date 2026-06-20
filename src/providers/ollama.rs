@@ -322,6 +322,8 @@ fn parse_chat_response(body: &str) -> Result<ChatResponse, OllamaError> {
         .tool_calls
         .into_iter()
         .map(|call| ToolCall {
+            id: None,
+            thought_signature: None,
             name: call.function.name,
             args_json: serde_json::to_string(&call.function.arguments)
                 .unwrap_or_else(|_| "{}".to_string()),
@@ -374,71 +376,10 @@ fn to_ollama_tools(tools: &[ToolSpec]) -> Vec<OllamaToolDefinition> {
             function: OllamaToolFunction {
                 name: tool.name.clone(),
                 description: tool.description.clone(),
-                parameters: tool_parameters(&tool.name),
+                parameters: tool.parameters_json_schema.clone(),
             },
         })
         .collect()
-}
-
-fn tool_parameters(name: &str) -> Value {
-    match name {
-        "Read" => object_schema(
-            &[("path", "Repository-relative text file path to read.")],
-            &["path"],
-        ),
-        "Write" => object_schema(
-            &[
-                ("path", "Repository-relative file path to write."),
-                ("content", "Complete UTF-8 file content to write."),
-            ],
-            &["path", "content"],
-        ),
-        "Edit" => object_schema(
-            &[
-                ("path", "Repository-relative file path to edit."),
-                ("old", "Exact existing text to replace once."),
-                ("new", "Replacement text."),
-            ],
-            &["path", "old", "new"],
-        ),
-        "Bash" => object_schema(
-            &[(
-                "command",
-                "Local read-only, script-run, or build-test command.",
-            )],
-            &["command"],
-        ),
-        "Glob" | "Grep" => object_schema(
-            &[("pattern", "Pattern or literal text to search for.")],
-            &["pattern"],
-        ),
-        _ => json!({
-            "type": "object",
-            "properties": {},
-            "additionalProperties": true,
-        }),
-    }
-}
-
-fn object_schema(properties: &[(&str, &str)], required: &[&str]) -> Value {
-    let props = properties
-        .iter()
-        .map(|(name, description)| {
-            (
-                (*name).to_string(),
-                json!({
-                    "type": "string",
-                    "description": description,
-                }),
-            )
-        })
-        .collect::<serde_json::Map<_, _>>();
-    json!({
-        "type": "object",
-        "properties": props,
-        "required": required,
-        "additionalProperties": false,
-    })
 }
 
 fn normalize_base_url(base_url: &str) -> String {
@@ -525,13 +466,11 @@ mod tests {
         );
         let request = ChatRequest {
             model: "qwen".to_string(),
-            messages: vec![ChatMessage {
-                role: ChatRole::User,
-                content: "read Cargo.toml".to_string(),
-            }],
+            messages: vec![ChatMessage::new(ChatRole::User, "read Cargo.toml")],
             tools: vec![ToolSpec {
                 name: "Read".to_string(),
                 description: "Read file".to_string(),
+                parameters_json_schema: crate::tools::registry::tool_parameters_json_schema("Read"),
             }],
             tool_call_mode: ToolCallMode::Native,
         };
@@ -549,6 +488,7 @@ mod tests {
         let tools = to_ollama_tools(&[ToolSpec {
             name: "Write".to_string(),
             description: "write".to_string(),
+            parameters_json_schema: crate::tools::registry::tool_parameters_json_schema("Write"),
         }]);
         let params = &tools[0].function.parameters;
 
@@ -571,13 +511,11 @@ mod tests {
         );
         let request = ChatRequest {
             model: "qwen".to_string(),
-            messages: vec![ChatMessage {
-                role: ChatRole::User,
-                content: "hello".to_string(),
-            }],
+            messages: vec![ChatMessage::new(ChatRole::User, "hello")],
             tools: vec![ToolSpec {
                 name: "Read".to_string(),
                 description: "Read file".to_string(),
+                parameters_json_schema: crate::tools::registry::tool_parameters_json_schema("Read"),
             }],
             tool_call_mode: ToolCallMode::XmlFallback,
         };

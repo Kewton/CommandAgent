@@ -64,10 +64,13 @@ component tree or router layout.
 
 The Next.js classifier distinguishes route entries such as `app/page.tsx`,
 route infrastructure such as `app/layout.tsx`, UI source artifacts such as
-`components/Game.tsx`, manifests/config files, generated declarations such as
-`next-env.d.ts`, dependency caches, and build output. Generated declarations,
-dependency caches, build output, setup files, and workspace-only observations
-are not route-integration artifacts.
+`components/Game.tsx`, source/style artifacts such as `app/globals.css` and
+`src/app/globals.css`, manifests/config files, generated declarations such as
+`next-env.d.ts`, dependency caches, and build output. Global CSS files remain
+source/style artifacts even when they contain Tailwind directives; they are not
+setup/config artifacts and are not route-integration artifacts. Generated
+declarations, dependency caches, build output, setup files, and workspace-only
+observations are not route-integration artifacts.
 
 During ultra phase execution, the Next.js profile may also provide read-only
 fact summaries and phase-boundary verification. The checks are deterministic
@@ -128,9 +131,12 @@ payload when the profile check has deterministic facts. For Next.js, mixed
 `app/` and `src/app/` roots are reported as app-root contract evidence, missing
 integration artifacts report the missing artifact as the repair target, and a
 route-integration failure reports the selected route as the repair target plus
-the unintegrated artifact as a candidate artifact. This is still evidence
-rendering only. Profiles must not carry retry authority, semantic confidence,
-or workflow decisions.
+the unintegrated artifact as a candidate artifact. Script drift, dependency
+drift, Tailwind/PostCSS drift, TypeScript alias/root drift, and dev-port drift
+map to their deterministic repair targets such as `package.json`,
+`tailwind.config.js`, `postcss.config.js`, or `tsconfig.json`. This is still
+evidence rendering only. Profiles must not carry retry authority, semantic
+confidence, or workflow decisions.
 
 ## Python Contract
 

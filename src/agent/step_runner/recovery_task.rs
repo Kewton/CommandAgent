@@ -12,6 +12,7 @@ const MAX_LIST_ITEMS: usize = 8;
 pub enum RecoveryExecutionEnvelope {
     ReadOnlyEvidence,
     FileMutationRepair,
+    SetupConfigMutation,
     ToolProtocolCorrection,
 }
 
@@ -20,6 +21,7 @@ impl RecoveryExecutionEnvelope {
         match self {
             Self::ReadOnlyEvidence => "read_only_evidence",
             Self::FileMutationRepair => "file_mutation_repair",
+            Self::SetupConfigMutation => "setup_config_mutation",
             Self::ToolProtocolCorrection => "tool_protocol_correction",
         }
     }
@@ -28,6 +30,7 @@ impl RecoveryExecutionEnvelope {
         match self {
             Self::ReadOnlyEvidence => "read_only",
             Self::FileMutationRepair => "file_mutation_allowed",
+            Self::SetupConfigMutation => "setup_config_mutation_only",
             Self::ToolProtocolCorrection => "current_tool_protocol",
         }
     }
@@ -36,6 +39,7 @@ impl RecoveryExecutionEnvelope {
         match self {
             Self::ReadOnlyEvidence => "repository_read_evidence",
             Self::FileMutationRepair => "file_change_or_explicit_blocker",
+            Self::SetupConfigMutation => "setup_or_config_file_change_or_explicit_blocker",
             Self::ToolProtocolCorrection => "valid_tool_call",
         }
     }
@@ -78,12 +82,7 @@ impl RecoveryTaskContract {
             .with_contract_code_opt(contract_code(evidence))
             .with_blocker_opt(blocker(evidence))
             .with_required_action_opt(required_action(evidence))
-            .with_repair_target_opt(
-                evidence
-                    .repair_target
-                    .clone()
-                    .or_else(|| evidence.target_path.clone()),
-            )
+            .with_repair_target_opt(recovery_repair_target(evidence))
             .with_candidate_artifacts(evidence.candidate_artifacts.clone())
             .with_success_check_opt(success_check(evidence))
             .with_evidence_signature_opt(evidence.failure_signature.clone())
@@ -295,8 +294,12 @@ pub fn recovery_execution_envelope(
 fn known_recovery_source(source: &str) -> bool {
     matches!(
         source,
-        "tool_protocol" | "step_policy" | "verifier" | "profile_verification"
-    )
+        "tool_protocol"
+            | "step_policy"
+            | "provider_transport"
+            | "verifier"
+            | "profile_verification"
+    ) || source.starts_with("plan_lint.")
 }
 
 fn contract_code(evidence: &ContractEvidence) -> Option<String> {
@@ -305,6 +308,16 @@ fn contract_code(evidence: &ContractEvidence) -> Option<String> {
         .clone()
         .or_else(|| evidence.reason_code.clone())
         .or_else(|| evidence.violated_contract.clone())
+}
+
+fn recovery_repair_target(evidence: &ContractEvidence) -> Option<String> {
+    if evidence.guard == "step_policy" {
+        return evidence.repair_target.clone();
+    }
+    evidence
+        .repair_target
+        .clone()
+        .or_else(|| evidence.target_path.clone())
 }
 
 fn blocker(evidence: &ContractEvidence) -> Option<String> {
@@ -323,6 +336,14 @@ fn blocker(evidence: &ContractEvidence) -> Option<String> {
                 .tool
                 .as_deref()
                 .map(|tool| format!(" {tool}"))
+                .unwrap_or_default()
+        )),
+        "provider_transport" => Some(format!(
+            "Provider transport could not parse the model response{}",
+            evidence
+                .diagnostic_code
+                .as_deref()
+                .map(|code| format!(": {code}"))
                 .unwrap_or_default()
         )),
         "verifier" => Some(format!(
@@ -368,6 +389,14 @@ fn required_action(evidence: &ContractEvidence) -> Option<String> {
                 Some("Fix the reported profile contract before adding feature work.".to_string())
             }
         }
+        "provider_transport" => Some(
+            "Produce a response that satisfies the shared tool-call transport contract; do not rely on provider-specific behavior."
+                .to_string(),
+        ),
+        source if source.starts_with("plan_lint.") => Some(
+            "Correct the rejected plan field using the exact missing literals or paths from the contract evidence."
+                .to_string(),
+        ),
         _ => evidence.repair_focus.clone(),
     }
 }
@@ -376,6 +405,7 @@ fn success_check(evidence: &ContractEvidence) -> Option<String> {
     match evidence.guard.as_str() {
         "tool_protocol" => Some("tool schema validation".to_string()),
         "step_policy" => Some("step tool policy".to_string()),
+        "provider_transport" => Some("provider response parser".to_string()),
         "verifier" => evidence.command.clone(),
         "profile_verification"
             if contract_code(evidence).as_deref()
@@ -393,7 +423,18 @@ fn execution_envelope(evidence: &ContractEvidence) -> Option<RecoveryExecutionEn
         "step_policy" if contract_code(evidence).as_deref() == Some("read_only_step_mutation") => {
             Some(RecoveryExecutionEnvelope::ReadOnlyEvidence)
         }
+        "step_policy"
+            if contract_code(evidence).as_deref() == Some("model_issued_dependency_setup") =>
+        {
+            Some(RecoveryExecutionEnvelope::ReadOnlyEvidence)
+        }
+        "step_policy"
+            if contract_code(evidence).as_deref() == Some("setup_step_source_mutation") =>
+        {
+            Some(RecoveryExecutionEnvelope::SetupConfigMutation)
+        }
         "tool_protocol" => Some(RecoveryExecutionEnvelope::ToolProtocolCorrection),
+        "provider_transport" => Some(RecoveryExecutionEnvelope::ToolProtocolCorrection),
         "verifier" => Some(RecoveryExecutionEnvelope::FileMutationRepair),
         "profile_verification"
             if evidence.repair_target.is_some() || evidence.required_action.is_some() =>
@@ -410,10 +451,26 @@ fn disallowed_actions(evidence: &ContractEvidence) -> Vec<String> {
             "Do not answer in prose instead of a tool call.".to_string(),
             "Do not run dependency installation.".to_string(),
         ],
-        "step_policy" => vec![
-            "Do not use Write in a read-only step.".to_string(),
-            "Do not use Edit in a read-only step.".to_string(),
-            "Do not use mutating Bash in a read-only step.".to_string(),
+        "step_policy" => match contract_code(evidence).as_deref() {
+            Some("read_only_step_mutation") => vec![
+                "Do not use Write in a read-only step.".to_string(),
+                "Do not use Edit in a read-only step.".to_string(),
+                "Do not use mutating Bash in a read-only step.".to_string(),
+            ],
+            Some("setup_step_source_mutation") => vec![
+                "Do not edit source routes or components in a setup step.".to_string(),
+                "Do not change the step kind to bypass the setup/source boundary.".to_string(),
+            ],
+            Some("model_issued_dependency_setup") => vec![
+                "Do not run npm install, npm ci, pnpm install, or yarn install from a model tool call.".to_string(),
+                "Do not use mutating Bash to perform dependency setup.".to_string(),
+            ],
+            _ => vec!["Do not bypass the step tool policy.".to_string()],
+        },
+        "provider_transport" => vec![
+            "Do not add provider/model-specific repair behavior.".to_string(),
+            "Do not answer with malformed XML or JSON tool-call payloads.".to_string(),
+            "Do not run dependency installation.".to_string(),
         ],
         "verifier" => vec![
             "Do not change the verifier command to fake success.".to_string(),
@@ -434,9 +491,24 @@ fn disallowed_actions(evidence: &ContractEvidence) -> Vec<String> {
                 "Do not create placeholder artifacts when the unintegrated artifact already exists."
                     .to_string(),
             ],
+            Some("nextjs_dependency_version_conflict") => {
+                vec!["Do not keep exact React pins below 18.2 with Next.js 14.".to_string()]
+            }
+            Some("nextjs_missing_dependency") => vec![
+                "Do not remove Next.js runtime dependencies to silence the profile contract."
+                    .to_string(),
+            ],
+            Some("nextjs_build_script_drift") => vec![
+                "Do not rewrite scripts.build away from next build to fake success.".to_string(),
+            ],
             _ => Vec::new(),
         })
         .collect(),
+        source if source.starts_with("plan_lint.") => vec![
+            "Do not weaken or remove the rejected plan obligation.".to_string(),
+            "Do not replace the failed check with dependency installation or cache checks."
+                .to_string(),
+        ],
         _ => Vec::new(),
     }
 }
@@ -576,6 +648,57 @@ mod tests {
     }
 
     #[test]
+    fn setup_step_source_mutation_uses_setup_config_envelope() {
+        let evidence = ContractEvidence::new("step_policy")
+            .with_failed_step("setup-dependencies")
+            .with_violated_contract("setup_step_source_mutation")
+            .with_reason_code("setup_step_source_mutation")
+            .with_tool("Write")
+            .with_target_path("app/globals.css")
+            .with_required_action(
+                "do not edit source routes/components in setup steps; move source changes into create/edit/repair steps",
+            );
+
+        let rendered = RecoveryTaskContract::from_contract_evidence(&evidence)
+            .unwrap()
+            .render()
+            .unwrap();
+
+        assert!(rendered.contains("Step tool policy rejected Write"));
+        assert!(!rendered.contains("repair_target: app/globals.css"));
+        assert!(rendered.contains("setup steps"));
+        assert!(rendered.contains("Do not edit source routes or components"));
+        assert!(rendered.contains("execution_envelope: setup_config_mutation"));
+        assert!(rendered.contains("tool_policy: setup_config_mutation_only"));
+        assert!(
+            rendered
+                .contains("evidence_requirement: setup_or_config_file_change_or_explicit_blocker")
+        );
+    }
+
+    #[test]
+    fn model_issued_dependency_setup_uses_read_only_envelope() {
+        let evidence = ContractEvidence::new("step_policy")
+            .with_failed_step("setup-dependencies")
+            .with_violated_contract("model_issued_dependency_setup")
+            .with_reason_code("model_issued_dependency_setup")
+            .with_tool("Bash")
+            .with_required_action(
+                "do not run dependency installation from a model tool call; report the setup blocker",
+            );
+
+        let rendered = RecoveryTaskContract::from_contract_evidence(&evidence)
+            .unwrap()
+            .render()
+            .unwrap();
+
+        assert!(rendered.contains("Step tool policy rejected Bash"));
+        assert!(rendered.contains("model_issued_dependency_setup"));
+        assert!(rendered.contains("Do not run npm install"));
+        assert!(rendered.contains("execution_envelope: read_only_evidence"));
+    }
+
+    #[test]
     fn profile_task_preserves_selected_route_target() {
         let evidence = ContractEvidence::new("profile_verification")
             .with_failed_step("phase-ui")
@@ -628,6 +751,47 @@ mod tests {
             )
         );
         assert!(rendered.contains("execution_envelope: file_mutation_repair"));
+    }
+
+    #[test]
+    fn provider_transport_evidence_becomes_tool_protocol_recovery_task() {
+        let evidence = ContractEvidence::new("provider_transport")
+            .with_failed_step("create-game-component")
+            .with_violated_contract("provider_transport_parse_failure")
+            .with_reason_code("provider_transport_parse_failure")
+            .with_diagnostic_code("xml_tool_call_missing_name")
+            .with_diagnostic("Gemini JSON parse failed: tool call is missing a tool name");
+
+        let rendered = RecoveryTaskContract::from_contract_evidence(&evidence)
+            .unwrap()
+            .render()
+            .unwrap();
+
+        assert!(rendered.contains("source: provider_transport"));
+        assert!(rendered.contains("Provider transport could not parse the model response"));
+        assert!(rendered.contains("provider response parser"));
+        assert!(rendered.contains("execution_envelope: tool_protocol_correction"));
+        assert!(rendered.contains("Do not add provider/model-specific repair behavior"));
+    }
+
+    #[test]
+    fn plan_lint_evidence_becomes_plan_correction_recovery_task() {
+        let evidence = ContractEvidence::new("plan_lint.profile_obligations")
+            .with_failed_step("create-package-json")
+            .with_violated_contract("nextjs_dependencies_required")
+            .with_target_field("instruction")
+            .with_required_literals(vec!["next", "react", "react-dom"])
+            .with_missing_literals(vec!["react-dom"]);
+
+        let rendered = RecoveryTaskContract::from_contract_evidence(&evidence)
+            .unwrap()
+            .render()
+            .unwrap();
+
+        assert!(rendered.contains("source: plan_lint.profile_obligations"));
+        assert!(rendered.contains("nextjs_dependencies_required"));
+        assert!(rendered.contains("exact missing literals or paths"));
+        assert!(rendered.contains("Do not weaken or remove the rejected plan obligation"));
     }
 
     #[test]

@@ -16,6 +16,7 @@ pub(crate) enum ArtifactKind {
     RouteEntry,
     RouteInfrastructure,
     UiSource,
+    StyleSource,
     RuntimeSource,
     TestSource,
     Manifest,
@@ -103,6 +104,8 @@ pub(crate) fn classify_nextjs_artifact(
         ArtifactKind::Manifest
     } else if is_config_path(&path) {
         ArtifactKind::Config
+    } else if is_nextjs_style_source_path(&path) {
+        ArtifactKind::StyleSource
     } else if is_nextjs_ui_source_path(&path) {
         ArtifactKind::UiSource
     } else {
@@ -215,6 +218,33 @@ pub(crate) fn is_build_output_path(path: &str) -> bool {
         || path.starts_with("build/")
 }
 
+pub(crate) fn artifact_kind_label(kind: ArtifactKind) -> &'static str {
+    match kind {
+        ArtifactKind::RouteEntry => "route_entry",
+        ArtifactKind::RouteInfrastructure => "route_infrastructure",
+        ArtifactKind::UiSource => "source/ui",
+        ArtifactKind::StyleSource => "source/style",
+        ArtifactKind::RuntimeSource => "source/runtime",
+        ArtifactKind::TestSource => "test",
+        ArtifactKind::Manifest => "setup/manifest",
+        ArtifactKind::Config => "setup/config",
+        ArtifactKind::GeneratedDeclaration => "generated/declaration",
+        ArtifactKind::DependencyCache => "dependency_cache",
+        ArtifactKind::BuildOutput => "build_output",
+        ArtifactKind::RawInput => "raw_input",
+        ArtifactKind::DerivedOutput => "derived_output",
+        ArtifactKind::Documentation => "documentation",
+        ArtifactKind::Unknown => "unknown",
+    }
+}
+
+pub(crate) fn setup_step_may_own_artifact(kind: ArtifactKind) -> bool {
+    matches!(
+        kind,
+        ArtifactKind::Manifest | ArtifactKind::Config | ArtifactKind::Unknown
+    )
+}
+
 pub(crate) fn is_manifest_path(path: &str) -> bool {
     let name = file_name(path);
     name == "package.json"
@@ -268,6 +298,7 @@ fn nextjs_eligibility(kind: ArtifactKind, provenance: ArtifactProvenance) -> Art
             ArtifactKind::RouteEntry
                 | ArtifactKind::RouteInfrastructure
                 | ArtifactKind::UiSource
+                | ArtifactKind::StyleSource
                 | ArtifactKind::Manifest
                 | ArtifactKind::Config
         ),
@@ -276,6 +307,7 @@ fn nextjs_eligibility(kind: ArtifactKind, provenance: ArtifactProvenance) -> Art
             ArtifactKind::RouteEntry
                 | ArtifactKind::RouteInfrastructure
                 | ArtifactKind::UiSource
+                | ArtifactKind::StyleSource
                 | ArtifactKind::Manifest
                 | ArtifactKind::Config
         ),
@@ -358,6 +390,14 @@ fn is_nextjs_ui_source_path(path: &str) -> bool {
             || path.starts_with("src/hooks/"))
 }
 
+fn is_nextjs_style_source_path(path: &str) -> bool {
+    extension_is(path, &["css"])
+        && (path.starts_with("app/")
+            || path.starts_with("src/app/")
+            || path.starts_with("styles/")
+            || path.starts_with("src/styles/"))
+}
+
 fn is_python_manifest_path(path: &str) -> bool {
     let name = file_name(path);
     name == "pyproject.toml"
@@ -435,6 +475,31 @@ mod tests {
 
         assert_eq!(artifact.kind, ArtifactKind::UiSource);
         assert!(!artifact.eligibility.route_integration);
+    }
+
+    #[test]
+    fn nextjs_global_css_is_style_source_not_route_integration_artifact() {
+        for path in ["app/globals.css", "src/app/globals.css"] {
+            let artifact = classify_nextjs_artifact(path, ArtifactProvenance::StepExpectedPath);
+
+            assert_eq!(artifact.kind, ArtifactKind::StyleSource, "{path}");
+            assert_eq!(artifact_kind_label(artifact.kind), "source/style");
+            assert!(!artifact.eligibility.route_integration, "{path}");
+            assert!(!setup_step_may_own_artifact(artifact.kind), "{path}");
+        }
+    }
+
+    #[test]
+    fn nextjs_setup_files_are_setup_owned() {
+        for path in ["package.json", "tailwind.config.js", "postcss.config.js"] {
+            let artifact = classify_nextjs_artifact(path, ArtifactProvenance::StepExpectedPath);
+
+            assert!(
+                setup_step_may_own_artifact(artifact.kind),
+                "{path} classified as {:?}",
+                artifact.kind
+            );
+        }
     }
 
     #[test]

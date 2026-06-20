@@ -6,14 +6,24 @@ boundary, it should be split before more behavior is added.
 
 ## Contract Architecture
 
-CommandAgent has three first-class contracts:
+CommandAgent has four first-class contract surfaces:
 
 - Planning Contract: turns a user goal into explicit step or phase contracts,
-  profile obligations, expected artifacts, and lintable success conditions.
+  expected artifacts, step ownership, and lintable success conditions.
+- Profile Contract: provides deterministic domain facts, artifact
+  classification, obligations, verifier hints, protected paths, and
+  profile-verification evidence without owning workflow control.
 - Execution Contract: gives the minimal loop one clear executable task, a tool
   policy, path safety, observations, and bounded completion guards.
 - Recovery Task Contract: turns a classified deterministic failure into a clear
   repair instruction for the minimal loop.
+
+The Planning Contract must validate more than schema shape. It owns step
+decomposition checks such as whether a `setup` step is trying to create a
+source artifact, whether a `verify` step is mixed with mutation, and whether an
+expected path belongs to the step that names it. Profile artifact
+classification supplies typed path facts for these checks, but the profile does
+not become a planner.
 
 The Recovery Task Contract is not an execution engine. It does not choose new
 phases, retry until success, or continue hidden work. It is a contract layer
@@ -23,15 +33,17 @@ candidate paths, required action, disallowed actions, and the original
 guard/verifier that will judge the repair.
 
 In short, planning and recovery clarify what should be done; the minimal loop
-executes the already-clarified task. If CommandAgent cannot form a deterministic
-recovery task, it should stop with structured evidence instead of asking the
-minimal loop to infer the repair strategy from broad failure prose.
+executes the already-clarified task. Profiles classify and verify domain facts
+for those contracts. If CommandAgent cannot form a deterministic recovery task,
+it should stop with structured evidence instead of asking the minimal loop to
+infer the repair strategy from broad failure prose.
 
 Recovery Task Contract may also carry a small execution envelope. The envelope
 is selected from deterministic failure evidence and consumed by the Execution
 Contract before the next bounded repair turn. It is intentionally narrow:
 `read_only_step_mutation` selects a read-only tool policy plus repository-read
 evidence requirement; verifier/profile repair keeps file-mutation repair
+semantics; `setup_step_source_mutation` keeps setup/config-only mutation
 semantics; tool-protocol correction keeps the current schema-correction path.
 The envelope must not add retry authority or provider/model-specific behavior.
 
@@ -59,8 +71,8 @@ The envelope must not add retry authority or provider/model-specific behavior.
 | --- | --- | --- |
 | Provider | HTTP/API transport, provider-specific payload shapes | Planning, repair policy, profile behavior |
 | Minimal loop | Tool-call execution, observations, bounded completion guards | Multi-step plans, recovery strategy, domain profiles, unbounded retry |
-| Profile | Small domain facts, verifier hints, protected prefixes | Workflow control, hidden task-specific agents, execution policy |
-| Step runner | Plan schema, lint, verifier, recovery task contracts, repair packet, ultra phase order | Provider transport, low-level tool implementation |
+| Profile | Domain facts, artifact classification, verifier hints, protected prefixes, profile evidence | Workflow control, hidden task-specific agents, execution policy |
+| Step runner | Plan schema, step-decomposition lint, verifier, recovery task contracts, repair packet, ultra phase order | Provider transport, low-level tool implementation |
 | TUI | TTY-aware rendering of runtime events and final answers | Planning, repair, retry, provider parsing, filesystem policy |
 | Tools | Deterministic workspace actions | Task interpretation or planning |
 | Eval | Run roots, summaries, recheck, reports | Runtime behavior changes |
@@ -116,21 +128,34 @@ phase-local failures.
 ## Provider Boundary
 
 Provider abstraction is intentionally thin. Providers send chat turns and return
-assistant content plus optional native tool calls. Ollama may use native tools.
-Gemini and OpenAI use XML fallback tool calls unless a provider-specific native
-tool surface is added deliberately.
+assistant content plus optional native tool calls. Ollama and Gemini may use
+native tools. OpenAI uses XML fallback tool calls unless a provider-specific
+native tool surface is added deliberately.
 
 Planner and executor can use different providers and models.
 
 Current provider capability contract:
 
 - `ollama`: native tool calls by default
-- `gemini`: XML fallback tool calls by default
+- `gemini`: native function calling by default, with XML fallback retained as a
+  compatibility/downgrade path
 - `openai`: XML fallback tool calls by default
 
 The provider layer does not own planning, repair, profiles, or evaluation. A
 provider-specific bug fix belongs in the provider module; a behavioral policy
 belongs in the minimal loop or step runner only if it is provider-independent.
+
+Native tool schemas come from one provider-independent `ToolSpec` argument
+schema. Providers serialize that schema into their own native payload shape:
+Ollama tool definitions today, Gemini `functionDeclarations`, and any future
+OpenAI native surface only after a separate design decision. Native transcript
+metadata is also provider-independent: assistant messages may preserve tool
+call id/name/args, and tool messages may preserve the matching tool call
+id/name. Providers may serialize that metadata, but the minimal loop still owns
+tool execution and observation. Provider-specific transport requirements may
+extend serialization details inside the provider module, such as Gemini's REST
+requirement to return `thoughtSignature` with replayed `functionCall` parts.
+Those details must remain transport metadata, not repair or planning policy.
 
 XML fallback is a shared tool-call format, not provider-specific behavior.
 Gemini and OpenAI provider modules may parse XML fallback blocks from provider
@@ -141,6 +166,12 @@ independent. When XML fallback tool calls are parsed into `tool_calls`, the
 minimal loop renders those calls back into canonical XML in assistant history so
 API providers can see the prior tool call on the next turn. A single XML block
 must not result in duplicate tool execution.
+
+Malformed native function-call shape is not a repair policy. A provider may
+turn it into bounded tool-call parse evidence so the minimal loop can run the
+same parser-feedback and native-to-XML fallback transition it already uses for
+malformed fallback syntax. Transport failures, HTTP failures, and unparseable
+provider response bodies remain provider/model errors.
 
 ## Tool Contract
 
@@ -236,6 +267,12 @@ patterns, version strings, path escape, and steps that clearly mix
 file-changing setup with final verification. Workspace-aware lint may check
 whether named paths already exist, but it is limited to shallow existence checks;
 it does not read file contents or force a framework-specific project structure.
+Plan lint also owns deterministic step-decomposition checks when artifact roles
+are known: setup steps may name setup/config artifacts, create/edit/repair
+steps may own source/test/docs artifacts, and verify/report/inspect steps must
+not claim mutation-owned artifacts. Execution tool policy repeats these
+boundaries as a final guard, but it should not be the first place a bad
+decomposition is discovered.
 
 Ultra plans are one level higher: goal, profile, style, intent, required final
 artifacts, and ordered phases. Each phase is later turned into a step plan.
@@ -286,16 +323,21 @@ The evidence pipeline has four responsibilities:
   bounded rules.
 
 The current common producers are plan-lint/profile-obligation evidence,
-tool-protocol schema failures, read-only step-policy violations, and verifier
-failures. Verifier evidence may include a stable failure signature, failure
-kind, diagnostic code, candidate artifact paths, a single repair target, a
-related source excerpt, and a bounded repair-attempt ledger when those facts
-come from the verifier result. Profile verification uses the same evidence
-payload inside its existing profile repair packet; for Next.js, this currently
-covers selected-route integration and mixed app-root failures. Dependency setup
-is not a standalone producer; if one approved setup attempt runs and the
-verifier still fails, the setup result is attached as diagnostic context to the
-verifier evidence.
+provider transport parse failures, tool-protocol schema failures, read-only
+step-policy violations, verifier failures, and profile verification failures.
+Provider transport evidence is limited to shared response-parser diagnostics
+such as malformed XML fallback or JSON tool-call payloads; it must not become
+provider/model-specific behavioral policy. Verifier evidence may include a
+stable failure signature, failure kind, diagnostic code, affected command,
+candidate artifact paths, a single repair target, a related source excerpt,
+and a bounded repair-attempt ledger when those facts come from the verifier
+result. Profile verification uses the same evidence payload inside its
+existing profile repair packet; for Next.js, this currently covers selected
+route integration, missing explicit integration artifacts, script/dependency
+drift, Tailwind/PostCSS contract drift, TypeScript alias/root drift, and mixed
+app-root failures. Dependency setup is not a standalone producer; if one
+approved setup attempt runs and the verifier still fails, the setup result is
+attached as diagnostic context to the verifier evidence.
 
 Verification is deterministic. It runs only commands accepted by the local Bash
 policy, detects dependency-missing cases before fake success is possible, and
@@ -322,15 +364,19 @@ disallowed, which execution envelope applies, and which original verifier,
 profile check, tool schema, or step policy will judge the result. For read-only
 step-policy recovery, the repair turn uses `StepToolPolicy::ReadOnly` and
 `RepositoryEvidenceRequired`, so prose-only answers are rejected while actual
-read evidence can satisfy the turn. A repair-focus block may still summarize
+read evidence can satisfy the turn. For setup steps that attempted source
+mutation, the repair turn uses `StepToolPolicy::SetupMutationOnly`, so the
+next turn can only change setup/config paths or report a blocker. A
+repair-focus block may still summarize
 the current blocker, failure signature, repair target, candidate artifacts, and
 required action from the same deterministic evidence. The default budget allows
 two file-changing attempts. A structured
 tool-argument schema failure can spend one separate current-step
 protocol-correction flag before ordinary verifier repair continues; it does
 not increase the verifier-repair budget or create a retry-until-success loop.
-Read-only step-policy violations and verifier failures are rendered into the
-same repair/replan evidence path so standalone repair has the failed tool,
+Read-only step-policy violations, provider transport parse failures, tool
+protocol failures, and verifier failures are rendered into the same
+repair/replan evidence path so standalone repair has the failed parser/tool,
 command, contract, target, source excerpt, and bounded diagnostic instead of
 only prose. When repair is exhausted,
 CommandAgent writes a short replan packet under `.commandagent/repairs` and

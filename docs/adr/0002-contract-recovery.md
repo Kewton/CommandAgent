@@ -112,6 +112,16 @@ Recovery Task Contract clarifies the repair work after a classified failure.
 Only the Execution Contract delegates to the execution engine; the other two
 contracts prepare bounded instructions for it.
 
+2026-06-20 amendment: Profile Contract is now documented as a fourth
+first-class contract surface. It is not an execution surface and does not
+change the recovery decision above. Its role is to provide deterministic domain
+facts, artifact classification, obligations, verifier hints, protected paths,
+and profile-verification evidence to the Planning and Recovery Task contracts.
+This amendment also clarifies that Planning Contract owns step-decomposition
+lint when artifact roles are known. For example, a `setup` step naming a source
+or route artifact should be rejected by planning lint before the Execution
+Contract's tool policy has to reject the same mutation.
+
 ## Non-Decisions
 
 This ADR does not reintroduce:

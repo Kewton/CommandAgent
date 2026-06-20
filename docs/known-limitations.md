@@ -19,13 +19,14 @@ CommandAgent is still in MVP migration.
   while fixing a failed verifier. Repeated malformed tool calls still stop as
   `tool_args_*`. This improves protocol recovery and attribution but does not
   guarantee app-quality completion.
-- Repair packets now carry structured contract evidence for tool protocol
-  failures, read-only step-policy violations, verifier failures, and selected
-  profile verification failures. Verifier/profile evidence can include a
-  failure signature, repair target, candidate artifacts, related source excerpt,
-  and bounded attempt ledger. This makes standalone repair inputs clearer, but
-  it does not increase retry budgets, auto-resume failed phases, or score
-  UI/game quality.
+- Repair packets now carry structured contract evidence for provider transport
+  parse failures, tool protocol failures, read-only step-policy violations,
+  verifier failures, and selected profile verification failures. Transport
+  evidence is limited to shared parser diagnostics, not provider/model-specific
+  behavior. Verifier/profile evidence can include a failure signature, repair
+  target, candidate artifacts, related source excerpt, and bounded attempt
+  ledger. This makes standalone repair inputs clearer, but it does not increase
+  retry budgets, auto-resume failed phases, or score UI/game quality.
 - Repair prompts and saved repair packets may now render a `Recovery task`
   section derived from deterministic evidence. This clarifies what the next
   bounded repair turn should do, what is out of scope, and which original check
@@ -33,9 +34,11 @@ CommandAgent is still in MVP migration.
   hidden continuation mechanism, or guarantee of final artifact quality.
 - Recovery tasks can carry a small execution envelope. The current read-only
   envelope keeps `step_policy:read_only_step_mutation` repair turns read-only
-  and accepts only concrete repository read evidence. This improves contract
-  alignment, but it does not make weak plans, poor UI/game output, or unrelated
-  verifier failures converge automatically.
+  and accepts only concrete repository read evidence. The setup/config envelope
+  keeps `step_policy:setup_step_source_mutation` repair turns constrained to
+  package, lockfile, and config paths instead of broad source mutation. This
+  improves contract alignment, but it does not make weak plans, poor UI/game
+  output, or unrelated verifier failures converge automatically.
 - Phase-boundary profile verification is deterministic and read-only. It can
   catch structural contract drift such as Next.js app-root ambiguity, package
   script drift, and Tailwind dependency/config mismatch, but it does not score
@@ -45,6 +48,11 @@ CommandAgent is still in MVP migration.
   route-integration drift for explicit UI/game artifacts. Active step/repair
   prompts now carry refreshed profile facts, but these are narrow
   deterministic facts, not a full domain workflow or generic artifact graph.
+- Step-decomposition lint now rejects the observed high-confidence case where a
+  `setup` step owns classified source/style, route, component, test, docs,
+  generated, or build artifacts such as `app/globals.css`. Broader ownership
+  rules for `verify`, `inspect`, and `report` remain compatibility-sensitive
+  because some flows use `expected_paths` as read-only existence gates.
 - Terminal progress is best-effort and TTY-aware. It improves visibility into
   plans, blocking planner/model/tool waits, steps, verifiers, artifact status,
   and repair packets, and includes an interactive startup logo. It is
@@ -65,9 +73,12 @@ CommandAgent is still in MVP migration.
   the latest fresh large run is 0/6 and needs triage before it can be treated as
   a release-quality gate.
 - Provider API support is MVP-level. Ollama, Gemini, and OpenAI share one thin
-  chat contract. Gemini and OpenAI use the shared XML fallback tool-call
-  contract; provider-specific native tool surfaces beyond Ollama native tools
-  are not implemented.
+  chat contract. Ollama uses native tool calls, Gemini uses native function
+  calling with XML fallback retained as a compatibility/downgrade path, and
+  OpenAI still uses the shared XML fallback tool-call contract. Gemini native
+  support covers request declarations, response `functionCall` parsing, and
+  `functionResponse` history, but it does not add provider-specific repair
+  policy or guarantee app-quality convergence.
 - Smaller planner models may fail to follow the strict plan YAML schema even
   after one correction attempt. Use a stronger planner model for MVP workflows
   until frontier data is collected.

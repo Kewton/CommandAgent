@@ -69,15 +69,11 @@ where
     let response = client.chat(&ChatRequest {
         model: config.model.clone(),
         messages: vec![
-            ChatMessage {
-                role: ChatRole::System,
-                content: "You generate CommandAgent plan YAML. Return only the requested YAML."
-                    .to_string(),
-            },
-            ChatMessage {
-                role: ChatRole::User,
-                content: prompt.to_string(),
-            },
+            ChatMessage::new(
+                ChatRole::System,
+                "You generate CommandAgent plan YAML. Return only the requested YAML.",
+            ),
+            ChatMessage::new(ChatRole::User, prompt),
         ],
         tools: Vec::new(),
         tool_call_mode: config.tool_call_mode,

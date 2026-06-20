@@ -176,11 +176,7 @@ fn repair_focus(failures: &[VerificationFailure], evidence: &[ContractEvidence])
         {
             push_unique(&mut focus, format!("- Current blocker: {code}"));
         }
-        if let Some(target) = item
-            .repair_target
-            .as_deref()
-            .or(item.target_path.as_deref())
-        {
+        if let Some(target) = repair_focus_target(item) {
             push_unique(&mut focus, format!("- Repair target: {target}"));
         }
         if !item.candidate_artifacts.is_empty() {
@@ -218,6 +214,16 @@ fn repair_focus(failures: &[VerificationFailure], evidence: &[ContractEvidence])
     } else {
         focus.join("\n")
     }
+}
+
+fn repair_focus_target(evidence: &ContractEvidence) -> Option<&str> {
+    if evidence.guard == "step_policy" {
+        return evidence.repair_target.as_deref();
+    }
+    evidence
+        .repair_target
+        .as_deref()
+        .or(evidence.target_path.as_deref())
 }
 
 fn recovery_task_section(evidence: &[ContractEvidence]) -> String {
@@ -584,7 +590,28 @@ fn profile_repair_target(failure: &ProfileVerificationFailure) -> Option<String>
         "nextjs_integration_artifact_missing" => failure.paths.first().cloned(),
         "nextjs_route_not_integrated" => failure.paths.first().cloned(),
         "nextjs_app_root_ambiguous" => None,
+        "nextjs_missing_dependency"
+        | "nextjs_dependency_version_conflict"
+        | "nextjs_build_script_drift"
+        | "nextjs_dev_port_drift" => Some("package.json".to_string()),
+        "nextjs_tailwind_contract" => nextjs_tailwind_repair_target(failure),
+        "nextjs_alias_missing" | "nextjs_tsconfig_excludes_route" => {
+            Some("tsconfig.json".to_string())
+        }
         _ => failure.paths.first().cloned(),
+    }
+}
+
+fn nextjs_tailwind_repair_target(failure: &ProfileVerificationFailure) -> Option<String> {
+    let message = failure.message.to_ascii_lowercase();
+    if message.contains("postcss.config") {
+        Some("postcss.config.js".to_string())
+    } else if message.contains("tailwind.config") {
+        Some("tailwind.config.js".to_string())
+    } else if message.contains("package.json") || message.contains("dependency") {
+        Some("package.json".to_string())
+    } else {
+        failure.paths.first().cloned()
     }
 }
 
@@ -617,6 +644,18 @@ fn profile_observed_expected_pair(failure: &ProfileVerificationFailure) -> Strin
         }
         "nextjs_dependency_version_conflict" => {
             "observed=package.json pins Next.js and React peer versions that are incompatible; expected=next/react/react-dom versions are mutually compatible".to_string()
+        }
+        "nextjs_missing_dependency" => {
+            "observed=package.json is missing required Next.js runtime dependencies; expected=package.json includes next, react, and react-dom".to_string()
+        }
+        "nextjs_tailwind_contract" => {
+            "observed=Tailwind/PostCSS contract is incomplete; expected=Tailwind dependencies and config files align with Next.js app styling".to_string()
+        }
+        "nextjs_alias_missing" => {
+            "observed=tsconfig path alias is missing or incomplete; expected=@/* alias maps to the selected source root".to_string()
+        }
+        "nextjs_tsconfig_excludes_route" => {
+            "observed=tsconfig excludes selected Next.js route root; expected=compiler options include the selected app route root".to_string()
         }
         _ => format!(
             "observed={}; expected=profile contract {} is satisfied",
@@ -653,6 +692,30 @@ fn profile_required_action(failure: &ProfileVerificationFailure) -> String {
         }
         "nextjs_tsconfig_excludes_route" => {
             "align tsconfig rootDir with the selected Next.js route root".to_string()
+        }
+        "nextjs_alias_missing" => {
+            "edit tsconfig.json so @/* resolves to the selected source root used by the Next.js app".to_string()
+        }
+        "nextjs_missing_dependency" => {
+            "edit package.json to include required Next.js runtime dependencies without removing build or dev scripts".to_string()
+        }
+        "nextjs_tailwind_contract" => match nextjs_tailwind_repair_target(failure).as_deref() {
+            Some("package.json") => {
+                "edit package.json to include the required Tailwind/PostCSS dependencies without removing Next.js runtime dependencies".to_string()
+            }
+            Some("postcss.config.js") => {
+                "create or edit postcss.config.js so it uses the required Tailwind/PostCSS plugin configuration".to_string()
+            }
+            Some("tailwind.config.js") => {
+                "create or edit tailwind.config.js so it covers the selected Next.js app and component paths".to_string()
+            }
+            _ => "fix the reported Tailwind/PostCSS profile contract before adding feature work".to_string(),
+        },
+        "nextjs_dev_port_drift" => {
+            "edit package.json so scripts.dev runs next dev on the requested port".to_string()
+        }
+        "nextjs_build_script_drift" => {
+            "edit package.json so scripts.build runs next build".to_string()
         }
         "nextjs_dependency_version_conflict" => {
             "edit package.json so next, react, and react-dom versions are mutually compatible; do not keep exact React pins below 18.2 with Next.js 14".to_string()
@@ -693,6 +756,26 @@ fn profile_repair_focus(failure: &ProfileVerificationFailure) -> String {
         "nextjs_dependency_version_conflict" => {
             "fix the package.json dependency version contract before adding feature work"
                 .to_string()
+        }
+        "nextjs_missing_dependency" => {
+            "fix the package.json dependency contract before build or feature work".to_string()
+        }
+        "nextjs_tailwind_contract" => {
+            let target = nextjs_tailwind_repair_target(failure)
+                .unwrap_or_else(|| "Tailwind/PostCSS config".to_string());
+            format!("fix the Tailwind/PostCSS contract in {target} before styling work")
+        }
+        "nextjs_alias_missing" => {
+            "fix tsconfig path aliases before importing shared app modules".to_string()
+        }
+        "nextjs_dev_port_drift" => {
+            "restore the requested Next.js dev port in package.json before continuing".to_string()
+        }
+        "nextjs_build_script_drift" => {
+            "restore scripts.build=next build in package.json before continuing".to_string()
+        }
+        "nextjs_tsconfig_excludes_route" => {
+            "fix tsconfig route-root coverage before build or route integration repair".to_string()
         }
         _ => profile_required_action(failure),
     }
@@ -962,6 +1045,103 @@ mod tests {
         assert!(packet.contains(
             "observed=package.json pins Next.js and React peer versions that are incompatible"
         ));
+    }
+
+    #[test]
+    fn profile_replan_packet_names_missing_dependency_repair_action() {
+        let mut context = sample_profile_context();
+        context.profile_failures = vec![ProfileVerificationFailure {
+            code: "nextjs_missing_dependency".to_string(),
+            message: "package.json is missing required dependencies: react-dom".to_string(),
+            paths: vec!["package.json".to_string()],
+        }];
+
+        let packet = build_profile_replan_packet(&context);
+
+        assert!(packet.contains("nextjs_missing_dependency"));
+        assert!(packet.contains("repair_target: package.json"));
+        assert!(
+            packet.contains("edit package.json to include required Next.js runtime dependencies")
+        );
+        assert!(packet.contains("fix the package.json dependency contract"));
+        assert!(
+            packet
+                .contains("observed=package.json is missing required Next.js runtime dependencies")
+        );
+    }
+
+    #[test]
+    fn profile_replan_packet_targets_tailwind_config_layers() {
+        let mut context = sample_profile_context();
+        context.profile_failures = vec![
+            ProfileVerificationFailure {
+                code: "nextjs_tailwind_contract".to_string(),
+                message: "tailwind.config.js is missing content paths".to_string(),
+                paths: vec!["tailwind.config.js".to_string()],
+            },
+            ProfileVerificationFailure {
+                code: "nextjs_tailwind_contract".to_string(),
+                message: "postcss.config.js must include @tailwindcss/postcss".to_string(),
+                paths: vec!["postcss.config.js".to_string()],
+            },
+            ProfileVerificationFailure {
+                code: "nextjs_tailwind_contract".to_string(),
+                message: "package.json is missing Tailwind dependency".to_string(),
+                paths: vec!["package.json".to_string()],
+            },
+        ];
+
+        let packet = build_profile_replan_packet(&context);
+
+        assert!(packet.contains("repair_target: tailwind.config.js"));
+        assert!(packet.contains("repair_target: postcss.config.js"));
+        assert!(packet.contains("repair_target: package.json"));
+        assert!(packet.contains("create or edit tailwind.config.js"));
+        assert!(packet.contains("create or edit postcss.config.js"));
+        assert!(packet.contains("edit package.json to include the required Tailwind/PostCSS"));
+    }
+
+    #[test]
+    fn profile_replan_packet_targets_tsconfig_alias() {
+        let mut context = sample_profile_context();
+        context.profile_failures = vec![ProfileVerificationFailure {
+            code: "nextjs_alias_missing".to_string(),
+            message: "tsconfig.json is missing @/* alias".to_string(),
+            paths: vec!["tsconfig.json".to_string()],
+        }];
+
+        let packet = build_profile_replan_packet(&context);
+
+        assert!(packet.contains("nextjs_alias_missing"));
+        assert!(packet.contains("repair_target: tsconfig.json"));
+        assert!(packet.contains("edit tsconfig.json so @/* resolves"));
+        assert!(packet.contains("fix tsconfig path aliases"));
+    }
+
+    #[test]
+    fn profile_replan_packet_targets_dev_and_build_script_drift() {
+        let mut context = sample_profile_context();
+        context.profile_failures = vec![
+            ProfileVerificationFailure {
+                code: "nextjs_dev_port_drift".to_string(),
+                message: "scripts.dev does not use port 3011".to_string(),
+                paths: vec!["package.json".to_string()],
+            },
+            ProfileVerificationFailure {
+                code: "nextjs_build_script_drift".to_string(),
+                message: "scripts.build must be next build".to_string(),
+                paths: vec!["package.json".to_string()],
+            },
+        ];
+
+        let packet = build_profile_replan_packet(&context);
+
+        assert!(packet.contains("nextjs_dev_port_drift"));
+        assert!(packet.contains("nextjs_build_script_drift"));
+        assert!(packet.contains("repair_target: package.json"));
+        assert!(packet.contains("scripts.dev runs next dev on the requested port"));
+        assert!(packet.contains("scripts.build runs next build"));
+        assert!(packet.contains("restore scripts.build=next build"));
     }
 
     #[test]

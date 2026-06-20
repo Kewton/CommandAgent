@@ -410,6 +410,8 @@ mod tests {
             ChatResponse {
                 content: String::new(),
                 tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
                     name: "Write".to_string(),
                     args_json: r#"{"path":"README.md","content":"ok"}"#.to_string(),
                 }],
@@ -457,6 +459,8 @@ mod tests {
             ChatResponse {
                 content: String::new(),
                 tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
                     name: "Write".to_string(),
                     args_json: r#"{"path":"README.md","content":"ok"}"#.to_string(),
                 }],
@@ -566,6 +570,8 @@ mod tests {
             ChatResponse {
                 content: String::new(),
                 tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
                     name: "Write".to_string(),
                     args_json: r#"{"path":"README.md","content":"repaired"}"#.to_string(),
                 }],
@@ -624,6 +630,8 @@ mod tests {
             ChatResponse {
                 content: String::new(),
                 tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
                     name: "Write".to_string(),
                     args_json: r#"{"path":"README.md","content":"recovered"}"#.to_string(),
                 }],
@@ -744,6 +752,8 @@ mod tests {
             ChatResponse {
                 content: String::new(),
                 tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
                     name: "Write".to_string(),
                     args_json: r#"{"path":"README.md","content":"guarded"}"#.to_string(),
                 }],
@@ -897,6 +907,8 @@ mod tests {
             ChatResponse {
                 content: String::new(),
                 tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
                     name: "Write".to_string(),
                     args_json: r#"{"path":"README.md","content":"ok"}"#.to_string(),
                 }],
@@ -944,6 +956,8 @@ mod tests {
         let mut executor = MockClient::new(vec![ChatResponse {
             content: String::new(),
             tool_calls: vec![ToolCall {
+                id: None,
+                thought_signature: None,
                 name: "Write".to_string(),
                 args_json: r#"{"path":"README.md","content":"ok"}"#.to_string(),
             }],
@@ -990,6 +1004,8 @@ mod tests {
         let mut executor = MockClient::new(vec![ChatResponse {
             content: String::new(),
             tool_calls: vec![ToolCall {
+                id: None,
+                thought_signature: None,
                 name: "Glob".to_string(),
                 args_json: "{}".to_string(),
             }],
@@ -1034,6 +1050,8 @@ mod tests {
             ChatResponse {
                 content: String::new(),
                 tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
                     name: "Write".to_string(),
                     args_json: r#"{"content":"missing path"}"#.to_string(),
                 }],
@@ -1041,6 +1059,8 @@ mod tests {
             ChatResponse {
                 content: String::new(),
                 tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
                     name: "Write".to_string(),
                     args_json: r#"{"path":"README.md","content":"corrected"}"#.to_string(),
                 }],
@@ -1103,6 +1123,8 @@ mod tests {
             ChatResponse {
                 content: String::new(),
                 tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
                     name: "Write".to_string(),
                     args_json: r#"{"content":"missing path"}"#.to_string(),
                 }],
@@ -1110,6 +1132,8 @@ mod tests {
             ChatResponse {
                 content: String::new(),
                 tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
                     name: "Write".to_string(),
                     args_json: r#"{"content":"still missing path"}"#.to_string(),
                 }],
@@ -1117,6 +1141,8 @@ mod tests {
             ChatResponse {
                 content: String::new(),
                 tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
                     name: "Write".to_string(),
                     args_json: r#"{"path":"README.md","content":"should not run"}"#.to_string(),
                 }],
@@ -1175,6 +1201,8 @@ mod tests {
             ChatResponse {
                 content: String::new(),
                 tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
                     name: "Write".to_string(),
                     args_json: r#"{"path":"README.md","content":"broken"}"#.to_string(),
                 }],
@@ -1186,6 +1214,8 @@ mod tests {
             ChatResponse {
                 content: String::new(),
                 tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
                     name: "Write".to_string(),
                     args_json: r#"{"content":"missing path"}"#.to_string(),
                 }],
@@ -1193,6 +1223,8 @@ mod tests {
             ChatResponse {
                 content: String::new(),
                 tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
                     name: "Write".to_string(),
                     args_json: r#"{"path":"README.md","content":"fixed"}"#.to_string(),
                 }],
@@ -1357,10 +1389,14 @@ mod tests {
                 content: String::new(),
                 tool_calls: vec![
                     ToolCall {
+                        id: None,
+                        thought_signature: None,
                         name: "Write".to_string(),
                         args_json: r#"{"path":"package.json","content":"{\"scripts\":{\"dev\":\"next dev -p 3011\",\"build\":\"next build\"},\"dependencies\":{\"next\":\"latest\",\"react\":\"latest\",\"react-dom\":\"latest\"}}"}"#.to_string(),
                     },
                     ToolCall {
+                        id: None,
+                        thought_signature: None,
                         name: "Write".to_string(),
                         args_json: r#"{"path":"app/page.tsx","content":"export default function Page() { return null }"}"#.to_string(),
                     },
@@ -1425,6 +1461,8 @@ mod tests {
             ChatResponse {
                 content: String::new(),
                 tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
                     name: "Write".to_string(),
                     args_json: r#"{"path":"FINAL.md","content":"done"}"#.to_string(),
                 }],
@@ -1537,10 +1575,14 @@ mod tests {
                 content: String::new(),
                 tool_calls: vec![
                     ToolCall {
+                        id: None,
+                        thought_signature: None,
                         name: "Write".to_string(),
                         args_json: r#"{"path":"package.json","content":"{\"scripts\":{\"dev\":\"next dev\",\"build\":\"next build\"},\"dependencies\":{\"next\":\"latest\",\"react\":\"latest\",\"react-dom\":\"latest\"}}"}"#.to_string(),
                     },
                     ToolCall {
+                        id: None,
+                        thought_signature: None,
                         name: "Write".to_string(),
                         args_json: r#"{"path":"app/page.tsx","content":"export default function Page() { return null }"}"#.to_string(),
                     },
@@ -1917,6 +1959,8 @@ steps:
             ChatResponse {
                 content: String::new(),
                 tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
                     name: "Write".to_string(),
                     args_json: r#"{"path":"src/main.rs","content":"fn main() {}\n"}"#.to_string(),
                 }],

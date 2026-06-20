@@ -16,16 +16,30 @@ checks for required paths and required file content signals in addition to the
 process return code and expected artifacts.
 
 `scripts/eval_report.py <root>` summarizes `summary.tsv` by headline success,
-failure category, and case. The eval slice runner classifies explicit profile
-contract stops as `profile_verification:<code>` when the runtime reports a
-profile verification failure such as `nextjs_dev_port_drift`. This keeps
-profile-contract drift separate from generic `rc:<status>` failures and from
-dependency setup boundaries. The runner also classifies structured tool-call
-schema failures as `tool_args_missing_required_field:<field>` or
-`tool_args_invalid_json` when stderr or repair packets show that the model
-emitted invalid tool arguments. `scripts/eval_report.py` groups these rows
-under the `tool_call_schema_failure` category. `scripts/eval_report.py <root>
---recheck` rechecks existing workspaces against current case
+failure category, and case. Report categories are layer-oriented:
+`planning`, `provider_transport`, `tool_protocol`, `step_policy`, `profile`,
+`verifier`, `setup`, `quality`, `unknown`, and `ok`. The eval slice runner
+classifies explicit profile contract stops as `profile_verification:<code>`
+when the runtime reports a profile verification failure such as
+`nextjs_dev_port_drift`. This keeps profile-contract drift separate from
+generic `rc:<status>` failures and from dependency setup boundaries. The runner
+also classifies structured tool-call schema failures as
+`tool_args_missing_required_field:<field>` or `tool_args_invalid_json` when
+stderr or repair packets show that the model emitted invalid tool arguments.
+Provider response parser failures such as malformed XML fallback are reported
+under `provider_transport`, not under profile or verifier failure. Malformed
+native function-call shape is different from an HTTP or response-body failure:
+providers may surface it as bounded tool-call parse evidence so the minimal
+loop can emit parser feedback and downgrade native tool mode to XML fallback.
+Eval reports should distinguish that class from true transport/HTTP/body parse
+failures, even when both originate in the provider layer.
+Plan-lint step ownership failures, such as a `setup` step owning a source or
+route artifact, should be reported under `planning` with the violated
+contract, rejected path, observed artifact role, and required correction. Treat
+these as planning-contract failures even if the execution layer would also have
+blocked the same mutation later.
+`scripts/eval_report.py <root> --recheck` rechecks existing workspaces against
+current case
 `success_check.required_paths` and `success_check.must_include`, then writes
 `recheck_summary.tsv` without overwriting the original summary.
 
@@ -209,8 +223,9 @@ slash command parser without turning the whole failed session into a new goal.
 ## Structured Contract Evidence
 
 Some failures are rejected by deterministic guards that already know exact
-correction facts. Current producers are plan lint/profile obligations, tool
-protocol schema checks, read-only step-policy checks, and verifier failures.
+correction facts. Current producers are plan lint/profile obligations,
+provider transport parser checks, tool protocol schema checks, read-only
+step-policy checks, verifier failures, and profile verification failures.
 Eval reports should distinguish the guard failure from secondary post-run
 summaries. For example, `missing:package.json,app/page.tsx` can be a secondary
 artifact check while the actionable runtime cause is a
@@ -249,8 +264,8 @@ another engine and it does not imply the run should continue automatically.
 
 Record these fields when present:
 
-- source, such as `verifier`, `profile_verification`, `tool_protocol`, or
-  `step_policy`;
+- source, such as `verifier`, `profile_verification`, `provider_transport`,
+  `tool_protocol`, or `step_policy`;
 - failed step and contract code;
 - blocker and required action;
 - repair target or bounded candidate artifacts;

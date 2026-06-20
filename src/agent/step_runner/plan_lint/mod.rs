@@ -1,6 +1,10 @@
 use crate::agent::step_runner::correction_evidence::PlanCorrectionEvidence;
+use crate::agent::step_runner::profile_artifact::{
+    ArtifactProvenance, artifact_kind_label, classify_profile_artifact, setup_step_may_own_artifact,
+};
 use crate::agent::step_runner::profiles::{
-    ProfileObligation, nextjs_route_integration_candidate, nextjs_selected_route_from_workspace,
+    ProfileId, ProfileObligation, nextjs_route_integration_candidate,
+    nextjs_selected_route_from_workspace,
 };
 use crate::agent::step_runner::{StepKind, StepPlan};
 use std::path::Path;
@@ -63,6 +67,60 @@ pub fn lint_step_plan_with_workspace(
             &step.expected_paths,
             cwd,
         )?;
+        lint_step_artifact_ownership(
+            plan.profile.as_str(),
+            &step.id,
+            step.kind,
+            &step.expected_paths,
+        )?;
+    }
+    Ok(())
+}
+
+fn lint_step_artifact_ownership(
+    profile: &str,
+    step_id: &str,
+    kind: StepKind,
+    expected_paths: &[String],
+) -> Result<(), PlanLintError> {
+    if kind != StepKind::Setup {
+        return Ok(());
+    }
+    let Ok(profile) = ProfileId::parse(profile) else {
+        return Ok(());
+    };
+    for path in expected_paths {
+        let artifact =
+            classify_profile_artifact(profile, path, ArtifactProvenance::StepExpectedPath);
+        if setup_step_may_own_artifact(artifact.kind) {
+            continue;
+        }
+        let observed_role = artifact_kind_label(artifact.kind);
+        let reason = format!(
+            "setup step cannot own `{}` because it is classified as {observed_role}; split setup/config work from source creation or change the step kind to create/edit",
+            artifact.path
+        );
+        return Err(PlanLintError::ContractViolation {
+            step_id: step_id.to_string(),
+            reason: reason.clone(),
+            evidence: Box::new(
+                PlanCorrectionEvidence::new("plan_lint.step_decomposition")
+                    .with_failed_step(step_id.to_string())
+                    .with_violated_contract("step_kind_artifact_role")
+                    .with_reason_code("setup_step_owns_non_setup_artifact")
+                    .with_target_field("expected_paths")
+                    .with_target_path(artifact.path.clone())
+                    .with_rejected_value(artifact.path)
+                    .with_observed_expected_pairs(vec![format!(
+                        "observed_role={observed_role}; expected_role=setup/manifest or setup/config"
+                    )])
+                    .with_required_literals(vec!["setup/manifest", "setup/config"])
+                    .with_required_action(
+                        "change this step kind to create/edit, or split setup/config work from source creation"
+                    )
+                    .with_diagnostic(reason),
+            ),
+        });
     }
     Ok(())
 }
@@ -404,6 +462,38 @@ mod tests {
                 verify: vec!["npm run build".to_string()],
             }],
         };
+
+        lint_step_plan(&plan).unwrap();
+    }
+
+    #[test]
+    fn rejects_setup_step_owning_nextjs_global_css() {
+        let mut plan = plan_with_paths("nextjs", vec!["package.json", "app/globals.css"]);
+        plan.steps[0].kind = StepKind::Setup;
+        plan.steps[0].instruction =
+            "Create package.json and app/globals.css for Tailwind styling.".to_string();
+
+        let err = lint_step_plan(&plan).unwrap_err();
+
+        assert_setup_ownership_violation(err, "step", "app/globals.css", "source/style");
+    }
+
+    #[test]
+    fn rejects_setup_step_owning_nextjs_route_source() {
+        let mut plan = plan_with_paths("nextjs", vec!["src/app/page.tsx"]);
+        plan.steps[0].kind = StepKind::Setup;
+        plan.steps[0].instruction = "Prepare src/app/page.tsx.".to_string();
+
+        let err = lint_step_plan(&plan).unwrap_err();
+
+        assert_setup_ownership_violation(err, "step", "src/app/page.tsx", "route_entry");
+    }
+
+    #[test]
+    fn accepts_setup_step_owning_nextjs_manifest_and_config() {
+        let mut plan = plan_with_paths("nextjs", vec!["package.json", "tailwind.config.js"]);
+        plan.steps[0].kind = StepKind::Setup;
+        plan.steps[0].instruction = "Create package.json and tailwind.config.js.".to_string();
 
         lint_step_plan(&plan).unwrap();
     }
@@ -802,7 +892,7 @@ mod tests {
                     instruction: "Create package.json with scripts.build as next build and dependencies next, react, and react-dom."
                         .to_string(),
                     expected_result: ExpectedResult::Pass,
-                    expected_paths: vec!["package.json".to_string(), "app/page.tsx".to_string()],
+                    expected_paths: vec!["package.json".to_string()],
                     verify: vec!["test -f package.json".to_string()],
                 },
                 StepPlanStep {
@@ -1094,7 +1184,7 @@ mod tests {
     }
 
     #[test]
-    fn workspace_lint_accepts_existing_paths_in_verify_like_step() {
+    fn workspace_lint_accepts_existing_paths_in_verify_step() {
         let root = temp_workspace("existing-paths");
         fs::create_dir_all(root.join("app")).unwrap();
         fs::write(root.join("package.json"), "{}").unwrap();
@@ -1110,9 +1200,9 @@ mod tests {
             intent: WorkIntent::Modify,
             required_artifacts: Vec::new(),
             steps: vec![StepPlanStep {
-                id: "install-and-build".to_string(),
-                kind: StepKind::Setup,
-                instruction: "Install dependencies if needed and verify npm run build.".to_string(),
+                id: "verify-build".to_string(),
+                kind: StepKind::Verify,
+                instruction: "Verify npm run build.".to_string(),
                 expected_result: ExpectedResult::Pass,
                 expected_paths: vec!["package.json".to_string(), "app/page.tsx".to_string()],
                 verify: vec!["npm run build".to_string()],
@@ -1401,6 +1491,56 @@ mod tests {
                 assert_eq!(evidence.rejected_value.as_deref(), Some(expected_artifact));
             }
             other => panic!("expected route contract violation, got {other:?}"),
+        }
+    }
+
+    fn assert_setup_ownership_violation(
+        err: PlanLintError,
+        expected_step: &str,
+        expected_path: &str,
+        expected_role: &str,
+    ) {
+        match err {
+            PlanLintError::ContractViolation {
+                step_id,
+                reason,
+                evidence,
+            } => {
+                assert_eq!(step_id, expected_step);
+                assert!(reason.contains("setup step cannot own"), "{reason}");
+                assert!(reason.contains(expected_path), "{reason}");
+                assert_eq!(evidence.failed_step.as_deref(), Some(expected_step));
+                assert_eq!(
+                    evidence.violated_contract.as_deref(),
+                    Some("step_kind_artifact_role")
+                );
+                assert_eq!(
+                    evidence.reason_code.as_deref(),
+                    Some("setup_step_owns_non_setup_artifact")
+                );
+                assert_eq!(evidence.target_field.as_deref(), Some("expected_paths"));
+                assert_eq!(evidence.target_path.as_deref(), Some(expected_path));
+                assert_eq!(evidence.rejected_value.as_deref(), Some(expected_path));
+                assert!(
+                    evidence
+                        .observed_expected_pairs
+                        .iter()
+                        .any(|value| value.contains(expected_role)),
+                    "{evidence:?}"
+                );
+                assert_eq!(
+                    evidence.required_literals,
+                    vec!["setup/manifest".to_string(), "setup/config".to_string()]
+                );
+                let rendered = evidence.render().unwrap();
+                assert!(rendered.contains(expected_path), "{rendered}");
+                assert!(rendered.contains(expected_role), "{rendered}");
+                assert!(
+                    rendered.contains("change this step kind to create/edit"),
+                    "{rendered}"
+                );
+            }
+            other => panic!("expected step ownership contract violation, got {other:?}"),
         }
     }
 

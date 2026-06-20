@@ -119,6 +119,8 @@ fn parse_tool_call_payload(payload: &str) -> Result<ToolCall, XmlFallbackError> 
     }
 
     Ok(ToolCall {
+        id: None,
+        thought_signature: None,
         name,
         args_json: serde_json::to_string(&arguments).unwrap_or_else(|_| "{}".to_string()),
     })
@@ -174,6 +176,8 @@ mod tests {
         assert_eq!(
             calls,
             vec![ToolCall {
+                id: None,
+                thought_signature: None,
                 name: "Read".to_string(),
                 args_json: r#"{"path":"Cargo.toml"}"#.to_string(),
             }]
@@ -210,6 +214,8 @@ After"#,
     #[test]
     fn renders_tool_calls_as_canonical_commandagent_xml() {
         let rendered = render_tool_calls(&[ToolCall {
+            id: None,
+            thought_signature: None,
             name: "Write".to_string(),
             args_json: r#"{"path":"hello.txt","content":"ok"}"#.to_string(),
         }]);

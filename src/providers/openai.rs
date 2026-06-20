@@ -322,14 +322,8 @@ mod tests {
         let request = ChatRequest {
             model: "gpt-5.4-mini".to_string(),
             messages: vec![
-                ChatMessage {
-                    role: ChatRole::User,
-                    content: "hello".to_string(),
-                },
-                ChatMessage {
-                    role: ChatRole::Assistant,
-                    content: "hi".to_string(),
-                },
+                ChatMessage::new(ChatRole::User, "hello"),
+                ChatMessage::new(ChatRole::Assistant, "hi"),
             ],
             tools: Vec::new(),
             tool_call_mode: ToolCallMode::XmlFallback,
@@ -358,10 +352,7 @@ mod tests {
         );
         let request = ChatRequest {
             model: "gpt-5.4-mini".to_string(),
-            messages: vec![ChatMessage {
-                role: ChatRole::User,
-                content: "hello".to_string(),
-            }],
+            messages: vec![ChatMessage::new(ChatRole::User, "hello")],
             tools: Vec::new(),
             tool_call_mode: ToolCallMode::XmlFallback,
         };
@@ -389,10 +380,7 @@ mod tests {
         );
         let request = ChatRequest {
             model: "gpt-5.4-mini".to_string(),
-            messages: vec![ChatMessage {
-                role: ChatRole::User,
-                content: "create file".to_string(),
-            }],
+            messages: vec![ChatMessage::new(ChatRole::User, "create file")],
             tools: Vec::new(),
             tool_call_mode: ToolCallMode::XmlFallback,
         };
@@ -424,10 +412,7 @@ mod tests {
         );
         let request = ChatRequest {
             model: "gpt-5.4-mini".to_string(),
-            messages: vec![ChatMessage {
-                role: ChatRole::User,
-                content: "read file".to_string(),
-            }],
+            messages: vec![ChatMessage::new(ChatRole::User, "read file")],
             tools: Vec::new(),
             tool_call_mode: ToolCallMode::XmlFallback,
         };
@@ -455,10 +440,7 @@ mod tests {
         );
         let request = ChatRequest {
             model: "gpt-5.4-mini".to_string(),
-            messages: vec![ChatMessage {
-                role: ChatRole::User,
-                content: "read file".to_string(),
-            }],
+            messages: vec![ChatMessage::new(ChatRole::User, "read file")],
             tools: Vec::new(),
             tool_call_mode: ToolCallMode::XmlFallback,
         };
@@ -489,10 +471,7 @@ mod tests {
         );
         let request = ChatRequest {
             model: "gpt-5.4-mini".to_string(),
-            messages: vec![ChatMessage {
-                role: ChatRole::User,
-                content: "hello".to_string(),
-            }],
+            messages: vec![ChatMessage::new(ChatRole::User, "hello")],
             tools: Vec::new(),
             tool_call_mode: ToolCallMode::XmlFallback,
         };
