@@ -6,8 +6,8 @@ Working tree: dirty during implementation
 
 ## Change
 
-This slice broadens the visible contract stack with the Anvil mechanisms that
-fit CommandAgent's minimal-loop architecture:
+This slice broadens the visible contract stack with the historical control
+mechanisms that fit CommandAgent's minimal-loop architecture:
 
 - public plan input normalization for YAML/JSON step plans
 - artifact graph roles for setup/config/source/test/docs/generated/cache paths
