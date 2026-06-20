@@ -4,6 +4,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
+const NEXTJS_ROUTE_GRAPH_MAX_DEPTH: usize = 3;
+const NEXTJS_ROUTE_GRAPH_MAX_FILES: usize = 32;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProfileId {
     Generic,
@@ -436,6 +439,20 @@ fn verify_nextjs_profile(
                 vec!["package.json".to_string()],
             ));
         }
+        if let Some(message) = nextjs_tailwind_dependency_version_conflict(&facts) {
+            failures.push(ProfileVerificationFailure::new(
+                "nextjs_dependency_version_conflict",
+                message,
+                vec!["package.json".to_string()],
+            ));
+        }
+        if let Some(message) = nextjs_typescript_toolchain_version_conflict(&facts) {
+            failures.push(ProfileVerificationFailure::new(
+                "nextjs_dependency_version_conflict",
+                message,
+                vec!["package.json".to_string()],
+            ));
+        }
     }
 
     if !facts.tailwind_css_files.is_empty() {
@@ -470,6 +487,35 @@ fn verify_nextjs_profile(
                 facts.tailwind_css_files.clone(),
             ));
         }
+        for path in facts
+            .config_files
+            .iter()
+            .filter(|path| path.starts_with("postcss.config."))
+        {
+            let text = fs::read_to_string(cwd.join(path)).unwrap_or_default();
+            if text.contains("@tailwindcss/postcss")
+                && !facts.dependencies.contains("@tailwindcss/postcss")
+            {
+                failures.push(ProfileVerificationFailure::new(
+                    "nextjs_tailwind_contract",
+                    format!(
+                        "{path} uses @tailwindcss/postcss, so package.json must include `@tailwindcss/postcss`"
+                    ),
+                    vec!["package.json".to_string(), path.clone()],
+                ));
+            }
+            if facts.dependencies.contains("@tailwindcss/postcss")
+                && postcss_config_uses_tailwindcss_directly(&text)
+            {
+                failures.push(ProfileVerificationFailure::new(
+                    "nextjs_tailwind_contract",
+                    format!(
+                        "{path} must use @tailwindcss/postcss instead of tailwindcss directly as a PostCSS plugin"
+                    ),
+                    vec![path.clone()],
+                ));
+            }
+        }
     }
 
     if root.as_deref() == Some("app")
@@ -488,6 +534,7 @@ fn verify_nextjs_profile(
     let selected_route = selected_route_file(&facts);
     if let Some(route) = selected_route.as_deref() {
         let route_text = fs::read_to_string(cwd.join(route)).unwrap_or_default();
+        let route_graph = nextjs_route_graph(cwd, route);
         if (route_text.contains("\"@/") || route_text.contains("'@/")) && !facts.tsconfig_has_alias
         {
             failures.push(ProfileVerificationFailure::new(
@@ -511,21 +558,19 @@ fn verify_nextjs_profile(
                 ));
                 continue;
             }
-            let stem = Path::new(&explicit_path)
-                .file_stem()
-                .and_then(|stem| stem.to_str())
-                .unwrap_or_default();
-            if !stem.is_empty()
-                && !route_text.contains(stem)
-                && !route_text.contains(&explicit_path.replace(".tsx", ""))
-                && !route_text.contains(&explicit_path.replace(".jsx", ""))
-            {
+            if !route_graph_integrates_artifact(cwd, &route_graph, &explicit_path) {
+                let repair_target = route_graph_repair_target(&route_graph, &explicit_path)
+                    .unwrap_or_else(|| route.to_string());
+                let mut paths = vec![route.to_string(), explicit_path.clone()];
+                if repair_target != route {
+                    paths.push(repair_target.clone());
+                }
                 failures.push(ProfileVerificationFailure::new(
                     "nextjs_route_not_integrated",
                     format!(
-                        "explicit artifact `{explicit_path}` is not referenced from selected route `{route}`"
+                        "explicit artifact `{explicit_path}` is not referenced from selected route graph rooted at `{route}`; repair target `{repair_target}`"
                     ),
-                    vec![route.to_string(), explicit_path],
+                    paths,
                 ));
             }
         }
@@ -545,9 +590,9 @@ fn nextjs_profile_obligations(context: &ProfileObligationContext) -> Vec<Profile
         ));
         obligations.push(ProfileObligation::new(
             "nextjs_dependencies_required",
-            "package.json dependencies must include the runtime packages for a Next.js app",
+            "package.json dependencies must include compatible runtime packages for a Next.js app",
             vec!["package.json".to_string()],
-            Some("dependencies include next, react, react-dom".to_string()),
+            Some("dependencies include next, react, react-dom with React 18.2 or newer compatibility".to_string()),
         ));
     }
     if obligation_context_requires_literal(context, "3011") {
@@ -563,7 +608,7 @@ fn nextjs_profile_obligations(context: &ProfileObligationContext) -> Vec<Profile
             "nextjs_tailwind_dependencies_required",
             "package.json dependencies must include Tailwind runtime tooling when Tailwind directives or config are requested",
             vec!["package.json".to_string()],
-            Some("dependencies include tailwindcss, postcss, autoprefixer".to_string()),
+            Some("dependencies include compatible tailwindcss, postcss, autoprefixer versions".to_string()),
         ));
     }
     if let Some((route, artifact)) = nextjs_route_integration_obligation_target(context) {
@@ -839,13 +884,78 @@ fn nextjs_dependency_version_conflict(facts: &NextJsFacts) -> Option<String> {
     }
 }
 
-fn version_major_at_least(value: &str, minimum: u64) -> bool {
+fn nextjs_tailwind_dependency_version_conflict(facts: &NextJsFacts) -> Option<String> {
+    let autoprefixer = facts.dependency_versions.get("autoprefixer")?;
+    let postcss = facts.dependency_versions.get("postcss")?;
+    let autoprefixer_exact = exact_version_tuple(autoprefixer)?;
+    let postcss_exact = exact_version_tuple(postcss)?;
+    if autoprefixer_exact.0 >= 10 && postcss_exact < (8, 0, 2) {
+        Some(format!(
+            "autoprefixer@{autoprefixer} requires postcss peer range ^8.0.2 or newer; incompatible exact pin: postcss@{postcss}"
+        ))
+    } else {
+        None
+    }
+}
+
+fn nextjs_typescript_toolchain_version_conflict(facts: &NextJsFacts) -> Option<String> {
+    let next = facts.dependency_versions.get("next")?;
+    if !version_major_at_least(next, 14) {
+        return None;
+    }
+
+    let mut conflicts = Vec::new();
+    if facts
+        .dependency_versions
+        .get("typescript")
+        .and_then(|version| version_major(version))
+        .is_some_and(|major| major >= 6)
+    {
+        conflicts.push(format!(
+            "typescript@{}",
+            facts.dependency_versions.get("typescript").unwrap()
+        ));
+    }
+
+    let react_major = facts
+        .dependency_versions
+        .get("react")
+        .and_then(|version| version_major(version));
+    let react_types_major = facts
+        .dependency_versions
+        .get("@types/react")
+        .and_then(|version| version_major(version));
+    if react_major == Some(18) && react_types_major.is_some_and(|major| major >= 19) {
+        conflicts.push(format!(
+            "@types/react@{}",
+            facts.dependency_versions.get("@types/react").unwrap()
+        ));
+    }
+
+    if conflicts.is_empty() {
+        None
+    } else {
+        Some(format!(
+            "Next.js 14 generated TypeScript apps should use a stable TypeScript 5.x and React 18 type family; incompatible generated toolchain pins: {}",
+            conflicts.join(", ")
+        ))
+    }
+}
+
+fn postcss_config_uses_tailwindcss_directly(text: &str) -> bool {
+    text.contains("tailwindcss") && !text.contains("@tailwindcss/postcss")
+}
+
+fn version_major(value: &str) -> Option<u64> {
     value
         .trim_start_matches(['^', '~', 'v'])
         .split('.')
         .next()
         .and_then(|part| part.parse::<u64>().ok())
-        .is_some_and(|major| major >= minimum)
+}
+
+fn version_major_at_least(value: &str, minimum: u64) -> bool {
+    version_major(value).is_some_and(|major| major >= minimum)
 }
 
 fn exact_version_tuple(value: &str) -> Option<(u64, u64, u64)> {
@@ -980,6 +1090,199 @@ fn nextjs_route_integration_candidate_with_provenance(
     classify_profile_artifact(ProfileId::NextJs, path, provenance)
         .eligibility
         .route_integration
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NextJsRouteGraph {
+    selected_route: String,
+    files: Vec<String>,
+}
+
+fn nextjs_route_graph(cwd: &Path, selected_route: &str) -> NextJsRouteGraph {
+    let mut files = Vec::new();
+    let mut seen = BTreeSet::new();
+    let mut queue = vec![(selected_route.to_string(), 0usize)];
+    while let Some((path, depth)) = queue.pop() {
+        if files.len() >= NEXTJS_ROUTE_GRAPH_MAX_FILES || depth > NEXTJS_ROUTE_GRAPH_MAX_DEPTH {
+            continue;
+        }
+        if !seen.insert(path.clone()) || ignored_route_graph_path(&path) {
+            continue;
+        }
+        let absolute = cwd.join(&path);
+        let Ok(text) = fs::read_to_string(&absolute) else {
+            continue;
+        };
+        files.push(path.clone());
+        if depth == NEXTJS_ROUTE_GRAPH_MAX_DEPTH {
+            continue;
+        }
+        for import_path in static_relative_imports(&text) {
+            if let Some(resolved) = resolve_route_import(cwd, &path, &import_path)
+                && !seen.contains(&resolved)
+            {
+                queue.push((resolved, depth + 1));
+            }
+        }
+    }
+    NextJsRouteGraph {
+        selected_route: selected_route.to_string(),
+        files,
+    }
+}
+
+fn route_graph_integrates_artifact(cwd: &Path, graph: &NextJsRouteGraph, artifact: &str) -> bool {
+    if graph.files.iter().any(|file| file == artifact) {
+        return true;
+    }
+    let stem = Path::new(artifact)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or_default();
+    if stem.is_empty() {
+        return false;
+    }
+    let path_without_ext = artifact
+        .strip_suffix(".tsx")
+        .or_else(|| artifact.strip_suffix(".jsx"))
+        .or_else(|| artifact.strip_suffix(".ts"))
+        .or_else(|| artifact.strip_suffix(".js"))
+        .unwrap_or(artifact);
+    graph.files.iter().any(|file| {
+        fs::read_to_string(cwd.join(file))
+            .map(|text| text.contains(stem) || text.contains(path_without_ext))
+            .unwrap_or(false)
+    })
+}
+
+fn route_graph_repair_target(graph: &NextJsRouteGraph, artifact: &str) -> Option<String> {
+    let artifact_dir = Path::new(artifact)
+        .parent()
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_default();
+    let component_target = graph
+        .files
+        .iter()
+        .filter(|file| file.as_str() != graph.selected_route)
+        .find(|file| {
+            let lower = file.to_ascii_lowercase();
+            lower.contains("/components/") || lower.starts_with("components/")
+        })
+        .cloned();
+    if !artifact_dir.is_empty()
+        && artifact_dir.contains("/hooks")
+        && let Some(target) = component_target
+    {
+        return Some(target);
+    }
+    graph.files.first().cloned()
+}
+
+fn static_relative_imports(text: &str) -> Vec<String> {
+    let mut imports = Vec::new();
+    for raw_line in text.lines() {
+        let line = raw_line.trim();
+        if !line.starts_with("import ") {
+            continue;
+        }
+        for quote in ['\'', '"'] {
+            for value in quoted_values(line, quote) {
+                if value.starts_with('.') && !imports.iter().any(|existing| existing == &value) {
+                    imports.push(value);
+                }
+            }
+        }
+    }
+    imports
+}
+
+fn quoted_values(line: &str, quote: char) -> Vec<String> {
+    let mut values = Vec::new();
+    let mut rest = line;
+    while let Some(start) = rest.find(quote) {
+        let after_start = &rest[start + quote.len_utf8()..];
+        let Some(end) = after_start.find(quote) else {
+            break;
+        };
+        values.push(after_start[..end].to_string());
+        rest = &after_start[end + quote.len_utf8()..];
+    }
+    values
+}
+
+fn resolve_route_import(cwd: &Path, from_file: &str, import_path: &str) -> Option<String> {
+    if !import_path.starts_with('.') {
+        return None;
+    }
+    let base_dir = Path::new(from_file)
+        .parent()
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_default();
+    let base = normalize_route_import_path(&base_dir, import_path)?;
+    for candidate in route_import_candidates(&base) {
+        if ignored_route_graph_path(&candidate) {
+            continue;
+        }
+        if cwd.join(&candidate).is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn normalize_route_import_path(base_dir: &str, import_path: &str) -> Option<String> {
+    let combined = if base_dir.is_empty() {
+        import_path.to_string()
+    } else {
+        format!("{base_dir}/{import_path}")
+    };
+    let mut parts = Vec::new();
+    for part in combined.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            value => parts.push(value),
+        }
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("/"))
+    }
+}
+
+fn route_import_candidates(base: &str) -> Vec<String> {
+    let mut candidates = Vec::new();
+    if Path::new(base).extension().is_some() {
+        candidates.push(base.to_string());
+    } else {
+        candidates.push(base.to_string());
+        for ext in ["tsx", "ts", "jsx", "js"] {
+            candidates.push(format!("{base}.{ext}"));
+        }
+        for ext in ["tsx", "ts", "jsx", "js"] {
+            candidates.push(format!("{base}/index.{ext}"));
+        }
+    }
+    candidates
+}
+
+fn ignored_route_graph_path(path: &str) -> bool {
+    let classified = classify_profile_artifact(
+        ProfileId::NextJs,
+        path,
+        ArtifactProvenance::WorkspaceObservation,
+    );
+    matches!(
+        classified.kind,
+        crate::agent::step_runner::profile_artifact::ArtifactKind::DependencyCache
+            | crate::agent::step_runner::profile_artifact::ArtifactKind::BuildOutput
+            | crate::agent::step_runner::profile_artifact::ArtifactKind::GeneratedDeclaration
+            | crate::agent::step_runner::profile_artifact::ArtifactKind::Manifest
+            | crate::agent::step_runner::profile_artifact::ArtifactKind::Config
+    )
 }
 
 fn push_optional_fact(lines: &mut Vec<String>, key: &str, value: Option<&str>) {
@@ -1174,7 +1477,7 @@ mod tests {
             .expect("tailwind dependency obligation");
         assert_eq!(
             obligation.expected.as_deref(),
-            Some("dependencies include tailwindcss, postcss, autoprefixer")
+            Some("dependencies include compatible tailwindcss, postcss, autoprefixer versions")
         );
     }
 
@@ -1362,6 +1665,124 @@ mod tests {
     }
 
     #[test]
+    fn nextjs_verification_rejects_postcss_autoprefixer_peer_conflict() {
+        let root = temp_workspace("verify-postcss-autoprefixer-conflict");
+        write_next_app_with_dependencies(
+            &root,
+            r#"{"next":"14.0.0","react":"18.2.0","react-dom":"18.2.0","tailwindcss":"3.3.0","postcss":"8.0.0","autoprefixer":"10.0.0"}"#,
+        );
+
+        let failures =
+            verify_profile("nextjs", &root, &context_with_goal("run on port 3011")).unwrap();
+
+        let failure = failures
+            .iter()
+            .find(|failure| failure.code == "nextjs_dependency_version_conflict")
+            .expect("dependency conflict failure");
+        assert!(failure.message.contains("autoprefixer@10.0.0"));
+        assert!(failure.message.contains("postcss peer range ^8.0.2"));
+        assert!(failure.message.contains("postcss@8.0.0"));
+        assert_eq!(failure.paths, vec!["package.json".to_string()]);
+    }
+
+    #[test]
+    fn nextjs_verification_accepts_compatible_postcss_autoprefixer_versions() {
+        let root = temp_workspace("verify-postcss-autoprefixer-compatible");
+        write_next_app_with_dependencies(
+            &root,
+            r#"{"next":"14.0.0","react":"18.2.0","react-dom":"18.2.0","tailwindcss":"3.3.0","postcss":"8.4.31","autoprefixer":"10.4.16"}"#,
+        );
+
+        let failures =
+            verify_profile("nextjs", &root, &context_with_goal("run on port 3011")).unwrap();
+
+        assert!(
+            failures
+                .iter()
+                .all(|failure| failure.code != "nextjs_dependency_version_conflict"),
+            "{failures:?}"
+        );
+    }
+
+    #[test]
+    fn nextjs_verification_accepts_postcss_version_range_for_tailwind_stack() {
+        let root = temp_workspace("verify-postcss-autoprefixer-range");
+        write_next_app_with_dependencies(
+            &root,
+            r#"{"next":"14.0.0","react":"18.2.0","react-dom":"18.2.0","tailwindcss":"^3.3.0","postcss":"^8.4.0","autoprefixer":"^10.4.0"}"#,
+        );
+
+        let failures =
+            verify_profile("nextjs", &root, &context_with_goal("run on port 3011")).unwrap();
+
+        assert!(
+            failures
+                .iter()
+                .all(|failure| failure.code != "nextjs_dependency_version_conflict"),
+            "{failures:?}"
+        );
+    }
+
+    #[test]
+    fn nextjs_verification_rejects_typescript_6_for_next14_generated_app() {
+        let root = temp_workspace("verify-typescript-major");
+        write_next_app_with_dependencies(
+            &root,
+            r#"{"next":"14.0.0","react":"^18.2.0","react-dom":"^18.2.0","typescript":"6.0.3","@types/react":"18.2.79"}"#,
+        );
+
+        let failures =
+            verify_profile("nextjs", &root, &context_with_goal("run on port 3011")).unwrap();
+
+        let failure = failures
+            .iter()
+            .find(|failure| failure.code == "nextjs_dependency_version_conflict")
+            .expect("dependency conflict failure");
+        assert!(failure.message.contains("typescript@6.0.3"));
+        assert!(failure.message.contains("TypeScript 5.x"));
+        assert_eq!(failure.paths, vec!["package.json".to_string()]);
+    }
+
+    #[test]
+    fn nextjs_verification_rejects_react19_types_for_react18_generated_app() {
+        let root = temp_workspace("verify-react-types-major");
+        write_next_app_with_dependencies(
+            &root,
+            r#"{"next":"14.0.0","react":"^18.2.0","react-dom":"^18.2.0","typescript":"^5.4.0","@types/react":"19.2.17"}"#,
+        );
+
+        let failures =
+            verify_profile("nextjs", &root, &context_with_goal("run on port 3011")).unwrap();
+
+        let failure = failures
+            .iter()
+            .find(|failure| failure.code == "nextjs_dependency_version_conflict")
+            .expect("dependency conflict failure");
+        assert!(failure.message.contains("@types/react@19.2.17"));
+        assert!(failure.message.contains("React 18 type family"));
+        assert_eq!(failure.paths, vec!["package.json".to_string()]);
+    }
+
+    #[test]
+    fn nextjs_verification_accepts_stable_typescript_toolchain() {
+        let root = temp_workspace("verify-stable-typescript-toolchain");
+        write_next_app_with_dependencies(
+            &root,
+            r#"{"next":"14.0.0","react":"^18.2.0","react-dom":"^18.2.0","typescript":"^5.4.0","@types/react":"^18.2.79"}"#,
+        );
+
+        let failures =
+            verify_profile("nextjs", &root, &context_with_goal("run on port 3011")).unwrap();
+
+        assert!(
+            failures
+                .iter()
+                .all(|failure| failure.code != "nextjs_dependency_version_conflict"),
+            "{failures:?}"
+        );
+    }
+
+    #[test]
     fn nextjs_verification_rejects_tailwind_contract_drift() {
         let root = temp_workspace("verify-tailwind");
         write_minimal_next_app(&root, r#"{"dev":"next dev -p 3011","build":"next build"}"#);
@@ -1377,6 +1798,69 @@ mod tests {
                 .iter()
                 .any(|failure| failure.code == "nextjs_tailwind_contract")
         );
+    }
+
+    #[test]
+    fn nextjs_verification_rejects_postcss_plugin_without_declared_package() {
+        let root = temp_workspace("verify-postcss-plugin-dependency");
+        write_minimal_next_app(&root, r#"{"dev":"next dev -p 3011","build":"next build"}"#);
+        fs::write(root.join("app/globals.css"), "@tailwind base;").unwrap();
+        fs::write(root.join("tailwind.config.js"), "module.exports = {}").unwrap();
+        fs::write(
+            root.join("postcss.config.js"),
+            "module.exports = { plugins: { '@tailwindcss/postcss': {} } }",
+        )
+        .unwrap();
+
+        let failures =
+            verify_profile("nextjs", &root, &context_with_goal("run on port 3011")).unwrap();
+
+        let failure = failures
+            .iter()
+            .find(|failure| {
+                failure.code == "nextjs_tailwind_contract"
+                    && failure.message.contains("@tailwindcss/postcss")
+            })
+            .expect("postcss plugin dependency failure");
+        assert_eq!(
+            failure.paths,
+            vec!["package.json".to_string(), "postcss.config.js".to_string()]
+        );
+    }
+
+    #[test]
+    fn nextjs_verification_rejects_direct_tailwindcss_postcss_plugin_when_v4_plugin_declared() {
+        let root = temp_workspace("verify-postcss-direct-plugin");
+        fs::create_dir_all(root.join("app")).unwrap();
+        fs::write(
+            root.join("app/page.tsx"),
+            "export default function Page() {}",
+        )
+        .unwrap();
+        fs::write(root.join("app/globals.css"), "@tailwind base;").unwrap();
+        fs::write(root.join("tailwind.config.js"), "module.exports = {}").unwrap();
+        fs::write(
+            root.join("postcss.config.js"),
+            "module.exports = { plugins: { tailwindcss: {}, autoprefixer: {} } }",
+        )
+        .unwrap();
+        fs::write(
+            root.join("package.json"),
+            r#"{"scripts":{"dev":"next dev -p 3011","build":"next build"},"dependencies":{"next":"14.2.0","react":"18.2.0","react-dom":"18.2.0","tailwindcss":"latest","@tailwindcss/postcss":"latest","postcss":"latest","autoprefixer":"latest"}}"#,
+        )
+        .unwrap();
+
+        let failures =
+            verify_profile("nextjs", &root, &context_with_goal("run on port 3011")).unwrap();
+
+        let failure = failures
+            .iter()
+            .find(|failure| {
+                failure.code == "nextjs_tailwind_contract"
+                    && failure.message.contains("tailwindcss directly")
+            })
+            .expect("direct postcss plugin failure");
+        assert_eq!(failure.paths, vec!["postcss.config.js".to_string()]);
     }
 
     #[test]
@@ -1525,6 +2009,85 @@ mod tests {
     }
 
     #[test]
+    fn nextjs_verification_accepts_transitive_route_component_integration() {
+        let root = temp_workspace("verify-route-graph-transitive");
+        write_minimal_next_app(&root, r#"{"dev":"next dev -p 3011","build":"next build"}"#);
+        fs::create_dir_all(root.join("app/components")).unwrap();
+        fs::create_dir_all(root.join("app/hooks")).unwrap();
+        fs::write(
+            root.join("app/page.tsx"),
+            "import GameBoard from './components/GameBoard'; export default function Page() { return <GameBoard /> }",
+        )
+        .unwrap();
+        fs::write(
+            root.join("app/components/GameBoard.tsx"),
+            "import { useGame } from '../hooks/useGame'; export default function GameBoard() { useGame(); return null }",
+        )
+        .unwrap();
+        fs::write(
+            root.join("app/hooks/useGame.ts"),
+            "export function useGame() {}",
+        )
+        .unwrap();
+        let mut context = context_with_goal("run on port 3011");
+        context.expected_paths = vec!["app/hooks/useGame.ts".to_string()];
+
+        let failures = verify_profile("nextjs", &root, &context).unwrap();
+
+        assert!(
+            failures
+                .iter()
+                .all(|failure| failure.code != "nextjs_route_not_integrated"),
+            "{failures:?}"
+        );
+    }
+
+    #[test]
+    fn nextjs_verification_route_graph_failure_can_target_component() {
+        let root = temp_workspace("verify-route-graph-target");
+        write_minimal_next_app(&root, r#"{"dev":"next dev -p 3011","build":"next build"}"#);
+        fs::create_dir_all(root.join("app/components")).unwrap();
+        fs::create_dir_all(root.join("app/hooks")).unwrap();
+        fs::write(
+            root.join("app/page.tsx"),
+            "import GameBoard from './components/GameBoard'; export default function Page() { return <GameBoard /> }",
+        )
+        .unwrap();
+        fs::write(
+            root.join("app/components/GameBoard.tsx"),
+            "export default function GameBoard() { return null }",
+        )
+        .unwrap();
+        fs::write(
+            root.join("app/hooks/useGame.ts"),
+            "export function useGame() {}",
+        )
+        .unwrap();
+        let mut context = context_with_goal("run on port 3011");
+        context.expected_paths = vec!["app/hooks/useGame.ts".to_string()];
+
+        let failures = verify_profile("nextjs", &root, &context).unwrap();
+
+        let failure = failures
+            .iter()
+            .find(|failure| failure.code == "nextjs_route_not_integrated")
+            .expect("route integration failure");
+        assert_eq!(
+            failure.paths,
+            vec![
+                "app/page.tsx".to_string(),
+                "app/hooks/useGame.ts".to_string(),
+                "app/components/GameBoard.tsx".to_string(),
+            ]
+        );
+        assert!(
+            failure
+                .message
+                .contains("repair target `app/components/GameBoard.tsx`")
+        );
+    }
+
+    #[test]
     fn nextjs_verification_does_not_require_layout_import_from_page() {
         let root = temp_workspace("verify-layout-infra");
         write_minimal_next_app(&root, r#"{"dev":"next dev -p 3011","build":"next build"}"#);
@@ -1593,7 +2156,7 @@ mod tests {
         write_minimal_next_app(&root, r#"{"dev":"next dev -p 3011","build":"next build"}"#);
         let mut context = context_with_goal("run on port 3011");
         context.phase_contract_facts = vec![
-            "profile.obligation.nextjs_dependencies_required=package.json dependencies must include the runtime packages for a Next.js app; paths=package.json; expected=dependencies include next, react, react-dom".to_string(),
+            "profile.obligation.nextjs_dependencies_required=package.json dependencies must include compatible runtime packages for a Next.js app; paths=package.json; expected=dependencies include next, react, react-dom with React 18.2 or newer compatibility".to_string(),
         ];
 
         let failures = verify_profile("nextjs", &root, &context).unwrap();
@@ -1636,6 +2199,22 @@ mod tests {
             root.join("package.json"),
             format!(
                 r#"{{"scripts":{scripts},"dependencies":{{"next":"latest","react":"latest","react-dom":"latest"}}}}"#
+            ),
+        )
+        .unwrap();
+    }
+
+    fn write_next_app_with_dependencies(root: &Path, dependencies: &str) {
+        fs::create_dir_all(root.join("app")).unwrap();
+        fs::write(
+            root.join("app/page.tsx"),
+            "export default function Page() {}",
+        )
+        .unwrap();
+        fs::write(
+            root.join("package.json"),
+            format!(
+                r#"{{"scripts":{{"dev":"next dev -p 3011","build":"next build"}},"dependencies":{dependencies}}}"#
             ),
         )
         .unwrap();

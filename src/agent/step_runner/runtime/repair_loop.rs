@@ -795,7 +795,11 @@ fn verifier_contract_evidence(
         return None;
     }
     let candidate_artifacts = verifier_candidate_artifacts(failure);
-    let repair_target = single_candidate(&candidate_artifacts);
+    let repair_target = if tailwind_postcss_plugin_diagnostic(failure) {
+        Some("postcss.config.js".to_string())
+    } else {
+        single_candidate(&candidate_artifacts)
+    };
     let diagnostic_code = failure.reason.clone();
     let signature = failure_signature([
         "verifier",
@@ -815,7 +819,10 @@ fn verifier_contract_evidence(
         .with_candidate_artifacts(candidate_artifacts)
         .with_observed_expected_pairs(vec![verifier_observed_expected_pair(failure)])
         .with_affected_cases(vec![failure.command.clone()])
-        .with_required_action("fix the reported verifier failure before adding feature work");
+        .with_required_action(verifier_required_action(failure))
+        .with_repair_kind(verifier_repair_kind(failure))
+        .with_setup_implication(verifier_setup_implication(failure))
+        .with_rerun_authority(vec![failure.command.clone()]);
     if let Some(target) = repair_target {
         evidence = evidence
             .with_target_path(target.clone())
@@ -872,6 +879,36 @@ fn verifier_failure_kind(failure: &VerificationFailure) -> &'static str {
         "verifier_command_failed"
     } else {
         "verifier_failure"
+    }
+}
+
+fn verifier_repair_kind(failure: &VerificationFailure) -> &'static str {
+    if failure.reason == "dependency_missing" {
+        "verifier_owned_setup_recovery"
+    } else if tailwind_postcss_plugin_diagnostic(failure) {
+        "tailwind_contract_repair"
+    } else {
+        "source_verifier_repair"
+    }
+}
+
+fn verifier_setup_implication(failure: &VerificationFailure) -> &'static str {
+    if failure.reason == "dependency_missing" {
+        "setup_blocker"
+    } else if tailwind_postcss_plugin_diagnostic(failure) {
+        "setup_after_manifest_repair_required"
+    } else {
+        "none"
+    }
+}
+
+fn verifier_required_action(failure: &VerificationFailure) -> &'static str {
+    if failure.reason == "dependency_missing" {
+        "use verifier-owned setup recovery when allowed; do not edit files or run dependency installation from a model tool call"
+    } else if tailwind_postcss_plugin_diagnostic(failure) {
+        "fix the Tailwind/PostCSS contract in postcss.config.js and package.json; if manifest dependencies change, verifier-owned setup recovery handles approved setup"
+    } else {
+        "fix the reported verifier failure before adding feature work"
     }
 }
 
@@ -1587,6 +1624,10 @@ mod tests {
         let rendered = evidence.render().unwrap();
 
         assert!(rendered.contains("candidate_artifacts: package.json, postcss.config.js"));
+        assert!(rendered.contains("repair_target: postcss.config.js"));
+        assert!(rendered.contains("repair_kind: tailwind_contract_repair"));
+        assert!(rendered.contains("setup_implication: setup_after_manifest_repair_required"));
+        assert!(rendered.contains("fix the Tailwind/PostCSS contract"));
         assert!(!rendered.contains("repair_target: node_modules"));
         assert!(!rendered.contains("related_source_excerpt: node_modules"));
     }

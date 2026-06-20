@@ -1,20 +1,29 @@
 # Philosophy
 
-CommandAgent is a minimal local-first coding agent for local and API-backed
-LLMs. The design favors small deterministic control surfaces over large
-agent-side orchestration.
+CommandAgent is a contract-orchestrated local-first coding agent for local and
+API-backed LLMs. The design keeps one minimal execution engine, but it allows
+explicit deterministic contract orchestration around that engine when the
+orchestration is observable, bounded, and grounded in current failure evidence.
 
 ## Product Bet
 
-CommandAgent exists to test a narrow hypothesis: a small tool loop plus explicit
-planning boundaries can solve useful coding tasks without importing a large
-legacy control stack. The agent should make deterministic facts visible, keep
-human-visible plans and repair prompts inspectable, and avoid hidden autonomous
-machinery.
+CommandAgent exists to test a narrowed but less naive hypothesis: useful coding
+tasks can be handled by one minimal tool loop when the surrounding planning,
+setup, profile, artifact, recovery, and progress contracts make the work
+explicit before it reaches that loop. The agent should make deterministic facts
+visible, keep human-visible plans and repair prompts inspectable, and avoid
+hidden autonomous machinery.
+
+Minimalism means minimal hidden authority, not minimal recovery clarity. A
+larger control mechanism is admissible when it is decomposed into visible
+contracts, has deterministic triggers, preserves the single execution engine,
+and stops boundedly when progress cannot be proven.
 
 ## Principles
 
 - Keep one execution engine. There is no legacy engine switch.
+- Allow explicit contract orchestration around the execution engine when the
+  decisions are deterministic, bounded, observable, and provider-independent.
 - Prefer deterministic checks before adding feedback mechanisms.
 - Keep runtime guards narrow, bounded, and observable.
 - Treat predictable behavior as a product requirement. A fix that raises one
@@ -26,24 +35,44 @@ machinery.
 - Treat task and step decomposition as contract data, not just planner prose.
 - Validate step kind, artifact role, and workspace scope before relying on the
   execution guard.
+- Treat setup bootstrap, manifest/scaffold materialization, active job
+  arbitration, semantic repair planning, recovery target hints, and attempt
+  ledgers as legitimate contract mechanisms when an observed failure shows they
+  are needed.
 - Split large work into explicit steps instead of relying on a single long
   conversation.
 - Keep planning, execution, verification, and repair as separate contracts.
 - Treat recovery as contract correction, not hidden autonomy.
 - Treat recovery tasks as first-class tasks: clarify what to fix before asking
   the minimal loop to execute the repair.
+- Treat repair action selection as a contract responsibility. The minimal loop
+  executes a clarified task; it should not decide whether the blocker is setup,
+  manifest, route integration, source implementation, verifier policy, or
+  documentation.
+- Treat contract boundary propagation as part of the design. A deterministic
+  failure should carry the repair kind, setup implication, and rerun authority
+  needed by the next contract layer.
+- Treat plan files as public contract inputs when they can be produced by
+  external planner surfaces, not as incidental runtime text.
 - Treat evaluation scripts and docs as part of the product.
 
 CommandAgent's control model is therefore:
 
 ```text
-Planning Contract -> Profile Contract -> Execution Contract
-classified failure -> Recovery Task Contract -> Execution Contract
+Task Contract -> Artifact Role and Workspace Scope
+  -> Planning Contract -> Profile Contract -> Active Job Arbitration
+  -> Setup Bootstrap or Recovery Task Contract or Execution Contract
+classified failure -> Contract Boundary Propagation
+  -> Recovery Target Hint -> Semantic Repair Planning
+  -> Recovery Task Contract or verifier-owned setup recovery
+  -> Attempt Ledger and original guard/verifier rerun
+  -> Execution Contract
 ```
 
-The non-execution contracts are clarity boundaries, not additional engines.
-They exist so normal work and repair work can be narrowed before delegation to
-the minimal loop instead of asking the loop to infer strategy from broad prose.
+The non-execution contracts are orchestration boundaries, not additional
+execution engines. They exist so normal work, setup work, and repair work can
+be classified and narrowed before delegation to the minimal loop instead of
+asking the loop to infer strategy from broad prose.
 
 ## Stability And Predictability
 
@@ -105,8 +134,9 @@ not the primary way to discover a bad decomposition.
 
 The useful lesson from larger historical control stacks is not that
 CommandAgent needs a hidden project manager. The lesson is that task contracts,
-artifact roles, workspace scope, and recovery targets are legitimate control
-data when they stay deterministic and visible:
+artifact roles, workspace scope, setup bootstrap, job arbitration, recovery
+targets, semantic repair plans, and attempt ledgers are legitimate control data
+when they stay deterministic and visible:
 
 - A task contract records the goal, required artifacts, constraints, and
   success checks that are already explicit or deterministically inferred.
@@ -115,36 +145,99 @@ data when they stay deterministic and visible:
   output before those paths are used for lint, verification, or repair.
 - Workspace scope names the paths and artifact classes that are in bounds for
   the current task or step, and requires explicit evidence before expansion.
+- Setup bootstrap treats dependency installation, manifest repair, framework
+  config, and initial scaffold as setup jobs, not incidental side effects of
+  source implementation.
+- Deterministic manifest or scaffold materialization is acceptable for
+  profile-owned boilerplate when the profile can name the setup artifacts,
+  required dependency family, and verifier that will judge success.
+- Active job arbitration classifies the current blocker as setup, manifest,
+  route integration, source implementation, verifier policy, documentation, or
+  explicit stop before a recovery task is built.
 - Recovery target hints name the file, artifact, or command that the rejecting
   guard already identified as the repair target.
+- Semantic repair planning selects the allowed repair action from deterministic
+  evidence and artifact roles. It does not invent a new user goal.
+- Attempt ledgers record failure kind, target artifact, repair action, changed
+  files, verifier result, and repeated-failure count so no-progress can stop
+  explicitly instead of retrying blindly.
 
-These concepts should be adopted as small contract boundaries. They should not
-become an active hidden controller that chooses arbitrary future jobs, retries
-until success, or rewrites the user's task.
+These concepts should be adopted as explicit contract orchestration. They may
+actively classify the current job and choose a bounded repair action, but they
+must not choose arbitrary future jobs, retry until success, weaken a failed
+guard, or rewrite the user's task.
 
 When choosing between mechanisms, prefer this order:
 
 1. deterministic classifier or lint rule
 2. structured evidence and recovery target hints
-3. explicit recovery task contract under the original guard
-4. setup bootstrap only when verifier evidence proves dependency setup is the
-   blocker and the user or policy permits it
-5. job arbitration only after a separate design decision proves that narrower
-   contracts cannot classify the observed failure
+3. artifact role and workspace-scope classification
+4. active job arbitration for the current blocker
+5. setup bootstrap or deterministic manifest/scaffold materialization when the
+   blocker is setup/config and policy permits it
+6. semantic repair planning that selects one allowed repair action
+7. explicit recovery task contract under the original guard
+8. attempt-ledger no-progress stop
 
-This preserves the practical value of stronger task contracts without
-recreating opaque orchestration.
+This preserves the practical value of stronger task contracts while moving the
+admission line away from "small only" and toward "explicit, bounded, and
+attributable." The system may be more capable than the earliest MVP, but it
+must remain explainable from visible contract data.
+
+## Plan Files As Public Contracts
+
+CommandAgent plan files are becoming an integration boundary. A plan may be
+generated by the built-in planner today, but future planner surfaces may include
+other local coding agents or command-line planning tools that only write a plan
+file. The design should treat that file as a public contract input:
+
+```text
+external or built-in planner -> plan file -> parse -> normalize
+  -> schema validation -> plan lint/profile obligations -> execution
+```
+
+This does not mean accepting arbitrary YAML as a programming language. It means
+the accepted syntax should cover ordinary, deterministic YAML shapes that
+planning tools naturally emit, then normalize them into CommandAgent's
+canonical internal representation before linting or execution. For example,
+quoted strings, unquoted scalar strings, and standard block scalars for long
+instructions are reasonable contract syntax. Anchors, merge keys, custom tags,
+implicit execution, environment expansion, and other complex YAML features are
+not part of the contract unless a separate design decision admits them.
+
+The parser boundary and lint boundary must stay separate:
+
+- Parse errors mean the file cannot be read as the supported plan-file syntax.
+- Schema errors mean required plan fields are missing or have the wrong type.
+- Plan lint errors mean the plan is readable but violates CommandAgent
+  contracts such as step ownership, verifier policy, profile obligations, or
+  workspace scope.
+
+After parsing, CommandAgent should be able to render a canonical plan file.
+Canonical rendering keeps saved plans stable, makes diffs readable, and lets
+external planner output be normalized before it reaches execution. The
+canonical form is an internal storage and review shape; it should not be used
+to reject otherwise valid public plan input merely because an external planner
+used a different ordinary YAML scalar style.
+
+This keeps external planning extensible without moving planning authority into
+the minimal loop. External planners may propose contracts. CommandAgent still
+owns validation, normalization, linting, profile obligation checks, verifier
+selection, and bounded execution.
 
 ## Recovery As Contract Correction
 
 Recovery is admissible only when it corrects a classified contract violation.
-It is not a hidden form of autonomy, a second planner, or a way to keep trying
-until the model happens to succeed.
+It may include active job arbitration and semantic repair planning, but only as
+visible contract work that selects one bounded repair action from deterministic
+evidence. It is not hidden autonomy, a second execution engine, or a way to
+keep trying until the model happens to succeed.
 
 The shape of an acceptable recovery mechanism is:
 
 ```text
-classified failure -> violated contract -> narrow correction action
+classified failure -> violated contract -> active job classification
+  -> recovery target hint -> allowed repair action
   -> rerun the original guard/verifier -> success or explicit bounded stop
 ```
 
@@ -155,11 +248,23 @@ tool argument name, a required artifact path, a selected profile fact, or an
 approved setup command. It must not invent a new workflow, broaden the task, or
 weaken the check that failed.
 
+Active job arbitration is a recovery input, not hidden continuation. It may
+decide that the current blocker is setup bootstrap, manifest repair, route
+integration, source implementation, verifier policy, docs, or explicit stop.
+It may not silently advance to the next phase after a failed contract or create
+new user-visible goals.
+
 Dependency setup remains verifier-owned. If a bounded repair changes package
 manager manifests, setup state may become stale for that verifier step.
 Approved online setup may run once for the new manifest fingerprint, then the
 original verifier must rerun. The repair turn itself still must not run
 dependency installation directly.
+
+When a profile can name known setup boilerplate, deterministic manifest or
+scaffold materialization is allowed as a setup/bootstrap or manifest-repair
+action. The materialized content must be scoped to profile-owned setup
+artifacts, preserve the task contract, and remain subject to the original
+profile/verifier checks.
 
 This keeps the runtime layers separate:
 
@@ -175,6 +280,60 @@ This keeps the runtime layers separate:
 Repeated recovery must remain bounded by failure class and step. If the same
 classified violation repeats after the allowed correction, CommandAgent should
 stop with explicit evidence and a user-visible repair or replan path.
+Attempt ledgers are the preferred way to make this stop precise: they should
+show what action was tried, what changed, which verifier or profile check was
+rerun, and why the same blocker is considered no progress.
+
+## Contract Boundary Propagation
+
+Separate contracts are useful only when their handoff is explicit. A profile
+check, verifier, step policy guard, or tool schema guard may detect a failure,
+but the next layer must not have to infer the repair strategy from broad prose.
+The detecting layer should propagate only deterministic facts that it already
+owns.
+
+The minimum propagation shape is:
+
+```text
+classified failure
+  -> violated contract
+  -> repair kind
+  -> target path, command, or artifact role when known
+  -> setup implication when the failure or repair affects dependencies
+  -> rerun authority
+```
+
+These values are carried as bounded contract evidence fields such as
+`repair_kind`, `setup_implication`, and `rerun_authority`. They are data for
+the existing Recovery Task Contract or verifier-owned setup recovery path. They
+are not hidden workflow state, retry counters, or permission for the model to
+choose a new job.
+
+Examples:
+
+- `nextjs_dependency_version_conflict` propagates
+  `repair_kind=manifest_dependency_repair`, `target=package.json`,
+  `setup_implication=setup_after_manifest_repair_required`, and
+  `rerun_authority=profile_verification plus npm run build`.
+- `dependency_missing` or a missing module diagnostic from a build verifier
+  propagates `repair_kind=verifier_owned_setup_recovery` only when the
+  manifest already declares the missing dependency and the setup command is
+  within the bounded setup policy.
+- `nextjs_route_not_integrated` propagates
+  `repair_kind=route_integration_repair`, the selected route, the
+  disconnected artifact, a bounded route-tree repair target when known, and
+  `rerun_authority=profile verification plus the original build verifier`.
+
+This propagation is not a job manager. It must not choose arbitrary future
+phases, increase retry counts, run dependency setup from an ordinary repair
+turn, or hide continuation after a failed guard. It only makes the next
+visible repair or setup step precise enough that the minimal loop is not asked
+to decide what kind of repair is needed.
+
+When propagation is not deterministic, CommandAgent should stop with bounded
+evidence rather than invent a repair kind. When it is deterministic, the
+runtime should prefer an explicit recovery task or verifier-owned setup
+recovery over a generic "fix the build" instruction.
 
 ## Profile Contracts
 
@@ -229,6 +388,22 @@ artifact that is not wired into the selected entry point. For example, the
 Next.js profile reports `nextjs_integration_artifact_missing` before route
 integration is evaluated, and reports `nextjs_route_not_integrated` only for an
 existing explicit artifact that is not referenced by the selected route.
+
+For Next.js, selected-route integration may use a bounded static route graph.
+The profile can follow relative imports through a small number of
+path-confined source files to decide whether an explicit component, hook, type,
+or helper is reachable from the route tree. This is still deterministic
+profile evidence. It must not execute code, invoke a compiler, score UI
+quality, or become a hidden Next.js workflow.
+
+Profiles may also contain small dependency compatibility producers when the
+rule is based on deterministic manifest facts or setup evidence. These rules
+must stay narrow: they can name an incompatible package combination, target the
+manifest, and provide a required action for bounded repair. They must not query
+package registries, run package-manager commands, choose arbitrary future
+versions, or become a general dependency solver. New compatibility producers
+require an observed failure, a stable manifest target, positive and compatible
+tests, and documentation.
 
 ## Recovery Task Contracts
 
@@ -294,9 +469,10 @@ The correction prompt may render this evidence to remove ambiguity, for example
 by telling the planner that a `package.json` step must literally mention
 `next`, `react`, and `react-dom`. The evidence must come from existing
 contracts such as plan lint, profile obligations, provider transport parsing,
-tool schemas, step policy, or verifier output. Dependency setup results may be
-attached only as diagnostic context to verifier evidence after one approved
-setup attempt; setup is not a separate hidden recovery producer.
+tool schemas, step policy, verifier output, or bounded dependency setup output.
+Dependency setup results may be attached only as diagnostic context or manifest
+compatibility evidence after one approved setup attempt; setup is not a
+separate hidden recovery producer.
 
 Structured evidence must not include semantic guesses, memory retrieval,
 sidecar judgments, hidden task state, or provider/model-specific behavioral
@@ -322,10 +498,13 @@ repair jobs, case memory, advisory layers, anti-pattern corpora, and broader
 orchestration. Those mechanisms helped in some situations, but they also made
 behavior hard to attribute and hard to evaluate.
 
-CommandAgent intentionally does not copy that stack. A mechanism can be added
-only when a current failure analysis shows a concrete gap and the fix can be
-kept bounded. This keeps the MVP understandable and prevents a gradual return to
-an opaque controller.
+CommandAgent intentionally does not copy that stack as an opaque controller.
+It may reintroduce explicit counterparts when a current failure analysis shows
+that the missing responsibility is real. The admitted shape is contract data
+and bounded action selection: task contract, artifact role, workspace scope,
+setup bootstrap, active job arbitration, recovery target hint, semantic repair
+planning, and attempt ledger. This keeps the system understandable while
+allowing mechanisms that are large enough to classify real failures.
 
 ## Why Sidecar Is Deferred
 
@@ -366,8 +545,9 @@ by better deterministic evidence. It is not part of the MVP runtime contract.
 ## Admission Rule
 
 New mechanisms must start from observed failures. A change is preferred when it
-removes ambiguity, makes deterministic facts visible, or narrows an existing
-contract. Adding another feedback loop is the last resort.
+removes ambiguity, makes deterministic facts visible, classifies the active
+job, or narrows an existing contract. Adding another feedback loop is the last
+resort.
 
 The minimal loop is intentionally small: provider call, tool execution,
 observation append, and final-answer validation. Planning, repair, and profile

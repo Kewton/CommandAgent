@@ -38,6 +38,13 @@ route artifact, should be reported under `planning` with the violated
 contract, rejected path, observed artifact role, and required correction. Treat
 these as planning-contract failures even if the execution layer would also have
 blocked the same mutation later.
+Plan-file failures should distinguish parse, schema, and lint boundaries.
+Unsupported or malformed plan-file syntax is a planning parse failure. Missing
+or wrongly typed required fields are planning schema failures. Readable plans
+that violate step ownership, verifier policy, profile obligations, or workspace
+scope are planning lint failures. Ordinary block scalar strings in known long
+text fields should not be treated as failures after the plan-file public
+contract update.
 `scripts/eval_report.py <root> --recheck` rechecks existing workspaces against
 current case
 `success_check.required_paths` and `success_check.must_include`, then writes
@@ -82,10 +89,13 @@ Each verifier failure records:
 
 `dependency_missing` means the verifier could not run honestly because required
 local dependencies are absent. For example, `npm run build` with a Next.js build
-script requires `node_modules/.bin/next`. CommandAgent must not rewrite build
-scripts to fake success. In approved online runs, runtime dependency recovery
-may run one deterministic setup command and rerun the original verifier once.
-Otherwise it should stop with the explicit dependency-missing reason.
+script requires `node_modules/.bin/next`, and a build diagnostic such as
+`Cannot find module '@tailwindcss/postcss'` can also be dependency setup
+evidence when that package is declared in `package.json` but absent from
+`node_modules`. CommandAgent must not rewrite build scripts to fake success.
+In approved online runs, runtime dependency recovery may run one deterministic
+setup command and rerun the original verifier once. Otherwise it should stop
+with the explicit dependency-missing reason.
 
 Treat `dependency_missing` as a cross-profile environment/setup boundary, not as
 a generic implementation failure. Next.js may report missing `node_modules`,
@@ -100,11 +110,22 @@ unsupported package manager evidence, ambiguous lockfiles, setup failure,
 setup timeout, or repeated `dependency_missing` should stop with a setup
 blocker. The runtime should not suggest a repair replan, try alternate local
 compilers through `npx`, or continue phases after unrecovered setup failure.
+For npm-based Next.js setup recovery, record the exact setup command because
+the runtime includes dev dependencies for build tooling such as TypeScript,
+Tailwind, PostCSS, and type packages.
 
 Eval reports for dependency-sensitive cases should record whether setup was
 allowed, whether `.commandagent/setup/` logs were produced, and whether the
 final failure changed from `dependency_missing` to a real build/source error
 after setup. This keeps dependency setup separate from implementation quality.
+
+If approved setup runs and fails with a deterministic package-manager resolver
+diagnostic, record that as setup evidence rather than collapsing it into source
+build failure. For npm peer dependency conflicts, use a class such as
+`dependency_setup_failed:npm_eresolve_peer_dependency` and record the setup
+command, manifest target, dependent package, required peer range, and observed
+package when available. This is a manifest compatibility boundary; it does not
+increase setup retry count or imply hidden continuation.
 
 Verifier evidence is deterministic context for the next repair or replanning
 step. Repair prompts may also include active profile contract facts collected
@@ -158,9 +179,33 @@ Next.js route integration reports should distinguish missing artifacts from
 integration drift. `profile_verification:nextjs_integration_artifact_missing`
 means the explicit artifact did not exist and the repair target should be that
 artifact path. `profile_verification:nextjs_route_not_integrated` means the
-artifact exists but is not imported or referenced by the selected route, so the
-selected route is the repair target. Do not collapse these into one route
-integration category.
+artifact exists but is not imported or referenced by the selected route tree.
+Reports should record the selected route, the disconnected artifact, and any
+bounded route-tree repair target provided by the profile. Do not collapse these
+into one route integration category.
+
+Contract Boundary Propagation fields should be recorded when present:
+
+- `active_job`
+- `artifact_role`
+- `repair_kind`
+- `setup_implication`
+- `rerun_authority`
+- `required_action`
+- `disallowed_actions`
+- `repair_attempt_ledger`
+
+These fields explain why a repair packet or setup recovery path was selected.
+They are not proof that the original ultra plan completed.
+
+Plan-correction no-progress should be reported as a planning failure with the
+same active job and missing set that repeated. For example, a Next.js Tailwind
+plan that keeps saying `Tailwind CSS` while omitting exact literals
+`tailwindcss`, `postcss`, and `autoprefixer` should report
+`active_job=manifest_repair`, the package step or `package.json` target, the
+required exact literals, and the bounded correction attempts. Do not count this
+as setup, source implementation, or provider transport failure unless the
+runtime evidence says so.
 
 ## Recent Recovery Check
 

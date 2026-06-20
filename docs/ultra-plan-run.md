@@ -83,6 +83,22 @@ literals, or required paths, such as `react-dom` for a Next.js package
 obligation. It is not a retry expansion: the original guard reruns unchanged
 and the run still stops if the bounded correction fails.
 
+Some high-confidence plan-lint failures can also select an active job before
+correction. For example, a Next.js Tailwind source/style step whose package
+step omits `tailwindcss`, `postcss`, or `autoprefixer` is a
+`manifest_repair` job, not source implementation repair. When exactly one
+package step is the target, CommandAgent may materialize the deterministic
+manifest obligation into that step and rerun the same plan lint. If the same
+missing literals remain after the bounded correction budget, the failure should
+include an attempt ledger rather than starting another hidden correction loop.
+
+Generated phase step plans are plan-file contract inputs. Before lint or
+execution, CommandAgent parses supported ordinary YAML scalar forms and
+normalizes them into the typed step-plan schema. Long phase goals or step
+instructions may use YAML block scalars; anchors, merge keys, custom tags, and
+extra nested maps remain outside the contract. Parse errors, schema errors, and
+plan-lint errors should be reported as distinct planning failures.
+
 Step decomposition is also a planning contract. For example, a generated
 `setup` step may own `package.json` or `tailwind.config.js`, but it may not own
 source artifacts such as `app/globals.css`, `src/app/globals.css`, or
@@ -155,17 +171,40 @@ unchanged.
 If every verifier failure is `dependency_missing` and the step's expected paths
 already exist, CommandAgent treats the problem as setup recovery, not source
 repair. With `--yes` and without `--offline`, it runs one deterministic setup
-command selected from lockfiles (`npm ci`, `pnpm install`, or `npm install`),
-stores setup logs under `.commandagent/setup/`, and reruns the original
-verifier once. If setup is not approved, offline, unsupported, ambiguous,
+command selected from manifest and lockfile evidence (`npm ci`,
+`pnpm install`, or `npm install`), stores setup logs under
+`.commandagent/setup/`, and reruns the original verifier once. If setup is not
+approved, offline, unsupported, ambiguous,
 fails, times out, or still leaves `dependency_missing`, CommandAgent stops with
-a setup blocker instead of creating a repair prompt.
+a setup blocker instead of creating a repair prompt. When setup fails with a
+deterministic package-manager diagnostic such as npm `ERESOLVE` peer dependency
+evidence, the blocker may include structured manifest compatibility evidence
+that names `package.json`, the dependent package, the required peer range, and
+the observed incompatible package. This does not run another setup command or
+continue the ultra plan automatically.
+
+For Next.js phases, verifier plans should use `npm run build` rather than
+`npx tsc --noEmit` or other `npx` commands. `npx` is blocked as a possible
+network/dependency setup command and cannot be connected to bounded dependency
+setup recovery. `npm run build` keeps the check under the project build script
+and lets the verifier classify `dependency_missing` before setup.
 
 If a later bounded repair changes package-manager manifests such as
 `package.json`, `package-lock.json`, or `pnpm-lock.yaml`, the setup attempt
 state is keyed by the new manifest fingerprint. Approved online setup may run
 once for that changed manifest state and then rerun the same verifier. This is
 still verifier-owned setup, not repair-turn authority.
+
+If `package-lock.json` exists but no longer reflects dependencies declared by
+`package.json`, setup recovery may select `npm install` instead of `npm ci` so
+the lockfile and installed packages can be refreshed under the same bounded
+setup policy. This decision comes from deterministic manifest/lock evidence,
+not from a model-issued Bash command.
+
+For npm setup recovery, CommandAgent includes dev dependencies because Next.js
+builds commonly require local TypeScript, Tailwind, PostCSS, and type packages.
+This still belongs to verifier-owned setup recovery and does not authorize
+ordinary model-issued package-manager commands.
 
 Normal model-issued `Bash(npm install)` remains blocked. Dependency setup is
 runtime-owned and is triggered only by verifier evidence.
@@ -198,8 +237,9 @@ runtime writes a bounded profile repair packet with failure codes, phase
 contract facts, profile facts, and expected paths, then stops. Running the
 suggested command starts a standalone repair plan; it is not hidden continuation
 of the original ultra plan. For Next.js route integration failures, the packet
-also names the selected route and unintegrated artifact so the standalone
-repair plan receives deterministic target evidence instead of only prose.
+also names the selected route, unintegrated artifact, and route-tree repair
+target when known so the standalone repair plan receives deterministic target
+evidence instead of only prose.
 For Next.js missing integration artifacts, the packet names the missing
 artifact itself as the repair target and requires creating it before route
 integration is checked.

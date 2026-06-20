@@ -560,6 +560,7 @@ fn profile_failure_contract_evidence(
     failure: &ProfileVerificationFailure,
 ) -> ContractEvidence {
     let repair_target = profile_repair_target(failure);
+    let propagation = profile_failure_propagation(failure);
     let mut evidence = ContractEvidence::new("profile_verification")
         .with_failed_step(phase_id.to_string())
         .with_violated_contract(failure.code.clone())
@@ -576,6 +577,9 @@ fn profile_failure_contract_evidence(
         .with_observed_expected_pairs(vec![profile_observed_expected_pair(failure)])
         .with_required_action(profile_required_action(failure))
         .with_repair_focus(profile_repair_focus(failure))
+        .with_repair_kind(propagation.repair_kind)
+        .with_setup_implication(propagation.setup_implication)
+        .with_rerun_authority(propagation.rerun_authority)
         .with_diagnostic(failure.message.clone());
     if let Some(target) = repair_target {
         evidence = evidence
@@ -588,7 +592,11 @@ fn profile_failure_contract_evidence(
 fn profile_repair_target(failure: &ProfileVerificationFailure) -> Option<String> {
     match failure.code.as_str() {
         "nextjs_integration_artifact_missing" => failure.paths.first().cloned(),
-        "nextjs_route_not_integrated" => failure.paths.first().cloned(),
+        "nextjs_route_not_integrated" => failure
+            .paths
+            .get(2)
+            .cloned()
+            .or_else(|| failure.paths.first().cloned()),
         "nextjs_app_root_ambiguous" => None,
         "nextjs_missing_dependency"
         | "nextjs_dependency_version_conflict"
@@ -599,6 +607,62 @@ fn profile_repair_target(failure: &ProfileVerificationFailure) -> Option<String>
             Some("tsconfig.json".to_string())
         }
         _ => failure.paths.first().cloned(),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ProfileFailurePropagation {
+    repair_kind: String,
+    setup_implication: String,
+    rerun_authority: Vec<String>,
+}
+
+fn profile_failure_propagation(failure: &ProfileVerificationFailure) -> ProfileFailurePropagation {
+    match failure.code.as_str() {
+        "nextjs_dependency_version_conflict" | "nextjs_missing_dependency" => {
+            ProfileFailurePropagation {
+                repair_kind: "manifest_dependency_repair".to_string(),
+                setup_implication: "setup_after_manifest_repair_required".to_string(),
+                rerun_authority: vec![
+                    "profile_verification".to_string(),
+                    "npm run build".to_string(),
+                ],
+            }
+        }
+        "nextjs_tailwind_contract" => {
+            let setup_implication =
+                if nextjs_tailwind_repair_target(failure).as_deref() == Some("package.json") {
+                    "setup_after_manifest_repair_required"
+                } else {
+                    "none"
+                };
+            ProfileFailurePropagation {
+                repair_kind: "tailwind_contract_repair".to_string(),
+                setup_implication: setup_implication.to_string(),
+                rerun_authority: vec![
+                    "profile_verification".to_string(),
+                    "npm run build".to_string(),
+                ],
+            }
+        }
+        "nextjs_route_not_integrated" => ProfileFailurePropagation {
+            repair_kind: "route_integration_repair".to_string(),
+            setup_implication: "none".to_string(),
+            rerun_authority: vec![
+                "profile_verification".to_string(),
+                "npm run build".to_string(),
+            ],
+        },
+        "nextjs_integration_artifact_missing" => ProfileFailurePropagation {
+            repair_kind: "integration_artifact_creation".to_string(),
+            setup_implication: "none".to_string(),
+            rerun_authority: vec!["profile_verification".to_string()],
+        },
+        _ => ProfileFailurePropagation {
+            repair_kind: "profile_contract_repair".to_string(),
+            setup_implication: "none".to_string(),
+            rerun_authority: vec!["profile_verification".to_string()],
+        },
     }
 }
 
@@ -718,7 +782,7 @@ fn profile_required_action(failure: &ProfileVerificationFailure) -> String {
             "edit package.json so scripts.build runs next build".to_string()
         }
         "nextjs_dependency_version_conflict" => {
-            "edit package.json so next, react, and react-dom versions are mutually compatible; do not keep exact React pins below 18.2 with Next.js 14".to_string()
+            "edit package.json so next, react, react-dom, TypeScript, and React type versions use a stable compatible generated-app dependency family; use TypeScript 5.x and @types/react 18.x with React 18/Next.js 14; do not switch generated setup repair to latest packages; preserve scripts.build=next build; do not keep exact React pins below 18.2 with Next.js 14, TypeScript 6, or @types/react 19".to_string()
         }
         _ => "fix the reported profile contract before adding feature work".to_string(),
     }
@@ -990,9 +1054,37 @@ mod tests {
         assert!(packet.contains("selected route imports or references"));
         assert!(packet.contains("repair_target: app/page.tsx"));
         assert!(packet.contains("candidate_artifacts: app/page.tsx, app/hooks/useGame.ts"));
+        assert!(packet.contains("repair_kind: route_integration_repair"));
+        assert!(packet.contains("setup_implication: none"));
+        assert!(packet.contains("rerun_authority: profile_verification, npm run build"));
         assert!(
             packet.contains("integrate app/hooks/useGame.ts through selected route app/page.tsx")
         );
+    }
+
+    #[test]
+    fn profile_replan_packet_can_target_route_graph_component() {
+        let mut context = sample_profile_context();
+        context.profile_failures = vec![ProfileVerificationFailure {
+            code: "nextjs_route_not_integrated".to_string(),
+            message: "explicit artifact `app/hooks/useGame.ts` is not referenced from selected route graph rooted at `app/page.tsx`; repair target `app/components/GameBoard.tsx`"
+                .to_string(),
+            paths: vec![
+                "app/page.tsx".to_string(),
+                "app/hooks/useGame.ts".to_string(),
+                "app/components/GameBoard.tsx".to_string(),
+            ],
+        }];
+
+        let packet = build_profile_replan_packet(&context);
+
+        assert!(packet.contains("selected_route=app/page.tsx"));
+        assert!(packet.contains("unintegrated_artifact=app/hooks/useGame.ts"));
+        assert!(packet.contains("repair_target: app/components/GameBoard.tsx"));
+        assert!(packet.contains(
+            "candidate_artifacts: app/page.tsx, app/hooks/useGame.ts, app/components/GameBoard.tsx"
+        ));
+        assert!(packet.contains("repair_kind: route_integration_repair"));
     }
 
     #[test]
@@ -1016,6 +1108,8 @@ mod tests {
         ));
         assert!(packet.contains("repair_target: components/SpaceInvaders.tsx"));
         assert!(packet.contains("candidate_artifacts: components/SpaceInvaders.tsx, app/page.tsx"));
+        assert!(packet.contains("repair_kind: integration_artifact_creation"));
+        assert!(packet.contains("rerun_authority: profile_verification"));
         assert!(packet.contains("missing artifact path exists, then profile verification"));
         assert!(packet.contains(
             "create missing explicit artifact components/SpaceInvaders.tsx before route integration work"
@@ -1039,9 +1133,17 @@ mod tests {
         assert!(packet.contains("nextjs_dependency_version_conflict"));
         assert!(packet.contains("repair_target: package.json"));
         assert!(packet.contains(
-            "edit package.json so next, react, and react-dom versions are mutually compatible"
+            "edit package.json so next, react, react-dom, TypeScript, and React type versions use a stable compatible generated-app dependency family"
         ));
-        assert!(packet.contains("do not keep exact React pins below 18.2 with Next.js 14"));
+        assert!(packet.contains("use TypeScript 5.x and @types/react 18.x"));
+        assert!(packet.contains("Do not switch generated setup repair to latest packages"));
+        assert!(packet.contains("Do not rewrite scripts.build away from next build"));
+        assert!(packet.contains("Do not keep exact React pins below 18.2 with Next.js 14"));
+        assert!(packet.contains("TypeScript 6"));
+        assert!(packet.contains("@types/react 19"));
+        assert!(packet.contains("repair_kind: manifest_dependency_repair"));
+        assert!(packet.contains("setup_implication: setup_after_manifest_repair_required"));
+        assert!(packet.contains("rerun_authority: profile_verification, npm run build"));
         assert!(packet.contains(
             "observed=package.json pins Next.js and React peer versions that are incompatible"
         ));
@@ -1060,6 +1162,8 @@ mod tests {
 
         assert!(packet.contains("nextjs_missing_dependency"));
         assert!(packet.contains("repair_target: package.json"));
+        assert!(packet.contains("repair_kind: manifest_dependency_repair"));
+        assert!(packet.contains("setup_implication: setup_after_manifest_repair_required"));
         assert!(
             packet.contains("edit package.json to include required Next.js runtime dependencies")
         );
@@ -1099,6 +1203,8 @@ mod tests {
         assert!(packet.contains("create or edit tailwind.config.js"));
         assert!(packet.contains("create or edit postcss.config.js"));
         assert!(packet.contains("edit package.json to include the required Tailwind/PostCSS"));
+        assert!(packet.contains("repair_kind: tailwind_contract_repair"));
+        assert!(packet.contains("setup_implication: setup_after_manifest_repair_required"));
     }
 
     #[test]

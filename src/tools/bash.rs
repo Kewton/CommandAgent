@@ -167,7 +167,14 @@ fn classify_simple(command: &str, policy: BashPolicy) -> PolicyDecision {
     if starts_with_any(&lower, &["sudo ", "rm ", "rm -", "chmod ", "chown ", "dd "]) {
         return blocked(CommandClass::Dangerous, "dangerous shell command blocked");
     }
-    if matches!(lower.as_str(), "npm install" | "npm ci" | "pnpm install") {
+    if matches!(
+        lower.as_str(),
+        "npm install"
+            | "npm install --include=dev"
+            | "npm ci"
+            | "npm ci --include=dev"
+            | "pnpm install"
+    ) {
         return env_setup_decision(policy);
     }
     if starts_with_any(
@@ -347,7 +354,13 @@ mod tests {
         let root = temp_workspace("env-setup-class");
         let policy = BashPolicy::dependency_recovery(false, true);
 
-        for command in ["npm install", "npm ci", "pnpm install"] {
+        for command in [
+            "npm install",
+            "npm install --include=dev",
+            "npm ci",
+            "npm ci --include=dev",
+            "pnpm install",
+        ] {
             let decision = enforce_bash_policy(command, &root, policy);
             assert_eq!(decision.class, CommandClass::EnvSetup, "{command}");
             assert!(decision.allowed, "{command}");

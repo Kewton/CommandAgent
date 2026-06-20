@@ -6,17 +6,48 @@ boundary, it should be split before more behavior is added.
 
 ## Contract Architecture
 
-CommandAgent has four first-class contract surfaces:
+CommandAgent has one execution engine and several first-class contract
+surfaces around it:
 
+- Task Contract: records the user goal, required artifacts, constraints,
+  success checks, and task scope that later contracts must preserve.
 - Planning Contract: turns a user goal into explicit step or phase contracts,
   expected artifacts, step ownership, and lintable success conditions.
 - Profile Contract: provides deterministic domain facts, artifact
   classification, obligations, verifier hints, protected paths, and
   profile-verification evidence without owning workflow control.
+- Artifact Role and Workspace Scope Contract: classifies paths before they are
+  used for plan lint, setup bootstrap, verification, route integration, or
+  repair targeting.
+- Active Job Arbitration Contract: classifies the current blocker as setup,
+  manifest, route integration, source implementation, verifier policy,
+  documentation, or explicit stop before a repair task is rendered.
+- Setup Bootstrap Contract: owns bounded dependency setup, setup/config
+  artifact preparation, and deterministic manifest/scaffold materialization
+  when a profile can name the required setup artifacts.
 - Execution Contract: gives the minimal loop one clear executable task, a tool
   policy, path safety, observations, and bounded completion guards.
 - Recovery Task Contract: turns a classified deterministic failure into a clear
   repair instruction for the minimal loop.
+- Attempt Ledger Contract: records bounded repair attempts, changed files,
+  verifier/profile results, and repeated failure classes so no-progress stops
+  are explicit.
+
+Contract Boundary Propagation is the handoff rule between these surfaces, not a
+second execution engine. When a deterministic guard rejects work, it may pass
+only the facts it owns to the next layer: violated contract, active job, repair
+kind, deterministic target, setup implication, rerun authority, and
+attempt-ledger context. This lets Active Job Arbitration, Recovery Task
+Contract, or verifier-owned setup recovery choose the correct bounded path
+without asking the minimal loop to infer strategy from broad failure prose.
+
+These fields are rendered through existing contract evidence and recovery task
+payloads. For example, `repair_kind=manifest_dependency_repair` can target
+`package.json`, `setup_implication=setup_after_manifest_repair_required` can
+state that dependency setup may be stale after manifest repair, and
+`rerun_authority=profile_verification,npm run build` can name the checks that
+still judge success. The fields do not create retry authority or an unbounded
+controller.
 
 The Planning Contract must validate more than schema shape. It owns step
 decomposition checks such as whether a `setup` step is trying to create a
@@ -25,18 +56,43 @@ expected path belongs to the step that names it. Profile artifact
 classification supplies typed path facts for these checks, but the profile does
 not become a planner.
 
-The Recovery Task Contract is not an execution engine. It does not choose new
-phases, retry until success, or continue hidden work. It is a contract layer
-that prepares the next bounded repair turn when a guard, verifier, or profile
-check already knows enough to name the blocker, violated contract, target or
+Profile Contract may include small dependency compatibility producers when
+they operate only on deterministic manifest facts or classified setup failure
+evidence. For example, the Next.js profile can reject an observed
+Tailwind/PostCSS/autoprefixer peer dependency conflict and target
+`package.json` for repair, or reject a generated Next.js 14/React 18
+TypeScript app that drifted to TypeScript 6 or `@types/react` 19. Profiles
+still must not execute package managers, query registries, choose workflows, or
+retry setup.
+
+The Recovery Task Contract is not an execution engine. It does not retry until
+success or continue hidden work. It is a contract layer that prepares the next
+bounded repair turn when a guard, verifier, profile check, or active job
+arbiter already knows enough to name the blocker, violated contract, target or
 candidate paths, required action, disallowed actions, and the original
 guard/verifier that will judge the repair.
 
-In short, planning and recovery clarify what should be done; the minimal loop
-executes the already-clarified task. Profiles classify and verify domain facts
-for those contracts. If CommandAgent cannot form a deterministic recovery task,
-it should stop with structured evidence instead of asking the minimal loop to
-infer the repair strategy from broad failure prose.
+In short, planning, setup, job arbitration, and recovery clarify what should be
+done; the minimal loop executes the already-clarified task. Profiles classify
+and verify domain facts for those contracts. If CommandAgent cannot form a
+deterministic job classification or recovery task, it should stop with
+structured evidence instead of asking the minimal loop to infer the repair
+strategy from broad failure prose.
+
+Propagation must stay visible and bounded. It can route a manifest dependency
+repair toward `package.json`, mark dependency setup stale after that manifest
+changes, route a disconnected artifact toward selected-route integration, or
+select setup bootstrap when verifier evidence and policy make that action
+deterministic. It must not choose arbitrary future phases, silently run setup
+without a setup contract, increase retry count, authorize model-issued
+dependency installs, or let profiles become hidden workflow engines.
+
+Next.js route integration is profile evidence, not workflow control. The
+profile may build a bounded static graph from the selected route through
+relative imports and use it to distinguish transitive route-tree integration
+from a disconnected artifact. The graph is limited in depth and file count,
+ignores generated/cache/setup artifacts, and does not run Next.js,
+TypeScript, or semantic UI checks.
 
 Recovery Task Contract may also carry a small execution envelope. The envelope
 is selected from deterministic failure evidence and consumed by the Execution
@@ -71,14 +127,15 @@ The envelope must not add retry authority or provider/model-specific behavior.
 | --- | --- | --- |
 | Provider | HTTP/API transport, provider-specific payload shapes | Planning, repair policy, profile behavior |
 | Minimal loop | Tool-call execution, observations, bounded completion guards | Multi-step plans, recovery strategy, domain profiles, unbounded retry |
-| Profile | Domain facts, artifact classification, verifier hints, protected prefixes, profile evidence | Workflow control, hidden task-specific agents, execution policy |
-| Step runner | Plan schema, step-decomposition lint, verifier, recovery task contracts, repair packet, ultra phase order | Provider transport, low-level tool implementation |
+| Profile | Domain facts, artifact classification, verifier hints, protected prefixes, profile evidence, setup artifact templates | Hidden task-specific agents, execution policy, package-registry solving |
+| Step runner | Plan schema, step-decomposition lint, verifier, active job arbitration, setup bootstrap, recovery task contracts, repair packet, attempt ledger, ultra phase order | Provider transport, low-level tool implementation, unbounded workflow control |
 | TUI | TTY-aware rendering of runtime events and final answers | Planning, repair, retry, provider parsing, filesystem policy |
 | Tools | Deterministic workspace actions | Task interpretation or planning |
 | Eval | Run roots, summaries, recheck, reports | Runtime behavior changes |
 
-This separation is the main defense against rebuilding the removed legacy stack
-under new names.
+This separation is the main defense against rebuilding hidden legacy behavior
+under new names. The orchestration may become richer, but each decision must
+remain attributable to a contract surface.
 
 ## REPL
 
@@ -190,6 +247,13 @@ They remain blocked for normal model-issued `Bash` tool calls, even when
 verifier returns `dependency_missing`, expected source paths are present,
 setup is approved, and offline mode is disabled.
 
+If the bounded setup command itself fails with a deterministic package-manager
+diagnostic, such as npm `ERESOLVE` peer dependency evidence, the setup layer may
+render that diagnostic as manifest compatibility evidence. This evidence can
+name the setup command, failure signature, observed and required packages, and
+manifest target. It does not authorize another setup attempt or hidden
+continuation.
+
 Directory creation through `Bash` is blocked with guidance to use `Write`
 instead. The `Write` tool creates parent directories automatically, so `mkdir`
 is not part of the normal file creation path.
@@ -256,10 +320,14 @@ verifiers, not full domain-specific agents.
 
 Step plans use a small CommandAgent-owned YAML schema: goal, profile, style,
 intent, required final artifacts, and ordered steps with kind, instruction,
-expected result, expected paths, and verifier commands. The YAML reader/writer
-intentionally supports only this schema so planning remains a bounded contract
-instead of an open-ended document format. Missing fields in older plan files are
-defaulted on read and normalized on save.
+expected result, expected paths, and verifier commands. Plan files are a public
+contract boundary for built-in and external planner surfaces. The reader
+accepts ordinary scalar forms for known fields, including block scalars for
+long goals or instructions, then normalizes into typed plan structs before
+schema validation and linting. The writer emits a stable canonical form for
+saved plans. This keeps planning bounded without making external planners match
+one incidental line shape. Missing fields in older plan files are defaulted on
+read and normalized on save.
 
 Plan linting is a separate pass. It rejects obvious schema-contract mistakes:
 non-file `expected_paths`, JSON/property selectors, alternative paths, glob
@@ -342,7 +410,10 @@ attached as diagnostic context to the verifier evidence.
 Verification is deterministic. It runs only commands accepted by the local Bash
 policy, detects dependency-missing cases before fake success is possible, and
 compresses failures into bounded diagnostics plus nearby source excerpts when a
-file/line reference is present.
+file/line reference is present. Next.js source verification should stay on
+`npm run build`; `npx` verifier commands are rejected at the plan-contract
+boundary because they may perform dependency setup and cannot participate in
+verifier-owned setup recovery.
 
 When every verifier failure is `dependency_missing` and expected paths are
 present, the step runner checks the setup policy before repair. With `--yes`

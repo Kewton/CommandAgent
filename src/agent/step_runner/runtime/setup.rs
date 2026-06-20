@@ -2,6 +2,7 @@ use crate::agent::events::bounded_event_text;
 use crate::agent::minimal_loop::config::DependencySetupPolicy;
 use crate::agent::step_runner::verify::VerificationFailure;
 use crate::tools::bash::{BashPolicy, CommandClass, enforce_bash_policy};
+use serde_json::Value;
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
@@ -21,8 +22,8 @@ pub(super) enum SetupCommand {
 impl SetupCommand {
     pub(super) fn as_shell_command(self) -> &'static str {
         match self {
-            Self::NpmInstall => "npm install",
-            Self::NpmCi => "npm ci",
+            Self::NpmInstall => "npm install --include=dev",
+            Self::NpmCi => "npm ci --include=dev",
             Self::PnpmInstall => "pnpm install",
         }
     }
@@ -82,6 +83,15 @@ pub(super) enum SetupRunStatus {
     Blocked {
         message: String,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct SetupFailureEvidence {
+    pub(super) signature: String,
+    pub(super) dependent: Option<String>,
+    pub(super) required_peer: Option<String>,
+    pub(super) observed: Option<String>,
+    pub(super) target: Option<String>,
 }
 
 impl SetupRunStatus {
@@ -293,12 +303,62 @@ pub(super) fn select_setup_command(
         return Err(SetupSelectionError::AmbiguousLockfiles);
     }
     if package_lock {
-        return Ok(Some(SetupCommand::NpmCi));
+        if package_lock_satisfies_declared_dependencies(cwd) {
+            return Ok(Some(SetupCommand::NpmCi));
+        }
+        return Ok(Some(SetupCommand::NpmInstall));
     }
     if pnpm_lock {
         return Ok(Some(SetupCommand::PnpmInstall));
     }
     Ok(Some(SetupCommand::NpmInstall))
+}
+
+fn package_lock_satisfies_declared_dependencies(cwd: &Path) -> bool {
+    let declared = declared_package_dependencies(&cwd.join("package.json"));
+    if declared.is_empty() {
+        return true;
+    }
+    let Ok(text) = fs::read_to_string(cwd.join("package-lock.json")) else {
+        return false;
+    };
+    let Ok(json) = serde_json::from_str::<Value>(&text) else {
+        return false;
+    };
+    declared
+        .iter()
+        .all(|dep| package_lock_contains_dependency(&json, dep))
+}
+
+fn declared_package_dependencies(path: &Path) -> Vec<String> {
+    let Ok(text) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let Ok(json) = serde_json::from_str::<Value>(&text) else {
+        return Vec::new();
+    };
+    let mut deps = Vec::new();
+    for section in ["dependencies", "devDependencies"] {
+        let Some(object) = json.get(section).and_then(Value::as_object) else {
+            continue;
+        };
+        for name in object.keys() {
+            if !deps.iter().any(|existing| existing == name) {
+                deps.push(name.clone());
+            }
+        }
+    }
+    deps
+}
+
+fn package_lock_contains_dependency(lock: &Value, dep: &str) -> bool {
+    lock.get("packages")
+        .and_then(Value::as_object)
+        .is_some_and(|packages| packages.contains_key(&format!("node_modules/{dep}")))
+        || lock
+            .get("dependencies")
+            .and_then(Value::as_object)
+            .is_some_and(|dependencies| dependencies.contains_key(dep))
 }
 
 pub(super) fn setup_failed_blocker_message(
@@ -317,11 +377,18 @@ pub(super) fn setup_failed_blocker_message(
         SetupRunStatus::CommandFailed {
             status,
             stderr_excerpt,
-        } => format!(
-            "dependency_setup_failed: step {step_id} setup command `{}` exited with status {status}.\n\nstderr excerpt:\n{}",
-            command.as_shell_command(),
-            empty_excerpt(stderr_excerpt)
-        ),
+        } => {
+            let mut message = format!(
+                "dependency_setup_failed: step {step_id} setup command `{}` exited with status {status}.\n\nstderr excerpt:\n{}",
+                command.as_shell_command(),
+                empty_excerpt(stderr_excerpt)
+            );
+            if let Some(evidence) = setup_failure_evidence(stderr_excerpt) {
+                message.push_str("\n\nsetup evidence:\n");
+                message.push_str(&render_setup_failure_evidence(&evidence));
+            }
+            message
+        }
         SetupRunStatus::TimedOut {
             timeout_secs,
             stderr_excerpt,
@@ -442,6 +509,100 @@ fn empty_excerpt(value: &str) -> &str {
     }
 }
 
+pub(super) fn setup_failure_evidence(stderr: &str) -> Option<SetupFailureEvidence> {
+    if !stderr.contains("ERESOLVE") {
+        return None;
+    }
+
+    let mut dependent = None;
+    let mut required_peer = None;
+    let mut observed = None;
+    for raw_line in stderr.lines() {
+        let line = strip_npm_error_prefix(raw_line.trim());
+        if let Some(value) = line.strip_prefix("Found: ") {
+            observed = parse_package_version_token(value);
+            continue;
+        }
+        let Some(peer_start) = line.find("peer ") else {
+            continue;
+        };
+        let peer = &line[peer_start + "peer ".len()..];
+        let Some((peer_part, dependent_part)) = peer.split_once(" from ") else {
+            continue;
+        };
+        let Some((package, range)) = parse_peer_requirement(peer_part) else {
+            continue;
+        };
+        required_peer = Some(format!("{package} {range}"));
+        dependent = parse_package_version_token(dependent_part);
+    }
+
+    if dependent.is_some() && required_peer.is_some() && observed.is_some() {
+        Some(SetupFailureEvidence {
+            signature: "npm_eresolve_peer_dependency".to_string(),
+            dependent,
+            required_peer,
+            observed,
+            target: Some("package.json".to_string()),
+        })
+    } else {
+        None
+    }
+}
+
+fn render_setup_failure_evidence(evidence: &SetupFailureEvidence) -> String {
+    let mut lines = Vec::new();
+    lines.push(format!(
+        "- signature: {}",
+        bounded_event_text(&evidence.signature)
+    ));
+    if let Some(target) = &evidence.target {
+        lines.push(format!("- target: {}", bounded_event_text(target)));
+    }
+    if let Some(dependent) = &evidence.dependent {
+        lines.push(format!("- dependent: {}", bounded_event_text(dependent)));
+    }
+    if let Some(required_peer) = &evidence.required_peer {
+        lines.push(format!(
+            "- required_peer: {}",
+            bounded_event_text(required_peer)
+        ));
+    }
+    if let Some(observed) = &evidence.observed {
+        lines.push(format!("- observed: {}", bounded_event_text(observed)));
+    }
+    lines.push(
+        "- required_action: edit package.json to use compatible dependency versions; do not run dependency installation directly".to_string(),
+    );
+    lines.join("\n")
+}
+
+fn strip_npm_error_prefix(line: &str) -> &str {
+    line.strip_prefix("npm error ")
+        .or_else(|| line.strip_prefix("npm ERR! "))
+        .unwrap_or(line)
+        .trim()
+}
+
+fn parse_peer_requirement(value: &str) -> Option<(String, String)> {
+    let value = value.trim();
+    let (package, range) = value.split_once("@\"")?;
+    let range = range.strip_suffix('"').unwrap_or(range);
+    if package.trim().is_empty() || range.trim().is_empty() {
+        return None;
+    }
+    Some((package.trim().to_string(), range.trim().to_string()))
+}
+
+fn parse_package_version_token(value: &str) -> Option<String> {
+    let token = value.split_whitespace().next()?.trim_matches(['"', '\'']);
+    let (package, version) = token.rsplit_once('@')?;
+    if package.trim().is_empty() || version.trim().is_empty() {
+        return None;
+    }
+    Some(format!("{}@{}", package.trim(), version.trim()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -468,6 +629,48 @@ mod tests {
             .unwrap();
 
         assert_eq!(command, SetupCommand::NpmCi);
+    }
+
+    #[test]
+    fn selects_npm_ci_when_package_lock_matches_manifest_dependencies() {
+        let root = temp_workspace("package-lock-matches");
+        fs::write(
+            root.join("package.json"),
+            r#"{"dependencies":{"next":"14.2.0","react":"18.2.0","@tailwindcss/postcss":"latest"}}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("package-lock.json"),
+            r#"{"packages":{"node_modules/next":{},"node_modules/react":{},"node_modules/@tailwindcss/postcss":{}}}"#,
+        )
+        .unwrap();
+
+        let command = select_setup_command(&root, &[dependency_missing("npm run build")])
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(command, SetupCommand::NpmCi);
+    }
+
+    #[test]
+    fn selects_npm_install_when_package_lock_is_stale_for_manifest() {
+        let root = temp_workspace("package-lock-stale");
+        fs::write(
+            root.join("package.json"),
+            r#"{"dependencies":{"next":"14.2.0","react":"18.2.0","@tailwindcss/postcss":"latest"}}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("package-lock.json"),
+            r#"{"packages":{"node_modules/next":{},"node_modules/react":{}}}"#,
+        )
+        .unwrap();
+
+        let command = select_setup_command(&root, &[dependency_missing("npm run build")])
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(command, SetupCommand::NpmInstall);
     }
 
     #[test]
@@ -570,6 +773,43 @@ mod tests {
     }
 
     #[test]
+    fn setup_failure_evidence_parses_npm_eresolve_peer_dependency() {
+        let evidence = setup_failure_evidence(npm_eresolve_excerpt()).unwrap();
+
+        assert_eq!(evidence.signature, "npm_eresolve_peer_dependency");
+        assert_eq!(evidence.dependent.as_deref(), Some("autoprefixer@10.0.0"));
+        assert_eq!(evidence.required_peer.as_deref(), Some("postcss ^8.0.2"));
+        assert_eq!(evidence.observed.as_deref(), Some("postcss@8.0.0"));
+        assert_eq!(evidence.target.as_deref(), Some("package.json"));
+    }
+
+    #[test]
+    fn setup_failed_blocker_message_renders_peer_dependency_evidence() {
+        let message = setup_failed_blocker_message(
+            "verify-project-build",
+            SetupCommand::NpmInstall,
+            &SetupRunStatus::CommandFailed {
+                status: 1,
+                stderr_excerpt: npm_eresolve_excerpt().to_string(),
+            },
+        );
+
+        assert!(message.contains("dependency_setup_failed"));
+        assert!(message.contains("setup evidence:"));
+        assert!(message.contains("- signature: npm_eresolve_peer_dependency"));
+        assert!(message.contains("- target: package.json"));
+        assert!(message.contains("- dependent: autoprefixer@10.0.0"));
+        assert!(message.contains("- required_peer: postcss ^8.0.2"));
+        assert!(message.contains("- observed: postcss@8.0.0"));
+        assert!(message.contains("do not run dependency installation directly"));
+    }
+
+    #[test]
+    fn setup_failure_evidence_ignores_unclassified_failures() {
+        assert_eq!(setup_failure_evidence("npm error code EACCES"), None);
+    }
+
+    #[test]
     fn production_runner_blocks_unapproved_setup_without_running_npm() {
         let root = temp_workspace("runner-block");
         let status = ShellDependencySetupRunner.run_setup(
@@ -591,6 +831,21 @@ mod tests {
             diagnostic_excerpt: "missing next".to_string(),
             source_excerpt: None,
         }
+    }
+
+    fn npm_eresolve_excerpt() -> &'static str {
+        r#"npm error code ERESOLVE
+npm error ERESOLVE unable to resolve dependency tree
+npm error
+npm error While resolving: nextjs-app@0.1.0
+npm error Found: postcss@8.0.0
+npm error node_modules/postcss
+npm error   postcss@"8.0.0" from the root project
+npm error
+npm error Could not resolve dependency:
+npm error peer postcss@"^8.0.2" from autoprefixer@10.0.0
+npm error node_modules/autoprefixer
+npm error   autoprefixer@"10.0.0" from the root project"#
     }
 
     fn temp_workspace(name: &str) -> PathBuf {

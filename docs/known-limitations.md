@@ -48,6 +48,11 @@ CommandAgent is still in MVP migration.
   route-integration drift for explicit UI/game artifacts. Active step/repair
   prompts now carry refreshed profile facts, but these are narrow
   deterministic facts, not a full domain workflow or generic artifact graph.
+- Next.js route integration now uses a bounded static route graph from the
+  selected route through relative imports. This improves attribution for
+  route/component/hook integration, but it is still not a compiler, runtime
+  execution engine, semantic UI checker, or guarantee that the generated game
+  is visually good.
 - Step-decomposition lint now rejects the observed high-confidence case where a
   `setup` step owns classified source/style, route, component, test, docs,
   generated, or build artifacts such as `app/globals.css`. Broader ownership
@@ -65,6 +70,19 @@ CommandAgent is still in MVP migration.
 - Dependency setup recovery currently supports only npm/pnpm lockfile evidence
   for `npm run build` style Next.js verification. It does not support Yarn,
   `npx`, arbitrary package-manager commands, or model-issued install steps.
+  Setup failure evidence recognizes the observed npm `ERESOLVE` peer dependency
+  class, but CommandAgent is not a general dependency solver and does not query
+  package registries or choose arbitrary latest versions. When manifest repair
+  changes declared dependencies, setup recovery can detect stale package-lock
+  evidence and select bounded `npm install`, but only under the existing setup
+  policy.
+- Next.js Tailwind plan correction now treats omitted package literals such as
+  `tailwindcss`, `postcss`, and `autoprefixer` as a manifest repair job. When a
+  single package step is the deterministic target, CommandAgent can
+  materialize the exact manifest obligation into that plan step before rerunning
+  lint. Ambiguous target plans or repeated unchanged missing-literal sets still
+  stop with explicit attempt-ledger evidence rather than weakening the Tailwind
+  contract, increasing retry count, or adding provider-specific Gemini policy.
 - `.env` loading is not implemented inside CommandAgent. Export provider API
   keys in the shell or use an external env loader.
 - The eval runner has dry-run wiring, real binary execution paths, per-case
@@ -79,6 +97,8 @@ CommandAgent is still in MVP migration.
   support covers request declarations, response `functionCall` parsing, and
   `functionResponse` history, but it does not add provider-specific repair
   policy or guarantee app-quality convergence.
-- Smaller planner models may fail to follow the strict plan YAML schema even
-  after one correction attempt. Use a stronger planner model for MVP workflows
-  until frontier data is collected.
+- Smaller planner models may still fail plan schema or plan-lint requirements
+  even after bounded correction. CommandAgent accepts ordinary block scalar
+  strings for known long text fields, but it still rejects unsupported YAML
+  features and invalid plan contracts. Use a stronger planner model for MVP
+  workflows until frontier data is collected.

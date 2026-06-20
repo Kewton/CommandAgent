@@ -50,6 +50,8 @@ pub struct RecoveryTaskContract {
     pub source: String,
     pub failed_step: Option<String>,
     pub contract_code: Option<String>,
+    pub active_job: Option<String>,
+    pub artifact_role: Option<String>,
     pub blocker: Option<String>,
     pub required_action: Option<String>,
     pub repair_target: Option<String>,
@@ -58,6 +60,9 @@ pub struct RecoveryTaskContract {
     pub disallowed_actions: Vec<String>,
     pub success_check: Option<String>,
     pub evidence_signature: Option<String>,
+    pub repair_kind: Option<String>,
+    pub setup_implication: Option<String>,
+    pub rerun_authority: Vec<String>,
     pub execution_envelope: Option<RecoveryExecutionEnvelope>,
 }
 
@@ -80,12 +85,17 @@ impl RecoveryTaskContract {
         let mut task = Self::new(evidence.guard.clone())
             .with_failed_step_opt(evidence.failed_step.clone())
             .with_contract_code_opt(contract_code(evidence))
+            .with_active_job_opt(evidence.active_job.clone())
+            .with_artifact_role_opt(evidence.artifact_role.clone())
             .with_blocker_opt(blocker(evidence))
             .with_required_action_opt(required_action(evidence))
             .with_repair_target_opt(recovery_repair_target(evidence))
             .with_candidate_artifacts(evidence.candidate_artifacts.clone())
             .with_success_check_opt(success_check(evidence))
             .with_evidence_signature_opt(evidence.failure_signature.clone())
+            .with_repair_kind_opt(evidence.repair_kind.clone())
+            .with_setup_implication_opt(evidence.setup_implication.clone())
+            .with_rerun_authority(evidence.rerun_authority.clone())
             .with_execution_envelope_opt(execution_envelope(evidence));
 
         if evidence.guard == "tool_protocol"
@@ -111,6 +121,16 @@ impl RecoveryTaskContract {
 
     pub fn with_contract_code(mut self, contract_code: impl Into<String>) -> Self {
         self.contract_code = Some(contract_code.into());
+        self
+    }
+
+    pub fn with_active_job(mut self, active_job: impl Into<String>) -> Self {
+        self.active_job = Some(active_job.into());
+        self
+    }
+
+    pub fn with_artifact_role(mut self, artifact_role: impl Into<String>) -> Self {
+        self.artifact_role = Some(artifact_role.into());
         self
     }
 
@@ -165,6 +185,32 @@ impl RecoveryTaskContract {
         self
     }
 
+    pub fn with_repair_kind(mut self, repair_kind: impl Into<String>) -> Self {
+        self.repair_kind = Some(repair_kind.into());
+        self
+    }
+
+    pub fn with_setup_implication(mut self, setup_implication: impl Into<String>) -> Self {
+        self.setup_implication = Some(setup_implication.into());
+        self
+    }
+
+    pub fn with_rerun_authority<I, S>(mut self, rerun_authority: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        for authority in rerun_authority {
+            self = self.with_rerun_authority_item(authority);
+        }
+        self
+    }
+
+    pub fn with_rerun_authority_item(mut self, authority: impl Into<String>) -> Self {
+        push_unique(&mut self.rerun_authority, authority.into());
+        self
+    }
+
     pub fn with_execution_envelope(mut self, envelope: RecoveryExecutionEnvelope) -> Self {
         self.execution_envelope = Some(envelope);
         self
@@ -179,6 +225,8 @@ impl RecoveryTaskContract {
         push_field(&mut lines, "source", Some(&self.source));
         push_field(&mut lines, "failed_step", self.failed_step.as_deref());
         push_field(&mut lines, "contract_code", self.contract_code.as_deref());
+        push_field(&mut lines, "active_job", self.active_job.as_deref());
+        push_field(&mut lines, "artifact_role", self.artifact_role.as_deref());
         push_field(&mut lines, "blocker", self.blocker.as_deref());
         push_field(
             &mut lines,
@@ -195,6 +243,13 @@ impl RecoveryTaskContract {
             "evidence_signature",
             self.evidence_signature.as_deref(),
         );
+        push_field(&mut lines, "repair_kind", self.repair_kind.as_deref());
+        push_field(
+            &mut lines,
+            "setup_implication",
+            self.setup_implication.as_deref(),
+        );
+        push_list(&mut lines, "rerun_authority", &self.rerun_authority);
         if let Some(envelope) = self.execution_envelope {
             push_field(&mut lines, "execution_envelope", Some(envelope.as_str()));
             push_field(&mut lines, "tool_policy", Some(envelope.tool_policy()));
@@ -217,6 +272,20 @@ impl RecoveryTaskContract {
     fn with_contract_code_opt(self, contract_code: Option<String>) -> Self {
         match contract_code {
             Some(value) => self.with_contract_code(value),
+            None => self,
+        }
+    }
+
+    fn with_active_job_opt(self, active_job: Option<String>) -> Self {
+        match active_job {
+            Some(value) => self.with_active_job(value),
+            None => self,
+        }
+    }
+
+    fn with_artifact_role_opt(self, artifact_role: Option<String>) -> Self {
+        match artifact_role {
+            Some(value) => self.with_artifact_role(value),
             None => self,
         }
     }
@@ -256,6 +325,20 @@ impl RecoveryTaskContract {
         }
     }
 
+    fn with_repair_kind_opt(self, repair_kind: Option<String>) -> Self {
+        match repair_kind {
+            Some(value) => self.with_repair_kind(value),
+            None => self,
+        }
+    }
+
+    fn with_setup_implication_opt(self, setup_implication: Option<String>) -> Self {
+        match setup_implication {
+            Some(value) => self.with_setup_implication(value),
+            None => self,
+        }
+    }
+
     fn with_execution_envelope_opt(self, envelope: Option<RecoveryExecutionEnvelope>) -> Self {
         match envelope {
             Some(value) => self.with_execution_envelope(value),
@@ -265,12 +348,17 @@ impl RecoveryTaskContract {
 
     fn has_task_detail(&self) -> bool {
         self.blocker.is_some()
+            || self.active_job.is_some()
+            || self.artifact_role.is_some()
             || self.required_action.is_some()
             || self.repair_target.is_some()
             || !self.candidate_artifacts.is_empty()
             || !self.allowed_tools.is_empty()
             || !self.disallowed_actions.is_empty()
             || self.success_check.is_some()
+            || self.repair_kind.is_some()
+            || self.setup_implication.is_some()
+            || !self.rerun_authority.is_empty()
             || self.execution_envelope.is_some()
     }
 }
@@ -446,7 +534,7 @@ fn execution_envelope(evidence: &ContractEvidence) -> Option<RecoveryExecutionEn
 }
 
 fn disallowed_actions(evidence: &ContractEvidence) -> Vec<String> {
-    match evidence.guard.as_str() {
+    let mut actions = match evidence.guard.as_str() {
         "tool_protocol" => vec![
             "Do not answer in prose instead of a tool call.".to_string(),
             "Do not run dependency installation.".to_string(),
@@ -492,7 +580,12 @@ fn disallowed_actions(evidence: &ContractEvidence) -> Vec<String> {
                     .to_string(),
             ],
             Some("nextjs_dependency_version_conflict") => {
-                vec!["Do not keep exact React pins below 18.2 with Next.js 14.".to_string()]
+                vec![
+                    "Do not keep exact React pins below 18.2 with Next.js 14.".to_string(),
+                    "Do not keep TypeScript 6 or @types/react 19 in generated Next.js 14/React 18 apps.".to_string(),
+                    "Do not switch generated setup repair to latest packages as the compatibility strategy.".to_string(),
+                    "Do not rewrite scripts.build away from next build.".to_string(),
+                ]
             }
             Some("nextjs_missing_dependency") => vec![
                 "Do not remove Next.js runtime dependencies to silence the profile contract."
@@ -510,7 +603,17 @@ fn disallowed_actions(evidence: &ContractEvidence) -> Vec<String> {
                 .to_string(),
         ],
         _ => Vec::new(),
+    };
+    for action in &evidence.disallowed_actions {
+        push_unique(&mut actions, action.clone());
     }
+    if evidence.setup_implication.as_deref() == Some("setup_after_manifest_repair_required") {
+        push_unique(
+            &mut actions,
+            "Do not run npm install, npm ci, pnpm install, or yarn install from a model tool call; verifier-owned setup recovery handles approved setup.".to_string(),
+        );
+    }
+    actions
 }
 
 fn push_field(lines: &mut Vec<String>, key: &str, value: Option<&str>) {
@@ -576,6 +679,9 @@ mod tests {
             .with_disallowed_action("Do not change the verifier command to fake success.")
             .with_success_check("npm run build")
             .with_evidence_signature("verifier|verify-build|npm run build|command_failed:1")
+            .with_repair_kind("source_verifier_repair")
+            .with_setup_implication("none")
+            .with_rerun_authority(vec!["npm run build"])
             .with_execution_envelope(RecoveryExecutionEnvelope::FileMutationRepair);
 
         let rendered = task.render().unwrap();
@@ -587,6 +693,9 @@ mod tests {
         assert!(rendered.contains("execution_envelope: file_mutation_repair"));
         assert!(rendered.contains("app/file-0.tsx"));
         assert!(rendered.contains("success_check: npm run build"));
+        assert!(rendered.contains("repair_kind: source_verifier_repair"));
+        assert!(rendered.contains("setup_implication: none"));
+        assert!(rendered.contains("rerun_authority: npm run build"));
         assert!(!rendered.contains("app/file-9.tsx"));
     }
 
@@ -612,6 +721,8 @@ mod tests {
             .with_command("npm run build")
             .with_repair_target("app/page.tsx")
             .with_candidate_artifacts(vec!["app/page.tsx"])
+            .with_repair_kind("source_verifier_repair")
+            .with_rerun_authority(vec!["npm run build"])
             .with_failure_signature("verifier|verify-build|npm run build|command_failed:1");
 
         let rendered = RecoveryTaskContract::from_contract_evidence(&evidence)
@@ -623,6 +734,8 @@ mod tests {
         assert!(rendered.contains("required_action: Fix the original verifier failure"));
         assert!(rendered.contains("repair_target: app/page.tsx"));
         assert!(rendered.contains("success_check: npm run build"));
+        assert!(rendered.contains("repair_kind: source_verifier_repair"));
+        assert!(rendered.contains("rerun_authority: npm run build"));
         assert!(rendered.contains("execution_envelope: file_mutation_repair"));
         assert!(rendered.contains("Do not change the verifier command"));
     }
@@ -780,8 +893,11 @@ mod tests {
             .with_failed_step("create-package-json")
             .with_violated_contract("nextjs_dependencies_required")
             .with_target_field("instruction")
+            .with_active_job("manifest_repair")
+            .with_artifact_role("manifest")
             .with_required_literals(vec!["next", "react", "react-dom"])
-            .with_missing_literals(vec!["react-dom"]);
+            .with_missing_literals(vec!["react-dom"])
+            .with_disallowed_actions(vec!["Do not run npm install from the plan."]);
 
         let rendered = RecoveryTaskContract::from_contract_evidence(&evidence)
             .unwrap()
@@ -789,8 +905,11 @@ mod tests {
             .unwrap();
 
         assert!(rendered.contains("source: plan_lint.profile_obligations"));
+        assert!(rendered.contains("active_job: manifest_repair"));
+        assert!(rendered.contains("artifact_role: manifest"));
         assert!(rendered.contains("nextjs_dependencies_required"));
         assert!(rendered.contains("exact missing literals or paths"));
+        assert!(rendered.contains("Do not run npm install from the plan"));
         assert!(rendered.contains("Do not weaken or remove the rejected plan obligation"));
     }
 

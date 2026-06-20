@@ -122,6 +122,34 @@ lint when artifact roles are known. For example, a `setup` step naming a source
 or route artifact should be rejected by planning lint before the Execution
 Contract's tool policy has to reject the same mutation.
 
+2026-06-20 amendment: Contract Boundary Propagation is admitted as a design
+boundary between the four contract surfaces. A deterministic failure may carry
+the violated contract, repair kind, deterministic target, setup implication,
+and rerun authority to the next contract layer. This is a handoff contract, not
+an orchestration loop. For example, a profile dependency conflict may state
+that `package.json` needs manifest dependency repair and that setup freshness
+must be reconsidered after the manifest changes; a route integration failure
+may state that the selected route or component tree must reference an existing
+artifact; a missing module verifier diagnostic may become verifier-owned setup
+recovery only when the manifest and setup policy make that action
+deterministic. The propagated fields must be consumed by existing bounded
+recovery tasks or verifier-owned setup recovery. They must not create hidden
+continuation, increase retries, authorize model-issued dependency installs, or
+turn profiles into workflow engines.
+
+2026-06-20 amendment: CommandAgent now admits explicit contract orchestration
+as a first-class design direction. The single execution engine remains the
+minimal loop, but the surrounding runtime may include Task Contract,
+ArtifactRole and workspace scope, Setup Bootstrap, deterministic
+manifest/scaffold materialization, Active Job Arbitration, Recovery Target
+Hints, Semantic Repair Planning, and Attempt Ledger when an observed failure
+shows that the responsibility is needed. These mechanisms are acceptable only
+as visible contract layers: they classify the current blocker, select one
+bounded repair or setup action, rerun the original guard/verifier, and stop
+explicitly on no progress. They must not become provider/model-specific
+behavior, hidden continuation, arbitrary future-phase selection, unbounded
+retry, or a second execution engine.
+
 ## Non-Decisions
 
 This ADR does not reintroduce:
@@ -129,10 +157,14 @@ This ADR does not reintroduce:
 - the legacy engine
 - case memory or anti-pattern corpora
 - sidecar semantic summarization
-- multi-stage automatic repair
+- hidden multi-stage automatic repair
 - a generic recovery manager that retries until success
 - provider/model-specific prompt branches
 - framework-specific hidden rules that could live in the common DSL
+
+It does allow explicit, bounded counterparts to selected historical
+responsibilities when they are represented as contract data and tested from
+observed failures.
 
 ## Rationale
 
@@ -162,6 +194,15 @@ the recovery task explicit before calling the minimal loop, not to ask the
 minimal loop to infer what should be done. This preserves the execution/planning
 boundary while improving repair convergence.
 
+Contract boundary propagation exists for the same reason. It is acceptable to
+make the handoff from profile to recovery, recovery to setup, or verifier to
+recovery more explicit when the failing deterministic check already owns the
+facts. It is also acceptable to classify the active job and select a bounded
+repair action before calling the minimal loop. It is not acceptable to use that
+handoff as a hidden job manager that chooses arbitrary future phases, silently
+runs setup without a setup contract, or keeps repairing until the task
+succeeds.
+
 ## Consequences
 
 - Older plan files remain readable through defaulted fields and are normalized
@@ -184,3 +225,7 @@ Also revisit it if minimal contract recovery starts to accumulate broad
 failure-specific prompts, hidden retries, or model/provider-specific behavior.
 The corrective action should be narrowed or removed before adding another
 recovery layer.
+
+Also revisit it if contract boundary propagation starts carrying semantic
+guesses, package-registry solving, provider-specific behavior, or hidden
+workflow state instead of deterministic handoff facts.

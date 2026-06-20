@@ -4,6 +4,7 @@ use crate::agent::events::{
 use crate::agent::minimal_loop::loop_run::{ChatClient, MinimalLoopConfig, RunResult};
 use crate::agent::minimal_loop::result::MinimalLoopError;
 use crate::agent::slash_command::{SlashCommand, SlashCommandKind};
+use crate::agent::step_runner::correction_evidence::PlanCorrectionEvidence;
 use crate::agent::step_runner::ultra_plan::{
     UltraPlan, save_ultra_plan, ultra_plan_generation_prompt,
 };
@@ -32,6 +33,48 @@ use prompts::plan_correction_prompt;
 use repair_loop::{RepairStepRequest, RepairStepState};
 
 const MAX_INVALID_PLAN_CORRECTIONS: usize = 2;
+
+fn attach_plan_correction_ledger(
+    evidence: &mut Option<Box<PlanCorrectionEvidence>>,
+    attempt: usize,
+) {
+    let Some(evidence) = evidence.as_mut() else {
+        return;
+    };
+    let active_job = evidence.active_job.as_deref().unwrap_or("unknown");
+    let target = evidence
+        .repair_target
+        .as_deref()
+        .or(evidence.target_path.as_deref())
+        .or(evidence.target_field.as_deref())
+        .unwrap_or("unknown");
+    let missing = if evidence.missing_literals.is_empty() {
+        "none".to_string()
+    } else {
+        evidence.missing_literals.join(", ")
+    };
+    let attempt_number = attempt + 1;
+    evidence.repair_attempt_ledger.push(format!(
+        "plan correction attempt {attempt_number}: active_job={active_job}; target={target}; missing_literals={missing}; result=lint_rejected"
+    ));
+    if attempt == MAX_INVALID_PLAN_CORRECTIONS {
+        evidence.reason_code = Some("plan_correction_no_progress_or_exhausted".to_string());
+        evidence.failure_kind = Some("bounded_plan_correction_exhausted".to_string());
+    }
+}
+
+fn final_plan_correction_error(
+    message: String,
+    evidence: &Option<Box<PlanCorrectionEvidence>>,
+) -> String {
+    let Some(evidence) = evidence.as_ref() else {
+        return message;
+    };
+    let Some(rendered) = evidence.render() else {
+        return message;
+    };
+    format!("{message}\n{rendered}")
+}
 
 #[derive(Debug, Clone)]
 pub struct PlannerRuntimeConfig {
@@ -219,10 +262,14 @@ where
             };
             match parse_generated_step_plan(self.cwd, &text, &generated_context) {
                 Ok(plan) => return Ok(plan),
-                Err(err) => {
+                Err(mut err) => {
+                    attach_plan_correction_ledger(&mut err.correction_evidence, attempt);
                     let _ = save_invalid_generated_plan(self.cwd, context.save_kind, &text);
                     if attempt == MAX_INVALID_PLAN_CORRECTIONS {
-                        return Err(err.message);
+                        return Err(final_plan_correction_error(
+                            err.message,
+                            &err.correction_evidence,
+                        ));
                     }
                     let correction = plan_correction_prompt(
                         context.goal,
@@ -1368,8 +1415,8 @@ mod tests {
     fn ultra_phase_step_plan_uses_profile_obligations_during_correction() {
         let root = temp_workspace("ultra-profile-obligation-correction");
         let ultra_yaml = "goal: \"Create Next.js app on port 3011\"\nprofile: \"nextjs\"\nstyle: \"default\"\nintent: \"new\"\nphases:\n  - id: \"scaffold\"\n    goal: \"Create app files.\"\n";
-        let invalid_plan = "goal: \"Create app files.\"\nprofile: \"nextjs\"\nstyle: \"default\"\nsteps:\n  - id: \"create-app\"\n    kind: \"create\"\n    instruction: \"Create package.json with scripts.build as next build, dependencies next, react, and react-dom, plus app/page.tsx.\"\n    expected_paths:\n      - \"package.json\"\n      - \"app/page.tsx\"\n    verify:\n      - \"test -f package.json\"\n      - \"test -f app/page.tsx\"\n";
-        let corrected_plan = "goal: \"Create app files.\"\nprofile: \"nextjs\"\nstyle: \"default\"\nsteps:\n  - id: \"create-app\"\n    kind: \"create\"\n    instruction: \"Create package.json with scripts.dev as next dev -p 3011, scripts.build as next build, dependencies next, react, and react-dom, plus app/page.tsx.\"\n    expected_paths:\n      - \"package.json\"\n      - \"app/page.tsx\"\n    verify:\n      - \"test -f package.json\"\n      - \"test -f app/page.tsx\"\n";
+        let invalid_plan = "goal: \"Create app files.\"\nprofile: \"nextjs\"\nstyle: \"default\"\nsteps:\n  - id: \"create-app\"\n    kind: \"create\"\n    instruction: \"Create package.json with scripts.build as next build, dependencies next, react, and react-dom with React 18.2 compatibility plus typescript 5.x compatibility and @types/react 18.x compatibility, plus app/page.tsx.\"\n    expected_paths:\n      - \"package.json\"\n      - \"app/page.tsx\"\n    verify:\n      - \"test -f package.json\"\n      - \"test -f app/page.tsx\"\n";
+        let corrected_plan = "goal: \"Create app files.\"\nprofile: \"nextjs\"\nstyle: \"default\"\nsteps:\n  - id: \"create-app\"\n    kind: \"create\"\n    instruction: \"Create package.json with scripts.dev as next dev -p 3011, scripts.build as next build, dependencies next, react, and react-dom with React 18.2 compatibility plus typescript 5.x compatibility and @types/react 18.x compatibility, plus app/page.tsx.\"\n    expected_paths:\n      - \"package.json\"\n      - \"app/page.tsx\"\n    verify:\n      - \"test -f package.json\"\n      - \"test -f app/page.tsx\"\n";
         let mut planner = MockClient::new(vec![
             ChatResponse {
                 content: ultra_yaml.to_string(),
@@ -1559,7 +1606,7 @@ mod tests {
     fn ultra_plan_fails_phase_on_nextjs_profile_verification() {
         let root = temp_workspace("ultra-nextjs-profile-failure");
         let ultra_yaml = "goal: \"Create Next.js app on port 3011\"\nprofile: \"nextjs\"\nstyle: \"default\"\nintent: \"new\"\nphases:\n  - id: \"scaffold\"\n    goal: \"Create app files.\"\n";
-        let scaffold_plan = "goal: \"Create app files.\"\nprofile: \"nextjs\"\nstyle: \"default\"\nsteps:\n  - id: \"create-app\"\n    kind: \"create\"\n    instruction: \"Create package.json with scripts.dev as next dev -p 3011, scripts.build as next build, dependencies next, react, and react-dom, plus app/page.tsx.\"\n    expected_paths:\n      - \"package.json\"\n      - \"app/page.tsx\"\n    verify:\n      - \"test -f package.json\"\n      - \"test -f app/page.tsx\"\n";
+        let scaffold_plan = "goal: \"Create app files.\"\nprofile: \"nextjs\"\nstyle: \"default\"\nsteps:\n  - id: \"create-app\"\n    kind: \"create\"\n    instruction: \"Create package.json with scripts.dev as next dev -p 3011, scripts.build as next build, dependencies next, react, and react-dom with React 18.2 compatibility plus typescript 5.x compatibility and @types/react 18.x compatibility, plus app/page.tsx.\"\n    expected_paths:\n      - \"package.json\"\n      - \"app/page.tsx\"\n    verify:\n      - \"test -f package.json\"\n      - \"test -f app/page.tsx\"\n";
         let mut planner = MockClient::new(vec![
             ChatResponse {
                 content: ultra_yaml.to_string(),
@@ -1702,7 +1749,7 @@ mod tests {
     #[test]
     fn generated_step_plan_lint_error_carries_contract_evidence() {
         let root = temp_workspace("parse-generated-contract-evidence");
-        let text = "steps:\n  - id: \"create-package-json\"\n    kind: \"create\"\n    instruction: \"Create package.json with next and react dependencies.\"\n    expected_paths:\n      - \"package.json\"\n    verify: []\n";
+        let text = "steps:\n  - id: \"create-package-json\"\n    kind: \"create\"\n    instruction: \"Create package.json with next and react dependencies.\"\n    expected_paths:\n      - \"package.json\"\n    verify: []\n  - id: \"update-package-json\"\n    kind: \"edit\"\n    instruction: \"Update package.json scripts.\"\n    expected_paths:\n      - \"package.json\"\n    verify: []\n";
         let err = parse_generated_step_plan(
             &root,
             text,
@@ -1730,9 +1777,16 @@ mod tests {
         );
         assert_eq!(
             evidence.required_literals,
-            vec!["next", "react", "react-dom"]
+            vec!["next", "react", "react-dom", "18.2"]
         );
-        assert_eq!(evidence.missing_literals, vec!["react-dom"]);
+        assert_eq!(evidence.missing_literals, vec!["react-dom", "18.2"]);
+        assert_eq!(evidence.active_job.as_deref(), Some("manifest_repair"));
+        assert!(
+            evidence
+                .repair_attempt_ledger
+                .iter()
+                .any(|entry| entry.contains("could not select one package.json step"))
+        );
     }
 
     #[test]
@@ -1940,7 +1994,7 @@ steps:
         let root = temp_workspace("phase-step-plan-correction");
         let ultra_yaml = "goal: \"Create Rust CLI\"\nprofile: \"rust\"\nstyle: \"default\"\nintent: \"new\"\nphases:\n  - id: \"main\"\n    goal: \"Create main file.\"\n";
         let invalid_step_yaml = "steps:\n  - id: \"write-main\"\n    kind: \"create\"\n    instruction: \"Create src/main.rs.\"\n    expected_paths:\n      - \"src/main.rs\"\n    verify:\n      - \"grep -q clap src/main.rs\"\n";
-        let corrected_step_yaml = "steps:\n  - id: \"write-main\"\n    kind: \"create\"\n    instruction: \"Create src/main.rs.\"\n    expected_paths:\n      - \"src/main.rs\"\n    verify: []\n";
+        let corrected_step_yaml = "steps:\n  - id: \"write-main\"\n    kind: \"create\"\n    instruction: |\n      Create src/main.rs.\n      Keep the implementation minimal.\n    expected_paths:\n      - \"src/main.rs\"\n    verify: []\n";
         let mut planner = MockClient::new(vec![
             ChatResponse {
                 content: ultra_yaml.to_string(),

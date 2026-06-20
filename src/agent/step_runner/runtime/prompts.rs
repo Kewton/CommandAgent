@@ -26,6 +26,7 @@ If the error mentions source-code behavior, source grep, or grep over source fil
 If the error mentions mixed setup and verification, remove build/test/check commands from create/edit/setup steps and add a separate verify step.\n\
 If the error mentions shell chaining, split the verifier into simple commands or choose one canonical check. Do not use &&, ||, ;, pipes, redirection, or fallback-to-true syntax.\n\
 If the error mentions action/path/content/old/new fields, rewrite those tool-call fields into step instruction and expected_paths fields.\n\
+Long text fields such as goal, phase goal, and instruction may use quoted strings or YAML block scalars; do not use anchors, aliases, merge keys, custom tags, or extra nested maps.\n\
 Return only corrected YAML using the required CommandAgent schema."
     )
 }
@@ -37,6 +38,7 @@ fn correction_evidence_section(evidence: Option<&PlanCorrectionEvidence>) -> Str
     let Some(rendered) = evidence.render() else {
         return String::new();
     };
+    let plan_contract_guidance = plan_contract_correction_guidance(evidence);
     let recovery_task = RecoveryTaskContract::from_contract_evidence(evidence)
         .and_then(|task| task.render())
         .map(|rendered| format!("Recovery task:\n{}\n", indent(&rendered, "  ")))
@@ -44,8 +46,42 @@ fn correction_evidence_section(evidence: Option<&PlanCorrectionEvidence>) -> Str
     format!(
         "{rendered}\n\
 {recovery_task}\
+{plan_contract_guidance}\
 Copy exact required literals and paths from this evidence into the corrected YAML. Do not paraphrase required literals or paths.\n\n"
     )
+}
+
+fn plan_contract_correction_guidance(evidence: &PlanCorrectionEvidence) -> String {
+    match evidence.violated_contract.as_deref() {
+        Some("nextjs_tailwind_plan_contract") => {
+            "Next.js Tailwind plan correction:\n\
+- active job: manifest_repair. Correct the package/setup contract, not source or gameplay behavior.\n\
+- choose exactly one valid direction:\n\
+  1. remove Tailwind, @tailwind, Tailwind directives, tailwind.config.js, and postcss.config.js from source/style steps and use plain CSS; or\n\
+  2. keep Tailwind and write exact package.json dependency literals tailwindcss, postcss, autoprefixer plus setup/config outputs tailwind.config.js and postcss.config.js.\n\
+- if keeping Tailwind, the target package step must literally contain this deterministic manifest obligation block: next, react, react-dom, typescript 5.x, @types/react 18.x, tailwindcss, postcss, autoprefixer, scripts.build=next build, tailwind.config.js, postcss.config.js.\n\
+- do not leave any source/style step mentioning Tailwind unless direction 2 is complete.\n\
+- do not write only Tailwind CSS dependencies; that phrase is not a substitute for tailwindcss, postcss, and autoprefixer.\n\
+- do not add npm install, npm ci, pnpm install, yarn install, node_modules, or package-lock.json as required plan work.\n\n"
+                .to_string()
+        }
+        Some("nextjs_verifier_command_required") => {
+            "Next.js verifier plan correction:\n\
+- replace the rejected npx verifier with the exact verifier command npm run build.\n\
+- keep npm run build in a separate kind: verify step; do not put it on create/edit/setup steps that produce files.\n\
+- do not add npm install, npm ci, pnpm install, yarn install, node_modules checks, package-lock.json checks, or npx commands.\n\
+- verifier-owned setup recovery will handle missing local dependencies when approved.\n\n"
+                .to_string()
+        }
+        Some("nextjs_typescript_toolchain_plan_contract") => {
+            "Next.js TypeScript toolchain plan correction:\n\
+- because this plan uses tsconfig.json, .ts, .tsx, or TypeScript, the package.json step must include exact literals typescript, 5, @types/react, and 18.\n\
+- use a stable Next.js 14 compatible TypeScript toolchain such as TypeScript 5.x and @types/react 18.x when React is 18.x.\n\
+- do not use TypeScript 6, @types/react 19, latest, npm install, npm ci, node_modules checks, package-lock.json checks, or npx commands in the plan.\n\n"
+                .to_string()
+        }
+        _ => String::new(),
+    }
 }
 
 fn indent(text: &str, prefix: &str) -> String {
@@ -422,5 +458,88 @@ mod tests {
         assert!(prompt.contains("source: plan_lint.profile_obligations"));
         assert!(prompt.contains("Copy exact required literals and paths"));
         assert!(prompt.contains("Do not paraphrase required literals or paths"));
+    }
+
+    #[test]
+    fn plan_correction_prompt_explains_nextjs_tailwind_plan_contract() {
+        let evidence = PlanCorrectionEvidence::new("plan_lint.nextjs_tailwind_plan_contract")
+            .with_failed_step("create-global-styles")
+            .with_violated_contract("nextjs_tailwind_plan_contract")
+            .with_missing_literals(vec![
+                "tailwindcss",
+                "postcss",
+                "autoprefixer",
+                "postcss.config",
+            ])
+            .with_required_action(
+                "make Tailwind intent explicit and complete: either remove Tailwind directives from source/style instructions, or add package.json dependencies plus tailwind.config.js and postcss.config.js setup steps",
+            );
+
+        let prompt = plan_correction_prompt(
+            "Create app",
+            "steps: []",
+            "plan lint failed",
+            "phase step plan",
+            Some(&evidence),
+        );
+
+        assert!(prompt.contains("Next.js Tailwind plan correction"));
+        assert!(prompt.contains("choose exactly one valid direction"));
+        assert!(prompt.contains("remove Tailwind"));
+        assert!(prompt.contains("tailwindcss, postcss, autoprefixer"));
+        assert!(prompt.contains("do not add npm install"));
+    }
+
+    #[test]
+    fn plan_correction_prompt_explains_nextjs_verifier_contract() {
+        let evidence = PlanCorrectionEvidence::new("plan_lint.nextjs_verifier_contract")
+            .with_failed_step("verify-compilation")
+            .with_violated_contract("nextjs_verifier_command_required")
+            .with_rejected_value("npx tsc --noEmit")
+            .with_required_literals(vec!["npm run build"])
+            .with_required_action(
+                "replace the npx verifier with npm run build in a separate verify step",
+            );
+
+        let prompt = plan_correction_prompt(
+            "Create app",
+            "steps: []",
+            "plan lint failed",
+            "phase step plan",
+            Some(&evidence),
+        );
+
+        assert!(prompt.contains("Next.js verifier plan correction"));
+        assert!(prompt.contains("replace the rejected npx verifier"));
+        assert!(prompt.contains("npm run build"));
+        assert!(prompt.contains("separate kind: verify step"));
+        assert!(prompt.contains("verifier-owned setup recovery"));
+        assert!(prompt.contains("do not add npm install"));
+    }
+
+    #[test]
+    fn plan_correction_prompt_explains_nextjs_typescript_toolchain_contract() {
+        let evidence = PlanCorrectionEvidence::new("plan_lint.nextjs_typescript_plan_contract")
+            .with_failed_step("create-tsconfig")
+            .with_violated_contract("nextjs_typescript_toolchain_plan_contract")
+            .with_missing_literals(vec!["typescript", "5", "@types/react", "18"])
+            .with_required_action(
+                "make the Next.js TypeScript toolchain explicit in the package.json step",
+            );
+
+        let prompt = plan_correction_prompt(
+            "Create app",
+            "steps: []",
+            "plan lint failed",
+            "phase step plan",
+            Some(&evidence),
+        );
+
+        assert!(prompt.contains("Next.js TypeScript toolchain plan correction"));
+        assert!(prompt.contains("typescript, 5, @types/react, and 18"));
+        assert!(prompt.contains("TypeScript 5.x"));
+        assert!(prompt.contains("@types/react 18.x"));
+        assert!(prompt.contains("do not use TypeScript 6"));
+        assert!(prompt.contains("latest"));
     }
 }

@@ -86,6 +86,15 @@ and limited to observed project facts:
   with exact React pins below 18.2
 - if CSS uses `@tailwind`, keep matching Tailwind/PostCSS config and
   dependencies
+- catch the observed Tailwind/PostCSS peer dependency conflict where
+  `autoprefixer` 10 is paired with an exact `postcss` pin below 8.0.2
+- when generated setup repair fixes dependency compatibility, prefer a stable
+  Next.js-compatible dependency family instead of switching the generated app
+  to `latest` packages as the repair strategy
+- if a generated Next.js app uses `tsconfig.json`, `.ts`, `.tsx`, or
+  TypeScript code, keep the package step on a stable TypeScript 5.x and
+  `@types/react` 18.x toolchain for Next.js 14/React 18; TypeScript 6 and
+  `@types/react` 19 are treated as generated-app dependency-family drift
 - avoid tsconfig settings that exclude the selected route root
 - when an explicit component or source artifact is part of the contract, make
   it reachable from the selected route by import or direct reference
@@ -95,7 +104,16 @@ artifact is missing, the profile reports
 `nextjs_integration_artifact_missing` and does not also report
 `nextjs_route_not_integrated` for that artifact. `nextjs_route_not_integrated`
 is reserved for an existing explicit artifact that is not imported or
-referenced by the selected route.
+referenced by the selected route tree.
+
+The selected route tree is a bounded static graph. The profile starts at the
+selected route, follows static relative imports through a small number of
+path-confined source files, and treats an explicit artifact as integrated when
+it is imported or referenced anywhere in that route tree. This covers normal
+shapes such as `app/page.tsx` importing a component that uses a hook or type.
+The graph deliberately ignores dependency caches, generated declarations,
+build output, manifests, and config files. It does not execute code, run the
+TypeScript compiler, infer runtime behavior, or score visual/gameplay quality.
 
 These checks can fail a phase with visible diagnostics. They do not edit files,
 score UI quality, or run a hidden Next.js workflow.
@@ -107,18 +125,30 @@ they can require package.json work to explicitly preserve `scripts.build` as
 `next build`, include `next`, `react`, and `react-dom`, and preserve a requested
 dev port such as `3011` in `scripts.dev`. When Tailwind directives or config
 are requested, the same obligation path can require `tailwindcss`, `postcss`,
-and `autoprefixer` to be mentioned in package.json work. When the selected
-route is known and an explicit UI/game source artifact is part of the phase
-contract, Next.js can also project a route-integration obligation requiring the
-generated step plan to mention the selected route in the source-editing step
-instruction or `expected_paths`. That obligation is based on classified
-artifacts, not broad `*.ts`/`*.js` token scans. Step-plan lint uses these facts
-only to reject generated package.json or Next.js source steps that omit the
-relevant obligation. If that happens, the existing bounded plan correction path
-is used; the profile still does not run a workflow engine or repair files by
-itself. This route-integration obligation is intentionally Next.js-specific for
-now; common artifact graph behavior should wait for another observed
-cross-profile failure class.
+and `autoprefixer` compatible versions to be mentioned in package.json work.
+When the selected route is known and an explicit UI/game source artifact is
+part of the phase contract, Next.js can also project a route-integration
+obligation requiring the generated step plan to mention the selected route in
+the source-editing step instruction or `expected_paths`. That obligation is
+based on classified artifacts, not broad `*.ts`/`*.js` token scans. Step-plan
+lint uses these facts only to reject generated package.json or Next.js source
+steps that omit the relevant obligation. If that happens, the existing bounded
+plan correction path is used; the profile still does not run a workflow engine
+or repair files by itself. This route-integration obligation is intentionally
+Next.js-specific for now; common artifact graph behavior should wait for
+another observed cross-profile failure class.
+
+When a generated Next.js plan has one unambiguous `package.json` setup step and
+Tailwind is requested from a source/style step, CommandAgent may materialize a
+deterministic manifest obligation into that plan step before rerunning plan
+lint. The materialized obligation is limited to setup contract facts such as
+`next`, `react`, `react-dom`, `typescript 5.x`, `@types/react 18.x`,
+`tailwindcss`, `postcss`, `autoprefixer`, `scripts.build=next build`,
+`tailwind.config.js`, and `postcss.config.js`. This is plan-level setup
+materialization, not package-registry solving, source generation, or hidden
+Next.js workflow execution. If the target package step is ambiguous,
+CommandAgent should stop or repair with explicit evidence instead of patching
+the wrong step.
 
 During execution, the shared step runner renders an active profile contract
 into each step prompt and repair prompt. It combines phase contract facts with
@@ -130,13 +160,29 @@ Profile verification failures are rendered into the common contract-evidence
 payload when the profile check has deterministic facts. For Next.js, mixed
 `app/` and `src/app/` roots are reported as app-root contract evidence, missing
 integration artifacts report the missing artifact as the repair target, and a
-route-integration failure reports the selected route as the repair target plus
-the unintegrated artifact as a candidate artifact. Script drift, dependency
-drift, Tailwind/PostCSS drift, TypeScript alias/root drift, and dev-port drift
-map to their deterministic repair targets such as `package.json`,
-`tailwind.config.js`, `postcss.config.js`, or `tsconfig.json`. This is still
-evidence rendering only. Profiles must not carry retry authority, semantic
-confidence, or workflow decisions.
+route-integration failure reports the selected route, the unintegrated
+artifact, and a route-tree repair target when that target is deterministic.
+Script drift, dependency drift, Tailwind/PostCSS drift, TypeScript alias/root
+drift, and dev-port drift map to their deterministic repair targets such as
+`package.json`, `tailwind.config.js`, `postcss.config.js`, or `tsconfig.json`.
+Profile evidence may also carry `repair_kind`, `setup_implication`, and
+`rerun_authority` into the Recovery Task Contract. This is still evidence
+rendering only. Profiles must not carry retry authority, semantic confidence,
+or workflow decisions.
+
+Next.js source verification should use `npm run build`, not `npx` compiler
+commands. `npx` may perform dependency setup and is blocked by the Bash policy;
+using `npm run build` lets verifier-owned setup recovery detect
+`dependency_missing`, run one approved setup command when allowed, and rerun
+the same verifier.
+
+Dependency compatibility checks are intentionally small. They operate on
+observed `package.json` facts and known deterministic failures, such as
+`autoprefixer@10.0.0` requiring `postcss` `^8.0.2` while the manifest pins
+`postcss@8.0.0`, or a generated Next.js 14/React 18 TypeScript app using
+TypeScript 6 or `@types/react` 19. They do not fetch package registry data,
+select latest versions, run `npm install`, or solve arbitrary dependency
+trees.
 
 ## Python Contract
 

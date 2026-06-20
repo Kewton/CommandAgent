@@ -33,11 +33,17 @@ pub struct ContractEvidence {
     pub affected_cases: Vec<String>,
     pub observed_expected_pairs: Vec<String>,
     pub rejected_value: Option<String>,
+    pub active_job: Option<String>,
+    pub artifact_role: Option<String>,
     pub required_action: Option<String>,
+    pub disallowed_actions: Vec<String>,
     pub related_source_excerpt: Option<String>,
     pub prior_attempts: Vec<String>,
     pub repair_attempt_ledger: Vec<String>,
     pub repair_focus: Option<String>,
+    pub repair_kind: Option<String>,
+    pub setup_implication: Option<String>,
+    pub rerun_authority: Vec<String>,
     pub diagnostic: Option<String>,
 }
 
@@ -181,8 +187,32 @@ impl ContractEvidence {
         self
     }
 
+    pub fn with_active_job(mut self, active_job: impl Into<String>) -> Self {
+        self.active_job = Some(active_job.into());
+        self
+    }
+
+    pub fn with_artifact_role(mut self, artifact_role: impl Into<String>) -> Self {
+        self.artifact_role = Some(artifact_role.into());
+        self
+    }
+
     pub fn with_required_action(mut self, required_action: impl Into<String>) -> Self {
         self.required_action = Some(required_action.into());
+        self
+    }
+
+    pub fn with_disallowed_actions<I, S>(mut self, disallowed_actions: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.disallowed_actions = collect_values(disallowed_actions);
+        self
+    }
+
+    pub fn with_repair_attempt(mut self, repair_attempt: impl Into<String>) -> Self {
+        self.repair_attempt_ledger.push(repair_attempt.into());
         self
     }
 
@@ -214,6 +244,25 @@ impl ContractEvidence {
 
     pub fn with_repair_focus(mut self, repair_focus: impl Into<String>) -> Self {
         self.repair_focus = Some(repair_focus.into());
+        self
+    }
+
+    pub fn with_repair_kind(mut self, repair_kind: impl Into<String>) -> Self {
+        self.repair_kind = Some(repair_kind.into());
+        self
+    }
+
+    pub fn with_setup_implication(mut self, setup_implication: impl Into<String>) -> Self {
+        self.setup_implication = Some(setup_implication.into());
+        self
+    }
+
+    pub fn with_rerun_authority<I, S>(mut self, rerun_authority: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.rerun_authority = collect_values(rerun_authority);
         self
     }
 
@@ -265,11 +314,14 @@ impl ContractEvidence {
             &self.observed_expected_pairs,
         );
         push_field(&mut lines, "rejected_value", self.rejected_value.as_deref());
+        push_field(&mut lines, "active_job", self.active_job.as_deref());
+        push_field(&mut lines, "artifact_role", self.artifact_role.as_deref());
         push_field(
             &mut lines,
             "required_action",
             self.required_action.as_deref(),
         );
+        push_list(&mut lines, "disallowed_actions", &self.disallowed_actions);
         push_field(
             &mut lines,
             "related_source_excerpt",
@@ -282,6 +334,13 @@ impl ContractEvidence {
             &self.repair_attempt_ledger,
         );
         push_field(&mut lines, "repair_focus", self.repair_focus.as_deref());
+        push_field(&mut lines, "repair_kind", self.repair_kind.as_deref());
+        push_field(
+            &mut lines,
+            "setup_implication",
+            self.setup_implication.as_deref(),
+        );
+        push_list(&mut lines, "rerun_authority", &self.rerun_authority);
         push_field(&mut lines, "diagnostic", self.diagnostic.as_deref());
         Some(lines.join("\n"))
     }
@@ -307,11 +366,17 @@ impl ContractEvidence {
             && self.affected_cases.is_empty()
             && self.observed_expected_pairs.is_empty()
             && self.rejected_value.is_none()
+            && self.active_job.is_none()
+            && self.artifact_role.is_none()
             && self.required_action.is_none()
+            && self.disallowed_actions.is_empty()
             && self.related_source_excerpt.is_none()
             && self.prior_attempts.is_empty()
             && self.repair_attempt_ledger.is_empty()
             && self.repair_focus.is_none()
+            && self.repair_kind.is_none()
+            && self.setup_implication.is_none()
+            && self.rerun_authority.is_empty()
             && self.diagnostic.is_none()
     }
 }
@@ -447,12 +512,18 @@ mod tests {
             .with_observed_expected_pairs(vec![
                 "observed=missing path; expected=Write.path".to_string(),
             ])
+            .with_active_job("source_implementation_repair")
+            .with_artifact_role("source")
             .with_related_source_excerpt("src/components/GameCanvas.tsx:1\n>1: broken")
+            .with_disallowed_actions(vec!["do not run dependency setup"])
             .with_prior_attempts(vec!["attempt 1: same signature"])
             .with_repair_attempt_ledger(vec![
                 "repair attempt 1: tool_protocol|create-game-canvas|Write|path",
             ])
             .with_repair_focus("emit valid Write call for src/components/GameCanvas.tsx")
+            .with_repair_kind("tool_protocol_correction")
+            .with_setup_implication("none")
+            .with_rerun_authority(vec!["tool schema validation"])
             .with_diagnostic("Write missing path");
 
         let rendered = evidence.render().unwrap();
@@ -477,6 +548,9 @@ mod tests {
             rendered
                 .contains("- observed_expected_pairs: observed=missing path; expected=Write.path")
         );
+        assert!(rendered.contains("- active_job: source_implementation_repair"));
+        assert!(rendered.contains("- artifact_role: source"));
+        assert!(rendered.contains("- disallowed_actions: do not run dependency setup"));
         assert!(
             rendered
                 .contains("- related_source_excerpt: src/components/GameCanvas.tsx:1 >1: broken")
@@ -486,6 +560,9 @@ mod tests {
             "- repair_attempt_ledger: repair attempt 1: tool_protocol|create-game-canvas|Write|path"
         ));
         assert!(rendered.contains("- repair_focus: emit valid Write call"));
+        assert!(rendered.contains("- repair_kind: tool_protocol_correction"));
+        assert!(rendered.contains("- setup_implication: none"));
+        assert!(rendered.contains("- rerun_authority: tool schema validation"));
     }
 
     #[test]

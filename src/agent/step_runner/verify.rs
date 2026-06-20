@@ -74,6 +74,9 @@ pub fn summarize_command_failure(
     output: &CommandOutput,
 ) -> VerificationFailure {
     let combined = format!("{}\n{}", output.stdout, output.stderr);
+    if let Some(failure) = dependency_missing_from_command_failure(guard, command, &combined) {
+        return failure;
+    }
     VerificationFailure {
         command: command.to_string(),
         reason: format!("command_failed:{}", output.status),
@@ -136,6 +139,42 @@ fn dependency_missing_failure(
     }))
 }
 
+fn dependency_missing_from_command_failure(
+    guard: &PathGuard,
+    command: &str,
+    text: &str,
+) -> Option<VerificationFailure> {
+    if command.trim().to_ascii_lowercase() != "npm run build" {
+        return None;
+    }
+    let package_path = guard.resolve("package.json").ok()?;
+    let package = fs::read_to_string(&package_path).ok()?;
+    if !package_uses_next_build(&package) {
+        return None;
+    }
+    let missing_module = missing_module_from_diagnostic(text)?;
+    let dependencies = package_dependency_keys(&package);
+    if !dependencies.iter().any(|dep| dep == &missing_module) {
+        return None;
+    }
+    let module_path = node_module_dependency_path(&missing_module)?;
+    let resolved = guard.resolve(&module_path).ok()?;
+    if resolved.exists() {
+        return None;
+    }
+    let message = format!(
+        "dependency_missing: verifier_unavailable: npm run build requires declared package `{missing_module}`, but `{module_path}` is missing. Run dependency setup when allowed, then rerun npm run build; do not change scripts.build away from next build to fake success."
+    );
+    Some(VerificationFailure {
+        command: command.to_string(),
+        reason: "dependency_missing".to_string(),
+        stdout_excerpt: String::new(),
+        stderr_excerpt: String::new(),
+        diagnostic_excerpt: message,
+        source_excerpt: None,
+    })
+}
+
 fn missing_package_dependencies(
     guard: &PathGuard,
     package: &str,
@@ -178,6 +217,20 @@ fn package_dependency_keys(package: &str) -> Vec<String> {
         }
     }
     keys
+}
+
+fn missing_module_from_diagnostic(text: &str) -> Option<String> {
+    for quote in ['\'', '"'] {
+        let needle = format!("Cannot find module {quote}");
+        if let Some(start) = text.find(&needle) {
+            let rest = &text[start + needle.len()..];
+            let value = rest.split(quote).next()?.trim();
+            if node_module_dependency_path(value).is_some() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
 }
 
 fn node_module_dependency_path(name: &str) -> Option<String> {
@@ -390,6 +443,76 @@ mod tests {
                 .diagnostic_excerpt
                 .contains("package.json dependencies")
         );
+    }
+
+    #[test]
+    fn classifies_declared_missing_module_diagnostic_as_dependency_missing() {
+        let root = temp_workspace("dependency-missing-diagnostic");
+        fs::create_dir_all(root.join("node_modules/.bin")).unwrap();
+        fs::create_dir_all(root.join("node_modules/next")).unwrap();
+        fs::create_dir_all(root.join("node_modules/react")).unwrap();
+        fs::create_dir_all(root.join("node_modules/react-dom")).unwrap();
+        fs::write(
+            root.join("package.json"),
+            r#"{"scripts":{"build":"next build"},"dependencies":{"next":"14.2.0","react":"18.2.0","react-dom":"18.2.0","@tailwindcss/postcss":"latest"}}"#,
+        )
+        .unwrap();
+        let guard = PathGuard::new(&root).unwrap();
+        let output = CommandOutput {
+            status: 1,
+            stdout: String::new(),
+            stderr: "Error: Cannot find module '@tailwindcss/postcss'\nRequire stack:\n- postcss.config.js\n".to_string(),
+        };
+
+        let failure = summarize_command_failure(&guard, "npm run build", &output);
+
+        assert_eq!(failure.reason, "dependency_missing");
+        assert!(failure.diagnostic_excerpt.contains("@tailwindcss/postcss"));
+        assert!(
+            failure
+                .diagnostic_excerpt
+                .contains("node_modules/@tailwindcss/postcss")
+        );
+    }
+
+    #[test]
+    fn does_not_classify_undeclared_missing_module_as_dependency_missing() {
+        let root = temp_workspace("undeclared-missing-module");
+        fs::write(
+            root.join("package.json"),
+            r#"{"scripts":{"build":"next build"},"dependencies":{"next":"14.2.0"}}"#,
+        )
+        .unwrap();
+        let guard = PathGuard::new(&root).unwrap();
+        let output = CommandOutput {
+            status: 1,
+            stdout: String::new(),
+            stderr: "Error: Cannot find module '@tailwindcss/postcss'".to_string(),
+        };
+
+        let failure = summarize_command_failure(&guard, "npm run build", &output);
+
+        assert_eq!(failure.reason, "command_failed:1");
+    }
+
+    #[test]
+    fn does_not_classify_relative_missing_module_as_dependency_missing() {
+        let root = temp_workspace("relative-missing-module");
+        fs::write(
+            root.join("package.json"),
+            r#"{"scripts":{"build":"next build"},"dependencies":{"next":"14.2.0"}}"#,
+        )
+        .unwrap();
+        let guard = PathGuard::new(&root).unwrap();
+        let output = CommandOutput {
+            status: 1,
+            stdout: String::new(),
+            stderr: "Error: Cannot find module './GameBoard'".to_string(),
+        };
+
+        let failure = summarize_command_failure(&guard, "npm run build", &output);
+
+        assert_eq!(failure.reason, "command_failed:1");
     }
 
     #[test]
