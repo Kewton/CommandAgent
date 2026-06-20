@@ -1,18 +1,24 @@
+pub(crate) mod artifact_completion;
+pub(crate) mod artifact_graph;
 pub mod correction_evidence;
 pub mod evidence;
 pub mod plan_lint;
 pub(crate) mod profile_artifact;
 pub mod profiles;
+pub(crate) mod recovery_orchestration;
 pub(crate) mod recovery_policy;
 pub mod recovery_task;
 pub mod repair;
 pub mod runtime;
+pub(crate) mod target_admission;
 pub mod ultra_plan;
 pub mod ultra_run;
+pub(crate) mod verifier_selection;
 pub mod verify;
 
 mod plan;
 mod plan_error;
+mod plan_input;
 mod plan_prompt;
 mod plan_store;
 mod plan_yaml;

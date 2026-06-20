@@ -28,6 +28,23 @@ class EvalReportCategorizeTests(unittest.TestCase):
             with self.subTest(reason=reason):
                 self.assertEqual(eval_report.categorize(reason), expected)
 
+    def test_semantic_mismatches_are_case_insensitive_for_semantic_checks(self):
+        workspace = ROOT / "target" / "eval-report-test-workspace"
+        workspace.mkdir(parents=True, exist_ok=True)
+        readme = workspace / "README.md"
+        readme.write_text("# CommandAgent\n\n## Usage\n", encoding="utf-8")
+
+        mismatches = eval_report.semantic_mismatches(
+            workspace,
+            {
+                "type": "semantic",
+                "must_include": {"README.md": ["usage"]},
+            },
+            [],
+        )
+
+        self.assertEqual(mismatches, [])
+
 
 if __name__ == "__main__":
     unittest.main()

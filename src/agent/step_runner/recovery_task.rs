@@ -4,6 +4,7 @@
 //! It does not grant retry authority, select a new workflow, or execute tools.
 
 use crate::agent::step_runner::correction_evidence::ContractEvidence;
+use crate::agent::step_runner::recovery_orchestration::orchestrate_evidence;
 
 const MAX_FIELD_CHARS: usize = 240;
 const MAX_LIST_ITEMS: usize = 8;
@@ -63,7 +64,13 @@ pub struct RecoveryTaskContract {
     pub repair_kind: Option<String>,
     pub repair_action: Option<String>,
     pub setup_implication: Option<String>,
+    pub tool_policy_projection: Option<String>,
+    pub target_admission: Option<String>,
+    pub target_priority: Option<String>,
+    pub explicit_stop_reason: Option<String>,
+    pub artifact_graph_summary: Vec<String>,
     pub rerun_authority: Vec<String>,
+    pub repair_attempt_ledger: Vec<String>,
     pub execution_envelope: Option<RecoveryExecutionEnvelope>,
 }
 
@@ -76,6 +83,8 @@ impl RecoveryTaskContract {
     }
 
     pub fn from_contract_evidence(evidence: &ContractEvidence) -> Option<Self> {
+        let orchestrated = orchestrate_evidence(evidence.clone());
+        let evidence = &orchestrated;
         if !known_recovery_source(&evidence.guard)
             && evidence.required_action.is_none()
             && evidence.repair_focus.is_none()
@@ -97,7 +106,13 @@ impl RecoveryTaskContract {
             .with_repair_kind_opt(evidence.repair_kind.clone())
             .with_repair_action_opt(evidence.repair_action.clone())
             .with_setup_implication_opt(evidence.setup_implication.clone())
+            .with_tool_policy_projection_opt(evidence.tool_policy_projection.clone())
+            .with_target_admission_opt(evidence.target_admission.clone())
+            .with_target_priority_opt(evidence.target_priority.clone())
+            .with_explicit_stop_reason_opt(evidence.explicit_stop_reason.clone())
+            .with_artifact_graph_summary(evidence.artifact_graph_summary.clone())
             .with_rerun_authority(evidence.rerun_authority.clone())
+            .with_repair_attempt_ledger(evidence.repair_attempt_ledger.clone())
             .with_execution_envelope_opt(execution_envelope(evidence));
 
         if evidence.guard == "tool_protocol"
@@ -202,6 +217,45 @@ impl RecoveryTaskContract {
         self
     }
 
+    pub fn with_tool_policy_projection(
+        mut self,
+        tool_policy_projection: impl Into<String>,
+    ) -> Self {
+        self.tool_policy_projection = Some(tool_policy_projection.into());
+        self
+    }
+
+    pub fn with_target_admission(mut self, target_admission: impl Into<String>) -> Self {
+        self.target_admission = Some(target_admission.into());
+        self
+    }
+
+    pub fn with_target_priority(mut self, target_priority: impl Into<String>) -> Self {
+        self.target_priority = Some(target_priority.into());
+        self
+    }
+
+    pub fn with_explicit_stop_reason(mut self, explicit_stop_reason: impl Into<String>) -> Self {
+        self.explicit_stop_reason = Some(explicit_stop_reason.into());
+        self
+    }
+
+    pub fn with_artifact_graph_summary<I, S>(mut self, artifact_graph_summary: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        for summary in artifact_graph_summary {
+            self = self.with_artifact_graph_summary_item(summary);
+        }
+        self
+    }
+
+    pub fn with_artifact_graph_summary_item(mut self, summary: impl Into<String>) -> Self {
+        push_unique(&mut self.artifact_graph_summary, summary.into());
+        self
+    }
+
     pub fn with_rerun_authority<I, S>(mut self, rerun_authority: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -215,6 +269,22 @@ impl RecoveryTaskContract {
 
     pub fn with_rerun_authority_item(mut self, authority: impl Into<String>) -> Self {
         push_unique(&mut self.rerun_authority, authority.into());
+        self
+    }
+
+    pub fn with_repair_attempt_ledger<I, S>(mut self, repair_attempt_ledger: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        for entry in repair_attempt_ledger {
+            self = self.with_repair_attempt_ledger_item(entry);
+        }
+        self
+    }
+
+    pub fn with_repair_attempt_ledger_item(mut self, entry: impl Into<String>) -> Self {
+        push_unique(&mut self.repair_attempt_ledger, entry.into());
         self
     }
 
@@ -257,7 +327,37 @@ impl RecoveryTaskContract {
             "setup_implication",
             self.setup_implication.as_deref(),
         );
+        push_field(
+            &mut lines,
+            "tool_policy_projection",
+            self.tool_policy_projection.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "target_admission",
+            self.target_admission.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "target_priority",
+            self.target_priority.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "explicit_stop_reason",
+            self.explicit_stop_reason.as_deref(),
+        );
+        push_list(
+            &mut lines,
+            "artifact_graph_summary",
+            &self.artifact_graph_summary,
+        );
         push_list(&mut lines, "rerun_authority", &self.rerun_authority);
+        push_list(
+            &mut lines,
+            "repair_attempt_ledger",
+            &self.repair_attempt_ledger,
+        );
         if let Some(envelope) = self.execution_envelope {
             push_field(&mut lines, "execution_envelope", Some(envelope.as_str()));
             push_field(&mut lines, "tool_policy", Some(envelope.tool_policy()));
@@ -354,6 +454,34 @@ impl RecoveryTaskContract {
         }
     }
 
+    fn with_tool_policy_projection_opt(self, tool_policy_projection: Option<String>) -> Self {
+        match tool_policy_projection {
+            Some(value) => self.with_tool_policy_projection(value),
+            None => self,
+        }
+    }
+
+    fn with_target_admission_opt(self, target_admission: Option<String>) -> Self {
+        match target_admission {
+            Some(value) => self.with_target_admission(value),
+            None => self,
+        }
+    }
+
+    fn with_target_priority_opt(self, target_priority: Option<String>) -> Self {
+        match target_priority {
+            Some(value) => self.with_target_priority(value),
+            None => self,
+        }
+    }
+
+    fn with_explicit_stop_reason_opt(self, explicit_stop_reason: Option<String>) -> Self {
+        match explicit_stop_reason {
+            Some(value) => self.with_explicit_stop_reason(value),
+            None => self,
+        }
+    }
+
     fn with_execution_envelope_opt(self, envelope: Option<RecoveryExecutionEnvelope>) -> Self {
         match envelope {
             Some(value) => self.with_execution_envelope(value),
@@ -374,7 +502,13 @@ impl RecoveryTaskContract {
             || self.repair_kind.is_some()
             || self.repair_action.is_some()
             || self.setup_implication.is_some()
+            || self.tool_policy_projection.is_some()
+            || self.target_admission.is_some()
+            || self.target_priority.is_some()
+            || self.explicit_stop_reason.is_some()
+            || !self.artifact_graph_summary.is_empty()
             || !self.rerun_authority.is_empty()
+            || !self.repair_attempt_ledger.is_empty()
             || self.execution_envelope.is_some()
     }
 }
@@ -523,6 +657,21 @@ fn success_check(evidence: &ContractEvidence) -> Option<String> {
 }
 
 fn execution_envelope(evidence: &ContractEvidence) -> Option<RecoveryExecutionEnvelope> {
+    match evidence.tool_policy_projection.as_deref() {
+        Some("read_only") | Some("verifier_owned_setup_only") | Some("explicit_stop") => {
+            return Some(RecoveryExecutionEnvelope::ReadOnlyEvidence);
+        }
+        Some("setup_config_mutation_only") => {
+            return Some(RecoveryExecutionEnvelope::SetupConfigMutation);
+        }
+        Some("tool_protocol_correction") => {
+            return Some(RecoveryExecutionEnvelope::ToolProtocolCorrection);
+        }
+        Some("file_mutation_repair") => {
+            return Some(RecoveryExecutionEnvelope::FileMutationRepair);
+        }
+        _ => {}
+    }
     match evidence.guard.as_str() {
         "step_policy" if contract_code(evidence).as_deref() == Some("read_only_step_mutation") => {
             Some(RecoveryExecutionEnvelope::ReadOnlyEvidence)
@@ -698,6 +847,12 @@ mod tests {
             .with_repair_kind("source_verifier_repair")
             .with_repair_action("repair_source_error")
             .with_setup_implication("none")
+            .with_tool_policy_projection("file_mutation_repair")
+            .with_target_admission("admitted: target app/page.tsx matches source repair")
+            .with_target_priority("priority=0 repair_target from deterministic evidence")
+            .with_artifact_graph_summary(vec![
+                "app/page.tsx role=implementation lifecycle=required source=contract.repair_target",
+            ])
             .with_rerun_authority(vec!["npm run build"])
             .with_execution_envelope(RecoveryExecutionEnvelope::FileMutationRepair);
 
@@ -713,6 +868,10 @@ mod tests {
         assert!(rendered.contains("repair_kind: source_verifier_repair"));
         assert!(rendered.contains("repair_action: repair_source_error"));
         assert!(rendered.contains("setup_implication: none"));
+        assert!(rendered.contains("tool_policy_projection: file_mutation_repair"));
+        assert!(rendered.contains("target_admission: admitted"));
+        assert!(rendered.contains("target_priority: priority=0"));
+        assert!(rendered.contains("artifact_graph_summary: app/page.tsx"));
         assert!(rendered.contains("rerun_authority: npm run build"));
         assert!(!rendered.contains("app/file-9.tsx"));
     }
@@ -888,6 +1047,26 @@ mod tests {
             )
         );
         assert!(rendered.contains("execution_envelope: file_mutation_repair"));
+    }
+
+    #[test]
+    fn missing_test_artifact_task_uses_artifact_completion_contract() {
+        let evidence = ContractEvidence::new("profile_verification")
+            .with_failed_step("verify-api")
+            .with_reason_code("missing_required_artifact")
+            .with_missing_paths(vec!["tests/test_app.py"]);
+
+        let rendered = RecoveryTaskContract::from_contract_evidence(&evidence)
+            .unwrap()
+            .render()
+            .unwrap();
+
+        assert!(rendered.contains("active_job: test_artifact_completion"));
+        assert!(rendered.contains("artifact_role: test"));
+        assert!(rendered.contains("repair_action: create_required_artifact"));
+        assert!(rendered.contains("repair_target: tests/test_app.py"));
+        assert!(rendered.contains("attempt_limit=4"));
+        assert!(rendered.contains("Do not edit implementation source"));
     }
 
     #[test]

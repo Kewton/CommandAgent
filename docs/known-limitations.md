@@ -47,18 +47,22 @@ CommandAgent is still in MVP migration.
   phase step plans away from known package contract drift and Next.js
   route-integration drift for explicit UI/game artifacts. Active step/repair
   prompts now carry refreshed profile facts, but these are narrow
-  deterministic facts, not a full domain workflow or generic artifact graph.
+  deterministic facts, not a full domain workflow. Shared ArtifactGraph
+  projection is bounded to observed paths and contract artifacts; it is not a
+  persistent workspace model or hidden profile workflow.
 - Next.js route integration now uses a bounded static route graph from the
   selected route through relative imports. This improves attribution for
   route/component/hook integration, but it is still not a compiler, runtime
   execution engine, semantic UI checker, or guarantee that the generated game
   is visually good.
-- Recovery Policy Contract now classifies some deterministic failures into
-  visible active jobs and repair actions, such as Next.js route integration,
-  missing integration artifacts, manifest dependency repair, Tailwind contract
-  repair, and tsconfig alias repair. This improves the repair packet handoff,
-  but it does not add hidden continuation, increase retry budgets, or guarantee
-  that a weak model will perform the selected repair correctly.
+- Recovery Orchestration Contract now classifies deterministic failures into
+  visible active jobs, admitted targets, prioritized targets, tool-policy
+  projections, and repair actions for selected classes such as Next.js route
+  integration, missing integration artifacts, manifest dependency repair,
+  Tailwind contract repair, tsconfig alias repair, read-only step mutation, and
+  future-artifact inspection. This improves the repair packet handoff, but it
+  does not add hidden continuation, increase retry budgets, or guarantee that a
+  weak model will perform the selected repair correctly.
 - Step-decomposition lint now rejects the observed high-confidence case where a
   `setup` step owns classified source/style, route, component, test, docs,
   generated, or build artifacts such as `app/globals.css`. Broader ownership

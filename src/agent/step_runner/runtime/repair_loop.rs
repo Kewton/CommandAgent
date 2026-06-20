@@ -11,6 +11,7 @@ use crate::agent::minimal_loop::config::{ActionRequirement, StepToolPolicy};
 use crate::agent::minimal_loop::loop_run::{ChatClient, MinimalLoopConfig, RunResult};
 use crate::agent::minimal_loop::result::{MinimalLoopError, ToolArgError};
 use crate::agent::step_runner::correction_evidence::{ContractEvidence, failure_signature};
+use crate::agent::step_runner::recovery_orchestration::orchestrate_evidence;
 use crate::agent::step_runner::recovery_task::{
     RecoveryExecutionEnvelope, recovery_execution_envelope,
 };
@@ -21,6 +22,7 @@ use crate::agent::step_runner::repair::{
 use crate::agent::step_runner::runtime::phase_contract::{
     ActiveStepContract, current_profile_facts,
 };
+use crate::agent::step_runner::verifier_selection::{VerifierBinding, VerifierSelection};
 use crate::agent::step_runner::verify::VerificationFailure;
 use crate::agent::step_runner::{StepKind, StepPlan, StepPlanStep};
 use std::time::Instant;
@@ -782,7 +784,7 @@ fn contract_evidence_for_state(
             push_contract_evidence_once(&mut evidence, verifier_evidence);
         }
     }
-    evidence
+    evidence.into_iter().map(orchestrate_evidence).collect()
 }
 
 fn verifier_contract_evidence(
@@ -794,11 +796,16 @@ fn verifier_contract_evidence(
     if !is_verifier_failure(failure) {
         return None;
     }
-    let candidate_artifacts = verifier_candidate_artifacts(failure);
+    let binding = VerifierBinding::from_failure(failure);
+    let candidate_artifacts = verifier_candidate_artifacts(failure, &binding);
     let repair_target = if tailwind_postcss_plugin_diagnostic(failure) {
         Some("postcss.config.js".to_string())
     } else {
-        single_candidate(&candidate_artifacts)
+        binding
+            .candidate_repair_target
+            .clone()
+            .filter(|path| !ignored_repair_candidate_path(path))
+            .or_else(|| verifier_contract_target(step, &binding, &candidate_artifacts))
     };
     let diagnostic_code = failure.reason.clone();
     let signature = failure_signature([
@@ -812,17 +819,17 @@ fn verifier_contract_evidence(
         .with_failed_step(step.id.clone())
         .with_violated_contract(failure.reason.clone())
         .with_reason_code(failure.reason.clone())
-        .with_failure_kind(verifier_failure_kind(failure).to_string())
+        .with_failure_kind(verifier_failure_kind(failure, &binding).to_string())
         .with_diagnostic_code(diagnostic_code)
         .with_failure_signature(signature)
         .with_command(failure.command.clone())
         .with_candidate_artifacts(candidate_artifacts)
         .with_observed_expected_pairs(vec![verifier_observed_expected_pair(failure)])
         .with_affected_cases(vec![failure.command.clone()])
-        .with_active_job(verifier_active_job(failure))
+        .with_active_job(verifier_active_job(failure, &binding))
         .with_required_action(verifier_required_action(failure))
-        .with_repair_kind(verifier_repair_kind(failure))
-        .with_repair_action(verifier_repair_action(failure))
+        .with_repair_kind(verifier_repair_kind(failure, &binding))
+        .with_repair_action(verifier_repair_action(failure, &binding))
         .with_setup_implication(verifier_setup_implication(failure))
         .with_rerun_authority(vec![failure.command.clone()]);
     if let Some(target) = repair_target {
@@ -872,21 +879,36 @@ fn verifier_observed_expected_pair(failure: &VerificationFailure) -> String {
     }
 }
 
-fn verifier_failure_kind(failure: &VerificationFailure) -> &'static str {
-    if failure.reason == "dependency_missing" {
-        "dependency_missing"
-    } else if failure.reason.starts_with("blocked:") {
-        "verifier_command_blocked"
-    } else if failure.reason.starts_with("command_failed:") {
-        "verifier_command_failed"
-    } else {
-        "verifier_failure"
+fn verifier_failure_kind(failure: &VerificationFailure, binding: &VerifierBinding) -> &'static str {
+    match binding.selection {
+        VerifierSelection::DependencySetupRequired => "dependency_missing",
+        VerifierSelection::BlockedByPolicy => "verifier_command_blocked",
+        VerifierSelection::Missing | VerifierSelection::StructuredMissing => {
+            "verifier_command_missing"
+        }
+        VerifierSelection::StructuredWeak => "verifier_command_weak",
+        VerifierSelection::RuntimeError => "verifier_runtime_error",
+        VerifierSelection::StructuredRunnable | VerifierSelection::LegacyRunnable => {
+            if failure.reason.starts_with("command_failed:") {
+                "verifier_command_failed"
+            } else {
+                "verifier_failure"
+            }
+        }
     }
 }
 
-fn verifier_repair_kind(failure: &VerificationFailure) -> &'static str {
-    if failure.reason == "dependency_missing" {
+fn verifier_repair_kind(failure: &VerificationFailure, binding: &VerifierBinding) -> &'static str {
+    if binding.selection == VerifierSelection::DependencySetupRequired {
         "verifier_owned_setup_recovery"
+    } else if matches!(
+        binding.selection,
+        VerifierSelection::BlockedByPolicy
+            | VerifierSelection::Missing
+            | VerifierSelection::StructuredMissing
+            | VerifierSelection::StructuredWeak
+    ) {
+        "verifier_contract_correction"
     } else if tailwind_postcss_plugin_diagnostic(failure) {
         "tailwind_contract_repair"
     } else {
@@ -894,9 +916,17 @@ fn verifier_repair_kind(failure: &VerificationFailure) -> &'static str {
     }
 }
 
-fn verifier_active_job(failure: &VerificationFailure) -> &'static str {
-    if failure.reason == "dependency_missing" {
+fn verifier_active_job(failure: &VerificationFailure, binding: &VerifierBinding) -> &'static str {
+    if binding.selection == VerifierSelection::DependencySetupRequired {
         "setup_bootstrap"
+    } else if matches!(
+        binding.selection,
+        VerifierSelection::BlockedByPolicy
+            | VerifierSelection::Missing
+            | VerifierSelection::StructuredMissing
+            | VerifierSelection::StructuredWeak
+    ) {
+        "verifier_contract_correction"
     } else if tailwind_postcss_plugin_diagnostic(failure) {
         "manifest_repair"
     } else {
@@ -904,9 +934,20 @@ fn verifier_active_job(failure: &VerificationFailure) -> &'static str {
     }
 }
 
-fn verifier_repair_action(failure: &VerificationFailure) -> &'static str {
-    if failure.reason == "dependency_missing" {
+fn verifier_repair_action(
+    failure: &VerificationFailure,
+    binding: &VerifierBinding,
+) -> &'static str {
+    if binding.selection == VerifierSelection::DependencySetupRequired {
         "stop_with_setup_blocker"
+    } else if matches!(
+        binding.selection,
+        VerifierSelection::BlockedByPolicy
+            | VerifierSelection::Missing
+            | VerifierSelection::StructuredMissing
+            | VerifierSelection::StructuredWeak
+    ) {
+        "replace_invalid_verifier_command"
     } else if tailwind_postcss_plugin_diagnostic(failure) {
         "repair_tailwind_contract"
     } else {
@@ -927,6 +968,8 @@ fn verifier_setup_implication(failure: &VerificationFailure) -> &'static str {
 fn verifier_required_action(failure: &VerificationFailure) -> &'static str {
     if failure.reason == "dependency_missing" {
         "use verifier-owned setup recovery when allowed; do not edit files or run dependency installation from a model tool call"
+    } else if failure.reason.starts_with("blocked:") {
+        "replace or replan the invalid verifier command; do not edit source to satisfy a rejected verifier contract"
     } else if tailwind_postcss_plugin_diagnostic(failure) {
         "fix the Tailwind/PostCSS contract in postcss.config.js and package.json; if manifest dependencies change, verifier-owned setup recovery handles approved setup"
     } else {
@@ -934,8 +977,20 @@ fn verifier_required_action(failure: &VerificationFailure) -> &'static str {
     }
 }
 
-fn verifier_candidate_artifacts(failure: &VerificationFailure) -> Vec<String> {
+fn verifier_candidate_artifacts(
+    failure: &VerificationFailure,
+    binding: &VerifierBinding,
+) -> Vec<String> {
     let mut artifacts = Vec::new();
+    if let Some(target) = &binding.candidate_repair_target {
+        push_repairable_candidate(&mut artifacts, target.clone());
+    }
+    if let Some(test_artifact) = &binding.owned_test_artifact {
+        push_repairable_candidate(&mut artifacts, test_artifact.clone());
+    }
+    if let Some(setup_manifest) = &binding.setup_manifest {
+        push_repairable_candidate(&mut artifacts, setup_manifest.clone());
+    }
     if let Some(source) = &failure.source_excerpt {
         push_repairable_candidate(&mut artifacts, source.path.clone());
     }
@@ -954,6 +1009,20 @@ fn verifier_candidate_artifacts(failure: &VerificationFailure) -> Vec<String> {
     }
     artifacts.truncate(8);
     artifacts
+}
+
+fn verifier_contract_target(
+    step: &StepPlanStep,
+    binding: &VerifierBinding,
+    candidate_artifacts: &[String],
+) -> Option<String> {
+    match binding.selection {
+        VerifierSelection::BlockedByPolicy
+        | VerifierSelection::Missing
+        | VerifierSelection::StructuredMissing
+        | VerifierSelection::StructuredWeak => Some(format!("step:{}", step.id)),
+        _ => single_candidate(candidate_artifacts),
+    }
 }
 
 fn tailwind_postcss_plugin_diagnostic(failure: &VerificationFailure) -> bool {
@@ -1575,6 +1644,7 @@ mod tests {
 
         let evidence =
             verifier_contract_evidence(&step(StepKind::Verify), &failure, None, &[]).unwrap();
+        let evidence = orchestrate_evidence(evidence);
         let rendered = evidence.render().unwrap();
 
         assert!(rendered.contains("guard: verifier"));
@@ -1643,6 +1713,7 @@ mod tests {
 
         let evidence =
             verifier_contract_evidence(&step(StepKind::Verify), &failure, None, &[]).unwrap();
+        let evidence = orchestrate_evidence(evidence);
         let rendered = evidence.render().unwrap();
 
         assert!(rendered.contains("candidate_artifacts: package.json, postcss.config.js"));
@@ -1652,6 +1723,31 @@ mod tests {
         assert!(rendered.contains("fix the Tailwind/PostCSS contract"));
         assert!(!rendered.contains("repair_target: node_modules"));
         assert!(!rendered.contains("related_source_excerpt: node_modules"));
+    }
+
+    #[test]
+    fn verifier_blocked_command_becomes_verifier_contract_correction() {
+        let failure = VerificationFailure {
+            command: "npm run build && npm test".to_string(),
+            reason: "blocked:Unknown: compound commands are not allowed".to_string(),
+            stdout_excerpt: String::new(),
+            stderr_excerpt: String::new(),
+            diagnostic_excerpt: "compound commands are not allowed".to_string(),
+            source_excerpt: None,
+        };
+
+        let evidence =
+            verifier_contract_evidence(&step(StepKind::Verify), &failure, None, &[]).unwrap();
+        let evidence = orchestrate_evidence(evidence);
+        let rendered = evidence.render().unwrap();
+
+        assert!(rendered.contains("failure_kind: verifier_command_blocked"));
+        assert!(rendered.contains("active_job: verifier_contract_correction"));
+        assert!(rendered.contains("repair_kind: verifier_contract_correction"));
+        assert!(rendered.contains("repair_action: replace_invalid_verifier_command"));
+        assert!(rendered.contains("repair_target: step:step"));
+        assert!(rendered.contains("tool_policy_projection: read_only"));
+        assert!(rendered.contains("do not edit source"));
     }
 
     #[test]

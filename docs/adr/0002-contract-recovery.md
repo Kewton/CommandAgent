@@ -167,6 +167,22 @@ as rerun authority. This policy layer still must not execute tools, increase
 retry budgets, select arbitrary future phases, run setup from an ordinary
 repair turn, weaken verifiers, or add provider/model-specific behavior.
 
+2026-06-20 amendment: Recovery Orchestration Contract is now the named
+failure-time peer to Planning Contract and Execution Contract. Recovery Policy
+Contract remains the policy-decision sublayer, but the broader orchestration
+contract owns the full deterministic handoff: FailureEvidence classification,
+ArtifactGraph and obligation mapping, active recovery job selection, recovery
+action planning, tool policy projection, bounded minimal-loop execution, and
+original guard/verifier rerun. ArtifactGraph is admitted as the shared contract
+model for artifact lifecycle and relationships, including existing artifacts,
+missing required artifacts, setup manifests, integration targets,
+implementation artifacts, tests, and generated outputs. This is an explicit
+design expansion: CommandAgent may be more capable than the earliest MVP when
+the added responsibility is visible, typed, bounded, and attributable. It is
+still not allowed to execute tools from orchestration, continue hidden future
+phases, retry until success, weaken verifiers, or add provider/model-specific
+policy.
+
 ## Non-Decisions
 
 This ADR does not reintroduce:
@@ -228,6 +244,16 @@ Recovery Task Contract then renders the policy into instructions. This keeps
 strategy selection out of the minimal loop without reintroducing hidden
 autonomy.
 
+Recovery Orchestration Contract formalizes the whole failure-time path rather
+than only the final policy decision. The reason for the broader name is that
+the current failures are not solved by clearer repair prose alone. The runtime
+must also maintain artifact relationships, distinguish setup, manifest, route,
+source, test, and documentation responsibilities, admit or reject targets,
+project a least-privilege tool policy, and remember bounded no-progress
+attempts. Those responsibilities are acceptable when they are encoded as
+contract data and observed in logs, repair packets, eval reports, and rerun
+authority.
+
 ## Consequences
 
 - Older plan files remain readable through defaulted fields and are normalized
@@ -259,6 +285,12 @@ Also revisit it if Recovery Policy Contract starts selecting speculative jobs,
 mutating state, expanding scope without evidence, or becoming a profile-owned
 workflow engine instead of a typed decision table for current deterministic
 failures.
+
+Also revisit it if Recovery Orchestration Contract or ArtifactGraph starts
+executing tools, choosing speculative future phases, acting as a hidden project
+manager, scoring application quality semantically, or accepting unbounded graph
+expansion. The contract may classify and narrow the current failure; it must
+not become an autonomous workflow engine.
 
 Also revisit it if Job/Event protocol, evidence envelopes, usage/cost records,
 or budget records start controlling execution instead of reporting and

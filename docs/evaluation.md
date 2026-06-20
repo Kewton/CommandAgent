@@ -13,7 +13,9 @@ writes a timestamped root containing per-run `meta.json`, stdout/stderr, a
 workspace directory, and `summary.tsv`. Use `--dry-run` for offline wiring
 checks. The runner records `success_check` in `meta.json` and applies semantic
 checks for required paths and required file content signals in addition to the
-process return code and expected artifacts.
+process return code and expected artifacts. For `success_check.type:
+semantic`, `must_include` content signals are case-insensitive; use a future
+literal check type when exact casing is the contract being evaluated.
 
 `scripts/eval_report.py <root>` summarizes `summary.tsv` by headline success,
 failure category, and case. Report categories are layer-oriented:
@@ -49,6 +51,13 @@ contract update.
 current case
 `success_check.required_paths` and `success_check.must_include`, then writes
 `recheck_summary.tsv` without overwriting the original summary.
+
+The report also includes a `Contract Layers` section derived from the failure
+reason. This is a coarse layer map for triage, not a new success criterion. It
+helps distinguish failures in planning, execution/tool protocol, profile,
+setup bootstrap, verification, eval success checks, and unknown boundaries.
+New eval runs also write `failure_category` and `contract_layer` into
+`summary.tsv` and each run's `meta.json`.
 
 The eval runner executes cases through the mode declared in each case. Omitted
 mode defaults to `/plan-run`; large cases should normally use `/ultra-plan-run`.
@@ -190,6 +199,11 @@ Contract Boundary Propagation fields should be recorded when present:
 - `artifact_role`
 - `repair_kind`
 - `repair_action`
+- `tool_policy_projection`
+- `target_admission`
+- `target_priority`
+- `explicit_stop_reason`
+- `artifact_graph_summary`
 - `setup_implication`
 - `rerun_authority`
 - `required_action`
@@ -294,7 +308,9 @@ When evaluating evidence changes, distinguish the layer under test:
   excerpt, or prior attempt ledger;
 - consumer: the recovery task, prompt, repair packet, or eval report that
   rendered it;
-- orchestration: the unchanged bounded retry and stop behavior.
+- orchestration: the active job, admitted target, prioritized target, allowed
+  repair action, tool-policy projection, and unchanged bounded retry and stop
+  behavior.
 
 Do not report a run as fixed merely because evidence became clearer. Report
 whether the targeted failure class moved, whether a new independent class

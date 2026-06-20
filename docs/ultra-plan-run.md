@@ -189,6 +189,15 @@ single repair action such as `connect_artifact_to_selected_route`,
 makes the next bounded minimal-loop repair task explicit and keeps the original
 guard, verifier, or profile check as the success authority.
 
+The broader Recovery Orchestration Contract renders that decision as
+structured evidence. Repair prompts and packets may include
+`target_admission`, `target_priority`, `tool_policy_projection`,
+`explicit_stop_reason`, and an `artifact_graph_summary` so the standalone
+repair plan can see why a target is allowed, why another action is forbidden,
+and which original check must be rerun. These fields are diagnostics and
+policy projection; they do not change the retry budget or continue phases
+silently.
+
 If every verifier failure is `dependency_missing` and the step's expected paths
 already exist, CommandAgent treats the problem as setup recovery, not source
 repair. With `--yes` and without `--offline`, it runs one deterministic setup

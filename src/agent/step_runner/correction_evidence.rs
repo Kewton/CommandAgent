@@ -44,6 +44,11 @@ pub struct ContractEvidence {
     pub repair_kind: Option<String>,
     pub repair_action: Option<String>,
     pub setup_implication: Option<String>,
+    pub tool_policy_projection: Option<String>,
+    pub target_admission: Option<String>,
+    pub target_priority: Option<String>,
+    pub explicit_stop_reason: Option<String>,
+    pub artifact_graph_summary: Vec<String>,
     pub rerun_authority: Vec<String>,
     pub diagnostic: Option<String>,
 }
@@ -263,6 +268,38 @@ impl ContractEvidence {
         self
     }
 
+    pub fn with_tool_policy_projection(
+        mut self,
+        tool_policy_projection: impl Into<String>,
+    ) -> Self {
+        self.tool_policy_projection = Some(tool_policy_projection.into());
+        self
+    }
+
+    pub fn with_target_admission(mut self, target_admission: impl Into<String>) -> Self {
+        self.target_admission = Some(target_admission.into());
+        self
+    }
+
+    pub fn with_target_priority(mut self, target_priority: impl Into<String>) -> Self {
+        self.target_priority = Some(target_priority.into());
+        self
+    }
+
+    pub fn with_explicit_stop_reason(mut self, explicit_stop_reason: impl Into<String>) -> Self {
+        self.explicit_stop_reason = Some(explicit_stop_reason.into());
+        self
+    }
+
+    pub fn with_artifact_graph_summary<I, S>(mut self, artifact_graph_summary: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.artifact_graph_summary = collect_values(artifact_graph_summary);
+        self
+    }
+
     pub fn with_rerun_authority<I, S>(mut self, rerun_authority: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -347,6 +384,31 @@ impl ContractEvidence {
             "setup_implication",
             self.setup_implication.as_deref(),
         );
+        push_field(
+            &mut lines,
+            "tool_policy_projection",
+            self.tool_policy_projection.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "target_admission",
+            self.target_admission.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "target_priority",
+            self.target_priority.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "explicit_stop_reason",
+            self.explicit_stop_reason.as_deref(),
+        );
+        push_list(
+            &mut lines,
+            "artifact_graph_summary",
+            &self.artifact_graph_summary,
+        );
         push_list(&mut lines, "rerun_authority", &self.rerun_authority);
         push_field(&mut lines, "diagnostic", self.diagnostic.as_deref());
         Some(lines.join("\n"))
@@ -384,6 +446,11 @@ impl ContractEvidence {
             && self.repair_kind.is_none()
             && self.repair_action.is_none()
             && self.setup_implication.is_none()
+            && self.tool_policy_projection.is_none()
+            && self.target_admission.is_none()
+            && self.target_priority.is_none()
+            && self.explicit_stop_reason.is_none()
+            && self.artifact_graph_summary.is_empty()
             && self.rerun_authority.is_empty()
             && self.diagnostic.is_none()
     }
@@ -532,6 +599,12 @@ mod tests {
             .with_repair_kind("tool_protocol_correction")
             .with_repair_action("repair_source_error")
             .with_setup_implication("none")
+            .with_tool_policy_projection("file_mutation_repair")
+            .with_target_admission("admitted: target src/components/GameCanvas.tsx")
+            .with_target_priority("priority=0 repair_target from deterministic evidence")
+            .with_artifact_graph_summary(vec![
+                "src/components/GameCanvas.tsx role=implementation lifecycle=required source=contract.repair_target",
+            ])
             .with_rerun_authority(vec!["tool schema validation"])
             .with_diagnostic("Write missing path");
 
@@ -572,6 +645,10 @@ mod tests {
         assert!(rendered.contains("- repair_kind: tool_protocol_correction"));
         assert!(rendered.contains("- repair_action: repair_source_error"));
         assert!(rendered.contains("- setup_implication: none"));
+        assert!(rendered.contains("- tool_policy_projection: file_mutation_repair"));
+        assert!(rendered.contains("- target_admission: admitted"));
+        assert!(rendered.contains("- target_priority: priority=0"));
+        assert!(rendered.contains("- artifact_graph_summary: src/components/GameCanvas.tsx"));
         assert!(rendered.contains("- rerun_authority: tool schema validation"));
     }
 

@@ -6,6 +6,7 @@ use crate::agent::step_runner::profiles::{
     ProfileId, ProfileObligation, lint_profile_plan, lint_profile_step_contract,
 };
 use crate::agent::step_runner::{StepKind, StepPlan};
+use std::collections::BTreeSet;
 use std::path::Path;
 
 mod instructions;
@@ -75,7 +76,86 @@ fn lint_step_plan_generic(plan: &StepPlan, cwd: Option<&Path>) -> Result<(), Pla
             &step.expected_paths,
         )?;
     }
+    lint_required_artifact_owners(plan, cwd)?;
     Ok(())
+}
+
+fn lint_required_artifact_owners(plan: &StepPlan, cwd: Option<&Path>) -> Result<(), PlanLintError> {
+    if plan.required_artifacts.is_empty() {
+        return Ok(());
+    }
+
+    if !plan
+        .steps
+        .iter()
+        .any(|step| mutation_step_can_own_required_artifact(step.kind))
+    {
+        return Ok(());
+    }
+
+    let owned_paths = plan
+        .steps
+        .iter()
+        .filter(|step| mutation_step_can_own_required_artifact(step.kind))
+        .flat_map(|step| {
+            step.expected_paths
+                .iter()
+                .map(|path| normalize_plan_path(path))
+        })
+        .collect::<BTreeSet<_>>();
+
+    for artifact in &plan.required_artifacts {
+        let normalized = normalize_plan_path(artifact);
+        if owned_paths.contains(&normalized)
+            || cwd.is_some_and(|cwd| cwd.join(&normalized).exists())
+        {
+            continue;
+        }
+
+        let reason = format!(
+            "required_artifact `{artifact}` is not owned by any create/edit/setup/repair step expected_paths"
+        );
+        return Err(PlanLintError::ContractViolation {
+            step_id: "plan".to_string(),
+            reason: reason.clone(),
+            evidence: Box::new(
+                PlanCorrectionEvidence::new("plan_lint.step_decomposition")
+                    .with_failed_step("plan")
+                    .with_violated_contract("required_artifact_step_ownership")
+                    .with_reason_code("required_artifact_missing_step_owner")
+                    .with_failure_kind("plan_decomposition_failure")
+                    .with_target_field("steps.expected_paths")
+                    .with_target_path(artifact.clone())
+                    .with_required_paths(vec![artifact.clone()])
+                    .with_missing_paths(vec![artifact.clone()])
+                    .with_repair_target(artifact.clone())
+                    .with_active_job("scaffold_materialization")
+                    .with_repair_kind("plan_correction")
+                    .with_repair_action("add_required_artifact_owner_step")
+                    .with_required_action(
+                        "add a create/edit/setup/repair step whose expected_paths includes this required_artifact before verify/report steps"
+                    )
+                    .with_disallowed_actions(vec![
+                        "do not remove the required_artifact",
+                        "do not satisfy final artifacts only from verify/report steps",
+                    ])
+                    .with_diagnostic(reason),
+            ),
+        });
+    }
+
+    Ok(())
+}
+
+fn mutation_step_can_own_required_artifact(kind: StepKind) -> bool {
+    matches!(
+        kind,
+        StepKind::Create | StepKind::Edit | StepKind::Setup | StepKind::Repair
+    )
+}
+
+fn normalize_plan_path(path: &str) -> String {
+    path.trim().trim_start_matches("./").replace('\\', "/")
 }
 
 fn lint_step_artifact_ownership(
@@ -535,13 +615,33 @@ mod tests {
 
         let err = lint_step_plan_with_workspace(&plan, Some(&root)).unwrap_err();
 
-        assert_eq!(
-            err,
-            PlanLintError::InvalidStepInstruction {
-                step_id: "inspect-project-structure".to_string(),
-                reason: "inspect expected_paths must already exist in the workspace; missing src/lib.rs. Use expected_paths: [] and verify: [] for discovery, and enforce final artifacts only at the final boundary".to_string(),
+        match err {
+            PlanLintError::ContractViolation {
+                step_id,
+                reason,
+                evidence,
+            } => {
+                assert_eq!(step_id, "inspect-project-structure");
+                assert!(reason.contains("missing src/lib.rs"));
+                assert_eq!(
+                    evidence.violated_contract.as_deref(),
+                    Some("inspect_future_artifact")
+                );
+                assert_eq!(evidence.missing_paths, vec!["src/lib.rs"]);
+                assert_eq!(evidence.active_job.as_deref(), Some("explicit_stop"));
+                assert_eq!(
+                    evidence.explicit_stop_reason.as_deref(),
+                    Some("inspect_future_artifact")
+                );
+                assert!(
+                    evidence
+                        .artifact_graph_summary
+                        .iter()
+                        .any(|line| line.contains("src/lib.rs"))
+                );
             }
-        );
+            other => panic!("expected artifact graph contract violation, got {other:?}"),
+        }
     }
 
     #[test]
@@ -561,6 +661,84 @@ mod tests {
                 expected_result: ExpectedResult::Pass,
                 expected_paths: vec!["Cargo.toml".to_string()],
                 verify: vec!["test -f Cargo.toml".to_string()],
+            }],
+        };
+
+        lint_step_plan_with_workspace(&plan, Some(&root)).unwrap();
+    }
+
+    #[test]
+    fn rejects_required_artifact_without_mutation_step_owner() {
+        let root = temp_workspace("required-artifact-unowned");
+        let plan = StepPlan {
+            goal: "create rust app".to_string(),
+            profile: "rust".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::New,
+            required_artifacts: vec!["Cargo.toml".to_string(), "src/main.rs".to_string()],
+            steps: vec![StepPlanStep {
+                id: "write-main".to_string(),
+                kind: StepKind::Create,
+                instruction: "Create src/main.rs.".to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec!["src/main.rs".to_string()],
+                verify: vec!["test -f src/main.rs".to_string()],
+            }],
+        };
+
+        let err = lint_step_plan_with_workspace(&plan, Some(&root)).unwrap_err();
+
+        match err {
+            PlanLintError::ContractViolation {
+                step_id,
+                reason,
+                evidence,
+            } => {
+                assert_eq!(step_id, "plan");
+                assert!(
+                    reason.contains("required_artifact `Cargo.toml` is not owned"),
+                    "{reason}"
+                );
+                assert_eq!(
+                    evidence.violated_contract.as_deref(),
+                    Some("required_artifact_step_ownership")
+                );
+                assert_eq!(
+                    evidence.reason_code.as_deref(),
+                    Some("required_artifact_missing_step_owner")
+                );
+                assert_eq!(
+                    evidence.target_field.as_deref(),
+                    Some("steps.expected_paths")
+                );
+                assert_eq!(evidence.target_path.as_deref(), Some("Cargo.toml"));
+                assert_eq!(evidence.repair_target.as_deref(), Some("Cargo.toml"));
+                assert_eq!(
+                    evidence.repair_action.as_deref(),
+                    Some("add_required_artifact_owner_step")
+                );
+            }
+            other => panic!("expected required artifact ownership violation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn accepts_required_artifact_that_already_exists_without_owner_step() {
+        let root = temp_workspace("required-artifact-existing");
+        fs::write(root.join("Cargo.toml"), "[package]\nname = \"demo\"\n").unwrap();
+        let plan = StepPlan {
+            goal: "update rust app".to_string(),
+            profile: "rust".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::Modify,
+            required_artifacts: vec!["Cargo.toml".to_string(), "src/main.rs".to_string()],
+            steps: vec![StepPlanStep {
+                id: "write-main".to_string(),
+                kind: StepKind::Create,
+                instruction: "Create src/main.rs.".to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec!["src/main.rs".to_string()],
+                verify: vec!["test -f src/main.rs".to_string()],
             }],
         };
 

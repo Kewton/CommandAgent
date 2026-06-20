@@ -75,7 +75,7 @@ where
             profile: &plan.profile,
             style: &plan.style,
             intent: WorkIntent::parse(&plan.intent).unwrap_or(WorkIntent::Unknown),
-            required_artifacts: &plan.required_artifacts,
+            required_artifacts: &[],
             profile_obligations: &phase_contract.profile_obligations,
             save_kind: "phase-step-plan",
             prompt_kind: "phase step plan",
@@ -317,6 +317,9 @@ where
         Err(err) => {
             let failures = verify_step_with_observer(runtime.cwd, step, observer)?;
             if fatal_turn_error_for_step(&err) {
+                if completion_probe_after_blocked_bash(runtime.cwd, step, &err, observer)? {
+                    return Ok(());
+                }
                 return runtime.repair_step_after_turn_error(
                     RepairStepRequest {
                         plan,
@@ -406,6 +409,35 @@ fn fatal_turn_error_for_step(error: &crate::agent::minimal_loop::result::Minimal
         | MinimalLoopError::ActionRequiredNoEvidence(_)
         | MinimalLoopError::MissingArtifacts(_) => false,
     }
+}
+
+fn completion_probe_after_blocked_bash(
+    cwd: &Path,
+    step: &StepPlanStep,
+    error: &crate::agent::minimal_loop::result::MinimalLoopError,
+    observer: &mut dyn RuntimeObserver,
+) -> Result<bool, String> {
+    if !is_blocked_bash_turn_error(error) {
+        return Ok(false);
+    }
+    if !missing_paths(cwd, &step.expected_paths).is_empty() {
+        return Ok(false);
+    }
+    let failures = verify_step_with_observer(cwd, step, observer)?;
+    Ok(failures.is_empty() || step_accepts_verifier_failure(step))
+}
+
+fn is_blocked_bash_turn_error(
+    error: &crate::agent::minimal_loop::result::MinimalLoopError,
+) -> bool {
+    use crate::agent::minimal_loop::result::MinimalLoopError;
+
+    let MinimalLoopError::Tool(message) = error else {
+        return false;
+    };
+    message
+        .to_ascii_lowercase()
+        .contains("bash command blocked")
 }
 
 pub(super) fn verify_step_with_observer(

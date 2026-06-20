@@ -156,9 +156,15 @@ def semantic_failures(workdir, case):
             continue
         text = target.read_text(encoding="utf-8", errors="replace")
         for needle in needles:
-            if needle not in text:
+            if not semantic_contains(text, needle, check):
                 mismatches.append(f"{path}:{needle}")
     return missing, mismatches
+
+
+def semantic_contains(text, needle, check):
+    if check.get("type") == "semantic":
+        return needle.casefold() in text.casefold()
+    return needle in text
 
 
 def success_reason(workdir, rc, missing, semantic_missing, semantic_mismatches, stdout, stderr):
@@ -178,6 +184,76 @@ def success_reason(workdir, rc, missing, semantic_missing, semantic_mismatches, 
         return "ok"
 
     return f"rc:{rc}"
+
+
+def failure_category(reason):
+    if reason == "ok":
+        return "ok"
+    if (
+        reason.startswith("planning:")
+        or reason.startswith("plan_lint")
+        or "invalid ultra plan" in reason
+        or "invalid step plan" in reason
+    ):
+        return "planning"
+    if (
+        reason.startswith("provider_transport")
+        or reason.startswith("provider_parse")
+        or "JSON parse failed" in reason
+        or "tool call is missing a tool name" in reason
+    ):
+        return "provider_transport"
+    if (
+        reason.startswith("tool_args_")
+        or reason.startswith("tool_protocol")
+        or reason.startswith("tool_protocol_failure:")
+    ):
+        return "tool_protocol"
+    if reason.startswith("step_policy:") or reason == "read_only_step_mutation":
+        return "step_policy"
+    if reason.startswith("profile_verification:"):
+        return "profile"
+    if (
+        reason == "dependency_missing"
+        or reason.startswith("setup:")
+        or reason.startswith("dependency_setup:")
+    ):
+        return "setup"
+    if (
+        reason.startswith("quality:")
+        or reason.startswith("app_quality:")
+        or "blank_ui" in reason
+        or "visual" in reason
+    ):
+        return "quality"
+    if reason.startswith("missing:"):
+        return "planning"
+    if reason.startswith("semantic_missing:") or reason.startswith("semantic_mismatch:"):
+        return "quality"
+    if reason.startswith("rc:"):
+        return "verifier"
+    if reason.startswith("command_failed:") or reason.startswith("blocked:"):
+        return "verifier"
+    return "unknown"
+
+
+def contract_layer(reason):
+    category = failure_category(reason)
+    if category == "planning":
+        return "planning_contract"
+    if category in {"provider_transport", "tool_protocol", "step_policy"}:
+        return "execution_contract"
+    if category == "profile":
+        return "profile_contract"
+    if category == "setup":
+        return "setup_bootstrap_contract"
+    if category == "verifier":
+        return "verification_contract"
+    if category == "quality":
+        return "eval_success_contract"
+    if category == "ok":
+        return "ok"
+    return "unknown_contract"
 
 
 def run_case(repo, root, binary, case, run_index, args):
@@ -241,6 +317,8 @@ def run_case(repo, root, binary, case, run_index, args):
     reason = success_reason(
         workdir, rc, missing, semantic_missing, semantic_mismatches, stdout, stderr
     )
+    category = failure_category(reason)
+    layer = contract_layer(reason)
 
     meta = {
         "case_id": case["id"],
@@ -264,9 +342,20 @@ def run_case(repo, root, binary, case, run_index, args):
         "rc": rc,
         "success": success,
         "success_check_reason": reason,
+        "failure_category": category,
+        "contract_layer": layer,
     }
     meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
-    return [case["id"], str(run_index), str(rc), str(elapsed_ms), str(success).lower(), reason]
+    return [
+        case["id"],
+        str(run_index),
+        str(rc),
+        str(elapsed_ms),
+        str(success).lower(),
+        reason,
+        category,
+        layer,
+    ]
 
 
 def main():
@@ -277,7 +366,18 @@ def main():
     stamp = time.strftime("%Y%m%dT%H%M%S")
     root = (repo / args.out / stamp).resolve()
     root.mkdir(parents=True, exist_ok=True)
-    rows = [["case_id", "run", "rc", "elapsed_ms", "success", "reason"]]
+    rows = [
+        [
+            "case_id",
+            "run",
+            "rc",
+            "elapsed_ms",
+            "success",
+            "reason",
+            "failure_category",
+            "contract_layer",
+        ]
+    ]
     for case in cases:
         for run_index in range(1, args.runs + 1):
             rows.append(run_case(repo, root, args.binary, case, run_index, args))

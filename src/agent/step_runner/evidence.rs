@@ -42,6 +42,8 @@ pub struct EvidenceEnvelope {
     pub reason_code: String,
     pub timestamp: String,
     pub payload: EvidencePayload,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orchestration: Option<OrchestrationEvidence>,
 }
 
 impl EvidenceEnvelope {
@@ -64,6 +66,7 @@ impl EvidenceEnvelope {
                 .or_else(|| evidence.violated_contract.clone())
                 .unwrap_or_else(|| evidence.guard.clone()),
             timestamp: timestamp.into(),
+            orchestration: OrchestrationEvidence::from_contract_evidence(evidence),
             payload,
         }
     }
@@ -328,6 +331,54 @@ pub struct UnsupportedEvidence {
     pub diagnostic: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrchestrationEvidence {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_job: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repair_action: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repair_target: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_policy_projection: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_admission: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_priority: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub explicit_stop_reason: Option<String>,
+    #[serde(default)]
+    pub artifact_graph_summary: Vec<String>,
+}
+
+impl OrchestrationEvidence {
+    fn from_contract_evidence(evidence: &ContractEvidence) -> Option<Self> {
+        let orchestration = Self {
+            active_job: evidence.active_job.clone(),
+            repair_action: evidence.repair_action.clone(),
+            repair_target: evidence.repair_target.clone(),
+            tool_policy_projection: evidence.tool_policy_projection.clone(),
+            target_admission: evidence.target_admission.clone(),
+            target_priority: evidence.target_priority.clone(),
+            explicit_stop_reason: evidence.explicit_stop_reason.clone(),
+            artifact_graph_summary: evidence.artifact_graph_summary.clone(),
+        };
+        if orchestration.active_job.is_none()
+            && orchestration.repair_action.is_none()
+            && orchestration.repair_target.is_none()
+            && orchestration.tool_policy_projection.is_none()
+            && orchestration.target_admission.is_none()
+            && orchestration.target_priority.is_none()
+            && orchestration.explicit_stop_reason.is_none()
+            && orchestration.artifact_graph_summary.is_empty()
+        {
+            None
+        } else {
+            Some(orchestration)
+        }
+    }
+}
+
 fn producer_from_guard(guard: &str) -> EvidenceProducer {
     if guard.starts_with("plan_lint") {
         EvidenceProducer::PlanLint
@@ -406,6 +457,35 @@ mod tests {
             }
             other => panic!("unexpected payload: {other:?}"),
         }
+    }
+
+    #[test]
+    fn orchestration_fields_are_carried_on_envelope() {
+        let evidence = ContractEvidence::new("profile_verification")
+            .with_reason_code("nextjs_route_not_integrated")
+            .with_active_job("route_integration_repair")
+            .with_repair_action("connect_existing_artifact_to_entrypoint")
+            .with_repair_target("app/page.tsx")
+            .with_tool_policy_projection("file_mutation_repair")
+            .with_target_admission("admitted: target app/page.tsx")
+            .with_target_priority("priority=0 repair_target from deterministic evidence")
+            .with_artifact_graph_summary(vec![
+                "app/page.tsx role=entrypoint lifecycle=integration_target source=contract.repair_target",
+            ]);
+
+        let envelope = EvidenceEnvelope::from_contract_evidence("ev4", "ts", &evidence);
+        let orchestration = envelope.orchestration.unwrap();
+
+        assert_eq!(
+            orchestration.active_job.as_deref(),
+            Some("route_integration_repair")
+        );
+        assert_eq!(
+            orchestration.tool_policy_projection.as_deref(),
+            Some("file_mutation_repair")
+        );
+        assert_eq!(orchestration.repair_target.as_deref(), Some("app/page.tsx"));
+        assert_eq!(orchestration.artifact_graph_summary.len(), 1);
     }
 
     #[test]

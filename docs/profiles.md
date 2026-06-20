@@ -46,6 +46,12 @@ failure evidence, bounded scope, tests for the positive and false-positive
 cases, and docs. It must not add workflow authority, retry authority, or
 provider/model-specific policy.
 
+When a producer needs relationships rather than a single path, it should
+project classified artifacts into the shared ArtifactGraph boundary. The graph
+can state lifecycle, role, selected route, setup manifest, source ownership, or
+integration edges. It should not infer semantic quality, run tools, or become a
+profile-specific workflow engine.
+
 ## Profile Interface
 
 The shared profile boundary keeps generic plan lint from becoming a collection
@@ -59,6 +65,9 @@ Current profile-owned surfaces are:
   package, verifier, scaffold, or compatibility constraints
 - `classify_profile_artifact`: typed path facts used by generic lint,
   verification, setup bootstrap, and recovery targeting
+- ArtifactGraph projection: bounded artifact lifecycle and relation facts
+  derived from classified artifacts, contract paths, and deterministic
+  evidence
 - `profile_obligations`: deterministic plan obligations derived from the goal,
   required artifacts, phase facts, and profile facts
 - `lint_profile_plan`: profile-specific plan lint that returns common
@@ -216,7 +225,7 @@ artifact, and a route-tree repair target when that target is deterministic.
 Script drift, dependency drift, Tailwind/PostCSS drift, TypeScript alias/root
 drift, and dev-port drift map to their deterministic repair targets such as
 `package.json`, `tailwind.config.js`, `postcss.config.js`, or `tsconfig.json`.
-Profile evidence may also feed the Recovery Policy Contract. For example,
+Profile evidence may also feed the Recovery Orchestration Contract. For example,
 `nextjs_route_not_integrated` becomes `active_job=route_integration_repair`
 with `repair_action=connect_artifact_to_selected_route`; an existing artifact
 is connected to the selected route graph, while
@@ -224,10 +233,11 @@ is connected to the selected route graph, while
 `repair_action=create_missing_integration_artifact`. Manifest and config
 drift map to actions such as `add_manifest_dependency`,
 `repair_tailwind_contract`, or `repair_tsconfig_alias`. The resulting evidence
-can carry `repair_kind`, `repair_action`, `setup_implication`, and
-`rerun_authority` into the Recovery Task Contract. This is still evidence and
-policy rendering only. Profiles must not carry retry authority, semantic
-confidence, or workflow decisions.
+can carry `repair_kind`, `repair_action`, `setup_implication`,
+`rerun_authority`, `tool_policy_projection`, `target_admission`,
+`target_priority`, and `artifact_graph_summary` into the Recovery Task
+Contract. This is still evidence and policy rendering only. Profiles must not
+carry retry authority, semantic confidence, or workflow decisions.
 
 Next.js source verification should use `npm run build`, not `npx` compiler
 commands. `npx` may perform dependency setup and is blocked by the Bash policy;

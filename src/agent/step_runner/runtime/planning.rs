@@ -1,6 +1,9 @@
 use super::PlannerRuntimeConfig;
 use crate::agent::minimal_loop::loop_run::ChatClient;
 use crate::agent::step_runner::correction_evidence::PlanCorrectionEvidence;
+use crate::agent::step_runner::plan_input::{
+    StepPlanInputDefaults, looks_like_json_plan_input, parse_step_plan_input_with_defaults,
+};
 use crate::agent::step_runner::plan_lint::PlanLintError;
 use crate::agent::step_runner::plan_lint::lint_step_plan_with_workspace_and_obligations;
 use crate::agent::step_runner::profiles::ProfileObligation;
@@ -37,10 +40,58 @@ pub(super) struct GeneratedPlanError {
 }
 
 impl GeneratedPlanError {
-    fn new(message: impl Into<String>) -> Self {
+    fn from_parse_error(error: crate::agent::step_runner::PlanError) -> Self {
+        let message = error.to_string();
+        let mut evidence = PlanCorrectionEvidence::new("plan_lint.plan_input")
+            .with_violated_contract("plan_input_contract")
+            .with_reason_code(plan_error_reason_code(&error))
+            .with_diagnostic(message.clone());
+        match &error {
+            crate::agent::step_runner::PlanError::MissingField(field)
+            | crate::agent::step_runner::PlanError::EmptyField(field) => {
+                evidence = evidence
+                    .with_target_field(field.clone())
+                    .with_missing_literals(vec![field.clone()])
+                    .with_required_action(format!(
+                        "include the required `{field}` field in the corrected plan"
+                    ));
+            }
+            crate::agent::step_runner::PlanError::InvalidEnum { field, value } => {
+                evidence = evidence
+                    .with_target_field(field.clone())
+                    .with_rejected_value(value.clone())
+                    .with_required_action(format!(
+                        "replace `{field}` with a supported canonical value"
+                    ));
+            }
+            crate::agent::step_runner::PlanError::InvalidPlanInput(detail)
+            | crate::agent::step_runner::PlanError::InvalidYaml(detail) => {
+                evidence = evidence
+                    .with_rejected_value(detail.clone())
+                    .with_required_action(
+                        "return a valid CommandAgent plan as YAML or JSON matching the public plan input schema",
+                    );
+            }
+            crate::agent::step_runner::PlanError::NoSteps => {
+                evidence = evidence
+                    .with_target_field("steps")
+                    .with_missing_literals(vec!["steps"])
+                    .with_required_action("include at least one executable step");
+            }
+            crate::agent::step_runner::PlanError::DuplicateStepId(id)
+            | crate::agent::step_runner::PlanError::InvalidStepId(id) => {
+                evidence = evidence
+                    .with_target_field("step.id")
+                    .with_rejected_value(id.clone())
+                    .with_required_action(
+                        "use unique step ids containing only letters, numbers, '-' or '_'",
+                    );
+            }
+            crate::agent::step_runner::PlanError::Io { .. } => {}
+        }
         Self {
-            message: message.into(),
-            correction_evidence: None,
+            message,
+            correction_evidence: Some(Box::new(evidence)),
         }
     }
 
@@ -86,16 +137,29 @@ pub(super) fn parse_generated_step_plan(
     text: &str,
     context: &GeneratedStepPlanContext<'_>,
 ) -> Result<StepPlan, GeneratedPlanError> {
-    let normalized = ensure_generated_plan_header(
-        text,
-        context.goal,
-        context.profile,
-        context.style,
-        context.intent,
-        context.required_artifacts,
-    );
-    let plan = extract_plan_from_response(&normalized)
-        .map_err(|err| GeneratedPlanError::new(err.to_string()))?;
+    let plan = if looks_like_json_plan_input(text) {
+        parse_step_plan_input_with_defaults(
+            text,
+            Some(StepPlanInputDefaults {
+                goal: context.goal,
+                profile: context.profile,
+                style: context.style,
+                intent: context.intent,
+                required_artifacts: context.required_artifacts,
+            }),
+        )
+        .map_err(GeneratedPlanError::from_parse_error)?
+    } else {
+        let normalized = ensure_generated_plan_header(
+            text,
+            context.goal,
+            context.profile,
+            context.style,
+            context.intent,
+            context.required_artifacts,
+        );
+        extract_plan_from_response(&normalized).map_err(GeneratedPlanError::from_parse_error)?
+    };
     match lint_step_plan_with_workspace_and_obligations(
         &plan,
         Some(cwd),
@@ -115,6 +179,20 @@ pub(super) fn parse_generated_step_plan(
                 Err(GeneratedPlanError::from_lint(error))
             }
         }
+    }
+}
+
+fn plan_error_reason_code(error: &crate::agent::step_runner::PlanError) -> &'static str {
+    match error {
+        crate::agent::step_runner::PlanError::MissingField(_) => "plan_input_missing_field",
+        crate::agent::step_runner::PlanError::EmptyField(_) => "plan_input_empty_field",
+        crate::agent::step_runner::PlanError::NoSteps => "plan_input_no_steps",
+        crate::agent::step_runner::PlanError::InvalidStepId(_) => "plan_input_invalid_step_id",
+        crate::agent::step_runner::PlanError::DuplicateStepId(_) => "plan_input_duplicate_step_id",
+        crate::agent::step_runner::PlanError::InvalidPlanInput(_) => "plan_input_invalid_json",
+        crate::agent::step_runner::PlanError::InvalidYaml(_) => "plan_input_invalid_yaml",
+        crate::agent::step_runner::PlanError::InvalidEnum { .. } => "plan_input_invalid_enum",
+        crate::agent::step_runner::PlanError::Io { .. } => "plan_input_io_error",
     }
 }
 

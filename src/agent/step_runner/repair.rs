@@ -1,5 +1,6 @@
 use crate::agent::step_runner::correction_evidence::{ContractEvidence, failure_signature};
 use crate::agent::step_runner::profiles::ProfileVerificationFailure;
+use crate::agent::step_runner::recovery_orchestration::orchestrate_evidence;
 use crate::agent::step_runner::recovery_policy::profile_failure_policy;
 use crate::agent::step_runner::recovery_task::RecoveryTaskContract;
 use crate::agent::step_runner::verify::VerificationFailure;
@@ -510,7 +511,9 @@ fn contract_evidence_section(evidence: &[ContractEvidence]) -> String {
     }
     evidence
         .iter()
-        .filter_map(ContractEvidence::render)
+        .cloned()
+        .map(orchestrate_evidence)
+        .filter_map(|evidence| evidence.render())
         .map(|rendered| indent(&rendered, "  "))
         .enumerate()
         .map(|(index, rendered)| format!("- evidence {}:\n{}", index + 1, rendered))
@@ -578,7 +581,7 @@ fn profile_failure_contract_evidence(
         .with_observed_expected_pairs(vec![profile_observed_expected_pair(failure)])
         .with_repair_focus(profile_repair_focus(failure))
         .with_diagnostic(failure.message.clone());
-    policy.apply_to_evidence(evidence)
+    orchestrate_evidence(policy.apply_to_evidence(evidence))
 }
 
 fn nextjs_tailwind_repair_target(failure: &ProfileVerificationFailure) -> Option<String> {

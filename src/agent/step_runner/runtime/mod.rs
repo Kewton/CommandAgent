@@ -503,6 +503,65 @@ mod tests {
     }
 
     #[test]
+    fn plan_run_accepts_completed_step_after_blocked_bash() {
+        let root = temp_workspace("plan-run-blocked-bash-completed");
+        let plan_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    kind: \"create\"\n    instruction: \"Create README.md with a Usage section.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"grep -q Usage README.md\"\n";
+        let mut planner = MockClient::new(vec![ChatResponse {
+            content: plan_yaml.to_string(),
+            tool_calls: Vec::new(),
+            usage: Default::default(),
+        }]);
+        let mut executor = MockClient::new(vec![ChatResponse {
+            content: String::new(),
+            tool_calls: vec![
+                ToolCall {
+                    id: None,
+                    thought_signature: None,
+                    name: "Write".to_string(),
+                    args_json:
+                        r##"{"path":"README.md","content":"# Demo\n\n## Usage\nRun it.\n"}"##
+                            .to_string(),
+                },
+                ToolCall {
+                    id: None,
+                    thought_signature: None,
+                    name: "Bash".to_string(),
+                    args_json: r#"{"command":"cat README.md && true"}"#.to_string(),
+                },
+            ],
+            usage: Default::default(),
+        }]);
+        let command = SlashCommand {
+            kind: SlashCommandKind::PlanRun,
+            profile: Some("docs".to_string()),
+            style: None,
+            intent: Some("document".to_string()),
+            artifacts: Vec::new(),
+            argument: "Create docs".to_string(),
+        };
+
+        let output = SlashRuntime {
+            executor: &mut executor,
+            planner: &mut planner,
+            cwd: &root,
+            loop_config: MinimalLoopConfig::default(),
+            planner_config: PlannerRuntimeConfig {
+                model: "planner".to_string(),
+                tool_call_mode: ToolCallMode::XmlFallback,
+            },
+        }
+        .run(command)
+        .unwrap();
+
+        assert!(output.contains("step write-readme: ok"), "{output}");
+        assert!(
+            fs::read_to_string(root.join("README.md"))
+                .unwrap()
+                .contains("## Usage")
+        );
+    }
+
+    #[test]
     fn plan_run_emits_step_runner_events() {
         let root = temp_workspace("plan-run-events");
         let plan_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    kind: \"create\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"cat README.md\"\n";
@@ -985,15 +1044,22 @@ mod tests {
     }
 
     #[test]
-    fn plan_run_does_not_enforce_required_artifacts_as_step_gate() {
-        let root = temp_workspace("plan-run-final-artifact-pressure-only");
-        let plan_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    kind: \"create\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"cat README.md\"\n";
-        let mut planner = MockClient::new(vec![ChatResponse {
-            content: plan_yaml.to_string(),
-            tool_calls: Vec::new(),
-
-            usage: Default::default(),
-        }]);
+    fn plan_run_corrects_unowned_required_artifact_before_execution() {
+        let root = temp_workspace("plan-run-required-artifact-owner");
+        let invalid_plan = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    kind: \"create\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"cat README.md\"\n";
+        let corrected_plan = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-final\"\n    kind: \"create\"\n    instruction: \"Create FINAL.md.\"\n    expected_paths:\n      - \"FINAL.md\"\n    verify:\n      - \"cat FINAL.md\"\n";
+        let mut planner = MockClient::new(vec![
+            ChatResponse {
+                content: invalid_plan.to_string(),
+                tool_calls: Vec::new(),
+                usage: Default::default(),
+            },
+            ChatResponse {
+                content: corrected_plan.to_string(),
+                tool_calls: Vec::new(),
+                usage: Default::default(),
+            },
+        ]);
         let mut executor = MockClient::new(vec![
             ChatResponse {
                 content: String::new(),
@@ -1001,13 +1067,13 @@ mod tests {
                     id: None,
                     thought_signature: None,
                     name: "Write".to_string(),
-                    args_json: r#"{"path":"README.md","content":"ok"}"#.to_string(),
+                    args_json: r#"{"path":"FINAL.md","content":"ok"}"#.to_string(),
                 }],
 
                 usage: Default::default(),
             },
             ChatResponse {
-                content: "Created README.md.".to_string(),
+                content: "Created FINAL.md.".to_string(),
                 tool_calls: Vec::new(),
 
                 usage: Default::default(),
@@ -1035,9 +1101,8 @@ mod tests {
         .run(command)
         .unwrap();
 
-        assert!(output.contains("step write-readme: ok"));
-        assert!(root.join("README.md").exists());
-        assert!(!root.join("FINAL.md").exists());
+        assert!(output.contains("step write-final: ok"), "{output}");
+        assert!(root.join("FINAL.md").exists());
     }
 
     #[test]

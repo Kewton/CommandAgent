@@ -42,6 +42,9 @@ and stops boundedly when progress cannot be proven.
 - Split large work into explicit steps instead of relying on a single long
   conversation.
 - Keep planning, execution, verification, and repair as separate contracts.
+- Treat recovery orchestration as a peer contract surface next to planning and
+  execution. It decides the current failure's recovery job and action before
+  the minimal loop is asked to execute a repair.
 - Treat recovery as contract correction, not hidden autonomy.
 - Treat recovery tasks as first-class tasks: clarify what to fix before asking
   the minimal loop to execute the repair.
@@ -55,6 +58,10 @@ and stops boundedly when progress cannot be proven.
 - Treat contract boundary propagation as part of the design. A deterministic
   failure should carry the repair kind, setup implication, and rerun authority
   needed by the next contract layer.
+- Treat artifact relationships as graph data, not scattered path strings. The
+  runtime should distinguish existing artifacts, missing required artifacts,
+  setup manifests, integration targets, generated outputs, and dependency
+  caches before planning, profile verification, setup, or repair.
 - Treat plan files as public contract inputs when they can be produced by
   external planner surfaces, not as incidental runtime text.
 - Treat evaluation scripts and docs as part of the product.
@@ -62,13 +69,14 @@ and stops boundedly when progress cannot be proven.
 CommandAgent's control model is therefore:
 
 ```text
-Task Contract -> Artifact Role and Workspace Scope
-  -> Planning Contract -> Profile Contract -> Active Job Arbitration
-  -> Recovery Policy Contract
-  -> Setup Bootstrap or Recovery Task Contract or Execution Contract
+Task Contract -> ArtifactGraph and Workspace Scope
+  -> Planning Contract -> Profile Contract
+  -> Recovery Orchestration Contract
+       -> Active Job Selection
+       -> Recovery Policy Decision
+       -> Recovery Task Contract or verifier-owned setup recovery
 classified failure -> Contract Boundary Propagation
-  -> Recovery Target Hint -> Recovery Policy Contract
-  -> Recovery Task Contract or verifier-owned setup recovery
+  -> Recovery Orchestration Contract
   -> Attempt Ledger and original guard/verifier rerun
   -> Execution Contract
 ```
@@ -77,6 +85,14 @@ The non-execution contracts are orchestration boundaries, not additional
 execution engines. They exist so normal work, setup work, and repair work can
 be classified and narrowed before delegation to the minimal loop instead of
 asking the loop to infer strategy from broad prose.
+
+The Recovery Orchestration Contract is the explicit owner of failure-time
+strategy selection. It consumes structured failure evidence and the
+ArtifactGraph, selects exactly one active recovery job for the current blocker,
+selects or rejects a repair action, projects the tool policy for that action,
+and hands a bounded Recovery Task Contract or setup action to the existing
+Execution Contract. It must not execute tools, advance arbitrary future phases,
+or retry until success.
 
 ## Stability And Predictability
 
@@ -189,7 +205,47 @@ admission line away from "small only" and toward "explicit, bounded, and
 attributable." The system may be more capable than the earliest MVP, but it
 must remain explainable from visible contract data.
 
+## Recovery Orchestration Contract
+
+Recovery Orchestration Contract is the explicit failure-time counterpart to
+Planning Contract. Planning Contract decomposes normal work before execution.
+Recovery Orchestration Contract classifies a deterministic failure before
+repair. It is not an execution engine; it is a typed decision boundary that
+keeps repair strategy out of the minimal loop while keeping all repair actions
+visible and bounded.
+
+The orchestration flow is:
+
+```text
+FailureEvidence
+  -> Failure Classification
+  -> ArtifactGraph / Obligation Mapping
+  -> Recovery Job Selection
+  -> Recovery Action Plan
+  -> Tool Policy Projection
+  -> Minimal Loop Execution
+  -> Original Guard / Verifier Rerun
+  -> Success or Explicit Stop
+```
+
+This layer owns the decision "what kind of recovery is this?" for the current
+blocker. It may classify the job as setup bootstrap, manifest repair, route
+integration repair, missing artifact creation, source implementation repair,
+test repair, documentation repair, verifier policy repair, tool protocol
+repair, plan correction, or explicit stop. It may also reject recovery when no
+deterministic target or action can be admitted.
+
+It must not execute tools, choose arbitrary later phases, increase retry
+budgets, run dependency setup from an ordinary repair turn, weaken verifiers,
+or add provider/model-specific behavior. Its output is contract data consumed
+by Setup Bootstrap, Recovery Task Contract, Execution Contract, and Attempt
+Ledger.
+
 ## Recovery Policy Contract
+
+Recovery Policy Contract is the policy-decision part of Recovery Orchestration
+Contract. Structured evidence says what failed; recovery policy decides, from
+deterministic facts, what single recovery action is allowed next.
 
 Recovery Policy Contract is the contract layer between structured failure
 evidence and a rendered recovery task. It is not a workflow engine and it does
@@ -200,7 +256,7 @@ The policy consumes only deterministic inputs:
 
 - violated contract, failure code, and stable failure signature
 - profile or verifier evidence
-- classified artifact roles and workspace scope
+- ArtifactGraph facts, classified artifact roles, and workspace scope
 - recovery target hints from the rejecting guard
 - setup implication and rerun authority
 - prior bounded attempts for the same target and failure class
@@ -236,6 +292,46 @@ build` as the original success checks.
 The policy must stay provider-independent and bounded. It must not increase
 retry budgets, pick arbitrary future phases, run dependency setup from an
 ordinary repair turn, weaken a verifier, or encode model-specific behavior.
+
+## ArtifactGraph
+
+ArtifactGraph is the shared representation of artifact relationships used by
+planning, profiles, setup, verification, and recovery. It is not a dependency
+graph builder, compiler, or framework runtime. It is deterministic contract
+data built from facts CommandAgent already has: requested artifacts, step
+expected paths, workspace observations, profile facts, verifier references,
+and setup outputs.
+
+The graph should preserve these distinctions:
+
+- `existing`: present in the workspace before the current step or phase
+- `required`: requested by the user, eval case, profile obligation, or plan
+- `to_be_created`: required but not present yet
+- `setup_manifest`: package, build, config, or framework setup artifact
+- `integration_target`: route, entry point, module, test, or document that must
+  reference another artifact
+- `implementation`: source artifact that implements behavior
+- `test`: artifact that checks behavior
+- `generated_output`: build output, generated declarations, lock-derived files,
+  and dependency caches that should not become repair targets by observation
+  alone
+
+The graph should answer bounded questions for other contracts:
+
+- Can this step inspect the path, create it, edit it, verify it, or only report
+  it?
+- Is this path an existing artifact, a missing required artifact, or a future
+  output of a later phase?
+- Is this artifact eligible as a repair target, or only as context?
+- Is this artifact disconnected from a selected integration target?
+- Does changing this setup manifest imply dependency setup freshness must be
+  reconsidered before rerunning the verifier?
+
+Profiles may add domain-specific edges such as selected Next.js route
+integration, but the graph remains contract data. It must not execute code,
+run package managers, score UI quality, or choose a workflow. If the graph
+cannot distinguish a path deterministically, recovery should stop with
+evidence instead of guessing.
 
 ## Plan Files As Public Contracts
 

@@ -22,7 +22,7 @@ def read_cases(cases_dir):
 
 
 def read_case(path):
-    data = {"required_paths": [], "must_include": {}}
+    data = {"required_paths": [], "must_include": {}, "type": "semantic"}
     in_success_check = False
     in_required_paths = False
     in_must_include = False
@@ -45,6 +45,10 @@ def read_case(path):
                     data["id"] = unquote(value.strip())
             elif in_success_check and indent == 2 and stripped == "required_paths:":
                 in_required_paths = True
+                in_must_include = False
+            elif in_success_check and indent == 2 and stripped.startswith("type:"):
+                data["type"] = unquote(stripped.split(":", 1)[1].strip())
+                in_required_paths = False
                 in_must_include = False
             elif in_success_check and indent == 2 and stripped == "must_include:":
                 in_required_paths = False
@@ -74,7 +78,16 @@ def read_summary(path):
 
 
 def write_summary(path, rows):
-    fieldnames = ["case_id", "run", "rc", "elapsed_ms", "success", "reason"]
+    fieldnames = [
+        "case_id",
+        "run",
+        "rc",
+        "elapsed_ms",
+        "success",
+        "reason",
+        "failure_category",
+        "contract_layer",
+    ]
     with open(path, "w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, delimiter="\t", fieldnames=fieldnames)
         writer.writeheader()
@@ -85,7 +98,10 @@ def recheck(root, cases):
     rows = []
     for meta_path in sorted(root.glob("*/*/meta.json")):
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        case = cases.get(meta["case_id"], {"required_paths": [], "must_include": {}})
+        case = cases.get(
+            meta["case_id"],
+            {"required_paths": [], "must_include": {}, "type": "semantic"},
+        )
         workspace = meta_path.parent / "workspace"
         missing = [
             path for path in case["required_paths"] if not (workspace / path).exists()
@@ -93,6 +109,19 @@ def recheck(root, cases):
         mismatches = semantic_mismatches(workspace, case, missing)
         rc = int(meta.get("rc", 1))
         success = rc == 0 and not missing and not mismatches
+        reason = (
+            "ok"
+            if success
+            else (
+                "semantic_missing:" + ",".join(missing)
+                if missing
+                else (
+                    "semantic_mismatch:" + ",".join(mismatches)
+                    if mismatches
+                    else f"rc:{rc}"
+                )
+            )
+        )
         rows.append(
             {
                 "case_id": meta["case_id"],
@@ -100,17 +129,9 @@ def recheck(root, cases):
                 "rc": str(rc),
                 "elapsed_ms": str(meta.get("elapsed_ms", 0)),
                 "success": str(success).lower(),
-                "reason": "ok"
-                if success
-                else (
-                    "semantic_missing:" + ",".join(missing)
-                    if missing
-                    else (
-                        "semantic_mismatch:" + ",".join(mismatches)
-                        if mismatches
-                        else f"rc:{rc}"
-                    )
-                ),
+                "reason": reason,
+                "failure_category": categorize(reason),
+                "contract_layer": contract_layer(reason),
             }
         )
     out = root / "recheck_summary.tsv"
@@ -128,9 +149,15 @@ def semantic_mismatches(workspace, case, missing):
             continue
         text = target.read_text(encoding="utf-8", errors="replace")
         for needle in needles:
-            if needle not in text:
+            if not semantic_contains(text, needle, case):
                 mismatches.append(f"{path}:{needle}")
     return mismatches
+
+
+def semantic_contains(text, needle, case):
+    if case.get("type") == "semantic":
+        return needle.casefold() in text.casefold()
+    return needle in text
 
 
 def categorize(reason):
@@ -184,13 +211,36 @@ def categorize(reason):
     return "unknown"
 
 
+def contract_layer(reason):
+    category = categorize(reason)
+    if category == "planning":
+        return "planning_contract"
+    if category in ("provider_transport", "tool_protocol", "step_policy"):
+        return "execution_contract"
+    if category == "profile":
+        return "profile_contract"
+    if category == "setup":
+        return "setup_bootstrap_contract"
+    if category == "verifier":
+        return "verification_contract"
+    if category == "quality":
+        return "eval_success_contract"
+    if category == "ok":
+        return "ok"
+    return "unknown_contract"
+
+
 def render_report(rows):
     total = len(rows)
     success = sum(1 for row in rows if row["success"] == "true")
     categories = {}
+    layers = {}
     by_case = {}
     for row in rows:
-        categories[categorize(row["reason"])] = categories.get(categorize(row["reason"]), 0) + 1
+        category = row.get("failure_category") or categorize(row["reason"])
+        layer = row.get("contract_layer") or contract_layer(row["reason"])
+        categories[category] = categories.get(category, 0) + 1
+        layers[layer] = layers.get(layer, 0) + 1
         stats = by_case.setdefault(row["case_id"], [0, 0])
         stats[1] += 1
         if row["success"] == "true":
@@ -204,6 +254,9 @@ def render_report(rows):
         "## Failure Categories",
     ]
     for name, count in sorted(categories.items()):
+        lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Contract Layers"])
+    for name, count in sorted(layers.items()):
         lines.append(f"- {name}: {count}")
     lines.extend(["", "## By Case"])
     for case_id, (case_success, case_total) in sorted(by_case.items()):

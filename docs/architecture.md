@@ -16,15 +16,16 @@ surfaces around it:
 - Profile Contract: provides deterministic domain facts, artifact
   classification, obligations, verifier hints, protected paths, and
   profile-verification evidence without owning workflow control.
-- Artifact Role and Workspace Scope Contract: classifies paths before they are
-  used for plan lint, setup bootstrap, verification, route integration, or
-  repair targeting.
-- Active Job Arbitration Contract: classifies the current blocker as setup,
-  manifest, route integration, source implementation, verifier policy,
-  documentation, or explicit stop before a repair task is rendered.
-- Recovery Policy Contract: consumes deterministic failure evidence,
-  artifact-role facts, active job classification, and recovery target hints to
-  admit and prioritize repair targets and select one allowed repair action.
+- ArtifactGraph and Workspace Scope Contract: classifies artifact lifecycle,
+  roles, relationships, and in-scope paths before they are used for plan lint,
+  setup bootstrap, verification, route integration, or repair targeting.
+- Recovery Orchestration Contract: consumes deterministic failure evidence and
+  artifact graph facts, selects the active recovery job for the current
+  blocker, selects or rejects the repair action, projects the tool policy, and
+  hands a bounded recovery task or setup action to execution.
+- Recovery Policy Contract: the policy-decision part of recovery orchestration.
+  It admits and prioritizes repair targets and selects one allowed repair
+  action from deterministic evidence.
 - Setup Bootstrap Contract: owns bounded dependency setup, setup/config
   artifact preparation, and deterministic manifest/scaffold materialization
   when a profile can name the required setup artifacts.
@@ -38,12 +39,12 @@ surfaces around it:
 
 Contract Boundary Propagation is the handoff rule between these surfaces, not a
 second execution engine. When a deterministic guard rejects work, it may pass
-only the facts it owns to the next layer: violated contract, active job, repair
-kind, admitted target, repair action when deterministic, setup implication,
-rerun authority, and attempt-ledger context. This lets Recovery Policy
-Contract, Recovery Task Contract, or verifier-owned setup recovery choose the
-correct bounded path without asking the minimal loop to infer strategy from
-broad failure prose.
+only the facts it owns to the next layer: violated contract, artifact graph
+facts, active job, repair kind, admitted target, repair action when
+deterministic, setup implication, rerun authority, and attempt-ledger context.
+This lets Recovery Orchestration Contract choose the correct bounded path
+before Recovery Task Contract, Setup Bootstrap, or verifier-owned setup
+recovery delegates execution to the minimal loop.
 
 These fields are rendered through existing contract evidence and recovery task
 payloads. For example, `repair_kind=manifest_dependency_repair` can target
@@ -76,24 +77,26 @@ TypeScript app that drifted to TypeScript 6 or `@types/react` 19. Profiles
 still must not execute package managers, query registries, choose workflows, or
 retry setup.
 
-The Recovery Policy Contract is not an execution engine. It does not retry
-until success or continue hidden work. It is a deterministic decision layer
-that prepares the repair policy when a guard, verifier, profile check, or
-active job arbiter already knows enough to classify the blocker, admit the
-target, prioritize candidates, select one allowed repair action, and name
-disallowed actions and rerun authority.
+The Recovery Orchestration Contract is not an execution engine. It does not
+retry until success or continue hidden work. It is a deterministic decision
+layer that prepares the repair path when a guard, verifier, profile check, or
+plan lint failure already knows enough to classify the blocker, map it to the
+ArtifactGraph, admit the target, prioritize candidates, select one allowed
+repair action, project tool policy, and name disallowed actions and rerun
+authority.
 
 The Recovery Task Contract renders that policy into the next bounded repair
 turn for the minimal loop. It should not decide the repair strategy from broad
 prose; it should consume the Recovery Policy decision and make the executable
 repair instruction clear.
 
-In short, planning, setup, job arbitration, recovery policy, and recovery tasks
-clarify what should be done; the minimal loop executes the already-clarified
-task. Profiles classify and verify domain facts for those contracts. If
-CommandAgent cannot form a deterministic job classification, policy decision,
-or recovery task, it should stop with structured evidence instead of asking the
-minimal loop to infer the repair strategy from broad failure prose.
+In short, planning, setup, recovery orchestration, recovery policy, and
+recovery tasks clarify what should be done; the minimal loop executes the
+already-clarified task. Profiles classify and verify domain facts for those
+contracts. If CommandAgent cannot form a deterministic artifact graph mapping,
+job classification, policy decision, or recovery task, it should stop with
+structured evidence instead of asking the minimal loop to infer the repair
+strategy from broad failure prose.
 
 Propagation must stay visible and bounded. It can route a manifest dependency
 repair toward `package.json`, mark dependency setup stale after that manifest
@@ -149,7 +152,7 @@ The envelope must not add retry authority or provider/model-specific behavior.
 | Provider | HTTP/API transport, provider-specific payload shapes | Planning, repair policy, profile behavior |
 | Minimal loop | Tool-call execution, observations, bounded completion guards | Multi-step plans, recovery strategy, domain profiles, unbounded retry |
 | Profile | Domain facts, artifact classification, verifier hints, protected prefixes, profile evidence, setup artifact templates | Hidden task-specific agents, execution policy, package-registry solving |
-| Step runner | Plan schema, step-decomposition lint, verifier, active job arbitration, recovery policy, setup bootstrap, recovery task contracts, repair packet, attempt ledger, ultra phase order | Provider transport, low-level tool implementation, unbounded workflow control |
+| Step runner | Plan schema, step-decomposition lint, ArtifactGraph projection, verifier, recovery orchestration, active job selection, recovery policy, setup bootstrap, recovery task contracts, repair packet, attempt ledger, ultra phase order | Provider transport, low-level tool implementation, unbounded workflow control |
 | TUI | TTY-aware rendering of runtime events and final answers | Planning, repair, retry, provider parsing, filesystem policy |
 | Tools | Deterministic workspace actions | Task interpretation or planning |
 | Eval | Run roots, summaries, recheck, reports | Runtime behavior changes |
@@ -186,7 +189,9 @@ runtime control path.
 projected through an `EvidenceEnvelope` and typed `EvidencePayload` variants:
 planning, provider transport, tool protocol, step policy, verification,
 profile, setup, recovery attempt, or unsupported. Evidence describes what
-failed. Recovery Policy and Recovery Task still own what to do next.
+failed. ArtifactGraph describes which artifacts and relationships are involved.
+Recovery Orchestration, Recovery Policy, and Recovery Task still own what to do
+next.
 
 Provider usage is normalized into a common `ModelUsage` shape at the provider
 parse boundary and carried on `ChatResponse` into runtime events. Missing usage
