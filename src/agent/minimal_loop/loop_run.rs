@@ -98,12 +98,14 @@ where
                 return Err(err);
             }
         };
+        let elapsed_ms = started.elapsed().as_millis();
         observer.on_event(RuntimeEvent::ModelResponseReceived {
             iteration,
             tool_call_mode: mode,
             tool_call_count: response.tool_calls.len(),
             content_chars: response.content.chars().count(),
-            elapsed_ms: started.elapsed().as_millis(),
+            elapsed_ms,
+            usage: response.usage.clone().with_latency(elapsed_ms as u64),
         });
 
         let calls = tool_calls_from_response(&response, mode);
@@ -413,10 +415,14 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"path":"nested/hello.txt","content":"hello"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Created nested/hello.txt.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
 
@@ -448,10 +454,14 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"path":"nested/file.txt","content":"secret"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Created nested/file.txt.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
         let mut observer = CaptureObserver::default();
@@ -503,10 +513,14 @@ mod tests {
             ChatResponse {
                 content: "<commandagent_tool_call>{\"name\":\"Write\"".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Recovered.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
 
@@ -534,10 +548,14 @@ mod tests {
                     "gemini_native_function_call_missing_name",
                 ),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Recovered.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
 
@@ -563,10 +581,14 @@ mod tests {
             ChatResponse {
                 content: "<commandagent_tool_call>{\"name\":\"Write\"".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "No changes needed.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
         let mut observer = CaptureObserver::default();
@@ -601,6 +623,8 @@ mod tests {
             ChatResponse {
                 content: "Now I'll create the files.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: String::new(),
@@ -610,10 +634,14 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"path":"created.txt","content":"ok"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Created created.txt.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
 
@@ -642,10 +670,14 @@ mod tests {
             ChatResponse {
                 content: "Now I'll create the files.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Let me write the file now.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
 
@@ -667,11 +699,13 @@ mod tests {
             ChatResponse {
                 content: r#"<commandagent_tool_call>{"name":"Write","args":{"path":"a.txt","content":"x"}}</commandagent_tool_call>"#.to_string(),
                 tool_calls: Vec::new(),
-            },
+
+                usage: Default::default(),},
             ChatResponse {
                 content: "Created a.txt.".to_string(),
                 tool_calls: Vec::new(),
-            },
+
+                usage: Default::default(),},
         ]);
 
         run_session(
@@ -694,6 +728,8 @@ mod tests {
         let mut client = MockClient::new(vec![ChatResponse {
             content: "Done.".to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         }]);
 
         let result = run_session(
@@ -721,6 +757,8 @@ mod tests {
             ChatResponse {
                 content: "Done.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: String::new(),
@@ -730,10 +768,14 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"path":"created.txt","content":"ok"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Created created.txt.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
         let mut observer = CaptureObserver::default();
@@ -774,10 +816,14 @@ mod tests {
             ChatResponse {
                 content: "Done.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Still done.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
 
@@ -807,6 +853,8 @@ mod tests {
             ChatResponse {
                 content: "Already checked package.json.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: String::new(),
@@ -816,10 +864,14 @@ mod tests {
                     name: "Read".to_string(),
                     args_json: r#"{"path":"package.json"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Read package.json and confirmed the build script.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
 
@@ -855,10 +907,14 @@ mod tests {
             ChatResponse {
                 content: "package.json looks fine.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "I already inspected package.json.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
 
@@ -884,6 +940,8 @@ mod tests {
             ChatResponse {
                 content: "Done.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: String::new(),
@@ -893,10 +951,14 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"path":"dist/report.md","content":"ok"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Created dist/report.md.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
 
@@ -931,10 +993,14 @@ mod tests {
             ChatResponse {
                 content: "Done.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "No changes needed.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
 
@@ -962,10 +1028,12 @@ mod tests {
             ChatResponse {
                 content: "Done.".to_string(),
                 tool_calls: Vec::new(),
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Still done.".to_string(),
                 tool_calls: Vec::new(),
+                usage: Default::default(),
             },
         ]);
         let mut observer = CaptureObserver::default();

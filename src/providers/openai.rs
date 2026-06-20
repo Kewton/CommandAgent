@@ -1,4 +1,5 @@
 use crate::config::Provider;
+use crate::providers::usage::extract_usage;
 use crate::providers::xml_fallback::extract_tool_calls_with_content;
 use crate::providers::{
     ChatMessage, ChatProvider, ChatRequest, ChatResponse, ChatRole, ExecutorProvider,
@@ -225,14 +226,12 @@ impl std::error::Error for OpenAiError {}
 fn parse_response(body: &str) -> Result<ChatResponse, OpenAiError> {
     let value: Value =
         serde_json::from_str(body).map_err(|err| OpenAiError::Json(err.to_string()))?;
+    let usage = extract_usage(Provider::OpenAi, &value);
 
     if let Some(output_text) = value.get("output_text").and_then(Value::as_str) {
         let extraction = extract_tool_calls_with_content(output_text)
             .map_err(|err| OpenAiError::Json(err.to_string()))?;
-        return Ok(ChatResponse {
-            content: extraction.content,
-            tool_calls: extraction.tool_calls,
-        });
+        return Ok(ChatResponse::new(extraction.content, extraction.tool_calls).with_usage(usage));
     }
 
     let mut parts = Vec::new();
@@ -266,10 +265,7 @@ fn parse_response(body: &str) -> Result<ChatResponse, OpenAiError> {
     let extraction = extract_tool_calls_with_content(&content)
         .map_err(|err| OpenAiError::Json(err.to_string()))?;
 
-    Ok(ChatResponse {
-        content: extraction.content,
-        tool_calls: extraction.tool_calls,
-    })
+    Ok(ChatResponse::new(extraction.content, extraction.tool_calls).with_usage(usage))
 }
 
 fn ensure_success(status: u16, body: &str) -> Result<(), OpenAiError> {
@@ -368,7 +364,7 @@ mod tests {
     fn chat_parses_xml_tool_call_from_output_text() {
         let transport = MockTransport::with_responses([Ok(HttpResponse {
             status: 200,
-            body: r#"{"output_text":"<commandagent_tool_call>{\"name\":\"Write\",\"args\":{\"path\":\"hello.txt\",\"content\":\"ok\"}}</commandagent_tool_call>"}"#
+            body: r#"{"output_text":"<commandagent_tool_call>{\"name\":\"Write\",\"args\":{\"path\":\"hello.txt\",\"content\":\"ok\"}}</commandagent_tool_call>","usage":{"input_tokens":13,"output_tokens":5,"total_tokens":18}}"#
                 .to_string(),
         })]);
         let client = OpenAiClient::with_transport(
@@ -394,6 +390,10 @@ mod tests {
             response.tool_calls[0].args_json,
             r#"{"content":"ok","path":"hello.txt"}"#
         );
+        assert_eq!(response.usage.input_tokens, Some(13));
+        assert_eq!(response.usage.output_tokens, Some(5));
+        assert_eq!(response.usage.total_tokens, Some(18));
+        assert!(response.usage.unavailable_reason.is_none());
     }
 
     #[test]

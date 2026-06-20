@@ -232,24 +232,18 @@ mod tests {
     fn minimal_repl_dispatches_plan_run_slash_command() {
         let root = temp_workspace("slash-plan-run");
         let plan_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"cat README.md\"\n";
-        let planner = MockChatClient::new(vec![ChatResponse {
-            content: plan_yaml.to_string(),
-            tool_calls: Vec::new(),
-        }]);
+        let planner = MockChatClient::new(vec![ChatResponse::new(plan_yaml, Vec::new())]);
         let executor = MockChatClient::new(vec![
-            ChatResponse {
-                content: String::new(),
-                tool_calls: vec![ToolCall {
+            ChatResponse::new(
+                String::new(),
+                vec![ToolCall {
                     id: None,
                     thought_signature: None,
                     name: "Write".to_string(),
                     args_json: r#"{"path":"README.md","content":"ok"}"#.to_string(),
                 }],
-            },
-            ChatResponse {
-                content: "Created README.md.".to_string(),
-                tool_calls: Vec::new(),
-            },
+            ),
+            ChatResponse::new("Created README.md.", Vec::new()),
         ]);
         let mut runner = MinimalReplRunner::new(
             executor,

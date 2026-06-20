@@ -15,10 +15,14 @@ fn xml_parse_failure_downgrades_public_session() {
         ChatResponse {
             content: "<commandagent_tool_call>{\"name\":\"Write\"".to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         },
         ChatResponse {
             content: "No changes needed.".to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         },
     ]);
 
@@ -50,6 +54,8 @@ fn requested_artifact_feedback_is_public_behavior() {
         ChatResponse {
             content: "Created the requested artifact.".to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         },
         ChatResponse {
             content: String::new(),
@@ -59,10 +65,14 @@ fn requested_artifact_feedback_is_public_behavior() {
                 name: "Write".to_string(),
                 args_json: r#"{"path":"dist/report.md","content":"ok"}"#.to_string(),
             }],
+
+            usage: Default::default(),
         },
         ChatResponse {
             content: "Created dist/report.md.".to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         },
     ]);
     let config = MinimalLoopConfig {
@@ -90,6 +100,8 @@ fn xml_fallback_prompt_exposes_tool_argument_shapes() {
         ChatResponse {
             content: "No changes needed.".to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         },
         ChatResponse {
             content: String::new(),
@@ -99,10 +111,14 @@ fn xml_fallback_prompt_exposes_tool_argument_shapes() {
                 name: "Write".to_string(),
                 args_json: r#"{"path":"out.txt","content":"ok"}"#.to_string(),
             }],
+
+            usage: Default::default(),
         },
         ChatResponse {
             content: "Created out.txt.".to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         },
     ]);
     let config = MinimalLoopConfig {
@@ -143,11 +159,13 @@ fn parsed_tool_calls_do_not_double_execute_xml_content() {
                 name: "Write".to_string(),
                 args_json: r#"{"path":"out.txt","content":"from-tool-call"}"#.to_string(),
             }],
-        },
+
+            usage: Default::default(),},
         ChatResponse {
             content: "Created out.txt.".to_string(),
             tool_calls: Vec::new(),
-        },
+
+            usage: Default::default(),},
     ]);
 
     let result = run_session(
@@ -177,10 +195,14 @@ fn xml_fallback_tool_calls_are_preserved_in_assistant_history() {
                 name: "Write".to_string(),
                 args_json: r#"{"path":"out.txt","content":"ok"}"#.to_string(),
             }],
+
+            usage: Default::default(),
         },
         ChatResponse {
             content: "Created out.txt.".to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         },
     ]);
     let config = MinimalLoopConfig {
@@ -202,6 +224,8 @@ fn action_required_feedback_fires_once() {
         ChatResponse {
             content: "No changes needed.".to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         },
         ChatResponse {
             content: String::new(),
@@ -211,10 +235,14 @@ fn action_required_feedback_fires_once() {
                 name: "Write".to_string(),
                 args_json: r#"{"path":"out.txt","content":"ok"}"#.to_string(),
             }],
+
+            usage: Default::default(),
         },
         ChatResponse {
             content: "Created out.txt.".to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         },
     ]);
     let config = MinimalLoopConfig {
@@ -239,10 +267,14 @@ fn missing_artifact_after_feedback_is_public_error() {
         ChatResponse {
             content: "Created the requested artifact.".to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         },
         ChatResponse {
             content: "The requested artifact is complete.".to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         },
     ]);
     let config = MinimalLoopConfig {

@@ -188,10 +188,10 @@ planning, provider transport, tool protocol, step policy, verification,
 profile, setup, recovery attempt, or unsupported. Evidence describes what
 failed. Recovery Policy and Recovery Task still own what to do next.
 
-Provider usage is normalized into a common `ModelUsage` shape when provider
-responses expose token metadata. Missing usage is recorded as unavailable,
-not as a runtime failure. Cost records are separate from usage records and may
-remain unavailable when pricing is not configured.
+Provider usage is normalized into a common `ModelUsage` shape at the provider
+parse boundary and carried on `ChatResponse` into runtime events. Missing usage
+is recorded as unavailable, not as a runtime failure. Cost records are separate
+from usage records and may remain unavailable when pricing is not configured.
 
 Tool results are subject to deterministic output budgeting. If a result is
 truncated, CommandAgent emits a truncation event and includes a marker in the

@@ -6,6 +6,7 @@ pub mod usage;
 pub mod xml_fallback;
 
 use crate::config::Provider;
+use crate::providers::usage::ModelUsage;
 use serde_json::Value;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,6 +97,22 @@ pub struct ChatRequest {
 pub struct ChatResponse {
     pub content: String,
     pub tool_calls: Vec<ToolCall>,
+    pub usage: ModelUsage,
+}
+
+impl ChatResponse {
+    pub fn new(content: impl Into<String>, tool_calls: Vec<ToolCall>) -> Self {
+        Self {
+            content: content.into(),
+            tool_calls,
+            usage: ModelUsage::unavailable("usage_not_provided_by_mock_response"),
+        }
+    }
+
+    pub fn with_usage(mut self, usage: ModelUsage) -> Self {
+        self.usage = usage;
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

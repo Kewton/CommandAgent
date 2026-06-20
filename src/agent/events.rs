@@ -1,4 +1,5 @@
 use crate::providers::ToolCallMode;
+use crate::providers::usage::ModelUsage;
 
 pub const MAX_EVENT_TEXT_CHARS: usize = 160;
 
@@ -99,6 +100,7 @@ pub enum RuntimeEvent {
         tool_call_count: usize,
         content_chars: usize,
         elapsed_ms: u128,
+        usage: ModelUsage,
     },
     ParserFeedbackSent {
         iteration: usize,

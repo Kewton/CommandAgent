@@ -1,6 +1,7 @@
 use crate::agent::events::{
     ArtifactScope, ArtifactStatus, GuardFeedbackKind, PlanKind, RuntimeEvent, RuntimeObserver,
 };
+use crate::providers::usage::ModelUsage;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::fs::{File, OpenOptions};
@@ -532,12 +533,13 @@ fn runtime_event_payload(
             tool_call_count,
             content_chars,
             elapsed_ms,
+            usage,
         } => (
             "model_response.received".to_string(),
             None,
             None,
             Some(format!("iteration_{iteration}")),
-            json!({"iteration": iteration, "tool_call_mode": tool_call_mode_text(*tool_call_mode), "tool_call_count": tool_call_count, "content_chars": content_chars, "elapsed_ms": elapsed_ms, "usage": {"available": false, "reason": "provider_usage_not_attached_to_chat_response"}}),
+            json!({"iteration": iteration, "tool_call_mode": tool_call_mode_text(*tool_call_mode), "tool_call_count": tool_call_count, "content_chars": content_chars, "elapsed_ms": elapsed_ms, "usage": usage_payload(usage)}),
         ),
         RuntimeEvent::ParserFeedbackSent {
             iteration,
@@ -629,6 +631,31 @@ fn runtime_event_payload(
             json!({"message": message}),
         ),
     }
+}
+
+fn usage_payload(usage: &ModelUsage) -> Value {
+    let mut value = serde_json::to_value(usage).unwrap_or_else(|_| json!({}));
+    let has_token_metadata = usage.input_tokens.is_some()
+        || usage.cached_input_tokens.is_some()
+        || usage.output_tokens.is_some()
+        || usage.reasoning_tokens.is_some()
+        || usage.total_tokens.is_some();
+    let available = usage.unavailable_reason.is_none() && has_token_metadata;
+    if let Value::Object(map) = &mut value {
+        map.insert("available".to_string(), json!(available));
+        if !available {
+            map.insert(
+                "reason".to_string(),
+                json!(
+                    usage
+                        .unavailable_reason
+                        .as_deref()
+                        .unwrap_or("usage_metadata_missing")
+                ),
+            );
+        }
+    }
+    value
 }
 
 fn plan_kind(kind: PlanKind) -> &'static str {
@@ -764,10 +791,42 @@ mod tests {
             tool_call_count: 0,
             content_chars: 12,
             elapsed_ms: 30,
+            usage: ModelUsage::unavailable("provider_usage_missing"),
         });
 
         assert_eq!(event.event_type, "model_response.received");
         assert_eq!(event.payload["usage"]["available"], false);
+        assert_eq!(event.payload["usage"]["reason"], "provider_usage_missing");
+    }
+
+    #[test]
+    fn model_response_event_records_attached_usage() {
+        let mut context = EventProtocolContext::new(
+            "run1",
+            "job1",
+            EventSource::commandagent("worker", Some("gemini".to_string()), None),
+        );
+
+        let event = context.next_runtime_event(&RuntimeEvent::ModelResponseReceived {
+            iteration: 1,
+            tool_call_mode: ToolCallMode::Native,
+            tool_call_count: 0,
+            content_chars: 12,
+            elapsed_ms: 30,
+            usage: ModelUsage {
+                input_tokens: Some(10),
+                output_tokens: Some(5),
+                total_tokens: Some(15),
+                request_count: 1,
+                ..ModelUsage::default()
+            },
+        });
+
+        assert_eq!(event.event_type, "model_response.received");
+        assert_eq!(event.payload["usage"]["available"], true);
+        assert_eq!(event.payload["usage"]["input_tokens"], 10);
+        assert_eq!(event.payload["usage"]["output_tokens"], 5);
+        assert_eq!(event.payload["usage"]["total_tokens"], 15);
     }
 
     #[test]

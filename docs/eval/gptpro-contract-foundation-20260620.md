@@ -61,7 +61,19 @@ workspace under `/private/tmp`.
 - created artifact: `/private/tmp/commandagent-gptpro-e2e/e2e_gptpro_marker.txt`
 - artifact content: `ok`
 - event evidence: `model_request.started`, `model_response.received`, `tool_call.started`, `tool_call.finished`, and `final_answer.accepted`
-- usage boundary: `usage.available=false` with reason `provider_usage_not_attached_to_chat_response`
+- initial usage boundary: `usage.available=false` with reason `provider_usage_not_attached_to_chat_response`
+- follow-up implementation: provider usage is now parsed into `ChatResponse`
+  and emitted on `model_response.received`; missing provider metadata remains
+  `usage.available=false` with the provider-specific unavailable reason
+
+Focused E2E was rerun after wiring provider usage into `ChatResponse`.
+
+- command shape: `COMMANDAGENT_EVENT_JSONL=/private/tmp/commandagent-gptpro-usage-events-21165.jsonl target/release/commandagent --yes --provider gemini --model gemini-3.1-flash-lite "<file creation prompt>"`
+- result: success
+- created artifact: `/private/tmp/commandagent-gptpro-e2e/e2e_gptpro_usage_marker.txt`
+- artifact content: `ok`
+- event evidence: both `model_response.received` events recorded `usage.available=true`
+- observed usage sample: iteration 1 recorded `input_tokens=546`, `output_tokens=31`, `total_tokens=577`; iteration 2 recorded `input_tokens=590`, `output_tokens=21`, `total_tokens=611`
 
 An earlier local Ollama one-shot attempt failed before model response because
 `127.0.0.1:11434` was not reachable. That failure still produced a versioned

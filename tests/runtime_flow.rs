@@ -155,10 +155,7 @@ fn ultra_plan_run_command(argument: &str, profile: &str, artifacts: Vec<String>)
 }
 
 fn text_response(content: impl Into<String>) -> ChatResponse {
-    ChatResponse {
-        content: content.into(),
-        tool_calls: Vec::new(),
-    }
+    ChatResponse::new(content, Vec::new())
 }
 
 fn no_change_response() -> ChatResponse {
@@ -167,9 +164,9 @@ fn no_change_response() -> ChatResponse {
 
 fn write_responses(path: &str, content: &str, final_answer: &str) -> Vec<ChatResponse> {
     vec![
-        ChatResponse {
-            content: String::new(),
-            tool_calls: vec![ToolCall {
+        ChatResponse::new(
+            String::new(),
+            vec![ToolCall {
                 id: None,
                 thought_signature: None,
                 name: "Write".to_string(),
@@ -179,7 +176,7 @@ fn write_responses(path: &str, content: &str, final_answer: &str) -> Vec<ChatRes
                     json_escape(content)
                 ),
             }],
-        },
+        ),
         text_response(final_answer),
     ]
 }

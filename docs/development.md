@@ -256,7 +256,10 @@ budget behavior require compatibility tests. At minimum, verify:
   without panicking;
 - replay projection derives the expected job state from ordered events;
 - budget exceeded behavior is explicit and finite;
-- usage unavailable is recorded as unavailable instead of treated as failure.
+- provider token usage is carried from `ChatResponse` into runtime events when
+  present;
+- usage unavailable is recorded as unavailable instead of treated as failure
+  when provider metadata is absent.
 
 One-shot runs can record external events with:
 
