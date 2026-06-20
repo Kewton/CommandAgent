@@ -35,6 +35,32 @@ Architectural boundaries live in `AGENTS.md`, `docs/philosophy.md`, and
   worktree agent operations instead of silently manipulating another branch
   from the current checkout.
 
+## Repo-Local Codex Harness
+
+Repository-local Codex skills live under `.codex/skills`. They guide operator
+workflows such as issue work, PR creation, UAT, release checks, worktree
+cleanup, and dry-run issue orchestration. They do not change CommandAgent
+runtime behavior.
+
+Long reusable prompt bodies live under `.codex/prompts` and are loaded only when
+a skill needs them. Do not duplicate the same command body across many skills.
+
+Migrate historical source-command workflows as Codex skills, not as
+CommandAgent REPL slash commands. The runtime slash commands remain the
+commands documented in `docs/usage.md`.
+
+Generated harness artifacts should go under ignored workspace state, normally
+`workspace/management/runs/<run_id>/`, unless a summary is intentionally
+promoted into docs or eval evidence.
+
+When editing harness files:
+
+- keep `SKILL.md` frontmatter to `name` and `description`
+- check for stale source-repository references before finishing
+- keep mutating worktree, CommandMate, PR, merge, and UAT operations explicit
+  and off by default
+- run script compile and fixture/dry-run checks for Python harness changes
+
 ## Branch Dependencies
 
 Stack dependent branches from most deterministic to most behavioral:
@@ -94,6 +120,7 @@ Minimum checks for code changes:
 ```bash
 cargo fmt --check
 cargo test
+cargo clippy --all-targets -- -D warnings
 ```
 
 Run a release build when the change affects CLI wiring, providers, tools,
@@ -126,7 +153,11 @@ Testing expectations by change type:
 | tool behavior | tool unit tests plus relevant safety/path tests |
 | minimal loop guard | unit tests plus focused eval when behavior changes |
 | step runner / repair | unit tests plus focused eval for the target failure |
+| step tool policy | executor/runtime unit tests plus a focused slash-runtime case |
+| profile verification | profile unit tests plus a focused phase-boundary case |
 | eval scripts | dry-run or recheck smoke plus script syntax check |
+| Codex harness skills/prompts | stale reference check plus manual frontmatter review |
+| Codex orchestration script | `python3 -m py_compile`, unit tests or fixture dry-run |
 
 ## Evaluation Strategy
 
@@ -157,13 +188,28 @@ evidence.
 
 ## Dependency And Environment Policy
 
-- Local eval should not silently install dependencies unless the case/step
-  explicitly makes dependency setup part of the task.
+- Local eval should not silently install dependencies by default.
+- Approved online runs may perform one runtime-owned dependency setup recovery
+  when verifier evidence is exactly `dependency_missing`.
+- `--yes` or `COMMANDAGENT_YES=true` is approval for that one setup attempt,
+  including package lifecycle scripts in the current workspace.
+- `--offline` is a hard block for dependency setup, even with `--yes`.
+- Normal model-issued `Bash(npm install)`, `Bash(npm ci)`, or
+  `Bash(pnpm install)` remains blocked; dependency setup is triggered by the
+  step runner after verifier evidence, not by planner/model choice.
+- Do not commit generated dependency directories or scratch lockfiles unless
+  the task explicitly asks for them.
 - Do not change build scripts to fake verifier success.
 - Treat `dependency_missing` as an environment/setup boundary, not as a generic
   implementation failure.
 - Provider API keys must come from the environment or the caller's env loader.
   CommandAgent does not load `.env` internally.
+- Step tool policy is part of the execution contract. Inspect/report steps are
+  read-only, verify steps are no-mutation, setup steps are setup/config-only,
+  and repair turns are explicit bounded repair sessions.
+- Profile verification must stay read-only and deterministic. If it fails, it
+  should produce visible diagnostics and stop the phase rather than editing
+  files or silently continuing.
 
 ## Documentation Policy
 

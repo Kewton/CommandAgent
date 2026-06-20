@@ -37,3 +37,28 @@ fn non_tty_no_prompt_prints_mvp_message() {
     assert!(stdout.contains("CommandAgent MVP"));
     assert!(stdout.contains("Run `commandagent --help` for usage"));
 }
+
+#[test]
+fn unknown_option_fails_before_runtime() {
+    let output = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+        .arg("--unknown")
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("unknown option --unknown"));
+}
+
+#[test]
+fn engine_option_reports_minimal_only_runtime() {
+    let output = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+        .args(["--engine", "minimal"])
+        .output()
+        .unwrap();
+
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(stderr.contains("--engine is not supported"));
+    assert!(stderr.contains("minimal loop only"));
+}

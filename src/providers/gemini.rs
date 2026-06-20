@@ -1,7 +1,8 @@
 use crate::config::Provider;
+use crate::providers::xml_fallback::extract_tool_calls_with_content;
 use crate::providers::{
     ChatMessage, ChatProvider, ChatRequest, ChatResponse, ChatRole, ExecutorProvider,
-    PlannerProvider,
+    PlannerProvider, ToolCall, ToolCallMode, ToolSpec, tool_call_parse_error_content,
 };
 use reqwest::blocking::Client;
 use serde::{Deserialize, Serialize};
@@ -75,7 +76,8 @@ where
     }
 
     pub fn chat_payload(&self, request: &ChatRequest) -> Value {
-        let (system_instruction, contents) = to_gemini_contents(&request.messages);
+        let (system_instruction, contents) =
+            to_gemini_contents(&request.messages, request.tool_call_mode);
         let mut payload = json!({
             "contents": contents,
         });
@@ -83,6 +85,11 @@ where
             payload["systemInstruction"] = json!({
                 "parts": [{"text": system_instruction}],
             });
+        }
+        if request.tool_call_mode == ToolCallMode::Native && !request.tools.is_empty() {
+            payload["tools"] = json!([{
+                "functionDeclarations": to_gemini_function_declarations(&request.tools),
+            }]);
         }
         payload
     }
@@ -235,7 +242,37 @@ struct GeminiContent {
 
 #[derive(Debug, Serialize)]
 struct GeminiPart {
-    text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<String>,
+    #[serde(rename = "functionCall", skip_serializing_if = "Option::is_none")]
+    function_call: Option<GeminiFunctionCallPart>,
+    #[serde(rename = "functionResponse", skip_serializing_if = "Option::is_none")]
+    function_response: Option<GeminiFunctionResponsePart>,
+    #[serde(rename = "thoughtSignature", skip_serializing_if = "Option::is_none")]
+    thought_signature: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct GeminiFunctionDeclaration {
+    name: String,
+    description: String,
+    parameters: Value,
+}
+
+#[derive(Debug, Serialize)]
+struct GeminiFunctionCallPart {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+    name: String,
+    args: Value,
+}
+
+#[derive(Debug, Serialize)]
+struct GeminiFunctionResponsePart {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    id: Option<String>,
+    name: String,
+    response: Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -259,24 +296,66 @@ struct GeminiResponseContent {
 struct GeminiResponsePart {
     #[serde(default)]
     text: String,
+    #[serde(rename = "functionCall")]
+    function_call: Option<GeminiResponseFunctionCall>,
+    #[serde(rename = "thoughtSignature")]
+    thought_signature: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct GeminiResponseFunctionCall {
+    id: Option<String>,
+    name: Option<String>,
+    #[serde(default)]
+    args: Value,
 }
 
 fn parse_generate_content_response(body: &str) -> Result<ChatResponse, GeminiError> {
     let parsed: GenerateContentResponse =
         serde_json::from_str(body).map_err(|err| GeminiError::Json(err.to_string()))?;
-    let content = parsed
+    let mut text_parts = Vec::new();
+    let mut native_tool_calls = Vec::new();
+    let mut native_parse_errors = Vec::new();
+
+    for (index, part) in parsed
         .candidates
         .into_iter()
         .filter_map(|candidate| candidate.content)
         .flat_map(|content| content.parts)
-        .map(|part| part.text)
-        .filter(|text| !text.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
+        .enumerate()
+    {
+        if !part.text.is_empty() {
+            text_parts.push(part.text);
+        }
+        if let Some(function_call) = part.function_call {
+            match parse_gemini_function_call(function_call, part.thought_signature, index) {
+                Ok(call) => native_tool_calls.push(call),
+                Err(err) => native_parse_errors.push(err),
+            }
+        }
+    }
+
+    if !native_parse_errors.is_empty() {
+        return Ok(ChatResponse {
+            content: tool_call_parse_error_content(native_parse_errors.join("; ")),
+            tool_calls: Vec::new(),
+        });
+    }
+
+    let content = text_parts.join("\n");
+    if !native_tool_calls.is_empty() {
+        return Ok(ChatResponse {
+            content,
+            tool_calls: native_tool_calls,
+        });
+    }
+
+    let extraction = extract_tool_calls_with_content(&content)
+        .map_err(|err| GeminiError::Json(err.to_string()))?;
 
     Ok(ChatResponse {
-        content,
-        tool_calls: Vec::new(),
+        content: extraction.content,
+        tool_calls: extraction.tool_calls,
     })
 }
 
@@ -291,7 +370,10 @@ fn ensure_success(status: u16, body: &str) -> Result<(), GeminiError> {
     }
 }
 
-fn to_gemini_contents(messages: &[ChatMessage]) -> (Option<String>, Vec<GeminiContent>) {
+fn to_gemini_contents(
+    messages: &[ChatMessage],
+    mode: ToolCallMode,
+) -> (Option<String>, Vec<GeminiContent>) {
     let mut system_messages = Vec::new();
     let mut contents = Vec::new();
 
@@ -300,21 +382,140 @@ fn to_gemini_contents(messages: &[ChatMessage]) -> (Option<String>, Vec<GeminiCo
             ChatRole::System => system_messages.push(message.content.clone()),
             ChatRole::Assistant => contents.push(GeminiContent {
                 role: "model",
-                parts: vec![GeminiPart {
-                    text: message.content.clone(),
-                }],
+                parts: assistant_parts(message, mode),
             }),
-            ChatRole::User | ChatRole::Tool => contents.push(GeminiContent {
+            ChatRole::User => contents.push(GeminiContent {
                 role: "user",
-                parts: vec![GeminiPart {
-                    text: message.content.clone(),
-                }],
+                parts: vec![text_part(message.content.clone())],
+            }),
+            ChatRole::Tool => contents.push(GeminiContent {
+                role: "user",
+                parts: tool_result_parts(message, mode),
             }),
         }
     }
 
     let system_instruction = (!system_messages.is_empty()).then(|| system_messages.join("\n\n"));
     (system_instruction, contents)
+}
+
+fn to_gemini_function_declarations(tools: &[ToolSpec]) -> Vec<GeminiFunctionDeclaration> {
+    tools
+        .iter()
+        .map(|tool| GeminiFunctionDeclaration {
+            name: tool.name.clone(),
+            description: tool.description.clone(),
+            parameters: to_gemini_parameters_schema(&tool.parameters_json_schema),
+        })
+        .collect()
+}
+
+fn to_gemini_parameters_schema(schema: &Value) -> Value {
+    match schema {
+        Value::Object(object) => {
+            let mut converted = serde_json::Map::new();
+            for (key, value) in object {
+                if key == "additionalProperties" {
+                    continue;
+                }
+                converted.insert(key.clone(), to_gemini_parameters_schema(value));
+            }
+            Value::Object(converted)
+        }
+        Value::Array(items) => {
+            Value::Array(items.iter().map(to_gemini_parameters_schema).collect())
+        }
+        other => other.clone(),
+    }
+}
+
+fn parse_gemini_function_call(
+    function_call: GeminiResponseFunctionCall,
+    thought_signature: Option<String>,
+    index: usize,
+) -> Result<ToolCall, String> {
+    let Some(name) = function_call
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+    else {
+        return Err("gemini_native_function_call_missing_name".to_string());
+    };
+    if !function_call.args.is_object() {
+        return Err(format!(
+            "gemini_native_function_call_invalid_args: {name} args must be a JSON object"
+        ));
+    }
+    Ok(ToolCall {
+        id: Some(
+            function_call
+                .id
+                .filter(|id| !id.trim().is_empty())
+                .unwrap_or_else(|| format!("gemini-call-{index}")),
+        ),
+        thought_signature: thought_signature.filter(|signature| !signature.trim().is_empty()),
+        name: name.to_string(),
+        args_json: serde_json::to_string(&function_call.args).unwrap_or_else(|_| "{}".to_string()),
+    })
+}
+
+fn assistant_parts(message: &ChatMessage, mode: ToolCallMode) -> Vec<GeminiPart> {
+    if mode != ToolCallMode::Native || message.tool_calls.iter().all(|call| call.id.is_none()) {
+        return vec![text_part(message.content.clone())];
+    }
+
+    let mut parts = Vec::new();
+    if !message.content.trim().is_empty() {
+        parts.push(text_part(message.content.clone()));
+    }
+    for call in message.tool_calls.iter().filter(|call| call.id.is_some()) {
+        let args = serde_json::from_str(&call.args_json).unwrap_or_else(|_| json!({}));
+        parts.push(GeminiPart {
+            text: None,
+            function_call: Some(GeminiFunctionCallPart {
+                id: call.id.clone(),
+                name: call.name.clone(),
+                args,
+            }),
+            function_response: None,
+            thought_signature: call.thought_signature.clone(),
+        });
+    }
+    if parts.is_empty() {
+        parts.push(text_part(String::new()));
+    }
+    parts
+}
+
+fn tool_result_parts(message: &ChatMessage, mode: ToolCallMode) -> Vec<GeminiPart> {
+    if mode != ToolCallMode::Native {
+        return vec![text_part(message.content.clone())];
+    }
+    let (Some(tool_name), Some(tool_call_id)) = (&message.tool_name, &message.tool_call_id) else {
+        return vec![text_part(message.content.clone())];
+    };
+    vec![GeminiPart {
+        text: None,
+        function_call: None,
+        function_response: Some(GeminiFunctionResponsePart {
+            id: Some(tool_call_id.clone()),
+            name: tool_name.clone(),
+            response: json!({
+                "output": message.content.clone(),
+            }),
+        }),
+        thought_signature: None,
+    }]
+}
+
+fn text_part(text: String) -> GeminiPart {
+    GeminiPart {
+        text: Some(text),
+        function_call: None,
+        function_response: None,
+        thought_signature: None,
+    }
 }
 
 fn normalize_base_url(base_url: &str) -> String {
@@ -341,18 +542,9 @@ mod tests {
         let request = ChatRequest {
             model: "gemini-3.5-flash".to_string(),
             messages: vec![
-                ChatMessage {
-                    role: ChatRole::System,
-                    content: "system rules".to_string(),
-                },
-                ChatMessage {
-                    role: ChatRole::User,
-                    content: "hello".to_string(),
-                },
-                ChatMessage {
-                    role: ChatRole::Assistant,
-                    content: "hi".to_string(),
-                },
+                ChatMessage::new(ChatRole::System, "system rules"),
+                ChatMessage::new(ChatRole::User, "hello"),
+                ChatMessage::new(ChatRole::Assistant, "hi"),
             ],
             tools: Vec::new(),
             tool_call_mode: ToolCallMode::XmlFallback,
@@ -366,6 +558,113 @@ mod tests {
         );
         assert_eq!(payload["contents"][0]["role"], "user");
         assert_eq!(payload["contents"][1]["role"], "model");
+    }
+
+    #[test]
+    fn payload_sends_function_declarations_for_native_mode() {
+        let client = GeminiClient::with_transport(
+            "https://example.test/v1beta/",
+            "key",
+            MockTransport::default(),
+            Duration::from_secs(1),
+            0,
+        );
+        let request = ChatRequest {
+            model: "gemini-3.5-flash".to_string(),
+            messages: vec![ChatMessage::new(ChatRole::User, "write a file")],
+            tools: crate::tools::registry::file_tool_specs(),
+            tool_call_mode: ToolCallMode::Native,
+        };
+
+        let payload = client.chat_payload(&request);
+        let declarations = payload["tools"][0]["functionDeclarations"]
+            .as_array()
+            .unwrap();
+        let write = declarations
+            .iter()
+            .find(|declaration| declaration["name"] == "Write")
+            .unwrap();
+
+        assert_eq!(write["parameters"]["required"], json!(["path", "content"]));
+        assert_eq!(write["parameters"]["properties"]["path"]["type"], "string");
+        assert!(
+            write["parameters"]
+                .as_object()
+                .unwrap()
+                .get("additionalProperties")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn payload_omits_function_declarations_for_xml_fallback_mode() {
+        let client = GeminiClient::with_transport(
+            "https://example.test/v1beta/",
+            "key",
+            MockTransport::default(),
+            Duration::from_secs(1),
+            0,
+        );
+        let request = ChatRequest {
+            model: "gemini-3.5-flash".to_string(),
+            messages: vec![ChatMessage::new(ChatRole::User, "write a file")],
+            tools: crate::tools::registry::file_tool_specs(),
+            tool_call_mode: ToolCallMode::XmlFallback,
+        };
+
+        let payload = client.chat_payload(&request);
+
+        assert!(payload.get("tools").is_none());
+    }
+
+    #[test]
+    fn payload_serializes_native_function_call_and_response_history() {
+        let client = GeminiClient::with_transport(
+            "https://example.test/v1beta/",
+            "key",
+            MockTransport::default(),
+            Duration::from_secs(1),
+            0,
+        );
+        let call = ToolCall {
+            id: Some("call-1".to_string()),
+            thought_signature: Some("sig-1".to_string()),
+            name: "Read".to_string(),
+            args_json: r#"{"path":"Cargo.toml"}"#.to_string(),
+        };
+        let request = ChatRequest {
+            model: "gemini-3.5-flash".to_string(),
+            messages: vec![
+                ChatMessage::new(ChatRole::User, "read Cargo.toml"),
+                ChatMessage::assistant_with_tool_calls("", vec![call]),
+                ChatMessage::tool_result("contents", "Read", Some("call-1".to_string())),
+            ],
+            tools: crate::tools::registry::file_tool_specs(),
+            tool_call_mode: ToolCallMode::Native,
+        };
+
+        let payload = client.chat_payload(&request);
+
+        assert_eq!(
+            payload["contents"][1]["parts"][0]["functionCall"]["id"],
+            "call-1"
+        );
+        assert_eq!(
+            payload["contents"][1]["parts"][0]["functionCall"]["args"]["path"],
+            "Cargo.toml"
+        );
+        assert_eq!(
+            payload["contents"][1]["parts"][0]["thoughtSignature"],
+            "sig-1"
+        );
+        assert_eq!(
+            payload["contents"][2]["parts"][0]["functionResponse"]["id"],
+            "call-1"
+        );
+        assert_eq!(
+            payload["contents"][2]["parts"][0]["functionResponse"]["response"]["output"],
+            "contents"
+        );
     }
 
     #[test]
@@ -384,10 +683,7 @@ mod tests {
         );
         let request = ChatRequest {
             model: "gemini-3.5-flash".to_string(),
-            messages: vec![ChatMessage {
-                role: ChatRole::User,
-                content: "hello".to_string(),
-            }],
+            messages: vec![ChatMessage::new(ChatRole::User, "hello")],
             tools: Vec::new(),
             tool_call_mode: ToolCallMode::XmlFallback,
         };
@@ -397,6 +693,133 @@ mod tests {
         assert_eq!(response.content, "hello\nworld");
         assert!(response.tool_calls.is_empty());
         assert!(transport.calls()[0].contains("/models/gemini-3.5-flash:generateContent?key=key"));
+    }
+
+    #[test]
+    fn chat_parses_xml_tool_call_from_response_text() {
+        let transport = MockTransport::with_responses([Ok(HttpResponse {
+            status: 200,
+            body: r#"{"candidates":[{"content":{"parts":[{"text":"<commandagent_tool_call>{\"name\":\"Write\",\"args\":{\"path\":\"hello.txt\",\"content\":\"ok\"}}</commandagent_tool_call>"}]}}]}"#
+                .to_string(),
+        })]);
+        let client = GeminiClient::with_transport(
+            "https://example.test/v1beta/",
+            "key",
+            transport,
+            Duration::from_secs(1),
+            0,
+        );
+        let request = ChatRequest {
+            model: "gemini-3.5-flash".to_string(),
+            messages: vec![ChatMessage::new(ChatRole::User, "create file")],
+            tools: Vec::new(),
+            tool_call_mode: ToolCallMode::XmlFallback,
+        };
+
+        let response = client.chat(&request).unwrap();
+
+        assert_eq!(response.content, "");
+        assert_eq!(response.tool_calls.len(), 1);
+        assert_eq!(response.tool_calls[0].name, "Write");
+        assert_eq!(
+            response.tool_calls[0].args_json,
+            r#"{"content":"ok","path":"hello.txt"}"#
+        );
+    }
+
+    #[test]
+    fn chat_parses_native_function_call() {
+        let transport = MockTransport::with_responses([Ok(HttpResponse {
+            status: 200,
+            body: r#"{"candidates":[{"content":{"parts":[{"functionCall":{"id":"call-1","name":"Write","args":{"path":"hello.txt","content":"ok"}},"thoughtSignature":"sig-1"}]}}]}"#
+                .to_string(),
+        })]);
+        let client = GeminiClient::with_transport(
+            "https://example.test/v1beta/",
+            "key",
+            transport,
+            Duration::from_secs(1),
+            0,
+        );
+        let request = ChatRequest {
+            model: "gemini-3.5-flash".to_string(),
+            messages: vec![ChatMessage::new(ChatRole::User, "create file")],
+            tools: crate::tools::registry::file_tool_specs(),
+            tool_call_mode: ToolCallMode::Native,
+        };
+
+        let response = client.chat(&request).unwrap();
+
+        assert_eq!(response.content, "");
+        assert_eq!(response.tool_calls.len(), 1);
+        assert_eq!(response.tool_calls[0].id.as_deref(), Some("call-1"));
+        assert_eq!(
+            response.tool_calls[0].thought_signature.as_deref(),
+            Some("sig-1")
+        );
+        assert_eq!(response.tool_calls[0].name, "Write");
+        assert_eq!(
+            response.tool_calls[0].args_json,
+            r#"{"content":"ok","path":"hello.txt"}"#
+        );
+    }
+
+    #[test]
+    fn chat_returns_parse_evidence_for_malformed_native_function_call() {
+        let transport = MockTransport::with_responses([Ok(HttpResponse {
+            status: 200,
+            body: r#"{"candidates":[{"content":{"parts":[{"functionCall":{"args":{"path":"hello.txt"}}}]}}]}"#
+                .to_string(),
+        })]);
+        let client = GeminiClient::with_transport(
+            "https://example.test/v1beta/",
+            "key",
+            transport,
+            Duration::from_secs(1),
+            0,
+        );
+        let request = ChatRequest {
+            model: "gemini-3.5-flash".to_string(),
+            messages: vec![ChatMessage::new(ChatRole::User, "create file")],
+            tools: crate::tools::registry::file_tool_specs(),
+            tool_call_mode: ToolCallMode::Native,
+        };
+
+        let response = client.chat(&request).unwrap();
+        let error = crate::providers::tool_call_parse_error_from_content(&response.content)
+            .expect("expected provider parse evidence");
+
+        assert_eq!(error, "gemini_native_function_call_missing_name");
+        assert!(response.tool_calls.is_empty());
+    }
+
+    #[test]
+    fn chat_rejects_malformed_xml_tool_call() {
+        let transport = MockTransport::with_responses([Ok(HttpResponse {
+            status: 200,
+            body: r#"{"candidates":[{"content":{"parts":[{"text":"<commandagent_tool_call>{\"name\":\"Read\"}"}]}}]}"#
+                .to_string(),
+        })]);
+        let client = GeminiClient::with_transport(
+            "https://example.test/v1beta/",
+            "key",
+            transport,
+            Duration::from_secs(1),
+            0,
+        );
+        let request = ChatRequest {
+            model: "gemini-3.5-flash".to_string(),
+            messages: vec![ChatMessage::new(ChatRole::User, "read file")],
+            tools: Vec::new(),
+            tool_call_mode: ToolCallMode::XmlFallback,
+        };
+
+        let err = client.chat(&request).unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("unclosed <commandagent_tool_call>")
+        );
     }
 
     #[test]
@@ -417,10 +840,7 @@ mod tests {
         );
         let request = ChatRequest {
             model: "models/gemini-3.5-flash".to_string(),
-            messages: vec![ChatMessage {
-                role: ChatRole::User,
-                content: "hello".to_string(),
-            }],
+            messages: vec![ChatMessage::new(ChatRole::User, "hello")],
             tools: Vec::new(),
             tool_call_mode: ToolCallMode::XmlFallback,
         };

@@ -1,4 +1,5 @@
 use crate::config::Provider;
+use crate::providers::xml_fallback::extract_tool_calls_with_content;
 use crate::providers::{
     ChatMessage, ChatProvider, ChatRequest, ChatResponse, ChatRole, ExecutorProvider,
     PlannerProvider,
@@ -226,9 +227,11 @@ fn parse_response(body: &str) -> Result<ChatResponse, OpenAiError> {
         serde_json::from_str(body).map_err(|err| OpenAiError::Json(err.to_string()))?;
 
     if let Some(output_text) = value.get("output_text").and_then(Value::as_str) {
+        let extraction = extract_tool_calls_with_content(output_text)
+            .map_err(|err| OpenAiError::Json(err.to_string()))?;
         return Ok(ChatResponse {
-            content: output_text.to_string(),
-            tool_calls: Vec::new(),
+            content: extraction.content,
+            tool_calls: extraction.tool_calls,
         });
     }
 
@@ -259,9 +262,13 @@ fn parse_response(body: &str) -> Result<ChatResponse, OpenAiError> {
         }
     }
 
+    let content = parts.join("\n");
+    let extraction = extract_tool_calls_with_content(&content)
+        .map_err(|err| OpenAiError::Json(err.to_string()))?;
+
     Ok(ChatResponse {
-        content: parts.join("\n"),
-        tool_calls: Vec::new(),
+        content: extraction.content,
+        tool_calls: extraction.tool_calls,
     })
 }
 
@@ -315,14 +322,8 @@ mod tests {
         let request = ChatRequest {
             model: "gpt-5.4-mini".to_string(),
             messages: vec![
-                ChatMessage {
-                    role: ChatRole::User,
-                    content: "hello".to_string(),
-                },
-                ChatMessage {
-                    role: ChatRole::Assistant,
-                    content: "hi".to_string(),
-                },
+                ChatMessage::new(ChatRole::User, "hello"),
+                ChatMessage::new(ChatRole::Assistant, "hi"),
             ],
             tools: Vec::new(),
             tool_call_mode: ToolCallMode::XmlFallback,
@@ -351,10 +352,7 @@ mod tests {
         );
         let request = ChatRequest {
             model: "gpt-5.4-mini".to_string(),
-            messages: vec![ChatMessage {
-                role: ChatRole::User,
-                content: "hello".to_string(),
-            }],
+            messages: vec![ChatMessage::new(ChatRole::User, "hello")],
             tools: Vec::new(),
             tool_call_mode: ToolCallMode::XmlFallback,
         };
@@ -364,6 +362,95 @@ mod tests {
         assert_eq!(response.content, "ok");
         assert!(response.tool_calls.is_empty());
         assert_eq!(transport.last_api_key().as_deref(), Some("key"));
+    }
+
+    #[test]
+    fn chat_parses_xml_tool_call_from_output_text() {
+        let transport = MockTransport::with_responses([Ok(HttpResponse {
+            status: 200,
+            body: r#"{"output_text":"<commandagent_tool_call>{\"name\":\"Write\",\"args\":{\"path\":\"hello.txt\",\"content\":\"ok\"}}</commandagent_tool_call>"}"#
+                .to_string(),
+        })]);
+        let client = OpenAiClient::with_transport(
+            "https://api.openai.test/v1/",
+            "key",
+            transport,
+            Duration::from_secs(1),
+            0,
+        );
+        let request = ChatRequest {
+            model: "gpt-5.4-mini".to_string(),
+            messages: vec![ChatMessage::new(ChatRole::User, "create file")],
+            tools: Vec::new(),
+            tool_call_mode: ToolCallMode::XmlFallback,
+        };
+
+        let response = client.chat(&request).unwrap();
+
+        assert_eq!(response.content, "");
+        assert_eq!(response.tool_calls.len(), 1);
+        assert_eq!(response.tool_calls[0].name, "Write");
+        assert_eq!(
+            response.tool_calls[0].args_json,
+            r#"{"content":"ok","path":"hello.txt"}"#
+        );
+    }
+
+    #[test]
+    fn chat_parses_xml_tool_call_from_output_items() {
+        let transport = MockTransport::with_responses([Ok(HttpResponse {
+            status: 200,
+            body: r#"{"output":[{"type":"message","content":[{"type":"output_text","text":"<commandagent_tool_call>{\"name\":\"Read\",\"args\":{\"path\":\"Cargo.toml\"}}</commandagent_tool_call>"}]}]}"#
+                .to_string(),
+        })]);
+        let client = OpenAiClient::with_transport(
+            "https://api.openai.test/v1/",
+            "key",
+            transport,
+            Duration::from_secs(1),
+            0,
+        );
+        let request = ChatRequest {
+            model: "gpt-5.4-mini".to_string(),
+            messages: vec![ChatMessage::new(ChatRole::User, "read file")],
+            tools: Vec::new(),
+            tool_call_mode: ToolCallMode::XmlFallback,
+        };
+
+        let response = client.chat(&request).unwrap();
+
+        assert_eq!(response.content, "");
+        assert_eq!(response.tool_calls.len(), 1);
+        assert_eq!(response.tool_calls[0].name, "Read");
+        assert_eq!(response.tool_calls[0].args_json, r#"{"path":"Cargo.toml"}"#);
+    }
+
+    #[test]
+    fn chat_rejects_malformed_xml_tool_call() {
+        let transport = MockTransport::with_responses([Ok(HttpResponse {
+            status: 200,
+            body: r#"{"output_text":"<commandagent_tool_call>{\"name\":\"Read\"}"}"#.to_string(),
+        })]);
+        let client = OpenAiClient::with_transport(
+            "https://api.openai.test/v1/",
+            "key",
+            transport,
+            Duration::from_secs(1),
+            0,
+        );
+        let request = ChatRequest {
+            model: "gpt-5.4-mini".to_string(),
+            messages: vec![ChatMessage::new(ChatRole::User, "read file")],
+            tools: Vec::new(),
+            tool_call_mode: ToolCallMode::XmlFallback,
+        };
+
+        let err = client.chat(&request).unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("unclosed <commandagent_tool_call>")
+        );
     }
 
     #[test]
@@ -384,10 +471,7 @@ mod tests {
         );
         let request = ChatRequest {
             model: "gpt-5.4-mini".to_string(),
-            messages: vec![ChatMessage {
-                role: ChatRole::User,
-                content: "hello".to_string(),
-            }],
+            messages: vec![ChatMessage::new(ChatRole::User, "hello")],
             tools: Vec::new(),
             tool_call_mode: ToolCallMode::XmlFallback,
         };

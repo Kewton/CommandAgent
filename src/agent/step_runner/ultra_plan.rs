@@ -1,3 +1,4 @@
+use super::yaml_scalar::parse_block_scalar_value;
 use crate::util::workspace_paths::plans_dir;
 use serde_json::Value;
 use std::collections::HashSet;
@@ -48,6 +49,7 @@ Rules:\n\
 - Preserve the requested profile, style, and intent.\n\
 - Preserve required_artifacts exactly; they are final user-requested outputs.\n\
 - Do not include implementation details that belong inside a step plan.\n\
+- Long text fields such as goal and phase goal may use quoted strings or YAML block scalars; do not use anchors, aliases, merge keys, custom tags, or extra nested maps.\n\
 \n\
 Goal: {goal}\n\
 Profile: {profile}\n\
@@ -86,7 +88,11 @@ pub fn parse_ultra_plan_yaml(yaml: &str) -> Result<UltraPlan, UltraPlanError> {
     let mut current_list = None;
     let mut seen_phases = false;
 
-    for raw in strip_yaml_fence(yaml).lines() {
+    let lines = strip_yaml_fence(yaml).lines().collect::<Vec<_>>();
+    let mut index = 0;
+    while index < lines.len() {
+        let raw = lines[index];
+        index += 1;
         let line = raw.trim_end();
         if line.trim().is_empty() {
             continue;
@@ -96,10 +102,10 @@ pub fn parse_ultra_plan_yaml(yaml: &str) -> Result<UltraPlan, UltraPlanError> {
             let Some(phase) = current_phase.as_mut() else {
                 unreachable!("checked current_phase above")
             };
-            phase.goal = parse_yaml_string(value.trim())?;
+            phase.goal = parse_yaml_scalar(&lines, &mut index, line, value, "phase.goal")?;
             current_list = None;
         } else if let Some(value) = line.strip_prefix("goal:") {
-            goal = Some(parse_yaml_string(value.trim())?);
+            goal = Some(parse_yaml_scalar(&lines, &mut index, line, value, "goal")?);
         } else if let Some(value) = line.strip_prefix("profile:") {
             profile = Some(parse_yaml_string(value.trim())?);
         } else if let Some(value) = line.strip_prefix("style:") {
@@ -130,7 +136,7 @@ pub fn parse_ultra_plan_yaml(yaml: &str) -> Result<UltraPlan, UltraPlanError> {
                     "phase goal appears before phase id".to_string(),
                 ));
             };
-            phase.goal = parse_yaml_string(value.trim())?;
+            phase.goal = parse_yaml_scalar(&lines, &mut index, line, value, "phase.goal")?;
             current_list = None;
         } else if let Some(value) = list_item_value(line) {
             match current_list {
@@ -271,6 +277,22 @@ fn parse_yaml_string(value: &str) -> Result<String, UltraPlanError> {
     }
 }
 
+fn parse_yaml_scalar(
+    lines: &[&str],
+    index: &mut usize,
+    field_line: &str,
+    value: &str,
+    field_name: &str,
+) -> Result<String, UltraPlanError> {
+    if let Some(block) = parse_block_scalar_value(lines, index, field_line, value, field_name)
+        .map_err(UltraPlanError::InvalidYaml)?
+    {
+        Ok(block)
+    } else {
+        parse_yaml_string(value.trim())
+    }
+}
+
 fn phase_id_value(line: &str) -> Option<&str> {
     line.strip_prefix("  - id:")
         .or_else(|| line.strip_prefix("- id:"))
@@ -386,6 +408,8 @@ mod tests {
         assert!(prompt.contains("Use 2 to"));
         assert!(prompt.contains("Profile: nextjs"));
         assert!(prompt.contains("Intent: new"));
+        assert!(prompt.contains("YAML block scalars"));
+        assert!(prompt.contains("do not use anchors"));
     }
 
     #[test]
@@ -430,6 +454,77 @@ phases:
         assert_eq!(plan.phases.len(), 2);
         assert_eq!(plan.phases[0].id, "scaffold");
         assert_eq!(plan.phases[1].goal, "Verify build.");
+    }
+
+    #[test]
+    fn accepts_literal_block_scalar_ultra_goal() {
+        let yaml = r#"
+goal: |
+  Build a Next.js app.
+  Keep it runnable on port 3011.
+profile: nextjs
+style: default
+intent: new
+phases:
+  - id: scaffold
+    goal: Create files.
+"#;
+
+        let plan = parse_ultra_plan_yaml(yaml).unwrap();
+        let rendered = render_ultra_plan_yaml(&plan);
+        let reparsed = parse_ultra_plan_yaml(&rendered).unwrap();
+
+        assert_eq!(
+            plan.goal,
+            "Build a Next.js app.\nKeep it runnable on port 3011."
+        );
+        assert_eq!(reparsed, plan);
+    }
+
+    #[test]
+    fn accepts_literal_block_scalar_phase_goal() {
+        let yaml = r#"
+goal: Build app
+profile: nextjs
+style: default
+intent: new
+phases:
+  - id: scaffold
+    goal: |
+      Create package.json.
+      Create the app route.
+  - id: verify
+    goal: Verify build.
+"#;
+
+        let plan = parse_ultra_plan_yaml(yaml).unwrap();
+
+        assert_eq!(
+            plan.phases[0].goal,
+            "Create package.json.\nCreate the app route."
+        );
+    }
+
+    #[test]
+    fn accepts_folded_block_scalar_phase_goal() {
+        let yaml = r#"
+goal: Build app
+profile: nextjs
+style: default
+intent: new
+phases:
+  - id: scaffold
+    goal: >
+      Create package.json.
+      Create the app route.
+"#;
+
+        let plan = parse_ultra_plan_yaml(yaml).unwrap();
+
+        assert_eq!(
+            plan.phases[0].goal,
+            "Create package.json. Create the app route."
+        );
     }
 
     #[test]

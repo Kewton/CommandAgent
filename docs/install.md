@@ -64,6 +64,23 @@ target/release/commandagent --help
 MSRV is not fixed yet. Until Issue #1 is resolved, source builds should use the
 current stable Rust toolchain.
 
+### Local Development Alias
+
+For a checkout-specific development binary, create a symlink from a directory on
+`PATH` to the release build output:
+
+```bash
+cd /Users/maenokota/share/work/github_kewton/CommandAgent-develop
+cargo build --release
+mkdir -p "$HOME/.local/bin"
+ln -sfn "$PWD/target/release/commandagent" "$HOME/.local/bin/commandagentdev"
+commandagentdev --version
+```
+
+This keeps the alias tied to this checkout's `target/release/commandagent`, so
+later `cargo build --release` runs update what `commandagentdev` executes
+without recreating the symlink.
+
 ## Provider Setup
 
 Ollama uses the local `OLLAMA_HOST` endpoint:

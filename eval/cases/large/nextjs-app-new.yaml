@@ -18,5 +18,7 @@ success_check:
   must_include:
     package.json:
       - next build
+      - next dev
+      - "3011"
     app/page.tsx:
       - export default

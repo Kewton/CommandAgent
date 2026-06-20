@@ -69,7 +69,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-      - run: python3 -m py_compile scripts/eval_report.py
+      - run: python3 -m py_compile scripts/eval_report.py scripts/codex_orchestrate.py
+      - run: python3 -m unittest discover -s tests -p 'test_codex_orchestrate.py'
 
   offline-smoke:
     name: offline-smoke

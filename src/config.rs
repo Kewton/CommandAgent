@@ -82,6 +82,8 @@ pub enum ConfigError {
     Io { path: PathBuf, message: String },
     InvalidLine { path: PathBuf, line: usize },
     MissingValue { option: String },
+    UnknownOption { option: String },
+    UnsupportedOption { option: String, message: String },
     InvalidValue { key: String, value: String },
 }
 
@@ -95,6 +97,10 @@ impl std::fmt::Display for ConfigError {
                 write!(f, "invalid config line {} in {}", line, path.display())
             }
             Self::MissingValue { option } => write!(f, "missing value for {}", option),
+            Self::UnknownOption { option } => write!(f, "unknown option {}", option),
+            Self::UnsupportedOption { option, message } => {
+                write!(f, "{} is not supported; {}", option, message)
+            }
             Self::InvalidValue { key, value } => write!(f, "invalid value for {}: {}", key, value),
         }
     }
@@ -188,19 +194,31 @@ impl RawConfig {
         while let Some(arg) = args.next() {
             let arg = arg.to_string_lossy();
 
-            if arg == "--yes" {
+            if arg == "--" || !arg.starts_with('-') {
+                break;
+            } else if arg == "--yes" {
                 self.set("yes", "true");
             } else if arg == "--offline" {
                 self.set("offline", "true");
             } else if let Some((key, value)) = arg.split_once('=') {
+                reject_unsupported_cli_key(key)?;
                 if let Some(config_key) = cli_key(key) {
                     self.set(config_key, value.to_string());
+                } else if key.starts_with('-') {
+                    return Err(ConfigError::UnknownOption {
+                        option: key.to_string(),
+                    });
                 }
             } else if let Some(config_key) = cli_key(&arg) {
                 let value = args.next().ok_or_else(|| ConfigError::MissingValue {
                     option: arg.to_string(),
                 })?;
                 self.set(config_key, value.to_string_lossy().to_string());
+            } else if arg.starts_with('-') {
+                reject_unsupported_cli_key(&arg)?;
+                return Err(ConfigError::UnknownOption {
+                    option: arg.to_string(),
+                });
             }
         }
 
@@ -256,6 +274,16 @@ fn cli_key(key: &str) -> Option<&'static str> {
         "--resume" => Some("resume"),
         _ => None,
     }
+}
+
+fn reject_unsupported_cli_key(key: &str) -> Result<(), ConfigError> {
+    if key == "--engine" {
+        return Err(ConfigError::UnsupportedOption {
+            option: key.to_string(),
+            message: "CommandAgent uses the minimal loop only. To start the REPL, omit PROMPT when running from a terminal.".to_string(),
+        });
+    }
+    Ok(())
 }
 
 fn strip_quotes(value: &str) -> String {
@@ -404,6 +432,43 @@ yes = false
         assert_eq!(config.planner_model.as_deref(), Some("gemini-3.5-flash"));
         assert_eq!(config.resume.as_deref(), Some("session-1"));
         assert!(config.offline);
+    }
+
+    #[test]
+    fn unknown_option_is_rejected_before_prompt() {
+        let cwd = temp_workspace("unknown-option");
+        let err = Config::load_from(&cwd, ["commandagent", "--unknown"], |_| None).unwrap_err();
+
+        assert_eq!(
+            err,
+            ConfigError::UnknownOption {
+                option: "--unknown".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn engine_option_explains_minimal_only_runtime() {
+        let cwd = temp_workspace("engine-option");
+        let err =
+            Config::load_from(&cwd, ["commandagent", "--engine", "minimal"], |_| None).unwrap_err();
+
+        assert!(matches!(
+            err,
+            ConfigError::UnsupportedOption { ref option, .. } if option == "--engine"
+        ));
+        assert!(err.to_string().contains("minimal loop only"));
+        assert!(err.to_string().contains("start the REPL"));
+    }
+
+    #[test]
+    fn prompt_tail_is_not_reparsed_as_options() {
+        let cwd = temp_workspace("prompt-tail");
+        let config =
+            Config::load_from(&cwd, ["commandagent", "Create", "--literal-file"], |_| None)
+                .unwrap();
+
+        assert_eq!(config.provider, Provider::Ollama);
     }
 
     #[test]

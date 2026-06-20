@@ -53,6 +53,9 @@ Rules:\n\
 - Keep steps small and executable.\n\
 - Use only canonical kind values in output: inspect, create, edit, setup, verify, repair, report.\n\
 - Use kind inspect instead of read/analyze, and kind verify instead of shell/run.\n\
+- Inspect and report steps are read-only; do not plan file creation or edits inside them.\n\
+- Verify steps are no-mutation checks; do not plan fixes, edits, writes, or package rewrites inside verify steps.\n\
+- Create, edit, and repair steps own source file mutation. Setup steps may only change setup/config files.\n\
 - Do not mix setup and final verification in the same step.\n\
 - If a create/edit/setup step produces new expected_paths, keep verifier commands to direct existence/syntax checks. Put npm run build, cargo check/test/build, pytest, or other integration checks in a separate verify step.\n\
 - File creation or modification steps must be executable with Write/Edit, not shell scaffolding.\n\
@@ -70,6 +73,7 @@ Rules:\n\
 - report steps explicitly report blockers such as dependency_missing or verifier_unavailable and should use verify: [].\n\
 - Do not use true as a verifier; use an empty verify list for report-only steps.\n\
 - Do not include tool-call fields such as action, path, content, old, or new in the plan.\n\
+- Long text fields such as goal and instruction may use quoted strings or YAML block scalars; do not use anchors, aliases, merge keys, custom tags, or extra nested maps.\n\
 \n\
 Goal: {goal}\n\
 Profile: {profile}\n\
@@ -85,6 +89,9 @@ Profile guidance:\n{profile_guidance}",
 
 fn plan_profile_guidance(profile: &str) -> &'static str {
     match profile {
+        "nextjs" => {
+            "For Next.js apps, generated package.json steps must instruct a compatible dependency family: next plus react/react-dom with React 18.2 or newer compatibility. If the plan creates tsconfig.json, .ts, .tsx, or TypeScript code, the package.json step must also literally include typescript 5.x compatibility and @types/react 18.x compatibility. Do not use exact React pins below 18.2 with Next.js 14, TypeScript 6 with Next.js 14, @types/react 19 with React 18, or latest as the compatibility strategy. Use plain CSS unless the goal or phase explicitly requires Tailwind. If any source/style step mentions Tailwind, @tailwind, or Tailwind directives, the same step plan must also include exact package.json dependency literals tailwindcss, postcss, and autoprefixer, plus setup/config outputs tailwind.config.js and postcss.config.js. Do not write only Tailwind CSS dependencies as a substitute for the exact package names. For Next.js source verification, use npm run build in a separate verify step; do not use npx tsc --noEmit or other npx verifiers because npx may perform dependency setup and is blocked. Do not plan npm install; verifier-owned setup handles dependency installation when approved."
+        }
         "rust" => {
             "For new Rust projects, plan explicit file creation for Cargo.toml and src/main.rs. Do not plan cargo init or cargo new shell scaffolding."
         }
@@ -103,6 +110,7 @@ Original goal:\n{original_goal}\n\n\
 Validation error:\n{error}\n\n\
 Invalid plan:\n{invalid_plan}\n\n\
 If the invalid plan includes tool-call fields such as action, path, content, old, or new, rewrite them into instruction and expected_paths fields.\n\
+Long text fields such as goal and instruction may use quoted strings or YAML block scalars; do not use anchors, aliases, merge keys, custom tags, or extra nested maps.\n\
 Return only corrected YAML using the required CommandAgent step plan schema."
     )
 }

@@ -1,3 +1,4 @@
+use super::yaml_scalar::parse_block_scalar_value;
 use super::{ExpectedResult, PlanError, StepKind, StepPlan, StepPlanStep, WorkIntent};
 use serde_json::Value;
 use std::collections::HashSet;
@@ -51,13 +52,17 @@ pub fn parse_step_plan_yaml(yaml: &str) -> Result<StepPlan, PlanError> {
     let mut current_step: Option<(StepPlanStep, bool)> = None;
     let mut current_list = None;
 
-    for raw in yaml.lines() {
+    let lines = strip_yaml_fence(yaml).lines().collect::<Vec<_>>();
+    let mut index = 0;
+    while index < lines.len() {
+        let raw = lines[index];
+        index += 1;
         let line = raw.trim_end();
         if line.trim().is_empty() {
             continue;
         }
         if let Some(value) = line.strip_prefix("goal:") {
-            goal = Some(parse_yaml_string(value.trim())?);
+            goal = Some(parse_yaml_scalar(&lines, &mut index, line, value, "goal")?);
             current_list = None;
         } else if let Some(value) = line.strip_prefix("profile:") {
             profile = Some(parse_yaml_string(value.trim())?);
@@ -107,7 +112,7 @@ pub fn parse_step_plan_yaml(yaml: &str) -> Result<StepPlan, PlanError> {
                     "instruction appears before step id".to_string(),
                 ));
             };
-            step.instruction = parse_yaml_string(value.trim())?;
+            step.instruction = parse_yaml_scalar(&lines, &mut index, line, value, "instruction")?;
             current_list = None;
         } else if let Some(value) = step_field_value(line, "expected_result") {
             let Some((step, _kind_explicit)) = current_step.as_mut() else {
@@ -262,6 +267,22 @@ fn parse_yaml_string(value: &str) -> Result<String, PlanError> {
             .ok_or_else(|| PlanError::InvalidYaml(format!("invalid string: {value}")))
     } else {
         Ok(value.to_string())
+    }
+}
+
+fn parse_yaml_scalar(
+    lines: &[&str],
+    index: &mut usize,
+    field_line: &str,
+    value: &str,
+    field_name: &str,
+) -> Result<String, PlanError> {
+    if let Some(block) = parse_block_scalar_value(lines, index, field_line, value, field_name)
+        .map_err(PlanError::InvalidYaml)?
+    {
+        Ok(block)
+    } else {
+        parse_yaml_string(value.trim())
     }
 }
 

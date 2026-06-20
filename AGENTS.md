@@ -150,6 +150,17 @@ Branch and worktree operation rules:
 - Future sessions must preserve these rules before changing branches,
   coordinating worktrees, or performing branch-targeted operations.
 
+Repo-local Codex harness rules:
+
+- `.codex/skills` and `.codex/prompts` are operator workflow guidance, not
+  CommandAgent runtime behavior.
+- Do not add migrated source commands to the CommandAgent REPL slash-command
+  parser unless a separate product design is accepted.
+- Keep worktree, CommandMate, PR, merge, and UAT automation explicit and
+  disabled by default until the user asks for a mutating phase.
+- Generated harness run artifacts belong under ignored workspace state unless a
+  summary is intentionally promoted to docs or eval evidence.
+
 When working on code:
 
 - Read the relevant docs before changing behavior.

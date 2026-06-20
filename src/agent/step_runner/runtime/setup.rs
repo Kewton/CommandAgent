@@ -1,0 +1,861 @@
+use crate::agent::events::bounded_event_text;
+use crate::agent::minimal_loop::config::DependencySetupPolicy;
+use crate::agent::step_runner::verify::VerificationFailure;
+use crate::tools::bash::{BashPolicy, CommandClass, enforce_bash_policy};
+use serde_json::Value;
+use std::fs::{self, File};
+use std::io::{Read, Seek, SeekFrom};
+use std::path::Path;
+use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+const SETUP_LOG_EXCERPT_BYTES: u64 = 4_000;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SetupCommand {
+    NpmInstall,
+    NpmCi,
+    PnpmInstall,
+}
+
+impl SetupCommand {
+    pub(super) fn as_shell_command(self) -> &'static str {
+        match self {
+            Self::NpmInstall => "npm install --include=dev",
+            Self::NpmCi => "npm ci --include=dev",
+            Self::PnpmInstall => "pnpm install",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ManifestFingerprint {
+    package_json: Option<String>,
+    package_lock: Option<String>,
+    pnpm_lock: Option<String>,
+}
+
+impl ManifestFingerprint {
+    pub(super) fn key(&self) -> String {
+        format!(
+            "package_json={};package_lock={};pnpm_lock={}",
+            self.package_json.as_deref().unwrap_or("missing"),
+            self.package_lock.as_deref().unwrap_or("missing"),
+            self.pnpm_lock.as_deref().unwrap_or("missing")
+        )
+    }
+}
+
+pub(super) fn manifest_fingerprint(cwd: &Path) -> ManifestFingerprint {
+    ManifestFingerprint {
+        package_json: file_fingerprint(&cwd.join("package.json")),
+        package_lock: file_fingerprint(&cwd.join("package-lock.json")),
+        pnpm_lock: file_fingerprint(&cwd.join("pnpm-lock.yaml")),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum SetupSelectionError {
+    UnsupportedVerifier(String),
+    UnsupportedYarnLock,
+    AmbiguousLockfiles,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum DependencySetupDisposition {
+    NotApplicable,
+    Blocked(String),
+    Attempt(SetupCommand),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum SetupRunStatus {
+    Success,
+    CommandFailed {
+        status: i32,
+        stderr_excerpt: String,
+    },
+    TimedOut {
+        timeout_secs: u64,
+        stderr_excerpt: String,
+    },
+    Blocked {
+        message: String,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct SetupFailureEvidence {
+    pub(super) signature: String,
+    pub(super) dependent: Option<String>,
+    pub(super) required_peer: Option<String>,
+    pub(super) observed: Option<String>,
+    pub(super) target: Option<String>,
+}
+
+impl SetupRunStatus {
+    pub(super) fn ok(&self) -> bool {
+        matches!(self, Self::Success)
+    }
+
+    pub(super) fn label(&self) -> String {
+        match self {
+            Self::Success => "success".to_string(),
+            Self::CommandFailed { status, .. } => format!("command_failed:{status}"),
+            Self::TimedOut { timeout_secs, .. } => format!("timeout:{timeout_secs}s"),
+            Self::Blocked { .. } => "blocked".to_string(),
+        }
+    }
+}
+
+pub(super) trait DependencySetupRunner {
+    fn run_setup(
+        &self,
+        cwd: &Path,
+        command: SetupCommand,
+        policy: DependencySetupPolicy,
+    ) -> SetupRunStatus;
+}
+
+#[derive(Debug, Default)]
+pub(super) struct ShellDependencySetupRunner;
+
+impl DependencySetupRunner for ShellDependencySetupRunner {
+    fn run_setup(
+        &self,
+        cwd: &Path,
+        command: SetupCommand,
+        policy: DependencySetupPolicy,
+    ) -> SetupRunStatus {
+        let shell_command = command.as_shell_command();
+        let decision = enforce_bash_policy(
+            shell_command,
+            cwd,
+            BashPolicy::dependency_recovery(policy.offline, policy.auto_approve),
+        );
+        if !decision.allowed {
+            return SetupRunStatus::Blocked {
+                message: decision
+                    .message
+                    .unwrap_or_else(|| format!("dependency setup blocked as {:?}", decision.class)),
+            };
+        }
+        if decision.class != CommandClass::EnvSetup {
+            return SetupRunStatus::Blocked {
+                message: "setup runner only accepts EnvSetup commands".to_string(),
+            };
+        }
+
+        let log_dir = cwd.join(".commandagent/setup");
+        if let Err(err) = fs::create_dir_all(&log_dir) {
+            return SetupRunStatus::CommandFailed {
+                status: 1,
+                stderr_excerpt: format!("failed to create setup log dir: {err}"),
+            };
+        }
+
+        let log_prefix = setup_log_prefix(command);
+        let stdout_path = log_dir.join(format!("{log_prefix}.stdout.log"));
+        let stderr_path = log_dir.join(format!("{log_prefix}.stderr.log"));
+        let stdout = match File::create(&stdout_path) {
+            Ok(file) => file,
+            Err(err) => {
+                return SetupRunStatus::CommandFailed {
+                    status: 1,
+                    stderr_excerpt: format!("failed to create setup stdout log: {err}"),
+                };
+            }
+        };
+        let stderr = match File::create(&stderr_path) {
+            Ok(file) => file,
+            Err(err) => {
+                return SetupRunStatus::CommandFailed {
+                    status: 1,
+                    stderr_excerpt: format!("failed to create setup stderr log: {err}"),
+                };
+            }
+        };
+
+        let mut child = match Command::new("sh")
+            .arg("-lc")
+            .arg(shell_command)
+            .current_dir(cwd)
+            .stdout(Stdio::from(stdout))
+            .stderr(Stdio::from(stderr))
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(err) => {
+                return SetupRunStatus::CommandFailed {
+                    status: 1,
+                    stderr_excerpt: format!("failed to start setup command: {err}"),
+                };
+            }
+        };
+
+        let timeout = Duration::from_secs(policy.timeout_secs);
+        let started = Instant::now();
+        loop {
+            match child.try_wait() {
+                Ok(Some(status)) => {
+                    let stderr_excerpt = read_tail_excerpt(&stderr_path);
+                    if status.success() {
+                        return SetupRunStatus::Success;
+                    }
+                    return SetupRunStatus::CommandFailed {
+                        status: status.code().unwrap_or(1),
+                        stderr_excerpt,
+                    };
+                }
+                Ok(None) => {
+                    if started.elapsed() >= timeout {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        return SetupRunStatus::TimedOut {
+                            timeout_secs: policy.timeout_secs,
+                            stderr_excerpt: read_tail_excerpt(&stderr_path),
+                        };
+                    }
+                    thread::sleep(Duration::from_millis(100));
+                }
+                Err(err) => {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    return SetupRunStatus::CommandFailed {
+                        status: 1,
+                        stderr_excerpt: format!("failed to poll setup command: {err}"),
+                    };
+                }
+            }
+        }
+    }
+}
+
+pub(super) fn dependency_setup_disposition(
+    cwd: &Path,
+    step_id: &str,
+    failures: &[VerificationFailure],
+    missing_expected_paths: &[String],
+    policy: DependencySetupPolicy,
+) -> DependencySetupDisposition {
+    if failures.is_empty()
+        || !missing_expected_paths.is_empty()
+        || !failures
+            .iter()
+            .all(|failure| failure.reason == "dependency_missing")
+    {
+        return DependencySetupDisposition::NotApplicable;
+    }
+
+    if policy.offline {
+        return DependencySetupDisposition::Blocked(dependency_missing_blocker_message(
+            step_id,
+            failures,
+            "Dependency setup was not run because --offline is enabled.",
+        ));
+    }
+    if !policy.auto_approve {
+        return DependencySetupDisposition::Blocked(dependency_missing_blocker_message(
+            step_id,
+            failures,
+            "Dependency setup requires explicit approval. Rerun with --yes to allow one bounded setup attempt.",
+        ));
+    }
+
+    match select_setup_command(cwd, failures) {
+        Ok(Some(command)) => DependencySetupDisposition::Attempt(command),
+        Ok(None) => DependencySetupDisposition::NotApplicable,
+        Err(err) => DependencySetupDisposition::Blocked(dependency_missing_blocker_message(
+            step_id,
+            failures,
+            &selection_error_message(&err),
+        )),
+    }
+}
+
+pub(super) fn select_setup_command(
+    cwd: &Path,
+    failures: &[VerificationFailure],
+) -> Result<Option<SetupCommand>, SetupSelectionError> {
+    if failures.is_empty()
+        || !failures
+            .iter()
+            .all(|failure| failure.reason == "dependency_missing")
+    {
+        return Ok(None);
+    }
+
+    for failure in failures {
+        if failure.command.trim() != "npm run build" {
+            return Err(SetupSelectionError::UnsupportedVerifier(
+                failure.command.clone(),
+            ));
+        }
+    }
+
+    let package_lock = cwd.join("package-lock.json").exists();
+    let pnpm_lock = cwd.join("pnpm-lock.yaml").exists();
+    if cwd.join("yarn.lock").exists() {
+        return Err(SetupSelectionError::UnsupportedYarnLock);
+    }
+    if package_lock && pnpm_lock {
+        return Err(SetupSelectionError::AmbiguousLockfiles);
+    }
+    if package_lock {
+        if package_lock_satisfies_declared_dependencies(cwd) {
+            return Ok(Some(SetupCommand::NpmCi));
+        }
+        return Ok(Some(SetupCommand::NpmInstall));
+    }
+    if pnpm_lock {
+        return Ok(Some(SetupCommand::PnpmInstall));
+    }
+    Ok(Some(SetupCommand::NpmInstall))
+}
+
+fn package_lock_satisfies_declared_dependencies(cwd: &Path) -> bool {
+    let declared = declared_package_dependencies(&cwd.join("package.json"));
+    if declared.is_empty() {
+        return true;
+    }
+    let Ok(text) = fs::read_to_string(cwd.join("package-lock.json")) else {
+        return false;
+    };
+    let Ok(json) = serde_json::from_str::<Value>(&text) else {
+        return false;
+    };
+    declared
+        .iter()
+        .all(|dep| package_lock_contains_dependency(&json, dep))
+}
+
+fn declared_package_dependencies(path: &Path) -> Vec<String> {
+    let Ok(text) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    let Ok(json) = serde_json::from_str::<Value>(&text) else {
+        return Vec::new();
+    };
+    let mut deps = Vec::new();
+    for section in ["dependencies", "devDependencies"] {
+        let Some(object) = json.get(section).and_then(Value::as_object) else {
+            continue;
+        };
+        for name in object.keys() {
+            if !deps.iter().any(|existing| existing == name) {
+                deps.push(name.clone());
+            }
+        }
+    }
+    deps
+}
+
+fn package_lock_contains_dependency(lock: &Value, dep: &str) -> bool {
+    lock.get("packages")
+        .and_then(Value::as_object)
+        .is_some_and(|packages| packages.contains_key(&format!("node_modules/{dep}")))
+        || lock
+            .get("dependencies")
+            .and_then(Value::as_object)
+            .is_some_and(|dependencies| dependencies.contains_key(dep))
+}
+
+pub(super) fn setup_failed_blocker_message(
+    step_id: &str,
+    command: SetupCommand,
+    status: &SetupRunStatus,
+) -> String {
+    match status {
+        SetupRunStatus::Success => {
+            format!(
+                "dependency setup {} completed, but step {} still failed for an unknown reason.",
+                command.as_shell_command(),
+                step_id
+            )
+        }
+        SetupRunStatus::CommandFailed {
+            status,
+            stderr_excerpt,
+        } => {
+            let mut message = format!(
+                "dependency_setup_failed: step {step_id} setup command `{}` exited with status {status}.\n\nstderr excerpt:\n{}",
+                command.as_shell_command(),
+                empty_excerpt(stderr_excerpt)
+            );
+            if let Some(evidence) = setup_failure_evidence(stderr_excerpt) {
+                message.push_str("\n\nsetup evidence:\n");
+                message.push_str(&render_setup_failure_evidence(&evidence));
+            }
+            message
+        }
+        SetupRunStatus::TimedOut {
+            timeout_secs,
+            stderr_excerpt,
+        } => format!(
+            "dependency_setup_timeout: step {step_id} setup command `{}` exceeded {timeout_secs}s.\n\nstderr excerpt:\n{}",
+            command.as_shell_command(),
+            empty_excerpt(stderr_excerpt)
+        ),
+        SetupRunStatus::Blocked { message } => format!(
+            "dependency_setup_blocked: step {step_id} setup command `{}` was blocked.\n\n{message}",
+            command.as_shell_command()
+        ),
+    }
+}
+
+pub(super) fn dependency_missing_blocker_message(
+    step_id: &str,
+    failures: &[VerificationFailure],
+    reason: &str,
+) -> String {
+    let mut commands = Vec::new();
+    let mut diagnostics = Vec::new();
+    for failure in failures {
+        if !commands.contains(&failure.command) {
+            commands.push(failure.command.clone());
+        }
+        if !failure.diagnostic_excerpt.trim().is_empty() {
+            diagnostics.push(failure.diagnostic_excerpt.trim().to_string());
+        }
+    }
+
+    let mut message = format!(
+        "dependency_missing: step {step_id} cannot be repaired by editing files.\n\n\
+This is an environment/setup blocker, not a code repair failure. {reason}"
+    );
+    if !diagnostics.is_empty() {
+        message.push_str("\n\nVerifier evidence:\n");
+        message.push_str(&diagnostics.join("\n"));
+    }
+    message.push_str("\n\nRun dependency setup manually, for example:\n  npm install");
+    if commands.is_empty() {
+        message.push_str("\n\nThen rerun the original verifier.");
+    } else {
+        message.push_str("\n\nThen rerun:\n");
+        for command in commands {
+            message.push_str("  ");
+            message.push_str(&command);
+            message.push('\n');
+        }
+        if message.ends_with('\n') {
+            message.pop();
+        }
+    }
+    message
+        .push_str("\n\nCommandAgent did not create a repair prompt because this blocker requires explicit setup.");
+    message
+}
+
+fn selection_error_message(err: &SetupSelectionError) -> String {
+    match err {
+        SetupSelectionError::UnsupportedVerifier(command) => format!(
+            "Dependency setup recovery only supports npm build verifiers in this slice; unsupported verifier: `{}`.",
+            bounded_event_text(command)
+        ),
+        SetupSelectionError::UnsupportedYarnLock => {
+            "Dependency setup recovery does not support yarn.lock in this slice.".to_string()
+        }
+        SetupSelectionError::AmbiguousLockfiles => {
+            "Dependency setup recovery found both package-lock.json and pnpm-lock.yaml, so the setup command is ambiguous.".to_string()
+        }
+    }
+}
+
+fn setup_log_prefix(command: SetupCommand) -> String {
+    let millis = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    let name = command.as_shell_command().replace(' ', "-");
+    format!("{millis}-{name}")
+}
+
+fn read_tail_excerpt(path: &Path) -> String {
+    let Ok(mut file) = File::open(path) else {
+        return String::new();
+    };
+    let len = file.metadata().map(|meta| meta.len()).unwrap_or_default();
+    let start = len.saturating_sub(SETUP_LOG_EXCERPT_BYTES);
+    if file.seek(SeekFrom::Start(start)).is_err() {
+        return String::new();
+    }
+    let mut bytes = Vec::new();
+    if file.read_to_end(&mut bytes).is_err() {
+        return String::new();
+    }
+    String::from_utf8_lossy(&bytes).trim().to_string()
+}
+
+fn file_fingerprint(path: &Path) -> Option<String> {
+    let bytes = fs::read(path).ok()?;
+    Some(format!("{}:{:016x}", bytes.len(), stable_hash(&bytes)))
+}
+
+fn stable_hash(bytes: &[u8]) -> u64 {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    hash
+}
+
+fn empty_excerpt(value: &str) -> &str {
+    if value.trim().is_empty() {
+        "(no stderr output captured; full logs are under .commandagent/setup/)"
+    } else {
+        value.trim()
+    }
+}
+
+pub(super) fn setup_failure_evidence(stderr: &str) -> Option<SetupFailureEvidence> {
+    if !stderr.contains("ERESOLVE") {
+        return None;
+    }
+
+    let mut dependent = None;
+    let mut required_peer = None;
+    let mut observed = None;
+    for raw_line in stderr.lines() {
+        let line = strip_npm_error_prefix(raw_line.trim());
+        if let Some(value) = line.strip_prefix("Found: ") {
+            observed = parse_package_version_token(value);
+            continue;
+        }
+        let Some(peer_start) = line.find("peer ") else {
+            continue;
+        };
+        let peer = &line[peer_start + "peer ".len()..];
+        let Some((peer_part, dependent_part)) = peer.split_once(" from ") else {
+            continue;
+        };
+        let Some((package, range)) = parse_peer_requirement(peer_part) else {
+            continue;
+        };
+        required_peer = Some(format!("{package} {range}"));
+        dependent = parse_package_version_token(dependent_part);
+    }
+
+    if dependent.is_some() && required_peer.is_some() && observed.is_some() {
+        Some(SetupFailureEvidence {
+            signature: "npm_eresolve_peer_dependency".to_string(),
+            dependent,
+            required_peer,
+            observed,
+            target: Some("package.json".to_string()),
+        })
+    } else {
+        None
+    }
+}
+
+fn render_setup_failure_evidence(evidence: &SetupFailureEvidence) -> String {
+    let mut lines = Vec::new();
+    lines.push(format!(
+        "- signature: {}",
+        bounded_event_text(&evidence.signature)
+    ));
+    if let Some(target) = &evidence.target {
+        lines.push(format!("- target: {}", bounded_event_text(target)));
+    }
+    if let Some(dependent) = &evidence.dependent {
+        lines.push(format!("- dependent: {}", bounded_event_text(dependent)));
+    }
+    if let Some(required_peer) = &evidence.required_peer {
+        lines.push(format!(
+            "- required_peer: {}",
+            bounded_event_text(required_peer)
+        ));
+    }
+    if let Some(observed) = &evidence.observed {
+        lines.push(format!("- observed: {}", bounded_event_text(observed)));
+    }
+    lines.push(
+        "- required_action: edit package.json to use compatible dependency versions; do not run dependency installation directly".to_string(),
+    );
+    lines.join("\n")
+}
+
+fn strip_npm_error_prefix(line: &str) -> &str {
+    line.strip_prefix("npm error ")
+        .or_else(|| line.strip_prefix("npm ERR! "))
+        .unwrap_or(line)
+        .trim()
+}
+
+fn parse_peer_requirement(value: &str) -> Option<(String, String)> {
+    let value = value.trim();
+    let (package, range) = value.split_once("@\"")?;
+    let range = range.strip_suffix('"').unwrap_or(range);
+    if package.trim().is_empty() || range.trim().is_empty() {
+        return None;
+    }
+    Some((package.trim().to_string(), range.trim().to_string()))
+}
+
+fn parse_package_version_token(value: &str) -> Option<String> {
+    let token = value.split_whitespace().next()?.trim_matches(['"', '\'']);
+    let (package, version) = token.rsplit_once('@')?;
+    if package.trim().is_empty() || version.trim().is_empty() {
+        return None;
+    }
+    Some(format!("{}@{}", package.trim(), version.trim()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+
+    #[test]
+    fn selects_npm_install_without_lockfile() {
+        let root = temp_workspace("no-lock");
+        let command = select_setup_command(&root, &[dependency_missing("npm run build")])
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(command, SetupCommand::NpmInstall);
+    }
+
+    #[test]
+    fn selects_npm_ci_with_package_lock() {
+        let root = temp_workspace("package-lock");
+        fs::write(root.join("package-lock.json"), "{}").unwrap();
+
+        let command = select_setup_command(&root, &[dependency_missing("npm run build")])
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(command, SetupCommand::NpmCi);
+    }
+
+    #[test]
+    fn selects_npm_ci_when_package_lock_matches_manifest_dependencies() {
+        let root = temp_workspace("package-lock-matches");
+        fs::write(
+            root.join("package.json"),
+            r#"{"dependencies":{"next":"14.2.0","react":"18.2.0","@tailwindcss/postcss":"latest"}}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("package-lock.json"),
+            r#"{"packages":{"node_modules/next":{},"node_modules/react":{},"node_modules/@tailwindcss/postcss":{}}}"#,
+        )
+        .unwrap();
+
+        let command = select_setup_command(&root, &[dependency_missing("npm run build")])
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(command, SetupCommand::NpmCi);
+    }
+
+    #[test]
+    fn selects_npm_install_when_package_lock_is_stale_for_manifest() {
+        let root = temp_workspace("package-lock-stale");
+        fs::write(
+            root.join("package.json"),
+            r#"{"dependencies":{"next":"14.2.0","react":"18.2.0","@tailwindcss/postcss":"latest"}}"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("package-lock.json"),
+            r#"{"packages":{"node_modules/next":{},"node_modules/react":{}}}"#,
+        )
+        .unwrap();
+
+        let command = select_setup_command(&root, &[dependency_missing("npm run build")])
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(command, SetupCommand::NpmInstall);
+    }
+
+    #[test]
+    fn selects_pnpm_install_with_pnpm_lock() {
+        let root = temp_workspace("pnpm-lock");
+        fs::write(root.join("pnpm-lock.yaml"), "").unwrap();
+
+        let command = select_setup_command(&root, &[dependency_missing("npm run build")])
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(command, SetupCommand::PnpmInstall);
+    }
+
+    #[test]
+    fn rejects_yarn_lock() {
+        let root = temp_workspace("yarn-lock");
+        fs::write(root.join("yarn.lock"), "").unwrap();
+
+        let err = select_setup_command(&root, &[dependency_missing("npm run build")]).unwrap_err();
+
+        assert_eq!(err, SetupSelectionError::UnsupportedYarnLock);
+    }
+
+    #[test]
+    fn rejects_ambiguous_npm_and_pnpm_lockfiles() {
+        let root = temp_workspace("ambiguous");
+        fs::write(root.join("package-lock.json"), "{}").unwrap();
+        fs::write(root.join("pnpm-lock.yaml"), "").unwrap();
+
+        let err = select_setup_command(&root, &[dependency_missing("npm run build")]).unwrap_err();
+
+        assert_eq!(err, SetupSelectionError::AmbiguousLockfiles);
+    }
+
+    #[test]
+    fn does_not_select_for_non_dependency_missing() {
+        let root = temp_workspace("non-dependency");
+        let command = select_setup_command(
+            &root,
+            &[VerificationFailure {
+                command: "npm run build".to_string(),
+                reason: "command_failed:1".to_string(),
+                stdout_excerpt: String::new(),
+                stderr_excerpt: String::new(),
+                diagnostic_excerpt: String::new(),
+                source_excerpt: None,
+            }],
+        )
+        .unwrap();
+
+        assert_eq!(command, None);
+    }
+
+    #[test]
+    fn manifest_fingerprint_changes_when_package_manifest_changes() {
+        let root = temp_workspace("manifest-fingerprint-package");
+        fs::write(
+            root.join("package.json"),
+            r#"{"dependencies":{"next":"14"}}"#,
+        )
+        .unwrap();
+
+        let before = manifest_fingerprint(&root).key();
+        fs::write(
+            root.join("package.json"),
+            r#"{"dependencies":{"next":"14","react":"18"}}"#,
+        )
+        .unwrap();
+        let after = manifest_fingerprint(&root).key();
+
+        assert_ne!(before, after);
+    }
+
+    #[test]
+    fn manifest_fingerprint_changes_when_lockfile_is_created() {
+        let root = temp_workspace("manifest-fingerprint-lock");
+        fs::write(
+            root.join("package.json"),
+            r#"{"dependencies":{"next":"14"}}"#,
+        )
+        .unwrap();
+
+        let before = manifest_fingerprint(&root).key();
+        fs::write(root.join("package-lock.json"), "{}").unwrap();
+        let after = manifest_fingerprint(&root).key();
+
+        assert_ne!(before, after);
+    }
+
+    #[test]
+    fn rejects_non_npm_build_dependency_missing() {
+        let root = temp_workspace("non-npm-build");
+        let err = select_setup_command(&root, &[dependency_missing("cargo test")]).unwrap_err();
+
+        assert_eq!(
+            err,
+            SetupSelectionError::UnsupportedVerifier("cargo test".to_string())
+        );
+    }
+
+    #[test]
+    fn setup_failure_evidence_parses_npm_eresolve_peer_dependency() {
+        let evidence = setup_failure_evidence(npm_eresolve_excerpt()).unwrap();
+
+        assert_eq!(evidence.signature, "npm_eresolve_peer_dependency");
+        assert_eq!(evidence.dependent.as_deref(), Some("autoprefixer@10.0.0"));
+        assert_eq!(evidence.required_peer.as_deref(), Some("postcss ^8.0.2"));
+        assert_eq!(evidence.observed.as_deref(), Some("postcss@8.0.0"));
+        assert_eq!(evidence.target.as_deref(), Some("package.json"));
+    }
+
+    #[test]
+    fn setup_failed_blocker_message_renders_peer_dependency_evidence() {
+        let message = setup_failed_blocker_message(
+            "verify-project-build",
+            SetupCommand::NpmInstall,
+            &SetupRunStatus::CommandFailed {
+                status: 1,
+                stderr_excerpt: npm_eresolve_excerpt().to_string(),
+            },
+        );
+
+        assert!(message.contains("dependency_setup_failed"));
+        assert!(message.contains("setup evidence:"));
+        assert!(message.contains("- signature: npm_eresolve_peer_dependency"));
+        assert!(message.contains("- target: package.json"));
+        assert!(message.contains("- dependent: autoprefixer@10.0.0"));
+        assert!(message.contains("- required_peer: postcss ^8.0.2"));
+        assert!(message.contains("- observed: postcss@8.0.0"));
+        assert!(message.contains("do not run dependency installation directly"));
+    }
+
+    #[test]
+    fn setup_failure_evidence_ignores_unclassified_failures() {
+        assert_eq!(setup_failure_evidence("npm error code EACCES"), None);
+    }
+
+    #[test]
+    fn production_runner_blocks_unapproved_setup_without_running_npm() {
+        let root = temp_workspace("runner-block");
+        let status = ShellDependencySetupRunner.run_setup(
+            &root,
+            SetupCommand::NpmInstall,
+            DependencySetupPolicy::default(),
+        );
+
+        assert!(matches!(status, SetupRunStatus::Blocked { .. }));
+        assert!(!root.join(".commandagent/setup").exists());
+    }
+
+    fn dependency_missing(command: &str) -> VerificationFailure {
+        VerificationFailure {
+            command: command.to_string(),
+            reason: "dependency_missing".to_string(),
+            stdout_excerpt: String::new(),
+            stderr_excerpt: String::new(),
+            diagnostic_excerpt: "missing next".to_string(),
+            source_excerpt: None,
+        }
+    }
+
+    fn npm_eresolve_excerpt() -> &'static str {
+        r#"npm error code ERESOLVE
+npm error ERESOLVE unable to resolve dependency tree
+npm error
+npm error While resolving: nextjs-app@0.1.0
+npm error Found: postcss@8.0.0
+npm error node_modules/postcss
+npm error   postcss@"8.0.0" from the root project
+npm error
+npm error Could not resolve dependency:
+npm error peer postcss@"^8.0.2" from autoprefixer@10.0.0
+npm error node_modules/autoprefixer
+npm error   autoprefixer@"10.0.0" from the root project"#
+    }
+
+    fn temp_workspace(name: &str) -> PathBuf {
+        let path = std::env::temp_dir().join(format!(
+            "commandagent-setup-{}-{}",
+            name,
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir_all(&path).unwrap();
+        path
+    }
+}

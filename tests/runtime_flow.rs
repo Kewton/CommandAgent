@@ -170,6 +170,8 @@ fn write_responses(path: &str, content: &str, final_answer: &str) -> Vec<ChatRes
         ChatResponse {
             content: String::new(),
             tool_calls: vec![ToolCall {
+                id: None,
+                thought_signature: None,
                 name: "Write".to_string(),
                 args_json: format!(
                     r#"{{"path":"{}","content":"{}"}}"#,

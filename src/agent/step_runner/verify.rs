@@ -74,6 +74,9 @@ pub fn summarize_command_failure(
     output: &CommandOutput,
 ) -> VerificationFailure {
     let combined = format!("{}\n{}", output.stdout, output.stderr);
+    if let Some(failure) = dependency_missing_from_command_failure(guard, command, &combined) {
+        return failure;
+    }
     VerificationFailure {
         command: command.to_string(),
         reason: format!("command_failed:{}", output.status),
@@ -88,8 +91,7 @@ fn dependency_missing_failure(
     guard: &PathGuard,
     command: &str,
 ) -> Result<Option<VerificationFailure>, VerifyError> {
-    let lower = command.trim().to_ascii_lowercase();
-    if lower != "npm run build" {
+    if !command.trim().eq_ignore_ascii_case("npm run build") {
         return Ok(None);
     }
 
@@ -108,6 +110,20 @@ fn dependency_missing_failure(
         .resolve("node_modules/.bin/next")
         .map_err(VerifyError::Path)?;
     if next_bin.exists() {
+        if let Some(missing_packages) = missing_package_dependencies(guard, &package)? {
+            let message = format!(
+                "dependency_missing: verifier_unavailable: npm run build requires package.json dependencies to be installed, but node_modules is missing: {}. Run dependency setup when allowed, then rerun npm run build; do not change scripts.build away from next build to fake success.",
+                missing_packages.join(", ")
+            );
+            return Ok(Some(VerificationFailure {
+                command: command.to_string(),
+                reason: "dependency_missing".to_string(),
+                stdout_excerpt: String::new(),
+                stderr_excerpt: String::new(),
+                diagnostic_excerpt: message,
+                source_excerpt: None,
+            }));
+        }
         return Ok(None);
     }
 
@@ -120,6 +136,128 @@ fn dependency_missing_failure(
         diagnostic_excerpt: message,
         source_excerpt: None,
     }))
+}
+
+fn dependency_missing_from_command_failure(
+    guard: &PathGuard,
+    command: &str,
+    text: &str,
+) -> Option<VerificationFailure> {
+    if !command.trim().eq_ignore_ascii_case("npm run build") {
+        return None;
+    }
+    let package_path = guard.resolve("package.json").ok()?;
+    let package = fs::read_to_string(&package_path).ok()?;
+    if !package_uses_next_build(&package) {
+        return None;
+    }
+    let missing_module = missing_module_from_diagnostic(text)?;
+    let dependencies = package_dependency_keys(&package);
+    if !dependencies.iter().any(|dep| dep == &missing_module) {
+        return None;
+    }
+    let module_path = node_module_dependency_path(&missing_module)?;
+    let resolved = guard.resolve(&module_path).ok()?;
+    if resolved.exists() {
+        return None;
+    }
+    let message = format!(
+        "dependency_missing: verifier_unavailable: npm run build requires declared package `{missing_module}`, but `{module_path}` is missing. Run dependency setup when allowed, then rerun npm run build; do not change scripts.build away from next build to fake success."
+    );
+    Some(VerificationFailure {
+        command: command.to_string(),
+        reason: "dependency_missing".to_string(),
+        stdout_excerpt: String::new(),
+        stderr_excerpt: String::new(),
+        diagnostic_excerpt: message,
+        source_excerpt: None,
+    })
+}
+
+fn missing_package_dependencies(
+    guard: &PathGuard,
+    package: &str,
+) -> Result<Option<Vec<String>>, VerifyError> {
+    let dependencies = package_dependency_keys(package);
+    if dependencies.is_empty() {
+        return Ok(None);
+    }
+    let mut missing = Vec::new();
+    for dep in dependencies {
+        let Some(path) = node_module_dependency_path(&dep) else {
+            continue;
+        };
+        let resolved = guard.resolve(&path).map_err(VerifyError::Path)?;
+        if !resolved.exists() {
+            missing.push(dep);
+        }
+    }
+    if missing.is_empty() {
+        Ok(None)
+    } else {
+        missing.truncate(8);
+        Ok(Some(missing))
+    }
+}
+
+fn package_dependency_keys(package: &str) -> Vec<String> {
+    let Ok(value) = serde_json::from_str::<Value>(package) else {
+        return Vec::new();
+    };
+    let mut keys = Vec::new();
+    for section in ["dependencies", "devDependencies"] {
+        let Some(object) = value.get(section).and_then(Value::as_object) else {
+            continue;
+        };
+        for name in object.keys() {
+            if !keys.iter().any(|existing| existing == name) {
+                keys.push(name.clone());
+            }
+        }
+    }
+    keys
+}
+
+fn missing_module_from_diagnostic(text: &str) -> Option<String> {
+    for quote in ['\'', '"'] {
+        let needle = format!("Cannot find module {quote}");
+        if let Some(start) = text.find(&needle) {
+            let rest = &text[start + needle.len()..];
+            let value = rest.split(quote).next()?.trim();
+            if node_module_dependency_path(value).is_some() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn node_module_dependency_path(name: &str) -> Option<String> {
+    if name.starts_with('@') {
+        let mut parts = name.split('/');
+        let scope = parts.next()?;
+        let package = parts.next()?;
+        if parts.next().is_some() || package.is_empty() {
+            return None;
+        }
+        if safe_package_segment(scope) && safe_package_segment(package) {
+            return Some(format!("node_modules/{scope}/{package}"));
+        }
+        return None;
+    }
+    if safe_package_segment(name) && !name.contains('/') {
+        Some(format!("node_modules/{name}"))
+    } else {
+        None
+    }
+}
+
+fn safe_package_segment(value: &str) -> bool {
+    !value.is_empty()
+        && !value.contains("..")
+        && value
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '@' | '-' | '_' | '.'))
 }
 
 fn package_uses_next_build(package: &str) -> bool {
@@ -159,13 +297,28 @@ fn diagnostic_excerpt(text: &str) -> String {
 fn source_excerpt(guard: &PathGuard, text: &str) -> Option<SourceExcerpt> {
     let (path, line) = first_source_reference(text)?;
     let resolved = guard.resolve(&path).ok()?;
+    let display_path = resolved
+        .strip_prefix(guard.root())
+        .ok()
+        .map(|path| path.to_string_lossy().replace('\\', "/"))
+        .unwrap_or(path);
+    if ignored_source_excerpt_path(&display_path) {
+        return None;
+    }
     let body = fs::read_to_string(&resolved).ok()?;
     let excerpt = line_window(&body, line, 2);
     Some(SourceExcerpt {
-        path,
+        path: display_path,
         line,
         excerpt,
     })
+}
+
+fn ignored_source_excerpt_path(path: &str) -> bool {
+    path.starts_with("node_modules/")
+        || path.contains("/node_modules/")
+        || path.starts_with(".next/")
+        || path.contains("/.next/")
 }
 
 fn first_source_reference(text: &str) -> Option<(String, usize)> {
@@ -262,6 +415,106 @@ mod tests {
     }
 
     #[test]
+    fn reports_dependency_missing_for_manifest_dependency_not_installed() {
+        let root = temp_workspace("dependency-missing-stale-manifest");
+        fs::create_dir_all(root.join("node_modules/.bin")).unwrap();
+        fs::create_dir_all(root.join("node_modules/next")).unwrap();
+        fs::create_dir_all(root.join("node_modules/react")).unwrap();
+        fs::create_dir_all(root.join("node_modules/react-dom")).unwrap();
+        fs::write(root.join("node_modules/.bin/next"), "").unwrap();
+        fs::write(
+            root.join("package.json"),
+            r#"{"scripts":{"build":"next build"},"dependencies":{"next":"14.2.0","react":"18.2.0","react-dom":"18.2.0","@tailwindcss/postcss":"latest"}}"#,
+        )
+        .unwrap();
+
+        let report = run_verifiers(&root, &["npm run build".to_string()]).unwrap();
+
+        assert!(!report.ok);
+        assert_eq!(report.failures[0].reason, "dependency_missing");
+        assert!(
+            report.failures[0]
+                .diagnostic_excerpt
+                .contains("@tailwindcss/postcss")
+        );
+        assert!(
+            report.failures[0]
+                .diagnostic_excerpt
+                .contains("package.json dependencies")
+        );
+    }
+
+    #[test]
+    fn classifies_declared_missing_module_diagnostic_as_dependency_missing() {
+        let root = temp_workspace("dependency-missing-diagnostic");
+        fs::create_dir_all(root.join("node_modules/.bin")).unwrap();
+        fs::create_dir_all(root.join("node_modules/next")).unwrap();
+        fs::create_dir_all(root.join("node_modules/react")).unwrap();
+        fs::create_dir_all(root.join("node_modules/react-dom")).unwrap();
+        fs::write(
+            root.join("package.json"),
+            r#"{"scripts":{"build":"next build"},"dependencies":{"next":"14.2.0","react":"18.2.0","react-dom":"18.2.0","@tailwindcss/postcss":"latest"}}"#,
+        )
+        .unwrap();
+        let guard = PathGuard::new(&root).unwrap();
+        let output = CommandOutput {
+            status: 1,
+            stdout: String::new(),
+            stderr: "Error: Cannot find module '@tailwindcss/postcss'\nRequire stack:\n- postcss.config.js\n".to_string(),
+        };
+
+        let failure = summarize_command_failure(&guard, "npm run build", &output);
+
+        assert_eq!(failure.reason, "dependency_missing");
+        assert!(failure.diagnostic_excerpt.contains("@tailwindcss/postcss"));
+        assert!(
+            failure
+                .diagnostic_excerpt
+                .contains("node_modules/@tailwindcss/postcss")
+        );
+    }
+
+    #[test]
+    fn does_not_classify_undeclared_missing_module_as_dependency_missing() {
+        let root = temp_workspace("undeclared-missing-module");
+        fs::write(
+            root.join("package.json"),
+            r#"{"scripts":{"build":"next build"},"dependencies":{"next":"14.2.0"}}"#,
+        )
+        .unwrap();
+        let guard = PathGuard::new(&root).unwrap();
+        let output = CommandOutput {
+            status: 1,
+            stdout: String::new(),
+            stderr: "Error: Cannot find module '@tailwindcss/postcss'".to_string(),
+        };
+
+        let failure = summarize_command_failure(&guard, "npm run build", &output);
+
+        assert_eq!(failure.reason, "command_failed:1");
+    }
+
+    #[test]
+    fn does_not_classify_relative_missing_module_as_dependency_missing() {
+        let root = temp_workspace("relative-missing-module");
+        fs::write(
+            root.join("package.json"),
+            r#"{"scripts":{"build":"next build"},"dependencies":{"next":"14.2.0"}}"#,
+        )
+        .unwrap();
+        let guard = PathGuard::new(&root).unwrap();
+        let output = CommandOutput {
+            status: 1,
+            stdout: String::new(),
+            stderr: "Error: Cannot find module './GameBoard'".to_string(),
+        };
+
+        let failure = summarize_command_failure(&guard, "npm run build", &output);
+
+        assert_eq!(failure.reason, "command_failed:1");
+    }
+
+    #[test]
     fn captures_typescript_source_excerpt() {
         let root = temp_workspace("ts-excerpt");
         fs::create_dir_all(root.join("app")).unwrap();
@@ -289,6 +542,31 @@ mod tests {
         assert_eq!(excerpt.path, "app/page.tsx");
         assert_eq!(excerpt.line, 3);
         assert!(excerpt.excerpt.contains(">3: const value"));
+    }
+
+    #[test]
+    fn skips_dependency_source_excerpt() {
+        let root = temp_workspace("dependency-excerpt");
+        fs::create_dir_all(root.join("node_modules/tailwindcss/dist")).unwrap();
+        fs::write(
+            root.join("node_modules/tailwindcss/dist/lib.js"),
+            "line1\nline2\nthrow new Error('plugin')\nline4\n",
+        )
+        .unwrap();
+        let guard = PathGuard::new(&root).unwrap();
+        let output = CommandOutput {
+            status: 1,
+            stdout: String::new(),
+            stderr: format!(
+                "Error evaluating Node.js code\n{}:3:1\nError: plugin failure\n",
+                root.join("node_modules/tailwindcss/dist/lib.js").display()
+            ),
+        };
+
+        let failure = summarize_command_failure(&guard, "npm run build", &output);
+
+        assert!(failure.source_excerpt.is_none());
+        assert!(failure.diagnostic_excerpt.contains("plugin failure"));
     }
 
     #[test]

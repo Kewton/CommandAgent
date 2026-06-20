@@ -1,5 +1,8 @@
+pub mod correction_evidence;
 pub mod plan_lint;
+pub(crate) mod profile_artifact;
 pub mod profiles;
+pub mod recovery_task;
 pub mod repair;
 pub mod runtime;
 pub mod ultra_plan;
@@ -11,6 +14,7 @@ mod plan_error;
 mod plan_prompt;
 mod plan_store;
 mod plan_yaml;
+mod yaml_scalar;
 
 pub use plan::{ExpectedResult, StepKind, StepPlan, StepPlanStep, WorkIntent};
 pub use plan_error::PlanError;
@@ -77,6 +81,84 @@ mod tests {
         assert_eq!(plan.required_artifacts, vec!["app/main.py"]);
         assert_eq!(plan.steps[0].kind, StepKind::Create);
         assert_eq!(plan.steps[0].expected_paths, vec!["app/schemas.py"]);
+    }
+
+    #[test]
+    fn accepts_literal_block_scalar_instruction() {
+        let yaml = r#"
+goal: Create Next app
+profile: nextjs
+style: default
+steps:
+  - id: create-package-json
+    kind: create
+    instruction: |
+      Create the package.json file and configure the dev script to use port 3011.
+      The package.json work must mention next, react, and react-dom.
+    expected_paths:
+      - package.json
+    verify:
+      - test -f package.json
+"#;
+
+        let plan = parse_step_plan_yaml(yaml).unwrap();
+
+        assert_eq!(
+            plan.steps[0].instruction,
+            "Create the package.json file and configure the dev script to use port 3011.\nThe package.json work must mention next, react, and react-dom."
+        );
+    }
+
+    #[test]
+    fn accepts_folded_block_scalar_instruction() {
+        let yaml = r#"
+goal: Create docs
+profile: docs
+style: default
+steps:
+  - id: write-readme
+    kind: create
+    instruction: >
+      Create README.md with usage notes.
+      Include setup instructions.
+    expected_paths:
+      - README.md
+    verify:
+      - test -f README.md
+"#;
+
+        let plan = parse_step_plan_yaml(yaml).unwrap();
+
+        assert_eq!(
+            plan.steps[0].instruction,
+            "Create README.md with usage notes. Include setup instructions."
+        );
+    }
+
+    #[test]
+    fn accepts_literal_block_scalar_goal_and_canonicalizes() {
+        let yaml = r#"
+goal: |
+  Build docs.
+  Keep the output concise.
+profile: docs
+style: default
+steps:
+  - id: write-readme
+    instruction: Create README.md.
+    expected_paths:
+      - README.md
+    verify:
+      - test -f README.md
+"#;
+
+        let plan = parse_step_plan_yaml(yaml).unwrap();
+        let rendered = render_step_plan_yaml(&plan);
+        let reparsed = parse_step_plan_yaml(&rendered).unwrap();
+
+        assert_eq!(plan.goal, "Build docs.\nKeep the output concise.");
+        assert_eq!(reparsed, plan);
+        assert!(rendered.contains("goal: \"Build docs.\\nKeep the output concise.\""));
     }
 
     #[test]
@@ -226,6 +308,8 @@ steps:
         assert!(prompt.contains("Profile: docs"));
         assert!(prompt.contains("Intent: document"));
         assert!(prompt.contains("Do not include tool-call fields"));
+        assert!(prompt.contains("YAML block scalars"));
+        assert!(prompt.contains("do not use anchors"));
     }
 
     #[test]
@@ -254,6 +338,22 @@ steps:
         assert!(prompt.contains("if it exists"));
         assert!(prompt.contains("Inspect steps are observation-only"));
         assert!(prompt.contains("Do not use true as a verifier"));
+    }
+
+    #[test]
+    fn generation_prompt_includes_nextjs_tailwind_plan_guidance() {
+        let prompt = plan_generation_prompt("Build app", "nextjs", "default", WorkIntent::New, &[]);
+
+        assert!(prompt.contains("React 18.2 or newer compatibility"));
+        assert!(prompt.contains("Do not use exact React pins below 18.2"));
+        assert!(prompt.contains("typescript 5.x compatibility"));
+        assert!(prompt.contains("@types/react 18.x compatibility"));
+        assert!(prompt.contains("latest as the compatibility strategy"));
+        assert!(prompt.contains("Use plain CSS unless"));
+        assert!(prompt.contains("same step plan must also include"));
+        assert!(prompt.contains("tailwindcss, postcss, and autoprefixer"));
+        assert!(prompt.contains("tailwind.config.js and postcss.config.js"));
+        assert!(prompt.contains("Do not plan npm install"));
     }
 
     #[test]

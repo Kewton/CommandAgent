@@ -4,6 +4,105 @@ CommandAgent is built around a small set of modules with explicit boundaries.
 The boundary is more important than the module name: when a feature crosses a
 boundary, it should be split before more behavior is added.
 
+## Contract Architecture
+
+CommandAgent has one execution engine and several first-class contract
+surfaces around it:
+
+- Task Contract: records the user goal, required artifacts, constraints,
+  success checks, and task scope that later contracts must preserve.
+- Planning Contract: turns a user goal into explicit step or phase contracts,
+  expected artifacts, step ownership, and lintable success conditions.
+- Profile Contract: provides deterministic domain facts, artifact
+  classification, obligations, verifier hints, protected paths, and
+  profile-verification evidence without owning workflow control.
+- Artifact Role and Workspace Scope Contract: classifies paths before they are
+  used for plan lint, setup bootstrap, verification, route integration, or
+  repair targeting.
+- Active Job Arbitration Contract: classifies the current blocker as setup,
+  manifest, route integration, source implementation, verifier policy,
+  documentation, or explicit stop before a repair task is rendered.
+- Setup Bootstrap Contract: owns bounded dependency setup, setup/config
+  artifact preparation, and deterministic manifest/scaffold materialization
+  when a profile can name the required setup artifacts.
+- Execution Contract: gives the minimal loop one clear executable task, a tool
+  policy, path safety, observations, and bounded completion guards.
+- Recovery Task Contract: turns a classified deterministic failure into a clear
+  repair instruction for the minimal loop.
+- Attempt Ledger Contract: records bounded repair attempts, changed files,
+  verifier/profile results, and repeated failure classes so no-progress stops
+  are explicit.
+
+Contract Boundary Propagation is the handoff rule between these surfaces, not a
+second execution engine. When a deterministic guard rejects work, it may pass
+only the facts it owns to the next layer: violated contract, active job, repair
+kind, deterministic target, setup implication, rerun authority, and
+attempt-ledger context. This lets Active Job Arbitration, Recovery Task
+Contract, or verifier-owned setup recovery choose the correct bounded path
+without asking the minimal loop to infer strategy from broad failure prose.
+
+These fields are rendered through existing contract evidence and recovery task
+payloads. For example, `repair_kind=manifest_dependency_repair` can target
+`package.json`, `setup_implication=setup_after_manifest_repair_required` can
+state that dependency setup may be stale after manifest repair, and
+`rerun_authority=profile_verification,npm run build` can name the checks that
+still judge success. The fields do not create retry authority or an unbounded
+controller.
+
+The Planning Contract must validate more than schema shape. It owns step
+decomposition checks such as whether a `setup` step is trying to create a
+source artifact, whether a `verify` step is mixed with mutation, and whether an
+expected path belongs to the step that names it. Profile artifact
+classification supplies typed path facts for these checks, but the profile does
+not become a planner.
+
+Profile Contract may include small dependency compatibility producers when
+they operate only on deterministic manifest facts or classified setup failure
+evidence. For example, the Next.js profile can reject an observed
+Tailwind/PostCSS/autoprefixer peer dependency conflict and target
+`package.json` for repair, or reject a generated Next.js 14/React 18
+TypeScript app that drifted to TypeScript 6 or `@types/react` 19. Profiles
+still must not execute package managers, query registries, choose workflows, or
+retry setup.
+
+The Recovery Task Contract is not an execution engine. It does not retry until
+success or continue hidden work. It is a contract layer that prepares the next
+bounded repair turn when a guard, verifier, profile check, or active job
+arbiter already knows enough to name the blocker, violated contract, target or
+candidate paths, required action, disallowed actions, and the original
+guard/verifier that will judge the repair.
+
+In short, planning, setup, job arbitration, and recovery clarify what should be
+done; the minimal loop executes the already-clarified task. Profiles classify
+and verify domain facts for those contracts. If CommandAgent cannot form a
+deterministic job classification or recovery task, it should stop with
+structured evidence instead of asking the minimal loop to infer the repair
+strategy from broad failure prose.
+
+Propagation must stay visible and bounded. It can route a manifest dependency
+repair toward `package.json`, mark dependency setup stale after that manifest
+changes, route a disconnected artifact toward selected-route integration, or
+select setup bootstrap when verifier evidence and policy make that action
+deterministic. It must not choose arbitrary future phases, silently run setup
+without a setup contract, increase retry count, authorize model-issued
+dependency installs, or let profiles become hidden workflow engines.
+
+Next.js route integration is profile evidence, not workflow control. The
+profile may build a bounded static graph from the selected route through
+relative imports and use it to distinguish transitive route-tree integration
+from a disconnected artifact. The graph is limited in depth and file count,
+ignores generated/cache/setup artifacts, and does not run Next.js,
+TypeScript, or semantic UI checks.
+
+Recovery Task Contract may also carry a small execution envelope. The envelope
+is selected from deterministic failure evidence and consumed by the Execution
+Contract before the next bounded repair turn. It is intentionally narrow:
+`read_only_step_mutation` selects a read-only tool policy plus repository-read
+evidence requirement; verifier/profile repair keeps file-mutation repair
+semantics; `setup_step_source_mutation` keeps setup/config-only mutation
+semantics; tool-protocol correction keeps the current schema-correction path.
+The envelope must not add retry authority or provider/model-specific behavior.
+
 ## Runtime
 
 - `cli`: parses command-line options and starts one-shot or REPL mode.
@@ -18,21 +117,25 @@ boundary, it should be split before more behavior is added.
 - `session`: stores messages, llm-io logs, and resumable state.
 - `safety`: path confinement and host validation.
 - `util`: shared workspace path and file classification helpers.
-- `tui`: terminal rendering.
+- `agent/events`: shared passive runtime events for UI and tests.
+- `tui`: terminal rendering for interactive progress and final-answer
+  formatting.
 
 ## Boundary Summary
 
 | Layer | Owns | Must Not Own |
 | --- | --- | --- |
 | Provider | HTTP/API transport, provider-specific payload shapes | Planning, repair policy, profile behavior |
-| Minimal loop | Tool-call execution, observations, bounded completion guards | Multi-step plans, domain profiles, unbounded retry |
-| Profile | Small domain facts, verifier hints, protected prefixes | Workflow control, hidden task-specific agents |
-| Step runner | Plan schema, lint, verifier, repair packet, ultra phase order | Provider transport, low-level tool implementation |
+| Minimal loop | Tool-call execution, observations, bounded completion guards | Multi-step plans, recovery strategy, domain profiles, unbounded retry |
+| Profile | Domain facts, artifact classification, verifier hints, protected prefixes, profile evidence, setup artifact templates | Hidden task-specific agents, execution policy, package-registry solving |
+| Step runner | Plan schema, step-decomposition lint, verifier, active job arbitration, setup bootstrap, recovery task contracts, repair packet, attempt ledger, ultra phase order | Provider transport, low-level tool implementation, unbounded workflow control |
+| TUI | TTY-aware rendering of runtime events and final answers | Planning, repair, retry, provider parsing, filesystem policy |
 | Tools | Deterministic workspace actions | Task interpretation or planning |
 | Eval | Run roots, summaries, recheck, reports | Runtime behavior changes |
 
-This separation is the main defense against rebuilding the removed legacy stack
-under new names.
+This separation is the main defense against rebuilding hidden legacy behavior
+under new names. The orchestration may become richer, but each decision must
+remain attributable to a contract surface.
 
 ## REPL
 
@@ -46,24 +149,86 @@ commands, `--profile`, `--style`, and bounded `$(cat ...)` repair prompt
 references. File references are resolved through path confinement before their
 contents are expanded.
 
+## Terminal UI
+
+The TUI is a passive observer. The runtime emits bounded events through
+`agent/events`, and `src/tui` renders those events to stderr only when stderr is
+a TTY. Non-TTY stdout remains script-friendly and does not receive progress
+text.
+
+Terminal progress can show a startup logo, plan generation, saved plan paths,
+plan previews, ultra phases, step starts/finishes, tool summaries, verifier
+status, dependency setup start/finish, profile verification failures, artifact
+status, bounded repair attempts, repair packet paths, and a standalone
+suggested next command. These lines are evidence from existing runtime state;
+they do not change planning, verification, repair budgets, provider behavior,
+or tool policy.
+
+For blocking planner, model, verifier, repair, and tool waits, the TUI can emit
+an in-place elapsed spinner until the runtime emits completion, failure, or the
+next event. Disabling the spinner affects only the active wait animation, not
+the ordinary append-only progress evidence.
+
+Assistant final answers are Markdown-formatted only when stdout is a TTY and
+Markdown rendering is enabled. The renderer supports a narrow subset and emits
+SGR-only ANSI escapes.
+
+XML fallback parsing remains in provider/minimal-loop code. TUI displays
+tool-call mode and parser feedback events but does not parse
+`<commandagent_tool_call>` blocks or infer tool behavior from assistant text.
+
+Artifact status uses the runtime's path-confined missing-path helpers. Step
+`expected_paths` are step-local gates. Ultra-plan `required_artifacts` are final
+user-requested outputs and are reported at the final ultra boundary, not as
+phase-local failures.
+
 ## Provider Boundary
 
 Provider abstraction is intentionally thin. Providers send chat turns and return
-assistant content plus optional native tool calls. Ollama may use native tools.
-Gemini and OpenAI use XML fallback tool calls unless a provider-specific native
-tool surface is added deliberately.
+assistant content plus optional native tool calls. Ollama and Gemini may use
+native tools. OpenAI uses XML fallback tool calls unless a provider-specific
+native tool surface is added deliberately.
 
 Planner and executor can use different providers and models.
 
 Current provider capability contract:
 
 - `ollama`: native tool calls by default
-- `gemini`: XML fallback tool calls by default
+- `gemini`: native function calling by default, with XML fallback retained as a
+  compatibility/downgrade path
 - `openai`: XML fallback tool calls by default
 
 The provider layer does not own planning, repair, profiles, or evaluation. A
 provider-specific bug fix belongs in the provider module; a behavioral policy
 belongs in the minimal loop or step runner only if it is provider-independent.
+
+Native tool schemas come from one provider-independent `ToolSpec` argument
+schema. Providers serialize that schema into their own native payload shape:
+Ollama tool definitions today, Gemini `functionDeclarations`, and any future
+OpenAI native surface only after a separate design decision. Native transcript
+metadata is also provider-independent: assistant messages may preserve tool
+call id/name/args, and tool messages may preserve the matching tool call
+id/name. Providers may serialize that metadata, but the minimal loop still owns
+tool execution and observation. Provider-specific transport requirements may
+extend serialization details inside the provider module, such as Gemini's REST
+requirement to return `thoughtSignature` with replayed `functionCall` parts.
+Those details must remain transport metadata, not repair or planning policy.
+
+XML fallback is a shared tool-call format, not provider-specific behavior.
+Gemini and OpenAI provider modules may parse XML fallback blocks from provider
+response text and return them as `ChatResponse.tool_calls`, while also removing
+the XML block from assistant content. The minimal loop still keeps XML
+extraction as a safety net so the execution contract remains provider
+independent. When XML fallback tool calls are parsed into `tool_calls`, the
+minimal loop renders those calls back into canonical XML in assistant history so
+API providers can see the prior tool call on the next turn. A single XML block
+must not result in duplicate tool execution.
+
+Malformed native function-call shape is not a repair policy. A provider may
+turn it into bounded tool-call parse evidence so the minimal loop can run the
+same parser-feedback and native-to-XML fallback transition it already uses for
+malformed fallback syntax. Transport failures, HTTP failures, and unparseable
+provider response bodies remain provider/model errors.
 
 ## Tool Contract
 
@@ -74,6 +239,20 @@ not for creating directories before `Write`.
 `Bash` must keep offline policy consistent with the prompt: local read-only,
 script-run, and build-test commands are allowed when they remain inside the
 workspace; dangerous or network actions are blocked.
+
+Dependency setup commands are a narrow exception class, not ordinary Bash
+capability. `npm install`, `npm ci`, and `pnpm install` classify as `EnvSetup`.
+They remain blocked for normal model-issued `Bash` tool calls, even when
+`--yes` is set. The step runner may run one `EnvSetup` command only after a
+verifier returns `dependency_missing`, expected source paths are present,
+setup is approved, and offline mode is disabled.
+
+If the bounded setup command itself fails with a deterministic package-manager
+diagnostic, such as npm `ERESOLVE` peer dependency evidence, the setup layer may
+render that diagnostic as manifest compatibility evidence. This evidence can
+name the setup command, failure signature, observed and required packages, and
+manifest target. It does not authorize another setup attempt or hidden
+continuation.
 
 Directory creation through `Bash` is blocked with guidance to use `Write`
 instead. The `Write` tool creates parent directories automatically, so `mkdir`
@@ -91,6 +270,31 @@ remain blocked.
 All file tools and session writes must go through path confinement. Relative
 paths are resolved under the workspace root. Parent traversal and symlink escape
 are rejected before a tool reads or writes data.
+
+Step execution also carries a step tool policy from the step runner into the
+minimal-loop executor. Inspect and report steps are read-only. Verify steps are
+no-mutation checks. Setup steps may change setup/config files such as
+`package.json`, `tsconfig.json`, `next.config.*`, `tailwind.config.*`, and
+`postcss.config.*`, but source route/component edits belong to create, edit, or
+repair steps. Repair turns are explicit bounded repair sessions and may mutate
+files within the normal file-tool and path-confinement rules.
+
+Tool-call schema failures are execution-contract failures. After a provider or
+XML fallback parser has produced a tool call, the minimal-loop executor rejects
+missing required fields and invalid JSON arguments before any tool mutation.
+The step runner classifies structured tool argument failures such as
+`tool_args_missing_required_field` and may issue one strict current-step tool
+protocol correction before normal repair resumes. Initial turns only receive
+that correction for steps that can mutate by contract. Repair turns may also
+correct malformed `Write` or `Edit` calls while fixing a failed verifier, such
+as a `verify` step whose build check failed, because the repair turn itself is
+an explicit mutation-allowed session. The correction prompt names the failed
+tool, missing or invalid argument, required fields, and a deterministic target
+path when the step contract provides one: missing expected paths are preferred,
+otherwise a single step `expected_paths` entry can be used as data. Repeated
+schema failures stop explicitly and are reported in repair packets and eval
+summaries. This is not provider policy, profile verification, dependency setup,
+or verifier success.
 
 Search tools walk the workspace deterministically and skip hidden paths by
 default. Search output is bounded so a tool result cannot flood the next model
@@ -116,10 +320,14 @@ verifiers, not full domain-specific agents.
 
 Step plans use a small CommandAgent-owned YAML schema: goal, profile, style,
 intent, required final artifacts, and ordered steps with kind, instruction,
-expected result, expected paths, and verifier commands. The YAML reader/writer
-intentionally supports only this schema so planning remains a bounded contract
-instead of an open-ended document format. Missing fields in older plan files are
-defaulted on read and normalized on save.
+expected result, expected paths, and verifier commands. Plan files are a public
+contract boundary for built-in and external planner surfaces. The reader
+accepts ordinary scalar forms for known fields, including block scalars for
+long goals or instructions, then normalizes into typed plan structs before
+schema validation and linting. The writer emits a stable canonical form for
+saved plans. This keeps planning bounded without making external planners match
+one incidental line shape. Missing fields in older plan files are defaulted on
+read and normalized on save.
 
 Plan linting is a separate pass. It rejects obvious schema-contract mistakes:
 non-file `expected_paths`, JSON/property selectors, alternative paths, glob
@@ -127,6 +335,12 @@ patterns, version strings, path escape, and steps that clearly mix
 file-changing setup with final verification. Workspace-aware lint may check
 whether named paths already exist, but it is limited to shallow existence checks;
 it does not read file contents or force a framework-specific project structure.
+Plan lint also owns deterministic step-decomposition checks when artifact roles
+are known: setup steps may name setup/config artifacts, create/edit/repair
+steps may own source/test/docs artifacts, and verify/report/inspect steps must
+not claim mutation-owned artifacts. Execution tool policy repeats these
+boundaries as a final guard, but it should not be the first place a bad
+decomposition is discovered.
 
 Ultra plans are one level higher: goal, profile, style, intent, required final
 artifacts, and ordered phases. Each phase is later turned into a step plan.
@@ -134,26 +348,125 @@ Ultra planning does not run tools by itself; it only creates bounded phase
 contracts under `.commandagent/plans/ultra-plan-*.yaml`.
 
 Ultra execution is phase-oriented. For each phase, CommandAgent builds a
-phase-local step-planning prompt with a bounded workspace snapshot and profile
-contract, then delegates to a step-plan executor. A phase failure stops the run
-and returns a readable phase report instead of continuing with stale context.
+phase-local step-planning prompt with a freshly collected bounded workspace
+snapshot, a data-only phase workspace contract, and the selected profile
+contract, then delegates to a step-plan executor. The phase contract contains
+generic facts such as visible root entries, lockfiles, package scripts, final
+required artifacts, profile-projected summary lines, and profile-projected
+obligations. Profile obligations are deterministic fact lines, not executable
+workflow. They may be used by step-plan lint to reject a generated phase plan
+that edits a contract-bearing file such as `package.json` while omitting a
+required profile literal such as the requested Next.js dev port. For Next.js,
+the same lint path may reject a generated create/edit/repair source step that
+creates an explicit UI/game artifact but does not mention the selected route in
+the step instruction or `expected_paths`. This is a narrow profile contract
+projection, not a generic artifact graph or framework workflow. The normal
+bounded plan-correction path handles rejected plans. The phase contract is also
+rendered as an active step contract before each executable step. The runtime
+refreshes current profile facts from disk immediately before the step prompt
+and before verifier-repair prompts, then asks the model to preserve those facts
+while doing only the current step. This is prompt context and repair evidence
+only; it does not mutate files, retry secretly, or turn the profile into a
+workflow engine. The phase contract does not choose a framework-specific
+workflow or mutate files. A phase failure stops the run and returns a readable
+phase report instead of continuing with stale context. If the failed phase has
+already mutated files, read-only profile verification may still run at that
+failed boundary to report any profile drift alongside the step failure.
+
+When plan lint rejects a generated step plan with deterministic contract facts,
+the rejection may carry structured contract correction evidence into the
+existing bounded plan-correction prompt. For example, a Next.js package step
+that omits `react-dom` from a dependency obligation can render the failed step,
+violated contract, required literals, and missing literals. This evidence is a
+prompt payload only: the original lint guard reruns unchanged, correction
+budgets do not increase, and no provider/model-specific branch is introduced.
+
+The evidence pipeline has four responsibilities:
+
+- producers detect deterministic failures;
+- the common evidence payload carries exact bounded facts;
+- consumers render those facts into existing correction or repair prompts and
+  packets;
+- orchestration reruns the original guard or verifier under the existing
+  bounded rules.
+
+The current common producers are plan-lint/profile-obligation evidence,
+provider transport parse failures, tool-protocol schema failures, read-only
+step-policy violations, verifier failures, and profile verification failures.
+Provider transport evidence is limited to shared response-parser diagnostics
+such as malformed XML fallback or JSON tool-call payloads; it must not become
+provider/model-specific behavioral policy. Verifier evidence may include a
+stable failure signature, failure kind, diagnostic code, affected command,
+candidate artifact paths, a single repair target, a related source excerpt,
+and a bounded repair-attempt ledger when those facts come from the verifier
+result. Profile verification uses the same evidence payload inside its
+existing profile repair packet; for Next.js, this currently covers selected
+route integration, missing explicit integration artifacts, script/dependency
+drift, Tailwind/PostCSS contract drift, TypeScript alias/root drift, and mixed
+app-root failures. Dependency setup is not a standalone producer; if one
+approved setup attempt runs and the verifier still fails, the setup result is
+attached as diagnostic context to the verifier evidence.
 
 Verification is deterministic. It runs only commands accepted by the local Bash
 policy, detects dependency-missing cases before fake success is possible, and
 compresses failures into bounded diagnostics plus nearby source excerpts when a
-file/line reference is present.
+file/line reference is present. Next.js source verification should stay on
+`npm run build`; `npx` verifier commands are rejected at the plan-contract
+boundary because they may perform dependency setup and cannot participate in
+verifier-owned setup recovery.
 
-Repair is bounded and evidence-driven. The default budget allows two
-file-changing attempts. When repair is exhausted, CommandAgent writes a short
-replan packet under `.commandagent/repairs` and suggests an explicit
+When every verifier failure is `dependency_missing` and expected paths are
+present, the step runner checks the setup policy before repair. With `--yes`
+and online mode, it selects one deterministic setup command from lockfiles,
+runs it once with a bounded timeout, writes setup logs under
+`.commandagent/setup/`, reruns the original verifier once, and continues only
+if the evidence improves. Without approval, in offline mode, or after exhausted
+setup recovery, it stops with a clear blocker instead of creating a repair
+packet.
+
+Repair is bounded and evidence-driven. Repair prompts include structured
+contract evidence, verifier failures, missing expected paths, changed-file
+evidence, and the active profile contract facts collected for the current step
+so repairs can preserve contracts such as a selected Next.js app root or dev
+port. When deterministic evidence is specific enough, the repair prompt renders
+a `Recovery task` section before repair focus and evidence provenance. That
+section states what to fix, which paths are in scope, which actions are
+disallowed, which execution envelope applies, and which original verifier,
+profile check, tool schema, or step policy will judge the result. For read-only
+step-policy recovery, the repair turn uses `StepToolPolicy::ReadOnly` and
+`RepositoryEvidenceRequired`, so prose-only answers are rejected while actual
+read evidence can satisfy the turn. For setup steps that attempted source
+mutation, the repair turn uses `StepToolPolicy::SetupMutationOnly`, so the
+next turn can only change setup/config paths or report a blocker. A
+repair-focus block may still summarize
+the current blocker, failure signature, repair target, candidate artifacts, and
+required action from the same deterministic evidence. The default budget allows
+two file-changing attempts. A structured
+tool-argument schema failure can spend one separate current-step
+protocol-correction flag before ordinary verifier repair continues; it does
+not increase the verifier-repair budget or create a retry-until-success loop.
+Read-only step-policy violations, provider transport parse failures, tool
+protocol failures, and verifier failures are rendered into the same
+repair/replan evidence path so standalone repair has the failed parser/tool,
+command, contract, target, source excerpt, and bounded diagnostic instead of
+only prose. When repair is exhausted,
+CommandAgent writes a short replan packet under `.commandagent/repairs` and
+suggests an explicit
 `/ultra-plan-run --profile <profile> "$(cat ...)"` command instead of hiding an
-unbounded retry loop.
+unbounded retry loop. That suggested command starts a standalone repair plan;
+it is not reported as completion of the original ultra plan unless the original
+plan is explicitly resumed or replanned and finishes.
 
 ## Profile Boundary
 
 Profiles are intentionally small. They provide profile text, optional verifier
-commands, and optional protected path prefixes. They do not own planning logic
-or run domain-specific agents.
+commands, optional protected path prefixes, read-only fact summaries, and
+read-only profile obligations and verification. They do not own planning logic,
+edit files, or run domain-specific agents. Profile obligations are projected
+into common step-plan lint and active step/repair prompt facts; profile
+verification can fail a phase with explicit diagnostics and a bounded
+standalone repair packet, but it does not auto-repair or auto-resume the
+original ultra plan.
 
 The current profile set is MVP-sized: `generic`, `nextjs`, `python`, `rust`,
 `investigation`, `docs`, `data-analysis`, and `data-pipeline`. A new profile
@@ -173,6 +486,13 @@ The minimal loop owns one coding-agent session:
 Provider transport is injected through a small `ChatClient` trait. This keeps
 Ollama, Gemini, and OpenAI transport details outside the loop. Native tool calls
 and XML fallback are both represented through the shared `ToolCall` type.
+
+The minimal loop should not decide what a failed repair task is. Its input must
+already define the task clearly enough to execute. For repair, that means the
+step runner, verifier, or profile layer owns the recovery task contract when a
+deterministic failure can identify the blocker, target, required action, and
+disallowed actions. The minimal loop executes that bounded task and the
+original guard/verifier/profile check remains the success authority.
 
 Malformed tool-call parsing in native mode downgrades the session to XML
 fallback mode. The parser feedback shows the XML format example only after this

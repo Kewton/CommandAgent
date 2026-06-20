@@ -1,0 +1,22 @@
+{
+  "issues": [
+    {
+      "number": 101,
+      "title": "Add plan schema contract",
+      "labels": ["enhancement"],
+      "body": "Define the plan YAML contract in `src/agent/step_runner/plan.rs`.\n\n## Acceptance Criteria\n- Schema fields are documented.\n- cargo test agent::step_runner passes.\n"
+    },
+    {
+      "number": 102,
+      "title": "Persist session storage migration",
+      "labels": ["enhancement"],
+      "body": "Update `.commandagent` session storage after the plan schema contract lands. Touch `src/session/store.rs`.\n\n## Acceptance Criteria\n- Existing session tests pass.\n- cargo test session passes.\n"
+    },
+    {
+      "number": 103,
+      "title": "Improve provider token redaction",
+      "labels": ["bug"],
+      "body": "Redact API key and token fields in provider logs. Relevant files include `src/providers/openai.rs`.\n\n## Acceptance Criteria\n- Secrets are not logged.\n- cargo test providers passes.\n"
+    }
+  ]
+}

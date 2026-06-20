@@ -92,10 +92,7 @@ impl SessionSnapshot {
     pub fn as_chat_messages(&self) -> Vec<ChatMessage> {
         self.messages
             .iter()
-            .map(|message| ChatMessage {
-                role: message.role.into(),
-                content: message.content.clone(),
-            })
+            .map(|message| ChatMessage::new(message.role.into(), message.content.clone()))
             .collect()
     }
 }

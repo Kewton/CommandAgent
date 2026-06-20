@@ -7,4 +7,5 @@ pub mod runtime_client;
 pub mod safety;
 pub mod session;
 pub mod tools;
+pub mod tui;
 pub mod util;

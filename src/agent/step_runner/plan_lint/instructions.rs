@@ -37,6 +37,32 @@ pub(super) fn lint_step_instruction(
             reason: "directory-only steps are unnecessary because Write creates parent directories automatically".to_string(),
         });
     }
+    if matches!(kind, StepKind::Inspect)
+        && contains_any(
+            &lower,
+            &[
+                "create ", "write ", "edit ", "modify ", "update ", "fix ", "add ",
+            ],
+        )
+    {
+        return Err(PlanLintError::InvalidStepInstruction {
+            step_id: step_id.to_string(),
+            reason: "inspect steps are read-only; move file creation or edits into create/edit/repair steps"
+                .to_string(),
+        });
+    }
+    if matches!(kind, StepKind::Verify)
+        && contains_any(
+            &lower,
+            &["write ", "edit ", "modify ", "update ", "fix ", "repair "],
+        )
+    {
+        return Err(PlanLintError::InvalidStepInstruction {
+            step_id: step_id.to_string(),
+            reason: "verify steps must not mutate files; move fixes into create/edit/repair steps"
+                .to_string(),
+        });
+    }
     Ok(())
 }
 
