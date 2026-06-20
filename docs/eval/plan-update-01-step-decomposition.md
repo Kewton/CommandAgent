@@ -19,9 +19,9 @@ Responsible layer:
 
 ## Adopted Design Lesson
 
-The useful Anvil-side idea is not a hidden job arbiter. The useful idea is that
-task contracts, artifact roles, workspace scope, and recovery targets are
-control data when they are deterministic and visible.
+The useful historical-source idea is not a hidden job arbiter. The useful idea
+is that task contracts, artifact roles, workspace scope, and recovery targets
+are control data when they are deterministic and visible.
 
 This slice adopts the smallest piece:
 
