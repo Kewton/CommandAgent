@@ -91,8 +91,7 @@ fn dependency_missing_failure(
     guard: &PathGuard,
     command: &str,
 ) -> Result<Option<VerificationFailure>, VerifyError> {
-    let lower = command.trim().to_ascii_lowercase();
-    if lower != "npm run build" {
+    if !command.trim().eq_ignore_ascii_case("npm run build") {
         return Ok(None);
     }
 
@@ -144,7 +143,7 @@ fn dependency_missing_from_command_failure(
     command: &str,
     text: &str,
 ) -> Option<VerificationFailure> {
-    if command.trim().to_ascii_lowercase() != "npm run build" {
+    if !command.trim().eq_ignore_ascii_case("npm run build") {
         return None;
     }
     let package_path = guard.resolve("package.json").ok()?;
