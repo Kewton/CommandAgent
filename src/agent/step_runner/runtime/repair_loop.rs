@@ -819,8 +819,10 @@ fn verifier_contract_evidence(
         .with_candidate_artifacts(candidate_artifacts)
         .with_observed_expected_pairs(vec![verifier_observed_expected_pair(failure)])
         .with_affected_cases(vec![failure.command.clone()])
+        .with_active_job(verifier_active_job(failure))
         .with_required_action(verifier_required_action(failure))
         .with_repair_kind(verifier_repair_kind(failure))
+        .with_repair_action(verifier_repair_action(failure))
         .with_setup_implication(verifier_setup_implication(failure))
         .with_rerun_authority(vec![failure.command.clone()]);
     if let Some(target) = repair_target {
@@ -889,6 +891,26 @@ fn verifier_repair_kind(failure: &VerificationFailure) -> &'static str {
         "tailwind_contract_repair"
     } else {
         "source_verifier_repair"
+    }
+}
+
+fn verifier_active_job(failure: &VerificationFailure) -> &'static str {
+    if failure.reason == "dependency_missing" {
+        "setup_bootstrap"
+    } else if tailwind_postcss_plugin_diagnostic(failure) {
+        "manifest_repair"
+    } else {
+        "source_implementation_repair"
+    }
+}
+
+fn verifier_repair_action(failure: &VerificationFailure) -> &'static str {
+    if failure.reason == "dependency_missing" {
+        "stop_with_setup_blocker"
+    } else if tailwind_postcss_plugin_diagnostic(failure) {
+        "repair_tailwind_contract"
+    } else {
+        "repair_source_error"
     }
 }
 

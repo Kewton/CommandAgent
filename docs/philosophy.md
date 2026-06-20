@@ -49,6 +49,9 @@ and stops boundedly when progress cannot be proven.
   executes a clarified task; it should not decide whether the blocker is setup,
   manifest, route integration, source implementation, verifier policy, or
   documentation.
+- Treat recovery policy as a first-class contract. It classifies the active
+  job, admits and prioritizes repair targets, and selects one allowed repair
+  action before a Recovery Task Contract is rendered.
 - Treat contract boundary propagation as part of the design. A deterministic
   failure should carry the repair kind, setup implication, and rerun authority
   needed by the next contract layer.
@@ -61,9 +64,10 @@ CommandAgent's control model is therefore:
 ```text
 Task Contract -> Artifact Role and Workspace Scope
   -> Planning Contract -> Profile Contract -> Active Job Arbitration
+  -> Recovery Policy Contract
   -> Setup Bootstrap or Recovery Task Contract or Execution Contract
 classified failure -> Contract Boundary Propagation
-  -> Recovery Target Hint -> Semantic Repair Planning
+  -> Recovery Target Hint -> Recovery Policy Contract
   -> Recovery Task Contract or verifier-owned setup recovery
   -> Attempt Ledger and original guard/verifier rerun
   -> Execution Contract
@@ -156,8 +160,9 @@ when they stay deterministic and visible:
   explicit stop before a recovery task is built.
 - Recovery target hints name the file, artifact, or command that the rejecting
   guard already identified as the repair target.
-- Semantic repair planning selects the allowed repair action from deterministic
-  evidence and artifact roles. It does not invent a new user goal.
+- Recovery policy combines active job arbitration, target admission and
+  prioritization, and repair action selection from deterministic evidence and
+  artifact roles. It does not invent a new user goal.
 - Attempt ledgers record failure kind, target artifact, repair action, changed
   files, verifier result, and repeated-failure count so no-progress can stop
   explicitly instead of retrying blindly.
@@ -173,9 +178,9 @@ When choosing between mechanisms, prefer this order:
 2. structured evidence and recovery target hints
 3. artifact role and workspace-scope classification
 4. active job arbitration for the current blocker
-5. setup bootstrap or deterministic manifest/scaffold materialization when the
+5. target admission and repair action selection for the classified blocker
+6. setup bootstrap or deterministic manifest/scaffold materialization when the
    blocker is setup/config and policy permits it
-6. semantic repair planning that selects one allowed repair action
 7. explicit recovery task contract under the original guard
 8. attempt-ledger no-progress stop
 
@@ -183,6 +188,54 @@ This preserves the practical value of stronger task contracts while moving the
 admission line away from "small only" and toward "explicit, bounded, and
 attributable." The system may be more capable than the earliest MVP, but it
 must remain explainable from visible contract data.
+
+## Recovery Policy Contract
+
+Recovery Policy Contract is the contract layer between structured failure
+evidence and a rendered recovery task. It is not a workflow engine and it does
+not execute tools. Its responsibility is to make the repair decision explicit
+before the minimal loop is asked to act.
+
+The policy consumes only deterministic inputs:
+
+- violated contract, failure code, and stable failure signature
+- profile or verifier evidence
+- classified artifact roles and workspace scope
+- recovery target hints from the rejecting guard
+- setup implication and rerun authority
+- prior bounded attempts for the same target and failure class
+
+The policy may produce only bounded contract data:
+
+- active job, such as manifest repair, setup bootstrap, route integration
+  repair, source implementation repair, test repair, docs repair, verifier
+  policy repair, or explicit stop
+- repair action, such as add a manifest dependency, repair a build script,
+  create a missing integration artifact, connect an existing artifact to the
+  selected route, repair a source error, or stop with a setup blocker
+- admitted repair target and ordered candidate artifacts
+- disallowed actions
+- success check and rerun authority
+- no-progress stop reason when the same job/target/failure repeats
+
+This contract exists because structured evidence alone does not guarantee a
+correct repair. A small execution model can be good at carrying out a clear
+task while still being weak at deciding whether a failure is setup, manifest,
+route integration, source implementation, test, docs, or verifier policy. The
+runtime should make that decision deterministically when the evidence supports
+it, then hand the clarified task to the minimal loop.
+
+For example, `nextjs_route_not_integrated` should not ask the minimal loop to
+infer a strategy from prose. The recovery policy should classify the active job
+as route integration repair, admit the selected route or nearest route-graph
+connection point as the repair target, select the action "connect the existing
+artifact to the selected route graph", disallow placeholder artifact creation
+and unrelated feature work, then rerun profile verification and `npm run
+build` as the original success checks.
+
+The policy must stay provider-independent and bounded. It must not increase
+retry budgets, pick arbitrary future phases, run dependency setup from an
+ordinary repair turn, weaken a verifier, or encode model-specific behavior.
 
 ## Plan Files As Public Contracts
 
@@ -297,17 +350,19 @@ The minimum propagation shape is:
 ```text
 classified failure
   -> violated contract
+  -> active job
   -> repair kind
-  -> target path, command, or artifact role when known
+  -> admitted target path, command, or artifact role when known
+  -> repair action when the current blocker has one deterministic action
   -> setup implication when the failure or repair affects dependencies
   -> rerun authority
 ```
 
 These values are carried as bounded contract evidence fields such as
-`repair_kind`, `setup_implication`, and `rerun_authority`. They are data for
-the existing Recovery Task Contract or verifier-owned setup recovery path. They
-are not hidden workflow state, retry counters, or permission for the model to
-choose a new job.
+`active_job`, `repair_kind`, `repair_action`, `setup_implication`, and
+`rerun_authority`. They are data for Recovery Policy Contract, Recovery Task
+Contract, or verifier-owned setup recovery. They are not hidden workflow state,
+retry counters, or permission for the model to choose a new job.
 
 Examples:
 
@@ -339,9 +394,10 @@ recovery over a generic "fix the build" instruction.
 
 Profiles are structured domain contracts. They may describe domain facts,
 classify artifacts, project deterministic obligations, and verify
-profile-specific contracts. They must not own planning, execute tools, retry
-work, infer hidden workflow state, or become a provider/model-specific policy
-layer.
+profile-specific contracts. They may also provide profile-specific planning
+guidance and profile-specific plan-lint evidence through a shared profile
+interface. They must not own planning, execute tools, retry work, infer hidden
+workflow state, or become a provider/model-specific policy layer.
 
 Profile facts are observations. A fact such as a workspace entry, package
 script, route path, dependency list, or config file does not become an
@@ -375,6 +431,14 @@ declaration file may be observed in the workspace, but it is not a
 route-integration artifact unless the profile classifier explicitly marks it
 eligible. Workspace observation alone should not create a route-integration or
 source-integration obligation.
+
+Plan lint may call profile-specific lint through the same shared profile
+interface, but the boundary stays narrow. Core lint owns schema, path safety,
+step kind, mutation boundary, workspace scope, and shell/verifier safety.
+Profiles own domain rules such as Next.js package obligations, route-root
+drift, route integration obligations, and framework-specific verifier
+guidance. Core may know the selected profile id; it must not embed the
+profile's framework rules directly.
 
 Profile verification failures may emit structured contract evidence for
 repair. The profile identifies the violated contract, deterministic target, and

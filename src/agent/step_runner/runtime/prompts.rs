@@ -75,9 +75,9 @@ fn plan_contract_correction_guidance(evidence: &PlanCorrectionEvidence) -> Strin
         }
         Some("nextjs_typescript_toolchain_plan_contract") => {
             "Next.js TypeScript toolchain plan correction:\n\
-- because this plan uses tsconfig.json, .ts, .tsx, or TypeScript, the package.json step must include exact literals typescript, 5, @types/react, and 18.\n\
-- use a stable Next.js 14 compatible TypeScript toolchain such as TypeScript 5.x and @types/react 18.x when React is 18.x.\n\
-- do not use TypeScript 6, @types/react 19, latest, npm install, npm ci, node_modules checks, package-lock.json checks, or npx commands in the plan.\n\n"
+- because this plan uses tsconfig.json, .ts, .tsx, or TypeScript, the package.json step must include exact literals typescript, @types/react, and 18, plus a stable TypeScript 5.x range such as ^5.4.0.\n\
+- use a stable Next.js 14 compatible TypeScript toolchain such as TypeScript ^5.4.0 and @types/react 18.x when React is 18.x.\n\
+- do not use TypeScript 6, exact TypeScript pins such as 5.0.0, @types/react 19, latest, npm install, npm ci, node_modules checks, package-lock.json checks, or npx commands in the plan.\n\n"
                 .to_string()
         }
         _ => String::new(),
@@ -522,7 +522,7 @@ mod tests {
         let evidence = PlanCorrectionEvidence::new("plan_lint.nextjs_typescript_plan_contract")
             .with_failed_step("create-tsconfig")
             .with_violated_contract("nextjs_typescript_toolchain_plan_contract")
-            .with_missing_literals(vec!["typescript", "5", "@types/react", "18"])
+            .with_missing_literals(vec!["typescript", "5.x or ^5.", "@types/react", "18"])
             .with_required_action(
                 "make the Next.js TypeScript toolchain explicit in the package.json step",
             );
@@ -536,10 +536,12 @@ mod tests {
         );
 
         assert!(prompt.contains("Next.js TypeScript toolchain plan correction"));
-        assert!(prompt.contains("typescript, 5, @types/react, and 18"));
-        assert!(prompt.contains("TypeScript 5.x"));
+        assert!(prompt.contains("exact literals typescript, @types/react, and 18"));
+        assert!(prompt.contains("stable TypeScript 5.x range such as ^5.4.0"));
+        assert!(prompt.contains("TypeScript ^5.4.0"));
         assert!(prompt.contains("@types/react 18.x"));
         assert!(prompt.contains("do not use TypeScript 6"));
+        assert!(prompt.contains("exact TypeScript pins such as 5.0.0"));
         assert!(prompt.contains("latest"));
     }
 }

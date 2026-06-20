@@ -68,9 +68,12 @@ planning/lint behavior; profiles do not become workflow engines. Next.js also
 has a narrow route-integration obligation: if a selected route such as
 `app/page.tsx` is known and a classified UI source artifact such as
 `app/hooks/useGame.ts` is an explicit phase output, the generated source step
-must include the selected route in the instruction or `expected_paths`. This
-prevents a phase from creating isolated UI/game code while leaving the selected
-route unchanged. Workspace entries, generated declarations such as
+must include the selected route in the instruction or `expected_paths`, or the
+same step plan must contain a later route-editing step that touches the
+selected route and names the artifact by path or file stem. This prevents a
+phase from creating isolated UI/game code while still allowing a clean
+create-component step followed by an explicit page-integration step. Workspace
+entries, generated declarations such as
 `next-env.d.ts`, dependency caches, and build output are context only; they do
 not become route-integration artifacts by token matching. The rule is limited
 to the Next.js profile until another observed failure justifies a common
@@ -127,6 +130,15 @@ rather than rendered profile text. Future producers for Python, Rust, docs, or
 data profiles should use the same classified-artifact boundary and must not
 scan `workspace.entries` as contract artifacts.
 
+Profile-specific planning guidance and profile-specific plan lint use the same
+boundary. Generic plan generation renders guidance returned by the active
+profile; generic plan lint validates schema, paths, step kind, verifier safety,
+and workspace scope, then consumes profile-specific lint results as common
+contract evidence. Framework rules such as Next.js dependency literals,
+TypeScript/Tailwind plan contracts, route integration obligations, and `npx`
+verifier rejection live behind the profile interface rather than in generic
+Plan Lint.
+
 The same phase contract is carried as an active contract during step
 execution. Before each executable step, CommandAgent refreshes current profile
 facts from disk and renders them with the original phase facts into the step
@@ -167,6 +179,15 @@ policy, so a setup step cannot repair itself by editing source routes or
 components. It does not create another execution engine: the minimal loop still
 receives one bounded repair turn and the original verifier or guard reruns
 unchanged.
+
+When deterministic failure evidence is specific enough, a Recovery Policy
+Contract is applied before the Recovery Task Contract is rendered. The policy
+may classify the active job, admit and prioritize repair targets, and select a
+single repair action such as `connect_artifact_to_selected_route`,
+`create_missing_integration_artifact`, `add_manifest_dependency`, or
+`repair_tailwind_contract`. This is not dispatch to another engine. It only
+makes the next bounded minimal-loop repair task explicit and keeps the original
+guard, verifier, or profile check as the success authority.
 
 If every verifier failure is `dependency_missing` and the step's expected paths
 already exist, CommandAgent treats the problem as setup recovery, not source
@@ -239,10 +260,12 @@ suggested command starts a standalone repair plan; it is not hidden continuation
 of the original ultra plan. For Next.js route integration failures, the packet
 also names the selected route, unintegrated artifact, and route-tree repair
 target when known so the standalone repair plan receives deterministic target
-evidence instead of only prose.
+evidence and `repair_action=connect_artifact_to_selected_route` instead of only
+prose.
 For Next.js missing integration artifacts, the packet names the missing
 artifact itself as the repair target and requires creating it before route
-integration is checked.
+integration is checked, with
+`repair_action=create_missing_integration_artifact`.
 
 ## Repair Replan Example
 

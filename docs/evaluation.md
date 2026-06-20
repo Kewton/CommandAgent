@@ -189,6 +189,7 @@ Contract Boundary Propagation fields should be recorded when present:
 - `active_job`
 - `artifact_role`
 - `repair_kind`
+- `repair_action`
 - `setup_implication`
 - `rerun_authority`
 - `required_action`
@@ -313,6 +314,7 @@ Record these fields when present:
   `tool_protocol`, or `step_policy`;
 - failed step and contract code;
 - blocker and required action;
+- repair action, when a Recovery Policy Contract selected one;
 - repair target or bounded candidate artifacts;
 - execution envelope;
 - tool policy used for the next repair turn;

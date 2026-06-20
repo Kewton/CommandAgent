@@ -42,6 +42,7 @@ pub struct ContractEvidence {
     pub repair_attempt_ledger: Vec<String>,
     pub repair_focus: Option<String>,
     pub repair_kind: Option<String>,
+    pub repair_action: Option<String>,
     pub setup_implication: Option<String>,
     pub rerun_authority: Vec<String>,
     pub diagnostic: Option<String>,
@@ -252,6 +253,11 @@ impl ContractEvidence {
         self
     }
 
+    pub fn with_repair_action(mut self, repair_action: impl Into<String>) -> Self {
+        self.repair_action = Some(repair_action.into());
+        self
+    }
+
     pub fn with_setup_implication(mut self, setup_implication: impl Into<String>) -> Self {
         self.setup_implication = Some(setup_implication.into());
         self
@@ -335,6 +341,7 @@ impl ContractEvidence {
         );
         push_field(&mut lines, "repair_focus", self.repair_focus.as_deref());
         push_field(&mut lines, "repair_kind", self.repair_kind.as_deref());
+        push_field(&mut lines, "repair_action", self.repair_action.as_deref());
         push_field(
             &mut lines,
             "setup_implication",
@@ -375,6 +382,7 @@ impl ContractEvidence {
             && self.repair_attempt_ledger.is_empty()
             && self.repair_focus.is_none()
             && self.repair_kind.is_none()
+            && self.repair_action.is_none()
             && self.setup_implication.is_none()
             && self.rerun_authority.is_empty()
             && self.diagnostic.is_none()
@@ -522,6 +530,7 @@ mod tests {
             ])
             .with_repair_focus("emit valid Write call for src/components/GameCanvas.tsx")
             .with_repair_kind("tool_protocol_correction")
+            .with_repair_action("repair_source_error")
             .with_setup_implication("none")
             .with_rerun_authority(vec!["tool schema validation"])
             .with_diagnostic("Write missing path");
@@ -561,6 +570,7 @@ mod tests {
         ));
         assert!(rendered.contains("- repair_focus: emit valid Write call"));
         assert!(rendered.contains("- repair_kind: tool_protocol_correction"));
+        assert!(rendered.contains("- repair_action: repair_source_error"));
         assert!(rendered.contains("- setup_implication: none"));
         assert!(rendered.contains("- rerun_authority: tool schema validation"));
     }

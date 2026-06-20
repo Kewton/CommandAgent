@@ -61,6 +61,7 @@ pub struct RecoveryTaskContract {
     pub success_check: Option<String>,
     pub evidence_signature: Option<String>,
     pub repair_kind: Option<String>,
+    pub repair_action: Option<String>,
     pub setup_implication: Option<String>,
     pub rerun_authority: Vec<String>,
     pub execution_envelope: Option<RecoveryExecutionEnvelope>,
@@ -94,6 +95,7 @@ impl RecoveryTaskContract {
             .with_success_check_opt(success_check(evidence))
             .with_evidence_signature_opt(evidence.failure_signature.clone())
             .with_repair_kind_opt(evidence.repair_kind.clone())
+            .with_repair_action_opt(evidence.repair_action.clone())
             .with_setup_implication_opt(evidence.setup_implication.clone())
             .with_rerun_authority(evidence.rerun_authority.clone())
             .with_execution_envelope_opt(execution_envelope(evidence));
@@ -190,6 +192,11 @@ impl RecoveryTaskContract {
         self
     }
 
+    pub fn with_repair_action(mut self, repair_action: impl Into<String>) -> Self {
+        self.repair_action = Some(repair_action.into());
+        self
+    }
+
     pub fn with_setup_implication(mut self, setup_implication: impl Into<String>) -> Self {
         self.setup_implication = Some(setup_implication.into());
         self
@@ -244,6 +251,7 @@ impl RecoveryTaskContract {
             self.evidence_signature.as_deref(),
         );
         push_field(&mut lines, "repair_kind", self.repair_kind.as_deref());
+        push_field(&mut lines, "repair_action", self.repair_action.as_deref());
         push_field(
             &mut lines,
             "setup_implication",
@@ -332,6 +340,13 @@ impl RecoveryTaskContract {
         }
     }
 
+    fn with_repair_action_opt(self, repair_action: Option<String>) -> Self {
+        match repair_action {
+            Some(value) => self.with_repair_action(value),
+            None => self,
+        }
+    }
+
     fn with_setup_implication_opt(self, setup_implication: Option<String>) -> Self {
         match setup_implication {
             Some(value) => self.with_setup_implication(value),
@@ -357,6 +372,7 @@ impl RecoveryTaskContract {
             || !self.disallowed_actions.is_empty()
             || self.success_check.is_some()
             || self.repair_kind.is_some()
+            || self.repair_action.is_some()
             || self.setup_implication.is_some()
             || !self.rerun_authority.is_empty()
             || self.execution_envelope.is_some()
@@ -680,6 +696,7 @@ mod tests {
             .with_success_check("npm run build")
             .with_evidence_signature("verifier|verify-build|npm run build|command_failed:1")
             .with_repair_kind("source_verifier_repair")
+            .with_repair_action("repair_source_error")
             .with_setup_implication("none")
             .with_rerun_authority(vec!["npm run build"])
             .with_execution_envelope(RecoveryExecutionEnvelope::FileMutationRepair);
@@ -694,6 +711,7 @@ mod tests {
         assert!(rendered.contains("app/file-0.tsx"));
         assert!(rendered.contains("success_check: npm run build"));
         assert!(rendered.contains("repair_kind: source_verifier_repair"));
+        assert!(rendered.contains("repair_action: repair_source_error"));
         assert!(rendered.contains("setup_implication: none"));
         assert!(rendered.contains("rerun_authority: npm run build"));
         assert!(!rendered.contains("app/file-9.tsx"));
@@ -722,6 +740,7 @@ mod tests {
             .with_repair_target("app/page.tsx")
             .with_candidate_artifacts(vec!["app/page.tsx"])
             .with_repair_kind("source_verifier_repair")
+            .with_repair_action("repair_source_error")
             .with_rerun_authority(vec!["npm run build"])
             .with_failure_signature("verifier|verify-build|npm run build|command_failed:1");
 
@@ -735,6 +754,7 @@ mod tests {
         assert!(rendered.contains("repair_target: app/page.tsx"));
         assert!(rendered.contains("success_check: npm run build"));
         assert!(rendered.contains("repair_kind: source_verifier_repair"));
+        assert!(rendered.contains("repair_action: repair_source_error"));
         assert!(rendered.contains("rerun_authority: npm run build"));
         assert!(rendered.contains("execution_envelope: file_mutation_repair"));
         assert!(rendered.contains("Do not change the verifier command"));
@@ -818,6 +838,7 @@ mod tests {
             .with_violated_contract("nextjs_route_not_integrated")
             .with_repair_target("app/page.tsx")
             .with_candidate_artifacts(vec!["app/page.tsx", "app/hooks/useGame.ts"])
+            .with_repair_action("connect_artifact_to_selected_route")
             .with_required_action(
                 "edit app/page.tsx so it imports or references app/hooks/useGame.ts",
             );
@@ -829,6 +850,7 @@ mod tests {
 
         assert!(rendered.contains("Profile verification failed: nextjs_route_not_integrated"));
         assert!(rendered.contains("repair_target: app/page.tsx"));
+        assert!(rendered.contains("repair_action: connect_artifact_to_selected_route"));
         assert!(rendered.contains("candidate_artifacts: app/page.tsx, app/hooks/useGame.ts"));
         assert!(rendered.contains("success_check: profile verification"));
         assert!(rendered.contains("execution_envelope: file_mutation_repair"));
@@ -841,6 +863,7 @@ mod tests {
             .with_violated_contract("nextjs_integration_artifact_missing")
             .with_repair_target("components/SpaceInvaders.tsx")
             .with_candidate_artifacts(vec!["components/SpaceInvaders.tsx", "app/page.tsx"])
+            .with_repair_action("create_missing_integration_artifact")
             .with_required_action(
                 "create components/SpaceInvaders.tsx before editing selected route integration",
             );
@@ -854,6 +877,7 @@ mod tests {
             rendered.contains("Profile verification failed: nextjs_integration_artifact_missing")
         );
         assert!(rendered.contains("repair_target: components/SpaceInvaders.tsx"));
+        assert!(rendered.contains("repair_action: create_missing_integration_artifact"));
         assert!(
             rendered.contains("candidate_artifacts: components/SpaceInvaders.tsx, app/page.tsx")
         );
@@ -895,6 +919,7 @@ mod tests {
             .with_target_field("instruction")
             .with_active_job("manifest_repair")
             .with_artifact_role("manifest")
+            .with_repair_action("add_manifest_dependency")
             .with_required_literals(vec!["next", "react", "react-dom"])
             .with_missing_literals(vec!["react-dom"])
             .with_disallowed_actions(vec!["Do not run npm install from the plan."]);
@@ -907,6 +932,7 @@ mod tests {
         assert!(rendered.contains("source: plan_lint.profile_obligations"));
         assert!(rendered.contains("active_job: manifest_repair"));
         assert!(rendered.contains("artifact_role: manifest"));
+        assert!(rendered.contains("repair_action: add_manifest_dependency"));
         assert!(rendered.contains("nextjs_dependencies_required"));
         assert!(rendered.contains("exact missing literals or paths"));
         assert!(rendered.contains("Do not run npm install from the plan"));

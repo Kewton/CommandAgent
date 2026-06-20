@@ -3,15 +3,13 @@ use crate::agent::step_runner::profile_artifact::{
     ArtifactProvenance, artifact_kind_label, classify_profile_artifact, setup_step_may_own_artifact,
 };
 use crate::agent::step_runner::profiles::{
-    ProfileId, ProfileObligation, nextjs_route_integration_candidate,
-    nextjs_selected_route_from_workspace,
+    ProfileId, ProfileObligation, lint_profile_plan, lint_profile_step_contract,
 };
 use crate::agent::step_runner::{StepKind, StepPlan};
 use std::path::Path;
 
 mod instructions;
 mod paths;
-mod profile;
 mod verifiers;
 mod workspace;
 
@@ -20,7 +18,6 @@ use instructions::{
     lint_step_instruction,
 };
 use paths::lint_expected_path;
-use profile::lint_profile_scaffolding;
 use verifiers::lint_verifier_command;
 use workspace::{lint_inspect_expected_paths_exist, paths_exist};
 
@@ -32,6 +29,10 @@ pub fn lint_step_plan_with_workspace(
     plan: &StepPlan,
     cwd: Option<&Path>,
 ) -> Result<(), PlanLintError> {
+    lint_step_plan_generic(plan, cwd)
+}
+
+fn lint_step_plan_generic(plan: &StepPlan, cwd: Option<&Path>) -> Result<(), PlanLintError> {
     for step in &plan.steps {
         for path in &plan.required_artifacts {
             lint_expected_path(path)?;
@@ -59,7 +60,7 @@ pub fn lint_step_plan_with_workspace(
             !step.expected_paths.is_empty(),
             paths_exist(cwd, &step.expected_paths),
         )?;
-        lint_profile_scaffolding(
+        lint_profile_step_contract(
             plan.profile.as_str(),
             &step.id,
             step.kind,
@@ -130,477 +131,8 @@ pub fn lint_step_plan_with_workspace_and_obligations(
     cwd: Option<&Path>,
     obligations: &[ProfileObligation],
 ) -> Result<(), PlanLintError> {
-    lint_step_plan_with_workspace(plan, cwd)?;
-    lint_profile_obligations(plan, cwd, obligations)
-}
-
-fn lint_profile_obligations(
-    plan: &StepPlan,
-    cwd: Option<&Path>,
-    obligations: &[ProfileObligation],
-) -> Result<(), PlanLintError> {
-    lint_nextjs_verifier_contract(plan)?;
-    lint_nextjs_typescript_plan_contract(plan)?;
-    lint_nextjs_tailwind_plan_contract(plan)?;
-    lint_package_profile_obligations(plan, obligations)?;
-    lint_nextjs_route_integration_obligations(plan, cwd, obligations)
-}
-
-fn lint_nextjs_verifier_contract(plan: &StepPlan) -> Result<(), PlanLintError> {
-    if plan.profile != "nextjs" {
-        return Ok(());
-    }
-    for step in &plan.steps {
-        for command in &step.verify {
-            let lower = command.trim().to_ascii_lowercase();
-            if !lower.starts_with("npx ") {
-                continue;
-            }
-            let reason = format!(
-                "Next.js verifier `{}` uses npx, which may perform dependency setup and is blocked by the execution policy; use npm run build so verifier-owned setup recovery can classify dependency_missing",
-                command.trim()
-            );
-            return Err(PlanLintError::ContractViolation {
-                step_id: step.id.clone(),
-                reason: reason.clone(),
-                evidence: Box::new(
-                    PlanCorrectionEvidence::new("plan_lint.nextjs_verifier_contract")
-                        .with_failed_step(step.id.clone())
-                        .with_violated_contract("nextjs_verifier_command_required")
-                        .with_target_field("verify")
-                        .with_rejected_value(command.clone())
-                        .with_required_literals(vec!["npm run build"])
-                        .with_missing_literals(vec!["npm run build"])
-                        .with_required_action(
-                            "replace the npx verifier with npm run build in a separate verify step; do not add npm install, npm ci, node_modules checks, or npx commands"
-                        )
-                        .with_diagnostic(reason),
-                ),
-            });
-        }
-    }
-    Ok(())
-}
-
-fn lint_nextjs_typescript_plan_contract(plan: &StepPlan) -> Result<(), PlanLintError> {
-    if plan.profile != "nextjs" {
-        return Ok(());
-    }
-    if !plan.steps.iter().any(step_mentions_package_json) {
-        return Ok(());
-    }
-    let Some(source_step) = plan_typescript_source_step(plan) else {
-        return Ok(());
-    };
-    let package_plan_text = plan
-        .steps
-        .iter()
-        .filter(|step| step_mentions_package_json(step))
-        .map(step_contract_text)
-        .collect::<Vec<_>>()
-        .join("\n");
-    let mut missing = Vec::new();
-    let mut required_literals = Vec::new();
-    let mut missing_literals = Vec::new();
-    for literal in ["typescript", "5", "@types/react", "18"] {
-        push_unique(&mut required_literals, literal);
-        if !package_plan_text.contains(literal) {
-            push_unique(&mut missing_literals, literal);
-            missing.push(literal.to_string());
-        }
-    }
-    if missing.is_empty() {
-        return Ok(());
-    }
-    let reason = format!(
-        "Next.js TypeScript step `{}` uses tsconfig, .ts, .tsx, or TypeScript, but the package.json plan does not make the TypeScript toolchain contract complete: missing {}",
-        source_step.id,
-        missing.join(", ")
-    );
-    Err(PlanLintError::ContractViolation {
-        step_id: source_step.id.clone(),
-        reason: reason.clone(),
-        evidence: Box::new(
-            PlanCorrectionEvidence::new("plan_lint.nextjs_typescript_plan_contract")
-                .with_failed_step(source_step.id.clone())
-                .with_violated_contract("nextjs_typescript_toolchain_plan_contract")
-                .with_target_field("steps")
-                .with_required_literals(required_literals)
-                .with_missing_literals(missing_literals)
-                .with_required_action(
-                    "make the Next.js TypeScript toolchain explicit in the package.json step: include exact literals typescript, 5, @types/react, and 18; do not use TypeScript 6 or @types/react 19 with Next.js 14"
-                )
-                .with_diagnostic(reason),
-        ),
-    })
-}
-
-fn plan_typescript_source_step(
-    plan: &StepPlan,
-) -> Option<&crate::agent::step_runner::StepPlanStep> {
-    plan.steps.iter().find(|step| {
-        let text = step_contract_text(step);
-        text.contains("typescript")
-            || text.contains("tsconfig")
-            || step.expected_paths.iter().any(|path| {
-                matches!(
-                    Path::new(path).extension().and_then(|ext| ext.to_str()),
-                    Some("ts" | "tsx")
-                )
-            })
-    })
-}
-
-fn lint_nextjs_tailwind_plan_contract(plan: &StepPlan) -> Result<(), PlanLintError> {
-    if plan.profile != "nextjs" {
-        return Ok(());
-    }
-    let Some(source_step) = plan_tailwind_source_step(plan) else {
-        return Ok(());
-    };
-    let package_steps = plan
-        .steps
-        .iter()
-        .filter(|step| step_mentions_package_json(step))
-        .collect::<Vec<_>>();
-    let package_step_id = match package_steps.as_slice() {
-        [step] => Some(step.id.clone()),
-        _ => None,
-    };
-    let package_plan_text = plan
-        .steps
-        .iter()
-        .filter(|step| step_mentions_package_json(step))
-        .map(step_contract_text)
-        .collect::<Vec<_>>()
-        .join("\n");
-    let plan_text = plan
-        .steps
-        .iter()
-        .map(step_contract_text)
-        .collect::<Vec<_>>()
-        .join("\n");
-    let mut missing = Vec::new();
-    let mut required_literals = Vec::new();
-    let mut missing_literals = Vec::new();
-    for literal in ["tailwindcss", "postcss", "autoprefixer"] {
-        push_unique(&mut required_literals, literal);
-        if !package_plan_text.contains(literal) {
-            push_unique(&mut missing_literals, literal);
-            missing.push(literal.to_string());
-        }
-    }
-    for literal in ["tailwind.config", "postcss.config"] {
-        push_unique(&mut required_literals, literal);
-        if !plan_text.contains(literal) {
-            push_unique(&mut missing_literals, literal);
-            missing.push(literal.to_string());
-        }
-    }
-    if missing.is_empty() {
-        return Ok(());
-    }
-    let reason = format!(
-        "Next.js source/style step `{}` mentions Tailwind, but the plan does not make the Tailwind package/config setup contract complete: missing {}",
-        source_step.id,
-        missing.join(", ")
-    );
-    let mut evidence = PlanCorrectionEvidence::new("plan_lint.nextjs_tailwind_plan_contract")
-        .with_failed_step(source_step.id.clone())
-        .with_violated_contract("nextjs_tailwind_plan_contract")
-        .with_target_field("steps")
-        .with_target_path("package.json")
-        .with_active_job("manifest_repair")
-        .with_artifact_role("manifest")
-        .with_repair_kind("tailwind_contract_repair")
-        .with_setup_implication("setup_after_manifest_repair_required")
-        .with_rerun_authority(vec!["plan lint", "profile verification", "npm run build"])
-        .with_required_literals(required_literals)
-        .with_missing_literals(missing_literals)
-        .with_required_action(
-            "manifest repair: either remove Tailwind from source/style steps, or update the package.json plan step to literally include tailwindcss, postcss, and autoprefixer plus setup/config outputs tailwind.config.js and postcss.config.js; the phrase Tailwind CSS dependencies is not sufficient"
-        )
-        .with_disallowed_actions(vec![
-            "Do not rewrite source/gameplay behavior while repairing the manifest plan contract.",
-            "Do not add npm install, npm ci, pnpm install, yarn install, node_modules, or lockfile checks as required plan work.",
-            "Do not replace npm run build with a weaker verifier.",
-        ])
-        .with_diagnostic(reason.clone());
-    if let Some(package_step_id) = package_step_id {
-        evidence = evidence
-            .with_repair_target(format!("step:{package_step_id}:instruction"))
-            .with_candidate_artifacts(vec![
-                format!("step:{package_step_id}"),
-                "package.json".to_string(),
-            ]);
-    } else {
-        evidence = evidence.with_repair_attempt(
-            "active job arbitration could not select one package.json step for deterministic plan materialization"
-        );
-    }
-    Err(PlanLintError::ContractViolation {
-        step_id: source_step.id.clone(),
-        reason: reason.clone(),
-        evidence: Box::new(evidence),
-    })
-}
-
-fn plan_tailwind_source_step(plan: &StepPlan) -> Option<&crate::agent::step_runner::StepPlanStep> {
-    plan.steps.iter().find(|step| {
-        let text = step_contract_text(step);
-        if !(text.contains("tailwind") || text.contains("@tailwind")) {
-            return false;
-        }
-        step.expected_paths
-            .iter()
-            .any(|path| nextjs_style_source_path(path))
-            || text.contains("globals.css")
-    })
-}
-
-fn nextjs_style_source_path(path: &str) -> bool {
-    matches!(
-        path,
-        "app/globals.css" | "src/app/globals.css" | "styles/globals.css" | "src/styles/globals.css"
-    )
-}
-
-fn step_contract_text(step: &crate::agent::step_runner::StepPlanStep) -> String {
-    format!(
-        "{}\n{}\n{}",
-        step.instruction.to_ascii_lowercase(),
-        step.expected_paths
-            .iter()
-            .map(|path| path.to_ascii_lowercase())
-            .collect::<Vec<_>>()
-            .join("\n"),
-        step.verify.join("\n").to_ascii_lowercase()
-    )
-}
-
-fn lint_package_profile_obligations(
-    plan: &StepPlan,
-    obligations: &[ProfileObligation],
-) -> Result<(), PlanLintError> {
-    let package_steps = plan
-        .steps
-        .iter()
-        .filter(|step| {
-            matches!(
-                step.kind,
-                StepKind::Create | StepKind::Edit | StepKind::Setup | StepKind::Repair
-            ) && step_mentions_package_json(step)
-        })
-        .collect::<Vec<_>>();
-    if package_steps.is_empty() {
-        return Ok(());
-    }
-    let first_step_id = package_steps[0].id.clone();
-    let package_plan_text = package_steps
-        .iter()
-        .map(|step| step_contract_text(step))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let mut missing = Vec::new();
-    let mut violated_contracts = Vec::new();
-    let mut required_literals = Vec::new();
-    let mut missing_literals = Vec::new();
-    for obligation in obligations {
-        match obligation.code.as_str() {
-            "nextjs_dev_port_required" if !package_plan_text.contains("3011") => {
-                missing.push("nextjs_dev_port_required: requested port 3011");
-                violated_contracts.push("nextjs_dev_port_required".to_string());
-                collect_missing_literals(
-                    &package_plan_text,
-                    &["3011"],
-                    &mut required_literals,
-                    &mut missing_literals,
-                );
-            }
-            "nextjs_build_script_required" if !package_plan_text.contains("next build") => {
-                missing.push("nextjs_build_script_required: scripts.build as next build");
-                violated_contracts.push("nextjs_build_script_required".to_string());
-                collect_missing_literals(
-                    &package_plan_text,
-                    &["next build"],
-                    &mut required_literals,
-                    &mut missing_literals,
-                );
-            }
-            "nextjs_dependencies_required"
-                if !["next", "react", "react-dom", "18.2"]
-                    .iter()
-                    .all(|dep| package_plan_text.contains(dep)) =>
-            {
-                missing.push(
-                    "nextjs_dependencies_required: next, react, react-dom, and React 18.2+ compatibility",
-                );
-                violated_contracts.push("nextjs_dependencies_required".to_string());
-                collect_missing_literals(
-                    &package_plan_text,
-                    &["next", "react", "react-dom", "18.2"],
-                    &mut required_literals,
-                    &mut missing_literals,
-                );
-            }
-            "nextjs_tailwind_dependencies_required"
-                if !["tailwindcss", "postcss", "autoprefixer"]
-                    .iter()
-                    .all(|dep| package_plan_text.contains(dep)) =>
-            {
-                missing.push(
-                    "nextjs_tailwind_dependencies_required: tailwindcss, postcss, and autoprefixer",
-                );
-                violated_contracts.push("nextjs_tailwind_dependencies_required".to_string());
-                collect_missing_literals(
-                    &package_plan_text,
-                    &["tailwindcss", "postcss", "autoprefixer"],
-                    &mut required_literals,
-                    &mut missing_literals,
-                );
-            }
-            _ => {}
-        }
-    }
-    if !missing.is_empty() {
-        let reason = format!(
-            "profile obligations require package.json work to mention {}",
-            missing.join("; ")
-        );
-        let mut evidence = PlanCorrectionEvidence::new("plan_lint.profile_obligations")
-            .with_failed_step(package_steps[0].id.clone())
-            .with_violated_contract(violated_contracts.join(", "))
-            .with_target_field("instruction")
-            .with_target_path("package.json")
-            .with_active_job("manifest_repair")
-            .with_artifact_role("manifest")
-            .with_repair_kind("manifest_dependency_repair")
-            .with_setup_implication("setup_after_manifest_repair_required")
-            .with_rerun_authority(vec!["plan lint", "profile verification", "npm run build"])
-            .with_required_literals(required_literals)
-            .with_missing_literals(missing_literals)
-            .with_required_action(
-                "manifest repair: include these exact package/profile literals in the corrected package.json step instruction"
-            )
-            .with_disallowed_actions(vec![
-                "Do not rewrite source/gameplay behavior while repairing the manifest plan contract.",
-                "Do not add npm install, npm ci, pnpm install, yarn install, node_modules, or lockfile checks as required plan work.",
-                "Do not replace npm run build with a weaker verifier.",
-            ])
-            .with_diagnostic(reason.clone());
-        if package_steps.len() == 1 {
-            evidence = evidence
-                .with_repair_target(format!("step:{}:instruction", package_steps[0].id))
-                .with_candidate_artifacts(vec![
-                    format!("step:{}", package_steps[0].id),
-                    "package.json".to_string(),
-                ]);
-        } else {
-            evidence = evidence.with_repair_attempt(
-                "active job arbitration could not select one package.json step for deterministic plan materialization"
-            );
-        }
-        return Err(PlanLintError::ContractViolation {
-            step_id: first_step_id,
-            reason: reason.clone(),
-            evidence: Box::new(evidence),
-        });
-    }
-    Ok(())
-}
-
-fn lint_nextjs_route_integration_obligations(
-    plan: &StepPlan,
-    cwd: Option<&Path>,
-    obligations: &[ProfileObligation],
-) -> Result<(), PlanLintError> {
-    if plan.profile != "nextjs" {
-        return Ok(());
-    }
-    let selected_route = selected_route_from_route_obligations(obligations)
-        .or_else(|| cwd.and_then(nextjs_selected_route_from_workspace));
-    let Some(selected_route) = selected_route else {
-        return Ok(());
-    };
-    for step in plan.steps.iter().filter(|step| {
-        matches!(
-            step.kind,
-            StepKind::Create | StepKind::Edit | StepKind::Repair
-        )
-    }) {
-        let Some(candidate) = step
-            .expected_paths
-            .iter()
-            .find(|path| nextjs_route_integration_candidate(path))
-        else {
-            continue;
-        };
-        if step
-            .expected_paths
-            .iter()
-            .any(|path| path == &selected_route)
-            || step.instruction.contains(&selected_route)
-        {
-            continue;
-        }
-        let reason = format!(
-            "profile obligations require Next.js route integration: step creates or edits {candidate} but does not mention selected route {selected_route} in instruction or expected_paths"
-        );
-        return Err(PlanLintError::ContractViolation {
-            step_id: step.id.clone(),
-            reason: reason.clone(),
-            evidence: Box::new(PlanCorrectionEvidence::new("plan_lint.profile_obligations")
-                .with_failed_step(step.id.clone())
-                .with_violated_contract("nextjs_route_integration_required")
-                .with_target_field("instruction_or_expected_paths")
-                .with_required_paths(vec![selected_route.clone()])
-                .with_missing_paths(vec![selected_route])
-                .with_rejected_value(candidate.clone())
-                .with_required_action(
-                    "include the selected route in expected_paths or explicitly mention updating it"
-                )
-                .with_diagnostic(reason)),
-        });
-    }
-    Ok(())
-}
-
-fn collect_missing_literals(
-    text: &str,
-    required: &[&str],
-    required_literals: &mut Vec<String>,
-    missing_literals: &mut Vec<String>,
-) {
-    for literal in required {
-        push_unique(required_literals, literal);
-        if !text.contains(literal) {
-            push_unique(missing_literals, literal);
-        }
-    }
-}
-
-fn push_unique(values: &mut Vec<String>, value: &str) {
-    if !values.iter().any(|existing| existing == value) {
-        values.push(value.to_string());
-    }
-}
-
-fn selected_route_from_route_obligations(obligations: &[ProfileObligation]) -> Option<String> {
-    obligations
-        .iter()
-        .find(|obligation| obligation.code == "nextjs_route_integration_required")
-        .and_then(|obligation| obligation.paths.first())
-        .cloned()
-}
-
-fn step_mentions_package_json(step: &crate::agent::step_runner::StepPlanStep) -> bool {
-    step.expected_paths
-        .iter()
-        .any(|path| path == "package.json")
-        || step
-            .instruction
-            .to_ascii_lowercase()
-            .contains("package.json")
+    lint_step_plan_generic(plan, cwd)?;
+    lint_profile_plan(plan, cwd, obligations)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1335,9 +867,9 @@ mod tests {
                     evidence.missing_literals,
                     vec![
                         "typescript".to_string(),
-                        "5".to_string(),
                         "@types/react".to_string(),
                         "18".to_string(),
+                        "5.x or ^5.".to_string(),
                     ]
                 );
             }
@@ -1357,7 +889,7 @@ mod tests {
                 StepPlanStep {
                     id: "setup-package-json".to_string(),
                     kind: StepKind::Setup,
-                    instruction: "Create package.json with next, react, react-dom, typescript 5.x compatibility, and @types/react 18.x compatibility."
+                    instruction: "Create package.json with next, react, react-dom, typescript ^5.4.0 compatibility, and @types/react 18.x compatibility."
                         .to_string(),
                     expected_result: ExpectedResult::Pass,
                     expected_paths: vec!["package.json".to_string()],
@@ -1375,6 +907,52 @@ mod tests {
         };
 
         lint_step_plan_with_workspace_and_obligations(&plan, None, &[]).unwrap();
+    }
+
+    #[test]
+    fn obligation_lint_rejects_ambiguous_typescript_major_without_5x_contract() {
+        let plan = StepPlan {
+            goal: "Create a Next.js game.".to_string(),
+            profile: "nextjs".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::New,
+            required_artifacts: Vec::new(),
+            steps: vec![
+                StepPlanStep {
+                    id: "setup-package-json".to_string(),
+                    kind: StepKind::Setup,
+                    instruction: "Create package.json with next, react, react-dom, typescript, 5, @types/react, and 18."
+                        .to_string(),
+                    expected_result: ExpectedResult::Pass,
+                    expected_paths: vec!["package.json".to_string()],
+                    verify: vec!["test -f package.json".to_string()],
+                },
+                StepPlanStep {
+                    id: "create-page".to_string(),
+                    kind: StepKind::Create,
+                    instruction: "Create app/page.tsx.".to_string(),
+                    expected_result: ExpectedResult::Pass,
+                    expected_paths: vec!["app/page.tsx".to_string()],
+                    verify: vec!["test -f app/page.tsx".to_string()],
+                },
+            ],
+        };
+
+        let err = lint_step_plan_with_workspace_and_obligations(&plan, None, &[]).unwrap_err();
+
+        match err {
+            PlanLintError::ContractViolation {
+                step_id, evidence, ..
+            } => {
+                assert_eq!(step_id, "setup-package-json");
+                assert_eq!(
+                    evidence.violated_contract.as_deref(),
+                    Some("nextjs_typescript_toolchain_plan_contract")
+                );
+                assert_eq!(evidence.missing_literals, vec!["5.x or ^5.".to_string()]);
+            }
+            other => panic!("expected typescript plan contract violation, got {other:?}"),
+        }
     }
 
     #[test]
@@ -1465,23 +1043,59 @@ mod tests {
     }
 
     #[test]
-    fn obligation_lint_requires_dev_port_for_existing_package_edits() {
-        let root = temp_workspace("nextjs-existing-package-obligation");
+    fn obligation_lint_accepts_existing_manifest_facts_that_satisfy_obligations() {
+        let root = temp_workspace("nextjs-existing-package-obligation-satisfied");
         fs::write(
             root.join("package.json"),
-            r#"{"scripts":{"dev":"next dev -p 3011","build":"next build"}}"#,
+            r#"{"scripts":{"dev":"next dev -p 3011","build":"next build"},"dependencies":{"next":"14.0.0","react":"^18.2.0","react-dom":"^18.2.0"}}"#,
         )
         .unwrap();
         let plan = StepPlan {
-            goal: "Update dependencies".to_string(),
+            goal: "Update package metadata".to_string(),
             profile: "nextjs".to_string(),
             style: "default".to_string(),
             intent: WorkIntent::New,
             required_artifacts: Vec::new(),
             steps: vec![StepPlanStep {
-                id: "update-dependencies".to_string(),
+                id: "update-package-metadata".to_string(),
                 kind: StepKind::Edit,
-                instruction: "Update package.json to include next, react, and react-dom with React 18.2 compatibility as dependencies and ensure scripts.build remains set to next build.".to_string(),
+                instruction: "Update package.json metadata and keep the existing scripts and dependencies unchanged.".to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec!["package.json".to_string()],
+                verify: Vec::new(),
+            }],
+        };
+
+        lint_step_plan_with_workspace_and_obligations(
+            &plan,
+            Some(&root),
+            &[
+                nextjs_obligation("nextjs_dev_port_required"),
+                nextjs_obligation("nextjs_build_script_required"),
+                nextjs_obligation("nextjs_dependencies_required"),
+            ],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn obligation_lint_requires_dev_port_for_unsatisfied_existing_package_edits() {
+        let root = temp_workspace("nextjs-existing-package-obligation-missing-port");
+        fs::write(
+            root.join("package.json"),
+            r#"{"scripts":{"dev":"next dev","build":"next build"},"dependencies":{"next":"14.0.0","react":"^18.2.0","react-dom":"^18.2.0"}}"#,
+        )
+        .unwrap();
+        let plan = StepPlan {
+            goal: "Update package metadata".to_string(),
+            profile: "nextjs".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::New,
+            required_artifacts: Vec::new(),
+            steps: vec![StepPlanStep {
+                id: "update-package-metadata".to_string(),
+                kind: StepKind::Edit,
+                instruction: "Update package.json metadata and keep the existing scripts and dependencies unchanged.".to_string(),
                 expected_result: ExpectedResult::Pass,
                 expected_paths: vec!["package.json".to_string()],
                 verify: Vec::new(),
@@ -1501,7 +1115,7 @@ mod tests {
 
         assert_contract_violation(
             err,
-            "update-dependencies",
+            "update-package-metadata",
             "profile obligations require package.json work to mention nextjs_dev_port_required: requested port 3011",
             "nextjs_dev_port_required",
             &["3011"],
@@ -1579,6 +1193,31 @@ mod tests {
             &[nextjs_route_obligation(
                 "app/page.tsx",
                 "app/hooks/useGame.ts",
+            )],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn obligation_lint_accepts_later_route_integration_step() {
+        let mut plan = plan_with_paths("nextjs", vec!["app/components/GameCanvas.tsx"]);
+        plan.steps[0].id = "create-game-canvas-component".to_string();
+        plan.steps[0].instruction = "Create the GameCanvas component.".to_string();
+        plan.steps.push(StepPlanStep {
+            id: "update-page-entry".to_string(),
+            kind: StepKind::Edit,
+            instruction: "Edit app/page.tsx to render the GameCanvas component.".to_string(),
+            expected_result: ExpectedResult::Pass,
+            expected_paths: vec!["app/page.tsx".to_string()],
+            verify: Vec::new(),
+        });
+
+        lint_step_plan_with_workspace_and_obligations(
+            &plan,
+            None,
+            &[nextjs_route_obligation(
+                "app/page.tsx",
+                "app/components/GameCanvas.tsx",
             )],
         )
         .unwrap();

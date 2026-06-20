@@ -1,9 +1,11 @@
 # Profiles
 
 Profiles are structured domain contracts, not hidden applications. They provide
-a concise domain hint, optional verifier commands, optional protected paths,
-deterministic facts, and artifact classification. Planning, execution,
-verification, and repair remain in the shared step runner.
+a concise domain hint, profile-specific planning guidance, optional verifier
+commands, optional protected paths, deterministic facts, artifact
+classification, obligations, profile-specific plan lint, and profile
+verification evidence. Planning, execution, verification orchestration, and
+repair remain in the shared step runner.
 
 MVP profiles:
 
@@ -43,6 +45,34 @@ consume `ClassifiedArtifact` values. A producer needs observed deterministic
 failure evidence, bounded scope, tests for the positive and false-positive
 cases, and docs. It must not add workflow authority, retry authority, or
 provider/model-specific policy.
+
+## Profile Interface
+
+The shared profile boundary keeps generic plan lint from becoming a collection
+of framework branches. Core code may resolve a profile id and call common
+profile APIs, but it should not embed framework-specific rules directly.
+
+Current profile-owned surfaces are:
+
+- `profile_contract_text`: concise prompt text for the active domain
+- `profile_plan_guidance`: plan-generation guidance for profile-specific
+  package, verifier, scaffold, or compatibility constraints
+- `classify_profile_artifact`: typed path facts used by generic lint,
+  verification, setup bootstrap, and recovery targeting
+- `profile_obligations`: deterministic plan obligations derived from the goal,
+  required artifacts, phase facts, and profile facts
+- `lint_profile_plan`: profile-specific plan lint that returns common
+  contract evidence
+- `verify_profile`: read-only profile verification at step or phase boundaries
+- `profile_verifier_commands`: profile verifier hints
+- `protected_by_profile`: protected path checks for profiles with immutable
+  inputs
+
+Profile-specific lint may reject domain drift such as a Next.js plan using
+`npx` as a verifier, omitting required package literals, splitting app roots,
+or planning disconnected route artifacts. It still returns `PlanLintError` and
+`PlanCorrectionEvidence` for the shared bounded correction path. It must not
+execute tools, run package managers, choose a workflow, retry, or repair files.
 
 ## Next.js Contract
 
@@ -92,10 +122,13 @@ and limited to observed project facts:
   Next.js-compatible dependency family instead of switching the generated app
   to `latest` packages as the repair strategy
 - if a generated Next.js app uses `tsconfig.json`, `.ts`, `.tsx`, or
-  TypeScript code, keep the package step on a stable TypeScript 5.x and
-  `@types/react` 18.x toolchain for Next.js 14/React 18; TypeScript 6 and
-  `@types/react` 19 are treated as generated-app dependency-family drift
+  TypeScript code, keep the package step on a stable TypeScript 5.x range such
+  as `^5.4.0` and `@types/react` 18.x toolchain for Next.js 14/React 18;
+  TypeScript 6, exact TypeScript pins such as `5.0.0`, and `@types/react` 19
+  are treated as generated-app dependency-family drift
 - avoid tsconfig settings that exclude the selected route root
+- if source imports use `@/*`, define `compilerOptions.paths` for `@/*` in
+  `tsconfig.json`; otherwise prefer relative imports
 - when an explicit component or source artifact is part of the contract, make
   it reachable from the selected route by import or direct reference
 
@@ -129,14 +162,32 @@ and `autoprefixer` compatible versions to be mentioned in package.json work.
 When the selected route is known and an explicit UI/game source artifact is
 part of the phase contract, Next.js can also project a route-integration
 obligation requiring the generated step plan to mention the selected route in
-the source-editing step instruction or `expected_paths`. That obligation is
-based on classified artifacts, not broad `*.ts`/`*.js` token scans. Step-plan
-lint uses these facts only to reject generated package.json or Next.js source
-steps that omit the relevant obligation. If that happens, the existing bounded
-plan correction path is used; the profile still does not run a workflow engine
-or repair files by itself. This route-integration obligation is intentionally
-Next.js-specific for now; common artifact graph behavior should wait for
-another observed cross-profile failure class.
+the source-editing step instruction or `expected_paths`. A later step in the
+same plan may also satisfy the obligation when it edits the selected route and
+names the source artifact by path or file stem, such as creating
+`app/components/GameCanvas.tsx` and then editing `app/page.tsx` to render
+`GameCanvas`. That obligation is based on classified artifacts, not broad
+`*.ts`/`*.js` token scans. Step-plan lint uses these facts only to reject
+generated package.json or Next.js source steps that omit the relevant
+obligation. If that happens, the existing bounded plan correction path is used;
+the profile still does not run a workflow engine or repair files by itself.
+If current package.json facts already satisfy a manifest obligation, later
+package.json edit steps do not need to restate every required literal just to
+pass plan lint. The profile facts and profile verification keep the contract
+observable; if the edit drifts the manifest away from those facts, verification
+or the next obligation-aware lint reports the deterministic failure.
+This route-integration obligation is intentionally Next.js-specific for now;
+common artifact graph behavior should wait for another observed cross-profile
+failure class.
+
+Plan generation receives Next.js planning guidance from the profile boundary,
+not from generic plan-prompt code. The guidance can require a compatible
+`next`/`react`/`react-dom` family, a stable TypeScript 5.x range such as
+`^5.4.0` and `@types/react` 18.x when TypeScript is planned, matching
+`tsconfig.json` path aliases when `@/*` imports are used, Tailwind/PostCSS
+package and config literals when Tailwind is planned, and `npm run build` as
+the source verifier. These are Profile Contract facts; they do not authorize
+dependency installation or hidden workflow execution.
 
 When a generated Next.js plan has one unambiguous `package.json` setup step and
 Tailwind is requested from a source/style step, CommandAgent may materialize a
@@ -165,10 +216,18 @@ artifact, and a route-tree repair target when that target is deterministic.
 Script drift, dependency drift, Tailwind/PostCSS drift, TypeScript alias/root
 drift, and dev-port drift map to their deterministic repair targets such as
 `package.json`, `tailwind.config.js`, `postcss.config.js`, or `tsconfig.json`.
-Profile evidence may also carry `repair_kind`, `setup_implication`, and
-`rerun_authority` into the Recovery Task Contract. This is still evidence
-rendering only. Profiles must not carry retry authority, semantic confidence,
-or workflow decisions.
+Profile evidence may also feed the Recovery Policy Contract. For example,
+`nextjs_route_not_integrated` becomes `active_job=route_integration_repair`
+with `repair_action=connect_artifact_to_selected_route`; an existing artifact
+is connected to the selected route graph, while
+`nextjs_integration_artifact_missing` becomes
+`repair_action=create_missing_integration_artifact`. Manifest and config
+drift map to actions such as `add_manifest_dependency`,
+`repair_tailwind_contract`, or `repair_tsconfig_alias`. The resulting evidence
+can carry `repair_kind`, `repair_action`, `setup_implication`, and
+`rerun_authority` into the Recovery Task Contract. This is still evidence and
+policy rendering only. Profiles must not carry retry authority, semantic
+confidence, or workflow decisions.
 
 Next.js source verification should use `npm run build`, not `npx` compiler
 commands. `npx` may perform dependency setup and is blocked by the Bash policy;

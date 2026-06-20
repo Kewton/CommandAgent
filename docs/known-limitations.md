@@ -53,6 +53,12 @@ CommandAgent is still in MVP migration.
   route/component/hook integration, but it is still not a compiler, runtime
   execution engine, semantic UI checker, or guarantee that the generated game
   is visually good.
+- Recovery Policy Contract now classifies some deterministic failures into
+  visible active jobs and repair actions, such as Next.js route integration,
+  missing integration artifacts, manifest dependency repair, Tailwind contract
+  repair, and tsconfig alias repair. This improves the repair packet handoff,
+  but it does not add hidden continuation, increase retry budgets, or guarantee
+  that a weak model will perform the selected repair correctly.
 - Step-decomposition lint now rejects the observed high-confidence case where a
   `setup` step owns classified source/style, route, component, test, docs,
   generated, or build artifacts such as `app/globals.css`. Broader ownership

@@ -2,6 +2,7 @@ pub mod correction_evidence;
 pub mod plan_lint;
 pub(crate) mod profile_artifact;
 pub mod profiles;
+pub(crate) mod recovery_policy;
 pub mod recovery_task;
 pub mod repair;
 pub mod runtime;
@@ -333,7 +334,7 @@ steps:
         assert!(prompt.contains("npm run build"));
         assert!(prompt.contains("grep -q"));
         assert!(prompt.contains("use build/test/check commands"));
-        assert!(prompt.contains("Rust uses cargo check/cargo test"));
+        assert!(prompt.contains("active profile"));
         assert!(prompt.contains("not source-code semantics"));
         assert!(prompt.contains("if it exists"));
         assert!(prompt.contains("Inspect steps are observation-only"));
@@ -347,7 +348,10 @@ steps:
         assert!(prompt.contains("React 18.2 or newer compatibility"));
         assert!(prompt.contains("Do not use exact React pins below 18.2"));
         assert!(prompt.contains("typescript 5.x compatibility"));
+        assert!(prompt.contains("stable TypeScript 5.x range such as ^5.4.0"));
+        assert!(prompt.contains("exact TypeScript pins such as 5.0.0"));
         assert!(prompt.contains("@types/react 18.x compatibility"));
+        assert!(prompt.contains("If source imports use @/*"));
         assert!(prompt.contains("latest as the compatibility strategy"));
         assert!(prompt.contains("Use plain CSS unless"));
         assert!(prompt.contains("same step plan must also include"));

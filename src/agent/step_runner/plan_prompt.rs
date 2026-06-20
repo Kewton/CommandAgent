@@ -1,4 +1,5 @@
 use super::{PlanError, WorkIntent};
+use crate::agent::step_runner::profiles::profile_plan_guidance;
 
 pub fn detect_work_intent(goal: &str) -> WorkIntent {
     let lower = goal.to_ascii_lowercase();
@@ -66,7 +67,7 @@ Rules:\n\
 - Inspect steps are observation-only: use verify: [] unless the step is intentionally asserting a required existing file listed in expected_paths. Do not use test -d/test -f to make optional discovery fatal.\n\
 - Verifier commands must be one simple local check each; split shell chaining into separate list items and avoid unquoted &&, ||, or ;.\n\
 - Prefer canonical verifier commands: test -f <path>, python -m py_compile <path.py>, python -m pytest <path-or-test>, cargo check, cargo test, npm run build, or grep -q <literal> <path>.\n\
-- For source-code behavior, use build/test/check commands: Rust uses cargo check/cargo test; Next.js uses npm run build; Python/FastAPI uses python -m py_compile or pytest. Use grep -q only for literal documentation, data, or content requirements, not source-code semantics.\n\
+- For source-code behavior, use build/test/check commands appropriate to the active profile and profile guidance. Use grep -q only for literal documentation, data, or content requirements, not source-code semantics.\n\
 - If no file path is expected for a step, use an empty list.\n\
 - required_artifacts are final user-requested outputs and must be preserved exactly.\n\
 - setup prepares local dependencies or configuration; verify runs deterministic checks and must not change files.\n\
@@ -83,20 +84,8 @@ Required final artifacts:\n{artifacts}\n\
 Profile guidance:\n{profile_guidance}",
         intent = intent.as_str(),
         artifacts = bullet_list(required_artifacts),
-        profile_guidance = plan_profile_guidance(profile)
+        profile_guidance = profile_plan_guidance(profile)
     )
-}
-
-fn plan_profile_guidance(profile: &str) -> &'static str {
-    match profile {
-        "nextjs" => {
-            "For Next.js apps, generated package.json steps must instruct a compatible dependency family: next plus react/react-dom with React 18.2 or newer compatibility. If the plan creates tsconfig.json, .ts, .tsx, or TypeScript code, the package.json step must also literally include typescript 5.x compatibility and @types/react 18.x compatibility. Do not use exact React pins below 18.2 with Next.js 14, TypeScript 6 with Next.js 14, @types/react 19 with React 18, or latest as the compatibility strategy. Use plain CSS unless the goal or phase explicitly requires Tailwind. If any source/style step mentions Tailwind, @tailwind, or Tailwind directives, the same step plan must also include exact package.json dependency literals tailwindcss, postcss, and autoprefixer, plus setup/config outputs tailwind.config.js and postcss.config.js. Do not write only Tailwind CSS dependencies as a substitute for the exact package names. For Next.js source verification, use npm run build in a separate verify step; do not use npx tsc --noEmit or other npx verifiers because npx may perform dependency setup and is blocked. Do not plan npm install; verifier-owned setup handles dependency installation when approved."
-        }
-        "rust" => {
-            "For new Rust projects, plan explicit file creation for Cargo.toml and src/main.rs. Do not plan cargo init or cargo new shell scaffolding."
-        }
-        _ => "No additional profile-specific plan guidance.",
-    }
 }
 
 pub fn invalid_plan_correction_prompt(

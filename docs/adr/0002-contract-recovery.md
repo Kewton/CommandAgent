@@ -105,18 +105,22 @@ file-mutation repair behavior; tool-protocol correction keeps schema-correction
 semantics. The envelope is not model-selected, does not weaken the original
 guard, and does not authorize hidden continuation.
 
-The resulting architecture has three peer contract surfaces: Planning Contract,
-Execution Contract, and Recovery Task Contract. Planning Contract clarifies the
-normal work, Execution Contract runs one clarified task in the minimal loop, and
-Recovery Task Contract clarifies the repair work after a classified failure.
-Only the Execution Contract delegates to the execution engine; the other two
-contracts prepare bounded instructions for it.
+The resulting architecture has peer contract surfaces around one execution
+engine: Task Contract, Planning Contract, Profile Contract, Recovery Policy
+Contract, Recovery Task Contract, Execution Contract, and supporting artifact
+role, workspace scope, setup bootstrap, and attempt-ledger contracts. Planning
+Contract clarifies normal work, Recovery Policy Contract selects the bounded
+repair policy after a classified failure, Recovery Task Contract renders that
+policy into an executable repair instruction, and Execution Contract runs one
+clarified task in the minimal loop. Only the Execution Contract delegates to
+the execution engine; the other contracts prepare bounded instructions for it.
 
 2026-06-20 amendment: Profile Contract is now documented as a fourth
 first-class contract surface. It is not an execution surface and does not
 change the recovery decision above. Its role is to provide deterministic domain
 facts, artifact classification, obligations, verifier hints, protected paths,
-and profile-verification evidence to the Planning and Recovery Task contracts.
+profile-specific planning guidance, profile-specific plan-lint evidence, and
+profile-verification evidence to the Planning and Recovery Task contracts.
 This amendment also clarifies that Planning Contract owns step-decomposition
 lint when artifact roles are known. For example, a `setup` step naming a source
 or route artifact should be rejected by planning lint before the Execution
@@ -149,6 +153,19 @@ bounded repair or setup action, rerun the original guard/verifier, and stop
 explicitly on no progress. They must not become provider/model-specific
 behavior, hidden continuation, arbitrary future-phase selection, unbounded
 retry, or a second execution engine.
+
+2026-06-20 amendment: Recovery Policy Contract is now documented as the
+contract layer between structured failure evidence and Recovery Task Contract.
+It owns active job arbitration, repair target admission and prioritization,
+and repair action selection for the current deterministic blocker. For
+example, a `nextjs_route_not_integrated` profile failure should become a route
+integration repair policy that targets the selected route or nearest
+route-graph connection point, selects the action "connect the existing artifact
+to the selected route graph", disallows placeholder artifact creation and
+unrelated feature work, and preserves profile verification plus `npm run build`
+as rerun authority. This policy layer still must not execute tools, increase
+retry budgets, select arbitrary future phases, run setup from an ordinary
+repair turn, weaken verifiers, or add provider/model-specific behavior.
 
 ## Non-Decisions
 
@@ -203,6 +220,14 @@ handoff as a hidden job manager that chooses arbitrary future phases, silently
 runs setup without a setup contract, or keeps repairing until the task
 succeeds.
 
+Recovery Policy Contract formalizes that handoff. Structured evidence says
+what failed; recovery policy decides, from deterministic facts, what kind of
+repair job this is, which target is admitted, which target is preferred, which
+single repair action is allowed, and what success check remains authoritative.
+Recovery Task Contract then renders the policy into instructions. This keeps
+strategy selection out of the minimal loop without reintroducing hidden
+autonomy.
+
 ## Consequences
 
 - Older plan files remain readable through defaulted fields and are normalized
@@ -229,3 +254,8 @@ recovery layer.
 Also revisit it if contract boundary propagation starts carrying semantic
 guesses, package-registry solving, provider-specific behavior, or hidden
 workflow state instead of deterministic handoff facts.
+
+Also revisit it if Recovery Policy Contract starts selecting speculative jobs,
+mutating state, expanding scope without evidence, or becoming a profile-owned
+workflow engine instead of a typed decision table for current deterministic
+failures.

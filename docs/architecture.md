@@ -22,6 +22,9 @@ surfaces around it:
 - Active Job Arbitration Contract: classifies the current blocker as setup,
   manifest, route integration, source implementation, verifier policy,
   documentation, or explicit stop before a repair task is rendered.
+- Recovery Policy Contract: consumes deterministic failure evidence,
+  artifact-role facts, active job classification, and recovery target hints to
+  admit and prioritize repair targets and select one allowed repair action.
 - Setup Bootstrap Contract: owns bounded dependency setup, setup/config
   artifact preparation, and deterministic manifest/scaffold materialization
   when a profile can name the required setup artifacts.
@@ -36,10 +39,11 @@ surfaces around it:
 Contract Boundary Propagation is the handoff rule between these surfaces, not a
 second execution engine. When a deterministic guard rejects work, it may pass
 only the facts it owns to the next layer: violated contract, active job, repair
-kind, deterministic target, setup implication, rerun authority, and
-attempt-ledger context. This lets Active Job Arbitration, Recovery Task
-Contract, or verifier-owned setup recovery choose the correct bounded path
-without asking the minimal loop to infer strategy from broad failure prose.
+kind, admitted target, repair action when deterministic, setup implication,
+rerun authority, and attempt-ledger context. This lets Recovery Policy
+Contract, Recovery Task Contract, or verifier-owned setup recovery choose the
+correct bounded path without asking the minimal loop to infer strategy from
+broad failure prose.
 
 These fields are rendered through existing contract evidence and recovery task
 payloads. For example, `repair_kind=manifest_dependency_repair` can target
@@ -56,6 +60,13 @@ expected path belongs to the step that names it. Profile artifact
 classification supplies typed path facts for these checks, but the profile does
 not become a planner.
 
+Profile-specific planning guidance and profile-specific plan lint are exposed
+through the Profile Contract. The step runner may call the shared profile
+interface to render guidance, classify artifacts, collect obligations, run
+profile-specific plan lint, or verify profile facts. The step runner must not
+embed Next.js, Python, Rust, docs, or data rules directly in generic plan-lint
+logic; it should consume the profile result as common contract evidence.
+
 Profile Contract may include small dependency compatibility producers when
 they operate only on deterministic manifest facts or classified setup failure
 evidence. For example, the Next.js profile can reject an observed
@@ -65,19 +76,24 @@ TypeScript app that drifted to TypeScript 6 or `@types/react` 19. Profiles
 still must not execute package managers, query registries, choose workflows, or
 retry setup.
 
-The Recovery Task Contract is not an execution engine. It does not retry until
-success or continue hidden work. It is a contract layer that prepares the next
-bounded repair turn when a guard, verifier, profile check, or active job
-arbiter already knows enough to name the blocker, violated contract, target or
-candidate paths, required action, disallowed actions, and the original
-guard/verifier that will judge the repair.
+The Recovery Policy Contract is not an execution engine. It does not retry
+until success or continue hidden work. It is a deterministic decision layer
+that prepares the repair policy when a guard, verifier, profile check, or
+active job arbiter already knows enough to classify the blocker, admit the
+target, prioritize candidates, select one allowed repair action, and name
+disallowed actions and rerun authority.
 
-In short, planning, setup, job arbitration, and recovery clarify what should be
-done; the minimal loop executes the already-clarified task. Profiles classify
-and verify domain facts for those contracts. If CommandAgent cannot form a
-deterministic job classification or recovery task, it should stop with
-structured evidence instead of asking the minimal loop to infer the repair
-strategy from broad failure prose.
+The Recovery Task Contract renders that policy into the next bounded repair
+turn for the minimal loop. It should not decide the repair strategy from broad
+prose; it should consume the Recovery Policy decision and make the executable
+repair instruction clear.
+
+In short, planning, setup, job arbitration, recovery policy, and recovery tasks
+clarify what should be done; the minimal loop executes the already-clarified
+task. Profiles classify and verify domain facts for those contracts. If
+CommandAgent cannot form a deterministic job classification, policy decision,
+or recovery task, it should stop with structured evidence instead of asking the
+minimal loop to infer the repair strategy from broad failure prose.
 
 Propagation must stay visible and bounded. It can route a manifest dependency
 repair toward `package.json`, mark dependency setup stale after that manifest
@@ -128,7 +144,7 @@ The envelope must not add retry authority or provider/model-specific behavior.
 | Provider | HTTP/API transport, provider-specific payload shapes | Planning, repair policy, profile behavior |
 | Minimal loop | Tool-call execution, observations, bounded completion guards | Multi-step plans, recovery strategy, domain profiles, unbounded retry |
 | Profile | Domain facts, artifact classification, verifier hints, protected prefixes, profile evidence, setup artifact templates | Hidden task-specific agents, execution policy, package-registry solving |
-| Step runner | Plan schema, step-decomposition lint, verifier, active job arbitration, setup bootstrap, recovery task contracts, repair packet, attempt ledger, ultra phase order | Provider transport, low-level tool implementation, unbounded workflow control |
+| Step runner | Plan schema, step-decomposition lint, verifier, active job arbitration, recovery policy, setup bootstrap, recovery task contracts, repair packet, attempt ledger, ultra phase order | Provider transport, low-level tool implementation, unbounded workflow control |
 | TUI | TTY-aware rendering of runtime events and final answers | Planning, repair, retry, provider parsing, filesystem policy |
 | Tools | Deterministic workspace actions | Task interpretation or planning |
 | Eval | Run roots, summaries, recheck, reports | Runtime behavior changes |
@@ -460,13 +476,14 @@ plan is explicitly resumed or replanned and finishes.
 ## Profile Boundary
 
 Profiles are intentionally small. They provide profile text, optional verifier
-commands, optional protected path prefixes, read-only fact summaries, and
-read-only profile obligations and verification. They do not own planning logic,
-edit files, or run domain-specific agents. Profile obligations are projected
-into common step-plan lint and active step/repair prompt facts; profile
-verification can fail a phase with explicit diagnostics and a bounded
-standalone repair packet, but it does not auto-repair or auto-resume the
-original ultra plan.
+commands, optional protected path prefixes, profile-specific planning
+guidance, artifact classification, read-only fact summaries, profile
+obligations, profile-specific plan lint, and profile verification. They do not
+own workflow selection, edit files, execute package managers, or run
+domain-specific agents. Profile obligations and profile lint are projected into
+common step-plan lint and active step/repair prompt facts; profile verification
+can fail a phase with explicit diagnostics and a bounded standalone repair
+packet, but it does not auto-repair or auto-resume the original ultra plan.
 
 The current profile set is MVP-sized: `generic`, `nextjs`, `python`, `rust`,
 `investigation`, `docs`, `data-analysis`, and `data-pipeline`. A new profile

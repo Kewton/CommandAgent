@@ -461,7 +461,7 @@ steps:
 steps:
   - id: setup-package-json
     kind: setup
-    instruction: Create package.json with next, react, react-dom, TypeScript 5, @types/react 18, and Tailwind CSS dependencies.
+    instruction: Create package.json with next, react, react-dom, TypeScript 5.x, @types/react 18, and Tailwind CSS dependencies.
     expected_paths:
       - package.json
     verify:
