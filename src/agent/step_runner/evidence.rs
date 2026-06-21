@@ -1,4 +1,5 @@
 use crate::agent::step_runner::correction_evidence::ContractEvidence;
+use crate::agent::step_runner::failure_observation::FailureObservation;
 use serde::{Deserialize, Serialize};
 
 pub const EVIDENCE_SCHEMA_VERSION: &str = "1.0";
@@ -35,6 +36,7 @@ pub enum FailureClass {
 pub struct EvidenceEnvelope {
     pub schema_version: String,
     pub evidence_id: String,
+    pub(crate) failure_observation: FailureObservation,
     pub producer: EvidenceProducer,
     pub failure_class: FailureClass,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -54,9 +56,11 @@ impl EvidenceEnvelope {
     ) -> Self {
         let producer = producer_from_guard(&evidence.guard);
         let payload = EvidencePayload::from_contract_evidence(evidence);
+        let failure_observation = FailureObservation::from_contract_evidence(evidence);
         Self {
             schema_version: EVIDENCE_SCHEMA_VERSION.to_string(),
             evidence_id: evidence_id.into(),
+            failure_observation,
             producer,
             failure_class: payload.failure_class(),
             failed_step: evidence.failed_step.clone(),

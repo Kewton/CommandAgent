@@ -86,6 +86,13 @@ literals, or required paths, such as `react-dom` for a Next.js package
 obligation. It is not a retry expansion: the original guard reruns unchanged
 and the run still stops if the bounded correction fails.
 
+Failure packets also include a compact normalized failure observation when
+structured evidence exists. The observation names the terminal state, owning
+contract layer, violated contract, producer, guard, diagnostic code, source of
+truth, and actionability. It helps the next explicit repair or eval report
+identify the failure class, but it does not choose a repair job or increase the
+bounded correction budget.
+
 Some high-confidence plan-lint failures can also select an active job before
 correction. For example, a Next.js Tailwind source/style step whose package
 step omits `tailwindcss`, `postcss`, or `autoprefixer` is a

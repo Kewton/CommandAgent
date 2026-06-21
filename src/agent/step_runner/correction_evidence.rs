@@ -4,6 +4,8 @@
 //! must not carry retry state, target authority, semantic guesses, sidecar
 //! results, memory references, or provider policy.
 
+use crate::agent::step_runner::failure_observation::FailureObservation;
+
 const MAX_FIELD_CHARS: usize = 240;
 const MAX_LIST_ITEMS: usize = 8;
 
@@ -614,6 +616,12 @@ impl ContractEvidence {
 
         let mut lines = vec!["Contract correction evidence:".to_string()];
         push_field(&mut lines, "guard", Some(&self.guard));
+        let observation = FailureObservation::from_contract_evidence(self);
+        push_field(
+            &mut lines,
+            "failure_observation",
+            Some(&observation.render_inline()),
+        );
         push_field(&mut lines, "failed_step", self.failed_step.as_deref());
         push_field(
             &mut lines,

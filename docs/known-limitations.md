@@ -35,6 +35,12 @@ CommandAgent is still in MVP migration.
   target, candidate artifacts, related source excerpt, and bounded attempt
   ledger. This makes standalone repair inputs clearer, but it does not increase
   retry budgets, auto-resume failed phases, or score UI/game quality.
+- Runtime and eval now share a `FailureObservation` taxonomy for terminal
+  states, producers, contract layers, source of truth, diagnostics, and
+  actionability. Unknown states remain explicit and eval reports flag raw
+  `rc:1`-style failures without diagnostics as observation coverage defects.
+  This improves attribution for later recovery work, but it is not an active
+  job arbiter, target selector, or repair-action planner.
 - Verifier failures now carry a bounded deterministic diagnostic payload when
   output can be classified, including diagnostic code, observed/expected pairs,
   affected cases, preferred repair role, weak verifier reason, and admitted

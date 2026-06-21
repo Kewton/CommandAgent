@@ -201,6 +201,12 @@ to resolve the recurring eval failures reliably:
   cases, preferred repair role, weak verifier reason, admitted cluster targets,
   and confidence through ContractEvidence, RecoveryTaskContract, semantic
   clusters, and eval reports.
+- Added a shared `FailureObservation` taxonomy and runtime projection. Failed
+  `ContractEvidence` records and `EvidenceEnvelope`s now expose a compact
+  terminal-state observation, and eval reports share the same taxonomy fixture
+  for terminal state, producer, contract layer, source of truth, diagnostic,
+  and actionability fields. Unknown/raw failures remain visible instead of
+  being silently collapsed into source repair.
 
 ## Recommended Port Order
 

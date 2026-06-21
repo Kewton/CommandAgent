@@ -61,6 +61,10 @@ and stops boundedly when progress cannot be proven.
 - Treat contract boundary propagation as part of the design. A deterministic
   failure should carry the repair kind, setup implication, and rerun authority
   needed by the next contract layer.
+- Treat failure observation as a first-class attribution boundary. A failed
+  guard, verifier, profile check, provider parser, tool protocol check, setup
+  check, or eval assertion should project into one normalized terminal-state
+  record before repair or reporting consumes it.
 - Treat artifact relationships as graph data, not scattered path strings. The
   runtime should distinguish existing artifacts, missing required artifacts,
   setup manifests, integration targets, generated outputs, and dependency
@@ -80,6 +84,7 @@ Task Contract -> ArtifactGraph and Workspace Scope
        -> Recovery Policy Decision
        -> Recovery Task Contract or verifier-owned setup recovery
 classified failure -> Contract Boundary Propagation
+  -> Failure Observation
   -> Recovery Orchestration Contract
   -> Attempt Ledger and original guard/verifier rerun
   -> Execution Contract
@@ -99,6 +104,13 @@ action to the existing Execution Contract. It must not execute tools, advance
 arbitrary future phases, or retry until success. If multiple same-priority
 owners conflict, dispatch must choose an explicit stop instead of arbitrarily
 selecting a repair path.
+
+Failure Observation is the classification handoff into that recovery path. It
+normalizes deterministic failure identity fields such as terminal state,
+contract layer, violated contract, producer, guard, diagnostic code, source of
+truth, failure signature, and actionability. It does not select an active job,
+choose a target, run setup, retry, or repair. Those decisions remain with the
+later recovery contracts.
 
 ## Stability And Predictability
 

@@ -2,6 +2,7 @@ import importlib.util
 import pathlib
 import tempfile
 import unittest
+import csv
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -143,6 +144,34 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertEqual(observation["source_of_truth"], "original_verifier_diagnostic")
         self.assertEqual(observation["command"], "cargo check")
 
+    def test_python_failure_taxonomy_matches_shared_fixture(self):
+        taxonomy_path = ROOT / "scripts" / "failure_observation_taxonomy.tsv"
+        with open(taxonomy_path, encoding="utf-8", newline="") as handle:
+            rows = {
+                row["terminal_state"]: row
+                for row in csv.DictReader(handle, delimiter="\t")
+            }
+
+        self.assertEqual(
+            set(rows),
+            set(eval_failure_observation.TERMINAL_STATE_TAXONOMY),
+        )
+        for terminal_state, row in rows.items():
+            self.assertEqual(
+                eval_failure_observation.TERMINAL_STATE_TO_CATEGORY[terminal_state],
+                row["failure_class"],
+            )
+            self.assertEqual(
+                eval_failure_observation.TERMINAL_STATE_TO_CONTRACT_LAYER[terminal_state],
+                row["contract_layer"],
+            )
+            self.assertEqual(
+                eval_failure_observation.TERMINAL_STATE_TO_VIOLATED_CONTRACT[
+                    terminal_state
+                ],
+                row["violated_contract"],
+            )
+
     def test_missing_deliverable_wins_over_generic_evidence_status(self):
         observation = eval_failure_observation.normalize_observation(
             {
@@ -176,6 +205,8 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertIn("- dependency_missing: 1", report)
         self.assertIn("## Diagnostic Codes", report)
         self.assertIn("## Evidence Authority", report)
+        self.assertIn("## Failure Observation Summary", report)
+        self.assertIn("## Producer Coverage", report)
 
     def test_render_report_includes_dispatch_sections(self):
         report = eval_report.render_report(
@@ -250,6 +281,32 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertIn("## Behavior Obligations", report)
         self.assertIn("- status=projected: 1", report)
         self.assertIn("## Artifact Role Projection", report)
+
+    def test_render_report_flags_raw_rc_without_diagnostic(self):
+        report = eval_report.render_report(
+            [
+                {
+                    "case_id": "raw-rc",
+                    "run": "1",
+                    "rc": "1",
+                    "elapsed_ms": "10",
+                    "success": "false",
+                    "reason": "rc:1",
+                    "failure_category": "verifier",
+                    "contract_layer": "verification_contract",
+                    "terminal_state": "verifier_command_failed",
+                    "diagnostic_code": "rc_1",
+                    "producer": "verifier",
+                    "actionability": "actionable",
+                }
+            ]
+        )
+
+        self.assertIn("## Failure Observation Summary", report)
+        self.assertIn("- producer=verifier: 1", report)
+        self.assertIn("- actionability=actionable: 1", report)
+        self.assertIn("## Unknown/Raw Failure Coverage Defects", report)
+        self.assertIn("raw-rc: raw_reason=rc:1 diagnostic_code=rc_1", report)
 
     def test_read_cases_recurses_and_parses_expected_fields(self):
         with tempfile.TemporaryDirectory() as tmp:

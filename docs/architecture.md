@@ -24,6 +24,9 @@ surfaces around it:
   artifact graph facts, selects the active recovery job for the current
   blocker, selects or rejects the repair action, projects the tool policy, and
   hands a bounded recovery task or setup action to execution.
+- Failure Observation Boundary: projects deterministic failure evidence into
+  one normalized terminal-state identity record before recovery or eval
+  reporting consumes it.
 - Recovery Policy Contract: the policy-decision part of recovery orchestration.
   It admits and prioritizes repair targets and selects one allowed repair
   action from deterministic evidence.
@@ -253,6 +256,15 @@ failed. ArtifactGraph describes which artifacts and relationships are involved.
 Recovery Orchestration, Recovery Policy, and Recovery Task still own what to do
 next.
 
+`FailureObservation` is the shared terminal-state identity projection of
+failure evidence. A `ContractEvidence` failure can render a compact observation
+line, and an `EvidenceEnvelope` carries the same projection alongside its typed
+payload. The observation records fields such as `terminal_state`,
+`failure_class`, `contract_layer`, `violated_contract`, `producer`, `guard`,
+`diagnostic_code`, `failure_signature`, `source`, `source_of_truth`, and
+`actionability`. It is deliberately data-only: it does not admit targets,
+select repair actions, rerun commands, or alter retry budgets.
+
 The orchestration section may carry `recovery_owner`, `completion_evidence`,
 `loop_control_action`, `dispatch_status`, `dispatch_reason`, `candidate_jobs`,
 `tie_break_reason`, `completion_evidence`, `evidence_binding`,
@@ -274,13 +286,12 @@ bounded contract data that selects a failure cluster and repair hypothesis from
 existing evidence. The repair brief is the structured source for the existing
 Recovery Task Contract; it is not a planner, executor, or retry mechanism.
 
-Eval failure observations are normalized at the eval/report boundary. The
-shared eval observation helper turns an already observed run result into
-fields such as `terminal_state`, `failure_class`, `violated_contract`,
-`source`, `source_of_truth`, `diagnostic_code`, `evidence_runner_status`,
-`artifact_ledger_status`, `setup_state`, and `port`. This is an attribution
-layer for reports and later triage. It must not schedule work, select repair
-actions, or alter runtime behavior.
+Eval failure observations use the same terminal-state taxonomy through the
+shared fixture under `scripts/failure_observation_taxonomy.tsv`. The eval
+helper can still backfill old run roots, but new runtime evidence should prefer
+the normalized observation fields over raw reasons such as `rc:1`. Reports can
+therefore flag unknown or raw failures as observation coverage defects without
+changing runtime behavior.
 
 Provider usage is normalized into a common `ModelUsage` shape at the provider
 parse boundary and carried on `ChatResponse` into runtime events. Missing usage

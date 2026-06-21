@@ -245,6 +245,17 @@ route to evidence binding, escalate to a contract conflict, or stop
 explicitly. It must not increase retry budgets, run hidden continuation,
 select targets outside admission, or grant provider/model-specific behavior.
 
+2026-06-22 amendment: Failure Observation is admitted as the shared
+terminal-state identity boundary between deterministic failure producers,
+bounded repair packets, evidence envelopes, and eval reports. It normalizes
+fields such as terminal state, failure class, contract layer, violated
+contract, producer, guard, diagnostic code, failure signature, source of truth,
+and actionability. It is a projection of existing deterministic evidence, not
+a repair selector. It must not admit targets, choose active jobs, run setup,
+increase retry budgets, or hide continuation. Unknown remains a visible
+terminal state, and raw process-code failures without diagnostics should be
+reported as observation coverage defects.
+
 ## Non-Decisions
 
 This ADR does not reintroduce:

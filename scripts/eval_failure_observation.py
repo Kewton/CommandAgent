@@ -8,7 +8,9 @@ or change runtime behavior.
 
 from __future__ import annotations
 
+import csv
 import re
+from pathlib import Path
 from typing import Any
 
 
@@ -19,6 +21,10 @@ OBSERVATION_FIELD_NAMES = [
     "source",
     "source_of_truth",
     "diagnostic_code",
+    "failure_signature",
+    "producer",
+    "guard",
+    "actionability",
     "evidence_runner_status",
     "artifact_ledger_status",
     "command",
@@ -27,28 +33,30 @@ OBSERVATION_FIELD_NAMES = [
 ]
 
 
+def load_taxonomy() -> dict[str, dict[str, str]]:
+    path = Path(__file__).with_name("failure_observation_taxonomy.tsv")
+    with open(path, encoding="utf-8", newline="") as handle:
+        return {
+            row["terminal_state"]: row
+            for row in csv.DictReader(handle, delimiter="\t")
+        }
+
+
+TERMINAL_STATE_TAXONOMY = load_taxonomy()
 TERMINAL_STATE_TO_CATEGORY = {
-    "ok": "ok",
-    "plan_parse_failed": "planning",
-    "plan_schema_failed": "planning",
-    "plan_lint_failed": "planning",
-    "provider_transport_failed": "provider_transport",
-    "provider_parse_failed": "provider_transport",
-    "tool_protocol_failed": "tool_protocol",
-    "step_policy_failed": "step_policy",
-    "profile_contract_failed": "profile",
-    "verifier_command_failed": "verifier",
-    "dependency_missing": "setup",
-    "setup_failed": "setup",
-    "port_in_use": "setup",
-    "missing_deliverable": "planning",
-    "missing_evidence": "quality",
-    "evidence_binding_failed": "quality",
-    "completion_evidence_failed": "quality",
-    "eval_assertion_failed": "quality",
-    "repair_exhausted": "planning",
-    "explicit_stop": "unknown",
-    "unknown": "unknown",
+    state: row["failure_class"] for state, row in TERMINAL_STATE_TAXONOMY.items()
+}
+TERMINAL_STATE_TO_CONTRACT_LAYER = {
+    state: row["contract_layer"] for state, row in TERMINAL_STATE_TAXONOMY.items()
+}
+TERMINAL_STATE_TO_VIOLATED_CONTRACT = {
+    state: row["violated_contract"] for state, row in TERMINAL_STATE_TAXONOMY.items()
+}
+TERMINAL_STATE_TO_SOURCE = {
+    state: row["source"] for state, row in TERMINAL_STATE_TAXONOMY.items()
+}
+TERMINAL_STATE_TO_SOURCE_OF_TRUTH = {
+    state: row["source_of_truth"] for state, row in TERMINAL_STATE_TAXONOMY.items()
 }
 
 
@@ -62,31 +70,6 @@ CATEGORY_TO_CONTRACT_LAYER = {
     "setup": "setup_bootstrap_contract",
     "verifier": "verification_contract",
     "quality": "eval_success_contract",
-    "unknown": "unknown_contract",
-}
-
-
-TERMINAL_STATE_TO_VIOLATED_CONTRACT = {
-    "ok": "none",
-    "plan_parse_failed": "plan_file_parse_contract",
-    "plan_schema_failed": "plan_file_schema_contract",
-    "plan_lint_failed": "planning_contract",
-    "provider_transport_failed": "provider_transport_contract",
-    "provider_parse_failed": "provider_tool_call_parse_contract",
-    "tool_protocol_failed": "tool_protocol_contract",
-    "step_policy_failed": "step_execution_policy_contract",
-    "profile_contract_failed": "profile_contract",
-    "verifier_command_failed": "verification_contract",
-    "dependency_missing": "setup_bootstrap_contract",
-    "setup_failed": "setup_bootstrap_contract",
-    "port_in_use": "dev_server_port_contract",
-    "missing_deliverable": "eval_success_contract",
-    "missing_evidence": "evidence_contract",
-    "evidence_binding_failed": "evidence_binding_contract",
-    "completion_evidence_failed": "completion_evidence_contract",
-    "eval_assertion_failed": "eval_success_contract",
-    "repair_exhausted": "bounded_repair_contract",
-    "explicit_stop": "explicit_stop_contract",
     "unknown": "unknown_contract",
 }
 
@@ -110,6 +93,18 @@ def normalize_observation(raw: dict[str, Any]) -> dict[str, str]:
         clean(raw.get("diagnostic_code"))
         or contract_value(evidence, "diagnostic_code")
         or diagnostic_code_from_reason(reason, terminal_state)
+    )
+    failure_signature = clean(raw.get("failure_signature")) or contract_value(
+        evidence, "failure_signature"
+    )
+    producer = clean(raw.get("producer")) or contract_value(evidence, "producer") or producer_for_terminal_state(
+        terminal_state
+    )
+    guard = clean(raw.get("guard")) or contract_value(evidence, "guard")
+    actionability = (
+        clean(raw.get("actionability"))
+        or contract_value(evidence, "actionability")
+        or actionability_for_terminal_state(terminal_state)
     )
     evidence_runner_status = (
         clean(raw.get("evidence_runner_status"))
@@ -144,11 +139,17 @@ def normalize_observation(raw: dict[str, Any]) -> dict[str, str]:
         "source": source,
         "source_of_truth": source_of_truth,
         "diagnostic_code": diagnostic_code,
+        "failure_signature": failure_signature,
+        "producer": producer,
+        "guard": guard,
+        "actionability": actionability,
         "evidence_runner_status": evidence_runner_status,
         "artifact_ledger_status": artifact_ledger_status,
         "command": clean(raw.get("command")) or contract_value(evidence, "command"),
         "setup_state": setup_state,
         "port": port,
+        "explicit_stop_reason": clean(raw.get("explicit_stop_reason"))
+        or contract_value(evidence, "explicit_stop_reason"),
     }
 
 
@@ -293,9 +294,9 @@ def contract_layer_for_category(category: str) -> str:
 
 
 def contract_layer_for_terminal_state(terminal_state: str, category: str) -> str:
-    if terminal_state == "port_in_use":
-        return "dev_server_port_contract"
-    return contract_layer_for_category(category)
+    return TERMINAL_STATE_TO_CONTRACT_LAYER.get(
+        terminal_state, contract_layer_for_category(category)
+    )
 
 
 def diagnostic_code_from_reason(reason: str, terminal_state: str) -> str:
@@ -325,51 +326,61 @@ def diagnostic_code_from_reason(reason: str, terminal_state: str) -> str:
 
 
 def source_for_terminal_state(terminal_state: str, reason: str) -> str:
-    if terminal_state == "ok":
-        return "process_result"
-    if terminal_state.startswith("plan_"):
-        return "plan_contract"
-    if terminal_state.startswith("provider_"):
-        return "provider_response"
-    if terminal_state in {"tool_protocol_failed", "step_policy_failed"}:
-        return "execution_guard"
-    if terminal_state == "profile_contract_failed":
-        return "profile_verifier"
-    if terminal_state in {"dependency_missing", "setup_failed", "port_in_use"}:
-        return "environment_verifier"
-    if terminal_state in {
-        "missing_deliverable",
-        "missing_evidence",
-        "evidence_binding_failed",
-        "completion_evidence_failed",
-        "eval_assertion_failed",
-    }:
-        return "eval_success_check"
-    if terminal_state == "repair_exhausted":
-        return "bounded_repair"
-    if terminal_state == "verifier_command_failed":
-        return "verifier"
+    if terminal_state in TERMINAL_STATE_TO_SOURCE:
+        return TERMINAL_STATE_TO_SOURCE[terminal_state]
     if reason:
         return "reason"
     return "unknown"
 
 
 def source_of_truth_for_terminal_state(terminal_state: str) -> str:
+    return TERMINAL_STATE_TO_SOURCE_OF_TRUTH.get(terminal_state, "unknown")
+
+
+def producer_for_terminal_state(terminal_state: str) -> str:
     if terminal_state == "ok":
-        return "process_exit_and_eval_checks"
-    if terminal_state in {
-        "missing_deliverable",
-        "missing_evidence",
-        "evidence_binding_failed",
-        "completion_evidence_failed",
-        "eval_assertion_failed",
-    }:
-        return "eval_success_contract"
-    if terminal_state in {"dependency_missing", "setup_failed", "port_in_use"}:
-        return "verifier_output"
+        return "process_result"
+    if terminal_state == "plan_parse_failed":
+        return "plan_parser"
+    if terminal_state == "plan_schema_failed":
+        return "plan_schema"
+    if terminal_state == "plan_lint_failed":
+        return "plan_lint"
+    if terminal_state == "provider_transport_failed":
+        return "provider_transport"
+    if terminal_state == "provider_parse_failed":
+        return "provider_parser"
+    if terminal_state == "tool_protocol_failed":
+        return "tool_protocol"
+    if terminal_state == "step_policy_failed":
+        return "step_policy"
+    if terminal_state == "profile_contract_failed":
+        return "profile_verification"
+    if terminal_state == "verifier_command_failed":
+        return "verifier"
+    if terminal_state in {"dependency_missing", "setup_failed"}:
+        return "setup_runtime"
+    if terminal_state == "port_in_use":
+        return "dev_server"
+    if terminal_state in {"missing_deliverable", "eval_assertion_failed"}:
+        return "eval_success"
+    if terminal_state in {"missing_evidence", "completion_evidence_failed"}:
+        return "completion_evidence"
+    if terminal_state == "evidence_binding_failed":
+        return "evidence_binding"
+    if terminal_state in {"repair_exhausted", "explicit_stop"}:
+        return "recovery_loop"
+    return "unknown"
+
+
+def actionability_for_terminal_state(terminal_state: str) -> str:
+    if terminal_state == "ok":
+        return "not_applicable"
+    if terminal_state in {"explicit_stop", "repair_exhausted"}:
+        return "explicit_stop"
     if terminal_state == "unknown":
         return "unknown"
-    return "runtime_evidence"
+    return "actionable"
 
 
 def setup_state_for_terminal_state(terminal_state: str) -> str:

@@ -72,9 +72,14 @@ Current terminal states are:
 - `unknown`
 
 The observation fields are `terminal_state`, `failure_class`,
-`violated_contract`, `source`, `source_of_truth`, `diagnostic_code`, `command`,
+`contract_layer`, `violated_contract`, `source`, `source_of_truth`,
+`diagnostic_code`, `failure_signature`, `producer`, `guard`,
+`actionability`, `explicit_stop_reason`, `command`,
 `evidence_runner_status`, `artifact_ledger_status`, `setup_state`, and `port`,
-alongside existing recovery fields. Runtime job fields may also include
+alongside existing recovery fields. The terminal-state taxonomy is shared with
+runtime through `scripts/failure_observation_taxonomy.tsv`; tests should fail
+when the Python fallback mapping drifts from the Rust mapping. Runtime job
+fields may also include
 `runtime_job_kind`, `runtime_job_outcome`, `setup_job_state`,
 `setup_attempt_key`, `setup_manifest_fingerprint`, `setup_stale_reason`,
 `setup_result`, `setup_command`, `verifier_rerun_result`,
@@ -97,6 +102,10 @@ example, a failed `cargo check` can remain
 `source_of_truth=original_verifier_diagnostic`, and the verifier command.
 This keeps the verifier failure honest without losing the actionable
 diagnostic.
+When a report can only identify a raw process-code reason such as `rc:1`
+without a diagnostic code or known terminal state, it should list the row under
+unknown/raw failure coverage defects. That is an observation gap, not a reason
+to weaken the verifier or retry more.
 Plan-file failures should distinguish parse, schema, and lint boundaries.
 Unsupported or malformed plan-file syntax is a planning parse failure. Missing
 or wrongly typed required fields are planning schema failures. Readable plans

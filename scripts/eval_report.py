@@ -452,6 +452,10 @@ def render_report(rows):
     layers = {}
     terminal_states = {}
     diagnostics = {}
+    producers = {}
+    guards = {}
+    actionabilities = {}
+    observation_defects = []
     by_case = {}
     recovery_jobs = {}
     runtime_jobs = {}
@@ -478,6 +482,9 @@ def render_report(rows):
         layer = row.get("contract_layer") or observation["contract_layer"]
         terminal_state = row.get("terminal_state") or observation["terminal_state"]
         diagnostic_code = row.get("diagnostic_code") or observation["diagnostic_code"]
+        producer = row.get("producer") or observation.get("producer", "")
+        guard = row.get("guard") or observation.get("guard", "")
+        actionability = row.get("actionability") or observation.get("actionability", "")
         evidence_runner_status = (
             row.get("evidence_runner_status") or observation["evidence_runner_status"]
         )
@@ -505,6 +512,15 @@ def render_report(rows):
         layers[layer] = layers.get(layer, 0) + 1
         terminal_states[terminal_state] = terminal_states.get(terminal_state, 0) + 1
         diagnostics[diagnostic_code] = diagnostics.get(diagnostic_code, 0) + 1
+        if producer:
+            producers[producer] = producers.get(producer, 0) + 1
+        if guard:
+            guards[guard] = guards.get(guard, 0) + 1
+        if actionability:
+            actionabilities[actionability] = actionabilities.get(actionability, 0) + 1
+        defect = observation_defect(row, observation, terminal_state, diagnostic_code)
+        if defect:
+            observation_defects.append((row["case_id"], defect))
         recovery_jobs[job] = recovery_jobs.get(job, 0) + 1
         if runtime_job:
             runtime_jobs[runtime_job] = runtime_jobs.get(runtime_job, 0) + 1
@@ -592,6 +608,22 @@ def render_report(rows):
     lines.extend(["", "## Contract Layers"])
     for name, count in sorted(layers.items()):
         lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Failure Observation Summary"])
+    for name, count in sorted(producers.items()):
+        lines.append(f"- producer={name}: {count}")
+    for name, count in sorted(actionabilities.items()):
+        lines.append(f"- actionability={name}: {count}")
+    lines.extend(["", "## Producer Coverage"])
+    for name, count in sorted(producers.items()):
+        lines.append(f"- {name}: {count}")
+    for name, count in sorted(guards.items()):
+        lines.append(f"- guard={name}: {count}")
+    lines.extend(["", "## Unknown/Raw Failure Coverage Defects"])
+    if observation_defects:
+        for case_id, defect in observation_defects:
+            lines.append(f"- {case_id}: {defect}")
+    else:
+        lines.append("- none")
     lines.extend(["", "## Lifecycle Funnel"])
     for name, count in sorted(terminal_states.items()):
         lines.append(f"- {name}: {count}")
@@ -661,6 +693,19 @@ def render_report(rows):
     for case_id, (case_success, case_total) in sorted(by_case.items()):
         lines.append(f"- {case_id}: {case_success}/{case_total}")
     return "\n".join(lines) + "\n"
+
+
+def observation_defect(row, observation, terminal_state, diagnostic_code):
+    reason = row.get("reason", "")
+    if terminal_state == "unknown":
+        return "terminal_state=unknown"
+    if (row.get("contract_layer") or observation.get("contract_layer")) == "unknown_contract":
+        return "contract_layer=unknown_contract"
+    if not diagnostic_code or diagnostic_code == "unknown":
+        return "diagnostic_code=unknown"
+    if reason.startswith("rc:") and diagnostic_code.startswith("rc_"):
+        return f"raw_reason={reason} diagnostic_code={diagnostic_code}"
+    return ""
 
 
 def main():
