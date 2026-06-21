@@ -8,6 +8,12 @@ use crate::agent::events::{
 };
 use crate::agent::minimal_loop::config::{ActionRequirement, StepToolPolicy};
 use crate::agent::minimal_loop::loop_run::ChatClient;
+use crate::agent::step_runner::artifact_graph::{ArtifactGraph, ArtifactLifecycle};
+use crate::agent::step_runner::artifact_ledger::ArtifactLedgerSummary;
+use crate::agent::step_runner::evidence_authority::{
+    CompletionAuthorityResult, evaluate_completion_authority, file_layout_binding,
+    file_layout_completion_evidence,
+};
 use crate::agent::step_runner::plan_lint::lint_step_plan_with_workspace;
 use crate::agent::step_runner::profiles::{
     ProfileVerificationContext, profile_contract_text, profile_fact_summary, verify_profile,
@@ -19,6 +25,7 @@ use crate::agent::step_runner::runtime::phase_contract::{
 use crate::agent::step_runner::ultra_plan::{UltraPlan, parse_ultra_plan_yaml};
 use crate::agent::step_runner::ultra_run::phase_step_plan_prompt;
 use crate::agent::step_runner::verify::{VerificationFailure, run_verifiers};
+use crate::agent::step_runner::workspace_scope::WorkspaceScope;
 use crate::agent::step_runner::{
     ExpectedResult, StepKind, StepPlan, StepPlanStep, WorkIntent, parse_step_plan_yaml,
     save_step_plan,
@@ -140,16 +147,56 @@ where
         lines.push(format!("phase {}: ok\n{}", phase.id, report));
     }
 
-    let missing = missing_paths(runtime.cwd, &plan.required_artifacts);
+    let authority = final_required_artifact_authority(runtime.cwd, &plan.required_artifacts);
+    let missing = authority.missing_deliverables.clone();
     emit_final_artifact_status(observer, &plan.required_artifacts, &missing);
-    if !missing.is_empty() {
+    if !authority.success_eligible() {
+        if !missing.is_empty() {
+            return Err(format!(
+                "missing required final artifacts: {}\nContract completion evidence:\n{}",
+                missing.join(", "),
+                authority.render_contract_lines().join("\n")
+            ));
+        }
         return Err(format!(
-            "missing required final artifacts: {}",
-            missing.join(", ")
+            "final completion evidence failed: {}\nContract completion evidence:\n{}",
+            authority.terminal_state(),
+            authority.render_contract_lines().join("\n")
         ));
     }
 
     Ok(lines.join("\n"))
+}
+
+fn final_required_artifact_authority(
+    cwd: &Path,
+    required_artifacts: &[String],
+) -> CompletionAuthorityResult {
+    let mut graph = ArtifactGraph::new();
+    for path in required_artifacts {
+        let lifecycle = if cwd.join(path).exists() {
+            ArtifactLifecycle::Existing
+        } else {
+            ArtifactLifecycle::Required
+        };
+        graph.add_path(path, lifecycle, "ultra_plan.required_artifacts");
+    }
+    let scope = WorkspaceScope::from_graph(&graph);
+    let mut ledger = ArtifactLedgerSummary::from_tool_records(&[], &graph, &scope);
+    for path in required_artifacts {
+        if cwd.join(path).exists() {
+            ledger.record_workspace_observation(path, &graph, &scope);
+        }
+    }
+    let completion = required_artifacts
+        .iter()
+        .map(|path| file_layout_completion_evidence(path, cwd.join(path).exists()))
+        .collect::<Vec<_>>();
+    let bindings = required_artifacts
+        .iter()
+        .map(|path| file_layout_binding(path, cwd.join(path).exists()))
+        .collect::<Vec<_>>();
+    evaluate_completion_authority(required_artifacts, &ledger, &completion, &bindings)
 }
 
 fn verify_phase_profile(

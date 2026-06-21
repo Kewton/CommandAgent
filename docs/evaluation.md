@@ -73,9 +73,13 @@ Current terminal states are:
 
 The observation fields are `terminal_state`, `failure_class`,
 `violated_contract`, `source`, `source_of_truth`, `diagnostic_code`, `command`,
-`setup_state`, and `port`, alongside existing recovery fields. For example,
-`EADDRINUSE` or `address already in use` on a requested dev-server port should
-be reported as `terminal_state=port_in_use` and
+`evidence_runner_status`, `artifact_ledger_status`, `setup_state`, and `port`,
+alongside existing recovery fields. `evidence_runner_status` records whether
+the completion evidence path was present, missing, executed, or not required.
+`artifact_ledger_status` records whether the required artifact ledger was
+complete or missing a required deliverable. For example, `EADDRINUSE` or
+`address already in use` on a requested dev-server port should be reported as
+`terminal_state=port_in_use` and
 `contract_layer=setup_bootstrap_contract`, not as source implementation failure.
 Old eval roots that do not have terminal observation fields remain readable;
 the report backfills conservative values from `reason`.
@@ -104,6 +108,20 @@ fields are `active_job`, `recovery_owner`, `target_path`, `target_role`,
 evidence, the eval runner extracts those fields. When a failure is detected
 only by the eval success contract, the runner derives a conservative recovery
 classification from the deterministic reason and target path.
+
+Artifact completion reports must keep four states distinct:
+
+- `missing_deliverable`: a required artifact is absent from the artifact
+  ledger.
+- `missing_evidence`: the artifact exists, but no completion evidence path was
+  observed.
+- `completion_evidence_failed`: the evidence runner or verifier executed and
+  failed.
+- `evidence_binding_failed`: evidence exists, but is not bound to the required
+  proof path.
+
+These states are observations. They do not grant retry authority and must not
+be used to hide continuation after a failed phase.
 
 The eval runner executes cases through the mode declared in each case. Omitted
 mode defaults to `/plan-run`; large cases should normally use `/ultra-plan-run`.

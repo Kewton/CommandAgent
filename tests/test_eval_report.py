@@ -101,6 +101,40 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertEqual(observation["failure_category"], "provider_transport")
         self.assertEqual(observation["contract_layer"], "execution_contract")
 
+    def test_completion_authority_fields_classify_missing_evidence(self):
+        observation = eval_failure_observation.normalize_observation(
+            {
+                "reason": "rc:1",
+                "success": False,
+                "evidence": "\n".join(
+                    [
+                        "- terminal_state=missing_evidence",
+                        "- evidence_runner_status=missing",
+                        "- completion_evidence_status=missing",
+                        "- artifact_ledger_status=complete",
+                    ]
+                ),
+            }
+        )
+
+        self.assertEqual(observation["terminal_state"], "missing_evidence")
+        self.assertEqual(observation["failure_category"], "quality")
+        self.assertEqual(observation["evidence_runner_status"], "missing")
+        self.assertEqual(observation["artifact_ledger_status"], "complete")
+
+    def test_missing_deliverable_wins_over_generic_evidence_status(self):
+        observation = eval_failure_observation.normalize_observation(
+            {
+                "reason": "missing:app/page.tsx",
+                "success": False,
+                "completion_evidence_status": "failed",
+                "artifact_ledger_status": "missing_required",
+            }
+        )
+
+        self.assertEqual(observation["terminal_state"], "missing_deliverable")
+        self.assertEqual(observation["artifact_ledger_status"], "missing_required")
+
     def test_render_report_backfills_terminal_state_for_legacy_rows(self):
         report = eval_report.render_report(
             [
@@ -120,6 +154,7 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertIn("## Terminal States", report)
         self.assertIn("- dependency_missing: 1", report)
         self.assertIn("## Diagnostic Codes", report)
+        self.assertIn("## Evidence Authority", report)
 
 
 if __name__ == "__main__":

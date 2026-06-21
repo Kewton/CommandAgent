@@ -100,6 +100,15 @@ section, schema column, citation, or file layout. A binding failure can select
 an `evidence_binding_repair` job, but it still remains a bounded repair task
 for the existing minimal loop.
 
+Artifact Ledger and Completion Authority are the attribution boundary for
+deliverable completion. The ledger records required, observed, changed, and
+verifier-mentioned paths with role, lifecycle, ownership, source, and source of
+truth. Completion Authority then classifies already observed facts into
+`missing_deliverable`, `missing_evidence`, `completion_evidence_failed`, or
+`evidence_binding_failed`. It does not repair, retry, choose a future phase, or
+replace the verifier. It only prevents path existence, evidence execution, and
+evidence binding from being collapsed into one generic failure.
+
 The Recovery Task Contract renders that policy into the next bounded repair
 turn for the minimal loop. It should not decide the repair strategy from broad
 prose; it should consume the Recovery Policy decision and make the executable
@@ -218,9 +227,10 @@ execution loop.
 Eval failure observations are normalized at the eval/report boundary. The
 shared eval observation helper turns an already observed run result into
 fields such as `terminal_state`, `failure_class`, `violated_contract`,
-`source`, `source_of_truth`, `diagnostic_code`, `setup_state`, and `port`.
-This is an attribution layer for reports and later triage. It must not schedule
-work, select repair actions, or alter runtime behavior.
+`source`, `source_of_truth`, `diagnostic_code`, `evidence_runner_status`,
+`artifact_ledger_status`, `setup_state`, and `port`. This is an attribution
+layer for reports and later triage. It must not schedule work, select repair
+actions, or alter runtime behavior.
 
 Provider usage is normalized into a common `ModelUsage` shape at the provider
 parse boundary and carried on `ChatResponse` into runtime events. Missing usage

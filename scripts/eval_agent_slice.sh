@@ -243,7 +243,7 @@ def derived_recovery_fields(reason, case):
         "tool_policy": "",
         "attempt_outcome": "not_attempted" if reason != "ok" else "passed",
         "evidence_binding_status": "unknown" if reason != "ok" else "bound",
-        "completion_evidence_status": "failed" if reason != "ok" else "passed",
+        "completion_evidence_status": "unknown" if reason != "ok" else "passed",
         "explicit_stop_reason": "",
     }
     if reason == "ok":

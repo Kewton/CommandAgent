@@ -19,6 +19,8 @@ OBSERVATION_FIELD_NAMES = [
     "source",
     "source_of_truth",
     "diagnostic_code",
+    "evidence_runner_status",
+    "artifact_ledger_status",
     "command",
     "setup_state",
     "port",
@@ -107,6 +109,16 @@ def normalize_observation(raw: dict[str, Any]) -> dict[str, str]:
     diagnostic_code = clean(raw.get("diagnostic_code")) or diagnostic_code_from_reason(
         reason, terminal_state
     )
+    evidence_runner_status = (
+        clean(raw.get("evidence_runner_status"))
+        or contract_value(evidence, "evidence_runner_status")
+        or evidence_runner_status_for_terminal_state(terminal_state)
+    )
+    artifact_ledger_status = (
+        clean(raw.get("artifact_ledger_status"))
+        or contract_value(evidence, "artifact_ledger_status")
+        or artifact_ledger_status_for_terminal_state(terminal_state)
+    )
     source = clean(raw.get("source")) or source_for_terminal_state(terminal_state, reason)
     source_of_truth = clean(raw.get("source_of_truth")) or source_of_truth_for_terminal_state(
         terminal_state
@@ -128,6 +140,8 @@ def normalize_observation(raw: dict[str, Any]) -> dict[str, str]:
         "source": source,
         "source_of_truth": source_of_truth,
         "diagnostic_code": diagnostic_code,
+        "evidence_runner_status": evidence_runner_status,
+        "artifact_ledger_status": artifact_ledger_status,
         "command": clean(raw.get("command")),
         "setup_state": setup_state,
         "port": port,
@@ -213,6 +227,26 @@ def terminal_state_from_reason(reason: str, evidence: str = "", raw: dict[str, A
         return "setup_failed"
     if reason_lc.startswith("missing:") or reason_lc.startswith("semantic_missing:"):
         return "missing_deliverable"
+    completion_status = clean(raw.get("completion_evidence_status")).casefold()
+    binding_status = clean(raw.get("evidence_binding_status")).casefold()
+    ledger_status = clean(raw.get("artifact_ledger_status")).casefold()
+    runner_status = clean(raw.get("evidence_runner_status")).casefold()
+    if ledger_status == "missing_required" or "artifact_ledger_status=missing_required" in combined:
+        return "missing_deliverable"
+    if (
+        completion_status == "missing"
+        or runner_status == "missing"
+        or "completion_evidence_status=missing" in combined
+        or "evidence_runner_status=missing" in combined
+    ):
+        return "missing_evidence"
+    if completion_status == "failed" or "completion_evidence_status=failed" in combined:
+        return "completion_evidence_failed"
+    if binding_status in {"missing", "failed", "unbound"} or any(
+        f"evidence_binding_status={status}" in combined
+        for status in ["missing", "failed", "unbound"]
+    ):
+        return "evidence_binding_failed"
     if "missing_evidence" in combined or "missing evidence" in combined:
         return "missing_evidence"
     if "evidence_binding" in combined and "failed" in combined:
@@ -334,6 +368,31 @@ def setup_state_for_terminal_state(terminal_state: str) -> str:
     return ""
 
 
+def evidence_runner_status_for_terminal_state(terminal_state: str) -> str:
+    if terminal_state == "ok":
+        return "executed"
+    if terminal_state == "missing_evidence":
+        return "missing"
+    if terminal_state in {"completion_evidence_failed", "evidence_binding_failed"}:
+        return "executed"
+    return ""
+
+
+def artifact_ledger_status_for_terminal_state(terminal_state: str) -> str:
+    if terminal_state == "ok":
+        return "complete"
+    if terminal_state == "missing_deliverable":
+        return "missing_required"
+    if terminal_state in {
+        "missing_evidence",
+        "completion_evidence_failed",
+        "evidence_binding_failed",
+        "eval_assertion_failed",
+    }:
+        return "complete"
+    return ""
+
+
 def port_from_text(text: str) -> str:
     patterns = [
         r"\bport\s*[:=]\s*(\d{2,5})\b",
@@ -360,6 +419,19 @@ def evidence_text(raw: dict[str, Any]) -> str:
         raw.get("explicit_stop_reason"),
     ]
     return "\n".join(clean(part) for part in parts if clean(part))
+
+
+def contract_value(text: str, key: str) -> str:
+    patterns = [
+        rf"^- {re.escape(key)}:\s*(.+)$",
+        rf"^- {re.escape(key)}=([^\s,]+)",
+        rf"\b{re.escape(key)}=([^\s,]+)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.MULTILINE)
+        if match:
+            return match.group(1).strip()
+    return ""
 
 
 def boolish(value: Any) -> bool:

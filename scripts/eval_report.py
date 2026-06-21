@@ -163,7 +163,7 @@ def recheck(root, cases):
                 "tool_policy": meta.get("tool_policy", derive_tool_policy(reason)),
                 "attempt_outcome": meta.get("attempt_outcome", "not_attempted" if reason != "ok" else "passed"),
                 "evidence_binding_status": meta.get("evidence_binding_status", "unknown" if reason != "ok" else "bound"),
-                "completion_evidence_status": meta.get("completion_evidence_status", "failed" if reason != "ok" else "passed"),
+                "completion_evidence_status": meta.get("completion_evidence_status", "unknown" if reason != "ok" else "passed"),
                 "explicit_stop_reason": meta.get("explicit_stop_reason", ""),
             }
         )
@@ -343,18 +343,34 @@ def render_report(rows):
     diagnostics = {}
     by_case = {}
     recovery_jobs = {}
+    evidence_runner_statuses = {}
+    artifact_ledger_statuses = {}
     for row in rows:
         observation = normalize_observation(row)
         category = row.get("failure_category") or observation["failure_category"]
         layer = row.get("contract_layer") or observation["contract_layer"]
         terminal_state = row.get("terminal_state") or observation["terminal_state"]
         diagnostic_code = row.get("diagnostic_code") or observation["diagnostic_code"]
+        evidence_runner_status = (
+            row.get("evidence_runner_status") or observation["evidence_runner_status"]
+        )
+        artifact_ledger_status = (
+            row.get("artifact_ledger_status") or observation["artifact_ledger_status"]
+        )
         job = row.get("active_job") or derive_active_job(row["reason"])
         categories[category] = categories.get(category, 0) + 1
         layers[layer] = layers.get(layer, 0) + 1
         terminal_states[terminal_state] = terminal_states.get(terminal_state, 0) + 1
         diagnostics[diagnostic_code] = diagnostics.get(diagnostic_code, 0) + 1
         recovery_jobs[job] = recovery_jobs.get(job, 0) + 1
+        if evidence_runner_status:
+            evidence_runner_statuses[evidence_runner_status] = (
+                evidence_runner_statuses.get(evidence_runner_status, 0) + 1
+            )
+        if artifact_ledger_status:
+            artifact_ledger_statuses[artifact_ledger_status] = (
+                artifact_ledger_statuses.get(artifact_ledger_status, 0) + 1
+            )
         stats = by_case.setdefault(row["case_id"], [0, 0])
         stats[1] += 1
         if row["success"] == "true":
@@ -381,6 +397,11 @@ def render_report(rows):
     lines.extend(["", "## Diagnostic Codes"])
     for name, count in sorted(diagnostics.items()):
         lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Evidence Authority"])
+    for name, count in sorted(evidence_runner_statuses.items()):
+        lines.append(f"- evidence_runner_status={name}: {count}")
+    for name, count in sorted(artifact_ledger_statuses.items()):
+        lines.append(f"- artifact_ledger_status={name}: {count}")
     lines.extend(["", "## Recovery Jobs"])
     for name, count in sorted(recovery_jobs.items()):
         lines.append(f"- {name}: {count}")

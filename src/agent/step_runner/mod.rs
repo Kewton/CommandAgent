@@ -7,6 +7,7 @@ pub(crate) mod completion_evidence;
 pub mod correction_evidence;
 pub(crate) mod deliverable_obligation;
 pub mod evidence;
+pub(crate) mod evidence_authority;
 pub(crate) mod evidence_binding;
 pub(crate) mod integrity_guard;
 pub mod plan_lint;
