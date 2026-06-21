@@ -171,6 +171,8 @@ when they stay deterministic and visible:
 - Setup bootstrap treats dependency installation, manifest repair, framework
   config, and initial scaffold as setup jobs, not incidental side effects of
   source implementation.
+- Dev-server launchability treats requested-port proof as a verifier-owned
+  runtime job, not as a side effect of `npm run build` or source repair.
 - Deterministic manifest or scaffold materialization is acceptable for
   profile-owned boilerplate when the profile can name the setup artifacts,
   required dependency family, and verifier that will judge success.
@@ -201,8 +203,10 @@ When choosing between mechanisms, prefer this order:
 5. target admission and repair action selection for the classified blocker
 6. setup bootstrap or deterministic manifest/scaffold materialization when the
    blocker is setup/config and policy permits it
-7. explicit recovery task contract under the original guard
-8. attempt-ledger no-progress target/role/cluster exhaustion and explicit stop
+7. bounded dev-server smoke when the task contract requires requested-port
+   launchability
+8. explicit recovery task contract under the original guard
+9. attempt-ledger no-progress target/role/cluster exhaustion and explicit stop
 
 This preserves the practical value of stronger task contracts while moving the
 admission line away from "small only" and toward "explicit, bounded, and

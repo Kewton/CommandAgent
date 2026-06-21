@@ -216,9 +216,25 @@ repair. With `--yes` and without `--offline`, it runs one deterministic setup
 command selected from manifest and lockfile evidence (`npm ci`,
 `pnpm install`, or `npm install`), stores setup logs under
 `.commandagent/setup/`, and reruns the original verifier once. If setup is not
-approved, offline, unsupported, ambiguous,
-fails, times out, or still leaves `dependency_missing`, CommandAgent stops with
-a setup blocker instead of creating a repair prompt. When setup fails with a
+approved, offline, unsupported, ambiguous, fails, times out, or still leaves
+`dependency_missing`, CommandAgent stops with a setup blocker and structured
+setup evidence. Setup attempts are keyed by verifier step, setup command, and
+manifest fingerprint. If a later bounded repair edits a setup manifest or setup
+config, setup state is marked stale and a later setup attempt must still pass
+the same setup policy and fingerprint guard.
+
+When a Next.js task explicitly requests a dev-server port and a generated plan
+has run `npm run build`, CommandAgent treats launchability as a separate
+dev-server contract. Passing `npm run build` is not enough to prove that
+`npm run dev` can serve the app on the requested port. The bounded
+`dev_server_smoke` check validates `scripts.dev`, checks port availability,
+starts `npm run dev` with a timeout, requests `/` over localhost, and cleans up
+the child process. Occupied ports are reported as `port_in_use` with
+`contract_layer=dev_server_port_contract`. The check is verifier-owned
+runtime evidence; it does not install dependencies, keep a background server,
+or add a hidden repair loop.
+
+When setup fails with a
 deterministic package-manager diagnostic such as npm `ERESOLVE` peer dependency
 evidence, the blocker may include structured manifest compatibility evidence
 that names `package.json`, the dependent package, the required peer range, and

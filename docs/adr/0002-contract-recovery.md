@@ -223,6 +223,16 @@ such as `proposed_targets`, `admitted_targets`, `rejected_targets`,
 `action_envelope_status`. This is not a semantic planner loop: if no target or
 action is admitted, CommandAgent stops explicitly with structured evidence.
 
+2026-06-21 amendment: Setup/profile/scaffold runtime jobs now include
+observable setup and dev-server job state. Setup bootstrap records setup
+attempt keys, manifest fingerprints, setup result, rerun result, and stale
+state after manifest/config changes. Requested-port Next.js launchability is a
+bounded `dev_server_smoke` job that validates `scripts.dev`, port preflight,
+localhost endpoint smoke, and cleanup after a build verifier has completed.
+These jobs are verifier-owned runtime evidence; they do not add hidden retry,
+implicit dependency setup from model tools, background servers, or
+provider/model-specific policy.
+
 2026-06-21 amendment: Recovery Orchestration now records bounded repair job
 state after each repair turn that reruns the original verifier, profile check,
 or guard. Attempt records include the active job, recovery owner, repair

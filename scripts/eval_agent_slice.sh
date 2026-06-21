@@ -196,6 +196,19 @@ RECOVERY_FIELD_NAMES = [
     "evidence_binding_status",
     "completion_evidence_status",
     "explicit_stop_reason",
+    "runtime_job_kind",
+    "runtime_job_outcome",
+    "setup_job_state",
+    "setup_attempt_key",
+    "setup_manifest_fingerprint",
+    "setup_stale_reason",
+    "setup_result",
+    "setup_command",
+    "verifier_rerun_result",
+    "dev_server_state",
+    "requested_port",
+    "port_preflight",
+    "endpoint_smoke",
 ]
 
 

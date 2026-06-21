@@ -74,13 +74,19 @@ Current terminal states are:
 The observation fields are `terminal_state`, `failure_class`,
 `violated_contract`, `source`, `source_of_truth`, `diagnostic_code`, `command`,
 `evidence_runner_status`, `artifact_ledger_status`, `setup_state`, and `port`,
-alongside existing recovery fields. `evidence_runner_status` records whether
-the completion evidence path was present, missing, executed, or not required.
+alongside existing recovery fields. Runtime job fields may also include
+`runtime_job_kind`, `runtime_job_outcome`, `setup_job_state`,
+`setup_attempt_key`, `setup_manifest_fingerprint`, `setup_stale_reason`,
+`setup_result`, `setup_command`, `verifier_rerun_result`,
+`dev_server_state`, `requested_port`, `port_preflight`, and
+`endpoint_smoke`. `evidence_runner_status` records whether the completion
+evidence path was present, missing, executed, or not required.
 `artifact_ledger_status` records whether the required artifact ledger was
 complete or missing a required deliverable. For example, `EADDRINUSE` or
 `address already in use` on a requested dev-server port should be reported as
 `terminal_state=port_in_use` and
-`contract_layer=setup_bootstrap_contract`, not as source implementation failure.
+`contract_layer=dev_server_port_contract`, not as source implementation
+failure.
 Old eval roots that do not have terminal observation fields remain readable;
 the report backfills conservative values from `reason`.
 Plan-file failures should distinguish parse, schema, and lint boundaries.

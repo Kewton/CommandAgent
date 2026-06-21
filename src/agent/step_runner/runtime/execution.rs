@@ -1,4 +1,5 @@
 use super::SlashRuntime;
+use super::dev_server::{requested_dev_port, verify_nextjs_dev_server_smoke};
 use super::paths::{display_path, missing_paths};
 use super::planning::{StepPlanCorrectionContext, planner_text};
 use super::prompts::step_prompt;
@@ -46,6 +47,7 @@ where
     let profile_contract = profile_contract_text(&plan.profile).map_err(|err| err.to_string())?;
     let mut lines = Vec::new();
     lines.push(format!("ultra plan: {} phases", plan.phases.len()));
+    let mut nextjs_build_verifier_seen = false;
 
     for (idx, phase) in plan.phases.iter().enumerate() {
         observer.on_event(RuntimeEvent::UltraPhaseStarted {
@@ -89,6 +91,9 @@ where
         };
         let step_plan =
             runtime.parse_generated_step_plan_with_corrections(text, correction_context)?;
+        if step_plan_has_nextjs_build_verifier(&step_plan) {
+            nextjs_build_verifier_seen = true;
+        }
         let path = save_step_plan(runtime.cwd, &step_plan).map_err(|err| err.to_string())?;
         observer.on_event(RuntimeEvent::PlanSaved {
             kind: PlanKind::PhaseStepPlan,
@@ -164,8 +169,58 @@ where
             authority.render_contract_lines().join("\n")
         ));
     }
+    if let Some(smoke_report) = verify_requested_dev_server_contract(
+        runtime.cwd,
+        &plan.profile,
+        &ultra_plan_requested_text(plan),
+        nextjs_build_verifier_seen,
+    )? {
+        lines.push(smoke_report);
+    }
 
     Ok(lines.join("\n"))
+}
+
+pub(super) fn step_plan_has_nextjs_build_verifier(plan: &StepPlan) -> bool {
+    plan.steps
+        .iter()
+        .flat_map(|step| step.verify.iter())
+        .any(|command| command.trim().eq_ignore_ascii_case("npm run build"))
+}
+
+pub(super) fn verify_requested_dev_server_contract(
+    cwd: &Path,
+    profile: &str,
+    requested_text: &str,
+    build_verifier_seen: bool,
+) -> Result<Option<String>, String> {
+    if !build_verifier_seen {
+        return Ok(None);
+    }
+    let Some(requested_port) = requested_dev_port(profile, requested_text) else {
+        return Ok(None);
+    };
+    let report = verify_nextjs_dev_server_smoke(cwd, requested_port);
+    let rendered = report.render_lines().join("\n");
+    if report.is_ok() {
+        Ok(Some(format!("dev-server smoke: ok\n{rendered}")))
+    } else {
+        Err(format!("dev-server smoke failed:\n{rendered}"))
+    }
+}
+
+fn ultra_plan_requested_text(plan: &UltraPlan) -> String {
+    let mut text = String::new();
+    text.push_str(&plan.goal);
+    for artifact in &plan.required_artifacts {
+        text.push(' ');
+        text.push_str(artifact);
+    }
+    for phase in &plan.phases {
+        text.push(' ');
+        text.push_str(&phase.goal);
+    }
+    text
 }
 
 fn final_required_artifact_authority(
@@ -341,6 +396,7 @@ where
                 initial_turn_error: None,
                 dependency_setup_attempt_keys: Vec::new(),
                 dependency_setup_note: None,
+                setup_job_state: Vec::new(),
                 contract_evidence: Vec::new(),
                 repair_attempt_ledger: Vec::new(),
                 repair_job_state: crate::agent::step_runner::repair_job::RepairJobState::new(

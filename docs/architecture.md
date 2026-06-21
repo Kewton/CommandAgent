@@ -135,9 +135,13 @@ Propagation must stay visible and bounded. It can route a manifest dependency
 repair toward `package.json`, mark dependency setup stale after that manifest
 changes, route a disconnected artifact toward selected-route integration, or
 select setup bootstrap when verifier evidence and policy make that action
-deterministic. It must not choose arbitrary future phases, silently run setup
-without a setup contract, increase retry count, authorize model-issued
-dependency installs, or let profiles become hidden workflow engines.
+deterministic. It can also run a bounded verifier-owned `dev_server_smoke`
+job when a profile exposes a requested-port contract and a build verifier has
+completed. That job validates the dev script, port preflight, endpoint smoke,
+and process cleanup as runtime evidence. It must not choose arbitrary future
+phases, silently run setup without a setup contract, increase retry count,
+authorize model-issued dependency installs, keep background dev servers
+running, or let profiles become hidden workflow engines.
 
 Next.js route integration is profile evidence, not workflow control. The
 profile may build a bounded static graph from the selected route through
@@ -185,7 +189,7 @@ The envelope must not add retry authority or provider/model-specific behavior.
 | Provider | HTTP/API transport, provider-specific payload shapes | Planning, repair policy, profile behavior |
 | Minimal loop | Tool-call execution, observations, bounded completion guards | Multi-step plans, recovery strategy, domain profiles, unbounded retry |
 | Profile | Domain facts, artifact classification, verifier hints, protected prefixes, profile evidence, setup artifact templates | Hidden task-specific agents, execution policy, package-registry solving |
-| Step runner | Plan schema, step-decomposition lint, ArtifactGraph projection, verifier, recovery orchestration, active job selection, recovery policy, setup bootstrap, recovery task contracts, repair packet, attempt ledger, ultra phase order | Provider transport, low-level tool implementation, unbounded workflow control |
+| Step runner | Plan schema, step-decomposition lint, ArtifactGraph projection, verifier, recovery orchestration, active job selection, recovery policy, setup bootstrap, dev-server smoke, recovery task contracts, repair packet, setup/repair attempt ledger, ultra phase order | Provider transport, low-level tool implementation, unbounded workflow control |
 | TUI | TTY-aware rendering of runtime events and final answers | Planning, repair, retry, provider parsing, filesystem policy |
 | Tools | Deterministic workspace actions | Task interpretation or planning |
 | Eval | Run roots, summaries, recheck, reports | Runtime behavior changes |

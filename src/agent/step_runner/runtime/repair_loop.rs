@@ -57,6 +57,7 @@ pub(super) struct RepairStepState {
     pub(super) initial_turn_error: Option<String>,
     pub(super) dependency_setup_attempt_keys: Vec<String>,
     pub(super) dependency_setup_note: Option<String>,
+    pub(super) setup_job_state: Vec<String>,
     pub(super) contract_evidence: Vec<ContractEvidence>,
     pub(super) repair_attempt_ledger: Vec<String>,
     pub(super) repair_job_state: RepairJobState,
@@ -270,6 +271,7 @@ where
             initial_turn_error: Some(turn_error_text),
             dependency_setup_attempt_keys: Vec::new(),
             dependency_setup_note: None,
+            setup_job_state: Vec::new(),
             contract_evidence,
             repair_attempt_ledger: Vec::new(),
             repair_job_state: RepairJobState::new("unknown").with_step_id(step_id),
@@ -303,6 +305,7 @@ where
             initial_turn_error: None,
             dependency_setup_attempt_keys: Vec::new(),
             dependency_setup_note: None,
+            setup_job_state: Vec::new(),
             contract_evidence: Vec::new(),
             repair_attempt_ledger: Vec::new(),
             repair_job_state: RepairJobState::new("unknown").with_step_id(step_id),
@@ -502,6 +505,7 @@ where
         let patch_validations =
             patch_validations_for_changed_files(runtime.cwd, &attempt_changed_markers);
         state.changed_files.extend(attempt_changed_markers.clone());
+        record_stale_setup_after_manifest_change(runtime.cwd, &mut state, &attempt_changed_markers);
         if !patch_validations.is_empty() {
             push_patch_validation_contract_evidence(&mut state, step, &patch_validations);
             state
@@ -1046,6 +1050,7 @@ fn contract_evidence_for_state(
             state.dependency_setup_note.as_deref(),
             &state.repair_attempt_ledger,
             &state.repair_job_state,
+            &state.setup_job_state,
             &plan.required_artifacts,
         ) {
             push_contract_evidence_once(&mut evidence, verifier_evidence);
@@ -1060,6 +1065,7 @@ fn verifier_contract_evidence(
     dependency_setup_note: Option<&str>,
     repair_attempt_ledger: &[String],
     runtime_repair_job_state: &RepairJobState,
+    setup_job_state: &[String],
     plan_required_artifacts: &[String],
 ) -> Option<ContractEvidence> {
     if !is_verifier_failure(failure) {
@@ -1090,6 +1096,11 @@ fn verifier_contract_evidence(
     if let Some(target) = &repair_target {
         repair_job_state = repair_job_state.with_current_target(target.clone());
     }
+    let mut repair_state_lines = repair_job_state.render_lines();
+    append_unique_lines(&mut repair_state_lines, setup_job_state.iter().cloned());
+    let mut eval_fields = repair_job_state.eval_report_fields();
+    append_unique_lines(&mut eval_fields, setup_job_state.iter().cloned());
+
     let mut evidence = ContractEvidence::new("verifier")
         .with_failed_step(step.id.clone())
         .with_violated_contract(failure.reason.clone())
@@ -1116,11 +1127,11 @@ fn verifier_contract_evidence(
                 .with_diagnostic(failure.reason.clone())
                 .render_line(),
         ])
-        .with_repair_job_state(repair_job_state.render_lines())
+        .with_repair_job_state(repair_state_lines)
         .with_attempt_outcomes(repair_job_state.attempt_outcome_lines())
         .with_repair_attempt_ledger(repair_job_state.attempt_ledger_lines())
         .with_exhausted_clusters(repair_job_state.exhausted_clusters.clone())
-        .with_eval_report_fields(repair_job_state.eval_report_fields());
+        .with_eval_report_fields(eval_fields);
     if let Some(strategy) = repair_job_state.no_progress_strategy {
         evidence = evidence.with_no_progress_strategy(strategy.as_str());
     }
@@ -1696,6 +1707,12 @@ fn push_unique_value(values: &mut Vec<String>, value: String) {
     }
 }
 
+fn append_unique_lines(values: &mut Vec<String>, lines: impl IntoIterator<Item = String>) {
+    for line in lines {
+        push_unique_value(values, line);
+    }
+}
+
 fn push_repairable_candidate(values: &mut Vec<String>, value: String) {
     if !ignored_repair_candidate_path(&value) {
         push_unique_value(values, value);
@@ -1814,12 +1831,36 @@ where
             return Ok(DependencyRecoveryResult::NotApplicable);
         }
         DependencySetupDisposition::Blocked(message) => {
+            state.setup_job_state = setup_job_state_lines(SetupJobStateLineInput {
+                cwd: runtime.cwd,
+                step_id: &step.id,
+                command: None,
+                setup_state: "blocked",
+                runtime_outcome: "blocked",
+                setup_result: "blocked_by_policy",
+                verifier_rerun_result: "not_run",
+                attempt_key_before: None,
+                attempt_key_after: None,
+                stale_reason: None,
+            });
             return Ok(DependencyRecoveryResult::Blocked(message));
         }
         DependencySetupDisposition::Attempt(command) => command,
     };
 
     if let Some(violation) = setup_artifact_violation(runtime.cwd, command) {
+        state.setup_job_state = setup_job_state_lines(SetupJobStateLineInput {
+            cwd: runtime.cwd,
+            step_id: &step.id,
+            command: Some(command),
+            setup_state: "manifest_invalid",
+            runtime_outcome: "blocked",
+            setup_result: violation.reason_code.as_str(),
+            verifier_rerun_result: "not_run",
+            attempt_key_before: None,
+            attempt_key_after: None,
+            stale_reason: Some("setup_artifact_invalid"),
+        });
         push_contract_evidence_once(
             &mut state.contract_evidence,
             setup_artifact_contract_evidence(step, &violation),
@@ -1833,6 +1874,18 @@ where
         .iter()
         .any(|spent| spent == &before_setup_key)
     {
+        state.setup_job_state = setup_job_state_lines(SetupJobStateLineInput {
+            cwd: runtime.cwd,
+            step_id: &step.id,
+            command: Some(command),
+            setup_state: "blocked",
+            runtime_outcome: "blocked",
+            setup_result: "already_attempted_for_manifest",
+            verifier_rerun_result: "not_run",
+            attempt_key_before: Some(&before_setup_key),
+            attempt_key_after: None,
+            stale_reason: None,
+        });
         return Ok(DependencyRecoveryResult::Blocked(
             dependency_missing_blocker_message(
                 &step.id,
@@ -1845,21 +1898,46 @@ where
         &mut state.dependency_setup_attempt_keys,
         before_setup_key.clone(),
     );
+    state.setup_job_state = setup_job_state_lines(SetupJobStateLineInput {
+        cwd: runtime.cwd,
+        step_id: &step.id,
+        command: Some(command),
+        setup_state: "attempted",
+        runtime_outcome: "started",
+        setup_result: "running",
+        verifier_rerun_result: "not_run",
+        attempt_key_before: Some(&before_setup_key),
+        attempt_key_after: None,
+        stale_reason: None,
+    });
     observer.on_event(RuntimeEvent::DependencySetupStarted {
         step_id: bounded_event_text(&step.id),
         command: bounded_event_text(command.as_shell_command()),
     });
     let started = Instant::now();
     let status = runner.run_setup(runtime.cwd, command, config.dependency_setup_policy);
+    let status_label = status.label();
     observer.on_event(RuntimeEvent::DependencySetupFinished {
         step_id: bounded_event_text(&step.id),
         command: bounded_event_text(command.as_shell_command()),
         ok: status.ok(),
         elapsed_ms: started.elapsed().as_millis(),
-        status: bounded_event_text(status.label()),
+        status: bounded_event_text(&status_label),
     });
 
     if !matches!(status, SetupRunStatus::Success) {
+        state.setup_job_state = setup_job_state_lines(SetupJobStateLineInput {
+            cwd: runtime.cwd,
+            step_id: &step.id,
+            command: Some(command),
+            setup_state: "failed",
+            runtime_outcome: "failed",
+            setup_result: &status_label,
+            verifier_rerun_result: "not_run",
+            attempt_key_before: Some(&before_setup_key),
+            attempt_key_after: None,
+            stale_reason: None,
+        });
         return Ok(DependencyRecoveryResult::Blocked(
             setup_failed_blocker_message(&step.id, command, &status),
         ));
@@ -1872,6 +1950,18 @@ where
 
     state.failures = execution::verify_step_with_observer(runtime.cwd, step, observer)?;
     if state.failures.is_empty() {
+        state.setup_job_state = setup_job_state_lines(SetupJobStateLineInput {
+            cwd: runtime.cwd,
+            step_id: &step.id,
+            command: Some(command),
+            setup_state: "rerun_passed",
+            runtime_outcome: "passed",
+            setup_result: "success",
+            verifier_rerun_result: "passed",
+            attempt_key_before: Some(&before_setup_key),
+            attempt_key_after: Some(&after_setup_key),
+            stale_reason: None,
+        });
         return Ok(DependencyRecoveryResult::Recovered);
     }
     state.dependency_setup_note = Some(format!(
@@ -1880,6 +1970,18 @@ where
         before_setup_key,
         after_setup_key,
     ));
+    state.setup_job_state = setup_job_state_lines(SetupJobStateLineInput {
+        cwd: runtime.cwd,
+        step_id: &step.id,
+        command: Some(command),
+        setup_state: "rerun_failed",
+        runtime_outcome: "failed",
+        setup_result: "success",
+        verifier_rerun_result: "failed",
+        attempt_key_before: Some(&before_setup_key),
+        attempt_key_after: Some(&after_setup_key),
+        stale_reason: None,
+    });
 
     if state
         .failures
@@ -1936,7 +2038,15 @@ fn setup_artifact_contract_evidence(
                 "repair the setup manifest structure before dependency setup is attempted",
             )
             .with_setup_implication("setup_after_manifest_repair_required")
-            .with_diagnostic(violation.diagnostic.clone()),
+            .with_diagnostic(violation.diagnostic.clone())
+            .with_eval_report_fields(vec![
+                "runtime_job_kind=manifest_repair".to_string(),
+                "runtime_job_outcome=blocked".to_string(),
+                "setup_job_state=manifest_invalid".to_string(),
+                "setup_state=manifest_invalid".to_string(),
+                format!("setup_result={}", violation.reason_code),
+                "setup_stale_reason=setup_artifact_invalid".to_string(),
+            ]),
     )
 }
 
@@ -1955,6 +2065,77 @@ fn dependency_setup_attempt_key(
 fn push_setup_attempt_key(keys: &mut Vec<String>, key: String) {
     if !keys.iter().any(|existing| existing == &key) {
         keys.push(key);
+    }
+}
+
+struct SetupJobStateLineInput<'a> {
+    cwd: &'a std::path::Path,
+    step_id: &'a str,
+    command: Option<SetupCommand>,
+    setup_state: &'a str,
+    runtime_outcome: &'a str,
+    setup_result: &'a str,
+    verifier_rerun_result: &'a str,
+    attempt_key_before: Option<&'a str>,
+    attempt_key_after: Option<&'a str>,
+    stale_reason: Option<&'a str>,
+}
+
+fn setup_job_state_lines(input: SetupJobStateLineInput<'_>) -> Vec<String> {
+    let command = input
+        .command
+        .map(|command| command.as_shell_command().to_string())
+        .unwrap_or_else(|| "none".to_string());
+    let mut lines = vec![
+        "runtime_job_kind=setup_bootstrap".to_string(),
+        format!("runtime_job_outcome={}", input.runtime_outcome),
+        format!("setup_job_state={}", input.setup_state),
+        format!("setup_state={}", input.setup_state),
+        format!("setup_step_id={}", input.step_id),
+        format!("setup_command={command}"),
+        format!("setup_result={}", input.setup_result),
+        format!("verifier_rerun_result={}", input.verifier_rerun_result),
+        format!(
+            "setup_manifest_fingerprint={}",
+            manifest_fingerprint(input.cwd).key()
+        ),
+    ];
+    if let Some(key) = input.attempt_key_before {
+        lines.push(format!("setup_attempt_key={key}"));
+        lines.push(format!("setup_attempt_key_before={key}"));
+    }
+    if let Some(key) = input.attempt_key_after {
+        lines.push(format!("setup_attempt_key_after={key}"));
+    }
+    if let Some(reason) = input.stale_reason {
+        lines.push(format!("setup_stale_reason={reason}"));
+    }
+    lines
+}
+
+fn record_stale_setup_after_manifest_change(
+    cwd: &std::path::Path,
+    state: &mut RepairStepState,
+    changed_files: &[String],
+) {
+    if changed_files.iter().any(|path| {
+        matches!(
+            role_for_path(path, ArtifactLifecycle::Existing),
+            ArtifactRole::SetupManifest | ArtifactRole::SetupConfig
+        )
+    }) {
+        state.setup_job_state = setup_job_state_lines(SetupJobStateLineInput {
+            cwd,
+            step_id: "repair",
+            command: None,
+            setup_state: "stale",
+            runtime_outcome: "stale",
+            setup_result: "manifest_or_config_changed",
+            verifier_rerun_result: "not_run",
+            attempt_key_before: None,
+            attempt_key_after: None,
+            stale_reason: Some("manifest_or_config_changed"),
+        });
     }
 }
 
@@ -2283,6 +2464,7 @@ mod tests {
             &[],
             &empty_repair_job_state(),
             &[],
+            &[],
         )
         .unwrap();
         let evidence = orchestrate_evidence(evidence);
@@ -2327,6 +2509,7 @@ mod tests {
             ],
             &empty_repair_job_state(),
             &[],
+            &[],
         )
         .unwrap();
         let rendered = evidence.render().unwrap();
@@ -2361,6 +2544,7 @@ mod tests {
             &[],
             &empty_repair_job_state(),
             &[],
+            &[],
         )
         .unwrap();
         let evidence = orchestrate_evidence(evidence);
@@ -2393,6 +2577,7 @@ mod tests {
             &[],
             &empty_repair_job_state(),
             &[],
+            &[],
         )
         .unwrap();
         let evidence = orchestrate_evidence(evidence);
@@ -2424,6 +2609,7 @@ mod tests {
             None,
             &[],
             &empty_repair_job_state(),
+            &[],
             &["app/main.py".to_string(), "tests/test_app.py".to_string()],
         )
         .unwrap();
@@ -2455,6 +2641,7 @@ mod tests {
             None,
             &[],
             &empty_repair_job_state(),
+            &[],
             &["package.json".to_string(), "app/page.tsx".to_string()],
         )
         .unwrap();
@@ -2521,6 +2708,61 @@ mod tests {
     }
 
     #[test]
+    fn setup_job_state_lines_render_setup_bootstrap_ledger() {
+        let root = temp_workspace("setup-job-state-lines");
+        std::fs::write(
+            root.join("package.json"),
+            r#"{"scripts":{"build":"next build"}}"#,
+        )
+        .unwrap();
+
+        let lines = setup_job_state_lines(SetupJobStateLineInput {
+            cwd: &root,
+            step_id: "verify-build",
+            command: Some(SetupCommand::NpmInstall),
+            setup_state: "rerun_failed",
+            runtime_outcome: "failed",
+            setup_result: "success",
+            verifier_rerun_result: "failed",
+            attempt_key_before: Some("before-key"),
+            attempt_key_after: Some("after-key"),
+            stale_reason: None,
+        });
+
+        assert!(lines.contains(&"runtime_job_kind=setup_bootstrap".to_string()));
+        assert!(lines.contains(&"runtime_job_outcome=failed".to_string()));
+        assert!(lines.contains(&"setup_job_state=rerun_failed".to_string()));
+        assert!(lines.contains(&"setup_command=npm install --include=dev".to_string()));
+        assert!(lines.contains(&"setup_attempt_key_before=before-key".to_string()));
+        assert!(lines.contains(&"setup_attempt_key_after=after-key".to_string()));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with("setup_manifest_fingerprint="))
+        );
+    }
+
+    #[test]
+    fn manifest_or_config_change_marks_setup_state_stale() {
+        let root = temp_workspace("setup-stale-after-manifest-repair");
+        std::fs::write(root.join("package.json"), r#"{"scripts":{}}"#).unwrap();
+        let mut state = empty_state();
+
+        record_stale_setup_after_manifest_change(&root, &mut state, &["package.json".to_string()]);
+
+        assert!(
+            state
+                .setup_job_state
+                .contains(&"setup_job_state=stale".to_string())
+        );
+        assert!(
+            state
+                .setup_job_state
+                .contains(&"setup_stale_reason=manifest_or_config_changed".to_string())
+        );
+    }
+
+    #[test]
     fn dependency_setup_note_is_verifier_diagnostic_context() {
         let failure = VerificationFailure {
             command: "npm run build".to_string(),
@@ -2537,6 +2779,7 @@ mod tests {
             Some("dependency_setup_attempted=true; dependency_setup_command=npm install; dependency_setup_result=success; verifier_rerun_result=failed"),
             &[],
             &empty_repair_job_state(),
+            &[],
             &[],
         )
         .unwrap();
@@ -2608,6 +2851,7 @@ mod tests {
                 None,
                 &[],
                 &empty_repair_job_state(),
+                &[],
                 &[],
             )
             .is_none()
@@ -2752,6 +2996,7 @@ mod tests {
             initial_turn_error: None,
             dependency_setup_attempt_keys: Vec::new(),
             dependency_setup_note: None,
+            setup_job_state: Vec::new(),
             contract_evidence: Vec::new(),
             repair_attempt_ledger: Vec::new(),
             repair_job_state: empty_repair_job_state(),

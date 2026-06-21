@@ -104,8 +104,14 @@ CommandAgent is still in MVP migration.
   class, but CommandAgent is not a general dependency solver and does not query
   package registries or choose arbitrary latest versions. When manifest repair
   changes declared dependencies, setup recovery can detect stale package-lock
-  evidence and select bounded `npm install`, but only under the existing setup
-  policy.
+  evidence, record `setup_job_state=stale`, and select bounded `npm install`,
+  but only under the existing setup policy.
+- Requested-port Next.js launchability is now checked separately from
+  `npm run build` when a generated plan has used the build verifier. The
+  `dev_server_smoke` job validates `scripts.dev`, port availability, endpoint
+  response, and cleanup. It is intentionally a bounded local smoke check, not a
+  full browser or visual-quality evaluation, and it stops as `port_in_use` when
+  the requested port is already occupied.
 - Next.js Tailwind plan correction now treats omitted package literals such as
   `tailwindcss`, `postcss`, and `autoprefixer` as a manifest repair job. When a
   single package step is the deterministic target, CommandAgent can
@@ -122,7 +128,8 @@ CommandAgent is still in MVP migration.
   `evidence_runner_status`, `artifact_ledger_status`, and `port`; reports
   backfill conservative values for older run roots. This improves attribution,
   including `port_in_use` for occupied dev-server ports and artifact evidence
-  failures, but it is still observation-only and does not select repair
+  failures. Runtime job fields also report setup and dev-server smoke state,
+  but eval remains observation-only and does not select repair
   actions. Large semantic checks are still intentionally explicit and
   conservative; the latest fresh large run is 0/6 and needs triage before it
   can be treated as a release-quality gate.

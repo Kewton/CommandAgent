@@ -85,7 +85,7 @@ class EvalReportCategorizeTests(unittest.TestCase):
 
         self.assertEqual(observation["terminal_state"], "port_in_use")
         self.assertEqual(observation["failure_category"], "setup")
-        self.assertEqual(observation["contract_layer"], "setup_bootstrap_contract")
+        self.assertEqual(observation["contract_layer"], "dev_server_port_contract")
         self.assertEqual(observation["port"], "3011")
 
     def test_transport_failure_wins_over_missing_artifacts(self):
@@ -174,6 +174,7 @@ class EvalReportCategorizeTests(unittest.TestCase):
                     "repair_brief_status": "admitted",
                     "action_envelope_status": "admitted",
                     "selected_failure_cluster": "tool_protocol:tool_args_missing_required_field",
+                    "runtime_job_kind": "tool_protocol_correction",
                 }
             ]
         )
@@ -184,6 +185,8 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertIn("- run_tool_protocol_correction: 1", report)
         self.assertIn("## Repair Brief Status", report)
         self.assertIn("- admitted: 1", report)
+        self.assertIn("## Runtime Jobs", report)
+        self.assertIn("- tool_protocol_correction: 1", report)
         self.assertIn("## Action Envelope Status", report)
         self.assertIn("## Selected Failure Clusters", report)
 

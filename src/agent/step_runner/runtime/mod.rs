@@ -15,6 +15,7 @@ use crate::agent::step_runner::{
 use crate::providers::ToolCallMode;
 use std::path::Path;
 
+mod dev_server;
 mod execution;
 mod paths;
 pub(crate) mod phase_contract;
@@ -356,7 +357,17 @@ where
             &phase_contract,
             Vec::new(),
         );
-        execution::execute_step_plan(self, plan, &active_contract_seed, observer)
+        let mut report = execution::execute_step_plan(self, plan, &active_contract_seed, observer)?;
+        if let Some(smoke_report) = execution::verify_requested_dev_server_contract(
+            self.cwd,
+            &plan.profile,
+            &plan.goal,
+            execution::step_plan_has_nextjs_build_verifier(plan),
+        )? {
+            report.push('\n');
+            report.push_str(&smoke_report);
+        }
+        Ok(report)
     }
 
     fn repair_step_after_turn_error(
@@ -951,6 +962,7 @@ mod tests {
                 initial_turn_error: None,
                 dependency_setup_attempt_keys: Vec::new(),
                 dependency_setup_note: None,
+                setup_job_state: Vec::new(),
                 contract_evidence: Vec::new(),
                 repair_attempt_ledger: Vec::new(),
                 repair_job_state: crate::agent::step_runner::repair_job::RepairJobState::new(

@@ -17,6 +17,7 @@ pub(crate) fn active_job_priority(job: &str) -> u8 {
         "verifier_contract_correction" => 15,
         "manifest_repair" => 20,
         "scaffold_materialization" => 30,
+        "dev_server_smoke" => 35,
         "route_integration_repair" => 40,
         "source_implementation_repair" => 50,
         "evidence_binding_repair" => 55,
@@ -37,6 +38,7 @@ pub(crate) fn semantic_failure_kind(
         "setup_bootstrap" => "setup_dependency_missing",
         "manifest_repair" => "setup_manifest_contract_failure",
         "scaffold_materialization" | "test_artifact_completion" => "missing_required_artifact",
+        "dev_server_smoke" => "dev_server_launchability_failure",
         "route_integration_repair" => "route_integration_failure",
         "source_implementation_repair" => match role {
             Some(ArtifactRole::Entrypoint) => "entrypoint_implementation_failure",
@@ -60,6 +62,7 @@ pub(crate) fn semantic_failure_kind(
 pub(crate) fn source_of_truth(evidence: &ContractEvidence, job: &str) -> &'static str {
     match job {
         "setup_bootstrap" | "manifest_repair" => "setup_manifest_and_dependency_diagnostic",
+        "dev_server_smoke" => "dev_server_contract",
         "scaffold_materialization" | "route_integration_repair" => "profile_contract",
         "source_implementation_repair" => "original_verifier_diagnostic",
         "test_artifact_completion" | "test_alignment_repair" => {
@@ -85,6 +88,7 @@ pub(crate) fn allowed_change_kind(
     match job {
         "setup_bootstrap" => "none_model_must_stop_for_verifier_owned_setup",
         "manifest_repair" => "setup_manifest_or_config_only",
+        "dev_server_smoke" => "no_model_mutation_dev_server_smoke_only",
         "scaffold_materialization" => "create_missing_required_artifact_only",
         "route_integration_repair" => "route_or_integration_target_only",
         "source_implementation_repair" => match role {
@@ -116,6 +120,9 @@ pub(crate) fn expected_evidence_delta(
         }
         "manifest_repair" => {
             "setup manifest/config satisfies the dependency or script contract before setup/verifier rerun".to_string()
+        }
+        "dev_server_smoke" => {
+            "requested port preflight and localhost endpoint smoke prove the app is runnable".to_string()
         }
         "scaffold_materialization" => "missing required artifact exists before route/source repair".to_string(),
         "route_integration_repair" => {
@@ -169,6 +176,9 @@ pub(crate) fn workspace_scope(target: Option<&str>, role: Option<ArtifactRole>) 
             "excluded_generated_or_dependency_scope"
         }
         Some(ArtifactRole::SetupManifest | ArtifactRole::SetupConfig) => "setup_artifact_scope",
+        _ if target.starts_with("localhost:") || target.starts_with("127.0.0.1:") => {
+            "dev_server_smoke_scope"
+        }
         Some(ArtifactRole::Entrypoint | ArtifactRole::IntegrationTarget) => {
             "route_integration_scope"
         }

@@ -27,6 +27,7 @@ pub(crate) enum RecoveryJobKind {
     ScaffoldMaterialization,
     RouteIntegrationRepair,
     SourceImplementationRepair,
+    DevServerSmoke,
     TestArtifactCompletion,
     TestAlignmentRepair,
     DocumentationRepair,
@@ -45,6 +46,7 @@ impl RecoveryJobKind {
             Self::ScaffoldMaterialization => "scaffold_materialization",
             Self::RouteIntegrationRepair => "route_integration_repair",
             Self::SourceImplementationRepair => "source_implementation_repair",
+            Self::DevServerSmoke => "dev_server_smoke",
             Self::TestArtifactCompletion => "test_artifact_completion",
             Self::TestAlignmentRepair => "test_alignment_repair",
             Self::DocumentationRepair => "documentation_repair",
@@ -65,6 +67,7 @@ pub(crate) enum RecoveryActionKind {
     CreateRequiredArtifact,
     ConnectExistingArtifactToEntrypoint,
     EditSourceForDiagnostic,
+    RunDevServerSmoke,
     AlignTestAndVerifier,
     UpdateDocsLiteral,
     RepairEvidenceBinding,
@@ -82,6 +85,7 @@ impl RecoveryActionKind {
             Self::CreateRequiredArtifact => "create_required_artifact",
             Self::ConnectExistingArtifactToEntrypoint => "connect_existing_artifact_to_entrypoint",
             Self::EditSourceForDiagnostic => "edit_source_for_diagnostic",
+            Self::RunDevServerSmoke => "run_dev_server_smoke",
             Self::AlignTestAndVerifier => "align_test_and_verifier",
             Self::UpdateDocsLiteral => "update_docs_literal",
             Self::RepairEvidenceBinding => "repair_evidence_binding",
@@ -119,6 +123,7 @@ impl ToolPolicyProjection {
 pub(crate) enum LoopControlAction {
     RunBoundedRepairTask,
     RunVerifierOwnedSetup,
+    RunDevServerSmoke,
     RunToolProtocolCorrection,
     RenderExplicitStop,
 }
@@ -128,6 +133,7 @@ impl LoopControlAction {
         match self {
             Self::RunBoundedRepairTask => "run_bounded_repair_task",
             Self::RunVerifierOwnedSetup => "run_verifier_owned_setup",
+            Self::RunDevServerSmoke => "run_dev_server_smoke",
             Self::RunToolProtocolCorrection => "run_tool_protocol_correction",
             Self::RenderExplicitStop => "render_explicit_stop",
         }
@@ -706,6 +712,17 @@ fn active_job_candidates(
             dispatch_priority(RecoveryJobKind::ScaffoldMaterialization),
             "profile_missing_integration_artifact",
         ),
+        Some("port_in_use")
+        | Some("nextjs_dev_server_port_in_use")
+        | Some("nextjs_dev_server_smoke_failed") => push_active_candidate(
+            &mut candidates,
+            evidence,
+            graph,
+            RecoveryJobKind::DevServerSmoke,
+            RecoveryActionKind::RunDevServerSmoke,
+            dispatch_priority(RecoveryJobKind::DevServerSmoke),
+            "dev_server_smoke_failure",
+        ),
         Some(code)
             if code.contains("missing")
                 && code.contains("artifact")
@@ -1015,6 +1032,7 @@ fn explicit_arbitration(
 fn loop_control_action_for(job: RecoveryJobKind) -> LoopControlAction {
     match job {
         RecoveryJobKind::SetupBootstrap => LoopControlAction::RunVerifierOwnedSetup,
+        RecoveryJobKind::DevServerSmoke => LoopControlAction::RunDevServerSmoke,
         RecoveryJobKind::ToolProtocolCorrection => LoopControlAction::RunToolProtocolCorrection,
         RecoveryJobKind::ExplicitStop | RecoveryJobKind::ContractConflict => {
             LoopControlAction::RenderExplicitStop
@@ -1059,6 +1077,9 @@ fn classify_job(evidence: &ContractEvidence) -> RecoveryJobKind {
         }
         Some("nextjs_route_not_integrated") => RecoveryJobKind::RouteIntegrationRepair,
         Some("nextjs_integration_artifact_missing") => RecoveryJobKind::ScaffoldMaterialization,
+        Some("port_in_use")
+        | Some("nextjs_dev_server_port_in_use")
+        | Some("nextjs_dev_server_smoke_failed") => RecoveryJobKind::DevServerSmoke,
         Some(code)
             if code.contains("missing")
                 && code.contains("artifact")
@@ -1124,6 +1145,7 @@ fn classify_action(evidence: &ContractEvidence, job: RecoveryJobKind) -> Recover
     }
     match job {
         RecoveryJobKind::SetupBootstrap => RecoveryActionKind::InstallOrPrepareDependencies,
+        RecoveryJobKind::DevServerSmoke => RecoveryActionKind::RunDevServerSmoke,
         RecoveryJobKind::ManifestRepair => {
             let code = primary_code(evidence);
             if code
@@ -1275,6 +1297,7 @@ fn candidate_source_for_job(job: RecoveryJobKind) -> RepairTargetSource {
     match job {
         RecoveryJobKind::RouteIntegrationRepair => RepairTargetSource::ProfileSelectedRoute,
         RecoveryJobKind::SourceImplementationRepair => RepairTargetSource::VerifierDiagnostic,
+        RecoveryJobKind::DevServerSmoke => RepairTargetSource::VerifierDiagnostic,
         RecoveryJobKind::SetupBootstrap | RecoveryJobKind::ManifestRepair => {
             RepairTargetSource::SetupManifest
         }
@@ -1306,6 +1329,7 @@ fn allowed_target_roles(job: RecoveryJobKind) -> Vec<ArtifactRole> {
             ArtifactRole::IntegrationTarget,
             ArtifactRole::Implementation,
         ],
+        RecoveryJobKind::DevServerSmoke => Vec::new(),
         RecoveryJobKind::TestArtifactCompletion | RecoveryJobKind::TestAlignmentRepair => {
             vec![ArtifactRole::Test]
         }
@@ -1331,6 +1355,7 @@ fn job_allows_file_target(job: RecoveryJobKind) -> bool {
     !matches!(
         job,
         RecoveryJobKind::SetupBootstrap
+            | RecoveryJobKind::DevServerSmoke
             | RecoveryJobKind::ToolProtocolCorrection
             | RecoveryJobKind::ContractConflict
             | RecoveryJobKind::ExplicitStop
@@ -1657,6 +1682,7 @@ fn target_priority(
 fn tool_policy_for(job: RecoveryJobKind, action: RecoveryActionKind) -> ToolPolicyProjection {
     match (job, action) {
         (RecoveryJobKind::SetupBootstrap, _) => ToolPolicyProjection::VerifierOwnedSetupOnly,
+        (RecoveryJobKind::DevServerSmoke, _) => ToolPolicyProjection::VerifierOwnedSetupOnly,
         (RecoveryJobKind::ManifestRepair, _) => ToolPolicyProjection::SetupConfigMutationOnly,
         (RecoveryJobKind::ToolProtocolCorrection, _) => {
             ToolPolicyProjection::ToolProtocolCorrection
@@ -1679,6 +1705,9 @@ fn required_action(
     match (job, action) {
         (RecoveryJobKind::SetupBootstrap, _) => {
             "use verifier-owned setup recovery when allowed; do not run dependency installation from a model repair turn".to_string()
+        }
+        (RecoveryJobKind::DevServerSmoke, _) => {
+            "run the bounded dev-server smoke contract; do not repair source or setup from this job".to_string()
         }
         (RecoveryJobKind::ManifestRepair, RecoveryActionKind::ResolveManifestConflict) => {
             "edit the setup manifest to resolve the deterministic dependency conflict before rerunning setup/build".to_string()
@@ -1735,6 +1764,16 @@ fn disallowed_actions(
             push_unique(
                 &mut actions,
                 "Do not run dependency installation from a model tool call; use verifier-owned setup recovery only.".to_string(),
+            );
+        }
+        RecoveryJobKind::DevServerSmoke => {
+            push_unique(
+                &mut actions,
+                "Do not edit files from the dev-server smoke job; classify the launchability result first.".to_string(),
+            );
+            push_unique(
+                &mut actions,
+                "Do not treat npm run build success as proof that the requested port is launchable.".to_string(),
             );
         }
         RecoveryJobKind::ManifestRepair => {
@@ -1851,6 +1890,10 @@ fn rerun_authority(evidence: &ContractEvidence, job: RecoveryJobKind) -> Vec<Str
             "dependency setup".to_string(),
             "original verifier".to_string(),
         ],
+        RecoveryJobKind::DevServerSmoke => vec![
+            "dev-server port preflight".to_string(),
+            "localhost endpoint smoke".to_string(),
+        ],
         RecoveryJobKind::ManifestRepair => vec![
             "profile verification".to_string(),
             "original verifier".to_string(),
@@ -1875,6 +1918,7 @@ fn parse_job(value: &str) -> Option<RecoveryJobKind> {
         }
         "route_integration_repair" => Some(RecoveryJobKind::RouteIntegrationRepair),
         "source_implementation_repair" => Some(RecoveryJobKind::SourceImplementationRepair),
+        "dev_server_smoke" => Some(RecoveryJobKind::DevServerSmoke),
         "test_artifact_completion" => Some(RecoveryJobKind::TestArtifactCompletion),
         "test_repair" | "test_alignment_repair" => Some(RecoveryJobKind::TestAlignmentRepair),
         "docs_repair" | "documentation_repair" => Some(RecoveryJobKind::DocumentationRepair),
@@ -1939,6 +1983,7 @@ fn parse_action(value: &str) -> Option<RecoveryActionKind> {
         "repair_source_error" | "edit_source_for_diagnostic" => {
             Some(RecoveryActionKind::EditSourceForDiagnostic)
         }
+        "run_dev_server_smoke" => Some(RecoveryActionKind::RunDevServerSmoke),
         "align_test_and_verifier" => Some(RecoveryActionKind::AlignTestAndVerifier),
         "update_docs_literal" => Some(RecoveryActionKind::UpdateDocsLiteral),
         "repair_evidence_binding" => Some(RecoveryActionKind::RepairEvidenceBinding),

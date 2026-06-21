@@ -133,6 +133,19 @@ def write_summary(path, rows):
         "evidence_binding_status",
         "completion_evidence_status",
         "explicit_stop_reason",
+        "runtime_job_kind",
+        "runtime_job_outcome",
+        "setup_job_state",
+        "setup_attempt_key",
+        "setup_manifest_fingerprint",
+        "setup_stale_reason",
+        "setup_result",
+        "setup_command",
+        "verifier_rerun_result",
+        "dev_server_state",
+        "requested_port",
+        "port_preflight",
+        "endpoint_smoke",
     ]
     with open(path, "w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, delimiter="\t", fieldnames=fieldnames)
@@ -211,6 +224,19 @@ def recheck(root, cases):
                 "evidence_binding_status": meta.get("evidence_binding_status", "unknown" if reason != "ok" else "bound"),
                 "completion_evidence_status": meta.get("completion_evidence_status", "unknown" if reason != "ok" else "passed"),
                 "explicit_stop_reason": meta.get("explicit_stop_reason", ""),
+                "runtime_job_kind": meta.get("runtime_job_kind", ""),
+                "runtime_job_outcome": meta.get("runtime_job_outcome", ""),
+                "setup_job_state": meta.get("setup_job_state", ""),
+                "setup_attempt_key": meta.get("setup_attempt_key", ""),
+                "setup_manifest_fingerprint": meta.get("setup_manifest_fingerprint", ""),
+                "setup_stale_reason": meta.get("setup_stale_reason", ""),
+                "setup_result": meta.get("setup_result", ""),
+                "setup_command": meta.get("setup_command", ""),
+                "verifier_rerun_result": meta.get("verifier_rerun_result", ""),
+                "dev_server_state": meta.get("dev_server_state", ""),
+                "requested_port": meta.get("requested_port", ""),
+                "port_preflight": meta.get("port_preflight", ""),
+                "endpoint_smoke": meta.get("endpoint_smoke", ""),
             }
         )
         observation = normalize_observation(
@@ -265,6 +291,8 @@ def derive_active_job(reason):
     category = categorize(reason)
     if reason == "ok":
         return "none"
+    if reason == "port_in_use" or "EADDRINUSE" in reason or "address already in use" in reason:
+        return "dev_server_smoke"
     if category == "setup":
         return "setup_bootstrap"
     if category == "tool_protocol":
@@ -291,6 +319,8 @@ def derive_recovery_owner(reason):
     job = derive_active_job(reason)
     if job == "setup_bootstrap":
         return "setup"
+    if job == "dev_server_smoke":
+        return "dev_server"
     if job == "manifest_repair":
         return "manifest"
     if job == "scaffold_materialization":
@@ -316,6 +346,8 @@ def derive_loop_control_action(reason):
     job = derive_active_job(reason)
     if job == "setup_bootstrap":
         return "run_verifier_owned_setup"
+    if job == "dev_server_smoke":
+        return "run_dev_server_smoke"
     if job == "tool_protocol_correction":
         return "run_tool_protocol_correction"
     if job in {"explicit_stop", "contract_conflict"}:
@@ -338,6 +370,8 @@ def derive_repair_action(reason):
     job = derive_active_job(reason)
     if job == "setup_bootstrap":
         return "install_or_prepare_dependencies"
+    if job == "dev_server_smoke":
+        return "run_dev_server_smoke"
     if job == "manifest_repair":
         return "add_missing_manifest_dependency"
     if job in {"scaffold_materialization", "test_artifact_completion"}:
@@ -360,6 +394,8 @@ def derive_repair_action(reason):
 def derive_tool_policy(reason):
     job = derive_active_job(reason)
     if job == "setup_bootstrap":
+        return "verifier_owned_setup_only"
+    if job == "dev_server_smoke":
         return "verifier_owned_setup_only"
     if job == "manifest_repair":
         return "setup_config_mutation_only"
@@ -411,6 +447,7 @@ def render_report(rows):
     diagnostics = {}
     by_case = {}
     recovery_jobs = {}
+    runtime_jobs = {}
     loop_control_actions = {}
     dispatch_statuses = {}
     repair_brief_statuses = {}
@@ -431,6 +468,7 @@ def render_report(rows):
             row.get("artifact_ledger_status") or observation["artifact_ledger_status"]
         )
         job = row.get("active_job") or derive_active_job(row["reason"])
+        runtime_job = row.get("runtime_job_kind", "")
         loop_control_action = row.get("loop_control_action") or derive_loop_control_action(
             row["reason"]
         )
@@ -443,6 +481,8 @@ def render_report(rows):
         terminal_states[terminal_state] = terminal_states.get(terminal_state, 0) + 1
         diagnostics[diagnostic_code] = diagnostics.get(diagnostic_code, 0) + 1
         recovery_jobs[job] = recovery_jobs.get(job, 0) + 1
+        if runtime_job:
+            runtime_jobs[runtime_job] = runtime_jobs.get(runtime_job, 0) + 1
         loop_control_actions[loop_control_action] = (
             loop_control_actions.get(loop_control_action, 0) + 1
         )
@@ -500,6 +540,9 @@ def render_report(rows):
         lines.append(f"- artifact_ledger_status={name}: {count}")
     lines.extend(["", "## Recovery Jobs"])
     for name, count in sorted(recovery_jobs.items()):
+        lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Runtime Jobs"])
+    for name, count in sorted(runtime_jobs.items()):
         lines.append(f"- {name}: {count}")
     lines.extend(["", "## Dispatch Status"])
     for name, count in sorted(dispatch_statuses.items()):

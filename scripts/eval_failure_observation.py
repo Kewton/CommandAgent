@@ -103,8 +103,8 @@ def normalize_observation(raw: dict[str, Any]) -> dict[str, str]:
     failure_class = clean(raw.get("failure_class")) or category_for_terminal_state(
         terminal_state, reason
     )
-    contract_layer = clean(raw.get("contract_layer")) or contract_layer_for_category(
-        failure_class
+    contract_layer = clean(raw.get("contract_layer")) or contract_layer_for_terminal_state(
+        terminal_state, failure_class
     )
     diagnostic_code = clean(raw.get("diagnostic_code")) or diagnostic_code_from_reason(
         reason, terminal_state
@@ -277,11 +277,21 @@ def category_for_reason(reason: str) -> str:
 
 
 def contract_layer_for_reason(reason: str) -> str:
-    return contract_layer_for_category(category_for_reason(reason))
+    terminal_state = terminal_state_from_reason(reason)
+    return contract_layer_for_terminal_state(
+        terminal_state,
+        category_for_terminal_state(terminal_state, reason),
+    )
 
 
 def contract_layer_for_category(category: str) -> str:
     return CATEGORY_TO_CONTRACT_LAYER.get(category, "unknown_contract")
+
+
+def contract_layer_for_terminal_state(terminal_state: str, category: str) -> str:
+    if terminal_state == "port_in_use":
+        return "dev_server_port_contract"
+    return contract_layer_for_category(category)
 
 
 def diagnostic_code_from_reason(reason: str, terminal_state: str) -> str:
