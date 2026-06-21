@@ -58,6 +58,8 @@ pub(crate) struct TargetAdmissionPolicy {
     pub(crate) allow_file_target: bool,
     pub(crate) exhausted_targets: Vec<String>,
     pub(crate) exhausted_roles: Vec<ArtifactRole>,
+    pub(crate) exhausted_clusters: Vec<String>,
+    pub(crate) current_cluster: Option<String>,
 }
 
 impl TargetAdmissionPolicy {
@@ -76,6 +78,8 @@ impl TargetAdmissionPolicy {
             allow_file_target,
             exhausted_targets: Vec::new(),
             exhausted_roles: Vec::new(),
+            exhausted_clusters: Vec::new(),
+            current_cluster: None,
         }
     }
 
@@ -96,6 +100,24 @@ impl TargetAdmissionPolicy {
 
     pub(crate) fn with_exhausted_roles(mut self, exhausted_roles: Vec<ArtifactRole>) -> Self {
         self.exhausted_roles = exhausted_roles;
+        self
+    }
+
+    pub(crate) fn with_exhausted_clusters<I, S>(mut self, exhausted_clusters: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.exhausted_clusters = exhausted_clusters
+            .into_iter()
+            .map(|cluster| cluster.into())
+            .filter(|cluster| !cluster.trim().is_empty())
+            .collect();
+        self
+    }
+
+    pub(crate) fn with_current_cluster(mut self, cluster: Option<String>) -> Self {
+        self.current_cluster = cluster;
         self
     }
 }
@@ -390,7 +412,11 @@ pub(crate) fn decide_repair_target_with_scope(
         decision.selected_role = Some(selected.role);
         decision.selected_priority = Some(selected.priority);
     } else if policy.requires_target {
-        decision.explicit_stop_reason = Some("no_admitted_recovery_target".to_string());
+        decision.explicit_stop_reason = Some(if current_cluster_exhausted(policy) {
+            "failure_cluster_exhausted_no_admitted_target".to_string()
+        } else {
+            "no_admitted_recovery_target".to_string()
+        });
     }
     decision
 }
@@ -473,6 +499,16 @@ fn policy_rejection_reason(
         ));
     }
     None
+}
+
+fn current_cluster_exhausted(policy: &TargetAdmissionPolicy) -> bool {
+    let Some(cluster) = policy.current_cluster.as_deref() else {
+        return false;
+    };
+    policy
+        .exhausted_clusters
+        .iter()
+        .any(|exhausted| exhausted == cluster)
 }
 
 fn admission_rejection_reason(

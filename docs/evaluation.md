@@ -275,6 +275,15 @@ Contract Boundary Propagation fields should be recorded when present:
 - `disallowed_actions`
 - `repair_attempt_ledger`
 - `attempt_outcomes`
+- `repair_attempt_count`
+- `attempt_outcome_reason`
+- `before_signature`
+- `after_signature`
+- `exhausted_targets`
+- `exhausted_roles`
+- `exhausted_clusters`
+- `no_progress_strategy`
+- `repair_state_status`
 - `patch_validation`
 - `eval_report_fields`
 - `proposed_targets`

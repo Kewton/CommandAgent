@@ -1,6 +1,8 @@
 //! Repair job state and no-progress classification.
 #![allow(dead_code)]
 
+use crate::agent::step_runner::correction_evidence::{ContractEvidence, failure_signature};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RepairAttemptOutcomeKind {
     Unsafe,
@@ -11,6 +13,7 @@ pub(crate) enum RepairAttemptOutcomeKind {
     NoProgress,
     Worsened,
     Passed,
+    ExplicitStop,
 }
 
 impl RepairAttemptOutcomeKind {
@@ -24,39 +27,82 @@ impl RepairAttemptOutcomeKind {
             Self::NoProgress => "no_progress",
             Self::Worsened => "worsened",
             Self::Passed => "passed",
+            Self::ExplicitStop => "explicit_stop",
         }
+    }
+
+    fn exhausts_target(self) -> bool {
+        matches!(self, Self::NoProgress | Self::Duplicate | Self::Worsened)
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RepairAttemptRecord {
+    pub(crate) attempt_number: usize,
+    pub(crate) step_id: String,
+    pub(crate) active_job: String,
+    pub(crate) recovery_owner: Option<String>,
+    pub(crate) repair_action: Option<String>,
+    pub(crate) selected_failure_cluster: Option<String>,
     pub(crate) verifier_command: String,
     pub(crate) failure_signature: String,
+    pub(crate) before_signature: String,
+    pub(crate) after_signature: String,
     pub(crate) target: Option<String>,
     pub(crate) target_role: Option<String>,
+    pub(crate) changed_files: Vec<String>,
     pub(crate) outcome: RepairAttemptOutcomeKind,
+    pub(crate) outcome_reason: String,
 }
 
 impl RepairAttemptRecord {
     pub(crate) fn render_line(&self) -> String {
+        let changed = if self.changed_files.is_empty() {
+            "none".to_string()
+        } else {
+            self.changed_files.join("|")
+        };
         format!(
-            "verifier={} signature={} target={} role={} outcome={}",
+            "attempt={} step={} active_job={} owner={} action={} cluster={} verifier={} signature={} before={} after={} target={} role={} changed_files={} outcome={} reason={}",
+            self.attempt_number,
+            compact(&self.step_id),
+            compact(&self.active_job),
+            self.recovery_owner.as_deref().unwrap_or("unknown"),
+            self.repair_action.as_deref().unwrap_or("unknown"),
+            self.selected_failure_cluster
+                .as_deref()
+                .unwrap_or("unknown"),
             compact(&self.verifier_command),
             compact(&self.failure_signature),
+            compact(&self.before_signature),
+            compact(&self.after_signature),
             self.target.as_deref().unwrap_or("none"),
             self.target_role.as_deref().unwrap_or("unknown"),
-            self.outcome.as_str()
+            compact(&changed),
+            self.outcome.as_str(),
+            compact(&self.outcome_reason)
         )
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RepairJobState {
+    pub(crate) step_id: Option<String>,
     pub(crate) active_job: String,
+    pub(crate) recovery_owner: Option<String>,
+    pub(crate) repair_action: Option<String>,
+    pub(crate) verifier_command: Option<String>,
+    pub(crate) previous_signature: Option<String>,
+    pub(crate) current_signature: Option<String>,
+    pub(crate) selected_failure_cluster: Option<String>,
     pub(crate) current_target: Option<String>,
+    pub(crate) current_target_role: Option<String>,
     pub(crate) exhausted_targets: Vec<String>,
     pub(crate) exhausted_roles: Vec<String>,
+    pub(crate) exhausted_clusters: Vec<String>,
     pub(crate) attempt_ledger: Vec<RepairAttemptRecord>,
+    pub(crate) no_progress_strategy: Option<NoProgressStrategy>,
+    pub(crate) explicit_stop_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -85,12 +131,63 @@ impl NoProgressStrategy {
 impl RepairJobState {
     pub(crate) fn new(active_job: impl Into<String>) -> Self {
         Self {
+            step_id: None,
             active_job: active_job.into(),
+            recovery_owner: None,
+            repair_action: None,
+            verifier_command: None,
+            previous_signature: None,
+            current_signature: None,
+            selected_failure_cluster: None,
             current_target: None,
+            current_target_role: None,
             exhausted_targets: Vec::new(),
             exhausted_roles: Vec::new(),
+            exhausted_clusters: Vec::new(),
             attempt_ledger: Vec::new(),
+            no_progress_strategy: None,
+            explicit_stop_reason: None,
         }
+    }
+
+    pub(crate) fn with_step_id(mut self, step_id: impl Into<String>) -> Self {
+        self.step_id = Some(step_id.into());
+        self
+    }
+
+    pub(crate) fn with_active_job(mut self, active_job: impl Into<String>) -> Self {
+        self.active_job = active_job.into();
+        self
+    }
+
+    pub(crate) fn with_recovery_owner(mut self, owner: Option<String>) -> Self {
+        self.recovery_owner = owner;
+        self
+    }
+
+    pub(crate) fn with_repair_action(mut self, action: Option<String>) -> Self {
+        self.repair_action = action;
+        self
+    }
+
+    pub(crate) fn with_verifier_command(mut self, command: Option<String>) -> Self {
+        self.verifier_command = command;
+        self
+    }
+
+    pub(crate) fn with_signatures(
+        mut self,
+        previous_signature: Option<String>,
+        current_signature: Option<String>,
+    ) -> Self {
+        self.previous_signature = previous_signature;
+        self.current_signature = current_signature;
+        self
+    }
+
+    pub(crate) fn with_selected_failure_cluster(mut self, cluster: Option<String>) -> Self {
+        self.selected_failure_cluster = cluster;
+        self
     }
 
     pub(crate) fn with_current_target(mut self, target: impl Into<String>) -> Self {
@@ -98,28 +195,85 @@ impl RepairJobState {
         self
     }
 
+    pub(crate) fn with_current_target_opt(mut self, target: Option<String>) -> Self {
+        self.current_target = target;
+        self
+    }
+
+    pub(crate) fn with_current_target_role(mut self, role: Option<String>) -> Self {
+        self.current_target_role = role;
+        self
+    }
+
+    pub(crate) fn with_no_progress_strategy(mut self, strategy: NoProgressStrategy) -> Self {
+        self.no_progress_strategy = Some(strategy);
+        self
+    }
+
+    pub(crate) fn with_explicit_stop_reason(mut self, reason: impl Into<String>) -> Self {
+        self.explicit_stop_reason = Some(reason.into());
+        self
+    }
+
     pub(crate) fn with_attempt(mut self, attempt: RepairAttemptRecord) -> Self {
-        if matches!(
-            attempt.outcome,
-            RepairAttemptOutcomeKind::NoProgress
-                | RepairAttemptOutcomeKind::Duplicate
-                | RepairAttemptOutcomeKind::Worsened
-        ) {
+        self.previous_signature = Some(attempt.before_signature.clone());
+        self.current_signature = Some(attempt.after_signature.clone());
+        self.active_job = attempt.active_job.clone();
+        self.step_id = Some(attempt.step_id.clone());
+        self.recovery_owner = attempt.recovery_owner.clone();
+        self.repair_action = attempt.repair_action.clone();
+        self.verifier_command = Some(attempt.verifier_command.clone());
+        self.selected_failure_cluster = attempt.selected_failure_cluster.clone();
+        self.current_target = attempt.target.clone();
+        self.current_target_role = attempt.target_role.clone();
+        if attempt.outcome.exhausts_target() {
             if let Some(target) = &attempt.target {
                 push_unique(&mut self.exhausted_targets, target.clone());
             }
             if let Some(role) = &attempt.target_role {
                 push_unique(&mut self.exhausted_roles, role.clone());
             }
+            if let Some(cluster) = &attempt.selected_failure_cluster {
+                push_unique(&mut self.exhausted_clusters, cluster.clone());
+            }
         }
         self.attempt_ledger.push(attempt);
+        const MAX_ATTEMPT_LEDGER_ENTRIES: usize = 8;
+        if self.attempt_ledger.len() > MAX_ATTEMPT_LEDGER_ENTRIES {
+            let drop_count = self.attempt_ledger.len() - MAX_ATTEMPT_LEDGER_ENTRIES;
+            self.attempt_ledger.drain(0..drop_count);
+        }
         self
     }
 
     pub(crate) fn render_lines(&self) -> Vec<String> {
         let mut lines = vec![format!("active_job={}", self.active_job)];
+        if let Some(step_id) = &self.step_id {
+            lines.push(format!("step_id={step_id}"));
+        }
+        if let Some(owner) = &self.recovery_owner {
+            lines.push(format!("recovery_owner={owner}"));
+        }
+        if let Some(action) = &self.repair_action {
+            lines.push(format!("repair_action={action}"));
+        }
+        if let Some(command) = &self.verifier_command {
+            lines.push(format!("verifier_command={}", compact(command)));
+        }
+        if let Some(signature) = &self.previous_signature {
+            lines.push(format!("previous_signature={}", compact(signature)));
+        }
+        if let Some(signature) = &self.current_signature {
+            lines.push(format!("current_signature={}", compact(signature)));
+        }
+        if let Some(cluster) = &self.selected_failure_cluster {
+            lines.push(format!("selected_failure_cluster={}", compact(cluster)));
+        }
         if let Some(target) = &self.current_target {
             lines.push(format!("current_target={target}"));
+        }
+        if let Some(role) = &self.current_target_role {
+            lines.push(format!("current_target_role={role}"));
         }
         if !self.exhausted_targets.is_empty() {
             lines.push(format!(
@@ -133,10 +287,124 @@ impl RepairJobState {
                 self.exhausted_roles.join("|")
             ));
         }
+        if !self.exhausted_clusters.is_empty() {
+            lines.push(format!(
+                "exhausted_clusters={}",
+                self.exhausted_clusters.join("|")
+            ));
+        }
+        if let Some(strategy) = self.no_progress_strategy {
+            lines.push(format!("no_progress_strategy={}", strategy.as_str()));
+        }
+        if let Some(reason) = &self.explicit_stop_reason {
+            lines.push(format!("explicit_stop_reason={}", compact(reason)));
+        }
         for attempt in &self.attempt_ledger {
             lines.push(format!("attempt={}", attempt.render_line()));
         }
         lines
+    }
+
+    pub(crate) fn attempt_ledger_lines(&self) -> Vec<String> {
+        self.attempt_ledger
+            .iter()
+            .map(RepairAttemptRecord::render_line)
+            .collect()
+    }
+
+    pub(crate) fn attempt_outcome_lines(&self) -> Vec<String> {
+        self.attempt_ledger
+            .iter()
+            .map(|attempt| {
+                format!(
+                    "attempt={} outcome={} reason={} before_signature={} after_signature={} target={} role={} cluster={}",
+                    attempt.attempt_number,
+                    attempt.outcome.as_str(),
+                    compact(&attempt.outcome_reason),
+                    compact(&attempt.before_signature),
+                    compact(&attempt.after_signature),
+                    attempt.target.as_deref().unwrap_or("none"),
+                    attempt.target_role.as_deref().unwrap_or("unknown"),
+                    attempt
+                        .selected_failure_cluster
+                        .as_deref()
+                        .unwrap_or("unknown")
+                )
+            })
+            .collect()
+    }
+
+    pub(crate) fn eval_report_fields(&self) -> Vec<String> {
+        let latest = self.attempt_ledger.last();
+        let mut fields = vec![
+            format!("repair_attempt_count={}", self.attempt_ledger.len()),
+            format!(
+                "repair_state_status={}",
+                if self.attempt_ledger.is_empty() {
+                    "not_attempted"
+                } else {
+                    "attempted"
+                }
+            ),
+            format!(
+                "attempt_outcome={}",
+                latest
+                    .map(|attempt| attempt.outcome.as_str())
+                    .unwrap_or("not_attempted")
+            ),
+            format!(
+                "attempt_outcome_reason={}",
+                latest
+                    .map(|attempt| compact(&attempt.outcome_reason))
+                    .unwrap_or_else(|| "none".to_string())
+            ),
+            format!(
+                "before_signature={}",
+                latest
+                    .map(|attempt| compact(&attempt.before_signature))
+                    .unwrap_or_else(|| "none".to_string())
+            ),
+            format!(
+                "after_signature={}",
+                latest
+                    .map(|attempt| compact(&attempt.after_signature))
+                    .unwrap_or_else(|| "none".to_string())
+            ),
+            format!(
+                "exhausted_targets={}",
+                if self.exhausted_targets.is_empty() {
+                    "none".to_string()
+                } else {
+                    self.exhausted_targets.join("|")
+                }
+            ),
+            format!(
+                "exhausted_roles={}",
+                if self.exhausted_roles.is_empty() {
+                    "none".to_string()
+                } else {
+                    self.exhausted_roles.join("|")
+                }
+            ),
+            format!(
+                "exhausted_clusters={}",
+                if self.exhausted_clusters.is_empty() {
+                    "none".to_string()
+                } else {
+                    self.exhausted_clusters.join("|")
+                }
+            ),
+            format!(
+                "no_progress_strategy={}",
+                self.no_progress_strategy
+                    .map(NoProgressStrategy::as_str)
+                    .unwrap_or("none")
+            ),
+        ];
+        if let Some(reason) = &self.explicit_stop_reason {
+            fields.push(format!("explicit_stop_reason={}", compact(reason)));
+        }
+        fields
     }
 }
 
@@ -188,6 +456,74 @@ pub(crate) fn classify_attempt_outcome(
     }
 }
 
+pub(crate) fn attempt_outcome_reason(
+    outcome: RepairAttemptOutcomeKind,
+    before_signature: &str,
+    after_signature: &str,
+    changed_files: &[String],
+) -> String {
+    match outcome {
+        RepairAttemptOutcomeKind::Passed => "original verifier/profile/guard passed".to_string(),
+        RepairAttemptOutcomeKind::Noop => {
+            "repair attempt made no file-changing progress before rerun".to_string()
+        }
+        RepairAttemptOutcomeKind::Malformed => {
+            "repair attempt failed the tool or provider protocol".to_string()
+        }
+        RepairAttemptOutcomeKind::Unsafe => {
+            "repair attempt violated patch validation or integrity guard".to_string()
+        }
+        RepairAttemptOutcomeKind::NoProgress => format!(
+            "same failure signature after changed_files={}",
+            if changed_files.is_empty() {
+                "none".to_string()
+            } else {
+                changed_files.join("|")
+            }
+        ),
+        RepairAttemptOutcomeKind::Duplicate => {
+            "duplicate repair attempt for the same target and signature".to_string()
+        }
+        RepairAttemptOutcomeKind::ImprovedStillFailing => format!(
+            "failure signature changed from {} to {} but still fails",
+            compact(before_signature),
+            compact(after_signature)
+        ),
+        RepairAttemptOutcomeKind::Worsened => {
+            "repair attempt produced a stronger or less recoverable contract violation".to_string()
+        }
+        RepairAttemptOutcomeKind::ExplicitStop => {
+            "no admitted bounded repair action remained".to_string()
+        }
+    }
+}
+
+pub(crate) fn repair_signature_from_contract_evidence(evidence: &[ContractEvidence]) -> String {
+    if evidence.is_empty() {
+        return "no_contract_evidence".to_string();
+    }
+    let mut parts = Vec::new();
+    for item in evidence.iter().take(4) {
+        if let Some(signature) = &item.failure_signature {
+            parts.push(format!("signature={}", compact(signature)));
+        } else {
+            parts.push(format!("guard={}", compact(&item.guard)));
+            push_part(&mut parts, "contract", item.violated_contract.as_deref());
+            push_part(&mut parts, "reason", item.reason_code.as_deref());
+            push_part(&mut parts, "diagnostic", item.diagnostic_code.as_deref());
+            push_part(&mut parts, "command", item.command.as_deref());
+            push_part(
+                &mut parts,
+                "cluster",
+                item.selected_failure_cluster.as_deref(),
+            );
+            push_part(&mut parts, "target", item.repair_target.as_deref());
+            push_part(&mut parts, "target_path", item.target_path.as_deref());
+        }
+    }
+    failure_signature(parts.iter().map(String::as_str))
+}
+
 pub(crate) fn rollback_allowed(
     outcome: RepairAttemptOutcomeKind,
     verifier_rerun_proved_worsened: bool,
@@ -204,6 +540,14 @@ fn push_unique(values: &mut Vec<String>, value: String) {
     }
 }
 
+fn push_part(parts: &mut Vec<String>, key: &str, value: Option<&str>) {
+    if let Some(value) = value
+        && !value.trim().is_empty()
+    {
+        parts.push(format!("{key}={}", compact(value)));
+    }
+}
+
 fn compact(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
@@ -216,15 +560,17 @@ mod tests {
     fn no_progress_attempt_exhausts_target_and_role() {
         let state = RepairJobState::new("source_implementation_repair")
             .with_current_target("src/lib.rs")
-            .with_attempt(RepairAttemptRecord {
-                verifier_command: "cargo test".to_string(),
-                failure_signature: "E0425".to_string(),
-                target: Some("src/lib.rs".to_string()),
-                target_role: Some("implementation".to_string()),
-                outcome: RepairAttemptOutcomeKind::NoProgress,
-            });
+            .with_attempt(attempt(
+                "cargo test",
+                "E0425",
+                Some("src/lib.rs"),
+                Some("implementation"),
+                RepairAttemptOutcomeKind::NoProgress,
+            ));
 
         assert_eq!(state.exhausted_targets, vec!["src/lib.rs"]);
+        assert_eq!(state.exhausted_roles, vec!["implementation"]);
+        assert_eq!(state.exhausted_clusters, vec!["verifier_failure"]);
         assert!(
             state
                 .render_lines()
@@ -234,15 +580,41 @@ mod tests {
     }
 
     #[test]
+    fn improved_still_failing_does_not_exhaust_target_role_or_cluster() {
+        let state = RepairJobState::new("source_implementation_repair").with_attempt(attempt(
+            "cargo test",
+            "E0425",
+            Some("src/lib.rs"),
+            Some("implementation"),
+            RepairAttemptOutcomeKind::ImprovedStillFailing,
+        ));
+
+        assert!(state.exhausted_targets.is_empty());
+        assert!(state.exhausted_roles.is_empty());
+        assert!(state.exhausted_clusters.is_empty());
+    }
+
+    #[test]
+    fn noop_is_distinct_from_no_progress() {
+        assert_eq!(
+            classify_attempt_outcome("sig-a", "sig-a", &[], false),
+            RepairAttemptOutcomeKind::Noop
+        );
+        assert_eq!(
+            classify_attempt_outcome("sig-a", "sig-a", &["src/lib.rs".to_string()], false),
+            RepairAttemptOutcomeKind::NoProgress
+        );
+    }
+
+    #[test]
     fn same_role_no_progress_forces_role_switch_when_candidate_exists() {
-        let state =
-            RepairJobState::new("source_implementation_repair").with_attempt(RepairAttemptRecord {
-                verifier_command: "npm run build".to_string(),
-                failure_signature: "route-missing".to_string(),
-                target: Some("components/Game.tsx".to_string()),
-                target_role: Some("implementation".to_string()),
-                outcome: RepairAttemptOutcomeKind::NoProgress,
-            });
+        let state = RepairJobState::new("source_implementation_repair").with_attempt(attempt(
+            "npm run build",
+            "route-missing",
+            Some("components/Game.tsx"),
+            Some("implementation"),
+            RepairAttemptOutcomeKind::NoProgress,
+        ));
         let candidates = vec!["implementation".to_string(), "entrypoint".to_string()];
 
         let strategy =
@@ -254,14 +626,13 @@ mod tests {
 
     #[test]
     fn no_progress_strategy_prefers_binding_before_scaffold_rebuild() {
-        let state =
-            RepairJobState::new("source_implementation_repair").with_attempt(RepairAttemptRecord {
-                verifier_command: "npm run build".to_string(),
-                failure_signature: "missing import".to_string(),
-                target: Some("app/page.tsx".to_string()),
-                target_role: Some("entrypoint".to_string()),
-                outcome: RepairAttemptOutcomeKind::NoProgress,
-            });
+        let state = RepairJobState::new("source_implementation_repair").with_attempt(attempt(
+            "npm run build",
+            "missing import",
+            Some("app/page.tsx"),
+            Some("entrypoint"),
+            RepairAttemptOutcomeKind::NoProgress,
+        ));
 
         let strategy = select_no_progress_strategy(&state, Some("entrypoint"), &[], true, true);
 
@@ -290,5 +661,31 @@ mod tests {
             true,
             false
         ));
+    }
+
+    fn attempt(
+        verifier_command: &str,
+        failure_signature: &str,
+        target: Option<&str>,
+        target_role: Option<&str>,
+        outcome: RepairAttemptOutcomeKind,
+    ) -> RepairAttemptRecord {
+        RepairAttemptRecord {
+            attempt_number: 1,
+            step_id: "step".to_string(),
+            active_job: "source_implementation_repair".to_string(),
+            recovery_owner: Some("minimal_loop".to_string()),
+            repair_action: Some("repair_source_error".to_string()),
+            selected_failure_cluster: Some("verifier_failure".to_string()),
+            verifier_command: verifier_command.to_string(),
+            failure_signature: failure_signature.to_string(),
+            before_signature: failure_signature.to_string(),
+            after_signature: failure_signature.to_string(),
+            target: target.map(str::to_string),
+            target_role: target_role.map(str::to_string),
+            changed_files: vec!["src/lib.rs".to_string()],
+            outcome,
+            outcome_reason: "test outcome".to_string(),
+        }
     }
 }

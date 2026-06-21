@@ -79,6 +79,9 @@ pub struct ContractEvidence {
     pub selected_failure_cluster: Option<String>,
     pub repair_brief_status: Option<String>,
     pub action_envelope_status: Option<String>,
+    pub exhausted_clusters: Vec<String>,
+    pub no_progress_strategy: Option<String>,
+    pub repair_state_status: Option<String>,
     pub diagnostic: Option<String>,
 }
 
@@ -548,6 +551,25 @@ impl ContractEvidence {
         self
     }
 
+    pub fn with_exhausted_clusters<I, S>(mut self, exhausted_clusters: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.exhausted_clusters = collect_values(exhausted_clusters);
+        self
+    }
+
+    pub fn with_no_progress_strategy(mut self, strategy: impl Into<String>) -> Self {
+        self.no_progress_strategy = Some(strategy.into());
+        self
+    }
+
+    pub fn with_repair_state_status(mut self, status: impl Into<String>) -> Self {
+        self.repair_state_status = Some(status.into());
+        self
+    }
+
     pub fn with_diagnostic(mut self, diagnostic: impl Into<String>) -> Self {
         self.diagnostic = Some(diagnostic.into());
         self
@@ -741,6 +763,17 @@ impl ContractEvidence {
             "action_envelope_status",
             self.action_envelope_status.as_deref(),
         );
+        push_list(&mut lines, "exhausted_clusters", &self.exhausted_clusters);
+        push_field(
+            &mut lines,
+            "no_progress_strategy",
+            self.no_progress_strategy.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "repair_state_status",
+            self.repair_state_status.as_deref(),
+        );
         push_field(&mut lines, "diagnostic", self.diagnostic.as_deref());
         Some(lines.join("\n"))
     }
@@ -812,6 +845,9 @@ impl ContractEvidence {
             && self.selected_failure_cluster.is_none()
             && self.repair_brief_status.is_none()
             && self.action_envelope_status.is_none()
+            && self.exhausted_clusters.is_empty()
+            && self.no_progress_strategy.is_none()
+            && self.repair_state_status.is_none()
             && self.diagnostic.is_none()
     }
 }

@@ -100,6 +100,9 @@ pub struct RecoveryTaskContract {
     pub selected_failure_cluster: Option<String>,
     pub repair_brief_status: Option<String>,
     pub action_envelope_status: Option<String>,
+    pub exhausted_clusters: Vec<String>,
+    pub no_progress_strategy: Option<String>,
+    pub repair_state_status: Option<String>,
     pub execution_envelope: Option<RecoveryExecutionEnvelope>,
 }
 
@@ -171,6 +174,9 @@ impl RecoveryTaskContract {
             .with_selected_failure_cluster_opt(evidence.selected_failure_cluster.clone())
             .with_repair_brief_status_opt(evidence.repair_brief_status.clone())
             .with_action_envelope_status_opt(evidence.action_envelope_status.clone())
+            .with_exhausted_clusters(evidence.exhausted_clusters.clone())
+            .with_no_progress_strategy_opt(evidence.no_progress_strategy.clone())
+            .with_repair_state_status_opt(evidence.repair_state_status.clone())
             .with_execution_envelope_opt(execution_envelope(evidence));
 
         if evidence.guard == "tool_protocol"
@@ -578,6 +584,27 @@ impl RecoveryTaskContract {
         self
     }
 
+    pub fn with_exhausted_clusters<I, S>(mut self, exhausted_clusters: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        for cluster in exhausted_clusters {
+            push_unique(&mut self.exhausted_clusters, cluster.into());
+        }
+        self
+    }
+
+    pub fn with_no_progress_strategy(mut self, strategy: impl Into<String>) -> Self {
+        self.no_progress_strategy = Some(strategy.into());
+        self
+    }
+
+    pub fn with_repair_state_status(mut self, status: impl Into<String>) -> Self {
+        self.repair_state_status = Some(status.into());
+        self
+    }
+
     pub fn with_execution_envelope(mut self, envelope: RecoveryExecutionEnvelope) -> Self {
         self.execution_envelope = Some(envelope);
         self
@@ -729,6 +756,17 @@ impl RecoveryTaskContract {
             &mut lines,
             "action_envelope_status",
             self.action_envelope_status.as_deref(),
+        );
+        push_list(&mut lines, "exhausted_clusters", &self.exhausted_clusters);
+        push_field(
+            &mut lines,
+            "no_progress_strategy",
+            self.no_progress_strategy.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "repair_state_status",
+            self.repair_state_status.as_deref(),
         );
         if let Some(envelope) = self.execution_envelope {
             push_field(&mut lines, "execution_envelope", Some(envelope.as_str()));
@@ -959,6 +997,20 @@ impl RecoveryTaskContract {
         }
     }
 
+    fn with_no_progress_strategy_opt(self, value: Option<String>) -> Self {
+        match value {
+            Some(value) => self.with_no_progress_strategy(value),
+            None => self,
+        }
+    }
+
+    fn with_repair_state_status_opt(self, value: Option<String>) -> Self {
+        match value {
+            Some(value) => self.with_repair_state_status(value),
+            None => self,
+        }
+    }
+
     fn with_execution_envelope_opt(self, envelope: Option<RecoveryExecutionEnvelope>) -> Self {
         match envelope {
             Some(value) => self.with_execution_envelope(value),
@@ -1015,6 +1067,9 @@ impl RecoveryTaskContract {
             || self.selected_failure_cluster.is_some()
             || self.repair_brief_status.is_some()
             || self.action_envelope_status.is_some()
+            || !self.exhausted_clusters.is_empty()
+            || self.no_progress_strategy.is_some()
+            || self.repair_state_status.is_some()
             || self.execution_envelope.is_some()
     }
 }

@@ -34,8 +34,8 @@ surfaces around it:
 - Recovery Task Contract: turns a classified deterministic failure into a clear
   repair instruction for the minimal loop.
 - Attempt Ledger Contract: records bounded repair attempts, changed files,
-  verifier/profile results, and repeated failure classes so no-progress stops
-  are explicit.
+  verifier/profile results, before/after signatures, target/role/cluster
+  exhaustion, and repeated failure classes so no-progress stops are explicit.
 
 Contract Boundary Propagation is the handoff rule between these surfaces, not a
 second execution engine. When a deterministic guard rejects work, it may pass
@@ -230,8 +230,10 @@ The orchestration section may carry `recovery_owner`, `completion_evidence`,
 `loop_control_action`, `dispatch_status`, `dispatch_reason`, `candidate_jobs`,
 `tie_break_reason`, `completion_evidence`, `evidence_binding`,
 `deliverable_obligations`, `repair_action_plan`, `semantic_failure_report`,
-`repair_job_state`, `attempt_outcomes`, `patch_validation`, and
-`eval_report_fields`. Phase 4 target-admission data may also carry
+`repair_job_state`, `attempt_outcomes`, `exhausted_targets`,
+`exhausted_roles`, `exhausted_clusters`, `no_progress_strategy`,
+`repair_state_status`, `patch_validation`, and `eval_report_fields`. Phase 4
+target-admission data may also carry
 `proposed_targets`, `admitted_targets`, `rejected_targets`, `repair_brief`,
 `selected_failure_cluster`, `repair_brief_status`, and
 `action_envelope_status`. These fields are reporting and repair-contract data.

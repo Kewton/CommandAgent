@@ -410,6 +410,12 @@ pub struct OrchestrationEvidence {
     pub repair_brief_status: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action_envelope_status: Option<String>,
+    #[serde(default)]
+    pub exhausted_clusters: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_progress_strategy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repair_state_status: Option<String>,
 }
 
 impl OrchestrationEvidence {
@@ -452,6 +458,9 @@ impl OrchestrationEvidence {
             selected_failure_cluster: evidence.selected_failure_cluster.clone(),
             repair_brief_status: evidence.repair_brief_status.clone(),
             action_envelope_status: evidence.action_envelope_status.clone(),
+            exhausted_clusters: evidence.exhausted_clusters.clone(),
+            no_progress_strategy: evidence.no_progress_strategy.clone(),
+            repair_state_status: evidence.repair_state_status.clone(),
         };
         if orchestration.active_job.is_none()
             && orchestration.repair_action.is_none()
@@ -490,6 +499,9 @@ impl OrchestrationEvidence {
             && orchestration.selected_failure_cluster.is_none()
             && orchestration.repair_brief_status.is_none()
             && orchestration.action_envelope_status.is_none()
+            && orchestration.exhausted_clusters.is_empty()
+            && orchestration.no_progress_strategy.is_none()
+            && orchestration.repair_state_status.is_none()
         {
             None
         } else {

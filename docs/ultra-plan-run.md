@@ -198,14 +198,17 @@ structured evidence. Repair prompts and packets may include
 `dispatch_status`, `dispatch_reason`, `candidate_jobs`, `tie_break_reason`,
 `repair_action_plan`, `completion_evidence`, `evidence_binding`,
 `deliverable_obligations`, `semantic_failure_report`, `repair_job_state`,
+`attempt_outcomes`, `exhausted_targets`, `exhausted_roles`,
+`exhausted_clusters`, `no_progress_strategy`, `repair_state_status`,
 `patch_validation`, `eval_report_fields`, `proposed_targets`,
 `admitted_targets`, `rejected_targets`, `repair_brief`,
-`selected_failure_cluster`, `repair_brief_status`,
-`action_envelope_status`, and an `artifact_graph_summary` so the standalone
-repair plan can see why a target is allowed, why another action is forbidden,
-which owner/action was selected, which failure cluster is being repaired, and
-which original check must be rerun. These fields are diagnostics and policy
-projection; they do not change the retry budget or continue phases silently.
+`selected_failure_cluster`, `repair_brief_status`, `action_envelope_status`,
+and an `artifact_graph_summary` so the standalone repair plan can see why a
+target is allowed, why another action is forbidden, which owner/action was
+selected, which failure cluster is being repaired, whether a prior bounded
+attempt made progress, and which original check must be rerun. These fields
+are diagnostics and policy projection; they do not change the retry budget or
+continue phases silently.
 
 If every verifier failure is `dependency_missing` and the step's expected paths
 already exist, CommandAgent treats the problem as setup recovery, not source

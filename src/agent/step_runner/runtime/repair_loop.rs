@@ -27,7 +27,11 @@ use crate::agent::step_runner::repair::{
     RepairBudget, RepairContext, ToolProtocolCorrectionContext, build_repair_prompt,
     build_tool_protocol_correction_prompt, save_repair_prompt,
 };
-use crate::agent::step_runner::repair_job::RepairJobState;
+use crate::agent::step_runner::repair_job::{
+    NoProgressStrategy, RepairAttemptOutcomeKind, RepairAttemptRecord, RepairJobState,
+    attempt_outcome_reason, classify_attempt_outcome, repair_signature_from_contract_evidence,
+    select_no_progress_strategy,
+};
 use crate::agent::step_runner::runtime::phase_contract::{
     ActiveStepContract, current_profile_facts,
 };
@@ -55,6 +59,7 @@ pub(super) struct RepairStepState {
     pub(super) dependency_setup_note: Option<String>,
     pub(super) contract_evidence: Vec<ContractEvidence>,
     pub(super) repair_attempt_ledger: Vec<String>,
+    pub(super) repair_job_state: RepairJobState,
     pub(super) tool_arg_schema_correction_spent: bool,
     pub(super) pending_tool_arg_error: Option<ToolArgError>,
     pub(super) pending_tool_arg_error_source: Option<ToolProtocolCorrectionSource>,
@@ -254,6 +259,7 @@ where
         push_contract_evidence_once(&mut contract_evidence, evidence);
     }
     failures.insert(0, turn_error_failure("initial turn", &turn_error));
+    let step_id = request.step.id.clone();
     repair_step_with_state(
         runtime,
         request,
@@ -266,6 +272,7 @@ where
             dependency_setup_note: None,
             contract_evidence,
             repair_attempt_ledger: Vec::new(),
+            repair_job_state: RepairJobState::new("unknown").with_step_id(step_id),
             tool_arg_schema_correction_spent: false,
             pending_tool_arg_error,
             pending_tool_arg_error_source,
@@ -285,6 +292,7 @@ where
     E: ChatClient,
     P: ChatClient,
 {
+    let step_id = request.step.id.clone();
     repair_step_with_state(
         runtime,
         request,
@@ -297,6 +305,7 @@ where
             dependency_setup_note: None,
             contract_evidence: Vec::new(),
             repair_attempt_ledger: Vec::new(),
+            repair_job_state: RepairJobState::new("unknown").with_step_id(step_id),
             tool_arg_schema_correction_spent: false,
             pending_tool_arg_error: None,
             pending_tool_arg_error_source: None,
@@ -357,6 +366,11 @@ where
             missing_expected_paths: missing_expected_paths.clone(),
         });
         let current_contract_evidence = contract_evidence_for_state(plan, step, &state);
+        if repair_state_explicit_stop(&current_contract_evidence) {
+            break;
+        }
+        let attempt_context = repair_attempt_context(step, &current_contract_evidence);
+        let before_signature = repair_signature_from_contract_evidence(&current_contract_evidence);
         let selected_envelope = recovery_execution_envelope(&current_contract_evidence);
         let correction_decision = tool_protocol_correction_decision(
             step,
@@ -452,6 +466,18 @@ where
                     {
                         continue;
                     }
+                    let after_evidence = contract_evidence_for_state(plan, step, &state);
+                    let after_signature = repair_signature_from_contract_evidence(&after_evidence);
+                    record_repair_attempt_ledger(
+                        &mut state,
+                        repair_turns,
+                        &attempt_context,
+                        &before_signature,
+                        &after_signature,
+                        &[],
+                        false,
+                        Some(RepairAttemptOutcomeKind::Malformed),
+                    );
                     break;
                 }
                 state.pending_tool_arg_error = None;
@@ -470,21 +496,55 @@ where
         if result_changed_files(&result) {
             state.file_changing_attempts += 1;
         }
-        let changed_markers = changed_file_markers(&result);
-        let patch_validations = patch_validations_for_changed_files(runtime.cwd, &changed_markers);
-        state.changed_files.extend(changed_markers);
+        let attempt_changed_markers = changed_file_markers(&result);
+        let patch_validations =
+            patch_validations_for_changed_files(runtime.cwd, &attempt_changed_markers);
+        state.changed_files.extend(attempt_changed_markers.clone());
         if !patch_validations.is_empty() {
             push_patch_validation_contract_evidence(&mut state, step, &patch_validations);
             state
                 .failures
                 .push(patch_validation_failure(&patch_validations));
+            let after_evidence = contract_evidence_for_state(plan, step, &state);
+            let after_signature = repair_signature_from_contract_evidence(&after_evidence);
+            record_repair_attempt_ledger(
+                &mut state,
+                repair_turns,
+                &attempt_context,
+                &before_signature,
+                &after_signature,
+                &attempt_changed_markers,
+                false,
+                Some(RepairAttemptOutcomeKind::Unsafe),
+            );
             break;
         }
         state.failures = execution::verify_step_with_observer(runtime.cwd, step, observer)?;
         if state.failures.is_empty() {
+            record_repair_attempt_ledger(
+                &mut state,
+                repair_turns,
+                &attempt_context,
+                &before_signature,
+                "passed",
+                &attempt_changed_markers,
+                true,
+                None,
+            );
             return Ok(());
         }
-        record_repair_attempt_ledger(&mut state, step, repair_turns);
+        let after_evidence = contract_evidence_for_state(plan, step, &state);
+        let after_signature = repair_signature_from_contract_evidence(&after_evidence);
+        record_repair_attempt_ledger(
+            &mut state,
+            repair_turns,
+            &attempt_context,
+            &before_signature,
+            &after_signature,
+            &attempt_changed_markers,
+            false,
+            None,
+        );
         let missing_expected_paths = missing_paths(runtime.cwd, &step.expected_paths);
         match try_dependency_setup_recovery(
             runtime,
@@ -977,6 +1037,7 @@ fn contract_evidence_for_state(
             failure,
             state.dependency_setup_note.as_deref(),
             &state.repair_attempt_ledger,
+            &state.repair_job_state,
             &plan.required_artifacts,
         ) {
             push_contract_evidence_once(&mut evidence, verifier_evidence);
@@ -990,6 +1051,7 @@ fn verifier_contract_evidence(
     failure: &VerificationFailure,
     dependency_setup_note: Option<&str>,
     repair_attempt_ledger: &[String],
+    runtime_repair_job_state: &RepairJobState,
     plan_required_artifacts: &[String],
 ) -> Option<ContractEvidence> {
     if !is_verifier_failure(failure) {
@@ -1013,7 +1075,10 @@ fn verifier_contract_evidence(
         repair_target.as_deref().unwrap_or(""),
     ]);
     let active_job = verifier_active_job(failure, &binding, repair_target_role);
-    let mut repair_job_state = RepairJobState::new(active_job);
+    let mut repair_job_state = runtime_repair_job_state
+        .clone()
+        .with_active_job(active_job)
+        .with_verifier_command(Some(failure.command.clone()));
     if let Some(target) = &repair_target {
         repair_job_state = repair_job_state.with_current_target(target.clone());
     }
@@ -1043,7 +1108,17 @@ fn verifier_contract_evidence(
                 .with_diagnostic(failure.reason.clone())
                 .render_line(),
         ])
-        .with_repair_job_state(repair_job_state.render_lines());
+        .with_repair_job_state(repair_job_state.render_lines())
+        .with_attempt_outcomes(repair_job_state.attempt_outcome_lines())
+        .with_repair_attempt_ledger(repair_job_state.attempt_ledger_lines())
+        .with_exhausted_clusters(repair_job_state.exhausted_clusters.clone())
+        .with_eval_report_fields(repair_job_state.eval_report_fields());
+    if let Some(strategy) = repair_job_state.no_progress_strategy {
+        evidence = evidence.with_no_progress_strategy(strategy.as_str());
+    }
+    if !repair_job_state.attempt_ledger.is_empty() {
+        evidence = evidence.with_repair_state_status("attempted");
+    }
     if let Some(target) = repair_target {
         evidence = evidence
             .with_target_path(target.clone())
@@ -1398,44 +1473,206 @@ fn ignored_repair_candidate_path(value: &str) -> bool {
         || value.contains("/.next/")
 }
 
-fn record_repair_attempt_ledger(state: &mut RepairStepState, step: &StepPlanStep, attempt: usize) {
-    let failures = state.failures.clone();
-    for failure in failures {
-        if let Some(evidence) = verifier_contract_evidence(
-            step,
-            &failure,
-            state.dependency_setup_note.as_deref(),
-            &[],
-            &[],
-        ) && let Some(signature) = evidence.failure_signature
-        {
-            let outcome = if state
-                .repair_attempt_ledger
-                .iter()
-                .any(|entry| entry.contains(&signature))
-            {
-                "no_progress"
-            } else {
-                "improved_still_failing"
-            };
-            push_repair_attempt_ledger(
-                &mut state.repair_attempt_ledger,
-                format!("attempt {attempt}: signature={signature} outcome={outcome}"),
-            );
+#[derive(Debug, Clone)]
+struct RepairAttemptContext {
+    step_id: String,
+    active_job: String,
+    recovery_owner: Option<String>,
+    repair_action: Option<String>,
+    selected_failure_cluster: Option<String>,
+    selected_target: Option<String>,
+    selected_target_role: Option<String>,
+    verifier_command: String,
+    candidate_roles: Vec<String>,
+    evidence_binding_available: bool,
+    scaffold_rebuild_admitted: bool,
+}
+
+fn repair_attempt_context(
+    step: &StepPlanStep,
+    evidence: &[ContractEvidence],
+) -> RepairAttemptContext {
+    let selected = evidence
+        .iter()
+        .find(|item| item.repair_target.is_some() || item.target_path.is_some())
+        .or_else(|| evidence.first());
+    let selected_target = selected.and_then(|item| {
+        item.repair_target
+            .clone()
+            .or_else(|| item.target_path.clone())
+            .or_else(|| item.candidate_artifacts.first().cloned())
+    });
+    let selected_target_role = selected
+        .and_then(|item| item.artifact_role.clone())
+        .or_else(|| selected_target.as_deref().and_then(path_role_name));
+    let verifier_command = selected
+        .and_then(|item| item.rerun_authority.first().cloned())
+        .or_else(|| selected.and_then(|item| item.command.clone()))
+        .or_else(|| step.verify.first().cloned())
+        .unwrap_or_else(|| "original verifier/profile/guard".to_string());
+    let mut candidate_roles = Vec::new();
+    if let Some(role) = &selected_target_role {
+        push_unique_value(&mut candidate_roles, role.clone());
+    }
+    for item in evidence {
+        for role in candidate_roles_from_target_lines(&item.admitted_targets) {
+            push_unique_value(&mut candidate_roles, role);
         }
+        for role in candidate_roles_from_target_lines(&item.rejected_targets) {
+            push_unique_value(&mut candidate_roles, role);
+        }
+        if let Some(role) = &item.artifact_role {
+            push_unique_value(&mut candidate_roles, role.clone());
+        }
+    }
+    RepairAttemptContext {
+        step_id: step.id.clone(),
+        active_job: selected
+            .and_then(|item| item.active_job.clone())
+            .unwrap_or_else(|| "unknown".to_string()),
+        recovery_owner: selected.and_then(|item| item.recovery_owner.clone()),
+        repair_action: selected.and_then(|item| item.repair_action.clone()),
+        selected_failure_cluster: selected.and_then(|item| item.selected_failure_cluster.clone()),
+        selected_target,
+        selected_target_role,
+        verifier_command,
+        candidate_roles,
+        evidence_binding_available: evidence_binding_available(evidence),
+        scaffold_rebuild_admitted: scaffold_rebuild_admitted(evidence),
     }
 }
 
-fn push_repair_attempt_ledger(ledger: &mut Vec<String>, entry: String) {
-    if ledger.last().is_some_and(|last| last == &entry) {
-        return;
+fn repair_state_explicit_stop(evidence: &[ContractEvidence]) -> bool {
+    evidence.iter().any(|item| {
+        item.no_progress_strategy.as_deref() == Some("explicit_stop")
+            && item.repair_state_status.as_deref() == Some("attempted")
+            && item.explicit_stop_reason.is_some()
+    })
+}
+
+fn record_repair_attempt_ledger(
+    state: &mut RepairStepState,
+    attempt_number: usize,
+    context: &RepairAttemptContext,
+    before_signature: &str,
+    after_signature: &str,
+    changed_files: &[String],
+    verifier_passed: bool,
+    forced_outcome: Option<RepairAttemptOutcomeKind>,
+) {
+    let outcome = forced_outcome.unwrap_or_else(|| {
+        classify_attempt_outcome(
+            before_signature,
+            after_signature,
+            changed_files,
+            verifier_passed,
+        )
+    });
+    let reason = attempt_outcome_reason(outcome, before_signature, after_signature, changed_files);
+    let record = RepairAttemptRecord {
+        attempt_number,
+        step_id: context.step_id.clone(),
+        active_job: context.active_job.clone(),
+        recovery_owner: context.recovery_owner.clone(),
+        repair_action: context.repair_action.clone(),
+        selected_failure_cluster: context.selected_failure_cluster.clone(),
+        verifier_command: context.verifier_command.clone(),
+        failure_signature: before_signature.to_string(),
+        before_signature: before_signature.to_string(),
+        after_signature: after_signature.to_string(),
+        target: context.selected_target.clone(),
+        target_role: context.selected_target_role.clone(),
+        changed_files: changed_files.to_vec(),
+        outcome,
+        outcome_reason: reason,
+    };
+    let mut repair_job_state = state
+        .repair_job_state
+        .clone()
+        .with_step_id(context.step_id.clone())
+        .with_active_job(context.active_job.clone())
+        .with_recovery_owner(context.recovery_owner.clone())
+        .with_repair_action(context.repair_action.clone())
+        .with_verifier_command(Some(context.verifier_command.clone()))
+        .with_signatures(
+            Some(before_signature.to_string()),
+            Some(after_signature.to_string()),
+        )
+        .with_selected_failure_cluster(context.selected_failure_cluster.clone())
+        .with_current_target_opt(context.selected_target.clone())
+        .with_current_target_role(context.selected_target_role.clone())
+        .with_attempt(record);
+    if matches!(
+        outcome,
+        RepairAttemptOutcomeKind::NoProgress
+            | RepairAttemptOutcomeKind::Duplicate
+            | RepairAttemptOutcomeKind::Worsened
+    ) {
+        let strategy = select_no_progress_strategy(
+            &repair_job_state,
+            context.selected_target_role.as_deref(),
+            &context.candidate_roles,
+            context.evidence_binding_available,
+            context.scaffold_rebuild_admitted,
+        );
+        repair_job_state = repair_job_state.with_no_progress_strategy(strategy);
+        if strategy == NoProgressStrategy::ExplicitStop {
+            repair_job_state =
+                repair_job_state.with_explicit_stop_reason("no_progress_no_admitted_alternative");
+        }
     }
-    ledger.push(entry);
-    const MAX_LEDGER_ENTRIES: usize = 8;
-    if ledger.len() > MAX_LEDGER_ENTRIES {
-        let drop_count = ledger.len() - MAX_LEDGER_ENTRIES;
-        ledger.drain(0..drop_count);
+    if outcome == RepairAttemptOutcomeKind::ExplicitStop {
+        repair_job_state =
+            repair_job_state.with_explicit_stop_reason("no_admitted_bounded_repair_action");
     }
+    state.repair_job_state = repair_job_state;
+    state.repair_attempt_ledger = state.repair_job_state.attempt_ledger_lines();
+}
+
+fn candidate_roles_from_target_lines(lines: &[String]) -> Vec<String> {
+    let mut roles = Vec::new();
+    for line in lines {
+        if let Some(role) = extract_token_value(line, "role=") {
+            push_unique_value(&mut roles, role);
+        }
+    }
+    roles
+}
+
+fn extract_token_value(line: &str, marker: &str) -> Option<String> {
+    let (_, rest) = line.split_once(marker)?;
+    let value = rest
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .trim_matches(|ch| matches!(ch, ',' | ';'))
+        .to_string();
+    (!value.trim().is_empty()).then_some(value)
+}
+
+fn path_role_name(path: &str) -> Option<String> {
+    let role = role_for_path(path, ArtifactLifecycle::Required);
+    (role != ArtifactRole::Unknown).then(|| role.as_str().to_string())
+}
+
+fn evidence_binding_available(evidence: &[ContractEvidence]) -> bool {
+    evidence.iter().any(|item| {
+        item.evidence_binding
+            .iter()
+            .any(|line| line.contains("status=missing") || line.contains("status=stale"))
+    })
+}
+
+fn scaffold_rebuild_admitted(evidence: &[ContractEvidence]) -> bool {
+    evidence.iter().any(|item| {
+        item.allowed_change_kind
+            .as_deref()
+            .is_some_and(|kind| kind.contains("source"))
+            || item
+                .active_job
+                .as_deref()
+                .is_some_and(|job| job.contains("scaffold") || job.contains("route_integration"))
+    })
 }
 
 fn push_unique_value(values: &mut Vec<String>, value: String) {
@@ -2024,8 +2261,15 @@ mod tests {
             source_excerpt: None,
         };
 
-        let evidence =
-            verifier_contract_evidence(&step(StepKind::Verify), &failure, None, &[], &[]).unwrap();
+        let evidence = verifier_contract_evidence(
+            &step(StepKind::Verify),
+            &failure,
+            None,
+            &[],
+            &empty_repair_job_state(),
+            &[],
+        )
+        .unwrap();
         let evidence = orchestrate_evidence(evidence);
         let rendered = evidence.render().unwrap();
 
@@ -2066,6 +2310,7 @@ mod tests {
                 "attempt 1: verifier|step|npm run build|command_failed:1|app/hooks/useGameLoop.ts"
                     .to_string(),
             ],
+            &empty_repair_job_state(),
             &[],
         )
         .unwrap();
@@ -2094,8 +2339,15 @@ mod tests {
             }),
         };
 
-        let evidence =
-            verifier_contract_evidence(&step(StepKind::Verify), &failure, None, &[], &[]).unwrap();
+        let evidence = verifier_contract_evidence(
+            &step(StepKind::Verify),
+            &failure,
+            None,
+            &[],
+            &empty_repair_job_state(),
+            &[],
+        )
+        .unwrap();
         let evidence = orchestrate_evidence(evidence);
         let rendered = evidence.render().unwrap();
 
@@ -2119,8 +2371,15 @@ mod tests {
             source_excerpt: None,
         };
 
-        let evidence =
-            verifier_contract_evidence(&step(StepKind::Verify), &failure, None, &[], &[]).unwrap();
+        let evidence = verifier_contract_evidence(
+            &step(StepKind::Verify),
+            &failure,
+            None,
+            &[],
+            &empty_repair_job_state(),
+            &[],
+        )
+        .unwrap();
         let evidence = orchestrate_evidence(evidence);
         let rendered = evidence.render().unwrap();
 
@@ -2149,6 +2408,7 @@ mod tests {
             &failure,
             None,
             &[],
+            &empty_repair_job_state(),
             &["app/main.py".to_string(), "tests/test_app.py".to_string()],
         )
         .unwrap();
@@ -2179,6 +2439,7 @@ mod tests {
             &failure,
             None,
             &[],
+            &empty_repair_job_state(),
             &["package.json".to_string(), "app/page.tsx".to_string()],
         )
         .unwrap();
@@ -2260,6 +2521,7 @@ mod tests {
             &failure,
             Some("dependency_setup_attempted=true; dependency_setup_command=npm install; dependency_setup_result=success; verifier_rerun_result=failed"),
             &[],
+            &empty_repair_job_state(),
             &[],
         )
         .unwrap();
@@ -2325,7 +2587,15 @@ mod tests {
         };
 
         assert!(
-            verifier_contract_evidence(&step(StepKind::Repair), &failure, None, &[], &[]).is_none()
+            verifier_contract_evidence(
+                &step(StepKind::Repair),
+                &failure,
+                None,
+                &[],
+                &empty_repair_job_state(),
+                &[],
+            )
+            .is_none()
         );
     }
 
@@ -2382,23 +2652,53 @@ mod tests {
     #[test]
     fn repeated_verifier_signature_records_no_progress_attempt_outcome() {
         let mut state = empty_state();
-        state.failures.push(VerificationFailure {
-            command: "cargo test".to_string(),
-            reason: "command_failed:101".to_string(),
-            stdout_excerpt: String::new(),
-            stderr_excerpt: "error[E0425]: cannot find value".to_string(),
-            diagnostic_excerpt: "error[E0425]: cannot find value".to_string(),
-            source_excerpt: None,
-        });
+        let context = RepairAttemptContext {
+            step_id: "step".to_string(),
+            active_job: "source_implementation_repair".to_string(),
+            recovery_owner: Some("minimal_loop".to_string()),
+            repair_action: Some("repair_source_error".to_string()),
+            selected_failure_cluster: Some("verifier_failure".to_string()),
+            selected_target: Some("src/lib.rs".to_string()),
+            selected_target_role: Some("implementation".to_string()),
+            verifier_command: "cargo test".to_string(),
+            candidate_roles: vec!["implementation".to_string()],
+            evidence_binding_available: false,
+            scaffold_rebuild_admitted: false,
+        };
+        let changed_files = vec!["src/lib.rs".to_string()];
 
-        record_repair_attempt_ledger(&mut state, &step(StepKind::Repair), 1);
-        record_repair_attempt_ledger(&mut state, &step(StepKind::Repair), 2);
+        record_repair_attempt_ledger(
+            &mut state,
+            1,
+            &context,
+            "signature-a",
+            "signature-b",
+            &changed_files,
+            false,
+            None,
+        );
+        record_repair_attempt_ledger(
+            &mut state,
+            2,
+            &context,
+            "signature-b",
+            "signature-b",
+            &changed_files,
+            false,
+            None,
+        );
 
         assert!(
             state
                 .repair_attempt_ledger
                 .iter()
                 .any(|entry| entry.contains("outcome=no_progress"))
+        );
+        assert!(
+            state
+                .repair_job_state
+                .exhausted_targets
+                .contains(&"src/lib.rs".to_string())
         );
     }
 
@@ -2421,6 +2721,10 @@ mod tests {
         }
     }
 
+    fn empty_repair_job_state() -> RepairJobState {
+        RepairJobState::new("unknown").with_step_id("step")
+    }
+
     fn empty_state() -> RepairStepState {
         RepairStepState {
             failures: Vec::new(),
@@ -2431,6 +2735,7 @@ mod tests {
             dependency_setup_note: None,
             contract_evidence: Vec::new(),
             repair_attempt_ledger: Vec::new(),
+            repair_job_state: empty_repair_job_state(),
             tool_arg_schema_correction_spent: false,
             pending_tool_arg_error: None,
             pending_tool_arg_error_source: None,

@@ -183,7 +183,16 @@ RECOVERY_FIELD_NAMES = [
     "action_envelope_status",
     "repair_action",
     "tool_policy",
+    "repair_attempt_count",
     "attempt_outcome",
+    "attempt_outcome_reason",
+    "before_signature",
+    "after_signature",
+    "exhausted_targets",
+    "exhausted_roles",
+    "exhausted_clusters",
+    "no_progress_strategy",
+    "repair_state_status",
     "evidence_binding_status",
     "completion_evidence_status",
     "explicit_stop_reason",
@@ -225,6 +234,11 @@ def recovery_fields(reason, evidence, case):
         )
     if not fields.get("attempt_outcome"):
         fields["attempt_outcome"] = status_from_contract_list(evidence, "attempt_outcomes")
+    if not fields.get("repair_state_status"):
+        fields["repair_state_status"] = (
+            first_contract_value(evidence, "repair_state_status")
+            or ("not_attempted" if reason != "ok" else "passed")
+        )
     return {key: fields.get(key, "") for key in RECOVERY_FIELD_NAMES}
 
 
@@ -279,7 +293,16 @@ def derived_recovery_fields(reason, case):
         "action_envelope_status": "",
         "repair_action": "",
         "tool_policy": "",
+        "repair_attempt_count": "0",
         "attempt_outcome": "not_attempted" if reason != "ok" else "passed",
+        "attempt_outcome_reason": "",
+        "before_signature": "",
+        "after_signature": "",
+        "exhausted_targets": "",
+        "exhausted_roles": "",
+        "exhausted_clusters": "",
+        "no_progress_strategy": "",
+        "repair_state_status": "not_attempted" if reason != "ok" else "passed",
         "evidence_binding_status": "unknown" if reason != "ok" else "bound",
         "completion_evidence_status": "unknown" if reason != "ok" else "passed",
         "explicit_stop_reason": "",

@@ -78,10 +78,11 @@ CommandAgent is still in MVP migration.
   semantic failure report, repair job state, attempt outcomes, patch
   validation, and eval report fields. Artifact ledger and completion authority
   now distinguish missing deliverables, missing evidence, failed completion
-  evidence, and failed evidence binding in runtime/eval reports. Concrete
-  pass-side producers, persistent repair job lifecycle, target/role
-  no-progress switching, verifier-proven rollback, and profile-wide
-  evidence-binding producers are still partial.
+  evidence, and failed evidence binding in runtime/eval reports. Bounded repair
+  attempts now record before/after signatures and can exhaust target, role, or
+  failure cluster for no-progress attribution. Concrete pass-side producers,
+  persistent cross-command repair job lifecycle, verifier-proven rollback, and
+  profile-wide evidence-binding producers are still partial.
 - Step-decomposition lint now rejects the observed high-confidence case where a
   `setup` step owns classified source/style, route, component, test, docs,
   generated, or build artifacts such as `app/globals.css`. Broader ownership

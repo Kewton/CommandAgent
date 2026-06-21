@@ -953,6 +953,10 @@ mod tests {
                 dependency_setup_note: None,
                 contract_evidence: Vec::new(),
                 repair_attempt_ledger: Vec::new(),
+                repair_job_state: crate::agent::step_runner::repair_job::RepairJobState::new(
+                    "unknown",
+                )
+                .with_step_id(step.id.clone()),
                 tool_arg_schema_correction_spent: false,
                 pending_tool_arg_error: None,
                 pending_tool_arg_error_source: None,

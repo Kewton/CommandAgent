@@ -182,9 +182,10 @@ when they stay deterministic and visible:
 - Recovery policy combines active job arbitration, target admission and
   prioritization, and repair action selection from deterministic evidence and
   artifact roles. It does not invent a new user goal.
-- Attempt ledgers record failure kind, target artifact, repair action, changed
-  files, verifier result, and repeated-failure count so no-progress can stop
-  explicitly instead of retrying blindly.
+- Attempt ledgers record failure kind, target artifact, target role, failure
+  cluster, repair action, changed files, before/after signature, verifier
+  result, and outcome reason so no-progress can reject exhausted targets,
+  roles, or clusters explicitly instead of retrying blindly.
 
 These concepts should be adopted as explicit contract orchestration. They may
 actively classify the current job and choose a bounded repair action, but they
@@ -201,7 +202,7 @@ When choosing between mechanisms, prefer this order:
 6. setup bootstrap or deterministic manifest/scaffold materialization when the
    blocker is setup/config and policy permits it
 7. explicit recovery task contract under the original guard
-8. attempt-ledger no-progress stop
+8. attempt-ledger no-progress target/role/cluster exhaustion and explicit stop
 
 This preserves the practical value of stronger task contracts while moving the
 admission line away from "small only" and toward "explicit, bounded, and
@@ -279,7 +280,8 @@ The policy may produce only bounded contract data:
 - admitted repair target and ordered candidate artifacts
 - disallowed actions
 - success check and rerun authority
-- no-progress stop reason when the same job/target/failure repeats
+- no-progress strategy and exhausted target, role, or failure cluster when the
+  same job/target/failure repeats after a bounded repair attempt
 
 This contract exists because structured evidence alone does not guarantee a
 correct repair. A small execution model can be good at carrying out a clear

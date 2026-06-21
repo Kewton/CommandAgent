@@ -229,6 +229,9 @@ pub(crate) struct RecoveryOrchestrationDecision {
     pub(crate) selected_failure_cluster: Option<String>,
     pub(crate) repair_brief_status: Option<String>,
     pub(crate) action_envelope_status: Option<String>,
+    pub(crate) exhausted_clusters: Vec<String>,
+    pub(crate) no_progress_strategy: Option<String>,
+    pub(crate) repair_state_status: Option<String>,
 }
 
 impl RecoveryOrchestrationDecision {
@@ -327,6 +330,21 @@ impl RecoveryOrchestrationDecision {
             && let Some(status) = &self.action_envelope_status
         {
             evidence = evidence.with_action_envelope_status(status.clone());
+        }
+        if !self.exhausted_clusters.is_empty() {
+            let exhausted_clusters =
+                merge_lists(&evidence.exhausted_clusters, &self.exhausted_clusters);
+            evidence = evidence.with_exhausted_clusters(exhausted_clusters);
+        }
+        if evidence.no_progress_strategy.is_none()
+            && let Some(strategy) = &self.no_progress_strategy
+        {
+            evidence = evidence.with_no_progress_strategy(strategy.clone());
+        }
+        if evidence.repair_state_status.is_none()
+            && let Some(status) = &self.repair_state_status
+        {
+            evidence = evidence.with_repair_state_status(status.clone());
         }
         if evidence.explicit_stop_reason.is_none()
             && let Some(reason) = &self.explicit_stop_reason
@@ -452,10 +470,19 @@ pub(crate) fn orchestrate_contract_evidence(
         action_envelope_status: action_envelope_status(explicit_stop_reason.as_deref()),
     };
     let repair_brief_lines = repair_brief.render_lines();
+    let exhausted_clusters = exhausted_clusters_from_evidence(evidence);
+    let no_progress_strategy = no_progress_strategy_from_evidence(evidence);
+    let repair_state_status = repair_state_status_from_evidence(evidence);
     let eval_report_fields = merge_lists(
         &target_decision.eval_report_fields(),
         &repair_brief.eval_report_fields(),
     );
+    let repair_state_eval_fields = repair_state_eval_fields(
+        evidence,
+        &exhausted_clusters,
+        no_progress_strategy.as_deref(),
+    );
+    let eval_report_fields = merge_lists(&eval_report_fields, &repair_state_eval_fields);
     let eval_report_fields = merge_lists(
         &eval_report_fields,
         &[
@@ -523,6 +550,9 @@ pub(crate) fn orchestrate_contract_evidence(
         selected_failure_cluster: Some(selected_failure_cluster),
         repair_brief_status: Some(repair_brief.status.as_str().to_string()),
         action_envelope_status: Some(repair_brief.action_envelope_status.as_str().to_string()),
+        exhausted_clusters,
+        no_progress_strategy,
+        repair_state_status,
     })
 }
 
@@ -1137,6 +1167,8 @@ fn target_admission_policy(
     )
     .with_exhausted_targets(exhausted_targets_from_evidence(evidence))
     .with_exhausted_roles(exhausted_roles_from_evidence(evidence))
+    .with_exhausted_clusters(exhausted_clusters_from_evidence(evidence))
+    .with_current_cluster(evidence.selected_failure_cluster.clone())
 }
 
 fn target_candidates_for_job(
@@ -1326,6 +1358,103 @@ fn exhausted_roles_from_evidence(evidence: &ContractEvidence) -> Vec<ArtifactRol
                 .collect::<Vec<_>>()
         })
         .collect()
+}
+
+fn exhausted_clusters_from_evidence(evidence: &ContractEvidence) -> Vec<String> {
+    let mut clusters = Vec::new();
+    clusters.extend(evidence.exhausted_clusters.clone());
+    clusters.extend(
+        evidence
+            .repair_job_state
+            .iter()
+            .filter_map(|line| line.strip_prefix("exhausted_clusters="))
+            .flat_map(|clusters| clusters.split('|').map(str::to_string).collect::<Vec<_>>()),
+    );
+    clusters
+        .into_iter()
+        .filter(|cluster| !cluster.trim().is_empty() && cluster != "none")
+        .collect()
+}
+
+fn no_progress_strategy_from_evidence(evidence: &ContractEvidence) -> Option<String> {
+    evidence.no_progress_strategy.clone().or_else(|| {
+        evidence.repair_job_state.iter().find_map(|line| {
+            line.strip_prefix("no_progress_strategy=")
+                .map(str::to_string)
+        })
+    })
+}
+
+fn repair_state_status_from_evidence(evidence: &ContractEvidence) -> Option<String> {
+    evidence.repair_state_status.clone().or_else(|| {
+        evidence
+            .repair_job_state
+            .iter()
+            .find_map(|line| {
+                line.strip_prefix("repair_state_status=")
+                    .map(str::to_string)
+            })
+            .or_else(|| (!evidence.repair_job_state.is_empty()).then(|| "attempted".to_string()))
+    })
+}
+
+fn repair_state_eval_fields(
+    evidence: &ContractEvidence,
+    exhausted_clusters: &[String],
+    no_progress_strategy: Option<&str>,
+) -> Vec<String> {
+    let attempt_count = evidence
+        .repair_attempt_ledger
+        .len()
+        .max(evidence.attempt_outcomes.len());
+    let mut fields = vec![
+        format!("repair_attempt_count={attempt_count}"),
+        format!(
+            "exhausted_clusters={}",
+            if exhausted_clusters.is_empty() {
+                "none".to_string()
+            } else {
+                exhausted_clusters.join("|")
+            }
+        ),
+        format!(
+            "no_progress_strategy={}",
+            no_progress_strategy.unwrap_or("none")
+        ),
+    ];
+    for key in [
+        "attempt_outcome",
+        "attempt_outcome_reason",
+        "before_signature",
+        "after_signature",
+        "repair_state_status",
+    ] {
+        if let Some(value) = latest_eval_field_value(evidence, key) {
+            fields.push(format!("{key}={value}"));
+        }
+    }
+    fields
+}
+
+fn latest_eval_field_value(evidence: &ContractEvidence, key: &str) -> Option<String> {
+    let marker = format!("{key}=");
+    evidence
+        .eval_report_fields
+        .iter()
+        .rev()
+        .chain(evidence.attempt_outcomes.iter().rev())
+        .find_map(|line| extract_eval_field(line, &marker))
+}
+
+fn extract_eval_field(line: &str, marker: &str) -> Option<String> {
+    let (_, rest) = line.split_once(marker)?;
+    let value = rest
+        .split_whitespace()
+        .next()
+        .unwrap_or_default()
+        .trim_matches(|ch| matches!(ch, ',' | ';'))
+        .to_string();
+    (!value.trim().is_empty()).then_some(value)
 }
 
 fn parse_artifact_role(value: &str) -> Option<ArtifactRole> {

@@ -223,6 +223,18 @@ such as `proposed_targets`, `admitted_targets`, `rejected_targets`,
 `action_envelope_status`. This is not a semantic planner loop: if no target or
 action is admitted, CommandAgent stops explicitly with structured evidence.
 
+2026-06-21 amendment: Recovery Orchestration now records bounded repair job
+state after each repair turn that reruns the original verifier, profile check,
+or guard. Attempt records include the active job, recovery owner, repair
+action, selected target and role, selected failure cluster, verifier command,
+changed files, before/after signature, outcome, and outcome reason. Outcomes
+such as `no_progress`, `duplicate`, or `worsened` may exhaust the target, role,
+or failure cluster and feed that fact back into the existing target-admission
+gate. A no-progress strategy may switch to an already admitted alternative,
+route to evidence binding, escalate to a contract conflict, or stop
+explicitly. It must not increase retry budgets, run hidden continuation,
+select targets outside admission, or grant provider/model-specific behavior.
+
 ## Non-Decisions
 
 This ADR does not reintroduce:
