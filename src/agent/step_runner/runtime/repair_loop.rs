@@ -652,7 +652,7 @@ fn push_missing_expected_path_contract_evidence(
         };
         let obligation = DeliverableObligation::new(obligation_kind_for_path(path), path)
             .with_required_evidence("file_layout")
-            .with_freshness(FreshnessRule::MustBeEditedThisSession)
+            .with_freshness(FreshnessRule::EditedThisSession)
             .render_line();
         let binding = EvidenceBindingPlan::new(
             EvidenceBindingKind::FileLayout,
@@ -1144,15 +1144,15 @@ fn verifier_active_job(
             | VerifierSelection::StructuredWeak
     ) {
         "verifier_contract_correction"
-    } else if tailwind_postcss_plugin_diagnostic(failure) {
-        "manifest_repair"
-    } else if matches!(
-        target_role,
-        Some(
-            crate::agent::step_runner::artifact_graph::ArtifactRole::SetupManifest
-                | crate::agent::step_runner::artifact_graph::ArtifactRole::SetupConfig
+    } else if tailwind_postcss_plugin_diagnostic(failure)
+        || matches!(
+            target_role,
+            Some(
+                crate::agent::step_runner::artifact_graph::ArtifactRole::SetupManifest
+                    | crate::agent::step_runner::artifact_graph::ArtifactRole::SetupConfig
+            )
         )
-    ) {
+    {
         "manifest_repair"
     } else if matches!(
         target_role,

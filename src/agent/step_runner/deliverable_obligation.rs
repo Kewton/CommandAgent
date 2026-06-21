@@ -29,19 +29,19 @@ impl DeliverableKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum FreshnessRule {
-    MustExist,
-    MustBeEditedThisSession,
-    MustMatchCurrentPlan,
-    MustHaveVerifierEvidence,
+    Exist,
+    EditedThisSession,
+    MatchCurrentPlan,
+    HaveVerifierEvidence,
 }
 
 impl FreshnessRule {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
-            Self::MustExist => "must_exist",
-            Self::MustBeEditedThisSession => "must_be_edited_this_session",
-            Self::MustMatchCurrentPlan => "must_match_current_plan",
-            Self::MustHaveVerifierEvidence => "must_have_verifier_evidence",
+            Self::Exist => "must_exist",
+            Self::EditedThisSession => "must_be_edited_this_session",
+            Self::MatchCurrentPlan => "must_match_current_plan",
+            Self::HaveVerifierEvidence => "must_have_verifier_evidence",
         }
     }
 }
@@ -60,7 +60,7 @@ impl DeliverableObligation {
             kind,
             path: path.into(),
             required_evidence: Vec::new(),
-            freshness: vec![FreshnessRule::MustExist],
+            freshness: vec![FreshnessRule::Exist],
         }
     }
 
@@ -120,7 +120,7 @@ mod tests {
     fn obligation_rendering_keeps_freshness_visible() {
         let obligation = DeliverableObligation::new(DeliverableKind::Source, "app/page.tsx")
             .with_required_evidence("route imports Game")
-            .with_freshness(FreshnessRule::MustHaveVerifierEvidence);
+            .with_freshness(FreshnessRule::HaveVerifierEvidence);
 
         let rendered = obligation.render_line();
 
@@ -132,19 +132,19 @@ mod tests {
     #[test]
     fn coding_task_can_require_fresh_source_and_verifier_evidence() {
         let obligation = DeliverableObligation::new(DeliverableKind::Source, "src/lib.rs")
-            .with_freshness(FreshnessRule::MustBeEditedThisSession)
-            .with_freshness(FreshnessRule::MustHaveVerifierEvidence);
+            .with_freshness(FreshnessRule::EditedThisSession)
+            .with_freshness(FreshnessRule::HaveVerifierEvidence);
 
-        assert!(obligation.freshness.contains(&FreshnessRule::MustExist));
+        assert!(obligation.freshness.contains(&FreshnessRule::Exist));
         assert!(
             obligation
                 .freshness
-                .contains(&FreshnessRule::MustBeEditedThisSession)
+                .contains(&FreshnessRule::EditedThisSession)
         );
         assert!(
             obligation
                 .freshness
-                .contains(&FreshnessRule::MustHaveVerifierEvidence)
+                .contains(&FreshnessRule::HaveVerifierEvidence)
         );
     }
 
@@ -158,15 +158,7 @@ mod tests {
 
         assert_eq!(docs.kind, DeliverableKind::Docs);
         assert_eq!(data.kind, DeliverableKind::StructuredData);
-        assert!(
-            !docs
-                .freshness
-                .contains(&FreshnessRule::MustBeEditedThisSession)
-        );
-        assert!(
-            !data
-                .freshness
-                .contains(&FreshnessRule::MustBeEditedThisSession)
-        );
+        assert!(!docs.freshness.contains(&FreshnessRule::EditedThisSession));
+        assert!(!data.freshness.contains(&FreshnessRule::EditedThisSession));
     }
 }
