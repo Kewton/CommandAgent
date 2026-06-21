@@ -41,7 +41,9 @@ Contract Boundary Propagation is the handoff rule between these surfaces, not a
 second execution engine. When a deterministic guard rejects work, it may pass
 only the facts it owns to the next layer: violated contract, artifact graph
 facts, active job, repair kind, admitted target, repair action when
-deterministic, setup implication, rerun authority, and attempt-ledger context.
+deterministic, semantic failure kind, source of truth, allowed change kind,
+expected evidence delta, workspace scope, artifact ownership, setup
+implication, rerun authority, and attempt-ledger context.
 This lets Recovery Orchestration Contract choose the correct bounded path
 before Recovery Task Contract, Setup Bootstrap, or verifier-owned setup
 recovery delegates execution to the minimal loop.
@@ -202,6 +204,12 @@ Tool results are subject to deterministic output budgeting. If a result is
 truncated, CommandAgent emits a truncation event and includes a marker in the
 tool observation. This prevents large local outputs from silently overwhelming
 model context while keeping the truncation observable.
+
+Successful file-mutation tool records also carry safe target metadata. `Write`
+and `Edit` retain the normalized target path, not raw file contents or full
+tool arguments. Recovery changed-file summaries and artifact-ledger summaries
+use these exact paths so repair policy can distinguish "this target was edited"
+from the older coarse fact that some file-changing tool ran.
 
 ## REPL
 

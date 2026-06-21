@@ -63,10 +63,17 @@ pub struct RecoveryTaskContract {
     pub evidence_signature: Option<String>,
     pub repair_kind: Option<String>,
     pub repair_action: Option<String>,
+    pub semantic_failure_kind: Option<String>,
+    pub source_of_truth: Option<String>,
+    pub allowed_change_kind: Option<String>,
+    pub expected_evidence_delta: Option<String>,
     pub setup_implication: Option<String>,
     pub tool_policy_projection: Option<String>,
     pub target_admission: Option<String>,
     pub target_priority: Option<String>,
+    pub workspace_scope: Option<String>,
+    pub artifact_ownership: Option<String>,
+    pub active_job_priority: Option<String>,
     pub explicit_stop_reason: Option<String>,
     pub artifact_graph_summary: Vec<String>,
     pub rerun_authority: Vec<String>,
@@ -105,10 +112,17 @@ impl RecoveryTaskContract {
             .with_evidence_signature_opt(evidence.failure_signature.clone())
             .with_repair_kind_opt(evidence.repair_kind.clone())
             .with_repair_action_opt(evidence.repair_action.clone())
+            .with_semantic_failure_kind_opt(evidence.semantic_failure_kind.clone())
+            .with_source_of_truth_opt(evidence.source_of_truth.clone())
+            .with_allowed_change_kind_opt(evidence.allowed_change_kind.clone())
+            .with_expected_evidence_delta_opt(evidence.expected_evidence_delta.clone())
             .with_setup_implication_opt(evidence.setup_implication.clone())
             .with_tool_policy_projection_opt(evidence.tool_policy_projection.clone())
             .with_target_admission_opt(evidence.target_admission.clone())
             .with_target_priority_opt(evidence.target_priority.clone())
+            .with_workspace_scope_opt(evidence.workspace_scope.clone())
+            .with_artifact_ownership_opt(evidence.artifact_ownership.clone())
+            .with_active_job_priority_opt(evidence.active_job_priority.clone())
             .with_explicit_stop_reason_opt(evidence.explicit_stop_reason.clone())
             .with_artifact_graph_summary(evidence.artifact_graph_summary.clone())
             .with_rerun_authority(evidence.rerun_authority.clone())
@@ -212,6 +226,29 @@ impl RecoveryTaskContract {
         self
     }
 
+    pub fn with_semantic_failure_kind(mut self, semantic_failure_kind: impl Into<String>) -> Self {
+        self.semantic_failure_kind = Some(semantic_failure_kind.into());
+        self
+    }
+
+    pub fn with_source_of_truth(mut self, source_of_truth: impl Into<String>) -> Self {
+        self.source_of_truth = Some(source_of_truth.into());
+        self
+    }
+
+    pub fn with_allowed_change_kind(mut self, allowed_change_kind: impl Into<String>) -> Self {
+        self.allowed_change_kind = Some(allowed_change_kind.into());
+        self
+    }
+
+    pub fn with_expected_evidence_delta(
+        mut self,
+        expected_evidence_delta: impl Into<String>,
+    ) -> Self {
+        self.expected_evidence_delta = Some(expected_evidence_delta.into());
+        self
+    }
+
     pub fn with_setup_implication(mut self, setup_implication: impl Into<String>) -> Self {
         self.setup_implication = Some(setup_implication.into());
         self
@@ -232,6 +269,21 @@ impl RecoveryTaskContract {
 
     pub fn with_target_priority(mut self, target_priority: impl Into<String>) -> Self {
         self.target_priority = Some(target_priority.into());
+        self
+    }
+
+    pub fn with_workspace_scope(mut self, workspace_scope: impl Into<String>) -> Self {
+        self.workspace_scope = Some(workspace_scope.into());
+        self
+    }
+
+    pub fn with_artifact_ownership(mut self, artifact_ownership: impl Into<String>) -> Self {
+        self.artifact_ownership = Some(artifact_ownership.into());
+        self
+    }
+
+    pub fn with_active_job_priority(mut self, active_job_priority: impl Into<String>) -> Self {
+        self.active_job_priority = Some(active_job_priority.into());
         self
     }
 
@@ -324,6 +376,26 @@ impl RecoveryTaskContract {
         push_field(&mut lines, "repair_action", self.repair_action.as_deref());
         push_field(
             &mut lines,
+            "semantic_failure_kind",
+            self.semantic_failure_kind.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "source_of_truth",
+            self.source_of_truth.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "allowed_change_kind",
+            self.allowed_change_kind.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "expected_evidence_delta",
+            self.expected_evidence_delta.as_deref(),
+        );
+        push_field(
+            &mut lines,
             "setup_implication",
             self.setup_implication.as_deref(),
         );
@@ -341,6 +413,21 @@ impl RecoveryTaskContract {
             &mut lines,
             "target_priority",
             self.target_priority.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "workspace_scope",
+            self.workspace_scope.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "artifact_ownership",
+            self.artifact_ownership.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "active_job_priority",
+            self.active_job_priority.as_deref(),
         );
         push_field(
             &mut lines,
@@ -447,6 +534,34 @@ impl RecoveryTaskContract {
         }
     }
 
+    fn with_semantic_failure_kind_opt(self, semantic_failure_kind: Option<String>) -> Self {
+        match semantic_failure_kind {
+            Some(value) => self.with_semantic_failure_kind(value),
+            None => self,
+        }
+    }
+
+    fn with_source_of_truth_opt(self, source_of_truth: Option<String>) -> Self {
+        match source_of_truth {
+            Some(value) => self.with_source_of_truth(value),
+            None => self,
+        }
+    }
+
+    fn with_allowed_change_kind_opt(self, allowed_change_kind: Option<String>) -> Self {
+        match allowed_change_kind {
+            Some(value) => self.with_allowed_change_kind(value),
+            None => self,
+        }
+    }
+
+    fn with_expected_evidence_delta_opt(self, expected_evidence_delta: Option<String>) -> Self {
+        match expected_evidence_delta {
+            Some(value) => self.with_expected_evidence_delta(value),
+            None => self,
+        }
+    }
+
     fn with_setup_implication_opt(self, setup_implication: Option<String>) -> Self {
         match setup_implication {
             Some(value) => self.with_setup_implication(value),
@@ -471,6 +586,27 @@ impl RecoveryTaskContract {
     fn with_target_priority_opt(self, target_priority: Option<String>) -> Self {
         match target_priority {
             Some(value) => self.with_target_priority(value),
+            None => self,
+        }
+    }
+
+    fn with_workspace_scope_opt(self, workspace_scope: Option<String>) -> Self {
+        match workspace_scope {
+            Some(value) => self.with_workspace_scope(value),
+            None => self,
+        }
+    }
+
+    fn with_artifact_ownership_opt(self, artifact_ownership: Option<String>) -> Self {
+        match artifact_ownership {
+            Some(value) => self.with_artifact_ownership(value),
+            None => self,
+        }
+    }
+
+    fn with_active_job_priority_opt(self, active_job_priority: Option<String>) -> Self {
+        match active_job_priority {
+            Some(value) => self.with_active_job_priority(value),
             None => self,
         }
     }
@@ -501,10 +637,17 @@ impl RecoveryTaskContract {
             || self.success_check.is_some()
             || self.repair_kind.is_some()
             || self.repair_action.is_some()
+            || self.semantic_failure_kind.is_some()
+            || self.source_of_truth.is_some()
+            || self.allowed_change_kind.is_some()
+            || self.expected_evidence_delta.is_some()
             || self.setup_implication.is_some()
             || self.tool_policy_projection.is_some()
             || self.target_admission.is_some()
             || self.target_priority.is_some()
+            || self.workspace_scope.is_some()
+            || self.artifact_ownership.is_some()
+            || self.active_job_priority.is_some()
             || self.explicit_stop_reason.is_some()
             || !self.artifact_graph_summary.is_empty()
             || !self.rerun_authority.is_empty()
@@ -516,17 +659,23 @@ impl RecoveryTaskContract {
 pub fn recovery_execution_envelope(
     evidence: &[ContractEvidence],
 ) -> Option<RecoveryExecutionEnvelope> {
-    let mut selected = None;
-    for item in evidence {
-        match execution_envelope(item) {
-            Some(RecoveryExecutionEnvelope::ReadOnlyEvidence) => {
-                return Some(RecoveryExecutionEnvelope::ReadOnlyEvidence);
-            }
-            Some(envelope) if selected.is_none() => selected = Some(envelope),
-            _ => {}
-        }
-    }
-    selected
+    evidence
+        .iter()
+        .cloned()
+        .map(orchestrate_evidence)
+        .filter_map(|item| {
+            execution_envelope(&item)
+                .map(|envelope| (recovery_priority(&item).unwrap_or(u8::MAX), envelope))
+        })
+        .min_by_key(|(priority, _)| *priority)
+        .map(|(_, envelope)| envelope)
+}
+
+fn recovery_priority(evidence: &ContractEvidence) -> Option<u8> {
+    evidence
+        .active_job_priority
+        .as_deref()
+        .and_then(|value| value.parse::<u8>().ok())
 }
 
 fn known_recovery_source(source: &str) -> bool {

@@ -43,10 +43,17 @@ pub struct ContractEvidence {
     pub repair_focus: Option<String>,
     pub repair_kind: Option<String>,
     pub repair_action: Option<String>,
+    pub semantic_failure_kind: Option<String>,
+    pub source_of_truth: Option<String>,
+    pub allowed_change_kind: Option<String>,
+    pub expected_evidence_delta: Option<String>,
     pub setup_implication: Option<String>,
     pub tool_policy_projection: Option<String>,
     pub target_admission: Option<String>,
     pub target_priority: Option<String>,
+    pub workspace_scope: Option<String>,
+    pub artifact_ownership: Option<String>,
+    pub active_job_priority: Option<String>,
     pub explicit_stop_reason: Option<String>,
     pub artifact_graph_summary: Vec<String>,
     pub rerun_authority: Vec<String>,
@@ -263,6 +270,29 @@ impl ContractEvidence {
         self
     }
 
+    pub fn with_semantic_failure_kind(mut self, semantic_failure_kind: impl Into<String>) -> Self {
+        self.semantic_failure_kind = Some(semantic_failure_kind.into());
+        self
+    }
+
+    pub fn with_source_of_truth(mut self, source_of_truth: impl Into<String>) -> Self {
+        self.source_of_truth = Some(source_of_truth.into());
+        self
+    }
+
+    pub fn with_allowed_change_kind(mut self, allowed_change_kind: impl Into<String>) -> Self {
+        self.allowed_change_kind = Some(allowed_change_kind.into());
+        self
+    }
+
+    pub fn with_expected_evidence_delta(
+        mut self,
+        expected_evidence_delta: impl Into<String>,
+    ) -> Self {
+        self.expected_evidence_delta = Some(expected_evidence_delta.into());
+        self
+    }
+
     pub fn with_setup_implication(mut self, setup_implication: impl Into<String>) -> Self {
         self.setup_implication = Some(setup_implication.into());
         self
@@ -283,6 +313,21 @@ impl ContractEvidence {
 
     pub fn with_target_priority(mut self, target_priority: impl Into<String>) -> Self {
         self.target_priority = Some(target_priority.into());
+        self
+    }
+
+    pub fn with_workspace_scope(mut self, workspace_scope: impl Into<String>) -> Self {
+        self.workspace_scope = Some(workspace_scope.into());
+        self
+    }
+
+    pub fn with_artifact_ownership(mut self, artifact_ownership: impl Into<String>) -> Self {
+        self.artifact_ownership = Some(artifact_ownership.into());
+        self
+    }
+
+    pub fn with_active_job_priority(mut self, active_job_priority: impl Into<String>) -> Self {
+        self.active_job_priority = Some(active_job_priority.into());
         self
     }
 
@@ -381,6 +426,26 @@ impl ContractEvidence {
         push_field(&mut lines, "repair_action", self.repair_action.as_deref());
         push_field(
             &mut lines,
+            "semantic_failure_kind",
+            self.semantic_failure_kind.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "source_of_truth",
+            self.source_of_truth.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "allowed_change_kind",
+            self.allowed_change_kind.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "expected_evidence_delta",
+            self.expected_evidence_delta.as_deref(),
+        );
+        push_field(
+            &mut lines,
             "setup_implication",
             self.setup_implication.as_deref(),
         );
@@ -398,6 +463,21 @@ impl ContractEvidence {
             &mut lines,
             "target_priority",
             self.target_priority.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "workspace_scope",
+            self.workspace_scope.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "artifact_ownership",
+            self.artifact_ownership.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "active_job_priority",
+            self.active_job_priority.as_deref(),
         );
         push_field(
             &mut lines,
@@ -445,10 +525,17 @@ impl ContractEvidence {
             && self.repair_focus.is_none()
             && self.repair_kind.is_none()
             && self.repair_action.is_none()
+            && self.semantic_failure_kind.is_none()
+            && self.source_of_truth.is_none()
+            && self.allowed_change_kind.is_none()
+            && self.expected_evidence_delta.is_none()
             && self.setup_implication.is_none()
             && self.tool_policy_projection.is_none()
             && self.target_admission.is_none()
             && self.target_priority.is_none()
+            && self.workspace_scope.is_none()
+            && self.artifact_ownership.is_none()
+            && self.active_job_priority.is_none()
             && self.explicit_stop_reason.is_none()
             && self.artifact_graph_summary.is_empty()
             && self.rerun_authority.is_empty()

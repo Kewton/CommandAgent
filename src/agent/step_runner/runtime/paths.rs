@@ -29,7 +29,13 @@ pub(super) fn changed_file_markers(result: &RunResult) -> Vec<String> {
         .tool_results
         .iter()
         .filter(|record| record.ok && is_file_change_tool(&record.name))
-        .map(|record| record.name.clone())
+        .flat_map(|record| {
+            if record.target_paths.is_empty() {
+                vec![record.name.clone()]
+            } else {
+                record.target_paths.clone()
+            }
+        })
         .collect()
 }
 

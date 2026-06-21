@@ -22,6 +22,9 @@ use crate::agent::step_runner::repair::{
 use crate::agent::step_runner::runtime::phase_contract::{
     ActiveStepContract, current_profile_facts,
 };
+use crate::agent::step_runner::setup_artifact_validation::{
+    SetupArtifactViolation, validate_npm_manifest,
+};
 use crate::agent::step_runner::verifier_selection::{VerifierBinding, VerifierSelection};
 use crate::agent::step_runner::verify::VerificationFailure;
 use crate::agent::step_runner::{StepKind, StepPlan, StepPlanStep};
@@ -338,7 +341,7 @@ where
             max_attempts: MAX_REPAIR_TURNS,
             missing_expected_paths: missing_expected_paths.clone(),
         });
-        let current_contract_evidence = contract_evidence_for_state(step, &state);
+        let current_contract_evidence = contract_evidence_for_state(plan, step, &state);
         let selected_envelope = recovery_execution_envelope(&current_contract_evidence);
         let correction_decision = tool_protocol_correction_decision(
             step,
@@ -486,7 +489,7 @@ where
         DependencyRecoveryResult::Blocked(message) => return Err(message),
         DependencyRecoveryResult::ContinueRepair | DependencyRecoveryResult::NotApplicable => {}
     }
-    let contract_evidence = contract_evidence_for_state(step, &state);
+    let contract_evidence = contract_evidence_for_state(plan, step, &state);
     let context = RepairContext {
         step_id: step.id.clone(),
         original_goal: plan.goal.clone(),
@@ -596,6 +599,16 @@ fn push_tool_arg_contract_evidence(
             .with_target_path(path.clone())
             .with_candidate_artifacts(vec![path.clone()])
             .with_repair_target(path);
+    }
+    if state.tool_arg_schema_correction_spent {
+        evidence = evidence
+            .with_prior_attempts(vec![
+                "Tool protocol correction was attempted once for this step".to_string(),
+            ])
+            .with_repair_attempt_ledger(vec![format!(
+                "Tool protocol correction was attempted once; {} still missing required schema fields",
+                arg_error.tool_name()
+            )]);
     }
     push_contract_evidence_once(&mut state.contract_evidence, evidence);
 }
@@ -770,6 +783,7 @@ fn read_only_policy_tool(message: &str) -> Option<&'static str> {
 }
 
 fn contract_evidence_for_state(
+    plan: &StepPlan,
     step: &StepPlanStep,
     state: &RepairStepState,
 ) -> Vec<ContractEvidence> {
@@ -780,6 +794,7 @@ fn contract_evidence_for_state(
             failure,
             state.dependency_setup_note.as_deref(),
             &state.repair_attempt_ledger,
+            &plan.required_artifacts,
         ) {
             push_contract_evidence_once(&mut evidence, verifier_evidence);
         }
@@ -792,21 +807,20 @@ fn verifier_contract_evidence(
     failure: &VerificationFailure,
     dependency_setup_note: Option<&str>,
     repair_attempt_ledger: &[String],
+    plan_required_artifacts: &[String],
 ) -> Option<ContractEvidence> {
     if !is_verifier_failure(failure) {
         return None;
     }
     let binding = VerifierBinding::from_failure(failure);
-    let candidate_artifacts = verifier_candidate_artifacts(failure, &binding);
+    let candidate_artifacts =
+        verifier_candidate_artifacts(failure, &binding, plan_required_artifacts);
     let repair_target = if tailwind_postcss_plugin_diagnostic(failure) {
         Some("postcss.config.js".to_string())
     } else {
-        binding
-            .candidate_repair_target
-            .clone()
-            .filter(|path| !ignored_repair_candidate_path(path))
-            .or_else(|| verifier_contract_target(step, &binding, &candidate_artifacts))
+        verifier_contract_target(step, &binding, &candidate_artifacts)
     };
+    let repair_target_role = repair_target.as_deref().and_then(verifier_target_role);
     let diagnostic_code = failure.reason.clone();
     let signature = failure_signature([
         "verifier",
@@ -826,10 +840,14 @@ fn verifier_contract_evidence(
         .with_candidate_artifacts(candidate_artifacts)
         .with_observed_expected_pairs(vec![verifier_observed_expected_pair(failure)])
         .with_affected_cases(vec![failure.command.clone()])
-        .with_active_job(verifier_active_job(failure, &binding))
-        .with_required_action(verifier_required_action(failure))
+        .with_active_job(verifier_active_job(failure, &binding, repair_target_role))
+        .with_required_action(verifier_required_action(failure, repair_target_role))
         .with_repair_kind(verifier_repair_kind(failure, &binding))
-        .with_repair_action(verifier_repair_action(failure, &binding))
+        .with_repair_action(verifier_repair_action(
+            failure,
+            &binding,
+            repair_target_role,
+        ))
         .with_setup_implication(verifier_setup_implication(failure))
         .with_rerun_authority(vec![failure.command.clone()]);
     if let Some(target) = repair_target {
@@ -916,7 +934,11 @@ fn verifier_repair_kind(failure: &VerificationFailure, binding: &VerifierBinding
     }
 }
 
-fn verifier_active_job(failure: &VerificationFailure, binding: &VerifierBinding) -> &'static str {
+fn verifier_active_job(
+    failure: &VerificationFailure,
+    binding: &VerifierBinding,
+    target_role: Option<crate::agent::step_runner::artifact_graph::ArtifactRole>,
+) -> &'static str {
     if binding.selection == VerifierSelection::DependencySetupRequired {
         "setup_bootstrap"
     } else if matches!(
@@ -929,6 +951,19 @@ fn verifier_active_job(failure: &VerificationFailure, binding: &VerifierBinding)
         "verifier_contract_correction"
     } else if tailwind_postcss_plugin_diagnostic(failure) {
         "manifest_repair"
+    } else if matches!(
+        target_role,
+        Some(
+            crate::agent::step_runner::artifact_graph::ArtifactRole::SetupManifest
+                | crate::agent::step_runner::artifact_graph::ArtifactRole::SetupConfig
+        )
+    ) {
+        "manifest_repair"
+    } else if matches!(
+        target_role,
+        Some(crate::agent::step_runner::artifact_graph::ArtifactRole::Test)
+    ) {
+        "test_alignment_repair"
     } else {
         "source_implementation_repair"
     }
@@ -937,6 +972,7 @@ fn verifier_active_job(failure: &VerificationFailure, binding: &VerifierBinding)
 fn verifier_repair_action(
     failure: &VerificationFailure,
     binding: &VerifierBinding,
+    target_role: Option<crate::agent::step_runner::artifact_graph::ArtifactRole>,
 ) -> &'static str {
     if binding.selection == VerifierSelection::DependencySetupRequired {
         "stop_with_setup_blocker"
@@ -950,6 +986,19 @@ fn verifier_repair_action(
         "replace_invalid_verifier_command"
     } else if tailwind_postcss_plugin_diagnostic(failure) {
         "repair_tailwind_contract"
+    } else if matches!(
+        target_role,
+        Some(
+            crate::agent::step_runner::artifact_graph::ArtifactRole::SetupManifest
+                | crate::agent::step_runner::artifact_graph::ArtifactRole::SetupConfig
+        )
+    ) {
+        "add_missing_manifest_dependency"
+    } else if matches!(
+        target_role,
+        Some(crate::agent::step_runner::artifact_graph::ArtifactRole::Test)
+    ) {
+        "align_test_and_verifier"
     } else {
         "repair_source_error"
     }
@@ -965,13 +1014,21 @@ fn verifier_setup_implication(failure: &VerificationFailure) -> &'static str {
     }
 }
 
-fn verifier_required_action(failure: &VerificationFailure) -> &'static str {
+fn verifier_required_action(
+    failure: &VerificationFailure,
+    target_role: Option<crate::agent::step_runner::artifact_graph::ArtifactRole>,
+) -> &'static str {
     if failure.reason == "dependency_missing" {
         "use verifier-owned setup recovery when allowed; do not edit files or run dependency installation from a model tool call"
     } else if failure.reason.starts_with("blocked:") {
         "replace or replan the invalid verifier command; do not edit source to satisfy a rejected verifier contract"
     } else if tailwind_postcss_plugin_diagnostic(failure) {
         "fix the Tailwind/PostCSS contract in postcss.config.js and package.json; if manifest dependencies change, verifier-owned setup recovery handles approved setup"
+    } else if matches!(
+        target_role,
+        Some(crate::agent::step_runner::artifact_graph::ArtifactRole::Test)
+    ) {
+        "align the test contract and verifier target without changing implementation source or weakening the verifier"
     } else {
         "fix the reported verifier failure before adding feature work"
     }
@@ -980,6 +1037,7 @@ fn verifier_required_action(failure: &VerificationFailure) -> &'static str {
 fn verifier_candidate_artifacts(
     failure: &VerificationFailure,
     binding: &VerifierBinding,
+    plan_required_artifacts: &[String],
 ) -> Vec<String> {
     let mut artifacts = Vec::new();
     if let Some(target) = &binding.candidate_repair_target {
@@ -994,6 +1052,9 @@ fn verifier_candidate_artifacts(
     if let Some(source) = &failure.source_excerpt {
         push_repairable_candidate(&mut artifacts, source.path.clone());
     }
+    for artifact in plan_required_artifacts {
+        push_repairable_candidate(&mut artifacts, artifact.clone());
+    }
     if tailwind_postcss_plugin_diagnostic(failure) {
         push_repairable_candidate(&mut artifacts, "package.json".to_string());
         push_repairable_candidate(&mut artifacts, "postcss.config.js".to_string());
@@ -1005,6 +1066,9 @@ fn verifier_candidate_artifacts(
     ] {
         for candidate in source_like_paths(text) {
             push_unique_value(&mut artifacts, candidate);
+        }
+        for candidate in python_import_candidate_paths(text) {
+            push_repairable_candidate(&mut artifacts, candidate);
         }
     }
     artifacts.truncate(8);
@@ -1021,8 +1085,47 @@ fn verifier_contract_target(
         | VerifierSelection::Missing
         | VerifierSelection::StructuredMissing
         | VerifierSelection::StructuredWeak => Some(format!("step:{}", step.id)),
-        _ => single_candidate(candidate_artifacts),
+        _ => prioritized_verifier_candidate(candidate_artifacts),
     }
+}
+
+fn prioritized_verifier_candidate(candidate_artifacts: &[String]) -> Option<String> {
+    candidate_artifacts
+        .iter()
+        .enumerate()
+        .filter_map(|(index, path)| {
+            let role = verifier_target_role(path)?;
+            let priority = match role {
+                crate::agent::step_runner::artifact_graph::ArtifactRole::Entrypoint => 0,
+                crate::agent::step_runner::artifact_graph::ArtifactRole::IntegrationTarget => 1,
+                crate::agent::step_runner::artifact_graph::ArtifactRole::Implementation => 2,
+                crate::agent::step_runner::artifact_graph::ArtifactRole::SetupManifest
+                | crate::agent::step_runner::artifact_graph::ArtifactRole::SetupConfig => 3,
+                crate::agent::step_runner::artifact_graph::ArtifactRole::Test => 4,
+                crate::agent::step_runner::artifact_graph::ArtifactRole::Docs => 5,
+                crate::agent::step_runner::artifact_graph::ArtifactRole::Unknown => 6,
+                crate::agent::step_runner::artifact_graph::ArtifactRole::GeneratedOutput
+                | crate::agent::step_runner::artifact_graph::ArtifactRole::DependencyCache => {
+                    return None;
+                }
+            };
+            Some((priority, index, path.clone()))
+        })
+        .min_by_key(|(priority, index, _)| (*priority, *index))
+        .map(|(_, _, path)| path)
+}
+
+fn verifier_target_role(
+    path: &str,
+) -> Option<crate::agent::step_runner::artifact_graph::ArtifactRole> {
+    if ignored_repair_candidate_path(path) || path.starts_with("step:") {
+        return None;
+    }
+    let role = crate::agent::step_runner::artifact_graph::role_for_path(
+        path,
+        crate::agent::step_runner::artifact_graph::ArtifactLifecycle::Required,
+    );
+    Some(role)
 }
 
 fn tailwind_postcss_plugin_diagnostic(failure: &VerificationFailure) -> bool {
@@ -1055,6 +1158,34 @@ fn source_like_paths(text: &str) -> Vec<String> {
     paths
 }
 
+fn python_import_candidate_paths(text: &str) -> Vec<String> {
+    let mut paths = Vec::new();
+    for marker in [
+        "from '",
+        "No module named '",
+        "ModuleNotFoundError: No module named '",
+    ] {
+        let mut rest = text;
+        while let Some((_, after)) = rest.split_once(marker) {
+            let Some((module, tail)) = after.split_once('\'') else {
+                break;
+            };
+            push_python_module_candidates(&mut paths, module);
+            rest = tail;
+        }
+    }
+    paths
+}
+
+fn push_python_module_candidates(paths: &mut Vec<String>, module: &str) {
+    if !module.starts_with("app.") && module != "app" {
+        return;
+    }
+    let module_path = module.replace('.', "/");
+    push_repairable_candidate(paths, format!("{module_path}.py"));
+    push_repairable_candidate(paths, format!("{module_path}/__init__.py"));
+}
+
 fn is_source_like_path(value: &str) -> bool {
     !ignored_repair_candidate_path(value)
         && value.contains('/')
@@ -1072,19 +1203,16 @@ fn ignored_repair_candidate_path(value: &str) -> bool {
         || value.contains("/.next/")
 }
 
-fn single_candidate(values: &[String]) -> Option<String> {
-    match values {
-        [single] => Some(single.clone()),
-        _ => None,
-    }
-}
-
 fn record_repair_attempt_ledger(state: &mut RepairStepState, step: &StepPlanStep, attempt: usize) {
     let failures = state.failures.clone();
     for failure in failures {
-        if let Some(evidence) =
-            verifier_contract_evidence(step, &failure, state.dependency_setup_note.as_deref(), &[])
-            && let Some(signature) = evidence.failure_signature
+        if let Some(evidence) = verifier_contract_evidence(
+            step,
+            &failure,
+            state.dependency_setup_note.as_deref(),
+            &[],
+            &[],
+        ) && let Some(signature) = evidence.failure_signature
         {
             push_repair_attempt_ledger(
                 &mut state.repair_attempt_ledger,
@@ -1235,6 +1363,14 @@ where
         DependencySetupDisposition::Attempt(command) => command,
     };
 
+    if let Some(violation) = setup_artifact_violation(runtime.cwd, command) {
+        push_contract_evidence_once(
+            &mut state.contract_evidence,
+            setup_artifact_contract_evidence(step, &violation),
+        );
+        return Ok(DependencyRecoveryResult::ContinueRepair);
+    }
+
     let before_setup_key = dependency_setup_attempt_key(runtime.cwd, &step.id, command);
     if state
         .dependency_setup_attempt_keys
@@ -1304,6 +1440,48 @@ where
     }
 
     Ok(DependencyRecoveryResult::ContinueRepair)
+}
+
+fn setup_artifact_violation(
+    cwd: &std::path::Path,
+    command: SetupCommand,
+) -> Option<SetupArtifactViolation> {
+    match command {
+        SetupCommand::NpmInstall | SetupCommand::NpmCi | SetupCommand::PnpmInstall => {
+            validate_npm_manifest(cwd)
+        }
+    }
+}
+
+fn setup_artifact_contract_evidence(
+    step: &StepPlanStep,
+    violation: &SetupArtifactViolation,
+) -> ContractEvidence {
+    orchestrate_evidence(
+        ContractEvidence::new("setup")
+            .with_failed_step(step.id.clone())
+            .with_violated_contract(violation.reason_code.clone())
+            .with_reason_code(violation.reason_code.clone())
+            .with_failure_kind("setup_artifact_invalid")
+            .with_diagnostic_code(violation.reason_code.clone())
+            .with_failure_signature(failure_signature([
+                "setup",
+                step.id.as_str(),
+                violation.path.as_str(),
+                violation.reason_code.as_str(),
+            ]))
+            .with_target_path(violation.path.clone())
+            .with_candidate_artifacts(vec![violation.path.clone()])
+            .with_repair_target(violation.path.clone())
+            .with_active_job("manifest_repair")
+            .with_repair_kind("manifest_repair")
+            .with_repair_action("resolve_manifest_conflict")
+            .with_required_action(
+                "repair the setup manifest structure before dependency setup is attempted",
+            )
+            .with_setup_implication("setup_after_manifest_repair_required")
+            .with_diagnostic(violation.diagnostic.clone()),
+    )
 }
 
 fn dependency_setup_attempt_key(
@@ -1643,7 +1821,7 @@ mod tests {
         };
 
         let evidence =
-            verifier_contract_evidence(&step(StepKind::Verify), &failure, None, &[]).unwrap();
+            verifier_contract_evidence(&step(StepKind::Verify), &failure, None, &[], &[]).unwrap();
         let evidence = orchestrate_evidence(evidence);
         let rendered = evidence.render().unwrap();
 
@@ -1684,6 +1862,7 @@ mod tests {
                 "attempt 1: verifier|step|npm run build|command_failed:1|app/hooks/useGameLoop.ts"
                     .to_string(),
             ],
+            &[],
         )
         .unwrap();
         let rendered = evidence.render().unwrap();
@@ -1712,7 +1891,7 @@ mod tests {
         };
 
         let evidence =
-            verifier_contract_evidence(&step(StepKind::Verify), &failure, None, &[]).unwrap();
+            verifier_contract_evidence(&step(StepKind::Verify), &failure, None, &[], &[]).unwrap();
         let evidence = orchestrate_evidence(evidence);
         let rendered = evidence.render().unwrap();
 
@@ -1737,7 +1916,7 @@ mod tests {
         };
 
         let evidence =
-            verifier_contract_evidence(&step(StepKind::Verify), &failure, None, &[]).unwrap();
+            verifier_contract_evidence(&step(StepKind::Verify), &failure, None, &[], &[]).unwrap();
         let evidence = orchestrate_evidence(evidence);
         let rendered = evidence.render().unwrap();
 
@@ -1748,6 +1927,82 @@ mod tests {
         assert!(rendered.contains("repair_target: step:step"));
         assert!(rendered.contains("tool_policy_projection: read_only"));
         assert!(rendered.contains("do not edit source"));
+    }
+
+    #[test]
+    fn verifier_failure_prefers_plan_source_artifact_over_test_artifact() {
+        let failure = VerificationFailure {
+            command: "python -m pytest tests/test_app.py -v".to_string(),
+            reason: "command_failed:1".to_string(),
+            stdout_excerpt: "FAILED tests/test_app.py::test_health".to_string(),
+            stderr_excerpt: String::new(),
+            diagnostic_excerpt: "AssertionError: observed=healthy expected=ok".to_string(),
+            source_excerpt: None,
+        };
+
+        let evidence = verifier_contract_evidence(
+            &step(StepKind::Verify),
+            &failure,
+            None,
+            &[],
+            &["app/main.py".to_string(), "tests/test_app.py".to_string()],
+        )
+        .unwrap();
+        let evidence = orchestrate_evidence(evidence);
+        let rendered = evidence.render().unwrap();
+
+        assert!(rendered.contains("candidate_artifacts: tests/test_app.py, app/main.py"));
+        assert!(rendered.contains("repair_target: app/main.py"));
+        assert!(rendered.contains("active_job: source_implementation_repair"));
+        assert!(rendered.contains("allowed_change_kind: entrypoint_source_only"));
+        assert!(!rendered.contains("repair_target: tests/test_app.py"));
+    }
+
+    #[test]
+    fn verifier_failure_targets_nextjs_route_for_client_component_diagnostic() {
+        let failure = VerificationFailure {
+            command: "npm run build".to_string(),
+            reason: "command_failed:1".to_string(),
+            stdout_excerpt: String::new(),
+            stderr_excerpt: String::new(),
+            diagnostic_excerpt: "Error: Event handlers cannot be passed to Client Component props."
+                .to_string(),
+            source_excerpt: None,
+        };
+
+        let evidence = verifier_contract_evidence(
+            &step(StepKind::Verify),
+            &failure,
+            None,
+            &[],
+            &["package.json".to_string(), "app/page.tsx".to_string()],
+        )
+        .unwrap();
+        let evidence = orchestrate_evidence(evidence);
+        let rendered = evidence.render().unwrap();
+
+        assert!(rendered.contains("repair_target: app/page.tsx"));
+        assert!(rendered.contains("artifact_role: entrypoint"));
+        assert!(rendered.contains("source_of_truth: original_verifier_diagnostic"));
+        assert!(rendered.contains("workspace_scope: route_integration_scope"));
+    }
+
+    #[test]
+    fn setup_artifact_violation_becomes_manifest_repair_evidence() {
+        let violation = SetupArtifactViolation {
+            path: "package.json".to_string(),
+            reason_code: "setup_manifest_invalid_json".to_string(),
+            diagnostic: "package.json is invalid JSON".to_string(),
+        };
+
+        let evidence = setup_artifact_contract_evidence(&step(StepKind::Verify), &violation);
+        let rendered = evidence.render().unwrap();
+
+        assert!(rendered.contains("guard: setup"));
+        assert!(rendered.contains("active_job: manifest_repair"));
+        assert!(rendered.contains("repair_target: package.json"));
+        assert!(rendered.contains("allowed_change_kind: setup_manifest_or_config_only"));
+        assert!(rendered.contains("setup_after_manifest_repair_required"));
     }
 
     #[test]
@@ -1800,6 +2055,7 @@ mod tests {
             &step(StepKind::Verify),
             &failure,
             Some("dependency_setup_attempted=true; dependency_setup_command=npm install; dependency_setup_result=success; verifier_rerun_result=failed"),
+            &[],
             &[],
         )
         .unwrap();
@@ -1864,7 +2120,9 @@ mod tests {
             source_excerpt: None,
         };
 
-        assert!(verifier_contract_evidence(&step(StepKind::Repair), &failure, None, &[]).is_none());
+        assert!(
+            verifier_contract_evidence(&step(StepKind::Repair), &failure, None, &[], &[]).is_none()
+        );
     }
 
     fn missing_write_path_error() -> ToolArgError {

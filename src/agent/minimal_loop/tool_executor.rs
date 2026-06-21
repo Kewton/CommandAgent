@@ -50,28 +50,30 @@ impl<'a> ToolExecutor<'a> {
         let args: Value =
             serde_json::from_str(&call.args_json).map_err(|err| invalid_json(call, err))?;
         self.enforce_step_tool_policy(call.name.as_str(), &args)?;
+        let mut target_paths = Vec::new();
         let output = match call.name.as_str() {
             "Read" => self
                 .read
                 .read(required_str_for_tool(&args, "Read", "path")?)
                 .map_err(tool_err)?,
             "Write" => {
+                let path = required_str_for_tool(&args, "Write", "path")?;
                 self.write
-                    .write(
-                        required_str_for_tool(&args, "Write", "path")?,
-                        required_str_for_tool(&args, "Write", "content")?,
-                    )
+                    .write(path, required_str_for_tool(&args, "Write", "content")?)
                     .map_err(tool_err)?;
+                target_paths.push(normalize_tool_path(path));
                 "wrote file".to_string()
             }
             "Edit" => {
+                let path = required_str_for_tool(&args, "Edit", "path")?;
                 self.edit
                     .replace_once(
-                        required_str_for_tool(&args, "Edit", "path")?,
+                        path,
                         required_str_for_tool(&args, "Edit", "old")?,
                         required_str_for_tool(&args, "Edit", "new")?,
                     )
                     .map_err(tool_err)?;
+                target_paths.push(normalize_tool_path(path));
                 "edited file".to_string()
             }
             "Bash" => {
@@ -117,6 +119,7 @@ impl<'a> ToolExecutor<'a> {
             output,
             output_truncated: truncation.truncated,
             original_output_chars: truncation.original_chars,
+            target_paths,
         })
     }
 
@@ -233,6 +236,10 @@ fn tool_err(err: impl std::fmt::Display) -> MinimalLoopError {
 
 fn policy_violation(message: String) -> MinimalLoopError {
     MinimalLoopError::Tool(format!("tool_policy_violation: {message}"))
+}
+
+fn normalize_tool_path(path: &str) -> String {
+    path.trim().trim_start_matches("./").replace('\\', "/")
 }
 
 fn is_setup_or_config_path(path: &Path) -> bool {
@@ -375,6 +382,48 @@ mod tests {
         assert!(root.join("package.json").exists());
         assert!(err.to_string().contains("tool_policy_violation"));
         assert!(!root.join("app/page.tsx").exists());
+    }
+
+    #[test]
+    fn write_records_exact_changed_path() {
+        let root = temp_workspace("write-target-path");
+        let guard = PathGuard::new(&root).unwrap();
+        let executor = ToolExecutor::new(
+            &guard,
+            DependencySetupPolicy::default(),
+            StepToolPolicy::FileMutationAllowed,
+        );
+
+        let result = executor
+            .execute(&call(
+                "Write",
+                json!({"path":"./src/main.rs","content":"fn main() {}\n"}),
+            ))
+            .unwrap();
+
+        assert_eq!(result.target_paths, vec!["src/main.rs"]);
+    }
+
+    #[test]
+    fn edit_records_exact_changed_path() {
+        let root = temp_workspace("edit-target-path");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+        let guard = PathGuard::new(&root).unwrap();
+        let executor = ToolExecutor::new(
+            &guard,
+            DependencySetupPolicy::default(),
+            StepToolPolicy::FileMutationAllowed,
+        );
+
+        let result = executor
+            .execute(&call(
+                "Edit",
+                json!({"path":"src/main.rs","old":"fn main() {}","new":"fn main() { println!(\"ok\"); }"}),
+            ))
+            .unwrap();
+
+        assert_eq!(result.target_paths, vec!["src/main.rs"]);
     }
 
     #[test]

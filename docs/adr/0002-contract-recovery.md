@@ -183,6 +183,15 @@ still not allowed to execute tools from orchestration, continue hidden future
 phases, retry until success, weaken verifiers, or add provider/model-specific
 policy.
 
+2026-06-21 amendment: CommandAgent adopts a broader explicit subset of Anvil's
+useful recovery control stack as contract data: active job priority, semantic
+failure kind, source of truth, allowed change kind, expected evidence delta,
+workspace scope, artifact ownership, setup artifact validation, and
+verifier/profile failure to recovery job/action/target projection. These are
+rendered into existing bounded repair packets and setup bootstrap decisions.
+They do not add hidden continuation, unbounded retry, provider-specific policy,
+or legacy engine compatibility.
+
 ## Non-Decisions
 
 This ADR does not reintroduce:

@@ -346,6 +346,20 @@ pub struct OrchestrationEvidence {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_priority: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantic_failure_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_of_truth: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_change_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_evidence_delta: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_ownership: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_job_priority: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub explicit_stop_reason: Option<String>,
     #[serde(default)]
     pub artifact_graph_summary: Vec<String>,
@@ -360,6 +374,13 @@ impl OrchestrationEvidence {
             tool_policy_projection: evidence.tool_policy_projection.clone(),
             target_admission: evidence.target_admission.clone(),
             target_priority: evidence.target_priority.clone(),
+            semantic_failure_kind: evidence.semantic_failure_kind.clone(),
+            source_of_truth: evidence.source_of_truth.clone(),
+            allowed_change_kind: evidence.allowed_change_kind.clone(),
+            expected_evidence_delta: evidence.expected_evidence_delta.clone(),
+            workspace_scope: evidence.workspace_scope.clone(),
+            artifact_ownership: evidence.artifact_ownership.clone(),
+            active_job_priority: evidence.active_job_priority.clone(),
             explicit_stop_reason: evidence.explicit_stop_reason.clone(),
             artifact_graph_summary: evidence.artifact_graph_summary.clone(),
         };
@@ -369,6 +390,13 @@ impl OrchestrationEvidence {
             && orchestration.tool_policy_projection.is_none()
             && orchestration.target_admission.is_none()
             && orchestration.target_priority.is_none()
+            && orchestration.semantic_failure_kind.is_none()
+            && orchestration.source_of_truth.is_none()
+            && orchestration.allowed_change_kind.is_none()
+            && orchestration.expected_evidence_delta.is_none()
+            && orchestration.workspace_scope.is_none()
+            && orchestration.artifact_ownership.is_none()
+            && orchestration.active_job_priority.is_none()
             && orchestration.explicit_stop_reason.is_none()
             && orchestration.artifact_graph_summary.is_empty()
         {

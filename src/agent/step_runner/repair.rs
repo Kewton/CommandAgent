@@ -237,11 +237,19 @@ fn recovery_task_section(evidence: &[ContractEvidence]) -> String {
             tasks.push(task);
         }
     }
+    tasks.sort_by_key(recovery_task_priority);
     if tasks.is_empty() {
         String::new()
     } else {
         format!("Recovery task:\n{}\n", recovery_task_list(&tasks))
     }
+}
+
+fn recovery_task_priority(task: &RecoveryTaskContract) -> u8 {
+    task.active_job_priority
+        .as_deref()
+        .and_then(|value| value.parse::<u8>().ok())
+        .unwrap_or(u8::MAX)
 }
 
 fn tool_protocol_recovery_task_section(context: &ToolProtocolCorrectionContext) -> String {

@@ -5,6 +5,7 @@ use crate::agent::step_runner::artifact_graph::{
     ArtifactGraph, ArtifactRole, recovery_target_admissible, role_for_path,
 };
 use crate::agent::step_runner::correction_evidence::ContractEvidence;
+use crate::agent::step_runner::recovery_contract;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RecoveryJobKind {
@@ -105,6 +106,13 @@ pub(crate) struct RecoveryOrchestrationDecision {
     pub(crate) target_priority: String,
     pub(crate) required_action: String,
     pub(crate) disallowed_actions: Vec<String>,
+    pub(crate) semantic_failure_kind: String,
+    pub(crate) source_of_truth: String,
+    pub(crate) allowed_change_kind: String,
+    pub(crate) expected_evidence_delta: String,
+    pub(crate) workspace_scope: String,
+    pub(crate) artifact_ownership: String,
+    pub(crate) active_job_priority: u8,
     pub(crate) tool_policy: ToolPolicyProjection,
     pub(crate) rerun_authority: Vec<String>,
     pub(crate) explicit_stop_reason: Option<String>,
@@ -126,6 +134,13 @@ impl RecoveryOrchestrationDecision {
             .with_tool_policy_projection(self.tool_policy.as_str())
             .with_target_admission(self.target_admission.clone())
             .with_target_priority(self.target_priority.clone())
+            .with_semantic_failure_kind(self.semantic_failure_kind.clone())
+            .with_source_of_truth(self.source_of_truth.clone())
+            .with_allowed_change_kind(self.allowed_change_kind.clone())
+            .with_expected_evidence_delta(self.expected_evidence_delta.clone())
+            .with_workspace_scope(self.workspace_scope.clone())
+            .with_artifact_ownership(self.artifact_ownership.clone())
+            .with_active_job_priority(self.active_job_priority.to_string())
             .with_artifact_graph_summary(self.artifact_graph_summary.clone());
 
         if evidence.repair_kind.is_none() {
@@ -174,6 +189,9 @@ pub(crate) fn orchestrate_contract_evidence(
             )
         })
         .map(|role| role.as_str().to_string());
+    let target_role = target
+        .as_deref()
+        .map(|target| target_role_for(&graph, target));
     let target_admission = target_admission(&target, &graph, job);
     let explicit_stop_reason = if target.is_none() && job_requires_target(job) {
         Some("no_admitted_recovery_target".to_string())
@@ -184,6 +202,24 @@ pub(crate) fn orchestrate_contract_evidence(
     };
     let target_priority = target_priority(&target, evidence, job);
     let tool_policy = tool_policy_for(job, action);
+    let semantic_failure_kind = recovery_contract::semantic_failure_kind(
+        evidence,
+        job.as_str(),
+        action.as_str(),
+        target_role,
+    )
+    .to_string();
+    let source_of_truth = recovery_contract::source_of_truth(evidence, job.as_str()).to_string();
+    let allowed_change_kind =
+        recovery_contract::allowed_change_kind(job.as_str(), action.as_str(), target_role)
+            .to_string();
+    let expected_evidence_delta =
+        recovery_contract::expected_evidence_delta(evidence, job.as_str(), action.as_str());
+    let workspace_scope =
+        recovery_contract::workspace_scope(target.as_deref(), target_role).to_string();
+    let artifact_ownership =
+        recovery_contract::artifact_ownership(&graph, target.as_deref(), target_role);
+    let active_job_priority = recovery_contract::active_job_priority(job.as_str());
     Some(RecoveryOrchestrationDecision {
         job,
         action,
@@ -193,6 +229,13 @@ pub(crate) fn orchestrate_contract_evidence(
         target_priority,
         required_action: required_action(evidence, job, action),
         disallowed_actions: disallowed_actions(evidence, job, action),
+        semantic_failure_kind,
+        source_of_truth,
+        allowed_change_kind,
+        expected_evidence_delta,
+        workspace_scope,
+        artifact_ownership,
+        active_job_priority,
         tool_policy,
         rerun_authority: rerun_authority(evidence, job),
         explicit_stop_reason,
@@ -351,7 +394,7 @@ fn select_target(
 
 fn target_admitted(path: &str, graph: &ArtifactGraph, job: RecoveryJobKind) -> bool {
     if path.starts_with("step:") {
-        return true;
+        return matches!(job, RecoveryJobKind::VerifierContractCorrection);
     }
     let role = graph.node(path).map(|node| node.role).unwrap_or_else(|| {
         role_for_path(
@@ -378,9 +421,34 @@ fn target_admitted(path: &str, graph: &ArtifactGraph, job: RecoveryJobKind) -> b
         ),
         RecoveryJobKind::DocumentationRepair => role == ArtifactRole::Docs,
         RecoveryJobKind::TestArtifactCompletion => role == ArtifactRole::Test,
+        RecoveryJobKind::ScaffoldMaterialization => matches!(
+            role,
+            ArtifactRole::Entrypoint
+                | ArtifactRole::IntegrationTarget
+                | ArtifactRole::Implementation
+                | ArtifactRole::Test
+                | ArtifactRole::Docs
+        ),
+        RecoveryJobKind::SourceImplementationRepair => matches!(
+            role,
+            ArtifactRole::Entrypoint
+                | ArtifactRole::IntegrationTarget
+                | ArtifactRole::Implementation
+        ),
+        RecoveryJobKind::TestAlignmentRepair => role == ArtifactRole::Test,
+        RecoveryJobKind::VerifierContractCorrection => path.starts_with("step:"),
         RecoveryJobKind::ExplicitStop => false,
         _ => true,
     }
+}
+
+fn target_role_for(graph: &ArtifactGraph, path: &str) -> ArtifactRole {
+    graph.node(path).map(|node| node.role).unwrap_or_else(|| {
+        role_for_path(
+            path,
+            crate::agent::step_runner::artifact_graph::ArtifactLifecycle::Required,
+        )
+    })
 }
 
 fn target_admission(
@@ -739,6 +807,11 @@ mod tests {
         );
         assert_eq!(decision.target.as_deref(), Some("components/GameBoard.tsx"));
         assert!(decision.target_admission.starts_with("admitted"));
+        assert_eq!(decision.source_of_truth, "profile_contract");
+        assert_eq!(
+            decision.allowed_change_kind,
+            "route_or_integration_target_only"
+        );
         assert_eq!(
             decision.tool_policy,
             ToolPolicyProjection::FileMutationRepair
@@ -800,6 +873,23 @@ mod tests {
             decision.explicit_stop_reason.as_deref(),
             Some("no_admitted_recovery_target")
         );
+    }
+
+    #[test]
+    fn source_implementation_repair_rejects_test_target_and_chooses_source() {
+        let evidence = ContractEvidence::new("verifier")
+            .with_reason_code("command_failed:1")
+            .with_active_job("source_implementation_repair")
+            .with_repair_target("tests/test_app.py")
+            .with_candidate_artifacts(vec!["tests/test_app.py", "app/main.py"]);
+
+        let decision = orchestrate_contract_evidence(&evidence).unwrap();
+
+        assert_eq!(decision.job, RecoveryJobKind::SourceImplementationRepair);
+        assert_eq!(decision.target.as_deref(), Some("app/main.py"));
+        assert_eq!(decision.artifact_role.as_deref(), Some("entrypoint"));
+        assert_eq!(decision.allowed_change_kind, "entrypoint_source_only");
+        assert!(decision.target_admission.starts_with("admitted"));
     }
 
     #[test]

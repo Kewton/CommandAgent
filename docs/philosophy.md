@@ -448,14 +448,20 @@ classified failure
   -> violated contract
   -> active job
   -> repair kind
+  -> semantic failure kind and source of truth
   -> admitted target path, command, or artifact role when known
   -> repair action when the current blocker has one deterministic action
+  -> allowed change kind and disallowed actions
+  -> workspace scope and artifact ownership when a target is admitted
+  -> expected evidence delta
   -> setup implication when the failure or repair affects dependencies
   -> rerun authority
 ```
 
 These values are carried as bounded contract evidence fields such as
-`active_job`, `repair_kind`, `repair_action`, `setup_implication`, and
+`active_job`, `repair_kind`, `semantic_failure_kind`, `source_of_truth`,
+`repair_action`, `allowed_change_kind`, `workspace_scope`,
+`artifact_ownership`, `expected_evidence_delta`, `setup_implication`, and
 `rerun_authority`. They are data for Recovery Policy Contract, Recovery Task
 Contract, or verifier-owned setup recovery. They are not hidden workflow state,
 retry counters, or permission for the model to choose a new job.
