@@ -1,10 +1,10 @@
-# Anvil Phase 1 Failure Observation
+# Legacy Phase 1 Failure Observation
 
 Date: 2026-06-21
 
 ## Scope
 
-This note records Phase 1 of the Anvil migration loadmap:
+This note records Phase 1 of the legacy-control migration loadmap:
 Failure Observation And Eval Funnel.
 
 The change is observation-only. It does not add hidden continuation, increase
