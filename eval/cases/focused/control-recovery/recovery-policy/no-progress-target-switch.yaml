@@ -1,0 +1,25 @@
+id: focused-no-progress-target-switch
+title: No-progress target switch evidence
+profile: docs
+style: default
+mode: plan-run
+intent: docs
+prompt: "Create README.md with a section titled Recovery Policy and mention no-progress target switching."
+expected_artifacts:
+  - README.md
+verify:
+  - cat README.md
+success_check:
+  type: semantic
+  required_paths:
+    - README.md
+  must_include:
+    README.md:
+      - Recovery Policy
+      - no-progress
+expected_terminal_state: ok
+expected_contract_layer: ok
+expected_active_job: none
+expected_attempt_outcome: passed
+expected_evidence_binding_status: bound
+expected_completion_evidence_status: passed

@@ -1,0 +1,26 @@
+id: focused-docs-literal-mismatch
+title: Docs literal mismatch binding
+profile: docs
+style: default
+mode: plan-run
+intent: docs
+prompt: "Create README.md with a section titled CommandAgent Usage and mention local-first execution. Do not include PHASE7_IMPOSSIBLE_LITERAL."
+expected_artifacts:
+  - README.md
+verify:
+  - cat README.md
+success_check:
+  type: semantic
+  required_paths:
+    - README.md
+  must_include:
+    README.md:
+      - CommandAgent Usage
+      - local-first
+      - PHASE7_IMPOSSIBLE_LITERAL
+expected_terminal_state: eval_assertion_failed
+expected_contract_layer: eval_success_contract
+expected_active_job: source_implementation_repair
+expected_recovery_owner: source
+expected_repair_action: edit_source_for_diagnostic
+expected_attempt_outcome: not_attempted

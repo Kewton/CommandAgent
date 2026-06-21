@@ -52,6 +52,12 @@ can state lifecycle, role, selected route, setup manifest, source ownership, or
 integration edges. It should not infer semantic quality, run tools, or become a
 profile-specific workflow engine.
 
+Focused eval cases may assert profile-derived terminal and recovery fields,
+such as a Next.js route-integration active job or a Rust Cargo verifier
+binding. Those assertions are eval-only checks against observed profile and
+step-runner evidence. They do not grant profiles additional workflow authority,
+retry authority, or package/setup execution authority.
+
 ## Profile Interface
 
 The shared profile boundary keeps generic plan lint from becoming a collection

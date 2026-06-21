@@ -1,5 +1,5 @@
-id: focused-tool-protocol-correction
-title: Tool protocol correction
+id: focused-tool-protocol-missing-write-path
+title: Tool protocol missing required field classification
 profile: generic
 style: default
 mode: plan-run
@@ -16,3 +16,9 @@ success_check:
   must_include:
     notes.txt:
       - tool protocol correction works
+expected_terminal_state: ok
+expected_contract_layer: ok
+expected_active_job: none
+expected_attempt_outcome: passed
+expected_evidence_binding_status: bound
+expected_completion_evidence_status: passed

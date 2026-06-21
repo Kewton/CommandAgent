@@ -140,6 +140,22 @@ Case `intent` is passed to the slash command as `--intent`. Case
 checked after the run. This keeps the runtime task contract and the success
 check contract aligned; expected artifacts are not only post-hoc eval checks.
 
+Focused control-recovery cases may also declare optional `expected_*` fields,
+such as `expected_terminal_state`, `expected_contract_layer`,
+`expected_active_job`, `expected_repair_action`, or
+`expected_runtime_job_kind`. These fields are assertions against observed eval
+output only. They are not passed to runtime prompts, do not authorize repair,
+and do not change the command sent to CommandAgent. The runner records
+`expected_assertion_status`, `expected_assertion_count`, and
+`expected_assertion_failures` in `summary.tsv` and `meta.json`. Dry-run focused
+assertions are reported as `skipped_dry_run` because dry-run workspaces do not
+contain runtime evidence.
+
+Focused case directories are discovered recursively so a case set can be
+organized by contract layer without changing runner invocation. Use this for
+small, targeted E2E matrices such as
+`eval/cases/focused/control-recovery`.
+
 Large task eval uses:
 
 ```bash

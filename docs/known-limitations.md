@@ -2,6 +2,14 @@
 
 CommandAgent is still in MVP migration.
 
+- Focused control-recovery eval cases now assert expected terminal and recovery
+  fields, but dry-run execution intentionally skips those assertions because no
+  model/runtime evidence is produced.
+- Some focused cases are positive path coverage for a recovery surface rather
+  than deterministic reproduction of the original historical failure. When a
+  stable fake-model or provider fixture is needed to reproduce a malformed
+  tool-call class, the case should stay provider-independent and the report
+  test should cover the extraction path until a runtime fixture exists.
 - REPL slash-command execution is wired for plan and ultra-plan commands.
   Simple docs, Python, Rust, Next.js file-set, planner/executor split, and
   repair fallback live UAT passes with local Ollama models, but complex

@@ -23,6 +23,12 @@ from eval_failure_observation import (  # noqa: E402
     normalize_observation,
     terminal_state_from_reason,
 )
+from eval_case_schema import (  # noqa: E402
+    ASSERTION_FIELD_NAMES,
+    focused_assertions,
+    iter_case_paths,
+    read_eval_case,
+)
 
 
 def parse_args():
@@ -39,70 +45,7 @@ def parse_args():
 
 
 def read_case(path):
-    data = {
-        "expected_artifacts": [],
-        "verify": [],
-        "mode": "plan-run",
-        "fixture": None,
-        "success_check": {
-            "required_paths": [],
-            "must_include": {},
-        },
-    }
-    current_list = None
-    in_success_check = False
-    in_must_include = False
-    current_must_include_path = None
-    with open(path, encoding="utf-8") as handle:
-        for raw in handle:
-            line = raw.rstrip("\n")
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            indent = len(line) - len(line.lstrip(" "))
-            if not line.startswith(" ") and ":" in line:
-                key, value = line.split(":", 1)
-                key = key.strip()
-                value = unquote(value.strip())
-                in_success_check = key == "success_check"
-                in_must_include = False
-                current_must_include_path = None
-                if key in {"id", "title", "profile", "style", "intent", "prompt", "mode", "fixture"}:
-                    data[key] = value
-                    current_list = None
-                elif key in {"expected_artifacts", "verify"}:
-                    current_list = key
-                else:
-                    current_list = None
-            elif in_success_check:
-                if indent == 2 and stripped.startswith("type:"):
-                    data["success_check"]["type"] = unquote(stripped.split(":", 1)[1].strip())
-                    current_list = None
-                    in_must_include = False
-                elif indent == 2 and stripped == "required_paths:":
-                    current_list = "success_required_paths"
-                    in_must_include = False
-                elif indent == 2 and stripped == "must_include:":
-                    current_list = None
-                    in_must_include = True
-                    current_must_include_path = None
-                elif current_list == "success_required_paths" and stripped.startswith("- "):
-                    data["success_check"]["required_paths"].append(unquote(stripped[2:].strip()))
-                elif in_must_include and indent == 4 and stripped.endswith(":"):
-                    current_must_include_path = unquote(stripped[:-1].strip())
-                    data["success_check"]["must_include"].setdefault(current_must_include_path, [])
-                elif in_must_include and indent >= 6 and stripped.startswith("- ") and current_must_include_path:
-                    data["success_check"]["must_include"][current_must_include_path].append(
-                        unquote(stripped[2:].strip())
-                    )
-            elif current_list and stripped.startswith("- "):
-                data[current_list].append(unquote(stripped[2:].strip()))
-    for required in ["id", "profile", "style", "prompt"]:
-        if required not in data:
-            raise SystemExit(f"{path}: missing required field {required}")
-    if data["mode"] not in {"plan-run", "ultra-plan-run"}:
-        raise SystemExit(f"{path}: unsupported mode {data['mode']}")
-    return data
+    return read_eval_case(path)
 
 
 def unquote(value):
@@ -600,6 +543,18 @@ def run_case(repo, root, binary, case, run_index, args):
     )
     category = observation["failure_category"]
     layer = observation["contract_layer"]
+    observed_fields = {
+        "failure_category": category,
+        "failure_class": observation.get("failure_class", ""),
+        "contract_layer": layer,
+        **{name: observation.get(name, "") for name in OBSERVATION_FIELD_NAMES},
+        **recovery,
+    }
+    assertion = focused_assertions(
+        case.get("expected_fields", {}),
+        observed_fields,
+        dry_run=args.dry_run,
+    )
 
     meta = {
         "case_id": case["id"],
@@ -611,6 +566,7 @@ def run_case(repo, root, binary, case, run_index, args):
         "intent": case.get("intent"),
         "expected_artifacts": case.get("expected_artifacts", []),
         "success_check": case.get("success_check", {}),
+        "expected_fields": case.get("expected_fields", {}),
         "mode": mode,
         "fixture": case.get("fixture"),
         "prompt": prompt,
@@ -627,6 +583,7 @@ def run_case(repo, root, binary, case, run_index, args):
         "contract_layer": layer,
         **{name: observation.get(name, "") for name in OBSERVATION_FIELD_NAMES},
         **recovery,
+        **assertion,
     }
     meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
     return [
@@ -640,6 +597,7 @@ def run_case(repo, root, binary, case, run_index, args):
         layer,
         *(observation.get(name, "") for name in OBSERVATION_FIELD_NAMES),
         *(recovery[name] for name in RECOVERY_FIELD_NAMES),
+        *(assertion[name] for name in ASSERTION_FIELD_NAMES),
     ]
 
 
@@ -647,7 +605,7 @@ def main():
     repo = REPO_ROOT
     args = parse_args()
     cases_dir = (repo / args.cases_dir).resolve()
-    cases = [read_case(path) for path in sorted(cases_dir.glob("*.yaml"))]
+    cases = [read_case(path) for path in iter_case_paths(cases_dir)]
     stamp = time.strftime("%Y%m%dT%H%M%S")
     root = (repo / args.out / stamp).resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -663,6 +621,7 @@ def main():
             "contract_layer",
             *OBSERVATION_FIELD_NAMES,
             *RECOVERY_FIELD_NAMES,
+            *ASSERTION_FIELD_NAMES,
         ]
     ]
     for case in cases:

@@ -18,3 +18,9 @@ success_check:
   must_include:
     app/main.py:
       - greet
+expected_terminal_state: ok
+expected_contract_layer: ok
+expected_active_job: none
+expected_attempt_outcome: passed
+expected_evidence_binding_status: bound
+expected_completion_evidence_status: passed

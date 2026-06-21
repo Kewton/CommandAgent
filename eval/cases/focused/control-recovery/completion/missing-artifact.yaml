@@ -1,0 +1,25 @@
+id: focused-missing-artifact-completion
+title: Missing artifact completion classification
+profile: docs
+style: default
+mode: plan-run
+intent: docs
+prompt: "Create README.md with a short CommandAgent focused eval note."
+expected_artifacts:
+  - README.md
+verify:
+  - cat README.md
+success_check:
+  type: semantic
+  required_paths:
+    - README.md
+    - PHASE7_SENTINEL_REQUIRED_BY_EVAL_ONLY.txt
+  must_include:
+    README.md:
+      - focused eval
+expected_terminal_state: missing_deliverable
+expected_contract_layer: planning_contract
+expected_active_job: scaffold_materialization
+expected_recovery_owner: scaffold
+expected_repair_action: create_required_artifact
+expected_attempt_outcome: not_attempted

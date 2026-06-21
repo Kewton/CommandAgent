@@ -1,0 +1,27 @@
+id: focused-generated-test-weakening-rejection
+title: Generated test weakening rejection
+profile: python
+style: test-hardening
+mode: plan-run
+intent: modify
+prompt: "Create calculator.py with divide(a, b) and tests that assert ZeroDivisionError is raised for divide(1, 0). Do not weaken the test."
+expected_artifacts:
+  - calculator.py
+  - tests/test_calculator.py
+verify:
+  - pytest
+success_check:
+  type: semantic
+  required_paths:
+    - calculator.py
+    - tests/test_calculator.py
+  must_include:
+    tests/test_calculator.py:
+      - ZeroDivisionError
+      - pytest.raises
+expected_terminal_state: ok
+expected_contract_layer: ok
+expected_active_job: none
+expected_attempt_outcome: passed
+expected_evidence_binding_status: bound
+expected_completion_evidence_status: passed

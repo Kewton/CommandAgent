@@ -15,6 +15,12 @@ from eval_failure_observation import (  # noqa: E402
     contract_layer_for_reason,
     normalize_observation,
 )
+from eval_case_schema import (  # noqa: E402
+    ASSERTION_FIELD_NAMES,
+    focused_assertions,
+    iter_case_paths,
+    read_eval_case,
+)
 
 
 def parse_args():
@@ -27,55 +33,22 @@ def parse_args():
 
 def read_cases(cases_dir):
     cases = {}
-    for path in Path(cases_dir).glob("*.yaml"):
+    for path in iter_case_paths(cases_dir):
         case = read_case(path)
         cases[case["id"]] = case
     return cases
 
 
 def read_case(path):
-    data = {"required_paths": [], "must_include": {}, "type": "semantic"}
-    in_success_check = False
-    in_required_paths = False
-    in_must_include = False
-    current_must_include_path = None
-    with open(path, encoding="utf-8") as handle:
-        for raw in handle:
-            line = raw.rstrip("\n")
-            stripped = line.strip()
-            if not stripped:
-                continue
-            indent = len(line) - len(line.lstrip(" "))
-            if not line.startswith(" ") and ":" in line:
-                key, value = line.split(":", 1)
-                key = key.strip()
-                in_success_check = key == "success_check"
-                in_required_paths = False
-                in_must_include = False
-                current_must_include_path = None
-                if key == "id":
-                    data["id"] = unquote(value.strip())
-            elif in_success_check and indent == 2 and stripped == "required_paths:":
-                in_required_paths = True
-                in_must_include = False
-            elif in_success_check and indent == 2 and stripped.startswith("type:"):
-                data["type"] = unquote(stripped.split(":", 1)[1].strip())
-                in_required_paths = False
-                in_must_include = False
-            elif in_success_check and indent == 2 and stripped == "must_include:":
-                in_required_paths = False
-                in_must_include = True
-                current_must_include_path = None
-            elif in_required_paths and stripped.startswith("- "):
-                data["required_paths"].append(unquote(stripped[2:].strip()))
-            elif in_must_include and indent == 4 and stripped.endswith(":"):
-                current_must_include_path = unquote(stripped[:-1].strip())
-                data["must_include"].setdefault(current_must_include_path, [])
-            elif in_must_include and indent >= 6 and stripped.startswith("- ") and current_must_include_path:
-                data["must_include"][current_must_include_path].append(
-                    unquote(stripped[2:].strip())
-                )
-    return data
+    case = read_eval_case(path)
+    check = case.get("success_check", {})
+    return {
+        "id": case["id"],
+        "required_paths": check.get("required_paths", []),
+        "must_include": check.get("must_include", {}),
+        "type": check.get("type", "semantic"),
+        "expected_fields": case.get("expected_fields", {}),
+    }
 
 
 def unquote(value):
@@ -146,6 +119,7 @@ def write_summary(path, rows):
         "requested_port",
         "port_preflight",
         "endpoint_smoke",
+        *ASSERTION_FIELD_NAMES,
     ]
     with open(path, "w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, delimiter="\t", fieldnames=fieldnames)
@@ -253,6 +227,21 @@ def recheck(root, cases):
         )
         rows[-1]["failure_category"] = observation["failure_category"]
         rows[-1]["contract_layer"] = observation["contract_layer"]
+        observed_fields = {
+            "failure_category": rows[-1].get("failure_category", ""),
+            "failure_class": rows[-1].get("failure_class", ""),
+            "contract_layer": rows[-1].get("contract_layer", ""),
+            **{name: rows[-1].get(name, "") for name in OBSERVATION_FIELD_NAMES},
+            **{key: rows[-1].get(key, "") for key in rows[-1].keys()},
+        }
+        rows[-1].update(
+            focused_assertions(
+                case.get("expected_fields", {}),
+                observed_fields,
+                dry_run=bool(meta.get("dry_run")),
+                recheck=True,
+            )
+        )
     out = root / "recheck_summary.tsv"
     write_summary(out, rows)
     return rows, out
@@ -455,6 +444,8 @@ def render_report(rows):
     selected_failure_clusters = {}
     evidence_runner_statuses = {}
     artifact_ledger_statuses = {}
+    focused_assertion_statuses = {}
+    focused_assertion_failures = []
     for row in rows:
         observation = normalize_observation(row)
         category = row.get("failure_category") or observation["failure_category"]
@@ -507,6 +498,14 @@ def render_report(rows):
             artifact_ledger_statuses[artifact_ledger_status] = (
                 artifact_ledger_statuses.get(artifact_ledger_status, 0) + 1
             )
+        assertion_status = row.get("expected_assertion_status", "")
+        if assertion_status:
+            focused_assertion_statuses[assertion_status] = (
+                focused_assertion_statuses.get(assertion_status, 0) + 1
+            )
+        assertion_failures = row.get("expected_assertion_failures", "")
+        if assertion_failures:
+            focused_assertion_failures.append((row["case_id"], assertion_failures))
         stats = by_case.setdefault(row["case_id"], [0, 0])
         stats[1] += 1
         if row["success"] == "true":
@@ -559,6 +558,16 @@ def render_report(rows):
     lines.extend(["", "## Selected Failure Clusters"])
     for name, count in sorted(selected_failure_clusters.items()):
         lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Focused Assertions"])
+    if focused_assertion_statuses:
+        for name, count in sorted(focused_assertion_statuses.items()):
+            lines.append(f"- {name}: {count}")
+    else:
+        lines.append("- not_configured: 0")
+    if focused_assertion_failures:
+        lines.extend(["", "## Focused Assertion Failures"])
+        for case_id, failures in focused_assertion_failures:
+            lines.append(f"- {case_id}: {failures}")
     lines.extend(["", "## By Case"])
     for case_id, (case_success, case_total) in sorted(by_case.items()):
         lines.append(f"- {case_id}: {case_success}/{case_total}")

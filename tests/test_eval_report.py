@@ -1,5 +1,6 @@
 import importlib.util
 import pathlib
+import tempfile
 import unittest
 
 
@@ -189,6 +190,66 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertIn("- tool_protocol_correction: 1", report)
         self.assertIn("## Action Envelope Status", report)
         self.assertIn("## Selected Failure Clusters", report)
+
+    def test_read_cases_recurses_and_parses_expected_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            nested = root / "focused" / "case.yaml"
+            nested.parent.mkdir(parents=True)
+            nested.write_text(
+                "\n".join(
+                    [
+                        "id: focused-assertion",
+                        "profile: docs",
+                        "style: default",
+                        "prompt: \"Create README.md\"",
+                        "expected_artifacts:",
+                        "  - README.md",
+                        "verify:",
+                        "  - cat README.md",
+                        "success_check:",
+                        "  type: semantic",
+                        "  required_paths:",
+                        "    - README.md",
+                        "expected_terminal_state: ok",
+                        "expected_active_job: none",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            cases = eval_report.read_cases(root)
+
+        self.assertIn("focused-assertion", cases)
+        self.assertEqual(cases["focused-assertion"]["expected_fields"]["terminal_state"], "ok")
+        self.assertEqual(cases["focused-assertion"]["expected_fields"]["active_job"], "none")
+
+    def test_focused_assertion_mismatch_is_reported(self):
+        report = eval_report.render_report(
+            [
+                {
+                    "case_id": "focused",
+                    "run": "1",
+                    "rc": "0",
+                    "elapsed_ms": "10",
+                    "success": "true",
+                    "reason": "ok",
+                    "failure_category": "ok",
+                    "contract_layer": "ok",
+                    "terminal_state": "ok",
+                    "active_job": "none",
+                    "expected_assertion_status": "failed",
+                    "expected_assertion_count": "1",
+                    "expected_assertion_failures": "active_job:expected=setup_bootstrap;observed=none",
+                }
+            ]
+        )
+
+        self.assertIn("## Focused Assertions", report)
+        self.assertIn("- failed: 1", report)
+        self.assertIn("## Focused Assertion Failures", report)
+        self.assertIn("active_job:expected=setup_bootstrap;observed=none", report)
 
 
 if __name__ == "__main__":

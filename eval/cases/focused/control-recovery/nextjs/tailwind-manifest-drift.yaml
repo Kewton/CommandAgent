@@ -1,0 +1,36 @@
+id: focused-nextjs-tailwind-manifest-drift
+title: Next.js Tailwind manifest drift repair
+profile: nextjs
+style: default
+mode: ultra-plan-run
+intent: new
+prompt: "Create a minimal Next.js app using Tailwind CSS, with package.json, postcss.config.js, tailwind.config.ts, app/globals.css, app/layout.tsx, and app/page.tsx."
+expected_artifacts:
+  - package.json
+  - postcss.config.js
+  - tailwind.config.ts
+  - app/globals.css
+  - app/layout.tsx
+  - app/page.tsx
+verify:
+  - npm run build
+success_check:
+  type: semantic
+  required_paths:
+    - package.json
+    - postcss.config.js
+    - tailwind.config.ts
+    - app/globals.css
+    - app/page.tsx
+  must_include:
+    package.json:
+      - tailwind
+      - postcss
+    app/globals.css:
+      - tailwind
+expected_terminal_state: ok
+expected_contract_layer: ok
+expected_active_job: none
+expected_attempt_outcome: passed
+expected_evidence_binding_status: bound
+expected_completion_evidence_status: passed
