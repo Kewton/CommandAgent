@@ -215,6 +215,13 @@ The orchestration section may carry `recovery_owner`, `completion_evidence`,
 repair-contract data. They do not grant retry authority or create another
 execution loop.
 
+Eval failure observations are normalized at the eval/report boundary. The
+shared eval observation helper turns an already observed run result into
+fields such as `terminal_state`, `failure_class`, `violated_contract`,
+`source`, `source_of_truth`, `diagnostic_code`, `setup_state`, and `port`.
+This is an attribution layer for reports and later triage. It must not schedule
+work, select repair actions, or alter runtime behavior.
+
 Provider usage is normalized into a common `ModelUsage` shape at the provider
 parse boundary and carried on `ChatResponse` into runtime events. Missing usage
 is recorded as unavailable, not as a runtime failure. Cost records are separate
@@ -418,10 +425,12 @@ expected result, expected paths, and verifier commands. Plan files are a public
 contract boundary for built-in and external planner surfaces. The reader
 accepts ordinary scalar forms for known fields, including block scalars for
 long goals or instructions, then normalizes into typed plan structs before
-schema validation and linting. The writer emits a stable canonical form for
-saved plans. This keeps planning bounded without making external planners match
-one incidental line shape. Missing fields in older plan files are defaulted on
-read and normalized on save.
+schema validation and linting. Known long text fields accept `|`, `|-`, `|+`,
+`>`, `>-`, and `>+`; canonical rendering may still use quoted scalar strings.
+The writer emits a stable canonical form for saved plans. This keeps planning
+bounded without making external planners match one incidental line shape.
+Missing fields in older plan files are defaulted on read and normalized on
+save.
 
 Plan linting is a separate pass. It rejects obvious schema-contract mistakes:
 non-file `expected_paths`, JSON/property selectors, alternative paths, glob

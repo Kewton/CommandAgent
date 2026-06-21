@@ -10,6 +10,12 @@ SPEC = importlib.util.spec_from_file_location(
 eval_report = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(eval_report)
 
+OBS_SPEC = importlib.util.spec_from_file_location(
+    "eval_failure_observation", ROOT / "scripts" / "eval_failure_observation.py"
+)
+eval_failure_observation = importlib.util.module_from_spec(OBS_SPEC)
+OBS_SPEC.loader.exec_module(eval_failure_observation)
+
 
 class EvalReportCategorizeTests(unittest.TestCase):
     def test_layer_categories(self):
@@ -20,6 +26,7 @@ class EvalReportCategorizeTests(unittest.TestCase):
             "read_only_step_mutation": "step_policy",
             "profile_verification:nextjs_route_not_integrated": "profile",
             "dependency_missing": "setup",
+            "port_in_use": "setup",
             "quality:blank_ui": "quality",
             "rc:1": "verifier",
             "command_failed:1": "verifier",
@@ -44,6 +51,75 @@ class EvalReportCategorizeTests(unittest.TestCase):
         )
 
         self.assertEqual(mismatches, [])
+
+    def test_terminal_state_observation_for_common_failures(self):
+        cases = {
+            "ok": "ok",
+            "invalid plan YAML: unsupported block scalar style for instruction: >-": "plan_parse_failed",
+            "plan_lint.profile_obligations:missing literal": "plan_lint_failed",
+            "Gemini JSON parse failed: tool call is missing a tool name": "provider_parse_failed",
+            "tool_args_missing_required_field:path": "tool_protocol_failed",
+            "step_policy:read_only_step_mutation": "step_policy_failed",
+            "profile_verification:nextjs_route_not_integrated": "profile_contract_failed",
+            "dependency_missing": "dependency_missing",
+            "setup:npm_eresolve_peer_dependency": "setup_failed",
+            "missing:app/page.tsx": "missing_deliverable",
+            "semantic_mismatch:README.md:usage": "eval_assertion_failed",
+            "rc:1": "verifier_command_failed",
+        }
+        for reason, expected in cases.items():
+            with self.subTest(reason=reason):
+                observation = eval_failure_observation.normalize_observation(
+                    {"reason": reason, "success": reason == "ok"}
+                )
+                self.assertEqual(observation["terminal_state"], expected)
+
+    def test_eaddrinuse_is_port_in_use(self):
+        observation = eval_failure_observation.normalize_observation(
+            {
+                "reason": "rc:1",
+                "success": False,
+                "stderr": "Error: listen EADDRINUSE: address already in use :::3011",
+            }
+        )
+
+        self.assertEqual(observation["terminal_state"], "port_in_use")
+        self.assertEqual(observation["failure_category"], "setup")
+        self.assertEqual(observation["contract_layer"], "setup_bootstrap_contract")
+        self.assertEqual(observation["port"], "3011")
+
+    def test_transport_failure_wins_over_missing_artifacts(self):
+        observation = eval_failure_observation.normalize_observation(
+            {
+                "reason": "missing:README.md",
+                "success": False,
+                "stderr": "ERROR: Ollama transport failed: error sending request for url",
+            }
+        )
+
+        self.assertEqual(observation["terminal_state"], "provider_transport_failed")
+        self.assertEqual(observation["failure_category"], "provider_transport")
+        self.assertEqual(observation["contract_layer"], "execution_contract")
+
+    def test_render_report_backfills_terminal_state_for_legacy_rows(self):
+        report = eval_report.render_report(
+            [
+                {
+                    "case_id": "legacy",
+                    "run": "1",
+                    "rc": "1",
+                    "elapsed_ms": "10",
+                    "success": "false",
+                    "reason": "dependency_missing",
+                    "failure_category": "",
+                    "contract_layer": "",
+                }
+            ]
+        )
+
+        self.assertIn("## Terminal States", report)
+        self.assertIn("- dependency_missing: 1", report)
+        self.assertIn("## Diagnostic Codes", report)
 
 
 if __name__ == "__main__":

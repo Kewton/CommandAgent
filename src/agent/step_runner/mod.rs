@@ -157,6 +157,35 @@ steps:
     }
 
     #[test]
+    fn accepts_folded_strip_block_scalar_instruction() {
+        let yaml = r#"
+goal: Create Next app
+profile: nextjs
+style: default
+steps:
+  - id: create-package-json
+    kind: create
+    instruction: >-
+      Create package.json.
+      Include next, react, and react-dom.
+    expected_paths:
+      - package.json
+    verify:
+      - test -f package.json
+"#;
+
+        let plan = parse_step_plan_yaml(yaml).unwrap();
+        let rendered = render_step_plan_yaml(&plan);
+        let reparsed = parse_step_plan_yaml(&rendered).unwrap();
+
+        assert_eq!(
+            plan.steps[0].instruction,
+            "Create package.json. Include next, react, and react-dom."
+        );
+        assert_eq!(reparsed, plan);
+    }
+
+    #[test]
     fn accepts_literal_block_scalar_goal_and_canonicalizes() {
         let yaml = r#"
 goal: |
@@ -180,6 +209,31 @@ steps:
         assert_eq!(plan.goal, "Build docs.\nKeep the output concise.");
         assert_eq!(reparsed, plan);
         assert!(rendered.contains("goal: \"Build docs.\\nKeep the output concise.\""));
+    }
+
+    #[test]
+    fn accepts_literal_strip_block_scalar_goal_and_canonicalizes() {
+        let yaml = r#"
+goal: |-
+  Build docs.
+  Keep the output concise.
+profile: docs
+style: default
+steps:
+  - id: write-readme
+    instruction: Create README.md.
+    expected_paths:
+      - README.md
+    verify:
+      - test -f README.md
+"#;
+
+        let plan = parse_step_plan_yaml(yaml).unwrap();
+        let rendered = render_step_plan_yaml(&plan);
+        let reparsed = parse_step_plan_yaml(&rendered).unwrap();
+
+        assert_eq!(plan.goal, "Build docs.\nKeep the output concise.");
+        assert_eq!(reparsed, plan);
     }
 
     #[test]

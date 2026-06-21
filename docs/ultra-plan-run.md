@@ -98,9 +98,11 @@ include an attempt ledger rather than starting another hidden correction loop.
 Generated phase step plans are plan-file contract inputs. Before lint or
 execution, CommandAgent parses supported ordinary YAML scalar forms and
 normalizes them into the typed step-plan schema. Long phase goals or step
-instructions may use YAML block scalars; anchors, merge keys, custom tags, and
-extra nested maps remain outside the contract. Parse errors, schema errors, and
-plan-lint errors should be reported as distinct planning failures.
+instructions may use YAML block scalar markers `|`, `|-`, `|+`, `>`, `>-`,
+and `>+`; CommandAgent normalizes them into typed strings before linting.
+Anchors, merge keys, custom tags, and extra nested maps remain outside the
+contract. Parse errors, schema errors, and plan-lint errors should be reported
+as distinct planning failures.
 
 Step decomposition is also a planning contract. For example, a generated
 `setup` step may own `package.json` or `tailwind.config.js`, but it may not own

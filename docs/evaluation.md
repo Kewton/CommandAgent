@@ -40,6 +40,45 @@ route artifact, should be reported under `planning` with the violated
 contract, rejected path, observed artifact role, and required correction. Treat
 these as planning-contract failures even if the execution layer would also have
 blocked the same mutation later.
+
+New eval runs also record a terminal observation for each run. The terminal
+observation is reporting data, not a recovery decision. It answers where the
+run stopped and which deterministic contract evidence supports that stop. The
+primary field is `terminal_state`; the compatible broad fields remain
+`failure_category` and `contract_layer`.
+
+Current terminal states are:
+
+- `ok`
+- `plan_parse_failed`
+- `plan_schema_failed`
+- `plan_lint_failed`
+- `provider_transport_failed`
+- `provider_parse_failed`
+- `tool_protocol_failed`
+- `step_policy_failed`
+- `profile_contract_failed`
+- `verifier_command_failed`
+- `dependency_missing`
+- `setup_failed`
+- `port_in_use`
+- `missing_deliverable`
+- `missing_evidence`
+- `evidence_binding_failed`
+- `completion_evidence_failed`
+- `eval_assertion_failed`
+- `repair_exhausted`
+- `explicit_stop`
+- `unknown`
+
+The observation fields are `terminal_state`, `failure_class`,
+`violated_contract`, `source`, `source_of_truth`, `diagnostic_code`, `command`,
+`setup_state`, and `port`, alongside existing recovery fields. For example,
+`EADDRINUSE` or `address already in use` on a requested dev-server port should
+be reported as `terminal_state=port_in_use` and
+`contract_layer=setup_bootstrap_contract`, not as source implementation failure.
+Old eval roots that do not have terminal observation fields remain readable;
+the report backfills conservative values from `reason`.
 Plan-file failures should distinguish parse, schema, and lint boundaries.
 Unsupported or malformed plan-file syntax is a planning parse failure. Missing
 or wrongly typed required fields are planning schema failures. Readable plans

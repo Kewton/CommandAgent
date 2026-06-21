@@ -638,6 +638,41 @@ steps:
     }
 
     #[test]
+    fn generated_step_plan_accepts_folded_strip_block_scalar_instruction() {
+        let root =
+            std::env::temp_dir().join(format!("commandagent-folded-strip-plan-{}", now_ms()));
+        std::fs::create_dir_all(&root).unwrap();
+        let generated = r#"
+steps:
+  - id: write-readme
+    kind: create
+    instruction: >-
+      Create README.md.
+      Include usage notes.
+    expected_paths:
+      - README.md
+    verify:
+      - test -f README.md
+"#;
+        let context = GeneratedStepPlanContext {
+            goal: "Create docs.",
+            profile: "docs",
+            style: "default",
+            intent: WorkIntent::Document,
+            required_artifacts: &[],
+            profile_obligations: &[],
+        };
+
+        let plan = parse_generated_step_plan(&root, generated, &context).unwrap();
+
+        assert_eq!(
+            plan.steps[0].instruction,
+            "Create README.md. Include usage notes."
+        );
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn generated_tailwind_plan_materializes_manifest_obligation_for_single_package_step() {
         let root = std::env::temp_dir().join(format!(
             "commandagent-tailwind-materialization-{}",

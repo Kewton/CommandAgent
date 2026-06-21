@@ -317,5 +317,9 @@ steps:
 
 The supported plan-file syntax is intentionally limited to the plan schema:
 quoted strings, unquoted scalar strings, block scalars for known long text
-fields, and normal lists. Anchors, aliases, merge keys, custom tags,
-environment expansion, and arbitrary nested maps are not part of the contract.
+fields, and normal lists. Known long text fields accept block scalar markers
+`|`, `|-`, `|+`, `>`, `>-`, and `>+`; CommandAgent normalizes the content into
+its typed plan representation and does not expose exact trailing-newline
+chomping semantics as part of the contract. Anchors, aliases, merge keys,
+custom tags, environment expansion, and arbitrary nested maps are not part of
+the contract.

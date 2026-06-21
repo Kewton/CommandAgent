@@ -2,7 +2,19 @@
 import argparse
 import csv
 import json
+import sys
 from pathlib import Path
+
+SCRIPT_DIR = Path(__file__).resolve().parent
+if str(SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPT_DIR))
+
+from eval_failure_observation import (  # noqa: E402
+    OBSERVATION_FIELD_NAMES,
+    category_for_reason,
+    contract_layer_for_reason,
+    normalize_observation,
+)
 
 
 def parse_args():
@@ -87,6 +99,7 @@ def write_summary(path, rows):
         "reason",
         "failure_category",
         "contract_layer",
+        *OBSERVATION_FIELD_NAMES,
         "active_job",
         "recovery_owner",
         "target_path",
@@ -154,6 +167,20 @@ def recheck(root, cases):
                 "explicit_stop_reason": meta.get("explicit_stop_reason", ""),
             }
         )
+        observation = normalize_observation(
+            {
+                **meta,
+                **rows[-1],
+                "reason": reason,
+                "success": success,
+                "rc": rc,
+            }
+        )
+        rows[-1].update(
+            {name: observation.get(name, "") for name in OBSERVATION_FIELD_NAMES}
+        )
+        rows[-1]["failure_category"] = observation["failure_category"]
+        rows[-1]["contract_layer"] = observation["contract_layer"]
     out = root / "recheck_summary.tsv"
     write_summary(out, rows)
     return rows, out
@@ -181,73 +208,11 @@ def semantic_contains(text, needle, case):
 
 
 def categorize(reason):
-    if reason == "ok":
-        return "ok"
-    if (
-        reason.startswith("planning:")
-        or reason.startswith("plan_lint")
-        or "invalid ultra plan" in reason
-        or "invalid step plan" in reason
-    ):
-        return "planning"
-    if (
-        reason.startswith("provider_transport")
-        or reason.startswith("provider_parse")
-        or "JSON parse failed" in reason
-        or "tool call is missing a tool name" in reason
-    ):
-        return "provider_transport"
-    if (
-        reason.startswith("tool_args_")
-        or reason.startswith("tool_protocol")
-        or reason.startswith("tool_protocol_failure:")
-    ):
-        return "tool_protocol"
-    if reason.startswith("step_policy:") or reason == "read_only_step_mutation":
-        return "step_policy"
-    if reason.startswith("profile_verification:"):
-        return "profile"
-    if (
-        reason == "dependency_missing"
-        or reason.startswith("setup:")
-        or reason.startswith("dependency_setup:")
-    ):
-        return "setup"
-    if (
-        reason.startswith("quality:")
-        or reason.startswith("app_quality:")
-        or "blank_ui" in reason
-        or "visual" in reason
-    ):
-        return "quality"
-    if reason.startswith("missing:"):
-        return "planning"
-    if reason.startswith("semantic_missing:") or reason.startswith("semantic_mismatch:"):
-        return "quality"
-    if reason.startswith("rc:"):
-        return "verifier"
-    if reason.startswith("command_failed:") or reason.startswith("blocked:"):
-        return "verifier"
-    return "unknown"
+    return category_for_reason(reason)
 
 
 def contract_layer(reason):
-    category = categorize(reason)
-    if category == "planning":
-        return "planning_contract"
-    if category in ("provider_transport", "tool_protocol", "step_policy"):
-        return "execution_contract"
-    if category == "profile":
-        return "profile_contract"
-    if category == "setup":
-        return "setup_bootstrap_contract"
-    if category == "verifier":
-        return "verification_contract"
-    if category == "quality":
-        return "eval_success_contract"
-    if category == "ok":
-        return "ok"
-    return "unknown_contract"
+    return contract_layer_for_reason(reason)
 
 
 def derive_active_job(reason):
@@ -374,14 +339,21 @@ def render_report(rows):
     success = sum(1 for row in rows if row["success"] == "true")
     categories = {}
     layers = {}
+    terminal_states = {}
+    diagnostics = {}
     by_case = {}
     recovery_jobs = {}
     for row in rows:
-        category = row.get("failure_category") or categorize(row["reason"])
-        layer = row.get("contract_layer") or contract_layer(row["reason"])
+        observation = normalize_observation(row)
+        category = row.get("failure_category") or observation["failure_category"]
+        layer = row.get("contract_layer") or observation["contract_layer"]
+        terminal_state = row.get("terminal_state") or observation["terminal_state"]
+        diagnostic_code = row.get("diagnostic_code") or observation["diagnostic_code"]
         job = row.get("active_job") or derive_active_job(row["reason"])
         categories[category] = categories.get(category, 0) + 1
         layers[layer] = layers.get(layer, 0) + 1
+        terminal_states[terminal_state] = terminal_states.get(terminal_state, 0) + 1
+        diagnostics[diagnostic_code] = diagnostics.get(diagnostic_code, 0) + 1
         recovery_jobs[job] = recovery_jobs.get(job, 0) + 1
         stats = by_case.setdefault(row["case_id"], [0, 0])
         stats[1] += 1
@@ -397,8 +369,17 @@ def render_report(rows):
     ]
     for name, count in sorted(categories.items()):
         lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Terminal States"])
+    for name, count in sorted(terminal_states.items()):
+        lines.append(f"- {name}: {count}")
     lines.extend(["", "## Contract Layers"])
     for name, count in sorted(layers.items()):
+        lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Lifecycle Funnel"])
+    for name, count in sorted(terminal_states.items()):
+        lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Diagnostic Codes"])
+    for name, count in sorted(diagnostics.items()):
         lines.append(f"- {name}: {count}")
     lines.extend(["", "## Recovery Jobs"])
     for name, count in sorted(recovery_jobs.items()):

@@ -350,9 +350,12 @@ the accepted syntax should cover ordinary, deterministic YAML shapes that
 planning tools naturally emit, then normalize them into CommandAgent's
 canonical internal representation before linting or execution. For example,
 quoted strings, unquoted scalar strings, and standard block scalars for long
-instructions are reasonable contract syntax. Anchors, merge keys, custom tags,
-implicit execution, environment expansion, and other complex YAML features are
-not part of the contract unless a separate design decision admits them.
+instructions are reasonable contract syntax. Known long text fields accept
+block scalar markers `|`, `|-`, `|+`, `>`, `>-`, and `>+`; exact trailing
+newline chomping is normalized rather than exposed as task behavior. Anchors,
+merge keys, custom tags, implicit execution, environment expansion, and other
+complex YAML features are not part of the contract unless a separate design
+decision admits them.
 
 The parser boundary and lint boundary must stay separate:
 

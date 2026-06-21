@@ -44,6 +44,11 @@ ordinary scalar forms for known plan string fields:
 - ultra plan `goal`
 - ultra phase `goal`
 
+Known long text fields accept block scalar markers `|`, `|-`, `|+`, `>`,
+`>-`, and `>+`. CommandAgent normalizes these into its typed plan
+representation; exact trailing-newline chomping is not exposed as task
+behavior.
+
 Anchors, aliases, merge keys, custom tags, environment expansion, and arbitrary
 nested maps remain outside the contract.
 
@@ -52,10 +57,10 @@ nested maps remain outside the contract.
 Code changes:
 
 - Added a small shared block-scalar helper under the step runner.
-- Step plan parsing now accepts `|` and `>` for top-level `goal` and step
-  `instruction`.
-- Ultra plan parsing now accepts `|` and `>` for top-level `goal` and phase
-  `goal`.
+- Step plan parsing now accepts `|`, `|-`, `|+`, `>`, `>-`, and `>+` for
+  top-level `goal` and step `instruction`.
+- Ultra plan parsing now accepts `|`, `|-`, `|+`, `>`, `>-`, and `>+` for
+  top-level `goal` and phase `goal`.
 - Generated step-plan header normalization now drops block-scalar continuation
   lines when replacing model-supplied top-level headers with CommandAgent-owned
   context headers.

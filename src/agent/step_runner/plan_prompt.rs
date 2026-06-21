@@ -74,7 +74,7 @@ Rules:\n\
 - report steps explicitly report blockers such as dependency_missing or verifier_unavailable and should use verify: [].\n\
 - Do not use true as a verifier; use an empty verify list for report-only steps.\n\
 - Do not include tool-call fields such as action, path, content, old, or new in the plan.\n\
-- Long text fields such as goal and instruction may use quoted strings or YAML block scalars; do not use anchors, aliases, merge keys, custom tags, or extra nested maps.\n\
+- Long text fields such as goal and instruction may use quoted strings or YAML block scalars with markers |, |-, |+, >, >-, or >+; do not use anchors, aliases, merge keys, custom tags, or extra nested maps.\n\
 \n\
 Goal: {goal}\n\
 Profile: {profile}\n\
@@ -99,7 +99,7 @@ Original goal:\n{original_goal}\n\n\
 Validation error:\n{error}\n\n\
 Invalid plan:\n{invalid_plan}\n\n\
 If the invalid plan includes tool-call fields such as action, path, content, old, or new, rewrite them into instruction and expected_paths fields.\n\
-Long text fields such as goal and instruction may use quoted strings or YAML block scalars; do not use anchors, aliases, merge keys, custom tags, or extra nested maps.\n\
+Long text fields such as goal and instruction may use quoted strings or YAML block scalars with markers |, |-, |+, >, >-, or >+; do not use anchors, aliases, merge keys, custom tags, or extra nested maps.\n\
 Return only corrected YAML using the required CommandAgent step plan schema."
     )
 }

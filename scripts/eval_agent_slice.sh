@@ -14,6 +14,16 @@ import sys
 import time
 from pathlib import Path
 
+REPO_ROOT = Path(sys.argv[1]).resolve()
+sys.path.insert(0, str(REPO_ROOT / "scripts"))
+from eval_failure_observation import (  # noqa: E402
+    OBSERVATION_FIELD_NAMES,
+    category_for_reason,
+    contract_layer_for_reason,
+    normalize_observation,
+    terminal_state_from_reason,
+)
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Run a CommandAgent eval slice")
@@ -121,6 +131,16 @@ def failure_evidence(workdir, stdout, stderr):
 
 
 def runtime_failure_reason(evidence):
+    terminal_state = terminal_state_from_reason("rc:1", evidence, {"success": False})
+    if terminal_state in {
+        "port_in_use",
+        "provider_transport_failed",
+        "provider_parse_failed",
+        "step_policy_failed",
+        "dependency_missing",
+        "setup_failed",
+    }:
+        return terminal_state
     profile_match = re.search(
         r"profile verification failed[^\n]*?:\s*([a-z0-9_]+):", evidence
     )
@@ -391,73 +411,11 @@ def success_reason(workdir, rc, missing, semantic_missing, semantic_mismatches, 
 
 
 def failure_category(reason):
-    if reason == "ok":
-        return "ok"
-    if (
-        reason.startswith("planning:")
-        or reason.startswith("plan_lint")
-        or "invalid ultra plan" in reason
-        or "invalid step plan" in reason
-    ):
-        return "planning"
-    if (
-        reason.startswith("provider_transport")
-        or reason.startswith("provider_parse")
-        or "JSON parse failed" in reason
-        or "tool call is missing a tool name" in reason
-    ):
-        return "provider_transport"
-    if (
-        reason.startswith("tool_args_")
-        or reason.startswith("tool_protocol")
-        or reason.startswith("tool_protocol_failure:")
-    ):
-        return "tool_protocol"
-    if reason.startswith("step_policy:") or reason == "read_only_step_mutation":
-        return "step_policy"
-    if reason.startswith("profile_verification:"):
-        return "profile"
-    if (
-        reason == "dependency_missing"
-        or reason.startswith("setup:")
-        or reason.startswith("dependency_setup:")
-    ):
-        return "setup"
-    if (
-        reason.startswith("quality:")
-        or reason.startswith("app_quality:")
-        or "blank_ui" in reason
-        or "visual" in reason
-    ):
-        return "quality"
-    if reason.startswith("missing:"):
-        return "planning"
-    if reason.startswith("semantic_missing:") or reason.startswith("semantic_mismatch:"):
-        return "quality"
-    if reason.startswith("rc:"):
-        return "verifier"
-    if reason.startswith("command_failed:") or reason.startswith("blocked:"):
-        return "verifier"
-    return "unknown"
+    return category_for_reason(reason)
 
 
 def contract_layer(reason):
-    category = failure_category(reason)
-    if category == "planning":
-        return "planning_contract"
-    if category in {"provider_transport", "tool_protocol", "step_policy"}:
-        return "execution_contract"
-    if category == "profile":
-        return "profile_contract"
-    if category == "setup":
-        return "setup_bootstrap_contract"
-    if category == "verifier":
-        return "verification_contract"
-    if category == "quality":
-        return "eval_success_contract"
-    if category == "ok":
-        return "ok"
-    return "unknown_contract"
+    return contract_layer_for_reason(reason)
 
 
 def run_case(repo, root, binary, case, run_index, args):
@@ -525,6 +483,22 @@ def run_case(repo, root, binary, case, run_index, args):
     category = failure_category(reason)
     layer = contract_layer(reason)
     recovery = recovery_fields(reason, evidence, case)
+    observation = normalize_observation(
+        {
+            "reason": reason,
+            "rc": rc,
+            "success": success,
+            "stdout": stdout,
+            "stderr": stderr,
+            "evidence": evidence,
+            "command": " ".join(command),
+            "failure_category": category,
+            "contract_layer": layer,
+            **recovery,
+        }
+    )
+    category = observation["failure_category"]
+    layer = observation["contract_layer"]
 
     meta = {
         "case_id": case["id"],
@@ -550,6 +524,7 @@ def run_case(repo, root, binary, case, run_index, args):
         "success_check_reason": reason,
         "failure_category": category,
         "contract_layer": layer,
+        **{name: observation.get(name, "") for name in OBSERVATION_FIELD_NAMES},
         **recovery,
     }
     meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
@@ -562,12 +537,13 @@ def run_case(repo, root, binary, case, run_index, args):
         reason,
         category,
         layer,
+        *(observation.get(name, "") for name in OBSERVATION_FIELD_NAMES),
         *(recovery[name] for name in RECOVERY_FIELD_NAMES),
     ]
 
 
 def main():
-    repo = Path(sys.argv[1]).resolve()
+    repo = REPO_ROOT
     args = parse_args()
     cases_dir = (repo / args.cases_dir).resolve()
     cases = [read_case(path) for path in sorted(cases_dir.glob("*.yaml"))]
@@ -584,6 +560,7 @@ def main():
             "reason",
             "failure_category",
             "contract_layer",
+            *OBSERVATION_FIELD_NAMES,
             *RECOVERY_FIELD_NAMES,
         ]
     ]

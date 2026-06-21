@@ -26,7 +26,7 @@ If the error mentions source-code behavior, source grep, or grep over source fil
 If the error mentions mixed setup and verification, remove build/test/check commands from create/edit/setup steps and add a separate verify step.\n\
 If the error mentions shell chaining, split the verifier into simple commands or choose one canonical check. Do not use &&, ||, ;, pipes, redirection, or fallback-to-true syntax.\n\
 If the error mentions action/path/content/old/new fields, rewrite those tool-call fields into step instruction and expected_paths fields.\n\
-Long text fields such as goal, phase goal, and instruction may use quoted strings or YAML block scalars; do not use anchors, aliases, merge keys, custom tags, or extra nested maps.\n\
+Long text fields such as goal, phase goal, and instruction may use quoted strings or YAML block scalars with markers |, |-, |+, >, >-, or >+; do not use anchors, aliases, merge keys, custom tags, or extra nested maps.\n\
 Return only corrected YAML using the required CommandAgent schema."
     )
 }

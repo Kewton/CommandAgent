@@ -106,9 +106,13 @@ CommandAgent is still in MVP migration.
   keys in the shell or use an external env loader.
 - The eval runner has dry-run wiring, real binary execution paths, per-case
   `/plan-run` / `/ultra-plan-run` mode, and fixture seeding for modification
-  cases. Large semantic checks are still intentionally explicit and conservative;
-  the latest fresh large run is 0/6 and needs triage before it can be treated as
-  a release-quality gate.
+  cases. New eval runs also record terminal observation fields such as
+  `terminal_state`, `failure_class`, `diagnostic_code`, and `port`; reports
+  backfill conservative values for older run roots. This improves attribution,
+  including `port_in_use` for occupied dev-server ports, but it is still
+  observation-only and does not select repair actions. Large semantic checks
+  are still intentionally explicit and conservative; the latest fresh large run
+  is 0/6 and needs triage before it can be treated as a release-quality gate.
 - Provider API support is MVP-level. Ollama, Gemini, and OpenAI share one thin
   chat contract. Ollama uses native tool calls, Gemini uses native function
   calling with XML fallback retained as a compatibility/downgrade path, and
@@ -118,6 +122,7 @@ CommandAgent is still in MVP migration.
   policy or guarantee app-quality convergence.
 - Smaller planner models may still fail plan schema or plan-lint requirements
   even after bounded correction. CommandAgent accepts ordinary block scalar
-  strings for known long text fields, but it still rejects unsupported YAML
-  features and invalid plan contracts. Use a stronger planner model for MVP
-  workflows until frontier data is collected.
+  strings for known long text fields, including `|`, `|-`, `|+`, `>`, `>-`,
+  and `>+`, but it still rejects unsupported YAML features and invalid plan
+  contracts. Use a stronger planner model for MVP workflows until frontier
+  data is collected.
