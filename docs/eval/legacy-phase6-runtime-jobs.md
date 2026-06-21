@@ -1,4 +1,4 @@
-# Anvil Loadmap Phase 6 Runtime Jobs
+# Legacy Loadmap Phase 6 Runtime Jobs
 
 Date: 2026-06-21
 
@@ -50,7 +50,7 @@ Local verification on 2026-06-21:
 - `cargo clippy --all-targets -- -D warnings`: passed
 - `cargo build --release`: passed
 - focused eval:
-  `scripts/eval_agent_slice.sh --cases-dir eval/cases/focused/control-recovery --out eval/runs/current-anvil-phase6-focused --runs 1 --binary target/release/commandagent --provider ollama --model qwen3.6:35b-a3b-coding-nvfp4 --timeout-secs 900`
+  `scripts/eval_agent_slice.sh --cases-dir eval/cases/focused/control-recovery --out eval/runs/current-legacy-phase6-focused --runs 1 --binary target/release/commandagent --provider ollama --model qwen3.6:35b-a3b-coding-nvfp4 --timeout-secs 900`
   completed, but all 8 cases stopped at `provider_transport_failed` because
   `http://127.0.0.1:11434/api/chat` was not reachable in this run. Runtime
   setup/dev-server behavior was therefore not exercised by this focused eval.
