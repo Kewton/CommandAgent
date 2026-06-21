@@ -63,6 +63,15 @@ CommandAgent is still in MVP migration.
   future-artifact inspection. This improves the repair packet handoff, but it
   does not add hidden continuation, increase retry budgets, or guarantee that a
   weak model will perform the selected repair correctly.
+- Legacy-control-stack recovery records now include completion evidence, evidence
+  binding, deliverable obligations, recovery owner, repair action plan,
+  semantic failure report, repair job state, attempt outcomes, patch
+  validation, and eval report fields. Missing expected paths now produce
+  file-layout evidence-binding and missing completion evidence, and
+  test-weakening repairs are rejected by patch validation. Concrete pass-side
+  producers, persistent repair job lifecycle, target/role no-progress
+  switching, verifier-proven rollback, and profile-wide evidence-binding
+  producers are still partial.
 - Step-decomposition lint now rejects the observed high-confidence case where a
   `setup` step owns classified source/style, route, component, test, docs,
   generated, or build artifacts such as `app/globals.css`. Broader ownership

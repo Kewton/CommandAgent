@@ -43,7 +43,10 @@ only the facts it owns to the next layer: violated contract, artifact graph
 facts, active job, repair kind, admitted target, repair action when
 deterministic, semantic failure kind, source of truth, allowed change kind,
 expected evidence delta, workspace scope, artifact ownership, setup
-implication, rerun authority, and attempt-ledger context.
+implication, recovery owner, completion evidence, evidence binding,
+deliverable obligations, repair action plan, semantic failure report, repair
+job state, patch validation, eval report fields, rerun authority, and
+attempt-ledger context.
 This lets Recovery Orchestration Contract choose the correct bounded path
 before Recovery Task Contract, Setup Bootstrap, or verifier-owned setup
 recovery delegates execution to the minimal loop.
@@ -86,6 +89,16 @@ plan lint failure already knows enough to classify the blocker, map it to the
 ArtifactGraph, admit the target, prioritize candidates, select one allowed
 repair action, project tool policy, and name disallowed actions and rerun
 authority.
+
+Completion evidence and evidence binding are part of this visible contract
+surface. Completion evidence records whether a repository edit, verifier exit,
+docs section, structured-data check, report completeness check, or command
+observation satisfied a deliverable. Evidence binding records whether a
+required deliverable is connected to an observable proof path such as a
+manifest identity, import symbol, executable handle, test script, required
+section, schema column, citation, or file layout. A binding failure can select
+an `evidence_binding_repair` job, but it still remains a bounded repair task
+for the existing minimal loop.
 
 The Recovery Task Contract renders that policy into the next bounded repair
 turn for the minimal loop. It should not decide the repair strategy from broad
@@ -194,6 +207,13 @@ profile, setup, recovery attempt, or unsupported. Evidence describes what
 failed. ArtifactGraph describes which artifacts and relationships are involved.
 Recovery Orchestration, Recovery Policy, and Recovery Task still own what to do
 next.
+
+The orchestration section may carry `recovery_owner`, `completion_evidence`,
+`evidence_binding`, `deliverable_obligations`, `repair_action_plan`,
+`semantic_failure_report`, `repair_job_state`, `attempt_outcomes`,
+`patch_validation`, and `eval_report_fields`. These fields are reporting and
+repair-contract data. They do not grant retry authority or create another
+execution loop.
 
 Provider usage is normalized into a common `ModelUsage` shape at the provider
 parse boundary and carried on `ChatResponse` into runtime events. Missing usage

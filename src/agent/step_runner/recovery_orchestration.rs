@@ -1,11 +1,16 @@
 #![allow(dead_code)]
 
+use crate::agent::step_runner::active_job::RecoveryOwner;
 use crate::agent::step_runner::artifact_completion::ArtifactCompletionJob;
 use crate::agent::step_runner::artifact_graph::{
     ArtifactGraph, ArtifactRole, recovery_target_admissible, role_for_path,
 };
 use crate::agent::step_runner::correction_evidence::ContractEvidence;
 use crate::agent::step_runner::recovery_contract;
+use crate::agent::step_runner::repair_action_plan::{
+    AllowedToolCategory, RepairActionPlan, RepairActionStatus,
+};
+use crate::agent::step_runner::semantic_failure::SemanticFailureReport;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RecoveryJobKind {
@@ -17,6 +22,7 @@ pub(crate) enum RecoveryJobKind {
     TestArtifactCompletion,
     TestAlignmentRepair,
     DocumentationRepair,
+    EvidenceBindingRepair,
     VerifierContractCorrection,
     ToolProtocolCorrection,
     ExplicitStop,
@@ -33,6 +39,7 @@ impl RecoveryJobKind {
             Self::TestArtifactCompletion => "test_artifact_completion",
             Self::TestAlignmentRepair => "test_alignment_repair",
             Self::DocumentationRepair => "documentation_repair",
+            Self::EvidenceBindingRepair => "evidence_binding_repair",
             Self::VerifierContractCorrection => "verifier_contract_correction",
             Self::ToolProtocolCorrection => "tool_protocol_correction",
             Self::ExplicitStop => "explicit_stop",
@@ -50,6 +57,7 @@ pub(crate) enum RecoveryActionKind {
     EditSourceForDiagnostic,
     AlignTestAndVerifier,
     UpdateDocsLiteral,
+    RepairEvidenceBinding,
     ReplaceInvalidVerifierCommand,
     CorrectToolProtocol,
     StopWithStructuredEvidence,
@@ -66,6 +74,7 @@ impl RecoveryActionKind {
             Self::EditSourceForDiagnostic => "edit_source_for_diagnostic",
             Self::AlignTestAndVerifier => "align_test_and_verifier",
             Self::UpdateDocsLiteral => "update_docs_literal",
+            Self::RepairEvidenceBinding => "repair_evidence_binding",
             Self::ReplaceInvalidVerifierCommand => "replace_invalid_verifier_command",
             Self::CorrectToolProtocol => "correct_tool_protocol",
             Self::StopWithStructuredEvidence => "stop_with_structured_evidence",
@@ -113,9 +122,13 @@ pub(crate) struct RecoveryOrchestrationDecision {
     pub(crate) workspace_scope: String,
     pub(crate) artifact_ownership: String,
     pub(crate) active_job_priority: u8,
+    pub(crate) recovery_owner: String,
     pub(crate) tool_policy: ToolPolicyProjection,
     pub(crate) rerun_authority: Vec<String>,
     pub(crate) explicit_stop_reason: Option<String>,
+    pub(crate) repair_action_plan: Vec<String>,
+    pub(crate) semantic_failure_report: Vec<String>,
+    pub(crate) eval_report_fields: Vec<String>,
     pub(crate) artifact_graph_summary: Vec<String>,
 }
 
@@ -141,7 +154,25 @@ impl RecoveryOrchestrationDecision {
             .with_workspace_scope(self.workspace_scope.clone())
             .with_artifact_ownership(self.artifact_ownership.clone())
             .with_active_job_priority(self.active_job_priority.to_string())
+            .with_recovery_owner(self.recovery_owner.clone())
             .with_artifact_graph_summary(self.artifact_graph_summary.clone());
+        if !self.repair_action_plan.is_empty() {
+            let repair_action_plan =
+                merge_lists(&evidence.repair_action_plan, &self.repair_action_plan);
+            evidence = evidence.with_repair_action_plan(repair_action_plan);
+        }
+        if !self.semantic_failure_report.is_empty() {
+            let semantic_failure_report = merge_lists(
+                &evidence.semantic_failure_report,
+                &self.semantic_failure_report,
+            );
+            evidence = evidence.with_semantic_failure_report(semantic_failure_report);
+        }
+        if !self.eval_report_fields.is_empty() {
+            let eval_report_fields =
+                merge_lists(&evidence.eval_report_fields, &self.eval_report_fields);
+            evidence = evidence.with_eval_report_fields(eval_report_fields);
+        }
 
         if evidence.repair_kind.is_none() {
             evidence = evidence.with_repair_kind(self.job.as_str());
@@ -160,7 +191,9 @@ impl RecoveryOrchestrationDecision {
             let rerun_authority = merge_lists(&evidence.rerun_authority, &self.rerun_authority);
             evidence = evidence.with_rerun_authority(rerun_authority);
         }
-        if let Some(reason) = &self.explicit_stop_reason {
+        if evidence.explicit_stop_reason.is_none()
+            && let Some(reason) = &self.explicit_stop_reason
+        {
             evidence = evidence.with_explicit_stop_reason(reason.clone());
         }
         evidence
@@ -220,6 +253,67 @@ pub(crate) fn orchestrate_contract_evidence(
     let artifact_ownership =
         recovery_contract::artifact_ownership(&graph, target.as_deref(), target_role);
     let active_job_priority = recovery_contract::active_job_priority(job.as_str());
+    let recovery_owner = RecoveryOwner::for_active_job(job.as_str())
+        .as_str()
+        .to_string();
+    let repair_action_plan = vec![
+        RepairActionPlan {
+            status: repair_action_status(&target_admission, explicit_stop_reason.as_deref()),
+            target_role: target_role.map(|role| role.as_str().to_string()),
+            target_path: target.clone(),
+            allowed_change_kind: allowed_change_kind.clone(),
+            allowed_tool_category: AllowedToolCategory::from_projection(tool_policy.as_str()),
+            expected_delta: expected_evidence_delta.clone(),
+            rejection_reason: explicit_stop_reason.clone().or_else(|| {
+                target_admission
+                    .starts_with("rejected")
+                    .then(|| target_admission.clone())
+            }),
+            source_of_truth: source_of_truth.clone(),
+        }
+        .render_line(),
+    ];
+    let mut semantic_source = evidence
+        .clone()
+        .with_semantic_failure_kind(semantic_failure_kind.clone())
+        .with_source_of_truth(source_of_truth.clone())
+        .with_target_admission(target_admission.clone());
+    if let Some(target) = &target {
+        semantic_source = semantic_source.with_repair_target(target.clone());
+    }
+    if let Some(role) = target_role {
+        semantic_source = semantic_source.with_artifact_role(role.as_str());
+    }
+    let semantic_failure_report =
+        SemanticFailureReport::from_contract_evidence(&semantic_source).render_lines();
+    let eval_report_fields = vec![
+        format!("active_job={}", job.as_str()),
+        format!("recovery_owner={recovery_owner}"),
+        format!("target_path={}", target.as_deref().unwrap_or("none")),
+        format!(
+            "target_role={}",
+            target_role.map(|role| role.as_str()).unwrap_or("unknown")
+        ),
+        format!("repair_action={}", action.as_str()),
+        format!("tool_policy={}", tool_policy.as_str()),
+        format!("target_admission={target_admission}"),
+        format!(
+            "attempt_outcome={}",
+            if explicit_stop_reason.is_some() {
+                "explicit_stop"
+            } else {
+                "not_attempted"
+            }
+        ),
+        format!(
+            "evidence_binding_status={}",
+            evidence_binding_status(evidence)
+        ),
+        format!(
+            "completion_evidence_status={}",
+            completion_evidence_status(evidence)
+        ),
+    ];
     Some(RecoveryOrchestrationDecision {
         job,
         action,
@@ -236,11 +330,75 @@ pub(crate) fn orchestrate_contract_evidence(
         workspace_scope,
         artifact_ownership,
         active_job_priority,
+        recovery_owner,
         tool_policy,
         rerun_authority: rerun_authority(evidence, job),
         explicit_stop_reason,
+        repair_action_plan,
+        semantic_failure_report,
+        eval_report_fields,
         artifact_graph_summary: graph.summary(),
     })
+}
+
+fn evidence_binding_status(evidence: &ContractEvidence) -> &'static str {
+    if evidence
+        .evidence_binding
+        .iter()
+        .any(|line| line.contains("status=missing"))
+    {
+        "missing"
+    } else if evidence
+        .evidence_binding
+        .iter()
+        .any(|line| line.contains("status=failed"))
+    {
+        "failed"
+    } else if evidence
+        .evidence_binding
+        .iter()
+        .any(|line| line.contains("status=unbound"))
+    {
+        "unbound"
+    } else if evidence
+        .evidence_binding
+        .iter()
+        .any(|line| line.contains("status=bound"))
+    {
+        "bound"
+    } else {
+        "unknown"
+    }
+}
+
+fn completion_evidence_status(evidence: &ContractEvidence) -> &'static str {
+    if evidence
+        .completion_evidence
+        .iter()
+        .any(|line| line.contains("status=failed"))
+    {
+        "failed"
+    } else if evidence
+        .completion_evidence
+        .iter()
+        .any(|line| line.contains("status=missing"))
+    {
+        "missing"
+    } else if evidence
+        .completion_evidence
+        .iter()
+        .any(|line| line.contains("status=unbound"))
+    {
+        "unbound"
+    } else if evidence
+        .completion_evidence
+        .iter()
+        .any(|line| line.contains("status=passed"))
+    {
+        "passed"
+    } else {
+        "unknown"
+    }
 }
 
 pub(crate) fn orchestrate_evidence(evidence: ContractEvidence) -> ContractEvidence {
@@ -267,6 +425,9 @@ fn classify_job(evidence: &ContractEvidence) -> RecoveryJobKind {
         }
         Some("model_issued_dependency_setup") => RecoveryJobKind::SetupBootstrap,
         Some("setup_step_source_mutation") => RecoveryJobKind::ManifestRepair,
+        Some(code) if code.starts_with("evidence_binding_") => {
+            RecoveryJobKind::EvidenceBindingRepair
+        }
         Some(code) if code.contains("dependency") || code.contains("manifest") => {
             RecoveryJobKind::ManifestRepair
         }
@@ -300,6 +461,7 @@ fn classify_job(evidence: &ContractEvidence) -> RecoveryJobKind {
             RecoveryJobKind::SourceImplementationRepair
         }
         _ if evidence.guard == "verifier" => RecoveryJobKind::SourceImplementationRepair,
+        _ if evidence.guard == "evidence_binding" => RecoveryJobKind::EvidenceBindingRepair,
         _ if evidence.guard == "tool_protocol" || evidence.guard == "provider_transport" => {
             RecoveryJobKind::ToolProtocolCorrection
         }
@@ -318,6 +480,7 @@ fn known_orchestration_source(evidence: &ContractEvidence) -> bool {
             | "provider_transport"
             | "verifier"
             | "profile_verification"
+            | "evidence_binding"
             | "setup"
             | "recovery"
             | "repair"
@@ -354,6 +517,7 @@ fn classify_action(evidence: &ContractEvidence, job: RecoveryJobKind) -> Recover
         RecoveryJobKind::SourceImplementationRepair => RecoveryActionKind::EditSourceForDiagnostic,
         RecoveryJobKind::TestAlignmentRepair => RecoveryActionKind::AlignTestAndVerifier,
         RecoveryJobKind::DocumentationRepair => RecoveryActionKind::UpdateDocsLiteral,
+        RecoveryJobKind::EvidenceBindingRepair => RecoveryActionKind::RepairEvidenceBinding,
         RecoveryJobKind::VerifierContractCorrection => {
             RecoveryActionKind::ReplaceInvalidVerifierCommand
         }
@@ -436,6 +600,17 @@ fn target_admitted(path: &str, graph: &ArtifactGraph, job: RecoveryJobKind) -> b
                 | ArtifactRole::Implementation
         ),
         RecoveryJobKind::TestAlignmentRepair => role == ArtifactRole::Test,
+        RecoveryJobKind::EvidenceBindingRepair => matches!(
+            role,
+            ArtifactRole::SetupManifest
+                | ArtifactRole::SetupConfig
+                | ArtifactRole::Entrypoint
+                | ArtifactRole::IntegrationTarget
+                | ArtifactRole::Implementation
+                | ArtifactRole::Test
+                | ArtifactRole::Docs
+                | ArtifactRole::Unknown
+        ),
         RecoveryJobKind::VerifierContractCorrection => path.starts_with("step:"),
         RecoveryJobKind::ExplicitStop => false,
         _ => true,
@@ -540,6 +715,9 @@ fn required_action(
         (RecoveryJobKind::DocumentationRepair, _) => {
             "update the documentation literal or observed/expected mismatch exactly".to_string()
         }
+        (RecoveryJobKind::EvidenceBindingRepair, _) => {
+            "bind the required evidence to the target artifact without changing unrelated artifacts".to_string()
+        }
         (RecoveryJobKind::ToolProtocolCorrection, _) => {
             "produce exactly one valid tool call that satisfies the shared tool protocol".to_string()
         }
@@ -631,6 +809,18 @@ fn disallowed_actions(
                 "Do not run dependency installation from verifier contract correction.".to_string(),
             );
         }
+        RecoveryJobKind::EvidenceBindingRepair => {
+            push_unique(
+                &mut actions,
+                "Do not create a new feature artifact when the blocker is only evidence binding."
+                    .to_string(),
+            );
+            push_unique(
+                &mut actions,
+                "Do not edit dependency setup unless the evidence target is a setup artifact."
+                    .to_string(),
+            );
+        }
         RecoveryJobKind::ExplicitStop => {
             push_unique(
                 &mut actions,
@@ -684,6 +874,7 @@ fn parse_job(value: &str) -> Option<RecoveryJobKind> {
         "test_artifact_completion" => Some(RecoveryJobKind::TestArtifactCompletion),
         "test_repair" | "test_alignment_repair" => Some(RecoveryJobKind::TestAlignmentRepair),
         "docs_repair" | "documentation_repair" => Some(RecoveryJobKind::DocumentationRepair),
+        "evidence_binding_repair" => Some(RecoveryJobKind::EvidenceBindingRepair),
         "verifier_policy_repair" | "verifier_contract_correction" => {
             Some(RecoveryJobKind::VerifierContractCorrection)
         }
@@ -711,6 +902,7 @@ fn parse_action(value: &str) -> Option<RecoveryActionKind> {
         }
         "align_test_and_verifier" => Some(RecoveryActionKind::AlignTestAndVerifier),
         "update_docs_literal" => Some(RecoveryActionKind::UpdateDocsLiteral),
+        "repair_evidence_binding" => Some(RecoveryActionKind::RepairEvidenceBinding),
         "replace_invalid_verifier_command" => {
             Some(RecoveryActionKind::ReplaceInvalidVerifierCommand)
         }
@@ -737,6 +929,19 @@ fn job_requires_target(job: RecoveryJobKind) -> bool {
             | RecoveryJobKind::ToolProtocolCorrection
             | RecoveryJobKind::ExplicitStop
     )
+}
+
+fn repair_action_status(
+    target_admission: &str,
+    explicit_stop_reason: Option<&str>,
+) -> RepairActionStatus {
+    if explicit_stop_reason.is_some() {
+        RepairActionStatus::ExplicitStop
+    } else if target_admission.starts_with("rejected") {
+        RepairActionStatus::Rejected
+    } else {
+        RepairActionStatus::Admitted
+    }
 }
 
 fn evidence_has_missing_role(evidence: &ContractEvidence, role: ArtifactRole) -> bool {

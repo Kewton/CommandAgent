@@ -1,0 +1,24 @@
+id: focused-nextjs-route-integration
+title: Next.js route integration recovery
+profile: nextjs
+style: default
+mode: ultra-plan-run
+intent: new
+prompt: "Create a minimal Next.js app with a Game component and make the selected route render it on port 3011."
+expected_artifacts:
+  - package.json
+  - app/page.tsx
+  - components/Game.tsx
+verify:
+  - npm run build
+success_check:
+  type: semantic
+  required_paths:
+    - package.json
+    - app/page.tsx
+    - components/Game.tsx
+  must_include:
+    app/page.tsx:
+      - Game
+    components/Game.tsx:
+      - export

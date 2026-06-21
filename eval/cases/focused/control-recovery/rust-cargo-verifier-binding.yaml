@@ -1,0 +1,22 @@
+id: focused-rust-cargo-verifier-binding
+title: Rust Cargo verifier binding
+profile: rust
+style: default
+mode: plan-run
+intent: new
+prompt: "Create a minimal Rust CLI crate named hello_agent with a main that prints hello."
+expected_artifacts:
+  - Cargo.toml
+  - src/main.rs
+verify:
+  - cargo test
+success_check:
+  type: semantic
+  required_paths:
+    - Cargo.toml
+    - src/main.rs
+  must_include:
+    Cargo.toml:
+      - hello_agent
+    src/main.rs:
+      - fn main

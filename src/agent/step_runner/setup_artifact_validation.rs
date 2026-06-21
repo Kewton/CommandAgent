@@ -36,6 +36,60 @@ pub(crate) fn validate_npm_manifest(cwd: &Path) -> Option<SetupArtifactViolation
     validate_package_json_content(&content)
 }
 
+#[allow(dead_code)]
+pub(crate) fn validate_rust_manifest(cwd: &Path) -> Option<SetupArtifactViolation> {
+    let path = cwd.join("Cargo.toml");
+    let content = match fs::read_to_string(&path) {
+        Ok(content) => content,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Some(SetupArtifactViolation {
+                path: "Cargo.toml".to_string(),
+                reason_code: "setup_manifest_missing".to_string(),
+                diagnostic: "Cargo.toml is missing before Rust build/test setup".to_string(),
+            });
+        }
+        Err(err) => {
+            return Some(SetupArtifactViolation {
+                path: "Cargo.toml".to_string(),
+                reason_code: "setup_manifest_unreadable".to_string(),
+                diagnostic: format!("Cargo.toml could not be read: {err}"),
+            });
+        }
+    };
+    validate_cargo_toml_content(&content)
+}
+
+#[allow(dead_code)]
+pub(crate) fn validate_python_manifest(cwd: &Path) -> Option<SetupArtifactViolation> {
+    let pyproject = cwd.join("pyproject.toml");
+    let requirements = cwd.join("requirements.txt");
+    if pyproject.exists() {
+        return match fs::read_to_string(&pyproject) {
+            Ok(content) => validate_pyproject_toml_content(&content),
+            Err(err) => Some(SetupArtifactViolation {
+                path: "pyproject.toml".to_string(),
+                reason_code: "setup_manifest_unreadable".to_string(),
+                diagnostic: format!("pyproject.toml could not be read: {err}"),
+            }),
+        };
+    }
+    if requirements.exists() {
+        return match fs::read_to_string(&requirements) {
+            Ok(content) => validate_requirements_content(&content),
+            Err(err) => Some(SetupArtifactViolation {
+                path: "requirements.txt".to_string(),
+                reason_code: "setup_manifest_unreadable".to_string(),
+                diagnostic: format!("requirements.txt could not be read: {err}"),
+            }),
+        };
+    }
+    Some(SetupArtifactViolation {
+        path: "pyproject.toml|requirements.txt".to_string(),
+        reason_code: "setup_manifest_missing".to_string(),
+        diagnostic: "Python setup manifest is missing before dependency setup".to_string(),
+    })
+}
+
 fn validate_package_json_content(content: &str) -> Option<SetupArtifactViolation> {
     if content.trim().is_empty() {
         return Some(SetupArtifactViolation {
@@ -75,6 +129,68 @@ fn validate_package_json_content(content: &str) -> Option<SetupArtifactViolation
     None
 }
 
+#[allow(dead_code)]
+fn validate_cargo_toml_content(content: &str) -> Option<SetupArtifactViolation> {
+    if content.trim().is_empty() {
+        return Some(SetupArtifactViolation {
+            path: "Cargo.toml".to_string(),
+            reason_code: "setup_manifest_empty".to_string(),
+            diagnostic: "Cargo.toml is empty before Rust build/test setup".to_string(),
+        });
+    }
+    if !content.lines().any(|line| {
+        let line = line.trim();
+        line == "[package]" || line == "[workspace]"
+    }) {
+        return Some(SetupArtifactViolation {
+            path: "Cargo.toml".to_string(),
+            reason_code: "setup_manifest_invalid_cargo_toml".to_string(),
+            diagnostic: "Cargo.toml must contain [package] or [workspace]".to_string(),
+        });
+    }
+    None
+}
+
+#[allow(dead_code)]
+fn validate_pyproject_toml_content(content: &str) -> Option<SetupArtifactViolation> {
+    if content.trim().is_empty() {
+        return Some(SetupArtifactViolation {
+            path: "pyproject.toml".to_string(),
+            reason_code: "setup_manifest_empty".to_string(),
+            diagnostic: "pyproject.toml is empty before Python dependency setup".to_string(),
+        });
+    }
+    if !content.lines().any(|line| {
+        let line = line.trim();
+        line == "[project]" || line == "[build-system]" || line.starts_with("[tool.")
+    }) {
+        return Some(SetupArtifactViolation {
+            path: "pyproject.toml".to_string(),
+            reason_code: "setup_manifest_invalid_pyproject_toml".to_string(),
+            diagnostic:
+                "pyproject.toml must contain [project], [build-system], or [tool.*] section"
+                    .to_string(),
+        });
+    }
+    None
+}
+
+#[allow(dead_code)]
+fn validate_requirements_content(content: &str) -> Option<SetupArtifactViolation> {
+    if content
+        .lines()
+        .map(str::trim)
+        .all(|line| line.is_empty() || line.starts_with('#'))
+    {
+        return Some(SetupArtifactViolation {
+            path: "requirements.txt".to_string(),
+            reason_code: "setup_manifest_empty".to_string(),
+            diagnostic: "requirements.txt has no dependency entries".to_string(),
+        });
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -106,6 +222,33 @@ mod tests {
         let violation = validate_npm_manifest(&root).unwrap();
 
         assert_eq!(violation.path, "package.json");
+        assert_eq!(violation.reason_code, "setup_manifest_missing");
+    }
+
+    #[test]
+    fn rust_manifest_requires_package_or_workspace_section() {
+        assert!(validate_cargo_toml_content("[package]\nname = \"x\"").is_none());
+
+        let violation = validate_cargo_toml_content("[dependencies]\nserde = \"1\"").unwrap();
+
+        assert_eq!(violation.path, "Cargo.toml");
+        assert_eq!(violation.reason_code, "setup_manifest_invalid_cargo_toml");
+    }
+
+    #[test]
+    fn python_manifest_accepts_pyproject_or_requirements() {
+        let root = temp_workspace("python-manifest");
+        fs::write(root.join("pyproject.toml"), "[project]\nname = \"x\"").unwrap();
+
+        assert!(validate_python_manifest(&root).is_none());
+    }
+
+    #[test]
+    fn python_missing_manifest_is_setup_artifact_violation() {
+        let root = temp_workspace("missing-python-manifest");
+        let violation = validate_python_manifest(&root).unwrap();
+
+        assert_eq!(violation.path, "pyproject.toml|requirements.txt");
         assert_eq!(violation.reason_code, "setup_manifest_missing");
     }
 

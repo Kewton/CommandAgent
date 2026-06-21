@@ -142,6 +142,210 @@ def runtime_failure_reason(evidence):
     return None
 
 
+RECOVERY_FIELD_NAMES = [
+    "active_job",
+    "recovery_owner",
+    "target_path",
+    "target_role",
+    "repair_action",
+    "tool_policy",
+    "attempt_outcome",
+    "evidence_binding_status",
+    "completion_evidence_status",
+    "explicit_stop_reason",
+]
+
+
+def recovery_fields(reason, evidence, case):
+    fields = derived_recovery_fields(reason, case)
+    for key in RECOVERY_FIELD_NAMES:
+        parsed = first_contract_value(evidence, key)
+        if parsed:
+            fields[key] = parsed
+    if not fields.get("tool_policy"):
+        fields["tool_policy"] = first_contract_value(evidence, "tool_policy_projection")
+    if not fields.get("target_path"):
+        fields["target_path"] = (
+            first_contract_value(evidence, "repair_target")
+            or first_contract_value(evidence, "target_path")
+        )
+    if not fields.get("target_role"):
+        fields["target_role"] = first_contract_value(evidence, "artifact_role")
+    if not fields.get("evidence_binding_status"):
+        fields["evidence_binding_status"] = status_from_contract_list(
+            evidence, "evidence_binding"
+        )
+    if not fields.get("completion_evidence_status"):
+        fields["completion_evidence_status"] = status_from_contract_list(
+            evidence, "completion_evidence"
+        )
+    if not fields.get("attempt_outcome"):
+        fields["attempt_outcome"] = status_from_contract_list(evidence, "attempt_outcomes")
+    return {key: fields.get(key, "") for key in RECOVERY_FIELD_NAMES}
+
+
+def first_contract_value(evidence, key):
+    patterns = [
+        rf"^- {re.escape(key)}:\s*(.+)$",
+        rf"\b{re.escape(key)}=([^\s,]+)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, evidence, flags=re.MULTILINE)
+        if match:
+            return match.group(1).strip()
+    return ""
+
+
+def status_from_contract_list(evidence, key):
+    line = first_contract_value(evidence, key)
+    if not line:
+        return ""
+    match = re.search(r"\bstatus=([a-z_]+)", line)
+    if match:
+        return match.group(1)
+    match = re.search(r"\boutcome=([a-z_]+)", line)
+    if match:
+        return match.group(1)
+    return "present"
+
+
+def derived_recovery_fields(reason, case):
+    category = failure_category(reason)
+    layer = contract_layer(reason)
+    target = first_reason_target(reason)
+    role = artifact_role_for_path(target)
+    fields = {
+        "active_job": "",
+        "recovery_owner": "",
+        "target_path": target,
+        "target_role": role,
+        "repair_action": "",
+        "tool_policy": "",
+        "attempt_outcome": "not_attempted" if reason != "ok" else "passed",
+        "evidence_binding_status": "unknown" if reason != "ok" else "bound",
+        "completion_evidence_status": "failed" if reason != "ok" else "passed",
+        "explicit_stop_reason": "",
+    }
+    if reason == "ok":
+        fields["active_job"] = "none"
+        fields["recovery_owner"] = "none"
+        fields["repair_action"] = "none"
+        fields["tool_policy"] = "none"
+        return fields
+    if category == "setup":
+        fields.update(
+            active_job="setup_bootstrap",
+            recovery_owner="setup",
+            repair_action="install_or_prepare_dependencies",
+            tool_policy="verifier_owned_setup_only",
+        )
+    elif category == "profile":
+        if "route" in reason or "integration" in reason:
+            fields.update(
+                active_job="route_integration_repair",
+                recovery_owner="route_integration",
+                repair_action="connect_existing_artifact_to_entrypoint",
+                tool_policy="file_mutation_repair",
+            )
+        else:
+            fields.update(
+                active_job="source_implementation_repair",
+                recovery_owner="source",
+                repair_action="edit_source_for_diagnostic",
+                tool_policy="file_mutation_repair",
+            )
+    elif category == "tool_protocol":
+        fields.update(
+            active_job="tool_protocol_correction",
+            recovery_owner="tool_protocol",
+            repair_action="correct_tool_protocol",
+            tool_policy="tool_protocol_correction",
+        )
+    elif category == "planning":
+        if target:
+            job, owner, action = missing_artifact_recovery(role)
+            fields.update(active_job=job, recovery_owner=owner, repair_action=action)
+        else:
+            fields.update(
+                active_job="verifier_contract_correction",
+                recovery_owner="verifier_contract",
+                repair_action="replace_invalid_verifier_command",
+            )
+        fields["tool_policy"] = "read_only"
+    elif category == "quality":
+        fields.update(
+            active_job="source_implementation_repair",
+            recovery_owner="source",
+            repair_action="edit_source_for_diagnostic",
+            tool_policy="file_mutation_repair",
+        )
+    elif category == "verifier":
+        fields.update(
+            active_job="source_implementation_repair",
+            recovery_owner="source",
+            repair_action="edit_source_for_diagnostic",
+            tool_policy="file_mutation_repair",
+        )
+    else:
+        fields.update(
+            active_job="explicit_stop",
+            recovery_owner="explicit_stop",
+            repair_action="stop_with_structured_evidence",
+            tool_policy="explicit_stop",
+            explicit_stop_reason=f"unclassified_{layer}",
+        )
+    return fields
+
+
+def first_reason_target(reason):
+    for prefix in [
+        "missing:",
+        "semantic_missing:",
+        "semantic_mismatch:",
+        "profile_verification:",
+    ]:
+        if reason.startswith(prefix):
+            value = reason[len(prefix) :].split(",", 1)[0]
+            if ":" in value and prefix == "semantic_mismatch:":
+                value = value.split(":", 1)[0]
+            if "/" in value or "." in value:
+                return value
+    return ""
+
+
+def artifact_role_for_path(path):
+    if not path:
+        return ""
+    name = path.rsplit("/", 1)[-1]
+    if name in {"package.json", "Cargo.toml", "pyproject.toml"} or name.startswith(
+        "requirements"
+    ):
+        return "setup_manifest"
+    if name.startswith(("next.config.", "postcss.config.", "tailwind.config.")):
+        return "setup_config"
+    if path in {"app/page.tsx", "src/app/page.tsx", "app/layout.tsx"}:
+        return "entrypoint"
+    if path.startswith("tests/") or "test" in name or name.endswith("_test.rs"):
+        return "test"
+    if name.endswith(".md"):
+        return "docs"
+    if name.endswith((".json", ".csv", ".yaml", ".yml")):
+        return "structured_data"
+    if name.endswith((".ts", ".tsx", ".js", ".jsx", ".rs", ".py")):
+        return "implementation"
+    return "unknown"
+
+
+def missing_artifact_recovery(role):
+    if role in {"setup_manifest", "setup_config"}:
+        return "manifest_repair", "manifest", "add_missing_manifest_dependency"
+    if role == "test":
+        return "test_artifact_completion", "test", "create_required_artifact"
+    if role == "docs":
+        return "documentation_repair", "docs", "update_docs_literal"
+    return "scaffold_materialization", "scaffold", "create_required_artifact"
+
+
 def semantic_failures(workdir, case):
     check = case.get("success_check") or {}
     missing = [
@@ -314,11 +518,13 @@ def run_case(repo, root, binary, case, run_index, args):
     ]
     semantic_missing, semantic_mismatches = semantic_failures(workdir, case)
     success = rc == 0 and not missing and not semantic_missing and not semantic_mismatches
+    evidence = failure_evidence(workdir, stdout, stderr)
     reason = success_reason(
         workdir, rc, missing, semantic_missing, semantic_mismatches, stdout, stderr
     )
     category = failure_category(reason)
     layer = contract_layer(reason)
+    recovery = recovery_fields(reason, evidence, case)
 
     meta = {
         "case_id": case["id"],
@@ -344,6 +550,7 @@ def run_case(repo, root, binary, case, run_index, args):
         "success_check_reason": reason,
         "failure_category": category,
         "contract_layer": layer,
+        **recovery,
     }
     meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
     return [
@@ -355,6 +562,7 @@ def run_case(repo, root, binary, case, run_index, args):
         reason,
         category,
         layer,
+        *(recovery[name] for name in RECOVERY_FIELD_NAMES),
     ]
 
 
@@ -376,6 +584,7 @@ def main():
             "reason",
             "failure_category",
             "contract_layer",
+            *RECOVERY_FIELD_NAMES,
         ]
     ]
     for case in cases:

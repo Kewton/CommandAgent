@@ -26,11 +26,13 @@ pub(super) fn lint_step_instruction(
     }
     if matches!(kind, StepKind::Setup | StepKind::Create)
         && expected_paths.is_empty()
-        && contains_any(&lower, &["create", "make", "initialize", "init"])
+        && contains_any(&lower, &["create", "make", "initialize", "init", "ensure"])
         && contains_any(
             &lower,
             &[" directory", " directories", " folder", " folders"],
         )
+        && (contains_any(&lower, &["create", "make", "initialize", "init"])
+            || contains_any(&lower, &["exists", "exist"]))
     {
         return Err(PlanLintError::InvalidStepInstruction {
             step_id: step_id.to_string(),

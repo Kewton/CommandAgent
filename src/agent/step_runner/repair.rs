@@ -390,11 +390,11 @@ Phase goal: {phase_goal}\n\
 Profile: {profile}\n\
 Style: {style}\n\
 Expected paths from completed phase:\n{expected}\n\
+{route_targets}\
 {recovery_task}\
 Repair focus:\n{focus}\n\
 Contract evidence:\n{contract_evidence}\n\
 Profile verification failures:\n{failures}\n\
-{route_targets}\
 Phase contract facts:\n{phase_facts}\n\
 Profile facts after phase:\n{profile_facts}\n\
 \n\

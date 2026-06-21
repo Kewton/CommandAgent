@@ -8,7 +8,9 @@ use crate::agent::step_runner::plan_lint::PlanLintError;
 use crate::agent::step_runner::plan_lint::lint_step_plan_with_workspace_and_obligations;
 use crate::agent::step_runner::profiles::ProfileObligation;
 use crate::agent::step_runner::ultra_plan::{UltraPlan, parse_ultra_plan_yaml};
-use crate::agent::step_runner::{StepPlan, StepPlanStep, WorkIntent, extract_plan_from_response};
+use crate::agent::step_runner::{
+    ExpectedResult, StepKind, StepPlan, StepPlanStep, WorkIntent, extract_plan_from_response,
+};
 use crate::providers::{ChatMessage, ChatRequest, ChatRole};
 use std::fs;
 use std::path::Path;
@@ -160,26 +162,26 @@ pub(super) fn parse_generated_step_plan(
         );
         extract_plan_from_response(&normalized).map_err(GeneratedPlanError::from_parse_error)?
     };
-    match lint_step_plan_with_workspace_and_obligations(
-        &plan,
-        Some(cwd),
-        context.profile_obligations,
-    ) {
-        Ok(()) => Ok(plan),
-        Err(error) => {
-            if let Some(materialized) = materialize_plan_from_lint_error(&plan, &error) {
-                lint_step_plan_with_workspace_and_obligations(
-                    &materialized,
-                    Some(cwd),
-                    context.profile_obligations,
-                )
-                .map_err(GeneratedPlanError::from_lint)?;
-                Ok(materialized)
-            } else {
-                Err(GeneratedPlanError::from_lint(error))
+    let mut plan = plan;
+    for _ in 0..4 {
+        match lint_step_plan_with_workspace_and_obligations(
+            &plan,
+            Some(cwd),
+            context.profile_obligations,
+        ) {
+            Ok(()) => return Ok(plan),
+            Err(error) => {
+                if let Some(materialized) = materialize_plan_from_lint_error(&plan, &error) {
+                    plan = materialized;
+                    continue;
+                }
+                return Err(GeneratedPlanError::from_lint(error));
             }
         }
     }
+    lint_step_plan_with_workspace_and_obligations(&plan, Some(cwd), context.profile_obligations)
+        .map(|()| plan)
+        .map_err(GeneratedPlanError::from_lint)
 }
 
 fn plan_error_reason_code(error: &crate::agent::step_runner::PlanError) -> &'static str {
@@ -197,7 +199,16 @@ fn plan_error_reason_code(error: &crate::agent::step_runner::PlanError) -> &'sta
 }
 
 fn materialize_plan_from_lint_error(plan: &StepPlan, error: &PlanLintError) -> Option<StepPlan> {
+    if let Some(materialized) = materialize_plan_without_directory_only_step(plan, error) {
+        return Some(materialized);
+    }
     let evidence = error.correction_evidence()?;
+    if evidence.violated_contract.as_deref() == Some("nextjs_app_layout_plan_contract") {
+        return materialize_nextjs_app_layout_step(plan, evidence);
+    }
+    if evidence.violated_contract.as_deref() == Some("nextjs_alias_plan_contract") {
+        return materialize_nextjs_alias_imports(plan, evidence);
+    }
     if evidence.active_job.as_deref() != Some("manifest_repair") {
         return None;
     }
@@ -211,6 +222,104 @@ fn materialize_plan_from_lint_error(plan: &StepPlan, error: &PlanLintError) -> O
         .iter_mut()
         .find(|step| step.id == target_step_id)?;
     materialize_nextjs_manifest_obligation(step, evidence);
+    Some(materialized)
+}
+
+fn materialize_nextjs_app_layout_step(
+    plan: &StepPlan,
+    evidence: &PlanCorrectionEvidence,
+) -> Option<StepPlan> {
+    let layout_path = evidence.target_path.as_deref()?;
+    if !matches!(layout_path, "app/layout.tsx" | "src/app/layout.tsx") {
+        return None;
+    }
+    if plan.steps.iter().any(|step| {
+        step.expected_paths.iter().any(|path| path == layout_path)
+            || step.instruction.contains(layout_path)
+    }) {
+        return None;
+    }
+    let mut materialized = plan.clone();
+    let insert_at = materialized
+        .steps
+        .iter()
+        .position(|step| matches!(step.kind, StepKind::Verify))
+        .unwrap_or(materialized.steps.len());
+    materialized.steps.insert(
+        insert_at,
+        StepPlanStep {
+            id: unique_step_id(&materialized, "create-root-layout"),
+            kind: StepKind::Create,
+            instruction: format!(
+                "Create {layout_path} with a minimal Next.js root layout. Use `import type {{ ReactNode }} from \"react\";` and export default function RootLayout({{ children }}: {{ children: ReactNode }}) that renders `<html lang=\"en\"><body>{{children}}</body></html>`."
+            ),
+            expected_result: ExpectedResult::Pass,
+            expected_paths: vec![layout_path.to_string()],
+            verify: vec![format!("test -f {layout_path}")],
+        },
+    );
+    Some(materialized)
+}
+
+fn materialize_nextjs_alias_imports(
+    plan: &StepPlan,
+    evidence: &PlanCorrectionEvidence,
+) -> Option<StepPlan> {
+    if !evidence
+        .missing_literals
+        .iter()
+        .any(|literal| literal == "@components/*")
+    {
+        return None;
+    }
+    let mut materialized = plan.clone();
+    let mut changed = false;
+    for step in &mut materialized.steps {
+        if step.instruction.contains("@components/") {
+            step.instruction = step.instruction.replace("@components/", "../components/");
+            if !step
+                .instruction
+                .contains("CommandAgent deterministic alias obligation")
+            {
+                step.instruction.push_str(
+                    "\n\nCommandAgent deterministic alias obligation: use relative imports for components from app routes unless tsconfig.json defines the exact alias used by the import.",
+                );
+            }
+            changed = true;
+        }
+    }
+    changed.then_some(materialized)
+}
+
+fn unique_step_id(plan: &StepPlan, base: &str) -> String {
+    if !plan.steps.iter().any(|step| step.id == base) {
+        return base.to_string();
+    }
+    for index in 2.. {
+        let candidate = format!("{base}-{index}");
+        if !plan.steps.iter().any(|step| step.id == candidate) {
+            return candidate;
+        }
+    }
+    unreachable!("unbounded unique step id search must return")
+}
+
+fn materialize_plan_without_directory_only_step(
+    plan: &StepPlan,
+    error: &PlanLintError,
+) -> Option<StepPlan> {
+    let PlanLintError::InvalidStepInstruction { step_id, reason } = error else {
+        return None;
+    };
+    if !reason.contains("directory-only steps are unnecessary") {
+        return None;
+    }
+    let mut materialized = plan.clone();
+    let original_len = materialized.steps.len();
+    materialized.steps.retain(|step| step.id != *step_id);
+    if materialized.steps.len() == original_len || materialized.steps.is_empty() {
+        return None;
+    }
     Some(materialized)
 }
 
@@ -588,6 +697,195 @@ steps:
                 .contains(&"postcss.config.js".to_string())
         );
         assert!(rendered.contains("tailwindcss"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn generated_typescript_plan_materializes_manifest_toolchain_versions() {
+        let root = std::env::temp_dir().join(format!(
+            "commandagent-typescript-materialization-{}",
+            now_ms()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let generated = r#"
+steps:
+  - id: update-scripts
+    kind: edit
+    instruction: Edit package.json to ensure scripts.dev is next dev -p 3011 and scripts.build is next build. Ensure dependencies include next, react, react-dom, typescript, @types/react, @types/react-dom, and @types/node.
+    expected_paths:
+      - package.json
+    verify:
+      - test -f package.json
+  - id: verify-build
+    kind: verify
+    instruction: Run npm run build.
+    expected_paths: []
+    verify:
+      - npm run build
+"#;
+        let context = GeneratedStepPlanContext {
+            goal: "Create a minimal Next.js app.",
+            profile: "nextjs",
+            style: "default",
+            intent: WorkIntent::Modify,
+            required_artifacts: &[],
+            profile_obligations: &[],
+        };
+
+        let plan = parse_generated_step_plan(&root, generated, &context).unwrap();
+        let package_step = plan
+            .steps
+            .iter()
+            .find(|step| step.id == "update-scripts")
+            .unwrap();
+
+        assert!(
+            package_step
+                .instruction
+                .contains("CommandAgent deterministic manifest obligation")
+        );
+        assert!(package_step.instruction.contains("typescript 5.x"));
+        assert!(package_step.instruction.contains("@types/react 18.x"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn generated_nextjs_plan_materializes_app_layout_step() {
+        let root =
+            std::env::temp_dir().join(format!("commandagent-layout-materialization-{}", now_ms()));
+        std::fs::create_dir_all(&root).unwrap();
+        let generated = r#"
+steps:
+  - id: create-page
+    kind: create
+    instruction: Create app/page.tsx with a default export.
+    expected_paths:
+      - app/page.tsx
+    verify:
+      - test -f app/page.tsx
+  - id: verify-build
+    kind: verify
+    instruction: Run npm run build.
+    expected_paths: []
+    verify:
+      - npm run build
+"#;
+        let context = GeneratedStepPlanContext {
+            goal: "Create a minimal Next.js app.",
+            profile: "nextjs",
+            style: "default",
+            intent: WorkIntent::New,
+            required_artifacts: &[],
+            profile_obligations: &[],
+        };
+
+        let plan = parse_generated_step_plan(&root, generated, &context).unwrap();
+
+        assert!(plan.steps.iter().any(|step| {
+            step.id == "create-root-layout"
+                && step.expected_paths == vec!["app/layout.tsx".to_string()]
+        }));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn generated_nextjs_plan_materializes_components_alias_to_relative_import() {
+        let root =
+            std::env::temp_dir().join(format!("commandagent-alias-materialization-{}", now_ms()));
+        std::fs::create_dir_all(&root).unwrap();
+        let generated = r#"
+steps:
+  - id: create-package-json
+    kind: create
+    instruction: Create package.json with next, react, react-dom, typescript ^5.4.0, @types/react 18, scripts.dev=next dev -p 3011, and scripts.build=next build.
+    expected_paths:
+      - package.json
+    verify:
+      - test -f package.json
+  - id: create-tsconfig
+    kind: create
+    instruction: Create tsconfig.json with compilerOptions.paths mapping @/* to ./*.
+    expected_paths:
+      - tsconfig.json
+    verify:
+      - test -f tsconfig.json
+  - id: create-page
+    kind: create
+    instruction: Create app/page.tsx importing Game from "@components/Game".
+    expected_paths:
+      - app/page.tsx
+    verify:
+      - test -f app/page.tsx
+"#;
+        let context = GeneratedStepPlanContext {
+            goal: "Create a minimal Next.js app.",
+            profile: "nextjs",
+            style: "default",
+            intent: WorkIntent::New,
+            required_artifacts: &[],
+            profile_obligations: &[],
+        };
+
+        let plan = parse_generated_step_plan(&root, generated, &context).unwrap();
+        let page_step = plan
+            .steps
+            .iter()
+            .find(|step| step.id == "create-page")
+            .unwrap();
+
+        assert!(page_step.instruction.contains("../components/Game"));
+        assert!(!page_step.instruction.contains("@components/Game"));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn generated_plan_materializes_away_directory_only_step() {
+        let root = std::env::temp_dir().join(format!(
+            "commandagent-directory-step-materialization-{}",
+            now_ms()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let generated = r#"
+steps:
+  - id: init-test-dir
+    kind: create
+    instruction: Create the tests directory structure.
+    expected_paths: []
+    verify:
+      - test -d tests
+  - id: write-test
+    kind: create
+    instruction: Create tests/test_math_tools.py with assertions for add.
+    expected_paths:
+      - tests/test_math_tools.py
+    verify:
+      - python -m py_compile tests/test_math_tools.py
+  - id: write-source
+    kind: create
+    instruction: Create math_tools.py with add(a, b).
+    expected_paths:
+      - math_tools.py
+    verify:
+      - python -m py_compile math_tools.py
+"#;
+        let required = vec![
+            "math_tools.py".to_string(),
+            "tests/test_math_tools.py".to_string(),
+        ];
+        let context = GeneratedStepPlanContext {
+            goal: "Create Python source and tests.",
+            profile: "python",
+            style: "tdd",
+            intent: WorkIntent::New,
+            required_artifacts: &required,
+            profile_obligations: &[],
+        };
+
+        let plan = parse_generated_step_plan(&root, generated, &context).unwrap();
+
+        assert!(!plan.steps.iter().any(|step| step.id == "init-test-dir"));
+        assert!(plan.steps.iter().any(|step| step.id == "write-test"));
+        assert!(plan.steps.iter().any(|step| step.id == "write-source"));
         let _ = std::fs::remove_dir_all(root);
     }
 }

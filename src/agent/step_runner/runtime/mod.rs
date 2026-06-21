@@ -1618,6 +1618,21 @@ mod tests {
                 tool_calls: Vec::new(),
 
                 usage: Default::default(),},
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
+                    name: "Write".to_string(),
+                    args_json: r#"{"path":"app/layout.tsx","content":"import type { ReactNode } from \"react\";\n\nexport default function RootLayout({ children }: { children: ReactNode }) {\n  return <html lang=\"en\"><body>{children}</body></html>;\n}\n"}"#.to_string(),
+                }],
+
+                usage: Default::default(),},
+            ChatResponse {
+                content: "Created root layout.".to_string(),
+                tool_calls: Vec::new(),
+
+                usage: Default::default(),},
         ]);
         let command = SlashCommand {
             kind: SlashCommandKind::UltraPlanRun,
@@ -1825,6 +1840,21 @@ mod tests {
                 usage: Default::default(),},
             ChatResponse {
                 content: "Created app files.".to_string(),
+                tool_calls: Vec::new(),
+
+                usage: Default::default(),},
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
+                    name: "Write".to_string(),
+                    args_json: r#"{"path":"app/layout.tsx","content":"import type { ReactNode } from \"react\";\n\nexport default function RootLayout({ children }: { children: ReactNode }) {\n  return <html lang=\"en\"><body>{children}</body></html>;\n}\n"}"#.to_string(),
+                }],
+
+                usage: Default::default(),},
+            ChatResponse {
+                content: "Created root layout.".to_string(),
                 tool_calls: Vec::new(),
 
                 usage: Default::default(),},

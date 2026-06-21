@@ -87,6 +87,16 @@ def write_summary(path, rows):
         "reason",
         "failure_category",
         "contract_layer",
+        "active_job",
+        "recovery_owner",
+        "target_path",
+        "target_role",
+        "repair_action",
+        "tool_policy",
+        "attempt_outcome",
+        "evidence_binding_status",
+        "completion_evidence_status",
+        "explicit_stop_reason",
     ]
     with open(path, "w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, delimiter="\t", fieldnames=fieldnames)
@@ -132,6 +142,16 @@ def recheck(root, cases):
                 "reason": reason,
                 "failure_category": categorize(reason),
                 "contract_layer": contract_layer(reason),
+                "active_job": meta.get("active_job", derive_active_job(reason)),
+                "recovery_owner": meta.get("recovery_owner", derive_recovery_owner(reason)),
+                "target_path": meta.get("target_path", first_reason_target(reason)),
+                "target_role": meta.get("target_role", artifact_role_for_path(first_reason_target(reason))),
+                "repair_action": meta.get("repair_action", derive_repair_action(reason)),
+                "tool_policy": meta.get("tool_policy", derive_tool_policy(reason)),
+                "attempt_outcome": meta.get("attempt_outcome", "not_attempted" if reason != "ok" else "passed"),
+                "evidence_binding_status": meta.get("evidence_binding_status", "unknown" if reason != "ok" else "bound"),
+                "completion_evidence_status": meta.get("completion_evidence_status", "failed" if reason != "ok" else "passed"),
+                "explicit_stop_reason": meta.get("explicit_stop_reason", ""),
             }
         )
     out = root / "recheck_summary.tsv"
@@ -230,17 +250,139 @@ def contract_layer(reason):
     return "unknown_contract"
 
 
+def derive_active_job(reason):
+    category = categorize(reason)
+    if reason == "ok":
+        return "none"
+    if category == "setup":
+        return "setup_bootstrap"
+    if category == "tool_protocol":
+        return "tool_protocol_correction"
+    if category == "profile" and ("route" in reason or "integration" in reason):
+        return "route_integration_repair"
+    if category == "planning" and first_reason_target(reason):
+        role = artifact_role_for_path(first_reason_target(reason))
+        if role == "test":
+            return "test_artifact_completion"
+        if role == "docs":
+            return "documentation_repair"
+        if role in {"setup_manifest", "setup_config"}:
+            return "manifest_repair"
+        return "scaffold_materialization"
+    if category == "planning":
+        return "verifier_contract_correction"
+    if category in {"quality", "verifier", "profile"}:
+        return "source_implementation_repair"
+    return "explicit_stop"
+
+
+def derive_recovery_owner(reason):
+    job = derive_active_job(reason)
+    if job == "setup_bootstrap":
+        return "setup"
+    if job == "manifest_repair":
+        return "manifest"
+    if job == "scaffold_materialization":
+        return "scaffold"
+    if job == "route_integration_repair":
+        return "route_integration"
+    if job == "test_artifact_completion":
+        return "test"
+    if job == "documentation_repair":
+        return "docs"
+    if job == "tool_protocol_correction":
+        return "tool_protocol"
+    if job == "verifier_contract_correction":
+        return "verifier_contract"
+    if job == "none":
+        return "none"
+    if job == "explicit_stop":
+        return "explicit_stop"
+    return "source"
+
+
+def derive_repair_action(reason):
+    job = derive_active_job(reason)
+    if job == "setup_bootstrap":
+        return "install_or_prepare_dependencies"
+    if job == "manifest_repair":
+        return "add_missing_manifest_dependency"
+    if job in {"scaffold_materialization", "test_artifact_completion"}:
+        return "create_required_artifact"
+    if job == "route_integration_repair":
+        return "connect_existing_artifact_to_entrypoint"
+    if job == "documentation_repair":
+        return "update_docs_literal"
+    if job == "tool_protocol_correction":
+        return "correct_tool_protocol"
+    if job == "verifier_contract_correction":
+        return "replace_invalid_verifier_command"
+    if job == "explicit_stop":
+        return "stop_with_structured_evidence"
+    if job == "none":
+        return "none"
+    return "edit_source_for_diagnostic"
+
+
+def derive_tool_policy(reason):
+    job = derive_active_job(reason)
+    if job == "setup_bootstrap":
+        return "verifier_owned_setup_only"
+    if job == "manifest_repair":
+        return "setup_config_mutation_only"
+    if job in {"tool_protocol_correction", "explicit_stop", "none"}:
+        return job
+    if job == "verifier_contract_correction":
+        return "read_only"
+    return "file_mutation_repair"
+
+
+def first_reason_target(reason):
+    for prefix in ["missing:", "semantic_missing:", "semantic_mismatch:"]:
+        if reason.startswith(prefix):
+            value = reason[len(prefix):].split(",", 1)[0]
+            if ":" in value and prefix == "semantic_mismatch:":
+                value = value.split(":", 1)[0]
+            if "/" in value or "." in value:
+                return value
+    return ""
+
+
+def artifact_role_for_path(path):
+    if not path:
+        return ""
+    name = path.rsplit("/", 1)[-1]
+    if name in {"package.json", "Cargo.toml", "pyproject.toml"} or name.startswith("requirements"):
+        return "setup_manifest"
+    if name.startswith(("next.config.", "postcss.config.", "tailwind.config.")):
+        return "setup_config"
+    if path in {"app/page.tsx", "src/app/page.tsx", "app/layout.tsx"}:
+        return "entrypoint"
+    if path.startswith("tests/") or "test" in name or name.endswith("_test.rs"):
+        return "test"
+    if name.endswith(".md"):
+        return "docs"
+    if name.endswith((".json", ".csv", ".yaml", ".yml")):
+        return "structured_data"
+    if name.endswith((".ts", ".tsx", ".js", ".jsx", ".rs", ".py")):
+        return "implementation"
+    return "unknown"
+
+
 def render_report(rows):
     total = len(rows)
     success = sum(1 for row in rows if row["success"] == "true")
     categories = {}
     layers = {}
     by_case = {}
+    recovery_jobs = {}
     for row in rows:
         category = row.get("failure_category") or categorize(row["reason"])
         layer = row.get("contract_layer") or contract_layer(row["reason"])
+        job = row.get("active_job") or derive_active_job(row["reason"])
         categories[category] = categories.get(category, 0) + 1
         layers[layer] = layers.get(layer, 0) + 1
+        recovery_jobs[job] = recovery_jobs.get(job, 0) + 1
         stats = by_case.setdefault(row["case_id"], [0, 0])
         stats[1] += 1
         if row["success"] == "true":
@@ -257,6 +399,9 @@ def render_report(rows):
         lines.append(f"- {name}: {count}")
     lines.extend(["", "## Contract Layers"])
     for name, count in sorted(layers.items()):
+        lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Recovery Jobs"])
+    for name, count in sorted(recovery_jobs.items()):
         lines.append(f"- {name}: {count}")
     lines.extend(["", "## By Case"])
     for case_id, (case_success, case_total) in sorted(by_case.items()):

@@ -1057,7 +1057,7 @@ mod tests {
 
     #[test]
     fn obligation_lint_accepts_typescript_plan_with_toolchain_contract() {
-        let plan = StepPlan {
+        let mut plan = StepPlan {
             goal: "Create a Next.js game.".to_string(),
             profile: "nextjs".to_string(),
             style: "default".to_string(),
@@ -1083,6 +1083,33 @@ mod tests {
                 },
             ],
         };
+        push_nextjs_layout_step(&mut plan.steps);
+
+        lint_step_plan_with_workspace_and_obligations(&plan, None, &[]).unwrap();
+    }
+
+    #[test]
+    fn nextjs_alias_plan_requires_tsconfig_paths_or_relative_imports() {
+        let plan = nextjs_alias_plan(false);
+
+        let err = lint_step_plan_with_workspace_and_obligations(&plan, None, &[]).unwrap_err();
+
+        match err {
+            PlanLintError::ContractViolation { evidence, .. } => {
+                assert_eq!(
+                    evidence.violated_contract.as_deref(),
+                    Some("nextjs_alias_plan_contract")
+                );
+                assert_eq!(evidence.target_path.as_deref(), Some("tsconfig.json"));
+                assert!(evidence.missing_literals.contains(&"@/*".to_string()));
+            }
+            other => panic!("expected alias contract violation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn nextjs_alias_plan_accepts_tsconfig_paths_contract() {
+        let plan = nextjs_alias_plan(true);
 
         lint_step_plan_with_workspace_and_obligations(&plan, None, &[]).unwrap();
     }
@@ -1176,6 +1203,36 @@ mod tests {
             ],
         )
         .unwrap();
+    }
+
+    #[test]
+    fn accepts_nextjs_package_json_private_true_when_build_script_is_honest() {
+        let mut plan = plan_with_paths("nextjs", vec!["package.json"]);
+        plan.steps[0].id = "create-package-json".to_string();
+        plan.steps[0].instruction = r#"Create package.json with {"private": true, "scripts": {"dev": "next dev -p 3011", "build": "next build"}, "dependencies": {"next": "^14.0.0", "react": "^18.2.0", "react-dom": "^18.2.0"}, "devDependencies": {"typescript": "^5.4.0", "@types/react": "^18.0.0"}}"#
+            .to_string();
+
+        lint_step_plan_with_workspace_and_obligations(&plan, None, &[]).unwrap();
+    }
+
+    #[test]
+    fn rejects_nextjs_package_json_build_script_true_noop() {
+        let mut plan = plan_with_paths("nextjs", vec!["package.json"]);
+        plan.steps[0].id = "create-package-json".to_string();
+        plan.steps[0].instruction = r#"Create package.json with {"scripts": {"dev": "next dev -p 3011", "build": "true"}, "dependencies": {"next": "^14.0.0", "react": "^18.2.0", "react-dom": "^18.2.0"}}"#
+            .to_string();
+
+        let err = lint_step_plan_with_workspace_and_obligations(&plan, None, &[]).unwrap_err();
+
+        assert_eq!(
+            err,
+            PlanLintError::InvalidStepInstruction {
+                step_id: "create-package-json".to_string(),
+                reason:
+                    "Next.js build script must remain honest; do not replace it with no-op commands"
+                        .to_string(),
+            }
+        );
     }
 
     #[test]
@@ -1347,6 +1404,7 @@ mod tests {
     fn obligation_lint_accepts_nextjs_source_step_with_selected_route_expected_path() {
         let mut plan = plan_with_paths("nextjs", vec!["app/hooks/useGame.ts", "app/page.tsx"]);
         plan.steps[0].instruction = "Create app/hooks/useGame.ts.".to_string();
+        push_nextjs_layout_step(&mut plan.steps);
 
         lint_step_plan_with_workspace_and_obligations(
             &plan,
@@ -1389,6 +1447,7 @@ mod tests {
             expected_paths: vec!["app/page.tsx".to_string()],
             verify: Vec::new(),
         });
+        push_nextjs_layout_step(&mut plan.steps);
 
         lint_step_plan_with_workspace_and_obligations(
             &plan,
@@ -1396,6 +1455,46 @@ mod tests {
             &[nextjs_route_obligation(
                 "app/page.tsx",
                 "app/components/GameCanvas.tsx",
+            )],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn obligation_lint_accepts_earlier_route_integration_step() {
+        let mut plan = StepPlan {
+            goal: "Create Next.js game".to_string(),
+            profile: "nextjs".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::New,
+            required_artifacts: Vec::new(),
+            steps: vec![
+                StepPlanStep {
+                    id: "create-page".to_string(),
+                    kind: StepKind::Create,
+                    instruction: "Create app/page.tsx and render the Game component.".to_string(),
+                    expected_result: ExpectedResult::Pass,
+                    expected_paths: vec!["app/page.tsx".to_string()],
+                    verify: Vec::new(),
+                },
+                StepPlanStep {
+                    id: "create-game-component".to_string(),
+                    kind: StepKind::Create,
+                    instruction: "Create components/Game.tsx as a React component.".to_string(),
+                    expected_result: ExpectedResult::Pass,
+                    expected_paths: vec!["components/Game.tsx".to_string()],
+                    verify: Vec::new(),
+                },
+            ],
+        };
+        push_nextjs_layout_step(&mut plan.steps);
+
+        lint_step_plan_with_workspace_and_obligations(
+            &plan,
+            None,
+            &[nextjs_route_obligation(
+                "app/page.tsx",
+                "components/Game.tsx",
             )],
         )
         .unwrap();
@@ -1439,6 +1538,18 @@ mod tests {
         let mut plan = plan_with_paths("rust", vec!["Cargo.toml"]);
         plan.steps[0].kind = StepKind::Setup;
         plan.steps[0].instruction = "Create the src directory.".to_string();
+        plan.steps[0].expected_paths.clear();
+
+        let err = lint_step_plan(&plan).unwrap_err();
+
+        assert!(matches!(err, PlanLintError::InvalidStepInstruction { .. }));
+    }
+
+    #[test]
+    fn rejects_ensure_directory_exists_steps() {
+        let mut plan = plan_with_paths("python", vec!["tests/test_math_tools.py"]);
+        plan.steps[0].kind = StepKind::Setup;
+        plan.steps[0].instruction = "Ensure the tests directory exists.".to_string();
         plan.steps[0].expected_paths.clear();
 
         let err = lint_step_plan(&plan).unwrap_err();
@@ -1637,6 +1748,27 @@ mod tests {
     }
 
     #[test]
+    fn accepts_nextjs_template_text_that_only_mentions_create_next_app_in_url() {
+        let plan = StepPlan {
+            goal: "create next app".to_string(),
+            profile: "nextjs".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::New,
+            required_artifacts: Vec::new(),
+            steps: vec![StepPlanStep {
+                id: "write-page".to_string(),
+                kind: StepKind::Create,
+                instruction: "Create app/page.tsx with an anchor href=\"https://nextjs.org/docs?utm_campaign=create-next-app\".".to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec!["app/page.tsx".to_string()],
+                verify: vec!["test -f app/page.tsx".to_string()],
+            }],
+        };
+
+        lint_step_plan(&plan).unwrap();
+    }
+
+    #[test]
     fn rejects_nextjs_root_drift_from_src_app_to_app() {
         let root = temp_workspace("nextjs-src-app-drift");
         fs::create_dir_all(root.join("src/app")).unwrap();
@@ -1776,6 +1908,60 @@ mod tests {
                 "selected route `{route}` references `{artifact}` or its module name"
             )),
         }
+    }
+
+    fn nextjs_alias_plan(include_tsconfig: bool) -> StepPlan {
+        let mut steps = vec![
+            StepPlanStep {
+                id: "create-package-json".to_string(),
+                kind: StepKind::Create,
+                instruction: "Create package.json with next, react, react-dom, typescript ^5.4.0, @types/react 18, scripts.dev=next dev -p 3011, and scripts.build=next build.".to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec!["package.json".to_string()],
+                verify: vec!["test -f package.json".to_string()],
+            },
+            StepPlanStep {
+                id: "create-page".to_string(),
+                kind: StepKind::Create,
+                instruction: "Create app/page.tsx with `import Game from '@/components/Game'` and render <Game />.".to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec!["app/page.tsx".to_string()],
+                verify: vec!["test -f app/page.tsx".to_string()],
+            },
+        ];
+        if include_tsconfig {
+            steps.insert(
+                1,
+                StepPlanStep {
+                    id: "create-tsconfig".to_string(),
+                    kind: StepKind::Create,
+                    instruction: "Create tsconfig.json with compilerOptions paths mapping @/* to the selected source root.".to_string(),
+                    expected_result: ExpectedResult::Pass,
+                    expected_paths: vec!["tsconfig.json".to_string()],
+                    verify: vec!["test -f tsconfig.json".to_string()],
+                },
+            );
+        }
+        push_nextjs_layout_step(&mut steps);
+        StepPlan {
+            goal: "create next app".to_string(),
+            profile: "nextjs".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::New,
+            required_artifacts: Vec::new(),
+            steps,
+        }
+    }
+
+    fn push_nextjs_layout_step(steps: &mut Vec<StepPlanStep>) {
+        steps.push(StepPlanStep {
+            id: "create-root-layout".to_string(),
+            kind: StepKind::Create,
+            instruction: "Create app/layout.tsx with a minimal Next.js root layout.".to_string(),
+            expected_result: ExpectedResult::Pass,
+            expected_paths: vec!["app/layout.tsx".to_string()],
+            verify: vec!["test -f app/layout.tsx".to_string()],
+        });
     }
 
     fn assert_contract_violation(

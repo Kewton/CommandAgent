@@ -80,6 +80,15 @@ fn plan_contract_correction_guidance(evidence: &PlanCorrectionEvidence) -> Strin
 - do not use TypeScript 6, exact TypeScript pins such as 5.0.0, @types/react 19, latest, npm install, npm ci, node_modules checks, package-lock.json checks, or npx commands in the plan.\n\n"
                 .to_string()
         }
+        Some("nextjs_alias_plan_contract") => {
+            "Next.js alias plan correction:\n\
+- choose exactly one valid direction:\n\
+  1. replace @/* imports with relative imports; or\n\
+  2. add a tsconfig.json create/edit step whose instruction literally includes compilerOptions.paths and @/* mapping to the selected source root.\n\
+- if keeping @/* imports, include tsconfig.json in expected_paths for that setup/config step.\n\
+- do not replace npm run build with a weaker verifier.\n\n"
+                .to_string()
+        }
         _ => String::new(),
     }
 }

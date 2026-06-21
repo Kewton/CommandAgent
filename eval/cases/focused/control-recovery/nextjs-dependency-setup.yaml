@@ -1,0 +1,24 @@
+id: focused-nextjs-dependency-setup
+title: Next.js dependency and setup binding
+profile: nextjs
+style: default
+mode: ultra-plan-run
+intent: new
+prompt: "Create a minimal Next.js app with package scripts for dev on port 3011 and build verification."
+expected_artifacts:
+  - package.json
+  - app/page.tsx
+verify:
+  - npm run build
+success_check:
+  type: semantic
+  required_paths:
+    - package.json
+    - app/page.tsx
+  must_include:
+    package.json:
+      - next
+      - react
+      - react-dom
+      - next build
+      - "3011"

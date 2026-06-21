@@ -1,0 +1,20 @@
+id: focused-python-import-binding
+title: Python import binding
+profile: python
+style: default
+mode: plan-run
+intent: new
+prompt: "Create a Python package app with __init__.py and main.py exposing a greet(name) function."
+expected_artifacts:
+  - app/__init__.py
+  - app/main.py
+verify:
+  - python -c "from app.main import greet; print(greet('Ada'))"
+success_check:
+  type: semantic
+  required_paths:
+    - app/__init__.py
+    - app/main.py
+  must_include:
+    app/main.py:
+      - greet

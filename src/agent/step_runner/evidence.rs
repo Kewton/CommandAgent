@@ -188,10 +188,13 @@ impl EvidencePayload {
                     .or_else(|| evidence.target_path.clone()),
             });
         }
-        if guard == "recovery" || guard == "repair" {
+        if guard == "evidence_binding" || guard == "recovery" || guard == "repair" {
             return Self::RecoveryAttempt(RecoveryAttemptEvidence {
                 attempt_id: evidence.prior_attempts.first().cloned(),
-                recovery_task_id: evidence.repair_kind.clone(),
+                recovery_task_id: evidence
+                    .active_job
+                    .clone()
+                    .or_else(|| evidence.repair_kind.clone()),
                 observed_result: evidence.reason_code.clone(),
                 rerun_verifier: evidence.rerun_authority.first().cloned(),
                 final_status: evidence.failure_kind.clone(),
@@ -361,6 +364,26 @@ pub struct OrchestrationEvidence {
     pub active_job_priority: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub explicit_stop_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_owner: Option<String>,
+    #[serde(default)]
+    pub completion_evidence: Vec<String>,
+    #[serde(default)]
+    pub evidence_binding: Vec<String>,
+    #[serde(default)]
+    pub deliverable_obligations: Vec<String>,
+    #[serde(default)]
+    pub repair_action_plan: Vec<String>,
+    #[serde(default)]
+    pub semantic_failure_report: Vec<String>,
+    #[serde(default)]
+    pub repair_job_state: Vec<String>,
+    #[serde(default)]
+    pub attempt_outcomes: Vec<String>,
+    #[serde(default)]
+    pub patch_validation: Vec<String>,
+    #[serde(default)]
+    pub eval_report_fields: Vec<String>,
     #[serde(default)]
     pub artifact_graph_summary: Vec<String>,
 }
@@ -382,6 +405,16 @@ impl OrchestrationEvidence {
             artifact_ownership: evidence.artifact_ownership.clone(),
             active_job_priority: evidence.active_job_priority.clone(),
             explicit_stop_reason: evidence.explicit_stop_reason.clone(),
+            recovery_owner: evidence.recovery_owner.clone(),
+            completion_evidence: evidence.completion_evidence.clone(),
+            evidence_binding: evidence.evidence_binding.clone(),
+            deliverable_obligations: evidence.deliverable_obligations.clone(),
+            repair_action_plan: evidence.repair_action_plan.clone(),
+            semantic_failure_report: evidence.semantic_failure_report.clone(),
+            repair_job_state: evidence.repair_job_state.clone(),
+            attempt_outcomes: evidence.attempt_outcomes.clone(),
+            patch_validation: evidence.patch_validation.clone(),
+            eval_report_fields: evidence.eval_report_fields.clone(),
             artifact_graph_summary: evidence.artifact_graph_summary.clone(),
         };
         if orchestration.active_job.is_none()
@@ -398,6 +431,16 @@ impl OrchestrationEvidence {
             && orchestration.artifact_ownership.is_none()
             && orchestration.active_job_priority.is_none()
             && orchestration.explicit_stop_reason.is_none()
+            && orchestration.recovery_owner.is_none()
+            && orchestration.completion_evidence.is_empty()
+            && orchestration.evidence_binding.is_empty()
+            && orchestration.deliverable_obligations.is_empty()
+            && orchestration.repair_action_plan.is_empty()
+            && orchestration.semantic_failure_report.is_empty()
+            && orchestration.repair_job_state.is_empty()
+            && orchestration.attempt_outcomes.is_empty()
+            && orchestration.patch_validation.is_empty()
+            && orchestration.eval_report_fields.is_empty()
             && orchestration.artifact_graph_summary.is_empty()
         {
             None
@@ -422,7 +465,7 @@ fn producer_from_guard(guard: &str) -> EvidenceProducer {
         EvidenceProducer::ProfileVerification
     } else if guard == "setup" {
         EvidenceProducer::SetupRuntime
-    } else if guard == "recovery" || guard == "repair" {
+    } else if guard == "evidence_binding" || guard == "recovery" || guard == "repair" {
         EvidenceProducer::RecoveryLoop
     } else {
         EvidenceProducer::Unknown

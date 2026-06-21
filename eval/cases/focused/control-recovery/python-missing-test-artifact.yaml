@@ -1,0 +1,21 @@
+id: focused-python-missing-test-artifact
+title: Python missing test artifact binding
+profile: python
+style: tdd
+mode: plan-run
+intent: new
+prompt: "Create a Python module math_tools.py with add(a, b), plus pytest tests for it."
+expected_artifacts:
+  - math_tools.py
+  - tests/test_math_tools.py
+verify:
+  - pytest
+success_check:
+  type: semantic
+  required_paths:
+    - math_tools.py
+    - tests/test_math_tools.py
+  must_include:
+    tests/test_math_tools.py:
+      - add
+      - assert

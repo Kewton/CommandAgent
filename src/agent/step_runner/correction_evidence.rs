@@ -55,6 +55,16 @@ pub struct ContractEvidence {
     pub artifact_ownership: Option<String>,
     pub active_job_priority: Option<String>,
     pub explicit_stop_reason: Option<String>,
+    pub recovery_owner: Option<String>,
+    pub completion_evidence: Vec<String>,
+    pub evidence_binding: Vec<String>,
+    pub deliverable_obligations: Vec<String>,
+    pub repair_action_plan: Vec<String>,
+    pub semantic_failure_report: Vec<String>,
+    pub repair_job_state: Vec<String>,
+    pub attempt_outcomes: Vec<String>,
+    pub patch_validation: Vec<String>,
+    pub eval_report_fields: Vec<String>,
     pub artifact_graph_summary: Vec<String>,
     pub rerun_authority: Vec<String>,
     pub diagnostic: Option<String>,
@@ -336,6 +346,92 @@ impl ContractEvidence {
         self
     }
 
+    pub fn with_recovery_owner(mut self, recovery_owner: impl Into<String>) -> Self {
+        self.recovery_owner = Some(recovery_owner.into());
+        self
+    }
+
+    pub fn with_completion_evidence<I, S>(mut self, completion_evidence: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.completion_evidence = collect_values(completion_evidence);
+        self
+    }
+
+    pub fn with_evidence_binding<I, S>(mut self, evidence_binding: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.evidence_binding = collect_values(evidence_binding);
+        self
+    }
+
+    pub fn with_deliverable_obligations<I, S>(mut self, deliverable_obligations: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.deliverable_obligations = collect_values(deliverable_obligations);
+        self
+    }
+
+    pub fn with_repair_action_plan<I, S>(mut self, repair_action_plan: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.repair_action_plan = collect_values(repair_action_plan);
+        self
+    }
+
+    pub fn with_semantic_failure_report<I, S>(mut self, semantic_failure_report: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.semantic_failure_report = collect_values(semantic_failure_report);
+        self
+    }
+
+    pub fn with_repair_job_state<I, S>(mut self, repair_job_state: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.repair_job_state = collect_values(repair_job_state);
+        self
+    }
+
+    pub fn with_attempt_outcomes<I, S>(mut self, attempt_outcomes: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.attempt_outcomes = collect_values(attempt_outcomes);
+        self
+    }
+
+    pub fn with_patch_validation<I, S>(mut self, patch_validation: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.patch_validation = collect_values(patch_validation);
+        self
+    }
+
+    pub fn with_eval_report_fields<I, S>(mut self, eval_report_fields: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.eval_report_fields = collect_values(eval_report_fields);
+        self
+    }
+
     pub fn with_artifact_graph_summary<I, S>(mut self, artifact_graph_summary: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -484,6 +580,24 @@ impl ContractEvidence {
             "explicit_stop_reason",
             self.explicit_stop_reason.as_deref(),
         );
+        push_field(&mut lines, "recovery_owner", self.recovery_owner.as_deref());
+        push_list(&mut lines, "completion_evidence", &self.completion_evidence);
+        push_list(&mut lines, "evidence_binding", &self.evidence_binding);
+        push_list(
+            &mut lines,
+            "deliverable_obligations",
+            &self.deliverable_obligations,
+        );
+        push_list(&mut lines, "repair_action_plan", &self.repair_action_plan);
+        push_list(
+            &mut lines,
+            "semantic_failure_report",
+            &self.semantic_failure_report,
+        );
+        push_list(&mut lines, "repair_job_state", &self.repair_job_state);
+        push_list(&mut lines, "attempt_outcomes", &self.attempt_outcomes);
+        push_list(&mut lines, "patch_validation", &self.patch_validation);
+        push_list(&mut lines, "eval_report_fields", &self.eval_report_fields);
         push_list(
             &mut lines,
             "artifact_graph_summary",
@@ -537,6 +651,16 @@ impl ContractEvidence {
             && self.artifact_ownership.is_none()
             && self.active_job_priority.is_none()
             && self.explicit_stop_reason.is_none()
+            && self.recovery_owner.is_none()
+            && self.completion_evidence.is_empty()
+            && self.evidence_binding.is_empty()
+            && self.deliverable_obligations.is_empty()
+            && self.repair_action_plan.is_empty()
+            && self.semantic_failure_report.is_empty()
+            && self.repair_job_state.is_empty()
+            && self.attempt_outcomes.is_empty()
+            && self.patch_validation.is_empty()
+            && self.eval_report_fields.is_empty()
             && self.artifact_graph_summary.is_empty()
             && self.rerun_authority.is_empty()
             && self.diagnostic.is_none()

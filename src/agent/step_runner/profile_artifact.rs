@@ -368,7 +368,15 @@ fn is_nextjs_route_entry(path: &str) -> bool {
             | "pages/index.jsx"
             | "src/pages/index.tsx"
             | "src/pages/index.jsx"
-    )
+    ) || is_nextjs_app_route_file(path)
+}
+
+fn is_nextjs_app_route_file(path: &str) -> bool {
+    (path.starts_with("app/") || path.starts_with("src/app/"))
+        && matches!(
+            file_name(path),
+            "page.tsx" | "page.jsx" | "page.ts" | "page.js"
+        )
 }
 
 fn is_nextjs_route_infrastructure(path: &str) -> bool {
@@ -464,6 +472,15 @@ mod tests {
 
         assert_eq!(artifact.kind, ArtifactKind::UiSource);
         assert!(artifact.eligibility.route_integration);
+    }
+
+    #[test]
+    fn nextjs_nested_route_page_is_not_route_integration_candidate() {
+        let artifact =
+            classify_nextjs_artifact("app/game/page.tsx", ArtifactProvenance::StepExpectedPath);
+
+        assert_eq!(artifact.kind, ArtifactKind::RouteEntry);
+        assert!(!artifact.eligibility.route_integration);
     }
 
     #[test]

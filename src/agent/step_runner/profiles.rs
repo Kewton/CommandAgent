@@ -348,6 +348,8 @@ fn lint_nextjs_plan(
 ) -> Result<(), PlanLintError> {
     lint_nextjs_verifier_contract(plan)?;
     lint_nextjs_typescript_plan_contract(plan)?;
+    lint_nextjs_alias_plan_contract(plan)?;
+    lint_nextjs_app_layout_plan_contract(plan, cwd)?;
     lint_nextjs_tailwind_plan_contract(plan)?;
     lint_package_profile_obligations(plan, cwd, obligations)?;
     lint_nextjs_route_integration_obligations(plan, cwd, obligations)
@@ -361,15 +363,7 @@ fn lint_nextjs_scaffolding_and_root_drift(
     cwd: Option<&Path>,
 ) -> Result<(), PlanLintError> {
     let lower = instruction.to_ascii_lowercase();
-    if contains_any(
-        &lower,
-        &[
-            "create-next-app",
-            "npm create next-app",
-            "pnpm create next-app",
-            "yarn create next-app",
-        ],
-    ) {
+    if mentions_nextjs_shell_scaffold(&lower) {
         return Err(PlanLintError::ShellScaffold {
             step_id: step_id.to_string(),
             command: "create-next-app".to_string(),
@@ -377,7 +371,7 @@ fn lint_nextjs_scaffolding_and_root_drift(
         });
     }
     lint_nextjs_root_drift(step_id, kind, &lower, expected_paths, cwd)?;
-    if contains_any(&lower, &["build script"]) && contains_any(&lower, &["echo ok", "true"]) {
+    if mentions_noop_nextjs_build_script(&lower) {
         return Err(PlanLintError::InvalidStepInstruction {
             step_id: step_id.to_string(),
             reason:
@@ -386,6 +380,61 @@ fn lint_nextjs_scaffolding_and_root_drift(
         });
     }
     Ok(())
+}
+
+fn mentions_noop_nextjs_build_script(lower_instruction: &str) -> bool {
+    contains_any(
+        lower_instruction,
+        &[
+            "\"build\":\"true\"",
+            "\"build\": \"true\"",
+            "'build':'true'",
+            "'build': 'true'",
+            "scripts.build=true",
+            "scripts.build = true",
+            "scripts.build as true",
+            "scripts.build to true",
+            "build script as true",
+            "build script to true",
+            "build script is true",
+            "build script runs true",
+            "build script with true",
+            "\"build\":\"echo ok\"",
+            "\"build\": \"echo ok\"",
+            "'build':'echo ok'",
+            "'build': 'echo ok'",
+            "scripts.build=echo ok",
+            "scripts.build = echo ok",
+            "scripts.build as echo ok",
+            "scripts.build to echo ok",
+            "build script as echo ok",
+            "build script to echo ok",
+            "build script is echo ok",
+            "build script runs echo ok",
+            "build script with echo ok",
+        ],
+    )
+}
+
+fn mentions_nextjs_shell_scaffold(lower_instruction: &str) -> bool {
+    contains_any(
+        lower_instruction,
+        &[
+            "npm create next-app",
+            "pnpm create next-app",
+            "yarn create next-app",
+        ],
+    ) || contains_any(
+        lower_instruction,
+        &[
+            "using create-next-app",
+            "use create-next-app",
+            "run create-next-app",
+            "execute create-next-app",
+            "with create-next-app",
+            "via create-next-app",
+        ],
+    )
 }
 
 fn lint_nextjs_root_drift(
@@ -468,11 +517,18 @@ fn lint_nextjs_typescript_plan_contract(plan: &StepPlan) -> Result<(), PlanLintE
     let Some(source_step) = plan_typescript_source_step(plan) else {
         return Ok(());
     };
-    let package_plan_text = plan
+    let package_steps = plan
         .steps
         .iter()
         .filter(|step| step_mentions_package_json(step))
-        .map(step_contract_text)
+        .collect::<Vec<_>>();
+    let package_step_id = match package_steps.as_slice() {
+        [step] => Some(step.id.clone()),
+        _ => None,
+    };
+    let package_plan_text = package_steps
+        .iter()
+        .map(|step| step_contract_text(step))
         .collect::<Vec<_>>()
         .join("\n");
     let mut missing = Vec::new();
@@ -498,21 +554,44 @@ fn lint_nextjs_typescript_plan_contract(plan: &StepPlan) -> Result<(), PlanLintE
         source_step.id,
         missing.join(", ")
     );
+    let mut evidence = PlanCorrectionEvidence::new("plan_lint.nextjs_typescript_plan_contract")
+        .with_failed_step(source_step.id.clone())
+        .with_violated_contract("nextjs_typescript_toolchain_plan_contract")
+        .with_target_field("steps")
+        .with_target_path("package.json")
+        .with_active_job("manifest_repair")
+        .with_artifact_role("manifest")
+        .with_repair_kind("typescript_toolchain_contract_repair")
+        .with_repair_action("add_manifest_dependency")
+        .with_setup_implication("setup_after_manifest_repair_required")
+        .with_rerun_authority(vec!["plan lint", "profile verification", "npm run build"])
+        .with_required_literals(required_literals)
+        .with_missing_literals(missing_literals)
+        .with_required_action(
+            "make the Next.js TypeScript toolchain explicit in the package.json step: include exact literals typescript, @types/react, and 18, plus a stable TypeScript 5.x range such as ^5.4.0; do not use TypeScript 6, exact TypeScript pins such as 5.0.0, or @types/react 19 with Next.js 14"
+        )
+        .with_disallowed_actions(vec![
+            "Do not rewrite source/gameplay behavior while repairing the manifest plan contract.",
+            "Do not add npm install, npm ci, pnpm install, yarn install, node_modules, or lockfile checks as required plan work.",
+            "Do not replace npm run build with a weaker verifier.",
+        ])
+        .with_diagnostic(reason.clone());
+    if let Some(package_step_id) = package_step_id {
+        evidence = evidence
+            .with_repair_target(format!("step:{package_step_id}:instruction"))
+            .with_candidate_artifacts(vec![
+                format!("step:{package_step_id}"),
+                "package.json".to_string(),
+            ]);
+    } else {
+        evidence = evidence.with_repair_attempt(
+            "active job arbitration could not select one package.json step for deterministic plan materialization",
+        );
+    }
     Err(PlanLintError::ContractViolation {
         step_id: source_step.id.clone(),
         reason: reason.clone(),
-        evidence: Box::new(
-            PlanCorrectionEvidence::new("plan_lint.nextjs_typescript_plan_contract")
-                .with_failed_step(source_step.id.clone())
-                .with_violated_contract("nextjs_typescript_toolchain_plan_contract")
-                .with_target_field("steps")
-                .with_required_literals(required_literals)
-                .with_missing_literals(missing_literals)
-                .with_required_action(
-                    "make the Next.js TypeScript toolchain explicit in the package.json step: include exact literals typescript, @types/react, and 18, plus a stable TypeScript 5.x range such as ^5.4.0; do not use TypeScript 6, exact TypeScript pins such as 5.0.0, or @types/react 19 with Next.js 14"
-                )
-                .with_diagnostic(reason),
-        ),
+        evidence: Box::new(evidence),
     })
 }
 
@@ -532,6 +611,164 @@ fn plan_typescript_source_step(plan: &StepPlan) -> Option<&StepPlanStep> {
                 )
             })
     })
+}
+
+fn lint_nextjs_alias_plan_contract(plan: &StepPlan) -> Result<(), PlanLintError> {
+    let Some(source_step) = plan.steps.iter().find(|step| {
+        let text = step_contract_text(step);
+        text.contains("\"@/")
+            || text.contains("'@/")
+            || text.contains("from \"@")
+            || text.contains("from '@")
+    }) else {
+        return Ok(());
+    };
+    let plan_text = plan
+        .steps
+        .iter()
+        .map(step_contract_text)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let required_alias_literals = nextjs_required_alias_literals(&plan_text);
+    let has_tsconfig_path = plan.steps.iter().any(|step| {
+        step.expected_paths
+            .iter()
+            .any(|path| path == "tsconfig.json")
+    }) || plan_text.contains("tsconfig.json");
+    let has_alias_contract = plan_text.contains("compileroptions.paths")
+        || plan_text.contains("compileroptions paths")
+        || plan_text.contains("paths mapping")
+        || plan_text.contains("\"paths\"");
+    let missing_alias_literals = required_alias_literals
+        .iter()
+        .filter(|literal| !plan_text.contains(literal.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    if has_tsconfig_path && has_alias_contract && missing_alias_literals.is_empty() {
+        return Ok(());
+    }
+    let reason = format!(
+        "Next.js source step `{}` uses @/* imports, but the plan does not create or edit tsconfig.json with compilerOptions.paths for @/*",
+        source_step.id
+    );
+    Err(PlanLintError::ContractViolation {
+        step_id: source_step.id.clone(),
+        reason: reason.clone(),
+        evidence: Box::new(
+            PlanCorrectionEvidence::new("plan_lint.nextjs_alias_plan_contract")
+                .with_failed_step(source_step.id.clone())
+                .with_violated_contract("nextjs_alias_plan_contract")
+                .with_target_field("steps")
+                .with_target_path("tsconfig.json")
+                .with_repair_target("tsconfig.json")
+                .with_active_job("manifest_repair")
+                .with_artifact_role("setup_config")
+                .with_repair_action("add_missing_manifest_dependency")
+                .with_required_paths(vec!["tsconfig.json"])
+                .with_missing_paths(vec!["tsconfig.json"])
+                .with_required_literals(
+                    std::iter::once("compilerOptions.paths".to_string())
+                        .chain(required_alias_literals)
+                        .collect::<Vec<_>>(),
+                )
+                .with_missing_literals(
+                    std::iter::once("compilerOptions.paths".to_string())
+                        .chain(missing_alias_literals)
+                        .collect::<Vec<_>>(),
+                )
+                .with_required_action(
+                    "either replace @/* imports with relative imports, or add a tsconfig.json step with compilerOptions.paths mapping @/* to the selected source root",
+                )
+                .with_disallowed_actions(vec![
+                    "Do not leave @/* imports without tsconfig compilerOptions.paths.",
+                    "Do not replace npm run build with a weaker verifier.",
+                ])
+                .with_rerun_authority(vec!["plan lint", "profile verification", "npm run build"])
+                .with_diagnostic(reason),
+        ),
+    })
+}
+
+fn nextjs_required_alias_literals(plan_text: &str) -> Vec<String> {
+    let mut aliases = Vec::new();
+    if plan_text.contains("\"@/") || plan_text.contains("'@/") {
+        push_unique(&mut aliases, "@/*");
+    }
+    if plan_text.contains("\"@components/") || plan_text.contains("'@components/") {
+        push_unique(&mut aliases, "@components/*");
+    }
+    aliases
+}
+
+fn lint_nextjs_app_layout_plan_contract(
+    plan: &StepPlan,
+    cwd: Option<&Path>,
+) -> Result<(), PlanLintError> {
+    let Some(page_path) = plan
+        .steps
+        .iter()
+        .flat_map(|step| step.expected_paths.iter())
+        .find(|path| nextjs_app_route_page_path(path))
+        .cloned()
+    else {
+        return Ok(());
+    };
+    let layout_path = nextjs_layout_path_for_page(&page_path);
+    if cwd
+        .map(collect_nextjs_facts)
+        .is_some_and(|facts| facts.layouts.iter().any(|path| path == &layout_path))
+        || plan.steps.iter().any(|step| {
+            step.expected_paths.iter().any(|path| path == &layout_path)
+                || step.instruction.contains(&layout_path)
+        })
+    {
+        return Ok(());
+    }
+    let reason = format!(
+        "Next.js app route `{page_path}` requires root layout `{layout_path}` in the same app root"
+    );
+    Err(PlanLintError::ContractViolation {
+        step_id: "nextjs-app-layout".to_string(),
+        reason: reason.clone(),
+        evidence: Box::new(
+            PlanCorrectionEvidence::new("plan_lint.nextjs_app_layout_plan_contract")
+                .with_failed_step("nextjs-app-layout")
+                .with_violated_contract("nextjs_app_layout_plan_contract")
+                .with_target_field("steps")
+                .with_target_path(layout_path.clone())
+                .with_repair_target(layout_path.clone())
+                .with_active_job("route_integration_repair")
+                .with_artifact_role("route_layout")
+                .with_repair_kind("route_layout_repair")
+                .with_repair_action("add_missing_route_layout")
+                .with_required_paths(vec![layout_path.clone()])
+                .with_missing_paths(vec![layout_path])
+                .with_required_action(
+                    "add a minimal root layout file for the selected Next.js app root before running npm run build",
+                )
+                .with_disallowed_actions(vec![
+                    "Do not weaken npm run build.",
+                    "Do not switch to pages router to avoid the layout contract.",
+                ])
+                .with_rerun_authority(vec!["plan lint", "profile verification", "npm run build"])
+                .with_diagnostic(reason),
+        ),
+    })
+}
+
+fn nextjs_app_route_page_path(path: &str) -> bool {
+    matches!(
+        path,
+        "app/page.tsx" | "app/page.ts" | "src/app/page.tsx" | "src/app/page.ts"
+    )
+}
+
+fn nextjs_layout_path_for_page(page_path: &str) -> String {
+    if page_path.starts_with("src/app/") {
+        "src/app/layout.tsx".to_string()
+    } else {
+        "app/layout.tsx".to_string()
+    }
 }
 
 fn lint_nextjs_tailwind_plan_contract(plan: &StepPlan) -> Result<(), PlanLintError> {
@@ -830,7 +1067,7 @@ fn lint_nextjs_route_integration_obligations(
     let Some(selected_route) = selected_route else {
         return Ok(());
     };
-    for (index, step) in plan.steps.iter().enumerate().filter(|(_, step)| {
+    for step in plan.steps.iter().filter(|step| {
         matches!(
             step.kind,
             StepKind::Create | StepKind::Edit | StepKind::Repair
@@ -851,7 +1088,7 @@ fn lint_nextjs_route_integration_obligations(
         {
             continue;
         }
-        if route_integration_planned_in_later_step(plan, index, candidate, &selected_route) {
+        if route_integration_planned_in_step_plan(plan, candidate, &selected_route) {
             continue;
         }
         let reason = format!(
@@ -881,9 +1118,8 @@ fn lint_nextjs_route_integration_obligations(
     Ok(())
 }
 
-fn route_integration_planned_in_later_step(
+fn route_integration_planned_in_step_plan(
     plan: &StepPlan,
-    source_step_index: usize,
     candidate: &str,
     selected_route: &str,
 ) -> bool {
@@ -892,7 +1128,6 @@ fn route_integration_planned_in_later_step(
     };
     plan.steps
         .iter()
-        .skip(source_step_index + 1)
         .filter(|step| {
             matches!(
                 step.kind,

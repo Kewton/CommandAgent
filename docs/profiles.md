@@ -235,9 +235,13 @@ drift map to actions such as `add_manifest_dependency`,
 `repair_tailwind_contract`, or `repair_tsconfig_alias`. The resulting evidence
 can carry `repair_kind`, `repair_action`, `setup_implication`,
 `rerun_authority`, `tool_policy_projection`, `target_admission`,
-`target_priority`, and `artifact_graph_summary` into the Recovery Task
-Contract. This is still evidence and policy rendering only. Profiles must not
-carry retry authority, semantic confidence, or workflow decisions.
+`target_priority`, `artifact_graph_summary`, `recovery_owner`,
+`repair_action_plan`, `semantic_failure_report`, and `eval_report_fields` into
+the Recovery Task Contract. Evidence-binding failures may become
+`active_job=evidence_binding_repair` when a profile can deterministically name
+an existing target artifact and the missing proof path. This is still evidence
+and policy rendering only. Profiles must not carry retry authority, semantic
+confidence, or workflow decisions.
 
 Next.js source verification should use `npm run build`, not `npx` compiler
 commands. `npx` may perform dependency setup and is blocked by the Bash policy;

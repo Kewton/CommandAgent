@@ -192,6 +192,14 @@ rendered into existing bounded repair packets and setup bootstrap decisions.
 They do not add hidden continuation, unbounded retry, provider-specific policy,
 or legacy engine compatibility.
 
+2026-06-21 amendment: the Anvil-aligned contract subset now includes
+completion evidence, evidence binding, deliverable obligations, recovery owner,
+repair action plan, semantic failure report, repair job state, attempt
+outcomes, patch validation, and eval report fields. These records make failure
+handoffs visible to repair packets and eval reports, but they remain data
+produced by deterministic guards and orchestration. They must not execute
+tools, broaden retry budgets, or let profiles become workflow engines.
+
 ## Non-Decisions
 
 This ADR does not reintroduce:

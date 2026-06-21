@@ -1,0 +1,18 @@
+id: focused-tool-protocol-correction
+title: Tool protocol correction
+profile: generic
+style: default
+mode: plan-run
+intent: new
+prompt: "Create notes.txt containing exactly the sentence tool protocol correction works."
+expected_artifacts:
+  - notes.txt
+verify:
+  - cat notes.txt
+success_check:
+  type: semantic
+  required_paths:
+    - notes.txt
+  must_include:
+    notes.txt:
+      - tool protocol correction works

@@ -10,7 +10,15 @@ use crate::agent::events::{RuntimeEvent, RuntimeObserver, bounded_event_text};
 use crate::agent::minimal_loop::config::{ActionRequirement, StepToolPolicy};
 use crate::agent::minimal_loop::loop_run::{ChatClient, MinimalLoopConfig, RunResult};
 use crate::agent::minimal_loop::result::{MinimalLoopError, ToolArgError};
+use crate::agent::step_runner::completion_evidence::verifier_completion;
 use crate::agent::step_runner::correction_evidence::{ContractEvidence, failure_signature};
+use crate::agent::step_runner::deliverable_obligation::{
+    DeliverableObligation, FreshnessRule, obligation_kind_for_path,
+};
+use crate::agent::step_runner::evidence_binding::{
+    EvidenceBindingKind, EvidenceBindingPlan, EvidenceBindingStatus,
+};
+use crate::agent::step_runner::integrity_guard::{PatchValidation, detect_test_weakening};
 use crate::agent::step_runner::recovery_orchestration::orchestrate_evidence;
 use crate::agent::step_runner::recovery_task::{
     RecoveryExecutionEnvelope, recovery_execution_envelope,
@@ -19,6 +27,7 @@ use crate::agent::step_runner::repair::{
     RepairBudget, RepairContext, ToolProtocolCorrectionContext, build_repair_prompt,
     build_tool_protocol_correction_prompt, save_repair_prompt,
 };
+use crate::agent::step_runner::repair_job::RepairJobState;
 use crate::agent::step_runner::runtime::phase_contract::{
     ActiveStepContract, current_profile_facts,
 };
@@ -28,6 +37,11 @@ use crate::agent::step_runner::setup_artifact_validation::{
 use crate::agent::step_runner::verifier_selection::{VerifierBinding, VerifierSelection};
 use crate::agent::step_runner::verify::VerificationFailure;
 use crate::agent::step_runner::{StepKind, StepPlan, StepPlanStep};
+use crate::agent::step_runner::{
+    artifact_graph::{ArtifactLifecycle, ArtifactRole, role_for_path},
+    completion_evidence::{CompletionEvidence, CompletionEvidenceKind, CompletionEvidenceStatus},
+};
+use std::fs;
 use std::time::Instant;
 
 const MAX_REPAIR_TURNS: usize = 3;
@@ -309,6 +323,7 @@ where
     let mut repair_turns = 0usize;
     let mut missing_artifact_no_tool_guard_sent = false;
     let initial_missing_expected_paths = missing_paths(runtime.cwd, &step.expected_paths);
+    push_missing_expected_path_contract_evidence(&mut state, step, &initial_missing_expected_paths);
     if let Some(arg_error) = state.pending_tool_arg_error.clone() {
         push_tool_arg_contract_evidence(
             &mut state,
@@ -455,7 +470,16 @@ where
         if result_changed_files(&result) {
             state.file_changing_attempts += 1;
         }
-        state.changed_files.extend(changed_file_markers(&result));
+        let changed_markers = changed_file_markers(&result);
+        let patch_validations = patch_validations_for_changed_files(runtime.cwd, &changed_markers);
+        state.changed_files.extend(changed_markers);
+        if !patch_validations.is_empty() {
+            push_patch_validation_contract_evidence(&mut state, step, &patch_validations);
+            state
+                .failures
+                .push(patch_validation_failure(&patch_validations));
+            break;
+        }
         state.failures = execution::verify_step_with_observer(runtime.cwd, step, observer)?;
         if state.failures.is_empty() {
             return Ok(());
@@ -611,6 +635,165 @@ fn push_tool_arg_contract_evidence(
             )]);
     }
     push_contract_evidence_once(&mut state.contract_evidence, evidence);
+}
+
+fn push_missing_expected_path_contract_evidence(
+    state: &mut RepairStepState,
+    step: &StepPlanStep,
+    missing_expected_paths: &[String],
+) {
+    for path in missing_expected_paths {
+        let role = role_for_path(path, ArtifactLifecycle::ToBeCreated);
+        let active_job = active_job_for_missing_role(role);
+        let repair_action = match active_job {
+            "manifest_repair" => "add_missing_manifest_dependency",
+            "documentation_repair" => "update_docs_literal",
+            _ => "create_required_artifact",
+        };
+        let obligation = DeliverableObligation::new(obligation_kind_for_path(path), path)
+            .with_required_evidence("file_layout")
+            .with_freshness(FreshnessRule::MustBeEditedThisSession)
+            .render_line();
+        let binding = EvidenceBindingPlan::new(
+            EvidenceBindingKind::FileLayout,
+            path,
+            "required path exists in the current workspace",
+            EvidenceBindingStatus::Missing,
+        )
+        .with_reason("expected path is still missing")
+        .render_line();
+        let completion = CompletionEvidence::new(
+            CompletionEvidenceKind::RepoEdit,
+            path,
+            CompletionEvidenceStatus::Missing,
+            "expected_path_contract",
+        )
+        .with_diagnostic("required deliverable has not been created")
+        .render_line();
+        let evidence = ContractEvidence::new("recovery")
+            .with_failed_step(step.id.clone())
+            .with_violated_contract("missing_required_artifact")
+            .with_reason_code("missing_required_artifact")
+            .with_failure_kind("missing_deliverable")
+            .with_failure_signature(failure_signature([
+                "missing_required_artifact",
+                step.id.as_str(),
+                path.as_str(),
+                active_job,
+            ]))
+            .with_target_path(path.clone())
+            .with_repair_target(path.clone())
+            .with_missing_paths([path.clone()])
+            .with_required_paths([path.clone()])
+            .with_candidate_artifacts([path.clone()])
+            .with_active_job(active_job)
+            .with_artifact_role(role.as_str())
+            .with_repair_kind(active_job)
+            .with_repair_action(repair_action)
+            .with_required_action(required_action_for_missing_role(role))
+            .with_deliverable_obligations([obligation])
+            .with_evidence_binding([binding])
+            .with_completion_evidence([completion])
+            .with_rerun_authority(step.verify.clone())
+            .with_diagnostic(format!(
+                "expected path `{path}` is missing after the step; create or bind the required deliverable before continuing"
+            ));
+        push_contract_evidence_once(&mut state.contract_evidence, evidence);
+    }
+}
+
+fn active_job_for_missing_role(role: ArtifactRole) -> &'static str {
+    match role {
+        ArtifactRole::SetupManifest | ArtifactRole::SetupConfig => "manifest_repair",
+        ArtifactRole::Test => "test_artifact_completion",
+        ArtifactRole::Docs => "documentation_repair",
+        _ => "scaffold_materialization",
+    }
+}
+
+fn required_action_for_missing_role(role: ArtifactRole) -> &'static str {
+    match role {
+        ArtifactRole::SetupManifest | ArtifactRole::SetupConfig => {
+            "create or repair the missing setup manifest/config before source repair"
+        }
+        ArtifactRole::Test => {
+            "create the missing required test artifact before attempting source repair"
+        }
+        ArtifactRole::Docs => "create or update the required documentation artifact",
+        _ => "create the missing required artifact and bind it to the expected path",
+    }
+}
+
+fn patch_validations_for_changed_files(
+    cwd: &std::path::Path,
+    changed_files: &[String],
+) -> Vec<PatchValidation> {
+    let mut validations = Vec::new();
+    for path in changed_files {
+        let resolved = cwd.join(path);
+        let Ok(content) = fs::read_to_string(&resolved) else {
+            continue;
+        };
+        if let Some(validation) = detect_test_weakening(path, &content) {
+            validations.push(validation);
+        }
+    }
+    validations
+}
+
+fn push_patch_validation_contract_evidence(
+    state: &mut RepairStepState,
+    step: &StepPlanStep,
+    validations: &[PatchValidation],
+) {
+    let lines = validations
+        .iter()
+        .map(PatchValidation::render_line)
+        .collect::<Vec<_>>();
+    let target = validations
+        .iter()
+        .find_map(|validation| validation.path.clone());
+    let mut evidence = ContractEvidence::new("repair")
+        .with_failed_step(step.id.clone())
+        .with_violated_contract("patch_validation")
+        .with_reason_code("test_weakening_rejected")
+        .with_failure_kind("unsafe_repair_attempt")
+        .with_failure_signature(failure_signature(
+            std::iter::once("patch_validation")
+                .chain(std::iter::once(step.id.as_str()))
+                .chain(lines.iter().map(String::as_str)),
+        ))
+        .with_active_job("explicit_stop")
+        .with_repair_kind("explicit_stop")
+        .with_repair_action("stop_with_structured_evidence")
+        .with_required_action(
+            "reject the unsafe patch; do not weaken generated or existing tests to satisfy a verifier",
+        )
+        .with_patch_validation(lines)
+        .with_explicit_stop_reason("patch_validation_rejected_unsafe_repair")
+        .with_diagnostic("repair attempted to weaken or skip a test");
+    if let Some(target) = target {
+        evidence = evidence
+            .with_target_path(target.clone())
+            .with_repair_target(target)
+            .with_artifact_role("test");
+    }
+    push_contract_evidence_once(&mut state.contract_evidence, evidence);
+}
+
+fn patch_validation_failure(validations: &[PatchValidation]) -> VerificationFailure {
+    VerificationFailure {
+        command: "patch validation".to_string(),
+        reason: "patch_validation:test_weakening_rejected".to_string(),
+        stdout_excerpt: String::new(),
+        stderr_excerpt: String::new(),
+        diagnostic_excerpt: validations
+            .iter()
+            .map(PatchValidation::render_line)
+            .collect::<Vec<_>>()
+            .join("\n"),
+        source_excerpt: None,
+    }
 }
 
 fn provider_transport_contract_evidence(
@@ -829,18 +1012,23 @@ fn verifier_contract_evidence(
         diagnostic_code.as_str(),
         repair_target.as_deref().unwrap_or(""),
     ]);
+    let active_job = verifier_active_job(failure, &binding, repair_target_role);
+    let mut repair_job_state = RepairJobState::new(active_job);
+    if let Some(target) = &repair_target {
+        repair_job_state = repair_job_state.with_current_target(target.clone());
+    }
     let mut evidence = ContractEvidence::new("verifier")
         .with_failed_step(step.id.clone())
         .with_violated_contract(failure.reason.clone())
         .with_reason_code(failure.reason.clone())
         .with_failure_kind(verifier_failure_kind(failure, &binding).to_string())
         .with_diagnostic_code(diagnostic_code)
-        .with_failure_signature(signature)
+        .with_failure_signature(signature.clone())
         .with_command(failure.command.clone())
         .with_candidate_artifacts(candidate_artifacts)
         .with_observed_expected_pairs(vec![verifier_observed_expected_pair(failure)])
         .with_affected_cases(vec![failure.command.clone()])
-        .with_active_job(verifier_active_job(failure, &binding, repair_target_role))
+        .with_active_job(active_job)
         .with_required_action(verifier_required_action(failure, repair_target_role))
         .with_repair_kind(verifier_repair_kind(failure, &binding))
         .with_repair_action(verifier_repair_action(
@@ -849,7 +1037,13 @@ fn verifier_contract_evidence(
             repair_target_role,
         ))
         .with_setup_implication(verifier_setup_implication(failure))
-        .with_rerun_authority(vec![failure.command.clone()]);
+        .with_rerun_authority(vec![failure.command.clone()])
+        .with_completion_evidence(vec![
+            verifier_completion(&failure.command, false)
+                .with_diagnostic(failure.reason.clone())
+                .render_line(),
+        ])
+        .with_repair_job_state(repair_job_state.render_lines());
     if let Some(target) = repair_target {
         evidence = evidence
             .with_target_path(target.clone())
@@ -873,7 +1067,8 @@ fn verifier_contract_evidence(
     if !repair_attempt_ledger.is_empty() {
         evidence = evidence
             .with_prior_attempts(repair_attempt_ledger.iter().cloned())
-            .with_repair_attempt_ledger(repair_attempt_ledger.iter().cloned());
+            .with_repair_attempt_ledger(repair_attempt_ledger.iter().cloned())
+            .with_attempt_outcomes(repair_attempt_ledger.iter().cloned());
     }
     let diagnostic = verifier_diagnostic(failure, dependency_setup_note);
     if !diagnostic.trim().is_empty() {
@@ -1214,9 +1409,18 @@ fn record_repair_attempt_ledger(state: &mut RepairStepState, step: &StepPlanStep
             &[],
         ) && let Some(signature) = evidence.failure_signature
         {
+            let outcome = if state
+                .repair_attempt_ledger
+                .iter()
+                .any(|entry| entry.contains(&signature))
+            {
+                "no_progress"
+            } else {
+                "improved_still_failing"
+            };
             push_repair_attempt_ledger(
                 &mut state.repair_attempt_ledger,
-                format!("attempt {attempt}: {signature}"),
+                format!("attempt {attempt}: signature={signature} outcome={outcome}"),
             );
         }
     }
@@ -2122,6 +2326,79 @@ mod tests {
 
         assert!(
             verifier_contract_evidence(&step(StepKind::Repair), &failure, None, &[], &[]).is_none()
+        );
+    }
+
+    #[test]
+    fn missing_expected_path_producer_adds_obligation_binding_and_completion() {
+        let mut state = empty_state();
+        push_missing_expected_path_contract_evidence(
+            &mut state,
+            &step(StepKind::Create),
+            &["tests/test_app.py".to_string()],
+        );
+
+        let evidence = orchestrate_evidence(state.contract_evidence[0].clone());
+        let rendered = evidence.render().unwrap();
+
+        assert!(rendered.contains("guard: recovery"));
+        assert!(rendered.contains("violated_contract: missing_required_artifact"));
+        assert!(rendered.contains("active_job: test_artifact_completion"));
+        assert!(rendered.contains("artifact_role: test"));
+        assert!(rendered.contains("repair_action: create_required_artifact"));
+        assert!(rendered.contains("deliverable_obligations: kind=test path=tests/test_app.py"));
+        assert!(rendered.contains("evidence_binding: kind=file_layout"));
+        assert!(rendered.contains("status=missing"));
+        assert!(rendered.contains("completion_evidence: kind=repo_edit"));
+        assert!(rendered.contains("target_path: tests/test_app.py"));
+    }
+
+    #[test]
+    fn patch_validation_rejects_test_weakening_as_explicit_stop() {
+        let root = temp_workspace("patch-validation");
+        let tests_dir = root.join("tests");
+        std::fs::create_dir_all(&tests_dir).unwrap();
+        std::fs::write(
+            tests_dir.join("app_test.rs"),
+            "#[ignore]\nfn test_app() {}\n",
+        )
+        .unwrap();
+        let validations =
+            patch_validations_for_changed_files(&root, &["tests/app_test.rs".to_string()]);
+        let mut state = empty_state();
+
+        push_patch_validation_contract_evidence(&mut state, &step(StepKind::Repair), &validations);
+        let evidence = orchestrate_evidence(state.contract_evidence[0].clone());
+        let rendered = evidence.render().unwrap();
+
+        assert_eq!(validations.len(), 1);
+        assert!(rendered.contains("guard: repair"));
+        assert!(rendered.contains("active_job: explicit_stop"));
+        assert!(rendered.contains("repair_action: stop_with_structured_evidence"));
+        assert!(rendered.contains("patch_validation: outcome=test_weakening"));
+        assert!(rendered.contains("explicit_stop_reason: patch_validation_rejected_unsafe_repair"));
+    }
+
+    #[test]
+    fn repeated_verifier_signature_records_no_progress_attempt_outcome() {
+        let mut state = empty_state();
+        state.failures.push(VerificationFailure {
+            command: "cargo test".to_string(),
+            reason: "command_failed:101".to_string(),
+            stdout_excerpt: String::new(),
+            stderr_excerpt: "error[E0425]: cannot find value".to_string(),
+            diagnostic_excerpt: "error[E0425]: cannot find value".to_string(),
+            source_excerpt: None,
+        });
+
+        record_repair_attempt_ledger(&mut state, &step(StepKind::Repair), 1);
+        record_repair_attempt_ledger(&mut state, &step(StepKind::Repair), 2);
+
+        assert!(
+            state
+                .repair_attempt_ledger
+                .iter()
+                .any(|entry| entry.contains("outcome=no_progress"))
         );
     }
 

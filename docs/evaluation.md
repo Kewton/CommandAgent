@@ -56,8 +56,15 @@ The report also includes a `Contract Layers` section derived from the failure
 reason. This is a coarse layer map for triage, not a new success criterion. It
 helps distinguish failures in planning, execution/tool protocol, profile,
 setup bootstrap, verification, eval success checks, and unknown boundaries.
-New eval runs also write `failure_category` and `contract_layer` into
-`summary.tsv` and each run's `meta.json`.
+New eval runs also write `failure_category`, `contract_layer`, and the recovery
+report fields into `summary.tsv` and each run's `meta.json`. The recovery
+fields are `active_job`, `recovery_owner`, `target_path`, `target_role`,
+`repair_action`, `tool_policy`, `attempt_outcome`,
+`evidence_binding_status`, `completion_evidence_status`, and
+`explicit_stop_reason`. When a runtime repair packet contains richer contract
+evidence, the eval runner extracts those fields. When a failure is detected
+only by the eval success contract, the runner derives a conservative recovery
+classification from the deterministic reason and target path.
 
 The eval runner executes cases through the mode declared in each case. Omitted
 mode defaults to `/plan-run`; large cases should normally use `/ultra-plan-run`.
@@ -209,9 +216,19 @@ Contract Boundary Propagation fields should be recorded when present:
 - `required_action`
 - `disallowed_actions`
 - `repair_attempt_ledger`
+- `attempt_outcomes`
+- `patch_validation`
+- `eval_report_fields`
 
 These fields explain why a repair packet or setup recovery path was selected.
 They are not proof that the original ultra plan completed.
+
+Patch validation failures are integrity failures, not implementation failures.
+If a repair attempt weakens or skips a test, the repair loop should record
+`patch_validation`, classify the active job as `explicit_stop`, preserve the
+specific stop reason, and stop boundedly. Eval reports should surface the
+`patch_validation` and `explicit_stop_reason` fields instead of collapsing the
+result into a generic verifier `rc:1`.
 
 Plan-correction no-progress should be reported as a planning failure with the
 same active job and missing set that repeated. For example, a Next.js Tailwind
@@ -331,7 +348,16 @@ Record these fields when present:
 - failed step and contract code;
 - blocker and required action;
 - repair action, when a Recovery Policy Contract selected one;
+- recovery owner and active-job priority;
 - repair target or bounded candidate artifacts;
+- completion evidence and evidence binding status;
+- deliverable obligations and freshness expectations;
+- repair action plan, including allowed change kind and expected evidence
+  delta;
+- semantic failure report, including observed/expected pairs and admitted
+  target;
+- repair job state, attempt outcomes, and exhausted target/role facts;
+- patch validation outcome when a repair attempt is rejected;
 - execution envelope;
 - tool policy used for the next repair turn;
 - evidence requirement, such as file change or repository read evidence;
@@ -357,6 +383,11 @@ Interpretation rules:
   package-manager manifests and therefore produced a new setup fingerprint. If
   runtime-owned setup ran again, report it as one setup attempt for the changed
   manifest fingerprint, not as model-issued dependency installation.
+- If `evidence_binding_repair` appears, report it separately from missing
+  artifact creation. The artifact may exist; the failure is that the declared
+  evidence path is missing, failed, or unbound.
+- If `repair_action_plan` is rejected or explicit-stop, report the rejection
+  reason instead of treating it as a model-quality failure.
 
 ## Versioned Event And Budget Reporting
 

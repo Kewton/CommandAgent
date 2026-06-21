@@ -263,15 +263,17 @@ fn parse_cd_wrapper(command: &str) -> Option<(&str, &str)> {
 }
 
 fn has_extra_chaining(command: &str) -> bool {
-    command.contains(';') || command.contains("||") || command.matches("&&").count() > 1
+    contains_unquoted(command, ';')
+        || contains_unquoted_token(command, "||")
+        || count_unquoted_token(command, "&&") > 1
 }
 
 fn has_unsupported_shell_syntax(command: &str) -> bool {
-    command.contains('|')
-        || command.contains('>')
-        || command.contains('<')
-        || command.contains("$(")
-        || command.contains('`')
+    contains_unquoted(command, '|')
+        || contains_unquoted(command, '>')
+        || contains_unquoted(command, '<')
+        || contains_unquoted_token(command, "$(")
+        || contains_unquoted(command, '`')
 }
 
 fn starts_with_any(value: &str, prefixes: &[&str]) -> bool {
@@ -291,6 +293,48 @@ fn strip_shell_quotes(value: &str) -> String {
         })
         .unwrap_or(value)
         .to_string()
+}
+
+fn contains_unquoted(command: &str, needle: char) -> bool {
+    unquoted_positions(command).any(|(_, ch)| ch == needle)
+}
+
+fn contains_unquoted_token(command: &str, token: &str) -> bool {
+    count_unquoted_token(command, token) > 0
+}
+
+fn count_unquoted_token(command: &str, token: &str) -> usize {
+    if token.is_empty() {
+        return 0;
+    }
+    unquoted_positions(command)
+        .filter(|(idx, _)| command[*idx..].starts_with(token))
+        .count()
+}
+
+fn unquoted_positions(command: &str) -> impl Iterator<Item = (usize, char)> + '_ {
+    let mut single = false;
+    let mut double = false;
+    let mut escaped = false;
+    command.char_indices().filter_map(move |(idx, ch)| {
+        if escaped {
+            escaped = false;
+            return None;
+        }
+        if ch == '\\' && !single {
+            escaped = true;
+            return None;
+        }
+        if ch == '\'' && !double {
+            single = !single;
+            return None;
+        }
+        if ch == '"' && !single {
+            double = !double;
+            return None;
+        }
+        (!single && !double).then_some((idx, ch))
+    })
 }
 
 fn allowed(class: CommandClass) -> PolicyDecision {
@@ -390,6 +434,27 @@ mod tests {
         );
 
         assert_ne!(decision.class, CommandClass::EnvSetup);
+        assert!(!decision.allowed);
+    }
+
+    #[test]
+    fn allows_quoted_semicolon_inside_python_command() {
+        let root = temp_workspace("quoted-python-semicolon");
+        let decision = enforce_offline_policy(
+            r#"python -c "import app; print(app.greet('World'))""#,
+            &root,
+        );
+
+        assert_eq!(decision.class, CommandClass::ScriptRun);
+        assert!(decision.allowed);
+    }
+
+    #[test]
+    fn blocks_unquoted_semicolon_chaining() {
+        let root = temp_workspace("unquoted-semicolon");
+        let decision = enforce_offline_policy("python app.py; rm output.txt", &root);
+
+        assert_eq!(decision.class, CommandClass::Unknown);
         assert!(!decision.allowed);
     }
 

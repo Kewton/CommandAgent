@@ -455,6 +455,10 @@ classified failure
   -> workspace scope and artifact ownership when a target is admitted
   -> expected evidence delta
   -> setup implication when the failure or repair affects dependencies
+  -> recovery owner and repair action plan
+  -> completion evidence, evidence binding, deliverable obligations
+  -> semantic failure report and repair job state
+  -> patch validation and eval report fields when present
   -> rerun authority
 ```
 
@@ -462,7 +466,11 @@ These values are carried as bounded contract evidence fields such as
 `active_job`, `repair_kind`, `semantic_failure_kind`, `source_of_truth`,
 `repair_action`, `allowed_change_kind`, `workspace_scope`,
 `artifact_ownership`, `expected_evidence_delta`, `setup_implication`, and
-`rerun_authority`. They are data for Recovery Policy Contract, Recovery Task
+`rerun_authority`. Newer recovery-control fields such as `recovery_owner`,
+`completion_evidence`, `evidence_binding`, `deliverable_obligations`,
+`repair_action_plan`, `semantic_failure_report`, `repair_job_state`,
+`attempt_outcomes`, `patch_validation`, and `eval_report_fields` are also
+bounded contract evidence. They are data for Recovery Policy Contract, Recovery Task
 Contract, or verifier-owned setup recovery. They are not hidden workflow state,
 retry counters, or permission for the model to choose a new job.
 

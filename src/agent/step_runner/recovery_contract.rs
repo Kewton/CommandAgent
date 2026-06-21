@@ -19,6 +19,7 @@ pub(crate) fn active_job_priority(job: &str) -> u8 {
         "scaffold_materialization" => 30,
         "route_integration_repair" => 40,
         "source_implementation_repair" => 50,
+        "evidence_binding_repair" => 55,
         "test_artifact_completion" => 60,
         "test_alignment_repair" => 70,
         "documentation_repair" => 80,
@@ -44,6 +45,7 @@ pub(crate) fn semantic_failure_kind(
         },
         "test_alignment_repair" => "test_or_verifier_alignment_failure",
         "documentation_repair" => "documentation_contract_failure",
+        "evidence_binding_repair" => "evidence_binding_failure",
         "verifier_contract_correction" => "verifier_contract_failure",
         "tool_protocol_correction" => "tool_protocol_failure",
         "explicit_stop" => "unadmitted_recovery_failure",
@@ -63,6 +65,7 @@ pub(crate) fn source_of_truth(evidence: &ContractEvidence, job: &str) -> &'stati
             "test_contract_and_original_verifier"
         }
         "documentation_repair" => "documentation_contract",
+        "evidence_binding_repair" => "deterministic_evidence_binding_contract",
         "verifier_contract_correction" => "verifier_contract",
         "tool_protocol_correction" => "tool_schema_contract",
         "explicit_stop" => "deterministic_guard",
@@ -90,6 +93,7 @@ pub(crate) fn allowed_change_kind(
         "test_artifact_completion" => "test_artifact_creation_only",
         "test_alignment_repair" => "test_or_verifier_alignment_only",
         "documentation_repair" => "documentation_literal_only",
+        "evidence_binding_repair" => "evidence_binding_only",
         "verifier_contract_correction" => "plan_or_verifier_contract_only",
         "tool_protocol_correction" => "tool_call_shape_only",
         "explicit_stop" => "no_change_admitted",
@@ -134,6 +138,9 @@ pub(crate) fn expected_evidence_delta(
             .map(|command| format!("test/verifier target aligns honestly, then `{command}` reruns"))
             .unwrap_or_else(|| "test/verifier target aligns honestly, then verifier reruns".to_string()),
         "documentation_repair" => "documented literal or observed/expected mismatch is updated exactly".to_string(),
+        "evidence_binding_repair" => {
+            "required evidence binding is attached to the target artifact, then the original guard/verifier reruns".to_string()
+        }
         "verifier_contract_correction" => "corrected plan/verifier contract is re-linted before source mutation".to_string(),
         "tool_protocol_correction" => "next model response contains exactly one valid tool call".to_string(),
         "explicit_stop" => "no mutation occurs; user-visible failure remains structured".to_string(),
