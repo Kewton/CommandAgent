@@ -101,13 +101,14 @@ helps distinguish failures in planning, execution/tool protocol, profile,
 setup bootstrap, verification, eval success checks, and unknown boundaries.
 New eval runs also write `failure_category`, `contract_layer`, and the recovery
 report fields into `summary.tsv` and each run's `meta.json`. The recovery
-fields are `active_job`, `recovery_owner`, `target_path`, `target_role`,
-`repair_action`, `tool_policy`, `attempt_outcome`,
-`evidence_binding_status`, `completion_evidence_status`, and
-`explicit_stop_reason`. When a runtime repair packet contains richer contract
-evidence, the eval runner extracts those fields. When a failure is detected
-only by the eval success contract, the runner derives a conservative recovery
-classification from the deterministic reason and target path.
+fields are `active_job`, `recovery_owner`, `loop_control_action`,
+`dispatch_status`, `dispatch_reason`, `candidate_jobs`, `tie_break_reason`,
+`target_path`, `target_role`, `repair_action`, `tool_policy`,
+`attempt_outcome`, `evidence_binding_status`, `completion_evidence_status`,
+and `explicit_stop_reason`. When a runtime repair packet contains richer
+contract evidence, the eval runner extracts those fields. When a failure is
+detected only by the eval success contract, the runner derives a conservative
+recovery classification from the deterministic reason and target path.
 
 Artifact completion reports must keep four states distinct:
 
@@ -406,6 +407,8 @@ Record these fields when present:
 - blocker and required action;
 - repair action, when a Recovery Policy Contract selected one;
 - recovery owner and active-job priority;
+- loop control action, dispatch status, dispatch reason, candidate jobs, and
+  tie-break reason when Recovery Orchestration selected or rejected a path;
 - repair target or bounded candidate artifacts;
 - completion evidence and evidence binding status;
 - deliverable obligations and freshness expectations;

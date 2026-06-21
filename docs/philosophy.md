@@ -72,7 +72,8 @@ CommandAgent's control model is therefore:
 Task Contract -> ArtifactGraph and Workspace Scope
   -> Planning Contract -> Profile Contract
   -> Recovery Orchestration Contract
-       -> Active Job Selection
+       -> Active Job Candidate Set
+       -> Dispatch Gate
        -> Recovery Policy Decision
        -> Recovery Task Contract or verifier-owned setup recovery
 classified failure -> Contract Boundary Propagation
@@ -89,10 +90,12 @@ asking the loop to infer strategy from broad prose.
 The Recovery Orchestration Contract is the explicit owner of failure-time
 strategy selection. It consumes structured failure evidence and the
 ArtifactGraph, selects exactly one active recovery job for the current blocker,
-selects or rejects a repair action, projects the tool policy for that action,
-and hands a bounded Recovery Task Contract or setup action to the existing
-Execution Contract. It must not execute tools, advance arbitrary future phases,
-or retry until success.
+selects or rejects a repair action through a dispatch gate, projects the tool
+policy for that action, and hands a bounded Recovery Task Contract or setup
+action to the existing Execution Contract. It must not execute tools, advance
+arbitrary future phases, or retry until success. If multiple same-priority
+owners conflict, dispatch must choose an explicit stop instead of arbitrarily
+selecting a repair path.
 
 ## Stability And Predictability
 
@@ -266,6 +269,10 @@ The policy may produce only bounded contract data:
 - active job, such as manifest repair, setup bootstrap, route integration
   repair, source implementation repair, test repair, docs repair, verifier
   policy repair, or explicit stop
+- loop control action and dispatch status, such as bounded repair task,
+  verifier-owned setup, tool-protocol correction, or explicit stop
+- candidate jobs and tie-break reason when deterministic evidence produces
+  more than one possible owner
 - repair action, such as add a manifest dependency, repair a build script,
   create a missing integration artifact, connect an existing artifact to the
   selected route, repair a source error, or stop with a setup blocker
@@ -389,7 +396,7 @@ The shape of an acceptable recovery mechanism is:
 
 ```text
 classified failure -> violated contract -> active job classification
-  -> recovery target hint -> allowed repair action
+  -> dispatch gate -> recovery target hint -> allowed repair action
   -> rerun the original guard/verifier -> success or explicit bounded stop
 ```
 
@@ -403,8 +410,10 @@ weaken the check that failed.
 Active job arbitration is a recovery input, not hidden continuation. It may
 decide that the current blocker is setup bootstrap, manifest repair, route
 integration, source implementation, verifier policy, docs, or explicit stop.
-It may not silently advance to the next phase after a failed contract or create
-new user-visible goals.
+The dispatch gate may select only one owner/action pair, choose verifier-owned
+setup or tool-protocol correction, or stop with structured evidence. It may not
+silently advance to the next phase after a failed contract, create new
+user-visible goals, or resolve same-priority ambiguity by guessing.
 
 Dependency setup remains verifier-owned. If a bounded repair changes package
 manager manifests, setup state may become stale for that verifier step.

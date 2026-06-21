@@ -200,6 +200,17 @@ handoffs visible to repair packets and eval reports, but they remain data
 produced by deterministic guards and orchestration. They must not execute
 tools, broaden retry budgets, or let profiles become workflow engines.
 
+2026-06-21 amendment: Recovery Orchestration now includes an active-job
+dispatch gate. Deterministic guards may produce multiple active-job candidates,
+but dispatch must select exactly one owner/action pair, project one loop
+control action, or stop explicitly with `contract_conflict`/`explicit_stop`.
+The rendered contract evidence may include `loop_control_action`,
+`dispatch_status`, `dispatch_reason`, `candidate_jobs`, and
+`tie_break_reason`. These fields are attribution data for bounded repair or
+eval reporting. They do not add retry authority, do not dispatch to another
+execution engine, and must not resolve same-priority ambiguity by hidden
+heuristics.
+
 ## Non-Decisions
 
 This ADR does not reintroduce:

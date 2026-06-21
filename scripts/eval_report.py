@@ -102,6 +102,11 @@ def write_summary(path, rows):
         *OBSERVATION_FIELD_NAMES,
         "active_job",
         "recovery_owner",
+        "loop_control_action",
+        "dispatch_status",
+        "dispatch_reason",
+        "candidate_jobs",
+        "tie_break_reason",
         "target_path",
         "target_role",
         "repair_action",
@@ -157,6 +162,11 @@ def recheck(root, cases):
                 "contract_layer": contract_layer(reason),
                 "active_job": meta.get("active_job", derive_active_job(reason)),
                 "recovery_owner": meta.get("recovery_owner", derive_recovery_owner(reason)),
+                "loop_control_action": meta.get("loop_control_action", derive_loop_control_action(reason)),
+                "dispatch_status": meta.get("dispatch_status", derive_dispatch_status(reason)),
+                "dispatch_reason": meta.get("dispatch_reason", ""),
+                "candidate_jobs": meta.get("candidate_jobs", ""),
+                "tie_break_reason": meta.get("tie_break_reason", ""),
                 "target_path": meta.get("target_path", first_reason_target(reason)),
                 "target_role": meta.get("target_role", artifact_role_for_path(first_reason_target(reason))),
                 "repair_action": meta.get("repair_action", derive_repair_action(reason)),
@@ -266,6 +276,28 @@ def derive_recovery_owner(reason):
     return "source"
 
 
+def derive_loop_control_action(reason):
+    job = derive_active_job(reason)
+    if job == "setup_bootstrap":
+        return "run_verifier_owned_setup"
+    if job == "tool_protocol_correction":
+        return "run_tool_protocol_correction"
+    if job in {"explicit_stop", "contract_conflict"}:
+        return "render_explicit_stop"
+    if job == "none":
+        return "none"
+    return "run_bounded_repair_task"
+
+
+def derive_dispatch_status(reason):
+    job = derive_active_job(reason)
+    if job == "none":
+        return "selected"
+    if job in {"explicit_stop", "contract_conflict"}:
+        return "explicit_stop"
+    return "selected"
+
+
 def derive_repair_action(reason):
     job = derive_active_job(reason)
     if job == "setup_bootstrap":
@@ -343,6 +375,8 @@ def render_report(rows):
     diagnostics = {}
     by_case = {}
     recovery_jobs = {}
+    loop_control_actions = {}
+    dispatch_statuses = {}
     evidence_runner_statuses = {}
     artifact_ledger_statuses = {}
     for row in rows:
@@ -358,11 +392,19 @@ def render_report(rows):
             row.get("artifact_ledger_status") or observation["artifact_ledger_status"]
         )
         job = row.get("active_job") or derive_active_job(row["reason"])
+        loop_control_action = row.get("loop_control_action") or derive_loop_control_action(
+            row["reason"]
+        )
+        dispatch_status = row.get("dispatch_status") or derive_dispatch_status(row["reason"])
         categories[category] = categories.get(category, 0) + 1
         layers[layer] = layers.get(layer, 0) + 1
         terminal_states[terminal_state] = terminal_states.get(terminal_state, 0) + 1
         diagnostics[diagnostic_code] = diagnostics.get(diagnostic_code, 0) + 1
         recovery_jobs[job] = recovery_jobs.get(job, 0) + 1
+        loop_control_actions[loop_control_action] = (
+            loop_control_actions.get(loop_control_action, 0) + 1
+        )
+        dispatch_statuses[dispatch_status] = dispatch_statuses.get(dispatch_status, 0) + 1
         if evidence_runner_status:
             evidence_runner_statuses[evidence_runner_status] = (
                 evidence_runner_statuses.get(evidence_runner_status, 0) + 1
@@ -404,6 +446,12 @@ def render_report(rows):
         lines.append(f"- artifact_ledger_status={name}: {count}")
     lines.extend(["", "## Recovery Jobs"])
     for name, count in sorted(recovery_jobs.items()):
+        lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Dispatch Status"])
+    for name, count in sorted(dispatch_statuses.items()):
+        lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Loop Control Actions"])
+    for name, count in sorted(loop_control_actions.items()):
         lines.append(f"- {name}: {count}")
     lines.extend(["", "## By Case"])
     for case_id, (case_success, case_total) in sorted(by_case.items()):

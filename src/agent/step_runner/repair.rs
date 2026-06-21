@@ -573,7 +573,7 @@ fn profile_failure_contract_evidence(
 ) -> ContractEvidence {
     let policy = profile_failure_policy(failure);
     let repair_target = policy.repair_target.clone();
-    let evidence = ContractEvidence::new("profile_verification")
+    let mut evidence = ContractEvidence::new("profile_verification")
         .with_failed_step(phase_id.to_string())
         .with_violated_contract(failure.code.clone())
         .with_reason_code(failure.code.clone())
@@ -589,7 +589,36 @@ fn profile_failure_contract_evidence(
         .with_observed_expected_pairs(vec![profile_observed_expected_pair(failure)])
         .with_repair_focus(profile_repair_focus(failure))
         .with_diagnostic(failure.message.clone());
+    if let Some(obligation) = profile_obligation_key(failure.code.as_str()) {
+        evidence = evidence.with_required_literals(vec![obligation.to_string()]);
+    }
     orchestrate_evidence(policy.apply_to_evidence(evidence))
+}
+
+fn profile_obligation_key(code: &str) -> Option<&'static str> {
+    match code {
+        "nextjs_dev_port_drift" | "nextjs_dev_script_drift" => {
+            Some("profile.obligation.nextjs_dev_port_required")
+        }
+        "nextjs_build_script_drift" => Some("profile.obligation.nextjs_build_script_required"),
+        "nextjs_missing_dependency"
+        | "nextjs_dependency_missing"
+        | "nextjs_dependency_version_missing"
+        | "nextjs_dependency_version_conflict" => {
+            Some("profile.obligation.nextjs_dependencies_required")
+        }
+        "nextjs_tailwind_contract"
+        | "nextjs_tailwind_missing"
+        | "nextjs_tailwind_content_missing"
+        | "nextjs_tailwind_css_missing"
+        | "nextjs_tailwind_postcss_missing" => {
+            Some("profile.obligation.nextjs_tailwind_dependencies_required")
+        }
+        "nextjs_route_not_integrated" => {
+            Some("profile.obligation.nextjs_route_integration_required")
+        }
+        _ => None,
+    }
 }
 
 fn nextjs_tailwind_repair_target(failure: &ProfileVerificationFailure) -> Option<String> {

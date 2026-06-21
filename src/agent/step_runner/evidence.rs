@@ -363,6 +363,16 @@ pub struct OrchestrationEvidence {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_job_priority: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loop_control_action: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dispatch_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dispatch_reason: Option<String>,
+    #[serde(default)]
+    pub candidate_jobs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tie_break_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub explicit_stop_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub recovery_owner: Option<String>,
@@ -404,6 +414,11 @@ impl OrchestrationEvidence {
             workspace_scope: evidence.workspace_scope.clone(),
             artifact_ownership: evidence.artifact_ownership.clone(),
             active_job_priority: evidence.active_job_priority.clone(),
+            loop_control_action: evidence.loop_control_action.clone(),
+            dispatch_status: evidence.dispatch_status.clone(),
+            dispatch_reason: evidence.dispatch_reason.clone(),
+            candidate_jobs: evidence.candidate_jobs.clone(),
+            tie_break_reason: evidence.tie_break_reason.clone(),
             explicit_stop_reason: evidence.explicit_stop_reason.clone(),
             recovery_owner: evidence.recovery_owner.clone(),
             completion_evidence: evidence.completion_evidence.clone(),
@@ -430,6 +445,11 @@ impl OrchestrationEvidence {
             && orchestration.workspace_scope.is_none()
             && orchestration.artifact_ownership.is_none()
             && orchestration.active_job_priority.is_none()
+            && orchestration.loop_control_action.is_none()
+            && orchestration.dispatch_status.is_none()
+            && orchestration.dispatch_reason.is_none()
+            && orchestration.candidate_jobs.is_empty()
+            && orchestration.tie_break_reason.is_none()
             && orchestration.explicit_stop_reason.is_none()
             && orchestration.recovery_owner.is_none()
             && orchestration.completion_evidence.is_empty()

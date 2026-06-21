@@ -54,6 +54,11 @@ pub struct ContractEvidence {
     pub workspace_scope: Option<String>,
     pub artifact_ownership: Option<String>,
     pub active_job_priority: Option<String>,
+    pub loop_control_action: Option<String>,
+    pub dispatch_status: Option<String>,
+    pub dispatch_reason: Option<String>,
+    pub candidate_jobs: Vec<String>,
+    pub tie_break_reason: Option<String>,
     pub explicit_stop_reason: Option<String>,
     pub recovery_owner: Option<String>,
     pub completion_evidence: Vec<String>,
@@ -341,6 +346,35 @@ impl ContractEvidence {
         self
     }
 
+    pub fn with_loop_control_action(mut self, loop_control_action: impl Into<String>) -> Self {
+        self.loop_control_action = Some(loop_control_action.into());
+        self
+    }
+
+    pub fn with_dispatch_status(mut self, dispatch_status: impl Into<String>) -> Self {
+        self.dispatch_status = Some(dispatch_status.into());
+        self
+    }
+
+    pub fn with_dispatch_reason(mut self, dispatch_reason: impl Into<String>) -> Self {
+        self.dispatch_reason = Some(dispatch_reason.into());
+        self
+    }
+
+    pub fn with_candidate_jobs<I, S>(mut self, candidate_jobs: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.candidate_jobs = collect_values(candidate_jobs);
+        self
+    }
+
+    pub fn with_tie_break_reason(mut self, tie_break_reason: impl Into<String>) -> Self {
+        self.tie_break_reason = Some(tie_break_reason.into());
+        self
+    }
+
     pub fn with_explicit_stop_reason(mut self, explicit_stop_reason: impl Into<String>) -> Self {
         self.explicit_stop_reason = Some(explicit_stop_reason.into());
         self
@@ -577,6 +611,27 @@ impl ContractEvidence {
         );
         push_field(
             &mut lines,
+            "loop_control_action",
+            self.loop_control_action.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "dispatch_status",
+            self.dispatch_status.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "dispatch_reason",
+            self.dispatch_reason.as_deref(),
+        );
+        push_list(&mut lines, "candidate_jobs", &self.candidate_jobs);
+        push_field(
+            &mut lines,
+            "tie_break_reason",
+            self.tie_break_reason.as_deref(),
+        );
+        push_field(
+            &mut lines,
             "explicit_stop_reason",
             self.explicit_stop_reason.as_deref(),
         );
@@ -650,6 +705,11 @@ impl ContractEvidence {
             && self.workspace_scope.is_none()
             && self.artifact_ownership.is_none()
             && self.active_job_priority.is_none()
+            && self.loop_control_action.is_none()
+            && self.dispatch_status.is_none()
+            && self.dispatch_reason.is_none()
+            && self.candidate_jobs.is_empty()
+            && self.tie_break_reason.is_none()
             && self.explicit_stop_reason.is_none()
             && self.recovery_owner.is_none()
             && self.completion_evidence.is_empty()

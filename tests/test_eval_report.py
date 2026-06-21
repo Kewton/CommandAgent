@@ -156,6 +156,30 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertIn("## Diagnostic Codes", report)
         self.assertIn("## Evidence Authority", report)
 
+    def test_render_report_includes_dispatch_sections(self):
+        report = eval_report.render_report(
+            [
+                {
+                    "case_id": "dispatch",
+                    "run": "1",
+                    "rc": "1",
+                    "elapsed_ms": "10",
+                    "success": "false",
+                    "reason": "tool_args_missing_required_field:path",
+                    "failure_category": "tool_protocol",
+                    "contract_layer": "execution_contract",
+                    "active_job": "tool_protocol_correction",
+                    "loop_control_action": "run_tool_protocol_correction",
+                    "dispatch_status": "selected",
+                }
+            ]
+        )
+
+        self.assertIn("## Dispatch Status", report)
+        self.assertIn("- selected: 1", report)
+        self.assertIn("## Loop Control Actions", report)
+        self.assertIn("- run_tool_protocol_correction: 1", report)
+
 
 if __name__ == "__main__":
     unittest.main()

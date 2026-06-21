@@ -194,13 +194,15 @@ guard, verifier, or profile check as the success authority.
 The broader Recovery Orchestration Contract renders that decision as
 structured evidence. Repair prompts and packets may include
 `target_admission`, `target_priority`, `tool_policy_projection`,
-`explicit_stop_reason`, `recovery_owner`, `repair_action_plan`,
-`completion_evidence`, `evidence_binding`, `deliverable_obligations`,
-`semantic_failure_report`, `repair_job_state`, `patch_validation`,
-`eval_report_fields`, and an `artifact_graph_summary` so the standalone repair
-plan can see why a target is allowed, why another action is forbidden, and
-which original check must be rerun. These fields are diagnostics and policy
-projection; they do not change the retry budget or continue phases silently.
+`explicit_stop_reason`, `recovery_owner`, `loop_control_action`,
+`dispatch_status`, `dispatch_reason`, `candidate_jobs`, `tie_break_reason`,
+`repair_action_plan`, `completion_evidence`, `evidence_binding`,
+`deliverable_obligations`, `semantic_failure_report`, `repair_job_state`,
+`patch_validation`, `eval_report_fields`, and an `artifact_graph_summary` so
+the standalone repair plan can see why a target is allowed, why another action
+is forbidden, which owner/action was selected, and which original check must be
+rerun. These fields are diagnostics and policy projection; they do not change
+the retry budget or continue phases silently.
 
 If every verifier failure is `dependency_missing` and the step's expected paths
 already exist, CommandAgent treats the problem as setup recovery, not source

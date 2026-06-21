@@ -43,9 +43,10 @@ only the facts it owns to the next layer: violated contract, artifact graph
 facts, active job, repair kind, admitted target, repair action when
 deterministic, semantic failure kind, source of truth, allowed change kind,
 expected evidence delta, workspace scope, artifact ownership, setup
-implication, recovery owner, completion evidence, evidence binding,
-deliverable obligations, repair action plan, semantic failure report, repair
-job state, patch validation, eval report fields, rerun authority, and
+implication, recovery owner, loop control action, dispatch status, dispatch
+reason, candidate jobs, tie-break reason, completion evidence, evidence
+binding, deliverable obligations, repair action plan, semantic failure report,
+repair job state, patch validation, eval report fields, rerun authority, and
 attempt-ledger context.
 This lets Recovery Orchestration Contract choose the correct bounded path
 before Recovery Task Contract, Setup Bootstrap, or verifier-owned setup
@@ -121,6 +122,14 @@ contracts. If CommandAgent cannot form a deterministic artifact graph mapping,
 job classification, policy decision, or recovery task, it should stop with
 structured evidence instead of asking the minimal loop to infer the repair
 strategy from broad failure prose.
+
+The dispatch gate is the final decision boundary inside Recovery Orchestration
+before a Recovery Task Contract is rendered. It receives active-job candidates
+from deterministic evidence, selects exactly one owner/action pair, projects a
+loop control action such as bounded repair task, verifier-owned setup,
+tool-protocol correction, or explicit stop, and records why that decision was
+made. If the top candidates are ambiguous, it records `contract_conflict` and
+stops instead of choosing a path by heuristic.
 
 Propagation must stay visible and bounded. It can route a manifest dependency
 repair toward `package.json`, mark dependency setup stale after that manifest
@@ -218,11 +227,12 @@ Recovery Orchestration, Recovery Policy, and Recovery Task still own what to do
 next.
 
 The orchestration section may carry `recovery_owner`, `completion_evidence`,
-`evidence_binding`, `deliverable_obligations`, `repair_action_plan`,
-`semantic_failure_report`, `repair_job_state`, `attempt_outcomes`,
-`patch_validation`, and `eval_report_fields`. These fields are reporting and
-repair-contract data. They do not grant retry authority or create another
-execution loop.
+`loop_control_action`, `dispatch_status`, `dispatch_reason`, `candidate_jobs`,
+`tie_break_reason`, `completion_evidence`, `evidence_binding`,
+`deliverable_obligations`, `repair_action_plan`, `semantic_failure_report`,
+`repair_job_state`, `attempt_outcomes`, `patch_validation`, and
+`eval_report_fields`. These fields are reporting and repair-contract data.
+They do not grant retry authority or create another execution loop.
 
 Eval failure observations are normalized at the eval/report boundary. The
 shared eval observation helper turns an already observed run result into

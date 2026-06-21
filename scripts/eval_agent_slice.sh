@@ -165,6 +165,11 @@ def runtime_failure_reason(evidence):
 RECOVERY_FIELD_NAMES = [
     "active_job",
     "recovery_owner",
+    "loop_control_action",
+    "dispatch_status",
+    "dispatch_reason",
+    "candidate_jobs",
+    "tie_break_reason",
     "target_path",
     "target_role",
     "repair_action",
@@ -237,6 +242,11 @@ def derived_recovery_fields(reason, case):
     fields = {
         "active_job": "",
         "recovery_owner": "",
+        "loop_control_action": "",
+        "dispatch_status": "",
+        "dispatch_reason": "",
+        "candidate_jobs": "",
+        "tie_break_reason": "",
         "target_path": target,
         "target_role": role,
         "repair_action": "",
@@ -249,6 +259,11 @@ def derived_recovery_fields(reason, case):
     if reason == "ok":
         fields["active_job"] = "none"
         fields["recovery_owner"] = "none"
+        fields["loop_control_action"] = "none"
+        fields["dispatch_status"] = "selected"
+        fields["dispatch_reason"] = "ok"
+        fields["candidate_jobs"] = "none"
+        fields["tie_break_reason"] = "none"
         fields["repair_action"] = "none"
         fields["tool_policy"] = "none"
         return fields
@@ -256,6 +271,8 @@ def derived_recovery_fields(reason, case):
         fields.update(
             active_job="setup_bootstrap",
             recovery_owner="setup",
+            loop_control_action="run_verifier_owned_setup",
+            dispatch_status="selected",
             repair_action="install_or_prepare_dependencies",
             tool_policy="verifier_owned_setup_only",
         )
@@ -264,6 +281,8 @@ def derived_recovery_fields(reason, case):
             fields.update(
                 active_job="route_integration_repair",
                 recovery_owner="route_integration",
+                loop_control_action="run_bounded_repair_task",
+                dispatch_status="selected",
                 repair_action="connect_existing_artifact_to_entrypoint",
                 tool_policy="file_mutation_repair",
             )
@@ -271,6 +290,8 @@ def derived_recovery_fields(reason, case):
             fields.update(
                 active_job="source_implementation_repair",
                 recovery_owner="source",
+                loop_control_action="run_bounded_repair_task",
+                dispatch_status="selected",
                 repair_action="edit_source_for_diagnostic",
                 tool_policy="file_mutation_repair",
             )
@@ -278,17 +299,27 @@ def derived_recovery_fields(reason, case):
         fields.update(
             active_job="tool_protocol_correction",
             recovery_owner="tool_protocol",
+            loop_control_action="run_tool_protocol_correction",
+            dispatch_status="selected",
             repair_action="correct_tool_protocol",
             tool_policy="tool_protocol_correction",
         )
     elif category == "planning":
         if target:
             job, owner, action = missing_artifact_recovery(role)
-            fields.update(active_job=job, recovery_owner=owner, repair_action=action)
+            fields.update(
+                active_job=job,
+                recovery_owner=owner,
+                loop_control_action="run_bounded_repair_task",
+                dispatch_status="selected",
+                repair_action=action,
+            )
         else:
             fields.update(
                 active_job="verifier_contract_correction",
                 recovery_owner="verifier_contract",
+                loop_control_action="run_bounded_repair_task",
+                dispatch_status="selected",
                 repair_action="replace_invalid_verifier_command",
             )
         fields["tool_policy"] = "read_only"
@@ -296,6 +327,8 @@ def derived_recovery_fields(reason, case):
         fields.update(
             active_job="source_implementation_repair",
             recovery_owner="source",
+            loop_control_action="run_bounded_repair_task",
+            dispatch_status="selected",
             repair_action="edit_source_for_diagnostic",
             tool_policy="file_mutation_repair",
         )
@@ -303,6 +336,8 @@ def derived_recovery_fields(reason, case):
         fields.update(
             active_job="source_implementation_repair",
             recovery_owner="source",
+            loop_control_action="run_bounded_repair_task",
+            dispatch_status="selected",
             repair_action="edit_source_for_diagnostic",
             tool_policy="file_mutation_repair",
         )
@@ -310,6 +345,8 @@ def derived_recovery_fields(reason, case):
         fields.update(
             active_job="explicit_stop",
             recovery_owner="explicit_stop",
+            loop_control_action="render_explicit_stop",
+            dispatch_status="explicit_stop",
             repair_action="stop_with_structured_evidence",
             tool_policy="explicit_stop",
             explicit_stop_reason=f"unclassified_{layer}",

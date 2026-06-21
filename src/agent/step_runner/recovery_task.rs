@@ -74,6 +74,11 @@ pub struct RecoveryTaskContract {
     pub workspace_scope: Option<String>,
     pub artifact_ownership: Option<String>,
     pub active_job_priority: Option<String>,
+    pub loop_control_action: Option<String>,
+    pub dispatch_status: Option<String>,
+    pub dispatch_reason: Option<String>,
+    pub candidate_jobs: Vec<String>,
+    pub tie_break_reason: Option<String>,
     pub explicit_stop_reason: Option<String>,
     pub recovery_owner: Option<String>,
     pub completion_evidence: Vec<String>,
@@ -133,6 +138,11 @@ impl RecoveryTaskContract {
             .with_workspace_scope_opt(evidence.workspace_scope.clone())
             .with_artifact_ownership_opt(evidence.artifact_ownership.clone())
             .with_active_job_priority_opt(evidence.active_job_priority.clone())
+            .with_loop_control_action_opt(evidence.loop_control_action.clone())
+            .with_dispatch_status_opt(evidence.dispatch_status.clone())
+            .with_dispatch_reason_opt(evidence.dispatch_reason.clone())
+            .with_candidate_jobs(evidence.candidate_jobs.clone())
+            .with_tie_break_reason_opt(evidence.tie_break_reason.clone())
             .with_explicit_stop_reason_opt(evidence.explicit_stop_reason.clone())
             .with_recovery_owner_opt(evidence.recovery_owner.clone())
             .with_completion_evidence(evidence.completion_evidence.clone())
@@ -304,6 +314,37 @@ impl RecoveryTaskContract {
 
     pub fn with_active_job_priority(mut self, active_job_priority: impl Into<String>) -> Self {
         self.active_job_priority = Some(active_job_priority.into());
+        self
+    }
+
+    pub fn with_loop_control_action(mut self, loop_control_action: impl Into<String>) -> Self {
+        self.loop_control_action = Some(loop_control_action.into());
+        self
+    }
+
+    pub fn with_dispatch_status(mut self, dispatch_status: impl Into<String>) -> Self {
+        self.dispatch_status = Some(dispatch_status.into());
+        self
+    }
+
+    pub fn with_dispatch_reason(mut self, dispatch_reason: impl Into<String>) -> Self {
+        self.dispatch_reason = Some(dispatch_reason.into());
+        self
+    }
+
+    pub fn with_candidate_jobs<I, S>(mut self, candidate_jobs: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        for job in candidate_jobs {
+            push_unique(&mut self.candidate_jobs, job.into());
+        }
+        self
+    }
+
+    pub fn with_tie_break_reason(mut self, tie_break_reason: impl Into<String>) -> Self {
+        self.tie_break_reason = Some(tie_break_reason.into());
         self
     }
 
@@ -500,6 +541,11 @@ impl RecoveryTaskContract {
         push_field(&mut lines, "repair_action", self.repair_action.as_deref());
         push_field(
             &mut lines,
+            "setup_implication",
+            self.setup_implication.as_deref(),
+        );
+        push_field(
+            &mut lines,
             "semantic_failure_kind",
             self.semantic_failure_kind.as_deref(),
         );
@@ -517,11 +563,6 @@ impl RecoveryTaskContract {
             &mut lines,
             "expected_evidence_delta",
             self.expected_evidence_delta.as_deref(),
-        );
-        push_field(
-            &mut lines,
-            "setup_implication",
-            self.setup_implication.as_deref(),
         );
         push_field(
             &mut lines,
@@ -552,6 +593,16 @@ impl RecoveryTaskContract {
             &mut lines,
             "active_job_priority",
             self.active_job_priority.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "loop_control_action",
+            self.loop_control_action.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "dispatch_status",
+            self.dispatch_status.as_deref(),
         );
         push_field(
             &mut lines,
@@ -753,6 +804,34 @@ impl RecoveryTaskContract {
         }
     }
 
+    fn with_loop_control_action_opt(self, loop_control_action: Option<String>) -> Self {
+        match loop_control_action {
+            Some(value) => self.with_loop_control_action(value),
+            None => self,
+        }
+    }
+
+    fn with_dispatch_status_opt(self, dispatch_status: Option<String>) -> Self {
+        match dispatch_status {
+            Some(value) => self.with_dispatch_status(value),
+            None => self,
+        }
+    }
+
+    fn with_dispatch_reason_opt(self, dispatch_reason: Option<String>) -> Self {
+        match dispatch_reason {
+            Some(value) => self.with_dispatch_reason(value),
+            None => self,
+        }
+    }
+
+    fn with_tie_break_reason_opt(self, tie_break_reason: Option<String>) -> Self {
+        match tie_break_reason {
+            Some(value) => self.with_tie_break_reason(value),
+            None => self,
+        }
+    }
+
     fn with_explicit_stop_reason_opt(self, explicit_stop_reason: Option<String>) -> Self {
         match explicit_stop_reason {
             Some(value) => self.with_explicit_stop_reason(value),
@@ -797,6 +876,11 @@ impl RecoveryTaskContract {
             || self.workspace_scope.is_some()
             || self.artifact_ownership.is_some()
             || self.active_job_priority.is_some()
+            || self.loop_control_action.is_some()
+            || self.dispatch_status.is_some()
+            || self.dispatch_reason.is_some()
+            || !self.candidate_jobs.is_empty()
+            || self.tie_break_reason.is_some()
             || self.explicit_stop_reason.is_some()
             || self.recovery_owner.is_some()
             || !self.completion_evidence.is_empty()

@@ -25,6 +25,7 @@ pub(crate) enum RecoveryJobKind {
     EvidenceBindingRepair,
     VerifierContractCorrection,
     ToolProtocolCorrection,
+    ContractConflict,
     ExplicitStop,
 }
 
@@ -42,6 +43,7 @@ impl RecoveryJobKind {
             Self::EvidenceBindingRepair => "evidence_binding_repair",
             Self::VerifierContractCorrection => "verifier_contract_correction",
             Self::ToolProtocolCorrection => "tool_protocol_correction",
+            Self::ContractConflict => "contract_conflict",
             Self::ExplicitStop => "explicit_stop",
         }
     }
@@ -105,6 +107,83 @@ impl ToolPolicyProjection {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LoopControlAction {
+    RunBoundedRepairTask,
+    RunVerifierOwnedSetup,
+    RunToolProtocolCorrection,
+    RenderExplicitStop,
+}
+
+impl LoopControlAction {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::RunBoundedRepairTask => "run_bounded_repair_task",
+            Self::RunVerifierOwnedSetup => "run_verifier_owned_setup",
+            Self::RunToolProtocolCorrection => "run_tool_protocol_correction",
+            Self::RenderExplicitStop => "render_explicit_stop",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DispatchStatus {
+    Selected,
+    ExplicitStop,
+    AmbiguousTie,
+    NoOwner,
+}
+
+impl DispatchStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Selected => "selected",
+            Self::ExplicitStop => "explicit_stop",
+            Self::AmbiguousTie => "ambiguous_tie",
+            Self::NoOwner => "no_owner",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActiveJobCandidate {
+    pub(crate) job: RecoveryJobKind,
+    pub(crate) action: RecoveryActionKind,
+    pub(crate) priority: u8,
+    pub(crate) reason: String,
+    pub(crate) source_of_truth: String,
+    pub(crate) target_hint: Option<String>,
+    pub(crate) artifact_role: Option<String>,
+    pub(crate) rerun_authority: Vec<String>,
+}
+
+impl ActiveJobCandidate {
+    fn render_line(&self) -> String {
+        format!(
+            "job={} action={} priority={} reason={}",
+            self.job.as_str(),
+            self.action.as_str(),
+            self.priority,
+            self.reason.split_whitespace().collect::<Vec<_>>().join(" ")
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActiveJobArbitration {
+    pub(crate) selected_job: RecoveryJobKind,
+    pub(crate) selected_action: RecoveryActionKind,
+    pub(crate) selected_priority: u8,
+    pub(crate) loop_control_action: LoopControlAction,
+    pub(crate) dispatch_status: DispatchStatus,
+    pub(crate) dispatch_reason: String,
+    pub(crate) candidate_jobs: Vec<String>,
+    pub(crate) tie_break_reason: Option<String>,
+    pub(crate) explicit_stop_reason: Option<String>,
+    pub(crate) rerun_authority: Vec<String>,
+    pub(crate) tool_policy_projection: ToolPolicyProjection,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct RecoveryOrchestrationDecision {
     pub(crate) job: RecoveryJobKind,
@@ -122,6 +201,11 @@ pub(crate) struct RecoveryOrchestrationDecision {
     pub(crate) workspace_scope: String,
     pub(crate) artifact_ownership: String,
     pub(crate) active_job_priority: u8,
+    pub(crate) loop_control_action: LoopControlAction,
+    pub(crate) dispatch_status: DispatchStatus,
+    pub(crate) dispatch_reason: String,
+    pub(crate) candidate_jobs: Vec<String>,
+    pub(crate) tie_break_reason: Option<String>,
     pub(crate) recovery_owner: String,
     pub(crate) tool_policy: ToolPolicyProjection,
     pub(crate) rerun_authority: Vec<String>,
@@ -154,8 +238,15 @@ impl RecoveryOrchestrationDecision {
             .with_workspace_scope(self.workspace_scope.clone())
             .with_artifact_ownership(self.artifact_ownership.clone())
             .with_active_job_priority(self.active_job_priority.to_string())
+            .with_loop_control_action(self.loop_control_action.as_str())
+            .with_dispatch_status(self.dispatch_status.as_str())
+            .with_dispatch_reason(self.dispatch_reason.clone())
+            .with_candidate_jobs(self.candidate_jobs.clone())
             .with_recovery_owner(self.recovery_owner.clone())
             .with_artifact_graph_summary(self.artifact_graph_summary.clone());
+        if let Some(reason) = &self.tie_break_reason {
+            evidence = evidence.with_tie_break_reason(reason.clone());
+        }
         if !self.repair_action_plan.is_empty() {
             let repair_action_plan =
                 merge_lists(&evidence.repair_action_plan, &self.repair_action_plan);
@@ -207,11 +298,12 @@ pub(crate) fn orchestrate_contract_evidence(
         return None;
     }
     let graph = ArtifactGraph::from_contract_evidence(evidence);
-    let job = classify_job(evidence);
+    let arbitration = arbitrate_active_job(active_job_candidates(evidence, &graph));
+    let job = arbitration.selected_job;
     if job == RecoveryJobKind::ExplicitStop && evidence.guard.trim().is_empty() {
         return None;
     }
-    let action = classify_action(evidence, job);
+    let action = arbitration.selected_action;
     let target = select_target(evidence, &graph, job);
     let role = target
         .as_deref()
@@ -226,15 +318,20 @@ pub(crate) fn orchestrate_contract_evidence(
         .as_deref()
         .map(|target| target_role_for(&graph, target));
     let target_admission = target_admission(&target, &graph, job);
-    let explicit_stop_reason = if target.is_none() && job_requires_target(job) {
+    let explicit_stop_reason = if let Some(reason) = arbitration.explicit_stop_reason.clone() {
+        Some(reason)
+    } else if target.is_none() && job_requires_target(job) {
         Some("no_admitted_recovery_target".to_string())
-    } else if job == RecoveryJobKind::ExplicitStop {
+    } else if matches!(
+        job,
+        RecoveryJobKind::ExplicitStop | RecoveryJobKind::ContractConflict
+    ) {
         Some("explicit_stop_from_deterministic_contract".to_string())
     } else {
         None
     };
     let target_priority = target_priority(&target, evidence, job);
-    let tool_policy = tool_policy_for(job, action);
+    let tool_policy = arbitration.tool_policy_projection;
     let semantic_failure_kind = recovery_contract::semantic_failure_kind(
         evidence,
         job.as_str(),
@@ -252,7 +349,7 @@ pub(crate) fn orchestrate_contract_evidence(
         recovery_contract::workspace_scope(target.as_deref(), target_role).to_string();
     let artifact_ownership =
         recovery_contract::artifact_ownership(&graph, target.as_deref(), target_role);
-    let active_job_priority = recovery_contract::active_job_priority(job.as_str());
+    let active_job_priority = arbitration.selected_priority;
     let recovery_owner = RecoveryOwner::for_active_job(job.as_str())
         .as_str()
         .to_string();
@@ -330,9 +427,14 @@ pub(crate) fn orchestrate_contract_evidence(
         workspace_scope,
         artifact_ownership,
         active_job_priority,
+        loop_control_action: arbitration.loop_control_action,
+        dispatch_status: arbitration.dispatch_status,
+        dispatch_reason: arbitration.dispatch_reason,
+        candidate_jobs: arbitration.candidate_jobs,
+        tie_break_reason: arbitration.tie_break_reason,
         recovery_owner,
         tool_policy,
-        rerun_authority: rerun_authority(evidence, job),
+        rerun_authority: arbitration.rerun_authority,
         explicit_stop_reason,
         repair_action_plan,
         semantic_failure_report,
@@ -399,6 +501,417 @@ fn completion_evidence_status(evidence: &ContractEvidence) -> &'static str {
     } else {
         "unknown"
     }
+}
+
+fn active_job_candidates(
+    evidence: &ContractEvidence,
+    graph: &ArtifactGraph,
+) -> Vec<ActiveJobCandidate> {
+    let mut candidates = Vec::new();
+    if let Some(job) = evidence
+        .active_job
+        .as_deref()
+        .and_then(|job| parse_active_job_for_evidence(evidence, job))
+    {
+        push_active_candidate(
+            &mut candidates,
+            evidence,
+            graph,
+            job,
+            classify_action(evidence, job),
+            dispatch_priority(job),
+            "provided_active_job",
+        );
+    }
+
+    let has_explicit_repair_policy =
+        evidence.active_job.is_some() && evidence.repair_action.is_some();
+    let code = primary_code(evidence);
+    match code.as_deref() {
+        Some("dependency_missing") | Some("nextjs_dependency_missing") => push_active_candidate(
+            &mut candidates,
+            evidence,
+            graph,
+            RecoveryJobKind::SetupBootstrap,
+            RecoveryActionKind::InstallOrPrepareDependencies,
+            dispatch_priority(RecoveryJobKind::SetupBootstrap),
+            "dependency_missing",
+        ),
+        Some("model_issued_dependency_setup") => push_active_candidate(
+            &mut candidates,
+            evidence,
+            graph,
+            RecoveryJobKind::SetupBootstrap,
+            RecoveryActionKind::InstallOrPrepareDependencies,
+            dispatch_priority(RecoveryJobKind::SetupBootstrap),
+            "model_issued_dependency_setup",
+        ),
+        Some("setup_step_source_mutation") => push_active_candidate(
+            &mut candidates,
+            evidence,
+            graph,
+            RecoveryJobKind::ManifestRepair,
+            RecoveryActionKind::AddMissingManifestDependency,
+            dispatch_priority(RecoveryJobKind::ManifestRepair),
+            "setup_step_source_mutation",
+        ),
+        Some("read_only_step_mutation") => push_active_candidate(
+            &mut candidates,
+            evidence,
+            graph,
+            RecoveryJobKind::ExplicitStop,
+            RecoveryActionKind::StopWithStructuredEvidence,
+            dispatch_priority(RecoveryJobKind::ExplicitStop),
+            "read_only_step_mutation",
+        ),
+        Some("tool_args_missing_required_field")
+        | Some("tool_args_invalid_json")
+        | Some("provider_transport_parse_failure") => push_active_candidate(
+            &mut candidates,
+            evidence,
+            graph,
+            RecoveryJobKind::ToolProtocolCorrection,
+            RecoveryActionKind::CorrectToolProtocol,
+            dispatch_priority(RecoveryJobKind::ToolProtocolCorrection),
+            "tool_or_provider_protocol_failure",
+        ),
+        Some("nextjs_route_not_integrated") => push_active_candidate(
+            &mut candidates,
+            evidence,
+            graph,
+            RecoveryJobKind::RouteIntegrationRepair,
+            RecoveryActionKind::ConnectExistingArtifactToEntrypoint,
+            dispatch_priority(RecoveryJobKind::RouteIntegrationRepair),
+            "profile_route_integration_failure",
+        ),
+        Some("nextjs_integration_artifact_missing") => push_active_candidate(
+            &mut candidates,
+            evidence,
+            graph,
+            RecoveryJobKind::ScaffoldMaterialization,
+            RecoveryActionKind::CreateRequiredArtifact,
+            dispatch_priority(RecoveryJobKind::ScaffoldMaterialization),
+            "profile_missing_integration_artifact",
+        ),
+        Some(code)
+            if code.contains("missing")
+                && code.contains("artifact")
+                && evidence_has_missing_role(evidence, ArtifactRole::Test) =>
+        {
+            push_active_candidate(
+                &mut candidates,
+                evidence,
+                graph,
+                RecoveryJobKind::TestArtifactCompletion,
+                RecoveryActionKind::CreateRequiredArtifact,
+                30,
+                "missing_test_artifact",
+            )
+        }
+        Some(code)
+            if code.contains("missing")
+                && code.contains("artifact")
+                && evidence_has_missing_role(evidence, ArtifactRole::Docs) =>
+        {
+            push_active_candidate(
+                &mut candidates,
+                evidence,
+                graph,
+                RecoveryJobKind::DocumentationRepair,
+                RecoveryActionKind::UpdateDocsLiteral,
+                30,
+                "missing_documentation_artifact",
+            )
+        }
+        Some(code) if code.starts_with("evidence_binding_") => push_active_candidate(
+            &mut candidates,
+            evidence,
+            graph,
+            RecoveryJobKind::EvidenceBindingRepair,
+            RecoveryActionKind::RepairEvidenceBinding,
+            dispatch_priority(RecoveryJobKind::EvidenceBindingRepair),
+            "evidence_binding_failure",
+        ),
+        Some(code) if code.contains("contract_conflict") => push_active_candidate(
+            &mut candidates,
+            evidence,
+            graph,
+            RecoveryJobKind::ContractConflict,
+            RecoveryActionKind::StopWithStructuredEvidence,
+            dispatch_priority(RecoveryJobKind::ContractConflict),
+            "contract_conflict",
+        ),
+        Some(code)
+            if !has_explicit_repair_policy
+                && (code.contains("dependency") || code.contains("manifest")) =>
+        {
+            let action = if code.contains("conflict") {
+                RecoveryActionKind::ResolveManifestConflict
+            } else {
+                RecoveryActionKind::AddMissingManifestDependency
+            };
+            push_active_candidate(
+                &mut candidates,
+                evidence,
+                graph,
+                RecoveryJobKind::ManifestRepair,
+                action,
+                dispatch_priority(RecoveryJobKind::ManifestRepair),
+                "manifest_or_dependency_contract_failure",
+            );
+        }
+        Some(code) if code.contains("verifier_contract") => push_active_candidate(
+            &mut candidates,
+            evidence,
+            graph,
+            RecoveryJobKind::VerifierContractCorrection,
+            RecoveryActionKind::ReplaceInvalidVerifierCommand,
+            dispatch_priority(RecoveryJobKind::VerifierContractCorrection),
+            "verifier_contract_failure",
+        ),
+        Some(code) if code.contains("test") => push_active_candidate(
+            &mut candidates,
+            evidence,
+            graph,
+            RecoveryJobKind::TestAlignmentRepair,
+            RecoveryActionKind::AlignTestAndVerifier,
+            dispatch_priority(RecoveryJobKind::TestAlignmentRepair),
+            "test_alignment_failure",
+        ),
+        Some(code) if code.contains("docs") || code.contains("literal") => push_active_candidate(
+            &mut candidates,
+            evidence,
+            graph,
+            RecoveryJobKind::DocumentationRepair,
+            RecoveryActionKind::UpdateDocsLiteral,
+            dispatch_priority(RecoveryJobKind::DocumentationRepair),
+            "documentation_contract_failure",
+        ),
+        _ => {}
+    }
+
+    match evidence.guard.as_str() {
+        "profile_verification" => push_active_candidate(
+            &mut candidates,
+            evidence,
+            graph,
+            RecoveryJobKind::SourceImplementationRepair,
+            RecoveryActionKind::EditSourceForDiagnostic,
+            dispatch_priority(RecoveryJobKind::SourceImplementationRepair),
+            "profile_verification_fallback",
+        ),
+        "verifier" => push_active_candidate(
+            &mut candidates,
+            evidence,
+            graph,
+            RecoveryJobKind::SourceImplementationRepair,
+            RecoveryActionKind::EditSourceForDiagnostic,
+            dispatch_priority(RecoveryJobKind::SourceImplementationRepair),
+            "verifier_failure_fallback",
+        ),
+        "evidence_binding" => push_active_candidate(
+            &mut candidates,
+            evidence,
+            graph,
+            RecoveryJobKind::EvidenceBindingRepair,
+            RecoveryActionKind::RepairEvidenceBinding,
+            dispatch_priority(RecoveryJobKind::EvidenceBindingRepair),
+            "evidence_binding_guard",
+        ),
+        "tool_protocol" | "provider_transport" => push_active_candidate(
+            &mut candidates,
+            evidence,
+            graph,
+            RecoveryJobKind::ToolProtocolCorrection,
+            RecoveryActionKind::CorrectToolProtocol,
+            dispatch_priority(RecoveryJobKind::ToolProtocolCorrection),
+            "tool_protocol_guard",
+        ),
+        _ if evidence.guard.starts_with("plan_lint.") => push_active_candidate(
+            &mut candidates,
+            evidence,
+            graph,
+            RecoveryJobKind::VerifierContractCorrection,
+            RecoveryActionKind::ReplaceInvalidVerifierCommand,
+            dispatch_priority(RecoveryJobKind::VerifierContractCorrection),
+            "plan_lint_guard",
+        ),
+        _ => {}
+    }
+
+    if candidates.is_empty() && known_orchestration_source(evidence) {
+        push_active_candidate(
+            &mut candidates,
+            evidence,
+            graph,
+            RecoveryJobKind::ExplicitStop,
+            RecoveryActionKind::StopWithStructuredEvidence,
+            200,
+            "no_classified_active_job",
+        );
+    }
+    candidates
+}
+
+fn push_active_candidate(
+    candidates: &mut Vec<ActiveJobCandidate>,
+    evidence: &ContractEvidence,
+    graph: &ArtifactGraph,
+    job: RecoveryJobKind,
+    action: RecoveryActionKind,
+    priority: u8,
+    reason: &'static str,
+) {
+    let target_hint = first_target_hint(evidence, job);
+    let artifact_role = target_hint
+        .as_deref()
+        .map(|target| target_role_for(graph, target).as_str().to_string());
+    let candidate = ActiveJobCandidate {
+        job,
+        action,
+        priority,
+        reason: reason.to_string(),
+        source_of_truth: recovery_contract::source_of_truth(evidence, job.as_str()).to_string(),
+        target_hint,
+        artifact_role,
+        rerun_authority: rerun_authority(evidence, job),
+    };
+    if let Some(existing) = candidates.iter_mut().find(|existing| {
+        existing.job == candidate.job
+            && existing.action == candidate.action
+            && existing.target_hint == candidate.target_hint
+    }) {
+        if candidate.priority < existing.priority {
+            *existing = candidate;
+        }
+        return;
+    }
+    candidates.push(candidate);
+}
+
+fn first_target_hint(evidence: &ContractEvidence, job: RecoveryJobKind) -> Option<String> {
+    if matches!(
+        job,
+        RecoveryJobKind::SetupBootstrap | RecoveryJobKind::ManifestRepair
+    ) {
+        return Some("package.json".to_string());
+    }
+    evidence
+        .repair_target
+        .clone()
+        .or_else(|| evidence.target_path.clone())
+        .or_else(|| evidence.candidate_artifacts.first().cloned())
+        .or_else(|| evidence.missing_paths.first().cloned())
+        .or_else(|| evidence.required_paths.first().cloned())
+}
+
+fn arbitrate_active_job(candidates: Vec<ActiveJobCandidate>) -> ActiveJobArbitration {
+    if candidates.is_empty() {
+        return explicit_arbitration(
+            RecoveryJobKind::ExplicitStop,
+            RecoveryActionKind::StopWithStructuredEvidence,
+            200,
+            DispatchStatus::NoOwner,
+            "no active job candidate was produced",
+            "no_active_job_candidate",
+            Vec::new(),
+        );
+    }
+
+    let mut ordered = candidates.clone();
+    ordered.sort_by_key(|candidate| candidate.priority);
+    let selected_priority = ordered[0].priority;
+    let top = ordered
+        .iter()
+        .filter(|candidate| candidate.priority == selected_priority)
+        .collect::<Vec<_>>();
+    let candidate_jobs = ordered
+        .iter()
+        .map(ActiveJobCandidate::render_line)
+        .collect::<Vec<_>>();
+    let first = top[0];
+    let ambiguous = top.iter().any(|candidate| {
+        candidate.job != first.job
+            || candidate.action != first.action
+            || candidate.target_hint != first.target_hint
+    });
+    if ambiguous {
+        return explicit_arbitration(
+            RecoveryJobKind::ContractConflict,
+            RecoveryActionKind::StopWithStructuredEvidence,
+            selected_priority,
+            DispatchStatus::AmbiguousTie,
+            "top priority active job candidates conflict",
+            "active_job_tie",
+            candidate_jobs,
+        );
+    }
+
+    let status = if matches!(
+        first.job,
+        RecoveryJobKind::ExplicitStop | RecoveryJobKind::ContractConflict
+    ) {
+        DispatchStatus::ExplicitStop
+    } else {
+        DispatchStatus::Selected
+    };
+    let explicit_stop_reason = (status != DispatchStatus::Selected)
+        .then(|| "explicit_stop_from_deterministic_contract".to_string());
+    let action = first.action;
+    let job = first.job;
+    ActiveJobArbitration {
+        selected_job: job,
+        selected_action: action,
+        selected_priority,
+        loop_control_action: loop_control_action_for(job),
+        dispatch_status: status,
+        dispatch_reason: first.reason.clone(),
+        candidate_jobs,
+        tie_break_reason: None,
+        explicit_stop_reason,
+        rerun_authority: first.rerun_authority.clone(),
+        tool_policy_projection: tool_policy_for(job, action),
+    }
+}
+
+fn explicit_arbitration(
+    job: RecoveryJobKind,
+    action: RecoveryActionKind,
+    selected_priority: u8,
+    dispatch_status: DispatchStatus,
+    dispatch_reason: &'static str,
+    explicit_stop_reason: &'static str,
+    candidate_jobs: Vec<String>,
+) -> ActiveJobArbitration {
+    ActiveJobArbitration {
+        selected_job: job,
+        selected_action: action,
+        selected_priority,
+        loop_control_action: LoopControlAction::RenderExplicitStop,
+        dispatch_status,
+        dispatch_reason: dispatch_reason.to_string(),
+        candidate_jobs,
+        tie_break_reason: (dispatch_status == DispatchStatus::AmbiguousTie)
+            .then(|| explicit_stop_reason.to_string()),
+        explicit_stop_reason: Some(explicit_stop_reason.to_string()),
+        rerun_authority: Vec::new(),
+        tool_policy_projection: ToolPolicyProjection::ExplicitStop,
+    }
+}
+
+fn loop_control_action_for(job: RecoveryJobKind) -> LoopControlAction {
+    match job {
+        RecoveryJobKind::SetupBootstrap => LoopControlAction::RunVerifierOwnedSetup,
+        RecoveryJobKind::ToolProtocolCorrection => LoopControlAction::RunToolProtocolCorrection,
+        RecoveryJobKind::ExplicitStop | RecoveryJobKind::ContractConflict => {
+            LoopControlAction::RenderExplicitStop
+        }
+        _ => LoopControlAction::RunBoundedRepairTask,
+    }
+}
+
+fn dispatch_priority(job: RecoveryJobKind) -> u8 {
+    recovery_contract::active_job_priority(job.as_str())
 }
 
 pub(crate) fn orchestrate_evidence(evidence: ContractEvidence) -> ContractEvidence {
@@ -522,6 +1035,7 @@ fn classify_action(evidence: &ContractEvidence, job: RecoveryJobKind) -> Recover
             RecoveryActionKind::ReplaceInvalidVerifierCommand
         }
         RecoveryJobKind::ToolProtocolCorrection => RecoveryActionKind::CorrectToolProtocol,
+        RecoveryJobKind::ContractConflict => RecoveryActionKind::StopWithStructuredEvidence,
         RecoveryJobKind::ExplicitStop => RecoveryActionKind::StopWithStructuredEvidence,
     }
 }
@@ -612,6 +1126,7 @@ fn target_admitted(path: &str, graph: &ArtifactGraph, job: RecoveryJobKind) -> b
                 | ArtifactRole::Unknown
         ),
         RecoveryJobKind::VerifierContractCorrection => path.starts_with("step:"),
+        RecoveryJobKind::ContractConflict => false,
         RecoveryJobKind::ExplicitStop => false,
         _ => true,
     }
@@ -674,6 +1189,7 @@ fn tool_policy_for(job: RecoveryJobKind, action: RecoveryActionKind) -> ToolPoli
             ToolPolicyProjection::ToolProtocolCorrection
         }
         (RecoveryJobKind::VerifierContractCorrection, _) => ToolPolicyProjection::ReadOnly,
+        (RecoveryJobKind::ContractConflict, _) => ToolPolicyProjection::ExplicitStop,
         (RecoveryJobKind::ExplicitStop, _) => ToolPolicyProjection::ExplicitStop,
         _ => ToolPolicyProjection::FileMutationRepair,
     }
@@ -720,6 +1236,9 @@ fn required_action(
         }
         (RecoveryJobKind::ToolProtocolCorrection, _) => {
             "produce exactly one valid tool call that satisfies the shared tool protocol".to_string()
+        }
+        (RecoveryJobKind::ContractConflict, _) => {
+            "stop with structured evidence because deterministic recovery candidates conflict".to_string()
         }
         (RecoveryJobKind::ExplicitStop, _) => {
             "stop with structured evidence because no deterministic recovery action is admitted".to_string()
@@ -828,6 +1347,17 @@ fn disallowed_actions(
                     .to_string(),
             );
         }
+        RecoveryJobKind::ContractConflict => {
+            push_unique(
+                &mut actions,
+                "Do not choose one conflicting recovery path without a deterministic owner."
+                    .to_string(),
+            );
+            push_unique(
+                &mut actions,
+                "Do not mutate files until the active job conflict is resolved.".to_string(),
+            );
+        }
         _ => {}
     }
     if action == RecoveryActionKind::AlignTestAndVerifier {
@@ -853,6 +1383,7 @@ fn rerun_authority(evidence: &ContractEvidence, job: RecoveryJobKind) -> Vec<Str
             "original verifier".to_string(),
         ],
         RecoveryJobKind::ToolProtocolCorrection => vec!["tool schema validation".to_string()],
+        RecoveryJobKind::ContractConflict => Vec::new(),
         RecoveryJobKind::ExplicitStop => Vec::new(),
         _ => evidence
             .command
@@ -879,9 +1410,44 @@ fn parse_job(value: &str) -> Option<RecoveryJobKind> {
             Some(RecoveryJobKind::VerifierContractCorrection)
         }
         "tool_protocol_correction" => Some(RecoveryJobKind::ToolProtocolCorrection),
+        "contract_conflict" => Some(RecoveryJobKind::ContractConflict),
         "explicit_stop" => Some(RecoveryJobKind::ExplicitStop),
         _ => None,
     }
+}
+
+fn parse_active_job_for_evidence(
+    evidence: &ContractEvidence,
+    value: &str,
+) -> Option<RecoveryJobKind> {
+    if value == "verifier_policy_repair" && policy_repair_targets_setup_artifact(evidence) {
+        return Some(RecoveryJobKind::ManifestRepair);
+    }
+    parse_job(value)
+}
+
+fn policy_repair_targets_setup_artifact(evidence: &ContractEvidence) -> bool {
+    if evidence.artifact_role.as_deref().is_some_and(|role| {
+        matches!(
+            role,
+            "manifest" | "config" | "setup_manifest" | "setup_config"
+        )
+    }) {
+        return true;
+    }
+    let target = evidence
+        .repair_target
+        .as_deref()
+        .or(evidence.target_path.as_deref());
+    target.is_some_and(|target| {
+        matches!(
+            role_for_path(
+                target,
+                crate::agent::step_runner::artifact_graph::ArtifactLifecycle::Required
+            ),
+            ArtifactRole::SetupManifest | ArtifactRole::SetupConfig
+        )
+    })
 }
 
 fn parse_action(value: &str) -> Option<RecoveryActionKind> {
@@ -927,6 +1493,7 @@ fn job_requires_target(job: RecoveryJobKind) -> bool {
         job,
         RecoveryJobKind::SetupBootstrap
             | RecoveryJobKind::ToolProtocolCorrection
+            | RecoveryJobKind::ContractConflict
             | RecoveryJobKind::ExplicitStop
     )
 }
@@ -1133,5 +1700,113 @@ mod tests {
         );
         assert_eq!(decision.target.as_deref(), Some("step:verify-build"));
         assert_eq!(decision.tool_policy, ToolPolicyProjection::ReadOnly);
+    }
+
+    #[test]
+    fn tool_protocol_candidate_wins_over_source_fallback() {
+        let evidence = ContractEvidence::new("profile_verification")
+            .with_reason_code("tool_args_missing_required_field")
+            .with_tool("Write")
+            .with_target_field("path");
+
+        let decision = orchestrate_contract_evidence(&evidence).unwrap();
+
+        assert_eq!(decision.job, RecoveryJobKind::ToolProtocolCorrection);
+        assert_eq!(decision.action, RecoveryActionKind::CorrectToolProtocol);
+        assert_eq!(
+            decision.loop_control_action,
+            LoopControlAction::RunToolProtocolCorrection
+        );
+        assert_eq!(decision.dispatch_status, DispatchStatus::Selected);
+        assert!(
+            decision
+                .candidate_jobs
+                .iter()
+                .any(|candidate| candidate.contains("source_implementation_repair"))
+        );
+    }
+
+    #[test]
+    fn read_only_step_mutation_dispatches_explicit_stop() {
+        let evidence = ContractEvidence::new("step_policy")
+            .with_reason_code("read_only_step_mutation")
+            .with_failed_step("inspect-files");
+
+        let decision = orchestrate_contract_evidence(&evidence).unwrap();
+
+        assert_eq!(decision.job, RecoveryJobKind::ExplicitStop);
+        assert_eq!(
+            decision.loop_control_action,
+            LoopControlAction::RenderExplicitStop
+        );
+        assert_eq!(decision.dispatch_status, DispatchStatus::ExplicitStop);
+        assert_eq!(
+            decision.explicit_stop_reason.as_deref(),
+            Some("explicit_stop_from_deterministic_contract")
+        );
+    }
+
+    #[test]
+    fn ambiguous_top_priority_dispatches_contract_conflict_stop() {
+        let candidates = vec![
+            ActiveJobCandidate {
+                job: RecoveryJobKind::ManifestRepair,
+                action: RecoveryActionKind::AddMissingManifestDependency,
+                priority: 20,
+                reason: "manifest".to_string(),
+                source_of_truth: "test".to_string(),
+                target_hint: Some("package.json".to_string()),
+                artifact_role: Some("setup_manifest".to_string()),
+                rerun_authority: vec!["profile_verification".to_string()],
+            },
+            ActiveJobCandidate {
+                job: RecoveryJobKind::RouteIntegrationRepair,
+                action: RecoveryActionKind::ConnectExistingArtifactToEntrypoint,
+                priority: 20,
+                reason: "route".to_string(),
+                source_of_truth: "test".to_string(),
+                target_hint: Some("app/page.tsx".to_string()),
+                artifact_role: Some("entrypoint".to_string()),
+                rerun_authority: vec!["profile_verification".to_string()],
+            },
+        ];
+
+        let arbitration = arbitrate_active_job(candidates);
+
+        assert_eq!(arbitration.selected_job, RecoveryJobKind::ContractConflict);
+        assert_eq!(arbitration.dispatch_status, DispatchStatus::AmbiguousTie);
+        assert_eq!(
+            arbitration.loop_control_action,
+            LoopControlAction::RenderExplicitStop
+        );
+        assert_eq!(
+            arbitration.tie_break_reason.as_deref(),
+            Some("active_job_tie")
+        );
+    }
+
+    #[test]
+    fn dispatch_fields_are_applied_to_contract_evidence() {
+        let evidence = ContractEvidence::new("tool_protocol")
+            .with_reason_code("tool_args_invalid_json")
+            .with_tool("Write");
+
+        let enriched = orchestrate_evidence(evidence);
+
+        assert_eq!(
+            enriched.loop_control_action.as_deref(),
+            Some("run_tool_protocol_correction")
+        );
+        assert_eq!(enriched.dispatch_status.as_deref(), Some("selected"));
+        assert_eq!(
+            enriched.dispatch_reason.as_deref(),
+            Some("tool_or_provider_protocol_failure")
+        );
+        assert!(
+            enriched
+                .candidate_jobs
+                .iter()
+                .any(|candidate| candidate.contains("tool_protocol_correction"))
+        );
     }
 }

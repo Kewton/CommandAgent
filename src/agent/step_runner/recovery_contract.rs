@@ -11,7 +11,7 @@ use crate::agent::step_runner::workspace_scope::WorkspaceScope;
 
 pub(crate) fn active_job_priority(job: &str) -> u8 {
     match job {
-        "explicit_stop" => 0,
+        "explicit_stop" | "contract_conflict" => 0,
         "tool_protocol_correction" => 5,
         "setup_bootstrap" => 10,
         "verifier_contract_correction" => 15,
@@ -49,6 +49,7 @@ pub(crate) fn semantic_failure_kind(
         "verifier_contract_correction" => "verifier_contract_failure",
         "tool_protocol_correction" => "tool_protocol_failure",
         "explicit_stop" => "unadmitted_recovery_failure",
+        "contract_conflict" => "contract_conflict_failure",
         _ if action == "stop_with_structured_evidence" => "unadmitted_recovery_failure",
         _ if evidence.guard == "profile_verification" => "profile_contract_failure",
         _ if evidence.guard == "verifier" => "verifier_failure",
@@ -69,6 +70,7 @@ pub(crate) fn source_of_truth(evidence: &ContractEvidence, job: &str) -> &'stati
         "verifier_contract_correction" => "verifier_contract",
         "tool_protocol_correction" => "tool_schema_contract",
         "explicit_stop" => "deterministic_guard",
+        "contract_conflict" => "deterministic_contract_conflict",
         _ if evidence.guard == "profile_verification" => "profile_contract",
         _ if evidence.guard == "verifier" => "original_verifier_diagnostic",
         _ => "deterministic_guard",
@@ -97,6 +99,7 @@ pub(crate) fn allowed_change_kind(
         "verifier_contract_correction" => "plan_or_verifier_contract_only",
         "tool_protocol_correction" => "tool_call_shape_only",
         "explicit_stop" => "no_change_admitted",
+        "contract_conflict" => "no_change_admitted",
         _ if action == "stop_with_structured_evidence" => "no_change_admitted",
         _ => "classified_contract_repair_only",
     }
@@ -144,6 +147,9 @@ pub(crate) fn expected_evidence_delta(
         "verifier_contract_correction" => "corrected plan/verifier contract is re-linted before source mutation".to_string(),
         "tool_protocol_correction" => "next model response contains exactly one valid tool call".to_string(),
         "explicit_stop" => "no mutation occurs; user-visible failure remains structured".to_string(),
+        "contract_conflict" => {
+            "no mutation occurs; conflicting recovery candidates remain user-visible".to_string()
+        }
         _ if action == "stop_with_structured_evidence" => {
             "no mutation occurs; user-visible failure remains structured".to_string()
         }

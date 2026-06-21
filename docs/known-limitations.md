@@ -63,6 +63,11 @@ CommandAgent is still in MVP migration.
   future-artifact inspection. This improves the repair packet handoff, but it
   does not add hidden continuation, increase retry budgets, or guarantee that a
   weak model will perform the selected repair correctly.
+- Active-job dispatch now records `loop_control_action`, `dispatch_status`,
+  `dispatch_reason`, candidate jobs, and tie-break stops. This improves
+  attribution when multiple recovery owners are possible, but it is still a
+  bounded contract gate; it does not run another executor or retry different
+  owners until one passes.
 - Legacy-control-stack recovery records now include completion evidence, evidence
   binding, deliverable obligations, recovery owner, repair action plan,
   semantic failure report, repair job state, attempt outcomes, patch

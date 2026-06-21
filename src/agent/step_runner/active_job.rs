@@ -16,6 +16,7 @@ pub(crate) enum RecoveryOwner {
     EvidenceBinding,
     VerifierContract,
     ToolProtocol,
+    ContractConflict,
     ExplicitStop,
 }
 
@@ -32,6 +33,7 @@ impl RecoveryOwner {
             Self::EvidenceBinding => "evidence_binding",
             Self::VerifierContract => "verifier_contract",
             Self::ToolProtocol => "tool_protocol",
+            Self::ContractConflict => "contract_conflict",
             Self::ExplicitStop => "explicit_stop",
         }
     }
@@ -48,6 +50,7 @@ impl RecoveryOwner {
             "evidence_binding_repair" => Self::EvidenceBinding,
             "verifier_contract_correction" => Self::VerifierContract,
             "tool_protocol_correction" => Self::ToolProtocol,
+            "contract_conflict" => Self::ContractConflict,
             _ => Self::ExplicitStop,
         }
     }
