@@ -123,6 +123,26 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertEqual(observation["evidence_runner_status"], "missing")
         self.assertEqual(observation["artifact_ledger_status"], "complete")
 
+    def test_contract_evidence_diagnostic_code_wins_over_raw_rc(self):
+        observation = eval_failure_observation.normalize_observation(
+            {
+                "reason": "rc:1",
+                "success": False,
+                "evidence": "\n".join(
+                    [
+                        "- diagnostic_code=rust_compile_error",
+                        "- source_of_truth=original_verifier_diagnostic",
+                        "- command: cargo check",
+                    ]
+                ),
+            }
+        )
+
+        self.assertEqual(observation["terminal_state"], "verifier_command_failed")
+        self.assertEqual(observation["diagnostic_code"], "rust_compile_error")
+        self.assertEqual(observation["source_of_truth"], "original_verifier_diagnostic")
+        self.assertEqual(observation["command"], "cargo check")
+
     def test_missing_deliverable_wins_over_generic_evidence_status(self):
         observation = eval_failure_observation.normalize_observation(
             {
@@ -175,6 +195,10 @@ class EvalReportCategorizeTests(unittest.TestCase):
                     "repair_brief_status": "admitted",
                     "action_envelope_status": "admitted",
                     "selected_failure_cluster": "tool_protocol:tool_args_missing_required_field",
+                    "semantic_failure_kind": "tool_protocol_failure",
+                    "preferred_repair_role": "verifier_contract",
+                    "weak_verifier_reason": "source_grep_verifies_text_not_behavior",
+                    "admitted_cluster_targets": "src/main.rs",
                     "runtime_job_kind": "tool_protocol_correction",
                 }
             ]
@@ -190,6 +214,14 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertIn("- tool_protocol_correction: 1", report)
         self.assertIn("## Action Envelope Status", report)
         self.assertIn("## Selected Failure Clusters", report)
+        self.assertIn("## Semantic Failure Kinds", report)
+        self.assertIn("- tool_protocol_failure: 1", report)
+        self.assertIn("## Preferred Repair Roles", report)
+        self.assertIn("- verifier_contract: 1", report)
+        self.assertIn("## Weak Verifier Reasons", report)
+        self.assertIn("- source_grep_verifies_text_not_behavior: 1", report)
+        self.assertIn("## Admitted Cluster Targets", report)
+        self.assertIn("- src/main.rs: 1", report)
 
     def test_read_cases_recurses_and_parses_expected_fields(self):
         with tempfile.TemporaryDirectory() as tmp:

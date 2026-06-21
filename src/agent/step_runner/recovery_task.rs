@@ -91,13 +91,17 @@ pub struct RecoveryTaskContract {
     pub patch_validation: Vec<String>,
     pub eval_report_fields: Vec<String>,
     pub artifact_graph_summary: Vec<String>,
+    pub verifier_diagnostic_payload: Vec<String>,
     pub rerun_authority: Vec<String>,
     pub repair_attempt_ledger: Vec<String>,
     pub proposed_targets: Vec<String>,
     pub admitted_targets: Vec<String>,
+    pub admitted_cluster_targets: Vec<String>,
     pub rejected_targets: Vec<String>,
     pub repair_brief: Vec<String>,
     pub selected_failure_cluster: Option<String>,
+    pub preferred_repair_role: Option<String>,
+    pub weak_verifier_reason: Option<String>,
     pub repair_brief_status: Option<String>,
     pub action_envelope_status: Option<String>,
     pub exhausted_clusters: Vec<String>,
@@ -165,13 +169,17 @@ impl RecoveryTaskContract {
             .with_patch_validation(evidence.patch_validation.clone())
             .with_eval_report_fields(evidence.eval_report_fields.clone())
             .with_artifact_graph_summary(evidence.artifact_graph_summary.clone())
+            .with_verifier_diagnostic_payload(evidence.verifier_diagnostic_payload.clone())
             .with_rerun_authority(evidence.rerun_authority.clone())
             .with_repair_attempt_ledger(evidence.repair_attempt_ledger.clone())
             .with_proposed_targets(evidence.proposed_targets.clone())
             .with_admitted_targets(evidence.admitted_targets.clone())
+            .with_admitted_cluster_targets(evidence.admitted_cluster_targets.clone())
             .with_rejected_targets(evidence.rejected_targets.clone())
             .with_repair_brief(evidence.repair_brief.clone())
             .with_selected_failure_cluster_opt(evidence.selected_failure_cluster.clone())
+            .with_preferred_repair_role_opt(evidence.preferred_repair_role.clone())
+            .with_weak_verifier_reason_opt(evidence.weak_verifier_reason.clone())
             .with_repair_brief_status_opt(evidence.repair_brief_status.clone())
             .with_action_envelope_status_opt(evidence.action_envelope_status.clone())
             .with_exhausted_clusters(evidence.exhausted_clusters.clone())
@@ -493,6 +501,17 @@ impl RecoveryTaskContract {
         self
     }
 
+    pub fn with_verifier_diagnostic_payload<I, S>(mut self, verifier_diagnostic_payload: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        for item in verifier_diagnostic_payload {
+            push_unique(&mut self.verifier_diagnostic_payload, item.into());
+        }
+        self
+    }
+
     pub fn with_rerun_authority<I, S>(mut self, rerun_authority: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -547,6 +566,17 @@ impl RecoveryTaskContract {
         self
     }
 
+    pub fn with_admitted_cluster_targets<I, S>(mut self, admitted_cluster_targets: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        for target in admitted_cluster_targets {
+            push_unique(&mut self.admitted_cluster_targets, target.into());
+        }
+        self
+    }
+
     pub fn with_rejected_targets<I, S>(mut self, rejected_targets: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -571,6 +601,16 @@ impl RecoveryTaskContract {
 
     pub fn with_selected_failure_cluster(mut self, cluster: impl Into<String>) -> Self {
         self.selected_failure_cluster = Some(cluster.into());
+        self
+    }
+
+    pub fn with_preferred_repair_role(mut self, role: impl Into<String>) -> Self {
+        self.preferred_repair_role = Some(role.into());
+        self
+    }
+
+    pub fn with_weak_verifier_reason(mut self, reason: impl Into<String>) -> Self {
+        self.weak_verifier_reason = Some(reason.into());
         self
     }
 
@@ -735,17 +775,37 @@ impl RecoveryTaskContract {
         );
         push_list(
             &mut lines,
+            "verifier_diagnostic_payload",
+            &self.verifier_diagnostic_payload,
+        );
+        push_list(
+            &mut lines,
             "repair_attempt_ledger",
             &self.repair_attempt_ledger,
         );
         push_list(&mut lines, "proposed_targets", &self.proposed_targets);
         push_list(&mut lines, "admitted_targets", &self.admitted_targets);
+        push_list(
+            &mut lines,
+            "admitted_cluster_targets",
+            &self.admitted_cluster_targets,
+        );
         push_list(&mut lines, "rejected_targets", &self.rejected_targets);
         push_list(&mut lines, "repair_brief", &self.repair_brief);
         push_field(
             &mut lines,
             "selected_failure_cluster",
             self.selected_failure_cluster.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "preferred_repair_role",
+            self.preferred_repair_role.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "weak_verifier_reason",
+            self.weak_verifier_reason.as_deref(),
         );
         push_field(
             &mut lines,
@@ -983,6 +1043,20 @@ impl RecoveryTaskContract {
         }
     }
 
+    fn with_preferred_repair_role_opt(self, value: Option<String>) -> Self {
+        match value {
+            Some(value) => self.with_preferred_repair_role(value),
+            None => self,
+        }
+    }
+
+    fn with_weak_verifier_reason_opt(self, value: Option<String>) -> Self {
+        match value {
+            Some(value) => self.with_weak_verifier_reason(value),
+            None => self,
+        }
+    }
+
     fn with_repair_brief_status_opt(self, value: Option<String>) -> Self {
         match value {
             Some(value) => self.with_repair_brief_status(value),
@@ -1058,13 +1132,17 @@ impl RecoveryTaskContract {
             || !self.patch_validation.is_empty()
             || !self.eval_report_fields.is_empty()
             || !self.artifact_graph_summary.is_empty()
+            || !self.verifier_diagnostic_payload.is_empty()
             || !self.rerun_authority.is_empty()
             || !self.repair_attempt_ledger.is_empty()
             || !self.proposed_targets.is_empty()
             || !self.admitted_targets.is_empty()
+            || !self.admitted_cluster_targets.is_empty()
             || !self.rejected_targets.is_empty()
             || !self.repair_brief.is_empty()
             || self.selected_failure_cluster.is_some()
+            || self.preferred_repair_role.is_some()
+            || self.weak_verifier_reason.is_some()
             || self.repair_brief_status.is_some()
             || self.action_envelope_status.is_some()
             || !self.exhausted_clusters.is_empty()

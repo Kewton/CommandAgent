@@ -106,8 +106,10 @@ def normalize_observation(raw: dict[str, Any]) -> dict[str, str]:
     contract_layer = clean(raw.get("contract_layer")) or contract_layer_for_terminal_state(
         terminal_state, failure_class
     )
-    diagnostic_code = clean(raw.get("diagnostic_code")) or diagnostic_code_from_reason(
-        reason, terminal_state
+    diagnostic_code = (
+        clean(raw.get("diagnostic_code"))
+        or contract_value(evidence, "diagnostic_code")
+        or diagnostic_code_from_reason(reason, terminal_state)
     )
     evidence_runner_status = (
         clean(raw.get("evidence_runner_status"))
@@ -120,8 +122,10 @@ def normalize_observation(raw: dict[str, Any]) -> dict[str, str]:
         or artifact_ledger_status_for_terminal_state(terminal_state)
     )
     source = clean(raw.get("source")) or source_for_terminal_state(terminal_state, reason)
-    source_of_truth = clean(raw.get("source_of_truth")) or source_of_truth_for_terminal_state(
-        terminal_state
+    source_of_truth = (
+        clean(raw.get("source_of_truth"))
+        or contract_value(evidence, "source_of_truth")
+        or source_of_truth_for_terminal_state(terminal_state)
     )
     setup_state = clean(raw.get("setup_state")) or setup_state_for_terminal_state(
         terminal_state
@@ -142,7 +146,7 @@ def normalize_observation(raw: dict[str, Any]) -> dict[str, str]:
         "diagnostic_code": diagnostic_code,
         "evidence_runner_status": evidence_runner_status,
         "artifact_ledger_status": artifact_ledger_status,
-        "command": clean(raw.get("command")),
+        "command": clean(raw.get("command")) or contract_value(evidence, "command"),
         "setup_state": setup_state,
         "port": port,
     }

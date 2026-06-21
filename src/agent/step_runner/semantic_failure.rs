@@ -8,25 +8,31 @@ const DEFAULT_CONFIDENCE: &str = "deterministic";
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SemanticFailureReport {
     pub(crate) kind: String,
+    pub(crate) diagnostic_code: Option<String>,
     pub(crate) clusters: Vec<String>,
     pub(crate) observed_expected: Vec<String>,
     pub(crate) affected_cases: Vec<String>,
     pub(crate) contract_conflict: Option<String>,
     pub(crate) preferred_repair_role: Option<String>,
     pub(crate) proposed_targets: Vec<String>,
+    pub(crate) admitted_targets: Vec<String>,
     pub(crate) admitted_target: Option<String>,
+    pub(crate) confidence: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SemanticFailureCluster {
     pub(crate) cluster_id: String,
     pub(crate) failure_kind: String,
+    pub(crate) diagnostic_code: Option<String>,
     pub(crate) observed_expected: Vec<String>,
     pub(crate) affected_cases: Vec<String>,
     pub(crate) source_of_truth: String,
     pub(crate) contract_conflict: Option<String>,
     pub(crate) preferred_repair_role: Option<String>,
     pub(crate) candidate_targets: Vec<String>,
+    pub(crate) admitted_targets: Vec<String>,
+    pub(crate) confidence: String,
 }
 
 impl SemanticFailureCluster {
@@ -37,12 +43,15 @@ impl SemanticFailureCluster {
             .map(|value| format!(" conflict={}", compact(value)))
             .unwrap_or_default();
         format!(
-            "cluster={} kind={} source_of_truth={} preferred_role={} targets={}{}",
+            "cluster={} kind={} diagnostic_code={} source_of_truth={} preferred_role={} targets={} admitted_targets={} confidence={}{}",
             compact(&self.cluster_id),
             compact(&self.failure_kind),
+            self.diagnostic_code.as_deref().unwrap_or("unknown"),
             compact(&self.source_of_truth),
             self.preferred_repair_role.as_deref().unwrap_or("unknown"),
             self.candidate_targets.join("|"),
+            self.admitted_targets.join("|"),
+            compact(&self.confidence),
             conflict
         )
     }
@@ -63,6 +72,7 @@ impl SemanticRepairPlan {
         let cluster = SemanticFailureCluster {
             cluster_id: selected_cluster_id(&report),
             failure_kind: report.kind.clone(),
+            diagnostic_code: report.diagnostic_code.clone(),
             observed_expected: report.observed_expected.clone(),
             affected_cases: report.affected_cases.clone(),
             source_of_truth: evidence
@@ -72,6 +82,8 @@ impl SemanticRepairPlan {
             contract_conflict: report.contract_conflict.clone(),
             preferred_repair_role: report.preferred_repair_role.clone(),
             candidate_targets: report.proposed_targets.clone(),
+            admitted_targets: report.admitted_targets.clone(),
+            confidence: report.confidence.clone(),
         };
         let selected_target = report.admitted_target.clone();
         let repair_hypothesis = repair_hypothesis(&cluster, selected_target.as_deref());
@@ -119,6 +131,7 @@ impl SemanticFailureReport {
             .or_else(|| evidence.failure_kind.clone())
             .or_else(|| evidence.reason_code.clone())
             .unwrap_or_else(|| "contract_failure".to_string());
+        let diagnostic_code = evidence.diagnostic_code.clone();
         let mut proposed_targets = Vec::new();
         push_unique_opt(&mut proposed_targets, evidence.repair_target.clone());
         push_unique_opt(&mut proposed_targets, evidence.target_path.clone());
@@ -130,24 +143,33 @@ impl SemanticFailureReport {
         {
             push_unique(&mut proposed_targets, target.clone());
         }
+        let admitted_targets = admitted_targets(evidence);
+        let admitted_target = evidence
+            .repair_target
+            .clone()
+            .or_else(|| evidence.target_path.clone())
+            .or_else(|| admitted_targets.first().cloned());
         Self {
             kind,
+            diagnostic_code,
             clusters: cluster_labels(evidence),
             observed_expected: evidence.observed_expected_pairs.clone(),
             affected_cases: evidence.affected_cases.clone(),
             contract_conflict: contract_conflict(evidence),
             preferred_repair_role: preferred_repair_role(evidence),
             proposed_targets,
-            admitted_target: evidence
-                .repair_target
-                .clone()
-                .or_else(|| evidence.target_path.clone()),
+            admitted_targets,
+            admitted_target,
+            confidence: confidence(evidence).to_string(),
         }
     }
 
     pub(crate) fn render_lines(&self) -> Vec<String> {
         let mut lines = Vec::new();
         lines.push(format!("kind={}", compact(&self.kind)));
+        if let Some(code) = &self.diagnostic_code {
+            lines.push(format!("diagnostic_code={}", compact(code)));
+        }
         if !self.clusters.is_empty() {
             lines.push(format!("clusters={}", self.clusters.join("|")));
         }
@@ -172,19 +194,33 @@ impl SemanticFailureReport {
                 self.proposed_targets.join("|")
             ));
         }
+        if !self.admitted_targets.is_empty() {
+            lines.push(format!(
+                "admitted_targets={}",
+                self.admitted_targets.join("|")
+            ));
+        }
         if let Some(target) = &self.admitted_target {
             lines.push(format!("admitted_target={}", compact(target)));
         }
+        lines.push(format!("confidence={}", compact(&self.confidence)));
         lines
     }
 }
 
 fn selected_cluster_id(report: &SemanticFailureReport) -> String {
-    report
-        .clusters
-        .first()
-        .cloned()
-        .unwrap_or_else(|| "deterministic_failure".to_string())
+    let parts = [
+        report
+            .diagnostic_code
+            .as_deref()
+            .unwrap_or("diagnostic_unknown"),
+        report.kind.as_str(),
+        report
+            .admitted_target
+            .as_deref()
+            .unwrap_or("target_unknown"),
+    ];
+    compact(&parts.join(":"))
 }
 
 fn repair_hypothesis(cluster: &SemanticFailureCluster, selected_target: Option<&str>) -> String {
@@ -215,6 +251,9 @@ fn expected_improvement(cluster: &SemanticFailureCluster) -> String {
 
 fn cluster_labels(evidence: &ContractEvidence) -> Vec<String> {
     let mut labels = Vec::new();
+    if let Some(code) = &evidence.diagnostic_code {
+        push_unique(&mut labels, format!("diagnostic:{code}"));
+    }
     if evidence.command.is_some() {
         push_unique(&mut labels, "verifier_command".to_string());
     }
@@ -249,6 +288,9 @@ fn contract_conflict(evidence: &ContractEvidence) -> Option<String> {
 }
 
 fn preferred_repair_role(evidence: &ContractEvidence) -> Option<String> {
+    if let Some(role) = &evidence.preferred_repair_role {
+        return Some(role.clone());
+    }
     let code = evidence
         .semantic_failure_kind
         .as_deref()
@@ -270,6 +312,34 @@ fn preferred_repair_role(evidence: &ContractEvidence) -> Option<String> {
         return Some("implementation".to_string());
     }
     evidence.artifact_role.clone()
+}
+
+fn admitted_targets(evidence: &ContractEvidence) -> Vec<String> {
+    let mut targets = Vec::new();
+    for target in evidence
+        .admitted_cluster_targets
+        .iter()
+        .chain(evidence.admitted_targets.iter())
+    {
+        push_unique(&mut targets, target.clone());
+    }
+    push_unique_opt(&mut targets, evidence.repair_target.clone());
+    push_unique_opt(&mut targets, evidence.target_path.clone());
+    targets
+}
+
+fn confidence(evidence: &ContractEvidence) -> &'static str {
+    if evidence
+        .diagnostic_code
+        .as_deref()
+        .is_some_and(|code| code == "unknown_verifier_failure")
+    {
+        "unknown_bounded"
+    } else if evidence.weak_verifier_reason.is_some() {
+        "heuristic_bounded"
+    } else {
+        DEFAULT_CONFIDENCE
+    }
 }
 
 fn push_unique(values: &mut Vec<String>, value: String) {

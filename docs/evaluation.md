@@ -89,6 +89,14 @@ complete or missing a required deliverable. For example, `EADDRINUSE` or
 failure.
 Old eval roots that do not have terminal observation fields remain readable;
 the report backfills conservative values from `reason`.
+When runtime evidence includes verifier diagnostic fields, eval observation
+prefers those fields over a raw process-code reason such as `rc:1`. For
+example, a failed `cargo check` can remain
+`terminal_state=verifier_command_failed` while reporting
+`diagnostic_code=rust_compile_error`,
+`source_of_truth=original_verifier_diagnostic`, and the verifier command.
+This keeps the verifier failure honest without losing the actionable
+diagnostic.
 Plan-file failures should distinguish parse, schema, and lint boundaries.
 Unsupported or malformed plan-file syntax is a planning parse failure. Missing
 or wrongly typed required fields are planning schema failures. Readable plans
@@ -109,7 +117,9 @@ New eval runs also write `failure_category`, `contract_layer`, and the recovery
 report fields into `summary.tsv` and each run's `meta.json`. The recovery
 fields are `active_job`, `recovery_owner`, `loop_control_action`,
 `dispatch_status`, `dispatch_reason`, `candidate_jobs`, `tie_break_reason`,
-`target_path`, `target_role`, `repair_action`, `tool_policy`,
+`target_path`, `target_role`, `selected_failure_cluster`,
+`semantic_failure_kind`, `preferred_repair_role`, `weak_verifier_reason`,
+`admitted_cluster_targets`, `repair_action`, `tool_policy`,
 `attempt_outcome`, `evidence_binding_status`, `completion_evidence_status`,
 and `explicit_stop_reason`. When a runtime repair packet contains richer
 contract evidence, the eval runner extracts those fields. When a failure is
@@ -182,6 +192,18 @@ Each verifier failure records:
   or failed compile messages
 - `source_excerpt`: when output references a source location, nearby source
   lines are included with the failing line marked
+- `diagnostic_code`: deterministic verifier diagnosis such as
+  `rust_compile_error`, `python_import_missing`, `typescript_type_error`,
+  `port_in_use`, or `weak_source_grep`
+- `observed_expected`: bounded observed/expected pairs when the verifier output
+  exposes them
+- `affected_cases`: test case or command names affected by the failure
+- `preferred_repair_role`: implementation, setup, route integration,
+  verifier contract, dev server, or another role derived from the diagnostic
+- `weak_verifier_reason`: why a verifier command should repair the verifier
+  contract instead of source code
+- `admitted_cluster_targets`: targets admitted for the selected semantic
+  failure cluster
 
 `dependency_missing` means the verifier could not run honestly because required
 local dependencies are absent. For example, `npm run build` with a Next.js build

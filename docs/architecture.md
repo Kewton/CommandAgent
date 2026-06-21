@@ -46,8 +46,10 @@ expected evidence delta, workspace scope, artifact ownership, setup
 implication, recovery owner, loop control action, dispatch status, dispatch
 reason, candidate jobs, tie-break reason, completion evidence, evidence
 binding, deliverable obligations, repair action plan, semantic failure report,
-repair job state, patch validation, eval report fields, rerun authority, and
-attempt-ledger context.
+repair job state, verifier diagnostic payload, diagnostic code,
+observed/expected pairs, affected cases, preferred repair role, weak verifier
+reason, admitted cluster targets, patch validation, eval report fields, rerun
+authority, and attempt-ledger context.
 This lets Recovery Orchestration Contract choose the correct bounded path
 before Recovery Task Contract, Setup Bootstrap, or verifier-owned setup
 recovery delegates execution to the minimal loop.
@@ -109,6 +111,16 @@ truth. Completion Authority then classifies already observed facts into
 `evidence_binding_failed`. It does not repair, retry, choose a future phase, or
 replace the verifier. It only prevents path existence, evidence execution, and
 evidence binding from being collapsed into one generic failure.
+
+Verifier Diagnostic Payload is the attribution boundary for failed verifier
+commands. It classifies already-observed command output into bounded,
+deterministic fields such as `diagnostic_code`, `failure_signature`,
+`observed_expected`, `affected_cases`, `candidate_artifacts`,
+`source_of_truth`, `preferred_repair_role`, `weak_verifier_reason`, and
+`admitted_cluster_targets`. It does not run commands, choose a model strategy,
+or decide retries. Recovery Orchestration may consume those fields to avoid
+collapsing `command_failed:1` into generic source repair, but the original
+verifier remains the success authority.
 
 The Recovery Task Contract renders that policy into the next bounded repair
 turn for the minimal loop. It should not decide the repair strategy from broad

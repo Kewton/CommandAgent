@@ -27,6 +27,7 @@ pub(crate) mod setup_artifact_validation;
 pub(crate) mod target_admission;
 pub mod ultra_plan;
 pub mod ultra_run;
+pub(crate) mod verifier_diagnostic;
 pub(crate) mod verifier_selection;
 pub mod verify;
 pub(crate) mod workspace_scope;

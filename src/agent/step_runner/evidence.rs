@@ -151,9 +151,15 @@ impl EvidencePayload {
                 command: evidence.command.clone(),
                 failure_kind: evidence.failure_kind.clone(),
                 failure_signature: evidence.failure_signature.clone(),
+                diagnostic_code: evidence.diagnostic_code.clone(),
                 diagnostic_excerpt: evidence.diagnostic.clone(),
                 related_source_excerpt: evidence.related_source_excerpt.clone(),
+                observed_expected_pairs: evidence.observed_expected_pairs.clone(),
+                affected_cases: evidence.affected_cases.clone(),
                 candidate_artifacts: evidence.candidate_artifacts.clone(),
+                preferred_repair_role: evidence.preferred_repair_role.clone(),
+                weak_verifier_reason: evidence.weak_verifier_reason.clone(),
+                verifier_diagnostic_payload: evidence.verifier_diagnostic_payload.clone(),
             });
         }
         if guard == "profile" || guard.starts_with("profile_") {
@@ -281,11 +287,23 @@ pub struct VerificationEvidence {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub failure_signature: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagnostic_excerpt: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub related_source_excerpt: Option<String>,
     #[serde(default)]
+    pub observed_expected_pairs: Vec<String>,
+    #[serde(default)]
+    pub affected_cases: Vec<String>,
+    #[serde(default)]
     pub candidate_artifacts: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preferred_repair_role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weak_verifier_reason: Option<String>,
+    #[serde(default)]
+    pub verifier_diagnostic_payload: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -397,15 +415,23 @@ pub struct OrchestrationEvidence {
     #[serde(default)]
     pub artifact_graph_summary: Vec<String>,
     #[serde(default)]
+    pub verifier_diagnostic_payload: Vec<String>,
+    #[serde(default)]
     pub proposed_targets: Vec<String>,
     #[serde(default)]
     pub admitted_targets: Vec<String>,
+    #[serde(default)]
+    pub admitted_cluster_targets: Vec<String>,
     #[serde(default)]
     pub rejected_targets: Vec<String>,
     #[serde(default)]
     pub repair_brief: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub selected_failure_cluster: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preferred_repair_role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weak_verifier_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repair_brief_status: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -451,11 +477,15 @@ impl OrchestrationEvidence {
             patch_validation: evidence.patch_validation.clone(),
             eval_report_fields: evidence.eval_report_fields.clone(),
             artifact_graph_summary: evidence.artifact_graph_summary.clone(),
+            verifier_diagnostic_payload: evidence.verifier_diagnostic_payload.clone(),
             proposed_targets: evidence.proposed_targets.clone(),
             admitted_targets: evidence.admitted_targets.clone(),
+            admitted_cluster_targets: evidence.admitted_cluster_targets.clone(),
             rejected_targets: evidence.rejected_targets.clone(),
             repair_brief: evidence.repair_brief.clone(),
             selected_failure_cluster: evidence.selected_failure_cluster.clone(),
+            preferred_repair_role: evidence.preferred_repair_role.clone(),
+            weak_verifier_reason: evidence.weak_verifier_reason.clone(),
             repair_brief_status: evidence.repair_brief_status.clone(),
             action_envelope_status: evidence.action_envelope_status.clone(),
             exhausted_clusters: evidence.exhausted_clusters.clone(),
@@ -492,11 +522,15 @@ impl OrchestrationEvidence {
             && orchestration.patch_validation.is_empty()
             && orchestration.eval_report_fields.is_empty()
             && orchestration.artifact_graph_summary.is_empty()
+            && orchestration.verifier_diagnostic_payload.is_empty()
             && orchestration.proposed_targets.is_empty()
             && orchestration.admitted_targets.is_empty()
+            && orchestration.admitted_cluster_targets.is_empty()
             && orchestration.rejected_targets.is_empty()
             && orchestration.repair_brief.is_empty()
             && orchestration.selected_failure_cluster.is_none()
+            && orchestration.preferred_repair_role.is_none()
+            && orchestration.weak_verifier_reason.is_none()
             && orchestration.repair_brief_status.is_none()
             && orchestration.action_envelope_status.is_none()
             && orchestration.exhausted_clusters.is_empty()

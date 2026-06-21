@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use crate::agent::step_runner::verifier_diagnostic::command_is_weak_source_grep;
 use crate::agent::step_runner::verify::VerificationFailure;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,6 +82,11 @@ pub(crate) fn classify_verifier_failure(failure: &VerificationFailure) -> Verifi
     if failure.command.trim().is_empty() {
         return VerifierSelection::Missing;
     }
+    if command_is_weak_source_grep(&failure.command)
+        || command_is_self_referential_generated_test(&failure.command)
+    {
+        return VerifierSelection::StructuredWeak;
+    }
     if failure.command.contains("pytest")
         || failure.command.contains("cargo test")
         || failure.command.contains("npm run build")
@@ -93,6 +99,12 @@ pub(crate) fn classify_verifier_failure(failure: &VerificationFailure) -> Verifi
     } else {
         VerifierSelection::RuntimeError
     }
+}
+
+fn command_is_self_referential_generated_test(command: &str) -> bool {
+    let lower = command.trim().to_ascii_lowercase();
+    (lower.starts_with("test -f ") || lower.starts_with("grep -q "))
+        && (lower.contains("tests/") || lower.contains("_test.rs") || lower.contains("test_"))
 }
 
 fn runner_kind(command: &str) -> Option<&'static str> {
@@ -202,5 +214,18 @@ mod tests {
             binding.owned_test_artifact.as_deref(),
             Some("tests/test_app.py")
         );
+    }
+
+    #[test]
+    fn source_grep_is_structured_weak() {
+        let failure = failure(
+            "grep -q CommandAgent src/main.rs",
+            "command_failed:1",
+            "missing literal",
+        );
+
+        let binding = VerifierBinding::from_failure(&failure);
+
+        assert_eq!(binding.selection, VerifierSelection::StructuredWeak);
     }
 }

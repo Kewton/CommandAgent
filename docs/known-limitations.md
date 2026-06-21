@@ -35,6 +35,13 @@ CommandAgent is still in MVP migration.
   target, candidate artifacts, related source excerpt, and bounded attempt
   ledger. This makes standalone repair inputs clearer, but it does not increase
   retry budgets, auto-resume failed phases, or score UI/game quality.
+- Verifier failures now carry a bounded deterministic diagnostic payload when
+  output can be classified, including diagnostic code, observed/expected pairs,
+  affected cases, preferred repair role, weak verifier reason, and admitted
+  cluster targets. This reduces generic `rc:1` attribution in repair packets
+  and eval reports. It does not make the verifier pass, add semantic source
+  repair, or guarantee that a weak model will apply the selected repair
+  correctly.
 - Repair prompts and saved repair packets may now render a `Recovery task`
   section derived from deterministic evidence. This clarifies what the next
   bounded repair turn should do, what is out of scope, and which original check
@@ -134,9 +141,12 @@ CommandAgent is still in MVP migration.
   cases. New eval runs also record terminal observation fields such as
   `terminal_state`, `failure_class`, `diagnostic_code`,
   `evidence_runner_status`, `artifact_ledger_status`, and `port`; reports
-  backfill conservative values for older run roots. This improves attribution,
-  including `port_in_use` for occupied dev-server ports and artifact evidence
-  failures. Runtime job fields also report setup and dev-server smoke state,
+  backfill conservative values for older run roots and prefer contract
+  evidence diagnostic codes over raw process-code reasons when present. This
+  improves attribution, including `port_in_use` for occupied dev-server ports,
+  artifact evidence failures, and classified verifier failures. Runtime job
+  fields also report setup, dev-server smoke state, selected failure clusters,
+  preferred repair roles, weak verifier reasons, and admitted cluster targets,
   but eval remains observation-only and does not select repair
   actions. Large semantic checks are still intentionally explicit and
   conservative; the latest fresh large run is 0/6 and needs triage before it

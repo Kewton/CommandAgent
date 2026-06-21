@@ -520,6 +520,10 @@ pub(crate) fn orchestrate_contract_evidence(
             ),
         ],
     );
+    let eval_report_fields = merge_lists(
+        &eval_report_fields,
+        &semantic_eval_report_fields(evidence, &semantic_plan),
+    );
     Some(RecoveryOrchestrationDecision {
         job,
         action,
@@ -560,6 +564,36 @@ pub(crate) fn orchestrate_contract_evidence(
         no_progress_strategy,
         repair_state_status,
     })
+}
+
+fn semantic_eval_report_fields(
+    evidence: &ContractEvidence,
+    semantic_plan: &SemanticRepairPlan,
+) -> Vec<String> {
+    let mut fields = Vec::new();
+    if let Some(code) = &evidence.diagnostic_code {
+        fields.push(format!("diagnostic_code={code}"));
+    }
+    if let Some(role) = &semantic_plan.selected_cluster.preferred_repair_role {
+        fields.push(format!("preferred_repair_role={}", compact(role)));
+    } else if let Some(role) = &evidence.preferred_repair_role {
+        fields.push(format!("preferred_repair_role={}", compact(role)));
+    }
+    if let Some(reason) = &evidence.weak_verifier_reason {
+        fields.push(format!("weak_verifier_reason={}", compact(reason)));
+    }
+    let admitted_targets = if !semantic_plan.selected_cluster.admitted_targets.is_empty() {
+        semantic_plan.selected_cluster.admitted_targets.clone()
+    } else {
+        evidence.admitted_cluster_targets.clone()
+    };
+    if !admitted_targets.is_empty() {
+        fields.push(format!(
+            "admitted_cluster_targets={}",
+            admitted_targets.join("|")
+        ));
+    }
+    fields
 }
 
 fn evidence_binding_status(evidence: &ContractEvidence) -> &'static str {
@@ -2070,6 +2104,10 @@ fn merge_lists(left: &[String], right: &[String]) -> Vec<String> {
         push_unique(&mut merged, value.clone());
     }
     merged
+}
+
+fn compact(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 #[cfg(test)]

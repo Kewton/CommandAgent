@@ -89,6 +89,10 @@ def write_summary(path, rows):
         "selected_target_role",
         "target_rejection_reasons",
         "selected_failure_cluster",
+        "semantic_failure_kind",
+        "preferred_repair_role",
+        "weak_verifier_reason",
+        "admitted_cluster_targets",
         "repair_brief_status",
         "action_envelope_status",
         "repair_action",
@@ -181,6 +185,10 @@ def recheck(root, cases):
                 "selected_target_role": meta.get("selected_target_role", meta.get("target_role", artifact_role_for_path(first_reason_target(reason)))),
                 "target_rejection_reasons": meta.get("target_rejection_reasons", ""),
                 "selected_failure_cluster": meta.get("selected_failure_cluster", ""),
+                "semantic_failure_kind": meta.get("semantic_failure_kind", ""),
+                "preferred_repair_role": meta.get("preferred_repair_role", ""),
+                "weak_verifier_reason": meta.get("weak_verifier_reason", ""),
+                "admitted_cluster_targets": meta.get("admitted_cluster_targets", ""),
                 "repair_brief_status": meta.get("repair_brief_status", ""),
                 "action_envelope_status": meta.get("action_envelope_status", ""),
                 "repair_action": meta.get("repair_action", derive_repair_action(reason)),
@@ -442,6 +450,10 @@ def render_report(rows):
     repair_brief_statuses = {}
     action_envelope_statuses = {}
     selected_failure_clusters = {}
+    semantic_failure_kinds = {}
+    preferred_repair_roles = {}
+    weak_verifier_reasons = {}
+    admitted_cluster_targets = {}
     evidence_runner_statuses = {}
     artifact_ledger_statuses = {}
     focused_assertion_statuses = {}
@@ -467,6 +479,10 @@ def render_report(rows):
         repair_brief_status = row.get("repair_brief_status", "")
         action_envelope_status = row.get("action_envelope_status", "")
         selected_failure_cluster = row.get("selected_failure_cluster", "")
+        semantic_failure_kind = row.get("semantic_failure_kind", "")
+        preferred_repair_role = row.get("preferred_repair_role", "")
+        weak_verifier_reason = row.get("weak_verifier_reason", "")
+        admitted_targets = row.get("admitted_cluster_targets", "")
         categories[category] = categories.get(category, 0) + 1
         layers[layer] = layers.get(layer, 0) + 1
         terminal_states[terminal_state] = terminal_states.get(terminal_state, 0) + 1
@@ -489,6 +505,22 @@ def render_report(rows):
         if selected_failure_cluster:
             selected_failure_clusters[selected_failure_cluster] = (
                 selected_failure_clusters.get(selected_failure_cluster, 0) + 1
+            )
+        if semantic_failure_kind:
+            semantic_failure_kinds[semantic_failure_kind] = (
+                semantic_failure_kinds.get(semantic_failure_kind, 0) + 1
+            )
+        if preferred_repair_role:
+            preferred_repair_roles[preferred_repair_role] = (
+                preferred_repair_roles.get(preferred_repair_role, 0) + 1
+            )
+        if weak_verifier_reason:
+            weak_verifier_reasons[weak_verifier_reason] = (
+                weak_verifier_reasons.get(weak_verifier_reason, 0) + 1
+            )
+        if admitted_targets:
+            admitted_cluster_targets[admitted_targets] = (
+                admitted_cluster_targets.get(admitted_targets, 0) + 1
             )
         if evidence_runner_status:
             evidence_runner_statuses[evidence_runner_status] = (
@@ -557,6 +589,18 @@ def render_report(rows):
         lines.append(f"- {name}: {count}")
     lines.extend(["", "## Selected Failure Clusters"])
     for name, count in sorted(selected_failure_clusters.items()):
+        lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Semantic Failure Kinds"])
+    for name, count in sorted(semantic_failure_kinds.items()):
+        lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Preferred Repair Roles"])
+    for name, count in sorted(preferred_repair_roles.items()):
+        lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Weak Verifier Reasons"])
+    for name, count in sorted(weak_verifier_reasons.items()):
+        lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Admitted Cluster Targets"])
+    for name, count in sorted(admitted_cluster_targets.items()):
         lines.append(f"- {name}: {count}")
     lines.extend(["", "## Focused Assertions"])
     if focused_assertion_statuses:

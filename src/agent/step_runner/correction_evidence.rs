@@ -71,12 +71,16 @@ pub struct ContractEvidence {
     pub patch_validation: Vec<String>,
     pub eval_report_fields: Vec<String>,
     pub artifact_graph_summary: Vec<String>,
+    pub verifier_diagnostic_payload: Vec<String>,
     pub rerun_authority: Vec<String>,
     pub proposed_targets: Vec<String>,
     pub admitted_targets: Vec<String>,
+    pub admitted_cluster_targets: Vec<String>,
     pub rejected_targets: Vec<String>,
     pub repair_brief: Vec<String>,
     pub selected_failure_cluster: Option<String>,
+    pub preferred_repair_role: Option<String>,
+    pub weak_verifier_reason: Option<String>,
     pub repair_brief_status: Option<String>,
     pub action_envelope_status: Option<String>,
     pub exhausted_clusters: Vec<String>,
@@ -485,6 +489,15 @@ impl ContractEvidence {
         self
     }
 
+    pub fn with_verifier_diagnostic_payload<I, S>(mut self, verifier_diagnostic_payload: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.verifier_diagnostic_payload = collect_values(verifier_diagnostic_payload);
+        self
+    }
+
     pub fn with_rerun_authority<I, S>(mut self, rerun_authority: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -512,6 +525,15 @@ impl ContractEvidence {
         self
     }
 
+    pub fn with_admitted_cluster_targets<I, S>(mut self, admitted_cluster_targets: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.admitted_cluster_targets = collect_values(admitted_cluster_targets);
+        self
+    }
+
     pub fn with_rejected_targets<I, S>(mut self, rejected_targets: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -535,6 +557,16 @@ impl ContractEvidence {
         selected_failure_cluster: impl Into<String>,
     ) -> Self {
         self.selected_failure_cluster = Some(selected_failure_cluster.into());
+        self
+    }
+
+    pub fn with_preferred_repair_role(mut self, preferred_repair_role: impl Into<String>) -> Self {
+        self.preferred_repair_role = Some(preferred_repair_role.into());
+        self
+    }
+
+    pub fn with_weak_verifier_reason(mut self, weak_verifier_reason: impl Into<String>) -> Self {
+        self.weak_verifier_reason = Some(weak_verifier_reason.into());
         self
     }
 
@@ -745,13 +777,33 @@ impl ContractEvidence {
             "artifact_graph_summary",
             &self.artifact_graph_summary,
         );
+        push_list(
+            &mut lines,
+            "verifier_diagnostic_payload",
+            &self.verifier_diagnostic_payload,
+        );
         push_list(&mut lines, "proposed_targets", &self.proposed_targets);
         push_list(&mut lines, "admitted_targets", &self.admitted_targets);
+        push_list(
+            &mut lines,
+            "admitted_cluster_targets",
+            &self.admitted_cluster_targets,
+        );
         push_list(&mut lines, "rejected_targets", &self.rejected_targets);
         push_field(
             &mut lines,
             "selected_failure_cluster",
             self.selected_failure_cluster.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "preferred_repair_role",
+            self.preferred_repair_role.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "weak_verifier_reason",
+            self.weak_verifier_reason.as_deref(),
         );
         push_field(
             &mut lines,
@@ -837,12 +889,16 @@ impl ContractEvidence {
             && self.patch_validation.is_empty()
             && self.eval_report_fields.is_empty()
             && self.artifact_graph_summary.is_empty()
+            && self.verifier_diagnostic_payload.is_empty()
             && self.rerun_authority.is_empty()
             && self.proposed_targets.is_empty()
             && self.admitted_targets.is_empty()
+            && self.admitted_cluster_targets.is_empty()
             && self.rejected_targets.is_empty()
             && self.repair_brief.is_empty()
             && self.selected_failure_cluster.is_none()
+            && self.preferred_repair_role.is_none()
+            && self.weak_verifier_reason.is_none()
             && self.repair_brief_status.is_none()
             && self.action_envelope_status.is_none()
             && self.exhausted_clusters.is_empty()

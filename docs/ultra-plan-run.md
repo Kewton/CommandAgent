@@ -200,8 +200,10 @@ structured evidence. Repair prompts and packets may include
 `deliverable_obligations`, `semantic_failure_report`, `repair_job_state`,
 `attempt_outcomes`, `exhausted_targets`, `exhausted_roles`,
 `exhausted_clusters`, `no_progress_strategy`, `repair_state_status`,
-`patch_validation`, `eval_report_fields`, `proposed_targets`,
-`admitted_targets`, `rejected_targets`, `repair_brief`,
+`verifier_diagnostic_payload`, `diagnostic_code`, `observed_expected`,
+`affected_cases`, `preferred_repair_role`, `weak_verifier_reason`,
+`admitted_cluster_targets`, `patch_validation`, `eval_report_fields`,
+`proposed_targets`, `admitted_targets`, `rejected_targets`, `repair_brief`,
 `selected_failure_cluster`, `repair_brief_status`, `action_envelope_status`,
 and an `artifact_graph_summary` so the standalone repair plan can see why a
 target is allowed, why another action is forbidden, which owner/action was
@@ -209,6 +211,14 @@ selected, which failure cluster is being repaired, whether a prior bounded
 attempt made progress, and which original check must be rerun. These fields
 are diagnostics and policy projection; they do not change the retry budget or
 continue phases silently.
+
+Verifier diagnostic fields are derived from already-observed verifier output.
+They let the repair packet distinguish a Rust compile error, Python import
+failure, Next.js type error, route integration failure, dependency/setup
+boundary, port conflict, or weak verifier command without asking the model to
+infer the class from prose. Unknown verifier failures remain failures, but
+they should still carry the original command, exit status, failure signature,
+and bounded diagnostic excerpt instead of appearing only as `rc:1`.
 
 If every verifier failure is `dependency_missing` and the step's expected paths
 already exist, CommandAgent treats the problem as setup recovery, not source

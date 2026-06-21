@@ -38,6 +38,9 @@ use crate::agent::step_runner::runtime::phase_contract::{
 use crate::agent::step_runner::setup_artifact_validation::{
     SetupArtifactViolation, validate_npm_manifest,
 };
+use crate::agent::step_runner::verifier_diagnostic::{
+    VerifierDiagnosticCode, VerifierDiagnosticPayload,
+};
 use crate::agent::step_runner::verifier_selection::{VerifierBinding, VerifierSelection};
 use crate::agent::step_runner::verify::VerificationFailure;
 use crate::agent::step_runner::{StepKind, StepPlan, StepPlanStep};
@@ -1080,7 +1083,12 @@ fn verifier_contract_evidence(
         verifier_contract_target(step, &binding, &candidate_artifacts)
     };
     let repair_target_role = repair_target.as_deref().and_then(verifier_target_role);
-    let diagnostic_code = failure.reason.clone();
+    let diagnostic_payload = VerifierDiagnosticPayload::from_failure(
+        failure,
+        &candidate_artifacts,
+        repair_target.as_deref(),
+    );
+    let diagnostic_code = diagnostic_payload.diagnostic_code.as_str().to_string();
     let signature = failure_signature([
         "verifier",
         step.id.as_str(),
@@ -1088,7 +1096,8 @@ fn verifier_contract_evidence(
         diagnostic_code.as_str(),
         repair_target.as_deref().unwrap_or(""),
     ]);
-    let active_job = verifier_active_job(failure, &binding, repair_target_role);
+    let active_job =
+        verifier_active_job(failure, &binding, repair_target_role, &diagnostic_payload);
     let mut repair_job_state = runtime_repair_job_state
         .clone()
         .with_active_job(active_job)
@@ -1105,21 +1114,28 @@ fn verifier_contract_evidence(
         .with_failed_step(step.id.clone())
         .with_violated_contract(failure.reason.clone())
         .with_reason_code(failure.reason.clone())
-        .with_failure_kind(verifier_failure_kind(failure, &binding).to_string())
+        .with_failure_kind(
+            verifier_failure_kind(failure, &binding, &diagnostic_payload).to_string(),
+        )
         .with_diagnostic_code(diagnostic_code)
         .with_failure_signature(signature.clone())
         .with_command(failure.command.clone())
         .with_candidate_artifacts(candidate_artifacts)
-        .with_observed_expected_pairs(vec![verifier_observed_expected_pair(failure)])
-        .with_affected_cases(vec![failure.command.clone()])
+        .with_observed_expected_pairs(diagnostic_payload.observed_expected_pairs.clone())
+        .with_affected_cases(diagnostic_payload.affected_cases.clone())
         .with_active_job(active_job)
         .with_required_action(verifier_required_action(failure, repair_target_role))
-        .with_repair_kind(verifier_repair_kind(failure, &binding))
+        .with_repair_kind(verifier_repair_kind(failure, &binding, &diagnostic_payload))
         .with_repair_action(verifier_repair_action(
             failure,
             &binding,
             repair_target_role,
+            &diagnostic_payload,
         ))
+        .with_source_of_truth(diagnostic_payload.source_of_truth.clone())
+        .with_preferred_repair_role(diagnostic_payload.preferred_repair_role.clone())
+        .with_verifier_diagnostic_payload(diagnostic_payload.render_lines())
+        .with_admitted_cluster_targets(diagnostic_payload.admitted_cluster_targets.clone())
         .with_setup_implication(verifier_setup_implication(failure))
         .with_rerun_authority(vec![failure.command.clone()])
         .with_completion_evidence(vec![
@@ -1131,7 +1147,13 @@ fn verifier_contract_evidence(
         .with_attempt_outcomes(repair_job_state.attempt_outcome_lines())
         .with_repair_attempt_ledger(repair_job_state.attempt_ledger_lines())
         .with_exhausted_clusters(repair_job_state.exhausted_clusters.clone())
-        .with_eval_report_fields(eval_fields);
+        .with_eval_report_fields({
+            append_unique_lines(&mut eval_fields, diagnostic_payload.eval_report_fields());
+            eval_fields
+        });
+    if let Some(reason) = &diagnostic_payload.weak_verifier_reason {
+        evidence = evidence.with_weak_verifier_reason(reason.clone());
+    }
     if let Some(strategy) = repair_job_state.no_progress_strategy {
         evidence = evidence.with_no_progress_strategy(strategy.as_str());
     }
@@ -1171,22 +1193,11 @@ fn verifier_contract_evidence(
     Some(evidence)
 }
 
-fn verifier_observed_expected_pair(failure: &VerificationFailure) -> String {
-    let diagnostic = verifier_diagnostic(failure, None);
-    if diagnostic.trim().is_empty() {
-        format!(
-            "observed={}; expected={} verifier passes",
-            failure.reason, failure.command
-        )
-    } else {
-        format!(
-            "observed={}; expected={} verifier passes",
-            diagnostic, failure.command
-        )
-    }
-}
-
-fn verifier_failure_kind(failure: &VerificationFailure, binding: &VerifierBinding) -> &'static str {
+fn verifier_failure_kind(
+    failure: &VerificationFailure,
+    binding: &VerifierBinding,
+    diagnostic: &VerifierDiagnosticPayload,
+) -> &'static str {
     match binding.selection {
         VerifierSelection::DependencySetupRequired => "dependency_missing",
         VerifierSelection::BlockedByPolicy => "verifier_command_blocked",
@@ -1196,6 +1207,9 @@ fn verifier_failure_kind(failure: &VerificationFailure, binding: &VerifierBindin
         VerifierSelection::StructuredWeak => "verifier_command_weak",
         VerifierSelection::RuntimeError => "verifier_runtime_error",
         VerifierSelection::StructuredRunnable | VerifierSelection::LegacyRunnable => {
+            if diagnostic.weak_verifier_reason.is_some() {
+                return "verifier_contract_failure";
+            }
             if failure.reason.starts_with("command_failed:") {
                 "verifier_command_failed"
             } else {
@@ -1205,7 +1219,14 @@ fn verifier_failure_kind(failure: &VerificationFailure, binding: &VerifierBindin
     }
 }
 
-fn verifier_repair_kind(failure: &VerificationFailure, binding: &VerifierBinding) -> &'static str {
+fn verifier_repair_kind(
+    failure: &VerificationFailure,
+    binding: &VerifierBinding,
+    diagnostic: &VerifierDiagnosticPayload,
+) -> &'static str {
+    if diagnostic.weak_verifier_reason.is_some() {
+        return "verifier_contract_correction";
+    }
     if binding.selection == VerifierSelection::DependencySetupRequired {
         "verifier_owned_setup_recovery"
     } else if matches!(
@@ -1227,7 +1248,20 @@ fn verifier_active_job(
     failure: &VerificationFailure,
     binding: &VerifierBinding,
     target_role: Option<crate::agent::step_runner::artifact_graph::ArtifactRole>,
+    diagnostic: &VerifierDiagnosticPayload,
 ) -> &'static str {
+    if diagnostic.weak_verifier_reason.is_some()
+        || matches!(
+            diagnostic.diagnostic_code,
+            VerifierDiagnosticCode::CommandNotFound
+                | VerifierDiagnosticCode::BlockedCommandPolicy
+                | VerifierDiagnosticCode::SelfReferentialVerifier
+                | VerifierDiagnosticCode::WeakSourceGrep
+                | VerifierDiagnosticCode::GeneratedTestWeakness
+        )
+    {
+        return "verifier_contract_correction";
+    }
     if binding.selection == VerifierSelection::DependencySetupRequired {
         "setup_bootstrap"
     } else if matches!(
@@ -1262,7 +1296,20 @@ fn verifier_repair_action(
     failure: &VerificationFailure,
     binding: &VerifierBinding,
     target_role: Option<crate::agent::step_runner::artifact_graph::ArtifactRole>,
+    diagnostic: &VerifierDiagnosticPayload,
 ) -> &'static str {
+    if diagnostic.weak_verifier_reason.is_some()
+        || matches!(
+            diagnostic.diagnostic_code,
+            VerifierDiagnosticCode::CommandNotFound
+                | VerifierDiagnosticCode::BlockedCommandPolicy
+                | VerifierDiagnosticCode::SelfReferentialVerifier
+                | VerifierDiagnosticCode::WeakSourceGrep
+                | VerifierDiagnosticCode::GeneratedTestWeakness
+        )
+    {
+        return "replace_invalid_verifier_command";
+    }
     if binding.selection == VerifierSelection::DependencySetupRequired {
         "stop_with_setup_blocker"
     } else if matches!(
@@ -2473,9 +2520,10 @@ mod tests {
         assert!(rendered.contains("guard: verifier"));
         assert!(rendered.contains("violated_contract: command_failed:1"));
         assert!(rendered.contains("failure_kind: verifier_command_failed"));
-        assert!(rendered.contains("diagnostic_code: command_failed:1"));
+        assert!(rendered.contains("diagnostic_code: typescript_type_error"));
         assert!(
-            rendered.contains("failure_signature: verifier|step|npm run build|command_failed:1")
+            rendered
+                .contains("failure_signature: verifier|step|npm run build|typescript_type_error")
         );
         assert!(rendered.contains("command: npm run build"));
         assert!(rendered.contains("affected_cases: npm run build"));
