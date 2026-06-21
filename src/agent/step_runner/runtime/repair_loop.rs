@@ -470,13 +470,15 @@ where
                     let after_signature = repair_signature_from_contract_evidence(&after_evidence);
                     record_repair_attempt_ledger(
                         &mut state,
-                        repair_turns,
-                        &attempt_context,
-                        &before_signature,
-                        &after_signature,
-                        &[],
-                        false,
-                        Some(RepairAttemptOutcomeKind::Malformed),
+                        RepairAttemptUpdate {
+                            attempt_number: repair_turns,
+                            context: &attempt_context,
+                            before_signature: &before_signature,
+                            after_signature: &after_signature,
+                            changed_files: &[],
+                            verifier_passed: false,
+                            forced_outcome: Some(RepairAttemptOutcomeKind::Malformed),
+                        },
                     );
                     break;
                 }
@@ -509,13 +511,15 @@ where
             let after_signature = repair_signature_from_contract_evidence(&after_evidence);
             record_repair_attempt_ledger(
                 &mut state,
-                repair_turns,
-                &attempt_context,
-                &before_signature,
-                &after_signature,
-                &attempt_changed_markers,
-                false,
-                Some(RepairAttemptOutcomeKind::Unsafe),
+                RepairAttemptUpdate {
+                    attempt_number: repair_turns,
+                    context: &attempt_context,
+                    before_signature: &before_signature,
+                    after_signature: &after_signature,
+                    changed_files: &attempt_changed_markers,
+                    verifier_passed: false,
+                    forced_outcome: Some(RepairAttemptOutcomeKind::Unsafe),
+                },
             );
             break;
         }
@@ -523,13 +527,15 @@ where
         if state.failures.is_empty() {
             record_repair_attempt_ledger(
                 &mut state,
-                repair_turns,
-                &attempt_context,
-                &before_signature,
-                "passed",
-                &attempt_changed_markers,
-                true,
-                None,
+                RepairAttemptUpdate {
+                    attempt_number: repair_turns,
+                    context: &attempt_context,
+                    before_signature: &before_signature,
+                    after_signature: "passed",
+                    changed_files: &attempt_changed_markers,
+                    verifier_passed: true,
+                    forced_outcome: None,
+                },
             );
             return Ok(());
         }
@@ -537,13 +543,15 @@ where
         let after_signature = repair_signature_from_contract_evidence(&after_evidence);
         record_repair_attempt_ledger(
             &mut state,
-            repair_turns,
-            &attempt_context,
-            &before_signature,
-            &after_signature,
-            &attempt_changed_markers,
-            false,
-            None,
+            RepairAttemptUpdate {
+                attempt_number: repair_turns,
+                context: &attempt_context,
+                before_signature: &before_signature,
+                after_signature: &after_signature,
+                changed_files: &attempt_changed_markers,
+                verifier_passed: false,
+                forced_outcome: None,
+            },
         );
         let missing_expected_paths = missing_paths(runtime.cwd, &step.expected_paths);
         match try_dependency_setup_recovery(
@@ -1488,6 +1496,16 @@ struct RepairAttemptContext {
     scaffold_rebuild_admitted: bool,
 }
 
+struct RepairAttemptUpdate<'a> {
+    attempt_number: usize,
+    context: &'a RepairAttemptContext,
+    before_signature: &'a str,
+    after_signature: &'a str,
+    changed_files: &'a [String],
+    verifier_passed: bool,
+    forced_outcome: Option<RepairAttemptOutcomeKind>,
+}
+
 fn repair_attempt_context(
     step: &StepPlanStep,
     evidence: &[ContractEvidence],
@@ -1550,39 +1568,36 @@ fn repair_state_explicit_stop(evidence: &[ContractEvidence]) -> bool {
     })
 }
 
-fn record_repair_attempt_ledger(
-    state: &mut RepairStepState,
-    attempt_number: usize,
-    context: &RepairAttemptContext,
-    before_signature: &str,
-    after_signature: &str,
-    changed_files: &[String],
-    verifier_passed: bool,
-    forced_outcome: Option<RepairAttemptOutcomeKind>,
-) {
-    let outcome = forced_outcome.unwrap_or_else(|| {
+fn record_repair_attempt_ledger(state: &mut RepairStepState, update: RepairAttemptUpdate<'_>) {
+    let outcome = update.forced_outcome.unwrap_or_else(|| {
         classify_attempt_outcome(
-            before_signature,
-            after_signature,
-            changed_files,
-            verifier_passed,
+            update.before_signature,
+            update.after_signature,
+            update.changed_files,
+            update.verifier_passed,
         )
     });
-    let reason = attempt_outcome_reason(outcome, before_signature, after_signature, changed_files);
+    let reason = attempt_outcome_reason(
+        outcome,
+        update.before_signature,
+        update.after_signature,
+        update.changed_files,
+    );
+    let context = update.context;
     let record = RepairAttemptRecord {
-        attempt_number,
+        attempt_number: update.attempt_number,
         step_id: context.step_id.clone(),
         active_job: context.active_job.clone(),
         recovery_owner: context.recovery_owner.clone(),
         repair_action: context.repair_action.clone(),
         selected_failure_cluster: context.selected_failure_cluster.clone(),
         verifier_command: context.verifier_command.clone(),
-        failure_signature: before_signature.to_string(),
-        before_signature: before_signature.to_string(),
-        after_signature: after_signature.to_string(),
+        failure_signature: update.before_signature.to_string(),
+        before_signature: update.before_signature.to_string(),
+        after_signature: update.after_signature.to_string(),
         target: context.selected_target.clone(),
         target_role: context.selected_target_role.clone(),
-        changed_files: changed_files.to_vec(),
+        changed_files: update.changed_files.to_vec(),
         outcome,
         outcome_reason: reason,
     };
@@ -1595,8 +1610,8 @@ fn record_repair_attempt_ledger(
         .with_repair_action(context.repair_action.clone())
         .with_verifier_command(Some(context.verifier_command.clone()))
         .with_signatures(
-            Some(before_signature.to_string()),
-            Some(after_signature.to_string()),
+            Some(update.before_signature.to_string()),
+            Some(update.after_signature.to_string()),
         )
         .with_selected_failure_cluster(context.selected_failure_cluster.clone())
         .with_current_target_opt(context.selected_target.clone())
@@ -2669,23 +2684,27 @@ mod tests {
 
         record_repair_attempt_ledger(
             &mut state,
-            1,
-            &context,
-            "signature-a",
-            "signature-b",
-            &changed_files,
-            false,
-            None,
+            RepairAttemptUpdate {
+                attempt_number: 1,
+                context: &context,
+                before_signature: "signature-a",
+                after_signature: "signature-b",
+                changed_files: &changed_files,
+                verifier_passed: false,
+                forced_outcome: None,
+            },
         );
         record_repair_attempt_ledger(
             &mut state,
-            2,
-            &context,
-            "signature-b",
-            "signature-b",
-            &changed_files,
-            false,
-            None,
+            RepairAttemptUpdate {
+                attempt_number: 2,
+                context: &context,
+                before_signature: "signature-b",
+                after_signature: "signature-b",
+                changed_files: &changed_files,
+                verifier_passed: false,
+                forced_outcome: None,
+            },
         );
 
         assert!(
