@@ -98,6 +98,12 @@ CommandAgent is still in MVP migration.
   failure cluster for no-progress attribution. Concrete pass-side producers,
   persistent cross-command repair job lifecycle, verifier-proven rollback, and
   profile-wide evidence-binding producers are still partial.
+- Task Contract projection now records task kind, behavior obligations, and
+  artifact role projections from required artifacts and profile obligations.
+  These facts reach plan prompts, active step contract facts, plan-lint
+  evidence, and eval report fields. The projection is still deterministic and
+  bounded; it does not replace profile verification, run setup, or decide
+  hidden workflow continuation.
 - Step-decomposition lint now rejects the observed high-confidence case where a
   `setup` step owns classified source/style, route, component, test, docs,
   generated, or build artifacts such as `app/globals.css`. Broader ownership

@@ -125,6 +125,11 @@ and `explicit_stop_reason`. When a runtime repair packet contains richer
 contract evidence, the eval runner extracts those fields. When a failure is
 detected only by the eval success contract, the runner derives a conservative
 recovery classification from the deterministic reason and target path.
+Task Contract projection fields are also recorded when present:
+`task_contract_kind`, `task_contract_status`, `behavior_obligation_codes`,
+`behavior_obligation_status`, and `artifact_role_projection_status`. These are
+observability fields for planning/recovery attribution. They do not change eval
+success criteria and do not authorize runtime retries.
 
 Artifact completion reports must keep four states distinct:
 

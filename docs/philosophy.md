@@ -33,6 +33,9 @@ and stops boundedly when progress cannot be proven.
 - Keep profile facts, artifact classification, obligations, verification, and
   recovery evidence separate.
 - Treat task and step decomposition as contract data, not just planner prose.
+- Treat task behavior obligations as contract data. Required artifacts,
+  profile obligations, and deliverable roles should project into a visible Task
+  Contract before plan lint, recovery, or eval reporting consumes them.
 - Validate step kind, artifact role, and workspace scope before relying on the
   execution guard.
 - Treat setup bootstrap, manifest/scaffold materialization, active job
@@ -162,7 +165,10 @@ targets, semantic repair plans, and attempt ledgers are legitimate control data
 when they stay deterministic and visible:
 
 - A task contract records the goal, required artifacts, constraints, and
-  success checks that are already explicit or deterministically inferred.
+  success checks that are already explicit or deterministically inferred. It
+  also records behavior obligations and artifact-role projections when those
+  can be derived from required artifacts, deliverable kind, or profile
+  obligations.
 - An artifact role classifies paths as setup/config, implementation, test,
   documentation, generated output, dependency cache, raw input, or derived
   output before those paths are used for lint, verification, or repair.

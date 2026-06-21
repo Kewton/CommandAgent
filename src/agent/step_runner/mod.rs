@@ -25,6 +25,7 @@ pub mod runtime;
 pub(crate) mod semantic_failure;
 pub(crate) mod setup_artifact_validation;
 pub(crate) mod target_admission;
+pub(crate) mod task_contract;
 pub mod ultra_plan;
 pub mod ultra_run;
 pub(crate) mod verifier_diagnostic;

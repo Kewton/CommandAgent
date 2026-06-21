@@ -104,6 +104,15 @@ Anchors, merge keys, custom tags, and extra nested maps remain outside the
 contract. Parse errors, schema errors, and plan-lint errors should be reported
 as distinct planning failures.
 
+Phase planning also carries Task Contract facts. Required artifacts, profile
+obligations, and deliverable roles are projected into bounded lines such as
+`task.contract.kind`, `task.contract.behavior_obligation.<code>`, and
+`task.contract.artifact_roles`. These facts may guide the planner and may let
+plan lint reject a dropped required artifact or a missing manifest/setup owner.
+For ultra phases, the global final artifacts remain visible as context, but
+phase-local step plans are not forced to list every final artifact in their own
+`required_artifacts`; final artifacts are still checked at the final boundary.
+
 Step decomposition is also a planning contract. For example, a generated
 `setup` step may own `package.json` or `tailwind.config.js`, but it may not own
 source artifacts such as `app/globals.css`, `src/app/globals.css`, or

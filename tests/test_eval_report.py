@@ -223,6 +223,34 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertIn("## Admitted Cluster Targets", report)
         self.assertIn("- src/main.rs: 1", report)
 
+    def test_render_report_includes_task_contract_sections(self):
+        report = eval_report.render_report(
+            [
+                {
+                    "case_id": "task-contract",
+                    "run": "1",
+                    "rc": "1",
+                    "elapsed_ms": "10",
+                    "success": "false",
+                    "reason": "plan_lint.task_contract:missing owner",
+                    "failure_category": "planning",
+                    "contract_layer": "planning_contract",
+                    "task_contract_kind": "new",
+                    "task_contract_status": "admitted",
+                    "behavior_obligation_codes": "nextjs_dependencies_required",
+                    "behavior_obligation_status": "projected",
+                    "artifact_role_projection_status": "projected",
+                }
+            ]
+        )
+
+        self.assertIn("## Task Contract", report)
+        self.assertIn("- kind=new: 1", report)
+        self.assertIn("- status=admitted: 1", report)
+        self.assertIn("## Behavior Obligations", report)
+        self.assertIn("- status=projected: 1", report)
+        self.assertIn("## Artifact Role Projection", report)
+
     def test_read_cases_recurses_and_parses_expected_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)

@@ -5,13 +5,12 @@ use crate::agent::minimal_loop::loop_run::{ChatClient, MinimalLoopConfig, RunRes
 use crate::agent::minimal_loop::result::MinimalLoopError;
 use crate::agent::slash_command::{SlashCommand, SlashCommandKind};
 use crate::agent::step_runner::correction_evidence::PlanCorrectionEvidence;
+use crate::agent::step_runner::plan_prompt::plan_generation_prompt_with_task_contract;
 use crate::agent::step_runner::ultra_plan::{
     UltraPlan, save_ultra_plan, ultra_plan_generation_prompt,
 };
 use crate::agent::step_runner::verify::VerificationFailure;
-use crate::agent::step_runner::{
-    StepPlan, WorkIntent, detect_work_intent, plan_generation_prompt, save_step_plan,
-};
+use crate::agent::step_runner::{StepPlan, WorkIntent, detect_work_intent, save_step_plan};
 use crate::providers::ToolCallMode;
 use std::path::Path;
 
@@ -226,7 +225,20 @@ where
             goal: bounded_event_text(goal),
             profile: bounded_event_text(profile),
         });
-        let prompt = plan_generation_prompt(goal, profile, style, intent, required_artifacts);
+        let phase_contract = phase_contract::PhaseWorkspaceContract::collect_with_goal(
+            self.cwd,
+            profile,
+            required_artifacts,
+            goal,
+        );
+        let prompt = plan_generation_prompt_with_task_contract(
+            goal,
+            profile,
+            style,
+            intent,
+            required_artifacts,
+            Some(&phase_contract.task_contract),
+        );
         let text = planner_text(self.planner, &self.planner_config, &prompt)?;
         let correction_context = StepPlanCorrectionContext {
             goal,
@@ -234,7 +246,8 @@ where
             style,
             intent,
             required_artifacts,
-            profile_obligations: &[],
+            profile_obligations: &phase_contract.profile_obligations,
+            task_contract: Some(&phase_contract.task_contract),
             save_kind: "step-plan",
             prompt_kind: "step plan",
         };
@@ -260,6 +273,7 @@ where
                 intent: context.intent,
                 required_artifacts: context.required_artifacts,
                 profile_obligations: context.profile_obligations,
+                task_contract: context.task_contract,
             };
             match parse_generated_step_plan(self.cwd, &text, &generated_context) {
                 Ok(plan) => return Ok(plan),
@@ -2350,6 +2364,7 @@ steps:
             intent,
             required_artifacts,
             profile_obligations,
+            task_contract: None,
         }
     }
 

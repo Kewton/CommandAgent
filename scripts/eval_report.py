@@ -93,6 +93,11 @@ def write_summary(path, rows):
         "preferred_repair_role",
         "weak_verifier_reason",
         "admitted_cluster_targets",
+        "task_contract_kind",
+        "task_contract_status",
+        "behavior_obligation_codes",
+        "behavior_obligation_status",
+        "artifact_role_projection_status",
         "repair_brief_status",
         "action_envelope_status",
         "repair_action",
@@ -189,6 +194,11 @@ def recheck(root, cases):
                 "preferred_repair_role": meta.get("preferred_repair_role", ""),
                 "weak_verifier_reason": meta.get("weak_verifier_reason", ""),
                 "admitted_cluster_targets": meta.get("admitted_cluster_targets", ""),
+                "task_contract_kind": meta.get("task_contract_kind", ""),
+                "task_contract_status": meta.get("task_contract_status", ""),
+                "behavior_obligation_codes": meta.get("behavior_obligation_codes", ""),
+                "behavior_obligation_status": meta.get("behavior_obligation_status", ""),
+                "artifact_role_projection_status": meta.get("artifact_role_projection_status", ""),
                 "repair_brief_status": meta.get("repair_brief_status", ""),
                 "action_envelope_status": meta.get("action_envelope_status", ""),
                 "repair_action": meta.get("repair_action", derive_repair_action(reason)),
@@ -454,6 +464,10 @@ def render_report(rows):
     preferred_repair_roles = {}
     weak_verifier_reasons = {}
     admitted_cluster_targets = {}
+    task_contract_kinds = {}
+    task_contract_statuses = {}
+    behavior_obligation_statuses = {}
+    artifact_role_projection_statuses = {}
     evidence_runner_statuses = {}
     artifact_ledger_statuses = {}
     focused_assertion_statuses = {}
@@ -483,6 +497,10 @@ def render_report(rows):
         preferred_repair_role = row.get("preferred_repair_role", "")
         weak_verifier_reason = row.get("weak_verifier_reason", "")
         admitted_targets = row.get("admitted_cluster_targets", "")
+        task_contract_kind = row.get("task_contract_kind", "")
+        task_contract_status = row.get("task_contract_status", "")
+        behavior_obligation_status = row.get("behavior_obligation_status", "")
+        artifact_role_projection_status = row.get("artifact_role_projection_status", "")
         categories[category] = categories.get(category, 0) + 1
         layers[layer] = layers.get(layer, 0) + 1
         terminal_states[terminal_state] = terminal_states.get(terminal_state, 0) + 1
@@ -521,6 +539,22 @@ def render_report(rows):
         if admitted_targets:
             admitted_cluster_targets[admitted_targets] = (
                 admitted_cluster_targets.get(admitted_targets, 0) + 1
+            )
+        if task_contract_kind:
+            task_contract_kinds[task_contract_kind] = (
+                task_contract_kinds.get(task_contract_kind, 0) + 1
+            )
+        if task_contract_status:
+            task_contract_statuses[task_contract_status] = (
+                task_contract_statuses.get(task_contract_status, 0) + 1
+            )
+        if behavior_obligation_status:
+            behavior_obligation_statuses[behavior_obligation_status] = (
+                behavior_obligation_statuses.get(behavior_obligation_status, 0) + 1
+            )
+        if artifact_role_projection_status:
+            artifact_role_projection_statuses[artifact_role_projection_status] = (
+                artifact_role_projection_statuses.get(artifact_role_projection_status, 0) + 1
             )
         if evidence_runner_status:
             evidence_runner_statuses[evidence_runner_status] = (
@@ -602,6 +636,17 @@ def render_report(rows):
     lines.extend(["", "## Admitted Cluster Targets"])
     for name, count in sorted(admitted_cluster_targets.items()):
         lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Task Contract"])
+    for name, count in sorted(task_contract_kinds.items()):
+        lines.append(f"- kind={name}: {count}")
+    for name, count in sorted(task_contract_statuses.items()):
+        lines.append(f"- status={name}: {count}")
+    lines.extend(["", "## Behavior Obligations"])
+    for name, count in sorted(behavior_obligation_statuses.items()):
+        lines.append(f"- status={name}: {count}")
+    lines.extend(["", "## Artifact Role Projection"])
+    for name, count in sorted(artifact_role_projection_statuses.items()):
+        lines.append(f"- status={name}: {count}")
     lines.extend(["", "## Focused Assertions"])
     if focused_assertion_statuses:
         for name, count in sorted(focused_assertion_statuses.items()):

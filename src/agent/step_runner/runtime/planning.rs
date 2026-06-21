@@ -5,8 +5,9 @@ use crate::agent::step_runner::plan_input::{
     StepPlanInputDefaults, looks_like_json_plan_input, parse_step_plan_input_with_defaults,
 };
 use crate::agent::step_runner::plan_lint::PlanLintError;
-use crate::agent::step_runner::plan_lint::lint_step_plan_with_workspace_and_obligations;
+use crate::agent::step_runner::plan_lint::lint_step_plan_with_workspace_obligations_and_task_contract;
 use crate::agent::step_runner::profiles::ProfileObligation;
+use crate::agent::step_runner::task_contract::TaskContract;
 use crate::agent::step_runner::ultra_plan::{UltraPlan, parse_ultra_plan_yaml};
 use crate::agent::step_runner::{
     ExpectedResult, StepKind, StepPlan, StepPlanStep, WorkIntent, extract_plan_from_response,
@@ -22,6 +23,7 @@ pub(super) struct StepPlanCorrectionContext<'a> {
     pub(super) intent: WorkIntent,
     pub(super) required_artifacts: &'a [String],
     pub(super) profile_obligations: &'a [ProfileObligation],
+    pub(super) task_contract: Option<&'a TaskContract>,
     pub(super) save_kind: &'a str,
     pub(super) prompt_kind: &'a str,
 }
@@ -33,6 +35,7 @@ pub(super) struct GeneratedStepPlanContext<'a> {
     pub(super) intent: WorkIntent,
     pub(super) required_artifacts: &'a [String],
     pub(super) profile_obligations: &'a [ProfileObligation],
+    pub(super) task_contract: Option<&'a TaskContract>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -164,10 +167,11 @@ pub(super) fn parse_generated_step_plan(
     };
     let mut plan = plan;
     for _ in 0..4 {
-        match lint_step_plan_with_workspace_and_obligations(
+        match lint_step_plan_with_workspace_obligations_and_task_contract(
             &plan,
             Some(cwd),
             context.profile_obligations,
+            context.task_contract,
         ) {
             Ok(()) => return Ok(plan),
             Err(error) => {
@@ -179,9 +183,14 @@ pub(super) fn parse_generated_step_plan(
             }
         }
     }
-    lint_step_plan_with_workspace_and_obligations(&plan, Some(cwd), context.profile_obligations)
-        .map(|()| plan)
-        .map_err(GeneratedPlanError::from_lint)
+    lint_step_plan_with_workspace_obligations_and_task_contract(
+        &plan,
+        Some(cwd),
+        context.profile_obligations,
+        context.task_contract,
+    )
+    .map(|()| plan)
+    .map_err(GeneratedPlanError::from_lint)
 }
 
 fn plan_error_reason_code(error: &crate::agent::step_runner::PlanError) -> &'static str {
@@ -661,6 +670,7 @@ steps:
             intent: WorkIntent::Document,
             required_artifacts: &[],
             profile_obligations: &[],
+            task_contract: None,
         };
 
         let plan = parse_generated_step_plan(&root, generated, &context).unwrap();
@@ -703,6 +713,7 @@ steps:
             intent: WorkIntent::New,
             required_artifacts: &[],
             profile_obligations: &[],
+            task_contract: None,
         };
 
         let plan = parse_generated_step_plan(&root, generated, &context).unwrap();
@@ -765,6 +776,7 @@ steps:
             intent: WorkIntent::Modify,
             required_artifacts: &[],
             profile_obligations: &[],
+            task_contract: None,
         };
 
         let plan = parse_generated_step_plan(&root, generated, &context).unwrap();
@@ -812,6 +824,7 @@ steps:
             intent: WorkIntent::New,
             required_artifacts: &[],
             profile_obligations: &[],
+            task_contract: None,
         };
 
         let plan = parse_generated_step_plan(&root, generated, &context).unwrap();
@@ -859,6 +872,7 @@ steps:
             intent: WorkIntent::New,
             required_artifacts: &[],
             profile_obligations: &[],
+            task_contract: None,
         };
 
         let plan = parse_generated_step_plan(&root, generated, &context).unwrap();
@@ -914,6 +928,7 @@ steps:
             intent: WorkIntent::New,
             required_artifacts: &required,
             profile_obligations: &[],
+            task_contract: None,
         };
 
         let plan = parse_generated_step_plan(&root, generated, &context).unwrap();

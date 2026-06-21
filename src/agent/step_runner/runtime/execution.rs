@@ -23,6 +23,7 @@ use crate::agent::step_runner::repair::{ProfileRepairContext, save_profile_repai
 use crate::agent::step_runner::runtime::phase_contract::{
     ActiveStepContract, PhaseWorkspaceContract, current_profile_facts,
 };
+use crate::agent::step_runner::task_contract::TaskContract;
 use crate::agent::step_runner::ultra_plan::{UltraPlan, parse_ultra_plan_yaml};
 use crate::agent::step_runner::ultra_run::phase_step_plan_prompt;
 use crate::agent::step_runner::verify::{VerificationFailure, run_verifiers};
@@ -79,6 +80,13 @@ where
             &profile_contract,
         );
         let text = planner_text(runtime.planner, &runtime.planner_config, &prompt)?;
+        let phase_task_contract = TaskContract::from_goal(
+            &plan.profile,
+            &phase.goal,
+            WorkIntent::parse(&plan.intent).unwrap_or(WorkIntent::Unknown),
+            &[],
+            &phase_contract.profile_obligations,
+        );
         let correction_context = StepPlanCorrectionContext {
             goal: &phase.goal,
             profile: &plan.profile,
@@ -86,6 +94,7 @@ where
             intent: WorkIntent::parse(&plan.intent).unwrap_or(WorkIntent::Unknown),
             required_artifacts: &[],
             profile_obligations: &phase_contract.profile_obligations,
+            task_contract: Some(&phase_task_contract),
             save_kind: "phase-step-plan",
             prompt_kind: "phase step plan",
         };

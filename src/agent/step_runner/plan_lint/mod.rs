@@ -5,6 +5,9 @@ use crate::agent::step_runner::profile_artifact::{
 use crate::agent::step_runner::profiles::{
     ProfileId, ProfileObligation, lint_profile_plan, lint_profile_step_contract,
 };
+use crate::agent::step_runner::task_contract::{
+    BehaviorObligationKind, TaskContract, TaskContractAdmissionStatus,
+};
 use crate::agent::step_runner::{StepKind, StepPlan};
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -211,8 +214,159 @@ pub fn lint_step_plan_with_workspace_and_obligations(
     cwd: Option<&Path>,
     obligations: &[ProfileObligation],
 ) -> Result<(), PlanLintError> {
+    lint_step_plan_with_workspace_obligations_and_task_contract(plan, cwd, obligations, None)
+}
+
+pub(crate) fn lint_step_plan_with_workspace_obligations_and_task_contract(
+    plan: &StepPlan,
+    cwd: Option<&Path>,
+    obligations: &[ProfileObligation],
+    task_contract: Option<&TaskContract>,
+) -> Result<(), PlanLintError> {
     lint_step_plan_generic(plan, cwd)?;
+    if let Some(task_contract) = task_contract {
+        lint_task_contract_projection(plan, cwd, task_contract)?;
+    }
     lint_profile_plan(plan, cwd, obligations)
+}
+
+fn lint_task_contract_projection(
+    plan: &StepPlan,
+    cwd: Option<&Path>,
+    task_contract: &TaskContract,
+) -> Result<(), PlanLintError> {
+    if task_contract.admission_status != TaskContractAdmissionStatus::Admitted {
+        return Ok(());
+    }
+    let plan_required = plan
+        .required_artifacts
+        .iter()
+        .map(|path| normalize_plan_path(path))
+        .collect::<BTreeSet<_>>();
+    for artifact in &task_contract.required_artifacts {
+        let normalized = normalize_plan_path(artifact);
+        if plan_required.contains(&normalized) {
+            continue;
+        }
+        let reason = format!(
+            "task contract requires final artifact `{artifact}`, but plan.required_artifacts does not preserve it"
+        );
+        return Err(PlanLintError::ContractViolation {
+            step_id: "plan".to_string(),
+            reason: reason.clone(),
+            evidence: Box::new(
+                PlanCorrectionEvidence::new("plan_lint.task_contract")
+                    .with_failed_step("plan")
+                    .with_violated_contract("task_contract_required_artifact_projection")
+                    .with_reason_code("task_contract_required_artifact_missing_from_plan")
+                    .with_failure_kind("plan_decomposition_failure")
+                    .with_target_field("required_artifacts")
+                    .with_target_path(artifact.clone())
+                    .with_required_paths(vec![artifact.clone()])
+                    .with_missing_paths(vec![artifact.clone()])
+                    .with_repair_target(artifact.clone())
+                    .with_active_job("scaffold_materialization")
+                    .with_recovery_owner("scaffold")
+                    .with_repair_kind("plan_correction")
+                    .with_repair_action("preserve_required_artifact")
+                    .with_required_action(
+                        "preserve this task contract required artifact in plan.required_artifacts and add a producing step when it does not already exist"
+                    )
+                    .with_eval_report_fields(task_contract.eval_report_fields())
+                    .with_diagnostic(reason),
+            ),
+        });
+    }
+
+    for obligation in &task_contract.behavior_obligations {
+        if !matches!(
+            obligation.kind,
+            BehaviorObligationKind::DependencySetup
+                | BehaviorObligationKind::ManifestContract
+                | BehaviorObligationKind::BuildContract
+                | BehaviorObligationKind::DevServerPort
+        ) {
+            continue;
+        }
+        if task_manifest_obligation_has_owner(plan, cwd, obligation) {
+            continue;
+        }
+        let target = obligation
+            .paths
+            .first()
+            .cloned()
+            .unwrap_or_else(|| "package.json".to_string());
+        let reason = format!(
+            "task contract behavior obligation `{}` ({}) has no manifest/setup owner step",
+            obligation.code,
+            obligation.kind.as_str()
+        );
+        return Err(PlanLintError::ContractViolation {
+            step_id: "plan".to_string(),
+            reason: reason.clone(),
+            evidence: Box::new(
+                PlanCorrectionEvidence::new("plan_lint.task_contract")
+                    .with_failed_step("plan")
+                    .with_violated_contract("task_behavior_obligation_plan_projection")
+                    .with_reason_code("task_behavior_obligation_missing_owner")
+                    .with_failure_kind("plan_decomposition_failure")
+                    .with_target_field("steps")
+                    .with_target_path(target.clone())
+                    .with_required_paths(obligation.paths.clone())
+                    .with_missing_paths(obligation.paths.clone())
+                    .with_required_literals(obligation.required_literals.clone())
+                    .with_missing_literals(obligation.required_literals.clone())
+                    .with_repair_target(target)
+                    .with_active_job(obligation.kind.active_job())
+                    .with_recovery_owner(obligation.owner.clone())
+                    .with_repair_kind("plan_correction")
+                    .with_repair_action("add_behavior_obligation_owner_step")
+                    .with_required_action(
+                        "add or correct the setup/manifest step that owns this task behavior obligation; keep verification in a separate verify step"
+                    )
+                    .with_disallowed_actions(vec![
+                        "do not drop the task contract behavior obligation",
+                        "do not satisfy setup or manifest work only from verify/report steps",
+                    ])
+                    .with_eval_report_fields(task_contract.eval_report_fields())
+                    .with_diagnostic(reason),
+            ),
+        });
+    }
+    Ok(())
+}
+
+fn task_manifest_obligation_has_owner(
+    plan: &StepPlan,
+    cwd: Option<&Path>,
+    obligation: &crate::agent::step_runner::task_contract::BehaviorObligation,
+) -> bool {
+    let target_paths = if obligation.paths.is_empty() {
+        vec!["package.json".to_string()]
+    } else {
+        obligation.paths.clone()
+    };
+    if cwd.is_some_and(|cwd| target_paths.iter().any(|path| cwd.join(path).exists())) {
+        return true;
+    }
+
+    plan.steps
+        .iter()
+        .filter(|step| {
+            matches!(
+                step.kind,
+                StepKind::Create | StepKind::Edit | StepKind::Setup | StepKind::Repair
+            )
+        })
+        .any(|step| {
+            let instruction = step.instruction.to_ascii_lowercase();
+            target_paths.iter().any(|path| {
+                step.expected_paths
+                    .iter()
+                    .any(|expected| normalize_plan_path(expected) == normalize_plan_path(path))
+                    || instruction.contains(&path.to_ascii_lowercase())
+            })
+        })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1868,6 +2022,115 @@ mod tests {
         };
 
         lint_step_plan_with_workspace(&plan, Some(&root)).unwrap();
+    }
+
+    #[test]
+    fn task_contract_lint_rejects_missing_required_artifact_projection() {
+        let plan = StepPlan {
+            goal: "Create docs".to_string(),
+            profile: "docs".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::Document,
+            required_artifacts: Vec::new(),
+            steps: vec![StepPlanStep {
+                id: "write-readme".to_string(),
+                kind: StepKind::Create,
+                instruction: "Create README.md.".to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec!["README.md".to_string()],
+                verify: Vec::new(),
+            }],
+        };
+        let contract = crate::agent::step_runner::task_contract::TaskContract::from_goal(
+            "docs",
+            "Create docs",
+            WorkIntent::Document,
+            &["README.md".to_string()],
+            &[],
+        );
+
+        let err = lint_step_plan_with_workspace_obligations_and_task_contract(
+            &plan,
+            None,
+            &[],
+            Some(&contract),
+        )
+        .unwrap_err();
+
+        match err {
+            PlanLintError::ContractViolation {
+                step_id, evidence, ..
+            } => {
+                assert_eq!(step_id, "plan");
+                assert_eq!(
+                    evidence.violated_contract.as_deref(),
+                    Some("task_contract_required_artifact_projection")
+                );
+                assert_eq!(evidence.target_path.as_deref(), Some("README.md"));
+                assert!(
+                    evidence
+                        .eval_report_fields
+                        .contains(&"task_contract_kind=documentation".to_string())
+                );
+            }
+            other => panic!("expected task contract violation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn task_contract_lint_rejects_manifest_obligation_without_owner() {
+        let plan = StepPlan {
+            goal: "Create app".to_string(),
+            profile: "generic".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::New,
+            required_artifacts: vec!["app/page.tsx".to_string()],
+            steps: vec![StepPlanStep {
+                id: "create-page".to_string(),
+                kind: StepKind::Create,
+                instruction: "Create app/page.tsx.".to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec!["app/page.tsx".to_string()],
+                verify: Vec::new(),
+            }],
+        };
+        let obligation = ProfileObligation {
+            code: "nextjs_dependencies_required".to_string(),
+            message: "dependencies".to_string(),
+            paths: vec!["package.json".to_string()],
+            expected: Some("next react react-dom".to_string()),
+        };
+        let contract = crate::agent::step_runner::task_contract::TaskContract::from_goal(
+            "nextjs",
+            "Create app",
+            WorkIntent::New,
+            &["app/page.tsx".to_string()],
+            &[obligation],
+        );
+
+        let err = lint_step_plan_with_workspace_obligations_and_task_contract(
+            &plan,
+            None,
+            &[],
+            Some(&contract),
+        )
+        .unwrap_err();
+
+        match err {
+            PlanLintError::ContractViolation {
+                step_id, evidence, ..
+            } => {
+                assert_eq!(step_id, "plan");
+                assert_eq!(
+                    evidence.violated_contract.as_deref(),
+                    Some("task_behavior_obligation_plan_projection")
+                );
+                assert_eq!(evidence.active_job.as_deref(), Some("setup_bootstrap"));
+                assert_eq!(evidence.recovery_owner.as_deref(), Some("setup"));
+                assert!(evidence.missing_literals.contains(&"react-dom".to_string()));
+            }
+            other => panic!("expected task behavior obligation violation, got {other:?}"),
+        }
     }
 
     fn plan_with_paths(profile: &str, paths: Vec<&str>) -> StepPlan {

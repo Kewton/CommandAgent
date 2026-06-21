@@ -89,6 +89,14 @@ or planning disconnected route artifacts. It still returns `PlanLintError` and
 `PlanCorrectionEvidence` for the shared bounded correction path. It must not
 execute tools, run package managers, choose a workflow, retry, or repair files.
 
+Profile obligations are also projected into the shared Task Contract as
+behavior obligations. This gives plan prompt, plan lint, active step facts, and
+eval reports the same vocabulary for dependency setup, manifest contracts,
+dev-server port contracts, route integration, test artifacts, docs literals,
+and data schema obligations. The projection is data-only. It does not let a
+profile execute setup, own recovery policy, or force every ultra phase to
+materialize every final artifact.
+
 ## Next.js Contract
 
 New Next.js apps need honest dependencies and build scripts. A build script that
@@ -166,10 +174,10 @@ TypeScript compiler, infer runtime behavior, or score visual/gameplay quality.
 These checks can fail a phase with visible diagnostics. They do not edit files,
 score UI quality, or run a hidden Next.js workflow.
 
-Phase step planning also receives a small set of profile obligations derived
-from the original goal, required artifacts, and current workspace facts. These
-obligations are data-only facts rendered into the phase contract. For Next.js,
-they can require package.json work to explicitly preserve `scripts.build` as
+Phase step planning also receives a small set of profile obligations and Task
+Contract facts derived from the original goal, required artifacts, and current
+workspace facts. These obligations are data-only facts rendered into the phase
+contract. For Next.js, they can require package.json work to explicitly preserve `scripts.build` as
 `next build`, include `next`, `react`, and `react-dom`, and preserve a requested
 dev port such as `3011` in `scripts.dev`. When Tailwind directives or config
 are requested, the same obligation path can require `tailwindcss`, `postcss`,

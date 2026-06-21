@@ -9,8 +9,9 @@ boundary, it should be split before more behavior is added.
 CommandAgent has one execution engine and several first-class contract
 surfaces around it:
 
-- Task Contract: records the user goal, required artifacts, constraints,
-  success checks, and task scope that later contracts must preserve.
+- Task Contract: records the user goal, task kind, required artifacts,
+  behavior obligations, artifact role projections, constraints, success checks,
+  and task scope that later contracts must preserve.
 - Planning Contract: turns a user goal into explicit step or phase contracts,
   expected artifacts, step ownership, and lintable success conditions.
 - Profile Contract: provides deterministic domain facts, artifact
@@ -68,6 +69,16 @@ source artifact, whether a `verify` step is mixed with mutation, and whether an
 expected path belongs to the step that names it. Profile artifact
 classification supplies typed path facts for these checks, but the profile does
 not become a planner.
+
+Task Contract projection is the shared authority that turns required artifacts,
+profile obligations, and deliverable roles into bounded facts such as
+`task.contract.kind`, `task.contract.behavior_obligation.<code>`, and
+`task.contract.artifact_roles`. The step runner may include those facts in the
+planning prompt, active step contract, plan-lint evidence, and eval reports.
+It may reject a plan that drops a required task artifact or omits a setup or
+manifest owner for a manifest/setup behavior obligation. It must not use Task
+Contract projection to run tools, add hidden retry authority, or force every
+ultra phase to own every final artifact.
 
 Profile-specific planning guidance and profile-specific plan lint are exposed
 through the Profile Contract. The step runner may call the shared profile
