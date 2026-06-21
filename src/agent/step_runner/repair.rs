@@ -291,6 +291,7 @@ fn recovery_task_list(tasks: &[RecoveryTaskContract]) -> String {
     tasks
         .iter()
         .filter_map(RecoveryTaskContract::render)
+        .map(|rendered| truncate_bytes(rendered, 1536))
         .map(|rendered| indent(&rendered, "  "))
         .enumerate()
         .map(|(index, rendered)| format!("- task {}:\n{}", index + 1, rendered))
@@ -343,10 +344,10 @@ Profile: {profile}\n\
 Style: {style}\n\
 Step instruction: {instruction}\n\
 {active_contract}\
-{recovery_task}\
-Repair focus:\n{focus}\n\
-Missing expected paths:\n{missing}\n\
 Contract evidence:\n{contract_evidence}\n\
+Repair focus:\n{focus}\n\
+{recovery_task}\
+Missing expected paths:\n{missing}\n\
 Verification failures:\n{failures}\n\
 Changed files in failed repair attempts:\n{changed}\n\
 \n\
@@ -391,10 +392,10 @@ Profile: {profile}\n\
 Style: {style}\n\
 Expected paths from completed phase:\n{expected}\n\
 {route_targets}\
-{recovery_task}\
-Repair focus:\n{focus}\n\
-Contract evidence:\n{contract_evidence}\n\
 Profile verification failures:\n{failures}\n\
+Contract evidence:\n{contract_evidence}\n\
+Repair focus:\n{focus}\n\
+{recovery_task}\
 Phase contract facts:\n{phase_facts}\n\
 Profile facts after phase:\n{profile_facts}\n\
 \n\
@@ -522,6 +523,7 @@ fn contract_evidence_section(evidence: &[ContractEvidence]) -> String {
         .cloned()
         .map(orchestrate_evidence)
         .filter_map(|evidence| evidence.render())
+        .map(|rendered| truncate_bytes(rendered, 2048))
         .map(|rendered| indent(&rendered, "  "))
         .enumerate()
         .map(|(index, rendered)| format!("- evidence {}:\n{}", index + 1, rendered))

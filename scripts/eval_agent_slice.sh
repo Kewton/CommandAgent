@@ -172,6 +172,15 @@ RECOVERY_FIELD_NAMES = [
     "tie_break_reason",
     "target_path",
     "target_role",
+    "target_candidate_count",
+    "target_admitted_count",
+    "target_rejected_count",
+    "selected_target",
+    "selected_target_role",
+    "target_rejection_reasons",
+    "selected_failure_cluster",
+    "repair_brief_status",
+    "action_envelope_status",
     "repair_action",
     "tool_policy",
     "attempt_outcome",
@@ -196,6 +205,16 @@ def recovery_fields(reason, evidence, case):
         )
     if not fields.get("target_role"):
         fields["target_role"] = first_contract_value(evidence, "artifact_role")
+    if not fields.get("selected_target"):
+        fields["selected_target"] = (
+            first_contract_value(evidence, "selected_target")
+            or fields.get("target_path", "")
+        )
+    if not fields.get("selected_target_role"):
+        fields["selected_target_role"] = (
+            first_contract_value(evidence, "selected_target_role")
+            or fields.get("target_role", "")
+        )
     if not fields.get("evidence_binding_status"):
         fields["evidence_binding_status"] = status_from_contract_list(
             evidence, "evidence_binding"
@@ -249,6 +268,15 @@ def derived_recovery_fields(reason, case):
         "tie_break_reason": "",
         "target_path": target,
         "target_role": role,
+        "target_candidate_count": "",
+        "target_admitted_count": "",
+        "target_rejected_count": "",
+        "selected_target": target,
+        "selected_target_role": role,
+        "target_rejection_reasons": "",
+        "selected_failure_cluster": "",
+        "repair_brief_status": "",
+        "action_envelope_status": "",
         "repair_action": "",
         "tool_policy": "",
         "attempt_outcome": "not_attempted" if reason != "ok" else "passed",

@@ -50,6 +50,194 @@ pub(crate) struct RepairTargetCandidate {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TargetAdmissionPolicy {
+    pub(crate) active_job: String,
+    pub(crate) repair_action: String,
+    pub(crate) allowed_roles: Vec<ArtifactRole>,
+    pub(crate) requires_target: bool,
+    pub(crate) allow_file_target: bool,
+    pub(crate) exhausted_targets: Vec<String>,
+    pub(crate) exhausted_roles: Vec<ArtifactRole>,
+}
+
+impl TargetAdmissionPolicy {
+    pub(crate) fn new(
+        active_job: impl Into<String>,
+        repair_action: impl Into<String>,
+        allowed_roles: Vec<ArtifactRole>,
+        requires_target: bool,
+        allow_file_target: bool,
+    ) -> Self {
+        Self {
+            active_job: active_job.into(),
+            repair_action: repair_action.into(),
+            allowed_roles,
+            requires_target,
+            allow_file_target,
+            exhausted_targets: Vec::new(),
+            exhausted_roles: Vec::new(),
+        }
+    }
+
+    pub(crate) fn with_exhausted_targets<I, S>(mut self, exhausted_targets: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.exhausted_targets = exhausted_targets
+            .into_iter()
+            .map(|target| {
+                let target = target.into();
+                normalize_path(&target)
+            })
+            .collect();
+        self
+    }
+
+    pub(crate) fn with_exhausted_roles(mut self, exhausted_roles: Vec<ArtifactRole>) -> Self {
+        self.exhausted_roles = exhausted_roles;
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TargetAdmissionStatus {
+    Proposed,
+    Admitted,
+    Rejected,
+}
+
+impl TargetAdmissionStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Proposed => "proposed",
+            Self::Admitted => "admitted",
+            Self::Rejected => "rejected",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TargetAdmissionRecord {
+    pub(crate) status: TargetAdmissionStatus,
+    pub(crate) path: String,
+    pub(crate) role: ArtifactRole,
+    pub(crate) priority: u8,
+    pub(crate) source: RepairTargetSource,
+    pub(crate) ownership: ArtifactOwnership,
+    pub(crate) reason: String,
+}
+
+impl TargetAdmissionRecord {
+    pub(crate) fn render_line(&self) -> String {
+        format!(
+            "status={} path={} role={} priority={} source={} ownership={} reason={}",
+            self.status.as_str(),
+            self.path,
+            self.role.as_str(),
+            self.priority,
+            self.source.as_str(),
+            self.ownership.as_str(),
+            compact(&self.reason)
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct TargetAdmissionDecision {
+    pub(crate) proposed_targets: Vec<TargetAdmissionRecord>,
+    pub(crate) admitted_targets: Vec<TargetAdmissionRecord>,
+    pub(crate) rejected_targets: Vec<TargetAdmissionRecord>,
+    pub(crate) selected_target: Option<String>,
+    pub(crate) selected_role: Option<ArtifactRole>,
+    pub(crate) selected_priority: Option<u8>,
+    pub(crate) explicit_stop_reason: Option<String>,
+}
+
+impl TargetAdmissionDecision {
+    pub(crate) fn selected_record(&self) -> Option<&TargetAdmissionRecord> {
+        self.admitted_targets
+            .iter()
+            .find(|record| Some(record.path.as_str()) == self.selected_target.as_deref())
+    }
+
+    pub(crate) fn target_admission_line(&self) -> String {
+        if let Some(record) = self.selected_record() {
+            return format!(
+                "admitted: target {} role={} source={} reason={}",
+                record.path,
+                record.role.as_str(),
+                record.source.as_str(),
+                compact(&record.reason)
+            );
+        }
+        if let Some(reason) = &self.explicit_stop_reason {
+            return format!("rejected: {reason}");
+        }
+        "none: no deterministic target admitted".to_string()
+    }
+
+    pub(crate) fn target_priority_line(&self) -> String {
+        if let Some(record) = self.selected_record() {
+            return format!(
+                "priority={} selected by {} for role {}",
+                record.priority,
+                record.source.as_str(),
+                record.role.as_str()
+            );
+        }
+        "none: no deterministic priority winner".to_string()
+    }
+
+    pub(crate) fn proposed_lines(&self) -> Vec<String> {
+        self.proposed_targets
+            .iter()
+            .map(TargetAdmissionRecord::render_line)
+            .collect()
+    }
+
+    pub(crate) fn admitted_lines(&self) -> Vec<String> {
+        self.admitted_targets
+            .iter()
+            .map(TargetAdmissionRecord::render_line)
+            .collect()
+    }
+
+    pub(crate) fn rejected_lines(&self) -> Vec<String> {
+        self.rejected_targets
+            .iter()
+            .map(TargetAdmissionRecord::render_line)
+            .collect()
+    }
+
+    pub(crate) fn eval_report_fields(&self) -> Vec<String> {
+        vec![
+            format!("target_candidate_count={}", self.proposed_targets.len()),
+            format!("target_admitted_count={}", self.admitted_targets.len()),
+            format!("target_rejected_count={}", self.rejected_targets.len()),
+            format!(
+                "selected_target={}",
+                self.selected_target.as_deref().unwrap_or("none")
+            ),
+            format!(
+                "selected_target_role={}",
+                self.selected_role
+                    .map(ArtifactRole::as_str)
+                    .unwrap_or("unknown")
+            ),
+            format!(
+                "target_rejection_reasons={}",
+                self.rejected_targets
+                    .iter()
+                    .map(|record| compact(&record.reason))
+                    .collect::<Vec<_>>()
+                    .join("|")
+            ),
+        ]
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum TargetAdmission {
     Admitted {
         path: String,
@@ -150,6 +338,63 @@ pub(crate) fn admit_repair_target_with_scope(
     }
 }
 
+pub(crate) fn decide_repair_target_with_scope(
+    candidates: impl IntoIterator<Item = RepairTargetCandidate>,
+    graph: &ArtifactGraph,
+    policy: &TargetAdmissionPolicy,
+    scope: &WorkspaceScope,
+    changed_paths: &[String],
+) -> TargetAdmissionDecision {
+    let mut decision = TargetAdmissionDecision::default();
+    for candidate in candidates {
+        if candidate.path.trim().is_empty()
+            || decision
+                .proposed_targets
+                .iter()
+                .any(|record| record.path == normalize_path(&candidate.path))
+        {
+            continue;
+        }
+        let record = proposed_record(&candidate, graph, scope, changed_paths);
+        decision.proposed_targets.push(record.clone());
+
+        let rejection_reason = policy_rejection_reason(&record, policy).or_else(|| {
+            admission_rejection_reason(
+                candidate.clone(),
+                graph,
+                &policy.allowed_roles,
+                scope,
+                changed_paths,
+            )
+        });
+        if let Some(reason) = rejection_reason {
+            decision.rejected_targets.push(TargetAdmissionRecord {
+                status: TargetAdmissionStatus::Rejected,
+                reason,
+                ..record
+            });
+        } else {
+            decision.admitted_targets.push(TargetAdmissionRecord {
+                status: TargetAdmissionStatus::Admitted,
+                ..record
+            });
+        }
+    }
+    decision.admitted_targets.sort_by(|left, right| {
+        left.priority
+            .cmp(&right.priority)
+            .then(left.path.cmp(&right.path))
+    });
+    if let Some(selected) = decision.admitted_targets.first() {
+        decision.selected_target = Some(selected.path.clone());
+        decision.selected_role = Some(selected.role);
+        decision.selected_priority = Some(selected.priority);
+    } else if policy.requires_target {
+        decision.explicit_stop_reason = Some("no_admitted_recovery_target".to_string());
+    }
+    decision
+}
+
 pub(crate) fn select_first_admitted_target(
     candidates: impl IntoIterator<Item = RepairTargetCandidate>,
     graph: &ArtifactGraph,
@@ -165,6 +410,90 @@ pub(crate) fn select_first_admitted_target(
         TargetAdmission::Rejected { .. } => u8::MAX,
     });
     admitted.into_iter().next()
+}
+
+fn proposed_record(
+    candidate: &RepairTargetCandidate,
+    graph: &ArtifactGraph,
+    scope: &WorkspaceScope,
+    changed_paths: &[String],
+) -> TargetAdmissionRecord {
+    let path = normalize_path(&candidate.path);
+    let role = graph.node(&path).map(|node| node.role).unwrap_or_else(|| {
+        role_for_path(
+            &path,
+            crate::agent::step_runner::artifact_graph::ArtifactLifecycle::Required,
+        )
+    });
+    let ownership = classify_artifact_ownership(
+        graph,
+        scope,
+        &path,
+        role,
+        candidate.source.as_str(),
+        changed_paths,
+    );
+    TargetAdmissionRecord {
+        status: TargetAdmissionStatus::Proposed,
+        path,
+        role,
+        priority: candidate.source.priority(),
+        source: candidate.source,
+        ownership: ownership.ownership,
+        reason: format!(
+            "source={} ownership={} scope={}",
+            candidate.source.as_str(),
+            ownership.ownership.as_str(),
+            scope.summary()
+        ),
+    }
+}
+
+fn policy_rejection_reason(
+    record: &TargetAdmissionRecord,
+    policy: &TargetAdmissionPolicy,
+) -> Option<String> {
+    if !policy.allow_file_target {
+        return Some(format!(
+            "file_target_not_allowed_for_current_job:{}",
+            policy.active_job
+        ));
+    }
+    if policy
+        .exhausted_targets
+        .iter()
+        .any(|target| target == &record.path)
+    {
+        return Some("target_exhausted_for_same_failure_cluster".to_string());
+    }
+    if policy.exhausted_roles.contains(&record.role) {
+        return Some(format!(
+            "role_exhausted_for_same_failure_cluster:{}",
+            record.role.as_str()
+        ));
+    }
+    None
+}
+
+fn admission_rejection_reason(
+    candidate: RepairTargetCandidate,
+    graph: &ArtifactGraph,
+    allowed_roles: &[ArtifactRole],
+    scope: &WorkspaceScope,
+    changed_paths: &[String],
+) -> Option<String> {
+    match admit_repair_target_with_scope(candidate, graph, allowed_roles, scope, changed_paths) {
+        TargetAdmission::Admitted { .. } => None,
+        TargetAdmission::Rejected { reason, .. } => Some(reason),
+    }
+}
+
+fn normalize_path(path: &str) -> String {
+    path.trim().trim_start_matches("./").replace('\\', "/")
+}
+
+fn compact(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 #[cfg(test)]
@@ -253,5 +582,105 @@ mod tests {
 
         assert!(!admission.is_admitted());
         assert!(admission.reason().contains("artifact_out_of_scope"));
+    }
+
+    #[test]
+    fn decision_records_proposed_admitted_and_rejected_targets() {
+        let candidates = vec![
+            RepairTargetCandidate {
+                path: "node_modules/react/index.js".to_string(),
+                role: ArtifactRole::DependencyCache,
+                source: RepairTargetSource::FailureEvidence,
+            },
+            RepairTargetCandidate {
+                path: "app/page.tsx".to_string(),
+                role: ArtifactRole::Entrypoint,
+                source: RepairTargetSource::VerifierDiagnostic,
+            },
+        ];
+        let policy = TargetAdmissionPolicy::new(
+            "source_implementation_repair",
+            "edit_source_for_diagnostic",
+            vec![ArtifactRole::Entrypoint, ArtifactRole::Implementation],
+            true,
+            true,
+        );
+        let graph = ArtifactGraph::new();
+        let scope = WorkspaceScope::greenfield();
+
+        let decision = decide_repair_target_with_scope(candidates, &graph, &policy, &scope, &[]);
+
+        assert_eq!(decision.proposed_targets.len(), 2);
+        assert_eq!(decision.admitted_targets.len(), 1);
+        assert_eq!(decision.rejected_targets.len(), 1);
+        assert_eq!(decision.selected_target.as_deref(), Some("app/page.tsx"));
+        assert!(
+            decision
+                .rejected_lines()
+                .iter()
+                .any(|line| line.contains("generated_or_dependency_cache"))
+        );
+    }
+
+    #[test]
+    fn decision_stops_when_target_required_but_none_admitted() {
+        let candidates = vec![RepairTargetCandidate {
+            path: "node_modules/react/index.js".to_string(),
+            role: ArtifactRole::DependencyCache,
+            source: RepairTargetSource::FailureEvidence,
+        }];
+        let policy = TargetAdmissionPolicy::new(
+            "source_implementation_repair",
+            "edit_source_for_diagnostic",
+            vec![ArtifactRole::Implementation],
+            true,
+            true,
+        );
+
+        let decision = decide_repair_target_with_scope(
+            candidates,
+            &ArtifactGraph::new(),
+            &policy,
+            &WorkspaceScope::greenfield(),
+            &[],
+        );
+
+        assert!(decision.selected_target.is_none());
+        assert_eq!(
+            decision.explicit_stop_reason.as_deref(),
+            Some("no_admitted_recovery_target")
+        );
+    }
+
+    #[test]
+    fn decision_rejects_file_target_for_tool_protocol() {
+        let candidates = vec![RepairTargetCandidate {
+            path: "app/page.tsx".to_string(),
+            role: ArtifactRole::Entrypoint,
+            source: RepairTargetSource::FailureEvidence,
+        }];
+        let policy = TargetAdmissionPolicy::new(
+            "tool_protocol_correction",
+            "correct_tool_protocol",
+            Vec::new(),
+            false,
+            false,
+        );
+
+        let decision = decide_repair_target_with_scope(
+            candidates,
+            &ArtifactGraph::new(),
+            &policy,
+            &WorkspaceScope::greenfield(),
+            &[],
+        );
+
+        assert!(decision.selected_target.is_none());
+        assert!(
+            decision
+                .rejected_lines()
+                .iter()
+                .any(|line| line.contains("file_target_not_allowed"))
+        );
     }
 }

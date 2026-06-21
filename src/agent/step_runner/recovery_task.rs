@@ -93,6 +93,13 @@ pub struct RecoveryTaskContract {
     pub artifact_graph_summary: Vec<String>,
     pub rerun_authority: Vec<String>,
     pub repair_attempt_ledger: Vec<String>,
+    pub proposed_targets: Vec<String>,
+    pub admitted_targets: Vec<String>,
+    pub rejected_targets: Vec<String>,
+    pub repair_brief: Vec<String>,
+    pub selected_failure_cluster: Option<String>,
+    pub repair_brief_status: Option<String>,
+    pub action_envelope_status: Option<String>,
     pub execution_envelope: Option<RecoveryExecutionEnvelope>,
 }
 
@@ -157,6 +164,13 @@ impl RecoveryTaskContract {
             .with_artifact_graph_summary(evidence.artifact_graph_summary.clone())
             .with_rerun_authority(evidence.rerun_authority.clone())
             .with_repair_attempt_ledger(evidence.repair_attempt_ledger.clone())
+            .with_proposed_targets(evidence.proposed_targets.clone())
+            .with_admitted_targets(evidence.admitted_targets.clone())
+            .with_rejected_targets(evidence.rejected_targets.clone())
+            .with_repair_brief(evidence.repair_brief.clone())
+            .with_selected_failure_cluster_opt(evidence.selected_failure_cluster.clone())
+            .with_repair_brief_status_opt(evidence.repair_brief_status.clone())
+            .with_action_envelope_status_opt(evidence.action_envelope_status.clone())
             .with_execution_envelope_opt(execution_envelope(evidence));
 
         if evidence.guard == "tool_protocol"
@@ -505,6 +519,65 @@ impl RecoveryTaskContract {
         self
     }
 
+    pub fn with_proposed_targets<I, S>(mut self, proposed_targets: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        for target in proposed_targets {
+            push_unique(&mut self.proposed_targets, target.into());
+        }
+        self
+    }
+
+    pub fn with_admitted_targets<I, S>(mut self, admitted_targets: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        for target in admitted_targets {
+            push_unique(&mut self.admitted_targets, target.into());
+        }
+        self
+    }
+
+    pub fn with_rejected_targets<I, S>(mut self, rejected_targets: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        for target in rejected_targets {
+            push_unique(&mut self.rejected_targets, target.into());
+        }
+        self
+    }
+
+    pub fn with_repair_brief<I, S>(mut self, repair_brief: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        for item in repair_brief {
+            push_unique(&mut self.repair_brief, item.into());
+        }
+        self
+    }
+
+    pub fn with_selected_failure_cluster(mut self, cluster: impl Into<String>) -> Self {
+        self.selected_failure_cluster = Some(cluster.into());
+        self
+    }
+
+    pub fn with_repair_brief_status(mut self, status: impl Into<String>) -> Self {
+        self.repair_brief_status = Some(status.into());
+        self
+    }
+
+    pub fn with_action_envelope_status(mut self, status: impl Into<String>) -> Self {
+        self.action_envelope_status = Some(status.into());
+        self
+    }
+
     pub fn with_execution_envelope(mut self, envelope: RecoveryExecutionEnvelope) -> Self {
         self.execution_envelope = Some(envelope);
         self
@@ -532,6 +605,7 @@ impl RecoveryTaskContract {
         push_list(&mut lines, "allowed_tools", &self.allowed_tools);
         push_list(&mut lines, "disallowed_actions", &self.disallowed_actions);
         push_field(&mut lines, "success_check", self.success_check.as_deref());
+        push_list(&mut lines, "rerun_authority", &self.rerun_authority);
         push_field(
             &mut lines,
             "evidence_signature",
@@ -632,11 +706,29 @@ impl RecoveryTaskContract {
             "artifact_graph_summary",
             &self.artifact_graph_summary,
         );
-        push_list(&mut lines, "rerun_authority", &self.rerun_authority);
         push_list(
             &mut lines,
             "repair_attempt_ledger",
             &self.repair_attempt_ledger,
+        );
+        push_list(&mut lines, "proposed_targets", &self.proposed_targets);
+        push_list(&mut lines, "admitted_targets", &self.admitted_targets);
+        push_list(&mut lines, "rejected_targets", &self.rejected_targets);
+        push_list(&mut lines, "repair_brief", &self.repair_brief);
+        push_field(
+            &mut lines,
+            "selected_failure_cluster",
+            self.selected_failure_cluster.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "repair_brief_status",
+            self.repair_brief_status.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "action_envelope_status",
+            self.action_envelope_status.as_deref(),
         );
         if let Some(envelope) = self.execution_envelope {
             push_field(&mut lines, "execution_envelope", Some(envelope.as_str()));
@@ -846,6 +938,27 @@ impl RecoveryTaskContract {
         }
     }
 
+    fn with_selected_failure_cluster_opt(self, value: Option<String>) -> Self {
+        match value {
+            Some(value) => self.with_selected_failure_cluster(value),
+            None => self,
+        }
+    }
+
+    fn with_repair_brief_status_opt(self, value: Option<String>) -> Self {
+        match value {
+            Some(value) => self.with_repair_brief_status(value),
+            None => self,
+        }
+    }
+
+    fn with_action_envelope_status_opt(self, value: Option<String>) -> Self {
+        match value {
+            Some(value) => self.with_action_envelope_status(value),
+            None => self,
+        }
+    }
+
     fn with_execution_envelope_opt(self, envelope: Option<RecoveryExecutionEnvelope>) -> Self {
         match envelope {
             Some(value) => self.with_execution_envelope(value),
@@ -895,6 +1008,13 @@ impl RecoveryTaskContract {
             || !self.artifact_graph_summary.is_empty()
             || !self.rerun_authority.is_empty()
             || !self.repair_attempt_ledger.is_empty()
+            || !self.proposed_targets.is_empty()
+            || !self.admitted_targets.is_empty()
+            || !self.rejected_targets.is_empty()
+            || !self.repair_brief.is_empty()
+            || self.selected_failure_cluster.is_some()
+            || self.repair_brief_status.is_some()
+            || self.action_envelope_status.is_some()
             || self.execution_envelope.is_some()
     }
 }

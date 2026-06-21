@@ -19,6 +19,7 @@ pub(crate) mod recovery_policy;
 pub mod recovery_task;
 pub mod repair;
 pub(crate) mod repair_action_plan;
+pub(crate) mod repair_brief;
 pub(crate) mod repair_job;
 pub mod runtime;
 pub(crate) mod semantic_failure;

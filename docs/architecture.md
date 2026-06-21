@@ -231,8 +231,19 @@ The orchestration section may carry `recovery_owner`, `completion_evidence`,
 `tie_break_reason`, `completion_evidence`, `evidence_binding`,
 `deliverable_obligations`, `repair_action_plan`, `semantic_failure_report`,
 `repair_job_state`, `attempt_outcomes`, `patch_validation`, and
-`eval_report_fields`. These fields are reporting and repair-contract data.
+`eval_report_fields`. Phase 4 target-admission data may also carry
+`proposed_targets`, `admitted_targets`, `rejected_targets`, `repair_brief`,
+`selected_failure_cluster`, `repair_brief_status`, and
+`action_envelope_status`. These fields are reporting and repair-contract data.
 They do not grant retry authority or create another execution loop.
+
+Target admission is a deterministic gate between active-job dispatch and
+repair prompt rendering. It uses ArtifactGraph, ArtifactLedger, workspace
+scope, artifact ownership, selected active job, and selected action to admit
+or reject target candidates before the model turn. Semantic repair planning is
+bounded contract data that selects a failure cluster and repair hypothesis from
+existing evidence. The repair brief is the structured source for the existing
+Recovery Task Contract; it is not a planner, executor, or retry mechanism.
 
 Eval failure observations are normalized at the eval/report boundary. The
 shared eval observation helper turns an already observed run result into

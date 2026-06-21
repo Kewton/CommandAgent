@@ -72,6 +72,13 @@ pub struct ContractEvidence {
     pub eval_report_fields: Vec<String>,
     pub artifact_graph_summary: Vec<String>,
     pub rerun_authority: Vec<String>,
+    pub proposed_targets: Vec<String>,
+    pub admitted_targets: Vec<String>,
+    pub rejected_targets: Vec<String>,
+    pub repair_brief: Vec<String>,
+    pub selected_failure_cluster: Option<String>,
+    pub repair_brief_status: Option<String>,
+    pub action_envelope_status: Option<String>,
     pub diagnostic: Option<String>,
 }
 
@@ -484,6 +491,63 @@ impl ContractEvidence {
         self
     }
 
+    pub fn with_proposed_targets<I, S>(mut self, proposed_targets: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.proposed_targets = collect_values(proposed_targets);
+        self
+    }
+
+    pub fn with_admitted_targets<I, S>(mut self, admitted_targets: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.admitted_targets = collect_values(admitted_targets);
+        self
+    }
+
+    pub fn with_rejected_targets<I, S>(mut self, rejected_targets: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.rejected_targets = collect_values(rejected_targets);
+        self
+    }
+
+    pub fn with_repair_brief<I, S>(mut self, repair_brief: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.repair_brief = collect_values(repair_brief);
+        self
+    }
+
+    pub fn with_selected_failure_cluster(
+        mut self,
+        selected_failure_cluster: impl Into<String>,
+    ) -> Self {
+        self.selected_failure_cluster = Some(selected_failure_cluster.into());
+        self
+    }
+
+    pub fn with_repair_brief_status(mut self, repair_brief_status: impl Into<String>) -> Self {
+        self.repair_brief_status = Some(repair_brief_status.into());
+        self
+    }
+
+    pub fn with_action_envelope_status(
+        mut self,
+        action_envelope_status: impl Into<String>,
+    ) -> Self {
+        self.action_envelope_status = Some(action_envelope_status.into());
+        self
+    }
+
     pub fn with_diagnostic(mut self, diagnostic: impl Into<String>) -> Self {
         self.diagnostic = Some(diagnostic.into());
         self
@@ -579,6 +643,7 @@ impl ContractEvidence {
             "setup_implication",
             self.setup_implication.as_deref(),
         );
+        push_list(&mut lines, "rerun_authority", &self.rerun_authority);
         push_field(
             &mut lines,
             "tool_policy_projection",
@@ -658,7 +723,24 @@ impl ContractEvidence {
             "artifact_graph_summary",
             &self.artifact_graph_summary,
         );
-        push_list(&mut lines, "rerun_authority", &self.rerun_authority);
+        push_list(&mut lines, "proposed_targets", &self.proposed_targets);
+        push_list(&mut lines, "admitted_targets", &self.admitted_targets);
+        push_list(&mut lines, "rejected_targets", &self.rejected_targets);
+        push_field(
+            &mut lines,
+            "selected_failure_cluster",
+            self.selected_failure_cluster.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "repair_brief_status",
+            self.repair_brief_status.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "action_envelope_status",
+            self.action_envelope_status.as_deref(),
+        );
         push_field(&mut lines, "diagnostic", self.diagnostic.as_deref());
         Some(lines.join("\n"))
     }
@@ -723,6 +805,13 @@ impl ContractEvidence {
             && self.eval_report_fields.is_empty()
             && self.artifact_graph_summary.is_empty()
             && self.rerun_authority.is_empty()
+            && self.proposed_targets.is_empty()
+            && self.admitted_targets.is_empty()
+            && self.rejected_targets.is_empty()
+            && self.repair_brief.is_empty()
+            && self.selected_failure_cluster.is_none()
+            && self.repair_brief_status.is_none()
+            && self.action_envelope_status.is_none()
             && self.diagnostic.is_none()
     }
 }

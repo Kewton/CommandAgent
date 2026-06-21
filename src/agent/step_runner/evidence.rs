@@ -396,6 +396,20 @@ pub struct OrchestrationEvidence {
     pub eval_report_fields: Vec<String>,
     #[serde(default)]
     pub artifact_graph_summary: Vec<String>,
+    #[serde(default)]
+    pub proposed_targets: Vec<String>,
+    #[serde(default)]
+    pub admitted_targets: Vec<String>,
+    #[serde(default)]
+    pub rejected_targets: Vec<String>,
+    #[serde(default)]
+    pub repair_brief: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_failure_cluster: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repair_brief_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_envelope_status: Option<String>,
 }
 
 impl OrchestrationEvidence {
@@ -431,6 +445,13 @@ impl OrchestrationEvidence {
             patch_validation: evidence.patch_validation.clone(),
             eval_report_fields: evidence.eval_report_fields.clone(),
             artifact_graph_summary: evidence.artifact_graph_summary.clone(),
+            proposed_targets: evidence.proposed_targets.clone(),
+            admitted_targets: evidence.admitted_targets.clone(),
+            rejected_targets: evidence.rejected_targets.clone(),
+            repair_brief: evidence.repair_brief.clone(),
+            selected_failure_cluster: evidence.selected_failure_cluster.clone(),
+            repair_brief_status: evidence.repair_brief_status.clone(),
+            action_envelope_status: evidence.action_envelope_status.clone(),
         };
         if orchestration.active_job.is_none()
             && orchestration.repair_action.is_none()
@@ -462,6 +483,13 @@ impl OrchestrationEvidence {
             && orchestration.patch_validation.is_empty()
             && orchestration.eval_report_fields.is_empty()
             && orchestration.artifact_graph_summary.is_empty()
+            && orchestration.proposed_targets.is_empty()
+            && orchestration.admitted_targets.is_empty()
+            && orchestration.rejected_targets.is_empty()
+            && orchestration.repair_brief.is_empty()
+            && orchestration.selected_failure_cluster.is_none()
+            && orchestration.repair_brief_status.is_none()
+            && orchestration.action_envelope_status.is_none()
         {
             None
         } else {

@@ -171,6 +171,9 @@ class EvalReportCategorizeTests(unittest.TestCase):
                     "active_job": "tool_protocol_correction",
                     "loop_control_action": "run_tool_protocol_correction",
                     "dispatch_status": "selected",
+                    "repair_brief_status": "admitted",
+                    "action_envelope_status": "admitted",
+                    "selected_failure_cluster": "tool_protocol:tool_args_missing_required_field",
                 }
             ]
         )
@@ -179,6 +182,10 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertIn("- selected: 1", report)
         self.assertIn("## Loop Control Actions", report)
         self.assertIn("- run_tool_protocol_correction: 1", report)
+        self.assertIn("## Repair Brief Status", report)
+        self.assertIn("- admitted: 1", report)
+        self.assertIn("## Action Envelope Status", report)
+        self.assertIn("## Selected Failure Clusters", report)
 
 
 if __name__ == "__main__":

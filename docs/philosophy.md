@@ -462,8 +462,11 @@ classified failure
   -> repair kind
   -> semantic failure kind and source of truth
   -> admitted target path, command, or artifact role when known
+  -> proposed/admitted/rejected repair targets
+  -> selected deterministic failure cluster
   -> repair action when the current blocker has one deterministic action
   -> allowed change kind and disallowed actions
+  -> repair brief and action envelope
   -> workspace scope and artifact ownership when a target is admitted
   -> expected evidence delta
   -> setup implication when the failure or repair affects dependencies
@@ -482,9 +485,12 @@ These values are carried as bounded contract evidence fields such as
 `completion_evidence`, `evidence_binding`, `deliverable_obligations`,
 `repair_action_plan`, `semantic_failure_report`, `repair_job_state`,
 `attempt_outcomes`, `patch_validation`, and `eval_report_fields` are also
-bounded contract evidence. They are data for Recovery Policy Contract, Recovery Task
-Contract, or verifier-owned setup recovery. They are not hidden workflow state,
-retry counters, or permission for the model to choose a new job.
+bounded contract evidence. Phase 4 also propagates `proposed_targets`,
+`admitted_targets`, `rejected_targets`, `repair_brief`,
+`selected_failure_cluster`, `repair_brief_status`, and
+`action_envelope_status`. They are data for Recovery Policy Contract, Recovery
+Task Contract, or verifier-owned setup recovery. They are not hidden workflow
+state, retry counters, or permission for the model to choose a new job.
 
 Examples:
 
@@ -506,6 +512,14 @@ phases, increase retry counts, run dependency setup from an ordinary repair
 turn, or hide continuation after a failed guard. It only makes the next
 visible repair or setup step precise enough that the minimal loop is not asked
 to decide what kind of repair is needed.
+
+When an active job requires a file target, target admission must happen before
+the repair prompt is built. Wrong-role, out-of-scope, generated-output,
+dependency-cache, exhausted, or candidate-only paths should be rejected with
+structured evidence. If no target is admitted, recovery stops explicitly
+instead of broadening the prompt. Semantic repair planning may explain the
+selected target through a bounded failure cluster, but it must not parse broad
+model prose or select future workflow steps.
 
 When propagation is not deterministic, CommandAgent should stop with bounded
 evidence rather than invent a repair kind. When it is deterministic, the

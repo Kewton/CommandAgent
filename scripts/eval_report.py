@@ -109,6 +109,15 @@ def write_summary(path, rows):
         "tie_break_reason",
         "target_path",
         "target_role",
+        "target_candidate_count",
+        "target_admitted_count",
+        "target_rejected_count",
+        "selected_target",
+        "selected_target_role",
+        "target_rejection_reasons",
+        "selected_failure_cluster",
+        "repair_brief_status",
+        "action_envelope_status",
         "repair_action",
         "tool_policy",
         "attempt_outcome",
@@ -169,6 +178,15 @@ def recheck(root, cases):
                 "tie_break_reason": meta.get("tie_break_reason", ""),
                 "target_path": meta.get("target_path", first_reason_target(reason)),
                 "target_role": meta.get("target_role", artifact_role_for_path(first_reason_target(reason))),
+                "target_candidate_count": meta.get("target_candidate_count", ""),
+                "target_admitted_count": meta.get("target_admitted_count", ""),
+                "target_rejected_count": meta.get("target_rejected_count", ""),
+                "selected_target": meta.get("selected_target", meta.get("target_path", first_reason_target(reason))),
+                "selected_target_role": meta.get("selected_target_role", meta.get("target_role", artifact_role_for_path(first_reason_target(reason)))),
+                "target_rejection_reasons": meta.get("target_rejection_reasons", ""),
+                "selected_failure_cluster": meta.get("selected_failure_cluster", ""),
+                "repair_brief_status": meta.get("repair_brief_status", ""),
+                "action_envelope_status": meta.get("action_envelope_status", ""),
                 "repair_action": meta.get("repair_action", derive_repair_action(reason)),
                 "tool_policy": meta.get("tool_policy", derive_tool_policy(reason)),
                 "attempt_outcome": meta.get("attempt_outcome", "not_attempted" if reason != "ok" else "passed"),
@@ -377,6 +395,9 @@ def render_report(rows):
     recovery_jobs = {}
     loop_control_actions = {}
     dispatch_statuses = {}
+    repair_brief_statuses = {}
+    action_envelope_statuses = {}
+    selected_failure_clusters = {}
     evidence_runner_statuses = {}
     artifact_ledger_statuses = {}
     for row in rows:
@@ -396,6 +417,9 @@ def render_report(rows):
             row["reason"]
         )
         dispatch_status = row.get("dispatch_status") or derive_dispatch_status(row["reason"])
+        repair_brief_status = row.get("repair_brief_status", "")
+        action_envelope_status = row.get("action_envelope_status", "")
+        selected_failure_cluster = row.get("selected_failure_cluster", "")
         categories[category] = categories.get(category, 0) + 1
         layers[layer] = layers.get(layer, 0) + 1
         terminal_states[terminal_state] = terminal_states.get(terminal_state, 0) + 1
@@ -405,6 +429,18 @@ def render_report(rows):
             loop_control_actions.get(loop_control_action, 0) + 1
         )
         dispatch_statuses[dispatch_status] = dispatch_statuses.get(dispatch_status, 0) + 1
+        if repair_brief_status:
+            repair_brief_statuses[repair_brief_status] = (
+                repair_brief_statuses.get(repair_brief_status, 0) + 1
+            )
+        if action_envelope_status:
+            action_envelope_statuses[action_envelope_status] = (
+                action_envelope_statuses.get(action_envelope_status, 0) + 1
+            )
+        if selected_failure_cluster:
+            selected_failure_clusters[selected_failure_cluster] = (
+                selected_failure_clusters.get(selected_failure_cluster, 0) + 1
+            )
         if evidence_runner_status:
             evidence_runner_statuses[evidence_runner_status] = (
                 evidence_runner_statuses.get(evidence_runner_status, 0) + 1
@@ -452,6 +488,15 @@ def render_report(rows):
         lines.append(f"- {name}: {count}")
     lines.extend(["", "## Loop Control Actions"])
     for name, count in sorted(loop_control_actions.items()):
+        lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Repair Brief Status"])
+    for name, count in sorted(repair_brief_statuses.items()):
+        lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Action Envelope Status"])
+    for name, count in sorted(action_envelope_statuses.items()):
+        lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Selected Failure Clusters"])
+    for name, count in sorted(selected_failure_clusters.items()):
         lines.append(f"- {name}: {count}")
     lines.extend(["", "## By Case"])
     for case_id, (case_success, case_total) in sorted(by_case.items()):

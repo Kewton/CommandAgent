@@ -68,6 +68,11 @@ CommandAgent is still in MVP migration.
   attribution when multiple recovery owners are possible, but it is still a
   bounded contract gate; it does not run another executor or retry different
   owners until one passes.
+- Target admission and repair briefs now record proposed, admitted, and
+  rejected targets, selected failure cluster, repair brief status, and action
+  envelope status before ordinary repair prompt rendering. This reduces
+  wrong-target repair, but it still depends on deterministic evidence and does
+  not guarantee that a weak model will implement the admitted repair well.
 - Legacy-control-stack recovery records now include completion evidence, evidence
   binding, deliverable obligations, recovery owner, repair action plan,
   semantic failure report, repair job state, attempt outcomes, patch

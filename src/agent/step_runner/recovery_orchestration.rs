@@ -10,7 +10,15 @@ use crate::agent::step_runner::recovery_contract;
 use crate::agent::step_runner::repair_action_plan::{
     AllowedToolCategory, RepairActionPlan, RepairActionStatus,
 };
-use crate::agent::step_runner::semantic_failure::SemanticFailureReport;
+use crate::agent::step_runner::repair_brief::{
+    ActionEnvelopeStatus, RepairBrief, RepairBriefStatus,
+};
+use crate::agent::step_runner::semantic_failure::{SemanticFailureReport, SemanticRepairPlan};
+use crate::agent::step_runner::target_admission::{
+    RepairTargetCandidate, RepairTargetSource, TargetAdmissionPolicy,
+    decide_repair_target_with_scope,
+};
+use crate::agent::step_runner::workspace_scope::WorkspaceScope;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RecoveryJobKind {
@@ -214,6 +222,13 @@ pub(crate) struct RecoveryOrchestrationDecision {
     pub(crate) semantic_failure_report: Vec<String>,
     pub(crate) eval_report_fields: Vec<String>,
     pub(crate) artifact_graph_summary: Vec<String>,
+    pub(crate) proposed_targets: Vec<String>,
+    pub(crate) admitted_targets: Vec<String>,
+    pub(crate) rejected_targets: Vec<String>,
+    pub(crate) repair_brief: Vec<String>,
+    pub(crate) selected_failure_cluster: Option<String>,
+    pub(crate) repair_brief_status: Option<String>,
+    pub(crate) action_envelope_status: Option<String>,
 }
 
 impl RecoveryOrchestrationDecision {
@@ -282,6 +297,37 @@ impl RecoveryOrchestrationDecision {
             let rerun_authority = merge_lists(&evidence.rerun_authority, &self.rerun_authority);
             evidence = evidence.with_rerun_authority(rerun_authority);
         }
+        if !self.proposed_targets.is_empty() {
+            let proposed_targets = merge_lists(&evidence.proposed_targets, &self.proposed_targets);
+            evidence = evidence.with_proposed_targets(proposed_targets);
+        }
+        if !self.admitted_targets.is_empty() {
+            let admitted_targets = merge_lists(&evidence.admitted_targets, &self.admitted_targets);
+            evidence = evidence.with_admitted_targets(admitted_targets);
+        }
+        if !self.rejected_targets.is_empty() {
+            let rejected_targets = merge_lists(&evidence.rejected_targets, &self.rejected_targets);
+            evidence = evidence.with_rejected_targets(rejected_targets);
+        }
+        if !self.repair_brief.is_empty() {
+            let repair_brief = merge_lists(&evidence.repair_brief, &self.repair_brief);
+            evidence = evidence.with_repair_brief(repair_brief);
+        }
+        if evidence.selected_failure_cluster.is_none()
+            && let Some(cluster) = &self.selected_failure_cluster
+        {
+            evidence = evidence.with_selected_failure_cluster(cluster.clone());
+        }
+        if evidence.repair_brief_status.is_none()
+            && let Some(status) = &self.repair_brief_status
+        {
+            evidence = evidence.with_repair_brief_status(status.clone());
+        }
+        if evidence.action_envelope_status.is_none()
+            && let Some(status) = &self.action_envelope_status
+        {
+            evidence = evidence.with_action_envelope_status(status.clone());
+        }
         if evidence.explicit_stop_reason.is_none()
             && let Some(reason) = &self.explicit_stop_reason
         {
@@ -304,24 +350,23 @@ pub(crate) fn orchestrate_contract_evidence(
         return None;
     }
     let action = arbitration.selected_action;
-    let target = select_target(evidence, &graph, job);
-    let role = target
-        .as_deref()
-        .map(|target| {
-            role_for_path(
-                target,
-                crate::agent::step_runner::artifact_graph::ArtifactLifecycle::Required,
-            )
-        })
-        .map(|role| role.as_str().to_string());
-    let target_role = target
-        .as_deref()
-        .map(|target| target_role_for(&graph, target));
-    let target_admission = target_admission(&target, &graph, job);
+    let scope = WorkspaceScope::from_graph(&graph);
+    let target_policy = target_admission_policy(evidence, job, action);
+    let target_decision = decide_repair_target_with_scope(
+        target_candidates_for_job(evidence, &graph, job),
+        &graph,
+        &target_policy,
+        &scope,
+        &[],
+    );
+    let target = target_decision.selected_target.clone();
+    let target_role = target_decision.selected_role;
+    let role = target_role.map(|role| role.as_str().to_string());
+    let target_admission = target_decision.target_admission_line();
     let explicit_stop_reason = if let Some(reason) = arbitration.explicit_stop_reason.clone() {
         Some(reason)
-    } else if target.is_none() && job_requires_target(job) {
-        Some("no_admitted_recovery_target".to_string())
+    } else if let Some(reason) = target_decision.explicit_stop_reason.clone() {
+        Some(reason)
     } else if matches!(
         job,
         RecoveryJobKind::ExplicitStop | RecoveryJobKind::ContractConflict
@@ -330,7 +375,7 @@ pub(crate) fn orchestrate_contract_evidence(
     } else {
         None
     };
-    let target_priority = target_priority(&target, evidence, job);
+    let target_priority = target_decision.target_priority_line();
     let tool_policy = arbitration.tool_policy_projection;
     let semantic_failure_kind = recovery_contract::semantic_failure_kind(
         evidence,
@@ -353,6 +398,9 @@ pub(crate) fn orchestrate_contract_evidence(
     let recovery_owner = RecoveryOwner::for_active_job(job.as_str())
         .as_str()
         .to_string();
+    let required_action = required_action(evidence, job, action);
+    let disallowed_actions = disallowed_actions(evidence, job, action);
+    let rerun_authority = arbitration.rerun_authority.clone();
     let repair_action_plan = vec![
         RepairActionPlan {
             status: repair_action_status(&target_admission, explicit_stop_reason.as_deref()),
@@ -381,36 +429,64 @@ pub(crate) fn orchestrate_contract_evidence(
     if let Some(role) = target_role {
         semantic_source = semantic_source.with_artifact_role(role.as_str());
     }
-    let semantic_failure_report =
-        SemanticFailureReport::from_contract_evidence(&semantic_source).render_lines();
-    let eval_report_fields = vec![
-        format!("active_job={}", job.as_str()),
-        format!("recovery_owner={recovery_owner}"),
-        format!("target_path={}", target.as_deref().unwrap_or("none")),
-        format!(
-            "target_role={}",
-            target_role.map(|role| role.as_str()).unwrap_or("unknown")
-        ),
-        format!("repair_action={}", action.as_str()),
-        format!("tool_policy={}", tool_policy.as_str()),
-        format!("target_admission={target_admission}"),
-        format!(
-            "attempt_outcome={}",
-            if explicit_stop_reason.is_some() {
-                "explicit_stop"
-            } else {
-                "not_attempted"
-            }
-        ),
-        format!(
-            "evidence_binding_status={}",
-            evidence_binding_status(evidence)
-        ),
-        format!(
-            "completion_evidence_status={}",
-            completion_evidence_status(evidence)
-        ),
-    ];
+    let semantic_plan = SemanticRepairPlan::from_contract_evidence(&semantic_source);
+    let selected_failure_cluster = semantic_plan.selected_cluster_label();
+    let semantic_failure_report = merge_lists(
+        &SemanticFailureReport::from_contract_evidence(&semantic_source).render_lines(),
+        &semantic_plan.render_lines(),
+    );
+    let repair_brief = RepairBrief {
+        status: repair_brief_status(explicit_stop_reason.as_deref()),
+        active_job: job.as_str().to_string(),
+        recovery_owner: recovery_owner.clone(),
+        repair_action: action.as_str().to_string(),
+        selected_failure_cluster: selected_failure_cluster.clone(),
+        selected_target: target.clone(),
+        allowed_change_kind: allowed_change_kind.clone(),
+        allowed_tool_category: AllowedToolCategory::from_projection(tool_policy.as_str()),
+        disallowed_actions: disallowed_actions.clone(),
+        must_preserve: repair_brief_must_preserve(evidence, &rerun_authority),
+        success_check: repair_brief_success_check(evidence, &rerun_authority),
+        rerun_authority: rerun_authority.clone(),
+        explicit_stop_reason: explicit_stop_reason.clone(),
+        action_envelope_status: action_envelope_status(explicit_stop_reason.as_deref()),
+    };
+    let repair_brief_lines = repair_brief.render_lines();
+    let eval_report_fields = merge_lists(
+        &target_decision.eval_report_fields(),
+        &repair_brief.eval_report_fields(),
+    );
+    let eval_report_fields = merge_lists(
+        &eval_report_fields,
+        &[
+            format!("active_job={}", job.as_str()),
+            format!("recovery_owner={recovery_owner}"),
+            format!("target_path={}", target.as_deref().unwrap_or("none")),
+            format!(
+                "target_role={}",
+                target_role.map(|role| role.as_str()).unwrap_or("unknown")
+            ),
+            format!("repair_action={}", action.as_str()),
+            format!("tool_policy={}", tool_policy.as_str()),
+            format!("target_admission={target_admission}"),
+            format!(
+                "attempt_outcome={}",
+                if explicit_stop_reason.is_some() {
+                    "explicit_stop"
+                } else {
+                    "not_attempted"
+                }
+            ),
+            format!(
+                "evidence_binding_status={}",
+                evidence_binding_status(evidence)
+            ),
+            format!(
+                "completion_evidence_status={}",
+                completion_evidence_status(evidence)
+            ),
+        ],
+    );
     Some(RecoveryOrchestrationDecision {
         job,
         action,
@@ -418,8 +494,8 @@ pub(crate) fn orchestrate_contract_evidence(
         artifact_role: role,
         target_admission,
         target_priority,
-        required_action: required_action(evidence, job, action),
-        disallowed_actions: disallowed_actions(evidence, job, action),
+        required_action,
+        disallowed_actions,
         semantic_failure_kind,
         source_of_truth,
         allowed_change_kind,
@@ -434,12 +510,19 @@ pub(crate) fn orchestrate_contract_evidence(
         tie_break_reason: arbitration.tie_break_reason,
         recovery_owner,
         tool_policy,
-        rerun_authority: arbitration.rerun_authority,
+        rerun_authority,
         explicit_stop_reason,
         repair_action_plan,
         semantic_failure_report,
         eval_report_fields,
         artifact_graph_summary: graph.summary(),
+        proposed_targets: target_decision.proposed_lines(),
+        admitted_targets: target_decision.admitted_lines(),
+        rejected_targets: target_decision.rejected_lines(),
+        repair_brief: repair_brief_lines,
+        selected_failure_cluster: Some(selected_failure_cluster),
+        repair_brief_status: Some(repair_brief.status.as_str().to_string()),
+        action_envelope_status: Some(repair_brief.action_envelope_status.as_str().to_string()),
     })
 }
 
@@ -1038,6 +1121,267 @@ fn classify_action(evidence: &ContractEvidence, job: RecoveryJobKind) -> Recover
         RecoveryJobKind::ContractConflict => RecoveryActionKind::StopWithStructuredEvidence,
         RecoveryJobKind::ExplicitStop => RecoveryActionKind::StopWithStructuredEvidence,
     }
+}
+
+fn target_admission_policy(
+    evidence: &ContractEvidence,
+    job: RecoveryJobKind,
+    action: RecoveryActionKind,
+) -> TargetAdmissionPolicy {
+    TargetAdmissionPolicy::new(
+        job.as_str(),
+        action.as_str(),
+        allowed_target_roles(job),
+        job_requires_target(job),
+        job_allows_file_target(job),
+    )
+    .with_exhausted_targets(exhausted_targets_from_evidence(evidence))
+    .with_exhausted_roles(exhausted_roles_from_evidence(evidence))
+}
+
+fn target_candidates_for_job(
+    evidence: &ContractEvidence,
+    graph: &ArtifactGraph,
+    job: RecoveryJobKind,
+) -> Vec<RepairTargetCandidate> {
+    let mut candidates = Vec::new();
+    push_repair_target_candidate(
+        &mut candidates,
+        graph,
+        evidence.repair_target.clone(),
+        RepairTargetSource::FailureEvidence,
+    );
+    push_repair_target_candidate(
+        &mut candidates,
+        graph,
+        evidence.target_path.clone(),
+        RepairTargetSource::FailureEvidence,
+    );
+    if matches!(
+        job,
+        RecoveryJobKind::SetupBootstrap | RecoveryJobKind::ManifestRepair
+    ) {
+        push_repair_target_candidate(
+            &mut candidates,
+            graph,
+            Some("package.json".to_string()),
+            RepairTargetSource::SetupManifest,
+        );
+    }
+    for path in &evidence.candidate_artifacts {
+        push_repair_target_candidate(
+            &mut candidates,
+            graph,
+            Some(path.clone()),
+            candidate_source_for_job(job),
+        );
+        if job == RecoveryJobKind::RouteIntegrationRepair {
+            for route in graph.integration_targets_for(path) {
+                push_repair_target_candidate(
+                    &mut candidates,
+                    graph,
+                    Some(route),
+                    RepairTargetSource::ArtifactGraphRelation,
+                );
+            }
+        }
+        if matches!(
+            job,
+            RecoveryJobKind::SetupBootstrap | RecoveryJobKind::ManifestRepair
+        ) && let Some(manifest) = graph.setup_manifest_for(path)
+        {
+            push_repair_target_candidate(
+                &mut candidates,
+                graph,
+                Some(manifest),
+                RepairTargetSource::SetupManifest,
+            );
+        }
+    }
+    for path in &evidence.missing_paths {
+        push_repair_target_candidate(
+            &mut candidates,
+            graph,
+            Some(path.clone()),
+            RepairTargetSource::RequiredArtifact,
+        );
+    }
+    for path in &evidence.required_paths {
+        push_repair_target_candidate(
+            &mut candidates,
+            graph,
+            Some(path.clone()),
+            RepairTargetSource::RequiredArtifact,
+        );
+    }
+    candidates
+}
+
+fn push_repair_target_candidate(
+    candidates: &mut Vec<RepairTargetCandidate>,
+    graph: &ArtifactGraph,
+    path: Option<String>,
+    source: RepairTargetSource,
+) {
+    let Some(path) = path else {
+        return;
+    };
+    let path = path.trim().trim_start_matches("./").replace('\\', "/");
+    if path.is_empty() || candidates.iter().any(|candidate| candidate.path == path) {
+        return;
+    }
+    let role = graph.node(&path).map(|node| node.role).unwrap_or_else(|| {
+        role_for_path(
+            &path,
+            crate::agent::step_runner::artifact_graph::ArtifactLifecycle::Required,
+        )
+    });
+    candidates.push(RepairTargetCandidate { path, role, source });
+}
+
+fn candidate_source_for_job(job: RecoveryJobKind) -> RepairTargetSource {
+    match job {
+        RecoveryJobKind::RouteIntegrationRepair => RepairTargetSource::ProfileSelectedRoute,
+        RecoveryJobKind::SourceImplementationRepair => RepairTargetSource::VerifierDiagnostic,
+        RecoveryJobKind::SetupBootstrap | RecoveryJobKind::ManifestRepair => {
+            RepairTargetSource::SetupManifest
+        }
+        _ => RepairTargetSource::RequiredArtifact,
+    }
+}
+
+fn allowed_target_roles(job: RecoveryJobKind) -> Vec<ArtifactRole> {
+    match job {
+        RecoveryJobKind::SetupBootstrap | RecoveryJobKind::ManifestRepair => {
+            vec![ArtifactRole::SetupManifest, ArtifactRole::SetupConfig]
+        }
+        RecoveryJobKind::RouteIntegrationRepair => vec![
+            ArtifactRole::Entrypoint,
+            ArtifactRole::IntegrationTarget,
+            ArtifactRole::Implementation,
+            ArtifactRole::Unknown,
+        ],
+        RecoveryJobKind::ScaffoldMaterialization => vec![
+            ArtifactRole::Entrypoint,
+            ArtifactRole::IntegrationTarget,
+            ArtifactRole::Implementation,
+            ArtifactRole::Test,
+            ArtifactRole::Docs,
+            ArtifactRole::Unknown,
+        ],
+        RecoveryJobKind::SourceImplementationRepair => vec![
+            ArtifactRole::Entrypoint,
+            ArtifactRole::IntegrationTarget,
+            ArtifactRole::Implementation,
+        ],
+        RecoveryJobKind::TestArtifactCompletion | RecoveryJobKind::TestAlignmentRepair => {
+            vec![ArtifactRole::Test]
+        }
+        RecoveryJobKind::DocumentationRepair => vec![ArtifactRole::Docs],
+        RecoveryJobKind::EvidenceBindingRepair => vec![
+            ArtifactRole::SetupManifest,
+            ArtifactRole::SetupConfig,
+            ArtifactRole::Entrypoint,
+            ArtifactRole::IntegrationTarget,
+            ArtifactRole::Implementation,
+            ArtifactRole::Test,
+            ArtifactRole::Docs,
+            ArtifactRole::Unknown,
+        ],
+        RecoveryJobKind::VerifierContractCorrection => vec![ArtifactRole::Unknown],
+        RecoveryJobKind::ToolProtocolCorrection
+        | RecoveryJobKind::ContractConflict
+        | RecoveryJobKind::ExplicitStop => Vec::new(),
+    }
+}
+
+fn job_allows_file_target(job: RecoveryJobKind) -> bool {
+    !matches!(
+        job,
+        RecoveryJobKind::SetupBootstrap
+            | RecoveryJobKind::ToolProtocolCorrection
+            | RecoveryJobKind::ContractConflict
+            | RecoveryJobKind::ExplicitStop
+    )
+}
+
+fn exhausted_targets_from_evidence(evidence: &ContractEvidence) -> Vec<String> {
+    evidence
+        .repair_job_state
+        .iter()
+        .filter_map(|line| line.strip_prefix("exhausted_targets="))
+        .flat_map(|targets| targets.split('|').map(str::to_string).collect::<Vec<_>>())
+        .collect()
+}
+
+fn exhausted_roles_from_evidence(evidence: &ContractEvidence) -> Vec<ArtifactRole> {
+    evidence
+        .repair_job_state
+        .iter()
+        .filter_map(|line| line.strip_prefix("exhausted_roles="))
+        .flat_map(|roles| {
+            roles
+                .split('|')
+                .filter_map(parse_artifact_role)
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+fn parse_artifact_role(value: &str) -> Option<ArtifactRole> {
+    match value {
+        "setup_manifest" => Some(ArtifactRole::SetupManifest),
+        "setup_config" => Some(ArtifactRole::SetupConfig),
+        "entrypoint" => Some(ArtifactRole::Entrypoint),
+        "integration_target" => Some(ArtifactRole::IntegrationTarget),
+        "implementation" => Some(ArtifactRole::Implementation),
+        "test" => Some(ArtifactRole::Test),
+        "docs" => Some(ArtifactRole::Docs),
+        "generated_output" => Some(ArtifactRole::GeneratedOutput),
+        "dependency_cache" => Some(ArtifactRole::DependencyCache),
+        "unknown" => Some(ArtifactRole::Unknown),
+        _ => None,
+    }
+}
+
+fn repair_brief_status(explicit_stop_reason: Option<&str>) -> RepairBriefStatus {
+    if explicit_stop_reason.is_some() {
+        RepairBriefStatus::ExplicitStop
+    } else {
+        RepairBriefStatus::Admitted
+    }
+}
+
+fn action_envelope_status(explicit_stop_reason: Option<&str>) -> ActionEnvelopeStatus {
+    if explicit_stop_reason.is_some() {
+        ActionEnvelopeStatus::ExplicitStop
+    } else {
+        ActionEnvelopeStatus::Admitted
+    }
+}
+
+fn repair_brief_must_preserve(
+    evidence: &ContractEvidence,
+    rerun_authority: &[String],
+) -> Vec<String> {
+    let mut values = Vec::new();
+    if let Some(source) = evidence.source_of_truth.as_deref() {
+        push_unique(&mut values, format!("source_of_truth={source}"));
+    }
+    for authority in rerun_authority {
+        push_unique(&mut values, format!("rerun_authority={authority}"));
+    }
+    values
+}
+
+fn repair_brief_success_check(evidence: &ContractEvidence, rerun_authority: &[String]) -> String {
+    if !rerun_authority.is_empty() {
+        return rerun_authority.join(" plus ");
+    }
+    evidence
+        .command
+        .clone()
+        .unwrap_or_else(|| "original guard or verifier".to_string())
 }
 
 fn select_target(

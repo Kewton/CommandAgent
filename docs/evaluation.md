@@ -277,9 +277,22 @@ Contract Boundary Propagation fields should be recorded when present:
 - `attempt_outcomes`
 - `patch_validation`
 - `eval_report_fields`
+- `proposed_targets`
+- `admitted_targets`
+- `rejected_targets`
+- `repair_brief`
+- `selected_failure_cluster`
+- `repair_brief_status`
+- `action_envelope_status`
 
 These fields explain why a repair packet or setup recovery path was selected.
 They are not proof that the original ultra plan completed.
+
+Target-admission reports should preserve the funnel: proposed candidates,
+admitted candidates, rejected candidates with reasons, selected target,
+selected target role, selected failure cluster, repair brief status, and action
+envelope status. A wrong target rejected before the model turn should be
+reported as a target-admission result, not as a generic verifier failure.
 
 Patch validation failures are integrity failures, not implementation failures.
 If a repair attempt weakens or skips a test, the repair loop should record

@@ -211,6 +211,18 @@ eval reporting. They do not add retry authority, do not dispatch to another
 execution engine, and must not resolve same-priority ambiguity by hidden
 heuristics.
 
+2026-06-21 amendment: Recovery Orchestration now includes a target-admission,
+semantic-plan, and repair-brief gate after active-job dispatch. A recoverable
+failure may propose multiple targets, but the runtime must admit, reject, and
+prioritize them using deterministic artifact role, ownership, scope,
+source-of-truth, and active-job/action facts before a repair prompt is built.
+The selected semantic failure cluster and repair brief may be rendered into
+`ContractEvidence`, `RecoveryTaskContract`, and eval reports through fields
+such as `proposed_targets`, `admitted_targets`, `rejected_targets`,
+`selected_failure_cluster`, `repair_brief`, `repair_brief_status`, and
+`action_envelope_status`. This is not a semantic planner loop: if no target or
+action is admitted, CommandAgent stops explicitly with structured evidence.
+
 ## Non-Decisions
 
 This ADR does not reintroduce:
