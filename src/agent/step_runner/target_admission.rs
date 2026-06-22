@@ -16,6 +16,14 @@ pub(crate) enum RepairTargetSource {
     VerifierDiagnostic,
     RequiredArtifact,
     SetupManifest,
+    ToolReadRecord,
+    ToolWriteRecord,
+    ToolEditRecord,
+    ScaffoldDelta,
+    SetupDelta,
+    CompletionEvidence,
+    EvidenceBinding,
+    WorkspaceObservation,
 }
 
 impl RepairTargetSource {
@@ -23,10 +31,18 @@ impl RepairTargetSource {
         match self {
             Self::FailureEvidence => 0,
             Self::VerifierDiagnostic => 1,
-            Self::ProfileSelectedRoute => 1,
             Self::SetupManifest => 1,
-            Self::RequiredArtifact => 2,
-            Self::ArtifactGraphRelation => 3,
+            Self::ToolWriteRecord => 1,
+            Self::ToolEditRecord => 1,
+            Self::ProfileSelectedRoute => 2,
+            Self::ToolReadRecord => 2,
+            Self::CompletionEvidence => 2,
+            Self::EvidenceBinding => 2,
+            Self::RequiredArtifact => 3,
+            Self::ScaffoldDelta => 3,
+            Self::SetupDelta => 3,
+            Self::WorkspaceObservation => 4,
+            Self::ArtifactGraphRelation => 5,
         }
     }
 
@@ -38,6 +54,68 @@ impl RepairTargetSource {
             Self::VerifierDiagnostic => "verifier_diagnostic",
             Self::RequiredArtifact => "required_artifact",
             Self::SetupManifest => "setup_manifest",
+            Self::ToolReadRecord => "tool_read_record",
+            Self::ToolWriteRecord => "tool_write_record",
+            Self::ToolEditRecord => "tool_edit_record",
+            Self::ScaffoldDelta => "scaffold_delta",
+            Self::SetupDelta => "setup_delta",
+            Self::CompletionEvidence => "completion_evidence",
+            Self::EvidenceBinding => "evidence_binding",
+            Self::WorkspaceObservation => "workspace_observation",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TargetEvidenceFreshness {
+    Current,
+    Unknown,
+    Stale,
+}
+
+impl TargetEvidenceFreshness {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Current => "current",
+            Self::Unknown => "unknown",
+            Self::Stale => "stale",
+        }
+    }
+
+    fn priority_penalty(self) -> u8 {
+        match self {
+            Self::Current => 0,
+            Self::Unknown => 2,
+            Self::Stale => 12,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FocusedEditStatus {
+    NotRequired,
+    Eligible,
+    MissingCurrentExcerpt,
+    StaleTarget,
+    TargetNotOwned,
+}
+
+impl FocusedEditStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::NotRequired => "not_required",
+            Self::Eligible => "eligible",
+            Self::MissingCurrentExcerpt => "missing_current_excerpt",
+            Self::StaleTarget => "stale_target",
+            Self::TargetNotOwned => "target_not_owned",
+        }
+    }
+
+    fn priority_penalty(self) -> u8 {
+        match self {
+            Self::Eligible => 0,
+            Self::NotRequired => 2,
+            Self::MissingCurrentExcerpt | Self::StaleTarget | Self::TargetNotOwned => 20,
         }
     }
 }
@@ -47,6 +125,54 @@ pub(crate) struct RepairTargetCandidate {
     pub(crate) path: String,
     pub(crate) role: ArtifactRole,
     pub(crate) source: RepairTargetSource,
+    pub(crate) source_of_truth: Option<String>,
+    pub(crate) evidence_freshness: TargetEvidenceFreshness,
+    pub(crate) focused_edit: FocusedEditStatus,
+    pub(crate) current_excerpt_available: bool,
+}
+
+impl RepairTargetCandidate {
+    pub(crate) fn new(
+        path: impl Into<String>,
+        role: ArtifactRole,
+        source: RepairTargetSource,
+    ) -> Self {
+        Self {
+            path: path.into(),
+            role,
+            source,
+            source_of_truth: None,
+            evidence_freshness: TargetEvidenceFreshness::Unknown,
+            focused_edit: FocusedEditStatus::NotRequired,
+            current_excerpt_available: false,
+        }
+    }
+
+    pub(crate) fn with_source_of_truth(mut self, source_of_truth: impl Into<String>) -> Self {
+        self.source_of_truth = Some(source_of_truth.into());
+        self
+    }
+
+    pub(crate) fn with_evidence_freshness(
+        mut self,
+        evidence_freshness: TargetEvidenceFreshness,
+    ) -> Self {
+        self.evidence_freshness = evidence_freshness;
+        self
+    }
+
+    pub(crate) fn with_focused_edit(mut self, focused_edit: FocusedEditStatus) -> Self {
+        self.focused_edit = focused_edit;
+        self
+    }
+
+    pub(crate) fn with_current_excerpt_available(
+        mut self,
+        current_excerpt_available: bool,
+    ) -> Self {
+        self.current_excerpt_available = current_excerpt_available;
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -147,19 +273,33 @@ pub(crate) struct TargetAdmissionRecord {
     pub(crate) priority: u8,
     pub(crate) source: RepairTargetSource,
     pub(crate) ownership: ArtifactOwnership,
+    pub(crate) source_of_truth: String,
+    pub(crate) ownership_source: String,
+    pub(crate) workspace_scope: String,
+    pub(crate) evidence_freshness: TargetEvidenceFreshness,
+    pub(crate) focused_edit: FocusedEditStatus,
+    pub(crate) current_excerpt_available: bool,
+    pub(crate) priority_components: String,
     pub(crate) reason: String,
 }
 
 impl TargetAdmissionRecord {
     pub(crate) fn render_line(&self) -> String {
         format!(
-            "status={} path={} role={} priority={} source={} ownership={} reason={}",
+            "status={} path={} role={} priority={} source={} source_of_truth={} ownership={} ownership_source={} workspace_scope={} freshness={} focused_edit={} current_excerpt={} priority_components={} reason={}",
             self.status.as_str(),
             self.path,
             self.role.as_str(),
             self.priority,
             self.source.as_str(),
+            self.source_of_truth,
             self.ownership.as_str(),
+            self.ownership_source,
+            self.workspace_scope,
+            self.evidence_freshness.as_str(),
+            self.focused_edit.as_str(),
+            self.current_excerpt_available,
+            compact(&self.priority_components),
             compact(&self.reason)
         )
     }
@@ -233,6 +373,7 @@ impl TargetAdmissionDecision {
     }
 
     pub(crate) fn eval_report_fields(&self) -> Vec<String> {
+        let selected = self.selected_record();
         vec![
             format!("target_candidate_count={}", self.proposed_targets.len()),
             format!("target_admitted_count={}", self.admitted_targets.len()),
@@ -254,6 +395,57 @@ impl TargetAdmissionDecision {
                     .map(|record| compact(&record.reason))
                     .collect::<Vec<_>>()
                     .join("|")
+            ),
+            format!(
+                "target_source_of_truth={}",
+                selected
+                    .map(|record| record.source_of_truth.as_str())
+                    .unwrap_or("none")
+            ),
+            format!(
+                "target_ownership_source={}",
+                selected
+                    .map(|record| record.ownership_source.as_str())
+                    .unwrap_or("none")
+            ),
+            format!(
+                "target_workspace_scope={}",
+                selected
+                    .map(|record| record.workspace_scope.as_str())
+                    .unwrap_or("none")
+            ),
+            format!(
+                "target_evidence_freshness={}",
+                selected
+                    .map(|record| record.evidence_freshness.as_str())
+                    .unwrap_or("none")
+            ),
+            format!(
+                "focused_edit_status={}",
+                selected
+                    .map(|record| record.focused_edit.as_str())
+                    .unwrap_or_else(|| {
+                        self.rejected_targets
+                            .first()
+                            .map(|record| record.focused_edit.as_str())
+                            .unwrap_or("none")
+                    })
+            ),
+            format!(
+                "current_excerpt_available={}",
+                selected
+                    .map(|record| record.current_excerpt_available.to_string())
+                    .unwrap_or_else(|| "false".to_string())
+            ),
+            format!(
+                "target_priority_components={}",
+                selected
+                    .map(|record| compact(&record.priority_components))
+                    .unwrap_or_else(|| "none".to_string())
+            ),
+            format!(
+                "target_conflict_reason={}",
+                self.explicit_stop_reason.as_deref().unwrap_or("none")
             ),
         ]
     }
@@ -334,6 +526,25 @@ pub(crate) fn admit_repair_target_with_scope(
         };
     }
     if ownership.ownership == ArtifactOwnership::CandidateOnly {
+        if candidate.focused_edit == FocusedEditStatus::Eligible
+            && candidate.current_excerpt_available
+            && ownership.ownership_subreason == "read_only_observation"
+        {
+            let priority = target_priority(&candidate, role, &ownership);
+            let path = candidate.path;
+            return TargetAdmission::Admitted {
+                path,
+                role,
+                priority,
+                reason: format!(
+                    "source={} ownership={} focused_edit={} scope={}",
+                    candidate.source.as_str(),
+                    ownership.ownership.as_str(),
+                    candidate.focused_edit.as_str(),
+                    scope.summary()
+                ),
+            };
+        }
         return TargetAdmission::Rejected {
             path: candidate.path,
             role,
@@ -408,9 +619,23 @@ pub(crate) fn decide_repair_target_with_scope(
             .then(left.path.cmp(&right.path))
     });
     if let Some(selected) = decision.admitted_targets.first() {
-        decision.selected_target = Some(selected.path.clone());
-        decision.selected_role = Some(selected.role);
-        decision.selected_priority = Some(selected.priority);
+        let best_priority = selected.priority;
+        let same_priority_paths = decision
+            .admitted_targets
+            .iter()
+            .filter(|record| record.priority == best_priority)
+            .map(|record| record.path.as_str())
+            .collect::<Vec<_>>();
+        if same_priority_paths.len() > 1 {
+            decision.explicit_stop_reason = Some(format!(
+                "ambiguous_recovery_target_tie:{}",
+                same_priority_paths.join("|")
+            ));
+        } else {
+            decision.selected_target = Some(selected.path.clone());
+            decision.selected_role = Some(selected.role);
+            decision.selected_priority = Some(selected.priority);
+        }
     } else if policy.requires_target {
         decision.explicit_stop_reason = Some(if current_cluster_exhausted(policy) {
             "failure_cluster_exhausted_no_admitted_target".to_string()
@@ -459,17 +684,30 @@ fn proposed_record(
         candidate.source.as_str(),
         changed_paths,
     );
+    let priority = target_priority(candidate, role, &ownership);
+    let source_of_truth = candidate
+        .source_of_truth
+        .clone()
+        .unwrap_or_else(|| ownership.source_of_truth.clone());
     TargetAdmissionRecord {
         status: TargetAdmissionStatus::Proposed,
         path,
         role,
-        priority: candidate.source.priority(),
+        priority,
         source: candidate.source,
         ownership: ownership.ownership,
+        source_of_truth,
+        ownership_source: ownership.ownership_subreason.clone(),
+        workspace_scope: ownership.workspace_scope.clone(),
+        evidence_freshness: candidate.evidence_freshness,
+        focused_edit: candidate.focused_edit,
+        current_excerpt_available: candidate.current_excerpt_available,
+        priority_components: target_priority_components(candidate, role, &ownership, priority),
         reason: format!(
-            "source={} ownership={} scope={}",
+            "source={} ownership={} ownership_source={} scope={}",
             candidate.source.as_str(),
             ownership.ownership.as_str(),
+            ownership.ownership_subreason,
             scope.summary()
         ),
     }
@@ -479,6 +717,9 @@ fn policy_rejection_reason(
     record: &TargetAdmissionRecord,
     policy: &TargetAdmissionPolicy,
 ) -> Option<String> {
+    if current_cluster_exhausted(policy) {
+        return Some("failure_cluster_exhausted_for_current_cluster".to_string());
+    }
     if !policy.allow_file_target {
         return Some(format!(
             "file_target_not_allowed_for_current_job:{}",
@@ -497,6 +738,19 @@ fn policy_rejection_reason(
             "role_exhausted_for_same_failure_cluster:{}",
             record.role.as_str()
         ));
+    }
+    if record.evidence_freshness == TargetEvidenceFreshness::Stale {
+        return Some("stale_target_evidence".to_string());
+    }
+    match record.focused_edit {
+        FocusedEditStatus::MissingCurrentExcerpt => {
+            return Some("focused_edit_missing_current_excerpt".to_string());
+        }
+        FocusedEditStatus::StaleTarget => return Some("focused_edit_stale_target".to_string()),
+        FocusedEditStatus::TargetNotOwned => {
+            return Some("focused_edit_target_not_owned".to_string());
+        }
+        FocusedEditStatus::NotRequired | FocusedEditStatus::Eligible => {}
     }
     None
 }
@@ -532,17 +786,60 @@ fn compact(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+fn target_priority(
+    candidate: &RepairTargetCandidate,
+    role: ArtifactRole,
+    ownership: &crate::agent::step_runner::artifact_ownership::ArtifactOwnershipDecision,
+) -> u8 {
+    let source = candidate.source.priority().saturating_mul(24);
+    let ownership_penalty = match ownership.ownership {
+        ArtifactOwnership::Owned => 0,
+        ArtifactOwnership::CandidateOnly => 18,
+        ArtifactOwnership::OutOfScope => 48,
+    };
+    let role_penalty = match role {
+        ArtifactRole::SetupManifest | ArtifactRole::Entrypoint | ArtifactRole::Implementation => 0,
+        ArtifactRole::IntegrationTarget | ArtifactRole::Test | ArtifactRole::Docs => 2,
+        ArtifactRole::SetupConfig => 4,
+        ArtifactRole::Unknown => 8,
+        ArtifactRole::DependencyCache | ArtifactRole::GeneratedOutput => 48,
+    };
+    source
+        .saturating_add(ownership_penalty)
+        .saturating_add(role_penalty)
+        .saturating_add(candidate.evidence_freshness.priority_penalty())
+        .saturating_add(candidate.focused_edit.priority_penalty())
+}
+
+fn target_priority_components(
+    candidate: &RepairTargetCandidate,
+    role: ArtifactRole,
+    ownership: &crate::agent::step_runner::artifact_ownership::ArtifactOwnershipDecision,
+    priority: u8,
+) -> String {
+    format!(
+        "priority={priority};source={}:{};role={};ownership={};freshness={};focused_edit={};current_excerpt={}",
+        candidate.source.as_str(),
+        candidate.source.priority(),
+        role.as_str(),
+        ownership.ownership.as_str(),
+        candidate.evidence_freshness.as_str(),
+        candidate.focused_edit.as_str(),
+        candidate.current_excerpt_available
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn rejects_dependency_cache_target() {
-        let candidate = RepairTargetCandidate {
-            path: "node_modules/react/index.js".to_string(),
-            role: ArtifactRole::DependencyCache,
-            source: RepairTargetSource::FailureEvidence,
-        };
+        let candidate = RepairTargetCandidate::new(
+            "node_modules/react/index.js",
+            ArtifactRole::DependencyCache,
+            RepairTargetSource::FailureEvidence,
+        );
 
         let admission = admit_repair_target(candidate, &ArtifactGraph::new(), &[]);
 
@@ -552,11 +849,11 @@ mod tests {
 
     #[test]
     fn rejects_role_mismatch() {
-        let candidate = RepairTargetCandidate {
-            path: "README.md".to_string(),
-            role: ArtifactRole::Docs,
-            source: RepairTargetSource::RequiredArtifact,
-        };
+        let candidate = RepairTargetCandidate::new(
+            "README.md",
+            ArtifactRole::Docs,
+            RepairTargetSource::RequiredArtifact,
+        );
 
         let admission =
             admit_repair_target(candidate, &ArtifactGraph::new(), &[ArtifactRole::Test]);
@@ -568,16 +865,16 @@ mod tests {
     #[test]
     fn selects_lowest_priority_admitted_target() {
         let candidates = vec![
-            RepairTargetCandidate {
-                path: "README.md".to_string(),
-                role: ArtifactRole::Docs,
-                source: RepairTargetSource::RequiredArtifact,
-            },
-            RepairTargetCandidate {
-                path: "tests/test_app.py".to_string(),
-                role: ArtifactRole::Test,
-                source: RepairTargetSource::FailureEvidence,
-            },
+            RepairTargetCandidate::new(
+                "README.md",
+                ArtifactRole::Docs,
+                RepairTargetSource::RequiredArtifact,
+            ),
+            RepairTargetCandidate::new(
+                "tests/test_app.py",
+                ArtifactRole::Test,
+                RepairTargetSource::FailureEvidence,
+            ),
         ];
 
         let admission =
@@ -602,11 +899,11 @@ mod tests {
             "contract.required_paths",
         );
         let scope = WorkspaceScope::from_graph(&graph);
-        let candidate = RepairTargetCandidate {
-            path: "apps/admin/app/page.tsx".to_string(),
-            role: ArtifactRole::Entrypoint,
-            source: RepairTargetSource::FailureEvidence,
-        };
+        let candidate = RepairTargetCandidate::new(
+            "apps/admin/app/page.tsx",
+            ArtifactRole::Entrypoint,
+            RepairTargetSource::FailureEvidence,
+        );
 
         let admission = admit_repair_target_with_scope(
             candidate,
@@ -623,16 +920,16 @@ mod tests {
     #[test]
     fn decision_records_proposed_admitted_and_rejected_targets() {
         let candidates = vec![
-            RepairTargetCandidate {
-                path: "node_modules/react/index.js".to_string(),
-                role: ArtifactRole::DependencyCache,
-                source: RepairTargetSource::FailureEvidence,
-            },
-            RepairTargetCandidate {
-                path: "app/page.tsx".to_string(),
-                role: ArtifactRole::Entrypoint,
-                source: RepairTargetSource::VerifierDiagnostic,
-            },
+            RepairTargetCandidate::new(
+                "node_modules/react/index.js",
+                ArtifactRole::DependencyCache,
+                RepairTargetSource::FailureEvidence,
+            ),
+            RepairTargetCandidate::new(
+                "app/page.tsx",
+                ArtifactRole::Entrypoint,
+                RepairTargetSource::VerifierDiagnostic,
+            ),
         ];
         let policy = TargetAdmissionPolicy::new(
             "source_implementation_repair",
@@ -660,11 +957,11 @@ mod tests {
 
     #[test]
     fn decision_stops_when_target_required_but_none_admitted() {
-        let candidates = vec![RepairTargetCandidate {
-            path: "node_modules/react/index.js".to_string(),
-            role: ArtifactRole::DependencyCache,
-            source: RepairTargetSource::FailureEvidence,
-        }];
+        let candidates = vec![RepairTargetCandidate::new(
+            "node_modules/react/index.js",
+            ArtifactRole::DependencyCache,
+            RepairTargetSource::FailureEvidence,
+        )];
         let policy = TargetAdmissionPolicy::new(
             "source_implementation_repair",
             "edit_source_for_diagnostic",
@@ -690,11 +987,11 @@ mod tests {
 
     #[test]
     fn decision_rejects_file_target_for_tool_protocol() {
-        let candidates = vec![RepairTargetCandidate {
-            path: "app/page.tsx".to_string(),
-            role: ArtifactRole::Entrypoint,
-            source: RepairTargetSource::FailureEvidence,
-        }];
+        let candidates = vec![RepairTargetCandidate::new(
+            "app/page.tsx",
+            ArtifactRole::Entrypoint,
+            RepairTargetSource::FailureEvidence,
+        )];
         let policy = TargetAdmissionPolicy::new(
             "tool_protocol_correction",
             "correct_tool_protocol",
@@ -717,6 +1014,181 @@ mod tests {
                 .rejected_lines()
                 .iter()
                 .any(|line| line.contains("file_target_not_allowed"))
+        );
+    }
+
+    #[test]
+    fn decision_prefers_current_focused_edit_signal() {
+        let candidates = vec![
+            RepairTargetCandidate::new(
+                "app/page.tsx",
+                ArtifactRole::Entrypoint,
+                RepairTargetSource::ArtifactGraphRelation,
+            ),
+            RepairTargetCandidate::new(
+                "components/Game.tsx",
+                ArtifactRole::Implementation,
+                RepairTargetSource::ToolReadRecord,
+            )
+            .with_evidence_freshness(TargetEvidenceFreshness::Current)
+            .with_focused_edit(FocusedEditStatus::Eligible)
+            .with_current_excerpt_available(true),
+        ];
+        let policy = TargetAdmissionPolicy::new(
+            "source_implementation_repair",
+            "focused_edit_repair",
+            vec![ArtifactRole::Entrypoint, ArtifactRole::Implementation],
+            true,
+            true,
+        );
+
+        let decision = decide_repair_target_with_scope(
+            candidates,
+            &ArtifactGraph::new(),
+            &policy,
+            &WorkspaceScope::greenfield(),
+            &[],
+        );
+
+        assert_eq!(
+            decision.selected_target.as_deref(),
+            Some("components/Game.tsx")
+        );
+        let fields = decision.eval_report_fields();
+        assert!(
+            fields
+                .iter()
+                .any(|field| field.starts_with("target_priority_components="))
+        );
+        assert!(
+            fields
+                .iter()
+                .any(|field| field.starts_with("target_source_of_truth="))
+        );
+        assert!(
+            fields
+                .iter()
+                .any(|field| field == "focused_edit_status=eligible")
+        );
+    }
+
+    #[test]
+    fn decision_rejects_focused_edit_without_current_excerpt() {
+        let candidates = vec![
+            RepairTargetCandidate::new(
+                "components/Game.tsx",
+                ArtifactRole::Implementation,
+                RepairTargetSource::ToolEditRecord,
+            )
+            .with_evidence_freshness(TargetEvidenceFreshness::Current)
+            .with_focused_edit(FocusedEditStatus::MissingCurrentExcerpt)
+            .with_current_excerpt_available(false),
+        ];
+        let policy = TargetAdmissionPolicy::new(
+            "source_implementation_repair",
+            "focused_edit_repair",
+            vec![ArtifactRole::Implementation],
+            true,
+            true,
+        );
+
+        let decision = decide_repair_target_with_scope(
+            candidates,
+            &ArtifactGraph::new(),
+            &policy,
+            &WorkspaceScope::greenfield(),
+            &[],
+        );
+
+        assert!(decision.selected_target.is_none());
+        assert!(
+            decision
+                .rejected_lines()
+                .iter()
+                .any(|line| line.contains("focused_edit_missing_current_excerpt"))
+        );
+        assert!(
+            decision
+                .eval_report_fields()
+                .iter()
+                .any(|field| field == "focused_edit_status=missing_current_excerpt")
+        );
+    }
+
+    #[test]
+    fn decision_stops_on_ambiguous_same_priority_targets() {
+        let candidates = vec![
+            RepairTargetCandidate::new(
+                "app/a.tsx",
+                ArtifactRole::Implementation,
+                RepairTargetSource::VerifierDiagnostic,
+            ),
+            RepairTargetCandidate::new(
+                "app/b.tsx",
+                ArtifactRole::Implementation,
+                RepairTargetSource::VerifierDiagnostic,
+            ),
+        ];
+        let policy = TargetAdmissionPolicy::new(
+            "source_implementation_repair",
+            "edit_source_for_diagnostic",
+            vec![ArtifactRole::Implementation],
+            true,
+            true,
+        );
+
+        let decision = decide_repair_target_with_scope(
+            candidates,
+            &ArtifactGraph::new(),
+            &policy,
+            &WorkspaceScope::greenfield(),
+            &[],
+        );
+
+        assert!(decision.selected_target.is_none());
+        assert!(
+            decision
+                .explicit_stop_reason
+                .as_deref()
+                .is_some_and(|reason| reason.starts_with("ambiguous_recovery_target_tie:"))
+        );
+    }
+
+    #[test]
+    fn decision_rejects_exhausted_failure_cluster() {
+        let candidates = vec![RepairTargetCandidate::new(
+            "app/page.tsx",
+            ArtifactRole::Entrypoint,
+            RepairTargetSource::FailureEvidence,
+        )];
+        let policy = TargetAdmissionPolicy::new(
+            "source_implementation_repair",
+            "edit_source_for_diagnostic",
+            vec![ArtifactRole::Entrypoint],
+            true,
+            true,
+        )
+        .with_current_cluster(Some("build_failure".to_string()))
+        .with_exhausted_clusters(["build_failure"]);
+
+        let decision = decide_repair_target_with_scope(
+            candidates,
+            &ArtifactGraph::new(),
+            &policy,
+            &WorkspaceScope::greenfield(),
+            &[],
+        );
+
+        assert!(decision.selected_target.is_none());
+        assert_eq!(
+            decision.explicit_stop_reason.as_deref(),
+            Some("failure_cluster_exhausted_no_admitted_target")
+        );
+        assert!(
+            decision
+                .rejected_lines()
+                .iter()
+                .any(|line| line.contains("failure_cluster_exhausted_for_current_cluster"))
         );
     }
 }

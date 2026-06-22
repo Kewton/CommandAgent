@@ -125,6 +125,13 @@ fn deterministic_source_owns_target(source: &str) -> bool {
             | "verifier_diagnostic"
             | "required_artifact"
             | "setup_manifest"
+            | "tool_write_record"
+            | "tool_edit_record"
+            | "tool_execution_record"
+            | "scaffold_delta"
+            | "setup_delta"
+            | "completion_evidence"
+            | "evidence_binding"
     ) || source.starts_with("contract.")
         || source.starts_with("plan.")
         || source.starts_with("plan_lint.")

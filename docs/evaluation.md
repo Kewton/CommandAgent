@@ -380,6 +380,14 @@ Contract Boundary Propagation fields should be recorded when present:
 - `proposed_targets`
 - `admitted_targets`
 - `rejected_targets`
+- `target_source_of_truth`
+- `target_ownership_source`
+- `target_workspace_scope`
+- `target_evidence_freshness`
+- `focused_edit_status`
+- `current_excerpt_available`
+- `target_priority_components`
+- `target_conflict_reason`
 - `repair_brief`
 - `selected_failure_cluster`
 - `repair_brief_status`

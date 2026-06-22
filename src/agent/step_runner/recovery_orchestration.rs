@@ -15,8 +15,8 @@ use crate::agent::step_runner::repair_brief::{
 };
 use crate::agent::step_runner::semantic_failure::{SemanticFailureReport, SemanticRepairPlan};
 use crate::agent::step_runner::target_admission::{
-    RepairTargetCandidate, RepairTargetSource, TargetAdmissionPolicy,
-    decide_repair_target_with_scope,
+    FocusedEditStatus, RepairTargetCandidate, RepairTargetSource, TargetAdmissionPolicy,
+    TargetEvidenceFreshness, decide_repair_target_with_scope,
 };
 use crate::agent::step_runner::workspace_scope::WorkspaceScope;
 
@@ -417,12 +417,13 @@ pub(crate) fn orchestrate_contract_evidence(
     let action = arbitration.selected_action;
     let scope = WorkspaceScope::from_graph(&graph);
     let target_policy = target_admission_policy(evidence, job, action);
+    let changed_paths = target_signal_paths(evidence, "changed_paths");
     let target_decision = decide_repair_target_with_scope(
         target_candidates_for_job(evidence, &graph, job),
         &graph,
         &target_policy,
         &scope,
-        &[],
+        &changed_paths,
     );
     let target = target_decision.selected_target.clone();
     let target_role = target_decision.selected_role;
@@ -1434,7 +1435,145 @@ fn target_candidates_for_job(
             RepairTargetSource::RequiredArtifact,
         );
     }
+    let read_paths = target_signal_paths(evidence, "read_paths");
+    let changed_paths = target_signal_paths(evidence, "changed_paths");
+    for path in &read_paths {
+        push_repair_target_candidate_with_metadata(
+            &mut candidates,
+            graph,
+            Some(path.clone()),
+            RepairTargetSource::ToolReadRecord,
+            CandidateMetadata {
+                source_of_truth: Some("tool_record".to_string()),
+                freshness: TargetEvidenceFreshness::Current,
+                focused_edit: FocusedEditStatus::Eligible,
+                current_excerpt_available: true,
+            },
+        );
+    }
+    for path in &changed_paths {
+        let has_current_excerpt = read_paths.iter().any(|read| same_target_path(read, path));
+        push_repair_target_candidate_with_metadata(
+            &mut candidates,
+            graph,
+            Some(path.clone()),
+            RepairTargetSource::ToolEditRecord,
+            CandidateMetadata {
+                source_of_truth: Some("tool_record".to_string()),
+                freshness: TargetEvidenceFreshness::Current,
+                focused_edit: if has_current_excerpt {
+                    FocusedEditStatus::Eligible
+                } else {
+                    FocusedEditStatus::MissingCurrentExcerpt
+                },
+                current_excerpt_available: has_current_excerpt,
+            },
+        );
+    }
+    for path in target_signal_paths(evidence, "created_paths") {
+        push_repair_target_candidate_with_metadata(
+            &mut candidates,
+            graph,
+            Some(path),
+            RepairTargetSource::ToolWriteRecord,
+            CandidateMetadata {
+                source_of_truth: Some("tool_record".to_string()),
+                freshness: TargetEvidenceFreshness::Current,
+                focused_edit: FocusedEditStatus::NotRequired,
+                current_excerpt_available: false,
+            },
+        );
+    }
+    for path in target_signal_paths(evidence, "verifier_mentioned_paths") {
+        push_repair_target_candidate_with_metadata(
+            &mut candidates,
+            graph,
+            Some(path),
+            RepairTargetSource::VerifierDiagnostic,
+            CandidateMetadata {
+                source_of_truth: Some("verifier_output".to_string()),
+                freshness: TargetEvidenceFreshness::Current,
+                focused_edit: FocusedEditStatus::NotRequired,
+                current_excerpt_available: false,
+            },
+        );
+    }
+    for path in target_signal_paths(evidence, "scaffold_created_paths") {
+        push_repair_target_candidate_with_metadata(
+            &mut candidates,
+            graph,
+            Some(path),
+            RepairTargetSource::ScaffoldDelta,
+            CandidateMetadata {
+                source_of_truth: Some("scaffold_contract".to_string()),
+                freshness: TargetEvidenceFreshness::Current,
+                focused_edit: FocusedEditStatus::NotRequired,
+                current_excerpt_available: false,
+            },
+        );
+    }
+    for path in target_signal_paths(evidence, "setup_created_paths") {
+        push_repair_target_candidate_with_metadata(
+            &mut candidates,
+            graph,
+            Some(path),
+            RepairTargetSource::SetupDelta,
+            CandidateMetadata {
+                source_of_truth: Some("setup_contract".to_string()),
+                freshness: TargetEvidenceFreshness::Current,
+                focused_edit: FocusedEditStatus::NotRequired,
+                current_excerpt_available: false,
+            },
+        );
+    }
+    for path in target_paths_from_structured_lines(&evidence.completion_evidence) {
+        push_repair_target_candidate_with_metadata(
+            &mut candidates,
+            graph,
+            Some(path),
+            RepairTargetSource::CompletionEvidence,
+            CandidateMetadata {
+                source_of_truth: Some("completion_evidence".to_string()),
+                freshness: TargetEvidenceFreshness::Current,
+                focused_edit: FocusedEditStatus::NotRequired,
+                current_excerpt_available: false,
+            },
+        );
+    }
+    for path in target_paths_from_structured_lines(&evidence.evidence_binding) {
+        push_repair_target_candidate_with_metadata(
+            &mut candidates,
+            graph,
+            Some(path),
+            RepairTargetSource::EvidenceBinding,
+            CandidateMetadata {
+                source_of_truth: Some("evidence_binding".to_string()),
+                freshness: TargetEvidenceFreshness::Current,
+                focused_edit: FocusedEditStatus::NotRequired,
+                current_excerpt_available: false,
+            },
+        );
+    }
     candidates
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CandidateMetadata {
+    source_of_truth: Option<String>,
+    freshness: TargetEvidenceFreshness,
+    focused_edit: FocusedEditStatus,
+    current_excerpt_available: bool,
+}
+
+impl Default for CandidateMetadata {
+    fn default() -> Self {
+        Self {
+            source_of_truth: None,
+            freshness: TargetEvidenceFreshness::Unknown,
+            focused_edit: FocusedEditStatus::NotRequired,
+            current_excerpt_available: false,
+        }
+    }
 }
 
 fn push_repair_target_candidate(
@@ -1443,11 +1582,34 @@ fn push_repair_target_candidate(
     path: Option<String>,
     source: RepairTargetSource,
 ) {
+    push_repair_target_candidate_with_metadata(
+        candidates,
+        graph,
+        path,
+        source,
+        CandidateMetadata::default(),
+    );
+}
+
+fn push_repair_target_candidate_with_metadata(
+    candidates: &mut Vec<RepairTargetCandidate>,
+    graph: &ArtifactGraph,
+    path: Option<String>,
+    source: RepairTargetSource,
+    metadata: CandidateMetadata,
+) {
     let Some(path) = path else {
         return;
     };
     let path = path.trim().trim_start_matches("./").replace('\\', "/");
-    if path.is_empty() || candidates.iter().any(|candidate| candidate.path == path) {
+    if path.is_empty() {
+        return;
+    }
+    if let Some(existing) = candidates
+        .iter_mut()
+        .find(|candidate| candidate.path == path)
+    {
+        merge_candidate_metadata(existing, metadata);
         return;
     }
     let role = graph.node(&path).map(|node| node.role).unwrap_or_else(|| {
@@ -1456,7 +1618,49 @@ fn push_repair_target_candidate(
             crate::agent::step_runner::artifact_graph::ArtifactLifecycle::Required,
         )
     });
-    candidates.push(RepairTargetCandidate { path, role, source });
+    let mut candidate = RepairTargetCandidate::new(path, role, source)
+        .with_evidence_freshness(metadata.freshness)
+        .with_focused_edit(metadata.focused_edit)
+        .with_current_excerpt_available(metadata.current_excerpt_available);
+    if let Some(source_of_truth) = metadata.source_of_truth {
+        candidate = candidate.with_source_of_truth(source_of_truth);
+    }
+    candidates.push(candidate);
+}
+
+fn merge_candidate_metadata(candidate: &mut RepairTargetCandidate, metadata: CandidateMetadata) {
+    if candidate.source_of_truth.is_none() {
+        candidate.source_of_truth = metadata.source_of_truth;
+    }
+    if metadata.freshness == TargetEvidenceFreshness::Current {
+        candidate.evidence_freshness = TargetEvidenceFreshness::Current;
+    } else if candidate.evidence_freshness == TargetEvidenceFreshness::Unknown {
+        candidate.evidence_freshness = metadata.freshness;
+    }
+    candidate.current_excerpt_available |= metadata.current_excerpt_available;
+    candidate.focused_edit = merge_focused_edit(candidate.focused_edit, metadata.focused_edit);
+    if candidate.current_excerpt_available
+        && candidate.focused_edit == FocusedEditStatus::MissingCurrentExcerpt
+    {
+        candidate.focused_edit = FocusedEditStatus::Eligible;
+    }
+}
+
+fn merge_focused_edit(left: FocusedEditStatus, right: FocusedEditStatus) -> FocusedEditStatus {
+    match (left, right) {
+        (FocusedEditStatus::Eligible, _) | (_, FocusedEditStatus::Eligible) => {
+            FocusedEditStatus::Eligible
+        }
+        (FocusedEditStatus::MissingCurrentExcerpt, _)
+        | (_, FocusedEditStatus::MissingCurrentExcerpt) => FocusedEditStatus::MissingCurrentExcerpt,
+        (FocusedEditStatus::StaleTarget, _) | (_, FocusedEditStatus::StaleTarget) => {
+            FocusedEditStatus::StaleTarget
+        }
+        (FocusedEditStatus::TargetNotOwned, _) | (_, FocusedEditStatus::TargetNotOwned) => {
+            FocusedEditStatus::TargetNotOwned
+        }
+        _ => FocusedEditStatus::NotRequired,
+    }
 }
 
 fn candidate_source_for_job(job: RecoveryJobKind) -> RepairTargetSource {
@@ -1469,6 +1673,69 @@ fn candidate_source_for_job(job: RecoveryJobKind) -> RepairTargetSource {
         }
         _ => RepairTargetSource::RequiredArtifact,
     }
+}
+
+fn target_signal_paths(evidence: &ContractEvidence, field: &str) -> Vec<String> {
+    let prefix = format!("{field}=");
+    let mut paths = Vec::new();
+    for line in &evidence.eval_report_fields {
+        let Some(value) = line.strip_prefix(&prefix) else {
+            continue;
+        };
+        for path in split_path_list(value) {
+            push_unique(&mut paths, path);
+        }
+    }
+    paths
+}
+
+fn target_paths_from_structured_lines(lines: &[String]) -> Vec<String> {
+    let mut paths = Vec::new();
+    for line in lines {
+        for key in ["target=", "path="] {
+            if let Some(value) = value_after_key(line, key) {
+                let value = value.trim_matches('"').trim_matches('\'');
+                if looks_like_workspace_path(value) {
+                    push_unique(&mut paths, normalize_target_path(value));
+                }
+            }
+        }
+    }
+    paths
+}
+
+fn split_path_list(value: &str) -> Vec<String> {
+    value
+        .split(['|', ','])
+        .map(normalize_target_path)
+        .filter(|path| looks_like_workspace_path(path))
+        .collect()
+}
+
+fn value_after_key<'a>(line: &'a str, key: &str) -> Option<&'a str> {
+    let start = line.find(key)? + key.len();
+    line[start..]
+        .split_whitespace()
+        .next()
+        .filter(|value| !value.trim().is_empty() && *value != "none")
+}
+
+fn looks_like_workspace_path(value: &str) -> bool {
+    let value = value.trim();
+    !value.is_empty()
+        && value != "none"
+        && !value.starts_with('/')
+        && !value.starts_with("http://")
+        && !value.starts_with("https://")
+        && (value.contains('/') || value.contains('.'))
+}
+
+fn same_target_path(left: &str, right: &str) -> bool {
+    normalize_target_path(left) == normalize_target_path(right)
+}
+
+fn normalize_target_path(path: &str) -> String {
+    path.trim().trim_start_matches("./").replace('\\', "/")
 }
 
 fn allowed_target_roles(job: RecoveryJobKind) -> Vec<ArtifactRole> {
@@ -2275,6 +2542,55 @@ mod tests {
         assert_eq!(
             decision.tool_policy,
             ToolPolicyProjection::FileMutationRepair
+        );
+    }
+
+    #[test]
+    fn source_repair_uses_read_path_as_current_focused_target_signal() {
+        let evidence = ContractEvidence::new("verifier")
+            .with_reason_code("typescript_compile_error")
+            .with_active_job("source_implementation_repair")
+            .with_candidate_artifacts(vec!["components/Game.tsx"])
+            .with_eval_report_fields(vec!["read_paths=components/Game.tsx"]);
+
+        let decision = orchestrate_contract_evidence(&evidence).unwrap();
+
+        assert_eq!(decision.job, RecoveryJobKind::SourceImplementationRepair);
+        assert_eq!(decision.target.as_deref(), Some("components/Game.tsx"));
+        assert!(
+            decision
+                .eval_report_fields
+                .iter()
+                .any(|field| field == "focused_edit_status=eligible")
+        );
+        assert!(
+            decision
+                .eval_report_fields
+                .iter()
+                .any(|field| field == "target_source_of_truth=tool_record")
+        );
+    }
+
+    #[test]
+    fn source_repair_rejects_changed_path_without_current_excerpt() {
+        let evidence = ContractEvidence::new("verifier")
+            .with_reason_code("typescript_compile_error")
+            .with_active_job("source_implementation_repair")
+            .with_eval_report_fields(vec!["changed_paths=components/Game.tsx"]);
+
+        let decision = orchestrate_contract_evidence(&evidence).unwrap();
+
+        assert_eq!(decision.job, RecoveryJobKind::SourceImplementationRepair);
+        assert!(decision.target.is_none());
+        assert_eq!(
+            decision.explicit_stop_reason.as_deref(),
+            Some("no_admitted_recovery_target")
+        );
+        assert!(
+            decision
+                .rejected_targets
+                .iter()
+                .any(|line| line.contains("focused_edit_missing_current_excerpt"))
         );
     }
 

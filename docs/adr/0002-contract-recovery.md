@@ -242,6 +242,18 @@ such as `proposed_targets`, `admitted_targets`, `rejected_targets`,
 `action_envelope_status`. This is not a semantic planner loop: if no target or
 action is admitted, CommandAgent stops explicitly with structured evidence.
 
+2026-06-22 amendment: target admission now treats focused edit recovery as
+candidate evidence, not as another execution mechanism. Candidate sources may
+include failure evidence, profile-selected routes, verifier diagnostics,
+required artifacts, setup manifests, tool read/write/edit records,
+setup/scaffold deltas, completion evidence, evidence bindings, workspace
+observations, and artifact-graph relations. Admission records source of truth,
+ownership source, workspace scope, freshness, current excerpt availability,
+and priority components. It must reject stale or out-of-scope targets,
+missing current excerpts for focused edits, exhausted targets/roles/clusters,
+and role mismatches. Same-priority admitted targets with different paths stop
+as an explicit target conflict instead of falling back to path order.
+
 2026-06-22 amendment: Artifact attribution is now an explicit contract
 boundary. Bounded workspace snapshots, normalized `Read` / `Write` / `Edit`
 tool targets, verifier-mentioned paths, and setup/scaffold provenance are

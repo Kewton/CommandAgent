@@ -1083,6 +1083,7 @@ fn contract_evidence_for_state(
     let ledger = artifact_ledger_for_state(&graph, &scope, &snapshot, state);
     evidence
         .into_iter()
+        .map(|item| enrich_evidence_with_artifact_ledger(item, &ledger, &scope))
         .map(orchestrate_evidence)
         .map(|item| enrich_evidence_with_artifact_ledger(item, &ledger, &scope))
         .collect()

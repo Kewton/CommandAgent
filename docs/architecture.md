@@ -314,16 +314,26 @@ The orchestration section may carry `recovery_owner`, `completion_evidence`,
 target-admission data may also carry
 `proposed_targets`, `admitted_targets`, `rejected_targets`, `repair_brief`,
 `selected_failure_cluster`, `repair_brief_status`, and
-`action_envelope_status`. These fields are reporting and repair-contract data.
+`action_envelope_status`. Phase 7 target-admission fields add
+`target_source_of_truth`, `target_ownership_source`, `target_workspace_scope`,
+`target_evidence_freshness`, `focused_edit_status`,
+`current_excerpt_available`, `target_priority_components`, and
+`target_conflict_reason`. These fields are reporting and repair-contract data.
 They do not grant retry authority or create another execution loop.
 
 Target admission is a deterministic gate between active-job dispatch and
 repair prompt rendering. It uses ArtifactGraph, ArtifactLedger, workspace
 scope, artifact ownership, selected active job, and selected action to admit
-or reject target candidates before the model turn. Semantic repair planning is
-bounded contract data that selects a failure cluster and repair hypothesis from
-existing evidence. The repair brief is the structured source for the existing
-Recovery Task Contract; it is not a planner, executor, or retry mechanism.
+or reject target candidates before the model turn. Focused edit signals from
+read/edit/write records, verifier mentions, setup/scaffold deltas, completion
+evidence, and evidence bindings are candidate sources only. The admission gate
+must reject stale targets, missing current excerpts, out-of-scope files,
+role-mismatched targets, exhausted targets/roles/clusters, and ambiguous
+same-priority candidates before the repair prompt is built. Semantic repair
+planning is bounded contract data that selects a failure cluster and repair
+hypothesis from existing evidence. The repair brief is the structured source
+for the existing Recovery Task Contract; it is not a planner, executor, or
+retry mechanism.
 
 Eval failure observations use the same terminal-state taxonomy through the
 shared fixture under `scripts/failure_observation_taxonomy.tsv`. The eval

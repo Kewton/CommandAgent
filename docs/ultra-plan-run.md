@@ -224,6 +224,11 @@ structured evidence. Repair prompts and packets may include
 `workspace_scope`, `artifact_ownership`, `artifact_graph_summary`, and bounded
 artifact-ledger eval fields such as `read_paths`, `changed_paths`,
 `verifier_mentioned_paths`, `setup_created_paths`, and `out_of_scope_paths`.
+Phase 7 also renders target-admission attribution fields such as
+`target_source_of_truth`, `target_ownership_source`, `target_workspace_scope`,
+`target_evidence_freshness`, `focused_edit_status`,
+`current_excerpt_available`, `target_priority_components`, and
+`target_conflict_reason`.
 
 `candidate_jobs` are produced before the repair prompt is rendered. They are
 not alternatives for the model to choose from. The dispatch gate selects one

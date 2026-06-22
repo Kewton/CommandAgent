@@ -530,9 +530,14 @@ These values are carried as bounded contract evidence fields such as
 bounded contract evidence. Phase 4 also propagates `proposed_targets`,
 `admitted_targets`, `rejected_targets`, `repair_brief`,
 `selected_failure_cluster`, `repair_brief_status`, and
-`action_envelope_status`. They are data for Recovery Policy Contract, Recovery
-Task Contract, or verifier-owned setup recovery. They are not hidden workflow
-state, retry counters, or permission for the model to choose a new job.
+`action_envelope_status`. Phase 7 target-admission evidence may also carry
+`target_source_of_truth`, `target_ownership_source`, `target_workspace_scope`,
+`target_evidence_freshness`, `focused_edit_status`,
+`current_excerpt_available`, `target_priority_components`, and
+`target_conflict_reason`. They are data for Recovery Policy Contract, Recovery
+Task Contract, verifier-owned setup recovery, or focused target admission.
+They are not hidden workflow state, retry counters, or permission for the
+model to choose a new job.
 
 Active-job candidate data is part of the same contract boundary. Each candidate
 should name the recovery owner, source layer, source of truth, target hint,
@@ -551,6 +556,13 @@ Those facts may be rendered into `artifact_graph_summary`,
 authorize an edit, verifier rewrite, dependency setup, or retry. Recovery
 Orchestration may consume them only as deterministic input to target admission
 and repair-task rendering.
+
+Focused edit recovery is intentionally expressed as target-admission data, not
+as a new engine. A read/edit/write/tool or verifier signal may propose a file
+target, but admission must still check ownership, workspace scope, active-job
+role, freshness, current excerpt availability, exhausted targets/roles/clusters,
+and deterministic priority. Ambiguous same-priority targets must produce an
+explicit stop instead of asking the model to pick one.
 
 Examples:
 
