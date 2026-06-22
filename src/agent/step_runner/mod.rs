@@ -26,6 +26,7 @@ pub(crate) mod repair_job;
 pub mod runtime;
 pub(crate) mod semantic_failure;
 pub(crate) mod setup_artifact_validation;
+pub(crate) mod setup_lifecycle;
 pub(crate) mod target_admission;
 pub(crate) mod task_contract;
 pub mod ultra_plan;

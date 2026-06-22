@@ -91,11 +91,15 @@ alongside existing recovery fields. The terminal-state taxonomy is shared with
 runtime through `scripts/failure_observation_taxonomy.tsv`; tests should fail
 when the Python fallback mapping drifts from the Rust mapping. Runtime job
 fields may also include
-`runtime_job_kind`, `runtime_job_outcome`, `setup_job_state`,
-`setup_attempt_key`, `setup_manifest_fingerprint`, `setup_stale_reason`,
-`setup_result`, `setup_command`, `verifier_rerun_result`,
+`runtime_job_kind`, `runtime_job_outcome`, `setup_job_kind`,
+`setup_job_state`, `setup_target`, `setup_manifest_kind`,
+`setup_manifest_path`, `setup_artifact_validation_status`,
+`setup_readiness`, `setup_command_authority`, `setup_attempt_key`,
+`setup_manifest_fingerprint`, `setup_stale_reason`, `setup_result`,
+`setup_failure_signature`, `setup_command`, `verifier_rerun_result`,
 `dev_server_state`, `requested_port`, `port_preflight`, and
-`endpoint_smoke`. `completion_authority_status` records the authoritative
+`endpoint_smoke`. These setup fields come from setup lifecycle records and are
+reporting data; lifecycle rendering does not execute setup. `completion_authority_status` records the authoritative
 completion decision. `evidence_runner_status` records whether the completion
 evidence path was present, missing, executed, or not required.
 `artifact_ledger_status` records whether the required artifact ledger was
@@ -155,6 +159,12 @@ fields are `active_job`, `recovery_owner`, `loop_control_action`,
 contract evidence, the eval runner extracts those fields. When a failure is
 detected only by the eval success contract, the runner derives a conservative
 recovery classification from the deterministic reason and target path.
+Setup lifecycle extraction is intentionally explicit. Reports may include
+`setup_job_kind`, `setup_target`, `setup_manifest_kind`,
+`setup_manifest_path`, `setup_artifact_validation_status`, `setup_readiness`,
+`setup_command_authority`, and `setup_failure_signature` so manifest repair,
+setup bootstrap, stale setup, and blocked setup policy do not collapse into
+generic verifier or source failures.
 Task Contract projection fields are also recorded when present:
 `task_contract_kind`, `task_contract_status`, `behavior_obligation_codes`,
 `behavior_obligation_status`, and `artifact_role_projection_status`. These are

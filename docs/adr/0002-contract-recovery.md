@@ -258,6 +258,18 @@ attempt keys, manifest fingerprints, setup result, rerun result, and stale
 state after manifest/config changes. Requested-port Next.js launchability is a
 bounded `dev_server_smoke` job that validates `scripts.dev`, port preflight,
 localhost endpoint smoke, and cleanup after a build verifier has completed.
+
+2026-06-22 amendment: Setup Job Lifecycle and Common Profile Output are
+admitted as explicit contract data. Setup lifecycle records setup job kind,
+manifest kind/path, manifest validation status, setup readiness, command
+authority, setup result, failure signature, stale reason, verifier command,
+and verifier rerun result. Common profile output records root hints,
+classified artifacts, setup/scaffold/integration artifacts, verifier commands,
+protected paths, behavior obligations, verification failures, and recovery
+candidate hints across profiles. Both are observation and handoff boundaries:
+they may feed active-job dispatch, recovery packets, and eval reports, but
+they must not execute tools, select arbitrary setup commands, bypass dispatch,
+increase retry budgets, or turn profiles into workflow engines.
 These jobs are verifier-owned runtime evidence; they do not add hidden retry,
 implicit dependency setup from model tools, background servers, or
 provider/model-specific policy.

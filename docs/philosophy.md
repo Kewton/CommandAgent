@@ -61,6 +61,10 @@ and stops boundedly when progress cannot be proven.
 - Treat contract boundary propagation as part of the design. A deterministic
   failure should carry the repair kind, setup implication, and rerun authority
   needed by the next contract layer.
+- Treat setup lifecycle as contract data, not command execution. Manifest
+  validation, setup readiness, command authority, setup result, and verifier
+  rerun result should be rendered as typed evidence before setup or source
+  repair is considered.
 - Treat failure observation as a first-class attribution boundary. A failed
   guard, verifier, profile check, provider parser, tool protocol check, setup
   check, or eval assertion should project into one normalized terminal-state
@@ -69,6 +73,10 @@ and stops boundedly when progress cannot be proven.
   runtime should distinguish existing artifacts, missing required artifacts,
   setup manifests, integration targets, generated outputs, and dependency
   caches before planning, profile verification, setup, or repair.
+- Treat profile output as a common contract schema. Profiles may expose root
+  hints, setup/scaffold/integration artifacts, verifier commands, obligations,
+  failures, and candidate hints, but final job selection stays in common
+  recovery orchestration.
 - Treat completion evidence and evidence binding as authoritative completion
   data when a task or profile declares that evidence is required. Path
   existence, evidence execution, evidence freshness, and evidence binding are
@@ -195,6 +203,9 @@ when they stay deterministic and visible:
 - Setup bootstrap treats dependency installation, manifest repair, framework
   config, and initial scaffold as setup jobs, not incidental side effects of
   source implementation.
+- Setup lifecycle records make setup readiness, stale setup, command
+  authority, manifest validation, setup result, and verifier rerun result
+  observable. They do not execute setup or authorize additional retries.
 - Dev-server launchability treats requested-port proof as a verifier-owned
   runtime job, not as a side effect of `npm run build` or source repair.
 - Deterministic manifest or scaffold materialization is acceptable for

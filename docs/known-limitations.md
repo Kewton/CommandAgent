@@ -135,6 +135,16 @@ CommandAgent is still in MVP migration.
   changes declared dependencies, setup recovery can detect stale package-lock
   evidence, record `setup_job_state=stale`, and select bounded `npm install`,
   but only under the existing setup policy.
+- Setup lifecycle records now expose setup job kind, manifest kind/path,
+  manifest validation status, readiness, command authority, setup result,
+  failure signature, and verifier rerun result. Rust and Python verifier
+  commands can surface manifest validation blockers as setup/manifest evidence,
+  but automatic Rust/Python dependency installation remains unsupported.
+- Profiles now render a common output schema for root hints, classified
+  artifacts, setup/scaffold/integration artifacts, verifier commands,
+  behavior obligations, verification failures, and recovery candidate hints.
+  These facts improve attribution, but profiles still do not select final
+  active jobs, execute setup, or materialize scaffold files by themselves.
 - Requested-port Next.js launchability is now checked separately from
   `npm run build` when a generated plan has used the build verifier. The
   `dev_server_smoke` job validates `scripts.dev`, port availability, endpoint

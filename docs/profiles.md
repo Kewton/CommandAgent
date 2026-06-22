@@ -69,6 +69,10 @@ Current profile-owned surfaces are:
 - `profile_contract_text`: concise prompt text for the active domain
 - `profile_plan_guidance`: plan-generation guidance for profile-specific
   package, verifier, scaffold, or compatibility constraints
+- Common profile output: read-only profile id, project root hints, classified
+  artifacts, setup artifacts, scaffold artifacts, route/integration artifacts,
+  verifier commands, protected paths, behavior obligations, verification
+  failures, and recovery candidate hints
 - `classify_profile_artifact`: typed path facts used by generic lint,
   verification, setup bootstrap, and recovery targeting
 - ArtifactGraph projection: bounded artifact lifecycle and relation facts
@@ -96,6 +100,12 @@ dev-server port contracts, route integration, test artifacts, docs literals,
 and data schema obligations. The projection is data-only. It does not let a
 profile execute setup, own recovery policy, or force every ultra phase to
 materialize every final artifact.
+
+Common profile output is the same kind of data-only projection. It lets Next.js,
+Rust, Python, docs, and data profiles report comparable setup/scaffold/source
+facts without making each profile a workflow engine. Recovery candidate hints
+are only hints; the shared active-job dispatch gate still owns final owner and
+action selection.
 
 ## Next.js Contract
 

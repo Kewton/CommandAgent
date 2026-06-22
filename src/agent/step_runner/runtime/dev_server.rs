@@ -64,9 +64,14 @@ impl DevServerSmokeReport {
     }
 
     pub(super) fn render_lines(&self) -> Vec<String> {
+        let classification = DevServerRecoveryClassification::from_report(self);
         vec![
-            "active_job=dev_server_smoke".to_string(),
-            "recovery_owner=dev_server".to_string(),
+            format!("active_job={}", classification.active_job),
+            format!("recovery_owner={}", classification.recovery_owner),
+            format!("repair_action={}", classification.repair_action),
+            format!("loop_control_action={}", classification.loop_control_action),
+            format!("tool_policy={}", classification.tool_policy),
+            format!("dispatch_status={}", classification.dispatch_status),
             "runtime_job_kind=dev_server_smoke".to_string(),
             format!(
                 "runtime_job_outcome={}",
@@ -80,8 +85,75 @@ impl DevServerSmokeReport {
             format!("dev_server_state={}", self.terminal_state),
             format!("endpoint_smoke={}", self.endpoint_smoke),
             format!("cleanup_status={}", self.cleanup_status),
+            format!(
+                "explicit_stop_reason={}",
+                classification.explicit_stop_reason
+            ),
             format!("diagnostic={}", bounded_event_text(&self.diagnostic)),
         ]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DevServerRecoveryClassification {
+    active_job: &'static str,
+    recovery_owner: &'static str,
+    repair_action: &'static str,
+    loop_control_action: &'static str,
+    tool_policy: &'static str,
+    dispatch_status: &'static str,
+    explicit_stop_reason: &'static str,
+}
+
+impl DevServerRecoveryClassification {
+    fn from_report(report: &DevServerSmokeReport) -> Self {
+        match report.diagnostic_code.as_str() {
+            "ok" => Self {
+                active_job: "none",
+                recovery_owner: "none",
+                repair_action: "none",
+                loop_control_action: "none",
+                tool_policy: "none",
+                dispatch_status: "selected",
+                explicit_stop_reason: "none",
+            },
+            "nextjs_dev_script_missing" | "nextjs_dev_script_drift" => Self {
+                active_job: "manifest_repair",
+                recovery_owner: "manifest",
+                repair_action: "add_missing_manifest_dependency",
+                loop_control_action: "run_bounded_repair_task",
+                tool_policy: "setup_config_mutation_only",
+                dispatch_status: "selected",
+                explicit_stop_reason: "none",
+            },
+            "dependency_missing" => Self {
+                active_job: "setup_bootstrap",
+                recovery_owner: "setup",
+                repair_action: "install_or_prepare_dependencies",
+                loop_control_action: "run_verifier_owned_setup",
+                tool_policy: "verifier_owned_setup_only",
+                dispatch_status: "selected",
+                explicit_stop_reason: "none",
+            },
+            "nextjs_dev_server_port_in_use" => Self {
+                active_job: "dev_server_smoke",
+                recovery_owner: "dev_server",
+                repair_action: "run_dev_server_smoke",
+                loop_control_action: "render_explicit_stop",
+                tool_policy: "explicit_stop",
+                dispatch_status: "explicit_stop",
+                explicit_stop_reason: "requested_dev_server_port_in_use",
+            },
+            _ => Self {
+                active_job: "dev_server_smoke",
+                recovery_owner: "dev_server",
+                repair_action: "run_dev_server_smoke",
+                loop_control_action: "run_dev_server_smoke",
+                tool_policy: "verifier_owned_setup_only",
+                dispatch_status: "selected",
+                explicit_stop_reason: "none",
+            },
+        }
     }
 }
 
@@ -358,6 +430,12 @@ mod tests {
                 .iter()
                 .any(|line| line == "active_job=dev_server_smoke")
         );
+        assert!(
+            report
+                .render_lines()
+                .iter()
+                .any(|line| line == "dispatch_status=explicit_stop")
+        );
     }
 
     #[test]
@@ -373,6 +451,12 @@ mod tests {
 
         assert_eq!(report.terminal_state, "profile_contract_failed");
         assert_eq!(report.diagnostic_code, "nextjs_dev_script_missing");
+        assert!(
+            report
+                .render_lines()
+                .iter()
+                .any(|line| line == "active_job=manifest_repair")
+        );
     }
 
     fn temp_workspace(name: &str) -> PathBuf {

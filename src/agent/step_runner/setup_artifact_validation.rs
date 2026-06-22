@@ -90,6 +90,35 @@ pub(crate) fn validate_python_manifest(cwd: &Path) -> Option<SetupArtifactViolat
     })
 }
 
+pub(crate) fn validate_manifest_for_verifier_command(
+    cwd: &Path,
+    command: &str,
+) -> Option<SetupArtifactViolation> {
+    let command = command.trim().to_ascii_lowercase();
+    if command == "npm run build" || command == "npm run dev" {
+        return validate_npm_manifest(cwd);
+    }
+    if command.starts_with("cargo ")
+        && command
+            .split_whitespace()
+            .nth(1)
+            .is_some_and(|subcommand| matches!(subcommand, "build" | "check" | "test" | "run"))
+    {
+        return validate_rust_manifest(cwd);
+    }
+    if command == "pytest"
+        || command.starts_with("pytest ")
+        || command.starts_with("python -m pytest")
+        || command.starts_with("python3 -m pytest")
+    {
+        if !cwd.join("pyproject.toml").exists() && !cwd.join("requirements.txt").exists() {
+            return None;
+        }
+        return validate_python_manifest(cwd);
+    }
+    None
+}
+
 fn validate_package_json_content(content: &str) -> Option<SetupArtifactViolation> {
     if content.trim().is_empty() {
         return Some(SetupArtifactViolation {
@@ -250,6 +279,37 @@ mod tests {
 
         assert_eq!(violation.path, "pyproject.toml|requirements.txt");
         assert_eq!(violation.reason_code, "setup_manifest_missing");
+    }
+
+    #[test]
+    fn verifier_command_selects_profile_manifest_validator() {
+        let rust_root = temp_workspace("rust-verifier");
+        fs::write(
+            rust_root.join("Cargo.toml"),
+            "[dependencies]\nserde = \"1\"",
+        )
+        .unwrap();
+        let rust_violation =
+            validate_manifest_for_verifier_command(&rust_root, "cargo test").unwrap();
+        assert_eq!(rust_violation.path, "Cargo.toml");
+        assert_eq!(
+            rust_violation.reason_code,
+            "setup_manifest_invalid_cargo_toml"
+        );
+
+        let python_root = temp_workspace("python-verifier");
+        fs::write(python_root.join("requirements.txt"), "# empty").unwrap();
+        let python_violation =
+            validate_manifest_for_verifier_command(&python_root, "python -m pytest").unwrap();
+        assert_eq!(python_violation.path, "requirements.txt");
+        assert_eq!(python_violation.reason_code, "setup_manifest_empty");
+    }
+
+    #[test]
+    fn python_verifier_without_manifest_is_not_setup_violation() {
+        let root = temp_workspace("python-no-manifest");
+
+        assert!(validate_manifest_for_verifier_command(&root, "python -m pytest").is_none());
     }
 
     fn temp_workspace(name: &str) -> PathBuf {

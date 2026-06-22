@@ -33,6 +33,10 @@ surfaces around it:
 - Setup Bootstrap Contract: owns bounded dependency setup, setup/config
   artifact preparation, and deterministic manifest/scaffold materialization
   when a profile can name the required setup artifacts.
+- Setup Job Lifecycle Boundary: records setup/profile/verifier setup state as
+  typed evidence such as manifest kind, manifest path, validation status,
+  readiness, command authority, setup result, verifier rerun result, and stale
+  reason. It is a record/rendering boundary and never executes commands.
 - Execution Contract: gives the minimal loop one clear executable task, a tool
   policy, path safety, observations, and bounded completion guards.
 - Recovery Task Contract: turns a classified deterministic failure into a clear
@@ -98,6 +102,14 @@ Tailwind/PostCSS/autoprefixer peer dependency conflict and target
 TypeScript app that drifted to TypeScript 6 or `@types/react` 19. Profiles
 still must not execute package managers, query registries, choose workflows, or
 retry setup.
+
+Profile output is rendered through one common schema across profiles. The
+schema includes project root hints, classified artifacts, setup artifacts,
+scaffold artifacts, route/integration artifacts, verifier commands, protected
+paths, behavior obligations, verification failures, and recovery candidate
+hints. These are profile facts and hints for the common contracts. They do not
+select the final active job, bypass dispatch, execute setup, or materialize
+scaffold files by themselves.
 
 The Recovery Orchestration Contract is not an execution engine. It does not
 retry until success or continue hidden work. It is a deterministic decision
@@ -184,6 +196,17 @@ and process cleanup as runtime evidence. It must not choose arbitrary future
 phases, silently run setup without a setup contract, increase retry count,
 authorize model-issued dependency installs, keep background dev servers
 running, or let profiles become hidden workflow engines.
+
+Setup lifecycle records are the common runtime job evidence for setup and
+manifest blockers. Manifest validation can classify Node, Cargo, and Python
+manifest failures before they collapse into generic source repair. The record
+can state `setup_readiness=manifest_missing`, `manifest_invalid`,
+`missing_dependency_artifact`, `setup_stale`, or
+`setup_attempted_for_fingerprint`, and can state command authority such as
+`allowed`, `blocked_invalid_manifest`, `blocked_repeated_attempt`, or
+`blocked`. The existing setup runtime remains the only place that may run an
+authorized setup command, and the original verifier/profile/dev-server check
+remains the success authority after setup.
 
 Next.js route integration is profile evidence, not workflow control. The
 profile may build a bounded static graph from the selected route through

@@ -37,8 +37,9 @@ use crate::agent::step_runner::runtime::phase_contract::{
     ActiveStepContract, current_profile_facts,
 };
 use crate::agent::step_runner::setup_artifact_validation::{
-    SetupArtifactViolation, validate_npm_manifest,
+    SetupArtifactViolation, validate_manifest_for_verifier_command, validate_npm_manifest,
 };
+use crate::agent::step_runner::setup_lifecycle::SetupJobLifecycle;
 use crate::agent::step_runner::verifier_diagnostic::{
     VerifierDiagnosticCode, VerifierDiagnosticPayload,
 };
@@ -1058,6 +1059,12 @@ fn contract_evidence_for_state(
 ) -> Vec<ContractEvidence> {
     let mut evidence = state.contract_evidence.clone();
     for failure in &state.failures {
+        if let Some(violation) = validate_manifest_for_verifier_command(cwd, &failure.command) {
+            push_contract_evidence_once(
+                &mut evidence,
+                setup_artifact_contract_evidence(step, &violation),
+            );
+        }
         if let Some(verifier_evidence) = verifier_contract_evidence(
             step,
             failure,
@@ -2232,6 +2239,7 @@ fn setup_artifact_contract_evidence(
     step: &StepPlanStep,
     violation: &SetupArtifactViolation,
 ) -> ContractEvidence {
+    let lifecycle = setup_lifecycle_for_manifest_violation(step, violation);
     orchestrate_evidence(
         ContractEvidence::new("setup")
             .with_failed_step(step.id.clone())
@@ -2256,15 +2264,35 @@ fn setup_artifact_contract_evidence(
             )
             .with_setup_implication("setup_after_manifest_repair_required")
             .with_diagnostic(violation.diagnostic.clone())
-            .with_eval_report_fields(vec![
-                "runtime_job_kind=manifest_repair".to_string(),
-                "runtime_job_outcome=blocked".to_string(),
-                "setup_job_state=manifest_invalid".to_string(),
-                "setup_state=manifest_invalid".to_string(),
-                format!("setup_result={}", violation.reason_code),
-                "setup_stale_reason=setup_artifact_invalid".to_string(),
-            ]),
+            .with_repair_job_state(lifecycle.render_lines())
+            .with_eval_report_fields(lifecycle.render_lines()),
     )
+}
+
+fn setup_lifecycle_for_manifest_violation(
+    step: &StepPlanStep,
+    violation: &SetupArtifactViolation,
+) -> SetupJobLifecycle {
+    let (manifest_kind, manifest_path) = setup_manifest_kind_and_path(&violation.path);
+    SetupJobLifecycle::new("manifest_repair", "manifest_invalid")
+        .with_setup_target(violation.path.clone())
+        .with_manifest(manifest_kind, manifest_path)
+        .with_artifact_validation_status(violation.reason_code.clone())
+        .with_readiness(setup_readiness_for_violation(&violation.reason_code))
+        .with_command_authority("blocked_invalid_manifest")
+        .with_setup_result(violation.reason_code.clone())
+        .with_failure_signature(failure_signature([
+            "setup_lifecycle",
+            step.id.as_str(),
+            violation.path.as_str(),
+            violation.reason_code.as_str(),
+        ]))
+        .with_verifier_command(format!("step:{}", step.id))
+        .with_verifier_rerun_result("not_run")
+        .with_rerun_authority(["profile_verification", "original_verifier"])
+        .with_runtime_job_outcome("blocked")
+        .with_stale_reason("setup_artifact_invalid")
+        .with_explicit_stop_reason("repair setup manifest before dependency setup")
 }
 
 fn dependency_setup_attempt_key(
@@ -2303,31 +2331,105 @@ fn setup_job_state_lines(input: SetupJobStateLineInput<'_>) -> Vec<String> {
         .command
         .map(|command| command.as_shell_command().to_string())
         .unwrap_or_else(|| "none".to_string());
-    let mut lines = vec![
-        "runtime_job_kind=setup_bootstrap".to_string(),
-        format!("runtime_job_outcome={}", input.runtime_outcome),
-        format!("setup_job_state={}", input.setup_state),
-        format!("setup_state={}", input.setup_state),
-        format!("setup_step_id={}", input.step_id),
-        format!("setup_command={command}"),
-        format!("setup_result={}", input.setup_result),
-        format!("verifier_rerun_result={}", input.verifier_rerun_result),
-        format!(
-            "setup_manifest_fingerprint={}",
-            manifest_fingerprint(input.cwd).key()
-        ),
-    ];
+    let fingerprint = manifest_fingerprint(input.cwd).key();
+    let mut lifecycle = SetupJobLifecycle::new("setup_bootstrap", input.setup_state)
+        .with_setup_target("package.json")
+        .with_manifest("node_package", "package.json")
+        .with_artifact_validation_status(setup_artifact_validation_status_for_state(
+            input.setup_state,
+            input.setup_result,
+        ))
+        .with_readiness(setup_readiness_for_state(
+            input.setup_state,
+            input.setup_result,
+        ))
+        .with_command_authority(setup_command_authority_for_state(
+            input.command,
+            input.setup_state,
+            input.setup_result,
+        ))
+        .with_command(command)
+        .with_setup_result(input.setup_result)
+        .with_verifier_command(format!("step:{}", input.step_id))
+        .with_verifier_rerun_result(input.verifier_rerun_result)
+        .with_rerun_authority(["original_verifier"])
+        .with_manifest_fingerprint(fingerprint)
+        .with_runtime_job_outcome(input.runtime_outcome);
     if let Some(key) = input.attempt_key_before {
-        lines.push(format!("setup_attempt_key={key}"));
-        lines.push(format!("setup_attempt_key_before={key}"));
+        lifecycle = lifecycle.with_attempt_key(key);
     }
     if let Some(key) = input.attempt_key_after {
-        lines.push(format!("setup_attempt_key_after={key}"));
+        lifecycle = lifecycle.with_attempt_key_after(key);
     }
     if let Some(reason) = input.stale_reason {
-        lines.push(format!("setup_stale_reason={reason}"));
+        lifecycle = lifecycle.with_stale_reason(reason);
     }
+    let mut lines = lifecycle.render_lines();
+    lines.push(format!("setup_step_id={}", input.step_id));
     lines
+}
+
+fn setup_manifest_kind_and_path(path: &str) -> (&'static str, &'static str) {
+    if path.contains("Cargo.toml") {
+        ("cargo_manifest", "Cargo.toml")
+    } else if path.contains("pyproject.toml") {
+        ("python_manifest", "pyproject.toml")
+    } else if path.contains("requirements.txt") {
+        ("python_requirements", "requirements.txt")
+    } else {
+        ("node_package", "package.json")
+    }
+}
+
+fn setup_artifact_validation_status_for_state(setup_state: &str, setup_result: &str) -> String {
+    if setup_state == "manifest_invalid" || setup_result.starts_with("setup_manifest_") {
+        setup_result.to_string()
+    } else if setup_state == "blocked" {
+        "not_checked".to_string()
+    } else {
+        "passed".to_string()
+    }
+}
+
+fn setup_readiness_for_violation(reason_code: &str) -> &'static str {
+    if reason_code == "setup_manifest_missing" {
+        "manifest_missing"
+    } else {
+        "manifest_invalid"
+    }
+}
+
+fn setup_readiness_for_state(setup_state: &str, setup_result: &str) -> String {
+    match setup_state {
+        "manifest_invalid" => setup_readiness_for_violation(setup_result).to_string(),
+        "blocked" if setup_result == "already_attempted_for_manifest" => {
+            "setup_attempted_for_fingerprint".to_string()
+        }
+        "blocked" => "unsupported_setup_policy".to_string(),
+        "stale" => "setup_stale".to_string(),
+        "attempted" | "failed" | "rerun_failed" | "rerun_passed" => {
+            "missing_dependency_artifact".to_string()
+        }
+        _ => "unknown".to_string(),
+    }
+}
+
+fn setup_command_authority_for_state(
+    command: Option<SetupCommand>,
+    setup_state: &str,
+    setup_result: &str,
+) -> &'static str {
+    if setup_state == "manifest_invalid" {
+        "blocked_invalid_manifest"
+    } else if setup_state == "blocked" && setup_result == "already_attempted_for_manifest" {
+        "blocked_repeated_attempt"
+    } else if command.is_some() {
+        "allowed"
+    } else if setup_state == "blocked" {
+        "blocked_by_policy"
+    } else {
+        "not_required"
+    }
 }
 
 fn record_stale_setup_after_manifest_change(

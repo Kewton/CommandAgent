@@ -1,6 +1,8 @@
 use crate::agent::step_runner::correction_evidence::PlanCorrectionEvidence;
 use crate::agent::step_runner::plan_lint::PlanLintError;
-use crate::agent::step_runner::profile_artifact::{ArtifactProvenance, classify_profile_artifact};
+use crate::agent::step_runner::profile_artifact::{
+    ArtifactKind, ArtifactProvenance, artifact_kind_label, classify_profile_artifact,
+};
 use crate::agent::step_runner::{StepKind, StepPlan, StepPlanStep};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -134,6 +136,71 @@ pub struct ProfileFactSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProfileOutput {
+    pub(crate) id: ProfileId,
+    pub(crate) project_root_hints: Vec<String>,
+    pub(crate) artifact_classifications: Vec<String>,
+    pub(crate) setup_artifacts: Vec<String>,
+    pub(crate) scaffold_artifacts: Vec<String>,
+    pub(crate) route_integration_artifacts: Vec<String>,
+    pub(crate) verifier_commands: Vec<String>,
+    pub(crate) protected_paths: Vec<String>,
+    pub(crate) behavior_obligations: Vec<String>,
+    pub(crate) verification_failures: Vec<String>,
+    pub(crate) recovery_candidate_hints: Vec<String>,
+}
+
+impl ProfileOutput {
+    pub(crate) fn render_lines(&self) -> Vec<String> {
+        let mut lines = vec![
+            format!("profile.output.id={}", self.id.as_str()),
+            format!(
+                "profile.output.project_roots={}",
+                join_profile_values(&self.project_root_hints)
+            ),
+            format!(
+                "profile.output.artifacts={}",
+                join_profile_values(&self.artifact_classifications)
+            ),
+            format!(
+                "profile.output.setup_artifacts={}",
+                join_profile_values(&self.setup_artifacts)
+            ),
+            format!(
+                "profile.output.scaffold_artifacts={}",
+                join_profile_values(&self.scaffold_artifacts)
+            ),
+            format!(
+                "profile.output.route_artifacts={}",
+                join_profile_values(&self.route_integration_artifacts)
+            ),
+            format!(
+                "profile.output.verifiers={}",
+                join_profile_values(&self.verifier_commands)
+            ),
+            format!(
+                "profile.output.protected_paths={}",
+                join_profile_values(&self.protected_paths)
+            ),
+            format!(
+                "profile.output.behavior_obligations={}",
+                join_profile_values(&self.behavior_obligations)
+            ),
+            format!(
+                "profile.output.verification_failures={}",
+                join_profile_values(&self.verification_failures)
+            ),
+            format!(
+                "profile.output.recovery_candidate_hints={}",
+                join_profile_values(&self.recovery_candidate_hints)
+            ),
+        ];
+        lines.retain(|line| line.len() <= 240);
+        lines
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProfileVerificationContext {
     pub goal_excerpt: String,
     pub required_artifacts: Vec<String>,
@@ -222,9 +289,14 @@ impl ProfileObligation {
 }
 
 pub fn profile_fact_summary(profile: &str, cwd: &Path) -> Result<ProfileFactSummary, ProfileError> {
-    match ProfileId::parse(profile)? {
-        ProfileId::NextJs => Ok(nextjs_fact_summary(cwd)),
-        _ => Ok(ProfileFactSummary { lines: Vec::new() }),
+    let id = ProfileId::parse(profile)?;
+    let mut lines = profile_output_summary(id, cwd).render_lines();
+    match id {
+        ProfileId::NextJs => {
+            lines.extend(nextjs_fact_summary(cwd).lines);
+            Ok(ProfileFactSummary { lines })
+        }
+        _ => Ok(ProfileFactSummary { lines }),
     }
 }
 
@@ -318,6 +390,227 @@ pub fn render_profile_obligations(obligations: &[ProfileObligation]) -> Vec<Stri
             )
         })
         .collect()
+}
+
+fn profile_output_summary(id: ProfileId, cwd: &Path) -> ProfileOutput {
+    let contract = profile_contract(id);
+    let project_root_hints = profile_project_root_hints(id, cwd);
+    let observed_paths = profile_observed_paths(id, cwd);
+    let artifact_classifications = observed_paths
+        .iter()
+        .map(|path| {
+            let classified =
+                classify_profile_artifact(id, path, ArtifactProvenance::WorkspaceObservation);
+            format!(
+                "{}:{}",
+                classified.path,
+                artifact_kind_label(classified.kind)
+            )
+        })
+        .collect::<Vec<_>>();
+    let setup_artifacts = observed_paths
+        .iter()
+        .filter(|path| {
+            let kind =
+                classify_profile_artifact(id, path, ArtifactProvenance::WorkspaceObservation).kind;
+            matches!(kind, ArtifactKind::Manifest | ArtifactKind::Config)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let scaffold_artifacts = profile_scaffold_artifacts(id, cwd);
+    let route_integration_artifacts = observed_paths
+        .iter()
+        .filter(|path| {
+            let classified =
+                classify_profile_artifact(id, path, ArtifactProvenance::WorkspaceObservation);
+            classified.eligibility.route_integration
+                || matches!(classified.kind, ArtifactKind::RouteEntry)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let behavior_obligations = profile_behavior_obligations(id, cwd);
+    let recovery_candidate_hints = profile_recovery_candidate_hints(
+        id,
+        &setup_artifacts,
+        &scaffold_artifacts,
+        &route_integration_artifacts,
+    );
+    ProfileOutput {
+        id,
+        project_root_hints,
+        artifact_classifications,
+        setup_artifacts,
+        scaffold_artifacts,
+        route_integration_artifacts,
+        verifier_commands: contract.verifier_commands,
+        protected_paths: contract.protected_path_prefixes,
+        behavior_obligations,
+        verification_failures: Vec::new(),
+        recovery_candidate_hints,
+    }
+}
+
+fn profile_project_root_hints(id: ProfileId, cwd: &Path) -> Vec<String> {
+    match id {
+        ProfileId::NextJs => {
+            let mut roots = Vec::new();
+            if cwd.join("src/app").exists() {
+                roots.push("src/app".to_string());
+            }
+            if cwd.join("app").exists() {
+                roots.push("app".to_string());
+            }
+            if roots.is_empty() {
+                roots.push("app".to_string());
+            }
+            roots
+        }
+        ProfileId::Rust => vec![".".to_string()],
+        ProfileId::Python => {
+            if cwd.join("app").exists() {
+                vec!["app".to_string()]
+            } else {
+                vec![".".to_string()]
+            }
+        }
+        ProfileId::Docs => vec!["docs".to_string(), ".".to_string()],
+        ProfileId::DataAnalysis | ProfileId::DataPipeline => {
+            vec!["data".to_string(), "reports".to_string()]
+        }
+        ProfileId::Generic | ProfileId::Investigation => Vec::new(),
+    }
+}
+
+fn profile_observed_paths(id: ProfileId, cwd: &Path) -> Vec<String> {
+    let candidates: &[&str] = match id {
+        ProfileId::NextJs => &[
+            "package.json",
+            "package-lock.json",
+            "pnpm-lock.yaml",
+            "next.config.js",
+            "next.config.mjs",
+            "tsconfig.json",
+            "tailwind.config.js",
+            "postcss.config.js",
+            "app/page.tsx",
+            "app/layout.tsx",
+            "app/globals.css",
+            "src/app/page.tsx",
+            "src/app/layout.tsx",
+            "src/app/globals.css",
+            "components/Game.tsx",
+        ],
+        ProfileId::Rust => &["Cargo.toml", "Cargo.lock", "src/main.rs", "src/lib.rs"],
+        ProfileId::Python => &[
+            "pyproject.toml",
+            "requirements.txt",
+            "app/__init__.py",
+            "app/main.py",
+            "main.py",
+            "tests/test_app.py",
+        ],
+        ProfileId::Docs => &["README.md", "docs/README.md", "docs/index.md"],
+        ProfileId::DataAnalysis | ProfileId::DataPipeline => &[
+            "data/raw",
+            "data/processed",
+            "output/report.csv",
+            "reports/report.md",
+        ],
+        ProfileId::Generic | ProfileId::Investigation => &[],
+    };
+    candidates
+        .iter()
+        .filter(|path| cwd.join(path).exists())
+        .map(|path| (*path).to_string())
+        .collect()
+}
+
+fn profile_scaffold_artifacts(id: ProfileId, cwd: &Path) -> Vec<String> {
+    match id {
+        ProfileId::NextJs => {
+            let root = if cwd.join("src/app").exists() {
+                "src/app"
+            } else {
+                "app"
+            };
+            vec![
+                "package.json".to_string(),
+                format!("{root}/page.tsx"),
+                format!("{root}/layout.tsx"),
+            ]
+        }
+        ProfileId::Rust => vec!["Cargo.toml".to_string(), "src/main.rs".to_string()],
+        ProfileId::Python => vec!["pyproject.toml".to_string(), "app/main.py".to_string()],
+        ProfileId::Docs => vec!["README.md".to_string()],
+        ProfileId::DataAnalysis | ProfileId::DataPipeline => vec!["output/report.csv".to_string()],
+        ProfileId::Generic | ProfileId::Investigation => Vec::new(),
+    }
+}
+
+fn profile_behavior_obligations(id: ProfileId, cwd: &Path) -> Vec<String> {
+    match id {
+        ProfileId::NextJs => {
+            let mut obligations = vec![
+                "manifest_contract".to_string(),
+                "route_integration".to_string(),
+                "build_verifier".to_string(),
+            ];
+            if cwd.join("package.json").exists() {
+                obligations.push("dependency_setup_readiness".to_string());
+            }
+            obligations
+        }
+        ProfileId::Rust => vec!["cargo_manifest".to_string(), "cargo_verifier".to_string()],
+        ProfileId::Python => vec!["python_imports".to_string(), "pytest_verifier".to_string()],
+        ProfileId::Docs => vec!["documentation_literal".to_string()],
+        ProfileId::DataAnalysis | ProfileId::DataPipeline => vec!["derived_output".to_string()],
+        ProfileId::Generic | ProfileId::Investigation => Vec::new(),
+    }
+}
+
+fn profile_recovery_candidate_hints(
+    id: ProfileId,
+    setup_artifacts: &[String],
+    scaffold_artifacts: &[String],
+    route_artifacts: &[String],
+) -> Vec<String> {
+    let mut hints = Vec::new();
+    if !setup_artifacts.is_empty() {
+        hints.push(format!("manifest_repair:{}", setup_artifacts.join("|")));
+    }
+    if !scaffold_artifacts.is_empty() {
+        hints.push(format!(
+            "scaffold_materialization:{}",
+            scaffold_artifacts.join("|")
+        ));
+    }
+    if !route_artifacts.is_empty() {
+        hints.push(format!(
+            "route_integration_repair:{}",
+            route_artifacts.join("|")
+        ));
+    }
+    match id {
+        ProfileId::NextJs => hints.push("dev_server_smoke:requested_port".to_string()),
+        ProfileId::Rust | ProfileId::Python => {
+            hints.push("source_implementation_repair:verifier_diagnostic".to_string())
+        }
+        _ => {}
+    }
+    hints
+}
+
+fn join_profile_values(values: &[String]) -> String {
+    if values.is_empty() {
+        "none".to_string()
+    } else {
+        values
+            .iter()
+            .take(8)
+            .map(|value| bounded_value(value))
+            .collect::<Vec<_>>()
+            .join("|")
+    }
 }
 
 fn data_protected_prefixes() -> Vec<String> {
@@ -3114,6 +3407,78 @@ mod tests {
                 .iter()
                 .all(|failure| failure.code != "nextjs_route_not_integrated"),
             "{failures:?}"
+        );
+    }
+
+    #[test]
+    fn profile_fact_summary_renders_common_nextjs_output_schema() {
+        let root = temp_workspace("profile-output-nextjs");
+        write_minimal_next_app(&root, r#"{"dev":"next dev -p 3011","build":"next build"}"#);
+
+        let summary = profile_fact_summary("nextjs", &root).unwrap();
+
+        assert!(
+            summary
+                .lines
+                .iter()
+                .any(|line| line == "profile.output.id=nextjs")
+        );
+        assert!(
+            summary
+                .lines
+                .iter()
+                .any(|line| line.contains("profile.output.setup_artifacts=package.json"))
+        );
+        assert!(
+            summary
+                .lines
+                .iter()
+                .any(|line| line.contains("scaffold_materialization:"))
+        );
+        assert!(
+            summary
+                .lines
+                .iter()
+                .any(|line| line.contains("dev_server_smoke:requested_port"))
+        );
+    }
+
+    #[test]
+    fn profile_fact_summary_renders_common_rust_and_python_schema() {
+        let rust_root = temp_workspace("profile-output-rust");
+        fs::create_dir_all(rust_root.join("src")).unwrap();
+        fs::write(rust_root.join("Cargo.toml"), "[package]\nname = \"x\"").unwrap();
+        fs::write(rust_root.join("src/main.rs"), "fn main() {}").unwrap();
+
+        let rust = profile_fact_summary("rust", &rust_root).unwrap();
+        assert!(
+            rust.lines
+                .iter()
+                .any(|line| line == "profile.output.id=rust")
+        );
+        assert!(
+            rust.lines
+                .iter()
+                .any(|line| line.contains("profile.output.setup_artifacts=Cargo.toml"))
+        );
+
+        let python_root = temp_workspace("profile-output-python");
+        fs::create_dir_all(python_root.join("app")).unwrap();
+        fs::write(python_root.join("requirements.txt"), "pytest\n").unwrap();
+        fs::write(python_root.join("app/main.py"), "def app(): pass").unwrap();
+
+        let python = profile_fact_summary("python", &python_root).unwrap();
+        assert!(
+            python
+                .lines
+                .iter()
+                .any(|line| line == "profile.output.id=python")
+        );
+        assert!(
+            python
+                .lines
+                .iter()
+                .any(|line| line.contains("profile.output.setup_artifacts=requirements.txt"))
         );
     }
 

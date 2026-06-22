@@ -293,6 +293,13 @@ state is keyed by the new manifest fingerprint. Approved online setup may run
 once for that changed manifest state and then rerun the same verifier. This is
 still verifier-owned setup, not repair-turn authority.
 
+Setup and manifest blockers are rendered through a setup lifecycle record.
+That record can name the setup job kind, target manifest, manifest validation
+status, readiness, command authority, selected command when any, setup result,
+stale reason, failure signature, and original verifier rerun result. It is
+evidence for active-job dispatch and eval reporting. It does not run setup,
+select arbitrary commands, or convert dependency blockers into source repair.
+
 If `package-lock.json` exists but no longer reflects dependencies declared by
 `package.json`, setup recovery may select `npm install` instead of `npm ci` so
 the lockfile and installed packages can be refreshed under the same bounded
