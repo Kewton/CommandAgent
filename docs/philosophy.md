@@ -75,8 +75,9 @@ and stops boundedly when progress cannot be proven.
   caches before planning, profile verification, setup, or repair.
 - Treat profile output as a common contract schema. Profiles may expose root
   hints, setup/scaffold/integration artifacts, verifier commands, obligations,
-  failures, and candidate hints, but final job selection stays in common
-  recovery orchestration.
+  failures, completion-evidence requirements, failure mappings, adapter
+  families, capability status, and candidate hints, but final job selection
+  stays in common recovery orchestration.
 - Treat completion evidence and evidence binding as authoritative completion
   data when a task or profile declares that evidence is required. Path
   existence, evidence execution, evidence freshness, and evidence binding are

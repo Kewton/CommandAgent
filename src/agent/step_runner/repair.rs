@@ -448,10 +448,10 @@ Original goal: {goal}\n\
 Profile: {profile}\n\
 Style: {style}\n\
 Step instruction: {instruction}\n\
-{active_contract}\
 Contract evidence:\n{contract_evidence}\n\
 Repair focus:\n{focus}\n\
 {recovery_task}\
+{active_contract}\
 Missing expected paths:\n{missing}\n\
 Verification failures:\n{failures}\n\
 Changed files in failed repair attempts:\n{changed}\n\

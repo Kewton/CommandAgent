@@ -152,8 +152,10 @@ CommandAgent is still in MVP migration.
   but automatic Rust/Python dependency installation remains unsupported.
 - Profiles now render a common output schema for root hints, classified
   artifacts, setup/scaffold/integration artifacts, verifier commands,
-  behavior obligations, verification failures, and recovery candidate hints.
-  These facts improve attribution, but profiles still do not select final
+  behavior obligations, verification failures, completion evidence
+  requirements, failure mappings, adapter families, capability status, and
+  recovery candidate hints. These facts improve attribution and make
+  cross-profile parity gaps visible, but profiles still do not select final
   active jobs, execute setup, or materialize scaffold files by themselves.
 - Requested-port Next.js launchability is now checked separately from
   `npm run build` when a generated plan has used the build verifier. The

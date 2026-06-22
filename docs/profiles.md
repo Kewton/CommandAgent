@@ -107,6 +107,26 @@ facts without making each profile a workflow engine. Recovery candidate hints
 are only hints; the shared active-job dispatch gate still owns final owner and
 action selection.
 
+The common output schema also exposes profile parity fields for eval and
+repair attribution:
+
+- `profile_project_kind`
+- `profile_manifest_artifacts`
+- `profile_entrypoints`
+- `profile_integration_artifacts`
+- `profile_completion_evidence`
+- `profile_failure_mapping`
+- `profile_adapter_families`
+- `profile_capability_status`
+
+Every profile should render each capability family as `supported`, `partial`,
+or `not_applicable` through `profile.output.capability.<family>`. Missing
+profile support should therefore appear as a parity gap, not as an implicit
+Next.js-only behavior branch. The profile may name manifest, entrypoint,
+integration, completion-evidence, failure-mapping, and adapter-family facts,
+but those facts remain common contract inputs. They do not select an active
+job, execute setup, or authorize hidden repair continuation.
+
 ## Next.js Contract
 
 New Next.js apps need honest dependencies and build scripts. A build script that

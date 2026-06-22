@@ -220,6 +220,14 @@ RECOVERY_FIELD_NAMES = [
     "requested_port",
     "port_preflight",
     "endpoint_smoke",
+    "profile_project_kind",
+    "profile_manifest_artifacts",
+    "profile_entrypoints",
+    "profile_integration_artifacts",
+    "profile_completion_evidence",
+    "profile_failure_mapping",
+    "profile_adapter_families",
+    "profile_capability_status",
 ]
 
 
@@ -372,6 +380,14 @@ def derived_recovery_fields(reason, case):
         "tool_protocol_correction_exhausted": "",
         "evidence_binding_status": "unknown" if reason != "ok" else "bound",
         "completion_evidence_status": "unknown" if reason != "ok" else "passed",
+        "profile_project_kind": "",
+        "profile_manifest_artifacts": "",
+        "profile_entrypoints": "",
+        "profile_integration_artifacts": "",
+        "profile_completion_evidence": "",
+        "profile_failure_mapping": "",
+        "profile_adapter_families": "",
+        "profile_capability_status": "",
         "explicit_stop_reason": "",
     }
     if reason == "ok":

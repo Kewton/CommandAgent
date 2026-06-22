@@ -477,3 +477,12 @@ or budget records start controlling execution instead of reporting and
 bounding it. These records may inform explicit recovery policy or external
 CommandMate decisions, but CommandAgent must not infer hidden retry,
 scheduling, provider switching, or approval UI behavior from telemetry alone.
+
+2026-06-22 amendment: Profile Contract output now includes a cross-profile
+capability matrix and explicit parity fields for project kind, manifests,
+entrypoints, integration artifacts, completion evidence requirements, failure
+mappings, and adapter families. These records make Next.js, Rust, Python,
+docs, and data profiles comparable through one public contract schema. They
+are inputs to planning, recovery attribution, and eval reporting only. They do
+not let a profile choose an active job, run setup, own repair policy, or
+continue hidden work after a failed phase.

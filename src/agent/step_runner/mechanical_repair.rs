@@ -46,6 +46,97 @@ pub(crate) struct MechanicalRepairOutput {
     pub(crate) rerun_authority: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MechanicalAdapterFamilySpec {
+    pub(crate) id: &'static str,
+    pub(crate) diagnostic_codes: &'static [&'static str],
+    pub(crate) allowed_target_roles: &'static [&'static str],
+    pub(crate) source_of_truth: &'static str,
+    pub(crate) rerun_authority: &'static str,
+}
+
+pub(crate) fn mechanical_adapter_family_specs() -> &'static [MechanicalAdapterFamilySpec] {
+    &[
+        MechanicalAdapterFamilySpec {
+            id: "rust_compile",
+            diagnostic_codes: &["rust_compile_error"],
+            allowed_target_roles: &["source", "test"],
+            source_of_truth: "cargo_diagnostic",
+            rerun_authority: "original_cargo_verifier",
+        },
+        MechanicalAdapterFamilySpec {
+            id: "rust_cargo_manifest",
+            diagnostic_codes: &["dependency_missing", "cargo_manifest_missing"],
+            allowed_target_roles: &["manifest"],
+            source_of_truth: "cargo_or_manifest_diagnostic",
+            rerun_authority: "original_cargo_verifier",
+        },
+        MechanicalAdapterFamilySpec {
+            id: "rust_assertion",
+            diagnostic_codes: &["rust_test_assertion_mismatch"],
+            allowed_target_roles: &["source", "test"],
+            source_of_truth: "cargo_test_diagnostic",
+            rerun_authority: "original_cargo_verifier",
+        },
+        MechanicalAdapterFamilySpec {
+            id: "python_import",
+            diagnostic_codes: &["python_import_missing"],
+            allowed_target_roles: &["source", "test"],
+            source_of_truth: "python_traceback",
+            rerun_authority: "original_python_verifier",
+        },
+        MechanicalAdapterFamilySpec {
+            id: "python_assertion",
+            diagnostic_codes: &["python_assertion_mismatch"],
+            allowed_target_roles: &["source", "test"],
+            source_of_truth: "pytest_diagnostic",
+            rerun_authority: "original_python_verifier",
+        },
+        MechanicalAdapterFamilySpec {
+            id: "fastapi_response",
+            diagnostic_codes: &["fastapi_response_mismatch"],
+            allowed_target_roles: &["source", "test"],
+            source_of_truth: "pytest_or_http_diagnostic",
+            rerun_authority: "original_python_verifier",
+        },
+        MechanicalAdapterFamilySpec {
+            id: "node_next_type",
+            diagnostic_codes: &["typescript_type_error", "nextjs_event_handler_boundary"],
+            allowed_target_roles: &["source", "route_entry", "config"],
+            source_of_truth: "next_or_typescript_diagnostic",
+            rerun_authority: "original_nextjs_verifier",
+        },
+        MechanicalAdapterFamilySpec {
+            id: "nextjs_route_integration",
+            diagnostic_codes: &["nextjs_route_not_integrated"],
+            allowed_target_roles: &["route_entry", "source"],
+            source_of_truth: "profile_route_graph",
+            rerun_authority: "profile_verification_then_original_nextjs_verifier",
+        },
+        MechanicalAdapterFamilySpec {
+            id: "manifest_dependency",
+            diagnostic_codes: &["dependency_missing"],
+            allowed_target_roles: &["manifest"],
+            source_of_truth: "verifier_dependency_diagnostic",
+            rerun_authority: "verifier_owned_setup_then_original_verifier",
+        },
+        MechanicalAdapterFamilySpec {
+            id: "docs_literal",
+            diagnostic_codes: &["docs_literal_missing"],
+            allowed_target_roles: &["documentation"],
+            source_of_truth: "profile_completion_evidence",
+            rerun_authority: "original_docs_check",
+        },
+        MechanicalAdapterFamilySpec {
+            id: "data_schema",
+            diagnostic_codes: &["derived_output_missing", "schema_mismatch"],
+            allowed_target_roles: &["derived_output", "pipeline"],
+            source_of_truth: "data_output_contract",
+            rerun_authority: "original_data_verifier",
+        },
+    ]
+}
+
 impl MechanicalRepairOutput {
     pub(crate) fn render_lines(&self) -> Vec<String> {
         vec![format!(
@@ -242,5 +333,32 @@ mod tests {
 
         assert_eq!(output.status, MechanicalRepairStatus::NotApplicable);
         assert_eq!(output.adapter_id, "none");
+    }
+
+    #[test]
+    fn exposes_adapter_family_registry_for_profile_parity() {
+        let specs = mechanical_adapter_family_specs();
+        for expected in [
+            "rust_compile",
+            "rust_cargo_manifest",
+            "python_import",
+            "fastapi_response",
+            "node_next_type",
+            "nextjs_route_integration",
+            "manifest_dependency",
+            "docs_literal",
+            "data_schema",
+        ] {
+            assert!(
+                specs.iter().any(|spec| spec.id == expected),
+                "missing adapter family {expected}"
+            );
+        }
+        assert!(specs.iter().all(|spec| !spec.diagnostic_codes.is_empty()));
+        assert!(
+            specs
+                .iter()
+                .all(|spec| !spec.allowed_target_roles.is_empty())
+        );
     }
 }

@@ -10,7 +10,7 @@ use std::fs;
 use std::path::Path;
 
 const MAX_WORKSPACE_ENTRIES: usize = 20;
-const MAX_RENDER_LINES: usize = 40;
+const MAX_RENDER_LINES: usize = 80;
 const MAX_LINE_CHARS: usize = 180;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,8 +47,9 @@ impl ActiveStepContract {
         phase_contract: &PhaseWorkspaceContract,
         current_profile_facts: Vec<String>,
     ) -> Self {
-        let mut base_phase_contract_facts = phase_contract.base_fact_lines();
-        base_phase_contract_facts.extend(render_task_contract_lines(&phase_contract.task_contract));
+        let mut base_phase_contract_facts =
+            render_task_contract_lines(&phase_contract.task_contract);
+        base_phase_contract_facts.extend(phase_contract.base_fact_lines());
         Self {
             profile: profile.to_string(),
             base_phase_contract_facts,

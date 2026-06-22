@@ -159,7 +159,10 @@ fields are `active_job`, `recovery_owner`, `loop_control_action`,
 `patch_validation_outcomes`, `patch_validation_rejected_paths`,
 `mechanical_adapter`, `mechanical_adapter_status`,
 `mechanical_adapter_action`, `rollback_admission_status`,
-`rollback_reason`, and
+`rollback_reason`, `profile_project_kind`, `profile_manifest_artifacts`,
+`profile_entrypoints`, `profile_integration_artifacts`,
+`profile_completion_evidence`, `profile_failure_mapping`,
+`profile_adapter_families`, `profile_capability_status`, and
 `explicit_stop_reason`. When a runtime repair packet contains richer
 contract evidence, the eval runner extracts those fields. When a failure is
 detected only by the eval success contract, the runner derives a conservative
@@ -175,6 +178,14 @@ Task Contract projection fields are also recorded when present:
 `behavior_obligation_status`, and `artifact_role_projection_status`. These are
 observability fields for planning/recovery attribution. They do not change eval
 success criteria and do not authorize runtime retries.
+
+Profile parity fields are recorded when present so Next.js, Rust, Python,
+docs, and data profiles can be compared through the same schema. They report
+profile project kind, manifest artifacts, entrypoints, integration artifacts,
+completion evidence requirements, failure mapping hints, adapter families, and
+capability status. Eval treats these as observability data. A missing or
+partial value identifies a profile-contract coverage gap; it does not authorize
+profile-owned workflow execution or hidden retry.
 
 Artifact completion reports must keep four states distinct:
 

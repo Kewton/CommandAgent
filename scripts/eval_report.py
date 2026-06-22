@@ -178,6 +178,14 @@ def write_summary(path, rows):
         "requested_port",
         "port_preflight",
         "endpoint_smoke",
+        "profile_project_kind",
+        "profile_manifest_artifacts",
+        "profile_entrypoints",
+        "profile_integration_artifacts",
+        "profile_completion_evidence",
+        "profile_failure_mapping",
+        "profile_adapter_families",
+        "profile_capability_status",
         *ASSERTION_FIELD_NAMES,
     ]
     with open(path, "w", encoding="utf-8", newline="") as handle:
@@ -331,6 +339,14 @@ def recheck(root, cases):
                 "requested_port": meta.get("requested_port", ""),
                 "port_preflight": meta.get("port_preflight", ""),
                 "endpoint_smoke": meta.get("endpoint_smoke", ""),
+                "profile_project_kind": meta.get("profile_project_kind", ""),
+                "profile_manifest_artifacts": meta.get("profile_manifest_artifacts", ""),
+                "profile_entrypoints": meta.get("profile_entrypoints", ""),
+                "profile_integration_artifacts": meta.get("profile_integration_artifacts", ""),
+                "profile_completion_evidence": meta.get("profile_completion_evidence", ""),
+                "profile_failure_mapping": meta.get("profile_failure_mapping", ""),
+                "profile_adapter_families": meta.get("profile_adapter_families", ""),
+                "profile_capability_status": meta.get("profile_capability_status", ""),
             }
         )
         observation = normalize_observation(
@@ -595,6 +611,14 @@ def render_report(rows):
     mechanical_adapters = {}
     mechanical_adapter_statuses = {}
     mechanical_adapter_actions = {}
+    profile_project_kinds = {}
+    profile_manifest_artifacts = {}
+    profile_entrypoints = {}
+    profile_integration_artifacts = {}
+    profile_completion_evidence = {}
+    profile_failure_mappings = {}
+    profile_adapter_families = {}
+    profile_capability_statuses = {}
     rollback_admission_statuses = {}
     rollback_reasons = {}
     task_contract_kinds = {}
@@ -709,6 +733,14 @@ def render_report(rows):
         mechanical_adapter = row.get("mechanical_adapter", "")
         mechanical_adapter_status = row.get("mechanical_adapter_status", "")
         mechanical_adapter_action = row.get("mechanical_adapter_action", "")
+        profile_project_kind = row.get("profile_project_kind", "")
+        profile_manifest_artifact = row.get("profile_manifest_artifacts", "")
+        profile_entrypoint = row.get("profile_entrypoints", "")
+        profile_integration_artifact = row.get("profile_integration_artifacts", "")
+        profile_completion_evidence_value = row.get("profile_completion_evidence", "")
+        profile_failure_mapping = row.get("profile_failure_mapping", "")
+        profile_adapter_family = row.get("profile_adapter_families", "")
+        profile_capability_status = row.get("profile_capability_status", "")
         rollback_admission_status = row.get("rollback_admission_status", "")
         rollback_reason = row.get("rollback_reason", "")
         task_contract_kind = row.get("task_contract_kind", "")
@@ -862,6 +894,38 @@ def render_report(rows):
         if mechanical_adapter_action:
             mechanical_adapter_actions[mechanical_adapter_action] = (
                 mechanical_adapter_actions.get(mechanical_adapter_action, 0) + 1
+            )
+        if profile_project_kind:
+            profile_project_kinds[profile_project_kind] = (
+                profile_project_kinds.get(profile_project_kind, 0) + 1
+            )
+        if profile_manifest_artifact:
+            profile_manifest_artifacts[profile_manifest_artifact] = (
+                profile_manifest_artifacts.get(profile_manifest_artifact, 0) + 1
+            )
+        if profile_entrypoint:
+            profile_entrypoints[profile_entrypoint] = (
+                profile_entrypoints.get(profile_entrypoint, 0) + 1
+            )
+        if profile_integration_artifact:
+            profile_integration_artifacts[profile_integration_artifact] = (
+                profile_integration_artifacts.get(profile_integration_artifact, 0) + 1
+            )
+        if profile_completion_evidence_value:
+            profile_completion_evidence[profile_completion_evidence_value] = (
+                profile_completion_evidence.get(profile_completion_evidence_value, 0) + 1
+            )
+        if profile_failure_mapping:
+            profile_failure_mappings[profile_failure_mapping] = (
+                profile_failure_mappings.get(profile_failure_mapping, 0) + 1
+            )
+        if profile_adapter_family:
+            profile_adapter_families[profile_adapter_family] = (
+                profile_adapter_families.get(profile_adapter_family, 0) + 1
+            )
+        if profile_capability_status:
+            profile_capability_statuses[profile_capability_status] = (
+                profile_capability_statuses.get(profile_capability_status, 0) + 1
             )
         if rollback_admission_status:
             rollback_admission_statuses[rollback_admission_status] = (
@@ -1109,6 +1173,35 @@ def render_report(rows):
             lines.append(f"- status={name}: {count}")
         for name, count in sorted(mechanical_adapter_actions.items()):
             lines.append(f"- action={name}: {count}")
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Profile Parity"])
+    if (
+        profile_project_kinds
+        or profile_manifest_artifacts
+        or profile_entrypoints
+        or profile_integration_artifacts
+        or profile_completion_evidence
+        or profile_failure_mappings
+        or profile_adapter_families
+        or profile_capability_statuses
+    ):
+        for name, count in sorted(profile_project_kinds.items()):
+            lines.append(f"- project_kind={name}: {count}")
+        for name, count in sorted(profile_manifest_artifacts.items()):
+            lines.append(f"- manifest_artifacts={name}: {count}")
+        for name, count in sorted(profile_entrypoints.items()):
+            lines.append(f"- entrypoints={name}: {count}")
+        for name, count in sorted(profile_integration_artifacts.items()):
+            lines.append(f"- integration_artifacts={name}: {count}")
+        for name, count in sorted(profile_completion_evidence.items()):
+            lines.append(f"- completion_evidence={name}: {count}")
+        for name, count in sorted(profile_failure_mappings.items()):
+            lines.append(f"- failure_mapping={name}: {count}")
+        for name, count in sorted(profile_adapter_families.items()):
+            lines.append(f"- adapter_families={name}: {count}")
+        for name, count in sorted(profile_capability_statuses.items()):
+            lines.append(f"- capability_status={name}: {count}")
     else:
         lines.append("- none")
     lines.extend(["", "## Rollback Admission"])

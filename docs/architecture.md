@@ -130,10 +130,13 @@ retry setup.
 Profile output is rendered through one common schema across profiles. The
 schema includes project root hints, classified artifacts, setup artifacts,
 scaffold artifacts, route/integration artifacts, verifier commands, protected
-paths, behavior obligations, verification failures, and recovery candidate
-hints. These are profile facts and hints for the common contracts. They do not
-select the final active job, bypass dispatch, execute setup, or materialize
-scaffold files by themselves.
+paths, behavior obligations, verification failures, recovery candidate hints,
+profile project kind, manifest artifacts, entrypoints, integration artifacts,
+completion evidence requirements, failure mappings, adapter families, and a
+capability matrix. These are profile facts and hints for the common contracts.
+They make cross-profile parity observable without letting a profile select the
+final active job, bypass dispatch, execute setup, or materialize scaffold files
+by itself.
 
 The Recovery Orchestration Contract is not an execution engine. It does not
 retry until success or continue hidden work. It is a deterministic decision

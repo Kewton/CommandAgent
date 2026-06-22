@@ -469,6 +469,52 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertIn("- status=rejected: 1", report)
         self.assertIn("- reason=safe_rollback_data_missing: 1", report)
 
+    def test_render_report_includes_profile_parity_sections(self):
+        report = eval_report.render_report(
+            [
+                {
+                    "case_id": "phase13",
+                    "run": "1",
+                    "rc": "0",
+                    "elapsed_ms": "10",
+                    "success": "true",
+                    "reason": "ok",
+                    "failure_category": "ok",
+                    "contract_layer": "none",
+                    "profile_project_kind": "nextjs_app",
+                    "profile_manifest_artifacts": "package.json",
+                    "profile_entrypoints": "app/page.tsx",
+                    "profile_integration_artifacts": "app/page.tsx|components/Game.tsx",
+                    "profile_completion_evidence": "npm_run_build|selected_route_binding",
+                    "profile_failure_mapping": "nextjs_missing_dependency->manifest_repair",
+                    "profile_adapter_families": "node_next_type|nextjs_route_integration",
+                    "profile_capability_status": "project:ok|manifest:ok|adapter:ok",
+                }
+            ]
+        )
+
+        self.assertIn("## Profile Parity", report)
+        self.assertIn("- project_kind=nextjs_app: 1", report)
+        self.assertIn("- manifest_artifacts=package.json: 1", report)
+        self.assertIn("- entrypoints=app/page.tsx: 1", report)
+        self.assertIn(
+            "- integration_artifacts=app/page.tsx|components/Game.tsx: 1",
+            report,
+        )
+        self.assertIn(
+            "- completion_evidence=npm_run_build|selected_route_binding: 1",
+            report,
+        )
+        self.assertIn(
+            "- failure_mapping=nextjs_missing_dependency->manifest_repair: 1",
+            report,
+        )
+        self.assertIn(
+            "- adapter_families=node_next_type|nextjs_route_integration: 1",
+            report,
+        )
+        self.assertIn("- capability_status=project:ok|manifest:ok|adapter:ok: 1", report)
+
     def test_render_report_includes_task_contract_sections(self):
         report = eval_report.render_report(
             [

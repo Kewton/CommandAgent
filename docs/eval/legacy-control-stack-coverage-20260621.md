@@ -225,6 +225,12 @@ to resolve the recurring eval failures reliably:
   setup/scaffold/integration artifacts, verifier commands, obligations, and
   recovery candidate hints while leaving final dispatch in the common recovery
   gate.
+- Added profile/language adapter parity fields. Profiles now expose project
+  kind, manifest artifacts, entrypoints, integration artifacts, completion
+  evidence requirements, failure mappings, adapter families, and a capability
+  status matrix through the same output schema. Eval reports these fields under
+  profile parity so missing support is visible as a contract coverage gap
+  rather than an implicit Next.js-only branch.
 
 ## Recommended Port Order
 

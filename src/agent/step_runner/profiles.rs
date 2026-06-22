@@ -1,4 +1,5 @@
 use crate::agent::step_runner::correction_evidence::PlanCorrectionEvidence;
+use crate::agent::step_runner::mechanical_repair::mechanical_adapter_family_specs;
 use crate::agent::step_runner::plan_lint::PlanLintError;
 use crate::agent::step_runner::profile_artifact::{
     ArtifactKind, ArtifactProvenance, artifact_kind_label, classify_profile_artifact,
@@ -135,10 +136,103 @@ pub struct ProfileFactSummary {
     pub lines: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProfileCapabilityFamily {
+    ProjectKind,
+    RootHints,
+    ManifestContract,
+    EntrypointContract,
+    IntegrationContract,
+    SetupContract,
+    VerifierContract,
+    CompletionEvidenceContract,
+    ProtectedInputContract,
+    ScaffoldContract,
+    ProfileFailureMapping,
+    LanguageAdapterFamily,
+}
+
+impl ProfileCapabilityFamily {
+    fn eval_key(self) -> &'static str {
+        match self {
+            Self::ProjectKind => "project",
+            Self::RootHints => "roots",
+            Self::ManifestContract => "manifest",
+            Self::EntrypointContract => "entrypoint",
+            Self::IntegrationContract => "integration",
+            Self::SetupContract => "setup",
+            Self::VerifierContract => "verifier",
+            Self::CompletionEvidenceContract => "evidence",
+            Self::ProtectedInputContract => "protected",
+            Self::ScaffoldContract => "scaffold",
+            Self::ProfileFailureMapping => "failure",
+            Self::LanguageAdapterFamily => "adapter",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProfileCapabilityStatus {
+    Supported,
+    Partial,
+    NotApplicable,
+}
+
+impl ProfileCapabilityStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Supported => "supported",
+            Self::Partial => "partial",
+            Self::NotApplicable => "not_applicable",
+        }
+    }
+
+    fn summary_str(self) -> &'static str {
+        match self {
+            Self::Supported => "ok",
+            Self::Partial => "partial",
+            Self::NotApplicable => "na",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProfileCapability {
+    pub(crate) family: ProfileCapabilityFamily,
+    pub(crate) status: ProfileCapabilityStatus,
+    pub(crate) source_of_truth: String,
+    pub(crate) artifacts: Vec<String>,
+    pub(crate) recovery_owner_hint: Option<String>,
+    pub(crate) authority: Option<String>,
+    pub(crate) reason: Option<String>,
+}
+
+impl ProfileCapability {
+    fn render_line(&self) -> String {
+        format!(
+            "profile.output.capability.{}=status:{} artifacts:{} owner:{} authority:{} reason:{}",
+            self.family.eval_key(),
+            self.status.as_str(),
+            join_profile_values_limited(&self.artifacts, 1),
+            bounded_value(self.recovery_owner_hint.as_deref().unwrap_or("none")),
+            bounded_value(self.authority.as_deref().unwrap_or("none")),
+            bounded_value(self.reason.as_deref().unwrap_or("none"))
+        )
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProfileOutput {
     pub(crate) id: ProfileId,
+    pub(crate) project_kind: String,
     pub(crate) project_root_hints: Vec<String>,
+    pub(crate) manifest_artifacts: Vec<String>,
+    pub(crate) entrypoints: Vec<String>,
+    pub(crate) integration_artifacts: Vec<String>,
+    pub(crate) completion_evidence_requirements: Vec<String>,
+    pub(crate) failure_mappings: Vec<String>,
+    pub(crate) adapter_families: Vec<String>,
+    pub(crate) capabilities: Vec<ProfileCapability>,
     pub(crate) artifact_classifications: Vec<String>,
     pub(crate) setup_artifacts: Vec<String>,
     pub(crate) scaffold_artifacts: Vec<String>,
@@ -154,9 +248,22 @@ impl ProfileOutput {
     pub(crate) fn render_lines(&self) -> Vec<String> {
         let mut lines = vec![
             format!("profile.output.id={}", self.id.as_str()),
+            format!("profile.output.project_kind={}", self.project_kind),
             format!(
                 "profile.output.project_roots={}",
                 join_profile_values(&self.project_root_hints)
+            ),
+            format!(
+                "profile.output.manifests={}",
+                join_profile_values(&self.manifest_artifacts)
+            ),
+            format!(
+                "profile.output.entrypoints={}",
+                join_profile_values(&self.entrypoints)
+            ),
+            format!(
+                "profile.output.integration_artifacts={}",
+                join_profile_values(&self.integration_artifacts)
             ),
             format!(
                 "profile.output.artifacts={}",
@@ -187,14 +294,56 @@ impl ProfileOutput {
                 join_profile_values(&self.behavior_obligations)
             ),
             format!(
+                "profile.output.completion_evidence={}",
+                join_profile_values(&self.completion_evidence_requirements)
+            ),
+            format!(
                 "profile.output.verification_failures={}",
                 join_profile_values(&self.verification_failures)
+            ),
+            format!(
+                "profile.output.failure_mappings={}",
+                join_profile_values(&self.failure_mappings)
+            ),
+            format!(
+                "profile.output.adapter_families={}",
+                join_profile_values(&self.adapter_families)
             ),
             format!(
                 "profile.output.recovery_candidate_hints={}",
                 join_profile_values(&self.recovery_candidate_hints)
             ),
+            format!("profile_project_kind={}", self.project_kind),
+            format!(
+                "profile_manifest_artifacts={}",
+                join_profile_values(&self.manifest_artifacts)
+            ),
+            format!(
+                "profile_entrypoints={}",
+                join_profile_values(&self.entrypoints)
+            ),
+            format!(
+                "profile_integration_artifacts={}",
+                join_profile_values(&self.integration_artifacts)
+            ),
+            format!(
+                "profile_completion_evidence={}",
+                join_profile_values(&self.completion_evidence_requirements)
+            ),
+            format!(
+                "profile_failure_mapping={}",
+                join_profile_values(&self.failure_mappings)
+            ),
+            format!(
+                "profile_adapter_families={}",
+                join_profile_values(&self.adapter_families)
+            ),
+            format!(
+                "profile_capability_status={}",
+                profile_capability_status_summary(&self.capabilities)
+            ),
         ];
+        lines.extend(self.capabilities.iter().map(ProfileCapability::render_line));
         lines.retain(|line| line.len() <= 240);
         lines
     }
@@ -394,6 +543,7 @@ pub fn render_profile_obligations(obligations: &[ProfileObligation]) -> Vec<Stri
 
 fn profile_output_summary(id: ProfileId, cwd: &Path) -> ProfileOutput {
     let contract = profile_contract(id);
+    let project_kind = profile_project_kind(id).to_string();
     let project_root_hints = profile_project_root_hints(id, cwd);
     let observed_paths = profile_observed_paths(id, cwd);
     let artifact_classifications = observed_paths
@@ -428,6 +578,13 @@ fn profile_output_summary(id: ProfileId, cwd: &Path) -> ProfileOutput {
         })
         .cloned()
         .collect::<Vec<_>>();
+    let manifest_artifacts = profile_manifest_artifacts(id, cwd, &setup_artifacts);
+    let entrypoints = profile_entrypoints(id, cwd);
+    let integration_artifacts =
+        profile_integration_artifacts(id, cwd, &route_integration_artifacts);
+    let completion_evidence_requirements = profile_completion_evidence_requirements(id);
+    let failure_mappings = profile_failure_mappings(id);
+    let adapter_families = profile_adapter_families(id);
     let behavior_obligations = profile_behavior_obligations(id, cwd);
     let recovery_candidate_hints = profile_recovery_candidate_hints(
         id,
@@ -435,18 +592,43 @@ fn profile_output_summary(id: ProfileId, cwd: &Path) -> ProfileOutput {
         &scaffold_artifacts,
         &route_integration_artifacts,
     );
-    ProfileOutput {
+    let verifier_commands = contract.verifier_commands;
+    let protected_paths = contract.protected_path_prefixes;
+    let mut output = ProfileOutput {
         id,
+        project_kind,
         project_root_hints,
+        manifest_artifacts,
+        entrypoints,
+        integration_artifacts,
+        completion_evidence_requirements,
+        failure_mappings,
+        adapter_families,
+        capabilities: Vec::new(),
         artifact_classifications,
         setup_artifacts,
         scaffold_artifacts,
         route_integration_artifacts,
-        verifier_commands: contract.verifier_commands,
-        protected_paths: contract.protected_path_prefixes,
+        verifier_commands,
+        protected_paths,
         behavior_obligations,
         verification_failures: Vec::new(),
         recovery_candidate_hints,
+    };
+    output.capabilities = profile_capabilities(&output);
+    output
+}
+
+fn profile_project_kind(id: ProfileId) -> &'static str {
+    match id {
+        ProfileId::Generic => "generic_workspace",
+        ProfileId::NextJs => "nextjs_app",
+        ProfileId::Python => "python_app",
+        ProfileId::Rust => "rust_crate",
+        ProfileId::Investigation => "investigation",
+        ProfileId::Docs => "documentation",
+        ProfileId::DataAnalysis => "data_analysis",
+        ProfileId::DataPipeline => "data_pipeline",
     }
 }
 
@@ -525,6 +707,164 @@ fn profile_observed_paths(id: ProfileId, cwd: &Path) -> Vec<String> {
         .collect()
 }
 
+fn profile_manifest_artifacts(
+    id: ProfileId,
+    cwd: &Path,
+    setup_artifacts: &[String],
+) -> Vec<String> {
+    let expected = match id {
+        ProfileId::NextJs => &["package.json"][..],
+        ProfileId::Rust => &["Cargo.toml"][..],
+        ProfileId::Python => &["pyproject.toml", "requirements.txt", "setup.py"][..],
+        ProfileId::DataAnalysis | ProfileId::DataPipeline => &["pipeline.yaml", "pipeline.yml"][..],
+        ProfileId::Generic | ProfileId::Investigation | ProfileId::Docs => &[][..],
+    };
+    let existing = expected
+        .iter()
+        .filter(|path| cwd.join(path).exists())
+        .map(|path| (*path).to_string())
+        .collect::<Vec<_>>();
+    if !existing.is_empty() {
+        existing
+    } else if !setup_artifacts.is_empty() {
+        setup_artifacts.to_vec()
+    } else {
+        expected.iter().map(|path| (*path).to_string()).collect()
+    }
+}
+
+fn profile_entrypoints(id: ProfileId, cwd: &Path) -> Vec<String> {
+    let candidates = match id {
+        ProfileId::NextJs => vec!["src/app/page.tsx", "app/page.tsx", "pages/index.tsx"],
+        ProfileId::Rust => vec!["src/main.rs", "src/lib.rs"],
+        ProfileId::Python => vec!["app/main.py", "main.py", "app/__init__.py"],
+        ProfileId::Docs => vec!["README.md", "docs/README.md", "docs/index.md"],
+        ProfileId::DataAnalysis | ProfileId::DataPipeline => {
+            vec![
+                "scripts/analyze.py",
+                "scripts/pipeline.py",
+                "notebooks/analysis.ipynb",
+            ]
+        }
+        ProfileId::Generic | ProfileId::Investigation => Vec::new(),
+    };
+    existing_or_expected(cwd, &candidates)
+}
+
+fn profile_integration_artifacts(
+    id: ProfileId,
+    cwd: &Path,
+    route_artifacts: &[String],
+) -> Vec<String> {
+    match id {
+        ProfileId::NextJs if !route_artifacts.is_empty() => route_artifacts.to_vec(),
+        ProfileId::NextJs => existing_or_expected(
+            cwd,
+            &["src/app/page.tsx", "app/page.tsx", "components/Game.tsx"],
+        ),
+        ProfileId::Rust => {
+            existing_or_expected(cwd, &["tests/integration.rs", "src/main.rs", "src/lib.rs"])
+        }
+        ProfileId::Python => {
+            existing_or_expected(cwd, &["tests/test_app.py", "app/main.py", "main.py"])
+        }
+        ProfileId::Docs => existing_or_expected(cwd, &["README.md", "docs/README.md"]),
+        ProfileId::DataAnalysis | ProfileId::DataPipeline => existing_or_expected(
+            cwd,
+            &["output/report.csv", "reports/report.md", "data/processed"],
+        ),
+        ProfileId::Generic | ProfileId::Investigation => Vec::new(),
+    }
+}
+
+fn profile_completion_evidence_requirements(id: ProfileId) -> Vec<String> {
+    match id {
+        ProfileId::NextJs => vec![
+            "npm_run_build".to_string(),
+            "selected_route_binding".to_string(),
+            "dev_port_smoke_when_requested".to_string(),
+        ],
+        ProfileId::Rust => vec![
+            "cargo_test_or_build".to_string(),
+            "cargo_manifest_binding".to_string(),
+            "binary_or_library_binding".to_string(),
+        ],
+        ProfileId::Python => vec![
+            "pytest_or_script_verifier".to_string(),
+            "import_binding".to_string(),
+        ],
+        ProfileId::Docs => vec!["requested_doc_literal_or_section".to_string()],
+        ProfileId::DataAnalysis | ProfileId::DataPipeline => vec![
+            "derived_output_present".to_string(),
+            "raw_input_unchanged".to_string(),
+        ],
+        ProfileId::Generic | ProfileId::Investigation => Vec::new(),
+    }
+}
+
+fn profile_failure_mappings(id: ProfileId) -> Vec<String> {
+    match id {
+        ProfileId::NextJs => vec![
+            "nextjs_missing_dependency->manifest_repair".to_string(),
+            "nextjs_route_not_integrated->route_integration_repair".to_string(),
+            "nextjs_app_root_ambiguous->explicit_stop".to_string(),
+            "nextjs_dev_port_drift->manifest_repair".to_string(),
+        ],
+        ProfileId::Rust => vec![
+            "cargo_manifest_missing->manifest_repair".to_string(),
+            "rust_compile_error->source_implementation_repair".to_string(),
+            "rust_test_failure->test_or_source_repair".to_string(),
+        ],
+        ProfileId::Python => vec![
+            "python_manifest_missing->manifest_repair".to_string(),
+            "python_import_missing->source_implementation_repair".to_string(),
+            "pytest_failure->test_or_source_repair".to_string(),
+        ],
+        ProfileId::Docs => vec!["docs_literal_missing->documentation_repair".to_string()],
+        ProfileId::DataAnalysis | ProfileId::DataPipeline => vec![
+            "raw_input_mutation->explicit_stop".to_string(),
+            "derived_output_missing->data_artifact_completion".to_string(),
+        ],
+        ProfileId::Generic | ProfileId::Investigation => Vec::new(),
+    }
+}
+
+fn profile_adapter_families(id: ProfileId) -> Vec<String> {
+    let ids = match id {
+        ProfileId::NextJs => &[
+            "node_next_type",
+            "nextjs_route_integration",
+            "manifest_dependency",
+        ][..],
+        ProfileId::Rust => &["rust_compile", "rust_cargo_manifest", "rust_assertion"][..],
+        ProfileId::Python => &["python_import", "python_assertion", "fastapi_response"][..],
+        ProfileId::Docs => &["docs_literal"][..],
+        ProfileId::DataAnalysis | ProfileId::DataPipeline => &["data_schema"][..],
+        ProfileId::Generic | ProfileId::Investigation => &[][..],
+    };
+    let registered = mechanical_adapter_family_specs()
+        .iter()
+        .map(|spec| spec.id)
+        .collect::<BTreeSet<_>>();
+    ids.iter()
+        .filter(|id| registered.contains(**id))
+        .map(|id| (*id).to_string())
+        .collect()
+}
+
+fn existing_or_expected(cwd: &Path, candidates: &[&str]) -> Vec<String> {
+    let existing = candidates
+        .iter()
+        .filter(|path| cwd.join(path).exists())
+        .map(|path| (*path).to_string())
+        .collect::<Vec<_>>();
+    if existing.is_empty() {
+        candidates.iter().map(|path| (*path).to_string()).collect()
+    } else {
+        existing
+    }
+}
+
 fn profile_scaffold_artifacts(id: ProfileId, cwd: &Path) -> Vec<String> {
     match id {
         ProfileId::NextJs => {
@@ -600,13 +940,217 @@ fn profile_recovery_candidate_hints(
     hints
 }
 
+fn profile_capabilities(output: &ProfileOutput) -> Vec<ProfileCapability> {
+    use ProfileCapabilityFamily as Family;
+    use ProfileCapabilityStatus as Status;
+
+    let id = output.id;
+    let manifest_status = if matches!(
+        id,
+        ProfileId::Generic | ProfileId::Investigation | ProfileId::Docs
+    ) {
+        Status::NotApplicable
+    } else if output.manifest_artifacts.is_empty() {
+        Status::Partial
+    } else {
+        Status::Supported
+    };
+    let integration_status = if matches!(id, ProfileId::Generic | ProfileId::Investigation) {
+        Status::NotApplicable
+    } else if output.integration_artifacts.is_empty() {
+        Status::Partial
+    } else {
+        Status::Supported
+    };
+    let setup_status = if matches!(
+        id,
+        ProfileId::NextJs | ProfileId::Rust | ProfileId::Python | ProfileId::DataPipeline
+    ) {
+        Status::Supported
+    } else {
+        Status::NotApplicable
+    };
+    let verifier_status = if output.verifier_commands.is_empty() {
+        match id {
+            ProfileId::Docs | ProfileId::DataAnalysis | ProfileId::DataPipeline => {
+                Status::NotApplicable
+            }
+            ProfileId::Generic | ProfileId::Investigation => Status::NotApplicable,
+            _ => Status::Partial,
+        }
+    } else {
+        Status::Supported
+    };
+    let protected_status = if output.protected_paths.is_empty() {
+        Status::NotApplicable
+    } else {
+        Status::Supported
+    };
+
+    vec![
+        ProfileCapability {
+            family: Family::ProjectKind,
+            status: Status::Supported,
+            source_of_truth: "profile_id".to_string(),
+            artifacts: vec![output.project_kind.clone()],
+            recovery_owner_hint: None,
+            authority: Some("profile_contract".to_string()),
+            reason: None,
+        },
+        ProfileCapability {
+            family: Family::RootHints,
+            status: if output.project_root_hints.is_empty() {
+                Status::NotApplicable
+            } else {
+                Status::Supported
+            },
+            source_of_truth: "workspace_observation".to_string(),
+            artifacts: output.project_root_hints.clone(),
+            recovery_owner_hint: None,
+            authority: Some("profile_contract".to_string()),
+            reason: None,
+        },
+        ProfileCapability {
+            family: Family::ManifestContract,
+            status: manifest_status,
+            source_of_truth: "profile_manifest_artifacts".to_string(),
+            artifacts: output.manifest_artifacts.clone(),
+            recovery_owner_hint: Some("manifest_repair".to_string()),
+            authority: Some("profile_contract".to_string()),
+            reason: Some("manifest_or_setup_boundary".to_string()),
+        },
+        ProfileCapability {
+            family: Family::EntrypointContract,
+            status: if output.entrypoints.is_empty() {
+                Status::NotApplicable
+            } else {
+                Status::Supported
+            },
+            source_of_truth: "profile_entrypoints".to_string(),
+            artifacts: output.entrypoints.clone(),
+            recovery_owner_hint: Some("artifact_completion".to_string()),
+            authority: Some("profile_contract".to_string()),
+            reason: None,
+        },
+        ProfileCapability {
+            family: Family::IntegrationContract,
+            status: integration_status,
+            source_of_truth: "profile_integration_artifacts".to_string(),
+            artifacts: output.integration_artifacts.clone(),
+            recovery_owner_hint: Some("route_or_entrypoint_integration_repair".to_string()),
+            authority: Some("profile_verification".to_string()),
+            reason: None,
+        },
+        ProfileCapability {
+            family: Family::SetupContract,
+            status: setup_status,
+            source_of_truth: "profile_setup_artifacts".to_string(),
+            artifacts: output.setup_artifacts.clone(),
+            recovery_owner_hint: Some("setup_recovery".to_string()),
+            authority: Some("verifier_owned_setup".to_string()),
+            reason: None,
+        },
+        ProfileCapability {
+            family: Family::VerifierContract,
+            status: verifier_status,
+            source_of_truth: "profile_verifier_commands".to_string(),
+            artifacts: output.verifier_commands.clone(),
+            recovery_owner_hint: Some("verifier_repair".to_string()),
+            authority: Some("step_runner_verification".to_string()),
+            reason: None,
+        },
+        ProfileCapability {
+            family: Family::CompletionEvidenceContract,
+            status: if output.completion_evidence_requirements.is_empty() {
+                Status::Partial
+            } else {
+                Status::Supported
+            },
+            source_of_truth: "profile_completion_evidence".to_string(),
+            artifacts: output.completion_evidence_requirements.clone(),
+            recovery_owner_hint: Some("completion_evidence_binding".to_string()),
+            authority: Some("profile_contract".to_string()),
+            reason: None,
+        },
+        ProfileCapability {
+            family: Family::ProtectedInputContract,
+            status: protected_status,
+            source_of_truth: "profile_protected_paths".to_string(),
+            artifacts: output.protected_paths.clone(),
+            recovery_owner_hint: Some("explicit_stop".to_string()),
+            authority: Some("safety_guard".to_string()),
+            reason: Some("raw_or_protected_inputs".to_string()),
+        },
+        ProfileCapability {
+            family: Family::ScaffoldContract,
+            status: if output.scaffold_artifacts.is_empty() {
+                Status::NotApplicable
+            } else {
+                Status::Supported
+            },
+            source_of_truth: "profile_scaffold_artifacts".to_string(),
+            artifacts: output.scaffold_artifacts.clone(),
+            recovery_owner_hint: Some("scaffold_materialization".to_string()),
+            authority: Some("profile_contract".to_string()),
+            reason: None,
+        },
+        ProfileCapability {
+            family: Family::ProfileFailureMapping,
+            status: if output.failure_mappings.is_empty() {
+                Status::Partial
+            } else {
+                Status::Supported
+            },
+            source_of_truth: "profile_failure_mapping".to_string(),
+            artifacts: output.failure_mappings.clone(),
+            recovery_owner_hint: Some("recovery_task_contract".to_string()),
+            authority: Some("profile_failure_mapping".to_string()),
+            reason: None,
+        },
+        ProfileCapability {
+            family: Family::LanguageAdapterFamily,
+            status: if output.adapter_families.is_empty() {
+                Status::Partial
+            } else {
+                Status::Supported
+            },
+            source_of_truth: "profile_adapter_families".to_string(),
+            artifacts: output.adapter_families.clone(),
+            recovery_owner_hint: Some("mechanical_repair_adapter".to_string()),
+            authority: Some("diagnostic_adapter_registry".to_string()),
+            reason: None,
+        },
+    ]
+}
+
+fn profile_capability_status_summary(capabilities: &[ProfileCapability]) -> String {
+    if capabilities.is_empty() {
+        return "none".to_string();
+    }
+    capabilities
+        .iter()
+        .map(|capability| {
+            format!(
+                "{}:{}",
+                capability.family.eval_key(),
+                capability.status.summary_str()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
 fn join_profile_values(values: &[String]) -> String {
+    join_profile_values_limited(values, 8)
+}
+
+fn join_profile_values_limited(values: &[String], limit: usize) -> String {
     if values.is_empty() {
         "none".to_string()
     } else {
         values
             .iter()
-            .take(8)
+            .take(limit)
             .map(|value| bounded_value(value))
             .collect::<Vec<_>>()
             .join("|")
@@ -3480,6 +4024,55 @@ mod tests {
                 .iter()
                 .any(|line| line.contains("profile.output.setup_artifacts=requirements.txt"))
         );
+    }
+
+    #[test]
+    fn profile_fact_summary_renders_phase13_parity_fields_for_all_profiles() {
+        let root = temp_workspace("profile-output-parity");
+        fs::create_dir_all(root.join("app")).unwrap();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join("docs")).unwrap();
+        fs::write(root.join("package.json"), "{}").unwrap();
+        fs::write(
+            root.join("app/page.tsx"),
+            "export default function Page() { return null; }",
+        )
+        .unwrap();
+        fs::write(root.join("Cargo.toml"), "[package]\nname = \"x\"").unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() {}").unwrap();
+        fs::write(root.join("requirements.txt"), "pytest\n").unwrap();
+        fs::write(root.join("app/main.py"), "def app(): pass").unwrap();
+        fs::write(root.join("README.md"), "# Docs").unwrap();
+
+        for profile in [
+            "nextjs",
+            "rust",
+            "python",
+            "docs",
+            "data-analysis",
+            "data-pipeline",
+        ] {
+            let summary = profile_fact_summary(profile, &root).unwrap();
+            for prefix in [
+                "profile_project_kind=",
+                "profile_manifest_artifacts=",
+                "profile_entrypoints=",
+                "profile_integration_artifacts=",
+                "profile_completion_evidence=",
+                "profile_failure_mapping=",
+                "profile_adapter_families=",
+                "profile_capability_status=",
+                "profile.output.capability.project=",
+                "profile.output.capability.failure=",
+                "profile.output.capability.adapter=",
+            ] {
+                assert!(
+                    summary.lines.iter().any(|line| line.starts_with(prefix)),
+                    "missing {prefix} for {profile}: {:?}",
+                    summary.lines
+                );
+            }
+        }
     }
 
     fn context_with_goal(goal: &str) -> ProfileVerificationContext {
