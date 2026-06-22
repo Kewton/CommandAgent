@@ -4,8 +4,8 @@ Date: 2026-06-22
 
 ## Scope
 
-This slice implements the Phase 5 recovery-dispatch boundary from
-`workspace/mvp/logic/anvil/loadmap2/phase_5`.
+This slice implements the Phase 5 recovery-dispatch boundary from the
+loadmap2 Phase 5 planning notes.
 
 The goal is to make active-job arbitration the common gate between deterministic
 failure evidence and recovery prompt construction.
