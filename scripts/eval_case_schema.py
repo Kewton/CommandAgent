@@ -54,6 +54,14 @@ EXPECTED_FIELD_NAMES = [
     "expected_attempt_outcome",
     "expected_explicit_stop_reason",
     "expected_safe_stop_payload",
+    "expected_tool_protocol_status",
+    "expected_tool_protocol_source",
+    "expected_tool_protocol_action",
+    "expected_tool_protocol_failed_tool",
+    "expected_tool_protocol_missing_field",
+    "expected_tool_protocol_required_fields",
+    "expected_tool_protocol_correction_spent",
+    "expected_tool_protocol_correction_exhausted",
 ]
 
 ASSERTION_FIELD_NAMES = [

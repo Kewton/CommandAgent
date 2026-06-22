@@ -362,6 +362,14 @@ class EvalReportCategorizeTests(unittest.TestCase):
                     "allowed_change_kind": "tool_call_shape_only",
                     "allowed_tool_category": "tool_protocol",
                     "target_confidence": "tool_protocol_only",
+                    "tool_protocol_status": "admitted",
+                    "tool_protocol_source": "tool_argument_schema",
+                    "tool_protocol_action": "emit_same_tool_with_required_fields",
+                    "tool_protocol_failed_tool": "Write",
+                    "tool_protocol_missing_field": "path",
+                    "tool_protocol_required_fields": "path,content",
+                    "tool_protocol_correction_spent": "false",
+                    "tool_protocol_correction_exhausted": "false",
                     "repair_plan_rejection_reason": "none",
                     "selected_failure_cluster": "tool_protocol:tool_args_missing_required_field",
                     "semantic_failure_kind": "tool_protocol_failure",
@@ -413,6 +421,15 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertIn("- src/main.rs: 1", report)
         self.assertIn("## Unknown Diagnostic Count", report)
         self.assertIn("- total: 0", report)
+        self.assertIn("## Tool Protocol Recovery", report)
+        self.assertIn("- status=admitted: 1", report)
+        self.assertIn("- source=tool_argument_schema: 1", report)
+        self.assertIn("- action=emit_same_tool_with_required_fields: 1", report)
+        self.assertIn("- failed_tool=Write: 1", report)
+        self.assertIn("- missing_field=path: 1", report)
+        self.assertIn("- required_fields=path,content: 1", report)
+        self.assertIn("- correction_spent=false: 1", report)
+        self.assertIn("- correction_exhausted=false: 1", report)
 
     def test_render_report_includes_task_contract_sections(self):
         report = eval_report.render_report(

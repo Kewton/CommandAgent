@@ -529,6 +529,13 @@ otherwise a single step `expected_paths` entry can be used as data. Repeated
 schema failures stop explicitly and are reported in repair packets and eval
 summaries. This is not provider policy, profile verification, dependency setup,
 or verifier success.
+The step runner first normalizes deterministic protocol failures into a common
+payload, then selects one bounded correction action. The action may allow only
+the failed tool, require a `Read` before retrying a stale edit, require
+repository-evidence tools after prose-only output, or reject unsafe/provider
+parse failures with explicit stop. The minimal loop receives this as a narrow
+execution envelope and an allowlist of tools; it still does not plan future
+recovery work.
 
 Search tools walk the workspace deterministically and skip hidden paths by
 default. Search output is bounded so a tool result cannot flood the next model

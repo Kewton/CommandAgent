@@ -332,6 +332,12 @@ fixing a failed verifier, because the repair turn is an explicit
 mutation-allowed session. It then reruns the same expected-path checks and
 verifier commands. Repeated malformed tool calls stop explicitly and do not
 count as original ultra-plan completion.
+The correction packet names the normalized tool-protocol source, selected
+correction action, allowed tools, disallowed actions, target confidence, and
+original success authority. This keeps stale-edit inspection, same-tool schema
+correction, prose-only repository-evidence correction, unsafe path rejection,
+and provider-transport parse evidence in the tool-protocol layer instead of
+letting a generic source repair infer the next action.
 
 If a read-only step such as `inspect` or `report` attempts mutation,
 CommandAgent records a `step_policy` evidence entry with the failed tool and

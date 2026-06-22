@@ -63,6 +63,7 @@ where
         &guard,
         config.dependency_setup_policy,
         config.step_tool_policy,
+        config.allowed_tools.clone(),
     );
     let mut mode = config.initial_tool_call_mode;
     let tools = file_tool_specs();

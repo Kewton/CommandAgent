@@ -132,10 +132,13 @@ tool-argument failures before any tool mutation. The step runner may expose
 that evidence through one bounded tool protocol correction, but providers do
 not own that repair policy.
 
-Tool protocol failures can align with the common contract-evidence shape in a
-future step-runner adapter, but providers still remain transport-only. Provider
+Tool protocol failures now align with the common contract-evidence shape in
+the step-runner adapter, but providers still remain transport-only. Provider
 modules must not choose repair strategy, alter retry budgets, or add
-model-specific behavioral policy.
+model-specific behavioral policy. If a provider or XML fallback parse failure
+cannot be represented as a safe shared correction action, the step runner emits
+provider-transport evidence and stops boundedly instead of putting recovery
+policy into the provider.
 
 Native providers consume the same built-in tool argument schemas. `Read`,
 `Write`, `Edit`, `Glob`, `Grep`, and `Bash` expose one provider-independent

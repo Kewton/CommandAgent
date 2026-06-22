@@ -985,6 +985,7 @@ mod tests {
                 )
                 .with_step_id(step.id.clone()),
                 tool_arg_schema_correction_spent: false,
+                pending_tool_protocol_failure: None,
                 pending_tool_arg_error: None,
                 pending_tool_arg_error_source: None,
             },
@@ -1001,7 +1002,14 @@ mod tests {
             .iter()
             .filter(|prompt| prompt.contains("The required path is still missing: README.md"))
             .count();
-        assert_eq!(guard_prompt_count, 1);
+        assert_eq!(guard_prompt_count, 0);
+        assert!(
+            executor
+                .prompts
+                .iter()
+                .any(|prompt| prompt.contains("Tool protocol correction")
+                    && prompt.contains("Correction action: emit_same_tool_with_required_fields"))
+        );
     }
 
     #[test]

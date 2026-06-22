@@ -316,10 +316,13 @@ correction using deterministic schema evidence and a target path from missing
 expected paths or a single current-step `expected_paths` entry when available.
 Repair turns may also correct malformed `Write` or `Edit` calls while fixing a
 failed verifier, because the repair turn is an explicit mutation-allowed
-session. Eval reports should keep `tool_args_*` separate from
-`dependency_missing`, `profile_verification:*`, semantic checks, and app-quality
-failures, including cases where protocol correction succeeds and a later
-verifier or app-quality failure remains.
+session. Tool protocol reporting should also record the normalized failure
+source, selected correction action, failed tool, missing field, required
+fields, and whether the bounded correction was already spent or exhausted.
+Eval reports should keep `tool_args_*` separate from `dependency_missing`,
+`profile_verification:*`, semantic checks, and app-quality failures, including
+cases where protocol correction succeeds and a later verifier or app-quality
+failure remains.
 
 Read-only step-policy failures are also separate from verifier evidence. If an
 `inspect`, `verify`, or `report` step attempts `Write`, `Edit`, or mutating
@@ -561,6 +564,9 @@ Record these fields when present:
 - tool policy used for the next repair turn;
 - evidence requirement, such as file change or repository read evidence;
 - evidence-producing tool, if a repair turn satisfied the requirement;
+- tool protocol details, such as source, selected correction action, failed
+  tool, missing field, required fields, correction spent, and correction
+  exhausted;
 - disallowed actions;
 - success check, such as the original verifier command or profile check;
 - evidence signature.

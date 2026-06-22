@@ -16,6 +16,7 @@ pub(super) struct ToolExecutor<'a> {
     guard: &'a PathGuard,
     dependency_policy: DependencySetupPolicy,
     step_tool_policy: StepToolPolicy,
+    allowed_tools: Vec<String>,
     read: ReadTool<'a>,
     write: WriteTool<'a>,
     edit: EditTool<'a>,
@@ -29,11 +30,13 @@ impl<'a> ToolExecutor<'a> {
         guard: &'a PathGuard,
         dependency_policy: DependencySetupPolicy,
         step_tool_policy: StepToolPolicy,
+        allowed_tools: Vec<String>,
     ) -> Self {
         Self {
             guard,
             dependency_policy,
             step_tool_policy,
+            allowed_tools,
             read: ReadTool::new(guard),
             write: WriteTool::new(guard),
             edit: EditTool::new(guard),
@@ -130,6 +133,14 @@ impl<'a> ToolExecutor<'a> {
         tool_name: &str,
         args: &Value,
     ) -> Result<(), MinimalLoopError> {
+        if !self.allowed_tools.is_empty()
+            && !self.allowed_tools.iter().any(|tool| tool == tool_name)
+        {
+            return Err(policy_violation(format!(
+                "{tool_name} is not allowed for this correction action; allowed tools: {}",
+                self.allowed_tools.join(", ")
+            )));
+        }
         match self.step_tool_policy {
             StepToolPolicy::FileMutationAllowed => Ok(()),
             StepToolPolicy::ReadOnly => self.enforce_read_only(tool_name, args),
@@ -312,6 +323,7 @@ mod tests {
             &guard,
             DependencySetupPolicy::default(),
             StepToolPolicy::ReadOnly,
+            Vec::new(),
         );
 
         let err = executor
@@ -331,6 +343,7 @@ mod tests {
             &guard,
             DependencySetupPolicy::default(),
             StepToolPolicy::ReadOnly,
+            Vec::new(),
         );
 
         let result = executor
@@ -348,6 +361,7 @@ mod tests {
             &guard,
             DependencySetupPolicy::default(),
             StepToolPolicy::NoMutation,
+            Vec::new(),
         );
 
         let err = executor
@@ -359,6 +373,27 @@ mod tests {
     }
 
     #[test]
+    fn allowed_tools_blocks_unlisted_tool() {
+        let root = temp_workspace("allowed-tools");
+        fs::write(root.join("README.md"), "hello").unwrap();
+        let guard = PathGuard::new(&root).unwrap();
+        let executor = ToolExecutor::new(
+            &guard,
+            DependencySetupPolicy::default(),
+            StepToolPolicy::FileMutationAllowed,
+            vec!["Read".to_string()],
+        );
+
+        let err = executor
+            .execute(&call("Write", json!({"path":"README.md","content":"x"})))
+            .unwrap_err();
+
+        assert!(err.to_string().contains("tool_policy_violation"));
+        assert!(err.to_string().contains("allowed tools: Read"));
+        assert_eq!(fs::read_to_string(root.join("README.md")).unwrap(), "hello");
+    }
+
+    #[test]
     fn setup_policy_allows_manifest_write_but_blocks_source_write() {
         let root = temp_workspace("setup-policy");
         let guard = PathGuard::new(&root).unwrap();
@@ -366,6 +401,7 @@ mod tests {
             &guard,
             DependencySetupPolicy::default(),
             StepToolPolicy::SetupMutationOnly,
+            Vec::new(),
         );
 
         executor
@@ -394,6 +430,7 @@ mod tests {
             &guard,
             DependencySetupPolicy::default(),
             StepToolPolicy::FileMutationAllowed,
+            Vec::new(),
         );
 
         let result = executor
@@ -416,6 +453,7 @@ mod tests {
             &guard,
             DependencySetupPolicy::default(),
             StepToolPolicy::ReadOnly,
+            Vec::new(),
         );
 
         let result = executor
@@ -435,6 +473,7 @@ mod tests {
             &guard,
             DependencySetupPolicy::default(),
             StepToolPolicy::FileMutationAllowed,
+            Vec::new(),
         );
 
         let result = executor
@@ -455,6 +494,7 @@ mod tests {
             &guard,
             DependencySetupPolicy::default(),
             StepToolPolicy::FileMutationAllowed,
+            Vec::new(),
         );
 
         let err = executor
@@ -485,6 +525,7 @@ mod tests {
             &guard,
             DependencySetupPolicy::default(),
             StepToolPolicy::FileMutationAllowed,
+            Vec::new(),
         );
 
         let err = executor
@@ -516,6 +557,7 @@ mod tests {
             &guard,
             DependencySetupPolicy::default(),
             StepToolPolicy::SetupMutationOnly,
+            Vec::new(),
         );
 
         let err = executor

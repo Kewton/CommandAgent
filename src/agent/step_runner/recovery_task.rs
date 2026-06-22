@@ -265,8 +265,30 @@ impl RecoveryTaskContract {
         self
     }
 
+    pub fn with_allowed_tools<I, S>(mut self, allowed_tools: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        for tool in allowed_tools {
+            self = self.with_allowed_tool(tool);
+        }
+        self
+    }
+
     pub fn with_disallowed_action(mut self, disallowed_action: impl Into<String>) -> Self {
         push_unique(&mut self.disallowed_actions, disallowed_action.into());
+        self
+    }
+
+    pub fn with_disallowed_actions<I, S>(mut self, disallowed_actions: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        for action in disallowed_actions {
+            self = self.with_disallowed_action(action);
+        }
         self
     }
 

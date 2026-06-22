@@ -718,6 +718,14 @@ a read-only envelope that requires repository read evidence from `Read`,
 `Glob`, `Grep`, or read-only `Bash`; verifier/profile source repair keeps the
 file-mutation repair envelope. This prevents a recovery task that says
 "read-only" from being run as a mutation-allowed file repair.
+Tool protocol correction follows the same boundary. A malformed tool call,
+stale edit, prose-only action failure, invalid path, or provider-transport
+parse failure is first normalized into deterministic protocol evidence. The
+step runner may then select one visible action, such as same-tool schema
+correction, read-before-edit, repository-evidence tool call, or explicit stop,
+and project the allowed tools into the next execution envelope. The minimal
+loop does not infer that action from prose and providers do not own the shared
+recovery policy.
 
 This does not turn recovery into a workflow engine. The contract narrows the
 next repair turn; it does not choose future phases, add attempts, run hidden

@@ -24,9 +24,13 @@ CommandAgent is still in MVP migration.
   profile failures. A missing required field such as `Write.path` can receive
   one strict current-step protocol correction for eligible file-changing initial
   steps, and repair turns may also correct malformed `Write` or `Edit` calls
-  while fixing a failed verifier. Repeated malformed tool calls still stop as
-  `tool_args_*`. This improves protocol recovery and attribution but does not
-  guarantee app-quality completion.
+  while fixing a failed verifier. The correction action now narrows the allowed
+  tools for same-tool schema/JSON correction, stale-edit read-before-edit, and
+  prose-only repository-evidence recovery. Unsafe paths and provider-transport
+  parse failures stop with structured protocol evidence when no safe shared
+  action exists. Repeated malformed tool calls still stop as `tool_args_*`.
+  This improves protocol recovery and attribution but does not guarantee
+  app-quality completion.
 - Repair packets now carry structured contract evidence for provider transport
   parse failures, tool protocol failures, read-only step-policy violations,
   verifier failures, and selected profile verification failures. Transport

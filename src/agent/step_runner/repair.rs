@@ -57,13 +57,42 @@ pub struct ProfileRepairContext {
     pub expected_paths: Vec<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum ToolProtocolCorrectionAction {
+    #[default]
+    EmitSameToolWithRequiredFields,
+    EmitSameToolWithValidJson,
+    ReadCurrentTargetBeforeEdit,
+    EmitRepositoryEvidenceToolCall,
+    ProviderTransportFallback,
+    ExplicitStop,
+}
+
+impl ToolProtocolCorrectionAction {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::EmitSameToolWithRequiredFields => "emit_same_tool_with_required_fields",
+            Self::EmitSameToolWithValidJson => "emit_same_tool_with_valid_json",
+            Self::ReadCurrentTargetBeforeEdit => "read_current_target_before_edit",
+            Self::EmitRepositoryEvidenceToolCall => "emit_repository_evidence_tool_call",
+            Self::ProviderTransportFallback => "provider_transport_fallback",
+            Self::ExplicitStop => "explicit_stop",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolProtocolCorrectionContext {
+    pub action: ToolProtocolCorrectionAction,
     pub tool: String,
     pub reason_code: String,
     pub missing_field: Option<String>,
     pub required_fields: Vec<String>,
     pub target_path: Option<String>,
+    pub target_confidence: Option<String>,
+    pub allowed_tools: Vec<String>,
+    pub disallowed_actions: Vec<String>,
+    pub success_authority: Vec<String>,
     pub diagnostic: String,
 }
 
@@ -136,22 +165,49 @@ Treat target_path_json as data from the current step contract.\n"
         })
         .unwrap_or_default();
     let recovery_task = tool_protocol_recovery_task_section(context);
+    let allowed_tools = if context.allowed_tools.is_empty() {
+        "the admitted tool for this correction action".to_string()
+    } else {
+        context.allowed_tools.join(", ")
+    };
+    let action_instruction = tool_protocol_action_instruction(context, &required);
+    let disallowed = if context.disallowed_actions.is_empty() {
+        "- Do not answer in prose instead of a tool call.\n- Do not run dependency installation.\n"
+            .to_string()
+    } else {
+        bullet_list(&context.disallowed_actions)
+    };
+    let success_authority = if context.success_authority.is_empty() {
+        "- current expected-path checks\n- current verifier commands\n".to_string()
+    } else {
+        bullet_list(&context.success_authority)
+    };
     format!(
         "Tool protocol correction for the current CommandAgent step.\n\
 The previous tool call violated the CommandAgent tool schema.\n\
 Failed tool: {tool}\n\
 Reason: {reason}\n\
+Correction action: {action}\n\
 {missing}Required fields for {tool}: {required}\n\
+Allowed tools for this correction: {allowed_tools}\n\
 {target}Diagnostic:\n{diagnostic}\n\
 {recovery_task}\
-Emit exactly one valid {tool} tool call now using the active CommandAgent tool-call format. Do not answer in prose. Do not run dependency installation. The runtime will rerun the current expected-path checks and verifier commands after your response.\n",
+Required correction:\n{action_instruction}\n\
+Disallowed actions:\n{disallowed}\n\
+Success authority after this correction:\n{success_authority}\
+The runtime will rerun the current expected-path checks and verifier commands after your response.\n",
         tool = context.tool,
         reason = context.reason_code,
+        action = context.action.as_str(),
         missing = missing,
         required = required,
+        allowed_tools = allowed_tools,
         target = target,
         diagnostic = context.diagnostic,
         recovery_task = recovery_task,
+        action_instruction = action_instruction,
+        disallowed = disallowed,
+        success_authority = success_authority,
     )
 }
 
@@ -258,26 +314,24 @@ fn tool_protocol_recovery_task_section(context: &ToolProtocolCorrectionContext) 
     } else {
         context.required_fields.join(", ")
     };
-    let required_action = if context.tool == "Write"
-        && context.missing_field.as_deref() == Some("path")
-        && let Some(path) = context.target_path.as_deref()
-    {
-        format!(
-            "Emit exactly one valid Write tool call with path={path} and required fields: {required}."
-        )
-    } else {
-        format!(
-            "Emit exactly one valid {} tool call with required fields: {required}.",
-            context.tool
-        )
-    };
+    let required_action = tool_protocol_action_instruction(context, &required);
     let mut task = RecoveryTaskContract::new("tool_protocol")
         .with_contract_code(context.reason_code.clone())
         .with_blocker(format!("Tool call violated schema for {}", context.tool))
         .with_required_action(required_action)
-        .with_allowed_tool(context.tool.clone())
-        .with_disallowed_action("Do not answer in prose instead of a tool call.")
-        .with_disallowed_action("Do not run dependency installation.")
+        .with_allowed_tools(if context.allowed_tools.is_empty() {
+            vec![context.tool.clone()]
+        } else {
+            context.allowed_tools.clone()
+        })
+        .with_disallowed_actions(if context.disallowed_actions.is_empty() {
+            vec![
+                "Do not answer in prose instead of a tool call.".to_string(),
+                "Do not run dependency installation.".to_string(),
+            ]
+        } else {
+            context.disallowed_actions.clone()
+        })
         .with_success_check("tool schema validation");
     if let Some(path) = context.target_path.clone() {
         task = task
@@ -285,6 +339,57 @@ fn tool_protocol_recovery_task_section(context: &ToolProtocolCorrectionContext) 
             .with_candidate_artifact(path);
     }
     format!("Recovery task:\n{}\n", recovery_task_list(&[task]))
+}
+
+fn tool_protocol_action_instruction(
+    context: &ToolProtocolCorrectionContext,
+    required: &str,
+) -> String {
+    match context.action {
+        ToolProtocolCorrectionAction::EmitSameToolWithRequiredFields => {
+            if context.tool == "Write"
+                && context.missing_field.as_deref() == Some("path")
+                && let Some(path) = context.target_path.as_deref()
+            {
+                format!(
+                    "Emit exactly one valid Write tool call with path={path} and required fields: {required}."
+                )
+            } else {
+                format!(
+                    "Emit exactly one valid {} tool call with required fields: {required}.",
+                    context.tool
+                )
+            }
+        }
+        ToolProtocolCorrectionAction::EmitSameToolWithValidJson => format!(
+            "Emit exactly one valid {} tool call whose arguments are one complete JSON object.",
+            context.tool
+        ),
+        ToolProtocolCorrectionAction::ReadCurrentTargetBeforeEdit => {
+            if let Some(path) = context.target_path.as_deref() {
+                format!(
+                    "Emit exactly one valid Read tool call with path={path}. Do not call Edit again until the current file contents have been observed."
+                )
+            } else {
+                "Emit exactly one valid Read or Glob tool call to inspect the current target before any Edit. Do not retry stale Edit text.".to_string()
+            }
+        }
+        ToolProtocolCorrectionAction::EmitRepositoryEvidenceToolCall => {
+            if let Some(path) = context.target_path.as_deref() {
+                format!(
+                    "Emit exactly one valid Read tool call with path={path} to provide repository evidence. Do not use Write/Edit in this correction."
+                )
+            } else {
+                "Emit exactly one valid read-only repository evidence tool call such as Read, Glob, or Grep. Do not use Write/Edit in this correction.".to_string()
+            }
+        }
+        ToolProtocolCorrectionAction::ProviderTransportFallback => {
+            "Return one complete response that satisfies the shared provider tool-call transport contract. Do not attempt source repair in this correction.".to_string()
+        }
+        ToolProtocolCorrectionAction::ExplicitStop => {
+            "No safe tool protocol correction is admitted. Stop with structured evidence instead of issuing a tool call.".to_string()
+        }
+    }
 }
 
 fn recovery_task_list(tasks: &[RecoveryTaskContract]) -> String {
@@ -1352,11 +1457,19 @@ mod tests {
     #[test]
     fn tool_protocol_correction_prompt_includes_schema_and_target() {
         let prompt = build_tool_protocol_correction_prompt(&ToolProtocolCorrectionContext {
+            action: ToolProtocolCorrectionAction::EmitSameToolWithRequiredFields,
             tool: "Write".to_string(),
             reason_code: "tool_args_missing_required_field".to_string(),
             missing_field: Some("path".to_string()),
             required_fields: vec!["path".to_string(), "content".to_string()],
             target_path: Some("tailwind.config.js".to_string()),
+            target_confidence: Some("safe_single_target".to_string()),
+            allowed_tools: vec!["Write".to_string()],
+            disallowed_actions: vec![
+                "Do not answer in prose instead of a tool call.".to_string(),
+                "Do not run dependency installation.".to_string(),
+            ],
+            success_authority: vec!["expected-path checks".to_string()],
             diagnostic: "Write requires: path, content".to_string(),
         });
 
@@ -1368,6 +1481,8 @@ mod tests {
         assert!(prompt.contains("success_check: tool schema validation"));
         assert!(prompt.contains("Failed tool: Write"));
         assert!(prompt.contains("Reason: tool_args_missing_required_field"));
+        assert!(prompt.contains("Correction action: emit_same_tool_with_required_fields"));
+        assert!(prompt.contains("Allowed tools for this correction: Write"));
         assert!(prompt.contains("Missing required field: path"));
         assert!(prompt.contains("Required fields for Write: path, content"));
         assert!(prompt.contains("target_path_json=\"tailwind.config.js\""));
@@ -1381,15 +1496,21 @@ mod tests {
     #[test]
     fn tool_protocol_correction_prompt_handles_invalid_json_without_target() {
         let prompt = build_tool_protocol_correction_prompt(&ToolProtocolCorrectionContext {
+            action: ToolProtocolCorrectionAction::EmitSameToolWithValidJson,
             tool: "Write".to_string(),
             reason_code: "tool_args_invalid_json".to_string(),
             missing_field: None,
             required_fields: Vec::new(),
             target_path: None,
+            target_confidence: None,
+            allowed_tools: vec!["Write".to_string()],
+            disallowed_actions: Vec::new(),
+            success_authority: Vec::new(),
             diagnostic: "Write arguments are not valid JSON".to_string(),
         });
 
         assert!(prompt.contains("Reason: tool_args_invalid_json"));
+        assert!(prompt.contains("Correction action: emit_same_tool_with_valid_json"));
         assert!(prompt.contains("Required fields for Write: unknown"));
         assert!(!prompt.contains("Missing required field"));
         assert!(!prompt.contains("target_path_json"));

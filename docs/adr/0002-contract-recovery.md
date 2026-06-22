@@ -65,6 +65,17 @@ mutation. The correction must remain provider-independent and must not turn
 into dependency setup, profile-specific workflow, or retry-until-success
 behavior.
 
+2026-06-22 amendment: tool protocol recovery now normalizes deterministic
+tool/prose/provider failures into a bounded `ToolProtocolFailure` payload
+before selecting a correction action. The admitted actions include same-tool
+schema correction, same-tool valid-JSON correction, read-before-edit for stale
+edit targets, repository-evidence tool calls for prose-only action failures,
+and explicit stop for unsafe paths or provider-transport parse failures that
+shared recovery cannot safely repair. The action projects allowed tools and
+disallowed actions into the next minimal-loop execution envelope. This keeps
+provider transport policy, verifier repair, profile repair, and dependency
+setup separate from tool-call protocol correction.
+
 Plan lint, tool protocol guards, read-only step-policy guards, and verifier
 failures may carry structured contract evidence when the rejecting guard
 already knows the violated contract. The evidence is limited to local facts

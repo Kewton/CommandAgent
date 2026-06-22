@@ -137,6 +137,14 @@ def write_summary(path, rows):
         "no_progress_strategy",
         "repair_state_status",
         "safe_stop_payload",
+        "tool_protocol_status",
+        "tool_protocol_source",
+        "tool_protocol_action",
+        "tool_protocol_failed_tool",
+        "tool_protocol_missing_field",
+        "tool_protocol_required_fields",
+        "tool_protocol_correction_spent",
+        "tool_protocol_correction_exhausted",
         "evidence_binding_status",
         "completion_evidence_status",
         "explicit_stop_reason",
@@ -273,6 +281,14 @@ def recheck(root, cases):
                 "no_progress_strategy": meta.get("no_progress_strategy", ""),
                 "repair_state_status": meta.get("repair_state_status", "not_attempted" if reason != "ok" else "passed"),
                 "safe_stop_payload": meta.get("safe_stop_payload", ""),
+                "tool_protocol_status": meta.get("tool_protocol_status", ""),
+                "tool_protocol_source": meta.get("tool_protocol_source", ""),
+                "tool_protocol_action": meta.get("tool_protocol_action", ""),
+                "tool_protocol_failed_tool": meta.get("tool_protocol_failed_tool", ""),
+                "tool_protocol_missing_field": meta.get("tool_protocol_missing_field", ""),
+                "tool_protocol_required_fields": meta.get("tool_protocol_required_fields", ""),
+                "tool_protocol_correction_spent": meta.get("tool_protocol_correction_spent", ""),
+                "tool_protocol_correction_exhausted": meta.get("tool_protocol_correction_exhausted", ""),
                 "evidence_binding_status": meta.get("evidence_binding_status", "unknown" if reason != "ok" else "bound"),
                 "completion_evidence_status": meta.get("completion_evidence_status", "unknown" if reason != "ok" else "passed"),
                 "explicit_stop_reason": meta.get("explicit_stop_reason", ""),
@@ -546,6 +562,14 @@ def render_report(rows):
     weak_verifier_reasons = {}
     admitted_cluster_targets = {}
     unknown_diagnostic_total = 0
+    tool_protocol_statuses = {}
+    tool_protocol_sources = {}
+    tool_protocol_actions = {}
+    tool_protocol_failed_tools = {}
+    tool_protocol_missing_fields = {}
+    tool_protocol_required_fields = {}
+    tool_protocol_correction_spent = {}
+    tool_protocol_correction_exhausted = {}
     task_contract_kinds = {}
     task_contract_statuses = {}
     behavior_obligation_statuses = {}
@@ -641,6 +665,16 @@ def render_report(rows):
         weak_verifier_reason = row.get("weak_verifier_reason", "")
         admitted_targets = row.get("admitted_cluster_targets", "")
         unknown_diagnostic_count = row.get("unknown_diagnostic_count", "")
+        tool_protocol_status = row.get("tool_protocol_status", "")
+        tool_protocol_source = row.get("tool_protocol_source", "")
+        tool_protocol_action = row.get("tool_protocol_action", "")
+        tool_protocol_failed_tool = row.get("tool_protocol_failed_tool", "")
+        tool_protocol_missing_field = row.get("tool_protocol_missing_field", "")
+        tool_protocol_required_field = row.get("tool_protocol_required_fields", "")
+        protocol_correction_spent = row.get("tool_protocol_correction_spent", "")
+        protocol_correction_exhausted = row.get(
+            "tool_protocol_correction_exhausted", ""
+        )
         task_contract_kind = row.get("task_contract_kind", "")
         task_contract_status = row.get("task_contract_status", "")
         behavior_obligation_status = row.get("behavior_obligation_status", "")
@@ -732,6 +766,39 @@ def render_report(rows):
                 unknown_diagnostic_total += int(unknown_diagnostic_count)
             except ValueError:
                 pass
+        if tool_protocol_status:
+            tool_protocol_statuses[tool_protocol_status] = (
+                tool_protocol_statuses.get(tool_protocol_status, 0) + 1
+            )
+        if tool_protocol_source:
+            tool_protocol_sources[tool_protocol_source] = (
+                tool_protocol_sources.get(tool_protocol_source, 0) + 1
+            )
+        if tool_protocol_action:
+            tool_protocol_actions[tool_protocol_action] = (
+                tool_protocol_actions.get(tool_protocol_action, 0) + 1
+            )
+        if tool_protocol_failed_tool:
+            tool_protocol_failed_tools[tool_protocol_failed_tool] = (
+                tool_protocol_failed_tools.get(tool_protocol_failed_tool, 0) + 1
+            )
+        if tool_protocol_missing_field:
+            tool_protocol_missing_fields[tool_protocol_missing_field] = (
+                tool_protocol_missing_fields.get(tool_protocol_missing_field, 0) + 1
+            )
+        if tool_protocol_required_field:
+            tool_protocol_required_fields[tool_protocol_required_field] = (
+                tool_protocol_required_fields.get(tool_protocol_required_field, 0) + 1
+            )
+        if protocol_correction_spent:
+            tool_protocol_correction_spent[protocol_correction_spent] = (
+                tool_protocol_correction_spent.get(protocol_correction_spent, 0) + 1
+            )
+        if protocol_correction_exhausted:
+            tool_protocol_correction_exhausted[protocol_correction_exhausted] = (
+                tool_protocol_correction_exhausted.get(protocol_correction_exhausted, 0)
+                + 1
+            )
         if task_contract_kind:
             task_contract_kinds[task_contract_kind] = (
                 task_contract_kinds.get(task_contract_kind, 0) + 1
@@ -938,6 +1005,23 @@ def render_report(rows):
         lines.append(f"- {name}: {count}")
     lines.extend(["", "## Unknown Diagnostic Count"])
     lines.append(f"- total: {unknown_diagnostic_total}")
+    lines.extend(["", "## Tool Protocol Recovery"])
+    for name, count in sorted(tool_protocol_statuses.items()):
+        lines.append(f"- status={name}: {count}")
+    for name, count in sorted(tool_protocol_sources.items()):
+        lines.append(f"- source={name}: {count}")
+    for name, count in sorted(tool_protocol_actions.items()):
+        lines.append(f"- action={name}: {count}")
+    for name, count in sorted(tool_protocol_failed_tools.items()):
+        lines.append(f"- failed_tool={name}: {count}")
+    for name, count in sorted(tool_protocol_missing_fields.items()):
+        lines.append(f"- missing_field={name}: {count}")
+    for name, count in sorted(tool_protocol_required_fields.items()):
+        lines.append(f"- required_fields={name}: {count}")
+    for name, count in sorted(tool_protocol_correction_spent.items()):
+        lines.append(f"- correction_spent={name}: {count}")
+    for name, count in sorted(tool_protocol_correction_exhausted.items()):
+        lines.append(f"- correction_exhausted={name}: {count}")
     lines.extend(["", "## Task Contract"])
     for name, count in sorted(task_contract_kinds.items()):
         lines.append(f"- kind={name}: {count}")

@@ -25,8 +25,8 @@ use crate::agent::step_runner::recovery_task::{
     RecoveryExecutionEnvelope, recovery_execution_envelope,
 };
 use crate::agent::step_runner::repair::{
-    RepairBudget, RepairContext, ToolProtocolCorrectionContext, build_repair_prompt,
-    build_tool_protocol_correction_prompt, save_repair_prompt,
+    RepairBudget, RepairContext, ToolProtocolCorrectionAction, ToolProtocolCorrectionContext,
+    build_repair_prompt, build_tool_protocol_correction_prompt, save_repair_prompt,
 };
 use crate::agent::step_runner::repair_job::{
     AttemptOutcomeInput, NoProgressStrategy, RepairAttemptOutcomeKind, RepairAttemptRecord,
@@ -52,6 +52,7 @@ use crate::agent::step_runner::{
     artifact_graph::{ArtifactGraph, ArtifactLifecycle, ArtifactRole, role_for_path},
     completion_evidence::{CompletionEvidence, CompletionEvidenceKind, CompletionEvidenceStatus},
 };
+use crate::safety::path_guard::PathGuard;
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
@@ -71,6 +72,7 @@ pub(super) struct RepairStepState {
     pub(super) repair_attempt_ledger: Vec<String>,
     pub(super) repair_job_state: RepairJobState,
     pub(super) tool_arg_schema_correction_spent: bool,
+    pub(super) pending_tool_protocol_failure: Option<ToolProtocolFailure>,
     pub(super) pending_tool_arg_error: Option<ToolArgError>,
     pub(super) pending_tool_arg_error_source: Option<ToolProtocolCorrectionSource>,
 }
@@ -133,10 +135,6 @@ pub(super) fn recoverable_repair_turn_error(error: &MinimalLoopError) -> bool {
     ) || is_edit_target_not_found(&rendered)
 }
 
-fn is_tool_arg_schema_failure(error: &MinimalLoopError) -> bool {
-    matches!(error, MinimalLoopError::ToolArgs(_))
-}
-
 fn tool_arg_error(error: &MinimalLoopError) -> Option<ToolArgError> {
     match error {
         MinimalLoopError::ToolArgs(arg_error) => Some(arg_error.clone()),
@@ -144,10 +142,205 @@ fn tool_arg_error(error: &MinimalLoopError) -> Option<ToolArgError> {
     }
 }
 
+fn tool_protocol_failure_from_error(
+    error: &MinimalLoopError,
+    target_path: Option<String>,
+) -> Option<ToolProtocolFailure> {
+    match error {
+        MinimalLoopError::ToolArgs(arg_error) => Some(ToolProtocolFailure::from_tool_arg_error(
+            arg_error,
+            target_path,
+        )),
+        MinimalLoopError::Tool(message) if is_edit_target_not_found(message) => {
+            Some(ToolProtocolFailure::stale_edit_target(
+                target_path,
+                format!("Stale Edit target was rejected.\nOriginal error: {message}"),
+            ))
+        }
+        MinimalLoopError::Tool(message) if is_tool_path_policy_failure(message) => {
+            Some(ToolProtocolFailure::invalid_path(
+                target_path,
+                format!(
+                    "Tool path was rejected by workspace safety policy.\nOriginal error: {message}"
+                ),
+            ))
+        }
+        MinimalLoopError::ActionRequiredNoEvidence(message) => {
+            Some(ToolProtocolFailure::action_required_no_evidence(
+                target_path,
+                format!(
+                    "A tool call was required to provide repository evidence, but the assistant answered without sufficient evidence.\nOriginal response: {message}"
+                ),
+            ))
+        }
+        MinimalLoopError::FinalAnswerContract(message) if target_path.is_some() => {
+            Some(ToolProtocolFailure::final_answer_contract(
+                target_path,
+                format!(
+                    "The assistant described a future tool action instead of making a tool call.\nOriginal response: {message}"
+                ),
+            ))
+        }
+        MinimalLoopError::Model(message)
+            if provider_transport_diagnostic_code(message).is_some() =>
+        {
+            Some(ToolProtocolFailure::provider_transport(
+                target_path,
+                message.clone(),
+            ))
+        }
+        _ => None,
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum ToolProtocolCorrectionDecision {
-    CorrectOnce(ToolProtocolCorrectionContext),
+    CorrectOnce(Box<ToolProtocolCorrectionContext>),
     Terminal,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ToolProtocolFailure {
+    source: ToolProtocolFailureSource,
+    tool: String,
+    reason_code: String,
+    missing_field: Option<String>,
+    required_fields: Vec<String>,
+    target_path: Option<String>,
+    target_confidence: Option<String>,
+    diagnostic: String,
+}
+
+impl ToolProtocolFailure {
+    fn from_tool_arg_error(arg_error: &ToolArgError, target_path: Option<String>) -> Self {
+        Self {
+            source: ToolProtocolFailureSource::ToolArgumentSchema,
+            tool: arg_error.tool_name().to_string(),
+            reason_code: arg_error.reason_code().to_string(),
+            missing_field: arg_error.missing_field().map(str::to_string),
+            required_fields: arg_error.required_fields().to_vec(),
+            target_confidence: target_path
+                .as_ref()
+                .map(|_| "safe_single_target".to_string()),
+            target_path,
+            diagnostic: arg_error.diagnostic_excerpt(),
+        }
+    }
+
+    fn stale_edit_target(target_path: Option<String>, diagnostic: String) -> Self {
+        Self {
+            source: ToolProtocolFailureSource::StaleEditTarget,
+            tool: "Edit".to_string(),
+            reason_code: "edit_target_not_found".to_string(),
+            missing_field: None,
+            required_fields: vec!["path".to_string(), "old".to_string(), "new".to_string()],
+            target_confidence: target_path
+                .as_ref()
+                .map(|_| "safe_single_target".to_string()),
+            target_path,
+            diagnostic,
+        }
+    }
+
+    fn action_required_no_evidence(target_path: Option<String>, diagnostic: String) -> Self {
+        Self {
+            source: ToolProtocolFailureSource::ActionRequiredNoEvidence,
+            tool: target_path
+                .as_ref()
+                .map(|_| "Read")
+                .unwrap_or("Read")
+                .to_string(),
+            reason_code: "action_required_no_repository_evidence".to_string(),
+            missing_field: None,
+            required_fields: vec!["path".to_string()],
+            target_confidence: target_path
+                .as_ref()
+                .map(|_| "safe_single_target".to_string()),
+            target_path,
+            diagnostic,
+        }
+    }
+
+    fn final_answer_contract(target_path: Option<String>, diagnostic: String) -> Self {
+        let has_target = target_path.is_some();
+        Self {
+            source: ToolProtocolFailureSource::FinalAnswerContract,
+            tool: if has_target { "Write" } else { "Read" }.to_string(),
+            reason_code: "prose_only_tool_required".to_string(),
+            missing_field: if has_target {
+                Some("tool_call".to_string())
+            } else {
+                None
+            },
+            required_fields: if has_target {
+                vec!["path".to_string(), "content".to_string()]
+            } else {
+                vec!["path".to_string()]
+            },
+            target_confidence: target_path
+                .as_ref()
+                .map(|_| "safe_single_target".to_string()),
+            target_path,
+            diagnostic,
+        }
+    }
+
+    fn provider_transport(target_path: Option<String>, diagnostic: String) -> Self {
+        Self {
+            source: ToolProtocolFailureSource::ProviderTransportParse,
+            tool: "provider_response".to_string(),
+            reason_code: "provider_transport_parse_failure".to_string(),
+            missing_field: None,
+            required_fields: Vec::new(),
+            target_confidence: target_path
+                .as_ref()
+                .map(|_| "safe_single_target".to_string()),
+            target_path,
+            diagnostic,
+        }
+    }
+
+    fn invalid_path(target_path: Option<String>, diagnostic: String) -> Self {
+        Self {
+            source: ToolProtocolFailureSource::InvalidPath,
+            tool: "tool_call".to_string(),
+            reason_code: "tool_protocol_invalid_path".to_string(),
+            missing_field: None,
+            required_fields: Vec::new(),
+            target_confidence: target_path
+                .as_ref()
+                .map(|_| "safe_single_target".to_string()),
+            target_path,
+            diagnostic,
+        }
+    }
+
+    fn source_name(&self) -> &'static str {
+        self.source.as_str()
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolProtocolFailureSource {
+    ToolArgumentSchema,
+    StaleEditTarget,
+    ActionRequiredNoEvidence,
+    FinalAnswerContract,
+    ProviderTransportParse,
+    InvalidPath,
+}
+
+impl ToolProtocolFailureSource {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::ToolArgumentSchema => "tool_argument_schema",
+            Self::StaleEditTarget => "stale_edit_target",
+            Self::ActionRequiredNoEvidence => "action_required_no_evidence",
+            Self::FinalAnswerContract => "final_answer_contract",
+            Self::ProviderTransportParse => "provider_transport_parse",
+            Self::InvalidPath => "invalid_path",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -158,25 +351,108 @@ pub(super) enum ToolProtocolCorrectionSource {
 
 fn tool_protocol_correction_decision(
     step: &StepPlanStep,
-    arg_error: Option<&ToolArgError>,
-    target_path: Option<String>,
+    failure: Option<&ToolProtocolFailure>,
     correction_spent: bool,
     source: Option<ToolProtocolCorrectionSource>,
 ) -> ToolProtocolCorrectionDecision {
     if correction_spent || !step_allows_tool_protocol_correction(step.kind, source) {
         return ToolProtocolCorrectionDecision::Terminal;
     }
-    let Some(arg_error) = arg_error else {
+    let Some(failure) = failure else {
         return ToolProtocolCorrectionDecision::Terminal;
     };
-    ToolProtocolCorrectionDecision::CorrectOnce(ToolProtocolCorrectionContext {
-        tool: arg_error.tool_name().to_string(),
-        reason_code: arg_error.reason_code().to_string(),
-        missing_field: arg_error.missing_field().map(str::to_string),
-        required_fields: arg_error.required_fields().to_vec(),
-        target_path,
-        diagnostic: arg_error.diagnostic_excerpt(),
-    })
+    let action = tool_protocol_correction_action(failure);
+    if action == ToolProtocolCorrectionAction::ExplicitStop {
+        return ToolProtocolCorrectionDecision::Terminal;
+    }
+    let allowed_tools = allowed_tools_for_tool_protocol_action(&action, failure);
+    ToolProtocolCorrectionDecision::CorrectOnce(Box::new(ToolProtocolCorrectionContext {
+        action: action.clone(),
+        tool: failure.tool.clone(),
+        reason_code: failure.reason_code.clone(),
+        missing_field: failure.missing_field.clone(),
+        required_fields: failure.required_fields.clone(),
+        target_path: failure.target_path.clone(),
+        target_confidence: failure.target_confidence.clone(),
+        allowed_tools,
+        disallowed_actions: disallowed_actions_for_tool_protocol_action(&action),
+        success_authority: vec![
+            "expected-path checks".to_string(),
+            "original verifier/profile authority".to_string(),
+        ],
+        diagnostic: failure.diagnostic.clone(),
+    }))
+}
+
+fn tool_protocol_correction_action(failure: &ToolProtocolFailure) -> ToolProtocolCorrectionAction {
+    match failure.source {
+        ToolProtocolFailureSource::ToolArgumentSchema => {
+            if failure.reason_code == "tool_args_invalid_json" {
+                ToolProtocolCorrectionAction::EmitSameToolWithValidJson
+            } else if failure.tool == "Write"
+                && failure.missing_field.as_deref() == Some("path")
+                && failure.target_path.is_none()
+            {
+                ToolProtocolCorrectionAction::ExplicitStop
+            } else {
+                ToolProtocolCorrectionAction::EmitSameToolWithRequiredFields
+            }
+        }
+        ToolProtocolFailureSource::StaleEditTarget => {
+            ToolProtocolCorrectionAction::ReadCurrentTargetBeforeEdit
+        }
+        ToolProtocolFailureSource::ActionRequiredNoEvidence => {
+            ToolProtocolCorrectionAction::EmitRepositoryEvidenceToolCall
+        }
+        ToolProtocolFailureSource::FinalAnswerContract => {
+            if failure.tool == "Write" && failure.target_path.is_some() {
+                ToolProtocolCorrectionAction::EmitSameToolWithRequiredFields
+            } else {
+                ToolProtocolCorrectionAction::EmitRepositoryEvidenceToolCall
+            }
+        }
+        ToolProtocolFailureSource::ProviderTransportParse
+        | ToolProtocolFailureSource::InvalidPath => ToolProtocolCorrectionAction::ExplicitStop,
+    }
+}
+
+fn allowed_tools_for_tool_protocol_action(
+    action: &ToolProtocolCorrectionAction,
+    failure: &ToolProtocolFailure,
+) -> Vec<String> {
+    match action {
+        ToolProtocolCorrectionAction::EmitSameToolWithRequiredFields
+        | ToolProtocolCorrectionAction::EmitSameToolWithValidJson => vec![failure.tool.clone()],
+        ToolProtocolCorrectionAction::ReadCurrentTargetBeforeEdit => {
+            vec!["Read".to_string(), "Glob".to_string()]
+        }
+        ToolProtocolCorrectionAction::EmitRepositoryEvidenceToolCall => {
+            vec!["Read".to_string(), "Glob".to_string(), "Grep".to_string()]
+        }
+        ToolProtocolCorrectionAction::ProviderTransportFallback
+        | ToolProtocolCorrectionAction::ExplicitStop => Vec::new(),
+    }
+}
+
+fn disallowed_actions_for_tool_protocol_action(
+    action: &ToolProtocolCorrectionAction,
+) -> Vec<String> {
+    let mut actions = vec![
+        "Do not answer in prose instead of a tool call.".to_string(),
+        "Do not run dependency installation.".to_string(),
+    ];
+    match action {
+        ToolProtocolCorrectionAction::ReadCurrentTargetBeforeEdit
+        | ToolProtocolCorrectionAction::EmitRepositoryEvidenceToolCall => {
+            actions.push("Do not use Write or Edit in this correction.".to_string());
+        }
+        ToolProtocolCorrectionAction::ExplicitStop => {
+            actions
+                .push("Do not issue another tool call after correction is exhausted.".to_string());
+        }
+        _ => {}
+    }
+    actions
 }
 
 fn tool_protocol_correction_target_path(
@@ -190,6 +466,29 @@ fn tool_protocol_correction_target_path(
             [single] => Some(single.clone()),
             _ => None,
         })
+}
+
+fn safe_tool_protocol_correction_target_path(
+    cwd: &Path,
+    step: &StepPlanStep,
+    missing_expected_paths: &[String],
+) -> Option<String> {
+    let path = tool_protocol_correction_target_path(step, missing_expected_paths)?;
+    if protocol_target_is_generated_or_dependency(&path) {
+        return None;
+    }
+    let guard = PathGuard::new(cwd).ok()?;
+    guard.resolve(&path).ok()?;
+    Some(path)
+}
+
+fn protocol_target_is_generated_or_dependency(path: &str) -> bool {
+    path.split('/').any(|part| {
+        matches!(
+            part,
+            ".git" | "node_modules" | "target" | ".next" | "__pycache__"
+        )
+    })
 }
 
 fn step_allows_tool_protocol_correction(
@@ -215,6 +514,12 @@ fn step_allows_tool_protocol_correction(
 
 fn is_edit_target_not_found(error: &str) -> bool {
     error.contains("edit target was not found")
+}
+
+fn is_tool_path_policy_failure(error: &str) -> bool {
+    error.contains("parent traversal is not allowed")
+        || error.contains("path escapes workspace")
+        || error.contains("empty path is not allowed")
 }
 
 pub(super) fn should_send_missing_artifact_no_tool_guard(
@@ -258,10 +563,24 @@ where
     let mut failures = failures;
     let turn_error_text = turn_error.to_string();
     let pending_tool_arg_error = tool_arg_error(&turn_error);
-    let pending_tool_arg_error_source = pending_tool_arg_error
+    let initial_missing_expected_paths = missing_paths(runtime.cwd, &request.step.expected_paths);
+    let target_path = safe_tool_protocol_correction_target_path(
+        runtime.cwd,
+        request.step,
+        &initial_missing_expected_paths,
+    );
+    let pending_tool_protocol_failure =
+        tool_protocol_failure_from_error(&turn_error, target_path.clone());
+    let pending_tool_arg_error_source = pending_tool_protocol_failure
         .as_ref()
         .map(|_| ToolProtocolCorrectionSource::InitialTurn);
     let mut contract_evidence = Vec::new();
+    if let Some(failure) = pending_tool_protocol_failure.as_ref() {
+        push_contract_evidence_once(
+            &mut contract_evidence,
+            tool_protocol_contract_evidence(request.step, failure, false),
+        );
+    }
     if let Some(evidence) = step_policy_contract_evidence(request.step, &turn_error) {
         push_contract_evidence_once(&mut contract_evidence, evidence);
     }
@@ -286,6 +605,7 @@ where
             repair_attempt_ledger: Vec::new(),
             repair_job_state: RepairJobState::new("unknown").with_step_id(step_id),
             tool_arg_schema_correction_spent: false,
+            pending_tool_protocol_failure,
             pending_tool_arg_error,
             pending_tool_arg_error_source,
         },
@@ -321,6 +641,7 @@ where
             repair_attempt_ledger: Vec::new(),
             repair_job_state: RepairJobState::new("unknown").with_step_id(step_id),
             tool_arg_schema_correction_spent: false,
+            pending_tool_protocol_failure: None,
             pending_tool_arg_error: None,
             pending_tool_arg_error_source: None,
         },
@@ -347,12 +668,10 @@ where
     let mut missing_artifact_no_tool_guard_sent = false;
     let initial_missing_expected_paths = missing_paths(runtime.cwd, &step.expected_paths);
     push_missing_expected_path_contract_evidence(&mut state, step, &initial_missing_expected_paths);
-    if let Some(arg_error) = state.pending_tool_arg_error.clone() {
-        push_tool_arg_contract_evidence(
-            &mut state,
-            step,
-            &arg_error,
-            tool_protocol_correction_target_path(step, &initial_missing_expected_paths),
+    if let Some(failure) = state.pending_tool_protocol_failure.clone() {
+        push_contract_evidence_once(
+            &mut state.contract_evidence,
+            tool_protocol_contract_evidence(step, &failure, state.tool_arg_schema_correction_spent),
         );
     }
     match try_dependency_setup_recovery(
@@ -404,19 +723,24 @@ where
         let selected_envelope = recovery_execution_envelope(&current_contract_evidence);
         let correction_decision = tool_protocol_correction_decision(
             step,
-            state.pending_tool_arg_error.as_ref(),
-            tool_protocol_correction_target_path(step, &missing_expected_paths),
+            state.pending_tool_protocol_failure.as_ref(),
             state.tool_arg_schema_correction_spent,
             state.pending_tool_arg_error_source,
         );
+        let mut correction_context_for_policy = None;
         let prompt = match correction_decision {
             ToolProtocolCorrectionDecision::CorrectOnce(context) => {
+                let context = *context;
                 state.tool_arg_schema_correction_spent = true;
+                correction_context_for_policy = Some(context.clone());
+                state.pending_tool_protocol_failure = None;
                 state.pending_tool_arg_error = None;
                 state.pending_tool_arg_error_source = None;
                 build_tool_protocol_correction_prompt(&context)
             }
-            ToolProtocolCorrectionDecision::Terminal if state.pending_tool_arg_error.is_some() => {
+            ToolProtocolCorrectionDecision::Terminal
+                if state.pending_tool_protocol_failure.is_some() =>
+            {
                 break;
             }
             ToolProtocolCorrectionDecision::Terminal => {
@@ -441,6 +765,9 @@ where
         };
         let mut repair_config = config.clone();
         apply_repair_execution_envelope(&mut repair_config, selected_envelope);
+        if let Some(context) = correction_context_for_policy.as_ref() {
+            apply_tool_protocol_correction_policy(&mut repair_config, context);
+        }
         let result = match crate::agent::minimal_loop::loop_run::run_session_with_observer(
             runtime.executor,
             runtime.cwd,
@@ -451,13 +778,21 @@ where
             Ok(result) => result,
             Err(err) => {
                 let error = err.to_string();
-                let is_schema_failure = is_tool_arg_schema_failure(&err);
-                if let Some(arg_error) = tool_arg_error(&err) {
-                    push_tool_arg_contract_evidence(
-                        &mut state,
-                        step,
-                        &arg_error,
-                        tool_protocol_correction_target_path(step, &missing_expected_paths),
+                let target_path = safe_tool_protocol_correction_target_path(
+                    runtime.cwd,
+                    step,
+                    &missing_expected_paths,
+                );
+                let protocol_failure = tool_protocol_failure_from_error(&err, target_path);
+                let is_protocol_failure = protocol_failure.is_some();
+                if let Some(failure) = protocol_failure.as_ref() {
+                    push_contract_evidence_once(
+                        &mut state.contract_evidence,
+                        tool_protocol_contract_evidence(
+                            step,
+                            failure,
+                            state.tool_arg_schema_correction_spent,
+                        ),
                     );
                 }
                 if let Some(evidence) = step_policy_contract_evidence(step, &err) {
@@ -467,16 +802,17 @@ where
                     push_contract_evidence_once(&mut state.contract_evidence, evidence);
                 }
                 let mut failure = turn_error_failure("repair turn", &err);
-                if is_schema_failure && state.tool_arg_schema_correction_spent {
+                if is_protocol_failure && state.tool_arg_schema_correction_spent {
                     failure.diagnostic_excerpt = format!(
                         "Tool protocol correction was attempted once for this step, but the next tool call still violated the schema.\n{}",
                         failure.diagnostic_excerpt
                     );
                 }
                 state.failures.push(failure);
+                state.pending_tool_protocol_failure = protocol_failure;
                 state.pending_tool_arg_error = tool_arg_error(&err);
                 state.pending_tool_arg_error_source = state
-                    .pending_tool_arg_error
+                    .pending_tool_protocol_failure
                     .as_ref()
                     .map(|_| ToolProtocolCorrectionSource::RepairTurn);
                 if should_send_missing_artifact_no_tool_guard(
@@ -489,7 +825,7 @@ where
                         &missing_expected_paths,
                     ));
                 }
-                if is_schema_failure {
+                if is_protocol_failure {
                     if !state.tool_arg_schema_correction_spent
                         && budget.allows_next_attempt(state.file_changing_attempts)
                         && repair_turns < MAX_REPAIR_TURNS
@@ -513,6 +849,7 @@ where
                     );
                     break;
                 }
+                state.pending_tool_protocol_failure = None;
                 state.pending_tool_arg_error = None;
                 state.pending_tool_arg_error_source = None;
                 if recoverable_repair_turn_error(&err)
@@ -668,56 +1005,92 @@ fn apply_repair_execution_envelope(
     }
 }
 
-fn push_tool_arg_contract_evidence(
-    state: &mut RepairStepState,
-    step: &StepPlanStep,
-    arg_error: &ToolArgError,
-    target_path: Option<String>,
+fn apply_tool_protocol_correction_policy(
+    config: &mut MinimalLoopConfig,
+    context: &ToolProtocolCorrectionContext,
 ) {
-    let required_fields = if arg_error.required_fields().is_empty() {
+    config.allowed_tools = context.allowed_tools.clone();
+    match context.action {
+        ToolProtocolCorrectionAction::ReadCurrentTargetBeforeEdit
+        | ToolProtocolCorrectionAction::EmitRepositoryEvidenceToolCall => {
+            config.action_requirement = ActionRequirement::RepositoryEvidenceRequired;
+            config.step_tool_policy = StepToolPolicy::ReadOnly;
+        }
+        ToolProtocolCorrectionAction::EmitSameToolWithRequiredFields
+        | ToolProtocolCorrectionAction::EmitSameToolWithValidJson => {
+            config.action_requirement = ActionRequirement::Required;
+            config.step_tool_policy = StepToolPolicy::FileMutationAllowed;
+        }
+        ToolProtocolCorrectionAction::ProviderTransportFallback
+        | ToolProtocolCorrectionAction::ExplicitStop => {
+            config.action_requirement = ActionRequirement::RepositoryEvidenceRequired;
+            config.step_tool_policy = StepToolPolicy::ReadOnly;
+        }
+    }
+}
+
+fn tool_protocol_contract_evidence(
+    step: &StepPlanStep,
+    failure: &ToolProtocolFailure,
+    correction_spent: bool,
+) -> ContractEvidence {
+    let required_fields = if failure.required_fields.is_empty() {
         "the required fields".to_string()
     } else {
-        arg_error.required_fields().join(", ")
+        failure.required_fields.join(", ")
     };
-    let required_action = if arg_error.tool_name() == "Write"
-        && arg_error.missing_field() == Some("path")
-        && let Some(path) = target_path.as_deref()
-    {
-        format!(
-            "emit exactly one valid Write tool call with path={path} and required fields: {required_fields}"
-        )
-    } else {
-        format!(
-            "emit exactly one valid {} tool call with required fields: {required_fields}",
-            arg_error.tool_name()
-        )
-    };
+    let action = tool_protocol_correction_action(failure);
+    let required_action =
+        tool_protocol_required_action_for_failure(failure, &action, &required_fields);
+    let target_path = failure.target_path.clone();
+    let terminal_stop =
+        correction_spent || matches!(action, ToolProtocolCorrectionAction::ExplicitStop);
     let mut evidence = ContractEvidence::new("tool_protocol")
         .with_failed_step(step.id.clone())
-        .with_violated_contract(arg_error.reason_code())
-        .with_reason_code(arg_error.reason_code())
+        .with_violated_contract(failure.reason_code.clone())
+        .with_reason_code(failure.reason_code.clone())
         .with_failure_kind("tool_protocol_error")
-        .with_diagnostic_code(arg_error.reason_code())
+        .with_diagnostic_code(failure.reason_code.clone())
         .with_failure_signature(failure_signature([
             "tool_protocol",
             step.id.as_str(),
-            arg_error.tool_name(),
-            arg_error.reason_code(),
+            failure.tool.as_str(),
+            failure.reason_code.as_str(),
             target_path.as_deref().unwrap_or(""),
         ]))
-        .with_tool(arg_error.tool_name())
+        .with_tool(failure.tool.clone())
         .with_observed_expected_pairs(vec![format!(
             "observed={}; expected=valid {} tool call with required fields: {required_fields}",
-            arg_error.diagnostic_excerpt(),
-            arg_error.tool_name()
+            failure.diagnostic, failure.tool
         )])
         .with_required_action(required_action)
-        .with_diagnostic(arg_error.diagnostic_excerpt());
-    if let Some(field) = arg_error.missing_field() {
-        evidence = evidence.with_target_field(field);
+        .with_repair_kind("tool_protocol_correction")
+        .with_repair_action("correct_tool_protocol")
+        .with_source_of_truth("tool_schema_contract")
+        .with_allowed_change_kind("tool_call_shape_only")
+        .with_expected_evidence_delta(
+            "next response satisfies the admitted tool protocol correction action",
+        )
+        .with_tool_policy_projection("tool_protocol_correction")
+        .with_recovery_owner("tool_protocol")
+        .with_active_job("tool_protocol_correction")
+        .with_loop_control_action("run_tool_protocol_correction")
+        .with_repair_focus("correct the tool-call shape/action before source or verifier repair")
+        .with_eval_report_fields(tool_protocol_eval_fields(
+            failure,
+            &action,
+            correction_spent,
+            terminal_stop,
+        ))
+        .with_diagnostic(failure.diagnostic.clone());
+    if let Some(field) = &failure.missing_field {
+        evidence = evidence.with_target_field(field.clone());
     }
-    if !arg_error.required_fields().is_empty() {
-        evidence = evidence.with_required_fields(arg_error.required_fields().iter().cloned());
+    if !failure.required_fields.is_empty() {
+        evidence = evidence.with_required_fields(failure.required_fields.iter().cloned());
+    }
+    if let Some(confidence) = &failure.target_confidence {
+        evidence = evidence.with_target_priority(format!("target_confidence={confidence}"));
     }
     if let Some(path) = target_path {
         evidence = evidence
@@ -725,17 +1098,163 @@ fn push_tool_arg_contract_evidence(
             .with_candidate_artifacts(vec![path.clone()])
             .with_repair_target(path);
     }
-    if state.tool_arg_schema_correction_spent {
+    if terminal_stop {
+        let safe_stop_payload = tool_protocol_safe_stop_payload(failure, &action, correction_spent);
+        if correction_spent {
+            evidence = evidence
+                .with_prior_attempts(vec![
+                    "Tool protocol correction was attempted once for this step".to_string(),
+                ])
+                .with_repair_attempt_ledger(vec![format!(
+                    "Tool protocol correction was attempted once; {} still missing required schema fields",
+                    failure.tool
+                )]);
+        }
         evidence = evidence
-            .with_prior_attempts(vec![
-                "Tool protocol correction was attempted once for this step".to_string(),
-            ])
-            .with_repair_attempt_ledger(vec![format!(
-                "Tool protocol correction was attempted once; {} still missing required schema fields",
-                arg_error.tool_name()
-            )]);
+            .with_explicit_stop_reason(tool_protocol_stop_reason(failure, correction_spent))
+            .with_safe_stop_payload([safe_stop_payload])
+            .with_eval_report_fields(tool_protocol_eval_fields(
+                failure,
+                &action,
+                correction_spent,
+                true,
+            ));
     }
-    push_contract_evidence_once(&mut state.contract_evidence, evidence);
+    evidence
+}
+
+fn tool_protocol_required_action_for_failure(
+    failure: &ToolProtocolFailure,
+    action: &ToolProtocolCorrectionAction,
+    required_fields: &str,
+) -> String {
+    match action {
+        ToolProtocolCorrectionAction::EmitSameToolWithRequiredFields => {
+            if failure.tool == "Write"
+                && failure.missing_field.as_deref() == Some("path")
+                && let Some(path) = failure.target_path.as_deref()
+            {
+                format!(
+                    "emit exactly one valid Write tool call with path={path} and required fields: {required_fields}"
+                )
+            } else {
+                format!(
+                    "emit exactly one valid {} tool call with required fields: {required_fields}",
+                    failure.tool
+                )
+            }
+        }
+        ToolProtocolCorrectionAction::EmitSameToolWithValidJson => format!(
+            "emit exactly one valid {} tool call with JSON object arguments",
+            failure.tool
+        ),
+        ToolProtocolCorrectionAction::ReadCurrentTargetBeforeEdit => failure
+            .target_path
+            .as_deref()
+            .map(|path| {
+                format!(
+                    "emit exactly one valid Read tool call with path={path} before retrying Edit"
+                )
+            })
+            .unwrap_or_else(|| {
+                "emit exactly one valid Read or Glob tool call before retrying Edit".to_string()
+            }),
+        ToolProtocolCorrectionAction::EmitRepositoryEvidenceToolCall => failure
+            .target_path
+            .as_deref()
+            .map(|path| {
+                format!(
+                    "emit exactly one valid Read tool call with path={path} to provide repository evidence"
+                )
+            })
+            .unwrap_or_else(|| {
+                "emit exactly one valid read-only repository evidence tool call".to_string()
+            }),
+        ToolProtocolCorrectionAction::ProviderTransportFallback => {
+            "return one provider response that satisfies the shared tool-call transport contract"
+                .to_string()
+        }
+        ToolProtocolCorrectionAction::ExplicitStop => {
+            "stop with structured tool protocol evidence; no safe correction is admitted"
+                .to_string()
+        }
+    }
+}
+
+fn tool_protocol_eval_fields(
+    failure: &ToolProtocolFailure,
+    action: &ToolProtocolCorrectionAction,
+    correction_spent: bool,
+    correction_exhausted: bool,
+) -> Vec<String> {
+    let status = if correction_exhausted {
+        "exhausted"
+    } else if correction_spent {
+        "spent"
+    } else {
+        "admitted"
+    };
+    let mut fields = vec![
+        format!("tool_protocol_status={status}"),
+        format!("tool_protocol_source={}", failure.source_name()),
+        format!("tool_protocol_action={}", action.as_str()),
+        format!("tool_protocol_failed_tool={}", failure.tool),
+        format!("tool_protocol_correction_spent={correction_spent}"),
+        format!("tool_protocol_correction_exhausted={correction_exhausted}"),
+        "allowed_tool_category=tool_protocol".to_string(),
+    ];
+    if let Some(field) = &failure.missing_field {
+        fields.push(format!("tool_protocol_missing_field={field}"));
+    }
+    if !failure.required_fields.is_empty() {
+        fields.push(format!(
+            "tool_protocol_required_fields={}",
+            failure.required_fields.join("+")
+        ));
+    }
+    if let Some(confidence) = &failure.target_confidence {
+        fields.push(format!("target_confidence={confidence}"));
+    }
+    fields
+}
+
+fn tool_protocol_safe_stop_payload(
+    failure: &ToolProtocolFailure,
+    action: &ToolProtocolCorrectionAction,
+    correction_spent: bool,
+) -> String {
+    let reason = tool_protocol_stop_reason(failure, correction_spent);
+    format!(
+        "owner=tool_protocol;job=tool_protocol_correction;action={};tool={};target={};reason={reason};source={};missing_field={};required_fields={}",
+        action.as_str(),
+        failure.tool,
+        failure.target_path.as_deref().unwrap_or("none"),
+        failure.source_name(),
+        failure.missing_field.as_deref().unwrap_or("none"),
+        if failure.required_fields.is_empty() {
+            "none".to_string()
+        } else {
+            failure.required_fields.join("+")
+        }
+    )
+}
+
+fn tool_protocol_stop_reason(
+    failure: &ToolProtocolFailure,
+    correction_spent: bool,
+) -> &'static str {
+    if matches!(failure.source, ToolProtocolFailureSource::InvalidPath) {
+        "tool_protocol_invalid_path_unadmitted"
+    } else if matches!(
+        failure.source,
+        ToolProtocolFailureSource::ProviderTransportParse
+    ) {
+        "provider_transport_protocol_correction_unadmitted"
+    } else if correction_spent {
+        "tool_protocol_correction_exhausted"
+    } else {
+        "tool_protocol_correction_unadmitted"
+    }
 }
 
 fn push_missing_expected_path_contract_evidence(
@@ -2576,10 +3095,10 @@ mod tests {
     #[test]
     fn missing_write_path_gets_protocol_correction_with_target() {
         let err = missing_write_path_error();
+        let failure = ToolProtocolFailure::from_tool_arg_error(&err, Some("README.md".to_string()));
         let decision = tool_protocol_correction_decision(
             &step(StepKind::Create),
-            Some(&err),
-            Some("README.md".to_string()),
+            Some(&failure),
             false,
             Some(ToolProtocolCorrectionSource::InitialTurn),
         );
@@ -2588,6 +3107,10 @@ mod tests {
             panic!("expected CorrectOnce");
         };
         assert_eq!(context.tool, "Write");
+        assert_eq!(
+            context.action,
+            ToolProtocolCorrectionAction::EmitSameToolWithRequiredFields
+        );
         assert_eq!(context.reason_code, "tool_args_missing_required_field");
         assert_eq!(context.missing_field.as_deref(), Some("path"));
         assert_eq!(context.required_fields, vec!["path", "content"]);
@@ -2597,10 +3120,10 @@ mod tests {
     #[test]
     fn correction_spent_makes_protocol_failure_terminal() {
         let err = missing_write_path_error();
+        let failure = ToolProtocolFailure::from_tool_arg_error(&err, None);
         let decision = tool_protocol_correction_decision(
             &step(StepKind::Create),
-            Some(&err),
-            None,
+            Some(&failure),
             true,
             Some(ToolProtocolCorrectionSource::InitialTurn),
         );
@@ -2614,10 +3137,10 @@ mod tests {
             tool: "Write".to_string(),
             message: "expected value".to_string(),
         };
+        let failure = ToolProtocolFailure::from_tool_arg_error(&err, None);
         let decision = tool_protocol_correction_decision(
             &step(StepKind::Repair),
-            Some(&err),
-            None,
+            Some(&failure),
             false,
             Some(ToolProtocolCorrectionSource::InitialTurn),
         );
@@ -2626,19 +3149,71 @@ mod tests {
             panic!("expected CorrectOnce");
         };
         assert_eq!(context.reason_code, "tool_args_invalid_json");
+        assert_eq!(
+            context.action,
+            ToolProtocolCorrectionAction::EmitSameToolWithValidJson
+        );
         assert_eq!(context.tool, "Write");
         assert!(context.missing_field.is_none());
         assert!(context.target_path.is_none());
     }
 
     #[test]
+    fn missing_write_path_without_safe_target_is_terminal() {
+        let err = missing_write_path_error();
+        let failure = ToolProtocolFailure::from_tool_arg_error(&err, None);
+        let decision = tool_protocol_correction_decision(
+            &step(StepKind::Create),
+            Some(&failure),
+            false,
+            Some(ToolProtocolCorrectionSource::InitialTurn),
+        );
+
+        assert_eq!(decision, ToolProtocolCorrectionDecision::Terminal);
+        let rendered = tool_protocol_contract_evidence(&step(StepKind::Create), &failure, false)
+            .render()
+            .unwrap();
+        assert!(rendered.contains("explicit_stop_reason: tool_protocol_correction_unadmitted"));
+        assert!(rendered.contains("safe_stop_payload: owner=tool_protocol"));
+    }
+
+    #[test]
+    fn stale_edit_target_gets_read_before_edit_correction() {
+        let failure = ToolProtocolFailure::stale_edit_target(
+            Some("src/main.rs".to_string()),
+            "edit target was not found".to_string(),
+        );
+        let decision = tool_protocol_correction_decision(
+            &step(StepKind::Repair),
+            Some(&failure),
+            false,
+            Some(ToolProtocolCorrectionSource::RepairTurn),
+        );
+
+        let ToolProtocolCorrectionDecision::CorrectOnce(context) = decision else {
+            panic!("expected CorrectOnce");
+        };
+        assert_eq!(
+            context.action,
+            ToolProtocolCorrectionAction::ReadCurrentTargetBeforeEdit
+        );
+        assert_eq!(context.allowed_tools, vec!["Read", "Glob"]);
+        assert!(
+            context
+                .disallowed_actions
+                .iter()
+                .any(|action| action.contains("Write or Edit"))
+        );
+    }
+
+    #[test]
     fn non_mutating_step_does_not_get_protocol_correction() {
         let err = missing_write_path_error();
+        let failure = ToolProtocolFailure::from_tool_arg_error(&err, Some("README.md".to_string()));
         for kind in [StepKind::Inspect, StepKind::Verify, StepKind::Report] {
             let decision = tool_protocol_correction_decision(
                 &step(kind),
-                Some(&err),
-                None,
+                Some(&failure),
                 false,
                 Some(ToolProtocolCorrectionSource::InitialTurn),
             );
@@ -2653,10 +3228,10 @@ mod tests {
     #[test]
     fn verify_repair_turn_gets_protocol_correction() {
         let err = missing_write_path_error();
+        let failure = ToolProtocolFailure::from_tool_arg_error(&err, Some("README.md".to_string()));
         let decision = tool_protocol_correction_decision(
             &step(StepKind::Verify),
-            Some(&err),
-            None,
+            Some(&failure),
             false,
             Some(ToolProtocolCorrectionSource::RepairTurn),
         );
@@ -2671,11 +3246,11 @@ mod tests {
     #[test]
     fn inspect_and_report_repair_turns_do_not_get_protocol_correction() {
         let err = missing_write_path_error();
+        let failure = ToolProtocolFailure::from_tool_arg_error(&err, Some("README.md".to_string()));
         for kind in [StepKind::Inspect, StepKind::Report] {
             let decision = tool_protocol_correction_decision(
                 &step(kind),
-                Some(&err),
-                None,
+                Some(&failure),
                 false,
                 Some(ToolProtocolCorrectionSource::RepairTurn),
             );
@@ -2692,7 +3267,6 @@ mod tests {
         let decision = tool_protocol_correction_decision(
             &step(StepKind::Create),
             None,
-            Some("README.md".to_string()),
             false,
             Some(ToolProtocolCorrectionSource::InitialTurn),
         );
@@ -2720,15 +3294,14 @@ mod tests {
 
     #[test]
     fn tool_arg_contract_evidence_includes_target_path() {
-        let mut state = empty_state();
-        push_tool_arg_contract_evidence(
-            &mut state,
-            &step(StepKind::Create),
-            &missing_write_path_error(),
+        let err = missing_write_path_error();
+        let failure = ToolProtocolFailure::from_tool_arg_error(
+            &err,
             Some("src/components/GameCanvas.tsx".to_string()),
         );
+        let evidence = tool_protocol_contract_evidence(&step(StepKind::Create), &failure, false);
 
-        let rendered = state.contract_evidence[0].render().unwrap();
+        let rendered = evidence.render().unwrap();
 
         assert!(rendered.contains("guard: tool_protocol"));
         assert!(rendered.contains("violated_contract: tool_args_missing_required_field"));
@@ -2747,6 +3320,9 @@ mod tests {
         assert!(rendered.contains(
             "required_action: emit exactly one valid Write tool call with path=src/components/GameCanvas.tsx"
         ));
+        assert!(rendered.contains("active_job: tool_protocol_correction"));
+        assert!(rendered.contains("recovery_owner: tool_protocol"));
+        assert!(rendered.contains("tool_protocol_action=emit_same_tool_with_required_fields"));
     }
 
     #[test]
@@ -3450,6 +4026,7 @@ mod tests {
             repair_attempt_ledger: Vec::new(),
             repair_job_state: empty_repair_job_state(),
             tool_arg_schema_correction_spent: false,
+            pending_tool_protocol_failure: None,
             pending_tool_arg_error: None,
             pending_tool_arg_error_source: None,
         }

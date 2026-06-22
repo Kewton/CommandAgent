@@ -426,6 +426,7 @@ where
                 )
                 .with_step_id(step.id.clone()),
                 tool_arg_schema_correction_spent: false,
+                pending_tool_protocol_failure: None,
                 pending_tool_arg_error: None,
                 pending_tool_arg_error_source: None,
             },

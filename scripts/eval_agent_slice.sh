@@ -170,6 +170,14 @@ RECOVERY_FIELD_NAMES = [
     "no_progress_strategy",
     "repair_state_status",
     "safe_stop_payload",
+    "tool_protocol_status",
+    "tool_protocol_source",
+    "tool_protocol_action",
+    "tool_protocol_failed_tool",
+    "tool_protocol_missing_field",
+    "tool_protocol_required_fields",
+    "tool_protocol_correction_spent",
+    "tool_protocol_correction_exhausted",
     "completion_authority_status",
     "completion_source_of_truth",
     "evidence_binding_status",
@@ -336,6 +344,14 @@ def derived_recovery_fields(reason, case):
         "no_progress_strategy": "",
         "repair_state_status": "not_attempted" if reason != "ok" else "passed",
         "safe_stop_payload": "",
+        "tool_protocol_status": "",
+        "tool_protocol_source": "",
+        "tool_protocol_action": "",
+        "tool_protocol_failed_tool": "",
+        "tool_protocol_missing_field": "",
+        "tool_protocol_required_fields": "",
+        "tool_protocol_correction_spent": "",
+        "tool_protocol_correction_exhausted": "",
         "evidence_binding_status": "unknown" if reason != "ok" else "bound",
         "completion_evidence_status": "unknown" if reason != "ok" else "passed",
         "explicit_stop_reason": "",
@@ -380,6 +396,9 @@ def derived_recovery_fields(reason, case):
                 tool_policy="file_mutation_repair",
             )
     elif category == "tool_protocol":
+        action = "emit_same_tool_with_valid_json"
+        if reason.startswith("tool_args_missing_required_field"):
+            action = "emit_same_tool_with_required_fields"
         fields.update(
             active_job="tool_protocol_correction",
             recovery_owner="tool_protocol",
@@ -387,6 +406,13 @@ def derived_recovery_fields(reason, case):
             dispatch_status="selected",
             repair_action="correct_tool_protocol",
             tool_policy="tool_protocol_correction",
+            tool_protocol_status="admitted",
+            tool_protocol_source="tool_argument_schema",
+            tool_protocol_action=action,
+            tool_protocol_missing_field=target,
+            tool_protocol_required_fields=target,
+            tool_protocol_correction_spent="false",
+            tool_protocol_correction_exhausted="false",
         )
     elif category == "planning":
         if target:
