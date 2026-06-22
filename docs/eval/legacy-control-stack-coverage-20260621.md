@@ -284,9 +284,9 @@ migration_not_complete
 
 Supporting Phase20 artifacts:
 
-- `workspace/mvp/logic/anvil/loadmap2/phase_20/coverage_closure.md`
-- `workspace/mvp/logic/anvil/loadmap2/phase_20/ledger_reconciliation.md`
-- `workspace/mvp/logic/anvil/loadmap2/phase_20/continuation_ledger.md`
+- Phase20 workspace `coverage_closure.md`
+- Phase20 workspace `ledger_reconciliation.md`
+- Phase20 workspace `continuation_ledger.md`
 - `docs/eval/loadmap2-phase20-final-migration-decision-20260623.md`
 
 Final coverage interpretation:

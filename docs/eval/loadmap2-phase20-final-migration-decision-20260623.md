@@ -4,19 +4,19 @@ Date: 2026-06-23 JST
 
 ## Scope And Inputs
 
-Phase20 reconciled the Anvil control-stack migration state after Phase19.
+Phase20 reconciled the source control-stack migration state after Phase19.
 
 Inputs:
 
-- `workspace/mvp/logic/anvil/loadmap2/recovery_plan.md`
-- `workspace/mvp/logic/anvil/loadmap2/phase_17/blocking_ledger.md`
-- `workspace/mvp/logic/anvil/loadmap2/phase_17/signoff_reconciliation.md`
+- Phase20 workspace `recovery_plan.md`
+- Phase17 workspace `blocking_ledger.md`
+- Phase17 workspace `signoff_reconciliation.md`
 - `docs/eval/legacy-control-stack-coverage-20260621.md`
 - `docs/eval/loadmap2-phase18-focused-recovery-20260623.md`
 - `docs/eval/loadmap2-phase19-large-recovery-20260623.md`
-- `workspace/mvp/logic/anvil/loadmap2/phase_20/coverage_closure.md`
-- `workspace/mvp/logic/anvil/loadmap2/phase_20/ledger_reconciliation.md`
-- `workspace/mvp/logic/anvil/loadmap2/phase_20/continuation_ledger.md`
+- Phase20 workspace `coverage_closure.md`
+- Phase20 workspace `ledger_reconciliation.md`
+- Phase20 workspace `continuation_ledger.md`
 
 Baseline:
 
@@ -125,7 +125,7 @@ No new Phase20 exclusion was added.
 Continuation blockers are recorded in:
 
 ```text
-workspace/mvp/logic/anvil/loadmap2/phase_20/continuation_ledger.md
+Phase20 workspace `continuation_ledger.md`
 ```
 
 The blockers are grouped as:
