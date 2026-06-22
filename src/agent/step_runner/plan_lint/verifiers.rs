@@ -179,9 +179,7 @@ fn manifest_grep_pattern(command: &str) -> Option<String> {
     if parts.len() < 4 || parts[0] != "grep" || parts[1] != "-q" {
         return None;
     }
-    let Some(path) = parts.last() else {
-        return None;
-    };
+    let path = parts.last()?;
     if path.trim_matches(|ch| ch == '\'' || ch == '"') != "package.json" {
         return None;
     }

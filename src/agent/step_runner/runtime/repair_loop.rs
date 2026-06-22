@@ -2108,8 +2108,6 @@ fn verifier_active_job(
         Some(crate::agent::step_runner::artifact_graph::ArtifactRole::Test)
     ) {
         "test_alignment_repair"
-    } else if diagnostic.preferred_repair_role == "implementation" {
-        "source_implementation_repair"
     } else {
         "source_implementation_repair"
     }
@@ -2168,8 +2166,6 @@ fn verifier_repair_action(
         Some(crate::agent::step_runner::artifact_graph::ArtifactRole::Test)
     ) {
         "align_test_and_verifier"
-    } else if diagnostic.preferred_repair_role == "implementation" {
-        "repair_source_error"
     } else {
         "repair_source_error"
     }
