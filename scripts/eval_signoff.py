@@ -1,0 +1,379 @@
+#!/usr/bin/env python3
+"""Evaluate broad CommandAgent eval roots against sign-off gates.
+
+This script is eval-only. It reads existing summary artifacts and reports
+ownership/diagnostic gaps; it never reruns cases or mutates workspaces.
+"""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+
+
+KNOWN_FAMILIES = {
+    "smoke",
+    "focused",
+    "focused-fixture",
+    "large",
+    "supplemental",
+}
+
+BETTER_OWNER_TERMINAL_STATES = {
+    "plan_parse_failed",
+    "plan_schema_failed",
+    "plan_lint_failed",
+    "provider_transport_failed",
+    "provider_parse_failed",
+    "tool_protocol_failed",
+    "step_policy_failed",
+    "profile_contract_failed",
+    "dependency_missing",
+    "setup_failed",
+    "port_in_use",
+    "missing_deliverable",
+    "missing_evidence",
+    "evidence_binding_failed",
+    "completion_evidence_failed",
+    "stale_evidence",
+}
+
+BETTER_OWNER_CATEGORIES = {
+    "planning",
+    "provider_transport",
+    "tool_protocol",
+    "step_policy",
+    "profile",
+    "setup",
+}
+
+MISSING_VALUES = {"", "unknown", "none", "not_applicable"}
+
+
+@dataclass(frozen=True)
+class RootSpec:
+    family: str
+    path: Path
+
+
+@dataclass(frozen=True)
+class Finding:
+    family: str
+    root: Path
+    case_id: str
+    run: str
+    code: str
+    detail: str
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Check CommandAgent eval roots against broad sign-off gates"
+    )
+    parser.add_argument(
+        "--root",
+        action="append",
+        default=[],
+        metavar="FAMILY=PATH",
+        help=(
+            "Eval root to check. FAMILY is one of: "
+            + ", ".join(sorted(KNOWN_FAMILIES))
+        ),
+    )
+    parser.add_argument(
+        "--require-recheck",
+        action="store_true",
+        help="Require and evaluate recheck_summary.tsv for every root.",
+    )
+    parser.add_argument(
+        "--summary-name",
+        default=None,
+        help="Override summary file name. Defaults to recheck_summary.tsv when "
+        "--require-recheck is set, otherwise summary.tsv.",
+    )
+    return parser.parse_args()
+
+
+def parse_root(value: str) -> RootSpec:
+    if "=" not in value:
+        raise SystemExit(f"--root must be FAMILY=PATH, got {value!r}")
+    family, raw_path = value.split("=", 1)
+    family = family.strip()
+    if family not in KNOWN_FAMILIES:
+        allowed = ", ".join(sorted(KNOWN_FAMILIES))
+        raise SystemExit(f"unsupported root family {family!r}; expected {allowed}")
+    path = Path(raw_path.strip())
+    if not raw_path.strip():
+        raise SystemExit(f"--root path is empty for family {family!r}")
+    return RootSpec(family=family, path=path)
+
+
+def read_rows(path: Path) -> list[dict[str, str]]:
+    with path.open(encoding="utf-8", newline="") as handle:
+        return list(csv.DictReader(handle, delimiter="\t"))
+
+
+def value(row: dict[str, str], key: str) -> str:
+    return (row.get(key) or "").strip()
+
+
+def is_missing(raw: str) -> bool:
+    return raw.strip().casefold() in MISSING_VALUES
+
+
+def is_success(row: dict[str, str]) -> bool:
+    return value(row, "success").casefold() == "true"
+
+
+def row_id(row: dict[str, str]) -> tuple[str, str]:
+    return value(row, "case_id") or "<unknown>", value(row, "run") or "?"
+
+
+def finding(spec: RootSpec, row: dict[str, str], code: str, detail: str) -> Finding:
+    case_id, run = row_id(row)
+    return Finding(
+        family=spec.family,
+        root=spec.path,
+        case_id=case_id,
+        run=run,
+        code=code,
+        detail=detail,
+    )
+
+
+def observation_findings(spec: RootSpec, row: dict[str, str]) -> list[Finding]:
+    if is_success(row):
+        return []
+    terminal_state = value(row, "terminal_state")
+    contract_layer = value(row, "contract_layer")
+    diagnostic_code = value(row, "diagnostic_code")
+    reason = value(row, "reason")
+    explicit_stop_reason = value(row, "explicit_stop_reason")
+    findings: list[Finding] = []
+
+    if terminal_state in {"", "unknown"}:
+        findings.append(
+            finding(spec, row, "unknown_terminal_state", "terminal_state is unknown")
+        )
+    if contract_layer == "unknown_contract" and not (
+        terminal_state == "explicit_stop" and explicit_stop_reason
+    ):
+        findings.append(
+            finding(
+                spec,
+                row,
+                "unknown_contract_layer",
+                "contract_layer is unknown_contract without explicit stop reason",
+            )
+        )
+    if reason.startswith("rc:") and (
+        not diagnostic_code
+        or diagnostic_code == "unknown"
+        or diagnostic_code.startswith("rc_")
+    ):
+        findings.append(
+            finding(
+                spec,
+                row,
+                "raw_undiagnostic_rc",
+                f"reason={reason} diagnostic_code={diagnostic_code or '<empty>'}",
+            )
+        )
+    return findings
+
+
+def focused_findings(spec: RootSpec, row: dict[str, str]) -> list[Finding]:
+    status = value(row, "expected_assertion_status")
+    if status == "failed":
+        failures = value(row, "expected_assertion_failures")
+        return [
+            finding(
+                spec,
+                row,
+                "focused_assertion_failed",
+                failures or "expected assertion failed",
+            )
+        ]
+    return []
+
+
+def generic_source_fallback_findings(
+    spec: RootSpec, row: dict[str, str]
+) -> list[Finding]:
+    if is_success(row):
+        return []
+    active_job = value(row, "active_job")
+    recovery_owner = value(row, "recovery_owner")
+    terminal_state = value(row, "terminal_state")
+    failure_category = value(row, "failure_category")
+    if active_job != "source_implementation_repair" and recovery_owner != "source":
+        return []
+    if (
+        terminal_state in BETTER_OWNER_TERMINAL_STATES
+        or failure_category in BETTER_OWNER_CATEGORIES
+    ):
+        return [
+            finding(
+                spec,
+                row,
+                "generic_source_fallback",
+                f"terminal_state={terminal_state} failure_category={failure_category}",
+            )
+        ]
+    return []
+
+
+def large_ownership_findings(spec: RootSpec, row: dict[str, str]) -> list[Finding]:
+    if is_success(row):
+        return []
+    findings: list[Finding] = []
+    active_job = value(row, "active_job")
+    owner = value(row, "recovery_owner") or value(row, "active_owner")
+    action = value(row, "repair_action") or value(row, "selected_action")
+    target = value(row, "target_path") or value(row, "selected_target")
+    evidence_binding = value(row, "evidence_binding_status")
+    completion_evidence = value(row, "completion_evidence_status")
+    attempt_outcome = value(row, "attempt_outcome")
+    target_optional = value(row, "terminal_state") in {
+        "explicit_stop",
+        "provider_transport_failed",
+        "provider_parse_failed",
+    }
+    required = [
+        ("missing_active_job", active_job),
+        ("missing_owner", owner),
+        ("missing_action", action),
+        ("missing_evidence_binding", evidence_binding),
+        ("missing_completion_evidence", completion_evidence),
+        ("missing_attempt_outcome", attempt_outcome),
+    ]
+    if not target_optional:
+        required.append(("missing_target", target))
+    for code, raw in required:
+        if is_missing(raw):
+            findings.append(finding(spec, row, code, f"{code} for failed large row"))
+    return findings
+
+
+def classify(spec: RootSpec, rows: list[dict[str, str]]) -> list[Finding]:
+    findings: list[Finding] = []
+    for row in rows:
+        findings.extend(observation_findings(spec, row))
+        if spec.family in {"focused", "focused-fixture"}:
+            findings.extend(focused_findings(spec, row))
+        if spec.family == "large":
+            findings.extend(generic_source_fallback_findings(spec, row))
+            findings.extend(large_ownership_findings(spec, row))
+    return findings
+
+
+def focused_summary_findings(spec: RootSpec, rows: list[dict[str, str]]) -> list[Finding]:
+    findings: list[Finding] = []
+    if spec.family not in {"focused", "focused-fixture"}:
+        return findings
+    for row in rows:
+        findings.extend(focused_findings(spec, row))
+    return findings
+
+
+def root_summary_path(
+    spec: RootSpec, *, require_recheck: bool, summary_name: str | None
+) -> tuple[list[Finding], Path | None]:
+    missing: list[Finding] = []
+    if not spec.path.exists():
+        missing.append(
+            Finding(spec.family, spec.path, "<root>", "?", "missing_root", "root missing")
+        )
+        return missing, None
+    normal = spec.path / "summary.tsv"
+    recheck = spec.path / "recheck_summary.tsv"
+    if not normal.exists():
+        missing.append(
+            Finding(
+                spec.family,
+                spec.path,
+                "<root>",
+                "?",
+                "missing_summary",
+                "summary.tsv missing",
+            )
+        )
+    if require_recheck and not recheck.exists():
+        missing.append(
+            Finding(
+                spec.family,
+                spec.path,
+                "<root>",
+                "?",
+                "missing_recheck_summary",
+                "recheck_summary.tsv missing",
+            )
+        )
+    selected_name = summary_name or ("recheck_summary.tsv" if require_recheck else "summary.tsv")
+    selected = spec.path / selected_name
+    if not selected.exists():
+        selected = None
+    return missing, selected
+
+
+def render(findings: list[Finding]) -> str:
+    lines = ["# Eval Sign-off", ""]
+    if not findings:
+        lines.append("status: pass")
+        return "\n".join(lines) + "\n"
+    lines.append("status: fail")
+    lines.append("")
+    lines.append("| family | case | run | code | detail |")
+    lines.append("| --- | --- | --- | --- | --- |")
+    for item in findings:
+        lines.append(
+            "| "
+            + " | ".join(
+                [
+                    escape(item.family),
+                    escape(item.case_id),
+                    escape(item.run),
+                    escape(item.code),
+                    escape(item.detail),
+                ]
+            )
+            + " |"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def escape(value: str) -> str:
+    return value.replace("|", "\\|").replace("\n", " ")
+
+
+def main() -> int:
+    args = parse_args()
+    if not args.root:
+        raise SystemExit("at least one --root FAMILY=PATH is required")
+    specs = [parse_root(item) for item in args.root]
+    all_findings: list[Finding] = []
+    for spec in specs:
+        root_findings, summary_path = root_summary_path(
+            spec,
+            require_recheck=args.require_recheck,
+            summary_name=args.summary_name,
+        )
+        all_findings.extend(root_findings)
+        if summary_path is None:
+            continue
+        if args.require_recheck and spec.family in {"focused", "focused-fixture"}:
+            normal_summary = spec.path / "summary.tsv"
+            if normal_summary.exists():
+                all_findings.extend(
+                    focused_summary_findings(spec, read_rows(normal_summary))
+                )
+        all_findings.extend(classify(spec, read_rows(summary_path)))
+    sys.stdout.write(render(all_findings))
+    return 1 if all_findings else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

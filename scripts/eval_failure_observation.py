@@ -404,6 +404,7 @@ def diagnostic_code_from_reason(reason: str, terminal_state: str) -> str:
         "missing:",
         "setup:",
         "dependency_setup:",
+        "provider_transport:",
     ]:
         if reason.startswith(prefix):
             value = reason[len(prefix) :].split(",", 1)[0]

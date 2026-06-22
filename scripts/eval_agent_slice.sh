@@ -115,6 +115,10 @@ def runtime_failure_reason(evidence):
         return "tool_args_missing_required_field:" + tool_missing_match.group(1)
     if "tool_args_invalid_json" in evidence or "arguments are not valid JSON" in evidence:
         return "tool_args_invalid_json"
+    if "plan lint failed" in evidence:
+        if "invalid expected path" in evidence:
+            return "plan_lint.invalid_expected_path"
+        return "plan_lint.failed"
     if "dependency_missing" in evidence:
         return "dependency_missing"
     return None
@@ -435,6 +439,19 @@ def derived_recovery_fields(reason, case):
                 repair_action="connect_existing_artifact_to_entrypoint",
                 tool_policy="file_mutation_repair",
             )
+        elif "dependency" in reason or "version_conflict" in reason or "manifest" in reason:
+            fields.update(
+                active_job="manifest_repair",
+                recovery_owner="manifest",
+                loop_control_action="run_bounded_repair_task",
+                dispatch_status="selected",
+                target_path="package.json",
+                target_role="setup_manifest",
+                selected_target="package.json",
+                selected_target_role="setup_manifest",
+                repair_action="add_missing_manifest_dependency",
+                tool_policy="setup_config_mutation_only",
+            )
         else:
             fields.update(
                 active_job="source_implementation_repair",
@@ -664,6 +681,7 @@ def run_case(repo, root, binary, case, run_index, args):
         "--yes",
         prompt,
     ]
+    timed_out = False
     if args.dry_run:
         rc = 0
         stdout = f"dry-run: {case['id']}\n"
@@ -676,17 +694,26 @@ def run_case(repo, root, binary, case, run_index, args):
         stdout = case.get("fixture_stdout") or f"fixture: {case['id']}\n"
         stderr = case.get("fixture_stderr") or ""
     else:
-        process = subprocess.run(
-            command,
-            cwd=workdir,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=args.timeout_secs,
-        )
-        rc = process.returncode
-        stdout = process.stdout
-        stderr = process.stderr
+        try:
+            process = subprocess.run(
+                command,
+                cwd=workdir,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=args.timeout_secs,
+            )
+            rc = process.returncode
+            stdout = process.stdout
+            stderr = process.stderr
+        except subprocess.TimeoutExpired as exc:
+            timed_out = True
+            rc = 124
+            stdout = exc.stdout or ""
+            stderr = exc.stderr or ""
+            stderr += (
+                f"\nERROR: eval command timed out after {args.timeout_secs}s\n"
+            )
     elapsed_ms = int((time.time() - started) * 1000)
     stdout_path.write_text(stdout, encoding="utf-8")
     stderr_path.write_text(stderr, encoding="utf-8")
@@ -707,6 +734,8 @@ def run_case(repo, root, binary, case, run_index, args):
         reason = case.get("fixture_reason") or fixture_fields.get("reason")
         if not reason:
             reason = "ok" if success else f"rc:{rc}"
+    elif timed_out:
+        reason = "provider_transport:eval_timeout"
     else:
         reason = success_reason(
             workdir, rc, missing, semantic_missing, semantic_mismatches, stdout, stderr

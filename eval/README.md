@@ -103,6 +103,16 @@ Reports render `expected_assertion_status`,
 focused assertions as `skipped_dry_run` because no runtime evidence has been
 produced.
 
+Focused cases may also set:
+
+- `matrix_row`: stable name for the control path under evaluation
+- `proof_mode`: one of `real_llm`, `deterministic_fixture`, or
+  `report_fixture`
+
+Fixture proof modes are eval-only. They can prove deterministic
+classification and report projection, but they must not be counted as broad
+model-quality or runtime task-completion proof.
+
 Focused case directories are read recursively, so a case set can group files by
 contract layer, for example:
 
@@ -118,3 +128,20 @@ eval/cases/focused/control-recovery/
   data/
   recovery-policy/
 ```
+
+## Broad Sign-off
+
+Broad migration sign-off should run smoke, focused, focused fixture, and large
+case roots with normal and `--recheck` reports. Use:
+
+```bash
+python3 scripts/eval_signoff.py --require-recheck \
+  --root smoke=<smoke-root> \
+  --root focused=<focused-root> \
+  --root focused-fixture=<fixture-root> \
+  --root large=<large-root>
+```
+
+The sign-off script is report-only. It reads existing summary artifacts and
+flags unowned failures, raw diagnostics, failed focused assertions, and large
+failures that are missing owner/action/target/evidence fields.

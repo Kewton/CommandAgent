@@ -35,6 +35,7 @@ class EvalReportCategorizeTests(unittest.TestCase):
     def test_layer_categories(self):
         cases = {
             "plan_lint.profile_obligations:missing literal": "planning",
+            "plan_lint.invalid_expected_path": "planning",
             "Gemini JSON parse failed: tool call is missing a tool name": "provider_transport",
             "tool_args_missing_required_field": "tool_protocol",
             "read_only_step_mutation": "step_policy",
@@ -70,6 +71,7 @@ class EvalReportCategorizeTests(unittest.TestCase):
         cases = {
             "ok": "ok",
             "invalid plan YAML: unsupported block scalar style for instruction: >-": "plan_parse_failed",
+            "plan_lint.invalid_expected_path": "plan_lint_failed",
             "plan_lint.profile_obligations:missing literal": "plan_lint_failed",
             "Gemini JSON parse failed: tool call is missing a tool name": "provider_parse_failed",
             "tool_args_missing_required_field:path": "tool_protocol_failed",
@@ -114,6 +116,41 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertEqual(observation["terminal_state"], "provider_transport_failed")
         self.assertEqual(observation["failure_category"], "provider_transport")
         self.assertEqual(observation["contract_layer"], "execution_contract")
+
+    def test_eval_timeout_is_provider_transport_evidence(self):
+        observation = eval_failure_observation.normalize_observation(
+            {
+                "reason": "provider_transport:eval_timeout",
+                "success": False,
+                "stderr": "ERROR: eval command timed out after 1200s",
+            }
+        )
+
+        self.assertEqual(observation["terminal_state"], "provider_transport_failed")
+        self.assertEqual(observation["failure_category"], "provider_transport")
+        self.assertEqual(observation["diagnostic_code"], "provider_transport:eval_timeout")
+
+    def test_plan_lint_invalid_expected_path_has_specific_diagnostic(self):
+        observation = eval_failure_observation.normalize_observation(
+            {
+                "reason": "plan_lint.invalid_expected_path",
+                "success": False,
+            }
+        )
+
+        self.assertEqual(observation["terminal_state"], "plan_lint_failed")
+        self.assertEqual(observation["failure_category"], "planning")
+        self.assertEqual(observation["diagnostic_code"], "plan_lint:invalid_expected_path")
+
+    def test_profile_dependency_conflict_maps_to_manifest_repair(self):
+        reason = "profile_verification:nextjs_dependency_version_conflict"
+
+        self.assertEqual(eval_report.derive_active_job(reason), "manifest_repair")
+        self.assertEqual(eval_report.derive_recovery_owner(reason), "manifest")
+        self.assertEqual(
+            eval_report.derive_repair_action(reason),
+            "add_missing_manifest_dependency",
+        )
 
     def test_completion_authority_fields_classify_missing_evidence(self):
         observation = eval_failure_observation.normalize_observation(

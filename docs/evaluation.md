@@ -16,6 +16,10 @@ checks for required paths and required file content signals in addition to the
 process return code and expected artifacts. For `success_check.type:
 semantic`, `must_include` content signals are case-insensitive; use a future
 literal check type when exact casing is the contract being evaluated.
+When a child CommandAgent process exceeds `--timeout-secs`, the runner records
+the row as `provider_transport:eval_timeout` with `rc=124`, writes bounded
+stdout/stderr, and continues the remaining cases. Timeout recording is eval
+evidence only; it does not retry the case or change runtime policy.
 
 `scripts/eval_report.py <root>` summarizes `summary.tsv` by headline success,
 failure category, and case. Report categories are layer-oriented:
@@ -271,6 +275,58 @@ reviewers can see how many rows were proved by real LLM execution versus
 deterministic fixtures. Use `scripts/eval_agent_slice.sh --proof-mode
 deterministic_fixture` to run only deterministic fixture rows when validating
 report assertions without invoking a local model.
+
+## Broad Migration Sign-off
+
+Broad migration sign-off checks that local LLM runs stop with owned,
+actionable evidence across smoke, focused, and large case sets. It is not a
+hidden runtime controller and it is not a rerun-until-green policy.
+
+Required roots for broad sign-off should include:
+
+- smoke local LLM
+- focused control-recovery local LLM
+- focused deterministic fixtures
+- large local LLM
+
+Each root should have both the original `summary.tsv` and a rechecked
+`recheck_summary.tsv`:
+
+```bash
+python3 scripts/eval_report.py <root> --cases-dir <cases-dir>
+python3 scripts/eval_report.py <root> --cases-dir <cases-dir> --recheck
+```
+
+Use `scripts/eval_signoff.py` to apply the shared gate to existing summaries:
+
+```bash
+python3 scripts/eval_signoff.py --require-recheck \
+  --root smoke=<smoke-root> \
+  --root focused=<focused-root> \
+  --root focused-fixture=<fixture-root> \
+  --root large=<large-root>
+```
+
+The sign-off checker reads only `summary.tsv` / `recheck_summary.tsv`. It does
+not run CommandAgent, execute setup, mutate workspaces, rerun verifiers, or
+change runtime behavior.
+
+The checker fails on:
+
+- unknown terminal states
+- `unknown_contract` without an explicit stop reason
+- raw `rc:*` failures without a useful diagnostic code
+- failed focused expected assertions
+- large-case generic source fallback when setup, profile, planning,
+  tool-protocol, step-policy, provider, evidence, or completion ownership is
+  more accurate
+- large-case failures missing active job, owner, repair action, target when
+  applicable, evidence binding, completion evidence, or attempt outcome
+
+Remaining failures can be accepted for migration sign-off only when they are
+owned, actionable, and explicitly recorded as model-quality, environment, or
+provider/tooling limitations. A broad pass rate by itself is not the sign-off
+criterion.
 
 Focused case directories are discovered recursively so a case set can be
 organized by contract layer without changing runner invocation. Use this for

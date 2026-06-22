@@ -8,6 +8,16 @@ CommandAgent is still in MVP migration.
   Fixture rows are eval-only evidence contracts, not proof of model task quality
   or runtime implementation success. Dry-run execution still intentionally skips
   expected assertions because no model/runtime evidence is produced.
+- Broad migration sign-off now has an eval-only checker that reads normal and
+  recheck summaries for smoke, focused, fixture, and large roots. The checker
+  flags unknown/raw failures, focused assertion failures, generic source
+  fallback, and missing large-case owner/action/target/evidence fields. It does
+  not run CommandAgent, change runtime policy, retry cases, or prove visual/UI
+  quality.
+- Eval timeouts are now recorded as `provider_transport:eval_timeout` rows so
+  broad runs can leave a root and report instead of crashing the harness. A
+  timeout row is a blocker/evidence boundary, not a successful local LLM
+  migration sign-off.
 - REPL slash-command execution is wired for plan and ultra-plan commands.
   Simple docs, Python, Rust, Next.js file-set, planner/executor split, and
   repair fallback live UAT passes with local Ollama models, but complex

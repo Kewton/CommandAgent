@@ -444,6 +444,10 @@ def derive_active_job(reason):
         return "tool_protocol_correction"
     if category == "profile" and ("route" in reason or "integration" in reason):
         return "route_integration_repair"
+    if category == "profile" and (
+        "dependency" in reason or "version_conflict" in reason or "manifest" in reason
+    ):
+        return "manifest_repair"
     if category == "planning" and first_reason_target(reason):
         role = artifact_role_for_path(first_reason_target(reason))
         if role == "test":
