@@ -242,15 +242,22 @@ Each verifier failure records:
 - `diagnostic_code`: deterministic verifier diagnosis such as
   `rust_compile_error`, `python_import_missing`, `typescript_type_error`,
   `port_in_use`, or `weak_source_grep`
+- `diagnostic_failure_kind`: the semantic kind derived from the diagnostic,
+  such as `assertion_mismatch`, `compile_or_type_error`,
+  `dependency_missing`, or `verifier_contract_failure`
 - `observed_expected`: bounded observed/expected pairs when the verifier output
   exposes them
 - `affected_cases`: test case or command names affected by the failure
+- `candidate_artifacts`: deterministic artifact candidates mentioned by the
+  verifier, profile, setup, or contract evidence
 - `preferred_repair_role`: implementation, setup, route integration,
   verifier contract, dev server, or another role derived from the diagnostic
 - `weak_verifier_reason`: why a verifier command should repair the verifier
   contract instead of source code
 - `admitted_cluster_targets`: targets admitted for the selected semantic
   failure cluster
+- `unknown_diagnostic_count`: count of verifier failures still classified only
+  as `unknown_verifier_failure`
 
 `dependency_missing` means the verifier could not run honestly because required
 local dependencies are absent. For example, `npm run build` with a Next.js build

@@ -149,7 +149,7 @@ evidence binding from being collapsed into one generic failure.
 Verifier Diagnostic Payload is the attribution boundary for failed verifier
 commands. It classifies already-observed command output into bounded,
 deterministic fields such as `diagnostic_code`, `failure_signature`,
-`observed_expected`, `affected_cases`, `candidate_artifacts`,
+`diagnostic_failure_kind`, `observed_expected`, `affected_cases`, `candidate_artifacts`,
 `source_of_truth`, `preferred_repair_role`, `weak_verifier_reason`, and
 `admitted_cluster_targets`. It does not run commands, choose a model strategy,
 or decide retries. Recovery Orchestration may consume those fields to avoid
@@ -316,6 +316,12 @@ target-admission data may also carry
 `selected_failure_cluster`, `repair_brief_status`, and
 `action_envelope_status`. Phase 7 target-admission fields add
 `target_source_of_truth`, `target_ownership_source`, `target_workspace_scope`,
+`target_evidence_freshness`, `focused_edit_status`, and related priority
+fields. Phase 8 semantic diagnostic fields add `diagnostic_failure_kind`,
+`semantic_cluster_source_of_truth`, `observed_expected`, `affected_cases`,
+`candidate_artifacts`, and `unknown_diagnostic_count` so eval can distinguish
+raw verifier failure, verifier-contract failure, setup/dev-server failure, and
+implementation failure without reparsing logs.
 `target_evidence_freshness`, `focused_edit_status`,
 `current_excerpt_available`, `target_priority_components`, and
 `target_conflict_reason`. These fields are reporting and repair-contract data.

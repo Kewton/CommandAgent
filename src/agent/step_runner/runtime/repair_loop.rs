@@ -1407,6 +1407,16 @@ fn verifier_repair_kind(
     }
     if binding.selection == VerifierSelection::DependencySetupRequired {
         "verifier_owned_setup_recovery"
+    } else if diagnostic.preferred_repair_role == "verifier_contract" {
+        "verifier_contract_correction"
+    } else if diagnostic.preferred_repair_role == "setup" {
+        "verifier_owned_setup_recovery"
+    } else if diagnostic.preferred_repair_role == "route_integration" {
+        "route_integration_repair"
+    } else if diagnostic.preferred_repair_role == "dev_server" {
+        "dev_server_smoke"
+    } else if diagnostic.preferred_repair_role == "test" {
+        "test_alignment_repair"
     } else if matches!(
         binding.selection,
         VerifierSelection::BlockedByPolicy
@@ -1440,8 +1450,20 @@ fn verifier_active_job(
     {
         return "verifier_contract_correction";
     }
-    if binding.selection == VerifierSelection::DependencySetupRequired {
+    if binding.selection == VerifierSelection::DependencySetupRequired
+        || diagnostic.preferred_repair_role == "setup"
+    {
         "setup_bootstrap"
+    } else if diagnostic.preferred_repair_role == "verifier_contract" {
+        "verifier_contract_correction"
+    } else if diagnostic.preferred_repair_role == "route_integration" {
+        "route_integration_repair"
+    } else if diagnostic.preferred_repair_role == "dev_server" {
+        "dev_server_smoke"
+    } else if diagnostic.preferred_repair_role == "implementation" {
+        "source_implementation_repair"
+    } else if diagnostic.preferred_repair_role == "test" {
+        "test_alignment_repair"
     } else if matches!(
         binding.selection,
         VerifierSelection::BlockedByPolicy
@@ -1488,8 +1510,20 @@ fn verifier_repair_action(
     {
         return "replace_invalid_verifier_command";
     }
-    if binding.selection == VerifierSelection::DependencySetupRequired {
+    if binding.selection == VerifierSelection::DependencySetupRequired
+        || diagnostic.preferred_repair_role == "setup"
+    {
         "stop_with_setup_blocker"
+    } else if diagnostic.preferred_repair_role == "verifier_contract" {
+        "replace_invalid_verifier_command"
+    } else if diagnostic.preferred_repair_role == "route_integration" {
+        "connect_existing_artifact_to_entrypoint"
+    } else if diagnostic.preferred_repair_role == "dev_server" {
+        "run_dev_server_smoke"
+    } else if diagnostic.preferred_repair_role == "implementation" {
+        "repair_source_error"
+    } else if diagnostic.preferred_repair_role == "test" {
+        "align_test_and_verifier"
     } else if matches!(
         binding.selection,
         VerifierSelection::BlockedByPolicy

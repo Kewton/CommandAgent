@@ -200,11 +200,41 @@ impl VerifierDiagnosticPayload {
     pub(crate) fn eval_report_fields(&self) -> Vec<String> {
         let mut fields = vec![
             format!("diagnostic_code={}", self.diagnostic_code.as_str()),
+            format!("diagnostic_failure_kind={}", compact(&self.failure_kind)),
+            format!("source_of_truth={}", compact(&self.source_of_truth)),
+            format!("failure_signature={}", compact(&self.failure_signature)),
+            format!("command={}", compact(&self.command)),
             format!(
                 "preferred_repair_role={}",
                 compact(&self.preferred_repair_role)
             ),
+            format!(
+                "unknown_diagnostic_count={}",
+                if self.diagnostic_code == VerifierDiagnosticCode::UnknownVerifierFailure {
+                    1
+                } else {
+                    0
+                }
+            ),
         ];
+        if !self.observed_expected_pairs.is_empty() {
+            fields.push(format!(
+                "observed_expected={}",
+                report_list(&self.observed_expected_pairs)
+            ));
+        }
+        if !self.affected_cases.is_empty() {
+            fields.push(format!(
+                "affected_cases={}",
+                report_list(&self.affected_cases)
+            ));
+        }
+        if !self.candidate_artifacts.is_empty() {
+            fields.push(format!(
+                "candidate_artifacts={}",
+                report_list(&self.candidate_artifacts)
+            ));
+        }
         if let Some(reason) = &self.weak_verifier_reason {
             fields.push(format!("weak_verifier_reason={}", compact(reason)));
         }
@@ -238,6 +268,12 @@ fn classify_diagnostic(failure: &VerificationFailure, text: &str) -> VerifierDia
     }
     if lower.contains("command not found") || lower.contains("not found:") {
         return VerifierDiagnosticCode::CommandNotFound;
+    }
+    if lower.contains("cannot find module")
+        || lower.contains("module not found: can't resolve")
+        || lower.contains("module not found: cannot resolve")
+    {
+        return VerifierDiagnosticCode::DependencyMissing;
     }
     if lower.contains("modulenotfounderror") || lower.contains("no module named") {
         return VerifierDiagnosticCode::PythonImportMissing;
@@ -526,6 +562,14 @@ fn compact(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+fn report_list(values: &[String]) -> String {
+    values
+        .iter()
+        .map(|value| compact(value).replace(' ', "_"))
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -622,5 +666,45 @@ mod tests {
         );
         assert_eq!(payload.confidence, "unknown_bounded");
         assert!(!payload.failure_signature.is_empty());
+    }
+
+    #[test]
+    fn eval_fields_include_semantic_diagnostic_payload() {
+        let payload = VerifierDiagnosticPayload::from_failure(
+            &failure(
+                "cargo test",
+                "command_failed:101",
+                "thread 'tests::it_works' panicked at src/lib.rs:4:5: assertion `left == right` failed left: 1 right: 2",
+            ),
+            &["src/lib.rs".to_string()],
+            Some("src/lib.rs"),
+        );
+        let fields = payload.eval_report_fields().join("\n");
+
+        assert!(fields.contains("diagnostic_code=rust_test_assertion_mismatch"));
+        assert!(fields.contains("diagnostic_failure_kind=assertion_mismatch"));
+        assert!(fields.contains("source_of_truth=original_verifier_diagnostic"));
+        assert!(fields.contains("preferred_repair_role=implementation"));
+        assert!(fields.contains("candidate_artifacts=src/lib.rs"));
+        assert!(fields.contains("unknown_diagnostic_count=0"));
+    }
+
+    #[test]
+    fn classifies_common_command_not_found_output() {
+        let payload = VerifierDiagnosticPayload::from_failure(
+            &failure(
+                "missing-tool --version",
+                "command_failed:127",
+                "zsh: command not found: missing-tool",
+            ),
+            &[],
+            None,
+        );
+
+        assert_eq!(
+            payload.diagnostic_code,
+            VerifierDiagnosticCode::CommandNotFound
+        );
+        assert_eq!(payload.preferred_repair_role, "verifier_contract");
     }
 }

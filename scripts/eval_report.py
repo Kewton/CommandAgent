@@ -98,9 +98,15 @@ def write_summary(path, rows):
         "target_conflict_reason",
         "selected_failure_cluster",
         "semantic_failure_kind",
+        "diagnostic_failure_kind",
+        "semantic_cluster_source_of_truth",
         "preferred_repair_role",
+        "observed_expected",
+        "affected_cases",
+        "candidate_artifacts",
         "weak_verifier_reason",
         "admitted_cluster_targets",
+        "unknown_diagnostic_count",
         "task_contract_kind",
         "task_contract_status",
         "behavior_obligation_codes",
@@ -215,9 +221,15 @@ def recheck(root, cases):
                 "target_conflict_reason": meta.get("target_conflict_reason", ""),
                 "selected_failure_cluster": meta.get("selected_failure_cluster", ""),
                 "semantic_failure_kind": meta.get("semantic_failure_kind", ""),
+                "diagnostic_failure_kind": meta.get("diagnostic_failure_kind", ""),
+                "semantic_cluster_source_of_truth": meta.get("semantic_cluster_source_of_truth", ""),
                 "preferred_repair_role": meta.get("preferred_repair_role", ""),
+                "observed_expected": meta.get("observed_expected", ""),
+                "affected_cases": meta.get("affected_cases", ""),
+                "candidate_artifacts": meta.get("candidate_artifacts", ""),
                 "weak_verifier_reason": meta.get("weak_verifier_reason", ""),
                 "admitted_cluster_targets": meta.get("admitted_cluster_targets", ""),
+                "unknown_diagnostic_count": meta.get("unknown_diagnostic_count", ""),
                 "task_contract_kind": meta.get("task_contract_kind", ""),
                 "task_contract_status": meta.get("task_contract_status", ""),
                 "behavior_obligation_codes": meta.get("behavior_obligation_codes", ""),
@@ -497,9 +509,15 @@ def render_report(rows):
     action_envelope_statuses = {}
     selected_failure_clusters = {}
     semantic_failure_kinds = {}
+    diagnostic_failure_kinds = {}
+    semantic_cluster_sources = {}
     preferred_repair_roles = {}
+    observed_expected_pairs = {}
+    affected_cases = {}
+    candidate_artifacts = {}
     weak_verifier_reasons = {}
     admitted_cluster_targets = {}
+    unknown_diagnostic_total = 0
     task_contract_kinds = {}
     task_contract_statuses = {}
     behavior_obligation_statuses = {}
@@ -582,9 +600,15 @@ def render_report(rows):
         action_envelope_status = row.get("action_envelope_status", "")
         selected_failure_cluster = row.get("selected_failure_cluster", "")
         semantic_failure_kind = row.get("semantic_failure_kind", "")
+        diagnostic_failure_kind = row.get("diagnostic_failure_kind", "")
+        semantic_cluster_source = row.get("semantic_cluster_source_of_truth", "")
         preferred_repair_role = row.get("preferred_repair_role", "")
+        observed_expected = row.get("observed_expected", "")
+        affected_case = row.get("affected_cases", "")
+        candidate_artifact = row.get("candidate_artifacts", "")
         weak_verifier_reason = row.get("weak_verifier_reason", "")
         admitted_targets = row.get("admitted_cluster_targets", "")
+        unknown_diagnostic_count = row.get("unknown_diagnostic_count", "")
         task_contract_kind = row.get("task_contract_kind", "")
         task_contract_status = row.get("task_contract_status", "")
         behavior_obligation_status = row.get("behavior_obligation_status", "")
@@ -625,9 +649,27 @@ def render_report(rows):
             semantic_failure_kinds[semantic_failure_kind] = (
                 semantic_failure_kinds.get(semantic_failure_kind, 0) + 1
             )
+        if diagnostic_failure_kind:
+            diagnostic_failure_kinds[diagnostic_failure_kind] = (
+                diagnostic_failure_kinds.get(diagnostic_failure_kind, 0) + 1
+            )
+        if semantic_cluster_source:
+            semantic_cluster_sources[semantic_cluster_source] = (
+                semantic_cluster_sources.get(semantic_cluster_source, 0) + 1
+            )
         if preferred_repair_role:
             preferred_repair_roles[preferred_repair_role] = (
                 preferred_repair_roles.get(preferred_repair_role, 0) + 1
+            )
+        if observed_expected:
+            observed_expected_pairs[observed_expected] = (
+                observed_expected_pairs.get(observed_expected, 0) + 1
+            )
+        if affected_case:
+            affected_cases[affected_case] = affected_cases.get(affected_case, 0) + 1
+        if candidate_artifact:
+            candidate_artifacts[candidate_artifact] = (
+                candidate_artifacts.get(candidate_artifact, 0) + 1
             )
         if weak_verifier_reason:
             weak_verifier_reasons[weak_verifier_reason] = (
@@ -637,6 +679,11 @@ def render_report(rows):
             admitted_cluster_targets[admitted_targets] = (
                 admitted_cluster_targets.get(admitted_targets, 0) + 1
             )
+        if unknown_diagnostic_count:
+            try:
+                unknown_diagnostic_total += int(unknown_diagnostic_count)
+            except ValueError:
+                pass
         if task_contract_kind:
             task_contract_kinds[task_contract_kind] = (
                 task_contract_kinds.get(task_contract_kind, 0) + 1
@@ -805,8 +852,23 @@ def render_report(rows):
     lines.extend(["", "## Semantic Failure Kinds"])
     for name, count in sorted(semantic_failure_kinds.items()):
         lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Diagnostic Failure Kinds"])
+    for name, count in sorted(diagnostic_failure_kinds.items()):
+        lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Semantic Cluster Sources"])
+    for name, count in sorted(semantic_cluster_sources.items()):
+        lines.append(f"- {name}: {count}")
     lines.extend(["", "## Preferred Repair Roles"])
     for name, count in sorted(preferred_repair_roles.items()):
+        lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Observed/Expected Pairs"])
+    for name, count in sorted(observed_expected_pairs.items()):
+        lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Affected Cases"])
+    for name, count in sorted(affected_cases.items()):
+        lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Candidate Artifacts"])
+    for name, count in sorted(candidate_artifacts.items()):
         lines.append(f"- {name}: {count}")
     lines.extend(["", "## Weak Verifier Reasons"])
     for name, count in sorted(weak_verifier_reasons.items()):
@@ -814,6 +876,8 @@ def render_report(rows):
     lines.extend(["", "## Admitted Cluster Targets"])
     for name, count in sorted(admitted_cluster_targets.items()):
         lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Unknown Diagnostic Count"])
+    lines.append(f"- total: {unknown_diagnostic_total}")
     lines.extend(["", "## Task Contract"])
     for name, count in sorted(task_contract_kinds.items()):
         lines.append(f"- kind={name}: {count}")

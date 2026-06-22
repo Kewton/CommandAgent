@@ -616,6 +616,43 @@ fn semantic_eval_report_fields(
     if let Some(code) = &evidence.diagnostic_code {
         fields.push(format!("diagnostic_code={code}"));
     }
+    if let Some(kind) = &evidence.failure_kind {
+        fields.push(format!("diagnostic_failure_kind={}", compact(kind)));
+    }
+    fields.push(format!(
+        "semantic_cluster_source_of_truth={}",
+        compact(&semantic_plan.selected_cluster.source_of_truth)
+    ));
+    if !semantic_plan.selected_cluster.observed_expected.is_empty() {
+        fields.push(format!(
+            "observed_expected={}",
+            semantic_plan
+                .selected_cluster
+                .observed_expected
+                .iter()
+                .map(|value| compact(value).replace(' ', "_"))
+                .collect::<Vec<_>>()
+                .join("|")
+        ));
+    }
+    if !semantic_plan.selected_cluster.affected_cases.is_empty() {
+        fields.push(format!(
+            "affected_cases={}",
+            semantic_plan
+                .selected_cluster
+                .affected_cases
+                .iter()
+                .map(|value| compact(value).replace(' ', "_"))
+                .collect::<Vec<_>>()
+                .join("|")
+        ));
+    }
+    if !semantic_plan.selected_cluster.candidate_targets.is_empty() {
+        fields.push(format!(
+            "candidate_artifacts={}",
+            semantic_plan.selected_cluster.candidate_targets.join("|")
+        ));
+    }
     if let Some(role) = &semantic_plan.selected_cluster.preferred_repair_role {
         fields.push(format!("preferred_repair_role={}", compact(role)));
     } else if let Some(role) = &evidence.preferred_repair_role {
@@ -635,6 +672,14 @@ fn semantic_eval_report_fields(
             admitted_targets.join("|")
         ));
     }
+    fields.push(format!(
+        "unknown_diagnostic_count={}",
+        if evidence.diagnostic_code.as_deref() == Some("unknown_verifier_failure") {
+            1
+        } else {
+            0
+        }
+    ));
     fields
 }
 
@@ -722,6 +767,9 @@ fn active_job_candidates(
     let has_explicit_repair_policy =
         evidence.active_job.is_some() && evidence.repair_action.is_some();
     let code = primary_code(evidence);
+    if !has_explicit_repair_policy {
+        push_preferred_role_candidate(&mut candidates, evidence, graph);
+    }
     match code.as_deref() {
         Some("dependency_missing") | Some("nextjs_dependency_missing") => push_active_candidate(
             &mut candidates,
@@ -994,6 +1042,76 @@ fn push_active_candidate(
         return;
     }
     candidates.push(candidate);
+}
+
+fn push_preferred_role_candidate(
+    candidates: &mut Vec<ActiveJobCandidate>,
+    evidence: &ContractEvidence,
+    graph: &ArtifactGraph,
+) {
+    let Some(role) = evidence.preferred_repair_role.as_deref() else {
+        return;
+    };
+    let Some((job, action, reason)) = job_for_preferred_repair_role(role) else {
+        return;
+    };
+    push_active_candidate(
+        candidates,
+        evidence,
+        graph,
+        job,
+        action,
+        dispatch_priority(job),
+        reason,
+    );
+}
+
+fn job_for_preferred_repair_role(
+    role: &str,
+) -> Option<(RecoveryJobKind, RecoveryActionKind, &'static str)> {
+    match role {
+        "setup" => Some((
+            RecoveryJobKind::SetupBootstrap,
+            RecoveryActionKind::InstallOrPrepareDependencies,
+            "preferred_repair_role_setup",
+        )),
+        "manifest" | "setup_manifest" | "setup_config" => Some((
+            RecoveryJobKind::ManifestRepair,
+            RecoveryActionKind::AddMissingManifestDependency,
+            "preferred_repair_role_manifest",
+        )),
+        "route_integration" => Some((
+            RecoveryJobKind::RouteIntegrationRepair,
+            RecoveryActionKind::ConnectExistingArtifactToEntrypoint,
+            "preferred_repair_role_route_integration",
+        )),
+        "dev_server" => Some((
+            RecoveryJobKind::DevServerSmoke,
+            RecoveryActionKind::RunDevServerSmoke,
+            "preferred_repair_role_dev_server",
+        )),
+        "verifier_contract" => Some((
+            RecoveryJobKind::VerifierContractCorrection,
+            RecoveryActionKind::ReplaceInvalidVerifierCommand,
+            "preferred_repair_role_verifier_contract",
+        )),
+        "test" => Some((
+            RecoveryJobKind::TestAlignmentRepair,
+            RecoveryActionKind::AlignTestAndVerifier,
+            "preferred_repair_role_test",
+        )),
+        "docs" | "documentation" => Some((
+            RecoveryJobKind::DocumentationRepair,
+            RecoveryActionKind::UpdateDocsLiteral,
+            "preferred_repair_role_docs",
+        )),
+        "implementation" => Some((
+            RecoveryJobKind::SourceImplementationRepair,
+            RecoveryActionKind::EditSourceForDiagnostic,
+            "preferred_repair_role_implementation",
+        )),
+        _ => None,
+    }
 }
 
 fn first_target_hint(evidence: &ContractEvidence, job: RecoveryJobKind) -> Option<String> {
@@ -2897,6 +3015,73 @@ mod tests {
                 .candidate_jobs
                 .iter()
                 .any(|candidate| candidate.contains("tool_protocol_correction"))
+        );
+    }
+
+    #[test]
+    fn preferred_repair_role_implementation_wins_over_test_named_diagnostic() {
+        let evidence = ContractEvidence::new("verifier")
+            .with_diagnostic_code("rust_test_assertion_mismatch")
+            .with_failure_kind("assertion_mismatch")
+            .with_source_of_truth("original_verifier_diagnostic")
+            .with_preferred_repair_role("implementation")
+            .with_candidate_artifacts(["src/lib.rs", "tests/integration_test.rs"])
+            .with_observed_expected_pairs(["observed=1 expected=2"]);
+
+        let enriched = orchestrate_evidence(evidence);
+
+        assert_eq!(
+            enriched.active_job.as_deref(),
+            Some("source_implementation_repair")
+        );
+        assert_eq!(
+            enriched.repair_action.as_deref(),
+            Some("edit_source_for_diagnostic")
+        );
+        assert_eq!(
+            enriched.preferred_repair_role.as_deref(),
+            Some("implementation")
+        );
+        assert!(
+            enriched
+                .eval_report_fields
+                .iter()
+                .any(|field| field == "diagnostic_failure_kind=assertion_mismatch")
+        );
+        assert!(
+            enriched
+                .eval_report_fields
+                .iter()
+                .any(|field| field == "observed_expected=observed=1_expected=2")
+        );
+    }
+
+    #[test]
+    fn preferred_repair_role_verifier_contract_routes_to_verifier_correction() {
+        let evidence = ContractEvidence::new("verifier")
+            .with_diagnostic_code("command_not_found")
+            .with_failure_kind("verifier_contract_failure")
+            .with_source_of_truth("verifier_contract")
+            .with_preferred_repair_role("verifier_contract")
+            .with_command("missing-tool --version");
+
+        let enriched = orchestrate_evidence(evidence);
+
+        assert_eq!(
+            enriched.active_job.as_deref(),
+            Some("verifier_contract_correction")
+        );
+        assert_eq!(
+            enriched.repair_action.as_deref(),
+            Some("replace_invalid_verifier_command")
+        );
+        assert_eq!(
+            enriched.loop_control_action.as_deref(),
+            Some("run_bounded_repair_task")
+        );
+        assert_eq!(
+            enriched.tool_policy_projection.as_deref(),
+            Some("read_only")
         );
     }
 }

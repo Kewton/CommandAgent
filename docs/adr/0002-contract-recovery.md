@@ -258,6 +258,16 @@ as an explicit target conflict instead of falling back to path order.
 boundary. Bounded workspace snapshots, normalized `Read` / `Write` / `Edit`
 tool targets, verifier-mentioned paths, and setup/scaffold provenance are
 reconciled into `ArtifactLedgerSummary` before repair evidence is rendered.
+
+2026-06-22 amendment: Verifier Diagnostic Payload and Semantic Failure Report
+now form the recovery-facing attribution boundary for failed verifier/profile
+checks. Diagnostic payloads may carry `diagnostic_failure_kind`,
+`source_of_truth`, observed/expected pairs, affected cases, candidate
+artifacts, preferred repair role, weak verifier reason, admitted cluster
+targets, and unknown diagnostic count. Recovery orchestration may use the
+preferred repair role to choose the active job before generic code-string
+heuristics, but it still must not run commands, increase retry budgets, weaken
+verifiers, or create provider/model-specific policy.
 The ledger may populate `workspace_scope`, `artifact_ownership`,
 `artifact_graph_summary`, and eval fields such as `read_paths`,
 `changed_paths`, `verifier_mentioned_paths`, `setup_created_paths`, and

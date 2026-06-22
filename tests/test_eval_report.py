@@ -361,9 +361,15 @@ class EvalReportCategorizeTests(unittest.TestCase):
                     "action_envelope_status": "admitted",
                     "selected_failure_cluster": "tool_protocol:tool_args_missing_required_field",
                     "semantic_failure_kind": "tool_protocol_failure",
+                    "diagnostic_failure_kind": "verifier_contract_failure",
+                    "semantic_cluster_source_of_truth": "verifier_contract",
                     "preferred_repair_role": "verifier_contract",
+                    "observed_expected": "observed=invalid_tool_call_expected=valid_tool_call",
+                    "affected_cases": "Write.path",
+                    "candidate_artifacts": "src/main.rs",
                     "weak_verifier_reason": "source_grep_verifies_text_not_behavior",
                     "admitted_cluster_targets": "src/main.rs",
+                    "unknown_diagnostic_count": "0",
                     "runtime_job_kind": "tool_protocol_correction",
                 }
             ]
@@ -381,12 +387,24 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertIn("## Selected Failure Clusters", report)
         self.assertIn("## Semantic Failure Kinds", report)
         self.assertIn("- tool_protocol_failure: 1", report)
+        self.assertIn("## Diagnostic Failure Kinds", report)
+        self.assertIn("- verifier_contract_failure: 1", report)
+        self.assertIn("## Semantic Cluster Sources", report)
+        self.assertIn("- verifier_contract: 1", report)
         self.assertIn("## Preferred Repair Roles", report)
         self.assertIn("- verifier_contract: 1", report)
+        self.assertIn("## Observed/Expected Pairs", report)
+        self.assertIn("- observed=invalid_tool_call_expected=valid_tool_call: 1", report)
+        self.assertIn("## Affected Cases", report)
+        self.assertIn("- Write.path: 1", report)
+        self.assertIn("## Candidate Artifacts", report)
+        self.assertIn("- src/main.rs: 1", report)
         self.assertIn("## Weak Verifier Reasons", report)
         self.assertIn("- source_grep_verifies_text_not_behavior: 1", report)
         self.assertIn("## Admitted Cluster Targets", report)
         self.assertIn("- src/main.rs: 1", report)
+        self.assertIn("## Unknown Diagnostic Count", report)
+        self.assertIn("- total: 0", report)
 
     def test_render_report_includes_task_contract_sections(self):
         report = eval_report.render_report(
@@ -464,6 +482,8 @@ class EvalReportCategorizeTests(unittest.TestCase):
                         "    - README.md",
                         "expected_terminal_state: ok",
                         "expected_active_job: none",
+                        "expected_diagnostic_failure_kind: assertion_mismatch",
+                        "expected_unknown_diagnostic_count: 0",
                         "",
                     ]
                 ),
@@ -475,6 +495,14 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertIn("focused-assertion", cases)
         self.assertEqual(cases["focused-assertion"]["expected_fields"]["terminal_state"], "ok")
         self.assertEqual(cases["focused-assertion"]["expected_fields"]["active_job"], "none")
+        self.assertEqual(
+            cases["focused-assertion"]["expected_fields"]["diagnostic_failure_kind"],
+            "assertion_mismatch",
+        )
+        self.assertEqual(
+            cases["focused-assertion"]["expected_fields"]["unknown_diagnostic_count"],
+            "0",
+        )
 
     def test_focused_assertion_mismatch_is_reported(self):
         report = eval_report.render_report(

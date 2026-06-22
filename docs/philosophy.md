@@ -533,6 +533,12 @@ bounded contract evidence. Phase 4 also propagates `proposed_targets`,
 `action_envelope_status`. Phase 7 target-admission evidence may also carry
 `target_source_of_truth`, `target_ownership_source`, `target_workspace_scope`,
 `target_evidence_freshness`, `focused_edit_status`,
+`current_excerpt_available`, and `target_priority_components`. Phase 8
+semantic diagnostic evidence may also carry `diagnostic_failure_kind`,
+`semantic_cluster_source_of_truth`, `observed_expected`, `affected_cases`,
+`candidate_artifacts`, and `unknown_diagnostic_count`. These fields clarify
+the next bounded repair task; they do not create retry authority or a hidden
+semantic planner.
 `current_excerpt_available`, `target_priority_components`, and
 `target_conflict_reason`. They are data for Recovery Policy Contract, Recovery
 Task Contract, verifier-owned setup recovery, or focused target admission.
