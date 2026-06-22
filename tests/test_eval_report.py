@@ -18,6 +18,12 @@ OBS_SPEC = importlib.util.spec_from_file_location(
 eval_failure_observation = importlib.util.module_from_spec(OBS_SPEC)
 OBS_SPEC.loader.exec_module(eval_failure_observation)
 
+JOB_REPORT_SPEC = importlib.util.spec_from_file_location(
+    "eval_runtime_job_report", ROOT / "scripts" / "eval_runtime_job_report.py"
+)
+eval_runtime_job_report = importlib.util.module_from_spec(JOB_REPORT_SPEC)
+JOB_REPORT_SPEC.loader.exec_module(eval_runtime_job_report)
+
 
 class EvalReportCategorizeTests(unittest.TestCase):
     def test_layer_categories(self):
@@ -309,6 +315,73 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertIn("- evidence_runner_kind=verifier: 1", report)
         self.assertIn("- evidence_binding_kind=file_layout: 1", report)
         self.assertIn("- freshness_status=stale: 1", report)
+
+    def test_runtime_job_report_distinguishes_dry_run_from_runtime_success(self):
+        report = eval_runtime_job_report.build_runtime_job_report(
+            {
+                "success": "false",
+                "reason": "missing:package.json",
+                "active_job": "manifest_repair",
+                "recovery_owner": "manifest",
+                "repair_action": "add_missing_manifest_dependency",
+                "target_path": "package.json",
+                "repair_brief_status": "admitted",
+                "action_envelope_status": "admitted",
+            },
+            dry_run=True,
+        )
+
+        self.assertEqual(report["lifecycle_stage"], "dry_run_placeholder")
+        self.assertEqual(report["completion_source"], "dry_run_placeholder_success")
+        self.assertEqual(report["active_owner"], "manifest")
+        self.assertEqual(report["target_admission_status"], "admitted")
+        self.assertEqual(report["repair_action_plan_status"], "planned")
+
+    def test_runtime_job_report_distinguishes_recheck_failure(self):
+        report = eval_runtime_job_report.build_runtime_job_report(
+            {
+                "success": "false",
+                "reason": "semantic_missing:README.md",
+                "active_job": "documentation_repair",
+                "recovery_owner": "docs",
+            },
+            recheck=True,
+        )
+
+        self.assertEqual(report["lifecycle_stage"], "rechecking")
+        self.assertEqual(report["completion_source"], "recheck_failure")
+
+    def test_render_report_includes_runtime_job_lifecycle_funnel(self):
+        report = eval_report.render_report(
+            [
+                {
+                    "case_id": "phase14",
+                    "run": "1",
+                    "rc": "0",
+                    "elapsed_ms": "10",
+                    "success": "true",
+                    "reason": "ok",
+                    "lifecycle_stage": "completed",
+                    "active_owner": "none",
+                    "selected_action": "none",
+                    "target_admission_status": "not_applicable",
+                    "repair_action_plan_status": "not_applicable",
+                    "completion_source": "runtime_success",
+                    "attempt_outcome": "passed",
+                    "verifier_rerun_result": "passed",
+                }
+            ]
+        )
+
+        self.assertIn("## Runtime Job Lifecycle", report)
+        self.assertIn("- lifecycle_stage=completed: 1", report)
+        self.assertIn("- active_owner=none: 1", report)
+        self.assertIn("- selected_action=none: 1", report)
+        self.assertIn("- target_admission_status=not_applicable: 1", report)
+        self.assertIn("- repair_action_plan_status=not_applicable: 1", report)
+        self.assertIn("- completion_source=runtime_success: 1", report)
+        self.assertIn("- attempt_outcome=passed: 1", report)
+        self.assertIn("- verifier_rerun_result=passed: 1", report)
 
     def test_render_report_includes_artifact_ledger_signal_sections(self):
         report = eval_report.render_report(

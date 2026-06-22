@@ -258,6 +258,16 @@ attempt made progress, and which original check must be rerun. These fields
 are diagnostics and policy projection; they do not change the retry budget or
 continue phases silently.
 
+Eval output also projects the same runtime facts through a runtime job report
+record. `lifecycle_stage`, `active_owner`, `selected_action`,
+`target_admission_status`, `repair_action_plan_status`, and
+`completion_source` make the stop point visible in `summary.tsv`,
+`recheck_summary.tsv`, and generated reports. These fields distinguish runtime
+success, existing success, dry-run placeholder success, evidence-only success,
+recheck success, and recheck failure. They are report projection only; they do
+not grant `/ultra-plan-run` authority to continue a failed phase or rerun a
+different recovery owner.
+
 Verifier diagnostic fields are derived from already-observed verifier output.
 They let the repair packet distinguish a Rust compile error, Python import
 failure, Next.js type error, route integration failure, dependency/setup

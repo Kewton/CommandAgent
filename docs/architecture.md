@@ -37,6 +37,13 @@ surfaces around it:
   typed evidence such as manifest kind, manifest path, validation status,
   readiness, command authority, setup result, verifier rerun result, and stale
   reason. It is a record/rendering boundary and never executes commands.
+- Runtime Job Report Boundary: projects already observed runtime, setup,
+  verification, repair, evidence, and explicit-stop facts into one lifecycle
+  report record for eval artifacts and human-readable reports. It records the
+  lifecycle stage, active owner, selected action, target admission status,
+  repair action plan status, attempt outcome, evidence runner status, verifier
+  rerun result, explicit stop reason, and completion source. It does not select
+  jobs, run verifiers, repair files, or change success criteria.
 - Execution Contract: gives the minimal loop one clear executable task, a tool
   policy, path safety, observations, and bounded completion guards.
 - Recovery Task Contract: turns a classified deterministic failure into a clear
@@ -158,6 +165,15 @@ facts, setup validation, or tool protocol failures, but they must not run
 tools, repair files, or select recovery jobs. A binding failure can select an
 `evidence_binding_repair` job, but it still remains a bounded repair task for
 the existing minimal loop.
+
+Runtime Job Report is the rendering boundary for these facts. It lets eval
+output answer where a workflow stopped without reading raw logs: planning,
+running, setup, verifying, repairing, rechecking, completed, blocked, failed,
+explicit stop, or dry-run placeholder. Completion source is separate from
+success: runtime success, existing success, dry-run placeholder success,
+evidence-only success, recheck success, and recheck failure must remain
+distinguishable. These values are report projection only and must not become
+hidden orchestration triggers.
 
 Artifact Ledger and Completion Authority are the attribution boundary for
 deliverable completion. The ledger records required, observed, changed, and

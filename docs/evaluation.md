@@ -115,6 +115,24 @@ run. For example, `EADDRINUSE` or
 failure.
 Old eval roots that do not have terminal observation fields remain readable;
 the report backfills conservative values from `reason`.
+
+Phase 14 eval output also includes a runtime job report projection. The fields
+are `lifecycle_stage`, `active_owner`, `selected_action`,
+`target_admission_status`, `repair_action_plan_status`, and
+`completion_source`, alongside existing `attempt_outcome`,
+`evidence_runner_status`, `verifier_rerun_result`, and
+`explicit_stop_reason`. These fields are derived from already observed
+runtime, setup, verifier, evidence, and recovery records. They do not run
+setup, select a repair owner, retry a verifier, or change success criteria.
+
+`lifecycle_stage` is the report funnel value. It may be `planning`, `running`,
+`setup`, `verifying`, `repairing`, `rechecking`, `completed`, `failed`,
+`blocked`, `explicit_stop`, or `dry_run_placeholder`. `completion_source`
+keeps success provenance separate from success itself. It may be
+`runtime_success`, `existing_success`, `dry_run_placeholder_success`,
+`evidence_only_success`, `recheck_success`, `recheck_failure`, `none`, or
+`unknown`. Dry-run placeholder success must never be interpreted as runtime
+implementation success.
 When runtime evidence includes verifier diagnostic fields, eval observation
 prefers those fields over a raw process-code reason such as `rc:1`. For
 example, a failed `cargo check` can remain
@@ -137,7 +155,12 @@ contract update.
 `scripts/eval_report.py <root> --recheck` rechecks existing workspaces against
 current case
 `success_check.required_paths` and `success_check.must_include`, then writes
-`recheck_summary.tsv` without overwriting the original summary.
+`recheck_summary.tsv` without overwriting the original summary. Recheck rows
+also project the runtime job report fields and set `lifecycle_stage` to
+`rechecking`. A recheck pass is reported as `completion_source=recheck_success`;
+a recheck miss is `completion_source=recheck_failure`. This shows whether the
+recheck validated existing evidence rather than implying that the original
+runtime job succeeded.
 
 The report also includes a `Contract Layers` section derived from the failure
 reason. This is a coarse layer map for triage, not a new success criterion. It
@@ -163,7 +186,9 @@ fields are `active_job`, `recovery_owner`, `loop_control_action`,
 `profile_entrypoints`, `profile_integration_artifacts`,
 `profile_completion_evidence`, `profile_failure_mapping`,
 `profile_adapter_families`, `profile_capability_status`, and
-`explicit_stop_reason`. When a runtime repair packet contains richer
+`explicit_stop_reason`. The runtime job report fields are written into the same
+artifacts so `summary.tsv`, `recheck_summary.tsv`, and generated reports share
+one lifecycle vocabulary. When a runtime repair packet contains richer
 contract evidence, the eval runner extracts those fields. When a failure is
 detected only by the eval success contract, the runner derives a conservative
 recovery classification from the deterministic reason and target path.

@@ -254,6 +254,70 @@ impl JobState {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeJobLifecycleStage {
+    Planning,
+    Running,
+    Setup,
+    Verifying,
+    Repairing,
+    Rechecking,
+    Completed,
+    Failed,
+    Blocked,
+    ExplicitStop,
+    DryRunPlaceholder,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeJobCompletionSource {
+    RuntimeSuccess,
+    ExistingSuccess,
+    DryRunPlaceholderSuccess,
+    EvidenceOnlySuccess,
+    RecheckSuccess,
+    RecheckFailure,
+    None,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeJobReport {
+    pub schema_version: String,
+    pub job_id: String,
+    pub lifecycle_stage: RuntimeJobLifecycleStage,
+    pub active_owner: String,
+    pub selected_action: String,
+    pub target_admission_status: String,
+    pub repair_action_plan_status: String,
+    pub attempt_outcome: String,
+    pub evidence_runner_status: String,
+    pub verifier_rerun_result: String,
+    pub explicit_stop_reason: String,
+    pub completion_source: RuntimeJobCompletionSource,
+}
+
+impl RuntimeJobReport {
+    pub fn new(job_id: impl Into<String>, lifecycle_stage: RuntimeJobLifecycleStage) -> Self {
+        Self {
+            schema_version: EVENT_SCHEMA_VERSION.to_string(),
+            job_id: job_id.into(),
+            lifecycle_stage,
+            active_owner: "unknown".to_string(),
+            selected_action: "unknown".to_string(),
+            target_admission_status: "unknown".to_string(),
+            repair_action_plan_status: "unknown".to_string(),
+            attempt_outcome: "unknown".to_string(),
+            evidence_runner_status: "unknown".to_string(),
+            verifier_rerun_result: "unknown".to_string(),
+            explicit_stop_reason: String::new(),
+            completion_source: RuntimeJobCompletionSource::Unknown,
+        }
+    }
+}
+
 pub fn project_job_state(events: &[VersionedEvent]) -> Option<JobState> {
     let first = events.first()?;
     let mut state = JobState::new(first.job_id.clone());
@@ -775,6 +839,22 @@ mod tests {
 
         assert_eq!(state.status, JobStatus::Completed);
         assert_eq!(state.active_step.as_deref(), Some("write-readme"));
+    }
+
+    #[test]
+    fn runtime_job_report_serializes_lifecycle_projection() {
+        let mut report = RuntimeJobReport::new("job1", RuntimeJobLifecycleStage::Rechecking);
+        report.active_owner = "setup".to_string();
+        report.selected_action = "run_verifier_owned_setup".to_string();
+        report.completion_source = RuntimeJobCompletionSource::RecheckSuccess;
+
+        let value = serde_json::to_value(&report).unwrap();
+
+        assert_eq!(value["schema_version"], EVENT_SCHEMA_VERSION);
+        assert_eq!(value["job_id"], "job1");
+        assert_eq!(value["lifecycle_stage"], "rechecking");
+        assert_eq!(value["active_owner"], "setup");
+        assert_eq!(value["completion_source"], "recheck_success");
     }
 
     #[test]

@@ -29,6 +29,10 @@ from eval_case_schema import (  # noqa: E402
     iter_case_paths,
     read_eval_case,
 )
+from eval_runtime_job_report import (  # noqa: E402
+    RUNTIME_JOB_REPORT_FIELD_NAMES,
+    build_runtime_job_report,
+)
 
 
 def parse_args():
@@ -687,6 +691,15 @@ def run_case(repo, root, binary, case, run_index, args):
         **{name: observation.get(name, "") for name in OBSERVATION_FIELD_NAMES},
         **recovery,
     }
+    runtime_job_report = build_runtime_job_report(
+        {
+            "reason": reason,
+            "success": success,
+            "dry_run": args.dry_run,
+            **observed_fields,
+        }
+    )
+    observed_fields.update(runtime_job_report)
     assertion = focused_assertions(
         case.get("expected_fields", {}),
         observed_fields,
@@ -719,6 +732,7 @@ def run_case(repo, root, binary, case, run_index, args):
         "failure_category": category,
         "contract_layer": layer,
         **{name: observation.get(name, "") for name in OBSERVATION_FIELD_NAMES},
+        **runtime_job_report,
         **recovery,
         **assertion,
     }
@@ -733,6 +747,7 @@ def run_case(repo, root, binary, case, run_index, args):
         category,
         layer,
         *(observation.get(name, "") for name in OBSERVATION_FIELD_NAMES),
+        *(runtime_job_report[name] for name in RUNTIME_JOB_REPORT_FIELD_NAMES),
         *(recovery[name] for name in RECOVERY_FIELD_NAMES),
         *(assertion[name] for name in ASSERTION_FIELD_NAMES),
     ]
@@ -757,6 +772,7 @@ def main():
             "failure_category",
             "contract_layer",
             *OBSERVATION_FIELD_NAMES,
+            *RUNTIME_JOB_REPORT_FIELD_NAMES,
             *RECOVERY_FIELD_NAMES,
             *ASSERTION_FIELD_NAMES,
         ]

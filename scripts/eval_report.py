@@ -21,6 +21,10 @@ from eval_case_schema import (  # noqa: E402
     iter_case_paths,
     read_eval_case,
 )
+from eval_runtime_job_report import (  # noqa: E402
+    RUNTIME_JOB_REPORT_FIELD_NAMES,
+    build_runtime_job_report,
+)
 
 
 def parse_args():
@@ -73,6 +77,7 @@ def write_summary(path, rows):
         "failure_category",
         "contract_layer",
         *OBSERVATION_FIELD_NAMES,
+        *RUNTIME_JOB_REPORT_FIELD_NAMES,
         "active_job",
         "recovery_owner",
         "loop_control_action",
@@ -363,6 +368,13 @@ def recheck(root, cases):
         )
         rows[-1]["failure_category"] = observation["failure_category"]
         rows[-1]["contract_layer"] = observation["contract_layer"]
+        rows[-1].update(
+            build_runtime_job_report(
+                rows[-1],
+                dry_run=bool(meta.get("dry_run")),
+                recheck=True,
+            )
+        )
         observed_fields = {
             "failure_category": rows[-1].get("failure_category", ""),
             "failure_class": rows[-1].get("failure_class", ""),
@@ -627,6 +639,15 @@ def render_report(rows):
     artifact_role_projection_statuses = {}
     completion_authority_statuses = {}
     completion_source_of_truths = {}
+    lifecycle_stages = {}
+    active_owners = {}
+    selected_actions = {}
+    target_admission_statuses = {}
+    repair_action_plan_statuses = {}
+    completion_sources = {}
+    attempt_outcomes = {}
+    verifier_rerun_results = {}
+    explicit_stop_reasons = {}
     evidence_runner_statuses = {}
     evidence_runner_kinds = {}
     evidence_binding_kinds = {}
@@ -649,6 +670,7 @@ def render_report(rows):
     focused_assertion_failures = []
     for row in rows:
         observation = normalize_observation(row)
+        runtime_job_report = build_runtime_job_report(row)
         category = row.get("failure_category") or observation["failure_category"]
         layer = row.get("contract_layer") or observation["contract_layer"]
         terminal_state = row.get("terminal_state") or observation["terminal_state"]
@@ -659,6 +681,25 @@ def render_report(rows):
         evidence_runner_status = (
             row.get("evidence_runner_status") or observation["evidence_runner_status"]
         )
+        lifecycle_stage = row.get("lifecycle_stage") or runtime_job_report["lifecycle_stage"]
+        active_owner = row.get("active_owner") or runtime_job_report["active_owner"]
+        selected_action = (
+            row.get("selected_action") or runtime_job_report["selected_action"]
+        )
+        target_admission_status = (
+            row.get("target_admission_status")
+            or runtime_job_report["target_admission_status"]
+        )
+        repair_action_plan_status = (
+            row.get("repair_action_plan_status")
+            or runtime_job_report["repair_action_plan_status"]
+        )
+        completion_source = (
+            row.get("completion_source") or runtime_job_report["completion_source"]
+        )
+        attempt_outcome = row.get("attempt_outcome", "")
+        verifier_rerun_result = row.get("verifier_rerun_result", "")
+        explicit_stop_reason = row.get("explicit_stop_reason", "")
         completion_authority_status = (
             row.get("completion_authority_status")
             or observation.get("completion_authority_status", "")
@@ -953,6 +994,36 @@ def render_report(rows):
             evidence_runner_statuses[evidence_runner_status] = (
                 evidence_runner_statuses.get(evidence_runner_status, 0) + 1
             )
+        if lifecycle_stage:
+            lifecycle_stages[lifecycle_stage] = lifecycle_stages.get(lifecycle_stage, 0) + 1
+        if active_owner:
+            active_owners[active_owner] = active_owners.get(active_owner, 0) + 1
+        if selected_action:
+            selected_actions[selected_action] = selected_actions.get(selected_action, 0) + 1
+        if target_admission_status:
+            target_admission_statuses[target_admission_status] = (
+                target_admission_statuses.get(target_admission_status, 0) + 1
+            )
+        if repair_action_plan_status:
+            repair_action_plan_statuses[repair_action_plan_status] = (
+                repair_action_plan_statuses.get(repair_action_plan_status, 0) + 1
+            )
+        if completion_source:
+            completion_sources[completion_source] = (
+                completion_sources.get(completion_source, 0) + 1
+            )
+        if attempt_outcome:
+            attempt_outcomes[attempt_outcome] = (
+                attempt_outcomes.get(attempt_outcome, 0) + 1
+            )
+        if verifier_rerun_result:
+            verifier_rerun_results[verifier_rerun_result] = (
+                verifier_rerun_results.get(verifier_rerun_result, 0) + 1
+            )
+        if explicit_stop_reason:
+            explicit_stop_reasons[explicit_stop_reason] = (
+                explicit_stop_reasons.get(explicit_stop_reason, 0) + 1
+            )
         if completion_authority_status:
             completion_authority_statuses[completion_authority_status] = (
                 completion_authority_statuses.get(completion_authority_status, 0) + 1
@@ -1043,6 +1114,28 @@ def render_report(rows):
     lines.extend(["", "## Lifecycle Funnel"])
     for name, count in sorted(terminal_states.items()):
         lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Runtime Job Lifecycle"])
+    for name, count in sorted(lifecycle_stages.items()):
+        lines.append(f"- lifecycle_stage={name}: {count}")
+    for name, count in sorted(active_owners.items()):
+        lines.append(f"- active_owner={name}: {count}")
+    for name, count in sorted(selected_actions.items()):
+        lines.append(f"- selected_action={name}: {count}")
+    for name, count in sorted(target_admission_statuses.items()):
+        lines.append(f"- target_admission_status={name}: {count}")
+    for name, count in sorted(repair_action_plan_statuses.items()):
+        lines.append(f"- repair_action_plan_status={name}: {count}")
+    for name, count in sorted(completion_sources.items()):
+        lines.append(f"- completion_source={name}: {count}")
+    for name, count in sorted(attempt_outcomes.items()):
+        lines.append(f"- attempt_outcome={name}: {count}")
+    for name, count in sorted(verifier_rerun_results.items()):
+        lines.append(f"- verifier_rerun_result={name}: {count}")
+    if explicit_stop_reasons:
+        for name, count in sorted(explicit_stop_reasons.items()):
+            lines.append(f"- explicit_stop_reason={name}: {count}")
+    else:
+        lines.append("- explicit_stop_reason=none")
     lines.extend(["", "## Diagnostic Codes"])
     for name, count in sorted(diagnostics.items()):
         lines.append(f"- {name}: {count}")

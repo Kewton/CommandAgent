@@ -150,6 +150,14 @@ CommandAgent is still in MVP migration.
   failure signature, and verifier rerun result. Rust and Python verifier
   commands can surface manifest validation blockers as setup/manifest evidence,
   but automatic Rust/Python dependency installation remains unsupported.
+- Runtime job reports now project lifecycle stage, active owner, selected
+  action, target admission, repair action plan status, completion source,
+  attempt outcome, evidence runner status, verifier rerun result, and explicit
+  stop reason into eval artifacts and reports. This makes stop-point diagnosis
+  clearer and distinguishes dry-run placeholder success, runtime success,
+  existing success, evidence-only success, and recheck results. It remains
+  observability only: it does not add hidden continuation, rerun verifiers, or
+  improve generated app quality by itself.
 - Profiles now render a common output schema for root hints, classified
   artifacts, setup/scaffold/integration artifacts, verifier commands,
   behavior obligations, verification failures, completion evidence
