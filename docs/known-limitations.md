@@ -99,11 +99,13 @@ CommandAgent is still in MVP migration.
   semantic failure report, repair job state, attempt outcomes, patch
   validation, and eval report fields. Artifact ledger and completion authority
   now distinguish missing deliverables, missing evidence, failed completion
-  evidence, and failed evidence binding in runtime/eval reports. Bounded repair
-  attempts now record before/after signatures and can exhaust target, role, or
-  failure cluster for no-progress attribution. Concrete pass-side producers,
-  persistent cross-command repair job lifecycle, verifier-proven rollback, and
-  profile-wide evidence-binding producers are still partial.
+  evidence, failed evidence binding, and stale evidence in runtime/eval
+  reports. Bounded pass-side producers now create file-layout and verifier
+  evidence from current ledger facts, but richer docs/data/report/profile-wide
+  producers are still partial. Bounded repair attempts now record before/after
+  signatures and can exhaust target, role, or failure cluster for no-progress
+  attribution. Persistent cross-command repair job lifecycle and
+  verifier-proven rollback are still partial.
 - Task Contract projection now records task kind, behavior obligations, and
   artifact role projections from required artifacts and profile obligations.
   These facts reach plan prompts, active step contract facts, plan-lint

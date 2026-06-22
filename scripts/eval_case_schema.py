@@ -29,6 +29,8 @@ EXPECTED_FIELD_NAMES = [
     "expected_runtime_job_outcome",
     "expected_setup_state",
     "expected_dev_server_state",
+    "expected_completion_authority_status",
+    "expected_freshness_status",
     "expected_evidence_binding_status",
     "expected_completion_evidence_status",
     "expected_attempt_outcome",

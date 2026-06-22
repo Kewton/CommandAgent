@@ -200,6 +200,16 @@ handoffs visible to repair packets and eval reports, but they remain data
 produced by deterministic guards and orchestration. They must not execute
 tools, broaden retry budgets, or let profiles become workflow engines.
 
+2026-06-22 amendment: Completion Evidence Authority is an authoritative
+completion boundary when deliverable evidence is required. Runtime and eval
+may distinguish `missing_deliverable`, `missing_evidence`,
+`completion_evidence_failed`, `evidence_binding_failed`, and
+`stale_evidence`. Evidence producers convert observed ledger, verifier,
+profile, setup, or tool-policy facts into completion and binding records; they
+must not run tools, repair files, choose recovery jobs, increase retries, or
+replace the original verifier. Freshness is recorded as completion evidence
+state and eval/report metadata, not as hidden continuation authority.
+
 2026-06-21 amendment: Recovery Orchestration now includes an active-job
 dispatch gate. Deterministic guards may produce multiple active-job candidates,
 but dispatch must select exactly one owner/action pair, project one loop

@@ -223,8 +223,12 @@ structured evidence. Repair prompts and packets may include
 `selected_failure_cluster`, `repair_brief_status`, `action_envelope_status`,
 `workspace_scope`, `artifact_ownership`, `artifact_graph_summary`, and bounded
 artifact-ledger eval fields such as `read_paths`, `changed_paths`,
-`verifier_mentioned_paths`, `setup_created_paths`, and `out_of_scope_paths` so
-the standalone repair plan can see why a
+`verifier_mentioned_paths`, `setup_created_paths`, and `out_of_scope_paths`.
+Completion authority fields such as `completion_authority_status`,
+`completion_source_of_truth`, `freshness_status`, `missing_evidence`,
+`failed_evidence`, `failed_bindings`, and `stale_evidence` can also be
+rendered when deliverable completion is rejected. This lets the standalone
+repair plan see why a
 target is allowed, why another action is forbidden, which owner/action was
 selected, which failure cluster is being repaired, whether a prior bounded
 attempt made progress, and which original check must be rerun. These fields

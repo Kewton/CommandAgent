@@ -9,11 +9,14 @@ use crate::agent::events::{
 };
 use crate::agent::minimal_loop::config::{ActionRequirement, StepToolPolicy};
 use crate::agent::minimal_loop::loop_run::ChatClient;
+use crate::agent::minimal_loop::result::ToolExecutionRecord;
 use crate::agent::step_runner::artifact_graph::{ArtifactGraph, ArtifactLifecycle};
 use crate::agent::step_runner::artifact_ledger::ArtifactLedgerSummary;
 use crate::agent::step_runner::evidence_authority::{
-    CompletionAuthorityResult, evaluate_completion_authority, file_layout_binding,
-    file_layout_completion_evidence,
+    CompletionAuthorityResult, evaluate_completion_authority,
+};
+use crate::agent::step_runner::evidence_producer::{
+    EvidenceProducerInput, produce_completion_evidence,
 };
 use crate::agent::step_runner::plan_lint::lint_step_plan_with_workspace;
 use crate::agent::step_runner::profiles::{
@@ -252,15 +255,20 @@ fn final_required_artifact_authority(
             ledger.record_workspace_observation(path, &graph, &scope);
         }
     }
-    let completion = required_artifacts
-        .iter()
-        .map(|path| file_layout_completion_evidence(path, cwd.join(path).exists()))
-        .collect::<Vec<_>>();
-    let bindings = required_artifacts
-        .iter()
-        .map(|path| file_layout_binding(path, cwd.join(path).exists()))
-        .collect::<Vec<_>>();
-    evaluate_completion_authority(required_artifacts, &ledger, &completion, &bindings)
+    let produced = produce_completion_evidence(&EvidenceProducerInput {
+        step_id: "final-required-artifacts",
+        profile: "final",
+        required_paths: required_artifacts,
+        verifier_commands: &[],
+        verifier_failures: &[],
+        ledger: &ledger,
+    });
+    evaluate_completion_authority(
+        required_artifacts,
+        &ledger,
+        &produced.completion_evidence,
+        &produced.evidence_bindings,
+    )
 }
 
 fn verify_phase_profile(
@@ -388,7 +396,11 @@ where
     config.action_requirement = action_requirement_for_step(step, &missing_expected_paths);
     if matches!(step.kind, StepKind::Verify) && !step.verify.is_empty() {
         let failures = verify_step_with_observer(runtime.cwd, step, observer)?;
-        if failures.is_empty() || step_accepts_verifier_failure(step) {
+        if failures.is_empty() {
+            ensure_step_completion_authority(runtime.cwd, plan, step, &[], &failures)?;
+            return Ok(());
+        }
+        if step_accepts_verifier_failure(step) {
             return Ok(());
         }
         return runtime.repair_step_with_state(
@@ -450,6 +462,9 @@ where
                 );
             }
             if failures.is_empty() || step_accepts_verifier_failure(step) {
+                if failures.is_empty() {
+                    ensure_step_completion_authority(runtime.cwd, plan, step, &[], &failures)?;
+                }
                 return Ok(());
             }
             return runtime.repair_step_after_turn_error(
@@ -466,7 +481,11 @@ where
         }
     };
     let failures = verify_step_with_observer(runtime.cwd, step, observer)?;
-    if failures.is_empty() || step_accepts_verifier_failure(step) {
+    if failures.is_empty() {
+        ensure_step_completion_authority(runtime.cwd, plan, step, &result.tool_results, &failures)?;
+        return Ok(());
+    }
+    if step_accepts_verifier_failure(step) {
         return Ok(());
     }
 
@@ -480,6 +499,72 @@ where
         result,
         failures,
         observer,
+    )
+}
+
+fn ensure_step_completion_authority(
+    cwd: &Path,
+    plan: &StepPlan,
+    step: &StepPlanStep,
+    tool_records: &[ToolExecutionRecord],
+    verifier_failures: &[VerificationFailure],
+) -> Result<(), String> {
+    let authority = step_completion_authority(cwd, plan, step, tool_records, verifier_failures);
+    if authority.success_eligible() {
+        Ok(())
+    } else {
+        Err(completion_authority_error(step, &authority))
+    }
+}
+
+fn step_completion_authority(
+    cwd: &Path,
+    plan: &StepPlan,
+    step: &StepPlanStep,
+    tool_records: &[ToolExecutionRecord],
+    verifier_failures: &[VerificationFailure],
+) -> CompletionAuthorityResult {
+    let mut graph = ArtifactGraph::new();
+    for path in &step.expected_paths {
+        let lifecycle = if cwd.join(path).exists() {
+            ArtifactLifecycle::Existing
+        } else {
+            ArtifactLifecycle::Required
+        };
+        graph.add_path(path, lifecycle, &step.id);
+    }
+    let scope = WorkspaceScope::from_graph(&graph);
+    let mut ledger = ArtifactLedgerSummary::from_tool_records(tool_records, &graph, &scope);
+    for path in &step.expected_paths {
+        if cwd.join(path).exists() {
+            ledger.record_workspace_observation(path, &graph, &scope);
+        }
+    }
+    let produced = produce_completion_evidence(&EvidenceProducerInput {
+        step_id: &step.id,
+        profile: &plan.profile,
+        required_paths: &step.expected_paths,
+        verifier_commands: &step.verify,
+        verifier_failures,
+        ledger: &ledger,
+    });
+    evaluate_completion_authority(
+        &step.expected_paths,
+        &ledger,
+        &produced.completion_evidence,
+        &produced.evidence_bindings,
+    )
+}
+
+fn completion_authority_error(
+    step: &StepPlanStep,
+    authority: &CompletionAuthorityResult,
+) -> String {
+    format!(
+        "step completion authority rejected {}: {}\nContract completion evidence:\n{}",
+        step.id,
+        authority.terminal_state(),
+        authority.render_contract_lines().join("\n")
     )
 }
 

@@ -25,6 +25,7 @@ pub(crate) enum TerminalState {
     MissingEvidence,
     EvidenceBindingFailed,
     CompletionEvidenceFailed,
+    StaleEvidence,
     EvalAssertionFailed,
     RepairExhausted,
     ExplicitStop,
@@ -51,6 +52,7 @@ impl TerminalState {
         Self::MissingEvidence,
         Self::EvidenceBindingFailed,
         Self::CompletionEvidenceFailed,
+        Self::StaleEvidence,
         Self::EvalAssertionFailed,
         Self::RepairExhausted,
         Self::ExplicitStop,
@@ -76,6 +78,7 @@ impl TerminalState {
             Self::MissingEvidence => "missing_evidence",
             Self::EvidenceBindingFailed => "evidence_binding_failed",
             Self::CompletionEvidenceFailed => "completion_evidence_failed",
+            Self::StaleEvidence => "stale_evidence",
             Self::EvalAssertionFailed => "eval_assertion_failed",
             Self::RepairExhausted => "repair_exhausted",
             Self::ExplicitStop => "explicit_stop",
@@ -104,6 +107,7 @@ impl TerminalState {
             Self::MissingEvidence
             | Self::EvidenceBindingFailed
             | Self::CompletionEvidenceFailed
+            | Self::StaleEvidence
             | Self::EvalAssertionFailed => FailureObservationClass::Quality,
             Self::ExplicitStop | Self::Unknown => FailureObservationClass::Unknown,
         }
@@ -128,6 +132,7 @@ impl TerminalState {
             Self::MissingEvidence
             | Self::EvidenceBindingFailed
             | Self::CompletionEvidenceFailed
+            | Self::StaleEvidence
             | Self::EvalAssertionFailed => ContractLayer::EvalSuccessContract,
             Self::ExplicitStop | Self::Unknown => ContractLayer::UnknownContract,
         }
@@ -151,6 +156,7 @@ impl TerminalState {
             Self::MissingEvidence => "evidence_contract",
             Self::EvidenceBindingFailed => "evidence_binding_contract",
             Self::CompletionEvidenceFailed => "completion_evidence_contract",
+            Self::StaleEvidence => "evidence_freshness_contract",
             Self::EvalAssertionFailed => "eval_success_contract",
             Self::RepairExhausted => "bounded_repair_contract",
             Self::ExplicitStop => "explicit_stop_contract",
@@ -176,6 +182,7 @@ impl TerminalState {
             | Self::MissingEvidence
             | Self::EvidenceBindingFailed
             | Self::CompletionEvidenceFailed
+            | Self::StaleEvidence
             | Self::EvalAssertionFailed => ObservationSource::EvalSuccessCheck,
             Self::RepairExhausted | Self::ExplicitStop => ObservationSource::BoundedRepair,
             Self::VerifierCommandFailed => ObservationSource::Verifier,
@@ -193,6 +200,7 @@ impl TerminalState {
             | Self::MissingEvidence
             | Self::EvidenceBindingFailed
             | Self::CompletionEvidenceFailed
+            | Self::StaleEvidence
             | Self::EvalAssertionFailed => SourceOfTruth::EvalSuccessContract,
             Self::Unknown => SourceOfTruth::Unknown,
             _ => SourceOfTruth::RuntimeEvidence,
@@ -593,6 +601,9 @@ fn terminal_state_from_contract_evidence(evidence: &ContractEvidence) -> Termina
         return TerminalState::EvidenceBindingFailed;
     }
     if guard == "completion_evidence" {
+        if combined.contains("stale") {
+            return TerminalState::StaleEvidence;
+        }
         if combined.contains("missing") {
             return TerminalState::MissingEvidence;
         }
@@ -636,9 +647,9 @@ fn producer_from_contract_evidence(
         TerminalState::MissingDeliverable | TerminalState::EvalAssertionFailed => {
             FailureProducer::EvalSuccess
         }
-        TerminalState::MissingEvidence | TerminalState::CompletionEvidenceFailed => {
-            FailureProducer::CompletionEvidence
-        }
+        TerminalState::MissingEvidence
+        | TerminalState::CompletionEvidenceFailed
+        | TerminalState::StaleEvidence => FailureProducer::CompletionEvidence,
         TerminalState::EvidenceBindingFailed => FailureProducer::EvidenceBinding,
         TerminalState::RepairExhausted | TerminalState::ExplicitStop => {
             FailureProducer::RecoveryLoop

@@ -124,6 +124,33 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertEqual(observation["evidence_runner_status"], "missing")
         self.assertEqual(observation["artifact_ledger_status"], "complete")
 
+    def test_completion_authority_fields_classify_stale_evidence(self):
+        observation = eval_failure_observation.normalize_observation(
+            {
+                "reason": "rc:1",
+                "success": False,
+                "evidence": "\n".join(
+                    [
+                        "- terminal_state=stale_evidence",
+                        "- completion_authority_status=stale_evidence",
+                        "- evidence_runner_status=executed",
+                        "- completion_evidence_status=stale",
+                        "- freshness_status=stale",
+                        "- artifact_ledger_status=complete",
+                        "- stale_evidence: kind=repo_edit target=src/lib.rs status=stale",
+                    ]
+                ),
+            }
+        )
+
+        self.assertEqual(observation["terminal_state"], "stale_evidence")
+        self.assertEqual(observation["failure_category"], "quality")
+        self.assertEqual(observation["freshness_status"], "stale")
+        self.assertEqual(
+            observation["completion_authority_status"], "stale_evidence"
+        )
+        self.assertEqual(observation["stale_evidence"], "kind=repo_edit target=src/lib.rs status=stale")
+
     def test_artifact_ledger_signal_fields_are_extracted(self):
         observation = eval_failure_observation.normalize_observation(
             {
@@ -250,6 +277,38 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertIn("## Evidence Authority", report)
         self.assertIn("## Failure Observation Summary", report)
         self.assertIn("## Producer Coverage", report)
+
+    def test_render_report_includes_completion_freshness_sections(self):
+        report = eval_report.render_report(
+            [
+                {
+                    "case_id": "stale",
+                    "run": "1",
+                    "rc": "1",
+                    "elapsed_ms": "10",
+                    "success": "false",
+                    "reason": "rc:1",
+                    "terminal_state": "stale_evidence",
+                    "completion_authority_status": "stale_evidence",
+                    "completion_source_of_truth": "completion_evidence_freshness",
+                    "evidence_runner_status": "executed",
+                    "evidence_runner_kind": "verifier",
+                    "evidence_binding_kind": "file_layout",
+                    "freshness_status": "stale",
+                    "artifact_ledger_status": "complete",
+                }
+            ]
+        )
+
+        self.assertIn("- stale_evidence: 1", report)
+        self.assertIn("- completion_authority_status=stale_evidence: 1", report)
+        self.assertIn(
+            "- completion_source_of_truth=completion_evidence_freshness: 1",
+            report,
+        )
+        self.assertIn("- evidence_runner_kind=verifier: 1", report)
+        self.assertIn("- evidence_binding_kind=file_layout: 1", report)
+        self.assertIn("- freshness_status=stale: 1", report)
 
     def test_render_report_includes_artifact_ledger_signal_sections(self):
         report = eval_report.render_report(

@@ -113,9 +113,12 @@ docs section, structured-data check, report completeness check, or command
 observation satisfied a deliverable. Evidence binding records whether a
 required deliverable is connected to an observable proof path such as a
 manifest identity, import symbol, executable handle, test script, required
-section, schema column, citation, or file layout. A binding failure can select
-an `evidence_binding_repair` job, but it still remains a bounded repair task
-for the existing minimal loop.
+section, schema column, citation, or file layout. Evidence producers may
+derive these records from artifact ledger facts, verifier results, profile
+facts, setup validation, or tool protocol failures, but they must not run
+tools, repair files, or select recovery jobs. A binding failure can select an
+`evidence_binding_repair` job, but it still remains a bounded repair task for
+the existing minimal loop.
 
 Artifact Ledger and Completion Authority are the attribution boundary for
 deliverable completion. The ledger records required, observed, changed, and
@@ -124,9 +127,11 @@ truth. It is fed by bounded workspace snapshots, normalized `Read` / `Write` /
 `Edit` tool target paths, verifier-mentioned source paths, and deterministic
 scaffold/setup provenance when such provenance is already available. Completion
 Authority then classifies already observed facts into
-`missing_deliverable`, `missing_evidence`, `completion_evidence_failed`, or
-`evidence_binding_failed`. It does not repair, retry, choose a future phase, or
-replace the verifier. It only prevents path existence, evidence execution, and
+`missing_deliverable`, `missing_evidence`, `completion_evidence_failed`,
+`evidence_binding_failed`, or `stale_evidence`. It also records the completion
+source of truth and freshness status when current-run evidence is required.
+It does not repair, retry, choose a future phase, or replace the verifier. It
+only prevents path existence, evidence execution, evidence freshness, and
 evidence binding from being collapsed into one generic failure.
 
 Verifier Diagnostic Payload is the attribution boundary for failed verifier

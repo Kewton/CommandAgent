@@ -472,7 +472,12 @@ def render_report(rows):
     task_contract_statuses = {}
     behavior_obligation_statuses = {}
     artifact_role_projection_statuses = {}
+    completion_authority_statuses = {}
+    completion_source_of_truths = {}
     evidence_runner_statuses = {}
+    evidence_runner_kinds = {}
+    evidence_binding_kinds = {}
+    freshness_statuses = {}
     artifact_ledger_statuses = {}
     workspace_scope_kinds = {}
     artifact_ownerships = {}
@@ -500,6 +505,23 @@ def render_report(rows):
         actionability = row.get("actionability") or observation.get("actionability", "")
         evidence_runner_status = (
             row.get("evidence_runner_status") or observation["evidence_runner_status"]
+        )
+        completion_authority_status = (
+            row.get("completion_authority_status")
+            or observation.get("completion_authority_status", "")
+        )
+        completion_source_of_truth = (
+            row.get("completion_source_of_truth")
+            or observation.get("completion_source_of_truth", "")
+        )
+        evidence_runner_kind = (
+            row.get("evidence_runner_kind") or observation.get("evidence_runner_kind", "")
+        )
+        evidence_binding_kind = (
+            row.get("evidence_binding_kind") or observation.get("evidence_binding_kind", "")
+        )
+        freshness_status = row.get("freshness_status") or observation.get(
+            "freshness_status", ""
         )
         artifact_ledger_status = (
             row.get("artifact_ledger_status") or observation["artifact_ledger_status"]
@@ -603,6 +625,26 @@ def render_report(rows):
             evidence_runner_statuses[evidence_runner_status] = (
                 evidence_runner_statuses.get(evidence_runner_status, 0) + 1
             )
+        if completion_authority_status:
+            completion_authority_statuses[completion_authority_status] = (
+                completion_authority_statuses.get(completion_authority_status, 0) + 1
+            )
+        if completion_source_of_truth:
+            completion_source_of_truths[completion_source_of_truth] = (
+                completion_source_of_truths.get(completion_source_of_truth, 0) + 1
+            )
+        if evidence_runner_kind:
+            evidence_runner_kinds[evidence_runner_kind] = (
+                evidence_runner_kinds.get(evidence_runner_kind, 0) + 1
+            )
+        if evidence_binding_kind:
+            evidence_binding_kinds[evidence_binding_kind] = (
+                evidence_binding_kinds.get(evidence_binding_kind, 0) + 1
+            )
+        if freshness_status:
+            freshness_statuses[freshness_status] = (
+                freshness_statuses.get(freshness_status, 0) + 1
+            )
         if artifact_ledger_status:
             artifact_ledger_statuses[artifact_ledger_status] = (
                 artifact_ledger_statuses.get(artifact_ledger_status, 0) + 1
@@ -677,8 +719,18 @@ def render_report(rows):
     for name, count in sorted(diagnostics.items()):
         lines.append(f"- {name}: {count}")
     lines.extend(["", "## Evidence Authority"])
+    for name, count in sorted(completion_authority_statuses.items()):
+        lines.append(f"- completion_authority_status={name}: {count}")
+    for name, count in sorted(completion_source_of_truths.items()):
+        lines.append(f"- completion_source_of_truth={name}: {count}")
     for name, count in sorted(evidence_runner_statuses.items()):
         lines.append(f"- evidence_runner_status={name}: {count}")
+    for name, count in sorted(evidence_runner_kinds.items()):
+        lines.append(f"- evidence_runner_kind={name}: {count}")
+    for name, count in sorted(evidence_binding_kinds.items()):
+        lines.append(f"- evidence_binding_kind={name}: {count}")
+    for name, count in sorted(freshness_statuses.items()):
+        lines.append(f"- freshness_status={name}: {count}")
     for name, count in sorted(artifact_ledger_statuses.items()):
         lines.append(f"- artifact_ledger_status={name}: {count}")
     for name, count in sorted(workspace_scope_kinds.items()):

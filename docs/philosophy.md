@@ -69,6 +69,11 @@ and stops boundedly when progress cannot be proven.
   runtime should distinguish existing artifacts, missing required artifacts,
   setup manifests, integration targets, generated outputs, and dependency
   caches before planning, profile verification, setup, or repair.
+- Treat completion evidence and evidence binding as authoritative completion
+  data when a task or profile declares that evidence is required. Path
+  existence, evidence execution, evidence freshness, and evidence binding are
+  separate facts and should not be collapsed into generic success or source
+  failure.
 - Treat plan files as public contract inputs when they can be produced by
   external planner surfaces, not as incidental runtime text.
 - Treat evaluation scripts and docs as part of the product.
@@ -85,6 +90,7 @@ Task Contract -> ArtifactGraph and Workspace Scope
        -> Recovery Task Contract or verifier-owned setup recovery
 classified failure -> Contract Boundary Propagation
   -> Failure Observation
+  -> Completion Evidence / Evidence Binding Authority when deliverables are judged
   -> Recovery Orchestration Contract
   -> Attempt Ledger and original guard/verifier rerun
   -> Execution Contract

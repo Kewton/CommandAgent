@@ -33,6 +33,7 @@ pub(crate) enum CompletionEvidenceStatus {
     Failed,
     Missing,
     Unbound,
+    Stale,
 }
 
 impl CompletionEvidenceStatus {
@@ -42,6 +43,7 @@ impl CompletionEvidenceStatus {
             Self::Failed => "failed",
             Self::Missing => "missing",
             Self::Unbound => "unbound",
+            Self::Stale => "stale",
         }
     }
 }

@@ -66,6 +66,7 @@ Current terminal states are:
 - `missing_evidence`
 - `evidence_binding_failed`
 - `completion_evidence_failed`
+- `stale_evidence`
 - `eval_assertion_failed`
 - `repair_exhausted`
 - `explicit_stop`
@@ -75,7 +76,11 @@ The observation fields are `terminal_state`, `failure_class`,
 `contract_layer`, `violated_contract`, `source`, `source_of_truth`,
 `diagnostic_code`, `failure_signature`, `producer`, `guard`,
 `actionability`, `explicit_stop_reason`, `command`,
-`evidence_runner_status`, `artifact_ledger_status`, `workspace_scope_kind`,
+`completion_authority_status`, `completion_source_of_truth`,
+`evidence_runner_status`, `evidence_runner_kind`,
+`artifact_ledger_status`, `freshness_status`, `missing_evidence`,
+`failed_evidence`, `failed_bindings`, `stale_evidence`,
+`evidence_binding_kind`, `workspace_scope_kind`,
 `workspace_scope_roots`, `artifact_ledger_entries`,
 `artifact_ledger_summary`, `artifact_ownership`,
 `artifact_ownership_reason`, `artifact_source_of_truth`,
@@ -90,10 +95,12 @@ fields may also include
 `setup_attempt_key`, `setup_manifest_fingerprint`, `setup_stale_reason`,
 `setup_result`, `setup_command`, `verifier_rerun_result`,
 `dev_server_state`, `requested_port`, `port_preflight`, and
-`endpoint_smoke`. `evidence_runner_status` records whether the completion
+`endpoint_smoke`. `completion_authority_status` records the authoritative
+completion decision. `evidence_runner_status` records whether the completion
 evidence path was present, missing, executed, or not required.
 `artifact_ledger_status` records whether the required artifact ledger was
-complete or missing a required deliverable. The ledger signal fields are
+complete or missing a required deliverable. `freshness_status` records whether
+completion evidence is fresh, stale, unknown, or not required. The ledger signal fields are
 observability fields: they report bounded artifact attribution from workspace
 snapshot, tool target records, verifier mentions, and setup/scaffold
 provenance. They must not be used by eval to mutate runtime behavior during a
@@ -139,8 +146,12 @@ fields are `active_job`, `recovery_owner`, `loop_control_action`,
 `target_path`, `target_role`, `selected_failure_cluster`,
 `semantic_failure_kind`, `preferred_repair_role`, `weak_verifier_reason`,
 `admitted_cluster_targets`, `repair_action`, `tool_policy`,
-`attempt_outcome`, `evidence_binding_status`, `completion_evidence_status`,
-and `explicit_stop_reason`. When a runtime repair packet contains richer
+`attempt_outcome`, `completion_authority_status`,
+`completion_source_of_truth`, `evidence_binding_status`,
+`evidence_binding_kind`, `completion_evidence_status`,
+`evidence_runner_kind`, `freshness_status`, `missing_evidence`,
+`failed_evidence`, `failed_bindings`, `stale_evidence`, and
+`explicit_stop_reason`. When a runtime repair packet contains richer
 contract evidence, the eval runner extracts those fields. When a failure is
 detected only by the eval success contract, the runner derives a conservative
 recovery classification from the deterministic reason and target path.
@@ -160,6 +171,8 @@ Artifact completion reports must keep four states distinct:
   failed.
 - `evidence_binding_failed`: evidence exists, but is not bound to the required
   proof path.
+- `stale_evidence`: evidence exists, but it was produced before the current
+  deliverable state or setup/source change that it claims to prove.
 
 These states are observations. They do not grant retry authority and must not
 be used to hide continuation after a failed phase.

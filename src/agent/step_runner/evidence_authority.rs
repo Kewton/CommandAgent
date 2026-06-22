@@ -31,12 +31,32 @@ impl EvidenceRunnerStatus {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FreshnessStatus {
+    NotRequired,
+    Fresh,
+    Stale,
+    Unknown,
+}
+
+impl FreshnessStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::NotRequired => "not_required",
+            Self::Fresh => "fresh",
+            Self::Stale => "stale",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CompletionAuthorityStatus {
     Eligible,
     MissingDeliverable,
     MissingEvidence,
     CompletionEvidenceFailed,
     EvidenceBindingFailed,
+    StaleEvidence,
 }
 
 impl CompletionAuthorityStatus {
@@ -47,6 +67,7 @@ impl CompletionAuthorityStatus {
             Self::MissingEvidence => "missing_evidence",
             Self::CompletionEvidenceFailed => "completion_evidence_failed",
             Self::EvidenceBindingFailed => "evidence_binding_failed",
+            Self::StaleEvidence => "stale_evidence",
         }
     }
 
@@ -57,6 +78,7 @@ impl CompletionAuthorityStatus {
             Self::MissingEvidence => "missing_evidence",
             Self::CompletionEvidenceFailed => "completion_evidence_failed",
             Self::EvidenceBindingFailed => "evidence_binding_failed",
+            Self::StaleEvidence => "stale_evidence",
         }
     }
 }
@@ -67,12 +89,14 @@ pub(crate) struct CompletionAuthorityResult {
     pub(crate) evidence_runner_status: EvidenceRunnerStatus,
     pub(crate) completion_evidence_status: CompletionEvidenceStatus,
     pub(crate) evidence_binding_status: EvidenceBindingStatus,
+    pub(crate) freshness_status: FreshnessStatus,
     pub(crate) artifact_ledger_status: String,
     pub(crate) source_of_truth: String,
     pub(crate) missing_deliverables: Vec<String>,
     pub(crate) missing_evidence: Vec<String>,
     pub(crate) failed_evidence: Vec<String>,
     pub(crate) failed_bindings: Vec<String>,
+    pub(crate) stale_evidence: Vec<String>,
 }
 
 impl CompletionAuthorityResult {
@@ -103,6 +127,11 @@ impl CompletionAuthorityResult {
             format!(
                 "evidence_binding_status={}",
                 self.evidence_binding_status.as_str()
+            ),
+            format!("freshness_status={}", self.freshness_status.as_str()),
+            format!(
+                "completion_authority_status={}",
+                self.status.terminal_state()
             ),
             format!("artifact_ledger_status={}", self.artifact_ledger_status),
             format!("source_of_truth={}", self.source_of_truth),
@@ -139,6 +168,12 @@ impl CompletionAuthorityResult {
                 self.failed_bindings.join(",")
             ));
         }
+        if !self.stale_evidence.is_empty() {
+            lines.push(format!(
+                "- stale_evidence: {}",
+                self.stale_evidence.join(",")
+            ));
+        }
         lines
     }
 }
@@ -155,12 +190,14 @@ pub(crate) fn evaluate_completion_authority(
             evidence_runner_status: EvidenceRunnerStatus::NotRequired,
             completion_evidence_status: CompletionEvidenceStatus::Passed,
             evidence_binding_status: EvidenceBindingStatus::Bound,
+            freshness_status: FreshnessStatus::NotRequired,
             artifact_ledger_status: "not_required".to_string(),
             source_of_truth: "no_required_deliverables".to_string(),
             missing_deliverables: Vec::new(),
             missing_evidence: Vec::new(),
             failed_evidence: Vec::new(),
             failed_bindings: Vec::new(),
+            stale_evidence: Vec::new(),
         };
     }
 
@@ -175,12 +212,14 @@ pub(crate) fn evaluate_completion_authority(
             evidence_runner_status: EvidenceRunnerStatus::Missing,
             completion_evidence_status: CompletionEvidenceStatus::Missing,
             evidence_binding_status: EvidenceBindingStatus::Missing,
+            freshness_status: FreshnessStatus::Unknown,
             artifact_ledger_status: "missing_required".to_string(),
             source_of_truth: "artifact_ledger".to_string(),
             missing_deliverables,
             missing_evidence: Vec::new(),
             failed_evidence: Vec::new(),
             failed_bindings: Vec::new(),
+            stale_evidence: Vec::new(),
         };
     }
 
@@ -190,12 +229,14 @@ pub(crate) fn evaluate_completion_authority(
             evidence_runner_status: EvidenceRunnerStatus::Missing,
             completion_evidence_status: CompletionEvidenceStatus::Missing,
             evidence_binding_status: aggregate_binding_status(evidence_bindings),
+            freshness_status: FreshnessStatus::Unknown,
             artifact_ledger_status: "complete".to_string(),
             source_of_truth: "completion_evidence".to_string(),
             missing_deliverables: Vec::new(),
             missing_evidence: required_paths.to_vec(),
             failed_evidence: Vec::new(),
             failed_bindings: Vec::new(),
+            stale_evidence: Vec::new(),
         };
     }
 
@@ -210,12 +251,36 @@ pub(crate) fn evaluate_completion_authority(
             evidence_runner_status: EvidenceRunnerStatus::Executed,
             completion_evidence_status: CompletionEvidenceStatus::Failed,
             evidence_binding_status: aggregate_binding_status(evidence_bindings),
+            freshness_status: freshness_status(completion_evidence),
             artifact_ledger_status: "complete".to_string(),
             source_of_truth: "completion_evidence".to_string(),
             missing_deliverables: Vec::new(),
             missing_evidence: Vec::new(),
             failed_evidence,
             failed_bindings: Vec::new(),
+            stale_evidence: Vec::new(),
+        };
+    }
+
+    let stale_evidence = completion_evidence
+        .iter()
+        .filter(|evidence| evidence.status == CompletionEvidenceStatus::Stale)
+        .map(CompletionEvidence::render_line)
+        .collect::<Vec<_>>();
+    if !stale_evidence.is_empty() {
+        return CompletionAuthorityResult {
+            status: CompletionAuthorityStatus::StaleEvidence,
+            evidence_runner_status: EvidenceRunnerStatus::Executed,
+            completion_evidence_status: CompletionEvidenceStatus::Stale,
+            evidence_binding_status: aggregate_binding_status(evidence_bindings),
+            freshness_status: FreshnessStatus::Stale,
+            artifact_ledger_status: "complete".to_string(),
+            source_of_truth: "completion_evidence_freshness".to_string(),
+            missing_deliverables: Vec::new(),
+            missing_evidence: Vec::new(),
+            failed_evidence: Vec::new(),
+            failed_bindings: Vec::new(),
+            stale_evidence,
         };
     }
 
@@ -235,12 +300,14 @@ pub(crate) fn evaluate_completion_authority(
             evidence_runner_status: EvidenceRunnerStatus::Missing,
             completion_evidence_status: CompletionEvidenceStatus::Missing,
             evidence_binding_status: aggregate_binding_status(evidence_bindings),
+            freshness_status: FreshnessStatus::Unknown,
             artifact_ledger_status: "complete".to_string(),
             source_of_truth: "completion_evidence".to_string(),
             missing_deliverables: Vec::new(),
             missing_evidence,
             failed_evidence: Vec::new(),
             failed_bindings: Vec::new(),
+            stale_evidence: Vec::new(),
         };
     }
 
@@ -255,12 +322,14 @@ pub(crate) fn evaluate_completion_authority(
             evidence_runner_status: EvidenceRunnerStatus::Executed,
             completion_evidence_status: CompletionEvidenceStatus::Passed,
             evidence_binding_status: aggregate_binding_status(evidence_bindings),
+            freshness_status: freshness_status(completion_evidence),
             artifact_ledger_status: "complete".to_string(),
             source_of_truth: "evidence_binding".to_string(),
             missing_deliverables: Vec::new(),
             missing_evidence: Vec::new(),
             failed_evidence: Vec::new(),
             failed_bindings,
+            stale_evidence: Vec::new(),
         };
     }
 
@@ -273,13 +342,24 @@ pub(crate) fn evaluate_completion_authority(
         },
         completion_evidence_status: CompletionEvidenceStatus::Passed,
         evidence_binding_status: EvidenceBindingStatus::Bound,
+        freshness_status: freshness_status(completion_evidence),
         artifact_ledger_status: "complete".to_string(),
         source_of_truth: "artifact_ledger_and_completion_evidence".to_string(),
         missing_deliverables: Vec::new(),
         missing_evidence: Vec::new(),
         failed_evidence: Vec::new(),
         failed_bindings: Vec::new(),
+        stale_evidence: Vec::new(),
     }
+}
+
+pub(crate) fn stale_completion_evidence(path: &str, source: &str) -> CompletionEvidence {
+    CompletionEvidence::new(
+        CompletionEvidenceKind::RepoEdit,
+        path,
+        CompletionEvidenceStatus::Stale,
+        source,
+    )
 }
 
 pub(crate) fn file_layout_completion_evidence(path: &str, present: bool) -> CompletionEvidence {
@@ -335,6 +415,27 @@ fn aggregate_binding_status(bindings: &[EvidenceBindingPlan]) -> EvidenceBinding
         return EvidenceBindingStatus::Missing;
     }
     EvidenceBindingStatus::Bound
+}
+
+fn freshness_status(completion_evidence: &[CompletionEvidence]) -> FreshnessStatus {
+    if completion_evidence.is_empty() {
+        return FreshnessStatus::NotRequired;
+    }
+    if completion_evidence
+        .iter()
+        .any(|evidence| evidence.status == CompletionEvidenceStatus::Stale)
+    {
+        return FreshnessStatus::Stale;
+    }
+    if completion_evidence.iter().any(|evidence| {
+        matches!(
+            evidence.status,
+            CompletionEvidenceStatus::Missing | CompletionEvidenceStatus::Unbound
+        )
+    }) {
+        return FreshnessStatus::Unknown;
+    }
+    FreshnessStatus::Fresh
 }
 
 #[cfg(test)]
@@ -433,5 +534,39 @@ mod tests {
 
         assert!(result.success_eligible());
         assert_eq!(result.terminal_state(), "ok");
+        assert_eq!(result.freshness_status, FreshnessStatus::Fresh);
+        assert!(
+            result
+                .render_eval_fields()
+                .contains(&"completion_authority_status=ok".to_string())
+        );
+    }
+
+    #[test]
+    fn stale_completion_evidence_is_distinct_terminal_state() {
+        let required = vec!["src/lib.rs".to_string()];
+        let ledger = ledger_with_required("src/lib.rs", true);
+        let completion = vec![stale_completion_evidence(
+            "src/lib.rs",
+            "verifier_before_latest_edit",
+        )];
+        let bindings = vec![file_layout_binding("src/lib.rs", true)];
+
+        let result = evaluate_completion_authority(&required, &ledger, &completion, &bindings);
+
+        assert_eq!(result.status, CompletionAuthorityStatus::StaleEvidence);
+        assert_eq!(result.terminal_state(), "stale_evidence");
+        assert_eq!(result.freshness_status, FreshnessStatus::Stale);
+        assert_eq!(
+            result.completion_evidence_status,
+            CompletionEvidenceStatus::Stale
+        );
+        assert_eq!(result.stale_evidence.len(), 1);
+        assert!(
+            result
+                .render_contract_lines()
+                .iter()
+                .any(|line| line.contains("stale_evidence"))
+        );
     }
 }

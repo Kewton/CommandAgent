@@ -25,8 +25,17 @@ OBSERVATION_FIELD_NAMES = [
     "producer",
     "guard",
     "actionability",
+    "completion_authority_status",
+    "completion_source_of_truth",
     "evidence_runner_status",
+    "evidence_runner_kind",
     "artifact_ledger_status",
+    "freshness_status",
+    "missing_evidence",
+    "failed_evidence",
+    "failed_bindings",
+    "stale_evidence",
+    "evidence_binding_kind",
     "workspace_scope_kind",
     "workspace_scope_roots",
     "artifact_ledger_entries",
@@ -126,6 +135,21 @@ def normalize_observation(raw: dict[str, Any]) -> dict[str, str]:
         or contract_value(evidence, "evidence_runner_status")
         or evidence_runner_status_for_terminal_state(terminal_state)
     )
+    completion_authority_status = (
+        clean(raw.get("completion_authority_status"))
+        or contract_value(evidence, "completion_authority_status")
+        or terminal_state
+    )
+    completion_source_of_truth = (
+        clean(raw.get("completion_source_of_truth"))
+        or contract_value(evidence, "completion_source_of_truth")
+        or contract_value(evidence, "source_of_truth")
+    )
+    freshness_status = (
+        clean(raw.get("freshness_status"))
+        or contract_value(evidence, "freshness_status")
+        or freshness_status_for_terminal_state(terminal_state)
+    )
     artifact_ledger_status = (
         clean(raw.get("artifact_ledger_status"))
         or contract_value(evidence, "artifact_ledger_status")
@@ -158,8 +182,23 @@ def normalize_observation(raw: dict[str, Any]) -> dict[str, str]:
         "producer": producer,
         "guard": guard,
         "actionability": actionability,
+        "completion_authority_status": completion_authority_status,
+        "completion_source_of_truth": completion_source_of_truth,
         "evidence_runner_status": evidence_runner_status,
+        "evidence_runner_kind": clean(raw.get("evidence_runner_kind"))
+        or contract_value(evidence, "evidence_runner_kind"),
         "artifact_ledger_status": artifact_ledger_status,
+        "freshness_status": freshness_status,
+        "missing_evidence": clean(raw.get("missing_evidence"))
+        or contract_value(evidence, "missing_evidence"),
+        "failed_evidence": clean(raw.get("failed_evidence"))
+        or contract_value(evidence, "failed_evidence"),
+        "failed_bindings": clean(raw.get("failed_bindings"))
+        or contract_value(evidence, "failed_bindings"),
+        "stale_evidence": clean(raw.get("stale_evidence"))
+        or contract_value(evidence, "stale_evidence"),
+        "evidence_binding_kind": clean(raw.get("evidence_binding_kind"))
+        or contract_value(evidence, "evidence_binding_kind"),
         "workspace_scope_kind": clean(raw.get("workspace_scope_kind"))
         or contract_value(evidence, "workspace_scope_kind"),
         "workspace_scope_roots": clean(raw.get("workspace_scope_roots"))
@@ -280,8 +319,17 @@ def terminal_state_from_reason(reason: str, evidence: str = "", raw: dict[str, A
     binding_status = clean(raw.get("evidence_binding_status")).casefold()
     ledger_status = clean(raw.get("artifact_ledger_status")).casefold()
     runner_status = clean(raw.get("evidence_runner_status")).casefold()
+    freshness_status = clean(raw.get("freshness_status")).casefold()
     if ledger_status == "missing_required" or "artifact_ledger_status=missing_required" in combined:
         return "missing_deliverable"
+    if (
+        completion_status == "stale"
+        or freshness_status == "stale"
+        or "completion_evidence_status=stale" in combined
+        or "freshness_status=stale" in combined
+        or "stale_evidence" in combined
+    ):
+        return "stale_evidence"
     if (
         completion_status == "missing"
         or runner_status == "missing"
@@ -410,6 +458,8 @@ def producer_for_terminal_state(terminal_state: str) -> str:
         return "eval_success"
     if terminal_state in {"missing_evidence", "completion_evidence_failed"}:
         return "completion_evidence"
+    if terminal_state == "stale_evidence":
+        return "completion_evidence"
     if terminal_state == "evidence_binding_failed":
         return "evidence_binding"
     if terminal_state in {"repair_exhausted", "explicit_stop"}:
@@ -442,7 +492,7 @@ def evidence_runner_status_for_terminal_state(terminal_state: str) -> str:
         return "executed"
     if terminal_state == "missing_evidence":
         return "missing"
-    if terminal_state in {"completion_evidence_failed", "evidence_binding_failed"}:
+    if terminal_state in {"completion_evidence_failed", "evidence_binding_failed", "stale_evidence"}:
         return "executed"
     return ""
 
@@ -456,9 +506,25 @@ def artifact_ledger_status_for_terminal_state(terminal_state: str) -> str:
         "missing_evidence",
         "completion_evidence_failed",
         "evidence_binding_failed",
+        "stale_evidence",
         "eval_assertion_failed",
     }:
         return "complete"
+    return ""
+
+
+def freshness_status_for_terminal_state(terminal_state: str) -> str:
+    if terminal_state == "ok":
+        return "fresh"
+    if terminal_state == "stale_evidence":
+        return "stale"
+    if terminal_state in {
+        "missing_deliverable",
+        "missing_evidence",
+        "completion_evidence_failed",
+        "evidence_binding_failed",
+    }:
+        return "unknown"
     return ""
 
 
