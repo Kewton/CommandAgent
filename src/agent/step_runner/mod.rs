@@ -33,6 +33,7 @@ pub(crate) mod verifier_diagnostic;
 pub(crate) mod verifier_selection;
 pub mod verify;
 pub(crate) mod workspace_scope;
+pub(crate) mod workspace_snapshot;
 
 mod plan;
 mod plan_error;

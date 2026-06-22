@@ -124,6 +124,49 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertEqual(observation["evidence_runner_status"], "missing")
         self.assertEqual(observation["artifact_ledger_status"], "complete")
 
+    def test_artifact_ledger_signal_fields_are_extracted(self):
+        observation = eval_failure_observation.normalize_observation(
+            {
+                "reason": "rc:1",
+                "success": False,
+                "evidence": "\n".join(
+                    [
+                        "- workspace_scope_kind=single_project_root",
+                        "- workspace_scope_roots=[.]",
+                        "- artifact_ledger_entries=2",
+                        "- artifact_ledger_summary=entries:2;overflow:false",
+                        "- artifact_ownership=owned",
+                        "- artifact_ownership_reason=changed_by_tool",
+                        "- artifact_source_of_truth=tool_record",
+                        "- rejected_target_reason=candidate_without_ownership",
+                        "- read_paths=[package.json]",
+                        "- changed_paths=[app/page.tsx]",
+                        "- verifier_mentioned_paths=[app/page.tsx]",
+                        "- out_of_scope_paths=[node_modules/react/index.js]",
+                    ]
+                ),
+            }
+        )
+
+        self.assertEqual(observation["workspace_scope_kind"], "single_project_root")
+        self.assertEqual(observation["workspace_scope_roots"], "[.]")
+        self.assertEqual(observation["artifact_ledger_entries"], "2")
+        self.assertEqual(
+            observation["artifact_ledger_summary"], "entries:2;overflow:false"
+        )
+        self.assertEqual(observation["artifact_ownership"], "owned")
+        self.assertEqual(observation["artifact_ownership_reason"], "changed_by_tool")
+        self.assertEqual(observation["artifact_source_of_truth"], "tool_record")
+        self.assertEqual(
+            observation["rejected_target_reason"], "candidate_without_ownership"
+        )
+        self.assertEqual(observation["read_paths"], "[package.json]")
+        self.assertEqual(observation["changed_paths"], "[app/page.tsx]")
+        self.assertEqual(observation["verifier_mentioned_paths"], "[app/page.tsx]")
+        self.assertEqual(
+            observation["out_of_scope_paths"], "[node_modules/react/index.js]"
+        )
+
     def test_contract_evidence_diagnostic_code_wins_over_raw_rc(self):
         observation = eval_failure_observation.normalize_observation(
             {
@@ -207,6 +250,38 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertIn("## Evidence Authority", report)
         self.assertIn("## Failure Observation Summary", report)
         self.assertIn("## Producer Coverage", report)
+
+    def test_render_report_includes_artifact_ledger_signal_sections(self):
+        report = eval_report.render_report(
+            [
+                {
+                    "case_id": "ledger",
+                    "run": "1",
+                    "rc": "1",
+                    "elapsed_ms": "10",
+                    "success": "false",
+                    "reason": "rc:1",
+                    "workspace_scope_kind": "single_project_root",
+                    "artifact_ownership": "candidate_only",
+                    "artifact_source_of_truth": "verifier_output",
+                    "rejected_target_reason": "candidate_without_ownership",
+                    "read_paths": "[package.json]",
+                    "changed_paths": "[app/page.tsx]",
+                    "out_of_scope_paths": "[node_modules/react/index.js]",
+                }
+            ]
+        )
+
+        self.assertIn("- workspace_scope_kind=single_project_root: 1", report)
+        self.assertIn("## Artifact Ledger Signals", report)
+        self.assertIn("- read_paths: 1", report)
+        self.assertIn("- changed_paths: 1", report)
+        self.assertIn("- out_of_scope_paths: 1", report)
+        self.assertIn("## Artifact Ownership", report)
+        self.assertIn("- ownership=candidate_only: 1", report)
+        self.assertIn("- source_of_truth=verifier_output: 1", report)
+        self.assertIn("## Rejected Targets", report)
+        self.assertIn("- candidate_without_ownership: 1", report)
 
     def test_render_report_includes_dispatch_sections(self):
         report = eval_report.render_report(

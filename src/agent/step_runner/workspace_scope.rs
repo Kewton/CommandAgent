@@ -2,6 +2,7 @@
 
 use crate::agent::step_runner::artifact_graph::{ArtifactGraph, ArtifactRole, role_for_path};
 use crate::agent::step_runner::profile_artifact::{is_build_output_path, is_dependency_cache_path};
+use crate::agent::step_runner::workspace_snapshot::WorkspaceSnapshot;
 use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -41,6 +42,20 @@ impl WorkspaceScope {
 
     pub(crate) fn from_graph(graph: &ArtifactGraph) -> Self {
         Self::from_paths(graph.nodes().iter().map(|node| node.path.as_str()))
+    }
+
+    pub(crate) fn from_snapshot_and_graph(
+        snapshot: &WorkspaceSnapshot,
+        graph: &ArtifactGraph,
+    ) -> Self {
+        Self::from_paths(
+            graph.nodes().iter().map(|node| node.path.as_str()).chain(
+                snapshot
+                    .observed_paths
+                    .iter()
+                    .map(|item| item.path.as_str()),
+            ),
+        )
     }
 
     pub(crate) fn from_paths<'a>(paths: impl IntoIterator<Item = &'a str>) -> Self {

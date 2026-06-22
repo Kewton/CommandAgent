@@ -492,6 +492,7 @@ classified failure
   -> allowed change kind and disallowed actions
   -> repair brief and action envelope
   -> workspace scope and artifact ownership when a target is admitted
+  -> bounded artifact ledger facts for observed/read/changed/verifier-mentioned paths
   -> expected evidence delta
   -> setup implication when the failure or repair affects dependencies
   -> recovery owner and repair action plan
@@ -515,6 +516,16 @@ bounded contract evidence. Phase 4 also propagates `proposed_targets`,
 `action_envelope_status`. They are data for Recovery Policy Contract, Recovery
 Task Contract, or verifier-owned setup recovery. They are not hidden workflow
 state, retry counters, or permission for the model to choose a new job.
+
+Artifact facts are now a separate attribution boundary. The bounded workspace
+snapshot, artifact ledger, workspace scope, and artifact ownership decision
+record which files were already present, read, changed, created, mentioned by
+a verifier, scaffold-created, setup-created, generated/cache, or out of scope.
+Those facts may be rendered into `artifact_graph_summary`,
+`artifact_ownership`, and `eval_report_fields`, but they do not by themselves
+authorize an edit, verifier rewrite, dependency setup, or retry. Recovery
+Orchestration may consume them only as deterministic input to target admission
+and repair-task rendering.
 
 Examples:
 

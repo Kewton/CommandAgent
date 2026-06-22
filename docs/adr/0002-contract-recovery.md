@@ -223,6 +223,16 @@ such as `proposed_targets`, `admitted_targets`, `rejected_targets`,
 `action_envelope_status`. This is not a semantic planner loop: if no target or
 action is admitted, CommandAgent stops explicitly with structured evidence.
 
+2026-06-22 amendment: Artifact attribution is now an explicit contract
+boundary. Bounded workspace snapshots, normalized `Read` / `Write` / `Edit`
+tool targets, verifier-mentioned paths, and setup/scaffold provenance are
+reconciled into `ArtifactLedgerSummary` before repair evidence is rendered.
+The ledger may populate `workspace_scope`, `artifact_ownership`,
+`artifact_graph_summary`, and eval fields such as `read_paths`,
+`changed_paths`, `verifier_mentioned_paths`, `setup_created_paths`, and
+`out_of_scope_paths`. These facts explain target ownership and rejection; they
+do not execute tools, grant retries, or replace the original verifier.
+
 2026-06-21 amendment: Setup/profile/scaffold runtime jobs now include
 observable setup and dev-server job state. Setup bootstrap records setup
 attempt keys, manifest fingerprints, setup result, rerun result, and stale

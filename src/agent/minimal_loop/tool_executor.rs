@@ -52,10 +52,12 @@ impl<'a> ToolExecutor<'a> {
         self.enforce_step_tool_policy(call.name.as_str(), &args)?;
         let mut target_paths = Vec::new();
         let output = match call.name.as_str() {
-            "Read" => self
-                .read
-                .read(required_str_for_tool(&args, "Read", "path")?)
-                .map_err(tool_err)?,
+            "Read" => {
+                let path = required_str_for_tool(&args, "Read", "path")?;
+                let output = self.read.read(path).map_err(tool_err)?;
+                target_paths.push(normalize_tool_path(path));
+                output
+            }
             "Write" => {
                 let path = required_str_for_tool(&args, "Write", "path")?;
                 self.write
@@ -399,6 +401,25 @@ mod tests {
                 "Write",
                 json!({"path":"./src/main.rs","content":"fn main() {}\n"}),
             ))
+            .unwrap();
+
+        assert_eq!(result.target_paths, vec!["src/main.rs"]);
+    }
+
+    #[test]
+    fn read_records_exact_observed_path() {
+        let root = temp_workspace("read-target-path");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+        let guard = PathGuard::new(&root).unwrap();
+        let executor = ToolExecutor::new(
+            &guard,
+            DependencySetupPolicy::default(),
+            StepToolPolicy::ReadOnly,
+        );
+
+        let result = executor
+            .execute(&call("Read", json!({"path":"./src/main.rs"})))
             .unwrap();
 
         assert_eq!(result.target_paths, vec!["src/main.rs"]);

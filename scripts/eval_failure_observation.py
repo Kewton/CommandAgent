@@ -27,6 +27,21 @@ OBSERVATION_FIELD_NAMES = [
     "actionability",
     "evidence_runner_status",
     "artifact_ledger_status",
+    "workspace_scope_kind",
+    "workspace_scope_roots",
+    "artifact_ledger_entries",
+    "artifact_ledger_summary",
+    "artifact_ownership",
+    "artifact_ownership_reason",
+    "artifact_source_of_truth",
+    "rejected_target_reason",
+    "read_paths",
+    "changed_paths",
+    "created_paths",
+    "verifier_mentioned_paths",
+    "scaffold_created_paths",
+    "setup_created_paths",
+    "out_of_scope_paths",
     "command",
     "setup_state",
     "port",
@@ -145,6 +160,35 @@ def normalize_observation(raw: dict[str, Any]) -> dict[str, str]:
         "actionability": actionability,
         "evidence_runner_status": evidence_runner_status,
         "artifact_ledger_status": artifact_ledger_status,
+        "workspace_scope_kind": clean(raw.get("workspace_scope_kind"))
+        or contract_value(evidence, "workspace_scope_kind"),
+        "workspace_scope_roots": clean(raw.get("workspace_scope_roots"))
+        or contract_value(evidence, "workspace_scope_roots"),
+        "artifact_ledger_entries": clean(raw.get("artifact_ledger_entries"))
+        or contract_value(evidence, "artifact_ledger_entries"),
+        "artifact_ledger_summary": clean(raw.get("artifact_ledger_summary"))
+        or contract_value(evidence, "artifact_ledger_summary"),
+        "artifact_ownership": clean(raw.get("artifact_ownership"))
+        or contract_value(evidence, "artifact_ownership"),
+        "artifact_ownership_reason": clean(raw.get("artifact_ownership_reason"))
+        or contract_value(evidence, "artifact_ownership_reason"),
+        "artifact_source_of_truth": clean(raw.get("artifact_source_of_truth"))
+        or contract_value(evidence, "artifact_source_of_truth"),
+        "rejected_target_reason": clean(raw.get("rejected_target_reason"))
+        or contract_value(evidence, "rejected_target_reason"),
+        "read_paths": clean(raw.get("read_paths")) or contract_value(evidence, "read_paths"),
+        "changed_paths": clean(raw.get("changed_paths"))
+        or contract_value(evidence, "changed_paths"),
+        "created_paths": clean(raw.get("created_paths"))
+        or contract_value(evidence, "created_paths"),
+        "verifier_mentioned_paths": clean(raw.get("verifier_mentioned_paths"))
+        or contract_value(evidence, "verifier_mentioned_paths"),
+        "scaffold_created_paths": clean(raw.get("scaffold_created_paths"))
+        or contract_value(evidence, "scaffold_created_paths"),
+        "setup_created_paths": clean(raw.get("setup_created_paths"))
+        or contract_value(evidence, "setup_created_paths"),
+        "out_of_scope_paths": clean(raw.get("out_of_scope_paths"))
+        or contract_value(evidence, "out_of_scope_paths"),
         "command": clean(raw.get("command")) or contract_value(evidence, "command"),
         "setup_state": setup_state,
         "port": port,

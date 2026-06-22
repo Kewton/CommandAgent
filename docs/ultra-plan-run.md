@@ -221,7 +221,10 @@ structured evidence. Repair prompts and packets may include
 `admitted_cluster_targets`, `patch_validation`, `eval_report_fields`,
 `proposed_targets`, `admitted_targets`, `rejected_targets`, `repair_brief`,
 `selected_failure_cluster`, `repair_brief_status`, `action_envelope_status`,
-and an `artifact_graph_summary` so the standalone repair plan can see why a
+`workspace_scope`, `artifact_ownership`, `artifact_graph_summary`, and bounded
+artifact-ledger eval fields such as `read_paths`, `changed_paths`,
+`verifier_mentioned_paths`, `setup_created_paths`, and `out_of_scope_paths` so
+the standalone repair plan can see why a
 target is allowed, why another action is forbidden, which owner/action was
 selected, which failure cluster is being repaired, whether a prior bounded
 attempt made progress, and which original check must be rerun. These fields

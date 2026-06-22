@@ -75,7 +75,13 @@ The observation fields are `terminal_state`, `failure_class`,
 `contract_layer`, `violated_contract`, `source`, `source_of_truth`,
 `diagnostic_code`, `failure_signature`, `producer`, `guard`,
 `actionability`, `explicit_stop_reason`, `command`,
-`evidence_runner_status`, `artifact_ledger_status`, `setup_state`, and `port`,
+`evidence_runner_status`, `artifact_ledger_status`, `workspace_scope_kind`,
+`workspace_scope_roots`, `artifact_ledger_entries`,
+`artifact_ledger_summary`, `artifact_ownership`,
+`artifact_ownership_reason`, `artifact_source_of_truth`,
+`rejected_target_reason`, `read_paths`, `changed_paths`, `created_paths`,
+`verifier_mentioned_paths`, `scaffold_created_paths`,
+`setup_created_paths`, `out_of_scope_paths`, `setup_state`, and `port`,
 alongside existing recovery fields. The terminal-state taxonomy is shared with
 runtime through `scripts/failure_observation_taxonomy.tsv`; tests should fail
 when the Python fallback mapping drifts from the Rust mapping. Runtime job
@@ -87,7 +93,11 @@ fields may also include
 `endpoint_smoke`. `evidence_runner_status` records whether the completion
 evidence path was present, missing, executed, or not required.
 `artifact_ledger_status` records whether the required artifact ledger was
-complete or missing a required deliverable. For example, `EADDRINUSE` or
+complete or missing a required deliverable. The ledger signal fields are
+observability fields: they report bounded artifact attribution from workspace
+snapshot, tool target records, verifier mentions, and setup/scaffold
+provenance. They must not be used by eval to mutate runtime behavior during a
+run. For example, `EADDRINUSE` or
 `address already in use` on a requested dev-server port should be reported as
 `terminal_state=port_in_use` and
 `contract_layer=dev_server_port_contract`, not as source implementation

@@ -152,7 +152,9 @@ CommandAgent is still in MVP migration.
   `/plan-run` / `/ultra-plan-run` mode, and fixture seeding for modification
   cases. New eval runs also record terminal observation fields such as
   `terminal_state`, `failure_class`, `diagnostic_code`,
-  `evidence_runner_status`, `artifact_ledger_status`, and `port`; reports
+  `evidence_runner_status`, `artifact_ledger_status`, workspace scope,
+  artifact ownership/source-of-truth, read/changed/verifier-mentioned/setup
+  paths, rejected target reasons, and `port`; reports
   backfill conservative values for older run roots and prefer contract
   evidence diagnostic codes over raw process-code reasons when present. This
   improves attribution, including `port_in_use` for occupied dev-server ports,

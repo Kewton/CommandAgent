@@ -474,6 +474,19 @@ def render_report(rows):
     artifact_role_projection_statuses = {}
     evidence_runner_statuses = {}
     artifact_ledger_statuses = {}
+    workspace_scope_kinds = {}
+    artifact_ownerships = {}
+    artifact_source_of_truths = {}
+    rejected_target_reasons = {}
+    artifact_ledger_signal_counts = {
+        "read_paths": 0,
+        "changed_paths": 0,
+        "created_paths": 0,
+        "verifier_mentioned_paths": 0,
+        "scaffold_created_paths": 0,
+        "setup_created_paths": 0,
+        "out_of_scope_paths": 0,
+    }
     focused_assertion_statuses = {}
     focused_assertion_failures = []
     for row in rows:
@@ -490,6 +503,20 @@ def render_report(rows):
         )
         artifact_ledger_status = (
             row.get("artifact_ledger_status") or observation["artifact_ledger_status"]
+        )
+        workspace_scope_kind = (
+            row.get("workspace_scope_kind") or observation.get("workspace_scope_kind", "")
+        )
+        artifact_ownership = (
+            row.get("artifact_ownership") or observation.get("artifact_ownership", "")
+        )
+        artifact_source_of_truth = (
+            row.get("artifact_source_of_truth")
+            or observation.get("artifact_source_of_truth", "")
+        )
+        rejected_target_reason = (
+            row.get("rejected_target_reason")
+            or observation.get("rejected_target_reason", "")
         )
         job = row.get("active_job") or derive_active_job(row["reason"])
         runtime_job = row.get("runtime_job_kind", "")
@@ -580,6 +607,25 @@ def render_report(rows):
             artifact_ledger_statuses[artifact_ledger_status] = (
                 artifact_ledger_statuses.get(artifact_ledger_status, 0) + 1
             )
+        if workspace_scope_kind:
+            workspace_scope_kinds[workspace_scope_kind] = (
+                workspace_scope_kinds.get(workspace_scope_kind, 0) + 1
+            )
+        if artifact_ownership:
+            artifact_ownerships[artifact_ownership] = (
+                artifact_ownerships.get(artifact_ownership, 0) + 1
+            )
+        if artifact_source_of_truth:
+            artifact_source_of_truths[artifact_source_of_truth] = (
+                artifact_source_of_truths.get(artifact_source_of_truth, 0) + 1
+            )
+        if rejected_target_reason:
+            rejected_target_reasons[rejected_target_reason] = (
+                rejected_target_reasons.get(rejected_target_reason, 0) + 1
+            )
+        for field in artifact_ledger_signal_counts:
+            if row.get(field) or observation.get(field):
+                artifact_ledger_signal_counts[field] += 1
         assertion_status = row.get("expected_assertion_status", "")
         if assertion_status:
             focused_assertion_statuses[assertion_status] = (
@@ -635,6 +681,22 @@ def render_report(rows):
         lines.append(f"- evidence_runner_status={name}: {count}")
     for name, count in sorted(artifact_ledger_statuses.items()):
         lines.append(f"- artifact_ledger_status={name}: {count}")
+    for name, count in sorted(workspace_scope_kinds.items()):
+        lines.append(f"- workspace_scope_kind={name}: {count}")
+    lines.extend(["", "## Artifact Ledger Signals"])
+    for name, count in sorted(artifact_ledger_signal_counts.items()):
+        lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Artifact Ownership"])
+    for name, count in sorted(artifact_ownerships.items()):
+        lines.append(f"- ownership={name}: {count}")
+    for name, count in sorted(artifact_source_of_truths.items()):
+        lines.append(f"- source_of_truth={name}: {count}")
+    lines.extend(["", "## Rejected Targets"])
+    if rejected_target_reasons:
+        for name, count in sorted(rejected_target_reasons.items()):
+            lines.append(f"- {name}: {count}")
+    else:
+        lines.append("- none")
     lines.extend(["", "## Recovery Jobs"])
     for name, count in sorted(recovery_jobs.items()):
         lines.append(f"- {name}: {count}")

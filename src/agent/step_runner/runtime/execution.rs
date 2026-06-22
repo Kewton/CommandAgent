@@ -406,6 +406,7 @@ where
                 dependency_setup_attempt_keys: Vec::new(),
                 dependency_setup_note: None,
                 setup_job_state: Vec::new(),
+                tool_records: Vec::new(),
                 contract_evidence: Vec::new(),
                 repair_attempt_ledger: Vec::new(),
                 repair_job_state: crate::agent::step_runner::repair_job::RepairJobState::new(

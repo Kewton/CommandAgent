@@ -120,7 +120,10 @@ for the existing minimal loop.
 Artifact Ledger and Completion Authority are the attribution boundary for
 deliverable completion. The ledger records required, observed, changed, and
 verifier-mentioned paths with role, lifecycle, ownership, source, and source of
-truth. Completion Authority then classifies already observed facts into
+truth. It is fed by bounded workspace snapshots, normalized `Read` / `Write` /
+`Edit` tool target paths, verifier-mentioned source paths, and deterministic
+scaffold/setup provenance when such provenance is already available. Completion
+Authority then classifies already observed facts into
 `missing_deliverable`, `missing_evidence`, `completion_evidence_failed`, or
 `evidence_binding_failed`. It does not repair, retry, choose a future phase, or
 replace the verifier. It only prevents path existence, evidence execution, and
@@ -303,11 +306,12 @@ truncated, CommandAgent emits a truncation event and includes a marker in the
 tool observation. This prevents large local outputs from silently overwhelming
 model context while keeping the truncation observable.
 
-Successful file-mutation tool records also carry safe target metadata. `Write`
-and `Edit` retain the normalized target path, not raw file contents or full
-tool arguments. Recovery changed-file summaries and artifact-ledger summaries
-use these exact paths so repair policy can distinguish "this target was edited"
-from the older coarse fact that some file-changing tool ran.
+Successful repository-observation and file-mutation tool records also carry
+safe target metadata. `Read`, `Write`, and `Edit` retain the normalized target
+path, not raw file contents or full tool arguments. Recovery changed-file
+summaries and artifact-ledger summaries use these exact paths so repair policy
+can distinguish "this target was read" and "this target was edited" from the
+older coarse fact that some tool ran.
 
 ## REPL
 

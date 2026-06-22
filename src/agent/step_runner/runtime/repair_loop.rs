@@ -9,7 +9,8 @@ use super::setup::{
 use crate::agent::events::{RuntimeEvent, RuntimeObserver, bounded_event_text};
 use crate::agent::minimal_loop::config::{ActionRequirement, StepToolPolicy};
 use crate::agent::minimal_loop::loop_run::{ChatClient, MinimalLoopConfig, RunResult};
-use crate::agent::minimal_loop::result::{MinimalLoopError, ToolArgError};
+use crate::agent::minimal_loop::result::{MinimalLoopError, ToolArgError, ToolExecutionRecord};
+use crate::agent::step_runner::artifact_ledger::{ArtifactLedgerEntry, ArtifactLedgerSummary};
 use crate::agent::step_runner::completion_evidence::verifier_completion;
 use crate::agent::step_runner::correction_evidence::{ContractEvidence, failure_signature};
 use crate::agent::step_runner::deliverable_obligation::{
@@ -43,12 +44,15 @@ use crate::agent::step_runner::verifier_diagnostic::{
 };
 use crate::agent::step_runner::verifier_selection::{VerifierBinding, VerifierSelection};
 use crate::agent::step_runner::verify::VerificationFailure;
+use crate::agent::step_runner::workspace_scope::WorkspaceScope;
+use crate::agent::step_runner::workspace_snapshot::WorkspaceSnapshot;
 use crate::agent::step_runner::{StepKind, StepPlan, StepPlanStep};
 use crate::agent::step_runner::{
-    artifact_graph::{ArtifactLifecycle, ArtifactRole, role_for_path},
+    artifact_graph::{ArtifactGraph, ArtifactLifecycle, ArtifactRole, role_for_path},
     completion_evidence::{CompletionEvidence, CompletionEvidenceKind, CompletionEvidenceStatus},
 };
 use std::fs;
+use std::path::Path;
 use std::time::Instant;
 
 const MAX_REPAIR_TURNS: usize = 3;
@@ -61,6 +65,7 @@ pub(super) struct RepairStepState {
     pub(super) dependency_setup_attempt_keys: Vec<String>,
     pub(super) dependency_setup_note: Option<String>,
     pub(super) setup_job_state: Vec<String>,
+    pub(super) tool_records: Vec<ToolExecutionRecord>,
     pub(super) contract_evidence: Vec<ContractEvidence>,
     pub(super) repair_attempt_ledger: Vec<String>,
     pub(super) repair_job_state: RepairJobState,
@@ -275,6 +280,7 @@ where
             dependency_setup_attempt_keys: Vec::new(),
             dependency_setup_note: None,
             setup_job_state: Vec::new(),
+            tool_records: Vec::new(),
             contract_evidence,
             repair_attempt_ledger: Vec::new(),
             repair_job_state: RepairJobState::new("unknown").with_step_id(step_id),
@@ -309,6 +315,7 @@ where
             dependency_setup_attempt_keys: Vec::new(),
             dependency_setup_note: None,
             setup_job_state: Vec::new(),
+            tool_records: first_result.tool_results.clone(),
             contract_evidence: Vec::new(),
             repair_attempt_ledger: Vec::new(),
             repair_job_state: RepairJobState::new("unknown").with_step_id(step_id),
@@ -371,7 +378,8 @@ where
             max_attempts: MAX_REPAIR_TURNS,
             missing_expected_paths: missing_expected_paths.clone(),
         });
-        let current_contract_evidence = contract_evidence_for_state(plan, step, &state);
+        let current_contract_evidence =
+            contract_evidence_for_state(runtime.cwd, plan, step, &state);
         if repair_state_explicit_stop(&current_contract_evidence) {
             break;
         }
@@ -472,7 +480,8 @@ where
                     {
                         continue;
                     }
-                    let after_evidence = contract_evidence_for_state(plan, step, &state);
+                    let after_evidence =
+                        contract_evidence_for_state(runtime.cwd, plan, step, &state);
                     let after_signature = repair_signature_from_contract_evidence(&after_evidence);
                     record_repair_attempt_ledger(
                         &mut state,
@@ -501,6 +510,7 @@ where
         };
         state.pending_tool_arg_error = None;
         state.pending_tool_arg_error_source = None;
+        state.tool_records.extend(result.tool_results.clone());
         if result_changed_files(&result) {
             state.file_changing_attempts += 1;
         }
@@ -514,7 +524,7 @@ where
             state
                 .failures
                 .push(patch_validation_failure(&patch_validations));
-            let after_evidence = contract_evidence_for_state(plan, step, &state);
+            let after_evidence = contract_evidence_for_state(runtime.cwd, plan, step, &state);
             let after_signature = repair_signature_from_contract_evidence(&after_evidence);
             record_repair_attempt_ledger(
                 &mut state,
@@ -546,7 +556,7 @@ where
             );
             return Ok(());
         }
-        let after_evidence = contract_evidence_for_state(plan, step, &state);
+        let after_evidence = contract_evidence_for_state(runtime.cwd, plan, step, &state);
         let after_signature = repair_signature_from_contract_evidence(&after_evidence);
         record_repair_attempt_ledger(
             &mut state,
@@ -588,7 +598,7 @@ where
         DependencyRecoveryResult::Blocked(message) => return Err(message),
         DependencyRecoveryResult::ContinueRepair | DependencyRecoveryResult::NotApplicable => {}
     }
-    let contract_evidence = contract_evidence_for_state(plan, step, &state);
+    let contract_evidence = contract_evidence_for_state(runtime.cwd, plan, step, &state);
     let context = RepairContext {
         step_id: step.id.clone(),
         original_goal: plan.goal.clone(),
@@ -1041,6 +1051,7 @@ fn read_only_policy_tool(message: &str) -> Option<&'static str> {
 }
 
 fn contract_evidence_for_state(
+    cwd: &Path,
     plan: &StepPlan,
     step: &StepPlanStep,
     state: &RepairStepState,
@@ -1059,7 +1070,166 @@ fn contract_evidence_for_state(
             push_contract_evidence_once(&mut evidence, verifier_evidence);
         }
     }
-    evidence.into_iter().map(orchestrate_evidence).collect()
+    let graph = ArtifactGraph::from_step_plan(plan, Some(cwd));
+    let snapshot = WorkspaceSnapshot::collect(cwd, &plan.profile);
+    let scope = WorkspaceScope::from_snapshot_and_graph(&snapshot, &graph);
+    let ledger = artifact_ledger_for_state(&graph, &scope, &snapshot, state);
+    evidence
+        .into_iter()
+        .map(orchestrate_evidence)
+        .map(|item| enrich_evidence_with_artifact_ledger(item, &ledger, &scope))
+        .collect()
+}
+
+fn artifact_ledger_for_state(
+    graph: &ArtifactGraph,
+    scope: &WorkspaceScope,
+    snapshot: &WorkspaceSnapshot,
+    state: &RepairStepState,
+) -> ArtifactLedgerSummary {
+    let mut ledger = ArtifactLedgerSummary::from_tool_records(&state.tool_records, graph, scope);
+    for observed in &snapshot.observed_paths {
+        ledger.record_workspace_observation(&observed.path, graph, scope);
+    }
+    for evidence in &state.contract_evidence {
+        record_evidence_targets(&mut ledger, evidence, graph, scope);
+    }
+    for failure in &state.failures {
+        if let Some(source) = &failure.source_excerpt {
+            ledger.record_verifier_mention(&source.path, &failure.reason, graph, scope);
+        }
+    }
+    ledger
+}
+
+fn record_evidence_targets(
+    ledger: &mut ArtifactLedgerSummary,
+    evidence: &ContractEvidence,
+    graph: &ArtifactGraph,
+    scope: &WorkspaceScope,
+) {
+    if let Some(path) = evidence.target_path.as_deref() {
+        ledger.record_verifier_mention(path, "contract target", graph, scope);
+    }
+    if let Some(path) = evidence.repair_target.as_deref() {
+        ledger.record_verifier_mention(path, "repair target", graph, scope);
+    }
+    for path in &evidence.required_paths {
+        ledger.record_workspace_observation(path, graph, scope);
+    }
+    for path in &evidence.missing_paths {
+        ledger.record_verifier_mention(path, "missing required path", graph, scope);
+    }
+    for path in &evidence.candidate_artifacts {
+        ledger.record_verifier_mention(path, "candidate artifact", graph, scope);
+    }
+}
+
+fn enrich_evidence_with_artifact_ledger(
+    mut evidence: ContractEvidence,
+    ledger: &ArtifactLedgerSummary,
+    scope: &WorkspaceScope,
+) -> ContractEvidence {
+    let mut graph_summary = evidence.artifact_graph_summary.clone();
+    append_unique_lines(&mut graph_summary, ledger.render_lines());
+    if !graph_summary.is_empty() {
+        evidence = evidence.with_artifact_graph_summary(graph_summary);
+    }
+
+    let mut eval_fields = evidence.eval_report_fields.clone();
+    append_unique_lines(&mut eval_fields, ledger.eval_report_fields(scope));
+    if !eval_fields.is_empty() {
+        evidence = evidence.with_eval_report_fields(eval_fields);
+    }
+
+    let workspace_scope = match evidence.workspace_scope.as_deref() {
+        Some(existing) if !existing.trim().is_empty() => {
+            format!("{existing}; artifact_ledger_scope={}", scope.summary())
+        }
+        _ => scope.summary(),
+    };
+    evidence = evidence.with_workspace_scope(workspace_scope);
+
+    if let Some(entry) = selected_ledger_entry(&evidence, ledger) {
+        let mut ownership = evidence.artifact_ownership.clone().unwrap_or_default();
+        let ledger_line = artifact_ledger_ownership_line(entry);
+        if ownership.is_empty() {
+            ownership = ledger_line;
+        } else if !ownership.contains(&ledger_line) {
+            ownership = format!("{ownership}; {ledger_line}");
+        }
+        evidence = evidence.with_artifact_ownership(ownership);
+        if evidence.source_of_truth.is_none() {
+            evidence = evidence.with_source_of_truth(entry.source_of_truth.clone());
+        }
+        let mut eval_fields = evidence.eval_report_fields.clone();
+        append_unique_lines(&mut eval_fields, artifact_ledger_entry_eval_fields(entry));
+        evidence = evidence.with_eval_report_fields(eval_fields);
+    }
+    evidence
+}
+
+fn selected_ledger_entry<'a>(
+    evidence: &ContractEvidence,
+    ledger: &'a ArtifactLedgerSummary,
+) -> Option<&'a ArtifactLedgerEntry> {
+    evidence
+        .repair_target
+        .as_deref()
+        .or(evidence.target_path.as_deref())
+        .and_then(|path| ledger.entry(path))
+        .or_else(|| {
+            evidence
+                .candidate_artifacts
+                .iter()
+                .find_map(|path| ledger.entry(path))
+        })
+}
+
+fn artifact_ledger_ownership_line(entry: &ArtifactLedgerEntry) -> String {
+    format!(
+        "ledger={} role={} ownership={} source_of_truth={} reason={} subreason={} in_scope={} changed={} read={} created={} verifier_mentioned={}",
+        entry.path,
+        entry.role.as_str(),
+        entry.ownership.as_str(),
+        entry.source_of_truth,
+        entry.ownership_reason,
+        entry.ownership_subreason,
+        entry.in_scope,
+        entry.changed,
+        entry.read,
+        entry.created,
+        entry.verifier_mentioned
+    )
+}
+
+fn artifact_ledger_entry_eval_fields(entry: &ArtifactLedgerEntry) -> Vec<String> {
+    let mut fields = vec![
+        format!("artifact_ownership={}", entry.ownership.as_str()),
+        format!(
+            "artifact_ownership_reason={}",
+            eval_field_value(&entry.ownership_reason)
+        ),
+        format!(
+            "artifact_source_of_truth={}",
+            eval_field_value(&entry.source_of_truth)
+        ),
+    ];
+    if !entry.in_scope || entry.ownership.as_str() != "owned" {
+        fields.push(format!(
+            "rejected_target_reason={}",
+            eval_field_value(&entry.ownership_reason)
+        ));
+    }
+    fields
+}
+
+fn eval_field_value(value: &str) -> String {
+    value
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join("_")
+        .replace(',', "+")
 }
 
 fn verifier_contract_evidence(
@@ -3045,6 +3215,7 @@ mod tests {
             dependency_setup_attempt_keys: Vec::new(),
             dependency_setup_note: None,
             setup_job_state: Vec::new(),
+            tool_records: Vec::new(),
             contract_evidence: Vec::new(),
             repair_attempt_ledger: Vec::new(),
             repair_job_state: empty_repair_job_state(),
