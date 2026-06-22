@@ -359,6 +359,10 @@ class EvalReportCategorizeTests(unittest.TestCase):
                     "dispatch_status": "selected",
                     "repair_brief_status": "admitted",
                     "action_envelope_status": "admitted",
+                    "allowed_change_kind": "tool_call_shape_only",
+                    "allowed_tool_category": "tool_protocol",
+                    "target_confidence": "tool_protocol_only",
+                    "repair_plan_rejection_reason": "none",
                     "selected_failure_cluster": "tool_protocol:tool_args_missing_required_field",
                     "semantic_failure_kind": "tool_protocol_failure",
                     "diagnostic_failure_kind": "verifier_contract_failure",
@@ -384,6 +388,10 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertIn("## Runtime Jobs", report)
         self.assertIn("- tool_protocol_correction: 1", report)
         self.assertIn("## Action Envelope Status", report)
+        self.assertIn("## Repair Action Envelope", report)
+        self.assertIn("- allowed_change_kind=tool_call_shape_only: 1", report)
+        self.assertIn("- allowed_tool_category=tool_protocol: 1", report)
+        self.assertIn("- target_confidence=tool_protocol_only: 1", report)
         self.assertIn("## Selected Failure Clusters", report)
         self.assertIn("## Semantic Failure Kinds", report)
         self.assertIn("- tool_protocol_failure: 1", report)

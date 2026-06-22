@@ -147,6 +147,16 @@ RECOVERY_FIELD_NAMES = [
     "artifact_role_projection_status",
     "repair_brief_status",
     "action_envelope_status",
+    "allowed_change_kind",
+    "allowed_tool_category",
+    "repair_root_cause",
+    "repair_hypothesis",
+    "expected_improvement",
+    "target_confidence",
+    "must_preserve",
+    "disallowed_actions",
+    "success_check",
+    "repair_plan_rejection_reason",
     "repair_action",
     "tool_policy",
     "repair_attempt_count",
@@ -241,7 +251,7 @@ def recovery_fields(reason, evidence, case):
 def first_contract_value(evidence, key):
     patterns = [
         rf"^- {re.escape(key)}:\s*(.+)$",
-        rf"\b{re.escape(key)}=([^\s,]+)",
+        rf"\b{re.escape(key)}=([^,\n]*?)(?=\s+[A-Za-z_][A-Za-z0-9_]*=|,\s*[A-Za-z_][A-Za-z0-9_]*=|,|$)",
     ]
     for pattern in patterns:
         match = re.search(pattern, evidence, flags=re.MULTILINE)
@@ -302,6 +312,16 @@ def derived_recovery_fields(reason, case):
         "artifact_role_projection_status": "",
         "repair_brief_status": "",
         "action_envelope_status": "",
+        "allowed_change_kind": "",
+        "allowed_tool_category": "",
+        "repair_root_cause": "",
+        "repair_hypothesis": "",
+        "expected_improvement": "",
+        "target_confidence": "",
+        "must_preserve": "",
+        "disallowed_actions": "",
+        "success_check": "",
+        "repair_plan_rejection_reason": "",
         "repair_action": "",
         "tool_policy": "",
         "repair_attempt_count": "0",

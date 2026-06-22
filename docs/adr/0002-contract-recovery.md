@@ -242,6 +242,15 @@ such as `proposed_targets`, `admitted_targets`, `rejected_targets`,
 `action_envelope_status`. This is not a semantic planner loop: if no target or
 action is admitted, CommandAgent stops explicitly with structured evidence.
 
+2026-06-22 amendment: repair-action admission is now explicit between
+semantic repair planning and repair prompt rendering. The gate checks selected
+active job, selected repair action, projected tool category, target role,
+source of truth, and allowed change kind. It records root cause, repair
+hypothesis, expected improvement, target confidence, preservation constraints,
+success check, and rejection reason in bounded contract evidence. If the
+action envelope is rejected, the repair loop stops before asking the model for
+another repair turn.
+
 2026-06-22 amendment: target admission now treats focused edit recovery as
 candidate evidence, not as another execution mechanism. Candidate sources may
 include failure evidence, profile-selected routes, verifier diagnostics,

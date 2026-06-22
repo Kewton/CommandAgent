@@ -306,26 +306,28 @@ select repair actions, rerun commands, or alter retry budgets.
 
 The orchestration section may carry `recovery_owner`, `completion_evidence`,
 `loop_control_action`, `dispatch_status`, `dispatch_reason`, `candidate_jobs`,
-`tie_break_reason`, `completion_evidence`, `evidence_binding`,
-`deliverable_obligations`, `repair_action_plan`, `semantic_failure_report`,
-`repair_job_state`, `attempt_outcomes`, `exhausted_targets`,
-`exhausted_roles`, `exhausted_clusters`, `no_progress_strategy`,
-`repair_state_status`, `patch_validation`, and `eval_report_fields`. Phase 4
-target-admission data may also carry
+`tie_break_reason`, `evidence_binding`, `deliverable_obligations`,
+`repair_action_plan`, `semantic_failure_report`, `repair_job_state`,
+`attempt_outcomes`, `exhausted_targets`, `exhausted_roles`,
+`exhausted_clusters`, `no_progress_strategy`, `repair_state_status`,
+`patch_validation`, and `eval_report_fields`. Target-admission data may carry
 `proposed_targets`, `admitted_targets`, `rejected_targets`, `repair_brief`,
-`selected_failure_cluster`, `repair_brief_status`, and
-`action_envelope_status`. Phase 7 target-admission fields add
+`selected_failure_cluster`, `repair_brief_status`, `action_envelope_status`,
 `target_source_of_truth`, `target_ownership_source`, `target_workspace_scope`,
-`target_evidence_freshness`, `focused_edit_status`, and related priority
-fields. Phase 8 semantic diagnostic fields add `diagnostic_failure_kind`,
-`semantic_cluster_source_of_truth`, `observed_expected`, `affected_cases`,
-`candidate_artifacts`, and `unknown_diagnostic_count` so eval can distinguish
-raw verifier failure, verifier-contract failure, setup/dev-server failure, and
-implementation failure without reparsing logs.
 `target_evidence_freshness`, `focused_edit_status`,
 `current_excerpt_available`, `target_priority_components`, and
-`target_conflict_reason`. These fields are reporting and repair-contract data.
-They do not grant retry authority or create another execution loop.
+`target_conflict_reason`. Semantic diagnostic fields add
+`diagnostic_failure_kind`, `semantic_cluster_source_of_truth`,
+`observed_expected`, `affected_cases`, `candidate_artifacts`, and
+`unknown_diagnostic_count` so eval can distinguish raw verifier failure,
+verifier-contract failure, setup/dev-server failure, and implementation
+failure without reparsing logs. Repair-action envelope fields add
+`allowed_tool_category`, `repair_root_cause`, `repair_hypothesis`,
+`expected_improvement`, `target_confidence`, `must_preserve`, `success_check`,
+and `repair_plan_rejection_reason`. A rejected repair action envelope is a
+deterministic stop before a repair prompt, not another model turn. These
+fields are reporting and repair-contract data. They do not grant retry
+authority or create another execution loop.
 
 Target admission is a deterministic gate between active-job dispatch and
 repair prompt rendering. It uses ArtifactGraph, ArtifactLedger, workspace

@@ -527,23 +527,24 @@ These values are carried as bounded contract evidence fields such as
 `completion_evidence`, `evidence_binding`, `deliverable_obligations`,
 `repair_action_plan`, `semantic_failure_report`, `repair_job_state`,
 `attempt_outcomes`, `patch_validation`, and `eval_report_fields` are also
-bounded contract evidence. Phase 4 also propagates `proposed_targets`,
-`admitted_targets`, `rejected_targets`, `repair_brief`,
-`selected_failure_cluster`, `repair_brief_status`, and
-`action_envelope_status`. Phase 7 target-admission evidence may also carry
+bounded contract evidence. Target-admission evidence may also carry
+`proposed_targets`, `admitted_targets`, `rejected_targets`, `repair_brief`,
+`selected_failure_cluster`, `repair_brief_status`, `action_envelope_status`,
 `target_source_of_truth`, `target_ownership_source`, `target_workspace_scope`,
 `target_evidence_freshness`, `focused_edit_status`,
-`current_excerpt_available`, and `target_priority_components`. Phase 8
-semantic diagnostic evidence may also carry `diagnostic_failure_kind`,
-`semantic_cluster_source_of_truth`, `observed_expected`, `affected_cases`,
-`candidate_artifacts`, and `unknown_diagnostic_count`. These fields clarify
-the next bounded repair task; they do not create retry authority or a hidden
-semantic planner.
 `current_excerpt_available`, `target_priority_components`, and
-`target_conflict_reason`. They are data for Recovery Policy Contract, Recovery
-Task Contract, verifier-owned setup recovery, or focused target admission.
-They are not hidden workflow state, retry counters, or permission for the
-model to choose a new job.
+`target_conflict_reason`. Semantic diagnostic evidence may also carry
+`diagnostic_failure_kind`, `semantic_cluster_source_of_truth`,
+`observed_expected`, `affected_cases`, `candidate_artifacts`, and
+`unknown_diagnostic_count`. Repair-action admission evidence may also carry
+`allowed_tool_category`, `repair_root_cause`, `repair_hypothesis`,
+`expected_improvement`, `target_confidence`, `must_preserve`, `success_check`,
+and `repair_plan_rejection_reason`. These fields clarify the next bounded
+repair task or the reason no repair task is admitted. They are data for
+Recovery Policy Contract, Recovery Task Contract, verifier-owned setup
+recovery, focused target admission, or repair-action admission. They are not
+hidden workflow state, retry counters, or permission for the model to choose a
+new job.
 
 Active-job candidate data is part of the same contract boundary. Each candidate
 should name the recovery owner, source layer, source of truth, target hint,

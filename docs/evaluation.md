@@ -399,6 +399,16 @@ Contract Boundary Propagation fields should be recorded when present:
 - `selected_failure_cluster`
 - `repair_brief_status`
 - `action_envelope_status`
+- `allowed_change_kind`
+- `allowed_tool_category`
+- `repair_root_cause`
+- `repair_hypothesis`
+- `expected_improvement`
+- `target_confidence`
+- `must_preserve`
+- `disallowed_actions`
+- `success_check`
+- `repair_plan_rejection_reason`
 
 These fields explain why a repair packet or setup recovery path was selected.
 They are not proof that the original ultra plan completed.
@@ -575,7 +585,9 @@ Interpretation rules:
   artifact creation. The artifact may exist; the failure is that the declared
   evidence path is missing, failed, or unbound.
 - If `repair_action_plan` is rejected or explicit-stop, report the rejection
-  reason instead of treating it as a model-quality failure.
+  reason instead of treating it as a model-quality failure. A rejected action
+  envelope means the selected recovery job/action/tool category did not satisfy
+  the deterministic recovery contract and the repair turn was not admitted.
 
 ## Versioned Event And Budget Reporting
 

@@ -384,6 +384,9 @@ where
         if repair_state_explicit_stop(&current_contract_evidence) {
             break;
         }
+        if repair_plan_admission_rejected(&current_contract_evidence) {
+            break;
+        }
         let attempt_context = repair_attempt_context(step, &current_contract_evidence);
         let before_signature = repair_signature_from_contract_evidence(&current_contract_evidence);
         let selected_envelope = recovery_execution_envelope(&current_contract_evidence);
@@ -1838,6 +1841,16 @@ fn repair_state_explicit_stop(evidence: &[ContractEvidence]) -> bool {
     })
 }
 
+fn repair_plan_admission_rejected(evidence: &[ContractEvidence]) -> bool {
+    evidence.iter().any(|item| {
+        item.action_envelope_status.as_deref() == Some("rejected")
+            && item
+                .explicit_stop_reason
+                .as_deref()
+                .is_some_and(|reason| reason.starts_with("repair_plan_admission_rejected:"))
+    })
+}
+
 fn record_repair_attempt_ledger(state: &mut RepairStepState, update: RepairAttemptUpdate<'_>) {
     let outcome = update.forced_outcome.unwrap_or_else(|| {
         classify_attempt_outcome(
@@ -2673,6 +2686,23 @@ mod tests {
         assert!(rendered.contains(
             "required_action: emit exactly one valid Write tool call with path=src/components/GameCanvas.tsx"
         ));
+    }
+
+    #[test]
+    fn repair_plan_admission_rejection_is_terminal_before_repair_turn() {
+        let evidence = ContractEvidence::new("tool_protocol")
+            .with_action_envelope_status("rejected")
+            .with_explicit_stop_reason(
+                "repair_plan_admission_rejected:action edit_source_for_diagnostic is not admitted",
+            );
+
+        assert!(repair_plan_admission_rejected(&[evidence]));
+
+        let unrelated_explicit_stop = ContractEvidence::new("repair")
+            .with_action_envelope_status("explicit_stop")
+            .with_explicit_stop_reason("no_admitted_recovery_target");
+
+        assert!(!repair_plan_admission_rejected(&[unrelated_explicit_stop]));
     }
 
     #[test]

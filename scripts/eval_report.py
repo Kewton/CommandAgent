@@ -114,6 +114,16 @@ def write_summary(path, rows):
         "artifact_role_projection_status",
         "repair_brief_status",
         "action_envelope_status",
+        "allowed_change_kind",
+        "allowed_tool_category",
+        "repair_root_cause",
+        "repair_hypothesis",
+        "expected_improvement",
+        "target_confidence",
+        "must_preserve",
+        "disallowed_actions",
+        "success_check",
+        "repair_plan_rejection_reason",
         "repair_action",
         "tool_policy",
         "repair_attempt_count",
@@ -237,6 +247,18 @@ def recheck(root, cases):
                 "artifact_role_projection_status": meta.get("artifact_role_projection_status", ""),
                 "repair_brief_status": meta.get("repair_brief_status", ""),
                 "action_envelope_status": meta.get("action_envelope_status", ""),
+                "allowed_change_kind": meta.get("allowed_change_kind", ""),
+                "allowed_tool_category": meta.get("allowed_tool_category", ""),
+                "repair_root_cause": meta.get("repair_root_cause", ""),
+                "repair_hypothesis": meta.get("repair_hypothesis", ""),
+                "expected_improvement": meta.get("expected_improvement", ""),
+                "target_confidence": meta.get("target_confidence", ""),
+                "must_preserve": meta.get("must_preserve", ""),
+                "disallowed_actions": meta.get("disallowed_actions", ""),
+                "success_check": meta.get("success_check", ""),
+                "repair_plan_rejection_reason": meta.get(
+                    "repair_plan_rejection_reason", ""
+                ),
                 "repair_action": meta.get("repair_action", derive_repair_action(reason)),
                 "tool_policy": meta.get("tool_policy", derive_tool_policy(reason)),
                 "repair_attempt_count": meta.get("repair_attempt_count", "0"),
@@ -507,6 +529,10 @@ def render_report(rows):
     dispatch_statuses = {}
     repair_brief_statuses = {}
     action_envelope_statuses = {}
+    allowed_change_kinds = {}
+    allowed_tool_categories = {}
+    target_confidences = {}
+    repair_plan_rejection_reasons = {}
     selected_failure_clusters = {}
     semantic_failure_kinds = {}
     diagnostic_failure_kinds = {}
@@ -598,6 +624,10 @@ def render_report(rows):
         dispatch_status = row.get("dispatch_status") or derive_dispatch_status(row["reason"])
         repair_brief_status = row.get("repair_brief_status", "")
         action_envelope_status = row.get("action_envelope_status", "")
+        allowed_change_kind = row.get("allowed_change_kind", "")
+        allowed_tool_category = row.get("allowed_tool_category", "")
+        target_confidence = row.get("target_confidence", "")
+        repair_plan_rejection_reason = row.get("repair_plan_rejection_reason", "")
         selected_failure_cluster = row.get("selected_failure_cluster", "")
         semantic_failure_kind = row.get("semantic_failure_kind", "")
         diagnostic_failure_kind = row.get("diagnostic_failure_kind", "")
@@ -640,6 +670,22 @@ def render_report(rows):
         if action_envelope_status:
             action_envelope_statuses[action_envelope_status] = (
                 action_envelope_statuses.get(action_envelope_status, 0) + 1
+            )
+        if allowed_change_kind:
+            allowed_change_kinds[allowed_change_kind] = (
+                allowed_change_kinds.get(allowed_change_kind, 0) + 1
+            )
+        if allowed_tool_category:
+            allowed_tool_categories[allowed_tool_category] = (
+                allowed_tool_categories.get(allowed_tool_category, 0) + 1
+            )
+        if target_confidence:
+            target_confidences[target_confidence] = (
+                target_confidences.get(target_confidence, 0) + 1
+            )
+        if repair_plan_rejection_reason:
+            repair_plan_rejection_reasons[repair_plan_rejection_reason] = (
+                repair_plan_rejection_reasons.get(repair_plan_rejection_reason, 0) + 1
             )
         if selected_failure_cluster:
             selected_failure_clusters[selected_failure_cluster] = (
@@ -846,6 +892,18 @@ def render_report(rows):
     lines.extend(["", "## Action Envelope Status"])
     for name, count in sorted(action_envelope_statuses.items()):
         lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Repair Action Envelope"])
+    for name, count in sorted(allowed_change_kinds.items()):
+        lines.append(f"- allowed_change_kind={name}: {count}")
+    for name, count in sorted(allowed_tool_categories.items()):
+        lines.append(f"- allowed_tool_category={name}: {count}")
+    for name, count in sorted(target_confidences.items()):
+        lines.append(f"- target_confidence={name}: {count}")
+    if repair_plan_rejection_reasons:
+        for name, count in sorted(repair_plan_rejection_reasons.items()):
+            lines.append(f"- rejection={name}: {count}")
+    else:
+        lines.append("- rejection=none")
     lines.extend(["", "## Selected Failure Clusters"])
     for name, count in sorted(selected_failure_clusters.items()):
         lines.append(f"- {name}: {count}")

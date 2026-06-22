@@ -281,6 +281,15 @@ pub(crate) struct RecoveryOrchestrationDecision {
     pub(crate) repair_state_status: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RepairPlanAdmission {
+    status: RepairActionStatus,
+    action_envelope_status: ActionEnvelopeStatus,
+    explicit_stop_reason: Option<String>,
+    rejection_reason: Option<String>,
+    allowed_tool_category: AllowedToolCategory,
+}
+
 impl RecoveryOrchestrationDecision {
     pub(crate) fn apply_to_evidence(&self, mut evidence: ContractEvidence) -> ContractEvidence {
         if evidence.active_job.is_none() {
@@ -429,7 +438,7 @@ pub(crate) fn orchestrate_contract_evidence(
     let target_role = target_decision.selected_role;
     let role = target_role.map(|role| role.as_str().to_string());
     let target_admission = target_decision.target_admission_line();
-    let explicit_stop_reason = if let Some(reason) = arbitration.explicit_stop_reason.clone() {
+    let base_explicit_stop_reason = if let Some(reason) = arbitration.explicit_stop_reason.clone() {
         Some(reason)
     } else if let Some(reason) = target_decision.explicit_stop_reason.clone() {
         Some(reason)
@@ -467,23 +476,6 @@ pub(crate) fn orchestrate_contract_evidence(
     let required_action = required_action(evidence, job, action);
     let disallowed_actions = disallowed_actions(evidence, job, action);
     let rerun_authority = arbitration.rerun_authority.clone();
-    let repair_action_plan = vec![
-        RepairActionPlan {
-            status: repair_action_status(&target_admission, explicit_stop_reason.as_deref()),
-            target_role: target_role.map(|role| role.as_str().to_string()),
-            target_path: target.clone(),
-            allowed_change_kind: allowed_change_kind.clone(),
-            allowed_tool_category: AllowedToolCategory::from_projection(tool_policy.as_str()),
-            expected_delta: expected_evidence_delta.clone(),
-            rejection_reason: explicit_stop_reason.clone().or_else(|| {
-                target_admission
-                    .starts_with("rejected")
-                    .then(|| target_admission.clone())
-            }),
-            source_of_truth: source_of_truth.clone(),
-        }
-        .render_line(),
-    ];
     let mut semantic_source = evidence
         .clone()
         .with_semantic_failure_kind(semantic_failure_kind.clone())
@@ -501,21 +493,62 @@ pub(crate) fn orchestrate_contract_evidence(
         &SemanticFailureReport::from_contract_evidence(&semantic_source).render_lines(),
         &semantic_plan.render_lines(),
     );
+    let admission = admit_repair_plan(RepairPlanAdmissionInput {
+        job,
+        action,
+        target: target.as_deref(),
+        target_role,
+        source_of_truth: &source_of_truth,
+        target_admission: &target_admission,
+        allowed_change_kind: &allowed_change_kind,
+        tool_policy,
+        base_explicit_stop_reason,
+    });
+    let explicit_stop_reason = admission.explicit_stop_reason.clone();
+    let repair_action_plan = vec![
+        RepairActionPlan {
+            status: admission.status,
+            selected_cluster: Some(selected_failure_cluster.clone()),
+            target_role: target_role.map(|role| role.as_str().to_string()),
+            target_path: target.clone(),
+            allowed_change_kind: allowed_change_kind.clone(),
+            allowed_tool_category: admission.allowed_tool_category,
+            repair_hypothesis: Some(semantic_plan.repair_hypothesis.clone()),
+            expected_delta: expected_evidence_delta.clone(),
+            target_confidence: Some(target_confidence(&target_decision, admission.status)),
+            rejection_reason: admission
+                .rejection_reason
+                .clone()
+                .or_else(|| explicit_stop_reason.clone())
+                .or_else(|| {
+                    target_admission
+                        .starts_with("rejected")
+                        .then(|| target_admission.clone())
+                }),
+            source_of_truth: source_of_truth.clone(),
+        }
+        .render_line(),
+    ];
     let repair_brief = RepairBrief {
         status: repair_brief_status(explicit_stop_reason.as_deref()),
         active_job: job.as_str().to_string(),
         recovery_owner: recovery_owner.clone(),
         repair_action: action.as_str().to_string(),
         selected_failure_cluster: selected_failure_cluster.clone(),
+        root_cause: repair_brief_root_cause(&semantic_plan),
+        repair_hypothesis: semantic_plan.repair_hypothesis.clone(),
+        expected_improvement: semantic_plan.expected_improvement.clone(),
         selected_target: target.clone(),
+        target_confidence: target_confidence(&target_decision, admission.status),
         allowed_change_kind: allowed_change_kind.clone(),
-        allowed_tool_category: AllowedToolCategory::from_projection(tool_policy.as_str()),
+        allowed_tool_category: admission.allowed_tool_category,
         disallowed_actions: disallowed_actions.clone(),
         must_preserve: repair_brief_must_preserve(evidence, &rerun_authority),
         success_check: repair_brief_success_check(evidence, &rerun_authority),
         rerun_authority: rerun_authority.clone(),
+        rejection_reason: admission.rejection_reason.clone(),
         explicit_stop_reason: explicit_stop_reason.clone(),
-        action_envelope_status: action_envelope_status(explicit_stop_reason.as_deref()),
+        action_envelope_status: admission.action_envelope_status,
     };
     let repair_brief_lines = repair_brief.render_lines();
     let exhausted_clusters = exhausted_clusters_from_evidence(evidence);
@@ -2057,14 +2090,6 @@ fn repair_brief_status(explicit_stop_reason: Option<&str>) -> RepairBriefStatus 
     }
 }
 
-fn action_envelope_status(explicit_stop_reason: Option<&str>) -> ActionEnvelopeStatus {
-    if explicit_stop_reason.is_some() {
-        ActionEnvelopeStatus::ExplicitStop
-    } else {
-        ActionEnvelopeStatus::Admitted
-    }
-}
-
 fn repair_brief_must_preserve(
     evidence: &ContractEvidence,
     rerun_authority: &[String],
@@ -2087,6 +2112,237 @@ fn repair_brief_success_check(evidence: &ContractEvidence, rerun_authority: &[St
         .command
         .clone()
         .unwrap_or_else(|| "original guard or verifier".to_string())
+}
+
+#[derive(Debug, Clone)]
+struct RepairPlanAdmissionInput<'a> {
+    job: RecoveryJobKind,
+    action: RecoveryActionKind,
+    target: Option<&'a str>,
+    target_role: Option<ArtifactRole>,
+    source_of_truth: &'a str,
+    target_admission: &'a str,
+    allowed_change_kind: &'a str,
+    tool_policy: ToolPolicyProjection,
+    base_explicit_stop_reason: Option<String>,
+}
+
+fn admit_repair_plan(input: RepairPlanAdmissionInput<'_>) -> RepairPlanAdmission {
+    let allowed_tool_category = AllowedToolCategory::from_projection(input.tool_policy.as_str());
+    if let Some(reason) = input.base_explicit_stop_reason {
+        return RepairPlanAdmission {
+            status: RepairActionStatus::ExplicitStop,
+            action_envelope_status: ActionEnvelopeStatus::ExplicitStop,
+            explicit_stop_reason: Some(reason),
+            rejection_reason: None,
+            allowed_tool_category,
+        };
+    }
+
+    let rejection = repair_plan_rejection_reason(&input);
+    if let Some(reason) = rejection {
+        return RepairPlanAdmission {
+            status: RepairActionStatus::Rejected,
+            action_envelope_status: ActionEnvelopeStatus::Rejected,
+            explicit_stop_reason: Some(format!("repair_plan_admission_rejected:{reason}")),
+            rejection_reason: Some(reason),
+            allowed_tool_category,
+        };
+    }
+
+    RepairPlanAdmission {
+        status: RepairActionStatus::Admitted,
+        action_envelope_status: ActionEnvelopeStatus::Admitted,
+        explicit_stop_reason: None,
+        rejection_reason: None,
+        allowed_tool_category,
+    }
+}
+
+fn repair_plan_rejection_reason(input: &RepairPlanAdmissionInput<'_>) -> Option<String> {
+    if !action_allowed_for_job(input.job, input.action) {
+        return Some(format!(
+            "action {} is not admitted for active job {}",
+            input.action.as_str(),
+            input.job.as_str()
+        ));
+    }
+
+    let expected_tool_category = expected_tool_category(input.job, input.action);
+    let actual_tool_category = AllowedToolCategory::from_projection(input.tool_policy.as_str());
+    if actual_tool_category != expected_tool_category {
+        return Some(format!(
+            "tool category {} does not match expected {} for {}:{}",
+            actual_tool_category.as_str(),
+            expected_tool_category.as_str(),
+            input.job.as_str(),
+            input.action.as_str()
+        ));
+    }
+
+    if input.target_admission.starts_with("rejected")
+        && input.target.is_some()
+        && job_requires_target(input.job)
+    {
+        return Some(format!(
+            "selected target was rejected by target admission: {}",
+            input.target_admission
+        ));
+    }
+
+    if matches!(
+        input.job,
+        RecoveryJobKind::SetupBootstrap | RecoveryJobKind::ManifestRepair
+    ) && input.target_role.is_some_and(|role| {
+        !matches!(
+            role,
+            ArtifactRole::SetupManifest | ArtifactRole::SetupConfig
+        )
+    }) {
+        return Some(format!(
+            "setup or manifest repair cannot target role {}",
+            input
+                .target_role
+                .map(|role| role.as_str())
+                .unwrap_or("unknown")
+        ));
+    }
+
+    if input.job == RecoveryJobKind::VerifierContractCorrection
+        && input.action != RecoveryActionKind::StopWithStructuredEvidence
+        && input
+            .target
+            .is_some_and(|target| !target.starts_with("step:"))
+        && input.target_role != Some(ArtifactRole::Unknown)
+    {
+        return Some(
+            "verifier contract correction cannot mutate implementation artifacts by default"
+                .to_string(),
+        );
+    }
+
+    if input.source_of_truth == "tool_schema_contract"
+        && input.job != RecoveryJobKind::ToolProtocolCorrection
+    {
+        return Some("tool schema failures must use tool protocol correction".to_string());
+    }
+
+    if input.source_of_truth == "verifier_contract"
+        && matches!(
+            input.job,
+            RecoveryJobKind::SourceImplementationRepair
+                | RecoveryJobKind::RouteIntegrationRepair
+                | RecoveryJobKind::DocumentationRepair
+                | RecoveryJobKind::TestAlignmentRepair
+        )
+    {
+        return Some("verifier contract authority cannot select artifact mutation".to_string());
+    }
+
+    if input.allowed_change_kind == "no_change_admitted"
+        && actual_tool_category != AllowedToolCategory::NoMutation
+    {
+        return Some("no-change repair plan cannot project mutating tool policy".to_string());
+    }
+
+    None
+}
+
+fn action_allowed_for_job(job: RecoveryJobKind, action: RecoveryActionKind) -> bool {
+    if action == RecoveryActionKind::StopWithStructuredEvidence {
+        return true;
+    }
+    matches!(
+        (job, action),
+        (
+            RecoveryJobKind::SetupBootstrap,
+            RecoveryActionKind::InstallOrPrepareDependencies
+        ) | (
+            RecoveryJobKind::ManifestRepair,
+            RecoveryActionKind::AddMissingManifestDependency
+                | RecoveryActionKind::ResolveManifestConflict
+        ) | (
+            RecoveryJobKind::ScaffoldMaterialization,
+            RecoveryActionKind::CreateRequiredArtifact
+        ) | (
+            RecoveryJobKind::RouteIntegrationRepair,
+            RecoveryActionKind::ConnectExistingArtifactToEntrypoint
+        ) | (
+            RecoveryJobKind::SourceImplementationRepair,
+            RecoveryActionKind::EditSourceForDiagnostic
+        ) | (
+            RecoveryJobKind::DevServerSmoke,
+            RecoveryActionKind::RunDevServerSmoke
+        ) | (
+            RecoveryJobKind::TestArtifactCompletion,
+            RecoveryActionKind::CreateRequiredArtifact
+        ) | (
+            RecoveryJobKind::TestAlignmentRepair,
+            RecoveryActionKind::AlignTestAndVerifier
+        ) | (
+            RecoveryJobKind::DocumentationRepair,
+            RecoveryActionKind::UpdateDocsLiteral
+        ) | (
+            RecoveryJobKind::EvidenceBindingRepair,
+            RecoveryActionKind::RepairEvidenceBinding
+        ) | (
+            RecoveryJobKind::VerifierContractCorrection,
+            RecoveryActionKind::ReplaceInvalidVerifierCommand
+        ) | (
+            RecoveryJobKind::ToolProtocolCorrection,
+            RecoveryActionKind::CorrectToolProtocol
+        )
+    )
+}
+
+fn expected_tool_category(job: RecoveryJobKind, action: RecoveryActionKind) -> AllowedToolCategory {
+    if action == RecoveryActionKind::StopWithStructuredEvidence {
+        return AllowedToolCategory::NoMutation;
+    }
+    match job {
+        RecoveryJobKind::SetupBootstrap | RecoveryJobKind::DevServerSmoke => {
+            AllowedToolCategory::VerifierOwnedSetup
+        }
+        RecoveryJobKind::ManifestRepair => AllowedToolCategory::SetupConfigMutation,
+        RecoveryJobKind::ToolProtocolCorrection => AllowedToolCategory::ToolProtocol,
+        RecoveryJobKind::VerifierContractCorrection => AllowedToolCategory::ReadOnly,
+        RecoveryJobKind::ContractConflict | RecoveryJobKind::ExplicitStop => {
+            AllowedToolCategory::NoMutation
+        }
+        _ => AllowedToolCategory::FileMutation,
+    }
+}
+
+fn repair_brief_root_cause(plan: &SemanticRepairPlan) -> String {
+    let code = plan
+        .selected_cluster
+        .diagnostic_code
+        .as_deref()
+        .unwrap_or("diagnostic_unknown");
+    format!("{} from {}", code, plan.selected_cluster.source_of_truth)
+}
+
+fn target_confidence(
+    decision: &crate::agent::step_runner::target_admission::TargetAdmissionDecision,
+    status: RepairActionStatus,
+) -> String {
+    if status == RepairActionStatus::Rejected {
+        return "rejected".to_string();
+    }
+    if status == RepairActionStatus::ExplicitStop {
+        return "explicit_stop".to_string();
+    }
+    decision
+        .selected_record()
+        .map(|record| {
+            format!(
+                "{}:{}:{}",
+                record.source_of_truth,
+                record.evidence_freshness.as_str(),
+                record.focused_edit.as_str()
+            )
+        })
+        .unwrap_or_else(|| "no_admitted_target".to_string())
 }
 
 fn select_target(
@@ -2567,19 +2823,6 @@ fn job_requires_target(job: RecoveryJobKind) -> bool {
     )
 }
 
-fn repair_action_status(
-    target_admission: &str,
-    explicit_stop_reason: Option<&str>,
-) -> RepairActionStatus {
-    if explicit_stop_reason.is_some() {
-        RepairActionStatus::ExplicitStop
-    } else if target_admission.starts_with("rejected") {
-        RepairActionStatus::Rejected
-    } else {
-        RepairActionStatus::Admitted
-    }
-}
-
 fn evidence_has_missing_role(evidence: &ContractEvidence, role: ArtifactRole) -> bool {
     evidence
         .missing_paths
@@ -2822,6 +3065,67 @@ mod tests {
         );
         assert_eq!(decision.target.as_deref(), Some("step:verify-build"));
         assert_eq!(decision.tool_policy, ToolPolicyProjection::ReadOnly);
+    }
+
+    #[test]
+    fn incompatible_repair_action_is_rejected_by_action_envelope() {
+        let evidence = ContractEvidence::new("recovery")
+            .with_reason_code("phase9_action_envelope_fixture")
+            .with_active_job("tool_protocol_correction")
+            .with_repair_action("edit_source_for_diagnostic")
+            .with_tool("Write")
+            .with_target_field("path")
+            .with_repair_target("app/page.tsx");
+
+        let decision = orchestrate_contract_evidence(&evidence).unwrap();
+
+        assert_eq!(decision.job, RecoveryJobKind::ToolProtocolCorrection);
+        assert_eq!(decision.action, RecoveryActionKind::EditSourceForDiagnostic);
+        assert_eq!(decision.action_envelope_status.as_deref(), Some("rejected"));
+        assert!(
+            decision
+                .explicit_stop_reason
+                .as_deref()
+                .is_some_and(|reason| reason.starts_with("repair_plan_admission_rejected:"))
+        );
+        assert!(decision.repair_action_plan.iter().any(|line| {
+            line.contains("status=rejected")
+                && line.contains("rejection=action edit_source_for_diagnostic")
+        }));
+        assert!(decision.eval_report_fields.iter().any(|field| {
+            field.starts_with("repair_plan_rejection_reason=action edit_source_for_diagnostic")
+        }));
+    }
+
+    #[test]
+    fn verifier_contract_source_of_truth_rejects_artifact_mutation_action() {
+        let admission = admit_repair_plan(RepairPlanAdmissionInput {
+            job: RecoveryJobKind::SourceImplementationRepair,
+            action: RecoveryActionKind::EditSourceForDiagnostic,
+            target: Some("app/page.tsx"),
+            target_role: Some(ArtifactRole::Entrypoint),
+            source_of_truth: "verifier_contract",
+            target_admission: "admitted app/page.tsx",
+            allowed_change_kind: "entrypoint_source_only",
+            tool_policy: ToolPolicyProjection::FileMutationRepair,
+            base_explicit_stop_reason: None,
+        });
+
+        assert_eq!(admission.status, RepairActionStatus::Rejected);
+        assert_eq!(
+            admission.action_envelope_status,
+            ActionEnvelopeStatus::Rejected
+        );
+        assert_eq!(
+            admission.explicit_stop_reason.as_deref(),
+            Some(
+                "repair_plan_admission_rejected:verifier contract authority cannot select artifact mutation"
+            )
+        );
+        assert_eq!(
+            admission.rejection_reason.as_deref(),
+            Some("verifier contract authority cannot select artifact mutation")
+        );
     }
 
     #[test]
