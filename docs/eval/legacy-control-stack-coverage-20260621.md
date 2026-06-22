@@ -300,3 +300,43 @@ Final coverage interpretation:
 
 The next continuation phase should split the Phase20 continuation ledger into
 row-level implementation tasks before changing this table's final statuses.
+
+## Phase21 Core Contract And Ownership Appendix - 2026-06-23
+
+Phase21 selected Phase20 continuation blocker `P20-COV-001` and expanded C01
+through C12 into row-level closure records.
+
+Phase21 did not promote any coverage row to `Implemented`. The selected rows
+still require implementation proof before status changes:
+
+| Phase21 disposition | Count |
+| --- | ---: |
+| `closed_proven` | 0 |
+| `excluded_with_rationale` | 0 |
+| `split_forward` | 12 |
+| `open` | 0 |
+
+The selected rows now have explicit downstream blockers:
+
+| rows | downstream phase | responsibility |
+| --- | --- | --- |
+| C01-C03 | Phase22 | task contract, request admission, behavior obligation projection |
+| C04-C06 | Phase23 | artifact role, workspace scope, ownership |
+| C07-C10 | Phase24 | artifact ledger, completion evidence, evidence binding, deliverable audit |
+| C11-C12 | Phase25 | active-job arbitration and recovery dispatch lifecycle |
+
+Supporting Phase21 artifacts:
+
+- Phase21 workspace row closure matrix
+- Phase21 workspace blocking ledger
+- Phase21 workspace reconciliation map
+- `docs/eval/loadmap2-phase21-core-contract-ownership-20260623.md`
+
+The migration decision remains:
+
+```text
+migration_not_complete
+```
+
+Reason: C01-C12 are no longer vague continuation work, but they remain
+split-forward blockers until the downstream proof gates pass.
