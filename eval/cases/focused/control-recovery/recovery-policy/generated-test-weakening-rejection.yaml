@@ -5,6 +5,23 @@ style: test-hardening
 mode: plan-run
 intent: modify
 prompt: "Create calculator.py with divide(a, b) and tests that assert ZeroDivisionError is raised for divide(1, 0). Do not weaken the test."
+matrix_row: generated-test-weakening-rejection
+proof_mode: deterministic_fixture
+fixture_reason: explicit_stop
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: explicit_stop
+  recovery_owner: explicit_stop
+  loop_control_action: render_explicit_stop
+  dispatch_status: explicit_stop
+  repair_action: stop_with_structured_evidence
+  tool_policy: explicit_stop
+  explicit_stop_reason: generated_test_weakening
+  patch_validation_status: rejected
+  patch_validation_source: model_tool_edit
+  patch_validation_outcomes: test_weakening
+  patch_validation_rejected_paths: tests/test_calculator.py
 expected_artifacts:
   - calculator.py
   - tests/test_calculator.py
@@ -19,9 +36,15 @@ success_check:
     tests/test_calculator.py:
       - ZeroDivisionError
       - pytest.raises
-expected_terminal_state: ok
-expected_contract_layer: ok
-expected_active_job: none
-expected_attempt_outcome: passed
-expected_evidence_binding_status: bound
-expected_completion_evidence_status: passed
+expected_terminal_state: explicit_stop
+expected_contract_layer: unknown_contract
+expected_active_job: explicit_stop
+expected_recovery_owner: explicit_stop
+expected_patch_validation_status: rejected
+expected_explicit_stop_reason: generated_test_weakening
+expected_lifecycle_stage: explicit_stop
+expected_active_owner: explicit_stop
+expected_selected_action: stop_with_structured_evidence
+expected_target_admission_status: unknown
+expected_repair_action_plan_status: planned
+expected_completion_source: none

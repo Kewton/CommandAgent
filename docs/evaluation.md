@@ -249,6 +249,29 @@ and do not change the command sent to CommandAgent. The runner records
 assertions are reported as `skipped_dry_run` because dry-run workspaces do not
 contain runtime evidence.
 
+Focused cases may also declare `matrix_row` and `proof_mode`. `matrix_row`
+names the control path being proved, independent of the case id.
+`proof_mode=real_llm` means the row is proved by an actual CommandAgent run.
+`proof_mode=deterministic_fixture` or `proof_mode=report_fixture` means the
+row is an eval-only deterministic failure/report fixture. Fixture rows are
+allowed for malformed tool-call shape, stale edit targets, generated-test
+weakening rejection, explicit stops, no-progress ledgers, port conflicts,
+out-of-scope target rejection, setup manifest validation, and verifier
+diagnostic payload extraction. They must not be used to claim model task
+quality or runtime implementation success. They exist to prove that already
+observed deterministic evidence is classified, projected into recovery/report
+fields, and asserted consistently.
+
+Fixture rows may provide `fixture_reason`, `fixture_success`, `fixture_rc`,
+and `fixture_fields`. The runner uses these fields only to populate eval
+observations and reports for the focused matrix. They are not sent to
+CommandAgent prompts, do not add retries, do not run setup, and do not mutate
+runtime behavior. The generated report includes a `Focused Matrix` section so
+reviewers can see how many rows were proved by real LLM execution versus
+deterministic fixtures. Use `scripts/eval_agent_slice.sh --proof-mode
+deterministic_fixture` to run only deterministic fixture rows when validating
+report assertions without invoking a local model.
+
 Focused case directories are discovered recursively so a case set can be
 organized by contract layer without changing runner invocation. Use this for
 small, targeted E2E matrices such as

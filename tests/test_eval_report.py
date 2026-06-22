@@ -24,6 +24,12 @@ JOB_REPORT_SPEC = importlib.util.spec_from_file_location(
 eval_runtime_job_report = importlib.util.module_from_spec(JOB_REPORT_SPEC)
 JOB_REPORT_SPEC.loader.exec_module(eval_runtime_job_report)
 
+CASE_SCHEMA_SPEC = importlib.util.spec_from_file_location(
+    "eval_case_schema", ROOT / "scripts" / "eval_case_schema.py"
+)
+eval_case_schema = importlib.util.module_from_spec(CASE_SCHEMA_SPEC)
+CASE_SCHEMA_SPEC.loader.exec_module(eval_case_schema)
+
 
 class EvalReportCategorizeTests(unittest.TestCase):
     def test_layer_categories(self):
@@ -642,6 +648,25 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertIn("## Unknown/Raw Failure Coverage Defects", report)
         self.assertIn("raw-rc: raw_reason=rc:1 diagnostic_code=rc_1", report)
 
+    def test_explicit_stop_with_reason_is_not_unknown_contract_defect(self):
+        report = eval_report.render_report(
+            [
+                {
+                    "case_id": "explicit",
+                    "run": "1",
+                    "rc": "1",
+                    "elapsed_ms": "10",
+                    "success": "false",
+                    "reason": "explicit_stop",
+                    "terminal_state": "explicit_stop",
+                    "explicit_stop_reason": "contract_conflict",
+                }
+            ]
+        )
+
+        self.assertIn("## Unknown/Raw Failure Coverage Defects", report)
+        self.assertIn("- none", report)
+
     def test_read_cases_recurses_and_parses_expected_fields(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
@@ -666,6 +691,10 @@ class EvalReportCategorizeTests(unittest.TestCase):
                         "expected_active_job: none",
                         "expected_diagnostic_failure_kind: assertion_mismatch",
                         "expected_unknown_diagnostic_count: 0",
+                        "expected_lifecycle_stage: completed",
+                        "expected_completion_source: runtime_success",
+                        "matrix_row: docs-literal",
+                        "proof_mode: deterministic_fixture",
                         "",
                     ]
                 ),
@@ -685,6 +714,52 @@ class EvalReportCategorizeTests(unittest.TestCase):
             cases["focused-assertion"]["expected_fields"]["unknown_diagnostic_count"],
             "0",
         )
+        self.assertEqual(
+            cases["focused-assertion"]["expected_fields"]["lifecycle_stage"],
+            "completed",
+        )
+        self.assertEqual(
+            cases["focused-assertion"]["expected_fields"]["completion_source"],
+            "runtime_success",
+        )
+        self.assertEqual(cases["focused-assertion"]["matrix_row"], "docs-literal")
+        self.assertEqual(
+            cases["focused-assertion"]["proof_mode"], "deterministic_fixture"
+        )
+
+    def test_read_eval_case_parses_fixture_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "case.yaml"
+            path.write_text(
+                "\n".join(
+                    [
+                        "id: fixture-case",
+                        "profile: docs",
+                        "style: default",
+                        "prompt: \"Create README.md\"",
+                        "proof_mode: deterministic_fixture",
+                        "fixture_reason: tool_args_missing_required_field:path",
+                        "fixture_success: false",
+                        "fixture_rc: 1",
+                        "fixture_fields:",
+                        "  active_job: tool_protocol_correction",
+                        "  tool_protocol_missing_field: path",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            case = eval_case_schema.read_eval_case(path)
+
+        self.assertEqual(case["proof_mode"], "deterministic_fixture")
+        self.assertEqual(
+            case["fixture_reason"], "tool_args_missing_required_field:path"
+        )
+        self.assertEqual(
+            case["fixture_fields"]["active_job"], "tool_protocol_correction"
+        )
+        self.assertEqual(case["fixture_fields"]["tool_protocol_missing_field"], "path")
 
     def test_focused_assertion_mismatch_is_reported(self):
         report = eval_report.render_report(
@@ -711,6 +786,27 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertIn("- failed: 1", report)
         self.assertIn("## Focused Assertion Failures", report)
         self.assertIn("active_job:expected=setup_bootstrap;observed=none", report)
+
+    def test_render_report_includes_focused_matrix_section(self):
+        report = eval_report.render_report(
+            [
+                {
+                    "case_id": "matrix",
+                    "run": "1",
+                    "rc": "1",
+                    "elapsed_ms": "10",
+                    "success": "false",
+                    "reason": "tool_args_missing_required_field:path",
+                    "matrix_row": "tool-protocol-missing-field",
+                    "proof_mode": "deterministic_fixture",
+                    "expected_assertion_status": "passed",
+                }
+            ]
+        )
+
+        self.assertIn("## Focused Matrix", report)
+        self.assertIn("- proof_mode=deterministic_fixture: 1", report)
+        self.assertIn("- matrix_row=tool-protocol-missing-field: 1", report)
 
 
 if __name__ == "__main__":

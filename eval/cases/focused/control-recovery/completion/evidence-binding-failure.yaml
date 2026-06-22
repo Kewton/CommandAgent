@@ -1,0 +1,38 @@
+id: focused-evidence-binding-failure
+title: Evidence binding failure
+profile: generic
+style: default
+mode: plan-run
+intent: modify
+prompt: "Create app/page.tsx and bind verifier output to the selected route."
+matrix_row: evidence-binding-failure
+proof_mode: deterministic_fixture
+fixture_reason: evidence_binding_failed
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: evidence_binding_repair
+  recovery_owner: evidence_binding
+  loop_control_action: render_explicit_stop
+  dispatch_status: explicit_stop
+  repair_action: bind_completion_evidence_to_target
+  evidence_binding_status: failed
+  evidence_binding_kind: selected_route_binding
+  completion_authority_status: evidence_binding_failed
+  completion_evidence_status: passed
+  artifact_ledger_status: complete
+  target_path: app/page.tsx
+  selected_target: app/page.tsx
+expected_terminal_state: evidence_binding_failed
+expected_contract_layer: eval_success_contract
+expected_active_job: evidence_binding_repair
+expected_recovery_owner: evidence_binding
+expected_evidence_binding_status: failed
+expected_completion_evidence_status: passed
+expected_artifact_ledger_status: complete
+expected_lifecycle_stage: verifying
+expected_active_owner: evidence_binding
+expected_selected_action: bind_completion_evidence_to_target
+expected_target_admission_status: admitted
+expected_repair_action_plan_status: planned
+expected_completion_source: none

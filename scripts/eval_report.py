@@ -17,6 +17,7 @@ from eval_failure_observation import (  # noqa: E402
 )
 from eval_case_schema import (  # noqa: E402
     ASSERTION_FIELD_NAMES,
+    MATRIX_FIELD_NAMES,
     focused_assertions,
     iter_case_paths,
     read_eval_case,
@@ -52,6 +53,8 @@ def read_case(path):
         "must_include": check.get("must_include", {}),
         "type": check.get("type", "semantic"),
         "expected_fields": case.get("expected_fields", {}),
+        "matrix_row": case.get("matrix_row", case["id"]),
+        "proof_mode": case.get("proof_mode", "real_llm"),
     }
 
 
@@ -76,6 +79,7 @@ def write_summary(path, rows):
         "reason",
         "failure_category",
         "contract_layer",
+        *MATRIX_FIELD_NAMES,
         *OBSERVATION_FIELD_NAMES,
         *RUNTIME_JOB_REPORT_FIELD_NAMES,
         "active_job",
@@ -237,6 +241,8 @@ def recheck(root, cases):
                 "reason": reason,
                 "failure_category": categorize(reason),
                 "contract_layer": contract_layer(reason),
+                "matrix_row": meta.get("matrix_row", case.get("matrix_row", meta["case_id"])),
+                "proof_mode": meta.get("proof_mode", case.get("proof_mode", "real_llm")),
                 "active_job": meta.get("active_job", derive_active_job(reason)),
                 "recovery_owner": meta.get("recovery_owner", derive_recovery_owner(reason)),
                 "loop_control_action": meta.get("loop_control_action", derive_loop_control_action(reason)),
@@ -433,6 +439,8 @@ def derive_active_job(reason):
     if category == "setup":
         return "setup_bootstrap"
     if category == "tool_protocol":
+        return "tool_protocol_correction"
+    if category == "step_policy":
         return "tool_protocol_correction"
     if category == "profile" and ("route" in reason or "integration" in reason):
         return "route_integration_repair"
@@ -668,6 +676,8 @@ def render_report(rows):
     }
     focused_assertion_statuses = {}
     focused_assertion_failures = []
+    matrix_rows = {}
+    proof_modes = {}
     for row in rows:
         observation = normalize_observation(row)
         runtime_job_report = build_runtime_job_report(row)
@@ -788,6 +798,10 @@ def render_report(rows):
         task_contract_status = row.get("task_contract_status", "")
         behavior_obligation_status = row.get("behavior_obligation_status", "")
         artifact_role_projection_status = row.get("artifact_role_projection_status", "")
+        matrix_row = row.get("matrix_row", "") or row["case_id"]
+        proof_mode = row.get("proof_mode", "") or "unknown"
+        matrix_rows[matrix_row] = matrix_rows.get(matrix_row, 0) + 1
+        proof_modes[proof_mode] = proof_modes.get(proof_mode, 0) + 1
         categories[category] = categories.get(category, 0) + 1
         layers[layer] = layers.get(layer, 0) + 1
         terminal_states[terminal_state] = terminal_states.get(terminal_state, 0) + 1
@@ -1316,6 +1330,11 @@ def render_report(rows):
     lines.extend(["", "## Artifact Role Projection"])
     for name, count in sorted(artifact_role_projection_statuses.items()):
         lines.append(f"- status={name}: {count}")
+    lines.extend(["", "## Focused Matrix"])
+    for name, count in sorted(proof_modes.items()):
+        lines.append(f"- proof_mode={name}: {count}")
+    for name, count in sorted(matrix_rows.items()):
+        lines.append(f"- matrix_row={name}: {count}")
     lines.extend(["", "## Focused Assertions"])
     if focused_assertion_statuses:
         for name, count in sorted(focused_assertion_statuses.items()):
@@ -1334,6 +1353,10 @@ def render_report(rows):
 
 def observation_defect(row, observation, terminal_state, diagnostic_code):
     reason = row.get("reason", "")
+    if terminal_state == "explicit_stop" and (
+        row.get("explicit_stop_reason") or observation.get("explicit_stop_reason")
+    ):
+        return ""
     if terminal_state == "unknown":
         return "terminal_state=unknown"
     if (row.get("contract_layer") or observation.get("contract_layer")) == "unknown_contract":

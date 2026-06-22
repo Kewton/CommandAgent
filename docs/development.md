@@ -85,6 +85,9 @@ when the result would immediately become stale.
 - Separate code changes from eval-report-only commits when practical.
 - Commit focused behavior changes before running eval so `meta.json` records a
   clean commit and `dirty: false`.
+- When a change affects an adopted control-recovery path, add or update the
+  focused `matrix_row` and its `expected_*` assertions. A case name alone is
+  not evidence that the control path is covered.
 - Do not commit raw eval workspaces by default. Commit summaries and triage
   reports under `docs/eval/` instead.
 - Do not include API keys, `.env`, local model caches, or generated dependency

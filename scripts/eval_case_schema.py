@@ -24,6 +24,7 @@ EXPECTED_FIELD_NAMES = [
     "expected_recovery_owner",
     "expected_dispatch_status",
     "expected_diagnostic_failure_kind",
+    "expected_semantic_failure_kind",
     "expected_semantic_cluster_source_of_truth",
     "expected_repair_action",
     "expected_repair_brief_status",
@@ -34,10 +35,19 @@ EXPECTED_FIELD_NAMES = [
     "expected_disallowed_actions",
     "expected_repair_plan_rejection_reason",
     "expected_target_role",
+    "expected_target_path",
+    "expected_selected_target",
+    "expected_target_rejection_reasons",
+    "expected_rejected_target_reason",
     "expected_observed_expected",
     "expected_affected_cases",
     "expected_candidate_artifacts",
     "expected_unknown_diagnostic_count",
+    "expected_task_contract_kind",
+    "expected_task_contract_status",
+    "expected_behavior_obligation_codes",
+    "expected_behavior_obligation_status",
+    "expected_artifact_role_projection_status",
     "expected_target_source_of_truth",
     "expected_target_ownership_source",
     "expected_target_evidence_freshness",
@@ -46,14 +56,25 @@ EXPECTED_FIELD_NAMES = [
     "expected_runtime_job_kind",
     "expected_runtime_job_outcome",
     "expected_setup_state",
+    "expected_setup_manifest_path",
+    "expected_setup_artifact_validation_status",
     "expected_dev_server_state",
     "expected_completion_authority_status",
+    "expected_evidence_runner_status",
     "expected_freshness_status",
     "expected_evidence_binding_status",
     "expected_completion_evidence_status",
+    "expected_artifact_ledger_status",
+    "expected_workspace_scope_kind",
+    "expected_artifact_ownership",
+    "expected_artifact_source_of_truth",
     "expected_attempt_outcome",
+    "expected_verifier_rerun_result",
+    "expected_no_progress_strategy",
+    "expected_repair_state_status",
     "expected_explicit_stop_reason",
     "expected_safe_stop_payload",
+    "expected_patch_validation_status",
     "expected_tool_protocol_status",
     "expected_tool_protocol_source",
     "expected_tool_protocol_action",
@@ -62,6 +83,12 @@ EXPECTED_FIELD_NAMES = [
     "expected_tool_protocol_required_fields",
     "expected_tool_protocol_correction_spent",
     "expected_tool_protocol_correction_exhausted",
+    "expected_lifecycle_stage",
+    "expected_active_owner",
+    "expected_selected_action",
+    "expected_target_admission_status",
+    "expected_repair_action_plan_status",
+    "expected_completion_source",
 ]
 
 ASSERTION_FIELD_NAMES = [
@@ -69,6 +96,35 @@ ASSERTION_FIELD_NAMES = [
     "expected_assertion_count",
     "expected_assertion_failures",
 ]
+
+MATRIX_FIELD_NAMES = [
+    "matrix_row",
+    "proof_mode",
+]
+
+CASE_METADATA_KEYS = {
+    "id",
+    "title",
+    "profile",
+    "style",
+    "intent",
+    "prompt",
+    "mode",
+    "fixture",
+    "matrix_row",
+    "proof_mode",
+    "fixture_reason",
+    "fixture_success",
+    "fixture_rc",
+    "fixture_stdout",
+    "fixture_stderr",
+}
+
+PROOF_MODES = {
+    "real_llm",
+    "deterministic_fixture",
+    "report_fixture",
+}
 
 
 def iter_case_paths(cases_dir: str | Path) -> list[Path]:
@@ -81,6 +137,9 @@ def read_eval_case(path: str | Path) -> dict:
         "verify": [],
         "mode": "plan-run",
         "fixture": None,
+        "matrix_row": "",
+        "proof_mode": "real_llm",
+        "fixture_fields": {},
         "success_check": {
             "required_paths": [],
             "must_include": {},
@@ -90,6 +149,7 @@ def read_eval_case(path: str | Path) -> dict:
     current_list = None
     in_success_check = False
     in_must_include = False
+    in_fixture_fields = False
     current_must_include_path = None
     with open(path, encoding="utf-8") as handle:
         for raw in handle:
@@ -103,22 +163,16 @@ def read_eval_case(path: str | Path) -> dict:
                 key = key.strip()
                 value = unquote(value.strip())
                 in_success_check = key == "success_check"
+                in_fixture_fields = key == "fixture_fields"
                 in_must_include = False
                 current_must_include_path = None
-                if key in {
-                    "id",
-                    "title",
-                    "profile",
-                    "style",
-                    "intent",
-                    "prompt",
-                    "mode",
-                    "fixture",
-                }:
+                if key in CASE_METADATA_KEYS:
                     data[key] = value
                     current_list = None
                 elif key in {"expected_artifacts", "verify"}:
                     current_list = key
+                elif key == "fixture_fields":
+                    current_list = None
                 elif key in EXPECTED_FIELD_NAMES:
                     data["expected_fields"][key.removeprefix("expected_")] = value
                     current_list = None
@@ -156,6 +210,9 @@ def read_eval_case(path: str | Path) -> dict:
                     data["success_check"]["must_include"][
                         current_must_include_path
                     ].append(unquote(stripped[2:].strip()))
+            elif in_fixture_fields and indent == 2 and ":" in stripped:
+                key, value = stripped.split(":", 1)
+                data["fixture_fields"][key.strip()] = unquote(value.strip())
             elif current_list and stripped.startswith("- "):
                 data[current_list].append(unquote(stripped[2:].strip()))
     for required in ["id", "profile", "style", "prompt"]:
@@ -163,6 +220,10 @@ def read_eval_case(path: str | Path) -> dict:
             raise SystemExit(f"{path}: missing required field {required}")
     if data["mode"] not in {"plan-run", "ultra-plan-run"}:
         raise SystemExit(f"{path}: unsupported mode {data['mode']}")
+    if not data["matrix_row"]:
+        data["matrix_row"] = data["id"]
+    if data["proof_mode"] not in PROOF_MODES:
+        raise SystemExit(f"{path}: unsupported proof_mode {data['proof_mode']}")
     return data
 
 

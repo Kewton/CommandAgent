@@ -1,0 +1,44 @@
+id: focused-rust-compile-diagnostic-target
+title: Rust compile diagnostic target binding
+profile: rust
+style: default
+mode: plan-run
+intent: modify
+prompt: "Repair src/main.rs based on the cargo check diagnostic."
+matrix_row: rust-compile-diagnostic-target
+proof_mode: deterministic_fixture
+fixture_reason: rc:1
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: source_implementation_repair
+  recovery_owner: source
+  loop_control_action: run_bounded_repair_task
+  dispatch_status: selected
+  repair_action: edit_source_for_diagnostic
+  diagnostic_code: rust_compile_error
+  diagnostic_failure_kind: rust_type_error
+  selected_failure_cluster: rust_compile_error
+  semantic_cluster_source_of_truth: original_verifier_diagnostic
+  preferred_repair_role: implementation
+  candidate_artifacts: src/main.rs
+  target_path: src/main.rs
+  selected_target: src/main.rs
+  target_role: implementation
+  target_admitted_count: 1
+  verifier_rerun_result: failed
+expected_terminal_state: verifier_command_failed
+expected_contract_layer: verification_contract
+expected_diagnostic_code: rust_compile_error
+expected_active_job: source_implementation_repair
+expected_recovery_owner: source
+expected_diagnostic_failure_kind: rust_type_error
+expected_candidate_artifacts: src/main.rs
+expected_target_path: src/main.rs
+expected_verifier_rerun_result: failed
+expected_lifecycle_stage: verifying
+expected_active_owner: source
+expected_selected_action: edit_source_for_diagnostic
+expected_target_admission_status: admitted
+expected_repair_action_plan_status: planned
+expected_completion_source: none

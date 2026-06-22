@@ -5,6 +5,8 @@ style: default
 mode: plan-run
 intent: docs
 prompt: "Create README.md with a short CommandAgent focused eval note."
+matrix_row: missing-artifact-completion
+proof_mode: real_llm
 expected_artifacts:
   - README.md
 verify:
@@ -23,3 +25,9 @@ expected_active_job: scaffold_materialization
 expected_recovery_owner: scaffold
 expected_repair_action: create_required_artifact
 expected_attempt_outcome: not_attempted
+expected_lifecycle_stage: repairing
+expected_active_owner: scaffold
+expected_selected_action: create_required_artifact
+expected_target_admission_status: admitted
+expected_repair_action_plan_status: planned
+expected_completion_source: none

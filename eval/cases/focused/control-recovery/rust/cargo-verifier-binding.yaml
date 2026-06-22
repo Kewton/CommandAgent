@@ -5,6 +5,8 @@ style: default
 mode: plan-run
 intent: new
 prompt: "Create a minimal Rust CLI crate named hello_agent with a main that prints hello."
+matrix_row: rust-cargo-verifier-binding
+proof_mode: real_llm
 expected_artifacts:
   - Cargo.toml
   - src/main.rs
@@ -26,3 +28,9 @@ expected_active_job: none
 expected_attempt_outcome: passed
 expected_evidence_binding_status: bound
 expected_completion_evidence_status: passed
+expected_lifecycle_stage: completed
+expected_active_owner: none
+expected_selected_action: none
+expected_target_admission_status: not_applicable
+expected_repair_action_plan_status: not_applicable
+expected_completion_source: runtime_success

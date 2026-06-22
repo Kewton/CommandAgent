@@ -25,6 +25,7 @@ from eval_failure_observation import (  # noqa: E402
 )
 from eval_case_schema import (  # noqa: E402
     ASSERTION_FIELD_NAMES,
+    MATRIX_FIELD_NAMES,
     focused_assertions,
     iter_case_paths,
     read_eval_case,
@@ -45,6 +46,12 @@ def parse_args():
     parser.add_argument("--model", default=os.environ.get("COMMANDAGENT_MODEL", "default"))
     parser.add_argument("--timeout-secs", type=int, default=900)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--proof-mode",
+        action="append",
+        choices=["real_llm", "deterministic_fixture", "report_fixture"],
+        help="Run only cases with the selected proof mode. Can be repeated.",
+    )
     return parser.parse_args(sys.argv[2:])
 
 
@@ -56,6 +63,10 @@ def unquote(value):
     if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
         return value[1:-1]
     return value
+
+
+def boolish(value):
+    return str(value).strip().casefold() in {"1", "true", "yes", "y", "on"}
 
 
 def git_value(repo, *args):
@@ -452,6 +463,20 @@ def derived_recovery_fields(reason, case):
             tool_protocol_correction_spent="false",
             tool_protocol_correction_exhausted="false",
         )
+    elif category == "step_policy":
+        fields.update(
+            active_job="tool_protocol_correction",
+            recovery_owner="tool_protocol",
+            loop_control_action="run_tool_protocol_correction",
+            dispatch_status="selected",
+            repair_action="correct_tool_protocol",
+            tool_policy="tool_protocol_correction",
+            tool_protocol_status="admitted",
+            tool_protocol_source="step_policy_guard",
+            tool_protocol_action="read_current_target_before_edit",
+            tool_protocol_correction_spent="false",
+            tool_protocol_correction_exhausted="false",
+        )
     elif category == "planning":
         if target:
             job, owner, action = missing_artifact_recovery(role)
@@ -612,6 +637,9 @@ def run_case(repo, root, binary, case, run_index, args):
     meta_path = run_dir / "meta.json"
 
     started = time.time()
+    proof_mode = case.get("proof_mode", "real_llm")
+    fixture_mode = proof_mode in {"deterministic_fixture", "report_fixture"}
+    fixture_fields = case.get("fixture_fields", {})
     if case.get("fixture"):
         fixture = (repo / case["fixture"]).resolve()
         if not fixture.is_dir():
@@ -640,6 +668,13 @@ def run_case(repo, root, binary, case, run_index, args):
         rc = 0
         stdout = f"dry-run: {case['id']}\n"
         stderr = ""
+    elif fixture_mode:
+        rc = int(
+            case.get("fixture_rc")
+            or ("0" if boolish(case.get("fixture_success")) else "1")
+        )
+        stdout = case.get("fixture_stdout") or f"fixture: {case['id']}\n"
+        stderr = case.get("fixture_stderr") or ""
     else:
         process = subprocess.run(
             command,
@@ -656,18 +691,32 @@ def run_case(repo, root, binary, case, run_index, args):
     stdout_path.write_text(stdout, encoding="utf-8")
     stderr_path.write_text(stderr, encoding="utf-8")
 
-    missing = [
-        path for path in case["expected_artifacts"] if not (workdir / path).exists()
-    ]
-    semantic_missing, semantic_mismatches = semantic_failures(workdir, case)
-    success = rc == 0 and not missing and not semantic_missing and not semantic_mismatches
+    if fixture_mode and not args.dry_run:
+        missing = []
+        semantic_missing = []
+        semantic_mismatches = []
+        success = boolish(case.get("fixture_success"))
+    else:
+        missing = [
+            path for path in case["expected_artifacts"] if not (workdir / path).exists()
+        ]
+        semantic_missing, semantic_mismatches = semantic_failures(workdir, case)
+        success = rc == 0 and not missing and not semantic_missing and not semantic_mismatches
     evidence = failure_evidence(workdir, stdout, stderr)
-    reason = success_reason(
-        workdir, rc, missing, semantic_missing, semantic_mismatches, stdout, stderr
-    )
+    if fixture_mode and not args.dry_run:
+        reason = case.get("fixture_reason") or fixture_fields.get("reason")
+        if not reason:
+            reason = "ok" if success else f"rc:{rc}"
+    else:
+        reason = success_reason(
+            workdir, rc, missing, semantic_missing, semantic_mismatches, stdout, stderr
+        )
     category = failure_category(reason)
     layer = contract_layer(reason)
     recovery = recovery_fields(reason, evidence, case)
+    for key, value in fixture_fields.items():
+        if key in RECOVERY_FIELD_NAMES:
+            recovery[key] = value
     observation = normalize_observation(
         {
             "reason": reason,
@@ -679,6 +728,7 @@ def run_case(repo, root, binary, case, run_index, args):
             "command": " ".join(command),
             "failure_category": category,
             "contract_layer": layer,
+            **fixture_fields,
             **recovery,
         }
     )
@@ -688,6 +738,7 @@ def run_case(repo, root, binary, case, run_index, args):
         "failure_category": category,
         "failure_class": observation.get("failure_class", ""),
         "contract_layer": layer,
+        **{name: case.get(name, "") for name in MATRIX_FIELD_NAMES},
         **{name: observation.get(name, "") for name in OBSERVATION_FIELD_NAMES},
         **recovery,
     }
@@ -699,6 +750,9 @@ def run_case(repo, root, binary, case, run_index, args):
             **observed_fields,
         }
     )
+    for key, value in fixture_fields.items():
+        if key in RUNTIME_JOB_REPORT_FIELD_NAMES:
+            runtime_job_report[key] = value
     observed_fields.update(runtime_job_report)
     assertion = focused_assertions(
         case.get("expected_fields", {}),
@@ -719,6 +773,9 @@ def run_case(repo, root, binary, case, run_index, args):
         "expected_fields": case.get("expected_fields", {}),
         "mode": mode,
         "fixture": case.get("fixture"),
+        "matrix_row": case.get("matrix_row", case["id"]),
+        "proof_mode": proof_mode,
+        "fixture_fields": fixture_fields,
         "prompt": prompt,
         "binary": str((repo / binary).resolve()),
         "commit": git_value(repo, "rev-parse", "HEAD"),
@@ -731,6 +788,7 @@ def run_case(repo, root, binary, case, run_index, args):
         "success_check_reason": reason,
         "failure_category": category,
         "contract_layer": layer,
+        **{name: case.get(name, "") for name in MATRIX_FIELD_NAMES},
         **{name: observation.get(name, "") for name in OBSERVATION_FIELD_NAMES},
         **runtime_job_report,
         **recovery,
@@ -746,6 +804,7 @@ def run_case(repo, root, binary, case, run_index, args):
         reason,
         category,
         layer,
+        *(case.get(name, "") for name in MATRIX_FIELD_NAMES),
         *(observation.get(name, "") for name in OBSERVATION_FIELD_NAMES),
         *(runtime_job_report[name] for name in RUNTIME_JOB_REPORT_FIELD_NAMES),
         *(recovery[name] for name in RECOVERY_FIELD_NAMES),
@@ -758,6 +817,9 @@ def main():
     args = parse_args()
     cases_dir = (repo / args.cases_dir).resolve()
     cases = [read_case(path) for path in iter_case_paths(cases_dir)]
+    if args.proof_mode:
+        selected_modes = set(args.proof_mode)
+        cases = [case for case in cases if case.get("proof_mode") in selected_modes]
     stamp = time.strftime("%Y%m%dT%H%M%S")
     root = (repo / args.out / stamp).resolve()
     root.mkdir(parents=True, exist_ok=True)
@@ -771,6 +833,7 @@ def main():
             "reason",
             "failure_category",
             "contract_layer",
+            *MATRIX_FIELD_NAMES,
             *OBSERVATION_FIELD_NAMES,
             *RUNTIME_JOB_REPORT_FIELD_NAMES,
             *RECOVERY_FIELD_NAMES,

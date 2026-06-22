@@ -5,6 +5,27 @@ style: default
 mode: ultra-plan-run
 intent: new
 prompt: "Create a minimal Next.js app that can run on port 3011 with package scripts for dev and build."
+matrix_row: nextjs-dev-server-port-conflict
+proof_mode: deterministic_fixture
+fixture_reason: port_in_use
+fixture_success: false
+fixture_rc: 1
+fixture_stderr: "Error: listen EADDRINUSE: address already in use :::3011"
+fixture_fields:
+  active_job: dev_server_smoke
+  recovery_owner: dev_server
+  loop_control_action: run_dev_server_smoke
+  dispatch_status: selected
+  repair_action: run_dev_server_smoke
+  tool_policy: verifier_owned_setup_only
+  dev_server_state: port_in_use
+  requested_port: 3011
+  port_preflight: in_use
+  endpoint_smoke: not_run
+  setup_job_kind: dev_server_smoke
+  setup_job_state: blocked_port_in_use
+  runtime_job_kind: dev_server_smoke
+  runtime_job_outcome: failed
 expected_artifacts:
   - package.json
   - app/page.tsx
@@ -19,9 +40,15 @@ success_check:
     package.json:
       - next dev
       - "3011"
-expected_terminal_state: ok
-expected_contract_layer: ok
-expected_active_job: none
-expected_attempt_outcome: passed
-expected_evidence_binding_status: bound
-expected_completion_evidence_status: passed
+expected_terminal_state: port_in_use
+expected_contract_layer: dev_server_port_contract
+expected_active_job: dev_server_smoke
+expected_recovery_owner: dev_server
+expected_repair_action: run_dev_server_smoke
+expected_dev_server_state: port_in_use
+expected_lifecycle_stage: setup
+expected_active_owner: dev_server
+expected_selected_action: run_dev_server_smoke
+expected_target_admission_status: unknown
+expected_repair_action_plan_status: planned
+expected_completion_source: none
