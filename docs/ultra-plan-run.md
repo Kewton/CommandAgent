@@ -224,6 +224,13 @@ structured evidence. Repair prompts and packets may include
 `workspace_scope`, `artifact_ownership`, `artifact_graph_summary`, and bounded
 artifact-ledger eval fields such as `read_paths`, `changed_paths`,
 `verifier_mentioned_paths`, `setup_created_paths`, and `out_of_scope_paths`.
+
+`candidate_jobs` are produced before the repair prompt is rendered. They are
+not alternatives for the model to choose from. The dispatch gate selects one
+owner/action using deterministic priority, source layer, and source-of-truth
+strength, then renders the selected job into the Recovery Task Contract. If the
+top candidates still compete, the selected job is `contract_conflict` or
+`explicit_stop` and no repair prompt is constructed for an arbitrary owner.
 Completion authority fields such as `completion_authority_status`,
 `completion_source_of_truth`, `freshness_status`, `missing_evidence`,
 `failed_evidence`, `failed_bindings`, and `stale_evidence` can also be

@@ -3,6 +3,10 @@ use crate::agent::step_runner::profile_artifact::{
     ArtifactProvenance, artifact_kind_label, classify_profile_artifact,
 };
 use crate::agent::step_runner::profiles::{ProfileId, ProfileVerificationFailure};
+use crate::agent::step_runner::recovery_contract;
+use crate::agent::step_runner::recovery_orchestration::{
+    ActiveJobCandidate, ActiveJobCandidateSeed, RecoveryActionKind, RecoveryJobKind,
+};
 
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,7 +107,24 @@ pub(crate) struct RecoveryPolicyDecision {
 }
 
 impl RecoveryPolicyDecision {
+    pub(crate) fn active_job_candidate(&self) -> ActiveJobCandidate {
+        let job = self.recovery_job_kind();
+        let action = self.recovery_action_kind(job);
+        ActiveJobCandidate::from_seed(ActiveJobCandidateSeed {
+            job,
+            action,
+            priority: recovery_contract::active_job_priority(job.as_str()),
+            reason: "profile_failure_policy".to_string(),
+            source_of_truth: "profile_contract".to_string(),
+            source_layer: "profile_verification".to_string(),
+            target_hint: self.repair_target.clone(),
+            artifact_role: self.artifact_role.clone(),
+            rerun_authority: self.rerun_authority.clone(),
+        })
+    }
+
     pub(crate) fn apply_to_evidence(&self, mut evidence: ContractEvidence) -> ContractEvidence {
+        let candidate = self.active_job_candidate();
         evidence = evidence
             .with_active_job(self.active_job.as_str())
             .with_repair_action(self.repair_action.as_str())
@@ -111,7 +132,8 @@ impl RecoveryPolicyDecision {
             .with_required_action(self.required_action.clone())
             .with_disallowed_actions(self.disallowed_actions.clone())
             .with_setup_implication(self.setup_implication.clone())
-            .with_rerun_authority(self.rerun_authority.clone());
+            .with_rerun_authority(self.rerun_authority.clone())
+            .with_candidate_jobs(vec![candidate.render_line()]);
 
         if let Some(target) = self.repair_target.clone() {
             evidence = evidence
@@ -131,6 +153,66 @@ impl RecoveryPolicyDecision {
         }
 
         evidence
+    }
+
+    fn recovery_job_kind(&self) -> RecoveryJobKind {
+        match self.active_job {
+            ActiveJob::SetupBootstrap => RecoveryJobKind::SetupBootstrap,
+            ActiveJob::ManifestRepair => RecoveryJobKind::ManifestRepair,
+            ActiveJob::RouteIntegrationRepair => RecoveryJobKind::RouteIntegrationRepair,
+            ActiveJob::IntegrationArtifactCreation => RecoveryJobKind::ScaffoldMaterialization,
+            ActiveJob::SourceImplementationRepair => RecoveryJobKind::SourceImplementationRepair,
+            ActiveJob::TestRepair => RecoveryJobKind::TestAlignmentRepair,
+            ActiveJob::DocsRepair => RecoveryJobKind::DocumentationRepair,
+            ActiveJob::VerifierPolicyRepair => {
+                if self.artifact_role.as_deref().is_some_and(|role| {
+                    matches!(
+                        role,
+                        "manifest" | "config" | "setup_manifest" | "setup_config"
+                    )
+                }) {
+                    RecoveryJobKind::ManifestRepair
+                } else {
+                    RecoveryJobKind::VerifierContractCorrection
+                }
+            }
+            ActiveJob::ExplicitStop => RecoveryJobKind::ExplicitStop,
+        }
+    }
+
+    fn recovery_action_kind(&self, job: RecoveryJobKind) -> RecoveryActionKind {
+        match self.repair_action {
+            RepairAction::AddManifestDependency
+            | RepairAction::RepairBuildScript
+            | RepairAction::RepairDevScript
+            | RepairAction::RepairTailwindContract
+                if job == RecoveryJobKind::ManifestRepair =>
+            {
+                RecoveryActionKind::AddMissingManifestDependency
+            }
+            RepairAction::RepairTailwindContract | RepairAction::RepairTsconfigAlias => {
+                RecoveryActionKind::ReplaceInvalidVerifierCommand
+            }
+            RepairAction::ConnectArtifactToSelectedRoute => {
+                RecoveryActionKind::ConnectExistingArtifactToEntrypoint
+            }
+            RepairAction::CreateMissingIntegrationArtifact => {
+                RecoveryActionKind::CreateRequiredArtifact
+            }
+            RepairAction::RepairSourceError => {
+                if job == RecoveryJobKind::ExplicitStop {
+                    RecoveryActionKind::StopWithStructuredEvidence
+                } else {
+                    RecoveryActionKind::EditSourceForDiagnostic
+                }
+            }
+            RepairAction::StopWithSetupBlocker | RepairAction::StopNoAdmittedTarget => {
+                RecoveryActionKind::StopWithStructuredEvidence
+            }
+            RepairAction::AddManifestDependency
+            | RepairAction::RepairBuildScript
+            | RepairAction::RepairDevScript => RecoveryActionKind::AddMissingManifestDependency,
+        }
     }
 }
 
@@ -650,6 +732,56 @@ mod tests {
                 .rerun_authority
                 .iter()
                 .any(|authority| authority == "npm install")
+        );
+    }
+
+    #[test]
+    fn profile_policy_emits_canonical_active_job_candidate() {
+        let decision = profile_failure_policy(&failure(
+            "nextjs_route_not_integrated",
+            &[
+                "app/page.tsx",
+                "components/Game.tsx",
+                "components/GameBoard.tsx",
+            ],
+        ));
+
+        let candidate = decision.active_job_candidate();
+
+        assert_eq!(candidate.job, RecoveryJobKind::RouteIntegrationRepair);
+        assert_eq!(
+            candidate.action,
+            RecoveryActionKind::ConnectExistingArtifactToEntrypoint
+        );
+        assert_eq!(candidate.source_layer, "profile_verification");
+        assert_eq!(candidate.source_of_truth, "profile_contract");
+        assert_eq!(
+            candidate.target_hint.as_deref(),
+            Some("components/GameBoard.tsx")
+        );
+        assert!(candidate.render_line().contains("owner=route_integration"));
+    }
+
+    #[test]
+    fn apply_to_evidence_records_profile_policy_candidate() {
+        let decision = profile_failure_policy(&failure(
+            "nextjs_dependency_missing",
+            &["dependencies.react-dom"],
+        ));
+
+        let evidence = decision.apply_to_evidence(ContractEvidence::new("profile_verification"));
+
+        assert_eq!(evidence.active_job.as_deref(), Some("manifest_repair"));
+        assert_eq!(
+            evidence.repair_action.as_deref(),
+            Some("add_manifest_dependency")
+        );
+        assert!(
+            evidence
+                .candidate_jobs
+                .iter()
+                .any(|line| line.contains("owner=manifest")
+                    && line.contains("source_layer=profile_verification"))
         );
     }
 }

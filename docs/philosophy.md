@@ -523,6 +523,14 @@ bounded contract evidence. Phase 4 also propagates `proposed_targets`,
 Task Contract, or verifier-owned setup recovery. They are not hidden workflow
 state, retry counters, or permission for the model to choose a new job.
 
+Active-job candidate data is part of the same contract boundary. Each candidate
+should name the recovery owner, source layer, source of truth, target hint,
+artifact role, tool-policy projection, loop-control action, rerun authority,
+and deterministic reason. Profile-specific recovery policy may emit candidates
+or evidence hints, but final owner/action selection belongs to the common
+dispatch gate. If top candidates conflict, the correct behavior is structured
+stop, not a model-chosen fallback.
+
 Artifact facts are now a separate attribution boundary. The bounded workspace
 snapshot, artifact ledger, workspace scope, and artifact ownership decision
 record which files were already present, read, changed, created, mentioned by

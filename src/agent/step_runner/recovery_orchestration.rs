@@ -162,22 +162,63 @@ impl DispatchStatus {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActiveJobCandidate {
     pub(crate) job: RecoveryJobKind,
+    pub(crate) recovery_owner: RecoveryOwner,
     pub(crate) action: RecoveryActionKind,
     pub(crate) priority: u8,
     pub(crate) reason: String,
     pub(crate) source_of_truth: String,
+    pub(crate) source_layer: String,
+    pub(crate) target_hint: Option<String>,
+    pub(crate) artifact_role: Option<String>,
+    pub(crate) rerun_authority: Vec<String>,
+    pub(crate) loop_control_action: LoopControlAction,
+    pub(crate) tool_policy_projection: ToolPolicyProjection,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ActiveJobCandidateSeed {
+    pub(crate) job: RecoveryJobKind,
+    pub(crate) action: RecoveryActionKind,
+    pub(crate) priority: u8,
+    pub(crate) reason: String,
+    pub(crate) source_of_truth: String,
+    pub(crate) source_layer: String,
     pub(crate) target_hint: Option<String>,
     pub(crate) artifact_role: Option<String>,
     pub(crate) rerun_authority: Vec<String>,
 }
 
 impl ActiveJobCandidate {
-    fn render_line(&self) -> String {
+    pub(crate) fn from_seed(seed: ActiveJobCandidateSeed) -> Self {
+        Self {
+            recovery_owner: RecoveryOwner::for_active_job(seed.job.as_str()),
+            loop_control_action: loop_control_action_for(seed.job),
+            tool_policy_projection: tool_policy_for(seed.job, seed.action),
+            job: seed.job,
+            action: seed.action,
+            priority: seed.priority,
+            reason: seed.reason,
+            source_of_truth: seed.source_of_truth,
+            source_layer: seed.source_layer,
+            target_hint: seed.target_hint,
+            artifact_role: seed.artifact_role,
+            rerun_authority: seed.rerun_authority,
+        }
+    }
+
+    pub(crate) fn render_line(&self) -> String {
         format!(
-            "job={} action={} priority={} reason={}",
+            "owner={} job={} action={} priority={} source_layer={} source_of_truth={} tool_policy={} loop_control_action={} target={} role={} reason={}",
+            self.recovery_owner.as_str(),
             self.job.as_str(),
             self.action.as_str(),
             self.priority,
+            compact(&self.source_layer),
+            compact(&self.source_of_truth),
+            self.tool_policy_projection.as_str(),
+            self.loop_control_action.as_str(),
+            self.target_hint.as_deref().unwrap_or("none"),
+            self.artifact_role.as_deref().unwrap_or("unknown"),
             self.reason.split_whitespace().collect::<Vec<_>>().join(" ")
         )
     }
@@ -368,7 +409,7 @@ pub(crate) fn orchestrate_contract_evidence(
         return None;
     }
     let graph = ArtifactGraph::from_contract_evidence(evidence);
-    let arbitration = arbitrate_active_job(active_job_candidates(evidence, &graph));
+    let arbitration = dispatch_active_job(active_job_candidates(evidence, &graph));
     let job = arbitration.selected_job;
     if job == RecoveryJobKind::ExplicitStop && evidence.guard.trim().is_empty() {
         return None;
@@ -930,16 +971,17 @@ fn push_active_candidate(
     let artifact_role = target_hint
         .as_deref()
         .map(|target| target_role_for(graph, target).as_str().to_string());
-    let candidate = ActiveJobCandidate {
+    let candidate = ActiveJobCandidate::from_seed(ActiveJobCandidateSeed {
         job,
         action,
         priority,
         reason: reason.to_string(),
         source_of_truth: recovery_contract::source_of_truth(evidence, job.as_str()).to_string(),
+        source_layer: source_layer(evidence).to_string(),
         target_hint,
         artifact_role,
         rerun_authority: rerun_authority(evidence, job),
-    };
+    });
     if let Some(existing) = candidates.iter_mut().find(|existing| {
         existing.job == candidate.job
             && existing.action == candidate.action
@@ -969,7 +1011,7 @@ fn first_target_hint(evidence: &ContractEvidence, job: RecoveryJobKind) -> Optio
         .or_else(|| evidence.required_paths.first().cloned())
 }
 
-fn arbitrate_active_job(candidates: Vec<ActiveJobCandidate>) -> ActiveJobArbitration {
+pub(crate) fn dispatch_active_job(candidates: Vec<ActiveJobCandidate>) -> ActiveJobArbitration {
     if candidates.is_empty() {
         return explicit_arbitration(
             RecoveryJobKind::ExplicitStop,
@@ -983,11 +1025,17 @@ fn arbitrate_active_job(candidates: Vec<ActiveJobCandidate>) -> ActiveJobArbitra
     }
 
     let mut ordered = candidates.clone();
-    ordered.sort_by_key(|candidate| candidate.priority);
+    ordered.sort_by(compare_active_job_candidates);
     let selected_priority = ordered[0].priority;
+    let selected_source_rank = source_of_truth_rank(&ordered[0].source_of_truth);
+    let selected_layer_rank = source_layer_rank(&ordered[0].source_layer);
     let top = ordered
         .iter()
-        .filter(|candidate| candidate.priority == selected_priority)
+        .filter(|candidate| {
+            candidate.priority == selected_priority
+                && source_of_truth_rank(&candidate.source_of_truth) == selected_source_rank
+                && source_layer_rank(&candidate.source_layer) == selected_layer_rank
+        })
         .collect::<Vec<_>>();
     let candidate_jobs = ordered
         .iter()
@@ -995,9 +1043,9 @@ fn arbitrate_active_job(candidates: Vec<ActiveJobCandidate>) -> ActiveJobArbitra
         .collect::<Vec<_>>();
     let first = top[0];
     let ambiguous = top.iter().any(|candidate| {
-        candidate.job != first.job
+        candidate.recovery_owner != first.recovery_owner
+            || candidate.job != first.job
             || candidate.action != first.action
-            || candidate.target_hint != first.target_hint
     });
     if ambiguous {
         return explicit_arbitration(
@@ -1023,19 +1071,103 @@ fn arbitrate_active_job(candidates: Vec<ActiveJobCandidate>) -> ActiveJobArbitra
         .then(|| "explicit_stop_from_deterministic_contract".to_string());
     let action = first.action;
     let job = first.job;
+    let rerun_authority = merged_top_rerun_authority(&top);
+    let dispatch_reason = if top.len() > 1 {
+        format!(
+            "merged_compatible_active_job_candidates: {}",
+            top.iter()
+                .map(|candidate| candidate.reason.as_str())
+                .collect::<Vec<_>>()
+                .join("|")
+        )
+    } else {
+        first.reason.clone()
+    };
     ActiveJobArbitration {
         selected_job: job,
         selected_action: action,
         selected_priority,
-        loop_control_action: loop_control_action_for(job),
+        loop_control_action: first.loop_control_action,
         dispatch_status: status,
-        dispatch_reason: first.reason.clone(),
+        dispatch_reason,
         candidate_jobs,
         tie_break_reason: None,
         explicit_stop_reason,
-        rerun_authority: first.rerun_authority.clone(),
-        tool_policy_projection: tool_policy_for(job, action),
+        rerun_authority,
+        tool_policy_projection: first.tool_policy_projection,
     }
+}
+
+fn compare_active_job_candidates(
+    left: &ActiveJobCandidate,
+    right: &ActiveJobCandidate,
+) -> std::cmp::Ordering {
+    left.priority
+        .cmp(&right.priority)
+        .then_with(|| {
+            source_of_truth_rank(&left.source_of_truth)
+                .cmp(&source_of_truth_rank(&right.source_of_truth))
+        })
+        .then_with(|| {
+            source_layer_rank(&left.source_layer).cmp(&source_layer_rank(&right.source_layer))
+        })
+        .then_with(|| left.job.as_str().cmp(right.job.as_str()))
+        .then_with(|| left.action.as_str().cmp(right.action.as_str()))
+        .then_with(|| left.target_hint.cmp(&right.target_hint))
+}
+
+fn source_layer(evidence: &ContractEvidence) -> &'static str {
+    match evidence.guard.as_str() {
+        "tool_protocol" => "tool_protocol",
+        "provider_transport" => "provider_transport",
+        "step_policy" => "step_policy",
+        "setup" => "setup",
+        "profile_verification" => "profile_verification",
+        "verifier" => "verifier",
+        "evidence_binding" => "evidence_binding",
+        "recovery" | "repair" => "recovery",
+        guard if guard.starts_with("plan_lint.") => "planning",
+        _ => "unknown",
+    }
+}
+
+fn source_of_truth_rank(source_of_truth: &str) -> u8 {
+    match source_of_truth {
+        "tool_schema_contract" => 0,
+        "deterministic_guard" | "deterministic_contract_conflict" => 1,
+        "setup_manifest_and_dependency_diagnostic" => 2,
+        "profile_contract" => 3,
+        "original_verifier_diagnostic" => 4,
+        "verifier_contract" => 5,
+        "deterministic_evidence_binding_contract" => 6,
+        "test_contract_and_original_verifier" => 7,
+        "documentation_contract" => 8,
+        _ => 20,
+    }
+}
+
+fn source_layer_rank(source_layer: &str) -> u8 {
+    match source_layer {
+        "tool_protocol" | "provider_transport" => 0,
+        "step_policy" => 1,
+        "setup" => 2,
+        "profile_verification" => 3,
+        "verifier" => 4,
+        "evidence_binding" => 5,
+        "planning" => 6,
+        "recovery" => 7,
+        _ => 20,
+    }
+}
+
+fn merged_top_rerun_authority(top: &[&ActiveJobCandidate]) -> Vec<String> {
+    let mut values = Vec::new();
+    for candidate in top {
+        for authority in &candidate.rerun_authority {
+            push_unique(&mut values, authority.clone());
+        }
+    }
+    values
 }
 
 fn explicit_arbitration(
@@ -2305,29 +2437,31 @@ mod tests {
     #[test]
     fn ambiguous_top_priority_dispatches_contract_conflict_stop() {
         let candidates = vec![
-            ActiveJobCandidate {
+            ActiveJobCandidate::from_seed(ActiveJobCandidateSeed {
                 job: RecoveryJobKind::ManifestRepair,
                 action: RecoveryActionKind::AddMissingManifestDependency,
                 priority: 20,
                 reason: "manifest".to_string(),
                 source_of_truth: "test".to_string(),
+                source_layer: "test".to_string(),
                 target_hint: Some("package.json".to_string()),
                 artifact_role: Some("setup_manifest".to_string()),
                 rerun_authority: vec!["profile_verification".to_string()],
-            },
-            ActiveJobCandidate {
+            }),
+            ActiveJobCandidate::from_seed(ActiveJobCandidateSeed {
                 job: RecoveryJobKind::RouteIntegrationRepair,
                 action: RecoveryActionKind::ConnectExistingArtifactToEntrypoint,
                 priority: 20,
                 reason: "route".to_string(),
                 source_of_truth: "test".to_string(),
+                source_layer: "test".to_string(),
                 target_hint: Some("app/page.tsx".to_string()),
                 artifact_role: Some("entrypoint".to_string()),
                 rerun_authority: vec!["profile_verification".to_string()],
-            },
+            }),
         ];
 
-        let arbitration = arbitrate_active_job(candidates);
+        let arbitration = dispatch_active_job(candidates);
 
         assert_eq!(arbitration.selected_job, RecoveryJobKind::ContractConflict);
         assert_eq!(arbitration.dispatch_status, DispatchStatus::AmbiguousTie);
@@ -2339,6 +2473,90 @@ mod tests {
             arbitration.tie_break_reason.as_deref(),
             Some("active_job_tie")
         );
+    }
+
+    #[test]
+    fn same_owner_same_action_candidates_merge_without_target_conflict() {
+        let candidates = vec![
+            ActiveJobCandidate::from_seed(ActiveJobCandidateSeed {
+                job: RecoveryJobKind::RouteIntegrationRepair,
+                action: RecoveryActionKind::ConnectExistingArtifactToEntrypoint,
+                priority: 40,
+                reason: "route".to_string(),
+                source_of_truth: "profile_contract".to_string(),
+                source_layer: "profile_verification".to_string(),
+                target_hint: Some("app/page.tsx".to_string()),
+                artifact_role: Some("entrypoint".to_string()),
+                rerun_authority: vec!["profile_verification".to_string()],
+            }),
+            ActiveJobCandidate::from_seed(ActiveJobCandidateSeed {
+                job: RecoveryJobKind::RouteIntegrationRepair,
+                action: RecoveryActionKind::ConnectExistingArtifactToEntrypoint,
+                priority: 40,
+                reason: "artifact".to_string(),
+                source_of_truth: "profile_contract".to_string(),
+                source_layer: "profile_verification".to_string(),
+                target_hint: Some("components/Game.tsx".to_string()),
+                artifact_role: Some("integration_target".to_string()),
+                rerun_authority: vec!["npm run build".to_string()],
+            }),
+        ];
+
+        let arbitration = dispatch_active_job(candidates);
+
+        assert_eq!(
+            arbitration.selected_job,
+            RecoveryJobKind::RouteIntegrationRepair
+        );
+        assert_eq!(arbitration.dispatch_status, DispatchStatus::Selected);
+        assert_eq!(
+            arbitration.dispatch_reason,
+            "merged_compatible_active_job_candidates: route|artifact"
+        );
+        assert_eq!(
+            arbitration.rerun_authority,
+            vec![
+                "profile_verification".to_string(),
+                "npm run build".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn source_of_truth_strength_breaks_priority_tie_before_conflict() {
+        let candidates = vec![
+            ActiveJobCandidate::from_seed(ActiveJobCandidateSeed {
+                job: RecoveryJobKind::SourceImplementationRepair,
+                action: RecoveryActionKind::EditSourceForDiagnostic,
+                priority: 40,
+                reason: "weak fallback".to_string(),
+                source_of_truth: "original_verifier_diagnostic".to_string(),
+                source_layer: "verifier".to_string(),
+                target_hint: Some("app/page.tsx".to_string()),
+                artifact_role: Some("entrypoint".to_string()),
+                rerun_authority: vec!["npm run build".to_string()],
+            }),
+            ActiveJobCandidate::from_seed(ActiveJobCandidateSeed {
+                job: RecoveryJobKind::RouteIntegrationRepair,
+                action: RecoveryActionKind::ConnectExistingArtifactToEntrypoint,
+                priority: 40,
+                reason: "profile route".to_string(),
+                source_of_truth: "profile_contract".to_string(),
+                source_layer: "profile_verification".to_string(),
+                target_hint: Some("app/page.tsx".to_string()),
+                artifact_role: Some("entrypoint".to_string()),
+                rerun_authority: vec!["profile_verification".to_string()],
+            }),
+        ];
+
+        let arbitration = dispatch_active_job(candidates);
+
+        assert_eq!(
+            arbitration.selected_job,
+            RecoveryJobKind::RouteIntegrationRepair
+        );
+        assert_eq!(arbitration.dispatch_status, DispatchStatus::Selected);
+        assert_eq!(arbitration.dispatch_reason, "profile route");
     }
 
     #[test]

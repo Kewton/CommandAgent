@@ -221,6 +221,15 @@ eval reporting. They do not add retry authority, do not dispatch to another
 execution engine, and must not resolve same-priority ambiguity by hidden
 heuristics.
 
+2026-06-22 amendment: Active-job candidates are now treated as the canonical
+pre-dispatch boundary. A candidate records owner, job, action, source layer,
+source of truth, target hint, artifact role, rerun authority, tool policy, loop
+control action, and deterministic reason. Profile recovery policy can adapt its
+failure-specific decisions into candidates, but final dispatch remains common
+and authoritative. Compatible same-owner candidates may merge deterministic
+metadata; competing owners or incompatible actions stop with structured
+contract-conflict evidence.
+
 2026-06-21 amendment: Recovery Orchestration now includes a target-admission,
 semantic-plan, and repair-brief gate after active-job dispatch. A recoverable
 failure may propose multiple targets, but the runtime must admit, reject, and

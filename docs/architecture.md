@@ -165,6 +165,14 @@ tool-protocol correction, or explicit stop, and records why that decision was
 made. If the top candidates are ambiguous, it records `contract_conflict` and
 stops instead of choosing a path by heuristic.
 
+Active-job candidates carry their recovery owner, source layer, source of
+truth, target hint, artifact role, tool-policy projection, loop-control action,
+rerun authority, and deterministic reason. Profile policy may produce these
+candidates or evidence hints, but it must not bypass the dispatch gate. The
+gate is the single place where competing setup, manifest, route, source, test,
+docs, evidence-binding, verifier-contract, and tool-protocol owners are
+selected or stopped.
+
 Propagation must stay visible and bounded. It can route a manifest dependency
 repair toward `package.json`, mark dependency setup stale after that manifest
 changes, route a disconnected artifact toward selected-route integration, or
