@@ -165,6 +165,15 @@ also project the runtime job report fields and set `lifecycle_stage` to
 a recheck miss is `completion_source=recheck_failure`. This shows whether the
 recheck validated existing evidence rather than implying that the original
 runtime job succeeded.
+Focused expected-field assertions are also re-evaluated for recheck rows, but
+the recheck projection has its own lifecycle vocabulary. `rechecking` is
+accepted as the recheck-stage equivalent for the original lifecycle expectation,
+`recheck_success` is accepted for an original `runtime_success`, and
+`recheck_failure` is accepted for an original `none` completion source. For
+failed rows, a non-`ok` recheck `contract_layer` is treated as a recheck
+projection of the original non-`ok` contract layer rather than a new runtime
+contract decision. An original expected `contract_layer=ok` must still remain
+`ok` after recheck.
 
 The report also includes a `Contract Layers` section derived from the failure
 reason. This is a coarse layer map for triage, not a new success criterion. It

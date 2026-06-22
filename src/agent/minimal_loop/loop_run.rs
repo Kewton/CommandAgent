@@ -94,6 +94,21 @@ where
         let response = match client.chat(&request) {
             Ok(response) => response,
             Err(err) => {
+                if let Some(parse_error) = provider_tool_parse_error(&err, mode) {
+                    let previous_mode = mode;
+                    mode = mode_after_parse_failure(mode);
+                    observer.on_event(RuntimeEvent::ParserFeedbackSent {
+                        iteration,
+                        previous_tool_call_mode: previous_mode,
+                        next_tool_call_mode: mode,
+                        error: bounded_event_text(&parse_error),
+                    });
+                    messages.push(ChatMessage::new(
+                        ChatRole::User,
+                        parser_failure_feedback(&parse_error),
+                    ));
+                    continue;
+                }
                 let err = MinimalLoopError::Model(err);
                 emit_session_error(observer, &err);
                 return Err(err);
@@ -322,6 +337,24 @@ fn tool_calls_from_response(
         Ok(_) => Ok(Vec::new()),
         Err(err) if mode == ToolCallMode::Native => Err(err.to_string()),
         Err(err) => Err(err.to_string()),
+    }
+}
+
+fn provider_tool_parse_error(error: &str, mode: ToolCallMode) -> Option<String> {
+    if mode != ToolCallMode::Native {
+        return None;
+    }
+
+    let lower = error.to_ascii_lowercase();
+    let is_tool_parse_error = lower.contains("tool call is missing a tool name")
+        || (lower.contains("json parse failed") && lower.contains("tool"))
+        || (lower.contains("xml syntax error")
+            && (lower.contains("function") || lower.contains("tool") || lower.contains("ollama")));
+
+    if is_tool_parse_error {
+        Some(error.to_string())
+    } else {
+        None
     }
 }
 
@@ -558,6 +591,37 @@ mod tests {
 
                 usage: Default::default(),
             },
+        ]);
+
+        let result = run_session(
+            &mut client,
+            &root,
+            "create a file",
+            MinimalLoopConfig::default(),
+        )
+        .unwrap();
+
+        assert_eq!(result.tool_call_mode, ToolCallMode::XmlFallback);
+        assert_eq!(
+            client.modes,
+            vec![ToolCallMode::Native, ToolCallMode::XmlFallback]
+        );
+    }
+
+    #[test]
+    fn provider_tool_parse_error_downgrades_next_request_to_xml_fallback() {
+        let root = temp_workspace("provider-tool-parse-error");
+        let mut client = MockClient::with_results(vec![
+            Err(
+                "Ollama ollama failed: status 500: {\"error\":\"XML syntax error on line 4: element <function> closed by </parameter>\"}"
+                    .to_string(),
+            ),
+            Ok(ChatResponse {
+                content: "Recovered.".to_string(),
+                tool_calls: Vec::new(),
+
+                usage: Default::default(),
+            }),
         ]);
 
         let result = run_session(
@@ -1080,12 +1144,19 @@ mod tests {
     }
 
     struct MockClient {
-        responses: VecDeque<ChatResponse>,
+        responses: VecDeque<Result<ChatResponse, String>>,
         modes: Vec<ToolCallMode>,
     }
 
     impl MockClient {
         fn new(responses: Vec<ChatResponse>) -> Self {
+            Self {
+                responses: responses.into_iter().map(Ok).collect(),
+                modes: Vec::new(),
+            }
+        }
+
+        fn with_results(responses: Vec<Result<ChatResponse, String>>) -> Self {
             Self {
                 responses: VecDeque::from(responses),
                 modes: Vec::new(),
@@ -1098,7 +1169,7 @@ mod tests {
             self.modes.push(request.tool_call_mode);
             self.responses
                 .pop_front()
-                .ok_or_else(|| "no mock response".to_string())
+                .unwrap_or_else(|| Err("no mock response".to_string()))
         }
     }
 

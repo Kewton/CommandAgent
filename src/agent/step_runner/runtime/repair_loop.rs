@@ -1856,7 +1856,8 @@ fn verifier_contract_evidence(
         repair_target.as_deref(),
     );
     let diagnostic_code = diagnostic_payload.diagnostic_code.as_str().to_string();
-    let repair_kind = verifier_repair_kind(failure, &binding, &diagnostic_payload);
+    let repair_kind =
+        verifier_repair_kind(failure, &binding, repair_target_role, &diagnostic_payload);
     let repair_action =
         verifier_repair_action(failure, &binding, repair_target_role, &diagnostic_payload);
     let signature = failure_signature([
@@ -1918,7 +1919,10 @@ fn verifier_contract_evidence(
         .with_verifier_diagnostic_payload(diagnostic_payload.render_lines())
         .with_repair_action_plan(mechanical_lines)
         .with_admitted_cluster_targets(diagnostic_payload.admitted_cluster_targets.clone())
-        .with_setup_implication(verifier_setup_implication(failure))
+        .with_setup_implication(verifier_setup_implication_for_target(
+            failure,
+            repair_target_role,
+        ))
         .with_rerun_authority(vec![failure.command.clone()])
         .with_completion_evidence(vec![
             verifier_completion(&failure.command, false)
@@ -2010,6 +2014,7 @@ fn verifier_failure_kind(
 fn verifier_repair_kind(
     failure: &VerificationFailure,
     binding: &VerifierBinding,
+    target_role: Option<crate::agent::step_runner::artifact_graph::ArtifactRole>,
     diagnostic: &VerifierDiagnosticPayload,
 ) -> &'static str {
     if diagnostic.weak_verifier_reason.is_some() {
@@ -2037,6 +2042,14 @@ fn verifier_repair_kind(
         "verifier_contract_correction"
     } else if tailwind_postcss_plugin_diagnostic(failure) {
         "tailwind_contract_repair"
+    } else if matches!(
+        target_role,
+        Some(
+            crate::agent::step_runner::artifact_graph::ArtifactRole::SetupManifest
+                | crate::agent::step_runner::artifact_graph::ArtifactRole::SetupConfig
+        )
+    ) {
+        "manifest_repair"
     } else {
         "source_verifier_repair"
     }
@@ -2070,8 +2083,6 @@ fn verifier_active_job(
         "route_integration_repair"
     } else if diagnostic.preferred_repair_role == "dev_server" {
         "dev_server_smoke"
-    } else if diagnostic.preferred_repair_role == "implementation" {
-        "source_implementation_repair"
     } else if diagnostic.preferred_repair_role == "test" {
         "test_alignment_repair"
     } else if matches!(
@@ -2097,6 +2108,8 @@ fn verifier_active_job(
         Some(crate::agent::step_runner::artifact_graph::ArtifactRole::Test)
     ) {
         "test_alignment_repair"
+    } else if diagnostic.preferred_repair_role == "implementation" {
+        "source_implementation_repair"
     } else {
         "source_implementation_repair"
     }
@@ -2130,8 +2143,6 @@ fn verifier_repair_action(
         "connect_existing_artifact_to_entrypoint"
     } else if diagnostic.preferred_repair_role == "dev_server" {
         "run_dev_server_smoke"
-    } else if diagnostic.preferred_repair_role == "implementation" {
-        "repair_source_error"
     } else if diagnostic.preferred_repair_role == "test" {
         "align_test_and_verifier"
     } else if matches!(
@@ -2157,6 +2168,8 @@ fn verifier_repair_action(
         Some(crate::agent::step_runner::artifact_graph::ArtifactRole::Test)
     ) {
         "align_test_and_verifier"
+    } else if diagnostic.preferred_repair_role == "implementation" {
+        "repair_source_error"
     } else {
         "repair_source_error"
     }
@@ -2169,6 +2182,23 @@ fn verifier_setup_implication(failure: &VerificationFailure) -> &'static str {
         "setup_after_manifest_repair_required"
     } else {
         "none"
+    }
+}
+
+fn verifier_setup_implication_for_target(
+    failure: &VerificationFailure,
+    target_role: Option<crate::agent::step_runner::artifact_graph::ArtifactRole>,
+) -> &'static str {
+    if matches!(
+        target_role,
+        Some(
+            crate::agent::step_runner::artifact_graph::ArtifactRole::SetupManifest
+                | crate::agent::step_runner::artifact_graph::ArtifactRole::SetupConfig
+        )
+    ) {
+        "setup_after_manifest_repair_required"
+    } else {
+        verifier_setup_implication(failure)
     }
 }
 
@@ -2198,6 +2228,9 @@ fn verifier_candidate_artifacts(
     plan_required_artifacts: &[String],
 ) -> Vec<String> {
     let mut artifacts = Vec::new();
+    if let Some(command_target) = verifier_command_target_path(&failure.command) {
+        push_repairable_candidate(&mut artifacts, command_target);
+    }
     if let Some(target) = &binding.candidate_repair_target {
         push_repairable_candidate(&mut artifacts, target.clone());
     }
@@ -2243,8 +2276,27 @@ fn verifier_contract_target(
         | VerifierSelection::Missing
         | VerifierSelection::StructuredMissing
         | VerifierSelection::StructuredWeak => Some(format!("step:{}", step.id)),
-        _ => prioritized_verifier_candidate(candidate_artifacts),
+        _ => verifier_command_target_path(&binding.command)
+            .or_else(|| prioritized_verifier_candidate(candidate_artifacts)),
     }
+}
+
+fn verifier_command_target_path(command: &str) -> Option<String> {
+    let parts = command
+        .split_whitespace()
+        .map(|part| part.trim_matches(|ch| matches!(ch, '\'' | '"' | ',' | ';')))
+        .collect::<Vec<_>>();
+    let parts = match parts.as_slice() {
+        ["!", rest @ ..] => rest,
+        other => other,
+    };
+
+    match parts {
+        ["grep", "-q", .., target] => Some((*target).to_string()),
+        ["test", flag, target] if matches!(*flag, "-f" | "-d") => Some((*target).to_string()),
+        _ => None,
+    }
+    .filter(|path| !ignored_repair_candidate_path(path))
 }
 
 fn prioritized_verifier_candidate(candidate_artifacts: &[String]) -> Option<String> {
@@ -3739,6 +3791,43 @@ mod tests {
         assert!(rendered.contains("artifact_role: entrypoint"));
         assert!(rendered.contains("source_of_truth: original_verifier_diagnostic"));
         assert!(rendered.contains("workspace_scope: route_integration_scope"));
+    }
+
+    #[test]
+    fn verifier_failure_uses_command_target_for_manifest_grep() {
+        let failure = VerificationFailure {
+            command: "grep -q '\"3011\"' package.json".to_string(),
+            reason: "command_failed:1".to_string(),
+            stdout_excerpt: String::new(),
+            stderr_excerpt: String::new(),
+            diagnostic_excerpt: String::new(),
+            source_excerpt: None,
+        };
+
+        let evidence = verifier_contract_evidence(
+            &step(StepKind::Create),
+            &failure,
+            None,
+            &[],
+            &empty_repair_job_state(),
+            &[],
+            &["package.json".to_string(), "app/page.tsx".to_string()],
+        )
+        .unwrap();
+        let evidence = orchestrate_evidence(evidence);
+        let rendered = evidence.render().unwrap();
+
+        assert!(rendered.contains("candidate_artifacts: package.json, app/page.tsx"));
+        assert!(
+            rendered.contains("repair_target: package.json"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("artifact_role: setup_manifest"));
+        assert!(rendered.contains("active_job: manifest_repair"));
+        assert!(rendered.contains("repair_kind: manifest_repair"));
+        assert!(rendered.contains("repair_action: add_missing_manifest_dependency"));
+        assert!(rendered.contains("setup_after_manifest_repair_required"));
+        assert!(!rendered.contains("repair_target: app/page.tsx"));
     }
 
     #[test]

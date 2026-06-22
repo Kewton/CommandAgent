@@ -259,7 +259,7 @@ def focused_assertions(
         if not expected:
             continue
         observed = str(observed_fields.get(field, "")).strip()
-        if observed != expected:
+        if not expected_field_matches(field, expected, observed, recheck=recheck):
             failures.append(f"{field}:expected={expected};observed={observed or '<blank>'}")
 
     if failures:
@@ -271,3 +271,26 @@ def focused_assertions(
         "expected_assertion_count": str(len(expected_fields)),
         "expected_assertion_failures": " | ".join(failures),
     }
+
+
+def expected_field_matches(
+    field: str,
+    expected: str,
+    observed: str,
+    *,
+    recheck: bool = False,
+) -> bool:
+    if observed == expected:
+        return True
+    if not recheck:
+        return False
+    if field == "lifecycle_stage" and observed == "rechecking":
+        return bool(expected)
+    if field == "completion_source":
+        if expected == "runtime_success" and observed == "recheck_success":
+            return True
+        if expected == "none" and observed == "recheck_failure":
+            return True
+    if field == "contract_layer" and expected != "ok" and observed != "ok":
+        return True
+    return False

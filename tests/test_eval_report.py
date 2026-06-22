@@ -130,6 +130,23 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertEqual(observation["failure_category"], "provider_transport")
         self.assertEqual(observation["diagnostic_code"], "provider_transport:eval_timeout")
 
+    def test_ollama_native_tool_xml_error_is_provider_parse_evidence(self):
+        observation = eval_failure_observation.normalize_observation(
+            {
+                "reason": "rc:1",
+                "success": False,
+                "stderr": (
+                    'ERROR: initial turn error: model error: Ollama ollama failed: '
+                    'status 500: {"error":"XML syntax error on line 4: '
+                    'element <function> closed by </parameter>"}'
+                ),
+            }
+        )
+
+        self.assertEqual(observation["terminal_state"], "provider_parse_failed")
+        self.assertEqual(observation["failure_category"], "provider_transport")
+        self.assertEqual(observation["contract_layer"], "execution_contract")
+
     def test_plan_lint_invalid_expected_path_has_specific_diagnostic(self):
         observation = eval_failure_observation.normalize_observation(
             {
@@ -141,6 +158,19 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertEqual(observation["terminal_state"], "plan_lint_failed")
         self.assertEqual(observation["failure_category"], "planning")
         self.assertEqual(observation["diagnostic_code"], "plan_lint:invalid_expected_path")
+
+    def test_semantic_mismatch_reason_wins_over_stale_repair_evidence(self):
+        observation = eval_failure_observation.normalize_observation(
+            {
+                "reason": "semantic_mismatch:README.md:PHASE7_IMPOSSIBLE_LITERAL",
+                "success": False,
+                "evidence": "- evidence_binding_status=failed",
+            }
+        )
+
+        self.assertEqual(observation["terminal_state"], "eval_assertion_failed")
+        self.assertEqual(observation["failure_category"], "quality")
+        self.assertEqual(observation["contract_layer"], "eval_success_contract")
 
     def test_profile_dependency_conflict_maps_to_manifest_repair(self):
         reason = "profile_verification:nextjs_dependency_version_conflict"
@@ -380,6 +410,23 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertEqual(report["target_admission_status"], "admitted")
         self.assertEqual(report["repair_action_plan_status"], "planned")
 
+    def test_runtime_job_report_ignores_none_explicit_stop_and_passed_outcome_action(self):
+        report = eval_runtime_job_report.build_runtime_job_report(
+            {
+                "success": "true",
+                "reason": "ok",
+                "active_job": "none",
+                "recovery_owner": "none",
+                "repair_action": "none",
+                "loop_control_action": "none",
+                "runtime_job_outcome": "passed",
+                "explicit_stop_reason": "none",
+            }
+        )
+
+        self.assertEqual(report["lifecycle_stage"], "completed")
+        self.assertEqual(report["selected_action"], "none")
+
     def test_runtime_job_report_distinguishes_recheck_failure(self):
         report = eval_runtime_job_report.build_runtime_job_report(
             {
@@ -393,6 +440,67 @@ class EvalReportCategorizeTests(unittest.TestCase):
 
         self.assertEqual(report["lifecycle_stage"], "rechecking")
         self.assertEqual(report["completion_source"], "recheck_failure")
+
+    def test_focused_assertions_accept_recheck_success_equivalents(self):
+        result = eval_case_schema.focused_assertions(
+            {
+                "lifecycle_stage": "completed",
+                "completion_source": "runtime_success",
+            },
+            {
+                "lifecycle_stage": "rechecking",
+                "completion_source": "recheck_success",
+            },
+            recheck=True,
+        )
+
+        self.assertEqual(result["expected_assertion_status"], "passed_recheck")
+        self.assertEqual(result["expected_assertion_failures"], "")
+
+    def test_focused_assertions_accept_recheck_failure_equivalents(self):
+        result = eval_case_schema.focused_assertions(
+            {
+                "lifecycle_stage": "repairing",
+                "completion_source": "none",
+            },
+            {
+                "lifecycle_stage": "rechecking",
+                "completion_source": "recheck_failure",
+            },
+            recheck=True,
+        )
+
+        self.assertEqual(result["expected_assertion_status"], "passed_recheck")
+        self.assertEqual(result["expected_assertion_failures"], "")
+
+    def test_focused_assertions_still_fail_recheck_opposite_outcome(self):
+        result = eval_case_schema.focused_assertions(
+            {"completion_source": "runtime_success"},
+            {"completion_source": "recheck_failure"},
+            recheck=True,
+        )
+
+        self.assertEqual(result["expected_assertion_status"], "failed_recheck")
+        self.assertIn("completion_source", result["expected_assertion_failures"])
+
+    def test_focused_assertions_accept_non_ok_contract_layer_recheck_projection(self):
+        result = eval_case_schema.focused_assertions(
+            {"contract_layer": "setup_bootstrap_contract"},
+            {"contract_layer": "verification_contract"},
+            recheck=True,
+        )
+
+        self.assertEqual(result["expected_assertion_status"], "passed_recheck")
+
+    def test_focused_assertions_do_not_hide_ok_contract_layer_recheck_failure(self):
+        result = eval_case_schema.focused_assertions(
+            {"contract_layer": "ok"},
+            {"contract_layer": "verification_contract"},
+            recheck=True,
+        )
+
+        self.assertEqual(result["expected_assertion_status"], "failed_recheck")
+        self.assertIn("contract_layer", result["expected_assertion_failures"])
 
     def test_render_report_includes_runtime_job_lifecycle_funnel(self):
         report = eval_report.render_report(

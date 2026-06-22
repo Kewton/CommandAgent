@@ -59,10 +59,14 @@ pub(super) fn lint_expected_path(path: &str) -> Result<(), PlanLintError> {
 fn is_dependency_cache_path(path: &str) -> bool {
     path == "node_modules"
         || path.starts_with("node_modules/")
+        || path == ".next"
+        || path.starts_with(".next/")
         || path == ".venv"
         || path.starts_with(".venv/")
         || path == "target"
         || path.starts_with("target/")
+        || path == ".git"
+        || path.starts_with(".git/")
 }
 
 fn looks_like_file_path(path: &str) -> bool {
@@ -73,6 +77,9 @@ fn looks_like_file_path(path: &str) -> bool {
         path,
         "Dockerfile" | "Makefile" | "README" | "LICENSE" | "Cargo.lock"
     ) {
+        return true;
+    }
+    if is_dotfile_path(path) {
         return true;
     }
     let Some(extension) = Path::new(path).extension().and_then(|ext| ext.to_str()) else {
@@ -99,6 +106,17 @@ fn looks_like_file_path(path: &str) -> bool {
             | "yaml"
             | "yml"
     )
+}
+
+fn is_dotfile_path(path: &str) -> bool {
+    let Some(rest) = path.strip_prefix('.') else {
+        return false;
+    };
+    !rest.is_empty()
+        && !rest.ends_with('.')
+        && rest
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
 }
 
 fn looks_like_version(value: &str) -> bool {

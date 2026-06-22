@@ -27,6 +27,22 @@ pub(super) fn lint_verifier_command(step_id: &str, command: &str) -> Result<(), 
                 .to_string(),
         });
     }
+    if is_overquoted_numeric_manifest_grep(trimmed) {
+        return Err(PlanLintError::InvalidVerifierCommand {
+            step_id: step_id.to_string(),
+            command: command.to_string(),
+            reason: "manifest verifier over-constrains a numeric literal with JSON string quotes; use grep -q 3011 package.json or grep for the complete script value instead"
+                .to_string(),
+        });
+    }
+    if is_overquoted_incomplete_manifest_script_grep(trimmed) {
+        return Err(PlanLintError::InvalidVerifierCommand {
+            step_id: step_id.to_string(),
+            command: command.to_string(),
+            reason: "manifest verifier over-constrains a script prefix with JSON string quotes; use grep -q 'next dev' package.json or grep for the complete script value including arguments"
+                .to_string(),
+        });
+    }
     if is_wrong_language_py_compile(trimmed) {
         return Err(PlanLintError::InvalidVerifierCommand {
             step_id: step_id.to_string(),
@@ -119,6 +135,7 @@ fn is_wrong_language_py_compile(command: &str) -> bool {
 }
 
 fn is_source_grep_verifier(command: &str) -> bool {
+    let command = command.trim().strip_prefix("! ").unwrap_or(command.trim());
     let lower = command.to_ascii_lowercase();
     if !lower.starts_with("grep -q ") {
         return false;
@@ -128,6 +145,60 @@ fn is_source_grep_verifier(command: &str) -> bool {
     };
     let path = path.trim_matches(|ch| ch == '\'' || ch == '"');
     is_source_file_path(path)
+}
+
+fn is_overquoted_numeric_manifest_grep(command: &str) -> bool {
+    let Some(pattern) = manifest_grep_pattern(command) else {
+        return false;
+    };
+    let Some(inner) = pattern
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+    else {
+        return false;
+    };
+    !inner.is_empty() && inner.chars().all(|ch| ch.is_ascii_digit())
+}
+
+fn is_overquoted_incomplete_manifest_script_grep(command: &str) -> bool {
+    let Some(pattern) = manifest_grep_pattern(command) else {
+        return false;
+    };
+    let Some(inner) = pattern
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+    else {
+        return false;
+    };
+    matches!(inner, "next dev")
+}
+
+fn manifest_grep_pattern(command: &str) -> Option<String> {
+    let command = command.trim().strip_prefix("! ").unwrap_or(command.trim());
+    let parts = command.split_whitespace().collect::<Vec<_>>();
+    if parts.len() < 4 || parts[0] != "grep" || parts[1] != "-q" {
+        return None;
+    }
+    let Some(path) = parts.last() else {
+        return None;
+    };
+    if path.trim_matches(|ch| ch == '\'' || ch == '"') != "package.json" {
+        return None;
+    }
+    let pattern = parts[2..parts.len() - 1].join(" ");
+    let pattern = strip_one_quote_layer(pattern.trim());
+    Some(pattern.to_string())
+}
+
+fn strip_one_quote_layer(value: &str) -> &str {
+    if value.len() >= 2
+        && ((value.starts_with('\'') && value.ends_with('\''))
+            || (value.starts_with('"') && value.ends_with('"')))
+    {
+        &value[1..value.len() - 1]
+    } else {
+        value
+    }
 }
 
 fn is_source_file_path(path: &str) -> bool {

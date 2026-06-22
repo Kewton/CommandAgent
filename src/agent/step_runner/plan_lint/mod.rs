@@ -646,6 +646,22 @@ mod tests {
     }
 
     #[test]
+    fn accepts_concrete_dotfile_expected_paths() {
+        let plan = plan_with_paths("nextjs", vec![".gitignore"]);
+
+        lint_step_plan(&plan).unwrap();
+    }
+
+    #[test]
+    fn rejects_generated_dot_directories_as_expected_paths() {
+        let plan = plan_with_paths("nextjs", vec![".next"]);
+
+        let err = lint_step_plan(&plan).unwrap_err();
+
+        assert!(matches!(err, PlanLintError::InvalidExpectedPath { .. }));
+    }
+
+    #[test]
     fn rejects_compound_verifier_commands() {
         let mut plan = plan_with_paths("generic", vec!["README.md"]);
         plan.steps[0].verify = vec!["test -f README.md && grep -q usage README.md".to_string()];
@@ -928,9 +944,55 @@ mod tests {
     }
 
     #[test]
+    fn rejects_negated_source_code_grep_verifier() {
+        let mut plan = plan_with_paths("rust", vec!["src/main.rs"]);
+        plan.steps[0].verify = vec!["! grep -q todo src/main.rs".to_string()];
+
+        let err = lint_step_plan(&plan).unwrap_err();
+
+        assert!(matches!(err, PlanLintError::InvalidVerifierCommand { .. }));
+    }
+
+    #[test]
     fn accepts_literal_grep_for_docs() {
         let mut plan = plan_with_paths("docs", vec!["README.md"]);
         plan.steps[0].verify = vec!["grep -q Usage README.md".to_string()];
+
+        lint_step_plan(&plan).unwrap();
+    }
+
+    #[test]
+    fn accepts_negated_literal_grep_for_docs() {
+        let mut plan = plan_with_paths("docs", vec!["README.md"]);
+        plan.steps[0].verify = vec!["! grep -q Forbidden README.md".to_string()];
+
+        lint_step_plan(&plan).unwrap();
+    }
+
+    #[test]
+    fn rejects_overquoted_numeric_manifest_grep_verifier() {
+        let mut plan = plan_with_paths("nextjs", vec!["package.json"]);
+        plan.steps[0].verify = vec!["grep -q '\"3011\"' package.json".to_string()];
+
+        let err = lint_step_plan(&plan).unwrap_err();
+
+        assert!(matches!(err, PlanLintError::InvalidVerifierCommand { .. }));
+    }
+
+    #[test]
+    fn rejects_overquoted_incomplete_manifest_script_grep_verifier() {
+        let mut plan = plan_with_paths("nextjs", vec!["package.json"]);
+        plan.steps[0].verify = vec!["grep -q '\"next dev\"' package.json".to_string()];
+
+        let err = lint_step_plan(&plan).unwrap_err();
+
+        assert!(matches!(err, PlanLintError::InvalidVerifierCommand { .. }));
+    }
+
+    #[test]
+    fn accepts_complete_manifest_script_grep_verifier() {
+        let mut plan = plan_with_paths("nextjs", vec!["package.json"]);
+        plan.steps[0].verify = vec!["grep -q '\"next build\"' package.json".to_string()];
 
         lint_step_plan(&plan).unwrap();
     }

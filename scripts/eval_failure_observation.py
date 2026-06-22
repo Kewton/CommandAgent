@@ -274,6 +274,10 @@ def terminal_state_from_reason(reason: str, evidence: str = "", raw: dict[str, A
         return "provider_parse_failed"
     if "json parse failed" in combined and "tool" in combined:
         return "provider_parse_failed"
+    if "xml syntax error" in combined and (
+        "function" in combined or "tool" in combined or "ollama" in combined
+    ):
+        return "provider_parse_failed"
     if (
         reason_lc.startswith("provider_transport")
         or "transport failed" in combined
@@ -315,6 +319,10 @@ def terminal_state_from_reason(reason: str, evidence: str = "", raw: dict[str, A
         return "setup_failed"
     if reason_lc.startswith("missing:") or reason_lc.startswith("semantic_missing:"):
         return "missing_deliverable"
+    if reason_lc.startswith("semantic_mismatch:"):
+        return "eval_assertion_failed"
+    if reason_lc.startswith("quality:") or reason_lc.startswith("app_quality:"):
+        return "eval_assertion_failed"
     completion_status = clean(raw.get("completion_evidence_status")).casefold()
     binding_status = clean(raw.get("evidence_binding_status")).casefold()
     ledger_status = clean(raw.get("artifact_ledger_status")).casefold()
@@ -350,10 +358,6 @@ def terminal_state_from_reason(reason: str, evidence: str = "", raw: dict[str, A
         return "evidence_binding_failed"
     if "completion_evidence" in combined and "failed" in combined:
         return "completion_evidence_failed"
-    if reason_lc.startswith("semantic_mismatch:"):
-        return "eval_assertion_failed"
-    if reason_lc.startswith("quality:") or reason_lc.startswith("app_quality:"):
-        return "eval_assertion_failed"
     if reason_lc.startswith("explicit_stop") or "explicit_stop" in combined:
         return "explicit_stop"
     if reason_lc.startswith("rc:") or reason_lc.startswith("command_failed:") or reason_lc.startswith("blocked:"):

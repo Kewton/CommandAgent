@@ -238,8 +238,18 @@ fn classify_simple(command: &str, policy: BashPolicy) -> PolicyDecision {
     if starts_with_any(
         &lower,
         &[
-            "pwd", "ls", "cat ", "sed -n ", "head ", "tail ", "wc ", "find ", "test -f ",
-            "test -d ", "grep -q ",
+            "pwd",
+            "ls",
+            "cat ",
+            "sed -n ",
+            "head ",
+            "tail ",
+            "wc ",
+            "find ",
+            "test -f ",
+            "test -d ",
+            "grep -q ",
+            "! grep -q ",
         ],
     ) {
         return allowed(CommandClass::ReadOnly);
@@ -583,6 +593,7 @@ mod tests {
             "test -f Cargo.toml",
             "test -d src",
             "grep -q hello src/main.rs",
+            "! grep -q hello README.md",
         ] {
             let decision = enforce_offline_policy(command, &root);
             assert_eq!(decision.class, CommandClass::ReadOnly, "{command}");

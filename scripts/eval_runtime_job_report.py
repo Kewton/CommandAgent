@@ -98,7 +98,11 @@ def lifecycle_stage(
         return "rechecking"
     if dry_run:
         return "dry_run_placeholder"
-    if explicit_stop_reason or active_job == "explicit_stop" or terminal_state == "explicit_stop":
+    if (
+        is_meaningful_value(explicit_stop_reason)
+        or active_job == "explicit_stop"
+        or terminal_state == "explicit_stop"
+    ):
         return "explicit_stop"
     if success or reason == "ok" or terminal_state == "ok" or runtime_job_outcome == "passed":
         return "completed"
@@ -132,9 +136,11 @@ def selected_action(
     runtime_job_outcome: str,
     success: bool,
 ) -> str:
-    for candidate in [repair_action, loop_control_action, active_job, runtime_job_outcome]:
-        if candidate and candidate != "none":
+    for candidate in [repair_action, loop_control_action, active_job]:
+        if is_meaningful_value(candidate):
             return candidate
+    if not success and is_meaningful_value(runtime_job_outcome):
+        return runtime_job_outcome
     return "none" if success else "unknown"
 
 
@@ -208,6 +214,11 @@ def clean(value: Any) -> str:
     if value is None:
         return ""
     return str(value).strip()
+
+
+def is_meaningful_value(value: Any) -> bool:
+    cleaned = clean(value).casefold()
+    return cleaned not in {"", "none", "not_applicable"}
 
 
 def boolish(value: Any) -> bool:
