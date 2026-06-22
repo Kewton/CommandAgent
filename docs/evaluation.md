@@ -129,6 +129,23 @@ are `lifecycle_stage`, `active_owner`, `selected_action`,
 runtime, setup, verifier, evidence, and recovery records. They do not run
 setup, select a repair owner, retry a verifier, or change success criteria.
 
+Large sign-off also requires failed rows to be attributable. Eval reporting may
+project deterministic owner/action/target/evidence fields from already
+observed terminal states and diagnostic codes, but only as reporting data. For
+example, `provider_transport:eval_timeout` is projected to a provider boundary
+blocker with `attempt_outcome=blocked_external`, and
+`profile_verification:nextjs_dependency_version_conflict` is projected to a
+manifest repair target of `package.json`. This projection must not retry the
+case, change runtime repair policy, or turn a failure into success.
+
+For failed large rows, blank, `unknown`, and `none` remain missing field
+values. `missing`, `failed`, and `blocked_external` are meaningful evidence
+states because they preserve the failure. `not_applicable` is field-sensitive:
+it is accepted for target/evidence only when the row is a provider/eval
+boundary failure with an explicit owner, action, and attempt outcome. It is not
+accepted for profile, setup, verifier, route, or source failures that have a
+repairable target.
+
 `lifecycle_stage` is the report funnel value. It may be `planning`, `running`,
 `setup`, `verifying`, `repairing`, `rechecking`, `completed`, `failed`,
 `blocked`, `explicit_stop`, or `dry_run_placeholder`. `completion_source`

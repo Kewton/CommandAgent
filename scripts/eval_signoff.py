@@ -124,6 +124,67 @@ def is_missing(raw: str) -> bool:
     return raw.strip().casefold() in MISSING_VALUES
 
 
+def is_missing_for(row: dict[str, str], field: str, raw: str) -> bool:
+    cleaned = raw.strip().casefold()
+    if cleaned == "not_applicable" and not_applicable_allowed(row, field):
+        return False
+    return cleaned in MISSING_VALUES
+
+
+def not_applicable_allowed(row: dict[str, str], field: str) -> bool:
+    if field == "target":
+        return target_not_applicable_allowed(row)
+    if field in {"evidence_binding", "completion_evidence"}:
+        return evidence_not_applicable_allowed(row)
+    return False
+
+
+def target_not_applicable_allowed(row: dict[str, str]) -> bool:
+    return target_optional_context(row) and has_owner_action_attempt(row)
+
+
+def evidence_not_applicable_allowed(row: dict[str, str]) -> bool:
+    if not provider_boundary_context(row):
+        return False
+    if not has_owner_action_attempt(row):
+        return False
+    return value(row, "attempt_outcome").casefold() in {
+        "blocked_external",
+        "explicit_stop",
+        "stopped_external",
+    }
+
+
+def target_optional_context(row: dict[str, str]) -> bool:
+    return value(row, "terminal_state") in {
+        "explicit_stop",
+        "provider_transport_failed",
+        "provider_parse_failed",
+    } or provider_boundary_context(row)
+
+
+def provider_boundary_context(row: dict[str, str]) -> bool:
+    return (
+        value(row, "terminal_state")
+        in {"provider_transport_failed", "provider_parse_failed"}
+        or value(row, "failure_category") == "provider_transport"
+        or value(row, "diagnostic_code").startswith("provider_transport:")
+    )
+
+
+def has_owner_action_attempt(row: dict[str, str]) -> bool:
+    active_job = value(row, "active_job")
+    owner = value(row, "recovery_owner") or value(row, "active_owner")
+    action = value(row, "repair_action") or value(row, "selected_action")
+    attempt_outcome = value(row, "attempt_outcome")
+    return not (
+        is_missing(active_job)
+        or is_missing(owner)
+        or is_missing(action)
+        or is_missing(attempt_outcome)
+    )
+
+
 def is_success(row: dict[str, str]) -> bool:
     return value(row, "success").casefold() == "true"
 
@@ -237,23 +298,23 @@ def large_ownership_findings(spec: RootSpec, row: dict[str, str]) -> list[Findin
     evidence_binding = value(row, "evidence_binding_status")
     completion_evidence = value(row, "completion_evidence_status")
     attempt_outcome = value(row, "attempt_outcome")
-    target_optional = value(row, "terminal_state") in {
-        "explicit_stop",
-        "provider_transport_failed",
-        "provider_parse_failed",
-    }
+    target_optional = target_optional_context(row)
     required = [
-        ("missing_active_job", active_job),
-        ("missing_owner", owner),
-        ("missing_action", action),
-        ("missing_evidence_binding", evidence_binding),
-        ("missing_completion_evidence", completion_evidence),
-        ("missing_attempt_outcome", attempt_outcome),
+        ("missing_active_job", "active_job", active_job),
+        ("missing_owner", "owner", owner),
+        ("missing_action", "action", action),
+        ("missing_evidence_binding", "evidence_binding", evidence_binding),
+        (
+            "missing_completion_evidence",
+            "completion_evidence",
+            completion_evidence,
+        ),
+        ("missing_attempt_outcome", "attempt_outcome", attempt_outcome),
     ]
     if not target_optional:
-        required.append(("missing_target", target))
-    for code, raw in required:
-        if is_missing(raw):
+        required.append(("missing_target", "target", target))
+    for code, field, raw in required:
+        if is_missing_for(row, field, raw):
             findings.append(finding(spec, row, code, f"{code} for failed large row"))
     return findings
 

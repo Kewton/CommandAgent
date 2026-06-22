@@ -441,6 +441,54 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertEqual(report["lifecycle_stage"], "rechecking")
         self.assertEqual(report["completion_source"], "recheck_failure")
 
+    def test_runtime_job_report_projects_provider_timeout_ownership(self):
+        report = eval_runtime_job_report.build_runtime_job_report(
+            {
+                "success": "false",
+                "reason": "provider_transport:eval_timeout",
+                "terminal_state": "provider_transport_failed",
+                "failure_category": "provider_transport",
+                "diagnostic_code": "provider_transport:eval_timeout",
+            }
+        )
+
+        self.assertEqual(report["active_job"], "provider_transport_blocker")
+        self.assertEqual(report["active_owner"], "provider_transport")
+        self.assertEqual(report["recovery_owner"], "provider_transport")
+        self.assertEqual(report["selected_action"], "stop_for_provider_timeout")
+        self.assertEqual(report["repair_action"], "stop_for_provider_timeout")
+        self.assertEqual(report["target_path"], "not_applicable")
+        self.assertEqual(report["target_admission_status"], "not_applicable")
+        self.assertEqual(report["evidence_binding_status"], "not_applicable")
+        self.assertEqual(report["completion_evidence_status"], "not_applicable")
+        self.assertEqual(report["attempt_outcome"], "blocked_external")
+
+    def test_runtime_job_report_overrides_profile_dependency_source_fallback(self):
+        report = eval_runtime_job_report.build_runtime_job_report(
+            {
+                "success": "false",
+                "reason": "semantic_missing:components/AnalyticsPanel.tsx",
+                "terminal_state": "profile_contract_failed",
+                "failure_category": "profile",
+                "diagnostic_code": "profile_verification:nextjs_dependency_version_conflict",
+                "active_job": "source_implementation_repair",
+                "recovery_owner": "source",
+                "repair_action": "edit_source_for_diagnostic",
+            }
+        )
+
+        self.assertEqual(report["active_job"], "manifest_repair")
+        self.assertEqual(report["active_owner"], "manifest")
+        self.assertEqual(report["recovery_owner"], "manifest")
+        self.assertEqual(report["selected_action"], "add_missing_manifest_dependency")
+        self.assertEqual(report["repair_action"], "add_missing_manifest_dependency")
+        self.assertEqual(report["target_path"], "package.json")
+        self.assertEqual(report["target_role"], "setup_manifest")
+        self.assertEqual(report["target_admission_status"], "admitted")
+        self.assertEqual(report["evidence_binding_status"], "bound")
+        self.assertEqual(report["completion_evidence_status"], "failed")
+        self.assertEqual(report["attempt_outcome"], "failed")
+
     def test_focused_assertions_accept_recheck_success_equivalents(self):
         result = eval_case_schema.focused_assertions(
             {

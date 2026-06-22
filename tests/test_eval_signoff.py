@@ -112,6 +112,110 @@ class EvalSignoffTests(unittest.TestCase):
 
         self.assertIn("generic_source_fallback", [item.code for item in findings])
 
+    def test_accepts_provider_timeout_not_applicable_evidence_when_owned(self):
+        rows = [
+            {
+                "case_id": "large-python",
+                "run": "1",
+                "success": "false",
+                "reason": "provider_transport:eval_timeout",
+                "terminal_state": "provider_transport_failed",
+                "failure_category": "provider_transport",
+                "contract_layer": "execution_contract",
+                "diagnostic_code": "provider_transport:eval_timeout",
+                "active_job": "provider_transport_blocker",
+                "recovery_owner": "provider_transport",
+                "repair_action": "stop_for_provider_timeout",
+                "target_path": "not_applicable",
+                "evidence_binding_status": "not_applicable",
+                "completion_evidence_status": "not_applicable",
+                "attempt_outcome": "blocked_external",
+            }
+        ]
+        spec = eval_signoff.RootSpec("large", pathlib.Path("root"))
+
+        self.assertEqual(eval_signoff.classify(spec, rows), [])
+
+    def test_rejects_provider_timeout_not_applicable_without_owner_action(self):
+        rows = [
+            {
+                "case_id": "large-python",
+                "run": "1",
+                "success": "false",
+                "reason": "provider_transport:eval_timeout",
+                "terminal_state": "provider_transport_failed",
+                "failure_category": "provider_transport",
+                "contract_layer": "execution_contract",
+                "diagnostic_code": "provider_transport:eval_timeout",
+                "target_path": "not_applicable",
+                "evidence_binding_status": "not_applicable",
+                "completion_evidence_status": "not_applicable",
+                "attempt_outcome": "blocked_external",
+            }
+        ]
+        spec = eval_signoff.RootSpec("large", pathlib.Path("root"))
+
+        findings = eval_signoff.classify(spec, rows)
+
+        self.assertIn("missing_active_job", [item.code for item in findings])
+        self.assertIn("missing_owner", [item.code for item in findings])
+        self.assertIn("missing_action", [item.code for item in findings])
+        self.assertIn("missing_evidence_binding", [item.code for item in findings])
+        self.assertIn("missing_completion_evidence", [item.code for item in findings])
+
+    def test_accepts_profile_manifest_dependency_target_projection(self):
+        rows = [
+            {
+                "case_id": "large-nextjs-app-modify",
+                "run": "1",
+                "success": "false",
+                "reason": "semantic_missing:components/AnalyticsPanel.tsx",
+                "terminal_state": "profile_contract_failed",
+                "failure_category": "profile",
+                "contract_layer": "profile_contract",
+                "diagnostic_code": "profile_verification:nextjs_dependency_version_conflict",
+                "active_job": "manifest_repair",
+                "recovery_owner": "manifest",
+                "repair_action": "add_missing_manifest_dependency",
+                "target_path": "package.json",
+                "target_role": "setup_manifest",
+                "evidence_binding_status": "bound",
+                "completion_evidence_status": "failed",
+                "attempt_outcome": "failed",
+            }
+        ]
+        spec = eval_signoff.RootSpec("large", pathlib.Path("root"))
+
+        self.assertEqual(eval_signoff.classify(spec, rows), [])
+
+    def test_rejects_profile_contract_not_applicable_evidence(self):
+        rows = [
+            {
+                "case_id": "large-nextjs-app-modify",
+                "run": "1",
+                "success": "false",
+                "reason": "semantic_missing:components/AnalyticsPanel.tsx",
+                "terminal_state": "profile_contract_failed",
+                "failure_category": "profile",
+                "contract_layer": "profile_contract",
+                "diagnostic_code": "profile_verification:nextjs_dependency_version_conflict",
+                "active_job": "manifest_repair",
+                "recovery_owner": "manifest",
+                "repair_action": "add_missing_manifest_dependency",
+                "target_path": "package.json",
+                "target_role": "setup_manifest",
+                "evidence_binding_status": "not_applicable",
+                "completion_evidence_status": "not_applicable",
+                "attempt_outcome": "failed",
+            }
+        ]
+        spec = eval_signoff.RootSpec("large", pathlib.Path("root"))
+
+        findings = eval_signoff.classify(spec, rows)
+
+        self.assertIn("missing_evidence_binding", [item.code for item in findings])
+        self.assertIn("missing_completion_evidence", [item.code for item in findings])
+
     def test_requires_recheck_summary_when_requested(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
