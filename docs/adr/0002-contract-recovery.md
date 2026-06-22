@@ -263,6 +263,16 @@ missing current excerpts for focused edits, exhausted targets/roles/clusters,
 and role mismatches. Same-priority admitted targets with different paths stop
 as an explicit target conflict instead of falling back to path order.
 
+2026-06-22 amendment: repair job state is now runtime-effective recovery
+evidence. A bounded repair attempt records before/after signatures, changed
+files, verifier/profile/guard outcome, selected target, target role, failure
+cluster, repair action, and deterministic attempt outcome. `duplicate`,
+`no_progress`, and `worsened` attempts may exhaust the current target, role, or
+cluster before target admission builds another repair prompt. If no bounded
+strategy remains, recovery stops with a structured `safe_stop_payload` instead
+of relying on final prose. This does not add retry budget, hidden continuation,
+provider-specific behavior, or a second execution engine.
+
 2026-06-22 amendment: Artifact attribution is now an explicit contract
 boundary. Bounded workspace snapshots, normalized `Read` / `Write` / `Edit`
 tool targets, verifier-mentioned paths, and setup/scaffold provenance are

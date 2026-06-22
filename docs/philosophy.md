@@ -515,7 +515,8 @@ classified failure
   -> recovery owner and repair action plan
   -> completion evidence, evidence binding, deliverable obligations
   -> semantic failure report and repair job state
-  -> patch validation and eval report fields when present
+  -> attempt outcome, exhausted target/role/cluster, no-progress strategy,
+     safe-stop payload, patch validation, and eval report fields when present
   -> rerun authority
 ```
 
@@ -526,7 +527,9 @@ These values are carried as bounded contract evidence fields such as
 `rerun_authority`. Newer recovery-control fields such as `recovery_owner`,
 `completion_evidence`, `evidence_binding`, `deliverable_obligations`,
 `repair_action_plan`, `semantic_failure_report`, `repair_job_state`,
-`attempt_outcomes`, `patch_validation`, and `eval_report_fields` are also
+`attempt_outcomes`, `exhausted_targets`, `exhausted_roles`,
+`exhausted_clusters`, `no_progress_strategy`, `repair_state_status`,
+`safe_stop_payload`, `patch_validation`, and `eval_report_fields` are also
 bounded contract evidence. Target-admission evidence may also carry
 `proposed_targets`, `admitted_targets`, `rejected_targets`, `repair_brief`,
 `selected_failure_cluster`, `repair_brief_status`, `action_envelope_status`,
@@ -539,8 +542,12 @@ bounded contract evidence. Target-admission evidence may also carry
 `unknown_diagnostic_count`. Repair-action admission evidence may also carry
 `allowed_tool_category`, `repair_root_cause`, `repair_hypothesis`,
 `expected_improvement`, `target_confidence`, `must_preserve`, `success_check`,
-and `repair_plan_rejection_reason`. These fields clarify the next bounded
-repair task or the reason no repair task is admitted. They are data for
+`repair_plan_rejection_reason`, and safe-stop evidence such as
+`safe_stop_payload`. These fields clarify the next bounded repair task or the
+reason no repair task is admitted. Attempt outcomes are not advisory text:
+`duplicate`, `no_progress`, and `worsened` attempts may exhaust the current
+target, role, or failure cluster before the next repair task is admitted.
+They are data for
 Recovery Policy Contract, Recovery Task Contract, verifier-owned setup
 recovery, focused target admission, or repair-action admission. They are not
 hidden workflow state, retry counters, or permission for the model to choose a

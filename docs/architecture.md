@@ -310,7 +310,11 @@ The orchestration section may carry `recovery_owner`, `completion_evidence`,
 `repair_action_plan`, `semantic_failure_report`, `repair_job_state`,
 `attempt_outcomes`, `exhausted_targets`, `exhausted_roles`,
 `exhausted_clusters`, `no_progress_strategy`, `repair_state_status`,
-`patch_validation`, and `eval_report_fields`. Target-admission data may carry
+`safe_stop_payload`, `patch_validation`, and `eval_report_fields`.
+`attempt_outcomes` are consumed by target admission through exhausted target,
+role, and cluster facts; repeated ineffective repairs therefore narrow or stop
+the next bounded repair instead of silently reusing the same target.
+Target-admission data may carry
 `proposed_targets`, `admitted_targets`, `rejected_targets`, `repair_brief`,
 `selected_failure_cluster`, `repair_brief_status`, `action_envelope_status`,
 `target_source_of_truth`, `target_ownership_source`, `target_workspace_scope`,

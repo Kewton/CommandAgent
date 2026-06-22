@@ -53,6 +53,7 @@ EXPECTED_FIELD_NAMES = [
     "expected_completion_evidence_status",
     "expected_attempt_outcome",
     "expected_explicit_stop_reason",
+    "expected_safe_stop_payload",
 ]
 
 ASSERTION_FIELD_NAMES = [

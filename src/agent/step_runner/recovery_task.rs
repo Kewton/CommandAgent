@@ -104,9 +104,12 @@ pub struct RecoveryTaskContract {
     pub weak_verifier_reason: Option<String>,
     pub repair_brief_status: Option<String>,
     pub action_envelope_status: Option<String>,
+    pub exhausted_targets: Vec<String>,
+    pub exhausted_roles: Vec<String>,
     pub exhausted_clusters: Vec<String>,
     pub no_progress_strategy: Option<String>,
     pub repair_state_status: Option<String>,
+    pub safe_stop_payload: Vec<String>,
     pub execution_envelope: Option<RecoveryExecutionEnvelope>,
 }
 
@@ -182,9 +185,12 @@ impl RecoveryTaskContract {
             .with_weak_verifier_reason_opt(evidence.weak_verifier_reason.clone())
             .with_repair_brief_status_opt(evidence.repair_brief_status.clone())
             .with_action_envelope_status_opt(evidence.action_envelope_status.clone())
+            .with_exhausted_targets(evidence.exhausted_targets.clone())
+            .with_exhausted_roles(evidence.exhausted_roles.clone())
             .with_exhausted_clusters(evidence.exhausted_clusters.clone())
             .with_no_progress_strategy_opt(evidence.no_progress_strategy.clone())
             .with_repair_state_status_opt(evidence.repair_state_status.clone())
+            .with_safe_stop_payload(evidence.safe_stop_payload.clone())
             .with_execution_envelope_opt(execution_envelope(evidence));
 
         if evidence.guard == "tool_protocol"
@@ -624,6 +630,28 @@ impl RecoveryTaskContract {
         self
     }
 
+    pub fn with_exhausted_targets<I, S>(mut self, exhausted_targets: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        for target in exhausted_targets {
+            push_unique(&mut self.exhausted_targets, target.into());
+        }
+        self
+    }
+
+    pub fn with_exhausted_roles<I, S>(mut self, exhausted_roles: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        for role in exhausted_roles {
+            push_unique(&mut self.exhausted_roles, role.into());
+        }
+        self
+    }
+
     pub fn with_exhausted_clusters<I, S>(mut self, exhausted_clusters: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -642,6 +670,17 @@ impl RecoveryTaskContract {
 
     pub fn with_repair_state_status(mut self, status: impl Into<String>) -> Self {
         self.repair_state_status = Some(status.into());
+        self
+    }
+
+    pub fn with_safe_stop_payload<I, S>(mut self, safe_stop_payload: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        for line in safe_stop_payload {
+            push_unique(&mut self.safe_stop_payload, line.into());
+        }
         self
     }
 
@@ -817,6 +856,8 @@ impl RecoveryTaskContract {
             "action_envelope_status",
             self.action_envelope_status.as_deref(),
         );
+        push_list(&mut lines, "exhausted_targets", &self.exhausted_targets);
+        push_list(&mut lines, "exhausted_roles", &self.exhausted_roles);
         push_list(&mut lines, "exhausted_clusters", &self.exhausted_clusters);
         push_field(
             &mut lines,
@@ -828,6 +869,7 @@ impl RecoveryTaskContract {
             "repair_state_status",
             self.repair_state_status.as_deref(),
         );
+        push_list(&mut lines, "safe_stop_payload", &self.safe_stop_payload);
         if let Some(envelope) = self.execution_envelope {
             push_field(&mut lines, "execution_envelope", Some(envelope.as_str()));
             push_field(&mut lines, "tool_policy", Some(envelope.tool_policy()));
@@ -1145,9 +1187,12 @@ impl RecoveryTaskContract {
             || self.weak_verifier_reason.is_some()
             || self.repair_brief_status.is_some()
             || self.action_envelope_status.is_some()
+            || !self.exhausted_targets.is_empty()
+            || !self.exhausted_roles.is_empty()
             || !self.exhausted_clusters.is_empty()
             || self.no_progress_strategy.is_some()
             || self.repair_state_status.is_some()
+            || !self.safe_stop_payload.is_empty()
             || self.execution_envelope.is_some()
     }
 }

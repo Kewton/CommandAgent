@@ -29,9 +29,9 @@ use crate::agent::step_runner::repair::{
     build_tool_protocol_correction_prompt, save_repair_prompt,
 };
 use crate::agent::step_runner::repair_job::{
-    NoProgressStrategy, RepairAttemptOutcomeKind, RepairAttemptRecord, RepairJobState,
-    attempt_outcome_reason, classify_attempt_outcome, repair_signature_from_contract_evidence,
-    select_no_progress_strategy,
+    AttemptOutcomeInput, NoProgressStrategy, RepairAttemptOutcomeKind, RepairAttemptRecord,
+    RepairJobState, attempt_outcome_reason, classify_attempt_outcome_with_history,
+    repair_signature_from_contract_evidence, select_no_progress_strategy,
 };
 use crate::agent::step_runner::runtime::phase_contract::{
     ActiveStepContract, current_profile_facts,
@@ -381,14 +381,26 @@ where
         });
         let current_contract_evidence =
             contract_evidence_for_state(runtime.cwd, plan, step, &state);
+        let attempt_context = repair_attempt_context(step, &current_contract_evidence);
+        let before_signature = repair_signature_from_contract_evidence(&current_contract_evidence);
         if repair_state_explicit_stop(&current_contract_evidence) {
             break;
         }
         if repair_plan_admission_rejected(&current_contract_evidence) {
+            record_repair_attempt_ledger(
+                &mut state,
+                RepairAttemptUpdate {
+                    attempt_number: repair_turns,
+                    context: &attempt_context,
+                    before_signature: &before_signature,
+                    after_signature: &before_signature,
+                    changed_files: &[],
+                    verifier_passed: false,
+                    forced_outcome: Some(RepairAttemptOutcomeKind::ExplicitStop),
+                },
+            );
             break;
         }
-        let attempt_context = repair_attempt_context(step, &current_contract_evidence);
-        let before_signature = repair_signature_from_contract_evidence(&current_contract_evidence);
         let selected_envelope = recovery_execution_envelope(&current_contract_evidence);
         let correction_decision = tool_protocol_correction_decision(
             step,
@@ -860,6 +872,11 @@ fn push_patch_validation_contract_evidence(
         )
         .with_patch_validation(lines)
         .with_explicit_stop_reason("patch_validation_rejected_unsafe_repair")
+        .with_safe_stop_payload([format!(
+            "owner=repair;job=explicit_stop;action=stop_with_structured_evidence;target={};role=test;cluster=patch_validation;reason=patch_validation_rejected_unsafe_repair;attempts=1;outcomes=unsafe;exhausted_targets={};exhausted_roles=test;exhausted_clusters=patch_validation",
+            target.as_deref().unwrap_or("none"),
+            target.as_deref().unwrap_or("none")
+        )])
         .with_diagnostic("repair attempted to weaken or skip a test");
     if let Some(target) = target {
         evidence = evidence
@@ -1327,7 +1344,10 @@ fn verifier_contract_evidence(
         .with_repair_job_state(repair_state_lines)
         .with_attempt_outcomes(repair_job_state.attempt_outcome_lines())
         .with_repair_attempt_ledger(repair_job_state.attempt_ledger_lines())
+        .with_exhausted_targets(repair_job_state.exhausted_targets.clone())
+        .with_exhausted_roles(repair_job_state.exhausted_roles.clone())
         .with_exhausted_clusters(repair_job_state.exhausted_clusters.clone())
+        .with_safe_stop_payload(repair_job_state.safe_stop_payload_lines())
         .with_eval_report_fields({
             append_unique_lines(&mut eval_fields, diagnostic_payload.eval_report_fields());
             eval_fields
@@ -1340,6 +1360,9 @@ fn verifier_contract_evidence(
     }
     if !repair_job_state.attempt_ledger.is_empty() {
         evidence = evidence.with_repair_state_status("attempted");
+    }
+    if let Some(reason) = &repair_job_state.explicit_stop_reason {
+        evidence = evidence.with_explicit_stop_reason(reason.clone());
     }
     if let Some(target) = repair_target {
         evidence = evidence
@@ -1763,6 +1786,7 @@ struct RepairAttemptContext {
     selected_failure_cluster: Option<String>,
     selected_target: Option<String>,
     selected_target_role: Option<String>,
+    candidate_targets: Vec<String>,
     verifier_command: String,
     candidate_roles: Vec<String>,
     evidence_binding_available: bool,
@@ -1801,11 +1825,30 @@ fn repair_attempt_context(
         .or_else(|| selected.and_then(|item| item.command.clone()))
         .or_else(|| step.verify.first().cloned())
         .unwrap_or_else(|| "original verifier/profile/guard".to_string());
+    let mut candidate_targets = Vec::new();
+    if let Some(target) = &selected_target {
+        push_unique_value(&mut candidate_targets, target.clone());
+    }
     let mut candidate_roles = Vec::new();
     if let Some(role) = &selected_target_role {
         push_unique_value(&mut candidate_roles, role.clone());
     }
     for item in evidence {
+        if let Some(path) = &item.repair_target {
+            push_unique_value(&mut candidate_targets, path.clone());
+        }
+        if let Some(path) = &item.target_path {
+            push_unique_value(&mut candidate_targets, path.clone());
+        }
+        for path in &item.candidate_artifacts {
+            push_unique_value(&mut candidate_targets, path.clone());
+        }
+        for path in candidate_targets_from_target_lines(&item.admitted_targets) {
+            push_unique_value(&mut candidate_targets, path);
+        }
+        for path in candidate_targets_from_target_lines(&item.rejected_targets) {
+            push_unique_value(&mut candidate_targets, path);
+        }
         for role in candidate_roles_from_target_lines(&item.admitted_targets) {
             push_unique_value(&mut candidate_roles, role);
         }
@@ -1826,6 +1869,7 @@ fn repair_attempt_context(
         selected_failure_cluster: selected.and_then(|item| item.selected_failure_cluster.clone()),
         selected_target,
         selected_target_role,
+        candidate_targets,
         verifier_command,
         candidate_roles,
         evidence_binding_available: evidence_binding_available(evidence),
@@ -1853,12 +1897,15 @@ fn repair_plan_admission_rejected(evidence: &[ContractEvidence]) -> bool {
 
 fn record_repair_attempt_ledger(state: &mut RepairStepState, update: RepairAttemptUpdate<'_>) {
     let outcome = update.forced_outcome.unwrap_or_else(|| {
-        classify_attempt_outcome(
-            update.before_signature,
-            update.after_signature,
-            update.changed_files,
-            update.verifier_passed,
-        )
+        classify_attempt_outcome_with_history(AttemptOutcomeInput {
+            before_signature: update.before_signature,
+            after_signature: update.after_signature,
+            changed_files: update.changed_files,
+            verifier_passed: update.verifier_passed,
+            target: update.context.selected_target.as_deref(),
+            selected_failure_cluster: update.context.selected_failure_cluster.as_deref(),
+            prior_attempts: &state.repair_job_state.attempt_ledger,
+        })
     });
     let reason = attempt_outcome_reason(
         outcome,
@@ -1908,7 +1955,9 @@ fn record_repair_attempt_ledger(state: &mut RepairStepState, update: RepairAttem
     ) {
         let strategy = select_no_progress_strategy(
             &repair_job_state,
+            context.selected_target.as_deref(),
             context.selected_target_role.as_deref(),
+            &context.candidate_targets,
             &context.candidate_roles,
             context.evidence_binding_available,
             context.scaffold_rebuild_admitted,
@@ -1935,6 +1984,18 @@ fn candidate_roles_from_target_lines(lines: &[String]) -> Vec<String> {
         }
     }
     roles
+}
+
+fn candidate_targets_from_target_lines(lines: &[String]) -> Vec<String> {
+    let mut targets = Vec::new();
+    for line in lines {
+        if let Some(target) = extract_token_value(line, "target ") {
+            push_unique_value(&mut targets, target);
+        } else if let Some(target) = extract_token_value(line, "target=") {
+            push_unique_value(&mut targets, target);
+        }
+    }
+    targets
 }
 
 fn extract_token_value(line: &str, marker: &str) -> Option<String> {
@@ -3291,10 +3352,11 @@ mod tests {
         assert!(rendered.contains("repair_action: stop_with_structured_evidence"));
         assert!(rendered.contains("patch_validation: outcome=test_weakening"));
         assert!(rendered.contains("explicit_stop_reason: patch_validation_rejected_unsafe_repair"));
+        assert!(rendered.contains("safe_stop_payload: owner=repair;job=explicit_stop"));
     }
 
     #[test]
-    fn repeated_verifier_signature_records_no_progress_attempt_outcome() {
+    fn repeated_verifier_signature_records_duplicate_attempt_outcome() {
         let mut state = empty_state();
         let context = RepairAttemptContext {
             step_id: "step".to_string(),
@@ -3304,6 +3366,7 @@ mod tests {
             selected_failure_cluster: Some("verifier_failure".to_string()),
             selected_target: Some("src/lib.rs".to_string()),
             selected_target_role: Some("implementation".to_string()),
+            candidate_targets: vec!["src/lib.rs".to_string()],
             verifier_command: "cargo test".to_string(),
             candidate_roles: vec!["implementation".to_string()],
             evidence_binding_available: false,
@@ -3340,7 +3403,7 @@ mod tests {
             state
                 .repair_attempt_ledger
                 .iter()
-                .any(|entry| entry.contains("outcome=no_progress"))
+                .any(|entry| entry.contains("outcome=duplicate"))
         );
         assert!(
             state

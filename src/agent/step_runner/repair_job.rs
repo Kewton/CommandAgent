@@ -108,6 +108,7 @@ pub(crate) struct RepairJobState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum NoProgressStrategy {
     RetryDeterministicOperatorOnce,
+    SwitchTarget,
     SwitchTargetRole,
     RouteToEvidenceBinding,
     EscalateToContractConflict,
@@ -119,6 +120,7 @@ impl NoProgressStrategy {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::RetryDeterministicOperatorOnce => "retry_deterministic_operator_once",
+            Self::SwitchTarget => "switch_target",
             Self::SwitchTargetRole => "switch_target_role",
             Self::RouteToEvidenceBinding => "route_to_evidence_binding",
             Self::EscalateToContractConflict => "escalate_to_contract_conflict",
@@ -403,14 +405,59 @@ impl RepairJobState {
         ];
         if let Some(reason) = &self.explicit_stop_reason {
             fields.push(format!("explicit_stop_reason={}", compact(reason)));
+            fields.push(format!(
+                "safe_stop_payload={}",
+                self.safe_stop_payload_inline(reason)
+            ));
         }
         fields
+    }
+
+    pub(crate) fn safe_stop_payload_lines(&self) -> Vec<String> {
+        let Some(reason) = self.explicit_stop_reason.as_deref() else {
+            return Vec::new();
+        };
+        vec![self.safe_stop_payload_inline(reason)]
+    }
+
+    fn safe_stop_payload_inline(&self, reason: &str) -> String {
+        let outcomes = self
+            .attempt_ledger
+            .iter()
+            .map(|attempt| attempt.outcome.as_str())
+            .collect::<Vec<_>>()
+            .join("|");
+        format!(
+            "owner={};job={};action={};target={};role={};cluster={};reason={};attempts={};outcomes={};exhausted_targets={};exhausted_roles={};exhausted_clusters={}",
+            eval_value(self.recovery_owner.as_deref().unwrap_or("unknown")),
+            eval_value(&self.active_job),
+            eval_value(self.repair_action.as_deref().unwrap_or("unknown")),
+            eval_value(self.current_target.as_deref().unwrap_or("none")),
+            eval_value(self.current_target_role.as_deref().unwrap_or("unknown")),
+            eval_value(
+                self.selected_failure_cluster
+                    .as_deref()
+                    .unwrap_or("unknown")
+            ),
+            eval_value(reason),
+            self.attempt_ledger.len(),
+            if outcomes.is_empty() {
+                "none".to_string()
+            } else {
+                eval_value(&outcomes)
+            },
+            eval_list_value(&self.exhausted_targets),
+            eval_list_value(&self.exhausted_roles),
+            eval_list_value(&self.exhausted_clusters)
+        )
     }
 }
 
 pub(crate) fn select_no_progress_strategy(
     state: &RepairJobState,
+    current_target: Option<&str>,
     current_role: Option<&str>,
+    candidate_targets: &[String],
     candidate_roles: &[String],
     evidence_binding_available: bool,
     scaffold_rebuild_admitted: bool,
@@ -420,6 +467,13 @@ pub(crate) fn select_no_progress_strategy(
     }
     if evidence_binding_available {
         return NoProgressStrategy::RouteToEvidenceBinding;
+    }
+    if let Some(current_target) = current_target
+        && candidate_targets
+            .iter()
+            .any(|target| target != current_target && !state.exhausted_targets.contains(target))
+    {
+        return NoProgressStrategy::SwitchTarget;
     }
     if let Some(current_role) = current_role
         && candidate_roles
@@ -443,17 +497,53 @@ pub(crate) fn classify_attempt_outcome(
     changed_files: &[String],
     verifier_passed: bool,
 ) -> RepairAttemptOutcomeKind {
-    if verifier_passed {
+    classify_attempt_outcome_with_history(AttemptOutcomeInput {
+        before_signature,
+        after_signature,
+        changed_files,
+        verifier_passed,
+        target: None,
+        selected_failure_cluster: None,
+        prior_attempts: &[],
+    })
+}
+
+pub(crate) struct AttemptOutcomeInput<'a> {
+    pub(crate) before_signature: &'a str,
+    pub(crate) after_signature: &'a str,
+    pub(crate) changed_files: &'a [String],
+    pub(crate) verifier_passed: bool,
+    pub(crate) target: Option<&'a str>,
+    pub(crate) selected_failure_cluster: Option<&'a str>,
+    pub(crate) prior_attempts: &'a [RepairAttemptRecord],
+}
+
+pub(crate) fn classify_attempt_outcome_with_history(
+    input: AttemptOutcomeInput<'_>,
+) -> RepairAttemptOutcomeKind {
+    if input.verifier_passed {
         return RepairAttemptOutcomeKind::Passed;
     }
-    if changed_files.is_empty() {
+    if input.changed_files.is_empty() {
         return RepairAttemptOutcomeKind::Noop;
     }
-    if before_signature == after_signature {
-        RepairAttemptOutcomeKind::NoProgress
-    } else {
-        RepairAttemptOutcomeKind::ImprovedStillFailing
+    if duplicate_attempt(
+        input.prior_attempts,
+        input.target,
+        input.selected_failure_cluster,
+        input.after_signature,
+    ) {
+        return RepairAttemptOutcomeKind::Duplicate;
     }
+    if diagnostic_severity_rank(input.after_signature)
+        > diagnostic_severity_rank(input.before_signature)
+    {
+        return RepairAttemptOutcomeKind::Worsened;
+    }
+    if input.before_signature == input.after_signature {
+        return RepairAttemptOutcomeKind::NoProgress;
+    }
+    RepairAttemptOutcomeKind::ImprovedStillFailing
 }
 
 pub(crate) fn attempt_outcome_reason(
@@ -552,6 +642,95 @@ fn compact(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+fn duplicate_attempt(
+    prior_attempts: &[RepairAttemptRecord],
+    target: Option<&str>,
+    selected_failure_cluster: Option<&str>,
+    after_signature: &str,
+) -> bool {
+    prior_attempts.iter().any(|attempt| {
+        attempt.after_signature == after_signature
+            && option_matches(attempt.target.as_deref(), target)
+            && option_matches(
+                attempt.selected_failure_cluster.as_deref(),
+                selected_failure_cluster,
+            )
+            && matches!(
+                attempt.outcome,
+                RepairAttemptOutcomeKind::NoProgress
+                    | RepairAttemptOutcomeKind::Duplicate
+                    | RepairAttemptOutcomeKind::Worsened
+                    | RepairAttemptOutcomeKind::ImprovedStillFailing
+            )
+    })
+}
+
+fn option_matches(left: Option<&str>, right: Option<&str>) -> bool {
+    match (left, right) {
+        (Some(left), Some(right)) => left == right,
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+fn diagnostic_severity_rank(signature: &str) -> u8 {
+    let value = signature.to_ascii_lowercase();
+    if value.contains("patch_validation")
+        || value.contains("unsafe")
+        || value.contains("test_weakening")
+    {
+        return 90;
+    }
+    if value.contains("contract_conflict") || value.contains("explicit_stop") {
+        return 80;
+    }
+    if value.contains("provider_transport") || value.contains("tool_protocol") {
+        return 70;
+    }
+    if value.contains("dependency_missing")
+        || value.contains("setup_failed")
+        || value.contains("manifest_invalid")
+    {
+        return 60;
+    }
+    if value.contains("profile_verification") || value.contains("profile") {
+        return 50;
+    }
+    if value.contains("verifier") || value.contains("command_failed") {
+        return 40;
+    }
+    if value.contains("missing_required_artifact") || value.contains("missing_deliverable") {
+        return 30;
+    }
+    10
+}
+
+fn eval_value(value: &str) -> String {
+    let compacted = compact(value);
+    if compacted.trim().is_empty() {
+        "none".to_string()
+    } else {
+        compacted
+            .chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.' | '/' | '|' | ':') {
+                    ch
+                } else {
+                    '_'
+                }
+            })
+            .collect()
+    }
+}
+
+fn eval_list_value(values: &[String]) -> String {
+    if values.is_empty() {
+        "none".to_string()
+    } else {
+        eval_value(&values.join("|"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -617,11 +796,47 @@ mod tests {
         ));
         let candidates = vec!["implementation".to_string(), "entrypoint".to_string()];
 
-        let strategy =
-            select_no_progress_strategy(&state, Some("implementation"), &candidates, false, false);
+        let strategy = select_no_progress_strategy(
+            &state,
+            Some("components/Game.tsx"),
+            Some("implementation"),
+            &[],
+            &candidates,
+            false,
+            false,
+        );
 
         assert_eq!(strategy, NoProgressStrategy::SwitchTargetRole);
         assert_eq!(strategy.as_str(), "switch_target_role");
+    }
+
+    #[test]
+    fn no_progress_strategy_switches_target_before_role() {
+        let state = RepairJobState::new("route_integration_repair").with_attempt(attempt(
+            "npm run build",
+            "route-missing",
+            Some("components/Game.tsx"),
+            Some("implementation"),
+            RepairAttemptOutcomeKind::NoProgress,
+        ));
+        let candidate_targets = vec![
+            "components/Game.tsx".to_string(),
+            "app/page.tsx".to_string(),
+        ];
+        let candidate_roles = vec!["implementation".to_string(), "entrypoint".to_string()];
+
+        let strategy = select_no_progress_strategy(
+            &state,
+            Some("components/Game.tsx"),
+            Some("implementation"),
+            &candidate_targets,
+            &candidate_roles,
+            false,
+            false,
+        );
+
+        assert_eq!(strategy, NoProgressStrategy::SwitchTarget);
+        assert_eq!(strategy.as_str(), "switch_target");
     }
 
     #[test]
@@ -634,9 +849,79 @@ mod tests {
             RepairAttemptOutcomeKind::NoProgress,
         ));
 
-        let strategy = select_no_progress_strategy(&state, Some("entrypoint"), &[], true, true);
+        let strategy = select_no_progress_strategy(
+            &state,
+            Some("app/page.tsx"),
+            Some("entrypoint"),
+            &[],
+            &[],
+            true,
+            true,
+        );
 
         assert_eq!(strategy, NoProgressStrategy::RouteToEvidenceBinding);
+    }
+
+    #[test]
+    fn duplicate_attempt_repeats_prior_target_cluster_and_after_signature() {
+        let prior = attempt(
+            "cargo test",
+            "signature-a",
+            Some("src/lib.rs"),
+            Some("implementation"),
+            RepairAttemptOutcomeKind::NoProgress,
+        );
+        let changed = vec!["src/lib.rs".to_string()];
+
+        let outcome = classify_attempt_outcome_with_history(AttemptOutcomeInput {
+            before_signature: "signature-b",
+            after_signature: "signature-a",
+            changed_files: &changed,
+            verifier_passed: false,
+            target: Some("src/lib.rs"),
+            selected_failure_cluster: Some("verifier_failure"),
+            prior_attempts: &[prior],
+        });
+
+        assert_eq!(outcome, RepairAttemptOutcomeKind::Duplicate);
+    }
+
+    #[test]
+    fn worsened_attempt_is_detected_from_more_severe_signature() {
+        let changed = vec!["src/lib.rs".to_string()];
+        let outcome = classify_attempt_outcome_with_history(AttemptOutcomeInput {
+            before_signature: "verifier|step|cargo test",
+            after_signature: "patch_validation|step|test_weakening",
+            changed_files: &changed,
+            verifier_passed: false,
+            target: Some("src/lib.rs"),
+            selected_failure_cluster: Some("verifier_failure"),
+            prior_attempts: &[],
+        });
+
+        assert_eq!(outcome, RepairAttemptOutcomeKind::Worsened);
+    }
+
+    #[test]
+    fn safe_stop_payload_is_structured_and_eval_safe() {
+        let state = RepairJobState::new("source_implementation_repair")
+            .with_attempt(attempt(
+                "cargo test",
+                "E0425",
+                Some("src/lib.rs"),
+                Some("implementation"),
+                RepairAttemptOutcomeKind::NoProgress,
+            ))
+            .with_no_progress_strategy(NoProgressStrategy::ExplicitStop)
+            .with_explicit_stop_reason("no progress remained");
+
+        let payload = state.safe_stop_payload_lines();
+
+        assert_eq!(payload.len(), 1);
+        assert!(payload[0].contains("job=source_implementation_repair"));
+        assert!(payload[0].contains("target=src/lib.rs"));
+        assert!(payload[0].contains("reason=no_progress_remained"));
+        assert!(!payload[0].contains(' '));
     }
 
     #[test]

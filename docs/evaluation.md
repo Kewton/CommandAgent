@@ -382,6 +382,7 @@ Contract Boundary Propagation fields should be recorded when present:
 - `exhausted_clusters`
 - `no_progress_strategy`
 - `repair_state_status`
+- `safe_stop_payload`
 - `patch_validation`
 - `eval_report_fields`
 - `proposed_targets`

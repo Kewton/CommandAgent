@@ -216,6 +216,7 @@ structured evidence. Repair prompts and packets may include
 `deliverable_obligations`, `semantic_failure_report`, `repair_job_state`,
 `attempt_outcomes`, `exhausted_targets`, `exhausted_roles`,
 `exhausted_clusters`, `no_progress_strategy`, `repair_state_status`,
+`safe_stop_payload`,
 `verifier_diagnostic_payload`, `diagnostic_code`, `observed_expected`,
 `affected_cases`, `preferred_repair_role`, `weak_verifier_reason`,
 `admitted_cluster_targets`, `patch_validation`, `eval_report_fields`,

@@ -276,9 +276,12 @@ pub(crate) struct RecoveryOrchestrationDecision {
     pub(crate) selected_failure_cluster: Option<String>,
     pub(crate) repair_brief_status: Option<String>,
     pub(crate) action_envelope_status: Option<String>,
+    pub(crate) exhausted_targets: Vec<String>,
+    pub(crate) exhausted_roles: Vec<String>,
     pub(crate) exhausted_clusters: Vec<String>,
     pub(crate) no_progress_strategy: Option<String>,
     pub(crate) repair_state_status: Option<String>,
+    pub(crate) safe_stop_payload: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -387,6 +390,15 @@ impl RecoveryOrchestrationDecision {
         {
             evidence = evidence.with_action_envelope_status(status.clone());
         }
+        if !self.exhausted_targets.is_empty() {
+            let exhausted_targets =
+                merge_lists(&evidence.exhausted_targets, &self.exhausted_targets);
+            evidence = evidence.with_exhausted_targets(exhausted_targets);
+        }
+        if !self.exhausted_roles.is_empty() {
+            let exhausted_roles = merge_lists(&evidence.exhausted_roles, &self.exhausted_roles);
+            evidence = evidence.with_exhausted_roles(exhausted_roles);
+        }
         if !self.exhausted_clusters.is_empty() {
             let exhausted_clusters =
                 merge_lists(&evidence.exhausted_clusters, &self.exhausted_clusters);
@@ -406,6 +418,11 @@ impl RecoveryOrchestrationDecision {
             && let Some(reason) = &self.explicit_stop_reason
         {
             evidence = evidence.with_explicit_stop_reason(reason.clone());
+        }
+        if !self.safe_stop_payload.is_empty() {
+            let safe_stop_payload =
+                merge_lists(&evidence.safe_stop_payload, &self.safe_stop_payload);
+            evidence = evidence.with_safe_stop_payload(safe_stop_payload);
         }
         evidence
     }
@@ -551,17 +568,23 @@ pub(crate) fn orchestrate_contract_evidence(
         action_envelope_status: admission.action_envelope_status,
     };
     let repair_brief_lines = repair_brief.render_lines();
+    let exhausted_targets = exhausted_targets_from_evidence(evidence);
+    let exhausted_roles = exhausted_role_names_from_evidence(evidence);
     let exhausted_clusters = exhausted_clusters_from_evidence(evidence);
     let no_progress_strategy = no_progress_strategy_from_evidence(evidence);
     let repair_state_status = repair_state_status_from_evidence(evidence);
+    let safe_stop_payload = safe_stop_payload_from_evidence(evidence);
     let eval_report_fields = merge_lists(
         &target_decision.eval_report_fields(),
         &repair_brief.eval_report_fields(),
     );
     let repair_state_eval_fields = repair_state_eval_fields(
         evidence,
+        &exhausted_targets,
+        &exhausted_roles,
         &exhausted_clusters,
         no_progress_strategy.as_deref(),
+        &safe_stop_payload,
     );
     let eval_report_fields = merge_lists(&eval_report_fields, &repair_state_eval_fields);
     let eval_report_fields = merge_lists(
@@ -635,9 +658,12 @@ pub(crate) fn orchestrate_contract_evidence(
         selected_failure_cluster: Some(selected_failure_cluster),
         repair_brief_status: Some(repair_brief.status.as_str().to_string()),
         action_envelope_status: Some(repair_brief.action_envelope_status.as_str().to_string()),
+        exhausted_targets,
+        exhausted_roles,
         exhausted_clusters,
         no_progress_strategy,
         repair_state_status,
+        safe_stop_payload,
     })
 }
 
@@ -1947,25 +1973,48 @@ fn job_allows_file_target(job: RecoveryJobKind) -> bool {
 }
 
 fn exhausted_targets_from_evidence(evidence: &ContractEvidence) -> Vec<String> {
-    evidence
-        .repair_job_state
-        .iter()
-        .filter_map(|line| line.strip_prefix("exhausted_targets="))
-        .flat_map(|targets| targets.split('|').map(str::to_string).collect::<Vec<_>>())
+    let mut targets = Vec::new();
+    targets.extend(evidence.exhausted_targets.clone());
+    targets.extend(
+        evidence
+            .repair_job_state
+            .iter()
+            .filter_map(|line| line.strip_prefix("exhausted_targets="))
+            .flat_map(|targets| targets.split('|').map(str::to_string).collect::<Vec<_>>()),
+    );
+    targets
+        .into_iter()
+        .filter(|target| !target.trim().is_empty() && target != "none")
         .collect()
 }
 
 fn exhausted_roles_from_evidence(evidence: &ContractEvidence) -> Vec<ArtifactRole> {
-    evidence
-        .repair_job_state
-        .iter()
-        .filter_map(|line| line.strip_prefix("exhausted_roles="))
-        .flat_map(|roles| {
-            roles
-                .split('|')
-                .filter_map(parse_artifact_role)
-                .collect::<Vec<_>>()
-        })
+    let mut roles = Vec::new();
+    roles.extend(
+        evidence
+            .exhausted_roles
+            .iter()
+            .filter_map(|role| parse_artifact_role(role)),
+    );
+    roles.extend(
+        evidence
+            .repair_job_state
+            .iter()
+            .filter_map(|line| line.strip_prefix("exhausted_roles="))
+            .flat_map(|roles| {
+                roles
+                    .split('|')
+                    .filter_map(parse_artifact_role)
+                    .collect::<Vec<_>>()
+            }),
+    );
+    roles
+}
+
+fn exhausted_role_names_from_evidence(evidence: &ContractEvidence) -> Vec<String> {
+    exhausted_roles_from_evidence(evidence)
+        .into_iter()
+        .map(|role| role.as_str().to_string())
         .collect()
 }
 
@@ -2007,10 +2056,27 @@ fn repair_state_status_from_evidence(evidence: &ContractEvidence) -> Option<Stri
     })
 }
 
+fn safe_stop_payload_from_evidence(evidence: &ContractEvidence) -> Vec<String> {
+    let mut payload = evidence.safe_stop_payload.clone();
+    if let Some(value) = latest_eval_field_value(evidence, "safe_stop_payload") {
+        push_unique_string(&mut payload, value);
+    }
+    payload
+}
+
+fn push_unique_string(values: &mut Vec<String>, value: String) {
+    if !value.trim().is_empty() && !values.contains(&value) {
+        values.push(value);
+    }
+}
+
 fn repair_state_eval_fields(
     evidence: &ContractEvidence,
+    exhausted_targets: &[String],
+    exhausted_roles: &[String],
     exhausted_clusters: &[String],
     no_progress_strategy: Option<&str>,
+    safe_stop_payload: &[String],
 ) -> Vec<String> {
     let attempt_count = evidence
         .repair_attempt_ledger
@@ -2018,6 +2084,22 @@ fn repair_state_eval_fields(
         .max(evidence.attempt_outcomes.len());
     let mut fields = vec![
         format!("repair_attempt_count={attempt_count}"),
+        format!(
+            "exhausted_targets={}",
+            if exhausted_targets.is_empty() {
+                "none".to_string()
+            } else {
+                exhausted_targets.join("|")
+            }
+        ),
+        format!(
+            "exhausted_roles={}",
+            if exhausted_roles.is_empty() {
+                "none".to_string()
+            } else {
+                exhausted_roles.join("|")
+            }
+        ),
         format!(
             "exhausted_clusters={}",
             if exhausted_clusters.is_empty() {
@@ -2041,6 +2123,11 @@ fn repair_state_eval_fields(
         if let Some(value) = latest_eval_field_value(evidence, key) {
             fields.push(format!("{key}={value}"));
         }
+    }
+    if let Some(payload) = safe_stop_payload.last() {
+        fields.push(format!("safe_stop_payload={payload}"));
+    } else if let Some(value) = latest_eval_field_value(evidence, "safe_stop_payload") {
+        fields.push(format!("safe_stop_payload={value}"));
     }
     fields
 }
