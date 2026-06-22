@@ -44,6 +44,14 @@ surfaces around it:
 - Attempt Ledger Contract: records bounded repair attempts, changed files,
   verifier/profile results, before/after signatures, target/role/cluster
   exhaustion, and repeated failure classes so no-progress stops are explicit.
+- Patch Validation Contract: validates model edits, mechanical proposals, and
+  rollback candidates before progress is attributed. It owns deterministic
+  unsafe/noop/duplicate/worsened classifications and reports them through the
+  attempt ledger and eval fields.
+- Mechanical Repair Adapter Boundary: maps deterministic verifier diagnostics
+  to bounded hints or patch proposals after recovery owner, target, action,
+  source of truth, and rerun authority are already admitted. It does not
+  execute tools or choose targets.
 
 Contract Boundary Propagation is the handoff rule between these surfaces, not a
 second execution engine. When a deterministic guard rejects work, it may pass
@@ -69,6 +77,22 @@ state that dependency setup may be stale after manifest repair, and
 `rerun_authority=profile_verification,npm run build` can name the checks that
 still judge success. The fields do not create retry authority or an unbounded
 controller.
+
+Patch validation is the admission boundary after a repair attempt proposes a
+workspace change. It consumes the selected owner/action/target facts, touched
+paths, source of truth, before/after signatures, and profile artifact
+classification. It rejects unsafe patch classes before verifier rerun when the
+violation is deterministic, and it records post-rerun outcomes such as noop,
+duplicate, no progress, worsened, or passed through the attempt ledger. A
+worsened attempt may enter rollback admission only when the original authority
+proved the regression and safe rollback data exists; otherwise the runtime
+reports a rejected rollback gate and stops or selects another bounded strategy.
+
+Mechanical repair adapters sit beside, not inside, the minimal loop. They
+convert diagnostic payloads such as Rust compile errors, Python import errors,
+TypeScript/Next.js type failures, route integration failures, or dependency
+missing into bounded hints for the Recovery Task Contract. The adapter output
+is still validated as a patch proposal and judged by the original verifier.
 
 The Planning Contract must validate more than schema shape. It owns step
 decomposition checks such as whether a `setup` step is trying to create a
@@ -254,7 +278,7 @@ The envelope must not add retry authority or provider/model-specific behavior.
 | Provider | HTTP/API transport, provider-specific payload shapes | Planning, repair policy, profile behavior |
 | Minimal loop | Tool-call execution, observations, bounded completion guards | Multi-step plans, recovery strategy, domain profiles, unbounded retry |
 | Profile | Domain facts, artifact classification, verifier hints, protected prefixes, profile evidence, setup artifact templates | Hidden task-specific agents, execution policy, package-registry solving |
-| Step runner | Plan schema, step-decomposition lint, ArtifactGraph projection, verifier, recovery orchestration, active job selection, recovery policy, setup bootstrap, dev-server smoke, recovery task contracts, repair packet, setup/repair attempt ledger, ultra phase order | Provider transport, low-level tool implementation, unbounded workflow control |
+| Step runner | Plan schema, step-decomposition lint, ArtifactGraph projection, verifier, recovery orchestration, active job selection, recovery policy, setup bootstrap, dev-server smoke, recovery task contracts, patch validation, mechanical repair hints, rollback admission, repair packet, setup/repair attempt ledger, ultra phase order | Provider transport, low-level tool implementation, unbounded workflow control |
 | TUI | TTY-aware rendering of runtime events and final answers | Planning, repair, retry, provider parsing, filesystem policy |
 | Tools | Deterministic workspace actions | Task interpretation or planning |
 | Eval | Run roots, summaries, recheck, reports | Runtime behavior changes |

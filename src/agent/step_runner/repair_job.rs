@@ -2,6 +2,7 @@
 #![allow(dead_code)]
 
 use crate::agent::step_runner::correction_evidence::{ContractEvidence, failure_signature};
+use crate::agent::step_runner::integrity_guard::{RollbackAdmission, RollbackAdmissionStatus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RepairAttemptOutcomeKind {
@@ -410,6 +411,24 @@ impl RepairJobState {
                 self.safe_stop_payload_inline(reason)
             ));
         }
+        let rollback = latest
+            .map(|attempt| {
+                rollback_admission_for_attempt(
+                    attempt.outcome,
+                    attempt.changed_files.clone(),
+                    attempt.outcome == RepairAttemptOutcomeKind::Worsened,
+                    false,
+                )
+            })
+            .unwrap_or_else(|| {
+                rollback_admission_for_attempt(
+                    RepairAttemptOutcomeKind::ExplicitStop,
+                    Vec::new(),
+                    false,
+                    false,
+                )
+            });
+        fields.extend(rollback.eval_report_fields());
         fields
     }
 
@@ -622,6 +641,48 @@ pub(crate) fn rollback_allowed(
     outcome == RepairAttemptOutcomeKind::Worsened
         && verifier_rerun_proved_worsened
         && safe_rollback_data_available
+}
+
+pub(crate) fn rollback_admission_for_attempt(
+    outcome: RepairAttemptOutcomeKind,
+    touched_paths: Vec<String>,
+    verifier_rerun_proved_worsened: bool,
+    safe_rollback_data_available: bool,
+) -> RollbackAdmission {
+    if outcome != RepairAttemptOutcomeKind::Worsened {
+        return RollbackAdmission::new(
+            RollbackAdmissionStatus::NotApplicable,
+            "latest attempt did not worsen the verifier",
+            touched_paths,
+            safe_rollback_data_available,
+            verifier_rerun_proved_worsened,
+        );
+    }
+    if rollback_allowed(
+        outcome,
+        verifier_rerun_proved_worsened,
+        safe_rollback_data_available,
+    ) {
+        return RollbackAdmission::new(
+            RollbackAdmissionStatus::Admitted,
+            "verifier proved worsening and safe rollback data is available",
+            touched_paths,
+            true,
+            true,
+        );
+    }
+    let reason = if !verifier_rerun_proved_worsened {
+        "verifier did not prove worsened outcome"
+    } else {
+        "safe rollback data missing"
+    };
+    RollbackAdmission::new(
+        RollbackAdmissionStatus::Rejected,
+        reason,
+        touched_paths,
+        safe_rollback_data_available,
+        verifier_rerun_proved_worsened,
+    )
 }
 
 fn push_unique(values: &mut Vec<String>, value: String) {
@@ -946,6 +1007,28 @@ mod tests {
             true,
             false
         ));
+    }
+
+    #[test]
+    fn rollback_admission_reports_rejected_without_safe_data() {
+        let admission = rollback_admission_for_attempt(
+            RepairAttemptOutcomeKind::Worsened,
+            vec!["src/lib.rs".to_string()],
+            true,
+            false,
+        );
+
+        assert_eq!(admission.status, RollbackAdmissionStatus::Rejected);
+        assert!(
+            admission
+                .eval_report_fields()
+                .contains(&"rollback_admission_status=rejected".to_string())
+        );
+        assert!(
+            admission
+                .eval_report_fields()
+                .contains(&"rollback_reason=safe_rollback_data_missing".to_string())
+        );
     }
 
     fn attempt(

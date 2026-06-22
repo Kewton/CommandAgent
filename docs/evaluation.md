@@ -154,7 +154,12 @@ fields are `active_job`, `recovery_owner`, `loop_control_action`,
 `completion_source_of_truth`, `evidence_binding_status`,
 `evidence_binding_kind`, `completion_evidence_status`,
 `evidence_runner_kind`, `freshness_status`, `missing_evidence`,
-`failed_evidence`, `failed_bindings`, `stale_evidence`, and
+`failed_evidence`, `failed_bindings`, `stale_evidence`,
+`patch_validation_status`, `patch_validation_source`,
+`patch_validation_outcomes`, `patch_validation_rejected_paths`,
+`mechanical_adapter`, `mechanical_adapter_status`,
+`mechanical_adapter_action`, `rollback_admission_status`,
+`rollback_reason`, and
 `explicit_stop_reason`. When a runtime repair packet contains richer
 contract evidence, the eval runner extracts those fields. When a failure is
 detected only by the eval success contract, the runner derives a conservative
@@ -387,6 +392,12 @@ Contract Boundary Propagation fields should be recorded when present:
 - `repair_state_status`
 - `safe_stop_payload`
 - `patch_validation`
+- `patch_validation_status`
+- `patch_validation_outcomes`
+- `mechanical_adapter`
+- `mechanical_adapter_status`
+- `rollback_admission_status`
+- `rollback_reason`
 - `eval_report_fields`
 - `proposed_targets`
 - `admitted_targets`

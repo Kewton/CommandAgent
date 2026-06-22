@@ -431,6 +431,44 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertIn("- correction_spent=false: 1", report)
         self.assertIn("- correction_exhausted=false: 1", report)
 
+    def test_render_report_includes_patch_mechanical_and_rollback_sections(self):
+        report = eval_report.render_report(
+            [
+                {
+                    "case_id": "phase12",
+                    "run": "1",
+                    "rc": "1",
+                    "elapsed_ms": "10",
+                    "success": "false",
+                    "reason": "patch_validation:test_weakening",
+                    "failure_category": "verifier",
+                    "contract_layer": "recovery_contract",
+                    "patch_validation_status": "rejected",
+                    "patch_validation_source": "model_tool_edit",
+                    "patch_validation_outcomes": "test_weakening",
+                    "patch_validation_rejected_paths": "tests/app_test.rs",
+                    "mechanical_adapter": "rust_compile_diagnostic",
+                    "mechanical_adapter_status": "admitted",
+                    "mechanical_adapter_action": "repair_rust_compile_error",
+                    "rollback_admission_status": "rejected",
+                    "rollback_reason": "safe_rollback_data_missing",
+                }
+            ]
+        )
+
+        self.assertIn("## Patch Validation", report)
+        self.assertIn("- status=rejected: 1", report)
+        self.assertIn("- source=model_tool_edit: 1", report)
+        self.assertIn("- outcomes=test_weakening: 1", report)
+        self.assertIn("- rejected_paths=tests/app_test.rs: 1", report)
+        self.assertIn("## Mechanical Repair Adapters", report)
+        self.assertIn("- adapter=rust_compile_diagnostic: 1", report)
+        self.assertIn("- status=admitted: 1", report)
+        self.assertIn("- action=repair_rust_compile_error: 1", report)
+        self.assertIn("## Rollback Admission", report)
+        self.assertIn("- status=rejected: 1", report)
+        self.assertIn("- reason=safe_rollback_data_missing: 1", report)
+
     def test_render_report_includes_task_contract_sections(self):
         report = eval_report.render_report(
             [

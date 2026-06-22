@@ -231,6 +231,16 @@ Phase 7 also renders target-admission attribution fields such as
 `current_excerpt_available`, `target_priority_components`, and
 `target_conflict_reason`.
 
+Patch validation is applied after a bounded repair turn proposes changes and
+before the run claims progress. It rejects deterministic unsafe classes such
+as test weakening, generated/cache output mutation, dependency-cache mutation,
+protected input mutation, or out-of-scope paths. Verifier rerun still remains
+the success authority for admitted patches. Mechanical repair adapters can add
+bounded hints for classified Rust/Python/Node/Next diagnostics, but they do not
+mutate files or choose targets. Rollback is reported through a separate gate
+and is not admitted unless the original authority proves worsening and safe
+rollback data exists.
+
 `candidate_jobs` are produced before the repair prompt is rendered. They are
 not alternatives for the model to choose from. The dispatch gate selects one
 owner/action using deterministic priority, source layer, and source-of-truth

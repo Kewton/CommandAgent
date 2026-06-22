@@ -223,6 +223,15 @@ when they stay deterministic and visible:
   cluster, repair action, changed files, before/after signature, verifier
   result, and outcome reason so no-progress can reject exhausted targets,
   roles, or clusters explicitly instead of retrying blindly.
+- Patch validation records whether a proposed repair edit is admissible before
+  progress is claimed. It may reject test weakening, generated/cache output
+  mutation, protected input mutation, out-of-scope paths, noop/duplicate
+  attempts, or verifier-worsening, and it feeds the attempt ledger and eval
+  report instead of silently continuing.
+- Mechanical repair adapters may translate deterministic compiler/import/type
+  diagnostics into bounded hints or proposals after owner, target, action, and
+  rerun authority are already selected. They must not mutate files, select
+  targets, run setup, or become language-specific workflow engines.
 
 These concepts should be adopted as explicit contract orchestration. They may
 actively classify the current job and choose a bounded repair action, but they
@@ -241,7 +250,9 @@ When choosing between mechanisms, prefer this order:
 7. bounded dev-server smoke when the task contract requires requested-port
    launchability
 8. explicit recovery task contract under the original guard
-9. attempt-ledger no-progress target/role/cluster exhaustion and explicit stop
+9. patch validation, mechanical adapter hints, and rollback admission under the
+   admitted recovery action
+10. attempt-ledger no-progress target/role/cluster exhaustion and explicit stop
 
 This preserves the practical value of stronger task contracts while moving the
 admission line away from "small only" and toward "explicit, bounded, and

@@ -19,7 +19,14 @@ use crate::agent::step_runner::deliverable_obligation::{
 use crate::agent::step_runner::evidence_binding::{
     EvidenceBindingKind, EvidenceBindingPlan, EvidenceBindingStatus,
 };
-use crate::agent::step_runner::integrity_guard::{PatchValidation, detect_test_weakening};
+use crate::agent::step_runner::integrity_guard::{
+    PatchProposal, PatchProposalSource, PatchValidation, PatchValidationReport,
+    detect_test_weakening, validate_patch_proposal,
+};
+use crate::agent::step_runner::mechanical_repair::{
+    MechanicalRepairInput, MechanicalRepairStatus, mechanical_repair_hint,
+};
+use crate::agent::step_runner::profiles::ProfileId;
 use crate::agent::step_runner::recovery_orchestration::orchestrate_evidence;
 use crate::agent::step_runner::recovery_task::{
     RecoveryExecutionEnvelope, recovery_execution_envelope,
@@ -868,15 +875,19 @@ where
             state.file_changing_attempts += 1;
         }
         let attempt_changed_markers = changed_file_markers(&result);
-        let patch_validations =
-            patch_validations_for_changed_files(runtime.cwd, &attempt_changed_markers);
+        let patch_validation_report = patch_validation_report_for_changed_files(
+            runtime.cwd,
+            &plan.profile,
+            &attempt_context,
+            &attempt_changed_markers,
+        );
         state.changed_files.extend(attempt_changed_markers.clone());
         record_stale_setup_after_manifest_change(runtime.cwd, &mut state, &attempt_changed_markers);
-        if !patch_validations.is_empty() {
-            push_patch_validation_contract_evidence(&mut state, step, &patch_validations);
+        if patch_validation_report.is_rejected() {
+            push_patch_validation_contract_evidence(&mut state, step, &patch_validation_report);
             state
                 .failures
-                .push(patch_validation_failure(&patch_validations));
+                .push(patch_validation_failure(&patch_validation_report));
             let after_evidence = contract_evidence_for_state(runtime.cwd, plan, step, &state);
             let after_signature = repair_signature_from_contract_evidence(&after_evidence);
             record_repair_attempt_ledger(
@@ -1344,7 +1355,33 @@ fn required_action_for_missing_role(role: ArtifactRole) -> &'static str {
     }
 }
 
-fn patch_validations_for_changed_files(
+fn patch_validation_report_for_changed_files(
+    cwd: &std::path::Path,
+    profile: &str,
+    context: &RepairAttemptContext,
+    changed_files: &[String],
+) -> PatchValidationReport {
+    let mut proposal =
+        PatchProposal::new(PatchProposalSource::ModelToolEdit, changed_files.to_vec());
+    proposal.active_job = context.active_job.clone();
+    proposal.recovery_owner = context.recovery_owner.clone();
+    proposal.repair_action = context.repair_action.clone();
+    proposal.selected_failure_cluster = context.selected_failure_cluster.clone();
+    proposal.target_path = context.selected_target.clone();
+    proposal.target_role = context.selected_target_role.clone();
+    proposal.source_of_truth = Some("model_tool_edit".to_string());
+    proposal.rerun_authority = vec![context.verifier_command.clone()];
+
+    let profile_id = ProfileId::parse(profile).unwrap_or(ProfileId::Generic);
+    let mut validations = validate_patch_proposal(profile_id, &proposal).validations;
+    validations.extend(content_patch_validations_for_changed_files(
+        cwd,
+        changed_files,
+    ));
+    PatchValidationReport::from_proposal(&proposal, validations)
+}
+
+fn content_patch_validations_for_changed_files(
     cwd: &std::path::Path,
     changed_files: &[String],
 ) -> Vec<PatchValidation> {
@@ -1364,19 +1401,24 @@ fn patch_validations_for_changed_files(
 fn push_patch_validation_contract_evidence(
     state: &mut RepairStepState,
     step: &StepPlanStep,
-    validations: &[PatchValidation],
+    report: &PatchValidationReport,
 ) {
-    let lines = validations
-        .iter()
-        .map(PatchValidation::render_line)
-        .collect::<Vec<_>>();
-    let target = validations
-        .iter()
-        .find_map(|validation| validation.path.clone());
+    let lines = report.render_lines();
+    let target = report
+        .rejected_paths()
+        .into_iter()
+        .next()
+        .or_else(|| report.target_path.clone());
+    let outcomes = report.outcomes();
+    let primary_outcome = outcomes
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "unsafe".to_string());
+    let target_role = report.target_role.as_deref().unwrap_or("unknown");
     let mut evidence = ContractEvidence::new("repair")
         .with_failed_step(step.id.clone())
         .with_violated_contract("patch_validation")
-        .with_reason_code("test_weakening_rejected")
+        .with_reason_code(primary_outcome.clone())
         .with_failure_kind("unsafe_repair_attempt")
         .with_failure_signature(failure_signature(
             std::iter::once("patch_validation")
@@ -1387,36 +1429,44 @@ fn push_patch_validation_contract_evidence(
         .with_repair_kind("explicit_stop")
         .with_repair_action("stop_with_structured_evidence")
         .with_required_action(
-            "reject the unsafe patch; do not weaken generated or existing tests to satisfy a verifier",
+            "reject the unsafe patch; do not weaken tests, mutate generated outputs, dependency caches, protected inputs, or out-of-scope paths",
         )
         .with_patch_validation(lines)
         .with_explicit_stop_reason("patch_validation_rejected_unsafe_repair")
         .with_safe_stop_payload([format!(
-            "owner=repair;job=explicit_stop;action=stop_with_structured_evidence;target={};role=test;cluster=patch_validation;reason=patch_validation_rejected_unsafe_repair;attempts=1;outcomes=unsafe;exhausted_targets={};exhausted_roles=test;exhausted_clusters=patch_validation",
+            "owner=repair;job=explicit_stop;action=stop_with_structured_evidence;target={};role={};cluster=patch_validation;reason=patch_validation_rejected_{};attempts=1;outcomes={};exhausted_targets={};exhausted_roles={};exhausted_clusters=patch_validation",
             target.as_deref().unwrap_or("none"),
-            target.as_deref().unwrap_or("none")
+            target_role,
+            primary_outcome,
+            outcomes.join(","),
+            target.as_deref().unwrap_or("none"),
+            target_role
         )])
-        .with_diagnostic("repair attempted to weaken or skip a test");
+        .with_eval_report_fields(report.eval_report_fields())
+        .with_diagnostic("repair patch validation rejected the attempted change");
     if let Some(target) = target {
         evidence = evidence
             .with_target_path(target.clone())
             .with_repair_target(target)
-            .with_artifact_role("test");
+            .with_artifact_role(target_role);
     }
     push_contract_evidence_once(&mut state.contract_evidence, evidence);
 }
 
-fn patch_validation_failure(validations: &[PatchValidation]) -> VerificationFailure {
+fn patch_validation_failure(report: &PatchValidationReport) -> VerificationFailure {
     VerificationFailure {
         command: "patch validation".to_string(),
-        reason: "patch_validation:test_weakening_rejected".to_string(),
+        reason: format!(
+            "patch_validation:{}",
+            report
+                .outcomes()
+                .first()
+                .map(String::as_str)
+                .unwrap_or("unsafe")
+        ),
         stdout_excerpt: String::new(),
         stderr_excerpt: String::new(),
-        diagnostic_excerpt: validations
-            .iter()
-            .map(PatchValidation::render_line)
-            .collect::<Vec<_>>()
-            .join("\n"),
+        diagnostic_excerpt: report.render_lines().join("\n"),
         source_excerpt: None,
     }
 }
@@ -1806,6 +1856,9 @@ fn verifier_contract_evidence(
         repair_target.as_deref(),
     );
     let diagnostic_code = diagnostic_payload.diagnostic_code.as_str().to_string();
+    let repair_kind = verifier_repair_kind(failure, &binding, &diagnostic_payload);
+    let repair_action =
+        verifier_repair_action(failure, &binding, repair_target_role, &diagnostic_payload);
     let signature = failure_signature([
         "verifier",
         step.id.as_str(),
@@ -1826,6 +1879,22 @@ fn verifier_contract_evidence(
     append_unique_lines(&mut repair_state_lines, setup_job_state.iter().cloned());
     let mut eval_fields = repair_job_state.eval_report_fields();
     append_unique_lines(&mut eval_fields, setup_job_state.iter().cloned());
+    let mechanical_hint = mechanical_repair_hint(&MechanicalRepairInput {
+        diagnostic_code: diagnostic_payload.diagnostic_code,
+        failure_kind: diagnostic_payload.failure_kind.clone(),
+        active_job: active_job.to_string(),
+        target_path: repair_target.clone(),
+        target_role: repair_target_role.map(|role| role.as_str().to_string()),
+        repair_action: Some(repair_action.to_string()),
+        source_of_truth: diagnostic_payload.source_of_truth.clone(),
+        allowed_change_kind: Some(repair_action.to_string()),
+    });
+    let mechanical_lines = if mechanical_hint.status == MechanicalRepairStatus::NotApplicable {
+        Vec::new()
+    } else {
+        append_unique_lines(&mut eval_fields, mechanical_hint.eval_report_fields());
+        mechanical_hint.render_lines()
+    };
 
     let mut evidence = ContractEvidence::new("verifier")
         .with_failed_step(step.id.clone())
@@ -1842,16 +1911,12 @@ fn verifier_contract_evidence(
         .with_affected_cases(diagnostic_payload.affected_cases.clone())
         .with_active_job(active_job)
         .with_required_action(verifier_required_action(failure, repair_target_role))
-        .with_repair_kind(verifier_repair_kind(failure, &binding, &diagnostic_payload))
-        .with_repair_action(verifier_repair_action(
-            failure,
-            &binding,
-            repair_target_role,
-            &diagnostic_payload,
-        ))
+        .with_repair_kind(repair_kind)
+        .with_repair_action(repair_action)
         .with_source_of_truth(diagnostic_payload.source_of_truth.clone())
         .with_preferred_repair_role(diagnostic_payload.preferred_repair_role.clone())
         .with_verifier_diagnostic_payload(diagnostic_payload.render_lines())
+        .with_repair_action_plan(mechanical_lines)
         .with_admitted_cluster_targets(diagnostic_payload.admitted_cluster_targets.clone())
         .with_setup_implication(verifier_setup_implication(failure))
         .with_rerun_authority(vec![failure.command.clone()])
@@ -3914,19 +3979,39 @@ mod tests {
             "#[ignore]\nfn test_app() {}\n",
         )
         .unwrap();
-        let validations =
-            patch_validations_for_changed_files(&root, &["tests/app_test.rs".to_string()]);
+        let context = RepairAttemptContext {
+            step_id: "step".to_string(),
+            active_job: "source_implementation_repair".to_string(),
+            recovery_owner: Some("minimal_loop".to_string()),
+            repair_action: Some("align_test_and_verifier".to_string()),
+            selected_failure_cluster: Some("patch_validation".to_string()),
+            selected_target: Some("tests/app_test.rs".to_string()),
+            selected_target_role: Some("test".to_string()),
+            candidate_targets: vec!["tests/app_test.rs".to_string()],
+            verifier_command: "cargo test".to_string(),
+            candidate_roles: vec!["test".to_string()],
+            evidence_binding_available: false,
+            scaffold_rebuild_admitted: false,
+        };
+        let report = patch_validation_report_for_changed_files(
+            &root,
+            "rust",
+            &context,
+            &["tests/app_test.rs".to_string()],
+        );
         let mut state = empty_state();
 
-        push_patch_validation_contract_evidence(&mut state, &step(StepKind::Repair), &validations);
+        push_patch_validation_contract_evidence(&mut state, &step(StepKind::Repair), &report);
         let evidence = orchestrate_evidence(state.contract_evidence[0].clone());
         let rendered = evidence.render().unwrap();
 
-        assert_eq!(validations.len(), 1);
+        assert_eq!(report.validations.len(), 1);
         assert!(rendered.contains("guard: repair"));
         assert!(rendered.contains("active_job: explicit_stop"));
         assert!(rendered.contains("repair_action: stop_with_structured_evidence"));
-        assert!(rendered.contains("patch_validation: outcome=test_weakening"));
+        assert!(rendered.contains("patch_validation: status=rejected"));
+        assert!(rendered.contains("outcome=test_weakening"));
+        assert!(rendered.contains("eval_report_fields: patch_validation_status=rejected"));
         assert!(rendered.contains("explicit_stop_reason: patch_validation_rejected_unsafe_repair"));
         assert!(rendered.contains("safe_stop_payload: owner=repair;job=explicit_stop"));
     }

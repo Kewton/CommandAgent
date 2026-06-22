@@ -109,7 +109,13 @@ CommandAgent is still in MVP migration.
   producers are still partial. Bounded repair attempts now record before/after
   signatures and can exhaust target, role, or failure cluster for no-progress
   attribution. Persistent cross-command repair job lifecycle and
-  verifier-proven rollback are still partial.
+  verifier-proven rollback are still partial. Patch validation now has a
+  common proposal/report boundary, rejects generated/cache/dependency/protected
+  path mutations and test weakening before claiming progress, and eval reports
+  patch validation, mechanical adapter, and rollback admission fields.
+  Mechanical adapters currently produce bounded diagnostic hints/proposals for
+  selected Rust/Python/Node/Next verifier classes; they do not apply edits,
+  select targets, or run setup themselves.
 - Task Contract projection now records task kind, behavior obligations, and
   artifact role projections from required artifacts and profile obligations.
   These facts reach plan prompts, active step contract facts, plan-lint

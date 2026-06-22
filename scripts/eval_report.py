@@ -137,6 +137,15 @@ def write_summary(path, rows):
         "no_progress_strategy",
         "repair_state_status",
         "safe_stop_payload",
+        "patch_validation_status",
+        "patch_validation_source",
+        "patch_validation_outcomes",
+        "patch_validation_rejected_paths",
+        "mechanical_adapter",
+        "mechanical_adapter_status",
+        "mechanical_adapter_action",
+        "rollback_admission_status",
+        "rollback_reason",
         "tool_protocol_status",
         "tool_protocol_source",
         "tool_protocol_action",
@@ -281,6 +290,15 @@ def recheck(root, cases):
                 "no_progress_strategy": meta.get("no_progress_strategy", ""),
                 "repair_state_status": meta.get("repair_state_status", "not_attempted" if reason != "ok" else "passed"),
                 "safe_stop_payload": meta.get("safe_stop_payload", ""),
+                "patch_validation_status": meta.get("patch_validation_status", ""),
+                "patch_validation_source": meta.get("patch_validation_source", ""),
+                "patch_validation_outcomes": meta.get("patch_validation_outcomes", ""),
+                "patch_validation_rejected_paths": meta.get("patch_validation_rejected_paths", ""),
+                "mechanical_adapter": meta.get("mechanical_adapter", ""),
+                "mechanical_adapter_status": meta.get("mechanical_adapter_status", ""),
+                "mechanical_adapter_action": meta.get("mechanical_adapter_action", ""),
+                "rollback_admission_status": meta.get("rollback_admission_status", ""),
+                "rollback_reason": meta.get("rollback_reason", ""),
                 "tool_protocol_status": meta.get("tool_protocol_status", ""),
                 "tool_protocol_source": meta.get("tool_protocol_source", ""),
                 "tool_protocol_action": meta.get("tool_protocol_action", ""),
@@ -570,6 +588,15 @@ def render_report(rows):
     tool_protocol_required_fields = {}
     tool_protocol_correction_spent = {}
     tool_protocol_correction_exhausted = {}
+    patch_validation_statuses = {}
+    patch_validation_outcomes = {}
+    patch_validation_sources = {}
+    patch_validation_rejected_paths = {}
+    mechanical_adapters = {}
+    mechanical_adapter_statuses = {}
+    mechanical_adapter_actions = {}
+    rollback_admission_statuses = {}
+    rollback_reasons = {}
     task_contract_kinds = {}
     task_contract_statuses = {}
     behavior_obligation_statuses = {}
@@ -675,6 +702,15 @@ def render_report(rows):
         protocol_correction_exhausted = row.get(
             "tool_protocol_correction_exhausted", ""
         )
+        patch_validation_status = row.get("patch_validation_status", "")
+        patch_validation_source = row.get("patch_validation_source", "")
+        patch_validation_outcome = row.get("patch_validation_outcomes", "")
+        patch_validation_rejected_path = row.get("patch_validation_rejected_paths", "")
+        mechanical_adapter = row.get("mechanical_adapter", "")
+        mechanical_adapter_status = row.get("mechanical_adapter_status", "")
+        mechanical_adapter_action = row.get("mechanical_adapter_action", "")
+        rollback_admission_status = row.get("rollback_admission_status", "")
+        rollback_reason = row.get("rollback_reason", "")
         task_contract_kind = row.get("task_contract_kind", "")
         task_contract_status = row.get("task_contract_status", "")
         behavior_obligation_status = row.get("behavior_obligation_status", "")
@@ -799,6 +835,40 @@ def render_report(rows):
                 tool_protocol_correction_exhausted.get(protocol_correction_exhausted, 0)
                 + 1
             )
+        if patch_validation_status:
+            patch_validation_statuses[patch_validation_status] = (
+                patch_validation_statuses.get(patch_validation_status, 0) + 1
+            )
+        if patch_validation_source:
+            patch_validation_sources[patch_validation_source] = (
+                patch_validation_sources.get(patch_validation_source, 0) + 1
+            )
+        if patch_validation_outcome:
+            patch_validation_outcomes[patch_validation_outcome] = (
+                patch_validation_outcomes.get(patch_validation_outcome, 0) + 1
+            )
+        if patch_validation_rejected_path:
+            patch_validation_rejected_paths[patch_validation_rejected_path] = (
+                patch_validation_rejected_paths.get(patch_validation_rejected_path, 0) + 1
+            )
+        if mechanical_adapter:
+            mechanical_adapters[mechanical_adapter] = (
+                mechanical_adapters.get(mechanical_adapter, 0) + 1
+            )
+        if mechanical_adapter_status:
+            mechanical_adapter_statuses[mechanical_adapter_status] = (
+                mechanical_adapter_statuses.get(mechanical_adapter_status, 0) + 1
+            )
+        if mechanical_adapter_action:
+            mechanical_adapter_actions[mechanical_adapter_action] = (
+                mechanical_adapter_actions.get(mechanical_adapter_action, 0) + 1
+            )
+        if rollback_admission_status:
+            rollback_admission_statuses[rollback_admission_status] = (
+                rollback_admission_statuses.get(rollback_admission_status, 0) + 1
+            )
+        if rollback_reason:
+            rollback_reasons[rollback_reason] = rollback_reasons.get(rollback_reason, 0) + 1
         if task_contract_kind:
             task_contract_kinds[task_contract_kind] = (
                 task_contract_kinds.get(task_contract_kind, 0) + 1
@@ -1022,6 +1092,33 @@ def render_report(rows):
         lines.append(f"- correction_spent={name}: {count}")
     for name, count in sorted(tool_protocol_correction_exhausted.items()):
         lines.append(f"- correction_exhausted={name}: {count}")
+    lines.extend(["", "## Patch Validation"])
+    for name, count in sorted(patch_validation_statuses.items()):
+        lines.append(f"- status={name}: {count}")
+    for name, count in sorted(patch_validation_sources.items()):
+        lines.append(f"- source={name}: {count}")
+    for name, count in sorted(patch_validation_outcomes.items()):
+        lines.append(f"- outcomes={name}: {count}")
+    for name, count in sorted(patch_validation_rejected_paths.items()):
+        lines.append(f"- rejected_paths={name}: {count}")
+    lines.extend(["", "## Mechanical Repair Adapters"])
+    if mechanical_adapters or mechanical_adapter_statuses or mechanical_adapter_actions:
+        for name, count in sorted(mechanical_adapters.items()):
+            lines.append(f"- adapter={name}: {count}")
+        for name, count in sorted(mechanical_adapter_statuses.items()):
+            lines.append(f"- status={name}: {count}")
+        for name, count in sorted(mechanical_adapter_actions.items()):
+            lines.append(f"- action={name}: {count}")
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Rollback Admission"])
+    if rollback_admission_statuses or rollback_reasons:
+        for name, count in sorted(rollback_admission_statuses.items()):
+            lines.append(f"- status={name}: {count}")
+        for name, count in sorted(rollback_reasons.items()):
+            lines.append(f"- reason={name}: {count}")
+    else:
+        lines.append("- none")
     lines.extend(["", "## Task Contract"])
     for name, count in sorted(task_contract_kinds.items()):
         lines.append(f"- kind={name}: {count}")

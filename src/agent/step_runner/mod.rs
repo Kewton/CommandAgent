@@ -12,6 +12,7 @@ pub(crate) mod evidence_binding;
 pub(crate) mod evidence_producer;
 pub(crate) mod failure_observation;
 pub(crate) mod integrity_guard;
+pub(crate) mod mechanical_repair;
 pub mod plan_lint;
 pub(crate) mod profile_artifact;
 pub mod profiles;

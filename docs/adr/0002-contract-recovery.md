@@ -304,6 +304,20 @@ The ledger may populate `workspace_scope`, `artifact_ownership`,
 `out_of_scope_paths`. These facts explain target ownership and rejection; they
 do not execute tools, grant retries, or replace the original verifier.
 
+2026-06-22 amendment: Patch Validation Contract and bounded Mechanical Repair
+Adapter Boundary are admitted as explicit recovery surfaces. A repair attempt
+or adapter proposal is not progress until deterministic patch validation has
+accepted the touched paths and integrity facts. Validation may reject
+test-weakening, generated/cache output mutation, protected input mutation,
+out-of-scope paths, noop/duplicate attempts, or verifier-worsening. Mechanical
+adapters may translate already-classified Rust/Python/Node/Next diagnostics
+into bounded repair hints only after recovery owner, target, action, source of
+truth, and rerun authority are selected by existing contracts. They do not
+execute tools, pick targets, run dependency setup, add retry budget, or create
+provider/model-specific policy. Rollback is a separate admission gate and is
+allowed only when the original authority proves a worsened outcome and safe
+rollback data exists; otherwise it is reported as rejected evidence.
+
 2026-06-21 amendment: Setup/profile/scaffold runtime jobs now include
 observable setup and dev-server job state. Setup bootstrap records setup
 attempt keys, manifest fingerprints, setup result, rerun result, and stale
