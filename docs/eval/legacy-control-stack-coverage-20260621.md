@@ -252,3 +252,51 @@ should add missing control data in this order:
 This order keeps the behavior attributable: each later mechanism depends on
 actual artifact/scope/action facts rather than asking the model to infer a
 repair strategy from prose.
+
+## Phase20 Final Closure Appendix - 2026-06-23
+
+Phase20 reconciled this coverage table against Phase1-Phase19 implementation
+reports and the final broad sign-off roots.
+
+The broad sign-off command passed:
+
+```bash
+python3 scripts/eval_signoff.py --require-recheck \
+  --root smoke=eval/runs/loadmap2-phase16-smoke-local-llm/20260622T173759 \
+  --root focused=eval/runs/loadmap2-phase18-focused-local-llm/20260623T000638 \
+  --root focused-fixture=eval/runs/loadmap2-phase16-focused-fixtures/20260622T173659 \
+  --root large=eval/runs/loadmap2-phase16-large-local-llm-timebox/20260622T182149
+```
+
+Result:
+
+```text
+status: pass
+```
+
+However, Phase20 did not change any `Partial` or `Missing` row to
+`Implemented` because row-level parity proof is still absent for many accepted
+responsibilities. The final Phase20 decision is therefore:
+
+```text
+migration_not_complete
+```
+
+Supporting Phase20 artifacts:
+
+- `workspace/mvp/logic/anvil/loadmap2/phase_20/coverage_closure.md`
+- `workspace/mvp/logic/anvil/loadmap2/phase_20/ledger_reconciliation.md`
+- `workspace/mvp/logic/anvil/loadmap2/phase_20/continuation_ledger.md`
+- `docs/eval/loadmap2-phase20-final-migration-decision-20260623.md`
+
+Final coverage interpretation:
+
+| Candidate | Count |
+| --- | ---: |
+| Implemented | 1 |
+| Excluded | 7 |
+| Unresolved accepted migration surface | 44 |
+| Unresolved priority-decision surface | 2 |
+
+The next continuation phase should split the Phase20 continuation ledger into
+row-level implementation tasks before changing this table's final statuses.
