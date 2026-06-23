@@ -42,6 +42,10 @@ class EvalSignoffTests(unittest.TestCase):
                 "evidence_binding_status": "bound",
                 "completion_evidence_status": "failed",
                 "attempt_outcome": "failed",
+                "large_disposition": "closed_owned_failure",
+                "large_disposition_reason": "owned_verifier",
+                "large_disposition_owner_action_status": "consistent",
+                "large_disposition_evidence": "owner=source;target=src/main.rs",
             }
         ]
         with tempfile.TemporaryDirectory() as tmp:
@@ -88,6 +92,10 @@ class EvalSignoffTests(unittest.TestCase):
                 "evidence_binding_status": "bound",
                 "completion_evidence_status": "failed",
                 "attempt_outcome": "failed",
+                "large_disposition": "closed_owned_failure",
+                "large_disposition_reason": "owned_tool_policy_failure",
+                "large_disposition_owner_action_status": "consistent",
+                "large_disposition_evidence": "owner=source;target=src/main.rs",
             }
         ]
         spec = eval_signoff.RootSpec("large", pathlib.Path("root"))
@@ -155,6 +163,10 @@ class EvalSignoffTests(unittest.TestCase):
                 "evidence_binding_status": "not_applicable",
                 "completion_evidence_status": "not_applicable",
                 "attempt_outcome": "blocked_external",
+                "large_disposition": "accepted_external_limitation",
+                "large_disposition_reason": "provider_transport_timeout",
+                "large_disposition_owner_action_status": "consistent",
+                "large_disposition_evidence": "owner=provider_transport",
             }
         ]
         spec = eval_signoff.RootSpec("large", pathlib.Path("root"))
@@ -176,6 +188,10 @@ class EvalSignoffTests(unittest.TestCase):
                 "evidence_binding_status": "not_applicable",
                 "completion_evidence_status": "not_applicable",
                 "attempt_outcome": "blocked_external",
+                "large_disposition": "accepted_external_limitation",
+                "large_disposition_reason": "provider_transport_timeout",
+                "large_disposition_owner_action_status": "consistent",
+                "large_disposition_evidence": "owner=provider_transport",
             }
         ]
         spec = eval_signoff.RootSpec("large", pathlib.Path("root"))
@@ -207,6 +223,10 @@ class EvalSignoffTests(unittest.TestCase):
                 "evidence_binding_status": "bound",
                 "completion_evidence_status": "failed",
                 "attempt_outcome": "failed",
+                "large_disposition": "closed_owned_failure",
+                "large_disposition_reason": "owned_manifest_conflict",
+                "large_disposition_owner_action_status": "consistent",
+                "large_disposition_evidence": "owner=manifest;target=package.json",
             }
         ]
         spec = eval_signoff.RootSpec("large", pathlib.Path("root"))
@@ -232,6 +252,10 @@ class EvalSignoffTests(unittest.TestCase):
                 "evidence_binding_status": "not_applicable",
                 "completion_evidence_status": "not_applicable",
                 "attempt_outcome": "failed",
+                "large_disposition": "closed_owned_failure",
+                "large_disposition_reason": "owned_manifest_conflict",
+                "large_disposition_owner_action_status": "consistent",
+                "large_disposition_evidence": "owner=manifest;target=package.json",
             }
         ]
         spec = eval_signoff.RootSpec("large", pathlib.Path("root"))
@@ -240,6 +264,94 @@ class EvalSignoffTests(unittest.TestCase):
 
         self.assertIn("missing_evidence_binding", [item.code for item in findings])
         self.assertIn("missing_completion_evidence", [item.code for item in findings])
+
+    def test_requires_large_disposition_for_failed_large_rows(self):
+        rows = [
+            {
+                "case_id": "large-rust",
+                "run": "1",
+                "success": "false",
+                "reason": "command_failed:1",
+                "terminal_state": "verifier_command_failed",
+                "failure_category": "verifier",
+                "contract_layer": "verification_contract",
+                "diagnostic_code": "rust_compile_error",
+                "active_job": "source_implementation_repair",
+                "recovery_owner": "source",
+                "repair_action": "edit_source_for_diagnostic",
+                "target_path": "src/main.rs",
+                "evidence_binding_status": "bound",
+                "completion_evidence_status": "failed",
+                "attempt_outcome": "failed",
+            }
+        ]
+        spec = eval_signoff.RootSpec("large", pathlib.Path("root"))
+
+        findings = eval_signoff.classify(spec, rows)
+
+        self.assertIn("missing_large_disposition", [item.code for item in findings])
+
+    def test_rejects_large_external_limitation_without_provider_boundary(self):
+        rows = [
+            {
+                "case_id": "large-rust",
+                "run": "1",
+                "success": "false",
+                "reason": "rc:1",
+                "terminal_state": "verifier_command_failed",
+                "failure_category": "verifier",
+                "contract_layer": "verification_contract",
+                "diagnostic_code": "rust_compile_error",
+                "active_job": "source_implementation_repair",
+                "recovery_owner": "source",
+                "repair_action": "edit_source_for_diagnostic",
+                "target_path": "src/main.rs",
+                "evidence_binding_status": "bound",
+                "completion_evidence_status": "failed",
+                "attempt_outcome": "failed",
+                "large_disposition": "accepted_external_limitation",
+                "large_disposition_reason": "model_quality_limit",
+                "large_disposition_owner_action_status": "consistent",
+                "large_disposition_evidence": "owner=source;target=src/main.rs",
+            }
+        ]
+        spec = eval_signoff.RootSpec("large", pathlib.Path("root"))
+
+        findings = eval_signoff.classify(spec, rows)
+
+        self.assertIn("invalid_external_limitation", [item.code for item in findings])
+
+    def test_rejects_large_owner_action_mismatch(self):
+        rows = [
+            {
+                "case_id": "large-nextjs",
+                "run": "1",
+                "success": "false",
+                "reason": "rc:1",
+                "terminal_state": "verifier_command_failed",
+                "failure_category": "verifier",
+                "contract_layer": "verification_contract",
+                "diagnostic_code": "edit_target_not_found",
+                "active_job": "tool_protocol_correction",
+                "recovery_owner": "source",
+                "repair_action": "correct_tool_protocol",
+                "target_path": "app/page.tsx",
+                "evidence_binding_status": "bound",
+                "completion_evidence_status": "failed",
+                "attempt_outcome": "failed",
+                "large_disposition": "closed_owned_failure",
+                "large_disposition_reason": "owned_tool_protocol_failure",
+                "large_disposition_owner_action_status": (
+                    "inconsistent_source_tool_protocol_action"
+                ),
+                "large_disposition_evidence": "owner=source;target=app/page.tsx",
+            }
+        ]
+        spec = eval_signoff.RootSpec("large", pathlib.Path("root"))
+
+        findings = eval_signoff.classify(spec, rows)
+
+        self.assertIn("inconsistent_large_owner_action", [item.code for item in findings])
 
     def test_requires_recheck_summary_when_requested(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -158,7 +158,9 @@ retry a case or reinterpret an ambiguous stop as success.
 Phase 14 eval output also includes a runtime job report projection. The fields
 are `lifecycle_stage`, `active_owner`, `selected_action`,
 `target_admission_status`, `repair_action_plan_status`, and
-`completion_source`, alongside existing `attempt_outcome`,
+`completion_source`, alongside `large_disposition`,
+`large_disposition_reason`, `large_disposition_owner_action_status`,
+`large_disposition_evidence`, and existing `attempt_outcome`,
 `evidence_runner_status`, `verifier_rerun_result`, and
 `explicit_stop_reason`. These fields are derived from already observed
 runtime, setup, verifier, evidence, and recovery records. They do not run
@@ -172,6 +174,16 @@ blocker with `attempt_outcome=blocked_external`, and
 `profile_verification:nextjs_dependency_version_conflict` is projected to a
 manifest repair target of `package.json`. This projection must not retry the
 case, change runtime repair policy, or turn a failure into success.
+
+Failed large rows must also carry a row disposition. The accepted dispositions
+are `closed_owned_failure`, `implementation_blocker`,
+`accepted_external_limitation`, and `split_forward`. Broad sign-off accepts
+`closed_owned_failure` only when owner/action/target/evidence are internally
+consistent. `accepted_external_limitation` is valid only for provider,
+network, or environment boundary evidence. `implementation_blocker` and
+`split_forward` remain open sign-off findings until the responsible phase
+closes them. A large disposition is an attribution decision; it is not a claim
+that the user task succeeded.
 
 For failed large rows, blank, `unknown`, and `none` remain missing field
 values. `missing`, `failed`, and `blocked_external` are meaningful evidence
@@ -425,11 +437,17 @@ The checker fails on:
   more accurate
 - large-case failures missing active job, owner, repair action, target when
   applicable, evidence binding, completion evidence, or attempt outcome
+- large-case failures missing `large_disposition`, disposition reason,
+  disposition evidence, or owner/action consistency
+- `accepted_external_limitation` without provider, network, or environment
+  boundary evidence
+- `implementation_blocker` or `split_forward` dispositions that still require
+  a later closure phase
 
 Remaining failures can be accepted for migration sign-off only when they are
-owned, actionable, and explicitly recorded as model-quality, environment, or
-provider/tooling limitations. A broad pass rate by itself is not the sign-off
-criterion.
+owned, actionable, and explicitly recorded as owned failed rows or valid
+provider/environment limitations. A broad pass rate by itself is not the
+sign-off criterion, and a sign-off pass is not the same as large task success.
 
 Focused case directories are discovered recursively so a case set can be
 organized by contract layer without changing runner invocation. Use this for

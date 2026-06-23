@@ -993,6 +993,39 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertEqual(report["target_admission_status"], "admitted")
         self.assertEqual(report["repair_action_plan_status"], "planned")
 
+    def test_render_report_includes_large_disposition_section(self):
+        report = eval_report.render_report(
+            [
+                {
+                    "case_id": "large-rust",
+                    "run": "1",
+                    "rc": "1",
+                    "elapsed_ms": "10",
+                    "success": "false",
+                    "reason": "rc:1",
+                    "terminal_state": "verifier_command_failed",
+                    "failure_category": "verifier",
+                    "contract_layer": "verification_contract",
+                    "diagnostic_code": "rust_compile_error",
+                    "active_job": "source_implementation_repair",
+                    "recovery_owner": "source",
+                    "repair_action": "edit_source_for_diagnostic",
+                    "target_path": "src/main.rs",
+                    "evidence_binding_status": "bound",
+                    "completion_evidence_status": "failed",
+                    "attempt_outcome": "failed",
+                    "large_disposition": "closed_owned_failure",
+                    "large_disposition_reason": "owned_verifier",
+                    "large_disposition_owner_action_status": "consistent",
+                }
+            ]
+        )
+
+        self.assertIn("## Large Disposition", report)
+        self.assertIn("- disposition=closed_owned_failure: 1", report)
+        self.assertIn("- reason=owned_verifier: 1", report)
+        self.assertIn("- owner_action=consistent: 1", report)
+
     def test_runtime_job_report_ignores_none_explicit_stop_and_passed_outcome_action(self):
         report = eval_runtime_job_report.build_runtime_job_report(
             {
@@ -1027,6 +1060,7 @@ class EvalReportCategorizeTests(unittest.TestCase):
     def test_runtime_job_report_projects_provider_timeout_ownership(self):
         report = eval_runtime_job_report.build_runtime_job_report(
             {
+                "case_id": "large-python",
                 "success": "false",
                 "reason": "provider_transport:eval_timeout",
                 "terminal_state": "provider_transport_failed",
@@ -1045,10 +1079,15 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertEqual(report["evidence_binding_status"], "not_applicable")
         self.assertEqual(report["completion_evidence_status"], "not_applicable")
         self.assertEqual(report["attempt_outcome"], "blocked_external")
+        self.assertEqual(report["large_disposition"], "accepted_external_limitation")
+        self.assertEqual(
+            report["large_disposition_owner_action_status"], "consistent"
+        )
 
     def test_runtime_job_report_overrides_profile_dependency_source_fallback(self):
         report = eval_runtime_job_report.build_runtime_job_report(
             {
+                "case_id": "large-nextjs",
                 "success": "false",
                 "reason": "semantic_missing:components/AnalyticsPanel.tsx",
                 "terminal_state": "profile_contract_failed",
@@ -1071,6 +1110,105 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertEqual(report["evidence_binding_status"], "bound")
         self.assertEqual(report["completion_evidence_status"], "failed")
         self.assertEqual(report["attempt_outcome"], "failed")
+        self.assertEqual(report["large_disposition"], "closed_owned_failure")
+        self.assertEqual(report["large_disposition_reason"], "owned_manifest_conflict")
+
+    def test_runtime_job_report_projects_tool_protocol_large_disposition(self):
+        report = eval_runtime_job_report.build_runtime_job_report(
+            {
+                "case_id": "large-fastapi",
+                "success": "false",
+                "reason": "rc:1",
+                "success_check_reason": "tool_args_missing_required_field:old",
+                "terminal_state": "tool_protocol_failed",
+                "failure_category": "tool_protocol",
+                "diagnostic_code": "tool_args_missing_required_field",
+                "failure_signature": (
+                    "tool_protocol|verify-integration|Edit|"
+                    "tool_args_missing_required_field"
+                ),
+                "target_path": "app/main.py",
+                "evidence_binding_status": "bound",
+                "completion_evidence_status": "failed",
+                "attempt_outcome": "not_attempted",
+            },
+            recheck=True,
+        )
+
+        self.assertEqual(report["active_job"], "tool_protocol_correction")
+        self.assertEqual(report["recovery_owner"], "tool_protocol")
+        self.assertEqual(report["repair_action"], "correct_tool_protocol")
+        self.assertEqual(report["tool_protocol_failed_tool"], "Edit")
+        self.assertEqual(report["tool_protocol_missing_field"], "old")
+        self.assertEqual(report["large_disposition"], "closed_owned_failure")
+        self.assertEqual(
+            report["large_disposition_owner_action_status"], "consistent"
+        )
+
+    def test_runtime_job_report_reprojects_edit_target_tool_action_owner(self):
+        report = eval_runtime_job_report.build_runtime_job_report(
+            {
+                "case_id": "large-nextjs",
+                "success": "false",
+                "reason": "rc:1",
+                "terminal_state": "verifier_command_failed",
+                "failure_category": "verifier",
+                "diagnostic_code": "edit_target_not_found",
+                "failure_signature": (
+                    "tool_protocol|verify-build|Edit|edit_target_not_found"
+                ),
+                "producer": "tool_protocol",
+                "active_job": "tool_protocol_correction",
+                "recovery_owner": "source",
+                "repair_action": "correct_tool_protocol",
+                "target_path": "app/page.tsx",
+                "evidence_binding_status": "bound",
+                "completion_evidence_status": "failed",
+                "attempt_outcome": "not_attempted",
+            },
+            recheck=True,
+        )
+
+        self.assertEqual(report["active_job"], "tool_protocol_correction")
+        self.assertEqual(report["recovery_owner"], "tool_protocol")
+        self.assertEqual(report["repair_action"], "correct_tool_protocol")
+        self.assertEqual(report["tool_protocol_failed_tool"], "Edit")
+        self.assertEqual(
+            report["tool_protocol_action"], "emit_tool_call_with_existing_target"
+        )
+        self.assertEqual(report["large_disposition"], "closed_owned_failure")
+        self.assertEqual(
+            report["large_disposition_owner_action_status"], "consistent"
+        )
+
+    def test_runtime_job_report_projects_read_only_mutation_explicit_stop(self):
+        report = eval_runtime_job_report.build_runtime_job_report(
+            {
+                "case_id": "large-nextjs",
+                "success": "false",
+                "reason": "rc:1",
+                "terminal_state": "step_policy_failed",
+                "failure_category": "step_policy",
+                "diagnostic_code": "read_only_step_mutation",
+                "active_job": "explicit_stop",
+                "recovery_owner": "explicit_stop",
+                "repair_action": "stop_with_structured_evidence",
+                "target_path": "app/page.tsx",
+                "evidence_binding_status": "bound",
+                "completion_evidence_status": "failed",
+                "attempt_outcome": "not_attempted",
+                "explicit_stop_reason": "unclassified_unknown_contract",
+            },
+            recheck=True,
+        )
+
+        self.assertEqual(report["active_job"], "explicit_stop")
+        self.assertEqual(report["explicit_stop_reason"], "read_only_step_mutation")
+        self.assertEqual(report["large_disposition"], "closed_owned_failure")
+        self.assertEqual(
+            report["large_disposition_reason"],
+            "owned_explicit_stop:read_only_step_mutation",
+        )
 
     def test_focused_assertions_accept_recheck_success_equivalents(self):
         result = eval_case_schema.focused_assertions(

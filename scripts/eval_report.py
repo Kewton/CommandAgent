@@ -535,7 +535,10 @@ def recheck(root, cases):
         admit_recheck_target_from_profile_artifacts(rows[-1], workspace)
         rows[-1].update(
             build_runtime_job_report(
-                rows[-1],
+                {
+                    **rows[-1],
+                    "success_check_reason": meta.get("success_check_reason", ""),
+                },
                 dry_run=bool(meta.get("dry_run")),
                 recheck=True,
             )
@@ -1051,6 +1054,9 @@ def render_report(rows):
     target_admission_statuses = {}
     repair_action_plan_statuses = {}
     completion_sources = {}
+    large_dispositions = {}
+    large_disposition_reasons = {}
+    large_owner_action_statuses = {}
     attempt_outcomes = {}
     verifier_rerun_results = {}
     explicit_stop_reasons = {}
@@ -1107,6 +1113,18 @@ def render_report(rows):
         )
         completion_source = (
             row.get("completion_source") or runtime_job_report["completion_source"]
+        )
+        large_disposition = (
+            row.get("large_disposition")
+            or runtime_job_report.get("large_disposition", "")
+        )
+        large_disposition_reason = (
+            row.get("large_disposition_reason")
+            or runtime_job_report.get("large_disposition_reason", "")
+        )
+        large_owner_action_status = (
+            row.get("large_disposition_owner_action_status")
+            or runtime_job_report.get("large_disposition_owner_action_status", "")
         )
         attempt_outcome = row.get("attempt_outcome", "")
         verifier_rerun_result = row.get("verifier_rerun_result", "")
@@ -1606,6 +1624,18 @@ def render_report(rows):
             completion_sources[completion_source] = (
                 completion_sources.get(completion_source, 0) + 1
             )
+        if large_disposition:
+            large_dispositions[large_disposition] = (
+                large_dispositions.get(large_disposition, 0) + 1
+            )
+        if large_disposition_reason:
+            large_disposition_reasons[large_disposition_reason] = (
+                large_disposition_reasons.get(large_disposition_reason, 0) + 1
+            )
+        if large_owner_action_status:
+            large_owner_action_statuses[large_owner_action_status] = (
+                large_owner_action_statuses.get(large_owner_action_status, 0) + 1
+            )
         if attempt_outcome:
             attempt_outcomes[attempt_outcome] = (
                 attempt_outcomes.get(attempt_outcome, 0) + 1
@@ -1742,6 +1772,14 @@ def render_report(rows):
         lines.append(f"- repair_action_plan_status={name}: {count}")
     for name, count in sorted(completion_sources.items()):
         lines.append(f"- completion_source={name}: {count}")
+    if large_dispositions:
+        lines.extend(["", "## Large Disposition"])
+        for name, count in sorted(large_dispositions.items()):
+            lines.append(f"- disposition={name}: {count}")
+        for name, count in sorted(large_disposition_reasons.items()):
+            lines.append(f"- reason={name}: {count}")
+        for name, count in sorted(large_owner_action_statuses.items()):
+            lines.append(f"- owner_action={name}: {count}")
     for name, count in sorted(attempt_outcomes.items()):
         lines.append(f"- attempt_outcome={name}: {count}")
     for name, count in sorted(verifier_rerun_results.items()):

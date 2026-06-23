@@ -18,6 +18,10 @@ RUNTIME_JOB_REPORT_FIELD_NAMES = [
     "target_admission_status",
     "repair_action_plan_status",
     "completion_source",
+    "large_disposition",
+    "large_disposition_reason",
+    "large_disposition_owner_action_status",
+    "large_disposition_evidence",
 ]
 
 RUNTIME_JOB_REPORT_FULL_FIELD_NAMES = [
@@ -97,6 +101,8 @@ def build_runtime_job_report(
         ),
     }
     report.update(projection)
+    for name in RUNTIME_JOB_REPORT_FIELD_NAMES:
+        report.setdefault(name, "")
     return report
 
 
@@ -132,7 +138,7 @@ def large_failure_projection(
             or "timeout" in reason.casefold()
             else "provider_transport_failure"
         )
-        return {
+        projection = {
             "active_job": "provider_transport_blocker",
             "recovery_owner": "provider_transport",
             "repair_action": "stop_for_provider_timeout"
@@ -152,13 +158,25 @@ def large_failure_projection(
             "runtime_job_kind": "provider_transport_blocker",
             "runtime_job_outcome": "blocked_external",
         }
+        if is_large_eval_row(raw):
+            projection.update(
+                {
+                    "large_disposition": "accepted_external_limitation",
+                    "large_disposition_reason": stop_reason,
+                    "large_disposition_owner_action_status": "consistent",
+                    "large_disposition_evidence": (
+                        "owner=provider_transport;attempt=blocked_external"
+                    ),
+                }
+            )
+        return projection
 
     if is_profile_manifest_dependency_conflict(
         reason=reason,
         terminal_state=terminal_state,
         diagnostic_code=diagnostic_code,
     ):
-        return {
+        projection = {
             "active_job": "manifest_repair",
             "recovery_owner": "manifest",
             "repair_action": "resolve_manifest_conflict",
@@ -175,8 +193,62 @@ def large_failure_projection(
             "runtime_job_kind": "manifest_repair",
             "runtime_job_outcome": "failed",
         }
+        if is_large_eval_row(raw):
+            projection.update(
+                {
+                    "large_disposition": "closed_owned_failure",
+                    "large_disposition_reason": "owned_manifest_conflict",
+                    "large_disposition_owner_action_status": "consistent",
+                    "large_disposition_evidence": (
+                        "owner=manifest;action=resolve_manifest_conflict;"
+                        "target=package.json;evidence=bound/failed"
+                    ),
+                }
+            )
+        return projection
 
     projection: dict[str, str] = {}
+    if is_tool_protocol_failure(
+        raw=raw,
+        terminal_state=terminal_state,
+        failure_category=failure_category,
+        diagnostic_code=diagnostic_code,
+        reason=reason,
+    ) and not has_rejected_repair_plan(raw):
+        projection.update(
+            {
+                "active_job": "tool_protocol_correction",
+                "recovery_owner": "tool_protocol",
+                "repair_action": "correct_tool_protocol",
+                "runtime_job_kind": "tool_protocol_correction",
+                "tool_protocol_status": clean(raw.get("tool_protocol_status"))
+                or "admitted",
+                "tool_protocol_source": clean(raw.get("tool_protocol_source"))
+                or tool_protocol_source_for(raw, diagnostic_code),
+                "tool_protocol_action": clean(raw.get("tool_protocol_action"))
+                or tool_protocol_action_for(diagnostic_code),
+                "tool_protocol_failed_tool": clean(
+                    raw.get("tool_protocol_failed_tool")
+                )
+                or failed_tool_for(raw),
+                "tool_protocol_missing_field": clean(
+                    raw.get("tool_protocol_missing_field")
+                )
+                or missing_tool_field_for(raw, reason),
+            }
+        )
+    elif diagnostic_code == "read_only_step_mutation":
+        projection.update(
+            {
+                "active_job": "explicit_stop",
+                "recovery_owner": "explicit_stop",
+                "repair_action": "stop_with_structured_evidence",
+                "runtime_job_kind": "explicit_stop",
+                "runtime_job_outcome": "failed",
+                "explicit_stop_reason": "read_only_step_mutation",
+            }
+        )
+
     if is_deterministic_failure_evidence(
         terminal_state=terminal_state,
         failure_category=failure_category,
@@ -197,7 +269,289 @@ def large_failure_projection(
         projection.setdefault("completion_evidence_status", "missing")
     if not is_meaningful_status(raw.get("attempt_outcome")):
         projection.setdefault("attempt_outcome", "failed")
+    projected = {**raw, **projection}
+    projection.update(
+        large_disposition_projection(
+            projected,
+            success=success,
+            terminal_state=terminal_state,
+            failure_category=failure_category,
+            diagnostic_code=diagnostic_code,
+            reason=reason,
+        )
+    )
     return projection
+
+
+def is_tool_protocol_failure(
+    *,
+    raw: dict[str, Any],
+    terminal_state: str,
+    failure_category: str,
+    diagnostic_code: str,
+    reason: str,
+) -> bool:
+    text = " ".join(
+        [
+            terminal_state,
+            failure_category,
+            diagnostic_code,
+            reason,
+            clean(raw.get("producer")),
+            clean(raw.get("source_of_truth")),
+            clean(raw.get("failure_signature")),
+            clean(raw.get("active_job") or raw.get("runtime_job_kind")),
+            clean(raw.get("allowed_change_kind")),
+        ]
+    ).casefold()
+    if terminal_state == "tool_protocol_failed" or failure_category == "tool_protocol":
+        return True
+    if diagnostic_code.startswith("tool_args_"):
+        return True
+    if diagnostic_code == "edit_target_not_found" and (
+        "tool_protocol" in text
+        or "tool_schema_contract" in text
+        or "tool_call_shape_only" in text
+    ):
+        return True
+    return False
+
+
+def has_rejected_repair_plan(raw: dict[str, Any]) -> bool:
+    rejection = clean(raw.get("repair_plan_rejection_reason"))
+    if rejection and rejection != "none":
+        return True
+    return clean(raw.get("action_envelope_status")) == "rejected" or clean(
+        raw.get("repair_action_plan_status")
+    ) == "rejected"
+
+
+def failed_tool_for(raw: dict[str, Any]) -> str:
+    signature = clean(raw.get("failure_signature"))
+    parts = signature.split("|")
+    if len(parts) >= 3 and parts[0] in {"tool_protocol", "step_policy"}:
+        tool = parts[2].strip()
+        if tool and tool not in {"unknown", "none"}:
+            return tool
+    text = " ".join(
+        [
+            clean(raw.get("reason")),
+            clean(raw.get("success_check_reason")),
+            clean(raw.get("diagnostic_code")),
+        ]
+    )
+    for marker in ["Write", "Edit", "Read", "Bash"]:
+        if marker in text:
+            return marker
+    return "unknown"
+
+
+def missing_tool_field_for(raw: dict[str, Any], reason: str) -> str:
+    text = " ".join(
+        [
+            reason,
+            clean(raw.get("success_check_reason")),
+            clean(raw.get("failure_signature")),
+            clean(raw.get("diagnostic_failure_kind")),
+            clean(raw.get("observed_expected")),
+        ]
+    )
+    marker = "tool_args_missing_required_field:"
+    if marker in text:
+        return text.split(marker, 1)[1].split()[0].split("|")[0].split(",")[0]
+    if "required string field `" in text:
+        return text.split("required string field `", 1)[1].split("`", 1)[0]
+    return "not_applicable"
+
+
+def tool_protocol_source_for(raw: dict[str, Any], diagnostic_code: str) -> str:
+    if diagnostic_code == "edit_target_not_found":
+        return "tool_target_resolution"
+    return "tool_argument_schema"
+
+
+def tool_protocol_action_for(diagnostic_code: str) -> str:
+    if diagnostic_code == "edit_target_not_found":
+        return "emit_tool_call_with_existing_target"
+    return "emit_same_tool_with_required_fields"
+
+
+def large_disposition_projection(
+    raw: dict[str, Any],
+    *,
+    success: bool,
+    terminal_state: str,
+    failure_category: str,
+    diagnostic_code: str,
+    reason: str,
+) -> dict[str, str]:
+    existing = clean(raw.get("large_disposition"))
+    if existing:
+        return {
+            "large_disposition": existing,
+            "large_disposition_reason": clean(raw.get("large_disposition_reason")),
+            "large_disposition_owner_action_status": clean(
+                raw.get("large_disposition_owner_action_status")
+            )
+            or owner_action_status(raw),
+            "large_disposition_evidence": clean(
+                raw.get("large_disposition_evidence")
+            )
+            or disposition_evidence(raw, diagnostic_code),
+        }
+    if not is_large_eval_row(raw):
+        return {
+            "large_disposition": "",
+            "large_disposition_reason": "",
+            "large_disposition_owner_action_status": "",
+            "large_disposition_evidence": "",
+        }
+    if success:
+        return {
+            "large_disposition": "not_applicable",
+            "large_disposition_reason": "success",
+            "large_disposition_owner_action_status": "not_applicable",
+            "large_disposition_evidence": "success=true",
+        }
+    if is_provider_boundary_failure(
+        reason=reason,
+        terminal_state=terminal_state,
+        failure_category=failure_category,
+        diagnostic_code=diagnostic_code,
+        raw=raw,
+    ):
+        return {
+            "large_disposition": "accepted_external_limitation",
+            "large_disposition_reason": "provider_transport_failure",
+            "large_disposition_owner_action_status": "consistent",
+            "large_disposition_evidence": disposition_evidence(raw, diagnostic_code),
+        }
+
+    missing = missing_disposition_inputs(raw)
+    status = owner_action_status(raw)
+    if missing or status != "consistent":
+        reason_parts = []
+        if missing:
+            reason_parts.append("missing=" + ",".join(missing))
+        if status != "consistent":
+            reason_parts.append("owner_action=" + status)
+        return {
+            "large_disposition": "implementation_blocker",
+            "large_disposition_reason": ";".join(reason_parts),
+            "large_disposition_owner_action_status": status,
+            "large_disposition_evidence": disposition_evidence(raw, diagnostic_code),
+        }
+
+    if clean(raw.get("recovery_owner")) == "explicit_stop":
+        reason_code = clean(raw.get("explicit_stop_reason")) or diagnostic_code
+        return {
+            "large_disposition": "closed_owned_failure",
+            "large_disposition_reason": "owned_explicit_stop:" + reason_code,
+            "large_disposition_owner_action_status": status,
+            "large_disposition_evidence": disposition_evidence(raw, diagnostic_code),
+        }
+    if diagnostic_code == "unknown_verifier_failure":
+        reason_code = "owned_weak_verifier_failure_with_command"
+    elif diagnostic_code == "blocked_bash_command_policy":
+        reason_code = "owned_tool_policy_failure"
+    elif clean(raw.get("recovery_owner")) == "tool_protocol":
+        reason_code = "owned_tool_protocol_failure"
+    else:
+        reason_code = "owned_" + (failure_category or terminal_state or "failure")
+    return {
+        "large_disposition": "closed_owned_failure",
+        "large_disposition_reason": reason_code,
+        "large_disposition_owner_action_status": status,
+        "large_disposition_evidence": disposition_evidence(raw, diagnostic_code),
+    }
+
+
+def missing_disposition_inputs(raw: dict[str, Any]) -> list[str]:
+    missing: list[str] = []
+    required = {
+        "active_job": clean(raw.get("active_job") or raw.get("runtime_job_kind")),
+        "owner": clean(raw.get("recovery_owner") or raw.get("active_owner")),
+        "action": clean(raw.get("repair_action") or raw.get("selected_action")),
+        "evidence_binding": clean(raw.get("evidence_binding_status")),
+        "completion_evidence": clean(raw.get("completion_evidence_status")),
+        "attempt_outcome": clean(raw.get("attempt_outcome")),
+    }
+    if not target_optional(raw):
+        required["target"] = clean(raw.get("target_path") or raw.get("selected_target"))
+    for key, value in required.items():
+        if value.casefold() in {"", "unknown", "none"}:
+            missing.append(key)
+        elif value.casefold() == "not_applicable" and key not in {
+            "target",
+            "evidence_binding",
+            "completion_evidence",
+        }:
+            missing.append(key)
+    return missing
+
+
+def owner_action_status(raw: dict[str, Any]) -> str:
+    active_job = clean(raw.get("active_job") or raw.get("runtime_job_kind"))
+    owner = clean(raw.get("recovery_owner") or raw.get("active_owner"))
+    action = clean(raw.get("repair_action") or raw.get("selected_action"))
+    if owner == "source" and action == "correct_tool_protocol":
+        return "inconsistent_source_tool_protocol_action"
+    if active_job == "tool_protocol_correction" and owner != "tool_protocol":
+        return "inconsistent_tool_protocol_job_owner"
+    if owner == "tool_protocol" and action != "correct_tool_protocol":
+        return "inconsistent_tool_protocol_action"
+    if owner == "explicit_stop" and action != "stop_with_structured_evidence":
+        return "inconsistent_explicit_stop_action"
+    if owner == "provider_transport" and clean(raw.get("attempt_outcome")) not in {
+        "blocked_external",
+        "stopped_external",
+    }:
+        return "inconsistent_provider_transport_attempt"
+    return "consistent"
+
+
+def target_optional(raw: dict[str, Any]) -> bool:
+    terminal_state = clean(raw.get("terminal_state"))
+    failure_category = clean(raw.get("failure_category") or raw.get("failure_class"))
+    owner = clean(raw.get("recovery_owner") or raw.get("active_owner"))
+    return (
+        terminal_state in {"explicit_stop", "provider_transport_failed", "provider_parse_failed"}
+        or failure_category == "provider_transport"
+        or owner == "provider_transport"
+    )
+
+
+def disposition_evidence(raw: dict[str, Any], diagnostic_code: str) -> str:
+    fields = {
+        "owner": clean(raw.get("recovery_owner") or raw.get("active_owner")),
+        "action": clean(raw.get("repair_action") or raw.get("selected_action")),
+        "target": clean(raw.get("target_path") or raw.get("selected_target")),
+        "evidence": clean(raw.get("evidence_binding_status"))
+        + "/"
+        + clean(raw.get("completion_evidence_status")),
+        "attempt": clean(raw.get("attempt_outcome")),
+        "diagnostic": diagnostic_code,
+    }
+    command = clean(raw.get("affected_cases") or raw.get("success_check"))
+    if command:
+        fields["verifier"] = command
+    failed_tool = clean(raw.get("tool_protocol_failed_tool"))
+    if failed_tool:
+        fields["failed_tool"] = failed_tool
+    missing_field = clean(raw.get("tool_protocol_missing_field"))
+    if missing_field:
+        fields["missing_field"] = missing_field
+    return ";".join(f"{key}={value or 'unknown'}" for key, value in fields.items())
+
+
+def is_large_eval_row(raw: dict[str, Any]) -> bool:
+    if clean(raw.get("eval_family") or raw.get("family")) == "large":
+        return True
+    for field in ["case_id", "matrix_row"]:
+        value = clean(raw.get(field))
+        if value.startswith("large-"):
+            return True
+    return False
 
 
 def is_deterministic_failure_evidence(

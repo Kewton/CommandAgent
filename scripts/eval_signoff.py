@@ -52,6 +52,13 @@ BETTER_OWNER_CATEGORIES = {
 
 MISSING_VALUES = {"", "unknown", "none", "not_applicable"}
 
+LARGE_DISPOSITIONS = {
+    "closed_owned_failure",
+    "implementation_blocker",
+    "accepted_external_limitation",
+    "split_forward",
+}
+
 
 @dataclass(frozen=True)
 class RootSpec:
@@ -319,6 +326,113 @@ def large_ownership_findings(spec: RootSpec, row: dict[str, str]) -> list[Findin
     return findings
 
 
+def large_disposition_findings(spec: RootSpec, row: dict[str, str]) -> list[Finding]:
+    if is_success(row):
+        return []
+    findings: list[Finding] = []
+    disposition = value(row, "large_disposition")
+    reason = value(row, "large_disposition_reason")
+    owner_action_status = value(row, "large_disposition_owner_action_status")
+    evidence = value(row, "large_disposition_evidence")
+    owner = value(row, "recovery_owner") or value(row, "active_owner")
+    action = value(row, "repair_action") or value(row, "selected_action")
+    active_job = value(row, "active_job") or value(row, "runtime_job_kind")
+
+    if is_missing(disposition):
+        findings.append(
+            finding(
+                spec,
+                row,
+                "missing_large_disposition",
+                "failed large row has no large_disposition",
+            )
+        )
+        return findings
+    if disposition not in LARGE_DISPOSITIONS:
+        findings.append(
+            finding(
+                spec,
+                row,
+                "invalid_large_disposition",
+                f"large_disposition={disposition}",
+            )
+        )
+        return findings
+    if is_missing(reason):
+        findings.append(
+            finding(
+                spec,
+                row,
+                "missing_large_disposition_reason",
+                f"large_disposition={disposition}",
+            )
+        )
+    if is_missing(evidence):
+        findings.append(
+            finding(
+                spec,
+                row,
+                "missing_large_disposition_evidence",
+                f"large_disposition={disposition}",
+            )
+        )
+    if owner_action_status and owner_action_status != "consistent":
+        findings.append(
+            finding(
+                spec,
+                row,
+                "inconsistent_large_owner_action",
+                owner_action_status,
+            )
+        )
+    if owner == "source" and action == "correct_tool_protocol":
+        findings.append(
+            finding(
+                spec,
+                row,
+                "inconsistent_large_owner_action",
+                "source owner cannot carry correct_tool_protocol action",
+            )
+        )
+    if active_job == "tool_protocol_correction" and owner != "tool_protocol":
+        findings.append(
+            finding(
+                spec,
+                row,
+                "inconsistent_large_owner_action",
+                f"tool_protocol_correction owner={owner or '<empty>'}",
+            )
+        )
+    if disposition == "implementation_blocker":
+        findings.append(
+            finding(
+                spec,
+                row,
+                "large_implementation_blocker",
+                reason or "large row remains an implementation blocker",
+            )
+        )
+    if disposition == "split_forward":
+        findings.append(
+            finding(
+                spec,
+                row,
+                "large_split_forward_open",
+                reason or "large row was split forward",
+            )
+        )
+    if disposition == "accepted_external_limitation" and not provider_boundary_context(row):
+        findings.append(
+            finding(
+                spec,
+                row,
+                "invalid_external_limitation",
+                "accepted external limitation without provider boundary evidence",
+            )
+        )
+    return findings
+
+
 def classify(spec: RootSpec, rows: list[dict[str, str]]) -> list[Finding]:
     findings: list[Finding] = []
     for row in rows:
@@ -328,6 +442,7 @@ def classify(spec: RootSpec, rows: list[dict[str, str]]) -> list[Finding]:
         if spec.family == "large":
             findings.extend(generic_source_fallback_findings(spec, row))
             findings.extend(large_ownership_findings(spec, row))
+            findings.extend(large_disposition_findings(spec, row))
     return findings
 
 

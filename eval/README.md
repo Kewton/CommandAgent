@@ -200,7 +200,8 @@ python3 scripts/eval_signoff.py --require-recheck \
 
 The sign-off script is report-only. It reads existing summary artifacts and
 flags unowned failures, raw diagnostics, failed focused assertions, and large
-failures that are missing owner/action/target/evidence fields.
+failures that are missing owner/action/target/evidence or row disposition
+fields.
 `--recheck` summaries may classify raw process-code failures from existing
 stderr/stdout/repair-packet evidence and may admit targets from existing
 verifier/profile artifact fields when the file exists in the run workspace.
@@ -216,3 +217,11 @@ Large proof runs that are intended to close an eval-timeout blocker may use
 `scripts/eval_large_tasks.sh --no-timeout`. This must be called explicitly and
 the resulting root must record `timeout_mode=none`; normal broad sign-off should
 continue to use bounded runs unless a phase plan requires non-timeboxed proof.
+
+Failed large rows must report one of `closed_owned_failure`,
+`implementation_blocker`, `accepted_external_limitation`, or `split_forward`.
+Only `closed_owned_failure` with consistent owner/action/target/evidence, or a
+provider/network/environment-backed `accepted_external_limitation`, can pass
+broad sign-off. `implementation_blocker` and `split_forward` remain open
+findings. These dispositions classify why a failed large row is acceptable or
+blocked for migration accounting; they do not mean the large user task passed.
