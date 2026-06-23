@@ -33,7 +33,7 @@ Reason:
 | P32-R006 | Focused assertions | Classify and fix or accept the remaining focused assertion failures. | completed by Phase35 | `focused_worklist.md`; `phase_33/implementation_report.md`; `phase_35/implementation_report.md`; updated focused `recheck_summary.tsv`. | Current focused recheck reports `passed_recheck: 82`. |
 | P32-R007 | Raw diagnostic coverage | Eliminate or explicitly accept remaining raw `rc:1` / `rc_1` / unknown-contract findings. | completed by Phase34 | `phase_34/implementation_report.md`; current large `recheck_summary.tsv`; current broad signoff output. | Phase34 leaves no unowned raw diagnostic in signoff output. Remaining signoff failures are focused assertion blockers assigned to Phase35+. |
 | P32-R008 | Large real LLM blockers | Classify six large failures into migration blocker, model-quality failure, or explicit limitation. | completed by Phase36 | `phase_36/implementation_report.md`; `phase_36/large_row_ledger.md`; current large `recheck_summary.tsv`. | Large rows have owner/action/target/evidence and `large_disposition`; no row is accepted as external limitation. |
-| P32-R009 | Row-to-case mapping | Add row -> eval case -> proof root -> recheck result mapping for all C01-C54 adopted rows. | open / assigned | Current manifest plus coverage table; `followup_phase_split.md` Phase37 and Phase38. | No adopted row can be closed without a current proof case or documented rationale, and sign-off roots cover the current case set. |
+| P32-R009 | Row-to-case mapping | Add row -> eval case -> proof root -> recheck result mapping for all C01-C54 adopted rows. | completed by Phase37 | `phase_37/row_case_proof_matrix.md`; `phase_37/proof_gap_ledger.md`; `phase_37/implementation_report.md`. | C01-C54 are represented, C01-C45 have current or accepted proof, C46-C54 have exclusion rationale, all 91 current cases are mapped or supplemental, and no open `proof_gap` remains. |
 | P32-R010 | Follow-up phase split | Create follow-up phases for remaining runtime/eval-report blockers after P32-R006 to P32-R009 classification. | completed | `followup_phase_split.md`. | Each open blocker has assigned phase, owner layer, source evidence, and proof command family. |
 
 ## Current Focused Recheck Summary
@@ -78,6 +78,21 @@ These six rows were closed by Phase36 for ownership/disposition accounting.
 They remain failed large application-generation tasks and are not classified as
 accepted external limitations.
 
+## Current Row-to-case Proof Summary
+
+Phase37 closes P32-R009.
+
+| metric | value |
+| --- | ---: |
+| coverage rows represented | 54 |
+| adopted rows with current or accepted proof | 45 |
+| excluded rows with rationale | 9 |
+| current eval cases mapped or supplemental | 91 |
+| open proof gaps | 0 |
+
+The proof matrix does not declare migration completion. Phase38 still owns
+sign-off root admission, and Phase39 still owns final closure retry/reporting.
+
 ## Phase32 Exit Gate After Recovery
 
 Phase32 may declare migration completion only when all are true:
@@ -90,3 +105,6 @@ Phase32 may declare migration completion only when all are true:
 5. no adopted row depends only on historical roots that omit current cases;
 6. final report states the current decision without relying on superseded
    evidence.
+
+Phase37 satisfies item 5 for row-to-case proof reconciliation. Items 1 and 6
+remain owned by Phase38 and Phase39 respectively.

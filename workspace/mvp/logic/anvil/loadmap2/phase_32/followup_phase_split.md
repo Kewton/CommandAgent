@@ -18,7 +18,7 @@ explicit follow-up work without claiming migration completion.
 | Phase34 | raw diagnostic classification | Current sign-off still reports raw `rc:1` / `rc_1` / unknown-contract findings, including rows whose structured fields exist but are not admitted by sign-off. | `recovery_task_ledger.md` P32-R007; non-duplicated current sign-off output; focused and large recheck summaries. | Current broad sign-off reports no `raw_undiagnostic_rc`; every nonzero row has diagnostic code, owner layer, active job, selected action, and accepted row-level disposition. |
 | Phase35 | setup/profile/dev-server/readiness contract connection | Closed by Phase35. Setup/profile/dev-server rows now use current recheck authority and deterministic boundary proof where appropriate. | `focused-nextjs-dependency-setup`, `focused-nextjs-dev-server-port-conflict`, `focused-nextjs-endpoint-smoke`, `focused-nextjs-manifest-repair`, `focused-nextjs-route-integration`, `focused-phase26-setup-node-readiness`, `focused-setup-manifest-invalid`. | `phase_35/implementation_report.md`; current focused recheck reports `passed_recheck: 82`; current broad sign-off returns `status: pass`. |
 | Phase36 | large real-LLM blocker ownership | Closed by Phase36. Six current large cases still fail as user tasks, but each has owner/action/target/evidence and a row disposition. | `phase_36/implementation_report.md`; `phase_36/large_row_ledger.md`; `eval/runs/current-all-local-llm/large/20260623T204816/recheck_summary.tsv`. | Large recheck reports `large_disposition=closed_owned_failure` for all six rows; broad sign-off has no unowned or contradictory large failure. |
-| Phase37 | row-to-case proof reconciliation | Adopted C rows currently depend partly on historical roots that omitted current cases, including current successful cases absent from the historical proof bundle. | `current_eval_manifest.md`; coverage table; current focused and large summaries. | Row -> case -> proof root -> recheck result table exists for all adopted rows; no adopted row closes on omitted historical evidence only. |
+| Phase37 | row-to-case proof reconciliation | Closed by Phase37. Adopted C rows and excluded rows now have explicit proof or rationale, and current eval cases are mapped or supplemental. | `phase_37/row_case_proof_matrix.md`; `phase_37/proof_gap_ledger.md`; `phase_37/implementation_report.md`. | C01-C54 are represented, all 91 current cases are mapped or supplemental, no adopted row closes on omitted historical evidence only, and no open `proof_gap` remains. |
 | Phase38 | sign-off root admission gate | Phase32 previously accepted a smaller root bundle, and a later check accidentally duplicated the focused root as `focused-fixture`. | Current eval roots; sign-off command invocation; `eval/README.md`. | A deterministic gate verifies root labels are non-duplicated, required families are present, and the admitted roots cover the current eval case set before final sign-off is interpreted. |
 | Phase39 | final closure retry | Phase32 final decision remains open until current proof roots are green and row-level proof is complete. | Phase33-Phase38 outputs. | Current broad sign-off exits zero and final decision report can truthfully declare completion or explicit non-completion. |
 
@@ -38,6 +38,22 @@ create a row for each case:
 
 Phase36 satisfied this requirement in `phase_36/large_row_ledger.md`.
 All six rows are `closed_owned_failure`; no row is `accepted_external_limitation`.
+
+## Row-to-case Proof Reconciliation Result
+
+Phase37 satisfied the row-to-case proof reconciliation requirement in
+`phase_37/row_case_proof_matrix.md`.
+
+| gate | result |
+| --- | --- |
+| C01-C54 represented | pass |
+| C01-C45 adopted rows have current or accepted proof | pass |
+| C46-C54 excluded rows have rationale | pass |
+| current 91 cases mapped or supplemental | pass |
+| open proof gaps | 0 |
+
+Phase38 still owns sign-off root admission. Phase39 still owns final closure
+retry/reporting.
 
 ## Lessons Applied
 
