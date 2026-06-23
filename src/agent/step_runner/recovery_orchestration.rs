@@ -3144,6 +3144,59 @@ mod tests {
     }
 
     #[test]
+    fn phase26_profile_failure_codes_map_to_typed_recovery_jobs() {
+        let cases = [
+            (
+                ContractEvidence::new("profile_verification")
+                    .with_reason_code("nextjs_route_not_integrated")
+                    .with_candidate_artifacts(vec!["app/page.tsx"]),
+                RecoveryJobKind::RouteIntegrationRepair,
+                RecoveryActionKind::ConnectExistingArtifactToEntrypoint,
+                "profile_contract",
+            ),
+            (
+                ContractEvidence::new("profile_verification")
+                    .with_reason_code("nextjs_integration_artifact_missing")
+                    .with_candidate_artifacts(vec!["components/Game.tsx"]),
+                RecoveryJobKind::ScaffoldMaterialization,
+                RecoveryActionKind::CreateRequiredArtifact,
+                "profile_contract",
+            ),
+            (
+                ContractEvidence::new("profile_verification")
+                    .with_reason_code("nextjs_dependency_missing"),
+                RecoveryJobKind::SetupBootstrap,
+                RecoveryActionKind::InstallOrPrepareDependencies,
+                "setup_manifest_and_dependency_diagnostic",
+            ),
+            (
+                ContractEvidence::new("profile_verification")
+                    .with_reason_code("nextjs_dependency_version_conflict"),
+                RecoveryJobKind::ManifestRepair,
+                RecoveryActionKind::ResolveManifestConflict,
+                "setup_manifest_and_dependency_diagnostic",
+            ),
+            (
+                ContractEvidence::new("profile_verification")
+                    .with_reason_code("nextjs_visual_quality_failure")
+                    .with_candidate_artifacts(vec!["app/page.tsx"]),
+                RecoveryJobKind::SourceImplementationRepair,
+                RecoveryActionKind::EditSourceForDiagnostic,
+                "profile_contract",
+            ),
+        ];
+
+        for (evidence, expected_job, expected_action, expected_source) in cases {
+            let decision = orchestrate_contract_evidence(&evidence).unwrap();
+
+            assert_eq!(decision.job, expected_job);
+            assert_eq!(decision.action, expected_action);
+            assert_eq!(decision.source_of_truth, expected_source);
+            assert_eq!(decision.dispatch_status, DispatchStatus::Selected);
+        }
+    }
+
+    #[test]
     fn generated_output_candidate_is_rejected() {
         let evidence = ContractEvidence::new("verifier")
             .with_reason_code("command_failed:1")
@@ -3242,6 +3295,56 @@ mod tests {
         assert!(decision.eval_report_fields.iter().any(|field| {
             field.starts_with("repair_plan_rejection_reason=action edit_source_for_diagnostic")
         }));
+    }
+
+    #[test]
+    fn phase26_action_envelope_reports_admitted_setup_manifest_and_route_families() {
+        let cases = [
+            (
+                ContractEvidence::new("verifier")
+                    .with_reason_code("dependency_missing")
+                    .with_command("npm run build"),
+                RecoveryJobKind::SetupBootstrap,
+                RepairActionStatus::Admitted,
+                ActionEnvelopeStatus::Admitted,
+                ToolPolicyProjection::VerifierOwnedSetupOnly,
+            ),
+            (
+                ContractEvidence::new("profile_verification")
+                    .with_reason_code("nextjs_dependency_version_conflict"),
+                RecoveryJobKind::ManifestRepair,
+                RepairActionStatus::Admitted,
+                ActionEnvelopeStatus::Admitted,
+                ToolPolicyProjection::SetupConfigMutationOnly,
+            ),
+            (
+                ContractEvidence::new("profile_verification")
+                    .with_reason_code("nextjs_route_not_integrated")
+                    .with_candidate_artifacts(vec!["app/page.tsx"]),
+                RecoveryJobKind::RouteIntegrationRepair,
+                RepairActionStatus::Admitted,
+                ActionEnvelopeStatus::Admitted,
+                ToolPolicyProjection::FileMutationRepair,
+            ),
+        ];
+
+        for (evidence, expected_job, expected_status, expected_envelope, expected_policy) in cases {
+            let decision = orchestrate_contract_evidence(&evidence).unwrap();
+
+            assert_eq!(decision.job, expected_job);
+            assert_eq!(decision.tool_policy, expected_policy);
+            assert!(decision.repair_action_plan.iter().any(|line| {
+                line.contains(&format!("status={}", expected_status.as_str()))
+                    && line.contains(&format!(
+                        "tool_category={}",
+                        AllowedToolCategory::from_projection(expected_policy.as_str()).as_str()
+                    ))
+            }));
+            assert_eq!(
+                decision.action_envelope_status.as_deref(),
+                Some(expected_envelope.as_str())
+            );
+        }
     }
 
     #[test]

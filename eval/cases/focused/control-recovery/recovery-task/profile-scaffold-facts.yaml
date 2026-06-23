@@ -1,0 +1,29 @@
+id: focused-phase26-profile-scaffold-facts
+title: Phase26 profile output exposes scaffold and capability facts
+profile: nextjs
+style: default
+mode: plan-run
+intent: new
+prompt: "Expose Next.js profile scaffold facts without profile-owned mutation."
+matrix_row: phase26-c15-profile-scaffold-facts
+proof_mode: deterministic_fixture
+fixture_reason: profile_verification:nextjs_integration_artifact_missing
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  profile_project_kind: nextjs
+  profile_manifest_artifacts: package.json
+  profile_entrypoints: app/page.tsx
+  profile_integration_artifacts: components/Game.tsx
+  profile_completion_evidence: npm_run_build|profile_verification
+  profile_failure_mapping: route|manifest|setup|source|scaffold|explicit_stop
+  profile_adapter_families: typescript|nextjs
+  profile_capability_status: project:ok|manifest:ok|entrypoint:ok|integration:ok|scaffold:ok|failure:ok
+expected_profile_project_kind: nextjs
+expected_profile_manifest_artifacts: package.json
+expected_profile_entrypoints: app/page.tsx
+expected_profile_integration_artifacts: components/Game.tsx
+expected_profile_completion_evidence: npm_run_build|profile_verification
+expected_profile_failure_mapping: route|manifest|setup|source|scaffold|explicit_stop
+expected_profile_adapter_families: typescript|nextjs
+expected_profile_capability_status: project:ok|manifest:ok|entrypoint:ok|integration:ok|scaffold:ok|failure:ok

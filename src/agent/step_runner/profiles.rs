@@ -4075,6 +4075,38 @@ mod tests {
         }
     }
 
+    #[test]
+    fn phase26_nextjs_profile_output_renders_scaffold_failure_and_capability_facts() {
+        let root = temp_workspace("profile-output-phase26-nextjs");
+        fs::create_dir_all(root.join("app")).unwrap();
+        fs::create_dir_all(root.join("components")).unwrap();
+        fs::write(root.join("package.json"), "{}").unwrap();
+        fs::write(
+            root.join("app/page.tsx"),
+            "import Game from '../components/Game'; export default function Page() { return <Game />; }",
+        )
+        .unwrap();
+        fs::write(
+            root.join("components/Game.tsx"),
+            "export default function Game() { return null; }",
+        )
+        .unwrap();
+
+        let summary = profile_fact_summary("nextjs", &root).unwrap();
+        let lines = summary.lines.join("\n");
+
+        assert!(lines.contains("profile.output.project_kind=nextjs"));
+        assert!(lines.contains("profile.output.manifests=package.json"));
+        assert!(lines.contains("profile.output.entrypoints=app/page.tsx"));
+        assert!(lines.contains("profile.output.integration_artifacts="));
+        assert!(lines.contains("profile.output.scaffold_artifacts="));
+        assert!(lines.contains("profile.output.failure_mappings="));
+        assert!(lines.contains("profile_failure_mapping="));
+        assert!(lines.contains("profile_capability_status="));
+        assert!(lines.contains("scaffold:"));
+        assert!(lines.contains("failure:"));
+    }
+
     fn context_with_goal(goal: &str) -> ProfileVerificationContext {
         ProfileVerificationContext {
             goal_excerpt: goal.to_string(),

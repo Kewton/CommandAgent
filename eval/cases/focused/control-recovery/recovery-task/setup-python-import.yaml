@@ -1,0 +1,41 @@
+id: focused-phase26-setup-python-import
+title: Phase26 setup lifecycle records Python dependency blocker
+profile: python
+style: default
+mode: plan-run
+intent: modify
+prompt: "Classify a Python import dependency setup blocker without implicit install."
+matrix_row: phase26-c14-setup-python-import
+proof_mode: deterministic_fixture
+fixture_reason: setup:python_import_dependency_missing
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: setup_bootstrap
+  active_job_lifecycle: selected
+  recovery_owner: setup
+  loop_control_action: run_verifier_owned_setup
+  dispatch_status: selected
+  repair_action: install_or_prepare_dependencies
+  tool_policy: verifier_owned_setup_only
+  runtime_job_kind: setup_bootstrap
+  runtime_job_outcome: blocked
+  setup_job_kind: setup_bootstrap
+  setup_job_state: blocked
+  setup_target: requirements.txt
+  setup_manifest_kind: python_requirements
+  setup_manifest_path: requirements.txt
+  setup_artifact_validation_status: passed
+  setup_readiness: dependency_missing
+  setup_command_authority: verifier_owned_setup_only
+  setup_result: blocked_by_import_dependency
+  setup_failure_signature: setup|python|pytest|import_dependency_missing
+expected_active_job: setup_bootstrap
+expected_recovery_owner: setup
+expected_setup_manifest_path: requirements.txt
+expected_setup_manifest_kind: python_requirements
+expected_setup_artifact_validation_status: passed
+expected_setup_readiness: dependency_missing
+expected_setup_command_authority: verifier_owned_setup_only
+expected_setup_result: blocked_by_import_dependency
+expected_setup_failure_signature: setup|python|pytest|import_dependency_missing

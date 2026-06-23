@@ -1,0 +1,42 @@
+id: focused-phase26-setup-rust-manifest
+title: Phase26 setup lifecycle records Rust manifest blocker
+profile: rust
+style: default
+mode: plan-run
+intent: modify
+prompt: "Classify a Rust verifier setup blocker from Cargo manifest evidence."
+matrix_row: phase26-c14-setup-rust-manifest
+proof_mode: deterministic_fixture
+fixture_reason: setup:setup_manifest_invalid_cargo_toml
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: setup_bootstrap
+  active_job_lifecycle: selected
+  recovery_owner: setup
+  loop_control_action: run_verifier_owned_setup
+  dispatch_status: selected
+  repair_action: install_or_prepare_dependencies
+  tool_policy: verifier_owned_setup_only
+  runtime_job_kind: setup_bootstrap
+  runtime_job_outcome: failed
+  setup_job_kind: setup_bootstrap
+  setup_job_state: failed
+  setup_target: Cargo.toml
+  setup_manifest_kind: rust_cargo
+  setup_manifest_path: Cargo.toml
+  setup_artifact_validation_status: failed
+  setup_readiness: manifest_invalid
+  setup_command_authority: verifier_owned_setup_only
+  setup_manifest_fingerprint: cargo_toml=invalid
+  setup_result: failed
+  setup_failure_signature: setup|rust|cargo_test|setup_manifest_invalid_cargo_toml
+expected_active_job: setup_bootstrap
+expected_recovery_owner: setup
+expected_setup_manifest_path: Cargo.toml
+expected_setup_manifest_kind: rust_cargo
+expected_setup_artifact_validation_status: failed
+expected_setup_readiness: manifest_invalid
+expected_setup_command_authority: verifier_owned_setup_only
+expected_setup_result: failed
+expected_setup_failure_signature: setup|rust|cargo_test|setup_manifest_invalid_cargo_toml

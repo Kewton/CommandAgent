@@ -467,7 +467,11 @@ def derived_recovery_fields(reason, case):
                 target_role="setup_manifest",
                 selected_target="package.json",
                 selected_target_role="setup_manifest",
-                repair_action="add_missing_manifest_dependency",
+                repair_action=(
+                    "resolve_manifest_conflict"
+                    if "conflict" in reason
+                    else "add_missing_manifest_dependency"
+                ),
                 tool_policy="setup_config_mutation_only",
             )
         else:

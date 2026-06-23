@@ -299,11 +299,14 @@ fn cluster_labels(evidence: &ContractEvidence) -> Vec<String> {
 }
 
 fn contract_conflict(evidence: &ContractEvidence) -> Option<String> {
-    evidence
-        .target_admission
-        .as_deref()
-        .filter(|value| value.starts_with("rejected"))
-        .map(str::to_string)
+    payload_value(evidence, "contract_conflict")
+        .or_else(|| {
+            evidence
+                .target_admission
+                .as_deref()
+                .filter(|value| value.starts_with("rejected"))
+                .map(str::to_string)
+        })
         .or_else(|| {
             evidence
                 .explicit_stop_reason
@@ -533,6 +536,44 @@ mod tests {
             plan.selected_cluster
                 .render_line()
                 .contains("observed_expected=observed compile error expected verifier pass")
+        );
+    }
+
+    #[test]
+    fn phase26_semantic_report_preserves_conflict_inputs_and_ranking_facts() {
+        let evidence = ContractEvidence::new("verifier")
+            .with_diagnostic_code("assertion_contract_conflict")
+            .with_semantic_failure_kind("contract_conflict")
+            .with_source_of_truth("test_contract_and_original_verifier")
+            .with_candidate_artifacts(["tests/test_app.py", "src/app.py"])
+            .with_admitted_cluster_targets(["tests/test_app.py", "src/app.py"])
+            .with_observed_expected_pairs(["observed=API returns 200 expected=test requires 404"])
+            .with_affected_cases(["pytest tests/test_app.py"])
+            .with_preferred_repair_role("test")
+            .with_verifier_diagnostic_payload([
+                "contract_conflict=test expectation conflicts with original API contract",
+                "weak_verifier_reason=generated assertion has no source citation",
+            ]);
+
+        let report = SemanticFailureReport::from_contract_evidence(&evidence);
+        let plan = SemanticRepairPlan::from_contract_evidence(&evidence);
+        let rendered = report.render_lines().join("\n");
+
+        assert_eq!(report.kind, "contract_conflict");
+        assert_eq!(
+            report.contract_conflict.as_deref(),
+            Some("test expectation conflicts with original API contract")
+        );
+        assert_eq!(report.preferred_repair_role.as_deref(), Some("test"));
+        assert!(
+            rendered
+                .contains("observed_expected=observed=API returns 200 expected=test requires 404")
+        );
+        assert!(rendered.contains("affected_cases=pytest tests/test_app.py"));
+        assert!(rendered.contains("proposed_targets=tests/test_app.py|src/app.py"));
+        assert!(
+            plan.repair_hypothesis
+                .contains("stop and preserve conflict evidence")
         );
     }
 }

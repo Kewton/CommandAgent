@@ -1,0 +1,37 @@
+id: focused-phase26-action-envelope-rejection
+title: Phase26 action envelope rejects incompatible action family
+profile: generic
+style: default
+mode: plan-run
+intent: modify
+prompt: "Reject a tool protocol correction that tries to mutate source."
+matrix_row: phase26-c20-action-envelope-rejection
+proof_mode: deterministic_fixture
+fixture_reason: tool_args_missing_required_field:path
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: tool_protocol_correction
+  recovery_owner: tool_protocol
+  loop_control_action: run_tool_protocol_correction
+  dispatch_status: selected
+  repair_action: edit_source_for_diagnostic
+  tool_policy: tool_protocol_correction
+  repair_brief_status: explicit_stop
+  action_envelope_status: rejected
+  allowed_change_kind: tool_protocol_only
+  allowed_tool_category: tool_protocol
+  repair_plan_rejection_reason: action edit_source_for_diagnostic is not admitted for active job tool_protocol_correction
+  explicit_stop_reason: repair_plan_admission_rejected
+expected_active_job: tool_protocol_correction
+expected_recovery_owner: tool_protocol
+expected_loop_control_action: run_tool_protocol_correction
+expected_dispatch_status: selected
+expected_repair_action: edit_source_for_diagnostic
+expected_tool_policy: tool_protocol_correction
+expected_repair_brief_status: explicit_stop
+expected_action_envelope_status: rejected
+expected_allowed_change_kind: tool_protocol_only
+expected_allowed_tool_category: tool_protocol
+expected_repair_plan_rejection_reason: action edit_source_for_diagnostic is not admitted for active job tool_protocol_correction
+expected_explicit_stop_reason: repair_plan_admission_rejected

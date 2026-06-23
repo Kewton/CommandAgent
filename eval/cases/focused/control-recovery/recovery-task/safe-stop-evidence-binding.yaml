@@ -1,0 +1,43 @@
+id: focused-phase26-safe-stop-evidence-binding
+title: Phase26 safe-stop payload for evidence binding failure
+profile: docs
+style: default
+mode: plan-run
+intent: docs
+prompt: "Record an evidence binding failure with a structured safe-stop payload."
+matrix_row: phase26-c13-safe-stop-evidence-binding
+proof_mode: deterministic_fixture
+fixture_reason: explicit_stop
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: evidence_binding_repair
+  active_job_lifecycle: explicit_stop
+  recovery_owner: evidence_binding
+  loop_control_action: render_explicit_stop
+  dispatch_status: explicit_stop
+  dispatch_reason: evidence_binding_failure
+  repair_action: repair_evidence_binding
+  tool_policy: explicit_stop
+  repair_brief_status: explicit_stop
+  action_envelope_status: explicit_stop
+  selected_failure_cluster: evidence_binding_missing:README.md
+  target_path: README.md
+  target_role: docs
+  attempt_outcome: explicit_stop
+  explicit_stop_reason: evidence_binding_missing
+  safe_stop_payload: owner=evidence_binding|job=evidence_binding_repair|action=repair_evidence_binding|target=README.md|cluster=evidence_binding_missing|attempt=explicit_stop
+expected_active_job: evidence_binding_repair
+expected_active_job_lifecycle: explicit_stop
+expected_recovery_owner: evidence_binding
+expected_loop_control_action: render_explicit_stop
+expected_dispatch_status: explicit_stop
+expected_repair_action: repair_evidence_binding
+expected_repair_brief_status: explicit_stop
+expected_action_envelope_status: explicit_stop
+expected_selected_failure_cluster: evidence_binding_missing:README.md
+expected_target_path: README.md
+expected_target_role: docs
+expected_attempt_outcome: explicit_stop
+expected_explicit_stop_reason: evidence_binding_missing
+expected_safe_stop_payload: owner=evidence_binding|job=evidence_binding_repair|action=repair_evidence_binding|target=README.md|cluster=evidence_binding_missing|attempt=explicit_stop

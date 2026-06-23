@@ -1,0 +1,35 @@
+id: focused-phase26-profile-failure-mapping
+title: Phase26 profile failures map to typed recovery jobs
+profile: nextjs
+style: default
+mode: ultra-plan-run
+intent: new
+prompt: "Classify profile verification failure into a typed recovery job."
+matrix_row: phase26-c16-profile-failure-mapping
+proof_mode: deterministic_fixture
+fixture_reason: profile_verification:nextjs_route_not_integrated
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: route_integration_repair
+  active_job_lifecycle: selected
+  recovery_owner: route_integration
+  loop_control_action: run_bounded_repair_task
+  dispatch_status: selected
+  dispatch_reason: profile_route_integration_failure
+  candidate_jobs: route_integration_repair|manifest_repair|source_implementation_repair|scaffold_materialization
+  target_path: app/page.tsx
+  target_role: entrypoint
+  repair_action: connect_existing_artifact_to_entrypoint
+  tool_policy: file_mutation_repair
+  profile_failure_mapping: route|manifest|setup|source|scaffold|explicit_stop
+expected_active_job: route_integration_repair
+expected_recovery_owner: route_integration
+expected_loop_control_action: run_bounded_repair_task
+expected_dispatch_status: selected
+expected_repair_action: connect_existing_artifact_to_entrypoint
+expected_tool_policy: file_mutation_repair
+expected_target_path: app/page.tsx
+expected_target_role: entrypoint
+expected_candidate_jobs: route_integration_repair|manifest_repair|source_implementation_repair|scaffold_materialization
+expected_profile_failure_mapping: route|manifest|setup|source|scaffold|explicit_stop

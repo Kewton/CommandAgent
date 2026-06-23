@@ -83,14 +83,14 @@ workspace/mvp/logic/anvil/loadmap2/anvil_source_baseline.md
 | C10 | Deliverable obligation audit | `deliverable_obligation_audit.rs`, `task_contract_deliverable_projection.rs`, `task_contract_deliverable_lifecycle.rs`, `deliverable_freshness.rs` | Audits required deliverables, freshness, and non-coding artifact obligations. | Plan lint / eval / profile | Implemented | Adopt | `DeliverableObligation` now projects eval-visible kind/path/obligation fields and freshness decisions. Completion authority converts stale, missing, or read-only current-plan observations into distinct completion evidence so old observations cannot satisfy fresh deliverable obligations. | Closed by Phase24 proof: deliverable-obligation/task-contract/plan-lint/evidence-authority tests, focused `focused-deliverable-obligation-freshness`, and broad sign-off regression. |
 | C11 | Active job arbiter | `active_job_arbiter.rs`, `active_job_emit.rs`, `actor_loop_phase_decision.rs`, `loop_phase.rs`, `model_request_phase.rs` | Selects the current recovery owner/job and loop control action before model action. | Recovery orchestration | Implemented | Adopt | Active-job candidates carry owner, job, action, source layer, source of truth, target hint, artifact role, rerun authority, tool policy, loop control action, lifecycle, and deterministic reason. Dispatch selects one owner/action or explicit no-owner, ambiguous-tie, explicit-stop, or conflict-stop state before repair prompt rendering. | Phase25 proof: active-job/recovery-orchestration/recovery-task tests plus focused dispatch root `eval/runs/loadmap2-phase25-focused-fixtures/20260623T132110`. |
 | C12 | Recovery owner / dispatch gate | `active_job_arbiter.rs`, `repair_job_dispatch.rs`, `artifact_recovery_flow.rs` | Prevents multiple recovery systems from acting at once. | Recovery orchestration | Implemented | Adopt | `active_job_lifecycle`, `recovery_owner`, `loop_control_action`, `dispatch_status`, `dispatch_reason`, `candidate_jobs`, and `tie_break_reason` are projected from a single dispatch gate into evidence, eval reports, and Recovery Task Contract rendering. Compatible same-owner candidates can merge deterministic metadata; competing owners stop with structured evidence. | Phase25 proof covers setup, manifest, route, source, docs, evidence-binding, verifier-contract, tool-protocol, no-owner, and ambiguous-tie dispatch fixtures. |
-| C13 | Recovery messages and packets | `recovery_messages.rs`, `repair_packet.rs`, `failure_packet.rs`, `safe_stop_payload.rs`, `safe_stop_emit.rs` | Renders structured failure/repair/safe-stop information. | Recovery task / repair packet / final error | Partial | Partial | Recovery task renders structured contract fields, bounded repair packets, and `safe_stop_payload` with owner/job/action/target/cluster/attempt outcome context. | Broaden safe-stop payload coverage for evidence binding and completion-authority failure classes. |
-| C14 | Setup bootstrap | `node_runner_manifest.rs`, `package_manifest_summary.rs`, `cargo_manifest_summary.rs`, `setup_artifact_validation.rs`, `node_request_helpers.rs`, `python_request_helpers.rs` | Treats dependency/toolchain setup and setup manifests as separate active jobs. | Setup runtime / setup lifecycle / recovery orchestration | Partial | Partial | Dependency-missing evidence maps to `setup_bootstrap`; setup lifecycle now records setup job kind, target, manifest kind/path, validation status, readiness, command authority, attempt keys, fingerprint, stale reason, setup result, failure signature, and verifier rerun result. NPM validation remains the setup-execution path, and Rust/Python verifier commands can surface manifest validation blockers. | Candidate-content validation, broader setup result ledger coverage, and non-Node setup policies remain partial. |
-| C15 | Project probe/profile/scaffold profile | `project_probe.rs`, `project_profile.rs`, `project_profile_projection.rs`, `scaffold_profile.rs`, `scaffold_pipeline.rs` | Detects project shape and scaffold expectations before repair. | Profiles / artifact graph | Partial | Partial | Profiles now render a common profile output schema for root hints, classified artifacts, setup/scaffold/integration artifacts, verifier commands, protected paths, behavior obligations, verification failures, and recovery candidate hints. | Scaffold ownership is represented as profile facts, but bounded scaffold materialization and completion evidence remain partial. |
-| C16 | Profile failure to recovery job | `project_profile_projection.rs`, `scaffold_profile.rs`, profile modules | Routes profile verification failure to a recovery job/action/target. | Recovery orchestration | Partial | Partial | Profile evidence can become job/action/target fields, and common profile output now exposes candidate hints consistently across Next.js, Rust, Python, docs, and data profiles. | Add fuller typed failure-specific mapping across profiles: route vs manifest vs source vs setup vs scaffold. |
-| C17 | Semantic failure report | `semantic_failure.rs`, `semantic_repair_planning.rs`, `verifier_diagnostic_payload.rs`, `verifier_assessment_parser.rs` | Structures verifier failure into kind, clusters, observed/expected, affected cases, conflicts, and target candidates. | Evidence / recovery contract | Partial | Adopt | Phase 8 carries diagnostic code, diagnostic failure kind, source of truth, observed/expected pairs, affected cases, candidate artifacts, preferred repair role, weak verifier reason, deterministic cluster id, admitted cluster targets, and unknown diagnostic counts through repair/eval evidence. Preferred repair role now influences active-job selection before generic string heuristics. | Complete conflict objects, richer proposed/admitted cluster target ranking, and broader live eval evidence before marking fully implemented. |
-| C18 | Semantic repair plan | `repair_job.rs`, `semantic_repair_planning.rs`, `task_contract_recovery_planning.rs` | Chooses one cluster, authority, repair role, hypothesis, and expected improvement. | Recovery task contract | Partial | Adopt | Phase 9 renders selected cluster, root cause, repair hypothesis, expected improvement, success check, and expected evidence delta into repair brief/eval fields. | Add deeper cluster exhaustion and role-strategy transitions from live repair outcomes. |
-| C19 | Repair brief | `repair_brief.rs`, `repair_framework_findings.rs` | Gives repair task root cause, target, allowed change kind, preservation constraints, and confidence. | Recovery task contract | Partial | Adopt | Phase 9 renders root cause, concrete fix hypothesis, expected improvement, `must_preserve`, disallowed actions, target confidence, success check, and rejection reason. | Broader E2E evidence is still needed before marking this fully implemented. |
-| C20 | Repair action space | `repair_action.rs`, `repair_action_space.rs`, `repair_authority.rs`, `repair_plan.rs`, `repair_plan_admission.rs` | Validates whether a selected action is admissible for selected target/authority. | Recovery orchestration | Partial | Adopt | Phase 9 validates job/action compatibility, projected tool category, source-of-truth authority, target role, and no-change contracts before repair prompt rendering. Rejected envelopes stop with structured evidence. | Add lifecycle transitions and broader live eval evidence for all action families. |
+| C13 | Recovery messages and packets | `recovery_messages.rs`, `repair_packet.rs`, `failure_packet.rs`, `safe_stop_payload.rs`, `safe_stop_emit.rs` | Renders structured failure/repair/safe-stop information. | Recovery task / repair packet / final error | Implemented | Partial | Recovery task now renders owner, job, action, target, cluster, attempt outcome, required action, disallowed actions, rerun authority, repair brief status, action envelope status, and safe-stop payload fields for evidence binding, completion, setup, profile, semantic, and envelope failures. | Closed by Phase26 proof: recovery-task tests plus focused `recovery-task` fixture assertions and broad sign-off. |
+| C14 | Setup bootstrap | `node_runner_manifest.rs`, `package_manifest_summary.rs`, `cargo_manifest_summary.rs`, `setup_artifact_validation.rs`, `node_request_helpers.rs`, `python_request_helpers.rs` | Treats dependency/toolchain setup and setup manifests as separate active jobs. | Setup runtime / setup lifecycle / recovery orchestration | Implemented | Partial | Setup is represented as a typed, verifier-owned active job with manifest identity, validation status, readiness, command authority, attempt key, fingerprint, stale reason, result, failure signature, and rerun result. Node, Rust, and Python setup blockers are visible without implicit dependency installation. | Closed by Phase26 proof: setup lifecycle/setup validation tests plus Node/Rust/Python focused fixtures. |
+| C15 | Project probe/profile/scaffold profile | `project_probe.rs`, `project_profile.rs`, `project_profile_projection.rs`, `scaffold_profile.rs`, `scaffold_pipeline.rs` | Detects project shape and scaffold expectations before repair. | Profiles / artifact graph | Implemented | Partial | Profiles render a common output schema for project kind, root hints, manifests, entrypoints, integration artifacts, setup/scaffold artifacts, verifier commands, protected paths, behavior obligations, completion evidence, failure mappings, adapter families, capabilities, and recovery candidate hints. Scaffold facts remain artifact-contract evidence, not a hidden scaffold workflow. | Closed by Phase26 proof: profile output tests plus scaffold/profile focused fixture. |
+| C16 | Profile failure to recovery job | `project_profile_projection.rs`, `scaffold_profile.rs`, profile modules | Routes profile verification failure to a recovery job/action/target. | Recovery orchestration | Implemented | Partial | Profile failures now map to typed recovery facts for route integration, manifest/config conflict, setup/dependency, source implementation, scaffold/materialization, and explicit stop. Profiles emit candidate facts only; the common dispatch gate still selects the final job/action. | Closed by Phase26 proof: recovery-orchestration profile mapping tests plus focused profile-failure fixture. |
+| C17 | Semantic failure report | `semantic_failure.rs`, `semantic_repair_planning.rs`, `verifier_diagnostic_payload.rs`, `verifier_assessment_parser.rs` | Structures verifier failure into kind, clusters, observed/expected, affected cases, conflicts, and target candidates. | Evidence / recovery contract | Implemented | Adopt | Semantic failure reports preserve diagnostic code, kind, source of truth, conflict object inputs, observed/expected pairs, affected cases, candidate artifacts, preferred repair role, weak verifier reason, selected cluster, admitted cluster targets, and unknown-diagnostic count as data-only evidence. | Closed by Phase26 proof: semantic-failure tests plus semantic conflict focused fixture. Conflict resolution itself remains owned by C33/Phase28. |
+| C18 | Semantic repair plan | `repair_job.rs`, `semantic_repair_planning.rs`, `task_contract_recovery_planning.rs` | Chooses one cluster, authority, repair role, hypothesis, and expected improvement. | Recovery task contract | Implemented | Adopt | Semantic repair context now renders selected cluster, repair role, hypothesis, expected improvement, expected evidence delta, success check, exhausted target/role/cluster facts, no-progress handoff, and repair state status into repair task/brief/eval fields without expanding retry budgets. | Closed by Phase26 proof: recovery-task/repair-state tests plus semantic repair focused fixture. |
+| C19 | Repair brief | `repair_brief.rs`, `repair_framework_findings.rs` | Gives repair task root cause, target, allowed change kind, preservation constraints, and confidence. | Recovery task contract | Implemented | Adopt | Repair brief rendering consumes selected dispatch/action facts and exposes root cause, target, allowed change kind, allowed tool category, disallowed actions, preservation constraints, target confidence, success check, rejection reason, and expected improvement before bounded repair prompt rendering. | Closed by Phase26 proof: repair-brief/recovery-task tests plus repair brief focused fixture. |
+| C20 | Repair action space | `repair_action.rs`, `repair_action_space.rs`, `repair_authority.rs`, `repair_plan.rs`, `repair_plan_admission.rs` | Validates whether a selected action is admissible for selected target/authority. | Recovery orchestration | Implemented | Adopt | Action envelopes now admit or reject selected setup, manifest, route, source, docs, evidence-binding, verifier-contract, tool-protocol, scaffold, and safe-stop action families before prompt rendering, including projected tool category, source-of-truth authority, target role, no-change contracts, and rejection evidence. | Closed by Phase26 proof: repair-action/action-envelope tests plus action-envelope focused matrix. |
 | C21 | Repair target decision/admission | `repair_target_decision.rs`, `repair_target_admission.rs`, `recovery_targets.rs`, `set_artifact_recovery_target.rs`, `verifier_repair_targeting.rs` | Chooses and admits targets for the active failure. | Recovery orchestration / ArtifactGraph / ArtifactLedger / TargetAdmission | Partial | Adopt | Phase 7 admits/rejects targets after active-job dispatch using role, ownership, workspace scope, source of truth, freshness, current excerpt status, exhausted target/role/cluster state, and deterministic source priority. Generated/cache, out-of-scope, stale, missing-excerpt, role-mismatch, and disallowed file targets are rejected with structured evidence. | Still needs broader live eval evidence across route/source/test/docs/setup/evidence-binding cases before marking implemented. |
 | C22 | Repair target prioritization | `semantic_repair_planning.rs`, `repair_job.rs`, `verifier_failure_artifacts.rs` | Orders targets by failure kind, authority, role, and progress history. | Recovery orchestration / TargetAdmission | Partial | Adopt | Phase 7 records priority components and stops on ambiguous same-priority admitted targets instead of silently picking by path. Source-of-truth and focused-edit signals feed deterministic priority. | Add more failure-kind-specific ranking and authority-based implementation-vs-test decisions from live failures. |
 | C23 | Repair job state machine | `repair_job.rs`, `repair_job_dispatch.rs`, `repair_lifecycle.rs`, `repair_progress.rs`, `verifier_repair_pass_flow.rs` | Tracks verifier repair attempts, rerun outcome, repeated signatures, target exhaustion, and safe stop. | Repair loop / recovery task | Partial | Adopt | `RepairJobState` now records attempt ledgers, before/after signatures, verifier outcome, exhausted target/role/cluster facts, no-progress strategy, and structured safe-stop payloads. | Broader live eval evidence and deeper job lifecycle transition reporting remain before marking fully implemented. |
@@ -136,8 +136,8 @@ Current implementation status:
 
 | Current status | Count |
 | --- | ---: |
-| Implemented | 13 |
-| Partial | 32 |
+| Implemented | 21 |
+| Partial | 24 |
 | Missing | 2 |
 | Excluded | 7 |
 
@@ -155,9 +155,10 @@ Interpretation:
 - `Adopt` + `Partial` is the accepted migration surface. There are 45 rows
   where CommandAgent should own the responsibility, either as a new mechanism
   or by completing an existing projection.
-- Of those 45 accepted rows, 32 still require row-level implementation proof.
+- Of those 45 accepted rows, 24 still require row-level implementation proof.
   Provider transport parsing plus Phase22 C01-C03, Phase23 C04-C06, and
-  Phase24 C07-C10, and Phase25 C11-C12 are currently marked `Implemented`.
+  Phase24 C07-C10, Phase25 C11-C12, and Phase26 C13-C20 are currently marked
+  `Implemented`.
 - `Missing` adoption rows are not accepted migration work yet. They form the
   unresolved priority-decision surface and must become `Adopt`, scoped
   `Partial`, or `Excluded` before final closure.
@@ -503,4 +504,61 @@ migration_not_complete
 ```
 
 Reason: Phase25 closes C11-C12, but later accepted rows C13 onward still need
+row-level proof before final migration completion can be declared.
+
+## Phase26 Recovery Task And Action Envelope Appendix - 2026-06-23
+
+Phase26 closed C13 through C20 with row-level proof for recovery task packets,
+setup lifecycle evidence, common profile/scaffold facts, typed profile failure
+mapping, semantic failure/repair context, repair brief rendering, and repair
+action envelope admission/rejection.
+
+Status changes:
+
+| row | previous | current | proof |
+| --- | --- | --- | --- |
+| C13 | Partial | Implemented | Recovery Task Contract renders safe-stop payload, owner/job/action/target/cluster/attempt context, required/disallowed actions, and rerun authority for evidence/completion/setup/profile/semantic/envelope failures. |
+| C14 | Partial | Implemented | Setup lifecycle records manifest identity, readiness, command authority, attempt key/fingerprint, stale reason, result, failure signature, and non-Node setup blockers without implicit setup execution. |
+| C15 | Partial | Implemented | Profiles render common project/profile/scaffold facts, capability status, completion evidence, failure mappings, and adapter families. |
+| C16 | Partial | Implemented | Profile failures project typed route, manifest, setup, source, scaffold, and explicit-stop recovery facts consumed by common dispatch. |
+| C17 | Partial | Implemented | Semantic reports preserve conflict inputs, observed/expected pairs, affected cases, candidate artifacts, preferred role, cluster, and unknown diagnostic visibility. |
+| C18 | Partial | Implemented | Semantic repair plan fields include selected cluster, hypothesis, expected improvement, exhausted target/role/cluster, no-progress handoff, and repair-state status. |
+| C19 | Partial | Implemented | Repair briefs expose root cause, target, constraints, allowed/disallowed actions, confidence, preservation, and success check from selected dispatch/action facts. |
+| C20 | Partial | Implemented | Action envelopes admit or reject action families before prompt rendering and report lifecycle/status evidence. |
+
+Proof commands:
+
+```bash
+cargo test recovery_task
+cargo test recovery_orchestration
+cargo test setup_lifecycle
+cargo test setup_artifact_validation
+cargo test semantic_failure
+cargo test repair_brief
+cargo test repair_action_plan
+cargo test profiles
+cargo test profile_artifact
+cargo test repair_job
+cargo test recovery_policy
+python3 tests/test_eval_report.py
+scripts/eval_agent_slice.sh --cases-dir eval/cases/focused/control-recovery/recovery-task --out eval/runs/loadmap2-phase26-focused-fixtures --runs 1 --proof-mode deterministic_fixture
+python3 scripts/eval_report.py eval/runs/loadmap2-phase26-focused-fixtures/20260623T140340 --cases-dir eval/cases/focused/control-recovery/recovery-task --recheck
+python3 scripts/eval_signoff.py --require-recheck --root smoke=eval/runs/loadmap2-phase16-smoke-local-llm/20260622T173759 --root focused=eval/runs/loadmap2-phase18-focused-local-llm/20260623T000638 --root focused-fixture=eval/runs/loadmap2-phase26-focused-fixtures/20260623T140340 --root large=eval/runs/loadmap2-phase16-large-local-llm-timebox/20260622T182149
+```
+
+Result:
+
+```text
+focused fixture root: eval/runs/loadmap2-phase26-focused-fixtures/20260623T140340
+focused assertions: passed_recheck: 11
+broad sign-off: pass
+```
+
+The migration decision remains:
+
+```text
+migration_not_complete
+```
+
+Reason: Phase26 closes C13-C20, but later accepted rows C21 onward still need
 row-level proof before final migration completion can be declared.

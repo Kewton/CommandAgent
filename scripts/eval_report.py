@@ -560,6 +560,8 @@ def derive_repair_action(reason):
     if job == "dev_server_smoke":
         return "run_dev_server_smoke"
     if job == "manifest_repair":
+        if "conflict" in reason:
+            return "resolve_manifest_conflict"
         return "add_missing_manifest_dependency"
     if job in {"scaffold_materialization", "test_artifact_completion"}:
         return "create_required_artifact"

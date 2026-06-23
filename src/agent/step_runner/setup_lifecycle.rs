@@ -292,4 +292,43 @@ mod tests {
         );
         assert!(lines.contains(&"verifier_rerun_result=not_run".to_string()));
     }
+
+    #[test]
+    fn renders_phase26_setup_result_and_stale_failure_ledger() {
+        let lines = SetupJobLifecycle::new("setup_bootstrap", "failed")
+            .with_setup_target("Cargo.toml")
+            .with_manifest("rust_cargo", "Cargo.toml")
+            .with_artifact_validation_status("failed")
+            .with_readiness("toolchain_or_manifest_blocked")
+            .with_command_authority("verifier_owned_setup_only")
+            .with_attempt_key("profile=rust;command=cargo test;manifest=old")
+            .with_attempt_key_after("profile=rust;command=cargo test;manifest=new")
+            .with_manifest_fingerprint("cargo_toml=2:def")
+            .with_stale_reason("manifest fingerprint changed after setup evidence")
+            .with_setup_result("failed")
+            .with_failure_signature("setup|rust|cargo test|setup_manifest_invalid_cargo_toml")
+            .with_verifier_command("cargo test")
+            .with_verifier_rerun_result("not_run")
+            .with_rerun_authority(["cargo test"])
+            .with_runtime_job_outcome("failed")
+            .render_lines();
+
+        assert!(lines.contains(&"setup_target=Cargo.toml".to_string()));
+        assert!(lines.contains(&"setup_manifest_kind=rust_cargo".to_string()));
+        assert!(lines.contains(&"setup_readiness=toolchain_or_manifest_blocked".to_string()));
+        assert!(lines.contains(&"setup_command_authority=verifier_owned_setup_only".to_string()));
+        assert!(lines.contains(&"setup_result=failed".to_string()));
+        assert!(lines.iter().any(|line| line
+            == "setup_failure_signature=setup|rust|cargo test|setup_manifest_invalid_cargo_toml"));
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with("setup_attempt_key_after="))
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with("setup_stale_reason=manifest fingerprint changed"))
+        );
+    }
 }

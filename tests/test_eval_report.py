@@ -179,8 +179,43 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertEqual(eval_report.derive_recovery_owner(reason), "manifest")
         self.assertEqual(
             eval_report.derive_repair_action(reason),
-            "add_missing_manifest_dependency",
+            "resolve_manifest_conflict",
         )
+
+    def test_phase26_expected_fields_are_parsed_for_focused_cases(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            case_path = pathlib.Path(tmp) / "case.yaml"
+            case_path.write_text(
+                "\n".join(
+                    [
+                        "id: phase26-field-parse",
+                        "profile: nextjs",
+                        "style: default",
+                        "prompt: test",
+                        "expected_loop_control_action: run_bounded_repair_task",
+                        "expected_setup_readiness: dependency_missing",
+                        "expected_setup_command_authority: verifier_owned_setup_only",
+                        "expected_profile_project_kind: nextjs",
+                        "expected_profile_failure_mapping: route|manifest",
+                        "expected_selected_failure_cluster: route:profile_contract",
+                        "expected_repair_root_cause: route not integrated",
+                        "expected_repair_hypothesis: connect route",
+                        "expected_expected_improvement: profile verification passes",
+                        "expected_success_check: npm run build",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            parsed = eval_case_schema.read_eval_case(case_path)
+
+        expected = parsed["expected_fields"]
+        self.assertEqual(expected["loop_control_action"], "run_bounded_repair_task")
+        self.assertEqual(expected["setup_readiness"], "dependency_missing")
+        self.assertEqual(expected["profile_project_kind"], "nextjs")
+        self.assertEqual(expected["selected_failure_cluster"], "route:profile_contract")
+        self.assertEqual(expected["expected_improvement"], "profile verification passes")
 
     def test_completion_authority_fields_classify_missing_evidence(self):
         observation = eval_failure_observation.normalize_observation(
@@ -480,8 +515,8 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertEqual(report["active_job"], "manifest_repair")
         self.assertEqual(report["active_owner"], "manifest")
         self.assertEqual(report["recovery_owner"], "manifest")
-        self.assertEqual(report["selected_action"], "add_missing_manifest_dependency")
-        self.assertEqual(report["repair_action"], "add_missing_manifest_dependency")
+        self.assertEqual(report["selected_action"], "resolve_manifest_conflict")
+        self.assertEqual(report["repair_action"], "resolve_manifest_conflict")
         self.assertEqual(report["target_path"], "package.json")
         self.assertEqual(report["target_role"], "setup_manifest")
         self.assertEqual(report["target_admission_status"], "admitted")

@@ -64,6 +64,9 @@ pub(crate) fn source_of_truth(evidence: &ContractEvidence, job: &str) -> &'stati
         "setup_bootstrap" | "manifest_repair" => "setup_manifest_and_dependency_diagnostic",
         "dev_server_smoke" => "dev_server_contract",
         "scaffold_materialization" | "route_integration_repair" => "profile_contract",
+        "source_implementation_repair" if evidence.guard == "profile_verification" => {
+            "profile_contract"
+        }
         "source_implementation_repair" => "original_verifier_diagnostic",
         "test_artifact_completion" | "test_alignment_repair" => {
             "test_contract_and_original_verifier"

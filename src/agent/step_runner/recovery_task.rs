@@ -1821,6 +1821,46 @@ mod tests {
     }
 
     #[test]
+    fn phase26_recovery_task_renders_safe_stop_and_repair_brief_context() {
+        let evidence = ContractEvidence::new("evidence_binding")
+            .with_failed_step("verify-docs")
+            .with_violated_contract("evidence_binding_missing")
+            .with_reason_code("evidence_binding_missing")
+            .with_active_job("evidence_binding_repair")
+            .with_repair_action("repair_evidence_binding")
+            .with_repair_target("README.md")
+            .with_artifact_role("docs")
+            .with_source_of_truth("deterministic_evidence_binding_contract")
+            .with_required_action("bind missing evidence before claiming completion")
+            .with_disallowed_actions(["Do not create unrelated feature files."])
+            .with_rerun_authority(["documentation evidence check"])
+            .with_repair_brief([
+                "status=explicit_stop active_job=evidence_binding_repair owner=evidence_binding action=repair_evidence_binding cluster=evidence_binding_missing selected_target=README.md target_confidence=explicit_stop allowed_change=evidence_binding_only tool_category=no_mutation success_check=documentation evidence check action_envelope_status=explicit_stop explicit_stop_reason=evidence_binding_missing",
+                "root_cause=evidence binding missing hypothesis=restore evidence binding expected_improvement=completion authority can recheck",
+            ])
+            .with_repair_brief_status("explicit_stop")
+            .with_action_envelope_status("explicit_stop")
+            .with_selected_failure_cluster("evidence_binding_missing:README.md")
+            .with_safe_stop_payload([
+                "owner=evidence_binding job=evidence_binding_repair action=repair_evidence_binding target=README.md cluster=evidence_binding_missing attempt_outcome=explicit_stop required_action=bind_evidence rerun_authority=documentation_evidence_check",
+            ]);
+
+        let rendered = RecoveryTaskContract::from_contract_evidence(&evidence)
+            .unwrap()
+            .render()
+            .unwrap();
+
+        assert!(rendered.contains("active_job: evidence_binding_repair"));
+        assert!(rendered.contains("repair_action: repair_evidence_binding"));
+        assert!(rendered.contains("repair_target: README.md"));
+        assert!(rendered.contains("selected_failure_cluster: evidence_binding_missing:README.md"));
+        assert!(rendered.contains("repair_brief_status: explicit_stop"));
+        assert!(rendered.contains("action_envelope_status: explicit_stop"));
+        assert!(rendered.contains("safe_stop_payload: owner=evidence_binding"));
+        assert!(rendered.contains("rerun_authority: documentation evidence check"));
+    }
+
+    #[test]
     fn missing_test_artifact_task_uses_artifact_completion_contract() {
         let evidence = ContractEvidence::new("profile_verification")
             .with_failed_step("verify-api")

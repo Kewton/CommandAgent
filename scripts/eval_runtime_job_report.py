@@ -161,7 +161,7 @@ def large_failure_projection(
         return {
             "active_job": "manifest_repair",
             "recovery_owner": "manifest",
-            "repair_action": "add_missing_manifest_dependency",
+            "repair_action": "resolve_manifest_conflict",
             "target_path": "package.json",
             "target_role": "setup_manifest",
             "selected_target": "package.json",
