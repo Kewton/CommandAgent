@@ -99,6 +99,14 @@ impl EvidenceBindingPlan {
         )
     }
 
+    pub(crate) fn eval_report_fields(&self) -> Vec<String> {
+        vec![
+            format!("evidence_binding_kind={}", self.kind.as_str()),
+            format!("evidence_binding_status={}", self.status.as_str()),
+            format!("failed_bindings={}", self.render_line()),
+        ]
+    }
+
     pub(crate) fn to_contract_evidence(
         &self,
         failed_step: Option<&str>,
@@ -123,6 +131,19 @@ impl EvidenceBindingPlan {
         }
         Some(evidence)
     }
+}
+
+pub(crate) fn import_symbol_binding(
+    target: &str,
+    import_symbol: &str,
+    status: EvidenceBindingStatus,
+) -> EvidenceBindingPlan {
+    EvidenceBindingPlan::new(
+        EvidenceBindingKind::ImportSymbol,
+        target,
+        import_symbol,
+        status,
+    )
 }
 
 pub(crate) fn manifest_identity_binding(
@@ -289,5 +310,21 @@ mod tests {
 
         assert!(manifest.render_line().contains("kind=manifest_identity"));
         assert!(citation.render_line().contains("kind=citation"));
+    }
+
+    #[test]
+    fn binding_eval_fields_expose_kind_and_status() {
+        let binding = import_symbol_binding(
+            "app/page.tsx",
+            "components/Game",
+            EvidenceBindingStatus::Unbound,
+        )
+        .with_reason("route does not import component");
+
+        let fields = binding.eval_report_fields().join("\n");
+
+        assert!(fields.contains("evidence_binding_kind=import_symbol"));
+        assert!(fields.contains("evidence_binding_status=unbound"));
+        assert!(fields.contains("failed_bindings=kind=import_symbol"));
     }
 }

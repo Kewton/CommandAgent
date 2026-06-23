@@ -11,6 +11,8 @@ pub(crate) enum CompletionEvidenceKind {
     DocsSectionPass,
     StructuredDataPass,
     ReportCompletenessPass,
+    ProfileCompletionPass,
+    FileLayoutPass,
     CommandObservation,
 }
 
@@ -22,6 +24,8 @@ impl CompletionEvidenceKind {
             Self::DocsSectionPass => "docs_section_pass",
             Self::StructuredDataPass => "structured_data_pass",
             Self::ReportCompletenessPass => "report_completeness_pass",
+            Self::ProfileCompletionPass => "profile_completion_pass",
+            Self::FileLayoutPass => "file_layout_pass",
             Self::CommandObservation => "command_observation",
         }
     }
@@ -150,6 +154,40 @@ pub(crate) fn report_completeness_pass(target: &str, passed: bool) -> Completion
     )
 }
 
+pub(crate) fn profile_completion_pass(target: &str, passed: bool) -> CompletionEvidence {
+    pass_fail_evidence(
+        CompletionEvidenceKind::ProfileCompletionPass,
+        target,
+        passed,
+        "profile_completion_fact",
+    )
+}
+
+pub(crate) fn file_layout_pass(target: &str, passed: bool) -> CompletionEvidence {
+    pass_fail_evidence(
+        CompletionEvidenceKind::FileLayoutPass,
+        target,
+        passed,
+        "artifact_ledger_file_layout",
+    )
+}
+
+pub(crate) fn missing_evidence(
+    kind: CompletionEvidenceKind,
+    target: &str,
+    source: &str,
+) -> CompletionEvidence {
+    CompletionEvidence::new(kind, target, CompletionEvidenceStatus::Missing, source)
+}
+
+pub(crate) fn stale_evidence(
+    kind: CompletionEvidenceKind,
+    target: &str,
+    source: &str,
+) -> CompletionEvidence {
+    CompletionEvidence::new(kind, target, CompletionEvidenceStatus::Stale, source)
+}
+
 fn pass_fail_evidence(
     kind: CompletionEvidenceKind,
     target: &str,
@@ -187,6 +225,8 @@ mod tests {
         let docs = docs_section_pass("README.md#usage", true);
         let data = structured_data_pass("report.csv:email", true);
         let report = report_completeness_pass("workspace/mvp/report.md", false);
+        let profile = profile_completion_pass("nextjs:route_binding", true);
+        let layout = file_layout_pass("app/page.tsx", true);
 
         assert!(docs.render_line().contains("kind=docs_section_pass"));
         assert!(data.render_line().contains("kind=structured_data_pass"));
@@ -196,5 +236,28 @@ mod tests {
                 .contains("kind=report_completeness_pass")
         );
         assert!(report.render_line().contains("status=failed"));
+        assert!(
+            profile
+                .render_line()
+                .contains("kind=profile_completion_pass")
+        );
+        assert!(layout.render_line().contains("kind=file_layout_pass"));
+    }
+
+    #[test]
+    fn missing_and_stale_evidence_are_distinct() {
+        let missing = missing_evidence(
+            CompletionEvidenceKind::DocsSectionPass,
+            "README.md#Usage",
+            "docs_section_check",
+        );
+        let stale = stale_evidence(
+            CompletionEvidenceKind::FileLayoutPass,
+            "src/lib.rs",
+            "read_before_latest_edit",
+        );
+
+        assert!(missing.render_line().contains("status=missing"));
+        assert!(stale.render_line().contains("status=stale"));
     }
 }

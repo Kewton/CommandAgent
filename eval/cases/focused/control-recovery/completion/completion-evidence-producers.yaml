@@ -1,0 +1,41 @@
+id: focused-completion-evidence-producers
+title: Completion evidence source and missing failed stale fields
+profile: generic
+style: default
+mode: plan-run
+intent: modify
+prompt: "Expose completion evidence producer kind and source-of-truth lists."
+matrix_row: phase24-c08-completion-evidence-producers
+proof_mode: deterministic_fixture
+fixture_reason: missing_evidence
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: evidence_collection
+  recovery_owner: evidence
+  dispatch_status: explicit_stop
+  repair_action: collect_missing_evidence
+  completion_authority_status: missing_evidence
+  completion_source_of_truth: completion_authority
+  evidence_runner_status: missing
+  evidence_runner_kind: verifier|file_layout_pass
+  completion_evidence_status: missing
+  missing_evidence: verifier:npm run build
+  failed_evidence: none
+  stale_evidence: none
+  artifact_ledger_status: complete
+expected_terminal_state: missing_evidence
+expected_contract_layer: eval_success_contract
+expected_active_job: evidence_collection
+expected_recovery_owner: evidence
+expected_completion_authority_status: missing_evidence
+expected_completion_source_of_truth: completion_authority
+expected_evidence_runner_status: missing
+expected_evidence_runner_kind: verifier|file_layout_pass
+expected_completion_evidence_status: missing
+expected_missing_evidence: verifier:npm run build
+expected_failed_evidence: none
+expected_stale_evidence: none
+expected_artifact_ledger_status: complete
+expected_lifecycle_stage: verifying
+expected_completion_source: none

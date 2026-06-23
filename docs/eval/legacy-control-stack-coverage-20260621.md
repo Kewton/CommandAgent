@@ -77,10 +77,10 @@ workspace/mvp/logic/anvil/loadmap2/anvil_source_baseline.md
 | C04 | Artifact role taxonomy | `task_contract_artifact_contract.rs`, `task_contract_artifact_predicates.rs`, `task_contract_artifact_intent.rs`, `artifact_target_alignment.rs` | Classifies artifacts as setup, implementation, test, docs, data, route/integration targets. | ArtifactGraph / profiles / TaskContract projection | Implemented | Adopt | `ArtifactKind` now projects through a shared `ArtifactRole` boundary consumed by workspace snapshots, target admission, artifact completion, recovery admission, and eval/report fallbacks. The taxonomy distinguishes route/entrypoint, setup manifest/config, implementation, test, docs, raw input, derived output, generated/build output, and dependency cache. | Closed by Phase23 proof: profile-artifact/artifact-graph/target/completion tests, focused `artifact-role-scope-ownership`, and broad sign-off pass. |
 | C05 | Task workspace scope | `task_workspace_scope.rs`, `workspace_access.rs`, `workspace_candidates.rs`, `workspace_walk.rs`, `workspace_paths.rs` | Decides which subtree this task may claim ownership over. | WorkspaceSnapshot / WorkspaceScope / ArtifactOwnership / TargetAdmission | Implemented | Adopt | `WorkspaceSnapshot` performs a bounded path walk, skips dependency/cache/build output paths, records manifests/lockfiles, and combines snapshot paths with `ArtifactGraph` for greenfield/single-project/explicit/ambiguous scope evidence. `WorkspaceScope` exposes roots and excluded paths, and ownership/target consumers reject paths outside that scope. | Closed by Phase23 proof: workspace-scope/snapshot/ownership/target tests, focused `artifact-role-scope-ownership`, and broad sign-off pass. |
 | C06 | Artifact ownership | `artifact_ownership.rs`, `owned_test_projection.rs`, `artifact_state_projection.rs` | Distinguishes owned artifacts from candidate-only or out-of-scope files. | ArtifactOwnership / TargetAdmission / CompletionAuthority / Repair loop evidence | Implemented | Adopt | `ArtifactOwnershipDecision` carries ownership, reason/subreason, source of truth, workspace scope, candidate origin, repair admissibility, and role. Target admission rejects non-owned, stale, exhausted, raw-input, generated/cache, and out-of-scope targets. Completion authority now requires in-scope owned non-generated deliverables instead of accepting candidate-only reads or cache/generated/raw input observations. | Closed by Phase23 proof: ownership/target/completion/evidence-authority tests, focused `artifact-role-scope-ownership`, and broad sign-off pass. |
-| C07 | Artifact ledger | `artifact_ledger.rs`, `artifact_ledger_state.rs`, `repo_edit_observation.rs`, `post_tool_reconciliation.rs` | Records per-turn artifact observations, edits, scaffold deltas, and verifier observations. | Minimal loop result / step runner evidence | Partial | Adopt | `Read`, `Write`, and `Edit` tool records now retain normalized target paths; repair state reconciles tool records, bounded workspace snapshot observations, verifier mentions, scaffold/setup deltas, ownership reasons, and ledger eval fields into `ContractEvidence` / `RecoveryTaskContract`. | Add focused eval cases for all ledger signals and stronger pass-side completion authority in later phases. |
-| C08 | Completion evidence | `completion_evidence.rs`, `success.rs`, `completion_probe_gate.rs`, `objective_evidence.rs`, `evidence_observation.rs` | Converts actual tool/build/doc/data observations into completion authority. | Step verifier, final-answer guard, eval | Partial | Adopt | Typed `completion_evidence` can carry verifier exit, command observation, repo edit, docs/data/report pass/fail records through ContractEvidence, RecoveryTaskContract, EvidenceEnvelope orchestration, runtime completion authority, and eval reports. Verifier failures emit failed verifier completion evidence; pass-side file-layout and verifier producers now feed normal step/final completion checks. | Add richer docs/data/report/profile-wide producers and deeper profile-specific bindings. |
-| C09 | Evidence binding | `evidence_binding.rs`, `evidence_runner.rs`, `evidence_binding` adapters | Checks whether a deliverable can bind to its evidence runner before execution. | Verifier/profile/setup | Partial | Adopt | `EvidenceBindingPlan` can render missing/failed/unbound binding facts, map them to `evidence_binding_repair`, carry them through recovery packets/envelopes, and bind file-layout evidence for required paths in normal step/final completion checks. | Add concrete producers for manifest identity, docs section, schema output, source citation, and route/import binding checks. |
-| C10 | Deliverable obligation audit | `deliverable_obligation_audit.rs`, `task_contract_deliverable_projection.rs`, `task_contract_deliverable_lifecycle.rs`, `deliverable_freshness.rs` | Audits required deliverables, freshness, and non-coding artifact obligations. | Plan lint / eval / profile | Partial | Adopt | `DeliverableObligation` records kind, path, required evidence, and freshness rules for ContractEvidence/RecoveryTaskContract. Completion authority and eval can now report `freshness_status` and `stale_evidence`. | Connect obligation projection to plan/profile/eval producers and add read-only freshness checks. |
+| C07 | Artifact ledger | `artifact_ledger.rs`, `artifact_ledger_state.rs`, `repo_edit_observation.rs`, `post_tool_reconciliation.rs` | Records per-turn artifact observations, edits, scaffold deltas, and verifier observations. | Minimal loop result / step runner evidence | Implemented | Adopt | `ArtifactLedgerSummary` records graph, read/write/edit tool records, verifier mentions, workspace observations, setup/scaffold deltas, and completion-authority inputs with role, lifecycle, ownership, scope, required/read/changed/created/verifier flags, source families, and eval-visible path fields. | Closed by Phase24 proof: artifact-ledger/evidence-authority tests, eval report assertions, focused `focused-artifact-ledger-producers`, and broad sign-off regression. |
+| C08 | Completion evidence | `completion_evidence.rs`, `success.rs`, `completion_probe_gate.rs`, `objective_evidence.rs`, `evidence_observation.rs` | Converts actual tool/build/doc/data observations into completion authority. | Step verifier, final-answer guard, eval | Implemented | Adopt | Typed completion evidence now distinguishes verifier pass/fail, command observation, file layout pass, profile completion pass, missing evidence, failed evidence, and stale evidence. Observed completion facts are producer inputs, and completion authority/reporting expose status, source of truth, missing/failed/stale lists, and runner kind without hidden tool execution. | Closed by Phase24 proof: completion-evidence/evidence-producer/evidence-authority tests, focused `focused-completion-evidence-producers`, and broad sign-off regression. |
+| C09 | Evidence binding | `evidence_binding.rs`, `evidence_runner.rs`, `evidence_binding` adapters | Checks whether a deliverable can bind to its evidence runner before execution. | Verifier/profile/setup | Implemented | Adopt | Evidence binding producers expose manifest/file-layout/docs/schema/source-citation/import/test/executable binding status and kind. Observed binding facts feed completion authority and eval fields, and failed bindings remain structured contract evidence rather than hidden repair dispatch. | Closed by Phase24 proof: evidence-binding/evidence-producer/evidence-authority tests, focused `focused-evidence-binding-producers`, and broad sign-off regression. |
+| C10 | Deliverable obligation audit | `deliverable_obligation_audit.rs`, `task_contract_deliverable_projection.rs`, `task_contract_deliverable_lifecycle.rs`, `deliverable_freshness.rs` | Audits required deliverables, freshness, and non-coding artifact obligations. | Plan lint / eval / profile | Implemented | Adopt | `DeliverableObligation` now projects eval-visible kind/path/obligation fields and freshness decisions. Completion authority converts stale, missing, or read-only current-plan observations into distinct completion evidence so old observations cannot satisfy fresh deliverable obligations. | Closed by Phase24 proof: deliverable-obligation/task-contract/plan-lint/evidence-authority tests, focused `focused-deliverable-obligation-freshness`, and broad sign-off regression. |
 | C11 | Active job arbiter | `active_job_arbiter.rs`, `active_job_emit.rs`, `actor_loop_phase_decision.rs`, `loop_phase.rs`, `model_request_phase.rs` | Selects the current recovery owner/job and loop control action before model action. | Recovery orchestration | Partial | Adopt | Active-job candidates now carry owner, job, action, source layer, source of truth, target hint, artifact role, rerun authority, tool policy, loop control action, and deterministic reason. Dispatch selects one owner/action or explicit stop before repair prompt rendering. | Add lifecycle state and deeper attempt-progress transitions in later phases. |
 | C12 | Recovery owner / dispatch gate | `active_job_arbiter.rs`, `repair_job_dispatch.rs`, `artifact_recovery_flow.rs` | Prevents multiple recovery systems from acting at once. | Recovery orchestration | Partial | Adopt | `recovery_owner`, `loop_control_action`, `dispatch_status`, `dispatch_reason`, `candidate_jobs`, and `tie_break_reason` are projected from a single dispatch gate. Compatible same-owner candidates can merge deterministic metadata; competing owners stop with `contract_conflict`. | Add broader focused E2E proof and any remaining profile-specific candidate producers in later phases. |
 | C13 | Recovery messages and packets | `recovery_messages.rs`, `repair_packet.rs`, `failure_packet.rs`, `safe_stop_payload.rs`, `safe_stop_emit.rs` | Renders structured failure/repair/safe-stop information. | Recovery task / repair packet / final error | Partial | Partial | Recovery task renders structured contract fields, bounded repair packets, and `safe_stop_payload` with owner/job/action/target/cluster/attempt outcome context. | Broaden safe-stop payload coverage for evidence binding and completion-authority failure classes. |
@@ -136,8 +136,8 @@ Current implementation status:
 
 | Current status | Count |
 | --- | ---: |
-| Implemented | 7 |
-| Partial | 38 |
+| Implemented | 11 |
+| Partial | 34 |
 | Missing | 2 |
 | Excluded | 7 |
 
@@ -155,9 +155,9 @@ Interpretation:
 - `Adopt` + `Partial` is the accepted migration surface. There are 45 rows
   where CommandAgent should own the responsibility, either as a new mechanism
   or by completing an existing projection.
-- Of those 45 accepted rows, 38 still require row-level implementation proof.
-  Provider transport parsing plus Phase22 C01-C03 and Phase23 C04-C06 are currently marked
-  `Implemented`.
+- Of those 45 accepted rows, 34 still require row-level implementation proof.
+  Provider transport parsing plus Phase22 C01-C03, Phase23 C04-C06, and
+  Phase24 C07-C10 are currently marked `Implemented`.
 - `Missing` adoption rows are not accepted migration work yet. They form the
   unresolved priority-decision surface and must become `Adopt`, scoped
   `Partial`, or `Excluded` before final closure.
@@ -177,11 +177,13 @@ to resolve the recurring eval failures reliably:
 2. Scope-aware workspace admission is implemented for the C05 boundary.
    Remaining workspace-candidate discovery and broader walk parity belong to
    C38 rather than the C05 ownership gate.
-3. Artifact ownership is implemented for the C06 admission/completion boundary.
-   Remaining scaffold/verifier observation producer breadth belongs to C07,
-   C21, and later repair-lifecycle rows.
-4. Tool records now know exact `Write`/`Edit` paths; verifier observations and
-   post-tool reconciliation are still missing from the artifact ledger.
+3. Artifact ownership is implemented for the C06 admission/completion boundary,
+   and Phase24 closes the C07 producer-visible artifact ledger surface.
+   Remaining target prioritization and repair-lifecycle use of those facts
+   belongs to C21 and later rows.
+4. Tool records, verifier observations, setup/scaffold deltas, and
+   completion-authority inputs are now represented in the artifact ledger.
+   Post-tool recovery actions still belong to the later repair-lifecycle rows.
 5. Semantic failure data now has deterministic diagnostic clusters for verifier
    failures, but conflict handling and cluster-level target ranking are still
    partial.
@@ -408,3 +410,51 @@ migration_not_complete
 
 Reason: C01-C12 are no longer vague continuation work, but they remain
 split-forward blockers until the downstream proof gates pass.
+
+## Phase24 Ledger Evidence Binding Appendix - 2026-06-23
+
+Phase24 closed C07 through C10 with producer-visible, eval-visible proof for
+artifact ledger producers, completion evidence producers, evidence binding
+producers, and deliverable obligation freshness.
+
+Status changes:
+
+| row | previous | current | proof |
+| --- | --- | --- | --- |
+| C07 | Partial | Implemented | Ledger source family fields for graph/tool/verifier/setup/scaffold/workspace/completion-authority inputs plus required/read/changed/created path classes. |
+| C08 | Partial | Implemented | Completion evidence kind/status/source fields for verifier, file layout, missing, failed, and stale evidence without hidden evidence execution. |
+| C09 | Partial | Implemented | Evidence binding kind/status/source fields and failed binding lists projected into completion authority and eval. |
+| C10 | Partial | Implemented | Deliverable obligation kind/path/obligation fields and stale read-only freshness checks. |
+
+Proof commands:
+
+```bash
+cargo test artifact_ledger
+cargo test completion_evidence
+cargo test evidence_producer
+cargo test evidence_authority
+cargo test evidence_binding
+cargo test deliverable_obligation
+python3 tests/test_eval_report.py
+scripts/eval_agent_slice.sh --cases-dir eval/cases/focused/control-recovery/completion --out eval/runs/loadmap2-phase24-focused-fixtures --runs 1 --proof-mode deterministic_fixture
+python3 scripts/eval_report.py eval/runs/loadmap2-phase24-focused-fixtures/20260623T115617 --cases-dir eval/cases/focused/control-recovery/completion --recheck
+python3 scripts/eval_signoff.py --require-recheck --root smoke=eval/runs/loadmap2-phase16-smoke-local-llm/20260622T173759 --root focused=eval/runs/loadmap2-phase18-focused-local-llm/20260623T000638 --root focused-fixture=eval/runs/loadmap2-phase24-focused-fixtures/20260623T115617 --root large=eval/runs/loadmap2-phase16-large-local-llm-timebox/20260622T182149
+```
+
+Result:
+
+```text
+focused fixture root: eval/runs/loadmap2-phase24-focused-fixtures/20260623T115617
+focused assertions: passed: 6
+recheck assertions: passed_recheck: 6
+broad sign-off: pass
+```
+
+The migration decision remains:
+
+```text
+migration_not_complete
+```
+
+Reason: Phase24 closes C07-C10, but later accepted rows C11 onward still need
+row-level proof before final migration completion can be declared.

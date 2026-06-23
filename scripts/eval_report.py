@@ -691,7 +691,10 @@ def render_report(rows):
     evidence_binding_kinds = {}
     freshness_statuses = {}
     artifact_ledger_statuses = {}
+    artifact_ledger_sources = {}
     workspace_scope_kinds = {}
+    deliverable_obligation_kinds = {}
+    deliverable_obligation_paths = {}
     artifact_ownerships = {}
     artifact_source_of_truths = {}
     rejected_target_reasons = {}
@@ -760,8 +763,20 @@ def render_report(rows):
         artifact_ledger_status = (
             row.get("artifact_ledger_status") or observation["artifact_ledger_status"]
         )
+        artifact_ledger_source = (
+            row.get("artifact_ledger_sources")
+            or observation.get("artifact_ledger_sources", "")
+        )
         workspace_scope_kind = (
             row.get("workspace_scope_kind") or observation.get("workspace_scope_kind", "")
+        )
+        deliverable_obligation_kind = (
+            row.get("deliverable_obligation_kind")
+            or observation.get("deliverable_obligation_kind", "")
+        )
+        deliverable_obligation_path = (
+            row.get("deliverable_obligation_path")
+            or observation.get("deliverable_obligation_path", "")
         )
         artifact_ownership = (
             row.get("artifact_ownership") or observation.get("artifact_ownership", "")
@@ -1127,9 +1142,30 @@ def render_report(rows):
             artifact_ledger_statuses[artifact_ledger_status] = (
                 artifact_ledger_statuses.get(artifact_ledger_status, 0) + 1
             )
+        if artifact_ledger_source:
+            for source in artifact_ledger_source.split("|"):
+                source = source.strip()
+                if source:
+                    increment = 1
+                    if ":" in source:
+                        name, maybe_count = source.rsplit(":", 1)
+                        if maybe_count.isdigit():
+                            source = name
+                            increment = int(maybe_count)
+                    artifact_ledger_sources[source] = (
+                        artifact_ledger_sources.get(source, 0) + increment
+                    )
         if workspace_scope_kind:
             workspace_scope_kinds[workspace_scope_kind] = (
                 workspace_scope_kinds.get(workspace_scope_kind, 0) + 1
+            )
+        if deliverable_obligation_kind:
+            deliverable_obligation_kinds[deliverable_obligation_kind] = (
+                deliverable_obligation_kinds.get(deliverable_obligation_kind, 0) + 1
+            )
+        if deliverable_obligation_path:
+            deliverable_obligation_paths[deliverable_obligation_path] = (
+                deliverable_obligation_paths.get(deliverable_obligation_path, 0) + 1
             )
         if artifact_ownership:
             artifact_ownerships[artifact_ownership] = (
@@ -1233,8 +1269,14 @@ def render_report(rows):
         lines.append(f"- freshness_status={name}: {count}")
     for name, count in sorted(artifact_ledger_statuses.items()):
         lines.append(f"- artifact_ledger_status={name}: {count}")
+    for name, count in sorted(artifact_ledger_sources.items()):
+        lines.append(f"- artifact_ledger_source={name}: {count}")
     for name, count in sorted(workspace_scope_kinds.items()):
         lines.append(f"- workspace_scope_kind={name}: {count}")
+    for name, count in sorted(deliverable_obligation_kinds.items()):
+        lines.append(f"- deliverable_obligation_kind={name}: {count}")
+    for name, count in sorted(deliverable_obligation_paths.items()):
+        lines.append(f"- deliverable_obligation_path={name}: {count}")
     lines.extend(["", "## Artifact Ledger Signals"])
     for name, count in sorted(artifact_ledger_signal_counts.items()):
         lines.append(f"- {name}: {count}")

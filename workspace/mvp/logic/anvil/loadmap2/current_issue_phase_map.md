@@ -47,7 +47,7 @@ The source baseline is the coverage-table baseline:
 | --- | --- | --- | --- | --- | --- | --- |
 | KI-001 | closed_proven | P20-COV-001 | C01-C03 | Task contract core, request admission, and behavior obligation projection are implemented by Phase22. | Phase22 | `cargo test task_contract`, `cargo test plan_lint`, focused fixture root `eval/runs/loadmap2-phase22-focused-fixtures/20260623T102658`, broad sign-off |
 | KI-002 | closed_proven | P20-COV-001 | C04-C06 | Artifact role, workspace scope, and ownership are implemented by Phase23. | Phase23 | `cargo test profile_artifact`, `cargo test artifact_graph`, `cargo test workspace_scope`, `cargo test workspace_snapshot`, `cargo test artifact_ownership`, `cargo test target_admission`, `cargo test artifact_completion`, `cargo test evidence_authority`, focused fixture root `eval/runs/loadmap2-phase23-focused-fixtures/20260623T111023`, broad sign-off |
-| KI-003 | split forward | P20-COV-001 | C07-C10 | Ledger, completion evidence, evidence binding, and deliverable audit need full producer/report proof. | Phase24 | producer tests, focused completion/binding proof, broad sign-off |
+| KI-003 | closed_proven | P20-COV-001 | C07-C10 | Ledger, completion evidence, evidence binding, and deliverable audit are implemented by Phase24. | Phase24 | artifact-ledger/completion-evidence/evidence-producer/evidence-authority/evidence-binding/deliverable-obligation tests, focused fixture root `eval/runs/loadmap2-phase24-focused-fixtures/20260623T115617`, broad sign-off |
 | KI-004 | split forward | P20-COV-001 | C11-C12 | Active-job lifecycle and dispatch gate need broader lifecycle/E2E proof. | Phase25 | dispatch tests, focused owner/action proof, broad sign-off |
 | KI-005 | open | P20-COV-002 | C13-C20 | Recovery task, setup/profile mapping, semantic repair, repair brief, and action envelope remain partial. | Phase26 | row-level ledger, focused recovery matrix, broad sign-off |
 | KI-006 | open | P20-COV-003 | C21-C32 | Target admission, verifier orchestration, repair lifecycle, completion job, focused edit, patch validation, and no-progress behavior remain partial. | Phase27 | row-level ledger, focused target/verifier/patch matrix, broad sign-off |
@@ -91,6 +91,8 @@ Status: `closed_proven` by Phase23. No C04-C06 row is split forward.
 | C08 | Completion evidence producers for verifier, file layout, docs, data, report, and profile-wide facts. | completion-evidence/evidence-authority tests, focused completion fixture |
 | C09 | Evidence binding producers for manifest identity, docs section, schema, source citation, route/import, and test script bindings. | evidence-binding tests, focused binding fixture |
 | C10 | Deliverable obligations, freshness rules, and read-only freshness checks projected into plan/profile/eval. | deliverable-obligation tests, plan-lint tests, eval report tests |
+
+Status: `closed_proven` by Phase24. No C07-C10 row is split forward.
 
 ### Phase25: C11-C12
 

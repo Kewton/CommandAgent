@@ -262,6 +262,8 @@ fn final_required_artifact_authority(
         verifier_commands: &[],
         verifier_failures: &[],
         ledger: &ledger,
+        observed_completion_facts: &[],
+        observed_bindings: &[],
     });
     evaluate_completion_authority(
         required_artifacts,
@@ -548,6 +550,8 @@ fn step_completion_authority(
         verifier_commands: &step.verify,
         verifier_failures,
         ledger: &ledger,
+        observed_completion_facts: &[],
+        observed_bindings: &[],
     });
     evaluate_completion_authority(
         &step.expected_paths,

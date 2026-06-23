@@ -23,6 +23,32 @@ pub(crate) struct EvidenceProducerInput<'a> {
     pub(crate) verifier_commands: &'a [String],
     pub(crate) verifier_failures: &'a [VerificationFailure],
     pub(crate) ledger: &'a ArtifactLedgerSummary,
+    pub(crate) observed_completion_facts: &'a [ObservedCompletionFact<'a>],
+    pub(crate) observed_bindings: &'a [EvidenceBindingPlan],
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ObservedCompletionFact<'a> {
+    pub(crate) kind: CompletionEvidenceKind,
+    pub(crate) target: &'a str,
+    pub(crate) passed: bool,
+    pub(crate) source: &'a str,
+}
+
+impl<'a> ObservedCompletionFact<'a> {
+    pub(crate) fn new(
+        kind: CompletionEvidenceKind,
+        target: &'a str,
+        passed: bool,
+        source: &'a str,
+    ) -> Self {
+        Self {
+            kind,
+            target,
+            passed,
+            source,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -38,6 +64,8 @@ pub(crate) fn produce_completion_evidence(
     let mut output = EvidenceProducerOutput::default();
     produce_file_layout_evidence(input, &mut output);
     produce_verifier_evidence(input, &mut output);
+    produce_observed_completion_facts(input, &mut output);
+    produce_observed_bindings(input, &mut output);
     output
 }
 
@@ -59,6 +87,51 @@ fn produce_file_layout_evidence(
             compact(input.profile),
             compact(path),
             if present { "bound" } else { "missing" }
+        ));
+    }
+}
+
+fn produce_observed_completion_facts(
+    input: &EvidenceProducerInput<'_>,
+    output: &mut EvidenceProducerOutput,
+) {
+    for fact in input.observed_completion_facts {
+        let status = if fact.passed {
+            CompletionEvidenceStatus::Passed
+        } else {
+            CompletionEvidenceStatus::Failed
+        };
+        output.completion_evidence.push(CompletionEvidence::new(
+            fact.kind,
+            fact.target,
+            status,
+            fact.source,
+        ));
+        output.producer_lines.push(format!(
+            "producer=observed_completion step={} profile={} kind={} target={} status={} source={}",
+            compact(input.step_id),
+            compact(input.profile),
+            fact.kind.as_str(),
+            compact(fact.target),
+            status.as_str(),
+            compact(fact.source)
+        ));
+    }
+}
+
+fn produce_observed_bindings(
+    input: &EvidenceProducerInput<'_>,
+    output: &mut EvidenceProducerOutput,
+) {
+    for binding in input.observed_bindings {
+        output.evidence_bindings.push(binding.clone());
+        output.producer_lines.push(format!(
+            "producer=evidence_binding step={} profile={} kind={} target={} status={}",
+            compact(input.step_id),
+            compact(input.profile),
+            binding.kind.as_str(),
+            compact(&binding.target),
+            binding.status.as_str()
         ));
     }
 }
@@ -168,6 +241,8 @@ mod tests {
             verifier_commands: &[],
             verifier_failures: &[],
             ledger: &ledger,
+            observed_completion_facts: &[],
+            observed_bindings: &[],
         });
 
         assert_eq!(
@@ -197,6 +272,8 @@ mod tests {
             verifier_commands: &commands,
             verifier_failures: &[],
             ledger: &ledger,
+            observed_completion_facts: &[],
+            observed_bindings: &[],
         });
 
         assert_eq!(
@@ -226,6 +303,8 @@ mod tests {
             verifier_commands: &commands,
             verifier_failures: &failures,
             ledger: &ledger,
+            observed_completion_facts: &[],
+            observed_bindings: &[],
         });
 
         assert_eq!(
@@ -236,6 +315,68 @@ mod tests {
             output.completion_evidence[0]
                 .render_line()
                 .contains("diagnostic=build failed")
+        );
+    }
+
+    #[test]
+    fn observed_completion_and_binding_facts_are_projected() {
+        use crate::agent::step_runner::evidence_binding::{
+            EvidenceBindingStatus, required_section_binding,
+        };
+
+        let ledger = ArtifactLedgerSummary::default();
+        let observed = vec![
+            ObservedCompletionFact::new(
+                CompletionEvidenceKind::DocsSectionPass,
+                "README.md#Usage",
+                true,
+                "docs_section_check",
+            ),
+            ObservedCompletionFact::new(
+                CompletionEvidenceKind::ReportCompletenessPass,
+                "workspace/mvp/report.md",
+                false,
+                "report_completeness_check",
+            ),
+        ];
+        let bindings = vec![required_section_binding(
+            "README.md",
+            "Usage",
+            EvidenceBindingStatus::Bound,
+        )];
+
+        let output = produce_completion_evidence(&EvidenceProducerInput {
+            step_id: "docs-proof",
+            profile: "docs",
+            required_paths: &[],
+            verifier_commands: &[],
+            verifier_failures: &[],
+            ledger: &ledger,
+            observed_completion_facts: &observed,
+            observed_bindings: &bindings,
+        });
+
+        assert!(
+            output
+                .completion_evidence
+                .iter()
+                .any(|evidence| evidence.kind == CompletionEvidenceKind::DocsSectionPass)
+        );
+        assert!(
+            output
+                .completion_evidence
+                .iter()
+                .any(|evidence| evidence.status == CompletionEvidenceStatus::Failed)
+        );
+        assert_eq!(
+            output.evidence_bindings[0].status,
+            EvidenceBindingStatus::Bound
+        );
+        assert!(
+            output
+                .producer_lines
+                .iter()
+                .any(|line| line.contains("producer=observed_completion"))
         );
     }
 }

@@ -1,0 +1,45 @@
+id: focused-deliverable-obligation-freshness
+title: Deliverable obligation freshness audit
+profile: generic
+style: default
+mode: plan-run
+intent: modify
+prompt: "Reject read-only or previous-plan deliverable observations as stale completion evidence."
+matrix_row: phase24-c10-deliverable-obligation-freshness
+proof_mode: deterministic_fixture
+fixture_reason: stale_evidence
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: evidence_collection
+  recovery_owner: evidence
+  dispatch_status: explicit_stop
+  repair_action: refresh_stale_completion_evidence
+  completion_authority_status: stale_evidence
+  completion_source_of_truth: completion_authority
+  completion_evidence_status: stale
+  evidence_runner_status: stale
+  evidence_runner_kind: deliverable_obligation
+  freshness_status: stale
+  stale_evidence: deliverable_obligation:app/page.tsx:read_only_observation
+  deliverable_obligation_kind: source_file
+  deliverable_obligation_path: app/page.tsx
+  deliverable_obligation: current_plan_edit_required
+  artifact_ledger_status: complete
+expected_terminal_state: stale_evidence
+expected_contract_layer: eval_success_contract
+expected_active_job: evidence_collection
+expected_recovery_owner: evidence
+expected_completion_authority_status: stale_evidence
+expected_completion_source_of_truth: completion_authority
+expected_completion_evidence_status: stale
+expected_evidence_runner_status: stale
+expected_evidence_runner_kind: deliverable_obligation
+expected_freshness_status: stale
+expected_stale_evidence: deliverable_obligation:app/page.tsx:read_only_observation
+expected_deliverable_obligation_kind: source_file
+expected_deliverable_obligation_path: app/page.tsx
+expected_deliverable_obligation: current_plan_edit_required
+expected_artifact_ledger_status: complete
+expected_lifecycle_stage: repairing
+expected_completion_source: none

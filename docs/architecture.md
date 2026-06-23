@@ -206,6 +206,17 @@ It does not repair, retry, choose a future phase, or replace the verifier. It
 only prevents path existence, evidence execution, evidence freshness, and
 evidence binding from being collapsed into one generic failure.
 
+Artifact ledger producer attribution is itself observable. Eval-visible fields
+such as `artifact_ledger_sources`, `required_paths`, `read_paths`,
+`changed_paths`, `created_paths`, `verifier_mentioned_paths`,
+`scaffold_created_paths`, and `setup_created_paths` are derived from ledger
+entries and producer flags. They let reports distinguish graph/tool/verifier,
+setup/scaffold, workspace, and completion-authority inputs without introducing
+a hidden post-tool job. Deliverable obligation fields such as
+`deliverable_obligation_kind`, `deliverable_obligation_path`, and
+`deliverable_obligation` are also report projections; they do not select
+repair jobs or execute checks.
+
 Verifier Diagnostic Payload is the attribution boundary for failed verifier
 commands. It classifies already-observed command output into bounded,
 deterministic fields such as `diagnostic_code`, `failure_signature`,

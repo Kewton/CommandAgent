@@ -141,6 +141,7 @@ fn deterministic_source_owns_target(source: &str) -> bool {
             | "setup_delta"
             | "completion_evidence"
             | "evidence_binding"
+            | "completion_authority"
     ) || source.starts_with("contract.")
         || source.starts_with("plan.")
         || source.starts_with("plan_lint.")

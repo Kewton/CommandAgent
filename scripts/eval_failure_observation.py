@@ -40,9 +40,14 @@ OBSERVATION_FIELD_NAMES = [
     "workspace_scope_roots",
     "artifact_ledger_entries",
     "artifact_ledger_summary",
+    "artifact_ledger_sources",
+    "required_paths",
     "artifact_ownership",
     "artifact_ownership_reason",
     "artifact_source_of_truth",
+    "deliverable_obligation_kind",
+    "deliverable_obligation_path",
+    "deliverable_obligation",
     "rejected_target_reason",
     "read_paths",
     "changed_paths",
@@ -207,12 +212,22 @@ def normalize_observation(raw: dict[str, Any]) -> dict[str, str]:
         or contract_value(evidence, "artifact_ledger_entries"),
         "artifact_ledger_summary": clean(raw.get("artifact_ledger_summary"))
         or contract_value(evidence, "artifact_ledger_summary"),
+        "artifact_ledger_sources": clean(raw.get("artifact_ledger_sources"))
+        or contract_value(evidence, "artifact_ledger_sources"),
+        "required_paths": clean(raw.get("required_paths"))
+        or contract_value(evidence, "required_paths"),
         "artifact_ownership": clean(raw.get("artifact_ownership"))
         or contract_value(evidence, "artifact_ownership"),
         "artifact_ownership_reason": clean(raw.get("artifact_ownership_reason"))
         or contract_value(evidence, "artifact_ownership_reason"),
         "artifact_source_of_truth": clean(raw.get("artifact_source_of_truth"))
         or contract_value(evidence, "artifact_source_of_truth"),
+        "deliverable_obligation_kind": clean(raw.get("deliverable_obligation_kind"))
+        or contract_value(evidence, "deliverable_obligation_kind"),
+        "deliverable_obligation_path": clean(raw.get("deliverable_obligation_path"))
+        or contract_value(evidence, "deliverable_obligation_path"),
+        "deliverable_obligation": clean(raw.get("deliverable_obligation"))
+        or contract_value(evidence, "deliverable_obligation"),
         "rejected_target_reason": clean(raw.get("rejected_target_reason"))
         or contract_value(evidence, "rejected_target_reason"),
         "read_paths": clean(raw.get("read_paths")) or contract_value(evidence, "read_paths"),

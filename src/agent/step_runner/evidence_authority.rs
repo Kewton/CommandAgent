@@ -11,6 +11,10 @@ use crate::agent::step_runner::artifact_ownership::ArtifactOwnership;
 use crate::agent::step_runner::completion_evidence::{
     CompletionEvidence, CompletionEvidenceKind, CompletionEvidenceStatus,
 };
+use crate::agent::step_runner::deliverable_obligation::{
+    DeliverableFreshnessStatus, DeliverableKind, DeliverableObligation,
+    evaluate_deliverable_freshness,
+};
 use crate::agent::step_runner::evidence_binding::{
     EvidenceBindingKind, EvidenceBindingPlan, EvidenceBindingStatus,
 };
@@ -94,6 +98,8 @@ pub(crate) struct CompletionAuthorityResult {
     pub(crate) freshness_status: FreshnessStatus,
     pub(crate) artifact_ledger_status: String,
     pub(crate) source_of_truth: String,
+    pub(crate) evidence_runner_kind: String,
+    pub(crate) evidence_binding_kind: String,
     pub(crate) missing_deliverables: Vec<String>,
     pub(crate) missing_evidence: Vec<String>,
     pub(crate) failed_evidence: Vec<String>,
@@ -135,8 +141,15 @@ impl CompletionAuthorityResult {
                 "completion_authority_status={}",
                 self.status.terminal_state()
             ),
+            format!("completion_source_of_truth={}", self.source_of_truth),
+            format!("evidence_runner_kind={}", self.evidence_runner_kind),
+            format!("evidence_binding_kind={}", self.evidence_binding_kind),
             format!("artifact_ledger_status={}", self.artifact_ledger_status),
             format!("source_of_truth={}", self.source_of_truth),
+            format!("missing_evidence={}", render_list(&self.missing_evidence)),
+            format!("failed_evidence={}", render_list(&self.failed_evidence)),
+            format!("failed_bindings={}", render_list(&self.failed_bindings)),
+            format!("stale_evidence={}", render_list(&self.stale_evidence)),
         ]
     }
 
@@ -195,6 +208,8 @@ pub(crate) fn evaluate_completion_authority(
             freshness_status: FreshnessStatus::NotRequired,
             artifact_ledger_status: "not_required".to_string(),
             source_of_truth: "no_required_deliverables".to_string(),
+            evidence_runner_kind: "not_required".to_string(),
+            evidence_binding_kind: "not_required".to_string(),
             missing_deliverables: Vec::new(),
             missing_evidence: Vec::new(),
             failed_evidence: Vec::new(),
@@ -217,6 +232,8 @@ pub(crate) fn evaluate_completion_authority(
             freshness_status: FreshnessStatus::Unknown,
             artifact_ledger_status: "missing_required".to_string(),
             source_of_truth: "artifact_ledger".to_string(),
+            evidence_runner_kind: "file_layout".to_string(),
+            evidence_binding_kind: aggregate_binding_kinds(evidence_bindings),
             missing_deliverables,
             missing_evidence: Vec::new(),
             failed_evidence: Vec::new(),
@@ -234,6 +251,8 @@ pub(crate) fn evaluate_completion_authority(
             freshness_status: FreshnessStatus::Unknown,
             artifact_ledger_status: "complete".to_string(),
             source_of_truth: "completion_evidence".to_string(),
+            evidence_runner_kind: "missing".to_string(),
+            evidence_binding_kind: aggregate_binding_kinds(evidence_bindings),
             missing_deliverables: Vec::new(),
             missing_evidence: required_paths.to_vec(),
             failed_evidence: Vec::new(),
@@ -256,6 +275,8 @@ pub(crate) fn evaluate_completion_authority(
             freshness_status: freshness_status(completion_evidence),
             artifact_ledger_status: "complete".to_string(),
             source_of_truth: "completion_evidence".to_string(),
+            evidence_runner_kind: aggregate_completion_kinds(completion_evidence),
+            evidence_binding_kind: aggregate_binding_kinds(evidence_bindings),
             missing_deliverables: Vec::new(),
             missing_evidence: Vec::new(),
             failed_evidence,
@@ -278,6 +299,8 @@ pub(crate) fn evaluate_completion_authority(
             freshness_status: FreshnessStatus::Stale,
             artifact_ledger_status: "complete".to_string(),
             source_of_truth: "completion_evidence_freshness".to_string(),
+            evidence_runner_kind: aggregate_completion_kinds(completion_evidence),
+            evidence_binding_kind: aggregate_binding_kinds(evidence_bindings),
             missing_deliverables: Vec::new(),
             missing_evidence: Vec::new(),
             failed_evidence: Vec::new(),
@@ -305,6 +328,8 @@ pub(crate) fn evaluate_completion_authority(
             freshness_status: FreshnessStatus::Unknown,
             artifact_ledger_status: "complete".to_string(),
             source_of_truth: "completion_evidence".to_string(),
+            evidence_runner_kind: aggregate_completion_kinds(completion_evidence),
+            evidence_binding_kind: aggregate_binding_kinds(evidence_bindings),
             missing_deliverables: Vec::new(),
             missing_evidence,
             failed_evidence: Vec::new(),
@@ -327,6 +352,8 @@ pub(crate) fn evaluate_completion_authority(
             freshness_status: freshness_status(completion_evidence),
             artifact_ledger_status: "complete".to_string(),
             source_of_truth: "evidence_binding".to_string(),
+            evidence_runner_kind: aggregate_completion_kinds(completion_evidence),
+            evidence_binding_kind: aggregate_binding_kinds(evidence_bindings),
             missing_deliverables: Vec::new(),
             missing_evidence: Vec::new(),
             failed_evidence: Vec::new(),
@@ -347,6 +374,8 @@ pub(crate) fn evaluate_completion_authority(
         freshness_status: freshness_status(completion_evidence),
         artifact_ledger_status: "complete".to_string(),
         source_of_truth: "artifact_ledger_and_completion_evidence".to_string(),
+        evidence_runner_kind: aggregate_completion_kinds(completion_evidence),
+        evidence_binding_kind: aggregate_binding_kinds(evidence_bindings),
         missing_deliverables: Vec::new(),
         missing_evidence: Vec::new(),
         failed_evidence: Vec::new(),
@@ -366,7 +395,7 @@ pub(crate) fn stale_completion_evidence(path: &str, source: &str) -> CompletionE
 
 pub(crate) fn file_layout_completion_evidence(path: &str, present: bool) -> CompletionEvidence {
     CompletionEvidence::new(
-        CompletionEvidenceKind::RepoEdit,
+        CompletionEvidenceKind::FileLayoutPass,
         path,
         if present {
             CompletionEvidenceStatus::Passed
@@ -375,6 +404,36 @@ pub(crate) fn file_layout_completion_evidence(path: &str, present: bool) -> Comp
         },
         "artifact_ledger_file_layout",
     )
+}
+
+pub(crate) fn completion_evidence_for_deliverable_obligation(
+    obligation: &DeliverableObligation,
+    exists: bool,
+    edited_this_session: bool,
+    matches_current_plan: bool,
+    has_verifier_evidence: bool,
+    read_only_observation: bool,
+) -> CompletionEvidence {
+    let decision = evaluate_deliverable_freshness(
+        obligation,
+        exists,
+        edited_this_session,
+        matches_current_plan,
+        has_verifier_evidence,
+        read_only_observation,
+    );
+    let status = match decision.status {
+        DeliverableFreshnessStatus::Fresh => CompletionEvidenceStatus::Passed,
+        DeliverableFreshnessStatus::Missing => CompletionEvidenceStatus::Missing,
+        DeliverableFreshnessStatus::Stale => CompletionEvidenceStatus::Stale,
+    };
+    CompletionEvidence::new(
+        completion_kind_for_deliverable(obligation.kind),
+        obligation.path.clone(),
+        status,
+        "deliverable_obligation_freshness",
+    )
+    .with_diagnostic(decision.reason)
 }
 
 pub(crate) fn file_layout_binding(path: &str, present: bool) -> EvidenceBindingPlan {
@@ -428,6 +487,53 @@ fn aggregate_binding_status(bindings: &[EvidenceBindingPlan]) -> EvidenceBinding
     EvidenceBindingStatus::Bound
 }
 
+fn aggregate_completion_kinds(completion_evidence: &[CompletionEvidence]) -> String {
+    if completion_evidence.is_empty() {
+        return "none".to_string();
+    }
+    unique_join(
+        completion_evidence
+            .iter()
+            .map(|evidence| evidence.kind.as_str()),
+    )
+}
+
+fn aggregate_binding_kinds(bindings: &[EvidenceBindingPlan]) -> String {
+    if bindings.is_empty() {
+        return "none".to_string();
+    }
+    unique_join(bindings.iter().map(|binding| binding.kind.as_str()))
+}
+
+fn unique_join<'a>(values: impl Iterator<Item = &'a str>) -> String {
+    let mut out = Vec::new();
+    for value in values {
+        if !out.contains(&value) {
+            out.push(value);
+        }
+    }
+    out.join("|")
+}
+
+fn completion_kind_for_deliverable(kind: DeliverableKind) -> CompletionEvidenceKind {
+    match kind {
+        DeliverableKind::Docs => CompletionEvidenceKind::DocsSectionPass,
+        DeliverableKind::StructuredData => CompletionEvidenceKind::StructuredDataPass,
+        DeliverableKind::Report => CompletionEvidenceKind::ReportCompletenessPass,
+        DeliverableKind::Source | DeliverableKind::SetupManifest | DeliverableKind::Test => {
+            CompletionEvidenceKind::FileLayoutPass
+        }
+    }
+}
+
+fn render_list(values: &[String]) -> String {
+    if values.is_empty() {
+        "none".to_string()
+    } else {
+        values.join("|")
+    }
+}
+
 fn freshness_status(completion_evidence: &[CompletionEvidence]) -> FreshnessStatus {
     if completion_evidence.is_empty() {
         return FreshnessStatus::NotRequired;
@@ -453,6 +559,9 @@ fn freshness_status(completion_evidence: &[CompletionEvidence]) -> FreshnessStat
 mod tests {
     use super::*;
     use crate::agent::step_runner::artifact_graph::{ArtifactGraph, ArtifactLifecycle};
+    use crate::agent::step_runner::deliverable_obligation::{
+        DeliverableKind, DeliverableObligation, FreshnessRule,
+    };
     use crate::agent::step_runner::workspace_scope::WorkspaceScope;
 
     fn ledger_with_required(path: &str, exists: bool) -> ArtifactLedgerSummary {
@@ -602,6 +711,16 @@ mod tests {
                 .render_eval_fields()
                 .contains(&"completion_authority_status=ok".to_string())
         );
+        assert!(
+            result
+                .render_eval_fields()
+                .contains(&"evidence_runner_kind=file_layout_pass".to_string())
+        );
+        assert!(
+            result
+                .render_eval_fields()
+                .contains(&"evidence_binding_kind=file_layout".to_string())
+        );
     }
 
     #[test]
@@ -629,6 +748,56 @@ mod tests {
                 .render_contract_lines()
                 .iter()
                 .any(|line| line.contains("stale_evidence"))
+        );
+    }
+
+    #[test]
+    fn eval_fields_expose_completion_source_and_failure_lists() {
+        let required = vec!["README.md".to_string()];
+        let ledger = ledger_with_required("README.md", true);
+        let completion = vec![CompletionEvidence::new(
+            CompletionEvidenceKind::DocsSectionPass,
+            "README.md#Usage",
+            CompletionEvidenceStatus::Missing,
+            "docs_section_check",
+        )];
+        let bindings = vec![EvidenceBindingPlan::new(
+            EvidenceBindingKind::RequiredSection,
+            "README.md",
+            "Usage",
+            EvidenceBindingStatus::Bound,
+        )];
+
+        let result = evaluate_completion_authority(&required, &ledger, &completion, &bindings);
+        let fields = result.render_eval_fields().join("\n");
+
+        assert!(fields.contains("completion_source_of_truth=completion_evidence"));
+        assert!(fields.contains("evidence_runner_kind=docs_section_pass"));
+        assert!(fields.contains("evidence_binding_kind=required_section"));
+        assert!(fields.contains("missing_evidence=kind=docs_section_pass"));
+    }
+
+    #[test]
+    fn deliverable_obligation_freshness_becomes_stale_completion_evidence() {
+        let obligation = DeliverableObligation::new(DeliverableKind::Source, "src/lib.rs")
+            .with_freshness(FreshnessRule::EditedThisSession)
+            .with_freshness(FreshnessRule::MatchCurrentPlan);
+
+        let evidence = completion_evidence_for_deliverable_obligation(
+            &obligation,
+            true,
+            false,
+            false,
+            false,
+            true,
+        );
+
+        assert_eq!(evidence.status, CompletionEvidenceStatus::Stale);
+        assert_eq!(evidence.kind, CompletionEvidenceKind::FileLayoutPass);
+        assert!(
+            evidence
+                .render_line()
+                .contains("diagnostic=read_only_observation")
         );
     }
 }

@@ -23,6 +23,7 @@ pub(crate) enum ArtifactFactSource {
     VerifierDiagnostic,
     ScaffoldDelta,
     SetupDelta,
+    CompletionAuthority,
 }
 
 impl ArtifactFactSource {
@@ -37,6 +38,7 @@ impl ArtifactFactSource {
             Self::VerifierDiagnostic => "verifier_diagnostic",
             Self::ScaffoldDelta => "scaffold_delta",
             Self::SetupDelta => "setup_delta",
+            Self::CompletionAuthority => "completion_authority",
         }
     }
 }
@@ -306,6 +308,50 @@ impl ArtifactLedgerSummary {
         );
     }
 
+    pub(crate) fn record_completion_authority_input(
+        &mut self,
+        path: &str,
+        graph: &ArtifactGraph,
+        scope: &WorkspaceScope,
+    ) {
+        let path = normalize_path(path);
+        let role = graph
+            .node(&path)
+            .map(|node| node.role)
+            .unwrap_or_else(|| role_for_path(&path, ArtifactLifecycle::Required));
+        let lifecycle = graph
+            .node(&path)
+            .map(|node| node.lifecycle)
+            .unwrap_or(ArtifactLifecycle::Required);
+        let ownership =
+            classify_artifact_ownership(graph, scope, &path, role, "completion_authority", &[]);
+        let in_scope = scope.contains_path(&ownership.path);
+        self.record_entry(ArtifactLedgerEntry {
+            path,
+            role: ownership.role,
+            lifecycle,
+            ownership: ownership.ownership,
+            origin: "completion_authority".to_string(),
+            source: ArtifactFactSource::CompletionAuthority,
+            source_of_truth: ownership.source_of_truth,
+            ownership_reason: ownership.reason,
+            ownership_subreason: ownership.ownership_subreason,
+            candidate_origin: ownership.candidate_origin,
+            changed: false,
+            read: false,
+            created: false,
+            observed: true,
+            required: lifecycle_requires_artifact(lifecycle),
+            verifier_mentioned: false,
+            scaffold_created: false,
+            setup_created: false,
+            generated_or_cache: generated_or_cache_role(ownership.role),
+            dependency_or_build_output: dependency_or_build_output_role(ownership.role),
+            in_scope,
+            diagnostic: None,
+        });
+    }
+
     fn record_delta(
         &mut self,
         path: &str,
@@ -461,7 +507,13 @@ impl ArtifactLedgerSummary {
                 self.entries.len(),
                 self.overflowed
             ),
+            format!("artifact_ledger_sources={}", self.source_summary()),
         ];
+        push_paths_field(
+            &mut fields,
+            "required_paths",
+            self.paths_where(|entry| entry.required),
+        );
         push_paths_field(
             &mut fields,
             "read_paths",
@@ -501,6 +553,23 @@ impl ArtifactLedgerSummary {
             fields.push("artifact_ledger_overflow=true".to_string());
         }
         fields
+    }
+
+    fn source_summary(&self) -> String {
+        if self.entries.is_empty() {
+            return "none".to_string();
+        }
+        let mut counts = std::collections::BTreeMap::<&'static str, usize>::new();
+        for entry in &self.entries {
+            for source in represented_sources(entry) {
+                *counts.entry(source).or_insert(0) += 1;
+            }
+        }
+        counts
+            .into_iter()
+            .map(|(source, count)| format!("{source}:{count}"))
+            .collect::<Vec<_>>()
+            .join("|")
     }
 
     fn paths_where(&self, predicate: impl Fn(&ArtifactLedgerEntry) -> bool) -> Vec<String> {
@@ -589,6 +658,24 @@ fn render_list(values: &[String]) -> String {
 fn push_paths_field(fields: &mut Vec<String>, name: &str, paths: Vec<String>) {
     if !paths.is_empty() {
         fields.push(format!("{name}={}", render_list(&paths)));
+    }
+}
+
+fn represented_sources(entry: &ArtifactLedgerEntry) -> Vec<&'static str> {
+    let mut sources = vec![entry.source.as_str()];
+    push_unique_source(
+        &mut sources,
+        entry.verifier_mentioned,
+        "verifier_diagnostic",
+    );
+    push_unique_source(&mut sources, entry.scaffold_created, "scaffold_delta");
+    push_unique_source(&mut sources, entry.setup_created, "setup_delta");
+    sources
+}
+
+fn push_unique_source(sources: &mut Vec<&'static str>, enabled: bool, source: &'static str) {
+    if enabled && !sources.contains(&source) {
+        sources.push(source);
     }
 }
 
@@ -721,5 +808,45 @@ mod tests {
         let fields = summary.eval_report_fields(&scope).join("\n");
         assert!(fields.contains("scaffold_created_paths=[app/page.tsx]"));
         assert!(fields.contains("setup_created_paths=[package.json]"));
+    }
+
+    #[test]
+    fn ledger_records_completion_authority_input_as_source_family() {
+        let mut graph = ArtifactGraph::new();
+        graph.add_path("README.md", ArtifactLifecycle::Required, "test.required");
+        let scope = WorkspaceScope::from_graph(&graph);
+        let mut summary = ArtifactLedgerSummary::default();
+
+        summary.record_completion_authority_input("README.md", &graph, &scope);
+
+        let entry = summary.entry("README.md").unwrap();
+        assert_eq!(entry.source, ArtifactFactSource::CompletionAuthority);
+        assert!(entry.observed);
+        assert!(entry.required);
+        let fields = summary.eval_report_fields(&scope).join("\n");
+        assert!(fields.contains("artifact_ledger_sources=completion_authority:1"));
+        assert!(fields.contains("required_paths=[README.md]"));
+    }
+
+    #[test]
+    fn ledger_source_summary_tracks_multiple_producers() {
+        let graph = ArtifactGraph::new();
+        let scope = WorkspaceScope::greenfield();
+        let mut summary = ArtifactLedgerSummary::from_tool_records(
+            &[
+                record("Read", vec!["README.md"]),
+                record("Write", vec!["src/lib.rs"]),
+            ],
+            &graph,
+            &scope,
+        );
+        summary.record_verifier_mention("src/lib.rs", "compile error", &graph, &scope);
+
+        let fields = summary.eval_report_fields(&scope).join("\n");
+
+        assert!(fields.contains("artifact_ledger_sources="));
+        assert!(fields.contains("tool_read:1"));
+        assert!(fields.contains("tool_write:1"));
+        assert!(fields.contains("verifier_diagnostic:1"));
     }
 }

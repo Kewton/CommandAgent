@@ -96,6 +96,102 @@ impl DeliverableObligation {
             freshness
         )
     }
+
+    pub(crate) fn eval_report_fields(&self) -> Vec<String> {
+        vec![
+            format!("deliverable_obligation_kind={}", self.kind.as_str()),
+            format!("deliverable_obligation_path={}", self.path),
+            format!("deliverable_obligation={}", self.render_line()),
+        ]
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DeliverableFreshnessStatus {
+    Fresh,
+    Stale,
+    Missing,
+}
+
+impl DeliverableFreshnessStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Fresh => "fresh",
+            Self::Stale => "stale",
+            Self::Missing => "missing",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DeliverableFreshnessDecision {
+    pub(crate) path: String,
+    pub(crate) status: DeliverableFreshnessStatus,
+    pub(crate) reason: String,
+}
+
+impl DeliverableFreshnessDecision {
+    pub(crate) fn render_line(&self) -> String {
+        format!(
+            "path={} status={} reason={}",
+            self.path,
+            self.status.as_str(),
+            self.reason
+        )
+    }
+}
+
+pub(crate) fn evaluate_deliverable_freshness(
+    obligation: &DeliverableObligation,
+    exists: bool,
+    edited_this_session: bool,
+    matches_current_plan: bool,
+    has_verifier_evidence: bool,
+    read_only_observation: bool,
+) -> DeliverableFreshnessDecision {
+    let status_reason = if !exists {
+        (DeliverableFreshnessStatus::Missing, "missing_deliverable")
+    } else if read_only_observation
+        && obligation.freshness.iter().any(|rule| {
+            matches!(
+                rule,
+                FreshnessRule::EditedThisSession | FreshnessRule::MatchCurrentPlan
+            )
+        })
+    {
+        (DeliverableFreshnessStatus::Stale, "read_only_observation")
+    } else if obligation
+        .freshness
+        .contains(&FreshnessRule::EditedThisSession)
+        && !edited_this_session
+    {
+        (DeliverableFreshnessStatus::Stale, "not_edited_this_session")
+    } else if obligation
+        .freshness
+        .contains(&FreshnessRule::MatchCurrentPlan)
+        && !matches_current_plan
+    {
+        (
+            DeliverableFreshnessStatus::Stale,
+            "does_not_match_current_plan",
+        )
+    } else if obligation
+        .freshness
+        .contains(&FreshnessRule::HaveVerifierEvidence)
+        && !has_verifier_evidence
+    {
+        (
+            DeliverableFreshnessStatus::Stale,
+            "missing_verifier_evidence",
+        )
+    } else {
+        (DeliverableFreshnessStatus::Fresh, "fresh")
+    };
+    DeliverableFreshnessDecision {
+        path: obligation.path.clone(),
+        status: status_reason.0,
+        reason: status_reason.1.to_string(),
+    }
 }
 
 pub(crate) fn obligation_kind_for_path(path: &str) -> DeliverableKind {
@@ -160,5 +256,36 @@ mod tests {
         assert_eq!(data.kind, DeliverableKind::StructuredData);
         assert!(!docs.freshness.contains(&FreshnessRule::EditedThisSession));
         assert!(!data.freshness.contains(&FreshnessRule::EditedThisSession));
+    }
+
+    #[test]
+    fn freshness_rejects_read_only_observation_for_current_plan_obligation() {
+        let obligation = DeliverableObligation::new(DeliverableKind::Source, "src/lib.rs")
+            .with_freshness(FreshnessRule::EditedThisSession)
+            .with_freshness(FreshnessRule::MatchCurrentPlan);
+
+        let decision = evaluate_deliverable_freshness(&obligation, true, false, false, false, true);
+
+        assert_eq!(decision.status, DeliverableFreshnessStatus::Stale);
+        assert_eq!(decision.reason, "read_only_observation");
+        assert!(
+            decision
+                .render_line()
+                .contains("path=src/lib.rs status=stale")
+        );
+    }
+
+    #[test]
+    fn obligation_eval_fields_expose_kind_path_and_freshness_rules() {
+        let obligation = DeliverableObligation::new(DeliverableKind::Docs, "README.md")
+            .with_required_evidence("required_section:Usage")
+            .with_freshness(FreshnessRule::MatchCurrentPlan);
+
+        let fields = obligation.eval_report_fields().join("\n");
+
+        assert!(fields.contains("deliverable_obligation_kind=docs"));
+        assert!(fields.contains("deliverable_obligation_path=README.md"));
+        assert!(fields.contains("required_section:Usage"));
+        assert!(fields.contains("must_match_current_plan"));
     }
 }
