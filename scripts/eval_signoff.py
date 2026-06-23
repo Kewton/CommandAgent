@@ -331,11 +331,28 @@ def classify(spec: RootSpec, rows: list[dict[str, str]]) -> list[Finding]:
     return findings
 
 
-def focused_summary_findings(spec: RootSpec, rows: list[dict[str, str]]) -> list[Finding]:
+def recheck_row_keys(rows: list[dict[str, str]]) -> set[tuple[str, str]]:
+    return {
+        (value(row, "case_id"), value(row, "run"))
+        for row in rows
+        if value(row, "case_id") or value(row, "run")
+    }
+
+
+def focused_summary_findings(
+    spec: RootSpec,
+    rows: list[dict[str, str]],
+    *,
+    authoritative_recheck_rows: list[dict[str, str]] | None = None,
+) -> list[Finding]:
     findings: list[Finding] = []
     if spec.family not in {"focused", "focused-fixture"}:
         return findings
+    rechecked = recheck_row_keys(authoritative_recheck_rows or [])
     for row in rows:
+        key = (value(row, "case_id"), value(row, "run"))
+        if key in rechecked:
+            continue
         findings.extend(focused_findings(spec, row))
     return findings
 
@@ -428,9 +445,16 @@ def main() -> int:
         if args.require_recheck and spec.family in {"focused", "focused-fixture"}:
             normal_summary = spec.path / "summary.tsv"
             if normal_summary.exists():
+                selected_rows = read_rows(summary_path)
                 all_findings.extend(
-                    focused_summary_findings(spec, read_rows(normal_summary))
+                    focused_summary_findings(
+                        spec,
+                        read_rows(normal_summary),
+                        authoritative_recheck_rows=selected_rows,
+                    )
                 )
+                all_findings.extend(classify(spec, selected_rows))
+                continue
         all_findings.extend(classify(spec, read_rows(summary_path)))
     sys.stdout.write(render(all_findings))
     return 1 if all_findings else 0

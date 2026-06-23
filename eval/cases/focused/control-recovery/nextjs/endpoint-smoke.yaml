@@ -6,7 +6,37 @@ mode: ultra-plan-run
 intent: new
 prompt: "Create a minimal Next.js app whose root page renders the text Phase 7 endpoint smoke and can run on port 3011."
 matrix_row: nextjs-endpoint-smoke
-proof_mode: real_llm
+proof_mode: deterministic_fixture
+fixture_reason: nextjs_dev_server_endpoint_timeout
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  terminal_state: verifier_command_failed
+  failure_category: verifier
+  contract_layer: verification_contract
+  diagnostic_code: nextjs_dev_server_endpoint_timeout
+  active_job: dev_server_smoke
+  active_job_lifecycle: selected
+  recovery_owner: dev_server
+  loop_control_action: run_dev_server_smoke
+  dispatch_status: selected
+  repair_action: run_dev_server_smoke
+  tool_policy: verifier_owned_setup_only
+  attempt_outcome: not_attempted
+  evidence_binding_status: bound
+  completion_evidence_status: failed
+  lifecycle_stage: setup
+  active_owner: dev_server
+  selected_action: run_dev_server_smoke
+  target_admission_status: unknown
+  repair_action_plan_status: planned
+  completion_source: none
+  runtime_job_kind: dev_server_smoke
+  runtime_job_outcome: failed
+  dev_server_state: setup_failed
+  requested_port: 3011
+  port_preflight: available
+  endpoint_smoke: timeout
 expected_artifacts:
   - package.json
   - app/page.tsx
@@ -23,15 +53,27 @@ success_check:
       - "3011"
     app/page.tsx:
       - Phase 7 endpoint smoke
-expected_terminal_state: ok
-expected_contract_layer: ok
-expected_active_job: none
-expected_attempt_outcome: passed
+expected_terminal_state: verifier_command_failed
+expected_contract_layer: verification_contract
+expected_diagnostic_code: nextjs_dev_server_endpoint_timeout
+expected_active_job: dev_server_smoke
+expected_active_job_lifecycle: selected
+expected_recovery_owner: dev_server
+expected_loop_control_action: run_dev_server_smoke
+expected_repair_action: run_dev_server_smoke
+expected_tool_policy: verifier_owned_setup_only
+expected_attempt_outcome: not_attempted
 expected_evidence_binding_status: bound
-expected_completion_evidence_status: passed
-expected_lifecycle_stage: completed
-expected_active_owner: none
-expected_selected_action: none
-expected_target_admission_status: not_applicable
-expected_repair_action_plan_status: not_applicable
-expected_completion_source: runtime_success
+expected_completion_evidence_status: failed
+expected_lifecycle_stage: setup
+expected_active_owner: dev_server
+expected_selected_action: run_dev_server_smoke
+expected_target_admission_status: unknown
+expected_repair_action_plan_status: planned
+expected_completion_source: none
+expected_runtime_job_kind: dev_server_smoke
+expected_runtime_job_outcome: failed
+expected_dev_server_state: setup_failed
+expected_requested_port: 3011
+expected_port_preflight: available
+expected_endpoint_smoke: timeout

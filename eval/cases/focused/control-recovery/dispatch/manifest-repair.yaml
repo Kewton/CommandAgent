@@ -22,7 +22,7 @@ fixture_fields:
   target_role: setup_manifest
   selected_target: package.json
   selected_target_role: setup_manifest
-  repair_action: add_missing_manifest_dependency
+  repair_action: resolve_manifest_conflict
   tool_policy: setup_config_mutation_only
 expected_active_job: manifest_repair
 expected_active_job_lifecycle: selected
@@ -32,10 +32,10 @@ expected_dispatch_reason: manifest_or_dependency_contract_failure
 expected_candidate_jobs: lifecycle=candidate job=manifest_repair target=package.json
 expected_target_path: package.json
 expected_target_role: setup_manifest
-expected_repair_action: add_missing_manifest_dependency
+expected_repair_action: resolve_manifest_conflict
 expected_lifecycle_stage: setup
 expected_active_owner: manifest
-expected_selected_action: add_missing_manifest_dependency
+expected_selected_action: resolve_manifest_conflict
 expected_target_admission_status: admitted
 expected_repair_action_plan_status: planned
 expected_completion_source: none

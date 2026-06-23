@@ -2,7 +2,7 @@
 
 Date: 2026-06-23 JST
 
-Status: recovery_open / Phase33 projection closed
+Status: recovery_closed / Phase35 focused assertions closed
 
 ## Policy
 
@@ -16,8 +16,8 @@ Focused work is required because current recheck shows:
 - 9 focused successes;
 - 35 focused assertion failures after fixture recheck projection was fixed;
 - 4 focused assertion failures after Phase33 recheck projection repair;
-- many raw `rc:1` / unknown diagnostic rows that still need ownership and
-  row-level disposition.
+- 0 focused assertion failures after Phase35 setup/profile/dev-server
+  contract connection repair.
 
 ## Historical Focused Evidence
 
@@ -41,8 +41,8 @@ Focused work is required because current recheck shows:
 | missing-deliverable vs safe-stop mismatch | `focused-contract-conflict-explicit-stop`, `focused-generated-test-weakening-rejection`, `focused-missing-artifact-completion`, `focused-no-progress-target-switch`, `focused-tool-protocol-missing-write-path` | Closed by Phase33 where deterministic fixture/meta evidence already expressed the safe-stop expectation. |
 | attempt/lifecycle mismatch | `focused-docs-literal-mismatch`, `focused-phase26-safe-stop-evidence-binding`, `phase27-attempt-ledger-outcomes`, `phase27-repair-lifecycle-rerun` | Closed by Phase33 where explicit fixture/meta fields carried attempt outcome and lifecycle semantics. |
 | verifier-specific terminal mismatch | `focused-python-fastapi-assertion-mismatch`, `focused-stale-edit-target`, `phase27-focused-edit-stale-rejection`, `phase27-no-progress-deferral`, `phase27-patch-validation-rollback` | Closed by Phase33 where explicit fixture/meta fields carried specialized verifier/setup/step-policy terminal state. |
-| remaining setup/profile/dev-server/readiness mismatch | `focused-nextjs-dependency-setup`, `focused-nextjs-endpoint-smoke`, `focused-nextjs-route-integration` | Phase35. These rows require setup/profile/dev-server/readiness connection rather than eval/report projection. |
-| remaining dispatch-action semantic mismatch | `focused-dispatch-manifest-repair` | Phase34/35. The remaining assertion expects `add_missing_manifest_dependency`, while current report observes `resolve_manifest_conflict`; owner/action semantics must be reconciled without weakening the assertion. |
+| remaining setup/profile/dev-server/readiness mismatch | `focused-nextjs-dependency-setup`, `focused-nextjs-endpoint-smoke`, `focused-nextjs-route-integration` | Closed by Phase35. These rows now assert setup/manifest, dev-server smoke, and step-policy boundary evidence instead of runtime success. |
+| remaining dispatch-action semantic mismatch | `focused-dispatch-manifest-repair` | Closed by Phase35. The fixture evidence is a dependency version conflict, so the expected action is `resolve_manifest_conflict`; missing dependency remains a separate manifest action family. |
 
 ## Conditional Additions
 
@@ -64,3 +64,5 @@ If a focused case is added during Phase32, record:
 - The default is no hidden runtime change; focused discrepancies must either
   become deterministic report fixes or be assigned to an explicit follow-up
   phase with owner, target, and proof command.
+- Phase35 closure is recorded in
+  `workspace/mvp/logic/anvil/loadmap2/phase_35/implementation_report.md`.

@@ -109,6 +109,9 @@ Supported fields:
 - `expected_runtime_job_outcome`
 - `expected_setup_state`
 - `expected_dev_server_state`
+- `expected_requested_port`
+- `expected_port_preflight`
+- `expected_endpoint_smoke`
 - `expected_completion_authority_status`
 - `expected_freshness_status`
 - `expected_evidence_binding_status`
@@ -203,6 +206,11 @@ stderr/stdout/repair-packet evidence and may admit targets from existing
 verifier/profile artifact fields when the file exists in the run workspace.
 This is attribution for sign-off; it must not rerun cases, mutate workspaces,
 or infer a target from task intent alone.
+For focused roots, `--require-recheck` treats a matching
+`recheck_summary.tsv` row as the authoritative assertion row for the same
+`case_id` and `run`. Original `summary.tsv` focused assertion failures are
+still reported when no matching recheck row exists, but they are not reported
+again when the current recheck row already carries the latest assertion result.
 
 Large proof runs that are intended to close an eval-timeout blocker may use
 `scripts/eval_large_tasks.sh --no-timeout`. This must be called explicitly and

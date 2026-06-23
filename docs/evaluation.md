@@ -239,6 +239,11 @@ failed rows, a non-`ok` recheck `contract_layer` is treated as a recheck
 projection of the original non-`ok` contract layer rather than a new runtime
 contract decision. An original expected `contract_layer=ok` must still remain
 `ok` after recheck.
+When broad sign-off is run with `--require-recheck`, focused assertion findings
+from `summary.tsv` are superseded by matching `recheck_summary.tsv` rows for the
+same case and run. This prevents historical assertion output from overriding
+current recheck evidence while still reporting any original focused row that was
+not rechecked.
 
 For deterministic fixture and report fixture rows, recheck projection preserves
 explicit structured fields before deriving defaults. Field precedence is:

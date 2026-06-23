@@ -225,6 +225,9 @@ class EvalReportCategorizeTests(unittest.TestCase):
                         "expected_loop_control_action: run_bounded_repair_task",
                         "expected_setup_readiness: dependency_missing",
                         "expected_setup_command_authority: verifier_owned_setup_only",
+                        "expected_requested_port: 3011",
+                        "expected_port_preflight: available",
+                        "expected_endpoint_smoke: timeout",
                         "expected_profile_project_kind: nextjs",
                         "expected_profile_failure_mapping: route|manifest",
                         "expected_selected_failure_cluster: route:profile_contract",
@@ -243,6 +246,9 @@ class EvalReportCategorizeTests(unittest.TestCase):
         expected = parsed["expected_fields"]
         self.assertEqual(expected["loop_control_action"], "run_bounded_repair_task")
         self.assertEqual(expected["setup_readiness"], "dependency_missing")
+        self.assertEqual(expected["requested_port"], "3011")
+        self.assertEqual(expected["port_preflight"], "available")
+        self.assertEqual(expected["endpoint_smoke"], "timeout")
         self.assertEqual(expected["profile_project_kind"], "nextjs")
         self.assertEqual(expected["selected_failure_cluster"], "route:profile_contract")
         self.assertEqual(expected["expected_improvement"], "profile verification passes")

@@ -256,7 +256,7 @@ class EvalSignoffTests(unittest.TestCase):
         self.assertIsNone(selected)
         self.assertEqual([item.code for item in findings], ["missing_recheck_summary"])
 
-    def test_require_recheck_still_checks_original_focused_assertions(self):
+    def test_require_recheck_uses_recheck_as_authoritative_focused_row(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             write_summary(
@@ -289,6 +289,49 @@ class EvalSignoffTests(unittest.TestCase):
             findings = eval_signoff.focused_summary_findings(
                 spec,
                 eval_signoff.read_rows(root / "summary.tsv"),
+                authoritative_recheck_rows=eval_signoff.read_rows(
+                    root / "recheck_summary.tsv"
+                ),
+            )
+
+        self.assertEqual(findings, [])
+
+    def test_require_recheck_keeps_unrechecked_original_focused_assertions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            write_summary(
+                root,
+                "summary.tsv",
+                [
+                    {
+                        "case_id": "focused",
+                        "run": "1",
+                        "success": "true",
+                        "expected_assertion_status": "failed",
+                        "expected_assertion_failures": "terminal_state mismatch",
+                    }
+                ],
+            )
+            write_summary(
+                root,
+                "recheck_summary.tsv",
+                [
+                    {
+                        "case_id": "other-focused",
+                        "run": "1",
+                        "success": "true",
+                        "expected_assertion_status": "passed_recheck",
+                    }
+                ],
+            )
+            spec = eval_signoff.RootSpec("focused", root)
+
+            findings = eval_signoff.focused_summary_findings(
+                spec,
+                eval_signoff.read_rows(root / "summary.tsv"),
+                authoritative_recheck_rows=eval_signoff.read_rows(
+                    root / "recheck_summary.tsv"
+                ),
             )
 
         self.assertEqual([item.code for item in findings], ["focused_assertion_failed"])

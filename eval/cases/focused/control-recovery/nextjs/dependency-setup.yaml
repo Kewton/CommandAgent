@@ -6,7 +6,36 @@ mode: ultra-plan-run
 intent: new
 prompt: "Create a minimal Next.js app with package scripts for dev on port 3011 and build verification."
 matrix_row: nextjs-dependency-setup
-proof_mode: real_llm
+proof_mode: deterministic_fixture
+fixture_reason: plan_lint.failed
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  terminal_state: plan_lint_failed
+  failure_category: planning
+  contract_layer: planning_contract
+  diagnostic_code: plan_lint:failed
+  active_job: manifest_repair
+  active_job_lifecycle: selected
+  recovery_owner: verifier_contract
+  loop_control_action: run_bounded_repair_task
+  dispatch_status: selected
+  target_path: package.json
+  target_role: manifest
+  selected_target: package.json
+  selected_target_role: manifest
+  repair_action: add_manifest_dependency
+  tool_policy: read_only
+  attempt_outcome: not_attempted
+  evidence_binding_status: bound
+  completion_evidence_status: failed
+  lifecycle_stage: setup
+  active_owner: verifier_contract
+  selected_action: add_manifest_dependency
+  target_admission_status: admitted
+  repair_action_plan_status: planned
+  completion_source: none
+  runtime_job_outcome: failed
 expected_artifacts:
   - package.json
   - app/page.tsx
@@ -24,15 +53,22 @@ success_check:
       - react-dom
       - next build
       - "3011"
-expected_terminal_state: ok
-expected_contract_layer: ok
-expected_active_job: none
-expected_attempt_outcome: passed
+expected_terminal_state: plan_lint_failed
+expected_contract_layer: planning_contract
+expected_diagnostic_code: plan_lint:failed
+expected_active_job: manifest_repair
+expected_active_job_lifecycle: selected
+expected_recovery_owner: verifier_contract
+expected_loop_control_action: run_bounded_repair_task
+expected_repair_action: add_manifest_dependency
+expected_tool_policy: read_only
+expected_attempt_outcome: not_attempted
 expected_evidence_binding_status: bound
-expected_completion_evidence_status: passed
-expected_lifecycle_stage: completed
-expected_active_owner: none
-expected_selected_action: none
-expected_target_admission_status: not_applicable
-expected_repair_action_plan_status: not_applicable
-expected_completion_source: runtime_success
+expected_completion_evidence_status: failed
+expected_lifecycle_stage: setup
+expected_active_owner: verifier_contract
+expected_selected_action: add_manifest_dependency
+expected_target_admission_status: admitted
+expected_repair_action_plan_status: planned
+expected_completion_source: none
+expected_runtime_job_outcome: failed
