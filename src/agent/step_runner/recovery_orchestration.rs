@@ -16,6 +16,9 @@ use crate::agent::step_runner::repair_action_plan::{
 use crate::agent::step_runner::repair_brief::{
     ActionEnvelopeStatus, RepairBrief, RepairBriefStatus,
 };
+use crate::agent::step_runner::runtime_support::{
+    RuntimeSupportInput, phase29_runtime_support_facts,
+};
 use crate::agent::step_runner::semantic_failure::{SemanticFailureReport, SemanticRepairPlan};
 use crate::agent::step_runner::target_admission::{
     FocusedEditStatus, RepairTargetCandidate, RepairTargetSource, TargetAdmissionPolicy,
@@ -691,6 +694,18 @@ pub(crate) fn orchestrate_contract_evidence(
     } else {
         eval_report_fields
     };
+    let eval_report_fields = merge_lists(
+        &eval_report_fields,
+        &phase29_runtime_support_facts(RuntimeSupportInput {
+            evidence,
+            job: job.as_str(),
+            action: action.as_str(),
+            tool_policy: tool_policy.as_str(),
+            lifecycle: arbitration.lifecycle.as_str(),
+            loop_control_action: arbitration.loop_control_action.as_str(),
+        })
+        .eval_report_fields(),
+    );
     Some(RecoveryOrchestrationDecision {
         job,
         action,

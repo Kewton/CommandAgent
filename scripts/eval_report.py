@@ -210,6 +210,24 @@ def write_summary(path, rows):
         "profile_failure_mapping",
         "profile_adapter_families",
         "profile_capability_status",
+        "phase29_support_rows",
+        "language_repair_adapter_status",
+        "effective_tool_policy",
+        "effective_tool_policy_status",
+        "tool_failure_recovery_status",
+        "setup_command_classification",
+        "command_authority",
+        "command_classification_reason",
+        "workspace_candidate_status",
+        "workspace_ignored_dir_policy",
+        "workspace_candidate_ignored_reasons",
+        "job_report_status",
+        "job_report_owner_action",
+        "scaffold_contract_status",
+        "noncoding_evidence_status",
+        "answer_work_mode_status",
+        "lifecycle_projection_status",
+        "provider_boundary_status",
         *ASSERTION_FIELD_NAMES,
     ]
     with open(path, "w", encoding="utf-8", newline="") as handle:
@@ -408,6 +426,40 @@ def recheck(root, cases):
                 "profile_failure_mapping": meta.get("profile_failure_mapping", ""),
                 "profile_adapter_families": meta.get("profile_adapter_families", ""),
                 "profile_capability_status": meta.get("profile_capability_status", ""),
+                "phase29_support_rows": meta.get("phase29_support_rows", ""),
+                "language_repair_adapter_status": meta.get(
+                    "language_repair_adapter_status", ""
+                ),
+                "effective_tool_policy": meta.get("effective_tool_policy", ""),
+                "effective_tool_policy_status": meta.get(
+                    "effective_tool_policy_status", ""
+                ),
+                "tool_failure_recovery_status": meta.get(
+                    "tool_failure_recovery_status", ""
+                ),
+                "setup_command_classification": meta.get(
+                    "setup_command_classification", ""
+                ),
+                "command_authority": meta.get("command_authority", ""),
+                "command_classification_reason": meta.get(
+                    "command_classification_reason", ""
+                ),
+                "workspace_candidate_status": meta.get("workspace_candidate_status", ""),
+                "workspace_ignored_dir_policy": meta.get(
+                    "workspace_ignored_dir_policy", ""
+                ),
+                "workspace_candidate_ignored_reasons": meta.get(
+                    "workspace_candidate_ignored_reasons", ""
+                ),
+                "job_report_status": meta.get("job_report_status", ""),
+                "job_report_owner_action": meta.get("job_report_owner_action", ""),
+                "scaffold_contract_status": meta.get("scaffold_contract_status", ""),
+                "noncoding_evidence_status": meta.get("noncoding_evidence_status", ""),
+                "answer_work_mode_status": meta.get("answer_work_mode_status", ""),
+                "lifecycle_projection_status": meta.get(
+                    "lifecycle_projection_status", ""
+                ),
+                "provider_boundary_status": meta.get("provider_boundary_status", ""),
             }
         )
         observation = normalize_observation(
@@ -719,6 +771,24 @@ def render_report(rows):
     profile_failure_mappings = {}
     profile_adapter_families = {}
     profile_capability_statuses = {}
+    phase29_support_rows = {}
+    language_repair_adapter_statuses = {}
+    effective_tool_policies = {}
+    effective_tool_policy_statuses = {}
+    tool_failure_recovery_statuses = {}
+    setup_command_classifications = {}
+    command_authorities = {}
+    command_classification_reasons = {}
+    workspace_candidate_statuses = {}
+    workspace_ignored_dir_policies = {}
+    workspace_candidate_ignored_reasons = {}
+    job_report_statuses = {}
+    job_report_owner_actions = {}
+    scaffold_contract_statuses = {}
+    noncoding_evidence_statuses = {}
+    answer_work_mode_statuses = {}
+    lifecycle_projection_statuses = {}
+    provider_boundary_statuses = {}
     rollback_admission_statuses = {}
     rollback_reasons = {}
     task_contract_kinds = {}
@@ -903,6 +973,26 @@ def render_report(rows):
         profile_failure_mapping = row.get("profile_failure_mapping", "")
         profile_adapter_family = row.get("profile_adapter_families", "")
         profile_capability_status = row.get("profile_capability_status", "")
+        phase29_support_row = row.get("phase29_support_rows", "")
+        language_repair_adapter_status = row.get("language_repair_adapter_status", "")
+        effective_tool_policy = row.get("effective_tool_policy", "")
+        effective_tool_policy_status = row.get("effective_tool_policy_status", "")
+        tool_failure_recovery_status = row.get("tool_failure_recovery_status", "")
+        setup_command_classification = row.get("setup_command_classification", "")
+        command_authority = row.get("command_authority", "")
+        command_classification_reason = row.get("command_classification_reason", "")
+        workspace_candidate_status = row.get("workspace_candidate_status", "")
+        workspace_ignored_dir_policy = row.get("workspace_ignored_dir_policy", "")
+        workspace_candidate_ignored_reason = row.get(
+            "workspace_candidate_ignored_reasons", ""
+        )
+        job_report_status = row.get("job_report_status", "")
+        job_report_owner_action = row.get("job_report_owner_action", "")
+        scaffold_contract_status = row.get("scaffold_contract_status", "")
+        noncoding_evidence_status = row.get("noncoding_evidence_status", "")
+        answer_work_mode_status = row.get("answer_work_mode_status", "")
+        lifecycle_projection_status = row.get("lifecycle_projection_status", "")
+        provider_boundary_status = row.get("provider_boundary_status", "")
         rollback_admission_status = row.get("rollback_admission_status", "")
         rollback_reason = row.get("rollback_reason", "")
         task_contract_kind = row.get("task_contract_kind", "")
@@ -1127,6 +1217,81 @@ def render_report(rows):
         if profile_capability_status:
             profile_capability_statuses[profile_capability_status] = (
                 profile_capability_statuses.get(profile_capability_status, 0) + 1
+            )
+        if phase29_support_row:
+            phase29_support_rows[phase29_support_row] = (
+                phase29_support_rows.get(phase29_support_row, 0) + 1
+            )
+        if language_repair_adapter_status:
+            language_repair_adapter_statuses[language_repair_adapter_status] = (
+                language_repair_adapter_statuses.get(language_repair_adapter_status, 0) + 1
+            )
+        if effective_tool_policy:
+            effective_tool_policies[effective_tool_policy] = (
+                effective_tool_policies.get(effective_tool_policy, 0) + 1
+            )
+        if effective_tool_policy_status:
+            effective_tool_policy_statuses[effective_tool_policy_status] = (
+                effective_tool_policy_statuses.get(effective_tool_policy_status, 0) + 1
+            )
+        if tool_failure_recovery_status:
+            tool_failure_recovery_statuses[tool_failure_recovery_status] = (
+                tool_failure_recovery_statuses.get(tool_failure_recovery_status, 0) + 1
+            )
+        if setup_command_classification:
+            setup_command_classifications[setup_command_classification] = (
+                setup_command_classifications.get(setup_command_classification, 0) + 1
+            )
+        if command_authority:
+            command_authorities[command_authority] = (
+                command_authorities.get(command_authority, 0) + 1
+            )
+        if command_classification_reason:
+            command_classification_reasons[command_classification_reason] = (
+                command_classification_reasons.get(command_classification_reason, 0) + 1
+            )
+        if workspace_candidate_status:
+            workspace_candidate_statuses[workspace_candidate_status] = (
+                workspace_candidate_statuses.get(workspace_candidate_status, 0) + 1
+            )
+        if workspace_ignored_dir_policy:
+            workspace_ignored_dir_policies[workspace_ignored_dir_policy] = (
+                workspace_ignored_dir_policies.get(workspace_ignored_dir_policy, 0) + 1
+            )
+        if workspace_candidate_ignored_reason:
+            workspace_candidate_ignored_reasons[workspace_candidate_ignored_reason] = (
+                workspace_candidate_ignored_reasons.get(
+                    workspace_candidate_ignored_reason, 0
+                )
+                + 1
+            )
+        if job_report_status:
+            job_report_statuses[job_report_status] = (
+                job_report_statuses.get(job_report_status, 0) + 1
+            )
+        if job_report_owner_action:
+            job_report_owner_actions[job_report_owner_action] = (
+                job_report_owner_actions.get(job_report_owner_action, 0) + 1
+            )
+        if scaffold_contract_status:
+            scaffold_contract_statuses[scaffold_contract_status] = (
+                scaffold_contract_statuses.get(scaffold_contract_status, 0) + 1
+            )
+        if noncoding_evidence_status:
+            noncoding_evidence_statuses[noncoding_evidence_status] = (
+                noncoding_evidence_statuses.get(noncoding_evidence_status, 0) + 1
+            )
+        if answer_work_mode_status:
+            answer_work_mode_statuses[answer_work_mode_status] = (
+                answer_work_mode_statuses.get(answer_work_mode_status, 0) + 1
+            )
+        if lifecycle_projection_status:
+            lifecycle_projection_statuses[lifecycle_projection_status] = (
+                lifecycle_projection_statuses.get(lifecycle_projection_status, 0) + 1
+            )
+        if provider_boundary_status:
+            provider_boundary_statuses[provider_boundary_status] = (
+                provider_boundary_statuses.get(provider_boundary_status, 0) + 1
             )
         if rollback_admission_status:
             rollback_admission_statuses[rollback_admission_status] = (
@@ -1532,6 +1697,65 @@ def render_report(rows):
             lines.append(f"- adapter_families={name}: {count}")
         for name, count in sorted(profile_capability_statuses.items()):
             lines.append(f"- capability_status={name}: {count}")
+    else:
+        lines.append("- none")
+    lines.extend(["", "## Phase29 Runtime Support"])
+    if (
+        phase29_support_rows
+        or language_repair_adapter_statuses
+        or effective_tool_policies
+        or effective_tool_policy_statuses
+        or tool_failure_recovery_statuses
+        or setup_command_classifications
+        or command_authorities
+        or command_classification_reasons
+        or workspace_candidate_statuses
+        or workspace_ignored_dir_policies
+        or workspace_candidate_ignored_reasons
+        or job_report_statuses
+        or job_report_owner_actions
+        or scaffold_contract_statuses
+        or noncoding_evidence_statuses
+        or answer_work_mode_statuses
+        or lifecycle_projection_statuses
+        or provider_boundary_statuses
+    ):
+        for name, count in sorted(phase29_support_rows.items()):
+            lines.append(f"- support_rows={name}: {count}")
+        for name, count in sorted(language_repair_adapter_statuses.items()):
+            lines.append(f"- language_repair_adapter_status={name}: {count}")
+        for name, count in sorted(effective_tool_policies.items()):
+            lines.append(f"- effective_tool_policy={name}: {count}")
+        for name, count in sorted(effective_tool_policy_statuses.items()):
+            lines.append(f"- effective_tool_policy_status={name}: {count}")
+        for name, count in sorted(tool_failure_recovery_statuses.items()):
+            lines.append(f"- tool_failure_recovery_status={name}: {count}")
+        for name, count in sorted(setup_command_classifications.items()):
+            lines.append(f"- setup_command_classification={name}: {count}")
+        for name, count in sorted(command_authorities.items()):
+            lines.append(f"- command_authority={name}: {count}")
+        for name, count in sorted(command_classification_reasons.items()):
+            lines.append(f"- command_classification_reason={name}: {count}")
+        for name, count in sorted(workspace_candidate_statuses.items()):
+            lines.append(f"- workspace_candidate_status={name}: {count}")
+        for name, count in sorted(workspace_ignored_dir_policies.items()):
+            lines.append(f"- workspace_ignored_dir_policy={name}: {count}")
+        for name, count in sorted(workspace_candidate_ignored_reasons.items()):
+            lines.append(f"- workspace_candidate_ignored_reasons={name}: {count}")
+        for name, count in sorted(job_report_statuses.items()):
+            lines.append(f"- job_report_status={name}: {count}")
+        for name, count in sorted(job_report_owner_actions.items()):
+            lines.append(f"- job_report_owner_action={name}: {count}")
+        for name, count in sorted(scaffold_contract_statuses.items()):
+            lines.append(f"- scaffold_contract_status={name}: {count}")
+        for name, count in sorted(noncoding_evidence_statuses.items()):
+            lines.append(f"- noncoding_evidence_status={name}: {count}")
+        for name, count in sorted(answer_work_mode_statuses.items()):
+            lines.append(f"- answer_work_mode_status={name}: {count}")
+        for name, count in sorted(lifecycle_projection_statuses.items()):
+            lines.append(f"- lifecycle_projection_status={name}: {count}")
+        for name, count in sorted(provider_boundary_statuses.items()):
+            lines.append(f"- provider_boundary_status={name}: {count}")
     else:
         lines.append("- none")
     lines.extend(["", "## Rollback Admission"])

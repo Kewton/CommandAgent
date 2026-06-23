@@ -1,0 +1,19 @@
+id: phase29-job-report
+title: Phase29 selected job and action are reportable
+profile: rust
+style: default
+mode: plan-run
+intent: modify
+prompt: "Expose selected job ownership and action for recovery reports."
+matrix_row: C39-job-report
+proof_mode: deterministic_fixture
+fixture_reason: semantic_mismatch:src/lib.rs:assertion
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  phase29_support_rows: C39
+  job_report_status: projected
+  job_report_owner_action: source_implementation_repair:edit_source_for_diagnostic
+expected_phase29_support_rows: C39
+expected_job_report_status: projected
+expected_job_report_owner_action: source_implementation_repair:edit_source_for_diagnostic

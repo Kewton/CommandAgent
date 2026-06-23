@@ -28,12 +28,21 @@ pub(crate) struct WorkspaceIgnoredPath {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct WorkspaceCandidatePath {
+    pub(crate) path: String,
+    pub(crate) role: ArtifactRole,
+    pub(crate) status: String,
+    pub(crate) reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct WorkspaceSnapshot {
     pub(crate) schema_version: String,
     pub(crate) scope_kind: WorkspaceScopeKind,
     pub(crate) roots: Vec<String>,
     pub(crate) observed_paths: Vec<WorkspaceObservedPath>,
     pub(crate) excluded_paths: Vec<WorkspaceIgnoredPath>,
+    pub(crate) candidate_paths: Vec<WorkspaceCandidatePath>,
     pub(crate) lockfiles: Vec<String>,
     pub(crate) manifests: Vec<String>,
     pub(crate) selected_profile: String,
@@ -54,6 +63,7 @@ impl WorkspaceSnapshot {
             max_paths,
             observed_paths: Vec::new(),
             excluded_paths: Vec::new(),
+            candidate_paths: Vec::new(),
             overflowed: false,
         };
         builder.walk(cwd, 0);
@@ -82,7 +92,41 @@ impl WorkspaceSnapshot {
         if self.overflowed {
             lines.push("workspace_snapshot_overflow=true".to_string());
         }
+        lines.extend(self.candidate_report_fields());
         lines
+    }
+
+    pub(crate) fn candidate_report_fields(&self) -> Vec<String> {
+        let observed = self
+            .candidate_paths
+            .iter()
+            .filter(|path| path.status == "observed")
+            .count();
+        let excluded = self
+            .candidate_paths
+            .iter()
+            .filter(|path| path.status == "excluded")
+            .count();
+        let ignored_reasons = self
+            .excluded_paths
+            .iter()
+            .map(|path| path.reason.as_str())
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+            .join("|");
+        vec![
+            format!("workspace_candidate_status=observed:{observed}|excluded:{excluded}"),
+            "workspace_ignored_dir_policy=single_source_of_truth".to_string(),
+            format!(
+                "workspace_candidate_ignored_reasons={}",
+                if ignored_reasons.is_empty() {
+                    "none".to_string()
+                } else {
+                    ignored_reasons
+                }
+            ),
+        ]
     }
 }
 
@@ -92,6 +136,7 @@ struct WorkspaceSnapshotBuilder {
     max_paths: usize,
     observed_paths: Vec<WorkspaceObservedPath>,
     excluded_paths: Vec<WorkspaceIgnoredPath>,
+    candidate_paths: Vec<WorkspaceCandidatePath>,
     overflowed: bool,
 }
 
@@ -144,18 +189,34 @@ impl WorkspaceSnapshotBuilder {
             &path,
             ArtifactProvenance::WorkspaceObservation,
         );
+        let role = role_for_artifact_kind(classified.kind);
         self.observed_paths.push(WorkspaceObservedPath {
-            role: role_for_artifact_kind(classified.kind),
+            role,
             kind: classified.kind,
+            path: path.clone(),
+        });
+        self.candidate_paths.push(WorkspaceCandidatePath {
             path,
+            role,
+            status: "observed".to_string(),
+            reason: "workspace_observation".to_string(),
         });
     }
 
     fn record_ignored(&mut self, path: String, reason: impl Into<String>) {
+        let reason = reason.into();
         if self.excluded_paths.len() < self.max_paths {
             self.excluded_paths.push(WorkspaceIgnoredPath {
+                path: path.clone(),
+                reason: reason.clone(),
+            });
+        }
+        if self.candidate_paths.len() < self.max_paths {
+            self.candidate_paths.push(WorkspaceCandidatePath {
                 path,
-                reason: reason.into(),
+                role: ArtifactRole::Unknown,
+                status: "excluded".to_string(),
+                reason,
             });
         }
     }
@@ -193,6 +254,7 @@ impl WorkspaceSnapshotBuilder {
             roots: scope.roots().to_vec(),
             observed_paths: self.observed_paths,
             excluded_paths: self.excluded_paths,
+            candidate_paths: self.candidate_paths,
             lockfiles,
             manifests,
             selected_profile: self.profile_id.as_str().to_string(),
@@ -331,6 +393,22 @@ mod tests {
                 .excluded_paths
                 .iter()
                 .any(|item| item.reason == "build_output")
+        );
+        assert!(
+            snapshot
+                .candidate_paths
+                .iter()
+                .any(|item| item.status == "excluded" && item.reason == "dependency_cache")
+        );
+        assert!(
+            snapshot
+                .candidate_report_fields()
+                .contains(&"workspace_ignored_dir_policy=single_source_of_truth".to_string())
+        );
+        assert!(
+            snapshot.candidate_report_fields().iter().any(|line| {
+                line.starts_with("workspace_candidate_status=observed:0|excluded:")
+            })
         );
     }
 }

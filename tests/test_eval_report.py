@@ -311,6 +311,78 @@ class EvalReportCategorizeTests(unittest.TestCase):
             "test_contract_and_original_verifier",
         )
 
+    def test_phase29_expected_fields_are_parsed_for_runtime_support(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            case_path = pathlib.Path(tmp) / "case.yaml"
+            case_path.write_text(
+                "\n".join(
+                    [
+                        "id: phase29-field-parse",
+                        "profile: python",
+                        "style: default",
+                        "prompt: test",
+                        "expected_phase29_support_rows: C35|C37|C39|C43",
+                        "expected_language_repair_adapter_status: projected",
+                        "expected_effective_tool_policy: file_mutation_repair",
+                        "expected_effective_tool_policy_status: projected",
+                        "expected_tool_failure_recovery_status: bounded_correction",
+                        "expected_setup_command_classification: verifier",
+                        "expected_command_authority: original_verifier",
+                        "expected_command_classification_reason: command_is_an_original_verifier_or_test_runner",
+                        "expected_workspace_candidate_status: observed:1|excluded:2",
+                        "expected_workspace_ignored_dir_policy: single_source_of_truth",
+                        "expected_workspace_candidate_ignored_reasons: build_output|dependency_cache",
+                        "expected_job_report_status: projected",
+                        "expected_job_report_owner_action: source_implementation_repair:edit_source_for_diagnostic",
+                        "expected_scaffold_contract_status: artifact_obligation",
+                        "expected_noncoding_evidence_status: generic_producer",
+                        "expected_answer_work_mode_status: deterministic_gate",
+                        "expected_lifecycle_projection_status: selected",
+                        "expected_provider_boundary_status: transport_only",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            parsed = eval_case_schema.read_eval_case(case_path)
+
+        expected = parsed["expected_fields"]
+        self.assertEqual(expected["phase29_support_rows"], "C35|C37|C39|C43")
+        self.assertEqual(expected["setup_command_classification"], "verifier")
+        self.assertEqual(expected["command_authority"], "original_verifier")
+        self.assertEqual(
+            expected["workspace_ignored_dir_policy"], "single_source_of_truth"
+        )
+        self.assertEqual(expected["provider_boundary_status"], "transport_only")
+
+    def test_phase29_runtime_support_report_section(self):
+        report = eval_report.render_report(
+            [
+                {
+                    "case_id": "phase29-runtime-support",
+                    "run": "1",
+                    "rc": "1",
+                    "elapsed_ms": "1",
+                    "success": "false",
+                    "reason": "provider_transport:eval_timeout",
+                    "failure_category": "provider_transport",
+                    "contract_layer": "execution_contract",
+                    "phase29_support_rows": "C35|C36|C39|C43|C44",
+                    "effective_tool_policy": "tool_protocol_correction",
+                    "effective_tool_policy_status": "projected",
+                    "tool_failure_recovery_status": "bounded_correction",
+                    "provider_boundary_status": "transport_only",
+                    "job_report_status": "projected",
+                    "lifecycle_projection_status": "selected",
+                }
+            ]
+        )
+
+        self.assertIn("## Phase29 Runtime Support", report)
+        self.assertIn("- support_rows=C35|C36|C39|C43|C44: 1", report)
+        self.assertIn("- provider_boundary_status=transport_only: 1", report)
+
     def test_completion_authority_fields_classify_missing_evidence(self):
         observation = eval_failure_observation.normalize_observation(
             {

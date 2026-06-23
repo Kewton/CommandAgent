@@ -132,6 +132,24 @@ Supported fields:
 - `expected_contract_conflict_safe_stop_reason`
 - `expected_contract_conflict_missing_evidence`
 - `expected_contract_conflict_source_of_truth`
+- `expected_phase29_support_rows`
+- `expected_language_repair_adapter_status`
+- `expected_effective_tool_policy`
+- `expected_effective_tool_policy_status`
+- `expected_tool_failure_recovery_status`
+- `expected_setup_command_classification`
+- `expected_command_authority`
+- `expected_command_classification_reason`
+- `expected_workspace_candidate_status`
+- `expected_workspace_ignored_dir_policy`
+- `expected_workspace_candidate_ignored_reasons`
+- `expected_job_report_status`
+- `expected_job_report_owner_action`
+- `expected_scaffold_contract_status`
+- `expected_noncoding_evidence_status`
+- `expected_answer_work_mode_status`
+- `expected_lifecycle_projection_status`
+- `expected_provider_boundary_status`
 
 Reports render `expected_assertion_status`,
 `expected_assertion_count`, and `expected_assertion_failures`. Dry runs mark

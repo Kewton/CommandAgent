@@ -112,6 +112,19 @@ fields may also include
 reporting data; lifecycle rendering does not execute setup. `completion_authority_status` records the authoritative
 completion decision. `evidence_runner_status` records whether the completion
 evidence path was present, missing, executed, or not required.
+Runtime-support parity fields may also include
+`phase29_support_rows`, `language_repair_adapter_status`,
+`effective_tool_policy`, `effective_tool_policy_status`,
+`tool_failure_recovery_status`, `setup_command_classification`,
+`command_authority`, `command_classification_reason`,
+`workspace_candidate_status`, `workspace_ignored_dir_policy`,
+`workspace_candidate_ignored_reasons`, `job_report_status`,
+`job_report_owner_action`, `scaffold_contract_status`,
+`noncoding_evidence_status`, `answer_work_mode_status`,
+`lifecycle_projection_status`, and `provider_boundary_status`. These fields
+project already-selected evidence, owner/action state, setup lifecycle, and
+provider-boundary facts into reports. They must not execute setup, choose a
+new repair owner, retry a tool call, or move behavior policy into providers.
 `artifact_ledger_status` records whether the required artifact ledger was
 complete or missing a required deliverable. `freshness_status` records whether
 completion evidence is fresh, stale, unknown, or not required. The ledger signal fields are

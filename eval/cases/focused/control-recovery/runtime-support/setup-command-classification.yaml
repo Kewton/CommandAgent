@@ -1,0 +1,23 @@
+id: phase29-setup-command-classification
+title: Phase29 setup and verifier commands are classified deterministically
+profile: nextjs
+style: default
+mode: plan-run
+intent: modify
+prompt: "Classify npm build as an original verifier rather than a setup action."
+matrix_row: C37-setup-command-classification
+proof_mode: deterministic_fixture
+fixture_reason: semantic_mismatch:package.json:build
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  phase29_support_rows: C37
+  setup_command: npm run build
+  setup_command_classification: verifier
+  command_authority: original_verifier
+  command_classification_reason: command_is_an_original_verifier_or_test_runner
+expected_phase29_support_rows: C37
+expected_setup_command: npm run build
+expected_setup_command_classification: verifier
+expected_command_authority: original_verifier
+expected_command_classification_reason: command_is_an_original_verifier_or_test_runner

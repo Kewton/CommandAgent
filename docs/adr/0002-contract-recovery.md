@@ -499,3 +499,16 @@ docs, and data profiles comparable through one public contract schema. They
 are inputs to planning, recovery attribution, and eval reporting only. They do
 not let a profile choose an active job, run setup, own repair policy, or
 continue hidden work after a failed phase.
+
+2026-06-23 amendment: runtime-support parity fields are admitted as observable
+contract projections for the C34-C44 surface. Existing deterministic evidence
+and selected owner/action state may be projected into language repair adapter
+status, effective tool policy, bounded tool-failure recovery status, setup
+command classification and authority, workspace candidate/ignored-dir policy,
+job owner/action reporting, scaffold artifact-obligation status, generic
+non-coding evidence status, answer/work-mode gate status, lifecycle
+projection, and provider transport-boundary status. These fields close the
+support-surface parity gap without adding an execution engine. They must not
+execute tools, select a new repair job, run setup implicitly, increase retry
+budgets, turn profiles into workflow engines, or place recovery behavior
+inside provider transports.

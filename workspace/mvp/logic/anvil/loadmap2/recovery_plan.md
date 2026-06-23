@@ -193,6 +193,7 @@ Phase 27: C21-C32 target admission, repair lifecycle, verifier, completion,
 Phase 28: C33 contract conflict job
           (completed / closed_proven)
 Phase 29: C34-C44 language/profile/tool/workspace/runtime support
+          (completed / closed_proven)
 Phase 30: C49-C50 priority decision rows
 Phase 31: P20-LEDGER-001 external timeout proof or explicit limitation
 Phase 32: Final coverage closure and migration-complete decision
@@ -217,7 +218,7 @@ phases can close only their assigned blockers.
 | Phase 26 | C13-C20 are row-level reconciled and proven for recovery task/setup/profile/semantic repair/action-envelope behavior. |
 | Phase 27 | C21-C32 are row-level reconciled and proven for target, verifier, repair lifecycle, completion, and patch behavior. Status: `closed_proven` by Phase27 focused fixture root `eval/runs/loadmap2-phase27-focused-fixtures/20260623T144917`, targeted tests, and broad sign-off. |
 | Phase 28 | C33 contract conflict job is `closed_proven`: authority decision, repair-target-side projection, focused C33 fixture root `eval/runs/loadmap2-phase28-contract-conflict-fixtures/20260623T152521`, and broad sign-off pass. |
-| Phase 29 | C34-C44 are row-level reconciled and proven or explicitly limited with owner/action/evidence. |
+| Phase 29 | C34-C44 are `closed_proven`: Phase29 runtime-support fields, command classification, workspace candidate policy, job/scaffold/noncoding/lifecycle/provider boundary projection, focused fixture root `eval/runs/loadmap2-phase29-runtime-support-fixtures/20260623T161335`, targeted tests, and broad sign-off pass. |
 | Phase 30 | C49-C50 receive an adoption decision: adopt, partial-adopt with phase assignment, or exclude with design rationale. This decision may be pulled forward before Phase30 if earlier phases would otherwise depend on it. |
 | Phase 31 | P20-LEDGER-001 is converted to `closed_proven` by non-timeboxed proof or carried as an explicit external limitation with owner/action/evidence. |
 | Phase 32 | Coverage table has no unresolved adopted `Partial` or `Missing`; all ledgers are closed, excluded, or accepted external limitations; final broad sign-off exits zero; final report declares the final migration state. |

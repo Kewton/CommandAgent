@@ -1,0 +1,19 @@
+id: phase29-noncoding-evidence
+title: Phase29 noncoding evidence uses generic producers
+profile: generic
+style: default
+mode: plan-run
+intent: modify
+prompt: "Expose documentation evidence without adding a domain-specific workflow."
+matrix_row: C41-noncoding-evidence
+proof_mode: deterministic_fixture
+fixture_reason: semantic_mismatch:README.md:usage
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  phase29_support_rows: C41
+  noncoding_evidence_status: generic_producer
+  evidence_runner_kind: docs_section_check
+expected_phase29_support_rows: C41
+expected_noncoding_evidence_status: generic_producer
+expected_evidence_runner_kind: docs_section_check

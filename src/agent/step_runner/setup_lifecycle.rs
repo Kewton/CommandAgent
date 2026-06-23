@@ -5,6 +5,8 @@
 //! policy. Runtime setup code owns execution; recovery orchestration owns final
 //! active-job dispatch.
 
+use crate::agent::step_runner::command_classification::classify_shell_command;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct SetupJobLifecycle {
     pub(crate) setup_job_kind: String,
@@ -15,6 +17,7 @@ pub(crate) struct SetupJobLifecycle {
     pub(crate) setup_artifact_validation_status: Option<String>,
     pub(crate) setup_readiness: Option<String>,
     pub(crate) setup_command_authority: Option<String>,
+    pub(crate) setup_command_classification: Option<String>,
     pub(crate) setup_command: Option<String>,
     pub(crate) setup_attempt_key: Option<String>,
     pub(crate) setup_attempt_key_before: Option<String>,
@@ -44,6 +47,7 @@ impl SetupJobLifecycle {
             setup_artifact_validation_status: None,
             setup_readiness: None,
             setup_command_authority: None,
+            setup_command_classification: None,
             setup_command: None,
             setup_attempt_key: None,
             setup_attempt_key_before: None,
@@ -91,7 +95,18 @@ impl SetupJobLifecycle {
     }
 
     pub(crate) fn with_command(mut self, value: impl Into<String>) -> Self {
-        self.setup_command = Some(value.into());
+        let value = value.into();
+        if self.setup_command_classification.is_none() || self.setup_command_authority.is_none() {
+            let classified = classify_shell_command(&value);
+            if self.setup_command_classification.is_none() {
+                self.setup_command_classification =
+                    Some(classified.command_class.as_str().to_string());
+            }
+            if self.setup_command_authority.is_none() {
+                self.setup_command_authority = Some(classified.authority.as_str().to_string());
+            }
+        }
+        self.setup_command = Some(value);
         self
     }
 
@@ -193,6 +208,11 @@ impl SetupJobLifecycle {
             "setup_command_authority",
             self.setup_command_authority.as_deref(),
         );
+        push(
+            &mut lines,
+            "setup_command_classification",
+            self.setup_command_classification.as_deref(),
+        );
         push(&mut lines, "setup_command", self.setup_command.as_deref());
         push(
             &mut lines,
@@ -285,6 +305,7 @@ mod tests {
         assert!(lines.contains(&"setup_job_state=blocked".to_string()));
         assert!(lines.contains(&"setup_manifest_path=package.json".to_string()));
         assert!(lines.contains(&"setup_command_authority=blocked_offline".to_string()));
+        assert!(lines.contains(&"setup_command_classification=network_or_dependency".to_string()));
         assert!(
             lines
                 .iter()

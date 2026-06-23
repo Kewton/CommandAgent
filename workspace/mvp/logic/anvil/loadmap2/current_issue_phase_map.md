@@ -52,7 +52,7 @@ The source baseline is the coverage-table baseline:
 | KI-005 | closed_proven | P20-COV-002 | C13-C20 | Recovery task, setup/profile mapping, semantic repair, repair brief, and action envelope are implemented by Phase26. | Phase26 | `cargo test recovery_task`, `cargo test recovery_orchestration`, `cargo test setup_lifecycle`, `cargo test setup_artifact_validation`, `cargo test semantic_failure`, `cargo test repair_brief`, `cargo test repair_action_plan`, `cargo test profiles`, focused fixture root `eval/runs/loadmap2-phase26-focused-fixtures/20260623T140340`, broad sign-off |
 | KI-006 | closed_proven | P20-COV-003 | C21-C32 | Target admission, verifier orchestration, repair lifecycle, completion job, focused edit, patch validation, and no-progress behavior are implemented by Phase27. C33 conflict resolution remains Phase28-owned. | Phase27 | target/repair/verifier/patch tests, focused fixture root `eval/runs/loadmap2-phase27-focused-fixtures/20260623T144917`, broad sign-off |
 | KI-007 | closed_proven | P20-COV-004 | C33 | Contract conflict job is implemented with authority decision, repair-target-side projection, and ambiguous/insufficient-authority safe stop. | Phase28 | `cargo test contract_conflict`, `cargo test recovery_orchestration`, focused fixture root `eval/runs/loadmap2-phase28-contract-conflict-fixtures/20260623T152521`, broad sign-off |
-| KI-008 | open | P20-COV-005 | C34-C44 | Language adapters, tool policy/failure recovery, command classification, workspace walk, job reporting, scaffold/data/docs support, answer-mode gating, lifecycle, and provider boundary remain partial. | Phase29 | row-level ledger, representative focused cases, broad sign-off |
+| KI-008 | closed_proven | P20-COV-005 | C34-C44 | Language adapters, tool policy/failure recovery, command classification, workspace walk, job reporting, scaffold/data/docs support, answer-mode gating, lifecycle, and provider boundary are implemented as bounded runtime-support projections. | Phase29 | targeted Rust/Python tests, focused fixture root `eval/runs/loadmap2-phase29-runtime-support-fixtures/20260623T161335`, broad sign-off |
 | KI-009 | open | P20-COV-006 | C49-C50 | Quality and slash/plan UI helper rows are unresolved priority decisions. Default toward exclusion unless deterministic recovery or eval evidence shows the row is necessary. | Phase30, pull-forward allowed | coverage decision update with proof or design exclusion |
 | KI-010 | open | P20-LEDGER-001 | P17-L001 | Large timeout rows are owned/evidence-bound but not pure completion proof. | Phase31 | non-timeboxed successful proof or explicit external limitation |
 | KI-011 | open | final closure | all adopted rows | Final migration state is blocked until adopted rows are implemented or explicitly excluded. | Phase32 | final broad sign-off pass and final migration decision report |
@@ -176,6 +176,15 @@ branch that Phase27 deferred.
 | C42 | Answer-only and work-mode gating without broadening normal coding repair. | final-answer/step-policy tests |
 | C43 | Interruption, lifecycle, turn state only where explicit recovery contracts require it. | CLI/session/runtime tests |
 | C44 | Provider/model request plumbing kept transport-only and policy-free. | provider tests, prompt boundary tests |
+
+Phase29 status: `closed_proven`.
+
+Proof:
+
+- Targeted tests: `cargo test command_classification --lib`, `cargo test runtime_support --lib`, `cargo test setup_lifecycle --lib`, `cargo test workspace_snapshot --lib`, `cargo test recovery_orchestration --lib`, `python3 tests/test_eval_report.py`.
+- Focused fixture root: `eval/runs/loadmap2-phase29-runtime-support-fixtures/20260623T161335`.
+- Recheck: `python3 scripts/eval_report.py eval/runs/loadmap2-phase29-runtime-support-fixtures/20260623T161335 --cases-dir eval/cases/focused/control-recovery/runtime-support --recheck`, with `passed_recheck: 11`.
+- Broad sign-off: `python3 scripts/eval_signoff.py --require-recheck ... --root supplemental=eval/runs/loadmap2-phase29-runtime-support-fixtures/20260623T161335 ...`, status `pass`.
 
 ### Phase30: C49-C50
 

@@ -1,0 +1,19 @@
+id: phase29-lifecycle-projection
+title: Phase29 runtime lifecycle is projected into reports
+profile: python
+style: default
+mode: plan-run
+intent: modify
+prompt: "Expose recovery lifecycle state for later signoff."
+matrix_row: C43-lifecycle-projection
+proof_mode: deterministic_fixture
+fixture_reason: dependency_missing
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  phase29_support_rows: C43
+  lifecycle_projection_status: selected
+  lifecycle_stage: selected
+expected_phase29_support_rows: C43
+expected_lifecycle_projection_status: selected
+expected_lifecycle_stage: selected

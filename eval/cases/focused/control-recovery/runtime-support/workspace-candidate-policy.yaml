@@ -1,0 +1,21 @@
+id: phase29-workspace-candidate-policy
+title: Phase29 workspace candidates expose ignored directory policy
+profile: generic
+style: default
+mode: plan-run
+intent: modify
+prompt: "Report candidate paths and ignored paths under one workspace scope policy."
+matrix_row: C38-workspace-candidate-policy
+proof_mode: deterministic_fixture
+fixture_reason: explicit_stop
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  phase29_support_rows: C38
+  workspace_candidate_status: observed:2|excluded:1
+  workspace_ignored_dir_policy: single_source_of_truth
+  workspace_candidate_ignored_reasons: dependency_cache
+expected_phase29_support_rows: C38
+expected_workspace_candidate_status: observed:2|excluded:1
+expected_workspace_ignored_dir_policy: single_source_of_truth
+expected_workspace_candidate_ignored_reasons: dependency_cache

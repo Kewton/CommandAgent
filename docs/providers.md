@@ -140,6 +140,11 @@ cannot be represented as a safe shared correction action, the step runner emits
 provider-transport evidence and stops boundedly instead of putting recovery
 policy into the provider.
 
+Eval/runtime reports may expose `provider_boundary_status=transport_only` for
+provider-boundary proof. This is an observation field only. It must not make a
+provider choose recovery policy, profile behavior, setup actions, or retry
+budgets.
+
 Native providers consume the same built-in tool argument schemas. `Read`,
 `Write`, `Edit`, `Glob`, `Grep`, and `Bash` expose one provider-independent
 JSON schema boundary, and providers serialize that schema into their own native

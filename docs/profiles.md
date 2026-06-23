@@ -60,6 +60,13 @@ target admission, ownership, or completion authority consumes them. Raw inputs
 remain protected and are not repair targets; derived outputs may be required
 deliverables.
 
+Scaffold and non-coding deliverable support must also flow through shared
+contracts. Profiles may expose scaffold artifacts, docs/data artifacts, and
+completion-evidence hints, and eval/runtime reports may project
+`scaffold_contract_status` or `noncoding_evidence_status`. Those fields do not
+let a profile materialize projects, choose recovery jobs, run setup, or close
+work from prose alone.
+
 Focused eval cases may assert profile-derived terminal and recovery fields,
 such as a Next.js route-integration active job or a Rust Cargo verifier
 binding. Those assertions are eval-only checks against observed profile and

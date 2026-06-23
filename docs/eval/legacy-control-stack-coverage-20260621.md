@@ -104,17 +104,17 @@ workspace/mvp/logic/anvil/loadmap2/anvil_source_baseline.md
 | C31 | Forced small edit / deterministic fallback | `forced_small_edit.rs`, `deterministic_fallback_plan.rs`, `mechanical_compile_repair.rs` | Performs or steers narrowly scoped edits after repeated non-progress. | MechanicalRepairAdapter / RecoveryTaskContract | Implemented | Adopt | Mechanical repair adapters are bounded hints/proposals admitted only when owner, action, target, target role, verifier/source-of-truth authority, and allowed change kind are present. They do not directly mutate files and must hand off to patch validation. | Closed by Phase27 proof: mechanical-repair tests, focused C31 mechanical fallback fixture, and broad sign-off. |
 | C32 | Repair patch executor/validation | `repair_patch_executor.rs`, `repair_patch_validation.rs`, `patch_provider.rs`, `patch_proposal.rs`, `repair_test_weakening_filter.rs` | Applies bounded patches, rejects unsafe/noop/duplicate/test-weakening patches, can rollback worsened patches. | PatchValidation Contract / repair loop / attempt ledger | Implemented | Adopt | Patch validation rejects unsafe, malformed, noop, duplicate, test-weakening, protected, generated/cache, dependency artifact, and self-referential verifier mutations before progress is claimed. Rollback admission is explicit and verifier-proven. | Closed by Phase27 proof: integrity/patch tests, focused C32 patch-validation fixture, and broad sign-off. |
 | C33 | Contract conflict job | `contract_conflict_job.rs`, `spec_authority.rs`, `api_contract_expectation.rs` | Handles implementation-vs-test-vs-docs/API conflicts explicitly. | ContractConflictBoundary / RecoveryOrchestration | Implemented | Adopt | Contract conflicts now produce bounded fields for status, sides, authority, repair target side, selected action, missing evidence, safe-stop reason, and source of truth. Repairable conflicts route to existing source/test/verifier recovery actions; ambiguous or insufficient authority stops explicitly. | Closed by Phase28 proof: contract-conflict and recovery-orchestration tests, focused fixture root `eval/runs/loadmap2-phase28-contract-conflict-fixtures/20260623T152521`, recheck, and broad sign-off. |
-| C34 | Language-specific mechanical repair | `rust_binding_repair.rs`, `cargo_dependency_repair.rs`, `repair_python_import_evidence.rs`, `repair_python_test_analysis.rs`, `repair_assertion_analysis.rs`, `python_markers.rs` | Applies narrow compile/import/assertion/dependency fixes for known languages. | MechanicalRepairAdapter / verifier diagnostic payload | Partial | Adopt | Phase 12 adds bounded adapter outputs for Rust compile/test diagnostics, Python import/assertion/FastAPI diagnostics, TypeScript/Next.js type and route diagnostics, and dependency-missing manifest hints. Adapter output is evidence/hint data, not direct mutation or setup execution. | Broader language-specific repair families and live eval proof remain before full parity. |
-| C35 | Tool policy and effective policy | `tool_policy.rs`, `tool_policy_decisions.rs`, `effective_tool_policy_flow.rs`, `tool_call_prepare.rs`, `tool_prep.rs`, `tool_call_execution.rs` | Projects current contract/job into allowed tool categories. | Minimal loop guards, step policy, recovery task | Partial | Adopt | Step tool policy and recovery tool-policy projection exist. Tool protocol correction now projects action-specific allowed tools for same-tool schema/JSON correction, stale-edit inspection, and repository-evidence correction. | Broaden owner/action-aware tool category projection for setup jobs, evidence binding, and later repair-job families. |
-| C36 | Tool failure recovery | `tool_failure_recovery.rs`, `reply_retry.rs`, `reply_retry_types.rs`, `protocol.rs` | Handles malformed tool calls, prose-only failures, and bounded retry notes. | Provider parser, minimal loop guards, recovery task | Partial | Adopt | Tool protocol failures now normalize into a common payload, select a first-class correction action, render Recovery Task Contract fields, enforce narrow allowed tools, and safe-stop when correction is unsafe or exhausted. | Add broader live E2E coverage for provider parse and stale-edit branches before marking fully implemented. |
-| C37 | Bash/setup command classification | `commands.rs`, `bash_policy_e2e_tests.rs`, `tester_invocation.rs`, `tester.rs`, `auto_test.rs`, `node_runner_manifest.rs` | Classifies local commands and test runners separately from ordinary mutation. | Bash tool, verifier, setup runtime | Partial | Partial | Build/test/setup checks exist in tool/verifier policy. | Add evidence binding and setup command authority before permitting more setup recovery. |
-| C38 | Workspace candidates/walk | `workspace_candidates.rs`, `workspace_walk.rs`, `path_helpers.rs`, `workspace_access.rs` | Collects meaningful in-scope workspace files for contracts and ownership. | Eval/workspace scans, ArtifactGraph inputs | Partial | Adopt | Required artifacts and observed paths feed the graph. | Add scope-aware workspace walk, ignored-dir SSOT in recovery, and existing candidate discovery. |
-| C39 | Job report / progress events | `job_report.rs`, `active_job_emit.rs`, `progress_text.rs`, `progress_tests.rs`, `footer.rs`, `spinner.rs`, `quality_gate.rs` | Emits structured active job, repair action, progress, and quality-gate outcomes. | Runtime events / eval reports | Partial | Partial | Evidence envelope and orchestration fields exist. | Add job-level report schema, active owner, repair action plan status, and attempt outcome events. |
-| C40 | Scaffold pipeline | `scaffold_pipeline.rs`, `scaffold_profile.rs`, `scaffold_profile_e2e_tests.rs`, `scaffold_coding_guard_e2e_tests.rs` | Materializes project/profile scaffold and tracks scaffold ownership. | Profiles / plan artifacts | Partial | Partial | Some profile-required artifacts and scaffold materialization evidence exist. | Add scaffold profile as setup/artifact contract, not an independent workflow engine. |
-| C41 | Data/docs/research/ops evidence | `structured_data_observation.rs`, `task_contract_data_output_context.rs`, `data_capability_e2e_tests.rs`, `research_acceptance_e2e_tests.rs`, `ops_capability_e2e_tests.rs`, `authoring_style.rs` | Handles non-coding deliverables and their evidence. | Profiles / eval | Partial | Partial | Docs/data profiles have basic required-path/content behavior. | Add generic evidence binding/completion evidence before profile-specific expansion. |
-| C42 | Answer-only and work-mode gating | `answer_only_mode.rs`, `work_mode_confirm.rs`, `answer_only` tests, `confirmation_flow.rs`, `work_mode_confirm.rs` | Keeps non-mutating answer-only tasks from being forced into file edits. | Minimal loop final-answer guard / step policy | Partial | Partial | Final-answer and no-tool guards exist, with some broadening constraints. | Keep as policy gate; avoid broadening into normal coding repair. |
-| C43 | Interruption, lifecycle, turn state | `interrupt.rs`, `lifecycle.rs`, `loop_state.rs`, `turn_state.rs`, `prepare_actor_loop_state.rs`, `run_turn.rs`, `actor_loop_flow.rs`, `summary.rs` | Maintains loop lifecycle and terminal outcomes. | CLI/repl/minimal loop/session | Partial | Partial | Minimal loop/session state exists. | Do not port full actor-loop complexity; only add state required by explicit recovery contracts. |
-| C44 | Provider/model request plumbing | `model_request.rs`, `build_request_messages.rs`, `model_request_phase.rs`, `streaming_reply.rs` | Builds model messages and phases. | Providers / minimal loop prompt | Partial | Partial | Provider transports and minimal prompts exist. | Keep transport/prompt clean; do not put recovery policy into provider-specific branches. |
+| C34 | Language-specific mechanical repair | `rust_binding_repair.rs`, `cargo_dependency_repair.rs`, `repair_python_import_evidence.rs`, `repair_python_test_analysis.rs`, `repair_assertion_analysis.rs`, `python_markers.rs` | Applies narrow compile/import/assertion/dependency fixes for known languages. | MechanicalRepairAdapter / verifier diagnostic payload | Implemented | Adopt | Phase12 adapter outputs remain the accepted repair boundary; Phase29 adds row-visible `language_repair_adapter_status` projection and focused fixture proof `eval/runs/loadmap2-phase29-runtime-support-fixtures/20260623T161335`. Adapter output remains evidence/hint data, not direct mutation or setup execution. | Closed at CommandAgent's bounded adapter boundary; no Anvil actor-loop language workflow is adopted. |
+| C35 | Tool policy and effective policy | `tool_policy.rs`, `tool_policy_decisions.rs`, `effective_tool_policy_flow.rs`, `tool_call_prepare.rs`, `tool_prep.rs`, `tool_call_execution.rs` | Projects current contract/job into allowed tool categories. | Minimal loop guards, step policy, recovery task | Implemented | Adopt | Phase29 projects selected owner/action/job into `effective_tool_policy` and `effective_tool_policy_status` report fields with focused proof root `eval/runs/loadmap2-phase29-runtime-support-fixtures/20260623T161335`. | Closed; policy projection remains common and provider-independent. |
+| C36 | Tool failure recovery | `tool_failure_recovery.rs`, `reply_retry.rs`, `reply_retry_types.rs`, `protocol.rs` | Handles malformed tool calls, prose-only failures, and bounded retry notes. | Provider parser, minimal loop guards, recovery task | Implemented | Adopt | Tool failures normalize into bounded correction or explicit stop; Phase29 adds `tool_failure_recovery_status=bounded_correction` proof for the runtime-support surface. | Closed without increasing retry count or hidden continuation. |
+| C37 | Bash/setup command classification | `commands.rs`, `bash_policy_e2e_tests.rs`, `tester_invocation.rs`, `tester.rs`, `auto_test.rs`, `node_runner_manifest.rs` | Classifies local commands and test runners separately from ordinary mutation. | Bash tool, verifier, setup runtime | Implemented | Adopt | Phase29 adds deterministic command classification and setup lifecycle projection for verifier, setup check, setup execution, inspection, mutation, network/dependency, blocked, and unknown commands. Focused proof covers `setup_command_classification`, `command_authority`, and reason fields. | Closed; setup execution remains explicit and evidence-bound. |
+| C38 | Workspace candidates/walk | `workspace_candidates.rs`, `workspace_walk.rs`, `path_helpers.rs`, `workspace_access.rs` | Collects meaningful in-scope workspace files for contracts and ownership. | Eval/workspace scans, ArtifactGraph inputs | Implemented | Adopt | Phase29 extends workspace snapshots with observed/excluded candidate reporting and ignored-dir single-source policy fields consumed by eval and recovery evidence. | Closed; candidate paths do not bypass ownership or target admission. |
+| C39 | Job report / progress events | `job_report.rs`, `active_job_emit.rs`, `progress_text.rs`, `progress_tests.rs`, `footer.rs`, `spinner.rs`, `quality_gate.rs` | Emits structured active job, repair action, progress, and quality-gate outcomes. | Runtime events / eval reports | Implemented | Adopt | Phase29 adds job owner/action projection fields (`job_report_status`, `job_report_owner_action`) into eval/report evidence. | Closed for structured recovery reports; UI-only progress/spinner behavior remains outside migration scope. |
+| C40 | Scaffold pipeline | `scaffold_pipeline.rs`, `scaffold_profile.rs`, `scaffold_profile_e2e_tests.rs`, `scaffold_coding_guard_e2e_tests.rs` | Materializes project/profile scaffold and tracks scaffold ownership. | Profiles / plan artifacts | Implemented | Adopt | Scaffold failures are represented as setup/artifact obligations; Phase29 adds `scaffold_contract_status=artifact_obligation` fixture proof. | Closed without adding an independent scaffold workflow engine. |
+| C41 | Data/docs/research/ops evidence | `structured_data_observation.rs`, `task_contract_data_output_context.rs`, `data_capability_e2e_tests.rs`, `research_acceptance_e2e_tests.rs`, `ops_capability_e2e_tests.rs`, `authoring_style.rs` | Handles non-coding deliverables and their evidence. | Profiles / eval | Implemented | Adopt | Phase29 projects generic non-coding evidence via completion/binding producers and proves `noncoding_evidence_status=generic_producer`. | Closed at generic evidence-producer boundary; profile-specific authoring assistants are not adopted. |
+| C42 | Answer-only and work-mode gating | `answer_only_mode.rs`, `work_mode_confirm.rs`, `answer_only` tests, `confirmation_flow.rs`, `work_mode_confirm.rs` | Keeps non-mutating answer-only tasks from being forced into file edits. | Minimal loop final-answer guard / step policy | Implemented | Adopt | Phase29 exposes deterministic `answer_work_mode_status=deterministic_gate` for admitted answer-only/non-work branches. | Closed; normal coding repair is not suppressed by broad final-answer wording. |
+| C43 | Interruption, lifecycle, turn state | `interrupt.rs`, `lifecycle.rs`, `loop_state.rs`, `turn_state.rs`, `prepare_actor_loop_state.rs`, `run_turn.rs`, `actor_loop_flow.rs`, `summary.rs` | Maintains loop lifecycle and terminal outcomes. | CLI/repl/minimal loop/session | Implemented | Adopt | Phase29 projects explicit recovery lifecycle facts (`lifecycle_projection_status`) into eval/report evidence. | Closed for explicit recovery states; full Anvil actor-loop turn state remains intentionally out of scope. |
+| C44 | Provider/model request plumbing | `model_request.rs`, `build_request_messages.rs`, `model_request_phase.rs`, `streaming_reply.rs` | Builds model messages and phases. | Providers / minimal loop prompt | Implemented | Adopt | Phase29 adds provider-boundary proof (`provider_boundary_status=transport_only`) and keeps recovery/profile/tool policy out of provider transports. | Closed; provider modules remain transport/parser boundaries only. |
 | C45 | Provider transport parser | provider modules, XML/native parser equivalents | Parses native or fallback tool calls without owning behavior policy. | Providers | Implemented | Adopt | Provider transport is separate from planning/recovery; XML fallback remains compatibility fallback. | Continue provider-native parsing but keep behavior policy outside transports. |
 | C46 | Working memory/reminders | `working_memory_messages.rs`, `reminder.rs`, `reminder_pipeline.rs`, `precaution_relevance.rs` | Adds memory/reminder guidance to model turns. | None | Excluded | Excluded | No equivalent. | Keep excluded unless a separate design decision admits memory/advisory systems. |
 | C47 | Case record and anti-pattern corpora | `case_record_flow.rs`, `case_record_extract.rs`, `anti_pattern_flow.rs`, recovery masking modules | Records cases and retrieves anti-pattern guidance. | None | Excluded | Excluded | No equivalent. | Keep excluded for MVP; not needed for explicit contract recovery. |
@@ -136,17 +136,17 @@ Current implementation status:
 
 | Current status | Count |
 | --- | ---: |
-| Implemented | 33 |
-| Partial | 12 |
-| Missing | 2 |
+| Implemented | 45 |
+| Partial | 1 |
+| Missing | 1 |
 | Excluded | 7 |
 
 Adoption decision:
 
 | Adoption decision | Count |
 | --- | ---: |
-| Adopt | 33 |
-| Partial | 12 |
+| Adopt | 45 |
+| Partial | 0 |
 | Missing | 2 |
 | Excluded | 7 |
 
@@ -155,10 +155,9 @@ Interpretation:
 - `Adopt` + `Partial` is the accepted migration surface. There are 45 rows
   where CommandAgent should own the responsibility, either as a new mechanism
   or by completing an existing projection.
-- Of those 45 accepted rows, 12 still require row-level implementation proof.
-  Provider transport parsing plus Phase22 C01-C03, Phase23 C04-C06, and
-  Phase24 C07-C10, Phase25 C11-C12, Phase26 C13-C20, and Phase27 C21-C32 are currently marked
-  `Implemented`.
+- Of those 45 accepted rows, all rows through C45 now have row-level
+  implementation proof. Phase29 closes C34-C44 with focused fixture root
+  `eval/runs/loadmap2-phase29-runtime-support-fixtures/20260623T161335`.
 - `Missing` adoption rows are not accepted migration work yet. They form the
   unresolved priority-decision surface and must become `Adopt`, scoped
   `Partial`, or `Excluded` before final closure.
@@ -178,9 +177,10 @@ to resolve the recurring eval failures reliably:
    boundary. Remaining recovery-depth work is tracked by the later
    recovery-task, target-admission, verifier, and conflict rows rather than by
    C11-C12.
-2. Scope-aware workspace admission is implemented for the C05 boundary.
-   Remaining workspace-candidate discovery and broader walk parity belong to
-   C38 rather than the C05 ownership gate.
+2. Scope-aware workspace admission is implemented for the C05 boundary, and
+   Phase29 closes the C38 workspace-candidate reporting surface. Future
+   workspace failures should map to ownership/target-admission rows unless a
+   new distinct walk responsibility is discovered.
 3. Artifact ownership is implemented for the C06 admission/completion boundary,
    and Phase24 closes the C07 producer-visible artifact ledger surface.
    Remaining target prioritization and repair-lifecycle use of those facts
@@ -195,16 +195,18 @@ to resolve the recurring eval failures reliably:
 7. Setup validation now covers NPM, Cargo, and Python manifest checks in the
    setup/verifier evidence path, but only Node has bounded setup execution.
 8. Completion evidence is a runtime authority for file-layout and verifier
-   evidence, but richer docs/data/report/profile-wide producers are still
-   partial.
+   evidence, and Phase29 adds generic non-coding evidence projection. Richer
+   profile-specific authoring assistants remain outside the accepted
+   migration boundary unless a later deterministic failure admits them.
 9. Evidence binding is a first-class failure class for current producers, but
    route/import/manifest/schema bindings need broader producer coverage.
 10. Deliverable freshness is observable as `stale_evidence`, but obligation
     projection into freshness requirements is still partial.
 11. No-progress recovery cannot ban a failed target/role or switch strategy.
 12. Tool policy is now projected from recovery owner/action in the active-job
-    dispatch boundary. Remaining work is broader E2E coverage and later-phase
-    lifecycle transitions, not another owner-selection path.
+    dispatch boundary, and Phase29 adds effective policy report proof. Future
+    work should be tied to specific policy failures rather than broad
+    owner-selection expansion.
 
 ## What Changed In The Latest Slice
 
@@ -236,6 +238,11 @@ to resolve the recurring eval failures reliably:
 - Added `evidence_binding_repair` as a first-class recovery job/action and
   carried recovery owner/action-plan data through repair packets and evidence
   envelopes.
+- Added Phase29 runtime-support projections for language repair adapter
+  status, effective tool policy, bounded tool failure recovery, setup command
+  classification, workspace candidate policy, job reporting, scaffold
+  contracts, non-coding evidence, answer/work-mode gates, lifecycle state, and
+  provider transport boundaries.
 - Broadened setup artifact validation foundations from npm manifests to Rust
   `Cargo.toml` and Python `pyproject.toml` / `requirements.txt`.
 - Added a bounded verifier diagnostic payload boundary. Verifier failures now

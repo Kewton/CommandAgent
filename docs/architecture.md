@@ -633,6 +633,17 @@ parse failures with explicit stop. The minimal loop receives this as a narrow
 execution envelope and an allowlist of tools; it still does not plan future
 recovery work.
 
+Runtime-support parity is represented as reportable support facts, not as a
+new controller. The step runner may project already-selected recovery evidence
+into fields such as language repair adapter status, effective tool policy,
+tool-failure recovery status, setup command classification, workspace
+candidate policy, job owner/action, scaffold contract status, non-coding
+evidence status, answer/work-mode gate status, lifecycle projection, and
+provider-boundary status. These projections make C34-C44 recovery support
+auditable in eval reports. They must not execute tools, choose a new job,
+increase retry budgets, run dependency setup implicitly, make profiles into
+workflow engines, or move behavior policy into provider transports.
+
 Search tools walk the workspace deterministically and skip hidden paths by
 default. Search output is bounded so a tool result cannot flood the next model
 turn.

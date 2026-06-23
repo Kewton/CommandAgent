@@ -1,0 +1,19 @@
+id: phase29-scaffold-contract
+title: Phase29 scaffold repair is expressed as artifact obligation
+profile: nextjs
+style: default
+mode: plan-run
+intent: new
+prompt: "Report scaffold materialization as an artifact obligation rather than profile workflow."
+matrix_row: C40-scaffold-contract
+proof_mode: deterministic_fixture
+fixture_reason: missing:components/Game.tsx
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  phase29_support_rows: C40
+  scaffold_contract_status: artifact_obligation
+  active_job: scaffold_materialization
+expected_phase29_support_rows: C40
+expected_scaffold_contract_status: artifact_obligation
+expected_active_job: scaffold_materialization

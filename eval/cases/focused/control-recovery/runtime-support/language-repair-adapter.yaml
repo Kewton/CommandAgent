@@ -1,0 +1,19 @@
+id: phase29-language-repair-adapter
+title: Phase29 language repair adapter status is projected from deterministic evidence
+profile: rust
+style: default
+mode: plan-run
+intent: modify
+prompt: "Report mechanical adapter status without adding a language workflow engine."
+matrix_row: C34-language-repair-adapter
+proof_mode: deterministic_fixture
+fixture_reason: semantic_mismatch:src/lib.rs:compile_error
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  phase29_support_rows: C34
+  language_repair_adapter_status: projected
+  mechanical_adapter_status: admitted
+expected_phase29_support_rows: C34
+expected_language_repair_adapter_status: projected
+expected_mechanical_adapter_status: admitted
