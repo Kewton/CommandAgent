@@ -801,8 +801,14 @@ class EvalReportCategorizeTests(unittest.TestCase):
                     "contract_layer": "planning_contract",
                     "task_contract_kind": "new",
                     "task_contract_status": "admitted",
+                    "task_contract_lifecycle": "projected",
+                    "task_contract_request_signals": "explicit_intent:new:intent",
+                    "task_contract_constraints": "profile:profile:nextjs",
+                    "task_contract_completion_evidence": "artifact_exists:required_artifact:package.json",
                     "behavior_obligation_codes": "nextjs_dependencies_required",
                     "behavior_obligation_status": "projected",
+                    "behavior_obligation_owners": "nextjs_dependencies_required:setup",
+                    "behavior_obligation_paths": "nextjs_dependencies_required:package.json",
                     "artifact_role_projection_status": "projected",
                 }
             ]
@@ -811,8 +817,17 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertIn("## Task Contract", report)
         self.assertIn("- kind=new: 1", report)
         self.assertIn("- status=admitted: 1", report)
+        self.assertIn("- lifecycle=projected: 1", report)
+        self.assertIn("- request_signals=explicit_intent:new:intent: 1", report)
+        self.assertIn("- constraints=profile:profile:nextjs: 1", report)
+        self.assertIn(
+            "- completion_evidence=artifact_exists:required_artifact:package.json: 1",
+            report,
+        )
         self.assertIn("## Behavior Obligations", report)
         self.assertIn("- status=projected: 1", report)
+        self.assertIn("- owners=nextjs_dependencies_required:setup: 1", report)
+        self.assertIn("- paths=nextjs_dependencies_required:package.json: 1", report)
         self.assertIn("## Artifact Role Projection", report)
 
     def test_render_report_flags_raw_rc_without_diagnostic(self):

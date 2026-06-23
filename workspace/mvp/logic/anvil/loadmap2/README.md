@@ -1,6 +1,7 @@
 # Anvil Migration Completion Roadmap
 
 Date: 2026-06-21
+Last updated: 2026-06-23 JST
 
 ## Purpose
 
@@ -59,6 +60,63 @@ Anvil migration is complete only when all of the following are true:
    - completion evidence status
    - attempt outcome
    - explicit stop reason when no repair is admitted
+
+An approved exception to stage 5 is allowed only when the responsibility is
+implemented and enforced, but final proof is blocked by provider throughput,
+model throughput, network, or environment constraints. The coverage table must
+still mark the row as `Implemented` with an accepted external proof limitation,
+or `Excluded` if the responsibility itself is not migrated. A missing owner,
+missing action, missing target, or missing evidence can never be an approved
+exception.
+
+## Authority And Status Terms
+
+When roadmap documents disagree, use this authority order:
+
+1. `docs/eval/legacy-control-stack-coverage-20260621.md` is the final
+   authority for coverage-row adoption and final row state.
+2. `recovery_plan.md` is the authority for Phase17+ continuation rules,
+   recovery gates, and blocker disposition.
+3. Phase-local files under `phase_<N>/` are authoritative for that phase's
+   assigned rows after they are created, but they must reconcile back to the
+   coverage table and `recovery_plan.md`.
+4. `current_issue_phase_map.md` is an index of known issues to future phases.
+   It must be kept in sync, but it does not override coverage or recovery
+   rules.
+5. Earlier phase sections in this README are historical when they conflict with
+   the Phase21+ recovery extension or `recovery_plan.md`.
+
+Status terms:
+
+- Coverage `Partial` means incomplete implementation proof. It is never a
+  final state.
+- Adoption `Partial` means scoped adoption: the adopted subset must become
+  `Implemented`, and the omitted subset must become `Excluded` with rationale.
+  It is not an undecided final state.
+- `blocked_external` is a ledger disposition for provider, model-throughput,
+  network, or environment proof limits after owner/action/evidence already
+  exist. It is not a substitute for missing functionality.
+- `split_forward` is a phase-local disposition that moves a narrower
+  same-surface blocker to a named later phase with owner, proof, and closure
+  condition. It is not migration completion.
+- Broad sign-off is a phase-level regression and ownership gate. It can
+  confirm that no unowned broad failure remains, but it cannot close a coverage
+  row without row-specific deterministic, unit, focused, or E2E proof.
+
+## Source Baseline
+
+This roadmap uses the Anvil source inventory recorded in
+`docs/eval/legacy-control-stack-coverage-20260621.md`:
+
+| Field | Value |
+| --- | --- |
+| Anvil repository | `/Users/maenokota/share/work/github_kewton/Anvil-develop` |
+| Anvil HEAD | `b3ca3d330546a10bf90d8dd46bd3e102f1710573` |
+| Dirty state | dirty at inventory clarification time; fixed in `anvil_source_baseline.md` |
+
+If the Anvil source checkout changes, refresh the coverage table before adding
+new migration phases. Do not silently compare later work against a moving
+source tree.
 
 ## Scope
 
@@ -122,7 +180,76 @@ before migration can be called complete.
 | M | Profile adapters and language-specific bounded repair adapters |
 | N | Eval reporting, focused matrix, broad local LLM completion proof |
 
-## Phase 0: Rebaseline And Freeze Completion Table
+## Phase21+ Recovery Extension
+
+Phase20 could not declare migration completion because accepted coverage rows
+remained `Partial` or `Missing`. Phase21 split `P20-COV-001` into row-level
+blockers. The remaining known work is assigned as follows:
+
+| phase | source blocker | scope |
+| --- | --- | --- |
+| Phase22 | P20-COV-001 / C01-C03 | completed / closed_proven: task contract, request admission, behavior obligations |
+| Phase23 | P20-COV-001 / C04-C06 | artifact role, workspace scope, ownership |
+| Phase24 | P20-COV-001 / C07-C10 | artifact ledger, completion evidence, evidence binding, deliverable audit |
+| Phase25 | P20-COV-001 / C11-C12 | active-job arbitration and recovery dispatch |
+| Phase26 | P20-COV-002 / C13-C20 | recovery task, setup/profile, semantic repair, repair brief, action envelope |
+| Phase27 | P20-COV-003 / C21-C32 | target admission, verifier orchestration, repair lifecycle, completion, patch validation |
+| Phase28 | P20-COV-004 / C33 | contract conflict job |
+| Phase29 | P20-COV-005 / C34-C44 | language/profile/tool/workspace/runtime-support surface |
+| Phase30 | P20-COV-006 / C49-C50 | quality and slash/plan UI priority decisions |
+| Phase31 | P20-LEDGER-001 / P17-L001 | external timeout proof or explicit limitation |
+| Phase32 | final closure | final coverage closure, broad sign-off, migration decision |
+
+Detailed issue mapping is recorded in `current_issue_phase_map.md`.
+
+## Phase22+ Execution Package
+
+Phase22 and later must not start runtime changes from the summary table alone.
+Each phase must first create a phase-local execution package under:
+
+```text
+workspace/mvp/logic/anvil/loadmap2/phase_<N>/
+```
+
+Required and conditional files:
+
+| file | status | purpose |
+| --- | --- | --- |
+| `README.md` | always required | Phase scope, selected coverage rows, non-goals, design alignment, and exit gate. |
+| `implementation_tasks.md` | always required | Checklist grouped by row-level blocker, including docs and eval tasks. |
+| `concrete_work_plan.md` | always required | Ordered implementation plan with target modules, tests, focused eval, and rollback/split rules. |
+| `source_alignment_matrix.md` | always required | One row per selected coverage ID mapping Anvil source files, adopted behavior, omitted behavior, CommandAgent target modules, and proof method. |
+| `row_closure_matrix.md` | always required | One row per coverage responsibility with owner, target, proof, and disposition. |
+| `blocking_ledger.md` | always required | Row-level blockers with incomplete contract, suspected module, proof command, and closure condition. |
+| `reconciliation.md` | always required | Mapping from Phase20/Phase21 blocker to coverage row, implementation task, proof command, and broad sign-off. |
+| `focused_worklist.md` | conditionally required | Required only when model-facing behavior changes, focused eval assertions change, or focused proof is part of the exit gate. |
+| `implementation_report.md` | required at closure | Final phase result, proof commands, row dispositions, remaining blockers, and review result. |
+
+Runtime code changes are not allowed until the phase has at least:
+
+- `row_closure_matrix.md`
+- `source_alignment_matrix.md`
+- `blocking_ledger.md`
+- `reconciliation.md`
+
+Each phase must also record whether every assigned row is:
+
+- `closed_proven`
+- `excluded_with_rationale`
+- `blocked_external` with owner/action/evidence, only where allowed
+- `split_forward` to a narrower same-surface blocker with failed proof evidence
+
+No phase may close from a summary paragraph, CI success, or broad sign-off
+alone.
+
+Before Phase32, `split_forward` may close a phase only when the split blocker
+is narrower than the original row, stays on the same responsibility surface,
+names a later phase, and includes failed proof evidence. At Phase32,
+`split_forward` means migration is not complete unless the roadmap is extended
+with a new distinct responsibility class and Phase32 records
+`migration_not_complete`.
+
+## Historical Phase 0: Rebaseline And Freeze Completion Table
 
 Objective:
 
@@ -149,7 +276,7 @@ Acceptance:
 - No row uses `Partial` without a concrete stage, owner, and completion test.
 - The final migration surface is explicit before more runtime code is changed.
 
-## Phase 1: Task Contract And Behavior Obligation Authority
+## Historical Phase 1: Task Contract And Behavior Obligation Authority
 
 Workstreams:
 
@@ -181,7 +308,7 @@ Acceptance:
   obligations.
 - Focused eval proves every obligation type.
 
-## Phase 2: Failure Observation And Terminal Classification
+## Historical Phase 2: Failure Observation And Terminal Classification
 
 Workstreams:
 
@@ -219,7 +346,7 @@ Acceptance:
 - Reports no longer require manual stderr inspection to identify the owning
   layer.
 
-## Phase 3: Artifact Ledger, Workspace Scope, And Ownership
+## Historical Phase 3: Artifact Ledger, Workspace Scope, And Ownership
 
 Workstreams:
 
@@ -265,7 +392,7 @@ Acceptance:
 - Route, manifest, source, test, docs, and data targets are distinguished by
   role and ownership.
 
-## Phase 4: Completion Evidence And Evidence Binding Authority
+## Historical Phase 4: Completion Evidence And Evidence Binding Authority
 
 Workstreams:
 
@@ -308,7 +435,7 @@ Acceptance:
   `completion_evidence_status=passed`.
 - Missing evidence and missing artifact are different terminal states.
 
-## Phase 5: Active Job Arbiter And Dispatch Gate
+## Historical Phase 5: Active Job Arbiter And Dispatch Gate
 
 Workstreams:
 
@@ -349,7 +476,7 @@ Acceptance:
 - Focused cases prove correct active job for setup, manifest, route,
   source, test, docs, tool protocol, evidence binding, and contract conflict.
 
-## Phase 6: Setup, Manifest, Scaffold, Profile, And Dev-server Jobs
+## Historical Phase 6: Setup, Manifest, Scaffold, Profile, And Dev-server Jobs
 
 Workstreams:
 
@@ -397,7 +524,7 @@ Acceptance:
 - Next.js, Python, and Rust profile failures map to common recovery jobs rather
   than profile-specific hidden workflows.
 
-## Phase 7: Target Admission, Prioritization, And Focused Edit Recovery
+## Historical Phase 7: Target Admission, Prioritization, And Focused Edit Recovery
 
 Workstreams:
 
@@ -434,7 +561,7 @@ Acceptance:
 - Test-owned failures do not default to source repair unless spec authority
   says implementation is wrong.
 
-## Phase 8: Semantic Failure Report And Verifier Diagnostics
+## Historical Phase 8: Semantic Failure Report And Verifier Diagnostics
 
 Workstreams:
 
@@ -480,7 +607,7 @@ Acceptance:
 - Repair can choose implementation vs test vs setup vs docs target based on
   semantic failure and source-of-truth authority.
 
-## Phase 9: Semantic Repair Plan, Repair Brief, And Action Envelope
+## Historical Phase 9: Semantic Repair Plan, Repair Brief, And Action Envelope
 
 Workstreams:
 
@@ -521,7 +648,7 @@ Acceptance:
 - Tool policy differs correctly for setup, manifest, source, docs, test,
   evidence binding, and tool protocol correction jobs.
 
-## Phase 10: Repair State, Attempt Ledger, And No-progress Recovery
+## Historical Phase 10: Repair State, Attempt Ledger, And No-progress Recovery
 
 Workstreams:
 
@@ -567,7 +694,7 @@ Acceptance:
 - No-progress focused case proves target/role exhaustion and strategy switch.
 - Explicit-stop focused case reports safe-stop payload and attempt ledger.
 
-## Phase 11: Tool Failure Recovery And Protocol Correction
+## Historical Phase 11: Tool Failure Recovery And Protocol Correction
 
 Workstreams:
 
@@ -602,7 +729,7 @@ Acceptance:
   explicit stop.
 - Tool protocol failures are not misreported as source implementation failures.
 
-## Phase 12: Patch Validation And Bounded Mechanical Repair
+## Historical Phase 12: Patch Validation And Bounded Mechanical Repair
 
 Workstreams:
 
@@ -642,7 +769,7 @@ Acceptance:
   verifier evidence.
 - Mechanical adapters are invoked only from admitted repair actions.
 
-## Phase 13: Profile And Language Adapter Parity
+## Historical Phase 13: Profile And Language Adapter Parity
 
 Workstreams:
 
@@ -677,7 +804,7 @@ Acceptance:
 - No profile uses a hidden workflow engine.
 - Profile-specific logic is limited to facts, adapters, and verifier hints.
 
-## Phase 14: Runtime Job Reporting And Eval Lifecycle Funnel
+## Historical Phase 14: Runtime Job Reporting And Eval Lifecycle Funnel
 
 Workstreams:
 
@@ -712,7 +839,7 @@ Acceptance:
 - Recheck reports distinguish existing success, runtime success, dry-run
   placeholder success, and evidence-only success.
 
-## Phase 15: Focused Control-recovery Matrix Completion
+## Historical Phase 15: Focused Control-recovery Matrix Completion
 
 Workstreams:
 
@@ -759,7 +886,7 @@ Acceptance:
 - Every case records terminal state, active job, recovery owner, target/action,
   attempt outcome, evidence binding, completion evidence, and final result.
 
-## Phase 16: Broad Local LLM Migration Sign-off
+## Historical Phase 16: Broad Local LLM Migration Sign-off
 
 Workstreams:
 
@@ -789,7 +916,7 @@ Acceptance:
 - No failure falls back to generic `source_implementation_repair` when a more
   specific owner is available.
 
-## Phase 17: Recovery Rebaseline And Blocking Ledger
+## Historical Phase 17: Recovery Rebaseline And Blocking Ledger
 
 Objective:
 
@@ -844,7 +971,7 @@ Acceptance:
 - "Phase complete" is redefined as "implementation complete plus assigned
   blockers pass their proof gate".
 
-## Phase 18: Focused Sign-off Recovery
+## Historical Phase 18: Focused Sign-off Recovery
 
 Objective:
 
@@ -876,7 +1003,7 @@ Acceptance:
 - No focused row reports raw `rc:*` without diagnostic classification.
 - Recheck output remains consistent with the original focused proof.
 
-## Phase 19: Large Ownership And Evidence Recovery
+## Historical Phase 19: Large Ownership And Evidence Recovery
 
 Objective:
 
@@ -917,7 +1044,14 @@ Acceptance:
 - The sign-off checker no longer flags missing owner/action/target/evidence
   for large rows.
 
-## Phase 20: Final Coverage Closure And Migration Complete Declaration
+## Historical Phase 20: Final Coverage Closure And Migration Complete Declaration
+
+Historical note:
+
+This was the original final-closure phase. Phase20 did not satisfy the
+completion definition; it produced the `migration_not_complete` decision and
+the continuation ledger that led to Phase21+. Read this section as the
+historical closure target that is now superseded by Phase32.
 
 Objective:
 

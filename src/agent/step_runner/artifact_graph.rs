@@ -7,7 +7,7 @@ use crate::agent::step_runner::profile_artifact::{
 use crate::agent::step_runner::{StepKind, StepPlan};
 use std::path::Path;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum ArtifactRole {
     SetupManifest,
     SetupConfig,

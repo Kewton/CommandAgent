@@ -229,10 +229,17 @@ Setup lifecycle extraction is intentionally explicit. Reports may include
 setup bootstrap, stale setup, and blocked setup policy do not collapse into
 generic verifier or source failures.
 Task Contract projection fields are also recorded when present:
-`task_contract_kind`, `task_contract_status`, `behavior_obligation_codes`,
-`behavior_obligation_status`, and `artifact_role_projection_status`. These are
+`task_contract_kind`, `task_contract_status`, `task_contract_lifecycle`,
+`task_contract_request_signals`, `task_contract_constraints`,
+`task_contract_completion_evidence`, `behavior_obligation_codes`,
+`behavior_obligation_status`, `behavior_obligation_owners`,
+`behavior_obligation_paths`, and `artifact_role_projection_status`. These are
 observability fields for planning/recovery attribution. They do not change eval
-success criteria and do not authorize runtime retries.
+success criteria and do not authorize runtime retries. The
+`task_contract_completion_evidence` name is intentionally not prefixed with
+`expected_` so focused assertion fields can use
+`expected_task_contract_completion_evidence` without colliding with observed
+column names.
 
 Profile parity fields are recorded when present so Next.js, Rust, Python,
 docs, and data profiles can be compared through the same schema. They report

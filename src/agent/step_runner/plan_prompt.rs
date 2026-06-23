@@ -13,7 +13,10 @@ pub fn detect_work_intent(goal: &str) -> WorkIntent {
         &["fix", "modify", "update", "repair", "修正", "改修"],
     ) {
         WorkIntent::Modify
-    } else if contains_any(&lower, &["data", "csv", "report", "分析", "整形"]) {
+    } else if contains_any(
+        &lower,
+        &["data", "csv", "json", "schema", "report", "分析", "整形"],
+    ) {
         WorkIntent::Data
     } else if contains_any(
         &lower,

@@ -191,11 +191,13 @@ artifact roles, workspace scope, setup bootstrap, job arbitration, recovery
 targets, semantic repair plans, and attempt ledgers are legitimate control data
 when they stay deterministic and visible:
 
-- A task contract records the goal, required artifacts, constraints, and
-  success checks that are already explicit or deterministically inferred. It
-  also records behavior obligations and artifact-role projections when those
-  can be derived from required artifacts, deliverable kind, or profile
-  obligations.
+- A task contract records the goal, task kind, admission status, lifecycle
+  state, request signals, required artifacts, constraints, and completion
+  evidence expectations that are already explicit or deterministically
+  inferred. It also records behavior obligations and artifact-role projections
+  when those can be derived from required artifacts, deliverable kind, or
+  profile obligations. These fields are contract evidence; they do not execute
+  tools, ask hidden confirmation questions, or add retry authority.
 - An artifact role classifies paths as setup/config, implementation, test,
   documentation, generated output, dependency cache, raw input, or derived
   output before those paths are used for lint, verification, or repair.

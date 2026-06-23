@@ -236,6 +236,38 @@ fn lint_task_contract_projection(
     task_contract: &TaskContract,
 ) -> Result<(), PlanLintError> {
     if task_contract.admission_status != TaskContractAdmissionStatus::Admitted {
+        if task_contract_requires_plan_ownership(plan, task_contract) {
+            let status = task_contract.admission_status.as_str();
+            let reason = format!(
+                "task contract admission is {status}; plan ownership cannot proceed without admitted task-kind authority"
+            );
+            return Err(PlanLintError::ContractViolation {
+                step_id: "plan".to_string(),
+                reason: reason.clone(),
+                evidence: Box::new(
+                    PlanCorrectionEvidence::new("plan_lint.task_contract")
+                        .with_failed_step("plan")
+                        .with_violated_contract("task_contract_admission")
+                        .with_reason_code(format!("task_contract_admission_{status}"))
+                        .with_failure_kind("plan_decomposition_failure")
+                        .with_target_field("intent")
+                        .with_rejected_value(status)
+                        .with_active_job("plan_correction")
+                        .with_recovery_owner("planning")
+                        .with_repair_kind("plan_correction")
+                        .with_repair_action("clarify_task_contract_admission")
+                        .with_required_action(
+                            "clarify intent or split conflicting task/profile/artifact signals before assigning artifact owner steps"
+                        )
+                        .with_disallowed_actions(vec![
+                            "do not proceed as admitted when task kind is partial or conflicting",
+                            "do not add hidden confirmation or provider-specific classification",
+                        ])
+                        .with_eval_report_fields(task_contract.eval_report_fields())
+                        .with_diagnostic(reason),
+                ),
+            });
+        }
         return Ok(());
     }
     let plan_required = plan
@@ -279,16 +311,10 @@ fn lint_task_contract_projection(
     }
 
     for obligation in &task_contract.behavior_obligations {
-        if !matches!(
-            obligation.kind,
-            BehaviorObligationKind::DependencySetup
-                | BehaviorObligationKind::ManifestContract
-                | BehaviorObligationKind::BuildContract
-                | BehaviorObligationKind::DevServerPort
-        ) {
+        if matches!(obligation.kind, BehaviorObligationKind::ProfileContract) {
             continue;
         }
-        if task_manifest_obligation_has_owner(plan, cwd, obligation) {
+        if task_behavior_obligation_has_owner(plan, cwd, obligation) {
             continue;
         }
         let target = obligation
@@ -297,9 +323,10 @@ fn lint_task_contract_projection(
             .cloned()
             .unwrap_or_else(|| "package.json".to_string());
         let reason = format!(
-            "task contract behavior obligation `{}` ({}) has no manifest/setup owner step",
+            "task contract behavior obligation `{}` ({}) has no {} owner step",
             obligation.code,
-            obligation.kind.as_str()
+            obligation.kind.as_str(),
+            obligation.owner
         );
         return Err(PlanLintError::ContractViolation {
             step_id: "plan".to_string(),
@@ -322,11 +349,11 @@ fn lint_task_contract_projection(
                     .with_repair_kind("plan_correction")
                     .with_repair_action("add_behavior_obligation_owner_step")
                     .with_required_action(
-                        "add or correct the setup/manifest step that owns this task behavior obligation; keep verification in a separate verify step"
+                        "add or correct the create/edit/setup/repair step that owns this task behavior obligation; keep verification in a separate verify step"
                     )
                     .with_disallowed_actions(vec![
                         "do not drop the task contract behavior obligation",
-                        "do not satisfy setup or manifest work only from verify/report steps",
+                        "do not satisfy behavior obligations only from verify/report steps",
                     ])
                     .with_eval_report_fields(task_contract.eval_report_fields())
                     .with_diagnostic(reason),
@@ -336,7 +363,17 @@ fn lint_task_contract_projection(
     Ok(())
 }
 
-fn task_manifest_obligation_has_owner(
+fn task_contract_requires_plan_ownership(plan: &StepPlan, task_contract: &TaskContract) -> bool {
+    !plan.required_artifacts.is_empty()
+        || !task_contract.required_artifacts.is_empty()
+        || !task_contract.behavior_obligations.is_empty()
+        || plan
+            .steps
+            .iter()
+            .any(|step| mutation_step_can_own_required_artifact(step.kind))
+}
+
+fn task_behavior_obligation_has_owner(
     plan: &StepPlan,
     cwd: Option<&Path>,
     obligation: &crate::agent::step_runner::task_contract::BehaviorObligation,
@@ -352,21 +389,44 @@ fn task_manifest_obligation_has_owner(
 
     plan.steps
         .iter()
-        .filter(|step| {
-            matches!(
-                step.kind,
-                StepKind::Create | StepKind::Edit | StepKind::Setup | StepKind::Repair
-            )
-        })
+        .filter(|step| behavior_owner_step_kind_matches(step.kind, obligation.kind))
         .any(|step| {
             let instruction = step.instruction.to_ascii_lowercase();
             target_paths.iter().any(|path| {
+                let normalized_path = normalize_plan_path(path);
                 step.expected_paths
                     .iter()
-                    .any(|expected| normalize_plan_path(expected) == normalize_plan_path(path))
+                    .any(|expected| normalize_plan_path(expected) == normalized_path)
                     || instruction.contains(&path.to_ascii_lowercase())
+                    || Path::new(path)
+                        .file_stem()
+                        .and_then(|stem| stem.to_str())
+                        .is_some_and(|stem| instruction.contains(&stem.to_ascii_lowercase()))
             })
         })
+}
+
+fn behavior_owner_step_kind_matches(kind: StepKind, obligation: BehaviorObligationKind) -> bool {
+    match obligation {
+        BehaviorObligationKind::DependencySetup
+        | BehaviorObligationKind::ManifestContract
+        | BehaviorObligationKind::BuildContract
+        | BehaviorObligationKind::DevServerPort => {
+            matches!(
+                kind,
+                StepKind::Create | StepKind::Edit | StepKind::Setup | StepKind::Repair
+            )
+        }
+        BehaviorObligationKind::RouteIntegration
+        | BehaviorObligationKind::ArtifactCompletion
+        | BehaviorObligationKind::TestArtifact
+        | BehaviorObligationKind::DocsLiteral
+        | BehaviorObligationKind::DataSchema
+        | BehaviorObligationKind::SourceImplementation => {
+            matches!(kind, StepKind::Create | StepKind::Edit | StepKind::Repair)
+        }
+        BehaviorObligationKind::ProfileContract => false,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2193,6 +2253,174 @@ mod tests {
             }
             other => panic!("expected task behavior obligation violation, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn task_contract_lint_rejects_conflicting_admission_with_plan_ownership() {
+        let plan = StepPlan {
+            goal: "Investigate why the CLI fails".to_string(),
+            profile: "rust".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::Unknown,
+            required_artifacts: vec!["src/main.rs".to_string()],
+            steps: vec![StepPlanStep {
+                id: "edit-main".to_string(),
+                kind: StepKind::Edit,
+                instruction: "Update src/main.rs.".to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec!["src/main.rs".to_string()],
+                verify: Vec::new(),
+            }],
+        };
+        let contract = crate::agent::step_runner::task_contract::TaskContract::from_goal(
+            "rust",
+            "Investigate why the CLI fails",
+            WorkIntent::Unknown,
+            &["src/main.rs".to_string()],
+            &[],
+        );
+
+        let err = lint_step_plan_with_workspace_obligations_and_task_contract(
+            &plan,
+            None,
+            &[],
+            Some(&contract),
+        )
+        .unwrap_err();
+
+        match err {
+            PlanLintError::ContractViolation {
+                step_id, evidence, ..
+            } => {
+                assert_eq!(step_id, "plan");
+                assert_eq!(
+                    evidence.violated_contract.as_deref(),
+                    Some("task_contract_admission")
+                );
+                assert_eq!(
+                    evidence.reason_code.as_deref(),
+                    Some("task_contract_admission_conflict")
+                );
+                assert!(
+                    evidence
+                        .eval_report_fields
+                        .iter()
+                        .any(|field| field.starts_with("task_contract_request_signals="))
+                );
+            }
+            other => panic!("expected task admission violation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn task_contract_lint_rejects_route_obligation_without_owner() {
+        let plan = StepPlan {
+            goal: "Create app".to_string(),
+            profile: "nextjs".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::New,
+            required_artifacts: Vec::new(),
+            steps: vec![StepPlanStep {
+                id: "create-game".to_string(),
+                kind: StepKind::Create,
+                instruction: "Create components/Game.tsx.".to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec!["components/Game.tsx".to_string()],
+                verify: Vec::new(),
+            }],
+        };
+        let obligation = ProfileObligation {
+            code: "nextjs_route_integration_required".to_string(),
+            message: "route".to_string(),
+            paths: vec!["app/page.tsx".to_string()],
+            expected: Some("route imports Game".to_string()),
+        };
+        let contract = crate::agent::step_runner::task_contract::TaskContract::from_goal(
+            "nextjs",
+            "Create app",
+            WorkIntent::New,
+            &[],
+            &[obligation],
+        );
+
+        let err = lint_step_plan_with_workspace_obligations_and_task_contract(
+            &plan,
+            None,
+            &[],
+            Some(&contract),
+        )
+        .unwrap_err();
+
+        match err {
+            PlanLintError::ContractViolation {
+                step_id, evidence, ..
+            } => {
+                assert_eq!(step_id, "plan");
+                assert_eq!(
+                    evidence.violated_contract.as_deref(),
+                    Some("task_behavior_obligation_plan_projection")
+                );
+                assert_eq!(
+                    evidence.active_job.as_deref(),
+                    Some("route_integration_repair")
+                );
+                assert_eq!(
+                    evidence.recovery_owner.as_deref(),
+                    Some("route_integration")
+                );
+                assert!(
+                    evidence
+                        .eval_report_fields
+                        .iter()
+                        .any(|field| field.starts_with("behavior_obligation_paths="))
+                );
+            }
+            other => panic!("expected route obligation violation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn task_contract_lint_accepts_docs_and_data_obligation_owners() {
+        let plan = StepPlan {
+            goal: "Create docs and schema".to_string(),
+            profile: "generic".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::New,
+            required_artifacts: vec!["README.md".to_string(), "schema/output.json".to_string()],
+            steps: vec![
+                StepPlanStep {
+                    id: "write-docs".to_string(),
+                    kind: StepKind::Create,
+                    instruction: "Create README.md.".to_string(),
+                    expected_result: ExpectedResult::Pass,
+                    expected_paths: vec!["README.md".to_string()],
+                    verify: Vec::new(),
+                },
+                StepPlanStep {
+                    id: "write-schema".to_string(),
+                    kind: StepKind::Create,
+                    instruction: "Create schema/output.json.".to_string(),
+                    expected_result: ExpectedResult::Pass,
+                    expected_paths: vec!["schema/output.json".to_string()],
+                    verify: Vec::new(),
+                },
+            ],
+        };
+        let contract = crate::agent::step_runner::task_contract::TaskContract::from_goal(
+            "generic",
+            "Create docs and schema",
+            WorkIntent::New,
+            &["README.md".to_string(), "schema/output.json".to_string()],
+            &[],
+        );
+
+        lint_step_plan_with_workspace_obligations_and_task_contract(
+            &plan,
+            None,
+            &[],
+            Some(&contract),
+        )
+        .unwrap();
     }
 
     fn plan_with_paths(profile: &str, paths: Vec<&str>) -> StepPlan {

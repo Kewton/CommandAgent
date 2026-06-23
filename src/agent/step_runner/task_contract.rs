@@ -16,7 +16,7 @@ use std::collections::BTreeSet;
 const MAX_RENDERED_ITEMS: usize = 16;
 const MAX_RENDERED_CHARS: usize = 180;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum TaskKind {
     New,
     Modify,
@@ -54,18 +54,22 @@ impl TaskKind {
 #[allow(dead_code)]
 pub(crate) enum TaskContractSource {
     Goal,
+    Intent,
     RequiredArtifact,
     ProfileObligation,
     ArtifactRole,
+    Profile,
 }
 
 impl TaskContractSource {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Goal => "goal",
+            Self::Intent => "intent",
             Self::RequiredArtifact => "required_artifact",
             Self::ProfileObligation => "profile_obligation",
             Self::ArtifactRole => "artifact_role",
+            Self::Profile => "profile",
         }
     }
 }
@@ -77,6 +81,25 @@ pub(crate) enum TaskContractAdmissionStatus {
     Partial,
     Conflict,
     Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TaskContractLifecycleState {
+    Created,
+    Admitted,
+    Projected,
+    Rejected,
+}
+
+impl TaskContractLifecycleState {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Created => "created",
+            Self::Admitted => "admitted",
+            Self::Projected => "projected",
+            Self::Rejected => "rejected",
+        }
+    }
 }
 
 impl TaskContractAdmissionStatus {
@@ -159,6 +182,91 @@ pub(crate) struct BehaviorObligation {
     pub(crate) paths: Vec<String>,
     pub(crate) required_literals: Vec<String>,
     pub(crate) expected: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TaskRequestSignal {
+    pub(crate) code: String,
+    pub(crate) kind: TaskKind,
+    pub(crate) source: TaskContractSource,
+    pub(crate) value: String,
+}
+
+impl TaskRequestSignal {
+    fn new(
+        code: impl Into<String>,
+        kind: TaskKind,
+        source: TaskContractSource,
+        value: impl Into<String>,
+    ) -> Self {
+        Self {
+            code: code.into(),
+            kind,
+            source,
+            value: value.into(),
+        }
+    }
+
+    fn render_summary(&self) -> String {
+        format!(
+            "{}:{}:{}",
+            self.code,
+            self.kind.as_str(),
+            self.source.as_str()
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct TaskContractConstraint {
+    pub(crate) code: String,
+    pub(crate) source: TaskContractSource,
+    pub(crate) value: String,
+}
+
+impl TaskContractConstraint {
+    fn new(code: impl Into<String>, source: TaskContractSource, value: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            source,
+            value: value.into(),
+        }
+    }
+
+    fn render_summary(&self) -> String {
+        format!(
+            "{}:{}:{}",
+            self.code,
+            self.source.as_str(),
+            bounded_value(&self.value)
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ExpectedCompletionEvidence {
+    pub(crate) code: String,
+    pub(crate) source: TaskContractSource,
+    pub(crate) target: String,
+}
+
+impl ExpectedCompletionEvidence {
+    fn new(code: impl Into<String>, source: TaskContractSource, target: impl Into<String>) -> Self {
+        Self {
+            code: code.into(),
+            source,
+            target: target.into(),
+        }
+    }
+
+    fn render_summary(&self) -> String {
+        format!(
+            "{}:{}:{}",
+            self.code,
+            self.source.as_str(),
+            bounded_value(&self.target)
+        )
+    }
 }
 
 impl BehaviorObligation {
@@ -246,6 +354,10 @@ pub(crate) struct TaskContract {
     pub(crate) task_kind: TaskKind,
     pub(crate) source: TaskContractSource,
     pub(crate) admission_status: TaskContractAdmissionStatus,
+    pub(crate) lifecycle_state: TaskContractLifecycleState,
+    pub(crate) request_signals: Vec<TaskRequestSignal>,
+    pub(crate) constraints: Vec<TaskContractConstraint>,
+    pub(crate) expected_completion_evidence: Vec<ExpectedCompletionEvidence>,
     pub(crate) required_artifacts: Vec<String>,
     pub(crate) behavior_obligations: Vec<BehaviorObligation>,
     pub(crate) artifact_roles: Vec<TaskArtifactRoleProjection>,
@@ -283,16 +395,33 @@ impl TaskContract {
 
         let artifact_roles =
             artifact_role_projections(profile, required_artifacts, profile_obligations);
-        let task_kind = if matches!(intent, WorkIntent::Unknown) {
-            infer_task_kind_from_goal(goal)
-        } else {
-            TaskKind::from_intent(intent)
-        };
+        let request_signals =
+            request_signals(profile, goal, intent, required_artifacts, &artifact_roles);
+        let (task_kind, source, admission_status) =
+            admission_from_signals(intent, &request_signals);
+        let lifecycle_state =
+            lifecycle_for_admission(admission_status, !behavior_obligations.is_empty());
+        let constraints = task_constraints(
+            profile,
+            intent,
+            required_artifacts,
+            profile_obligations,
+            &request_signals,
+        );
+        let expected_completion_evidence = expected_completion_evidence(
+            required_artifacts,
+            &behavior_obligations,
+            &artifact_roles,
+        );
         Self {
             profile: profile.to_string(),
             task_kind,
-            source: TaskContractSource::Goal,
-            admission_status: TaskContractAdmissionStatus::Admitted,
+            source,
+            admission_status,
+            lifecycle_state,
+            request_signals,
+            constraints,
+            expected_completion_evidence,
             required_artifacts: dedupe(required_artifacts.iter().cloned()),
             behavior_obligations,
             artifact_roles,
@@ -316,6 +445,40 @@ impl TaskContract {
             format!("task.contract.kind={}", self.task_kind.as_str()),
             format!("task.contract.source={}", self.source.as_str()),
             format!("task.contract.status={}", self.admission_status.as_str()),
+            format!("task.contract.lifecycle={}", self.lifecycle_state.as_str()),
+            format!(
+                "task.contract.request_signals={}",
+                join_or(
+                    &self
+                        .request_signals
+                        .iter()
+                        .map(TaskRequestSignal::render_summary)
+                        .collect::<Vec<_>>(),
+                    "none",
+                )
+            ),
+            format!(
+                "task.contract.constraints={}",
+                join_or(
+                    &self
+                        .constraints
+                        .iter()
+                        .map(TaskContractConstraint::render_summary)
+                        .collect::<Vec<_>>(),
+                    "none",
+                )
+            ),
+            format!(
+                "task.contract.expected_completion_evidence={}",
+                join_or(
+                    &self
+                        .expected_completion_evidence
+                        .iter()
+                        .map(ExpectedCompletionEvidence::render_summary)
+                        .collect::<Vec<_>>(),
+                    "none",
+                )
+            ),
             format!(
                 "task.contract.required_artifacts={}",
                 join_or(&self.required_artifacts, "none")
@@ -365,6 +528,40 @@ impl TaskContract {
         vec![
             format!("task_contract_kind={}", self.task_kind.as_str()),
             format!("task_contract_status={}", self.admission_status.as_str()),
+            format!("task_contract_lifecycle={}", self.lifecycle_state.as_str()),
+            format!(
+                "task_contract_request_signals={}",
+                join_or(
+                    &self
+                        .request_signals
+                        .iter()
+                        .map(TaskRequestSignal::render_summary)
+                        .collect::<Vec<_>>(),
+                    "none",
+                )
+            ),
+            format!(
+                "task_contract_constraints={}",
+                join_or(
+                    &self
+                        .constraints
+                        .iter()
+                        .map(TaskContractConstraint::render_summary)
+                        .collect::<Vec<_>>(),
+                    "none",
+                )
+            ),
+            format!(
+                "task_contract_completion_evidence={}",
+                join_or(
+                    &self
+                        .expected_completion_evidence
+                        .iter()
+                        .map(ExpectedCompletionEvidence::render_summary)
+                        .collect::<Vec<_>>(),
+                    "none",
+                )
+            ),
             format!(
                 "behavior_obligation_codes={}",
                 join_or(
@@ -385,6 +582,32 @@ impl TaskContract {
                 }
             ),
             format!(
+                "behavior_obligation_owners={}",
+                join_or(
+                    &self
+                        .behavior_obligations
+                        .iter()
+                        .map(|obligation| format!("{}:{}", obligation.code, obligation.owner))
+                        .collect::<Vec<_>>(),
+                    "none",
+                )
+            ),
+            format!(
+                "behavior_obligation_paths={}",
+                join_or(
+                    &self
+                        .behavior_obligations
+                        .iter()
+                        .map(|obligation| format!(
+                            "{}:{}",
+                            obligation.code,
+                            join_or(&obligation.paths, "none")
+                        ))
+                        .collect::<Vec<_>>(),
+                    "none",
+                )
+            ),
+            format!(
                 "artifact_role_projection_status={}",
                 if self.artifact_roles.is_empty() {
                     "none"
@@ -394,6 +617,193 @@ impl TaskContract {
             ),
         ]
     }
+}
+
+fn request_signals(
+    profile: &str,
+    goal: &str,
+    intent: WorkIntent,
+    required_artifacts: &[String],
+    artifact_roles: &[TaskArtifactRoleProjection],
+) -> Vec<TaskRequestSignal> {
+    let mut out = Vec::new();
+    if !matches!(intent, WorkIntent::Unknown) {
+        out.push(TaskRequestSignal::new(
+            "explicit_intent",
+            TaskKind::from_intent(intent),
+            TaskContractSource::Intent,
+            intent.as_str(),
+        ));
+    }
+    let goal_kind = infer_task_kind_from_goal(goal);
+    if goal_kind != TaskKind::Unknown {
+        out.push(TaskRequestSignal::new(
+            "goal_keyword",
+            goal_kind,
+            TaskContractSource::Goal,
+            goal,
+        ));
+    }
+    if let Some(artifact_kind) = infer_task_kind_from_artifacts(required_artifacts, artifact_roles)
+    {
+        out.push(TaskRequestSignal::new(
+            "artifact_roles",
+            artifact_kind,
+            TaskContractSource::ArtifactRole,
+            artifact_roles
+                .iter()
+                .map(TaskArtifactRoleProjection::render_summary)
+                .collect::<Vec<_>>()
+                .join("|"),
+        ));
+    }
+    if let Some(profile_kind) = infer_task_kind_from_profile(profile, goal, required_artifacts) {
+        out.push(TaskRequestSignal::new(
+            "profile_goal",
+            profile_kind,
+            TaskContractSource::Profile,
+            profile,
+        ));
+    }
+    out
+}
+
+fn admission_from_signals(
+    intent: WorkIntent,
+    signals: &[TaskRequestSignal],
+) -> (TaskKind, TaskContractSource, TaskContractAdmissionStatus) {
+    if !matches!(intent, WorkIntent::Unknown) {
+        return (
+            TaskKind::from_intent(intent),
+            TaskContractSource::Intent,
+            TaskContractAdmissionStatus::Admitted,
+        );
+    }
+
+    let kinds = signals
+        .iter()
+        .filter_map(|signal| {
+            (signal.kind != TaskKind::Unknown).then_some((signal.kind, signal.source))
+        })
+        .collect::<Vec<_>>();
+    let unique_kinds = kinds.iter().map(|(kind, _)| *kind).collect::<BTreeSet<_>>();
+    match unique_kinds.len() {
+        0 => (
+            TaskKind::Unknown,
+            TaskContractSource::Goal,
+            TaskContractAdmissionStatus::Partial,
+        ),
+        1 => {
+            let (kind, source) = kinds
+                .first()
+                .copied()
+                .unwrap_or((TaskKind::Unknown, TaskContractSource::Goal));
+            (kind, source, TaskContractAdmissionStatus::Admitted)
+        }
+        _ => (
+            TaskKind::Unknown,
+            TaskContractSource::Goal,
+            TaskContractAdmissionStatus::Conflict,
+        ),
+    }
+}
+
+fn lifecycle_for_admission(
+    status: TaskContractAdmissionStatus,
+    has_behavior_projection: bool,
+) -> TaskContractLifecycleState {
+    match status {
+        TaskContractAdmissionStatus::Admitted if has_behavior_projection => {
+            TaskContractLifecycleState::Projected
+        }
+        TaskContractAdmissionStatus::Admitted => TaskContractLifecycleState::Admitted,
+        TaskContractAdmissionStatus::Conflict => TaskContractLifecycleState::Rejected,
+        TaskContractAdmissionStatus::Partial | TaskContractAdmissionStatus::Unknown => {
+            TaskContractLifecycleState::Created
+        }
+    }
+}
+
+fn task_constraints(
+    profile: &str,
+    intent: WorkIntent,
+    required_artifacts: &[String],
+    profile_obligations: &[ProfileObligation],
+    request_signals: &[TaskRequestSignal],
+) -> Vec<TaskContractConstraint> {
+    let mut out = vec![
+        TaskContractConstraint::new("profile", TaskContractSource::Profile, profile),
+        TaskContractConstraint::new("intent", TaskContractSource::Intent, intent.as_str()),
+        TaskContractConstraint::new(
+            "source_authority",
+            TaskContractSource::Goal,
+            if matches!(intent, WorkIntent::Unknown) {
+                "inferred"
+            } else {
+                "explicit_intent"
+            },
+        ),
+    ];
+    if !required_artifacts.is_empty() {
+        out.push(TaskContractConstraint::new(
+            "required_artifacts",
+            TaskContractSource::RequiredArtifact,
+            join_or(required_artifacts, "none"),
+        ));
+    }
+    if !profile_obligations.is_empty() {
+        out.push(TaskContractConstraint::new(
+            "profile_obligations",
+            TaskContractSource::ProfileObligation,
+            profile_obligations
+                .iter()
+                .map(|obligation| obligation.code.clone())
+                .collect::<Vec<_>>()
+                .join("|"),
+        ));
+    }
+    if !request_signals.is_empty() {
+        out.push(TaskContractConstraint::new(
+            "request_signal_count",
+            TaskContractSource::Goal,
+            request_signals.len().to_string(),
+        ));
+    }
+    out
+}
+
+fn expected_completion_evidence(
+    required_artifacts: &[String],
+    behavior_obligations: &[BehaviorObligation],
+    artifact_roles: &[TaskArtifactRoleProjection],
+) -> Vec<ExpectedCompletionEvidence> {
+    let mut out = Vec::new();
+    for artifact in required_artifacts {
+        out.push(ExpectedCompletionEvidence::new(
+            "artifact_exists",
+            TaskContractSource::RequiredArtifact,
+            artifact.clone(),
+        ));
+    }
+    for obligation in behavior_obligations {
+        out.push(ExpectedCompletionEvidence::new(
+            format!("behavior:{}", obligation.code),
+            obligation.source,
+            obligation
+                .expected
+                .clone()
+                .or_else(|| obligation.paths.first().cloned())
+                .unwrap_or_else(|| obligation.kind.as_str().to_string()),
+        ));
+    }
+    for role in artifact_roles {
+        out.push(ExpectedCompletionEvidence::new(
+            format!("artifact_role:{}", role.role.as_str()),
+            role.source,
+            role.path.clone(),
+        ));
+    }
+    out
 }
 
 pub(crate) fn render_task_contract_lines(contract: &TaskContract) -> Vec<String> {
@@ -520,7 +930,7 @@ fn infer_task_kind_from_goal(goal: &str) -> TaskKind {
         TaskKind::Investigation
     } else if contains_any(&lower, &["document", "docs", "readme", "ドキュメント"]) {
         TaskKind::Documentation
-    } else if contains_any(&lower, &["data", "csv", "分析"]) {
+    } else if contains_any(&lower, &["data", "csv", "json", "schema", "分析"]) {
         TaskKind::Data
     } else if contains_any(&lower, &["fix", "modify", "update", "修正", "改修"]) {
         TaskKind::Modify
@@ -528,6 +938,73 @@ fn infer_task_kind_from_goal(goal: &str) -> TaskKind {
         TaskKind::New
     } else {
         TaskKind::Unknown
+    }
+}
+
+fn infer_task_kind_from_artifacts(
+    required_artifacts: &[String],
+    artifact_roles: &[TaskArtifactRoleProjection],
+) -> Option<TaskKind> {
+    if required_artifacts.is_empty() {
+        return None;
+    }
+    let roles = artifact_roles
+        .iter()
+        .map(|projection| projection.role)
+        .collect::<BTreeSet<_>>();
+    if roles.is_empty() {
+        return None;
+    }
+    if roles.iter().all(|role| *role == ArtifactRole::Docs) {
+        return Some(TaskKind::Documentation);
+    }
+    if required_artifacts.iter().all(|path| {
+        matches!(
+            obligation_kind_for_path(path),
+            DeliverableKind::StructuredData | DeliverableKind::Report
+        )
+    }) {
+        return Some(TaskKind::Data);
+    }
+    if roles.iter().any(|role| {
+        matches!(
+            role,
+            ArtifactRole::SetupManifest
+                | ArtifactRole::SetupConfig
+                | ArtifactRole::Entrypoint
+                | ArtifactRole::IntegrationTarget
+                | ArtifactRole::Implementation
+                | ArtifactRole::Test
+        )
+    }) {
+        return Some(TaskKind::New);
+    }
+    None
+}
+
+fn infer_task_kind_from_profile(
+    profile: &str,
+    goal: &str,
+    required_artifacts: &[String],
+) -> Option<TaskKind> {
+    if !matches!(
+        ProfileId::parse(profile).unwrap_or(ProfileId::Generic),
+        ProfileId::NextJs | ProfileId::Rust | ProfileId::Python
+    ) {
+        return None;
+    }
+    let goal_kind = infer_task_kind_from_goal(goal);
+    if goal_kind == TaskKind::New
+        || required_artifacts.iter().any(|path| {
+            matches!(
+                obligation_kind_for_path(path),
+                DeliverableKind::Source | DeliverableKind::SetupManifest | DeliverableKind::Test
+            )
+        })
+    {
+        Some(TaskKind::New)
+    } else {
+        None
     }
 }
 
@@ -689,10 +1166,160 @@ mod tests {
 
         assert!(fields.contains(&"task_contract_kind=documentation".to_string()));
         assert!(fields.contains(&"task_contract_status=admitted".to_string()));
+        assert!(fields.contains(&"task_contract_lifecycle=projected".to_string()));
+        assert!(
+            fields
+                .iter()
+                .any(|field| field.starts_with("task_contract_constraints="))
+        );
+        assert!(
+            fields
+                .iter()
+                .any(|field| field.starts_with("task_contract_completion_evidence="))
+        );
         assert!(
             fields
                 .iter()
                 .any(|field| field.starts_with("behavior_obligation_codes="))
         );
+    }
+
+    #[test]
+    fn projects_lifecycle_constraints_and_completion_evidence() {
+        let contract = TaskContract::from_goal(
+            "nextjs",
+            "Create a Next.js app on port 3011",
+            WorkIntent::New,
+            &["package.json".to_string(), "app/page.tsx".to_string()],
+            &[ProfileObligation {
+                code: "nextjs_dev_port_required".to_string(),
+                message: "dev port".to_string(),
+                paths: vec!["package.json".to_string()],
+                expected: Some("next dev -p 3011".to_string()),
+            }],
+        );
+
+        assert_eq!(
+            contract.lifecycle_state,
+            TaskContractLifecycleState::Projected
+        );
+        assert!(
+            contract
+                .constraints
+                .iter()
+                .any(|constraint| { constraint.code == "profile" && constraint.value == "nextjs" })
+        );
+        assert!(
+            contract
+                .expected_completion_evidence
+                .iter()
+                .any(|evidence| {
+                    evidence.code == "artifact_exists" && evidence.target == "app/page.tsx"
+                })
+        );
+        assert!(
+            contract
+                .expected_completion_evidence
+                .iter()
+                .any(|evidence| {
+                    evidence.code == "behavior:nextjs_dev_port_required"
+                        && evidence.target.contains("3011")
+                })
+        );
+        assert!(
+            contract
+                .render_lines()
+                .iter()
+                .any(|line| line.starts_with("task.contract.expected_completion_evidence="))
+        );
+    }
+
+    #[test]
+    fn explicit_intent_is_admitted_even_when_other_signals_exist() {
+        let contract = TaskContract::from_goal(
+            "generic",
+            "Investigate README docs",
+            WorkIntent::Modify,
+            &["README.md".to_string()],
+            &[],
+        );
+
+        assert_eq!(contract.task_kind, TaskKind::Modify);
+        assert_eq!(contract.source, TaskContractSource::Intent);
+        assert_eq!(
+            contract.admission_status,
+            TaskContractAdmissionStatus::Admitted
+        );
+        assert!(
+            contract.request_signals.iter().any(|signal| {
+                signal.code == "explicit_intent" && signal.kind == TaskKind::Modify
+            })
+        );
+    }
+
+    #[test]
+    fn ambiguous_inferred_request_signals_are_conflict() {
+        let contract = TaskContract::from_goal(
+            "rust",
+            "Investigate why the CLI fails",
+            WorkIntent::Unknown,
+            &["src/main.rs".to_string()],
+            &[],
+        );
+
+        assert_eq!(contract.task_kind, TaskKind::Unknown);
+        assert_eq!(
+            contract.admission_status,
+            TaskContractAdmissionStatus::Conflict
+        );
+        assert_eq!(
+            contract.lifecycle_state,
+            TaskContractLifecycleState::Rejected
+        );
+        assert!(contract.request_signals.iter().any(|signal| {
+            signal.code == "goal_keyword" && signal.kind == TaskKind::Investigation
+        }));
+        assert!(
+            contract
+                .request_signals
+                .iter()
+                .any(|signal| { signal.code == "artifact_roles" && signal.kind == TaskKind::New })
+        );
+    }
+
+    #[test]
+    fn missing_request_signals_are_partial() {
+        let contract =
+            TaskContract::from_goal("generic", "Please handle it", WorkIntent::Unknown, &[], &[]);
+
+        assert_eq!(
+            contract.admission_status,
+            TaskContractAdmissionStatus::Partial
+        );
+        assert_eq!(
+            contract.lifecycle_state,
+            TaskContractLifecycleState::Created
+        );
+    }
+
+    #[test]
+    fn docs_and_data_artifacts_project_request_signals() {
+        let docs = TaskContract::from_goal(
+            "docs",
+            "Write README",
+            WorkIntent::Unknown,
+            &["README.md".to_string()],
+            &[],
+        );
+        let data = TaskContract::from_goal(
+            "data",
+            "Create output schema",
+            WorkIntent::Unknown,
+            &["schema/output.json".to_string()],
+            &[],
+        );
+
+        assert_eq!(docs.task_kind, TaskKind::Documentation);
+        assert_eq!(data.task_kind, TaskKind::Data);
     }
 }

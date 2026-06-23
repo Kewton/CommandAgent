@@ -9,9 +9,10 @@ boundary, it should be split before more behavior is added.
 CommandAgent has one execution engine and several first-class contract
 surfaces around it:
 
-- Task Contract: records the user goal, task kind, required artifacts,
-  behavior obligations, artifact role projections, constraints, success checks,
-  and task scope that later contracts must preserve.
+- Task Contract: records the user goal, task kind, admission status,
+  lifecycle state, request signals, required artifacts, behavior obligations,
+  artifact role projections, deterministic constraints, completion evidence
+  expectations, and task scope that later contracts must preserve.
 - Planning Contract: turns a user goal into explicit step or phase contracts,
   expected artifacts, step ownership, and lintable success conditions.
 - Profile Contract: provides deterministic domain facts, artifact
@@ -108,15 +109,28 @@ expected path belongs to the step that names it. Profile artifact
 classification supplies typed path facts for these checks, but the profile does
 not become a planner.
 
-Task Contract projection is the shared authority that turns required artifacts,
-profile obligations, and deliverable roles into bounded facts such as
-`task.contract.kind`, `task.contract.behavior_obligation.<code>`, and
+Task Contract projection is the shared authority that turns explicit intent,
+goal keywords, required artifacts, profile obligations, and deliverable roles
+into bounded facts such as `task.contract.kind`,
+`task.contract.lifecycle`, `task.contract.request_signals`,
+`task.contract.constraints`,
+`task.contract.expected_completion_evidence`,
+`task.contract.behavior_obligation.<code>`, and
 `task.contract.artifact_roles`. The step runner may include those facts in the
 planning prompt, active step contract, plan-lint evidence, and eval reports.
-It may reject a plan that drops a required task artifact or omits a setup or
-manifest owner for a manifest/setup behavior obligation. It must not use Task
-Contract projection to run tools, add hidden retry authority, or force every
-ultra phase to own every final artifact.
+It may reject a plan that drops a required task artifact, proceeds with a
+partial/conflicting task admission where artifact ownership matters, or omits
+a deterministic behavior-obligation owner for setup, manifest, route, docs,
+data, test, or source obligations. It must not use Task Contract projection to
+run tools, add hidden retry authority, perform semantic confirmation, or force
+every ultra phase to own every final artifact.
+
+Task Contract persistence is bounded. The contract is rendered into generated
+plan prompts, active step facts, plan-lint evidence, saved run artifacts,
+session-visible output, and eval reports. CommandAgent does not maintain a
+separate cross-command task-contract memory; later commands reconstruct the
+contract from public inputs and workspace facts instead of relying on hidden
+state.
 
 Profile-specific planning guidance and profile-specific plan lint are exposed
 through the Profile Contract. The step runner may call the shared profile

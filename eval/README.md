@@ -77,6 +77,15 @@ Supported fields:
 - `expected_terminal_state`
 - `expected_contract_layer`
 - `expected_failure_class`
+- `expected_task_contract_lifecycle`
+- `expected_task_contract_request_signals`
+- `expected_task_contract_constraints`
+- `expected_task_contract_completion_evidence`
+- `expected_behavior_obligation_codes`
+- `expected_behavior_obligation_status`
+- `expected_behavior_obligation_owners`
+- `expected_behavior_obligation_paths`
+- `expected_artifact_role_projection_status`
 - `expected_active_job`
 - `expected_recovery_owner`
 - `expected_dispatch_status`

@@ -62,13 +62,16 @@ to evidence under broad real model runs.
 
 ## Recovery Rules
 
-1. The recovery ledger is the source of truth for Phase 17 onward.
+1. The recovery ledger is the source of truth for Phase17+ blocker execution,
+   subordinate to the coverage table for final row adoption and final row
+   state.
 2. Every blocker must have one owning layer.
 3. Every blocker must have a proof command or focused eval case.
 4. A blocker cannot be closed by documentation alone.
 5. A blocker cannot be closed by CI alone.
 6. A broad eval failure can be accepted only when it is owned, actionable, and
-   explicitly classified as an environment, provider, or model-quality limit.
+   explicitly classified as an environment, provider, or model-throughput
+   limit.
 7. If the sign-off checker reports `fail`, the related phase is blocked unless
    every finding is mapped to a later phase with rationale.
 8. A phase cannot close from a summary paragraph. It must close from a
@@ -81,9 +84,41 @@ to evidence under broad real model runs.
 9. Grouping multiple sign-off findings into one blocker is allowed only when
    the same root cause, owner layer, proof command, and closure condition apply.
    Otherwise the row must be split.
-10. A blocker marked as model-quality, provider, or environment limitation must
+10. A blocker marked as model-throughput, provider, or environment limitation must
     still have owner/action/evidence. Missing ownership or missing evidence is
-    never a model-quality limitation.
+    never a model-throughput limitation.
+
+## Authority Order
+
+For Phase17 and later, read the documents in this order when a conflict is
+found:
+
+1. `docs/eval/legacy-control-stack-coverage-20260621.md` owns final
+   coverage-row adoption and final row state.
+2. This `recovery_plan.md` owns continuation phase gates, recovery rules, and
+   blocker disposition semantics.
+3. Phase-local `row_closure_matrix.md`, `blocking_ledger.md`, and
+   `reconciliation.md` own the execution details for rows assigned to that
+   phase, but they cannot override the coverage table or this recovery plan.
+4. `current_issue_phase_map.md` is a derived navigation map for known issues
+   and planned phases.
+5. Older roadmap phase sections are historical when they conflict with this
+   recovery plan.
+
+Phase20 is therefore a historical checkpoint. It produced the
+`migration_not_complete` decision and the continuation ledger; it is not the
+current migration-complete authority. Phase32 is the current final closure
+phase.
+
+The Anvil source baseline is the coverage-table baseline:
+
+- repository: `/Users/maenokota/share/work/github_kewton/Anvil-develop`
+- HEAD: `b3ca3d330546a10bf90d8dd46bd3e102f1710573`
+- dirty state: dirty at inventory clarification time; fixed in
+  `workspace/mvp/logic/anvil/loadmap2/anvil_source_baseline.md`
+
+Refresh the coverage table first if a later Anvil checkout is used for parity
+claims.
 
 ## Required Reconciliation Chain
 
@@ -134,7 +169,31 @@ Phase 19: Large ownership and evidence recovery
 Phase 20: Final coverage closure and migration-complete declaration
 ```
 
-Phase 20 is the only phase allowed to declare migration complete.
+Phase20 proved that final migration completion could not be declared yet. The
+Phase21 continuation then split `P20-COV-001` into row-level blockers.
+
+The revised continuation flow is:
+
+```text
+Phase 21: Core contract and ownership row-level admission
+Phase 22: C01-C03 task contract, request admission, behavior obligations
+          (completed / closed_proven)
+Phase 23: C04-C06 artifact role, workspace scope, ownership
+Phase 24: C07-C10 artifact ledger, completion evidence, evidence binding,
+          deliverable obligation audit
+Phase 25: C11-C12 active-job arbitration and recovery dispatch gate
+Phase 26: C13-C20 recovery task, setup/profile, semantic repair/action envelope
+Phase 27: C21-C32 target admission, repair lifecycle, verifier, completion,
+          and patch validation
+Phase 28: C33 contract conflict job
+Phase 29: C34-C44 language/profile/tool/workspace/runtime support
+Phase 30: C49-C50 priority decision rows
+Phase 31: P20-LEDGER-001 external timeout proof or explicit limitation
+Phase 32: Final coverage closure and migration-complete decision
+```
+
+Phase32 is now the only phase allowed to declare migration complete. Earlier
+phases can close only their assigned blockers.
 
 ## Phase Exit Gates
 
@@ -143,11 +202,43 @@ Phase 20 is the only phase allowed to declare migration complete.
 | Phase 17 | Every current sign-off finding is mapped to a ledger row, coverage responsibility, downstream phase, and proof command. |
 | Phase 18 | All focused ledger rows assigned to Phase18 are `closed_proven`; focused sign-off has no failed expected assertions or raw diagnostics. |
 | Phase 19 | All large ledger rows assigned to Phase19 are `closed_proven` or `blocked_external` with owner/action/evidence; broad sign-off has no unowned large failure. |
-| Phase 20 | Coverage table has no adopted `Partial` or `Missing`; final broad sign-off exits zero; final report declares migration complete. |
+| Phase 20 | Historical checkpoint: produced the `migration_not_complete` decision and continuation ledger. Superseded by Phase32 for final closure. |
+| Phase 21 | C01-C12 are each `closed_proven`, `excluded_with_rationale`, or `split_forward` with owner, proof command, downstream phase, and closure condition. |
+| Phase 22 | C01-C03 are `closed_proven` or split into narrower same-surface blockers with failed proof evidence. |
+| Phase 23 | C04-C06 are `closed_proven` or split into narrower same-surface blockers with failed proof evidence. |
+| Phase 24 | C07-C10 are `closed_proven` or split into narrower same-surface blockers with failed proof evidence. |
+| Phase 25 | C11-C12 are `closed_proven` or split into narrower same-surface blockers with failed proof evidence. |
+| Phase 26 | C13-C20 are row-level reconciled and proven for recovery task/setup/profile/semantic repair/action-envelope behavior. |
+| Phase 27 | C21-C32 are row-level reconciled and proven for target, verifier, repair lifecycle, completion, and patch behavior. |
+| Phase 28 | C33 contract conflict job is implemented or explicitly excluded with design rationale and proof of safe-stop behavior. |
+| Phase 29 | C34-C44 are row-level reconciled and proven or explicitly limited with owner/action/evidence. |
+| Phase 30 | C49-C50 receive an adoption decision: adopt, partial-adopt with phase assignment, or exclude with design rationale. This decision may be pulled forward before Phase30 if earlier phases would otherwise depend on it. |
+| Phase 31 | P20-LEDGER-001 is converted to `closed_proven` by non-timeboxed proof or carried as an explicit external limitation with owner/action/evidence. |
+| Phase 32 | Coverage table has no unresolved adopted `Partial` or `Missing`; all ledgers are closed, excluded, or accepted external limitations; final broad sign-off exits zero; final report declares the final migration state. |
 
 `blocked_external` is not allowed for missing owner/action/evidence. It is only
 allowed for a provider, model-throughput, network, or environment constraint
 after ownership and evidence are already present.
+
+`blocked_external` is a ledger-level proof disposition, not a coverage-row
+implementation state. By Phase32 it must be converted into one of these
+outcomes:
+
+- `Implemented` coverage with accepted external proof limitation, when the
+  responsibility is implemented but the final proof is blocked by provider,
+  model-throughput, network, or environment conditions.
+- `Excluded` coverage with design rationale, when the responsibility itself
+  will not be migrated.
+
+It must not remain as an excuse for missing owner, missing action, missing
+target, or missing evidence.
+
+The final report must name each accepted external proof limitation and state:
+
+- implemented owner and enforced contract;
+- unavailable proof and why it is external;
+- last attempted proof command or eval root;
+- why the limitation does not hide an Anvil migration gap.
 
 ## If A Phase Does Not Meet Its Exit Gate
 
@@ -166,11 +257,86 @@ failure type to choose one of the following actions.
 | A coverage responsibility remains `Partial` or `Missing` | Continue migration work or explicitly exclude the responsibility with design rationale. | No for Phase20 |
 | Final broad sign-off exits non-zero | Convert every finding into ledger rows and continue Phase18/19-style recovery. | No for Phase20 |
 
-The default action is to keep the current phase open. Creating Phase21 is
-allowed only when the new work is a distinct responsibility class that cannot
-fit Phase18 or Phase19 without making them ambiguous. A Phase21 must be added
-to this roadmap with the same ledger/reconciliation/proof gates before work
-starts.
+The default action is to keep the current phase open. Creating a new phase
+after Phase32 is allowed only when a new distinct responsibility class is
+discovered and the current phase cannot own it without ambiguity. The new
+phase must be added to this roadmap with ledger/reconciliation/proof gates
+before work starts.
+
+`split_forward` closes only the current phase's responsibility to account for
+the discovered failure. It does not close the coverage row or migration. A
+split is valid only when it names the narrower blocker, owner layer, downstream
+phase, failed proof, and closure condition. At Phase32, any `split_forward`
+means the final decision is `migration_not_complete` until the extended phase
+is completed.
+
+## Known Issue To Phase Map
+
+`current_issue_phase_map.md` is the single known-issue-to-phase table for
+Phase22 and later. This recovery plan owns the rules and exit gates; the issue
+map owns the navigational list of KI rows and assigned phases. Do not duplicate
+the KI table here.
+
+## Phase22+ Implementation Contract
+
+Every Phase22+ implementation phase must create its own local execution
+package before changing runtime behavior.
+
+Required and conditional phase-local files:
+
+| file | status | required content |
+| --- | --- | --- |
+| `README.md` | always required | Scope, selected rows, non-goals, owner layers, design alignment, horizontal rollout, exit gate. |
+| `implementation_tasks.md` | always required | Row-level task checklist, docs updates, eval work, verification commands, failure handling. |
+| `concrete_work_plan.md` | always required | Ordered steps, target files/modules, unit tests, focused eval cases, broad sign-off rerun. |
+| `source_alignment_matrix.md` | always required | One row per selected coverage ID mapping Anvil source files, adopted behavior, omitted behavior, CommandAgent target modules, and proof method. |
+| `row_closure_matrix.md` | always required | Coverage row, source mechanism, current status, owner, missing contract, target modules, proof, disposition. |
+| `blocking_ledger.md` | always required | Blocker id, coverage row, owner layer, incomplete contract, suspected module, downstream task, proof command, closure condition, status. |
+| `reconciliation.md` | always required | Source blocker to row to implementation task to proof command to final sign-off chain. |
+| `focused_worklist.md` | conditionally required | Focused eval cases, expected assertion changes, recheck roots. Required only when model-facing behavior changes, focused assertions change, or focused proof is part of the exit gate. |
+| `implementation_report.md` | required at closure | Final row disposition counts, proof results, remaining blockers, review result. |
+
+Minimum row fields:
+
+- coverage id;
+- source mechanism;
+- owner layer;
+- incomplete or failed contract;
+- suspected module family;
+- target files or modules;
+- Anvil source files;
+- adopted behavior;
+- intentionally omitted behavior;
+- expected runtime decision or enforced contract;
+- unit proof command;
+- focused eval proof, if model-facing;
+- broad sign-off dependency;
+- closure condition;
+- final disposition.
+
+Review gate before implementation:
+
+- No selected row may remain grouped only by Phase20 blocker id.
+- No selected row may lack owner, target, proof command, or closure condition.
+- Any row with multiple owners must be split before runtime changes.
+- Any row with no deterministic proof must define a fixture/report proof first.
+- Existing partial code may be cited as context, but not as completion proof.
+
+Review gate before phase closure:
+
+- Every assigned row is `closed_proven`, `excluded_with_rationale`,
+  allowed `blocked_external`, or split to a narrower owned blocker with failed
+  proof evidence.
+- The phase report names the exact proof commands and results.
+- The coverage table is updated only for rows with proof or explicit exclusion.
+- Broad sign-off is rerun after behavior changes.
+- Remaining blockers are not hidden in prose; they appear in a ledger row.
+
+Broad sign-off is a required regression and ownership check after behavior
+changes, and it is mandatory for final Phase32 closure. It is not sufficient
+by itself to close a row. Each row still needs the row-specific proof listed in
+its phase matrix, such as a unit test, deterministic fixture, focused eval, or
+E2E proof.
 
 ## Completion Failure Escalation
 
@@ -211,6 +377,16 @@ There are only three valid end states:
    - final broad sign-off exits non-zero.
 
 Do not use "complete" for the third state, even if CI passes.
+
+Coverage `Partial` and adoption `Partial` are intentionally different:
+
+- Coverage `Partial` means the implementation/proof is incomplete and must
+  become `Implemented` or `Excluded`.
+- Adoption `Partial` means a scoped subset is intentionally adopted. The
+  adopted subset must be split into rows that become `Implemented`; omitted
+  behavior must become `Excluded` with rationale.
+
+Neither form of `Partial` may remain as a final Phase32 state.
 
 ## Non-goals
 

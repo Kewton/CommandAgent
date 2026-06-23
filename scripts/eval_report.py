@@ -118,8 +118,14 @@ def write_summary(path, rows):
         "unknown_diagnostic_count",
         "task_contract_kind",
         "task_contract_status",
+        "task_contract_lifecycle",
+        "task_contract_request_signals",
+        "task_contract_constraints",
+        "task_contract_completion_evidence",
         "behavior_obligation_codes",
         "behavior_obligation_status",
+        "behavior_obligation_owners",
+        "behavior_obligation_paths",
         "artifact_role_projection_status",
         "repair_brief_status",
         "action_envelope_status",
@@ -279,8 +285,18 @@ def recheck(root, cases):
                 "unknown_diagnostic_count": meta.get("unknown_diagnostic_count", ""),
                 "task_contract_kind": meta.get("task_contract_kind", ""),
                 "task_contract_status": meta.get("task_contract_status", ""),
+                "task_contract_lifecycle": meta.get("task_contract_lifecycle", ""),
+                "task_contract_request_signals": meta.get(
+                    "task_contract_request_signals", ""
+                ),
+                "task_contract_constraints": meta.get("task_contract_constraints", ""),
+                "task_contract_completion_evidence": meta.get(
+                    "task_contract_completion_evidence", ""
+                ),
                 "behavior_obligation_codes": meta.get("behavior_obligation_codes", ""),
                 "behavior_obligation_status": meta.get("behavior_obligation_status", ""),
+                "behavior_obligation_owners": meta.get("behavior_obligation_owners", ""),
+                "behavior_obligation_paths": meta.get("behavior_obligation_paths", ""),
                 "artifact_role_projection_status": meta.get("artifact_role_projection_status", ""),
                 "repair_brief_status": meta.get("repair_brief_status", ""),
                 "action_envelope_status": meta.get("action_envelope_status", ""),
@@ -647,7 +663,13 @@ def render_report(rows):
     rollback_reasons = {}
     task_contract_kinds = {}
     task_contract_statuses = {}
+    task_contract_lifecycles = {}
+    task_contract_request_signals = {}
+    task_contract_constraints = {}
+    task_contract_completion_evidence = {}
     behavior_obligation_statuses = {}
+    behavior_obligation_owners = {}
+    behavior_obligation_paths = {}
     artifact_role_projection_statuses = {}
     completion_authority_statuses = {}
     completion_source_of_truths = {}
@@ -800,7 +822,15 @@ def render_report(rows):
         rollback_reason = row.get("rollback_reason", "")
         task_contract_kind = row.get("task_contract_kind", "")
         task_contract_status = row.get("task_contract_status", "")
+        task_contract_lifecycle = row.get("task_contract_lifecycle", "")
+        task_contract_request_signal = row.get("task_contract_request_signals", "")
+        task_contract_constraint = row.get("task_contract_constraints", "")
+        task_contract_completion_evidence_value = row.get(
+            "task_contract_completion_evidence", ""
+        )
         behavior_obligation_status = row.get("behavior_obligation_status", "")
+        behavior_obligation_owner = row.get("behavior_obligation_owners", "")
+        behavior_obligation_path = row.get("behavior_obligation_paths", "")
         artifact_role_projection_status = row.get("artifact_role_projection_status", "")
         matrix_row = row.get("matrix_row", "") or row["case_id"]
         proof_mode = row.get("proof_mode", "") or "unknown"
@@ -1000,9 +1030,36 @@ def render_report(rows):
             task_contract_statuses[task_contract_status] = (
                 task_contract_statuses.get(task_contract_status, 0) + 1
             )
+        if task_contract_lifecycle:
+            task_contract_lifecycles[task_contract_lifecycle] = (
+                task_contract_lifecycles.get(task_contract_lifecycle, 0) + 1
+            )
+        if task_contract_request_signal:
+            task_contract_request_signals[task_contract_request_signal] = (
+                task_contract_request_signals.get(task_contract_request_signal, 0) + 1
+            )
+        if task_contract_constraint:
+            task_contract_constraints[task_contract_constraint] = (
+                task_contract_constraints.get(task_contract_constraint, 0) + 1
+            )
+        if task_contract_completion_evidence_value:
+            task_contract_completion_evidence[task_contract_completion_evidence_value] = (
+                task_contract_completion_evidence.get(
+                    task_contract_completion_evidence_value, 0
+                )
+                + 1
+            )
         if behavior_obligation_status:
             behavior_obligation_statuses[behavior_obligation_status] = (
                 behavior_obligation_statuses.get(behavior_obligation_status, 0) + 1
+            )
+        if behavior_obligation_owner:
+            behavior_obligation_owners[behavior_obligation_owner] = (
+                behavior_obligation_owners.get(behavior_obligation_owner, 0) + 1
+            )
+        if behavior_obligation_path:
+            behavior_obligation_paths[behavior_obligation_path] = (
+                behavior_obligation_paths.get(behavior_obligation_path, 0) + 1
             )
         if artifact_role_projection_status:
             artifact_role_projection_statuses[artifact_role_projection_status] = (
@@ -1328,9 +1385,21 @@ def render_report(rows):
         lines.append(f"- kind={name}: {count}")
     for name, count in sorted(task_contract_statuses.items()):
         lines.append(f"- status={name}: {count}")
+    for name, count in sorted(task_contract_lifecycles.items()):
+        lines.append(f"- lifecycle={name}: {count}")
+    for name, count in sorted(task_contract_request_signals.items()):
+        lines.append(f"- request_signals={name}: {count}")
+    for name, count in sorted(task_contract_constraints.items()):
+        lines.append(f"- constraints={name}: {count}")
+    for name, count in sorted(task_contract_completion_evidence.items()):
+        lines.append(f"- completion_evidence={name}: {count}")
     lines.extend(["", "## Behavior Obligations"])
     for name, count in sorted(behavior_obligation_statuses.items()):
         lines.append(f"- status={name}: {count}")
+    for name, count in sorted(behavior_obligation_owners.items()):
+        lines.append(f"- owners={name}: {count}")
+    for name, count in sorted(behavior_obligation_paths.items()):
+        lines.append(f"- paths={name}: {count}")
     lines.extend(["", "## Artifact Role Projection"])
     for name, count in sorted(artifact_role_projection_statuses.items()):
         lines.append(f"- status={name}: {count}")
