@@ -5,6 +5,9 @@ use crate::agent::step_runner::artifact_completion::ArtifactCompletionJob;
 use crate::agent::step_runner::artifact_graph::{
     ArtifactGraph, ArtifactRole, recovery_target_admissible, role_for_path,
 };
+use crate::agent::step_runner::contract_conflict::{
+    ContractConflictAction, ContractConflictResolution,
+};
 use crate::agent::step_runner::correction_evidence::ContractEvidence;
 use crate::agent::step_runner::recovery_contract;
 use crate::agent::step_runner::repair_action_plan::{
@@ -484,7 +487,10 @@ pub(crate) fn orchestrate_contract_evidence(
     let target_role = target_decision.selected_role;
     let role = target_role.map(|role| role.as_str().to_string());
     let target_admission = target_decision.target_admission_line();
-    let base_explicit_stop_reason = if let Some(reason) = arbitration.explicit_stop_reason.clone() {
+    let contract_conflict_resolution = ContractConflictResolution::from_evidence(evidence);
+    let base_explicit_stop_reason = if let Some(resolution) = &contract_conflict_resolution {
+        resolution.safe_stop_reason.map(str::to_string)
+    } else if let Some(reason) = arbitration.explicit_stop_reason.clone() {
         Some(reason)
     } else if let Some(reason) = target_decision.explicit_stop_reason.clone() {
         Some(reason)
@@ -535,10 +541,13 @@ pub(crate) fn orchestrate_contract_evidence(
     }
     let semantic_plan = SemanticRepairPlan::from_contract_evidence(&semantic_source);
     let selected_failure_cluster = semantic_plan.selected_cluster_label();
-    let semantic_failure_report = merge_lists(
+    let mut semantic_failure_report = merge_lists(
         &SemanticFailureReport::from_contract_evidence(&semantic_source).render_lines(),
         &semantic_plan.render_lines(),
     );
+    if let Some(resolution) = &contract_conflict_resolution {
+        semantic_failure_report = merge_lists(&semantic_failure_report, &resolution.render_lines());
+    }
     let admission = admit_repair_plan(RepairPlanAdmissionInput {
         job,
         action,
@@ -602,7 +611,26 @@ pub(crate) fn orchestrate_contract_evidence(
     let exhausted_clusters = exhausted_clusters_from_evidence(evidence);
     let no_progress_strategy = no_progress_strategy_from_evidence(evidence);
     let repair_state_status = repair_state_status_from_evidence(evidence);
-    let safe_stop_payload = safe_stop_payload_from_evidence(evidence);
+    let mut safe_stop_payload = safe_stop_payload_from_evidence(evidence);
+    if let Some(resolution) = &contract_conflict_resolution
+        && resolution.is_safe_stop()
+        && let Some(reason) = resolution.safe_stop_reason
+    {
+        push_unique_string(
+            &mut safe_stop_payload,
+            format!(
+                "contract_conflict_safe_stop reason={} authority={} sides={}",
+                reason,
+                resolution.authority.as_str(),
+                resolution
+                    .sides
+                    .iter()
+                    .map(|side| side.as_str())
+                    .collect::<Vec<_>>()
+                    .join("|")
+            ),
+        );
+    }
     let eval_report_fields = merge_lists(
         &target_decision.eval_report_fields(),
         &repair_brief.eval_report_fields(),
@@ -658,6 +686,11 @@ pub(crate) fn orchestrate_contract_evidence(
         &eval_report_fields,
         &semantic_eval_report_fields(evidence, &semantic_plan),
     );
+    let eval_report_fields = if let Some(resolution) = &contract_conflict_resolution {
+        merge_lists(&eval_report_fields, &resolution.eval_report_fields())
+    } else {
+        eval_report_fields
+    };
     Some(RecoveryOrchestrationDecision {
         job,
         action,
@@ -982,15 +1015,9 @@ fn active_job_candidates(
             dispatch_priority(RecoveryJobKind::EvidenceBindingRepair),
             "evidence_binding_failure",
         ),
-        Some(code) if code.contains("contract_conflict") => push_active_candidate(
-            &mut candidates,
-            evidence,
-            graph,
-            RecoveryJobKind::ContractConflict,
-            RecoveryActionKind::StopWithStructuredEvidence,
-            dispatch_priority(RecoveryJobKind::ContractConflict),
-            "contract_conflict",
-        ),
+        Some(code) if code.contains("contract_conflict") => {
+            push_contract_conflict_candidate(&mut candidates, evidence, graph)
+        }
         Some(code)
             if !has_explicit_repair_policy
                 && (code.contains("dependency") || code.contains("manifest")) =>
@@ -1040,8 +1067,11 @@ fn active_job_candidates(
         _ => {}
     }
 
+    let contract_conflict_classified = code
+        .as_deref()
+        .is_some_and(|code| code.contains("contract_conflict"));
     match evidence.guard.as_str() {
-        "profile_verification" => push_active_candidate(
+        "profile_verification" if !contract_conflict_classified => push_active_candidate(
             &mut candidates,
             evidence,
             graph,
@@ -1050,7 +1080,7 @@ fn active_job_candidates(
             dispatch_priority(RecoveryJobKind::SourceImplementationRepair),
             "profile_verification_fallback",
         ),
-        "verifier" => push_active_candidate(
+        "verifier" if !contract_conflict_classified => push_active_candidate(
             &mut candidates,
             evidence,
             graph,
@@ -1160,6 +1190,69 @@ fn push_preferred_role_candidate(
         dispatch_priority(job),
         reason,
     );
+}
+
+fn push_contract_conflict_candidate(
+    candidates: &mut Vec<ActiveJobCandidate>,
+    evidence: &ContractEvidence,
+    graph: &ArtifactGraph,
+) {
+    let Some(resolution) = ContractConflictResolution::from_evidence(evidence) else {
+        push_active_candidate(
+            candidates,
+            evidence,
+            graph,
+            RecoveryJobKind::ContractConflict,
+            RecoveryActionKind::StopWithStructuredEvidence,
+            dispatch_priority(RecoveryJobKind::ContractConflict),
+            "contract_conflict_unclassified",
+        );
+        return;
+    };
+    let (job, action, reason) = match resolution.selected_action {
+        ContractConflictAction::EditSourceForDiagnostic => (
+            RecoveryJobKind::SourceImplementationRepair,
+            RecoveryActionKind::EditSourceForDiagnostic,
+            "contract_conflict_source_repair",
+        ),
+        ContractConflictAction::AlignTestAndVerifier => (
+            RecoveryJobKind::TestAlignmentRepair,
+            RecoveryActionKind::AlignTestAndVerifier,
+            "contract_conflict_test_alignment",
+        ),
+        ContractConflictAction::ReplaceInvalidVerifierCommand => (
+            RecoveryJobKind::VerifierContractCorrection,
+            RecoveryActionKind::ReplaceInvalidVerifierCommand,
+            "contract_conflict_verifier_contract_repair",
+        ),
+        ContractConflictAction::StopWithStructuredEvidence => (
+            RecoveryJobKind::ContractConflict,
+            RecoveryActionKind::StopWithStructuredEvidence,
+            "contract_conflict_safe_stop",
+        ),
+    };
+    push_active_candidate(
+        candidates,
+        evidence,
+        graph,
+        job,
+        action,
+        dispatch_priority(job),
+        reason,
+    );
+}
+
+fn job_for_contract_conflict_action(action: ContractConflictAction) -> RecoveryJobKind {
+    match action {
+        ContractConflictAction::EditSourceForDiagnostic => {
+            RecoveryJobKind::SourceImplementationRepair
+        }
+        ContractConflictAction::AlignTestAndVerifier => RecoveryJobKind::TestAlignmentRepair,
+        ContractConflictAction::ReplaceInvalidVerifierCommand => {
+            RecoveryJobKind::VerifierContractCorrection
+        }
+        ContractConflictAction::StopWithStructuredEvidence => RecoveryJobKind::ContractConflict,
+    }
 }
 
 fn job_for_preferred_repair_role(
@@ -1496,6 +1589,11 @@ fn classify_job(evidence: &ContractEvidence) -> RecoveryJobKind {
         Some("tool_args_missing_required_field")
         | Some("tool_args_invalid_json")
         | Some("provider_transport_parse_failure") => RecoveryJobKind::ToolProtocolCorrection,
+        Some(code) if code.contains("contract_conflict") => {
+            ContractConflictResolution::from_evidence(evidence)
+                .map(|resolution| job_for_contract_conflict_action(resolution.selected_action))
+                .unwrap_or(RecoveryJobKind::ContractConflict)
+        }
         Some(code) if code.contains("test") || code.contains("verifier_contract") => {
             RecoveryJobKind::TestAlignmentRepair
         }
@@ -3376,6 +3474,63 @@ mod tests {
             admission.rejection_reason.as_deref(),
             Some("verifier contract authority cannot select artifact mutation")
         );
+    }
+
+    #[test]
+    fn contract_conflict_generated_test_selects_test_alignment_job() {
+        let evidence = ContractEvidence::new("verifier")
+            .with_diagnostic_code("contract_conflict")
+            .with_source_of_truth("generated_test_not_authoritative")
+            .with_candidate_artifacts(["app/page.tsx", "tests/generated.test.ts"]);
+
+        let decision = orchestrate_contract_evidence(&evidence).unwrap();
+
+        assert_eq!(decision.job, RecoveryJobKind::TestAlignmentRepair);
+        assert_eq!(decision.action, RecoveryActionKind::AlignTestAndVerifier);
+        assert_eq!(decision.dispatch_status, DispatchStatus::Selected);
+        assert!(
+            decision.eval_report_fields.iter().any(|field| {
+                field == "contract_conflict_authority=implementation_authoritative"
+            })
+        );
+        assert!(
+            decision
+                .eval_report_fields
+                .iter()
+                .any(|field| { field == "contract_conflict_repair_target_side=test" })
+        );
+        assert!(decision.semantic_failure_report.iter().any(|line| {
+            line.contains("contract_conflict")
+                && line.contains("selected_action=align_test_and_verifier")
+        }));
+    }
+
+    #[test]
+    fn contract_conflict_without_authority_safe_stops() {
+        let evidence = ContractEvidence::new("verifier").with_diagnostic_code("contract_conflict");
+
+        let decision = orchestrate_contract_evidence(&evidence).unwrap();
+
+        assert_eq!(decision.job, RecoveryJobKind::ContractConflict);
+        assert_eq!(
+            decision.action,
+            RecoveryActionKind::StopWithStructuredEvidence
+        );
+        assert_eq!(decision.dispatch_status, DispatchStatus::ExplicitStop);
+        assert_eq!(
+            decision.explicit_stop_reason.as_deref(),
+            Some("contract_conflict_missing_authority_evidence")
+        );
+        assert!(
+            decision
+                .eval_report_fields
+                .iter()
+                .any(|field| { field == "contract_conflict_authority=insufficient_evidence" })
+        );
+        assert!(decision.safe_stop_payload.iter().any(|line| {
+            line.contains("contract_conflict_safe_stop")
+                && line.contains("contract_conflict_missing_authority_evidence")
+        }));
     }
 
     #[test]

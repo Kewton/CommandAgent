@@ -364,6 +364,18 @@ increase retry budgets, or hide continuation. Unknown remains a visible
 terminal state, and raw process-code failures without diagnostics should be
 reported as observation coverage defects.
 
+2026-06-23 amendment: Contract Conflict Boundary is admitted as a narrow part
+of Recovery Orchestration. When deterministic evidence already shows an
+implementation/test/docs/API/verifier-contract conflict, the runtime may
+classify conflict sides, source of truth, authoritative side, repair target
+side, selected conflict action, missing authority evidence, and safe-stop
+reason before rendering the existing bounded recovery task. This boundary may
+route repairable conflicts to existing source, test-alignment, docs, or
+verifier-contract correction actions. It must stop explicitly when authority
+is ambiguous or insufficient. It must not choose authority by path order,
+weaken tests or verifiers, query a semantic sidecar, run tools, increase retry
+budgets, or add provider/model-specific behavior.
+
 ## Non-Decisions
 
 This ADR does not reintroduce:

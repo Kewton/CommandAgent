@@ -115,6 +115,14 @@ def write_summary(path, rows):
         "affected_cases",
         "candidate_artifacts",
         "weak_verifier_reason",
+        "contract_conflict_status",
+        "contract_conflict_sides",
+        "contract_conflict_authority",
+        "contract_conflict_repair_target_side",
+        "contract_conflict_selected_action",
+        "contract_conflict_safe_stop_reason",
+        "contract_conflict_missing_evidence",
+        "contract_conflict_source_of_truth",
         "admitted_cluster_targets",
         "unknown_diagnostic_count",
         "task_contract_kind",
@@ -289,6 +297,24 @@ def recheck(root, cases):
                 "affected_cases": meta.get("affected_cases", ""),
                 "candidate_artifacts": meta.get("candidate_artifacts", ""),
                 "weak_verifier_reason": meta.get("weak_verifier_reason", ""),
+                "contract_conflict_status": meta.get("contract_conflict_status", ""),
+                "contract_conflict_sides": meta.get("contract_conflict_sides", ""),
+                "contract_conflict_authority": meta.get("contract_conflict_authority", ""),
+                "contract_conflict_repair_target_side": meta.get(
+                    "contract_conflict_repair_target_side", ""
+                ),
+                "contract_conflict_selected_action": meta.get(
+                    "contract_conflict_selected_action", ""
+                ),
+                "contract_conflict_safe_stop_reason": meta.get(
+                    "contract_conflict_safe_stop_reason", ""
+                ),
+                "contract_conflict_missing_evidence": meta.get(
+                    "contract_conflict_missing_evidence", ""
+                ),
+                "contract_conflict_source_of_truth": meta.get(
+                    "contract_conflict_source_of_truth", ""
+                ),
                 "admitted_cluster_targets": meta.get("admitted_cluster_targets", ""),
                 "unknown_diagnostic_count": meta.get("unknown_diagnostic_count", ""),
                 "task_contract_kind": meta.get("task_contract_kind", ""),
@@ -662,6 +688,12 @@ def render_report(rows):
     affected_cases = {}
     candidate_artifacts = {}
     weak_verifier_reasons = {}
+    contract_conflict_statuses = {}
+    contract_conflict_authorities = {}
+    contract_conflict_target_sides = {}
+    contract_conflict_actions = {}
+    contract_conflict_safe_stop_reasons = {}
+    contract_conflict_sources = {}
     admitted_cluster_targets = {}
     unknown_diagnostic_total = 0
     tool_protocol_statuses = {}
@@ -834,6 +866,16 @@ def render_report(rows):
         affected_case = row.get("affected_cases", "")
         candidate_artifact = row.get("candidate_artifacts", "")
         weak_verifier_reason = row.get("weak_verifier_reason", "")
+        contract_conflict_status = row.get("contract_conflict_status", "")
+        contract_conflict_authority = row.get("contract_conflict_authority", "")
+        contract_conflict_target_side = row.get(
+            "contract_conflict_repair_target_side", ""
+        )
+        contract_conflict_action = row.get("contract_conflict_selected_action", "")
+        contract_conflict_safe_stop_reason = row.get(
+            "contract_conflict_safe_stop_reason", ""
+        )
+        contract_conflict_source = row.get("contract_conflict_source_of_truth", "")
         admitted_targets = row.get("admitted_cluster_targets", "")
         unknown_diagnostic_count = row.get("unknown_diagnostic_count", "")
         tool_protocol_status = row.get("tool_protocol_status", "")
@@ -956,6 +998,33 @@ def render_report(rows):
         if weak_verifier_reason:
             weak_verifier_reasons[weak_verifier_reason] = (
                 weak_verifier_reasons.get(weak_verifier_reason, 0) + 1
+            )
+        if contract_conflict_status:
+            contract_conflict_statuses[contract_conflict_status] = (
+                contract_conflict_statuses.get(contract_conflict_status, 0) + 1
+            )
+        if contract_conflict_authority:
+            contract_conflict_authorities[contract_conflict_authority] = (
+                contract_conflict_authorities.get(contract_conflict_authority, 0) + 1
+            )
+        if contract_conflict_target_side:
+            contract_conflict_target_sides[contract_conflict_target_side] = (
+                contract_conflict_target_sides.get(contract_conflict_target_side, 0) + 1
+            )
+        if contract_conflict_action:
+            contract_conflict_actions[contract_conflict_action] = (
+                contract_conflict_actions.get(contract_conflict_action, 0) + 1
+            )
+        if contract_conflict_safe_stop_reason:
+            contract_conflict_safe_stop_reasons[contract_conflict_safe_stop_reason] = (
+                contract_conflict_safe_stop_reasons.get(
+                    contract_conflict_safe_stop_reason, 0
+                )
+                + 1
+            )
+        if contract_conflict_source:
+            contract_conflict_sources[contract_conflict_source] = (
+                contract_conflict_sources.get(contract_conflict_source, 0) + 1
             )
         if admitted_targets:
             admitted_cluster_targets[admitted_targets] = (
@@ -1372,6 +1441,29 @@ def render_report(rows):
     lines.extend(["", "## Weak Verifier Reasons"])
     for name, count in sorted(weak_verifier_reasons.items()):
         lines.append(f"- {name}: {count}")
+    lines.extend(["", "## Contract Conflict Decisions"])
+    if (
+        contract_conflict_statuses
+        or contract_conflict_authorities
+        or contract_conflict_actions
+        or contract_conflict_target_sides
+        or contract_conflict_safe_stop_reasons
+        or contract_conflict_sources
+    ):
+        for name, count in sorted(contract_conflict_statuses.items()):
+            lines.append(f"- status={name}: {count}")
+        for name, count in sorted(contract_conflict_authorities.items()):
+            lines.append(f"- authority={name}: {count}")
+        for name, count in sorted(contract_conflict_target_sides.items()):
+            lines.append(f"- repair_target_side={name}: {count}")
+        for name, count in sorted(contract_conflict_actions.items()):
+            lines.append(f"- selected_action={name}: {count}")
+        for name, count in sorted(contract_conflict_safe_stop_reasons.items()):
+            lines.append(f"- safe_stop_reason={name}: {count}")
+        for name, count in sorted(contract_conflict_sources.items()):
+            lines.append(f"- source_of_truth={name}: {count}")
+    else:
+        lines.append("- none")
     lines.extend(["", "## Admitted Cluster Targets"])
     for name, count in sorted(admitted_cluster_targets.items()):
         lines.append(f"- {name}: {count}")

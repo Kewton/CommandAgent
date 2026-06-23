@@ -45,6 +45,12 @@ surfaces around it:
   repair action plan status, attempt outcome, evidence runner status, verifier
   rerun result, explicit stop reason, and completion source. It does not select
   jobs, run verifiers, repair files, or change success criteria.
+- Contract Conflict Boundary: classifies already detected implementation,
+  test, docs/API, or verifier-contract conflicts into a bounded authority
+  decision. It records the conflict sides, authoritative side, repair target
+  side, selected action, missing authority evidence, source of truth, and
+  safe-stop reason. It does not resolve ambiguity by path order, run tools, or
+  add retry authority.
 - Execution Contract: gives the minimal loop one clear executable task, a tool
   policy, path safety, observations, and bounded completion guards.
 - Recovery Task Contract: turns a classified deterministic failure into a clear
@@ -72,8 +78,8 @@ reason, candidate jobs, tie-break reason, completion evidence, evidence
 binding, deliverable obligations, repair action plan, semantic failure report,
 repair job state, verifier diagnostic payload, diagnostic code,
 observed/expected pairs, affected cases, preferred repair role, weak verifier
-reason, admitted cluster targets, patch validation, eval report fields, rerun
-authority, and attempt-ledger context.
+reason, admitted cluster targets, contract conflict decision fields, patch
+validation, eval report fields, rerun authority, and attempt-ledger context.
 This lets Recovery Orchestration Contract choose the correct bounded path
 before Recovery Task Contract, Setup Bootstrap, or verifier-owned setup
 recovery delegates execution to the minimal loop.
@@ -168,6 +174,23 @@ plan lint failure already knows enough to classify the blocker, map it to the
 ArtifactGraph, admit the target, prioritize candidates, select one allowed
 repair action, project tool policy, and name disallowed actions and rerun
 authority.
+
+Contract conflicts are resolved inside Recovery Orchestration as a decision
+boundary, not as a separate engine. When deterministic evidence says that an
+implementation, test, docs/API, or verifier contract disagree, the
+contract-conflict classifier first separates the authoritative side from the
+side that may be repaired. A generated test without binding may select test
+alignment instead of source repair. A pre-existing in-scope test or bound
+docs/API contract may select source implementation repair. A weak or
+self-referential verifier routes to verifier contract correction. Ambiguous or
+insufficient authority becomes an explicit structured stop. These decisions are
+rendered through fields such as `contract_conflict_status`,
+`contract_conflict_sides`, `contract_conflict_authority`,
+`contract_conflict_repair_target_side`,
+`contract_conflict_selected_action`,
+`contract_conflict_safe_stop_reason`,
+`contract_conflict_missing_evidence`, and
+`contract_conflict_source_of_truth`.
 
 Completion evidence and evidence binding are part of this visible contract
 surface. Completion evidence records whether a repository edit, verifier exit,

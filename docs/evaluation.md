@@ -126,6 +126,18 @@ failure.
 Old eval roots that do not have terminal observation fields remain readable;
 the report backfills conservative values from `reason`.
 
+Contract-conflict reports may include C33 fields when deterministic evidence
+shows that implementation, test, docs/API, or verifier contracts disagree:
+`contract_conflict_status`, `contract_conflict_sides`,
+`contract_conflict_authority`, `contract_conflict_repair_target_side`,
+`contract_conflict_selected_action`,
+`contract_conflict_safe_stop_reason`,
+`contract_conflict_missing_evidence`, and
+`contract_conflict_source_of_truth`. These fields explain which side is
+authoritative, which side may be repaired, or why the runtime explicitly
+stopped. They are report and repair-contract data; eval must not use them to
+retry a case or reinterpret an ambiguous stop as success.
+
 Phase 14 eval output also includes a runtime job report projection. The fields
 are `lifecycle_stage`, `active_owner`, `selected_action`,
 `target_admission_status`, `repair_action_plan_status`, and

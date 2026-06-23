@@ -1,0 +1,48 @@
+id: phase28-weak-verifier-contract
+title: Contract conflict routes weak verifier to verifier contract correction
+profile: docs
+style: default
+mode: plan-run
+intent: modify
+prompt: "Classify a weak verifier contract instead of mutating source."
+matrix_row: C33-weak-verifier-contract
+proof_mode: deterministic_fixture
+fixture_reason: rc:1
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  diagnostic_code: contract_conflict
+  diagnostic_failure_kind: contract_conflict
+  semantic_failure_kind: verifier_contract_failure
+  semantic_cluster_source_of_truth: verifier_contract
+  active_job: verifier_contract_correction
+  recovery_owner: verifier_contract
+  loop_control_action: run_bounded_repair_task
+  dispatch_status: selected
+  repair_action: replace_invalid_verifier_command
+  tool_policy: read_only
+  weak_verifier_reason: self_referential_verifier
+  contract_conflict_status: resolved
+  contract_conflict_sides: implementation|verifier_contract
+  contract_conflict_authority: verifier_contract_limited
+  contract_conflict_repair_target_side: verifier_contract
+  contract_conflict_selected_action: replace_invalid_verifier_command
+  contract_conflict_safe_stop_reason: none
+  contract_conflict_missing_evidence: none
+  contract_conflict_source_of_truth: verifier_contract
+expected_terminal_state: verifier_command_failed
+expected_contract_layer: verification_contract
+expected_active_job: verifier_contract_correction
+expected_recovery_owner: verifier_contract
+expected_loop_control_action: run_bounded_repair_task
+expected_dispatch_status: selected
+expected_repair_action: replace_invalid_verifier_command
+expected_weak_verifier_reason: self_referential_verifier
+expected_contract_conflict_status: resolved
+expected_contract_conflict_sides: implementation|verifier_contract
+expected_contract_conflict_authority: verifier_contract_limited
+expected_contract_conflict_repair_target_side: verifier_contract
+expected_contract_conflict_selected_action: replace_invalid_verifier_command
+expected_contract_conflict_safe_stop_reason: none
+expected_contract_conflict_missing_evidence: none
+expected_contract_conflict_source_of_truth: verifier_contract

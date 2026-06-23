@@ -124,6 +124,14 @@ Supported fields:
 - `expected_mechanical_adapter_action`
 - `expected_rollback_admission_status`
 - `expected_rollback_reason`
+- `expected_contract_conflict_status`
+- `expected_contract_conflict_sides`
+- `expected_contract_conflict_authority`
+- `expected_contract_conflict_repair_target_side`
+- `expected_contract_conflict_selected_action`
+- `expected_contract_conflict_safe_stop_reason`
+- `expected_contract_conflict_missing_evidence`
+- `expected_contract_conflict_source_of_truth`
 
 Reports render `expected_assertion_status`,
 `expected_assertion_count`, and `expected_assertion_failures`. Dry runs mark

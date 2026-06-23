@@ -4,6 +4,7 @@ pub(crate) mod artifact_graph;
 pub(crate) mod artifact_ledger;
 pub(crate) mod artifact_ownership;
 pub(crate) mod completion_evidence;
+pub(crate) mod contract_conflict;
 pub mod correction_evidence;
 pub(crate) mod deliverable_obligation;
 pub mod evidence;

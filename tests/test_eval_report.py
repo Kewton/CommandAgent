@@ -263,6 +263,54 @@ class EvalReportCategorizeTests(unittest.TestCase):
         )
         self.assertEqual(expected["rollback_admission_status"], "rejected")
 
+    def test_phase28_expected_fields_are_parsed_for_contract_conflict(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            case_path = pathlib.Path(tmp) / "case.yaml"
+            case_path.write_text(
+                "\n".join(
+                    [
+                        "id: phase28-field-parse",
+                        "profile: rust",
+                        "style: default",
+                        "prompt: test",
+                        "expected_contract_conflict_status: resolved",
+                        "expected_contract_conflict_sides: implementation|test",
+                        "expected_contract_conflict_authority: test_authoritative",
+                        "expected_contract_conflict_repair_target_side: implementation",
+                        "expected_contract_conflict_selected_action: edit_source_for_diagnostic",
+                        "expected_contract_conflict_safe_stop_reason: none",
+                        "expected_contract_conflict_missing_evidence: none",
+                        "expected_contract_conflict_source_of_truth: test_contract_and_original_verifier",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            parsed = eval_case_schema.read_eval_case(case_path)
+
+        expected = parsed["expected_fields"]
+        self.assertEqual(expected["contract_conflict_status"], "resolved")
+        self.assertEqual(
+            expected["contract_conflict_sides"], "implementation|test"
+        )
+        self.assertEqual(
+            expected["contract_conflict_authority"], "test_authoritative"
+        )
+        self.assertEqual(
+            expected["contract_conflict_repair_target_side"], "implementation"
+        )
+        self.assertEqual(
+            expected["contract_conflict_selected_action"],
+            "edit_source_for_diagnostic",
+        )
+        self.assertEqual(expected["contract_conflict_safe_stop_reason"], "none")
+        self.assertEqual(expected["contract_conflict_missing_evidence"], "none")
+        self.assertEqual(
+            expected["contract_conflict_source_of_truth"],
+            "test_contract_and_original_verifier",
+        )
+
     def test_completion_authority_fields_classify_missing_evidence(self):
         observation = eval_failure_observation.normalize_observation(
             {
@@ -733,6 +781,12 @@ class EvalReportCategorizeTests(unittest.TestCase):
                     "affected_cases": "Write.path",
                     "candidate_artifacts": "src/main.rs",
                     "weak_verifier_reason": "source_grep_verifies_text_not_behavior",
+                    "contract_conflict_status": "resolved",
+                    "contract_conflict_authority": "test_authoritative",
+                    "contract_conflict_repair_target_side": "implementation",
+                    "contract_conflict_selected_action": "edit_source_for_diagnostic",
+                    "contract_conflict_safe_stop_reason": "none",
+                    "contract_conflict_source_of_truth": "test_contract_and_original_verifier",
                     "admitted_cluster_targets": "src/main.rs",
                     "unknown_diagnostic_count": "0",
                     "runtime_job_kind": "tool_protocol_correction",
@@ -770,6 +824,15 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertIn("- src/main.rs: 1", report)
         self.assertIn("## Weak Verifier Reasons", report)
         self.assertIn("- source_grep_verifies_text_not_behavior: 1", report)
+        self.assertIn("## Contract Conflict Decisions", report)
+        self.assertIn("- status=resolved: 1", report)
+        self.assertIn("- authority=test_authoritative: 1", report)
+        self.assertIn("- repair_target_side=implementation: 1", report)
+        self.assertIn("- selected_action=edit_source_for_diagnostic: 1", report)
+        self.assertIn("- safe_stop_reason=none: 1", report)
+        self.assertIn(
+            "- source_of_truth=test_contract_and_original_verifier: 1", report
+        )
         self.assertIn("## Admitted Cluster Targets", report)
         self.assertIn("- src/main.rs: 1", report)
         self.assertIn("## Unknown Diagnostic Count", report)
