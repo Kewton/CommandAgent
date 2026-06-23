@@ -197,7 +197,7 @@ blockers. The remaining known work is assigned as follows:
 | Phase28 | P20-COV-004 / C33 | completed / closed_proven: contract conflict job |
 | Phase29 | P20-COV-005 / C34-C44 | completed / closed_proven: language/profile/tool/workspace/runtime-support surface |
 | Phase30 | P20-COV-006 / C49-C50 | completed / closed_excluded: quality confirmation and slash/plan UI helper priority decisions |
-| Phase31 | P20-LEDGER-001 / P17-L001 | external timeout proof or explicit limitation |
+| Phase31 | P20-LEDGER-001 / P17-L001 | completed / closed_proven: fresh no-timeout large proof root and broad sign-off |
 | Phase32 | final closure | final coverage closure, broad sign-off, migration decision |
 
 Detailed issue mapping is recorded in `current_issue_phase_map.md`.

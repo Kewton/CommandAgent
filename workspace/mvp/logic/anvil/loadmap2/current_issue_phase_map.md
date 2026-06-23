@@ -38,7 +38,7 @@ The source baseline is the coverage-table baseline:
 | Phase28 | `P20-COV-004` | Closed C33 contract conflict job and Phase27 conflict-dependent branches with focused C33 proof. |
 | Phase29 | `P20-COV-005` | Close C34-C44 cross-profile/runtime-support responsibilities. |
 | Phase30 | `P20-COV-006` | Closed C49-C50 priority decisions as excluded legacy advisory/UI surfaces. |
-| Phase31 | `P20-LEDGER-001` | Resolve large timeout proof as proven or explicit external limitation. |
+| Phase31 | `P20-LEDGER-001` | Closed large timeout proof with a fresh no-timeout large root. |
 | Phase32 | final closure | Reconcile coverage, sign-off, and final migration state. |
 
 ## Issue Map
@@ -54,7 +54,7 @@ The source baseline is the coverage-table baseline:
 | KI-007 | closed_proven | P20-COV-004 | C33 | Contract conflict job is implemented with authority decision, repair-target-side projection, and ambiguous/insufficient-authority safe stop. | Phase28 | `cargo test contract_conflict`, `cargo test recovery_orchestration`, focused fixture root `eval/runs/loadmap2-phase28-contract-conflict-fixtures/20260623T152521`, broad sign-off |
 | KI-008 | closed_proven | P20-COV-005 | C34-C44 | Language adapters, tool policy/failure recovery, command classification, workspace walk, job reporting, scaffold/data/docs support, answer-mode gating, lifecycle, and provider boundary are implemented as bounded runtime-support projections. | Phase29 | targeted Rust/Python tests, focused fixture root `eval/runs/loadmap2-phase29-runtime-support-fixtures/20260623T161335`, broad sign-off |
 | KI-009 | closed_excluded | P20-COV-006 | C49-C50 | Quality confirmation and slash/plan UI helper rows were reviewed in Phase30 and excluded as legacy advisory/UI surfaces. Existing CommandAgent eval taxonomy and CLI/slash parser remain native responsibilities, not Anvil compatibility ports. | Phase30 | coverage decision update, Phase30 source alignment, `git diff --check`, `python3 tests/test_eval_report.py`, `cargo test slash_command --lib` |
-| KI-010 | open | P20-LEDGER-001 | P17-L001 | Large timeout rows are owned/evidence-bound but not pure completion proof. | Phase31 | non-timeboxed successful proof or explicit external limitation |
+| KI-010 | closed_proven | P20-LEDGER-001 | P17-L001 | Large timeout rows are closed by a fresh no-timeout large proof root. | Phase31 | `eval/runs/loadmap2-phase31-large-non-timeboxed/20260623T174624`, large recheck, broad sign-off pass |
 | KI-011 | open | final closure | all adopted rows | Final migration state is blocked until adopted rows are implemented or explicitly excluded. | Phase32 | final broad sign-off pass and final migration decision report |
 
 ## Minimum Internal Split
@@ -212,7 +212,7 @@ Proof:
 
 | row | minimum blocker | expected proof family |
 | --- | --- | --- |
-| P17-L001 | Large timeout proof remains external-limited unless a non-timeboxed run proves completion. | non-timeboxed proof root or explicit limitation report |
+| P17-L001 | Large timeout proof required a fresh non-timeboxed run. | closed_proven by `eval/runs/loadmap2-phase31-large-non-timeboxed/20260623T174624`, recheck, and broad sign-off |
 
 ### Phase32: Final Closure
 

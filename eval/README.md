@@ -198,3 +198,8 @@ python3 scripts/eval_signoff.py --require-recheck \
 The sign-off script is report-only. It reads existing summary artifacts and
 flags unowned failures, raw diagnostics, failed focused assertions, and large
 failures that are missing owner/action/target/evidence fields.
+
+Large proof runs that are intended to close an eval-timeout blocker may use
+`scripts/eval_large_tasks.sh --no-timeout`. This must be called explicitly and
+the resulting root must record `timeout_mode=none`; normal broad sign-off should
+continue to use bounded runs unless a phase plan requires non-timeboxed proof.

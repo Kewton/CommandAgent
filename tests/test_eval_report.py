@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import pathlib
 import tempfile
 import unittest
@@ -430,6 +431,70 @@ class EvalReportCategorizeTests(unittest.TestCase):
             observation["completion_authority_status"], "stale_evidence"
         )
         self.assertEqual(observation["stale_evidence"], "kind=repo_edit target=src/lib.rs status=stale")
+
+    def test_recheck_reads_indented_repair_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            run_dir = root / "large-fastapi-app-modify" / "run-1"
+            repairs = run_dir / "workspace" / ".commandagent" / "repairs"
+            repairs.mkdir(parents=True)
+            (run_dir / "stdout.txt").write_text("", encoding="utf-8")
+            (run_dir / "stderr.txt").write_text(
+                "ERROR: step verify-tests failed verification\n",
+                encoding="utf-8",
+            )
+            (repairs / "repair.md").write_text(
+                "\n".join(
+                    [
+                        "Contract correction evidence:",
+                        "  - diagnostic_code: fastapi_response_mismatch",
+                        "  - target_path: app/main.py",
+                        "  - repair_target: app/main.py",
+                        "  - active_job: source_implementation_repair",
+                        "  - artifact_role: entrypoint",
+                        "  - repair_action: repair_source_error",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (run_dir / "meta.json").write_text(
+                json.dumps(
+                    {
+                        "case_id": "large-fastapi-app-modify",
+                        "run_index": 1,
+                        "rc": 1,
+                        "success": False,
+                        "elapsed_ms": 1,
+                        "success_check_reason": "rc:1",
+                        "matrix_row": "large-fastapi-app-modify",
+                        "proof_mode": "real_llm",
+                        "dry_run": False,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            rows, _ = eval_report.recheck(
+                root,
+                {
+                    "large-fastapi-app-modify": {
+                        "required_paths": [],
+                        "must_include": {},
+                        "type": "semantic",
+                        "matrix_row": "large-fastapi-app-modify",
+                        "proof_mode": "real_llm",
+                    }
+                },
+            )
+
+        row = rows[0]
+        self.assertEqual(row["diagnostic_code"], "fastapi_response_mismatch")
+        self.assertEqual(row["target_path"], "app/main.py")
+        self.assertEqual(row["terminal_state"], "verifier_command_failed")
+        self.assertEqual(row["evidence_binding_status"], "bound")
+        self.assertEqual(row["completion_evidence_status"], "failed")
 
     def test_artifact_ledger_signal_fields_are_extracted(self):
         observation = eval_failure_observation.normalize_observation(

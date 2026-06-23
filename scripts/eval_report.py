@@ -12,6 +12,7 @@ if str(SCRIPT_DIR) not in sys.path:
 from eval_failure_observation import (  # noqa: E402
     OBSERVATION_FIELD_NAMES,
     category_for_reason,
+    contract_value,
     contract_layer_for_reason,
     normalize_observation,
 )
@@ -69,6 +70,19 @@ def read_summary(path):
         return list(csv.DictReader(handle, delimiter="\t"))
 
 
+def failure_evidence(run_dir):
+    parts = []
+    for name in ["stdout.txt", "stderr.txt"]:
+        path = run_dir / name
+        if path.exists():
+            parts.append(path.read_text(encoding="utf-8", errors="replace"))
+    repairs_dir = run_dir / "workspace" / ".commandagent" / "repairs"
+    if repairs_dir.is_dir():
+        for path in sorted(repairs_dir.glob("*.md")):
+            parts.append(path.read_text(encoding="utf-8", errors="replace"))
+    return "\n".join(parts)
+
+
 def write_summary(path, rows):
     fieldnames = [
         "case_id",
@@ -79,6 +93,8 @@ def write_summary(path, rows):
         "reason",
         "failure_category",
         "contract_layer",
+        "timeout_mode",
+        "effective_timeout_secs",
         *MATRIX_FIELD_NAMES,
         *OBSERVATION_FIELD_NAMES,
         *RUNTIME_JOB_REPORT_FIELD_NAMES,
@@ -240,6 +256,7 @@ def recheck(root, cases):
     rows = []
     for meta_path in sorted(root.glob("*/*/meta.json")):
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        evidence = failure_evidence(meta_path.parent)
         case = cases.get(
             meta["case_id"],
             {"required_paths": [], "must_include": {}, "type": "semantic"},
@@ -274,6 +291,12 @@ def recheck(root, cases):
                 "reason": reason,
                 "failure_category": categorize(reason),
                 "contract_layer": contract_layer(reason),
+                "timeout_mode": meta.get("timeout_mode", ""),
+                "effective_timeout_secs": (
+                    ""
+                    if meta.get("effective_timeout_secs") is None
+                    else str(meta.get("effective_timeout_secs", ""))
+                ),
                 "matrix_row": meta.get("matrix_row", case.get("matrix_row", meta["case_id"])),
                 "proof_mode": meta.get("proof_mode", case.get("proof_mode", "real_llm")),
                 "active_job": meta.get("active_job", derive_active_job(reason)),
@@ -290,13 +313,33 @@ def recheck(root, cases):
                 "dispatch_reason": meta.get("dispatch_reason", ""),
                 "candidate_jobs": meta.get("candidate_jobs", ""),
                 "tie_break_reason": meta.get("tie_break_reason", ""),
-                "target_path": meta.get("target_path", first_reason_target(reason)),
-                "target_role": meta.get("target_role", artifact_role_for_path(first_reason_target(reason))),
+                "target_path": (
+                    meta.get("target_path")
+                    or contract_value(evidence, "repair_target")
+                    or contract_value(evidence, "target_path")
+                    or first_reason_target(reason)
+                ),
+                "target_role": (
+                    meta.get("target_role")
+                    or contract_value(evidence, "artifact_role")
+                    or artifact_role_for_path(first_reason_target(reason))
+                ),
                 "target_candidate_count": meta.get("target_candidate_count", ""),
                 "target_admitted_count": meta.get("target_admitted_count", ""),
                 "target_rejected_count": meta.get("target_rejected_count", ""),
-                "selected_target": meta.get("selected_target", meta.get("target_path", first_reason_target(reason))),
-                "selected_target_role": meta.get("selected_target_role", meta.get("target_role", artifact_role_for_path(first_reason_target(reason)))),
+                "selected_target": (
+                    meta.get("selected_target")
+                    or contract_value(evidence, "repair_target")
+                    or contract_value(evidence, "target_path")
+                    or meta.get("target_path")
+                    or first_reason_target(reason)
+                ),
+                "selected_target_role": (
+                    meta.get("selected_target_role")
+                    or contract_value(evidence, "artifact_role")
+                    or meta.get("target_role")
+                    or artifact_role_for_path(first_reason_target(reason))
+                ),
                 "target_rejection_reasons": meta.get("target_rejection_reasons", ""),
                 "target_source_of_truth": meta.get("target_source_of_truth", ""),
                 "target_ownership_source": meta.get("target_ownership_source", ""),
@@ -462,15 +505,17 @@ def recheck(root, cases):
                 "provider_boundary_status": meta.get("provider_boundary_status", ""),
             }
         )
-        observation = normalize_observation(
-            {
-                **meta,
-                **rows[-1],
-                "reason": reason,
-                "success": success,
-                "rc": rc,
-            }
-        )
+        observation_input = {
+            **meta,
+            **rows[-1],
+            "reason": reason,
+            "success": success,
+            "rc": rc,
+            "evidence": evidence,
+        }
+        for name in OBSERVATION_FIELD_NAMES:
+            observation_input[name] = ""
+        observation = normalize_observation(observation_input)
         rows[-1].update(
             {name: observation.get(name, "") for name in OBSERVATION_FIELD_NAMES}
         )

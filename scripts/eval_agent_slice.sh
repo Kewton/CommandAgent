@@ -45,6 +45,11 @@ def parse_args():
     parser.add_argument("--provider", default="ollama")
     parser.add_argument("--model", default=os.environ.get("COMMANDAGENT_MODEL", "default"))
     parser.add_argument("--timeout-secs", type=int, default=900)
+    parser.add_argument(
+        "--no-timeout",
+        action="store_true",
+        help="Disable the eval subprocess timeout and record timeout_mode=none.",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument(
         "--proof-mode",
@@ -328,7 +333,7 @@ def recovery_fields(reason, evidence, case):
 
 def first_contract_value(evidence, key):
     patterns = [
-        rf"^- {re.escape(key)}:\s*(.+)$",
+        rf"^\s*-\s+{re.escape(key)}:\s*(.+)$",
         rf"\b{re.escape(key)}=([^,\n]*?)(?=\s+[A-Za-z_][A-Za-z0-9_]*=|,\s*[A-Za-z_][A-Za-z0-9_]*=|,|$)",
     ]
     for pattern in patterns:
@@ -760,6 +765,8 @@ def run_case(repo, root, binary, case, run_index, args):
         prompt,
     ]
     timed_out = False
+    timeout_mode = "none" if args.no_timeout else "bounded"
+    effective_timeout_secs = None if args.no_timeout else args.timeout_secs
     if args.dry_run:
         rc = 0
         stdout = f"dry-run: {case['id']}\n"
@@ -779,7 +786,7 @@ def run_case(repo, root, binary, case, run_index, args):
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                timeout=args.timeout_secs,
+                timeout=effective_timeout_secs,
             )
             rc = process.returncode
             stdout = process.stdout
@@ -889,6 +896,8 @@ def run_case(repo, root, binary, case, run_index, args):
         "dirty": bool(git_value(repo, "status", "--short")),
         "dry_run": args.dry_run,
         "timeout_secs": args.timeout_secs,
+        "timeout_mode": timeout_mode,
+        "effective_timeout_secs": effective_timeout_secs,
         "elapsed_ms": elapsed_ms,
         "rc": rc,
         "success": success,
@@ -911,6 +920,8 @@ def run_case(repo, root, binary, case, run_index, args):
         reason,
         category,
         layer,
+        timeout_mode,
+        "" if effective_timeout_secs is None else str(effective_timeout_secs),
         *(case.get(name, "") for name in MATRIX_FIELD_NAMES),
         *(observation.get(name, "") for name in OBSERVATION_FIELD_NAMES),
         *(runtime_job_report[name] for name in RUNTIME_JOB_REPORT_FIELD_NAMES),
@@ -940,6 +951,8 @@ def main():
             "reason",
             "failure_category",
             "contract_layer",
+            "timeout_mode",
+            "effective_timeout_secs",
             *MATRIX_FIELD_NAMES,
             *OBSERVATION_FIELD_NAMES,
             *RUNTIME_JOB_REPORT_FIELD_NAMES,

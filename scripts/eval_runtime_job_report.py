@@ -177,13 +177,52 @@ def large_failure_projection(
         }
 
     projection: dict[str, str] = {}
-    if not is_meaningful_status(raw.get("evidence_binding_status")):
-        projection["evidence_binding_status"] = "missing"
-    if not is_meaningful_status(raw.get("completion_evidence_status")):
-        projection["completion_evidence_status"] = "missing"
-    if not is_meaningful_status(raw.get("attempt_outcome")):
+    if is_deterministic_failure_evidence(
+        terminal_state=terminal_state,
+        failure_category=failure_category,
+        diagnostic_code=diagnostic_code,
+        reason=reason,
+    ):
+        projection["evidence_binding_status"] = "bound"
+        projection["completion_evidence_status"] = "failed"
         projection["attempt_outcome"] = "failed"
+        projection["runtime_job_outcome"] = "failed"
+    if not is_meaningful_status(raw.get("evidence_binding_status")):
+        projection.setdefault("evidence_binding_status", "missing")
+    if not is_meaningful_status(raw.get("completion_evidence_status")):
+        projection.setdefault("completion_evidence_status", "missing")
+    if not is_meaningful_status(raw.get("attempt_outcome")):
+        projection.setdefault("attempt_outcome", "failed")
     return projection
+
+
+def is_deterministic_failure_evidence(
+    *,
+    terminal_state: str,
+    failure_category: str,
+    diagnostic_code: str,
+    reason: str,
+) -> bool:
+    if terminal_state in {
+        "verifier_command_failed",
+        "tool_protocol_failed",
+        "step_policy_failed",
+        "profile_contract_failed",
+        "plan_lint_failed",
+        "missing_deliverable",
+        "eval_assertion_failed",
+        "completion_evidence_failed",
+        "evidence_binding_failed",
+        "stale_evidence",
+    }:
+        return True
+    if failure_category in {"verifier", "tool_protocol", "step_policy", "profile", "planning", "quality"}:
+        return True
+    if diagnostic_code and diagnostic_code not in {"unknown", "ok"} and not diagnostic_code.startswith("rc_"):
+        return True
+    if reason.startswith(("semantic_missing:", "semantic_mismatch:", "missing:", "tool_args_")):
+        return True
+    return False
 
 
 def is_provider_boundary_failure(

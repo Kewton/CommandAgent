@@ -20,6 +20,10 @@ When a child CommandAgent process exceeds `--timeout-secs`, the runner records
 the row as `provider_transport:eval_timeout` with `rc=124`, writes bounded
 stdout/stderr, and continues the remaining cases. Timeout recording is eval
 evidence only; it does not retry the case or change runtime policy.
+Use `--no-timeout` only for explicit proof runs that need to show a case was
+not stopped by the eval harness. The runner records `timeout_mode=none` and a
+blank `effective_timeout_secs` in the run metadata and recheck summary. This is
+reporting policy only; it does not change CommandAgent runtime behavior.
 
 `scripts/eval_report.py <root>` summarizes `summary.tsv` by headline success,
 failure category, and case. Report categories are layer-oriented:
@@ -419,6 +423,15 @@ scripts/eval_large_tasks.sh --release-quality
 ```
 
 This runs each large case 3 times.
+
+For a non-timeboxed proof run, pass `--no-timeout` explicitly:
+
+```bash
+scripts/eval_large_tasks.sh --no-timeout
+```
+
+Use this mode only when a loadmap or sign-off task requires a fresh large proof
+root that cannot be satisfied by the normal bounded timeout.
 
 ## Verifier Failure Shape
 

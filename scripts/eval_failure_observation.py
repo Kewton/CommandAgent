@@ -118,9 +118,13 @@ def normalize_observation(raw: dict[str, Any]) -> dict[str, str]:
     contract_layer = clean(raw.get("contract_layer")) or contract_layer_for_terminal_state(
         terminal_state, failure_class
     )
+    raw_diagnostic_code = clean(raw.get("diagnostic_code"))
+    evidence_diagnostic_code = contract_value(evidence, "diagnostic_code")
     diagnostic_code = (
-        clean(raw.get("diagnostic_code"))
-        or contract_value(evidence, "diagnostic_code")
+        evidence_diagnostic_code
+        if raw_diagnostic_code.startswith("rc_") and evidence_diagnostic_code
+        else raw_diagnostic_code
+        or evidence_diagnostic_code
         or diagnostic_code_from_reason(reason, terminal_state)
     )
     failure_signature = clean(raw.get("failure_signature")) or contract_value(
@@ -367,6 +371,8 @@ def terminal_state_from_reason(reason: str, evidence: str = "", raw: dict[str, A
         for status in ["missing", "failed", "unbound"]
     ):
         return "evidence_binding_failed"
+    if reason_lc.startswith("rc:") or reason_lc.startswith("command_failed:") or reason_lc.startswith("blocked:"):
+        return "verifier_command_failed"
     if "missing_evidence" in combined or "missing evidence" in combined:
         return "missing_evidence"
     if "evidence_binding" in combined and "failed" in combined:
@@ -375,8 +381,6 @@ def terminal_state_from_reason(reason: str, evidence: str = "", raw: dict[str, A
         return "completion_evidence_failed"
     if reason_lc.startswith("explicit_stop") or "explicit_stop" in combined:
         return "explicit_stop"
-    if reason_lc.startswith("rc:") or reason_lc.startswith("command_failed:") or reason_lc.startswith("blocked:"):
-        return "verifier_command_failed"
     if not reason or reason == "unknown":
         return "unknown"
     return "unknown"
@@ -578,8 +582,8 @@ def evidence_text(raw: dict[str, Any]) -> str:
 
 def contract_value(text: str, key: str) -> str:
     patterns = [
-        rf"^- {re.escape(key)}:\s*(.+)$",
-        rf"^- {re.escape(key)}=([^\s,]+)",
+        rf"^\s*-\s+{re.escape(key)}:\s*(.+)$",
+        rf"^\s*-\s+{re.escape(key)}=([^\s,]+)",
         rf"\b{re.escape(key)}=([^\s,]+)",
     ]
     for pattern in patterns:
