@@ -2,18 +2,18 @@
 
 Date: 2026-06-23 JST
 
-Status: completed / migration_complete_with_explicit_exclusions
+Status: recovery_open / migration_not_complete_pending_current_eval_reconciliation
 
 ## Closure Rows
 
 | row | owner layer | current state before Phase32 | planned disposition | proof artifact or command | closure condition |
 | --- | --- | --- | --- | --- | --- |
-| FC-01 / coverage final-state audit | Coverage authority | Coverage table reports `Implemented=45`, `Partial=0`, `Missing=0`, `Excluded=9`. | `closed_proven`. | Coverage table audit and final report counts. | Counts are recorded and no adopted unresolved row remains. |
-| FC-02 / ledger closure audit | Recovery plan / phase-local ledgers | KI-001 through KI-010 were closed; KI-011 was open. | `closed_proven`. | Phase-local reports and KI map. | Phase22-Phase31 ledgers close their assigned rows. |
-| FC-03 / exclusion rationale audit | Coverage authority / architecture docs | C46-C54 and C49-C50 are excluded. | `closed_proven`. | Coverage table, Phase30 report, final report. | Exclusions are explicit and not adopted gaps. |
-| FC-04 / final broad sign-off | Eval/sign-off | Last Phase31 broad sign-off passed. | `closed_proven`. | `python3 scripts/eval_signoff.py --require-recheck ...`. | Final Phase32 sign-off returned `status: pass`. |
-| FC-05 / final migration report | Documentation / eval reporting | No final Phase32 report existed. | `closed_proven`. | `docs/eval/loadmap2-final-migration-decision-20260623.md`. | Report states `migration_complete_with_explicit_exclusions` and evidence without overstating completion. |
-| KI-011 | Recovery plan final closure | Open. | `closed_proven`. | Roadmap updates plus final report. | Current issue map and recovery plan mark Phase32 closed. |
+| FC-01 / coverage final-state audit | Coverage authority | Historical coverage counts were recorded, but current proof roots cover more cases than the historical sign-off roots. | `reopened_current_eval_gap`. | `current_eval_manifest.md`; coverage table; current sign-off output. | Current case set is mapped to adopted/excluded rows and no adopted unresolved row remains. |
+| FC-02 / ledger closure audit | Recovery plan / phase-local ledgers | KI-001 through KI-010 were historically closed; KI-011 is reopened. | `reopened_current_eval_gap`. | `recovery_task_ledger.md`; phase-local reports; KI map. | Current focused/large blockers have row-level dispositions. |
+| FC-03 / exclusion rationale audit | Coverage authority / architecture docs | C46-C54 and C49-C50 remain excluded. | `closed_excluded`. | Coverage table, Phase30 report, final report. | Exclusions are explicit and not adopted gaps. |
+| FC-04 / final broad sign-off | Eval/sign-off | Historical sign-off passed, but current sign-off fails. | `open`. | `python3 scripts/eval_signoff.py --require-recheck ...` on current roots. | Current Phase32 sign-off returns `status: pass`. |
+| FC-05 / final migration report | Documentation / eval reporting | Final report existed but overstated completion against historical roots. | `reopened_current_eval_gap`. | `docs/eval/loadmap2-final-migration-decision-20260623.md`. | Report states the current decision and does not rely on superseded evidence. |
+| KI-011 | Recovery plan final closure | Reopened by current eval case-set gap. | `open`. | Roadmap updates plus recovery ledger. | Current issue map and recovery plan mark Phase32 closed only after current sign-off passes. |
 
 ## Allowed Dispositions
 
@@ -29,4 +29,4 @@ Status: completed / migration_complete_with_explicit_exclusions
 - Phase32 rows are closure controls, not new runtime coverage IDs.
 - FC rows prevent the final decision from collapsing into a single prose
   statement.
-- `KI-011` closes only after the FC rows close.
+- `KI-011` closes only after the FC rows close against the current eval roots.

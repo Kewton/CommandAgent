@@ -2,7 +2,33 @@
 
 Date: 2026-06-23 JST
 
-Status: completed / migration_complete_with_explicit_exclusions
+Status: superseded / recovery_open
+
+## Recovery Notice
+
+This implementation report is superseded by the Phase32 recovery work.
+
+Current decision:
+
+```text
+migration_not_complete_pending_current_eval_reconciliation
+```
+
+Reason:
+
+- previous Phase32 accepted signoff roots covered 47 unique cases;
+- current eval roots cover 91 unique cases;
+- 44 current cases were not covered by the previous accepted roots;
+- current broad signoff on fresh roots fails.
+
+Current recovery artifacts:
+
+- `workspace/mvp/logic/anvil/loadmap2/phase_32/current_eval_manifest.md`
+- `workspace/mvp/logic/anvil/loadmap2/phase_32/recovery_task_ledger.md`
+- `workspace/mvp/logic/anvil/loadmap2/phase_32/blocking_ledger.md`
+
+The historical report below is retained for traceability, but it is no longer
+the final migration decision.
 
 ## Scope
 

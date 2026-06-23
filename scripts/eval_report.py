@@ -257,6 +257,11 @@ def recheck(root, cases):
     for meta_path in sorted(root.glob("*/*/meta.json")):
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         evidence = failure_evidence(meta_path.parent)
+        fixture_mode = meta.get("proof_mode") in {
+            "deterministic_fixture",
+            "report_fixture",
+        }
+        fixture_fields = meta.get("fixture_fields", {}) if fixture_mode else {}
         case = cases.get(
             meta["case_id"],
             {"required_paths": [], "must_include": {}, "type": "semantic"},
@@ -503,18 +508,23 @@ def recheck(root, cases):
                     "lifecycle_projection_status", ""
                 ),
                 "provider_boundary_status": meta.get("provider_boundary_status", ""),
+                "target_admission_status": meta.get("target_admission_status", ""),
+                "repair_action_plan_status": meta.get(
+                    "repair_action_plan_status", ""
+                ),
+                "completion_source": meta.get("completion_source", ""),
             }
         )
-        observation_input = {
-            **meta,
-            **rows[-1],
-            "reason": reason,
-            "success": success,
-            "rc": rc,
-            "evidence": evidence,
-        }
-        for name in OBSERVATION_FIELD_NAMES:
-            observation_input[name] = ""
+        apply_fixture_fields_to_row(rows[-1], fixture_fields)
+        observation_input = recheck_observation_input(
+            meta=meta,
+            row=rows[-1],
+            reason=reason,
+            success=success,
+            rc=rc,
+            evidence=evidence,
+            fixture_fields=fixture_fields,
+        )
         observation = normalize_observation(observation_input)
         rows[-1].update(
             {name: observation.get(name, "") for name in OBSERVATION_FIELD_NAMES}
@@ -546,6 +556,41 @@ def recheck(root, cases):
     out = root / "recheck_summary.tsv"
     write_summary(out, rows)
     return rows, out
+
+
+def apply_fixture_fields_to_row(row, fixture_fields):
+    for key, value in fixture_fields.items():
+        if key in row and value not in {None, ""}:
+            row[key] = value
+
+
+def recheck_observation_input(
+    *,
+    meta,
+    row,
+    reason,
+    success,
+    rc,
+    evidence,
+    fixture_fields,
+):
+    observation_input = {
+        **meta,
+        **row,
+        "reason": reason,
+        "success": success,
+        "rc": rc,
+        "evidence": evidence,
+    }
+    for name in OBSERVATION_FIELD_NAMES:
+        observation_input[name] = ""
+    for name in OBSERVATION_FIELD_NAMES:
+        if meta.get(name) not in {None, ""}:
+            observation_input[name] = meta.get(name)
+    for key, value in fixture_fields.items():
+        if value not in {None, ""}:
+            observation_input[key] = value
+    return observation_input
 
 
 def semantic_mismatches(workspace, case, missing):

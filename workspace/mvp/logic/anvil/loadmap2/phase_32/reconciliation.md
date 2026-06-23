@@ -2,7 +2,7 @@
 
 Date: 2026-06-23 JST
 
-Status: completed / reviewed
+Status: recovery_open / reviewed
 
 ## Reconciliation Chain
 
@@ -12,13 +12,14 @@ Status: completed / reviewed
 | Coverage table C46-C54 | Excluded rows. | FC-03 | Verify design rationale is present. | Exclusion section in final report. |
 | Phase22-Phase29 reports | Row-level adopted proof. | FC-02 | Confirm no open row remains. | Phase-local report audit. |
 | Phase30 report | C49-C50 exclusion decision. | FC-03 | Carry exclusion rationale into final report. | Phase30 report and coverage table. |
-| Phase31 report | P17-L001 fresh large proof. | FC-04 | Use Phase31 large root in final sign-off. | Sign-off pass. |
-| `current_issue_phase_map.md` KI-011 | Final closure issue. | KI-011 | Update only after FC rows close. | Roadmap consistency review. |
-| `recovery_plan.md` Phase32 gate | Final decision authority. | FC-05 | Write final migration report. | `docs/eval/loadmap2-final-migration-decision-20260623.md`. |
+| Phase31 report | P17-L001 fresh large proof. | FC-04 | Treat as historical proof only until current roots pass. | Historical sign-off pass. |
+| Current eval roots | Current case set. | FC-01 / FC-04 | Compare against historical accepted roots and classify gaps. | `current_eval_manifest.md`. |
+| `current_issue_phase_map.md` KI-011 | Final closure issue. | KI-011 | Keep reopened until current FC rows close. | Roadmap consistency review. |
+| `recovery_plan.md` Phase32 gate | Final decision authority. | FC-05 | Update final report to current incomplete decision. | `docs/eval/loadmap2-final-migration-decision-20260623.md`. |
 
 ## Required Consistency
 
-After Phase32 implementation, these statements must all agree:
+After Phase32 recovery, these statements must all agree:
 
 - coverage table final counts;
 - loadmap2 README Phase32 status;
@@ -27,10 +28,11 @@ After Phase32 implementation, these statements must all agree:
 - final report decision;
 - implementation report disposition counts.
 
-## Final Sign-off Roots
+## Historical Sign-off Roots
 
-Use the currently accepted proof roots unless a new implementation change
-invalidates them:
+These roots are historical regression evidence only. They are not sufficient
+for current final closure because they cover 47 unique cases while the current
+eval roots cover 91.
 
 | label | root |
 | --- | --- |
@@ -43,7 +45,7 @@ invalidates them:
 
 - Reconciliation starts from authoritative rows, not from a desired final
   conclusion.
-- Phase32 can reuse earlier roots only because their owners are closed and the
-  final sign-off command rechecks them.
-- If code changes invalidate those roots, Phase32 must produce fresh affected
-  proof rather than relying on stale evidence.
+- Phase32 cannot reuse earlier roots as final proof when the current eval case
+  set contains cases absent from those roots.
+- If code changes invalidate roots or the eval case set expands, Phase32 must
+  produce current affected proof rather than relying on stale evidence.

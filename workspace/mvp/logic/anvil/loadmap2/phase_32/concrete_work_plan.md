@@ -2,7 +2,7 @@
 
 Date: 2026-06-23 JST
 
-Status: completed / reviewed
+Status: recovery_open / reviewed
 
 ## Ordered Steps
 
@@ -35,7 +35,7 @@ Build a closure table for:
 If any row is stale or contradictory, stop and add a blocker before editing the
 final report.
 
-### Step 3. Run Final Broad Sign-off
+### Step 3. Run Historical Broad Sign-off
 
 Run:
 
@@ -47,7 +47,11 @@ python3 scripts/eval_signoff.py --require-recheck \
   --root large=eval/runs/loadmap2-phase31-large-non-timeboxed/20260623T174624
 ```
 
-It passed. If it had failed:
+It passed historically. This is no longer sufficient final proof because the
+current eval case set is larger than the historical proof roots. Current
+recovery must use the current roots recorded in `current_eval_manifest.md`.
+
+If current sign-off fails:
 
 - capture the exact finding;
 - add a row to `blocking_ledger.md`;
@@ -55,7 +59,7 @@ It passed. If it had failed:
   proof command;
 - do not declare migration complete.
 
-### Step 4. Write Final Report
+### Step 4. Write Current Decision Report
 
 Created:
 
@@ -65,13 +69,15 @@ docs/eval/loadmap2-final-migration-decision-20260623.md
 
 The report must include:
 
-- final decision;
+- current decision;
 - source baseline;
 - coverage row counts;
+- current eval case-set gap;
+- current blockers;
 - implemented row ranges;
 - excluded row ranges and rationale;
 - Phase22-Phase31 proof summary;
-- final broad sign-off command and result;
+- historical and current broad sign-off command and result;
 - known limitations, if any;
 - statement that no hidden retry/provider policy/legacy engine was introduced.
 
@@ -84,8 +90,8 @@ Updated:
 - loadmap2 `current_issue_phase_map.md`;
 - coverage table only if stale text/counts remain.
 
-The updates must mark Phase32 as closed only if the final report and sign-off
-support it.
+The updates must keep Phase32 open unless the current final report and current
+sign-off support closure.
 
 ### Step 6. Verify Documentation And Reports
 
@@ -107,14 +113,14 @@ cargo test
 cargo build --release
 ```
 
-### Step 7. Close Phase32
+### Step 7. Keep Phase32 Open Or Close With Current Proof
 
 Created `implementation_report.md` with:
 
 - row disposition counts;
-- final decision;
+- current decision;
 - proof commands and results;
-- final sign-off result;
+- historical and current sign-off result;
 - unresolved blockers, if any;
 - review result.
 

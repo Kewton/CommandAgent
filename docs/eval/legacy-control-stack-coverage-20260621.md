@@ -629,18 +629,21 @@ migration_not_complete
 Reason: Phase26 closes C13-C20, but later accepted rows C21 onward still need
 row-level proof before final migration completion can be declared.
 
-## Phase32 Final Closure Appendix - 2026-06-23
+## Phase32 Recovery Appendix - 2026-06-23
 
-Phase32 reconciled this coverage table against Phase22 through Phase31
-implementation reports and final broad sign-off evidence.
+The earlier Phase32 final closure statement is superseded. A fresh local LLM
+eval run showed that the historical Phase32 sign-off roots covered 47 unique
+cases, while the current eval roots cover 91 unique cases. The omitted 44
+current cases mean the historical sign-off cannot serve as final migration
+completion proof.
 
-Final decision:
+Current decision:
 
 ```text
-migration_complete_with_explicit_exclusions
+migration_not_complete_pending_current_eval_reconciliation
 ```
 
-Final coverage state:
+Historical coverage state claimed by the superseded Phase32 report:
 
 | Current status | Count |
 | --- | ---: |
@@ -658,7 +661,7 @@ Final adoption state:
 | Missing | 0 |
 | Excluded | 9 |
 
-Proof:
+Historical proof:
 
 ```bash
 python3 scripts/eval_signoff.py --require-recheck \
@@ -668,16 +671,19 @@ python3 scripts/eval_signoff.py --require-recheck \
   --root large=eval/runs/loadmap2-phase31-large-non-timeboxed/20260623T174624
 ```
 
-Result:
+Historical result:
 
 ```text
 status: pass
 ```
 
-Supporting artifacts:
+Current recovery artifacts:
 
 - `docs/eval/loadmap2-final-migration-decision-20260623.md`
 - `workspace/mvp/logic/anvil/loadmap2/phase_32/implementation_report.md`
+- `workspace/mvp/logic/anvil/loadmap2/phase_32/current_eval_manifest.md`
+- `workspace/mvp/logic/anvil/loadmap2/phase_32/recovery_task_ledger.md`
 
-The accepted migration surface is complete. Excluded rows remain excluded with
-design rationale and are not Anvil migration gaps for CommandAgent.
+The accepted migration surface remains open until current eval roots cover the
+current case set, current broad sign-off exits zero, and remaining focused and
+large blockers have row-level dispositions.

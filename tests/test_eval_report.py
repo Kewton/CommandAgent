@@ -496,6 +496,163 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertEqual(row["evidence_binding_status"], "bound")
         self.assertEqual(row["completion_evidence_status"], "failed")
 
+    def test_recheck_reprojects_fixture_fields_for_focused_assertions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            run_dir = root / "focused-artifact-ledger-producers" / "run-1"
+            workspace = run_dir / "workspace"
+            workspace.mkdir(parents=True)
+            (run_dir / "stdout.txt").write_text("", encoding="utf-8")
+            (run_dir / "stderr.txt").write_text("", encoding="utf-8")
+            (run_dir / "meta.json").write_text(
+                json.dumps(
+                    {
+                        "case_id": "focused-artifact-ledger-producers",
+                        "run_index": 1,
+                        "rc": 0,
+                        "success": True,
+                        "elapsed_ms": 1,
+                        "success_check_reason": "ok",
+                        "matrix_row": "phase24-c07-artifact-ledger-producers",
+                        "proof_mode": "deterministic_fixture",
+                        "fixture_fields": {
+                            "artifact_ledger_entries": "4",
+                            "artifact_ledger_sources": "completion_authority:1",
+                            "changed_paths": "[app/page.tsx]",
+                            "workspace_scope_kind": "greenfield",
+                        },
+                        "dry_run": False,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            rows, _ = eval_report.recheck(
+                root,
+                {
+                    "focused-artifact-ledger-producers": {
+                        "required_paths": [],
+                        "must_include": {},
+                        "type": "semantic",
+                        "matrix_row": "phase24-c07-artifact-ledger-producers",
+                        "proof_mode": "deterministic_fixture",
+                        "expected_fields": {
+                            "artifact_ledger_entries": "4",
+                            "artifact_ledger_sources": "completion_authority:1",
+                            "changed_paths": "[app/page.tsx]",
+                            "workspace_scope_kind": "greenfield",
+                            "lifecycle_stage": "completed",
+                            "completion_source": "runtime_success",
+                        },
+                    }
+                },
+            )
+
+        row = rows[0]
+        self.assertEqual(row["artifact_ledger_entries"], "4")
+        self.assertEqual(row["artifact_ledger_sources"], "completion_authority:1")
+        self.assertEqual(row["changed_paths"], "[app/page.tsx]")
+        self.assertEqual(row["workspace_scope_kind"], "greenfield")
+        self.assertEqual(row["expected_assertion_status"], "passed_recheck")
+
+    def test_recheck_preserves_explicit_meta_observation_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            run_dir = root / "focused-explicit-stop" / "run-1"
+            (run_dir / "workspace").mkdir(parents=True)
+            (run_dir / "stdout.txt").write_text("", encoding="utf-8")
+            (run_dir / "stderr.txt").write_text(
+                "ERROR: step verify-tests failed verification\n",
+                encoding="utf-8",
+            )
+            (run_dir / "meta.json").write_text(
+                json.dumps(
+                    {
+                        "case_id": "focused-explicit-stop",
+                        "run_index": 1,
+                        "rc": 1,
+                        "success": False,
+                        "elapsed_ms": 1,
+                        "success_check_reason": "rc:1",
+                        "matrix_row": "phase33-explicit-stop",
+                        "proof_mode": "deterministic_fixture",
+                        "terminal_state": "explicit_stop",
+                        "active_job": "explicit_stop",
+                        "recovery_owner": "explicit_stop",
+                        "target_admission_status": "rejected",
+                        "completion_source": "none",
+                        "fixture_fields": {
+                            "explicit_stop_reason": "protected_raw_input",
+                            "repair_action": "stop_for_contract_conflict",
+                        },
+                        "dry_run": False,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            rows, _ = eval_report.recheck(
+                root,
+                {
+                    "focused-explicit-stop": {
+                        "required_paths": [],
+                        "must_include": {},
+                        "type": "semantic",
+                        "matrix_row": "phase33-explicit-stop",
+                        "proof_mode": "deterministic_fixture",
+                        "expected_fields": {
+                            "terminal_state": "explicit_stop",
+                            "active_job": "explicit_stop",
+                            "active_owner": "explicit_stop",
+                            "target_admission_status": "rejected",
+                            "completion_source": "none",
+                            "explicit_stop_reason": "protected_raw_input",
+                        },
+                    }
+                },
+            )
+
+        row = rows[0]
+        self.assertEqual(row["terminal_state"], "explicit_stop")
+        self.assertEqual(row["active_job"], "explicit_stop")
+        self.assertEqual(row["active_owner"], "explicit_stop")
+        self.assertEqual(row["target_admission_status"], "rejected")
+        self.assertEqual(row["completion_source"], "none")
+        self.assertEqual(row["explicit_stop_reason"], "protected_raw_input")
+        self.assertEqual(row["expected_assertion_status"], "passed_recheck")
+
+    def test_failure_projection_preserves_observed_evidence_states(self):
+        projection = eval_runtime_job_report.large_failure_projection(
+            {
+                "evidence_binding_status": "failed",
+                "completion_evidence_status": "stale",
+                "attempt_outcome": "duplicate",
+                "runtime_job_outcome": "no_progress",
+            },
+            success=False,
+            reason="rc:1",
+            terminal_state="verifier_command_failed",
+            failure_category="verifier",
+            diagnostic_code="rust_compile_error",
+        )
+
+        self.assertNotIn("evidence_binding_status", projection)
+        self.assertNotIn("completion_evidence_status", projection)
+        self.assertNotIn("attempt_outcome", projection)
+        self.assertNotIn("runtime_job_outcome", projection)
+
+    def test_target_admission_status_preserves_explicit_unknown(self):
+        self.assertEqual(
+            eval_runtime_job_report.target_admission_status(
+                {"target_admission_status": "unknown", "target_path": "src/lib.rs"},
+                "source_implementation_repair",
+                False,
+            ),
+            "unknown",
+        )
+
     def test_artifact_ledger_signal_fields_are_extracted(self):
         observation = eval_failure_observation.normalize_observation(
             {

@@ -1,13 +1,20 @@
-# Anvil Migration Final Decision - 2026-06-23
+# Anvil Migration Decision - 2026-06-23
 
 ## Decision
 
 ```text
-migration_complete_with_explicit_exclusions
+migration_not_complete_pending_current_eval_reconciliation
 ```
 
-CommandAgent has completed the accepted Anvil migration surface recorded in
-`docs/eval/legacy-control-stack-coverage-20260621.md`.
+This report supersedes the earlier Phase32 completion claim. A fresh local LLM
+eval run on 2026-06-23 showed that the previous Phase32 sign-off roots covered
+47 unique cases, while the current eval roots cover 91 unique cases. The
+previous sign-off omitted 44 current cases, so it is no longer sufficient as a
+final migration-complete proof.
+
+CommandAgent has not yet completed the accepted Anvil migration surface
+recorded in `docs/eval/legacy-control-stack-coverage-20260621.md` under the
+current eval case set.
 
 This is not a byte-for-byte Anvil engine port. The completed surface is the
 explicit contract and bounded recovery-control surface that CommandAgent
@@ -85,7 +92,7 @@ There are no adopted `Partial` rows and no adopted `Missing` rows.
 | C53 | Provider/model-specific behavioral policy is excluded; shared behavior stays outside provider transports. |
 | C54 | Model-issued dependency installation is excluded; setup can be explicit and evidence-bound but not implicitly model-driven. |
 
-## Proof Roots
+## Historical Proof Roots
 
 | Label | Root |
 | --- | --- |
@@ -94,7 +101,7 @@ There are no adopted `Partial` rows and no adopted `Missing` rows.
 | focused-fixture | `eval/runs/loadmap2-phase29-runtime-support-fixtures/20260623T161335` |
 | large | `eval/runs/loadmap2-phase31-large-non-timeboxed/20260623T174624` |
 
-Final sign-off command:
+Historical sign-off command:
 
 ```bash
 python3 scripts/eval_signoff.py --require-recheck \
@@ -104,20 +111,42 @@ python3 scripts/eval_signoff.py --require-recheck \
   --root large=eval/runs/loadmap2-phase31-large-non-timeboxed/20260623T174624
 ```
 
-Result:
+Historical result:
 
 ```text
 status: pass
 ```
 
+Current sign-off roots:
+
+| Label | Root |
+| --- | --- |
+| smoke | `eval/runs/current-all-local-llm/smoke/20260623T203030` |
+| focused | `eval/runs/current-all-local-llm/focused-control-recovery/20260623T203236` |
+| large | `eval/runs/current-all-local-llm/large/20260623T204816` |
+
+Current result:
+
+```text
+status: fail
+```
+
+Current blockers are tracked in:
+
+- `workspace/mvp/logic/anvil/loadmap2/phase_32/current_eval_manifest.md`
+- `workspace/mvp/logic/anvil/loadmap2/phase_32/recovery_task_ledger.md`
+
 ## Completion Checklist
 
-- [x] Coverage table has no adopted `Partial` rows.
-- [x] Coverage table has no adopted `Missing` rows.
-- [x] Every adopted row is implemented and proof-backed.
-- [x] Every excluded row has design rationale.
-- [x] Focused control-recovery evidence is represented in accepted roots.
-- [x] Broad local LLM sign-off has no unowned terminal state.
+- [ ] Current eval manifest and sign-off roots cover the same case set.
+- [ ] Current broad local LLM sign-off exits zero.
+- [ ] Current focused assertions pass recheck or have explicit row-level
+  disposition.
+- [ ] Current large failures are owned, actionable, and target/evidence bound,
+  or explicitly accepted as external limitations.
+- [ ] No adopted row depends only on historical roots that omit current cases.
+- [ ] Final report states the current decision without relying on superseded
+  evidence.
 - [x] No raw `rc:1` remains without diagnostic classification in the accepted sign-off roots.
 - [x] No profile failure is disconnected from recovery job selection in the accepted sign-off roots.
 - [x] No evidence/completion success is claimed without bound evidence in the accepted sign-off roots.
@@ -125,18 +154,18 @@ status: pass
 - [x] No repeated no-progress repair continues without strategy switch or explicit stop in the accepted sign-off roots.
 - [x] Final architecture remains one minimal loop with explicit contracts and bounded recovery.
 
-## Limitations
+## Current Limitations
 
-No accepted external proof limitation is required for final closure.
+No accepted external proof limitation is being used to close the current
+Phase32 recovery state.
 
-The final large proof root is non-timeboxed for proof purposes and still
-contains large-task failures. Those failures are not migration blockers because
-the accepted sign-off roots classify them with owner/action/target/evidence
-instead of leaving them unowned, raw, or disconnected.
+The historical large proof root is non-timeboxed for proof purposes and still
+contains large-task failures. Under the current eval roots, large failures must
+be reclassified against the current case set before migration completion can be
+declared.
 
-## Final Statement
+## Current Statement
 
-The Anvil migration is complete for CommandAgent's accepted contract-recovery
-surface, with explicit exclusions for legacy advisory, UI helper, engine
-selection, hidden-loop, provider-policy, and implicit model-issued setup
-surfaces.
+The Anvil migration is not complete under the current eval case set. The
+historical Phase32 evidence remains useful regression evidence, but it is not a
+complete final migration proof because it omitted 44 current cases.

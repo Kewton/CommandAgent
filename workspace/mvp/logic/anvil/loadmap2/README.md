@@ -198,7 +198,7 @@ blockers. The remaining known work is assigned as follows:
 | Phase29 | P20-COV-005 / C34-C44 | completed / closed_proven: language/profile/tool/workspace/runtime-support surface |
 | Phase30 | P20-COV-006 / C49-C50 | completed / closed_excluded: quality confirmation and slash/plan UI helper priority decisions |
 | Phase31 | P20-LEDGER-001 / P17-L001 | completed / closed_proven: fresh no-timeout large proof root and broad sign-off |
-| Phase32 | final closure | completed / migration_complete_with_explicit_exclusions: final coverage closure, broad sign-off, migration decision |
+| Phase32 | final closure | recovery_open / migration_not_complete_pending_current_eval_reconciliation: current eval case-set gap, focused/large blockers, and broad sign-off failure are tracked in `phase_32/recovery_task_ledger.md` |
 
 Detailed issue mapping is recorded in `current_issue_phase_map.md`.
 
@@ -1091,43 +1091,56 @@ Acceptance:
 
 Migration is complete only when every item is checked:
 
-- [x] Coverage table has no adopted `Partial` rows.
-- [x] Coverage table has no adopted `Missing` rows.
-- [x] Every adopted row is at stage 5 or has an approved exception.
+- [ ] Current eval manifest and sign-off roots cover the same case set.
+- [ ] Current broad local LLM eval has no unowned terminal state.
+- [ ] Current focused control-recovery matrix passes recheck or has row-level
+  accepted dispositions.
+- [ ] Current large failures are owned, actionable, target/evidence bound, or
+  explicitly accepted as external limitations.
+- [ ] Coverage table has no adopted `Partial` rows under current proof roots.
+- [ ] Coverage table has no adopted `Missing` rows under current proof roots.
+- [ ] Every adopted row is at stage 5 or has an approved exception under
+  current proof roots.
 - [x] Every excluded row has design rationale.
-- [x] Focused control-recovery matrix passes.
-- [x] Broad local LLM eval has no unowned terminal state.
-- [x] No raw `rc:1` appears without diagnostic classification.
-- [x] No profile failure is disconnected from recovery job selection.
-- [x] No evidence/completion success is claimed without bound evidence.
-- [x] No repair prompt is built without selected owner, target, action, tool
+- [ ] No raw `rc:1` appears without diagnostic classification.
+- [ ] No profile failure is disconnected from recovery job selection.
+- [ ] No evidence/completion success is claimed without bound evidence.
+- [ ] No repair prompt is built without selected owner, target, action, tool
   policy, and rerun authority.
-- [x] No repeated no-progress repair continues without strategy switch or
+- [ ] No repeated no-progress repair continues without strategy switch or
   explicit stop.
 - [x] Docs and ADRs reflect the final architecture.
 
-## Phase32 Final Closure Appendix - 2026-06-23
+## Phase32 Recovery Appendix - 2026-06-23
 
-Phase32 closed the roadmap with:
+The earlier Phase32 completion claim is superseded. Current state:
 
 ```text
-migration_complete_with_explicit_exclusions
+migration_not_complete_pending_current_eval_reconciliation
 ```
 
-Final evidence:
+Reason:
 
-- final report: `docs/eval/loadmap2-final-migration-decision-20260623.md`;
-- final sign-off: `python3 scripts/eval_signoff.py --require-recheck ...`,
-  result `status: pass`;
-- Phase32 report:
+- the historical Phase32 sign-off roots covered 47 unique cases;
+- the current local LLM eval roots cover 91 unique cases;
+- 44 current cases were not present in the historical accepted roots;
+- current broad sign-off exits non-zero.
+
+Recovery evidence:
+
+- current manifest:
+  `workspace/mvp/logic/anvil/loadmap2/phase_32/current_eval_manifest.md`;
+- recovery ledger:
+  `workspace/mvp/logic/anvil/loadmap2/phase_32/recovery_task_ledger.md`;
+- superseded Phase32 report:
   `workspace/mvp/logic/anvil/loadmap2/phase_32/implementation_report.md`;
-- final coverage state: `Implemented=45`, `Partial=0`, `Missing=0`,
-  `Excluded=9`.
+- current decision report:
+  `docs/eval/loadmap2-final-migration-decision-20260623.md`.
 
-The accepted Anvil responsibility surface is migrated into CommandAgent's
-explicit contract-recovery architecture. Excluded legacy advisory, UI helper,
-engine selector, hidden-loop, provider-policy, and implicit model-issued setup
-surfaces remain outside the product direction.
+The accepted Anvil responsibility surface is not yet proven complete under the
+current eval case set. Excluded legacy advisory, UI helper, engine selector,
+hidden-loop, provider-policy, and implicit model-issued setup surfaces remain
+outside the product direction.
 
 ## Review Notes
 

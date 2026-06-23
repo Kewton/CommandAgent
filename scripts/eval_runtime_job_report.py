@@ -183,10 +183,14 @@ def large_failure_projection(
         diagnostic_code=diagnostic_code,
         reason=reason,
     ):
-        projection["evidence_binding_status"] = "bound"
-        projection["completion_evidence_status"] = "failed"
-        projection["attempt_outcome"] = "failed"
-        projection["runtime_job_outcome"] = "failed"
+        if not is_meaningful_status(raw.get("evidence_binding_status")):
+            projection["evidence_binding_status"] = "bound"
+        if not is_meaningful_status(raw.get("completion_evidence_status")):
+            projection["completion_evidence_status"] = "failed"
+        if not is_meaningful_status(raw.get("attempt_outcome")):
+            projection["attempt_outcome"] = "failed"
+        if not is_meaningful_status(raw.get("runtime_job_outcome")):
+            projection["runtime_job_outcome"] = "failed"
     if not is_meaningful_status(raw.get("evidence_binding_status")):
         projection.setdefault("evidence_binding_status", "missing")
     if not is_meaningful_status(raw.get("completion_evidence_status")):
@@ -328,6 +332,9 @@ def selected_action(
 
 
 def target_admission_status(raw: dict[str, Any], active_job: str, success: bool) -> str:
+    existing = clean(raw.get("target_admission_status"))
+    if existing:
+        return existing
     rejection = clean(raw.get("target_rejection_reasons") or raw.get("rejected_target_reason"))
     if rejection:
         return "rejected"
@@ -345,6 +352,9 @@ def target_admission_status(raw: dict[str, Any], active_job: str, success: bool)
 
 
 def repair_action_plan_status(raw: dict[str, Any], success: bool) -> str:
+    existing = clean(raw.get("repair_action_plan_status"))
+    if existing:
+        return existing
     rejection = clean(raw.get("repair_plan_rejection_reason"))
     if rejection and rejection != "none":
         return "rejected"

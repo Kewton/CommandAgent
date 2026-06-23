@@ -39,7 +39,7 @@ The source baseline is the coverage-table baseline:
 | Phase29 | `P20-COV-005` | Close C34-C44 cross-profile/runtime-support responsibilities. |
 | Phase30 | `P20-COV-006` | Closed C49-C50 priority decisions as excluded legacy advisory/UI surfaces. |
 | Phase31 | `P20-LEDGER-001` | Closed large timeout proof with a fresh no-timeout large root. |
-| Phase32 | final closure | Completed final coverage closure, sign-off, and migration decision. |
+| Phase32 | final closure | Recovery open: the previous final closure is superseded by current eval case-set reconciliation. |
 
 ## Issue Map
 
@@ -55,7 +55,7 @@ The source baseline is the coverage-table baseline:
 | KI-008 | closed_proven | P20-COV-005 | C34-C44 | Language adapters, tool policy/failure recovery, command classification, workspace walk, job reporting, scaffold/data/docs support, answer-mode gating, lifecycle, and provider boundary are implemented as bounded runtime-support projections. | Phase29 | targeted Rust/Python tests, focused fixture root `eval/runs/loadmap2-phase29-runtime-support-fixtures/20260623T161335`, broad sign-off |
 | KI-009 | closed_excluded | P20-COV-006 | C49-C50 | Quality confirmation and slash/plan UI helper rows were reviewed in Phase30 and excluded as legacy advisory/UI surfaces. Existing CommandAgent eval taxonomy and CLI/slash parser remain native responsibilities, not Anvil compatibility ports. | Phase30 | coverage decision update, Phase30 source alignment, `git diff --check`, `python3 tests/test_eval_report.py`, `cargo test slash_command --lib` |
 | KI-010 | closed_proven | P20-LEDGER-001 | P17-L001 | Large timeout rows are closed by a fresh no-timeout large proof root. | Phase31 | `eval/runs/loadmap2-phase31-large-non-timeboxed/20260623T174624`, large recheck, broad sign-off pass |
-| KI-011 | closed_proven | final closure | all adopted rows | Final migration state is closed as `migration_complete_with_explicit_exclusions`: adopted rows are implemented, explicit exclusions are documented, and final sign-off passes. | Phase32 | final broad sign-off pass and `docs/eval/loadmap2-final-migration-decision-20260623.md` |
+| KI-011 | reopened_current_eval_gap | final closure | all adopted rows | Final migration state is not complete under the current eval case set: historical roots covered 47 unique cases, current roots cover 91, 44 current cases were omitted, and current broad sign-off fails. | Phase32 recovery | `phase_32/current_eval_manifest.md`, `phase_32/recovery_task_ledger.md`, current broad sign-off pass, and row-level dispositions for focused/large blockers |
 
 ## Minimum Internal Split
 
@@ -214,26 +214,29 @@ Proof:
 | --- | --- | --- |
 | P17-L001 | Large timeout proof required a fresh non-timeboxed run. | closed_proven by `eval/runs/loadmap2-phase31-large-non-timeboxed/20260623T174624`, recheck, and broad sign-off |
 
-### Phase32: Final Closure
+### Phase32: Recovery Open Final Closure
 
 | row | minimum blocker | expected proof family |
 | --- | --- | --- |
-| final | No adopted `Partial` or `Missing`, all ledgers closed/excluded/accepted external, final sign-off zero. | closed_proven by final coverage closure report `docs/eval/loadmap2-final-migration-decision-20260623.md` and broad sign-off pass |
+| final | No adopted `Partial` or `Missing`, all ledgers closed/excluded/accepted external, current eval manifest covers current case set, final sign-off zero. | recovery open; requires current coverage closure report, current broad sign-off pass, and row-level dispositions for focused/large blockers |
 
-Phase32 status: `closed_proven`.
+Phase32 status: `recovery_open`.
 
-Final decision:
+Current decision:
 
 ```text
-migration_complete_with_explicit_exclusions
+migration_not_complete_pending_current_eval_reconciliation
 ```
 
 Proof:
 
-- final report: `docs/eval/loadmap2-final-migration-decision-20260623.md`;
-- final sign-off: `python3 scripts/eval_signoff.py --require-recheck ...`,
-  result `status: pass`;
-- Phase32 implementation report:
+- current manifest:
+  `workspace/mvp/logic/anvil/loadmap2/phase_32/current_eval_manifest.md`;
+- recovery ledger:
+  `workspace/mvp/logic/anvil/loadmap2/phase_32/recovery_task_ledger.md`;
+- current decision report:
+  `docs/eval/loadmap2-final-migration-decision-20260623.md`;
+- superseded implementation report:
   `workspace/mvp/logic/anvil/loadmap2/phase_32/implementation_report.md`.
 
 ## Already Accounted Rows
@@ -267,7 +270,9 @@ owner/action/evidence exist; by final closure it must be accepted in the final
 report or converted to an explicit exclusion. `split_forward` may close an
 intermediate phase only when the narrower blocker, owner, downstream phase,
 failed proof, and closure condition are recorded. It is not allowed as a final
-Phase32 completion state. KI-011 is now closed by Phase32.
+Phase32 completion state is reopened. KI-011 remains open until current eval
+roots pass broad sign-off and current focused/large blockers have row-level
+dispositions.
 
 ## Review Gate
 

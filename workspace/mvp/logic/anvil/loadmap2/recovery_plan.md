@@ -223,7 +223,7 @@ phases can close only their assigned blockers.
 | Phase 29 | C34-C44 are `closed_proven`: Phase29 runtime-support fields, command classification, workspace candidate policy, job/scaffold/noncoding/lifecycle/provider boundary projection, focused fixture root `eval/runs/loadmap2-phase29-runtime-support-fixtures/20260623T161335`, targeted tests, and broad sign-off pass. |
 | Phase 30 | C49-C50 are `closed_excluded`: Phase30 records design rationale excluding Anvil semantic quality confirmation and slash/plan UI helper compatibility, updates coverage, and verifies with docs/report and slash parser checks. |
 | Phase 31 | P20-LEDGER-001 is `closed_proven` by fresh no-timeout large root `eval/runs/loadmap2-phase31-large-non-timeboxed/20260623T174624`, large recheck, and broad sign-off pass. |
-| Phase 32 | Completed: coverage table has no unresolved adopted `Partial` or `Missing`; all ledgers are closed or excluded; final broad sign-off exits zero; final report declares `migration_complete_with_explicit_exclusions`. |
+| Phase 32 | Recovery open: the previous completion claim is superseded because current eval roots cover 91 cases while the historical sign-off roots covered 47. Phase32 exits only after current broad sign-off exits zero and the remaining focused/large blockers have row-level dispositions. |
 
 `blocked_external` is not allowed for missing owner/action/evidence. It is only
 allowed for a provider, model-throughput, network, or environment constraint
@@ -397,26 +397,34 @@ Coverage `Partial` and adoption `Partial` are intentionally different:
 
 Neither form of `Partial` may remain as a final Phase32 state.
 
-## Phase32 Final Result
+## Phase32 Recovery Result
 
-Phase32 closed the recovery plan with:
+The earlier Phase32 final result is superseded. Current recovery decision:
 
 ```text
-migration_complete_with_explicit_exclusions
+migration_not_complete_pending_current_eval_reconciliation
 ```
 
-Closure evidence:
+Reason:
 
-- coverage table final state: `Implemented=45`, `Partial=0`, `Missing=0`,
-  `Excluded=9`;
-- final report: `docs/eval/loadmap2-final-migration-decision-20260623.md`;
-- final broad sign-off:
-  `python3 scripts/eval_signoff.py --require-recheck ...`, result
-  `status: pass`;
-- Phase32 implementation report:
+- historical sign-off roots covered 47 unique cases;
+- current eval roots cover 91 unique cases;
+- 44 current cases were not represented in the historical accepted roots;
+- current broad sign-off exits non-zero.
+
+Recovery evidence:
+
+- current manifest:
+  `workspace/mvp/logic/anvil/loadmap2/phase_32/current_eval_manifest.md`;
+- recovery ledger:
+  `workspace/mvp/logic/anvil/loadmap2/phase_32/recovery_task_ledger.md`;
+- current decision report:
+  `docs/eval/loadmap2-final-migration-decision-20260623.md`;
+- superseded implementation report:
   `workspace/mvp/logic/anvil/loadmap2/phase_32/implementation_report.md`.
 
-No accepted external proof limitation was required for final closure.
+No accepted external proof limitation is being used to close Phase32 while
+current focused and large blockers remain open.
 
 ## Non-goals
 

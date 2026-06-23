@@ -227,6 +227,15 @@ projection of the original non-`ok` contract layer rather than a new runtime
 contract decision. An original expected `contract_layer=ok` must still remain
 `ok` after recheck.
 
+For deterministic fixture and report fixture rows, recheck projection preserves
+explicit structured fields before deriving defaults. Field precedence is:
+`fixture_fields`, explicit top-level `meta.json` fields, parsed failure
+evidence, then reason/return-code derived defaults. This precedence applies to
+terminal observation fields and runtime job report fields such as target
+admission, repair action planning, completion source, evidence status, and
+attempt outcome. Recheck must not overwrite explicit fixture/meta evidence
+with a generic verifier failure, generic `failed`, or derived target admission.
+
 The report also includes a `Contract Layers` section derived from the failure
 reason. This is a coarse layer map for triage, not a new success criterion. It
 helps distinguish failures in planning, execution/tool protocol, profile,

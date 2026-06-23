@@ -2,9 +2,9 @@
 
 Date: 2026-06-23 JST
 
-Status: completed / reviewed
+Status: recovery_open / reviewed
 
-## Task Checklist
+## Original Task Checklist
 
 ### 1. Coverage Authority Audit
 
@@ -92,8 +92,51 @@ python3 scripts/eval_signoff.py --require-recheck \
   - `cargo test`
   - `cargo build --release`
 
-No non-doc code changes were made, so cargo checks were not required for the
-Phase32 closure commit.
+The original checklist is superseded by the recovery checklist below. It used
+accepted historical roots and did not prove coverage of the current eval case
+set.
+
+## Recovery Checklist
+
+### 8. Current Eval Manifest Gate
+
+- [x] Run current eval across `smoke`, `small`, `focused/control-recovery`,
+  and `large` with local LLM.
+- [x] Compare current case ids with previous accepted Phase32 signoff roots.
+- [x] Record the 44-case coverage gap in
+  `phase_32/current_eval_manifest.md`.
+- [x] Re-run current broad signoff and record `status: fail`.
+
+### 9. Eval Recheck Repair
+
+- [x] Fix `scripts/eval_report.py --recheck` so deterministic fixture
+  `fixture_fields` are reprojected.
+- [x] Add regression coverage in `tests/test_eval_report.py`.
+- [x] Run `python3 tests/test_eval_report.py`.
+- [x] Run `python3 -m py_compile scripts/eval_report.py scripts/eval_case_schema.py scripts/eval_failure_observation.py`.
+- [x] Re-run focused recheck on
+  `eval/runs/current-all-local-llm/focused-control-recovery/20260623T203236`.
+
+### 10. Phase32 Decision Rollback
+
+- [x] Change the current Phase32 state to
+  `migration_not_complete_pending_current_eval_reconciliation`.
+- [x] Reopen KI-011 in roadmap documents.
+- [x] Update the final report to state that the previous completion decision is
+  superseded.
+- [x] Add recovery blockers for focused assertion failures, raw diagnostics,
+  large failures, and row-to-case proof mapping.
+
+### 11. Remaining Recovery Work
+
+- [ ] Classify the remaining 35 focused assertion failures.
+- [ ] Eliminate or explicitly accept remaining raw `rc:1` / `rc_1` /
+  unknown-contract findings.
+- [ ] Classify the six current large failures and close the missing target
+  evidence in `large-rust-app-new`.
+- [ ] Add a complete row -> eval case -> proof root -> recheck result mapping
+  for all adopted C01-C45 rows.
+- [ ] Re-run current broad signoff until it exits zero without weakening gates.
 
 ## Review Gate Before Implementation
 

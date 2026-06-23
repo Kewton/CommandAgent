@@ -2,7 +2,7 @@
 
 Date: 2026-06-23 JST
 
-Status: completed / migration_complete_with_explicit_exclusions
+Status: recovery_open / migration_not_complete_pending_current_eval_reconciliation
 
 ## Objective
 
@@ -33,14 +33,24 @@ Authoritative inputs:
   `blocking_ledger.md`, and `reconciliation.md`
 - final broad sign-off command output
 
-Current closure baseline:
+Original closure baseline:
 
 - Coverage table has `Implemented=45`, `Partial=0`, `Missing=0`,
   `Excluded=9`.
 - KI-001 through KI-010 are closed.
-- KI-011 is closed by Phase32 final migration decision.
+- KI-011 was previously closed by Phase32 final migration decision, but is now
+  reopened because current eval reconciliation found a coverage gap.
 - Phase31 closed `P17-L001` with fresh large proof root
   `eval/runs/loadmap2-phase31-large-non-timeboxed/20260623T174624`.
+
+Recovery baseline:
+
+- current eval roots cover 91 unique cases;
+- previous accepted Phase32 signoff roots covered 47 unique cases;
+- 44 current cases were not covered by previous Phase32 signoff;
+- current broad signoff returns `status: fail`;
+- Phase32 cannot declare migration completion until current eval
+  reconciliation closes.
 
 ## Scope
 
@@ -103,11 +113,14 @@ Phase32 can close because all items are true:
 3. every `Excluded` row has design rationale;
 4. KI-001 through KI-011 are closed;
 5. no Phase17+ blocking ledger has an open row;
-6. final broad sign-off exits zero;
+6. final broad sign-off exits zero on the current eval case set, not only on
+   historical accepted roots;
 7. final report names migrated responsibilities, excluded responsibilities,
    proof roots, limitations, and the final migration decision;
 8. `implementation_report.md` records row disposition counts and exact proof
    commands.
+9. `phase_32/current_eval_manifest.md` proves the current eval manifest and
+   signoff roots cover the same case set.
 
 ## Failure Handling
 
@@ -120,9 +133,9 @@ If the exit gate fails:
 - create a new phase only for a new distinct responsibility class;
 - declare `migration_not_complete` in the Phase32 report.
 
-## Implementation Result
+## Superseded Implementation Result
 
-Phase32 completed with:
+Phase32 previously completed with:
 
 - final decision: `migration_complete_with_explicit_exclusions`;
 - final broad sign-off: `status: pass`;
@@ -130,6 +143,19 @@ Phase32 completed with:
 - implementation report: `phase_32/implementation_report.md`.
 
 No runtime, provider, profile, or hidden retry behavior changed.
+
+That result is superseded by the current eval reconciliation performed on
+2026-06-23. The correct current state is:
+
+```text
+migration_not_complete_pending_current_eval_reconciliation
+```
+
+Recovery artifacts:
+
+- `phase_32/current_eval_manifest.md`
+- `phase_32/recovery_task_ledger.md`
+- updated `phase_32/blocking_ledger.md`
 
 ## Plan Review Result
 
