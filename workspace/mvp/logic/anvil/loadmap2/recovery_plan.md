@@ -189,6 +189,7 @@ Phase 26: C13-C20 recovery task, setup/profile, semantic repair/action envelope
           (completed / closed_proven)
 Phase 27: C21-C32 target admission, repair lifecycle, verifier, completion,
           and patch validation
+          (completed / closed_proven)
 Phase 28: C33 contract conflict job
 Phase 29: C34-C44 language/profile/tool/workspace/runtime support
 Phase 30: C49-C50 priority decision rows
@@ -213,7 +214,7 @@ phases can close only their assigned blockers.
 | Phase 24 | C07-C10 are `closed_proven` or split into narrower same-surface blockers with failed proof evidence. |
 | Phase 25 | C11-C12 are `closed_proven` or split into narrower same-surface blockers with failed proof evidence. |
 | Phase 26 | C13-C20 are row-level reconciled and proven for recovery task/setup/profile/semantic repair/action-envelope behavior. |
-| Phase 27 | C21-C32 are row-level reconciled and proven for target, verifier, repair lifecycle, completion, and patch behavior. |
+| Phase 27 | C21-C32 are row-level reconciled and proven for target, verifier, repair lifecycle, completion, and patch behavior. Status: `closed_proven` by Phase27 focused fixture root `eval/runs/loadmap2-phase27-focused-fixtures/20260623T144917`, targeted tests, and broad sign-off. |
 | Phase 28 | C33 contract conflict job is implemented or explicitly excluded with design rationale and proof of safe-stop behavior. |
 | Phase 29 | C34-C44 are row-level reconciled and proven or explicitly limited with owner/action/evidence. |
 | Phase 30 | C49-C50 receive an adoption decision: adopt, partial-adopt with phase assignment, or exclude with design rationale. This decision may be pulled forward before Phase30 if earlier phases would otherwise depend on it. |

@@ -707,4 +707,60 @@ mod tests {
         );
         assert_eq!(payload.preferred_repair_role, "verifier_contract");
     }
+
+    #[test]
+    fn classifies_nextjs_typescript_and_port_conflict_diagnostics() {
+        let typescript = VerifierDiagnosticPayload::from_failure(
+            &failure(
+                "npm run build",
+                "command_failed:1",
+                "Type error: Property 'score' does not exist on type Player at app/page.tsx:7:3",
+            ),
+            &[],
+            None,
+        );
+        let port = VerifierDiagnosticPayload::from_failure(
+            &failure(
+                "npm run dev -- -p 3011",
+                "command_failed:1",
+                "Error: listen EADDRINUSE: address already in use :::3011",
+            ),
+            &[],
+            None,
+        );
+
+        assert_eq!(
+            typescript.diagnostic_code,
+            VerifierDiagnosticCode::TypescriptTypeError
+        );
+        assert_eq!(typescript.failure_kind, "compile_or_type_error");
+        assert_eq!(typescript.preferred_repair_role, "implementation");
+        assert_eq!(port.diagnostic_code, VerifierDiagnosticCode::PortInUse);
+        assert_eq!(port.failure_kind, "dev_server_port_conflict");
+        assert_eq!(port.source_of_truth, "dev_server_contract");
+    }
+
+    #[test]
+    fn classifies_self_referential_verifier_as_weak_contract() {
+        let payload = VerifierDiagnosticPayload::from_failure(
+            &failure(
+                "test -f tests/generated_test.rs",
+                "command_failed:1",
+                "missing generated test artifact",
+            ),
+            &[],
+            None,
+        );
+
+        assert_eq!(
+            payload.diagnostic_code,
+            VerifierDiagnosticCode::SelfReferentialVerifier
+        );
+        assert_eq!(payload.failure_kind, "verifier_contract_failure");
+        assert_eq!(payload.confidence, "heuristic_bounded");
+        assert_eq!(
+            payload.weak_verifier_reason.as_deref(),
+            Some("verifier_only_checks_generated_test_artifact")
+        );
+    }
 }

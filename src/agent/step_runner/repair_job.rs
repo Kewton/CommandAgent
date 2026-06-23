@@ -924,6 +924,45 @@ mod tests {
     }
 
     #[test]
+    fn no_progress_strategy_defers_contract_conflict_after_multiple_exhausted_surfaces() {
+        let state = RepairJobState::new("source_implementation_repair")
+            .with_attempt(attempt(
+                "cargo test",
+                "assertion_mismatch",
+                Some("src/lib.rs"),
+                Some("implementation"),
+                RepairAttemptOutcomeKind::NoProgress,
+            ))
+            .with_attempt(RepairAttemptRecord {
+                attempt_number: 2,
+                target: Some("tests/lib_test.rs".to_string()),
+                target_role: Some("test".to_string()),
+                selected_failure_cluster: Some("verifier_failure".to_string()),
+                outcome: RepairAttemptOutcomeKind::NoProgress,
+                ..attempt(
+                    "cargo test",
+                    "assertion_mismatch",
+                    Some("tests/lib_test.rs"),
+                    Some("test"),
+                    RepairAttemptOutcomeKind::NoProgress,
+                )
+            });
+
+        let strategy = select_no_progress_strategy(
+            &state,
+            Some("tests/lib_test.rs"),
+            Some("test"),
+            &["src/lib.rs".to_string(), "tests/lib_test.rs".to_string()],
+            &["implementation".to_string(), "test".to_string()],
+            false,
+            false,
+        );
+
+        assert_eq!(strategy, NoProgressStrategy::EscalateToContractConflict);
+        assert_eq!(strategy.as_str(), "escalate_to_contract_conflict");
+    }
+
+    #[test]
     fn duplicate_attempt_repeats_prior_target_cluster_and_after_signature() {
         let prior = attempt(
             "cargo test",

@@ -100,7 +100,9 @@ Mechanical repair adapters sit beside, not inside, the minimal loop. They
 convert diagnostic payloads such as Rust compile errors, Python import errors,
 TypeScript/Next.js type failures, route integration failures, or dependency
 missing into bounded hints for the Recovery Task Contract. The adapter output
-is still validated as a patch proposal and judged by the original verifier.
+is admitted only after owner, action, target, target role, source-of-truth
+authority, and allowed change kind are already present. It is still validated
+as a patch proposal and judged by the original verifier.
 
 The Planning Contract must validate more than schema shape. It owns step
 decomposition checks such as whether a `setup` step is trying to create a

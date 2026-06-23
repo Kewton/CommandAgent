@@ -1,0 +1,37 @@
+id: phase27-attempt-ledger-outcomes
+title: Phase27 attempt ledger outcomes
+profile: generic
+style: default
+mode: plan-run
+intent: modify
+prompt: "Record repair attempt outcomes without masking failure."
+matrix_row: C24-attempt-ledger
+proof_mode: deterministic_fixture
+fixture_reason: rc:1
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  diagnostic_code: rust_compile_error
+  active_job: source_implementation_repair
+  recovery_owner: source
+  loop_control_action: run_bounded_repair_task
+  dispatch_status: selected
+  repair_action: edit_source_for_diagnostic
+  repair_attempt_count: 3
+  attempt_outcome: duplicate
+  attempt_outcome_reason: duplicate_repair_attempt_for_same_target_and_signature
+  before_signature: verifier|cargo_test
+  after_signature: verifier|cargo_test
+  changed_paths: src/lib.rs
+  exhausted_targets: src/lib.rs
+  exhausted_roles: implementation
+  exhausted_clusters: verifier_failure
+expected_terminal_state: verifier_command_failed
+expected_contract_layer: verification_contract
+expected_repair_attempt_count: 3
+expected_attempt_outcome: duplicate
+expected_changed_paths: src/lib.rs
+expected_repair_state_status: not_attempted
+expected_target_admission_status: unknown
+expected_repair_action_plan_status: planned
+expected_completion_source: none

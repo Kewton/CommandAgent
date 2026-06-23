@@ -1,0 +1,38 @@
+id: phase27-focused-edit-stale-rejection
+title: Phase27 focused edit stale target rejection
+profile: rust
+style: default
+mode: plan-run
+intent: modify
+prompt: "Reject focused edit repair when only stale target evidence is available."
+matrix_row: C30-focused-edit
+proof_mode: deterministic_fixture
+fixture_reason: explicit_stop
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  diagnostic_code: rust_compile_error
+  active_job: explicit_stop
+  recovery_owner: explicit_stop
+  loop_control_action: render_explicit_stop
+  dispatch_status: explicit_stop
+  repair_action: stop_with_structured_evidence
+  target_candidate_count: 1
+  target_admitted_count: 0
+  target_rejected_count: 1
+  selected_target: none
+  focused_edit_status: stale_target
+  current_excerpt_available: false
+  target_evidence_freshness: stale
+  target_rejection_reasons: focused_edit_stale_target
+  explicit_stop_reason: stale_focused_edit_target
+expected_terminal_state: explicit_stop
+expected_contract_layer: unknown_contract
+expected_focused_edit_status: stale_target
+expected_current_excerpt_available: false
+expected_target_evidence_freshness: stale
+expected_target_rejection_reasons: focused_edit_stale_target
+expected_explicit_stop_reason: stale_focused_edit_target
+expected_target_admission_status: rejected
+expected_repair_action_plan_status: planned
+expected_completion_source: none

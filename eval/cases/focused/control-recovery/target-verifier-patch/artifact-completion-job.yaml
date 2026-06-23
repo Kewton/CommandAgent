@@ -1,0 +1,41 @@
+id: phase27-artifact-completion-job
+title: Phase27 artifact completion job authority
+profile: docs
+style: default
+mode: plan-run
+intent: docs
+prompt: "Create README.md and keep missing deliverable evidence distinct from missing verification evidence."
+matrix_row: C29-artifact-completion
+proof_mode: deterministic_fixture
+fixture_reason: missing_evidence
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  diagnostic_code: missing_evidence
+  active_job: documentation_repair
+  recovery_owner: docs
+  loop_control_action: render_explicit_stop
+  dispatch_status: explicit_stop
+  repair_action: update_docs_literal
+  completion_authority_status: missing_evidence
+  evidence_runner_status: missing
+  evidence_runner_kind: docs_literal
+  completion_evidence_status: missing
+  freshness_status: unknown
+  artifact_ledger_status: complete
+  completion_source_of_truth: completion_evidence
+  target_path: README.md
+  target_role: docs
+  selected_target: README.md
+  selected_target_role: docs
+expected_terminal_state: missing_evidence
+expected_contract_layer: eval_success_contract
+expected_completion_authority_status: missing_evidence
+expected_evidence_runner_status: missing
+expected_completion_evidence_status: missing
+expected_artifact_ledger_status: complete
+expected_selected_target: README.md
+expected_target_role: docs
+expected_target_admission_status: admitted
+expected_repair_action_plan_status: planned
+expected_completion_source: none

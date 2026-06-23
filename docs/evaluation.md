@@ -287,9 +287,13 @@ such as `expected_terminal_state`, `expected_contract_layer`,
 `expected_runtime_job_kind`. Focused cases that prove artifact boundaries may
 also assert `expected_target_role`, `expected_workspace_scope_kind`,
 `expected_artifact_ownership`, `expected_artifact_source_of_truth`, and
-`expected_rejected_target_reason`. These fields are assertions against
-observed eval output only. They are not passed to runtime prompts, do not
-authorize repair, and do not change the command sent to CommandAgent. The
+`expected_rejected_target_reason`. Target/verifier/patch cases may also assert
+target candidate/admitted/rejected counts, current excerpt availability,
+priority components, patch validation source/outcomes/rejected paths,
+mechanical adapter status/action, and rollback admission status/reason. These
+fields are assertions against observed eval output only. They are not passed
+to runtime prompts, do not authorize repair, and do not change the command sent
+to CommandAgent. The
 runner records
 `expected_assertion_status`, `expected_assertion_count`, and
 `expected_assertion_failures` in `summary.tsv` and `meta.json`. Dry-run focused

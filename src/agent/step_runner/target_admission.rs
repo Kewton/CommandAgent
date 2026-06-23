@@ -1004,6 +1004,106 @@ mod tests {
     }
 
     #[test]
+    fn decision_admits_route_source_test_docs_setup_and_evidence_binding_targets() {
+        let candidates = vec![
+            RepairTargetCandidate::new(
+                "app/page.tsx",
+                ArtifactRole::Entrypoint,
+                RepairTargetSource::ProfileSelectedRoute,
+            )
+            .with_source_of_truth("profile_selected_route"),
+            RepairTargetCandidate::new(
+                "components/Game.tsx",
+                ArtifactRole::Implementation,
+                RepairTargetSource::ToolReadRecord,
+            )
+            .with_evidence_freshness(TargetEvidenceFreshness::Current),
+            RepairTargetCandidate::new(
+                "tests/test_game.py",
+                ArtifactRole::Test,
+                RepairTargetSource::VerifierDiagnostic,
+            ),
+            RepairTargetCandidate::new(
+                "README.md",
+                ArtifactRole::Docs,
+                RepairTargetSource::CompletionEvidence,
+            ),
+            RepairTargetCandidate::new(
+                "package.json",
+                ArtifactRole::SetupManifest,
+                RepairTargetSource::SetupManifest,
+            ),
+            RepairTargetCandidate::new(
+                "docs/evidence.md",
+                ArtifactRole::Docs,
+                RepairTargetSource::EvidenceBinding,
+            ),
+        ];
+        let policy = TargetAdmissionPolicy::new(
+            "source_implementation_repair",
+            "edit_source_for_diagnostic",
+            vec![
+                ArtifactRole::Entrypoint,
+                ArtifactRole::Implementation,
+                ArtifactRole::Test,
+                ArtifactRole::Docs,
+                ArtifactRole::SetupManifest,
+            ],
+            true,
+            true,
+        );
+        let mut graph = ArtifactGraph::new();
+        for path in [
+            "app/page.tsx",
+            "components/Game.tsx",
+            "tests/test_game.py",
+            "README.md",
+            "package.json",
+            "docs/evidence.md",
+        ] {
+            graph.add_path(
+                path,
+                crate::agent::step_runner::artifact_graph::ArtifactLifecycle::Required,
+                "contract.required_paths",
+            );
+        }
+
+        let decision = decide_repair_target_with_scope(
+            candidates,
+            &graph,
+            &policy,
+            &WorkspaceScope::greenfield(),
+            &[],
+        );
+
+        assert_eq!(decision.proposed_targets.len(), 6);
+        assert_eq!(decision.admitted_targets.len(), 6);
+        for role in [
+            ArtifactRole::Entrypoint,
+            ArtifactRole::Implementation,
+            ArtifactRole::Test,
+            ArtifactRole::Docs,
+            ArtifactRole::SetupManifest,
+        ] {
+            assert!(
+                decision
+                    .admitted_targets
+                    .iter()
+                    .any(|record| record.role == role),
+                "missing admitted role {}",
+                role.as_str()
+            );
+        }
+        assert_eq!(decision.selected_target.as_deref(), Some("package.json"));
+        assert!(
+            decision
+                .eval_report_fields()
+                .iter()
+                .any(|field| field == "target_admitted_count=6")
+        );
+    }
+
+    #[test]
     fn decision_stops_when_target_required_but_none_admitted() {
         let candidates = vec![RepairTargetCandidate::new(
             "node_modules/react/index.js",

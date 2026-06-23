@@ -1,0 +1,35 @@
+id: phase27-no-progress-deferral
+title: Phase27 no-progress contract conflict deferral
+profile: rust
+style: default
+mode: plan-run
+intent: modify
+prompt: "Stop and defer when both implementation and test targets are exhausted for the same assertion conflict."
+matrix_row: C25-no-progress
+proof_mode: deterministic_fixture
+fixture_reason: explicit_stop
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  diagnostic_code: rust_test_assertion_mismatch
+  active_job: explicit_stop
+  recovery_owner: explicit_stop
+  loop_control_action: render_explicit_stop
+  dispatch_status: explicit_stop
+  repair_action: stop_with_structured_evidence
+  repair_attempt_count: 2
+  attempt_outcome: no_progress
+  no_progress_strategy: escalate_to_contract_conflict
+  exhausted_targets: src/lib.rs|tests/lib_test.rs
+  exhausted_roles: implementation|test
+  exhausted_clusters: verifier_failure
+  explicit_stop_reason: phase28_contract_conflict_required
+  safe_stop_payload: owner=explicit_stop;job=explicit_stop;action=stop_with_structured_evidence;reason=phase28_contract_conflict_required
+expected_terminal_state: explicit_stop
+expected_contract_layer: unknown_contract
+expected_no_progress_strategy: escalate_to_contract_conflict
+expected_explicit_stop_reason: phase28_contract_conflict_required
+expected_safe_stop_payload: owner=explicit_stop;job=explicit_stop;action=stop_with_structured_evidence;reason=phase28_contract_conflict_required
+expected_target_admission_status: unknown
+expected_repair_action_plan_status: planned
+expected_completion_source: none

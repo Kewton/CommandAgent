@@ -1,0 +1,49 @@
+id: phase27-target-admission-matrix
+title: Phase27 target admission matrix
+profile: nextjs
+style: default
+mode: plan-run
+intent: modify
+prompt: "Repair the selected Next.js route using admitted route/source/test/docs/setup/evidence targets only."
+matrix_row: C21-target-admission
+proof_mode: deterministic_fixture
+fixture_reason: rc:1
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  diagnostic_code: nextjs_route_not_integrated
+  active_job: route_integration_repair
+  recovery_owner: route_integration
+  loop_control_action: run_bounded_repair_task
+  dispatch_status: selected
+  repair_action: connect_existing_artifact_to_entrypoint
+  tool_policy: file_mutation_repair
+  target_candidate_count: 8
+  target_admitted_count: 6
+  target_rejected_count: 2
+  selected_target: app/page.tsx
+  selected_target_role: entrypoint
+  target_path: app/page.tsx
+  target_role: entrypoint
+  target_source_of_truth: profile_selected_route
+  target_ownership_source: contract.required_paths
+  target_workspace_scope: greenfield
+  target_evidence_freshness: current
+  target_rejection_reasons: generated_output|dependency_cache
+  target_priority_components: source=profile_selected_route;role=entrypoint;ownership=owned
+expected_terminal_state: verifier_command_failed
+expected_contract_layer: verification_contract
+expected_diagnostic_code: nextjs_route_not_integrated
+expected_active_job: route_integration_repair
+expected_recovery_owner: route_integration
+expected_repair_action: connect_existing_artifact_to_entrypoint
+expected_target_candidate_count: 8
+expected_target_admitted_count: 6
+expected_target_rejected_count: 2
+expected_selected_target: app/page.tsx
+expected_target_role: entrypoint
+expected_target_source_of_truth: profile_selected_route
+expected_target_rejection_reasons: generated_output|dependency_cache
+expected_target_admission_status: rejected
+expected_repair_action_plan_status: planned
+expected_completion_source: none

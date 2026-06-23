@@ -34,7 +34,7 @@ The source baseline is the coverage-table baseline:
 | --- | --- | --- |
 | Phase22-Phase25 | `P20-COV-001` | Close C01-C12 after Phase21 row-level split. |
 | Phase26 | `P20-COV-002` | Close C13-C20 recovery task/setup/profile/semantic repair/action-envelope responsibilities. |
-| Phase27 | `P20-COV-003` | Close C21-C32 target/repair/verifier/completion/patch responsibilities; conflict-dependent branches may record a Phase28 dependency. |
+| Phase27 | `P20-COV-003` | Closed C21-C32 target/repair/verifier/completion/patch responsibilities; conflict-dependent branches record a Phase28 dependency instead of claiming C33 resolution. |
 | Phase28 | `P20-COV-004` | Implement or explicitly exclude C33 contract conflict job and close Phase27 conflict-dependent branches. |
 | Phase29 | `P20-COV-005` | Close C34-C44 cross-profile/runtime-support responsibilities. |
 | Phase30 | `P20-COV-006` | Decide C49-C50 priority/adoption status; may be pulled forward if needed. |
@@ -50,7 +50,7 @@ The source baseline is the coverage-table baseline:
 | KI-003 | closed_proven | P20-COV-001 | C07-C10 | Ledger, completion evidence, evidence binding, and deliverable audit are implemented by Phase24. | Phase24 | artifact-ledger/completion-evidence/evidence-producer/evidence-authority/evidence-binding/deliverable-obligation tests, focused fixture root `eval/runs/loadmap2-phase24-focused-fixtures/20260623T115617`, broad sign-off |
 | KI-004 | closed_proven | P20-COV-001 | C11-C12 | Active-job lifecycle and dispatch gate are implemented by Phase25. | Phase25 | `cargo test active_job`, `cargo test recovery_orchestration`, `cargo test recovery_task`, `python3 tests/test_eval_report.py`, focused fixture root `eval/runs/loadmap2-phase25-focused-fixtures/20260623T132110`, broad sign-off |
 | KI-005 | closed_proven | P20-COV-002 | C13-C20 | Recovery task, setup/profile mapping, semantic repair, repair brief, and action envelope are implemented by Phase26. | Phase26 | `cargo test recovery_task`, `cargo test recovery_orchestration`, `cargo test setup_lifecycle`, `cargo test setup_artifact_validation`, `cargo test semantic_failure`, `cargo test repair_brief`, `cargo test repair_action_plan`, `cargo test profiles`, focused fixture root `eval/runs/loadmap2-phase26-focused-fixtures/20260623T140340`, broad sign-off |
-| KI-006 | open | P20-COV-003 | C21-C32 | Target admission, verifier orchestration, repair lifecycle, completion job, focused edit, patch validation, and no-progress behavior remain partial. | Phase27 | row-level ledger, focused target/verifier/patch matrix, broad sign-off |
+| KI-006 | closed_proven | P20-COV-003 | C21-C32 | Target admission, verifier orchestration, repair lifecycle, completion job, focused edit, patch validation, and no-progress behavior are implemented by Phase27. C33 conflict resolution remains Phase28-owned. | Phase27 | target/repair/verifier/patch tests, focused fixture root `eval/runs/loadmap2-phase27-focused-fixtures/20260623T144917`, broad sign-off |
 | KI-007 | open | P20-COV-004 | C33 | Contract conflict job is missing. | Phase28 | conflict unit tests, focused conflict fixture, broad sign-off |
 | KI-008 | open | P20-COV-005 | C34-C44 | Language adapters, tool policy/failure recovery, command classification, workspace walk, job reporting, scaffold/data/docs support, answer-mode gating, lifecycle, and provider boundary remain partial. | Phase29 | row-level ledger, representative focused cases, broad sign-off |
 | KI-009 | open | P20-COV-006 | C49-C50 | Quality and slash/plan UI helper rows are unresolved priority decisions. Default toward exclusion unless deterministic recovery or eval evidence shows the row is necessary. | Phase30, pull-forward allowed | coverage decision update with proof or design exclusion |
@@ -134,6 +134,10 @@ Status: `closed_proven` by Phase26. No C13-C20 row is split forward.
 | C30 | Focused edit recovery after target admission with current excerpt and stale-target rejection. | target-admission/ledger tests, focused edit fixture |
 | C31 | Forced small edit / deterministic fallback admission and safe mutation proof. | mechanical-repair tests, patch admission fixture |
 | C32 | Patch executor/validation, unsafe/noop/duplicate/test-weakening rejection, rollback proof. | patch-validation tests, focused patch fixture |
+
+Status: `closed_proven` by Phase27. No C21-C32 row is split forward. The
+C25 contract-conflict branch records a Phase28/C33 dependency only; it does
+not close C33 conflict resolution.
 
 ### Phase28: C33
 

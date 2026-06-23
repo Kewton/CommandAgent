@@ -632,4 +632,59 @@ mod tests {
                 .contains(&"rollback_reason=safe_rollback_data_missing".to_string())
         );
     }
+
+    #[test]
+    fn patch_report_can_reject_noop_duplicate_and_unsafe_outcomes_with_rollback() {
+        let mut proposal = PatchProposal::new(
+            PatchProposalSource::MechanicalAdapter,
+            vec!["src/lib.rs".to_string()],
+        );
+        proposal.active_job = "source_implementation_repair".to_string();
+        proposal.target_path = Some("src/lib.rs".to_string());
+        proposal.target_role = Some("implementation".to_string());
+        proposal.source_of_truth = Some("original_verifier_diagnostic".to_string());
+
+        let mut report = PatchValidationReport::from_proposal(
+            &proposal,
+            vec![
+                PatchValidation::new(
+                    PatchValidationOutcome::Noop,
+                    Some("src/lib.rs".to_string()),
+                    "patch did not change the target",
+                ),
+                PatchValidation::new(
+                    PatchValidationOutcome::Duplicate,
+                    Some("src/lib.rs".to_string()),
+                    "patch repeats a prior failed attempt",
+                ),
+                PatchValidation::new(
+                    PatchValidationOutcome::Unsafe,
+                    Some("src/lib.rs".to_string()),
+                    "patch violates the action envelope",
+                ),
+            ],
+        );
+        report.rollback_admission = Some(RollbackAdmission::new(
+            RollbackAdmissionStatus::Admitted,
+            "verifier proved worsening and safe rollback data is available",
+            vec!["src/lib.rs".to_string()],
+            true,
+            true,
+        ));
+
+        assert!(report.is_rejected());
+        assert_eq!(report.status, PatchValidationStatus::Rejected);
+        assert_eq!(
+            report.outcomes(),
+            vec![
+                "noop".to_string(),
+                "duplicate".to_string(),
+                "unsafe".to_string()
+            ]
+        );
+        let fields = report.eval_report_fields().join("\n");
+        assert!(fields.contains("patch_validation_source=mechanical_adapter"));
+        assert!(fields.contains("patch_validation_outcomes=noop|duplicate|unsafe"));
+        assert!(fields.contains("rollback_admission_status=admitted"));
+    }
 }

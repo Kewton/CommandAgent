@@ -312,7 +312,8 @@ test-weakening, generated/cache output mutation, protected input mutation,
 out-of-scope paths, noop/duplicate attempts, or verifier-worsening. Mechanical
 adapters may translate already-classified Rust/Python/Node/Next diagnostics
 into bounded repair hints only after recovery owner, target, action, source of
-truth, and rerun authority are selected by existing contracts. They do not
+truth, target role, allowed change kind, and rerun authority are selected by
+existing contracts. They do not
 execute tools, pick targets, run dependency setup, add retry budget, or create
 provider/model-specific policy. Rollback is a separate admission gate and is
 allowed only when the original authority proves a worsened outcome and safe

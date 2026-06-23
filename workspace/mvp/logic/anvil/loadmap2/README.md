@@ -193,7 +193,7 @@ blockers. The remaining known work is assigned as follows:
 | Phase24 | P20-COV-001 / C07-C10 | completed / closed_proven: artifact ledger, completion evidence, evidence binding, deliverable audit |
 | Phase25 | P20-COV-001 / C11-C12 | completed / closed_proven: active-job arbitration and recovery dispatch |
 | Phase26 | P20-COV-002 / C13-C20 | completed / closed_proven: recovery task, setup/profile, semantic repair, repair brief, action envelope |
-| Phase27 | P20-COV-003 / C21-C32 | target admission, verifier orchestration, repair lifecycle, completion, patch validation |
+| Phase27 | P20-COV-003 / C21-C32 | completed / closed_proven: target admission, verifier orchestration, repair lifecycle, completion, patch validation |
 | Phase28 | P20-COV-004 / C33 | contract conflict job |
 | Phase29 | P20-COV-005 / C34-C44 | language/profile/tool/workspace/runtime-support surface |
 | Phase30 | P20-COV-006 / C49-C50 | quality and slash/plan UI priority decisions |

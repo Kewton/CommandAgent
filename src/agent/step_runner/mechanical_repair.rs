@@ -185,6 +185,36 @@ pub(crate) fn mechanical_repair_hint(input: &MechanicalRepairInput) -> Mechanica
         };
     };
 
+    if input.active_job.trim().is_empty()
+        || input.active_job == "unknown"
+        || input
+            .repair_action
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .is_empty()
+        || input.target_role.as_deref().unwrap_or("").trim().is_empty()
+        || input.source_of_truth.trim().is_empty()
+        || input.source_of_truth == "unknown"
+        || input
+            .allowed_change_kind
+            .as_deref()
+            .unwrap_or("")
+            .trim()
+            .is_empty()
+    {
+        return MechanicalRepairOutput {
+            adapter_id: adapter_id.to_string(),
+            status: MechanicalRepairStatus::Rejected,
+            action: action.to_string(),
+            target_path: Some(target),
+            hint: hint.to_string(),
+            reason: "mechanical_adapter_requires_owner_action_target_and_verifier_authority"
+                .to_string(),
+            rerun_authority: input.source_of_truth.clone(),
+        };
+    }
+
     if target_is_disallowed(&target) {
         return MechanicalRepairOutput {
             adapter_id: adapter_id.to_string(),
@@ -321,6 +351,24 @@ mod tests {
         assert_eq!(
             output.reason,
             "mechanical_adapter_target_not_admitted_for_mutation"
+        );
+    }
+
+    #[test]
+    fn rejects_adapter_without_action_and_verifier_authority() {
+        let mut input = input(
+            VerifierDiagnosticCode::RustCompileError,
+            Some("src/main.rs"),
+        );
+        input.repair_action = None;
+        input.source_of_truth = "unknown".to_string();
+
+        let output = mechanical_repair_hint(&input);
+
+        assert_eq!(output.status, MechanicalRepairStatus::Rejected);
+        assert_eq!(
+            output.reason,
+            "mechanical_adapter_requires_owner_action_target_and_verifier_authority"
         );
     }
 

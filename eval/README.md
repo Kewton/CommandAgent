@@ -96,6 +96,11 @@ Supported fields:
 - `expected_target_evidence_freshness`
 - `expected_focused_edit_status`
 - `expected_target_conflict_reason`
+- `expected_target_candidate_count`
+- `expected_target_admitted_count`
+- `expected_target_rejected_count`
+- `expected_current_excerpt_available`
+- `expected_target_priority_components`
 - `expected_workspace_scope_kind`
 - `expected_artifact_ownership`
 - `expected_artifact_source_of_truth`
@@ -110,6 +115,15 @@ Supported fields:
 - `expected_completion_evidence_status`
 - `expected_attempt_outcome`
 - `expected_explicit_stop_reason`
+- `expected_patch_validation_status`
+- `expected_patch_validation_source`
+- `expected_patch_validation_outcomes`
+- `expected_patch_validation_rejected_paths`
+- `expected_mechanical_adapter`
+- `expected_mechanical_adapter_status`
+- `expected_mechanical_adapter_action`
+- `expected_rollback_admission_status`
+- `expected_rollback_reason`
 
 Reports render `expected_assertion_status`,
 `expected_assertion_count`, and `expected_assertion_failures`. Dry runs mark

@@ -217,6 +217,52 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertEqual(expected["selected_failure_cluster"], "route:profile_contract")
         self.assertEqual(expected["expected_improvement"], "profile verification passes")
 
+    def test_phase27_expected_fields_are_parsed_for_target_patch_and_rollback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            case_path = pathlib.Path(tmp) / "case.yaml"
+            case_path.write_text(
+                "\n".join(
+                    [
+                        "id: phase27-field-parse",
+                        "profile: rust",
+                        "style: default",
+                        "prompt: test",
+                        "expected_target_candidate_count: 3",
+                        "expected_target_admitted_count: 1",
+                        "expected_target_rejected_count: 2",
+                        "expected_current_excerpt_available: true",
+                        "expected_target_priority_components: source=verifier_diagnostic",
+                        "expected_patch_validation_source: mechanical_adapter",
+                        "expected_patch_validation_outcomes: noop|duplicate",
+                        "expected_patch_validation_rejected_paths: src/lib.rs",
+                        "expected_mechanical_adapter: rust_compile_diagnostic",
+                        "expected_mechanical_adapter_status: admitted",
+                        "expected_mechanical_adapter_action: repair_rust_compile_error",
+                        "expected_rollback_admission_status: rejected",
+                        "expected_rollback_reason: safe_rollback_data_missing",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            parsed = eval_case_schema.read_eval_case(case_path)
+
+        expected = parsed["expected_fields"]
+        self.assertEqual(expected["target_candidate_count"], "3")
+        self.assertEqual(expected["target_admitted_count"], "1")
+        self.assertEqual(expected["target_rejected_count"], "2")
+        self.assertEqual(expected["current_excerpt_available"], "true")
+        self.assertEqual(
+            expected["target_priority_components"], "source=verifier_diagnostic"
+        )
+        self.assertEqual(expected["patch_validation_source"], "mechanical_adapter")
+        self.assertEqual(expected["patch_validation_outcomes"], "noop|duplicate")
+        self.assertEqual(
+            expected["mechanical_adapter_action"], "repair_rust_compile_error"
+        )
+        self.assertEqual(expected["rollback_admission_status"], "rejected")
+
     def test_completion_authority_fields_classify_missing_evidence(self):
         observation = eval_failure_observation.normalize_observation(
             {
