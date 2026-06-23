@@ -59,7 +59,7 @@ pub(crate) fn classify_artifact_ownership(
             path,
             role,
             ArtifactOwnership::OutOfScope,
-            "generated_or_dependency_cache",
+            inadmissible_role_reason(role),
             source,
             scope,
         );
@@ -115,6 +115,15 @@ pub(crate) fn classify_artifact_ownership(
         source,
         scope,
     )
+}
+
+fn inadmissible_role_reason(role: ArtifactRole) -> &'static str {
+    match role {
+        ArtifactRole::RawInput => "protected_raw_input",
+        ArtifactRole::DependencyCache => "dependency_cache",
+        ArtifactRole::GeneratedOutput => "generated_output",
+        _ => "not_recovery_target",
+    }
 }
 
 fn deterministic_source_owns_target(source: &str) -> bool {
@@ -187,6 +196,9 @@ fn ownership_subreason(
     }
     if role == ArtifactRole::GeneratedOutput {
         return "generated_output".to_string();
+    }
+    if role == ArtifactRole::RawInput {
+        return "raw_input".to_string();
     }
     if ownership == ArtifactOwnership::OutOfScope && reason.contains("workspace") {
         return "outside_workspace_scope".to_string();
@@ -302,5 +314,95 @@ mod tests {
         assert_eq!(decision.ownership, ArtifactOwnership::CandidateOnly);
         assert_eq!(decision.source_of_truth, "tool_record");
         assert_eq!(decision.ownership_subreason, "read_only_observation");
+    }
+
+    #[test]
+    fn artifact_ownership_rejects_generated_output() {
+        let graph = ArtifactGraph::new();
+        let scope = WorkspaceScope::greenfield();
+
+        let decision = classify_artifact_ownership(
+            &graph,
+            &scope,
+            ".next/server/app.js",
+            ArtifactRole::GeneratedOutput,
+            "verifier_diagnostic",
+            &[],
+        );
+
+        assert_eq!(decision.ownership, ArtifactOwnership::OutOfScope);
+        assert_eq!(decision.ownership_subreason, "generated_output");
+        assert_eq!(decision.source_of_truth, "verifier_output");
+        assert!(!decision.admissible_for_repair);
+    }
+
+    #[test]
+    fn artifact_ownership_rejects_raw_input() {
+        let graph = ArtifactGraph::new();
+        let scope = WorkspaceScope::greenfield();
+
+        let decision = classify_artifact_ownership(
+            &graph,
+            &scope,
+            "data/raw/source.csv",
+            ArtifactRole::RawInput,
+            "required_artifact",
+            &[],
+        );
+
+        assert_eq!(decision.ownership, ArtifactOwnership::OutOfScope);
+        assert_eq!(decision.ownership_subreason, "raw_input");
+        assert!(!decision.admissible_for_repair);
+    }
+
+    #[test]
+    fn artifact_ownership_rejects_paths_outside_explicit_scope() {
+        let mut graph = ArtifactGraph::new();
+        graph.add_path(
+            "apps/web/app/page.tsx",
+            ArtifactLifecycle::Required,
+            "contract.required_paths",
+        );
+        let scope = WorkspaceScope::from_graph(&graph);
+
+        let decision = classify_artifact_ownership(
+            &graph,
+            &scope,
+            "packages/ui/src/lib.ts",
+            ArtifactRole::Implementation,
+            "verifier_diagnostic",
+            &[],
+        );
+
+        assert_eq!(decision.ownership, ArtifactOwnership::OutOfScope);
+        assert_eq!(decision.reason, "outside_workspace_scope");
+        assert_eq!(decision.ownership_subreason, "outside_workspace_scope");
+        assert!(decision.workspace_scope.contains("kind=explicit"));
+        assert!(!decision.admissible_for_repair);
+    }
+
+    #[test]
+    fn verifier_mentioned_in_scope_path_is_owned_with_verifier_source() {
+        let mut graph = ArtifactGraph::new();
+        graph.add_path(
+            "src/lib.rs",
+            ArtifactLifecycle::Required,
+            "contract.required_paths",
+        );
+        let scope = WorkspaceScope::from_graph(&graph);
+
+        let decision = classify_artifact_ownership(
+            &graph,
+            &scope,
+            "src/lib.rs",
+            ArtifactRole::Implementation,
+            "verifier_diagnostic",
+            &[],
+        );
+
+        assert_eq!(decision.ownership, ArtifactOwnership::Owned);
+        assert_eq!(decision.source_of_truth, "verifier_output");
+        assert_eq!(decision.ownership_subreason, "verifier_owned_signal");
+        assert!(decision.admissible_for_repair);
     }
 }

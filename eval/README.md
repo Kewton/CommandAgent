@@ -96,6 +96,10 @@ Supported fields:
 - `expected_target_evidence_freshness`
 - `expected_focused_edit_status`
 - `expected_target_conflict_reason`
+- `expected_workspace_scope_kind`
+- `expected_artifact_ownership`
+- `expected_artifact_source_of_truth`
+- `expected_rejected_target_reason`
 - `expected_runtime_job_kind`
 - `expected_runtime_job_outcome`
 - `expected_setup_state`

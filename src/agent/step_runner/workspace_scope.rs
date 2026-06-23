@@ -90,6 +90,10 @@ impl WorkspaceScope {
         &self.roots
     }
 
+    pub(crate) fn excluded_paths(&self) -> &[String] {
+        &self.excluded_paths
+    }
+
     pub(crate) fn contains_path(&self, path: &str) -> bool {
         let path = normalize_path(path);
         if path.is_empty() {
@@ -199,5 +203,40 @@ mod tests {
         assert!(scope.contains_path("apps/web/app/page.tsx"));
         assert!(scope.contains_path("packages/ui/src/lib.ts"));
         assert!(!scope.contains_path("apps/admin/app/page.tsx"));
+    }
+
+    #[test]
+    fn workspace_scope_detects_explicit_project_root() {
+        let mut graph = ArtifactGraph::new();
+        graph.add_path("apps/web/app/page.tsx", ArtifactLifecycle::Required, "test");
+        graph.add_path(
+            "apps/web/package.json",
+            ArtifactLifecycle::SetupManifest,
+            "test",
+        );
+
+        let scope = WorkspaceScope::from_graph(&graph);
+
+        assert_eq!(scope.kind, WorkspaceScopeKind::Explicit);
+        assert_eq!(scope.roots(), &["apps/web".to_string()]);
+        assert!(scope.contains_path("apps/web/app/page.tsx"));
+        assert!(!scope.contains_path("packages/ui/src/lib.ts"));
+    }
+
+    #[test]
+    fn excluded_paths_do_not_expand_workspace_scope() {
+        let scope = WorkspaceScope::from_paths([
+            "apps/web/app/page.tsx",
+            "node_modules/react/index.js",
+            "target/debug/app",
+            ".next/server/app.js",
+        ]);
+
+        assert_eq!(scope.kind, WorkspaceScopeKind::Explicit);
+        assert_eq!(scope.roots(), &["apps/web".to_string()]);
+        assert_eq!(scope.excluded_paths().len(), 3);
+        assert!(!scope.contains_path("node_modules/react/index.js"));
+        assert!(!scope.contains_path("target/debug/app"));
+        assert!(!scope.contains_path(".next/server/app.js"));
     }
 }

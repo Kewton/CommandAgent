@@ -2,7 +2,7 @@
 
 use crate::agent::step_runner::correction_evidence::ContractEvidence;
 use crate::agent::step_runner::profile_artifact::{
-    is_build_output_path, is_config_path, is_dependency_cache_path, is_manifest_path,
+    ArtifactKind, is_build_output_path, is_config_path, is_dependency_cache_path, is_manifest_path,
 };
 use crate::agent::step_runner::{StepKind, StepPlan};
 use std::path::Path;
@@ -16,6 +16,8 @@ pub(crate) enum ArtifactRole {
     Implementation,
     Test,
     Docs,
+    RawInput,
+    DerivedOutput,
     GeneratedOutput,
     DependencyCache,
     Unknown,
@@ -31,6 +33,8 @@ impl ArtifactRole {
             Self::Implementation => "implementation",
             Self::Test => "test",
             Self::Docs => "docs",
+            Self::RawInput => "raw_input",
+            Self::DerivedOutput => "derived_output",
             Self::GeneratedOutput => "generated_output",
             Self::DependencyCache => "dependency_cache",
             Self::Unknown => "unknown",
@@ -231,7 +235,9 @@ impl ArtifactGraph {
                 ArtifactLifecycle::Required | ArtifactLifecycle::ToBeCreated
             ) && !matches!(
                 node.role,
-                ArtifactRole::GeneratedOutput | ArtifactRole::DependencyCache
+                ArtifactRole::GeneratedOutput
+                    | ArtifactRole::DependencyCache
+                    | ArtifactRole::RawInput
             )
         })
     }
@@ -306,6 +312,12 @@ pub(crate) fn role_for_path(path: &str, lifecycle: ArtifactLifecycle) -> Artifac
     if is_docs_path(&path) {
         return ArtifactRole::Docs;
     }
+    if is_raw_input_path(&path) {
+        return ArtifactRole::RawInput;
+    }
+    if is_derived_output_path(&path) {
+        return ArtifactRole::DerivedOutput;
+    }
     if is_source_path(&path) {
         if matches!(lifecycle, ArtifactLifecycle::IntegrationTarget) {
             ArtifactRole::IntegrationTarget
@@ -317,10 +329,31 @@ pub(crate) fn role_for_path(path: &str, lifecycle: ArtifactLifecycle) -> Artifac
     }
 }
 
+pub(crate) fn role_for_artifact_kind(kind: ArtifactKind) -> ArtifactRole {
+    match kind {
+        ArtifactKind::Manifest => ArtifactRole::SetupManifest,
+        ArtifactKind::Config => ArtifactRole::SetupConfig,
+        ArtifactKind::RouteEntry => ArtifactRole::Entrypoint,
+        ArtifactKind::RouteInfrastructure => ArtifactRole::IntegrationTarget,
+        ArtifactKind::UiSource | ArtifactKind::StyleSource | ArtifactKind::RuntimeSource => {
+            ArtifactRole::Implementation
+        }
+        ArtifactKind::TestSource => ArtifactRole::Test,
+        ArtifactKind::Documentation => ArtifactRole::Docs,
+        ArtifactKind::RawInput => ArtifactRole::RawInput,
+        ArtifactKind::DerivedOutput => ArtifactRole::DerivedOutput,
+        ArtifactKind::GeneratedDeclaration | ArtifactKind::BuildOutput => {
+            ArtifactRole::GeneratedOutput
+        }
+        ArtifactKind::DependencyCache => ArtifactRole::DependencyCache,
+        ArtifactKind::Unknown => ArtifactRole::Unknown,
+    }
+}
+
 pub(crate) fn recovery_target_admissible(role: ArtifactRole) -> bool {
     !matches!(
         role,
-        ArtifactRole::GeneratedOutput | ArtifactRole::DependencyCache
+        ArtifactRole::GeneratedOutput | ArtifactRole::DependencyCache | ArtifactRole::RawInput
     )
 }
 
@@ -424,6 +457,17 @@ fn is_docs_path(path: &str) -> bool {
 
 fn is_source_path(path: &str) -> bool {
     extension_is(path, &["ts", "tsx", "js", "jsx", "rs", "py", "css"])
+}
+
+fn is_raw_input_path(path: &str) -> bool {
+    path.starts_with("raw/")
+        || path.starts_with("data/raw/")
+        || path.starts_with("input/")
+        || path.starts_with("inputs/")
+}
+
+fn is_derived_output_path(path: &str) -> bool {
+    path.starts_with("data/processed/") || path.starts_with("reports/")
 }
 
 fn extension_is(path: &str, extensions: &[&str]) -> bool {
@@ -550,6 +594,57 @@ mod tests {
 
         assert_eq!(role, ArtifactRole::DependencyCache);
         assert!(!recovery_target_admissible(role));
+    }
+
+    #[test]
+    fn profile_artifact_kinds_project_to_shared_roles() {
+        let cases = [
+            (ArtifactKind::RouteEntry, ArtifactRole::Entrypoint),
+            (
+                ArtifactKind::RouteInfrastructure,
+                ArtifactRole::IntegrationTarget,
+            ),
+            (ArtifactKind::UiSource, ArtifactRole::Implementation),
+            (ArtifactKind::StyleSource, ArtifactRole::Implementation),
+            (ArtifactKind::RuntimeSource, ArtifactRole::Implementation),
+            (ArtifactKind::TestSource, ArtifactRole::Test),
+            (ArtifactKind::Documentation, ArtifactRole::Docs),
+            (ArtifactKind::Manifest, ArtifactRole::SetupManifest),
+            (ArtifactKind::Config, ArtifactRole::SetupConfig),
+            (
+                ArtifactKind::GeneratedDeclaration,
+                ArtifactRole::GeneratedOutput,
+            ),
+            (ArtifactKind::BuildOutput, ArtifactRole::GeneratedOutput),
+            (ArtifactKind::DependencyCache, ArtifactRole::DependencyCache),
+            (ArtifactKind::RawInput, ArtifactRole::RawInput),
+            (ArtifactKind::DerivedOutput, ArtifactRole::DerivedOutput),
+        ];
+
+        for (kind, expected) in cases {
+            let role = role_for_artifact_kind(kind);
+            assert_eq!(role, expected, "{kind:?}");
+        }
+    }
+
+    #[test]
+    fn data_paths_have_distinct_input_and_output_roles() {
+        assert_eq!(
+            role_for_path("data/raw/source.csv", ArtifactLifecycle::Existing),
+            ArtifactRole::RawInput
+        );
+        assert!(!recovery_target_admissible(role_for_path(
+            "data/raw/source.csv",
+            ArtifactLifecycle::Existing
+        )));
+        assert_eq!(
+            role_for_path("data/processed/output.csv", ArtifactLifecycle::Required),
+            ArtifactRole::DerivedOutput
+        );
+        assert!(recovery_target_admissible(role_for_path(
+            "data/processed/output.csv",
+            ArtifactLifecycle::Required
+        )));
     }
 
     fn temp_workspace(name: &str) -> PathBuf {

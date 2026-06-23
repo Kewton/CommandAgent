@@ -175,6 +175,7 @@ pub(crate) fn workspace_scope(target: Option<&str>, role: Option<ArtifactRole>) 
         Some(ArtifactRole::GeneratedOutput | ArtifactRole::DependencyCache) => {
             "excluded_generated_or_dependency_scope"
         }
+        Some(ArtifactRole::RawInput) => "protected_raw_input_scope",
         Some(ArtifactRole::SetupManifest | ArtifactRole::SetupConfig) => "setup_artifact_scope",
         _ if target.starts_with("localhost:") || target.starts_with("127.0.0.1:") => {
             "dev_server_smoke_scope"
@@ -185,6 +186,7 @@ pub(crate) fn workspace_scope(target: Option<&str>, role: Option<ArtifactRole>) 
         Some(ArtifactRole::Implementation) => "implementation_artifact_scope",
         Some(ArtifactRole::Test) => "test_artifact_scope",
         Some(ArtifactRole::Docs) => "documentation_artifact_scope",
+        Some(ArtifactRole::DerivedOutput) => "derived_output_artifact_scope",
         Some(ArtifactRole::Unknown) | None => "workspace_artifact_scope",
     }
 }

@@ -74,9 +74,9 @@ workspace/mvp/logic/anvil/loadmap2/anvil_source_baseline.md
 | C01 | Task contract core | `task_contract.rs`, `task_contract_core.rs`, `task_contract_taxonomy.rs`, `task_contract_display.rs` | Holds task purpose, kind, artifacts, constraints, and expected completion evidence. | Step runner plan schema, profiles, artifact graph, TaskContract projection | Implemented | Adopt | `TaskContract` now projects task kind, admission status, lifecycle, deterministic constraints, request signals, required artifacts, completion evidence expectations, behavior obligations, and artifact role facts into plan prompts, active step facts, plan-lint evidence, and eval report fields. Cross-command persistence is explicitly bounded to visible plan/session/evidence/eval artifacts; later commands reconstruct from public inputs and workspace facts. | Closed by Phase22 proof: `cargo test task_contract`, `python3 tests/test_eval_report.py`, focused fixture assertions, and broad sign-off pass. |
 | C02 | Task contract inference and admission | `task_contract_request_inference.rs`, `contract_request_signals.rs`, `task_contract_admission.rs`, `task_kind_confirm.rs`, `classify_confirm_flow.rs` | Infers whether the request is coding/docs/data/ops/research and admits contract authority. | Plan input, profiles, plan lint | Implemented | Partial | Explicit intent, goal keywords, profile signals, required artifacts, and artifact roles now become deterministic request signals. Clear requests admit; ambiguous or conflicting inferred signals become partial/conflict evidence, and plan lint rejects non-admitted task contracts when artifact ownership would proceed. | Closed by Phase22 proof: request/admission unit tests, plan-lint correction evidence tests, focused `task-contract-admission`, and broad sign-off pass. |
 | C03 | Objective and behavior contract projection | `objective_contract_projection.rs`, `behavior_contract_projection_e2e_tests.rs`, `required_behavior.rs`, `behavior_delta_obligation.rs`, `contract_bound_generation.rs`, `contract_generation_expectations.rs` | Projects user-visible required behavior into obligations and completion checks. | Plan prompt, plan lint, profile verification, TaskContract projection | Implemented | Adopt | Required artifacts, deliverable kinds, and profile obligations now become typed behavior obligations for dependency setup, manifest, build, dev-port, route integration, docs literal, data schema, test artifact, and source/artifact completion. Plan lint enforces deterministic owner steps and eval reports owner/path/status evidence. | Closed by Phase22 proof: behavior projection/lint unit tests, eval report tests, focused `behavior-obligation-projection`, and broad sign-off pass. |
-| C04 | Artifact role taxonomy | `task_contract_artifact_contract.rs`, `task_contract_artifact_predicates.rs`, `task_contract_artifact_intent.rs`, `artifact_target_alignment.rs` | Classifies artifacts as setup, implementation, test, docs, data, route/integration targets. | ArtifactGraph / profiles / TaskContract projection | Partial | Adopt | Path-based `ArtifactRole`, profile-specific classifiers, setup-step ownership lint, and TaskContract artifact-role projection exist. | Continue unifying role SSOT across profile verification, verifier repair, and recovery admission. |
-| C05 | Task workspace scope | `task_workspace_scope.rs`, `workspace_access.rs`, `workspace_candidates.rs`, `workspace_walk.rs`, `workspace_paths.rs` | Decides which subtree this task may claim ownership over. | Safety/path confinement, recovery contract label | Partial | Adopt | `WorkspaceSnapshot` now performs a bounded path walk, skips dependency/cache/build output paths, records manifests/lockfiles, and combines snapshot paths with `ArtifactGraph` for greenfield/single-project/explicit/ambiguous scope evidence. | Add persistent task-scope admission and richer profile-selected root handling where observed failures require it. |
-| C06 | Artifact ownership | `artifact_ownership.rs`, `owned_test_projection.rs`, `artifact_state_projection.rs` | Distinguishes owned artifacts from candidate-only or out-of-scope files. | ArtifactGraph / recovery contract | Partial | Adopt | `ArtifactOwnershipDecision` now carries top-level ownership, reason, source of truth, workspace scope summary, candidate origin, repair admissibility, and subreason labels for read-only, verifier, scaffold, setup, generated, and dependency/cache cases. | Connect ownership decisions to more completion-evidence producers and repeated-target exclusion. |
+| C04 | Artifact role taxonomy | `task_contract_artifact_contract.rs`, `task_contract_artifact_predicates.rs`, `task_contract_artifact_intent.rs`, `artifact_target_alignment.rs` | Classifies artifacts as setup, implementation, test, docs, data, route/integration targets. | ArtifactGraph / profiles / TaskContract projection | Implemented | Adopt | `ArtifactKind` now projects through a shared `ArtifactRole` boundary consumed by workspace snapshots, target admission, artifact completion, recovery admission, and eval/report fallbacks. The taxonomy distinguishes route/entrypoint, setup manifest/config, implementation, test, docs, raw input, derived output, generated/build output, and dependency cache. | Closed by Phase23 proof: profile-artifact/artifact-graph/target/completion tests, focused `artifact-role-scope-ownership`, and broad sign-off pass. |
+| C05 | Task workspace scope | `task_workspace_scope.rs`, `workspace_access.rs`, `workspace_candidates.rs`, `workspace_walk.rs`, `workspace_paths.rs` | Decides which subtree this task may claim ownership over. | WorkspaceSnapshot / WorkspaceScope / ArtifactOwnership / TargetAdmission | Implemented | Adopt | `WorkspaceSnapshot` performs a bounded path walk, skips dependency/cache/build output paths, records manifests/lockfiles, and combines snapshot paths with `ArtifactGraph` for greenfield/single-project/explicit/ambiguous scope evidence. `WorkspaceScope` exposes roots and excluded paths, and ownership/target consumers reject paths outside that scope. | Closed by Phase23 proof: workspace-scope/snapshot/ownership/target tests, focused `artifact-role-scope-ownership`, and broad sign-off pass. |
+| C06 | Artifact ownership | `artifact_ownership.rs`, `owned_test_projection.rs`, `artifact_state_projection.rs` | Distinguishes owned artifacts from candidate-only or out-of-scope files. | ArtifactOwnership / TargetAdmission / CompletionAuthority / Repair loop evidence | Implemented | Adopt | `ArtifactOwnershipDecision` carries ownership, reason/subreason, source of truth, workspace scope, candidate origin, repair admissibility, and role. Target admission rejects non-owned, stale, exhausted, raw-input, generated/cache, and out-of-scope targets. Completion authority now requires in-scope owned non-generated deliverables instead of accepting candidate-only reads or cache/generated/raw input observations. | Closed by Phase23 proof: ownership/target/completion/evidence-authority tests, focused `artifact-role-scope-ownership`, and broad sign-off pass. |
 | C07 | Artifact ledger | `artifact_ledger.rs`, `artifact_ledger_state.rs`, `repo_edit_observation.rs`, `post_tool_reconciliation.rs` | Records per-turn artifact observations, edits, scaffold deltas, and verifier observations. | Minimal loop result / step runner evidence | Partial | Adopt | `Read`, `Write`, and `Edit` tool records now retain normalized target paths; repair state reconciles tool records, bounded workspace snapshot observations, verifier mentions, scaffold/setup deltas, ownership reasons, and ledger eval fields into `ContractEvidence` / `RecoveryTaskContract`. | Add focused eval cases for all ledger signals and stronger pass-side completion authority in later phases. |
 | C08 | Completion evidence | `completion_evidence.rs`, `success.rs`, `completion_probe_gate.rs`, `objective_evidence.rs`, `evidence_observation.rs` | Converts actual tool/build/doc/data observations into completion authority. | Step verifier, final-answer guard, eval | Partial | Adopt | Typed `completion_evidence` can carry verifier exit, command observation, repo edit, docs/data/report pass/fail records through ContractEvidence, RecoveryTaskContract, EvidenceEnvelope orchestration, runtime completion authority, and eval reports. Verifier failures emit failed verifier completion evidence; pass-side file-layout and verifier producers now feed normal step/final completion checks. | Add richer docs/data/report/profile-wide producers and deeper profile-specific bindings. |
 | C09 | Evidence binding | `evidence_binding.rs`, `evidence_runner.rs`, `evidence_binding` adapters | Checks whether a deliverable can bind to its evidence runner before execution. | Verifier/profile/setup | Partial | Adopt | `EvidenceBindingPlan` can render missing/failed/unbound binding facts, map them to `evidence_binding_repair`, carry them through recovery packets/envelopes, and bind file-layout evidence for required paths in normal step/final completion checks. | Add concrete producers for manifest identity, docs section, schema output, source citation, and route/import binding checks. |
@@ -136,8 +136,8 @@ Current implementation status:
 
 | Current status | Count |
 | --- | ---: |
-| Implemented | 4 |
-| Partial | 41 |
+| Implemented | 7 |
+| Partial | 38 |
 | Missing | 2 |
 | Excluded | 7 |
 
@@ -155,8 +155,8 @@ Interpretation:
 - `Adopt` + `Partial` is the accepted migration surface. There are 45 rows
   where CommandAgent should own the responsibility, either as a new mechanism
   or by completing an existing projection.
-- Of those 45 accepted rows, 41 still require row-level implementation proof.
-  Provider transport parsing plus Phase22 C01-C03 are currently marked
+- Of those 45 accepted rows, 38 still require row-level implementation proof.
+  Provider transport parsing plus Phase22 C01-C03 and Phase23 C04-C06 are currently marked
   `Implemented`.
 - `Missing` adoption rows are not accepted migration work yet. They form the
   unresolved priority-decision surface and must become `Adopt`, scoped
@@ -174,12 +174,12 @@ The current implementation is useful, but the following mappings are too thin
 to resolve the recurring eval failures reliably:
 
 1. `active_job_priority` is metadata, not a real arbiter.
-2. `workspace_scope` now has a typed detector for greenfield,
-   single-project, explicit, and ambiguous-parent scopes, but it is not yet fed
-   by a scope-aware workspace walk.
-3. `artifact_ownership` now distinguishes owned, candidate-only, and
-   out-of-scope targets for target admission, but it still needs more signals
-   from scaffold deltas and verifier ownership.
+2. Scope-aware workspace admission is implemented for the C05 boundary.
+   Remaining workspace-candidate discovery and broader walk parity belong to
+   C38 rather than the C05 ownership gate.
+3. Artifact ownership is implemented for the C06 admission/completion boundary.
+   Remaining scaffold/verifier observation producer breadth belongs to C07,
+   C21, and later repair-lifecycle rows.
 4. Tool records now know exact `Write`/`Edit` paths; verifier observations and
    post-tool reconciliation are still missing from the artifact ledger.
 5. Semantic failure data now has deterministic diagnostic clusters for verifier
@@ -358,6 +358,47 @@ Supporting Phase21 artifacts:
 - Phase21 workspace blocking ledger
 - Phase21 workspace reconciliation map
 - `docs/eval/loadmap2-phase21-core-contract-ownership-20260623.md`
+
+## Phase23 Artifact Scope Ownership Appendix - 2026-06-23
+
+Phase23 closed C04 through C06 with runtime-effective, eval-visible proof for
+artifact role taxonomy, workspace scope admission, and artifact ownership.
+
+Status changes:
+
+| row | previous | current | proof |
+| --- | --- | --- | --- |
+| C04 | Partial | Implemented | Shared `ArtifactKind` -> `ArtifactRole` projection, raw/derived data roles, target/completion consumers, eval fallback alignment, focused fixture proof. |
+| C05 | Partial | Implemented | Greenfield, single-project, explicit root, ambiguous parent, and excluded dependency/cache/build output scope tests plus focused scope assertion. |
+| C06 | Partial | Implemented | Ownership reason/source/scope tests, target admission raw/generated/cache/out-of-scope rejection, completion authority owned/in-scope deliverable gate, exhausted-target proof. |
+
+Proof commands:
+
+```bash
+cargo fmt --check
+cargo test profile_artifact
+cargo test artifact_graph
+cargo test workspace_scope
+cargo test workspace_snapshot
+cargo test artifact_ownership
+cargo test target_admission
+cargo test artifact_completion
+cargo test evidence_authority
+python3 tests/test_eval_report.py
+scripts/eval_agent_slice.sh --cases-dir eval/cases/focused/control-recovery/planning --out eval/runs/loadmap2-phase23-focused-fixtures --runs 1 --proof-mode deterministic_fixture
+python3 scripts/eval_report.py eval/runs/loadmap2-phase23-focused-fixtures/20260623T111023 --cases-dir eval/cases/focused/control-recovery/planning --recheck
+cargo test
+cargo build --release
+python3 scripts/eval_signoff.py --require-recheck --root smoke=eval/runs/loadmap2-phase16-smoke-local-llm/20260622T173759 --root focused=eval/runs/loadmap2-phase18-focused-local-llm/20260623T000638 --root focused-fixture=eval/runs/loadmap2-phase23-focused-fixtures/20260623T111023 --root large=eval/runs/loadmap2-phase16-large-local-llm-timebox/20260622T182149
+```
+
+Result:
+
+```text
+focused fixture root: eval/runs/loadmap2-phase23-focused-fixtures/20260623T111023
+focused assertions: passed_recheck
+broad sign-off: pass
+```
 
 The migration decision remains:
 

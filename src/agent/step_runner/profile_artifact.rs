@@ -599,6 +599,13 @@ mod tests {
         assert_eq!(raw.kind, ArtifactKind::RawInput);
         assert!(raw.eligibility.protected_input);
         assert!(!raw.eligibility.recovery_target);
+        let derived = classify_data_artifact(
+            "data/processed/output.csv",
+            ArtifactProvenance::StepExpectedPath,
+        );
+        assert_eq!(derived.kind, ArtifactKind::DerivedOutput);
+        assert!(!derived.eligibility.protected_input);
+        assert!(derived.eligibility.recovery_target);
     }
 
     #[test]

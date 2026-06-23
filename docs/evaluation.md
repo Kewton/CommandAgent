@@ -278,9 +278,13 @@ check contract aligned; expected artifacts are not only post-hoc eval checks.
 Focused control-recovery cases may also declare optional `expected_*` fields,
 such as `expected_terminal_state`, `expected_contract_layer`,
 `expected_active_job`, `expected_repair_action`, or
-`expected_runtime_job_kind`. These fields are assertions against observed eval
-output only. They are not passed to runtime prompts, do not authorize repair,
-and do not change the command sent to CommandAgent. The runner records
+`expected_runtime_job_kind`. Focused cases that prove artifact boundaries may
+also assert `expected_target_role`, `expected_workspace_scope_kind`,
+`expected_artifact_ownership`, `expected_artifact_source_of_truth`, and
+`expected_rejected_target_reason`. These fields are assertions against
+observed eval output only. They are not passed to runtime prompts, do not
+authorize repair, and do not change the command sent to CommandAgent. The
+runner records
 `expected_assertion_status`, `expected_assertion_count`, and
 `expected_assertion_failures` in `summary.tsv` and `meta.json`. Dry-run focused
 assertions are reported as `skipped_dry_run` because dry-run workspaces do not

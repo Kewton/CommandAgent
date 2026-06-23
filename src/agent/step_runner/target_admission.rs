@@ -507,7 +507,10 @@ pub(crate) fn admit_repair_target_with_scope(
         return TargetAdmission::Rejected {
             path: candidate.path,
             role,
-            reason: "generated_or_dependency_cache_target".to_string(),
+            reason: format!(
+                "inadmissible_artifact_target:{}",
+                inadmissible_role_reason(role)
+            ),
         };
     }
     let ownership = classify_artifact_ownership(
@@ -765,6 +768,15 @@ fn current_cluster_exhausted(policy: &TargetAdmissionPolicy) -> bool {
         .any(|exhausted| exhausted == cluster)
 }
 
+fn inadmissible_role_reason(role: ArtifactRole) -> &'static str {
+    match role {
+        ArtifactRole::RawInput => "protected_raw_input",
+        ArtifactRole::DependencyCache => "dependency_cache",
+        ArtifactRole::GeneratedOutput => "generated_output",
+        _ => "not_recovery_target",
+    }
+}
+
 fn admission_rejection_reason(
     candidate: RepairTargetCandidate,
     graph: &ArtifactGraph,
@@ -799,10 +811,15 @@ fn target_priority(
     };
     let role_penalty = match role {
         ArtifactRole::SetupManifest | ArtifactRole::Entrypoint | ArtifactRole::Implementation => 0,
-        ArtifactRole::IntegrationTarget | ArtifactRole::Test | ArtifactRole::Docs => 2,
+        ArtifactRole::IntegrationTarget
+        | ArtifactRole::Test
+        | ArtifactRole::Docs
+        | ArtifactRole::DerivedOutput => 2,
         ArtifactRole::SetupConfig => 4,
         ArtifactRole::Unknown => 8,
-        ArtifactRole::DependencyCache | ArtifactRole::GeneratedOutput => 48,
+        ArtifactRole::RawInput | ArtifactRole::DependencyCache | ArtifactRole::GeneratedOutput => {
+            48
+        }
     };
     source
         .saturating_add(ownership_penalty)
@@ -844,7 +861,38 @@ mod tests {
         let admission = admit_repair_target(candidate, &ArtifactGraph::new(), &[]);
 
         assert!(!admission.is_admitted());
-        assert!(admission.reason().contains("generated_or_dependency_cache"));
+        assert!(admission.reason().contains("dependency_cache"));
+    }
+
+    #[test]
+    fn rejects_raw_input_target() {
+        let candidate = RepairTargetCandidate::new(
+            "data/raw/source.csv",
+            ArtifactRole::RawInput,
+            RepairTargetSource::RequiredArtifact,
+        );
+
+        let admission = admit_repair_target(candidate, &ArtifactGraph::new(), &[]);
+
+        assert!(!admission.is_admitted());
+        assert!(admission.reason().contains("protected_raw_input"));
+    }
+
+    #[test]
+    fn admits_derived_output_when_allowed() {
+        let candidate = RepairTargetCandidate::new(
+            "data/processed/output.csv",
+            ArtifactRole::DerivedOutput,
+            RepairTargetSource::RequiredArtifact,
+        );
+
+        let admission = admit_repair_target(
+            candidate,
+            &ArtifactGraph::new(),
+            &[ArtifactRole::DerivedOutput],
+        );
+
+        assert!(admission.is_admitted());
     }
 
     #[test]
@@ -951,7 +999,7 @@ mod tests {
             decision
                 .rejected_lines()
                 .iter()
-                .any(|line| line.contains("generated_or_dependency_cache"))
+                .any(|line| line.contains("dependency_cache"))
         );
     }
 
@@ -1189,6 +1237,49 @@ mod tests {
                 .rejected_lines()
                 .iter()
                 .any(|line| line.contains("failure_cluster_exhausted_for_current_cluster"))
+        );
+    }
+
+    #[test]
+    fn decision_rejects_exhausted_target_before_selection() {
+        let candidates = vec![
+            RepairTargetCandidate::new(
+                "app/page.tsx",
+                ArtifactRole::Entrypoint,
+                RepairTargetSource::FailureEvidence,
+            ),
+            RepairTargetCandidate::new(
+                "components/Game.tsx",
+                ArtifactRole::Implementation,
+                RepairTargetSource::RequiredArtifact,
+            ),
+        ];
+        let policy = TargetAdmissionPolicy::new(
+            "source_implementation_repair",
+            "edit_source_for_diagnostic",
+            vec![ArtifactRole::Entrypoint, ArtifactRole::Implementation],
+            true,
+            true,
+        )
+        .with_exhausted_targets(["app/page.tsx"]);
+
+        let decision = decide_repair_target_with_scope(
+            candidates,
+            &ArtifactGraph::new(),
+            &policy,
+            &WorkspaceScope::greenfield(),
+            &[],
+        );
+
+        assert_eq!(
+            decision.selected_target.as_deref(),
+            Some("components/Game.tsx")
+        );
+        assert!(
+            decision
+                .rejected_lines()
+                .iter()
+                .any(|line| line.contains("target_exhausted_for_same_failure_cluster"))
         );
     }
 }

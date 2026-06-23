@@ -199,6 +199,9 @@ Authority then classifies already observed facts into
 `missing_deliverable`, `missing_evidence`, `completion_evidence_failed`,
 `evidence_binding_failed`, or `stale_evidence`. It also records the completion
 source of truth and freshness status when current-run evidence is required.
+Only in-scope owned deliverables can satisfy required paths. Candidate-only
+observations, dependency caches, generated/build outputs, and protected raw
+inputs are not completion authority even if the path was observed.
 It does not repair, retry, choose a future phase, or replace the verifier. It
 only prevents path existence, evidence execution, evidence freshness, and
 evidence binding from being collapsed into one generic failure.

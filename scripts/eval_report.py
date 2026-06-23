@@ -596,6 +596,10 @@ def artifact_role_for_path(path):
         return "test"
     if name.endswith(".md"):
         return "docs"
+    if path.startswith(("raw/", "data/raw/", "input/", "inputs/")):
+        return "raw_input"
+    if path.startswith(("data/processed/", "reports/")):
+        return "derived_output"
     if name.endswith((".json", ".csv", ".yaml", ".yml")):
         return "structured_data"
     if name.endswith((".ts", ".tsx", ".js", ".jsx", ".rs", ".py")):

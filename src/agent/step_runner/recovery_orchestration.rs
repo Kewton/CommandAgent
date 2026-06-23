@@ -1932,6 +1932,7 @@ fn allowed_target_roles(job: RecoveryJobKind) -> Vec<ArtifactRole> {
             ArtifactRole::Implementation,
             ArtifactRole::Test,
             ArtifactRole::Docs,
+            ArtifactRole::DerivedOutput,
             ArtifactRole::Unknown,
         ],
         RecoveryJobKind::SourceImplementationRepair => vec![
@@ -1952,6 +1953,7 @@ fn allowed_target_roles(job: RecoveryJobKind) -> Vec<ArtifactRole> {
             ArtifactRole::Implementation,
             ArtifactRole::Test,
             ArtifactRole::Docs,
+            ArtifactRole::DerivedOutput,
             ArtifactRole::Unknown,
         ],
         RecoveryJobKind::VerifierContractCorrection => vec![ArtifactRole::Unknown],
@@ -2162,6 +2164,8 @@ fn parse_artifact_role(value: &str) -> Option<ArtifactRole> {
         "implementation" => Some(ArtifactRole::Implementation),
         "test" => Some(ArtifactRole::Test),
         "docs" => Some(ArtifactRole::Docs),
+        "raw_input" => Some(ArtifactRole::RawInput),
+        "derived_output" => Some(ArtifactRole::DerivedOutput),
         "generated_output" => Some(ArtifactRole::GeneratedOutput),
         "dependency_cache" => Some(ArtifactRole::DependencyCache),
         "unknown" => Some(ArtifactRole::Unknown),
@@ -2498,6 +2502,7 @@ fn target_admitted(path: &str, graph: &ArtifactGraph, job: RecoveryJobKind) -> b
                 | ArtifactRole::Implementation
                 | ArtifactRole::Test
                 | ArtifactRole::Docs
+                | ArtifactRole::DerivedOutput
         ),
         RecoveryJobKind::SourceImplementationRepair => matches!(
             role,
@@ -2515,6 +2520,7 @@ fn target_admitted(path: &str, graph: &ArtifactGraph, job: RecoveryJobKind) -> b
                 | ArtifactRole::Implementation
                 | ArtifactRole::Test
                 | ArtifactRole::Docs
+                | ArtifactRole::DerivedOutput
                 | ArtifactRole::Unknown
         ),
         RecoveryJobKind::VerifierContractCorrection => path.starts_with("step:"),

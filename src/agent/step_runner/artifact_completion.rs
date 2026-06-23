@@ -66,7 +66,10 @@ impl ArtifactCompletionJob {
         );
         if matches!(
             role,
-            ArtifactRole::GeneratedOutput | ArtifactRole::DependencyCache | ArtifactRole::Unknown
+            ArtifactRole::GeneratedOutput
+                | ArtifactRole::DependencyCache
+                | ArtifactRole::RawInput
+                | ArtifactRole::Unknown
         ) {
             return None;
         }
@@ -196,6 +199,37 @@ mod tests {
             .with_missing_paths(vec!["target/debug/app"]);
 
         assert!(ArtifactCompletionJob::from_contract_evidence(&evidence).is_none());
+    }
+
+    #[test]
+    fn rejects_dependency_cache_completion_target() {
+        let evidence = ContractEvidence::new("verifier")
+            .with_reason_code("missing_required_artifact")
+            .with_missing_paths(vec!["node_modules/react/index.js"]);
+
+        assert!(ArtifactCompletionJob::from_contract_evidence(&evidence).is_none());
+    }
+
+    #[test]
+    fn rejects_raw_input_completion_target() {
+        let evidence = ContractEvidence::new("profile_verification")
+            .with_reason_code("missing_required_artifact")
+            .with_missing_paths(vec!["data/raw/source.csv"]);
+
+        assert!(ArtifactCompletionJob::from_contract_evidence(&evidence).is_none());
+    }
+
+    #[test]
+    fn creates_job_for_derived_output_artifact() {
+        let evidence = ContractEvidence::new("profile_verification")
+            .with_reason_code("missing_required_artifact")
+            .with_missing_paths(vec!["data/processed/output.csv"]);
+
+        let job = ArtifactCompletionJob::from_contract_evidence(&evidence).unwrap();
+
+        assert_eq!(job.target_path, "data/processed/output.csv");
+        assert_eq!(job.role, ArtifactRole::DerivedOutput);
+        assert_eq!(job.mode, ArtifactCompletionMode::Create);
     }
 
     #[test]

@@ -52,6 +52,14 @@ can state lifecycle, role, selected route, setup manifest, source ownership, or
 integration edges. It should not infer semantic quality, run tools, or become a
 profile-specific workflow engine.
 
+The ArtifactGraph role projection is the common consumer boundary for profile
+artifact kinds. Route entries, integration targets, implementation sources,
+tests, docs, setup manifests/configs, generated/build outputs, dependency
+caches, raw inputs, and derived outputs must map to explicit roles before
+target admission, ownership, or completion authority consumes them. Raw inputs
+remain protected and are not repair targets; derived outputs may be required
+deliverables.
+
 Focused eval cases may assert profile-derived terminal and recovery fields,
 such as a Next.js route-integration active job or a Rust Cargo verifier
 binding. Those assertions are eval-only checks against observed profile and

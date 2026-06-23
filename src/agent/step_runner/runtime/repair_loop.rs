@@ -2309,9 +2309,11 @@ fn prioritized_verifier_candidate(candidate_artifacts: &[String]) -> Option<Stri
                 | crate::agent::step_runner::artifact_graph::ArtifactRole::SetupConfig => 3,
                 crate::agent::step_runner::artifact_graph::ArtifactRole::Test => 4,
                 crate::agent::step_runner::artifact_graph::ArtifactRole::Docs => 5,
-                crate::agent::step_runner::artifact_graph::ArtifactRole::Unknown => 6,
+                crate::agent::step_runner::artifact_graph::ArtifactRole::DerivedOutput => 6,
+                crate::agent::step_runner::artifact_graph::ArtifactRole::Unknown => 7,
                 crate::agent::step_runner::artifact_graph::ArtifactRole::GeneratedOutput
-                | crate::agent::step_runner::artifact_graph::ArtifactRole::DependencyCache => {
+                | crate::agent::step_runner::artifact_graph::ArtifactRole::DependencyCache
+                | crate::agent::step_runner::artifact_graph::ArtifactRole::RawInput => {
                     return None;
                 }
             };

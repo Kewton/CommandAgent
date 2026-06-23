@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use crate::agent::step_runner::artifact_graph::ArtifactRole;
+use crate::agent::step_runner::artifact_graph::{ArtifactRole, role_for_artifact_kind};
 use crate::agent::step_runner::profile_artifact::{
     ArtifactKind, ArtifactProvenance, classify_profile_artifact, is_build_output_path,
     is_dependency_cache_path,
@@ -145,7 +145,7 @@ impl WorkspaceSnapshotBuilder {
             ArtifactProvenance::WorkspaceObservation,
         );
         self.observed_paths.push(WorkspaceObservedPath {
-            role: role_for_kind(classified.kind),
+            role: role_for_artifact_kind(classified.kind),
             kind: classified.kind,
             path,
         });
@@ -230,27 +230,6 @@ fn is_hidden_state_path(path: &str) -> bool {
         || path.starts_with(".commandagent/")
         || path == ".pytest_cache"
         || path.starts_with(".pytest_cache/")
-}
-
-fn role_for_kind(kind: ArtifactKind) -> ArtifactRole {
-    match kind {
-        ArtifactKind::Manifest => ArtifactRole::SetupManifest,
-        ArtifactKind::Config => ArtifactRole::SetupConfig,
-        ArtifactKind::RouteEntry => ArtifactRole::Entrypoint,
-        ArtifactKind::RouteInfrastructure => ArtifactRole::IntegrationTarget,
-        ArtifactKind::UiSource | ArtifactKind::StyleSource | ArtifactKind::RuntimeSource => {
-            ArtifactRole::Implementation
-        }
-        ArtifactKind::TestSource => ArtifactRole::Test,
-        ArtifactKind::Documentation => ArtifactRole::Docs,
-        ArtifactKind::GeneratedDeclaration | ArtifactKind::BuildOutput => {
-            ArtifactRole::GeneratedOutput
-        }
-        ArtifactKind::DependencyCache => ArtifactRole::DependencyCache,
-        ArtifactKind::RawInput | ArtifactKind::DerivedOutput | ArtifactKind::Unknown => {
-            ArtifactRole::Unknown
-        }
-    }
 }
 
 fn is_lockfile(path: &str) -> bool {

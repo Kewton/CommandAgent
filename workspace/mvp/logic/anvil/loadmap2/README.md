@@ -189,7 +189,7 @@ blockers. The remaining known work is assigned as follows:
 | phase | source blocker | scope |
 | --- | --- | --- |
 | Phase22 | P20-COV-001 / C01-C03 | completed / closed_proven: task contract, request admission, behavior obligations |
-| Phase23 | P20-COV-001 / C04-C06 | artifact role, workspace scope, ownership |
+| Phase23 | P20-COV-001 / C04-C06 | completed / closed_proven: artifact role, workspace scope, ownership |
 | Phase24 | P20-COV-001 / C07-C10 | artifact ledger, completion evidence, evidence binding, deliverable audit |
 | Phase25 | P20-COV-001 / C11-C12 | active-job arbitration and recovery dispatch |
 | Phase26 | P20-COV-002 / C13-C20 | recovery task, setup/profile, semantic repair, repair brief, action envelope |

@@ -46,7 +46,7 @@ The source baseline is the coverage-table baseline:
 | issue id | current status | source blocker | coverage rows | problem statement | assigned phase | required proof |
 | --- | --- | --- | --- | --- | --- | --- |
 | KI-001 | closed_proven | P20-COV-001 | C01-C03 | Task contract core, request admission, and behavior obligation projection are implemented by Phase22. | Phase22 | `cargo test task_contract`, `cargo test plan_lint`, focused fixture root `eval/runs/loadmap2-phase22-focused-fixtures/20260623T102658`, broad sign-off |
-| KI-002 | split forward | P20-COV-001 | C04-C06 | Artifact role, workspace scope, and ownership need shared-source proof across consumers. | Phase23 | role/scope/ownership tests, focused admission proof, broad sign-off |
+| KI-002 | closed_proven | P20-COV-001 | C04-C06 | Artifact role, workspace scope, and ownership are implemented by Phase23. | Phase23 | `cargo test profile_artifact`, `cargo test artifact_graph`, `cargo test workspace_scope`, `cargo test workspace_snapshot`, `cargo test artifact_ownership`, `cargo test target_admission`, `cargo test artifact_completion`, `cargo test evidence_authority`, focused fixture root `eval/runs/loadmap2-phase23-focused-fixtures/20260623T111023`, broad sign-off |
 | KI-003 | split forward | P20-COV-001 | C07-C10 | Ledger, completion evidence, evidence binding, and deliverable audit need full producer/report proof. | Phase24 | producer tests, focused completion/binding proof, broad sign-off |
 | KI-004 | split forward | P20-COV-001 | C11-C12 | Active-job lifecycle and dispatch gate need broader lifecycle/E2E proof. | Phase25 | dispatch tests, focused owner/action proof, broad sign-off |
 | KI-005 | open | P20-COV-002 | C13-C20 | Recovery task, setup/profile mapping, semantic repair, repair brief, and action envelope remain partial. | Phase26 | row-level ledger, focused recovery matrix, broad sign-off |
@@ -80,6 +80,8 @@ Status: `closed_proven` by Phase22. No C01-C03 row is split forward.
 | C04 | Artifact role taxonomy consumed by profile verification, verifier repair, and recovery admission. | profile-artifact tests, artifact-graph tests |
 | C05 | Scope-aware workspace admission for greenfield, single-project, explicit root, ambiguous parent, and excluded paths. | workspace-scope/snapshot tests, focused scope fixture |
 | C06 | Ownership decisions consumed by target admission, completion evidence, and repeated-target exclusion. | artifact-ownership tests, target-admission tests |
+
+Status: `closed_proven` by Phase23. No C04-C06 row is split forward.
 
 ### Phase24: C07-C10
 

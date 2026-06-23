@@ -5,7 +5,9 @@
 //! terminal state that runtime and eval can report consistently.
 #![allow(dead_code)]
 
-use crate::agent::step_runner::artifact_ledger::ArtifactLedgerSummary;
+use crate::agent::step_runner::artifact_graph::{ArtifactLifecycle, ArtifactRole};
+use crate::agent::step_runner::artifact_ledger::{ArtifactLedgerEntry, ArtifactLedgerSummary};
+use crate::agent::step_runner::artifact_ownership::ArtifactOwnership;
 use crate::agent::step_runner::completion_evidence::{
     CompletionEvidence, CompletionEvidenceKind, CompletionEvidenceStatus,
 };
@@ -390,13 +392,22 @@ pub(crate) fn file_layout_binding(path: &str, present: bool) -> EvidenceBindingP
 
 fn ledger_entry_present(ledger: &ArtifactLedgerSummary, path: &str) -> bool {
     ledger.entry(path).is_some_and(|entry| {
-        entry.observed
-            || entry.changed
-            || matches!(
-                entry.lifecycle,
-                crate::agent::step_runner::artifact_graph::ArtifactLifecycle::Existing
-            )
+        ledger_entry_completion_eligible(entry)
+            && (entry.observed
+                || entry.changed
+                || matches!(entry.lifecycle, ArtifactLifecycle::Existing))
     })
+}
+
+fn ledger_entry_completion_eligible(entry: &ArtifactLedgerEntry) -> bool {
+    entry.in_scope
+        && entry.ownership == ArtifactOwnership::Owned
+        && !entry.generated_or_cache
+        && !entry.dependency_or_build_output
+        && !matches!(
+            entry.role,
+            ArtifactRole::GeneratedOutput | ArtifactRole::DependencyCache | ArtifactRole::RawInput
+        )
 }
 
 fn aggregate_binding_status(bindings: &[EvidenceBindingPlan]) -> EvidenceBindingStatus {
@@ -480,6 +491,57 @@ mod tests {
 
         assert_eq!(result.status, CompletionAuthorityStatus::MissingEvidence);
         assert_eq!(result.terminal_state(), "missing_evidence");
+    }
+
+    #[test]
+    fn generated_or_cache_entries_do_not_satisfy_deliverables() {
+        let required = vec!["node_modules/react/index.js".to_string()];
+        let ledger = ledger_with_required("node_modules/react/index.js", true);
+
+        let result = evaluate_completion_authority(&required, &ledger, &[], &[]);
+
+        assert_eq!(result.status, CompletionAuthorityStatus::MissingDeliverable);
+        assert_eq!(
+            result.missing_deliverables,
+            vec!["node_modules/react/index.js".to_string()]
+        );
+    }
+
+    #[test]
+    fn raw_input_entries_do_not_satisfy_deliverables() {
+        let required = vec!["data/raw/source.csv".to_string()];
+        let ledger = ledger_with_required("data/raw/source.csv", true);
+
+        let result = evaluate_completion_authority(&required, &ledger, &[], &[]);
+
+        assert_eq!(result.status, CompletionAuthorityStatus::MissingDeliverable);
+        assert_eq!(
+            result.missing_deliverables,
+            vec!["data/raw/source.csv".to_string()]
+        );
+    }
+
+    #[test]
+    fn candidate_only_read_observation_does_not_satisfy_deliverable() {
+        use crate::agent::minimal_loop::result::ToolExecutionRecord;
+
+        let required = vec!["src/lib.rs".to_string()];
+        let graph = ArtifactGraph::new();
+        let scope = WorkspaceScope::greenfield();
+        let read_record = ToolExecutionRecord {
+            name: "Read".to_string(),
+            ok: true,
+            output: String::new(),
+            output_truncated: false,
+            original_output_chars: 0,
+            target_paths: vec!["src/lib.rs".to_string()],
+        };
+        let ledger = ArtifactLedgerSummary::from_tool_records(&[read_record], &graph, &scope);
+
+        let result = evaluate_completion_authority(&required, &ledger, &[], &[]);
+
+        assert_eq!(result.status, CompletionAuthorityStatus::MissingDeliverable);
+        assert_eq!(result.missing_deliverables, vec!["src/lib.rs".to_string()]);
     }
 
     #[test]
