@@ -23,7 +23,166 @@ def write_summary(root: pathlib.Path, name: str, rows: list[dict[str, str]]) -> 
     (root / name).write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def case_rows(prefix: str, count: int) -> list[dict[str, str]]:
+    return [
+        {
+            "case_id": f"{prefix}-{index:03d}",
+            "run": "1",
+            "success": "true",
+            "reason": "ok",
+            "terminal_state": "ok",
+            "contract_layer": "ok",
+            "diagnostic_code": "ok",
+        }
+        for index in range(count)
+    ]
+
+
+def focused_rows(count: int) -> list[dict[str, str]]:
+    return [
+        {
+            "case_id": f"focused-{index:03d}",
+            "run": "1",
+            "success": "true",
+            "reason": "ok",
+            "terminal_state": "ok",
+            "contract_layer": "ok",
+            "diagnostic_code": "ok",
+            "expected_assertion_status": "passed_recheck",
+        }
+        for index in range(count)
+    ]
+
+
+def write_root(root: pathlib.Path, rows: list[dict[str, str]]) -> None:
+    write_summary(root, "summary.tsv", rows)
+    write_summary(root, "recheck_summary.tsv", rows)
+
+
+def current_root_specs(base: pathlib.Path) -> list[object]:
+    smoke = base / "smoke" / "run"
+    focused = base / "focused-control-recovery" / "run"
+    large = base / "large" / "run"
+    write_root(smoke, case_rows("smoke", 3))
+    write_root(focused, focused_rows(82))
+    write_root(large, case_rows("large", 6))
+    return [
+        eval_signoff.RootSpec("smoke", smoke),
+        eval_signoff.RootSpec("focused", focused),
+        eval_signoff.RootSpec("large", large),
+    ]
+
+
 class EvalSignoffTests(unittest.TestCase):
+    def test_admits_current_root_bundle(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            specs = current_root_specs(pathlib.Path(tmp))
+
+            admission = eval_signoff.admit_roots(
+                specs,
+                require_recheck=True,
+                summary_name=None,
+            )
+
+        self.assertEqual(admission.findings, [])
+        self.assertEqual(admission.current_case_coverage, 91)
+        self.assertEqual(
+            admission.family_case_counts,
+            {"focused": 82, "large": 6, "small": 0, "smoke": 3},
+        )
+
+    def test_rejects_duplicate_root_label(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            specs = current_root_specs(pathlib.Path(tmp))
+            specs.append(
+                eval_signoff.RootSpec(
+                    "focused",
+                    pathlib.Path(tmp) / "focused-control-recovery-copy" / "run",
+                )
+            )
+            write_root(specs[-1].path, focused_rows(82))
+
+            admission = eval_signoff.admit_roots(
+                specs,
+                require_recheck=True,
+                summary_name=None,
+            )
+
+        self.assertIn("duplicate_root_label", [item.code for item in admission.findings])
+
+    def test_rejects_duplicate_root_path_under_different_labels(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            specs = current_root_specs(pathlib.Path(tmp))
+            focused_path = specs[1].path
+            specs.append(eval_signoff.RootSpec("focused-fixture", focused_path))
+
+            admission = eval_signoff.admit_roots(
+                specs,
+                require_recheck=True,
+                summary_name=None,
+            )
+
+        self.assertIn("duplicate_root_path", [item.code for item in admission.findings])
+
+    def test_rejects_missing_required_family(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            specs = [
+                spec
+                for spec in current_root_specs(pathlib.Path(tmp))
+                if spec.family != "large"
+            ]
+
+            admission = eval_signoff.admit_roots(
+                specs,
+                require_recheck=True,
+                summary_name=None,
+            )
+
+        codes = [item.code for item in admission.findings]
+        self.assertIn("missing_required_root", codes)
+        self.assertIn("current_case_coverage_mismatch", codes)
+
+    def test_rejects_historical_smaller_focused_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            specs = current_root_specs(pathlib.Path(tmp))
+            write_root(specs[1].path, focused_rows(47))
+
+            admission = eval_signoff.admit_roots(
+                specs,
+                require_recheck=True,
+                summary_name=None,
+            )
+
+        codes = [item.code for item in admission.findings]
+        self.assertIn("root_case_count_mismatch", codes)
+        self.assertIn("current_case_coverage_mismatch", codes)
+
+    def test_allows_absent_small_when_expected_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            specs = current_root_specs(pathlib.Path(tmp))
+
+            admission = eval_signoff.admit_roots(
+                specs,
+                require_recheck=True,
+                summary_name=None,
+            )
+
+        self.assertNotIn("missing_required_root", [item.code for item in admission.findings])
+        self.assertEqual(admission.family_case_counts["small"], 0)
+
+    def test_admission_requires_recheck_summary_when_requested(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            specs = current_root_specs(pathlib.Path(tmp))
+            (specs[0].path / "recheck_summary.tsv").unlink()
+
+            admission = eval_signoff.admit_roots(
+                specs,
+                require_recheck=True,
+                summary_name=None,
+            )
+
+        self.assertIn("missing_recheck_summary", [item.code for item in admission.findings])
+
     def test_passes_owned_large_failure(self):
         rows = [
             {

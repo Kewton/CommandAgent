@@ -397,11 +397,10 @@ Broad migration sign-off checks that local LLM runs stop with owned,
 actionable evidence across smoke, focused, and large case sets. It is not a
 hidden runtime controller and it is not a rerun-until-green policy.
 
-Required roots for broad sign-off should include:
+Required roots for final-current broad sign-off should include:
 
 - smoke local LLM
 - focused control-recovery local LLM
-- focused deterministic fixtures
 - large local LLM
 
 Each root should have both the original `summary.tsv` and a rechecked
@@ -418,7 +417,6 @@ Use `scripts/eval_signoff.py` to apply the shared gate to existing summaries:
 python3 scripts/eval_signoff.py --require-recheck \
   --root smoke=<smoke-root> \
   --root focused=<focused-root> \
-  --root focused-fixture=<fixture-root> \
   --root large=<large-root>
 ```
 
@@ -426,8 +424,21 @@ The sign-off checker reads only `summary.tsv` / `recheck_summary.tsv`. It does
 not run CommandAgent, execute setup, mutate workspaces, rerun verifiers, or
 change runtime behavior.
 
+Before interpreting row findings, final-current sign-off admits the supplied
+root bundle. The admission gate requires unique labels, unique root paths,
+`smoke`, `focused`, and `large` roots, and current case coverage of 3 smoke
+rows, 82 focused control-recovery rows, and 6 large rows. `small` remains
+optional while its current case count is zero. Supplemental roots such as
+focused fixtures may be used for separate regression reports, but they are not
+current-case proof; a duplicated supplemental root path fails admission.
+Historical root bundles that omit current cases must fail before their row
+outcomes can be treated as final migration evidence.
+
 The checker fails on:
 
+- root admission failures, including duplicate labels, duplicate paths, missing
+  required families, family/count mismatches, and missing required recheck
+  summaries
 - unknown terminal states
 - `unknown_contract` without an explicit stop reason
 - raw `rc:*` failures without a useful diagnostic code

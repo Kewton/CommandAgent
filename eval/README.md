@@ -194,7 +194,6 @@ case roots with normal and `--recheck` reports. Use:
 python3 scripts/eval_signoff.py --require-recheck \
   --root smoke=<smoke-root> \
   --root focused=<focused-root> \
-  --root focused-fixture=<fixture-root> \
   --root large=<large-root>
 ```
 
@@ -202,6 +201,16 @@ The sign-off script is report-only. It reads existing summary artifacts and
 flags unowned failures, raw diagnostics, failed focused assertions, and large
 failures that are missing owner/action/target/evidence or row disposition
 fields.
+
+Final-current sign-off first admits the root bundle before row findings are
+interpreted. The current final bundle must provide unique root labels and root
+paths, must include `smoke`, `focused`, and `large`, and must cover the current
+case set exactly: 3 smoke rows, 82 focused control-recovery rows, and 6 large
+rows. `small` is optional while the current manifest has zero small cases.
+Supplemental roots such as `focused-fixture` are not counted toward current
+case coverage, and a duplicated root path under another label fails admission.
+Historical smaller roots cannot satisfy final-current sign-off.
+
 `--recheck` summaries may classify raw process-code failures from existing
 stderr/stdout/repair-packet evidence and may admit targets from existing
 verifier/profile artifact fields when the file exists in the run workspace.

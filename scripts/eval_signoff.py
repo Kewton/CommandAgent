@@ -67,6 +67,37 @@ class RootSpec:
 
 
 @dataclass(frozen=True)
+class FamilyRequirement:
+    expected_count: int
+    required: bool
+
+
+@dataclass(frozen=True)
+class AdmittedRoot:
+    family: str
+    path: Path
+    case_count: int
+    role: str
+
+
+@dataclass(frozen=True)
+class RootAdmission:
+    findings: list["Finding"]
+    admitted_roots: list[AdmittedRoot]
+    family_case_counts: dict[str, int]
+    current_case_coverage: int
+    expected_current_case_coverage: int
+
+    @property
+    def status(self) -> str:
+        return "fail" if self.findings else "pass"
+
+    @property
+    def reason(self) -> str:
+        return "root_admission_failed" if self.findings else "current_roots_admitted"
+
+
+@dataclass(frozen=True)
 class Finding:
     family: str
     root: Path
@@ -74,6 +105,16 @@ class Finding:
     run: str
     code: str
     detail: str
+
+
+FINAL_CURRENT_REQUIREMENTS = {
+    "smoke": FamilyRequirement(expected_count=3, required=True),
+    "focused": FamilyRequirement(expected_count=82, required=True),
+    "large": FamilyRequirement(expected_count=6, required=True),
+    "small": FamilyRequirement(expected_count=0, required=False),
+}
+
+FINAL_CURRENT_FAMILIES = set(FINAL_CURRENT_REQUIREMENTS)
 
 
 def parse_args() -> argparse.Namespace:
@@ -209,6 +250,187 @@ def finding(spec: RootSpec, row: dict[str, str], code: str, detail: str) -> Find
         run=run,
         code=code,
         detail=detail,
+    )
+
+
+def root_finding(spec: RootSpec, code: str, detail: str) -> Finding:
+    return Finding(
+        family=spec.family,
+        root=spec.path,
+        case_id="<root_admission>",
+        run="?",
+        code=code,
+        detail=f"{detail}; root={spec.path}",
+    )
+
+
+def normalized_root_path(path: Path) -> Path:
+    return path.expanduser().resolve(strict=False)
+
+
+def row_case_ids(rows: list[dict[str, str]]) -> set[str]:
+    return {value(row, "case_id") for row in rows if value(row, "case_id")}
+
+
+def root_matches_family(spec: RootSpec, rows: list[dict[str, str]]) -> bool:
+    case_ids = row_case_ids(rows)
+    path_hint = str(spec.path).replace("\\", "/").casefold()
+    if spec.family == "small":
+        return not case_ids or "small" in path_hint
+    if not case_ids:
+        return False
+    if spec.family == "smoke":
+        return all(case_id.startswith("smoke-") for case_id in case_ids)
+    if spec.family == "large":
+        return all(case_id.startswith("large-") for case_id in case_ids)
+    if spec.family == "focused":
+        if any(case_id.startswith(("smoke-", "large-")) for case_id in case_ids):
+            return False
+        return "focused" in path_hint or any(
+            case_id.startswith(("focused-", "phase")) for case_id in case_ids
+        )
+    if spec.family in {"focused-fixture", "supplemental"}:
+        return True
+    return False
+
+
+def admit_roots(
+    specs: list[RootSpec], *, require_recheck: bool, summary_name: str | None
+) -> RootAdmission:
+    findings: list[Finding] = []
+    admitted_roots: list[AdmittedRoot] = []
+    family_case_counts = {
+        family: 0 for family in FINAL_CURRENT_REQUIREMENTS
+    }
+    labels: dict[str, RootSpec] = {}
+    paths: dict[Path, RootSpec] = {}
+    selected_rows: dict[str, list[dict[str, str]]] = {}
+
+    for spec in specs:
+        if spec.family in labels:
+            findings.append(
+                root_finding(
+                    spec,
+                    "duplicate_root_label",
+                    f"duplicate root label {spec.family!r}",
+                )
+            )
+        else:
+            labels[spec.family] = spec
+        normalized = normalized_root_path(spec.path)
+        if normalized in paths:
+            previous = paths[normalized]
+            findings.append(
+                root_finding(
+                    spec,
+                    "duplicate_root_path",
+                    "root path is already registered "
+                    f"as {previous.family!r}: {normalized}",
+                )
+            )
+        else:
+            paths[normalized] = spec
+
+    for family, requirement in FINAL_CURRENT_REQUIREMENTS.items():
+        if requirement.required and family not in labels:
+            findings.append(
+                Finding(
+                    family=family,
+                    root=Path("<missing>"),
+                    case_id="<root_admission>",
+                    run="?",
+                    code="missing_required_root",
+                    detail=f"required root {family!r} is missing",
+                )
+            )
+
+    for spec in specs:
+        root_findings, summary_path = root_summary_path(
+            spec,
+            require_recheck=require_recheck,
+            summary_name=summary_name,
+        )
+        findings.extend(root_findings)
+        if summary_path is None:
+            continue
+        rows = read_rows(summary_path)
+        selected_rows[spec.family] = rows
+        case_count = len(row_case_ids(rows))
+        role = "current" if spec.family in FINAL_CURRENT_FAMILIES else "supplemental"
+        admitted_roots.append(
+            AdmittedRoot(
+                family=spec.family,
+                path=spec.path,
+                case_count=case_count,
+                role=role,
+            )
+        )
+        if spec.family in FINAL_CURRENT_REQUIREMENTS:
+            family_case_counts[spec.family] = case_count
+            requirement = FINAL_CURRENT_REQUIREMENTS[spec.family]
+            if case_count != requirement.expected_count:
+                findings.append(
+                    root_finding(
+                        spec,
+                        "root_case_count_mismatch",
+                        "expected "
+                        f"{requirement.expected_count} {spec.family} cases; "
+                        f"observed {case_count}",
+                    )
+                )
+        if not root_matches_family(spec, rows):
+            findings.append(
+                root_finding(
+                    spec,
+                    "root_family_mismatch",
+                    f"root contents do not match family {spec.family!r}",
+                )
+            )
+
+    current_case_coverage = sum(
+        family_case_counts[family]
+        for family, requirement in FINAL_CURRENT_REQUIREMENTS.items()
+        if requirement.required
+    )
+    expected_current_case_coverage = sum(
+        requirement.expected_count
+        for requirement in FINAL_CURRENT_REQUIREMENTS.values()
+        if requirement.required
+    )
+    if current_case_coverage != expected_current_case_coverage:
+        findings.append(
+            Finding(
+                family="current",
+                root=Path("<current-roots>"),
+                case_id="<root_admission>",
+                run="?",
+                code="current_case_coverage_mismatch",
+                detail=(
+                    f"expected {expected_current_case_coverage} current cases; "
+                    f"observed {current_case_coverage}"
+                ),
+            )
+        )
+    for family, rows in selected_rows.items():
+        if family not in FINAL_CURRENT_REQUIREMENTS:
+            continue
+        if not rows and FINAL_CURRENT_REQUIREMENTS[family].expected_count == 0:
+            continue
+        if not row_case_ids(rows):
+            findings.append(
+                root_finding(
+                    labels[family],
+                    "missing_case_ids",
+                    f"root {family!r} has no case_id values",
+                )
+            )
+
+    return RootAdmission(
+        findings=findings,
+        admitted_roots=admitted_roots,
+        family_case_counts=family_case_counts,
+        current_case_coverage=current_case_coverage,
+        expected_current_case_coverage=expected_current_case_coverage,
     )
 
 
@@ -512,8 +734,27 @@ def root_summary_path(
     return missing, selected
 
 
-def render(findings: list[Finding]) -> str:
+def render(findings: list[Finding], admission: RootAdmission | None = None) -> str:
     lines = ["# Eval Sign-off", ""]
+    if admission is not None:
+        lines.append(f"root_admission_status: {admission.status}")
+        lines.append(f"root_admission_reason: {admission.reason}")
+        admitted = ", ".join(
+            f"{root.family}={root.path}({root.case_count},{root.role})"
+            for root in admission.admitted_roots
+        )
+        lines.append(f"admitted_roots: {admitted or 'none'}")
+        family_counts = ", ".join(
+            f"{family}={admission.family_case_counts[family]}"
+            for family in sorted(admission.family_case_counts)
+        )
+        lines.append(f"family_case_counts: {family_counts}")
+        lines.append(
+            "current_case_coverage: "
+            f"{admission.current_case_coverage}/"
+            f"{admission.expected_current_case_coverage}"
+        )
+        lines.append("")
     if not findings:
         lines.append("status: pass")
         return "\n".join(lines) + "\n"
@@ -547,7 +788,16 @@ def main() -> int:
     if not args.root:
         raise SystemExit("at least one --root FAMILY=PATH is required")
     specs = [parse_root(item) for item in args.root]
+    admission = admit_roots(
+        specs,
+        require_recheck=args.require_recheck,
+        summary_name=args.summary_name,
+    )
     all_findings: list[Finding] = []
+    if admission.findings:
+        all_findings.extend(admission.findings)
+        sys.stdout.write(render(all_findings, admission))
+        return 1
     for spec in specs:
         root_findings, summary_path = root_summary_path(
             spec,
@@ -571,7 +821,7 @@ def main() -> int:
                 all_findings.extend(classify(spec, selected_rows))
                 continue
         all_findings.extend(classify(spec, read_rows(summary_path)))
-    sys.stdout.write(render(all_findings))
+    sys.stdout.write(render(all_findings, admission))
     return 1 if all_findings else 0
 
 

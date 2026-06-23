@@ -35,6 +35,7 @@ Reason:
 | P32-R008 | Large real LLM blockers | Classify six large failures into migration blocker, model-quality failure, or explicit limitation. | completed by Phase36 | `phase_36/implementation_report.md`; `phase_36/large_row_ledger.md`; current large `recheck_summary.tsv`. | Large rows have owner/action/target/evidence and `large_disposition`; no row is accepted as external limitation. |
 | P32-R009 | Row-to-case mapping | Add row -> eval case -> proof root -> recheck result mapping for all C01-C54 adopted rows. | completed by Phase37 | `phase_37/row_case_proof_matrix.md`; `phase_37/proof_gap_ledger.md`; `phase_37/implementation_report.md`. | C01-C54 are represented, C01-C45 have current or accepted proof, C46-C54 have exclusion rationale, all 91 current cases are mapped or supplemental, and no open `proof_gap` remains. |
 | P32-R010 | Follow-up phase split | Create follow-up phases for remaining runtime/eval-report blockers after P32-R006 to P32-R009 classification. | completed | `followup_phase_split.md`. | Each open blocker has assigned phase, owner layer, source evidence, and proof command family. |
+| P32-R011 | Sign-off root admission | Add deterministic admission for final-current sign-off roots before row findings are interpreted. | completed by Phase38 | `phase_38/root_admission_report.md`; `scripts/eval_signoff.py`; `tests/test_eval_signoff.py`. | Current roots admit 3 smoke, 82 focused, and 6 large cases; duplicated root labels/paths and stale smaller roots fail closed. |
 
 ## Current Focused Recheck Summary
 
@@ -90,7 +91,7 @@ Phase37 closes P32-R009.
 | current eval cases mapped or supplemental | 91 |
 | open proof gaps | 0 |
 
-The proof matrix does not declare migration completion. Phase38 still owns
+The proof matrix does not declare migration completion. Phase38 now satisfies
 sign-off root admission, and Phase39 still owns final closure retry/reporting.
 
 ## Phase32 Exit Gate After Recovery
@@ -106,5 +107,6 @@ Phase32 may declare migration completion only when all are true:
 6. final report states the current decision without relying on superseded
    evidence.
 
-Phase37 satisfies item 5 for row-to-case proof reconciliation. Items 1 and 6
-remain owned by Phase38 and Phase39 respectively.
+Phase37 satisfies item 5 for row-to-case proof reconciliation. Phase38
+satisfies item 1 for root admission and current case coverage. Item 6 remains
+owned by Phase39.
