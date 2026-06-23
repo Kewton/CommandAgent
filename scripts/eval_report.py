@@ -83,6 +83,7 @@ def write_summary(path, rows):
         *OBSERVATION_FIELD_NAMES,
         *RUNTIME_JOB_REPORT_FIELD_NAMES,
         "active_job",
+        "active_job_lifecycle",
         "recovery_owner",
         "loop_control_action",
         "dispatch_status",
@@ -250,6 +251,13 @@ def recheck(root, cases):
                 "matrix_row": meta.get("matrix_row", case.get("matrix_row", meta["case_id"])),
                 "proof_mode": meta.get("proof_mode", case.get("proof_mode", "real_llm")),
                 "active_job": meta.get("active_job", derive_active_job(reason)),
+                "active_job_lifecycle": meta.get(
+                    "active_job_lifecycle",
+                    derive_active_job_lifecycle(
+                        meta.get("active_job", derive_active_job(reason)),
+                        meta.get("dispatch_status", derive_dispatch_status(reason)),
+                    ),
+                ),
                 "recovery_owner": meta.get("recovery_owner", derive_recovery_owner(reason)),
                 "loop_control_action": meta.get("loop_control_action", derive_loop_control_action(reason)),
                 "dispatch_status": meta.get("dispatch_status", derive_dispatch_status(reason)),
@@ -527,6 +535,20 @@ def derive_dispatch_status(reason):
     if job == "none":
         return "selected"
     if job in {"explicit_stop", "contract_conflict"}:
+        return "explicit_stop"
+    return "selected"
+
+
+def derive_active_job_lifecycle(active_job, dispatch_status):
+    if active_job in {"", "none"}:
+        return "not_applicable"
+    if dispatch_status == "no_owner":
+        return "no_owner"
+    if dispatch_status == "ambiguous_tie":
+        return "ambiguous_tie"
+    if active_job == "contract_conflict":
+        return "conflict_stop"
+    if dispatch_status == "explicit_stop" or active_job == "explicit_stop":
         return "explicit_stop"
     return "selected"
 

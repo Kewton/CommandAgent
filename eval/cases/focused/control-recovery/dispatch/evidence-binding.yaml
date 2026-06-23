@@ -1,0 +1,43 @@
+id: focused-dispatch-evidence-binding
+title: Active-job dispatch selects evidence binding repair
+profile: generic
+style: default
+mode: plan-run
+intent: modify
+prompt: "Repair the evidence binding for the selected target."
+matrix_row: phase25-dispatch-evidence-binding
+proof_mode: deterministic_fixture
+fixture_reason: evidence_binding_failed
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: evidence_binding_repair
+  active_job_lifecycle: selected
+  recovery_owner: evidence_binding
+  loop_control_action: run_bounded_repair_task
+  dispatch_status: selected
+  dispatch_reason: evidence_binding_failure
+  candidate_jobs: lifecycle=candidate job=evidence_binding_repair source_layer=evidence_binding
+  target_path: app/page.tsx
+  target_role: entrypoint
+  selected_target: app/page.tsx
+  selected_target_role: entrypoint
+  repair_action: repair_evidence_binding
+  tool_policy: file_mutation_repair
+  evidence_binding_status: failed
+expected_active_job: evidence_binding_repair
+expected_active_job_lifecycle: selected
+expected_recovery_owner: evidence_binding
+expected_dispatch_status: selected
+expected_dispatch_reason: evidence_binding_failure
+expected_candidate_jobs: lifecycle=candidate job=evidence_binding_repair source_layer=evidence_binding
+expected_target_path: app/page.tsx
+expected_target_role: entrypoint
+expected_repair_action: repair_evidence_binding
+expected_evidence_binding_status: failed
+expected_lifecycle_stage: verifying
+expected_active_owner: evidence_binding
+expected_selected_action: repair_evidence_binding
+expected_target_admission_status: admitted
+expected_repair_action_plan_status: planned
+expected_completion_source: none

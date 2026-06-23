@@ -159,6 +159,31 @@ impl DispatchStatus {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ActiveJobLifecycle {
+    Candidate,
+    Selected,
+    NotApplicable,
+    NoOwner,
+    AmbiguousTie,
+    ExplicitStop,
+    ConflictStop,
+}
+
+impl ActiveJobLifecycle {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Candidate => "candidate",
+            Self::Selected => "selected",
+            Self::NotApplicable => "not_applicable",
+            Self::NoOwner => "no_owner",
+            Self::AmbiguousTie => "ambiguous_tie",
+            Self::ExplicitStop => "explicit_stop",
+            Self::ConflictStop => "conflict_stop",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActiveJobCandidate {
     pub(crate) job: RecoveryJobKind,
@@ -208,7 +233,8 @@ impl ActiveJobCandidate {
 
     pub(crate) fn render_line(&self) -> String {
         format!(
-            "owner={} job={} action={} priority={} source_layer={} source_of_truth={} tool_policy={} loop_control_action={} target={} role={} reason={}",
+            "lifecycle={} owner={} job={} action={} priority={} source_layer={} source_of_truth={} tool_policy={} loop_control_action={} target={} role={} reason={}",
+            ActiveJobLifecycle::Candidate.as_str(),
             self.recovery_owner.as_str(),
             self.job.as_str(),
             self.action.as_str(),
@@ -229,6 +255,7 @@ pub(crate) struct ActiveJobArbitration {
     pub(crate) selected_job: RecoveryJobKind,
     pub(crate) selected_action: RecoveryActionKind,
     pub(crate) selected_priority: u8,
+    pub(crate) lifecycle: ActiveJobLifecycle,
     pub(crate) loop_control_action: LoopControlAction,
     pub(crate) dispatch_status: DispatchStatus,
     pub(crate) dispatch_reason: String,
@@ -255,6 +282,7 @@ pub(crate) struct RecoveryOrchestrationDecision {
     pub(crate) expected_evidence_delta: String,
     pub(crate) workspace_scope: String,
     pub(crate) artifact_ownership: String,
+    pub(crate) active_job_lifecycle: String,
     pub(crate) active_job_priority: u8,
     pub(crate) loop_control_action: LoopControlAction,
     pub(crate) dispatch_status: DispatchStatus,
@@ -314,6 +342,7 @@ impl RecoveryOrchestrationDecision {
             .with_expected_evidence_delta(self.expected_evidence_delta.clone())
             .with_workspace_scope(self.workspace_scope.clone())
             .with_artifact_ownership(self.artifact_ownership.clone())
+            .with_active_job_lifecycle(self.active_job_lifecycle.clone())
             .with_active_job_priority(self.active_job_priority.to_string())
             .with_loop_control_action(self.loop_control_action.as_str())
             .with_dispatch_status(self.dispatch_status.as_str())
@@ -592,6 +621,13 @@ pub(crate) fn orchestrate_contract_evidence(
         &[
             format!("active_job={}", job.as_str()),
             format!("recovery_owner={recovery_owner}"),
+            format!("active_job_lifecycle={}", arbitration.lifecycle.as_str()),
+            format!(
+                "loop_control_action={}",
+                arbitration.loop_control_action.as_str()
+            ),
+            format!("dispatch_status={}", arbitration.dispatch_status.as_str()),
+            format!("dispatch_reason={}", compact(&arbitration.dispatch_reason)),
             format!("target_path={}", target.as_deref().unwrap_or("none")),
             format!(
                 "target_role={}",
@@ -637,6 +673,7 @@ pub(crate) fn orchestrate_contract_evidence(
         expected_evidence_delta,
         workspace_scope,
         artifact_ownership,
+        active_job_lifecycle: arbitration.lifecycle.as_str().to_string(),
         active_job_priority,
         loop_control_action: arbitration.loop_control_action,
         dispatch_status: arbitration.dispatch_status,
@@ -1265,6 +1302,7 @@ pub(crate) fn dispatch_active_job(candidates: Vec<ActiveJobCandidate>) -> Active
         selected_job: job,
         selected_action: action,
         selected_priority,
+        lifecycle: lifecycle_for_dispatch(job, status),
         loop_control_action: first.loop_control_action,
         dispatch_status: status,
         dispatch_reason,
@@ -1361,6 +1399,7 @@ fn explicit_arbitration(
         selected_job: job,
         selected_action: action,
         selected_priority,
+        lifecycle: lifecycle_for_dispatch(job, dispatch_status),
         loop_control_action: LoopControlAction::RenderExplicitStop,
         dispatch_status,
         dispatch_reason: dispatch_reason.to_string(),
@@ -1370,6 +1409,21 @@ fn explicit_arbitration(
         explicit_stop_reason: Some(explicit_stop_reason.to_string()),
         rerun_authority: Vec::new(),
         tool_policy_projection: ToolPolicyProjection::ExplicitStop,
+    }
+}
+
+fn lifecycle_for_dispatch(
+    job: RecoveryJobKind,
+    dispatch_status: DispatchStatus,
+) -> ActiveJobLifecycle {
+    match dispatch_status {
+        DispatchStatus::Selected => ActiveJobLifecycle::Selected,
+        DispatchStatus::AmbiguousTie => ActiveJobLifecycle::AmbiguousTie,
+        DispatchStatus::NoOwner => ActiveJobLifecycle::NoOwner,
+        DispatchStatus::ExplicitStop if job == RecoveryJobKind::ContractConflict => {
+            ActiveJobLifecycle::ConflictStop
+        }
+        DispatchStatus::ExplicitStop => ActiveJobLifecycle::ExplicitStop,
     }
 }
 
@@ -3259,9 +3313,23 @@ mod tests {
             LoopControlAction::RenderExplicitStop
         );
         assert_eq!(decision.dispatch_status, DispatchStatus::ExplicitStop);
+        assert_eq!(decision.active_job_lifecycle, "explicit_stop");
         assert_eq!(
             decision.explicit_stop_reason.as_deref(),
             Some("explicit_stop_from_deterministic_contract")
+        );
+    }
+
+    #[test]
+    fn empty_candidate_dispatch_records_no_owner_lifecycle() {
+        let arbitration = dispatch_active_job(Vec::new());
+
+        assert_eq!(arbitration.selected_job, RecoveryJobKind::ExplicitStop);
+        assert_eq!(arbitration.lifecycle, ActiveJobLifecycle::NoOwner);
+        assert_eq!(arbitration.dispatch_status, DispatchStatus::NoOwner);
+        assert_eq!(
+            arbitration.explicit_stop_reason.as_deref(),
+            Some("no_active_job_candidate")
         );
     }
 
@@ -3295,6 +3363,7 @@ mod tests {
         let arbitration = dispatch_active_job(candidates);
 
         assert_eq!(arbitration.selected_job, RecoveryJobKind::ContractConflict);
+        assert_eq!(arbitration.lifecycle, ActiveJobLifecycle::AmbiguousTie);
         assert_eq!(arbitration.dispatch_status, DispatchStatus::AmbiguousTie);
         assert_eq!(
             arbitration.loop_control_action,
@@ -3304,6 +3373,27 @@ mod tests {
             arbitration.tie_break_reason.as_deref(),
             Some("active_job_tie")
         );
+    }
+
+    #[test]
+    fn explicit_contract_conflict_candidate_records_conflict_stop_lifecycle() {
+        let candidates = vec![ActiveJobCandidate::from_seed(ActiveJobCandidateSeed {
+            job: RecoveryJobKind::ContractConflict,
+            action: RecoveryActionKind::StopWithStructuredEvidence,
+            priority: 10,
+            reason: "contract_conflict".to_string(),
+            source_of_truth: "deterministic_contract_conflict".to_string(),
+            source_layer: "recovery".to_string(),
+            target_hint: None,
+            artifact_role: None,
+            rerun_authority: Vec::new(),
+        })];
+
+        let arbitration = dispatch_active_job(candidates);
+
+        assert_eq!(arbitration.selected_job, RecoveryJobKind::ContractConflict);
+        assert_eq!(arbitration.lifecycle, ActiveJobLifecycle::ConflictStop);
+        assert_eq!(arbitration.dispatch_status, DispatchStatus::ExplicitStop);
     }
 
     #[test]
@@ -3350,6 +3440,12 @@ mod tests {
                 "profile_verification".to_string(),
                 "npm run build".to_string()
             ]
+        );
+        assert!(
+            arbitration
+                .candidate_jobs
+                .iter()
+                .all(|candidate| candidate.contains("lifecycle=candidate"))
         );
     }
 
@@ -3402,6 +3498,7 @@ mod tests {
             enriched.loop_control_action.as_deref(),
             Some("run_tool_protocol_correction")
         );
+        assert_eq!(enriched.active_job_lifecycle.as_deref(), Some("selected"));
         assert_eq!(enriched.dispatch_status.as_deref(), Some("selected"));
         assert_eq!(
             enriched.dispatch_reason.as_deref(),

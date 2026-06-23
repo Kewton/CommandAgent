@@ -48,7 +48,7 @@ The source baseline is the coverage-table baseline:
 | KI-001 | closed_proven | P20-COV-001 | C01-C03 | Task contract core, request admission, and behavior obligation projection are implemented by Phase22. | Phase22 | `cargo test task_contract`, `cargo test plan_lint`, focused fixture root `eval/runs/loadmap2-phase22-focused-fixtures/20260623T102658`, broad sign-off |
 | KI-002 | closed_proven | P20-COV-001 | C04-C06 | Artifact role, workspace scope, and ownership are implemented by Phase23. | Phase23 | `cargo test profile_artifact`, `cargo test artifact_graph`, `cargo test workspace_scope`, `cargo test workspace_snapshot`, `cargo test artifact_ownership`, `cargo test target_admission`, `cargo test artifact_completion`, `cargo test evidence_authority`, focused fixture root `eval/runs/loadmap2-phase23-focused-fixtures/20260623T111023`, broad sign-off |
 | KI-003 | closed_proven | P20-COV-001 | C07-C10 | Ledger, completion evidence, evidence binding, and deliverable audit are implemented by Phase24. | Phase24 | artifact-ledger/completion-evidence/evidence-producer/evidence-authority/evidence-binding/deliverable-obligation tests, focused fixture root `eval/runs/loadmap2-phase24-focused-fixtures/20260623T115617`, broad sign-off |
-| KI-004 | split forward | P20-COV-001 | C11-C12 | Active-job lifecycle and dispatch gate need broader lifecycle/E2E proof. | Phase25 | dispatch tests, focused owner/action proof, broad sign-off |
+| KI-004 | closed_proven | P20-COV-001 | C11-C12 | Active-job lifecycle and dispatch gate are implemented by Phase25. | Phase25 | `cargo test active_job`, `cargo test recovery_orchestration`, `cargo test recovery_task`, `python3 tests/test_eval_report.py`, focused fixture root `eval/runs/loadmap2-phase25-focused-fixtures/20260623T132110`, broad sign-off |
 | KI-005 | open | P20-COV-002 | C13-C20 | Recovery task, setup/profile mapping, semantic repair, repair brief, and action envelope remain partial. | Phase26 | row-level ledger, focused recovery matrix, broad sign-off |
 | KI-006 | open | P20-COV-003 | C21-C32 | Target admission, verifier orchestration, repair lifecycle, completion job, focused edit, patch validation, and no-progress behavior remain partial. | Phase27 | row-level ledger, focused target/verifier/patch matrix, broad sign-off |
 | KI-007 | open | P20-COV-004 | C33 | Contract conflict job is missing. | Phase28 | conflict unit tests, focused conflict fixture, broad sign-off |
@@ -100,6 +100,8 @@ Status: `closed_proven` by Phase24. No C07-C10 row is split forward.
 | --- | --- | --- |
 | C11 | Active-job lifecycle, attempt-progress transitions, deterministic tie-break, no-owner, and conflict stop behavior. | active-job/recovery-orchestration tests, focused dispatch fixture |
 | C12 | Recovery owner/action gate connected to profile-specific candidate producers before repair prompt rendering. | recovery-orchestration/recovery-task tests, profile dispatch focused fixture |
+
+Status: `closed_proven` by Phase25. No C11-C12 row is split forward.
 
 ### Phase26: C13-C20
 

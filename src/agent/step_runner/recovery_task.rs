@@ -73,6 +73,7 @@ pub struct RecoveryTaskContract {
     pub target_priority: Option<String>,
     pub workspace_scope: Option<String>,
     pub artifact_ownership: Option<String>,
+    pub active_job_lifecycle: Option<String>,
     pub active_job_priority: Option<String>,
     pub loop_control_action: Option<String>,
     pub dispatch_status: Option<String>,
@@ -154,6 +155,7 @@ impl RecoveryTaskContract {
             .with_target_priority_opt(evidence.target_priority.clone())
             .with_workspace_scope_opt(evidence.workspace_scope.clone())
             .with_artifact_ownership_opt(evidence.artifact_ownership.clone())
+            .with_active_job_lifecycle_opt(evidence.active_job_lifecycle.clone())
             .with_active_job_priority_opt(evidence.active_job_priority.clone())
             .with_loop_control_action_opt(evidence.loop_control_action.clone())
             .with_dispatch_status_opt(evidence.dispatch_status.clone())
@@ -370,6 +372,11 @@ impl RecoveryTaskContract {
 
     pub fn with_active_job_priority(mut self, active_job_priority: impl Into<String>) -> Self {
         self.active_job_priority = Some(active_job_priority.into());
+        self
+    }
+
+    pub fn with_active_job_lifecycle(mut self, active_job_lifecycle: impl Into<String>) -> Self {
+        self.active_job_lifecycle = Some(active_job_lifecycle.into());
         self
     }
 
@@ -793,6 +800,11 @@ impl RecoveryTaskContract {
         );
         push_field(
             &mut lines,
+            "active_job_lifecycle",
+            self.active_job_lifecycle.as_deref(),
+        );
+        push_field(
+            &mut lines,
             "active_job_priority",
             self.active_job_priority.as_deref(),
         );
@@ -805,6 +817,17 @@ impl RecoveryTaskContract {
             &mut lines,
             "dispatch_status",
             self.dispatch_status.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "dispatch_reason",
+            self.dispatch_reason.as_deref(),
+        );
+        push_list(&mut lines, "candidate_jobs", &self.candidate_jobs);
+        push_field(
+            &mut lines,
+            "tie_break_reason",
+            self.tie_break_reason.as_deref(),
         );
         push_field(
             &mut lines,
@@ -1051,6 +1074,13 @@ impl RecoveryTaskContract {
         }
     }
 
+    fn with_active_job_lifecycle_opt(self, active_job_lifecycle: Option<String>) -> Self {
+        match active_job_lifecycle {
+            Some(value) => self.with_active_job_lifecycle(value),
+            None => self,
+        }
+    }
+
     fn with_active_job_priority_opt(self, active_job_priority: Option<String>) -> Self {
         match active_job_priority {
             Some(value) => self.with_active_job_priority(value),
@@ -1178,6 +1208,7 @@ impl RecoveryTaskContract {
             || self.target_priority.is_some()
             || self.workspace_scope.is_some()
             || self.artifact_ownership.is_some()
+            || self.active_job_lifecycle.is_some()
             || self.active_job_priority.is_some()
             || self.loop_control_action.is_some()
             || self.dispatch_status.is_some()
@@ -1633,6 +1664,30 @@ mod tests {
         assert!(rendered.contains("rerun_authority: npm run build"));
         assert!(rendered.contains("execution_envelope: file_mutation_repair"));
         assert!(rendered.contains("Do not change the verifier command"));
+    }
+
+    #[test]
+    fn recovery_task_renders_dispatch_decision_inputs() {
+        let evidence = ContractEvidence::new("tool_protocol")
+            .with_reason_code("tool_args_missing_required_field")
+            .with_tool("Write")
+            .with_target_field("path")
+            .with_target_path("src/components/GameCanvas.tsx");
+
+        let rendered = RecoveryTaskContract::from_contract_evidence(&evidence)
+            .unwrap()
+            .render()
+            .unwrap();
+
+        assert!(rendered.contains("active_job: tool_protocol_correction"));
+        assert!(rendered.contains("active_job_lifecycle: selected"));
+        assert!(rendered.contains("loop_control_action: run_tool_protocol_correction"));
+        assert!(rendered.contains("dispatch_status: selected"));
+        assert!(rendered.contains("dispatch_reason: tool_or_provider_protocol_failure"));
+        assert!(rendered.contains("candidate_jobs: lifecycle=candidate"));
+        assert!(rendered.contains("job=tool_protocol_correction"));
+        assert!(rendered.contains("recovery_owner: tool_protocol"));
+        assert!(rendered.contains("repair_action: correct_tool_protocol"));
     }
 
     #[test]

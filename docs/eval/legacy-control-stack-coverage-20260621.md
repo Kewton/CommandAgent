@@ -81,8 +81,8 @@ workspace/mvp/logic/anvil/loadmap2/anvil_source_baseline.md
 | C08 | Completion evidence | `completion_evidence.rs`, `success.rs`, `completion_probe_gate.rs`, `objective_evidence.rs`, `evidence_observation.rs` | Converts actual tool/build/doc/data observations into completion authority. | Step verifier, final-answer guard, eval | Implemented | Adopt | Typed completion evidence now distinguishes verifier pass/fail, command observation, file layout pass, profile completion pass, missing evidence, failed evidence, and stale evidence. Observed completion facts are producer inputs, and completion authority/reporting expose status, source of truth, missing/failed/stale lists, and runner kind without hidden tool execution. | Closed by Phase24 proof: completion-evidence/evidence-producer/evidence-authority tests, focused `focused-completion-evidence-producers`, and broad sign-off regression. |
 | C09 | Evidence binding | `evidence_binding.rs`, `evidence_runner.rs`, `evidence_binding` adapters | Checks whether a deliverable can bind to its evidence runner before execution. | Verifier/profile/setup | Implemented | Adopt | Evidence binding producers expose manifest/file-layout/docs/schema/source-citation/import/test/executable binding status and kind. Observed binding facts feed completion authority and eval fields, and failed bindings remain structured contract evidence rather than hidden repair dispatch. | Closed by Phase24 proof: evidence-binding/evidence-producer/evidence-authority tests, focused `focused-evidence-binding-producers`, and broad sign-off regression. |
 | C10 | Deliverable obligation audit | `deliverable_obligation_audit.rs`, `task_contract_deliverable_projection.rs`, `task_contract_deliverable_lifecycle.rs`, `deliverable_freshness.rs` | Audits required deliverables, freshness, and non-coding artifact obligations. | Plan lint / eval / profile | Implemented | Adopt | `DeliverableObligation` now projects eval-visible kind/path/obligation fields and freshness decisions. Completion authority converts stale, missing, or read-only current-plan observations into distinct completion evidence so old observations cannot satisfy fresh deliverable obligations. | Closed by Phase24 proof: deliverable-obligation/task-contract/plan-lint/evidence-authority tests, focused `focused-deliverable-obligation-freshness`, and broad sign-off regression. |
-| C11 | Active job arbiter | `active_job_arbiter.rs`, `active_job_emit.rs`, `actor_loop_phase_decision.rs`, `loop_phase.rs`, `model_request_phase.rs` | Selects the current recovery owner/job and loop control action before model action. | Recovery orchestration | Partial | Adopt | Active-job candidates now carry owner, job, action, source layer, source of truth, target hint, artifact role, rerun authority, tool policy, loop control action, and deterministic reason. Dispatch selects one owner/action or explicit stop before repair prompt rendering. | Add lifecycle state and deeper attempt-progress transitions in later phases. |
-| C12 | Recovery owner / dispatch gate | `active_job_arbiter.rs`, `repair_job_dispatch.rs`, `artifact_recovery_flow.rs` | Prevents multiple recovery systems from acting at once. | Recovery orchestration | Partial | Adopt | `recovery_owner`, `loop_control_action`, `dispatch_status`, `dispatch_reason`, `candidate_jobs`, and `tie_break_reason` are projected from a single dispatch gate. Compatible same-owner candidates can merge deterministic metadata; competing owners stop with `contract_conflict`. | Add broader focused E2E proof and any remaining profile-specific candidate producers in later phases. |
+| C11 | Active job arbiter | `active_job_arbiter.rs`, `active_job_emit.rs`, `actor_loop_phase_decision.rs`, `loop_phase.rs`, `model_request_phase.rs` | Selects the current recovery owner/job and loop control action before model action. | Recovery orchestration | Implemented | Adopt | Active-job candidates carry owner, job, action, source layer, source of truth, target hint, artifact role, rerun authority, tool policy, loop control action, lifecycle, and deterministic reason. Dispatch selects one owner/action or explicit no-owner, ambiguous-tie, explicit-stop, or conflict-stop state before repair prompt rendering. | Phase25 proof: active-job/recovery-orchestration/recovery-task tests plus focused dispatch root `eval/runs/loadmap2-phase25-focused-fixtures/20260623T132110`. |
+| C12 | Recovery owner / dispatch gate | `active_job_arbiter.rs`, `repair_job_dispatch.rs`, `artifact_recovery_flow.rs` | Prevents multiple recovery systems from acting at once. | Recovery orchestration | Implemented | Adopt | `active_job_lifecycle`, `recovery_owner`, `loop_control_action`, `dispatch_status`, `dispatch_reason`, `candidate_jobs`, and `tie_break_reason` are projected from a single dispatch gate into evidence, eval reports, and Recovery Task Contract rendering. Compatible same-owner candidates can merge deterministic metadata; competing owners stop with structured evidence. | Phase25 proof covers setup, manifest, route, source, docs, evidence-binding, verifier-contract, tool-protocol, no-owner, and ambiguous-tie dispatch fixtures. |
 | C13 | Recovery messages and packets | `recovery_messages.rs`, `repair_packet.rs`, `failure_packet.rs`, `safe_stop_payload.rs`, `safe_stop_emit.rs` | Renders structured failure/repair/safe-stop information. | Recovery task / repair packet / final error | Partial | Partial | Recovery task renders structured contract fields, bounded repair packets, and `safe_stop_payload` with owner/job/action/target/cluster/attempt outcome context. | Broaden safe-stop payload coverage for evidence binding and completion-authority failure classes. |
 | C14 | Setup bootstrap | `node_runner_manifest.rs`, `package_manifest_summary.rs`, `cargo_manifest_summary.rs`, `setup_artifact_validation.rs`, `node_request_helpers.rs`, `python_request_helpers.rs` | Treats dependency/toolchain setup and setup manifests as separate active jobs. | Setup runtime / setup lifecycle / recovery orchestration | Partial | Partial | Dependency-missing evidence maps to `setup_bootstrap`; setup lifecycle now records setup job kind, target, manifest kind/path, validation status, readiness, command authority, attempt keys, fingerprint, stale reason, setup result, failure signature, and verifier rerun result. NPM validation remains the setup-execution path, and Rust/Python verifier commands can surface manifest validation blockers. | Candidate-content validation, broader setup result ledger coverage, and non-Node setup policies remain partial. |
 | C15 | Project probe/profile/scaffold profile | `project_probe.rs`, `project_profile.rs`, `project_profile_projection.rs`, `scaffold_profile.rs`, `scaffold_pipeline.rs` | Detects project shape and scaffold expectations before repair. | Profiles / artifact graph | Partial | Partial | Profiles now render a common profile output schema for root hints, classified artifacts, setup/scaffold/integration artifacts, verifier commands, protected paths, behavior obligations, verification failures, and recovery candidate hints. | Scaffold ownership is represented as profile facts, but bounded scaffold materialization and completion evidence remain partial. |
@@ -136,8 +136,8 @@ Current implementation status:
 
 | Current status | Count |
 | --- | ---: |
-| Implemented | 11 |
-| Partial | 34 |
+| Implemented | 13 |
+| Partial | 32 |
 | Missing | 2 |
 | Excluded | 7 |
 
@@ -155,9 +155,9 @@ Interpretation:
 - `Adopt` + `Partial` is the accepted migration surface. There are 45 rows
   where CommandAgent should own the responsibility, either as a new mechanism
   or by completing an existing projection.
-- Of those 45 accepted rows, 34 still require row-level implementation proof.
+- Of those 45 accepted rows, 32 still require row-level implementation proof.
   Provider transport parsing plus Phase22 C01-C03, Phase23 C04-C06, and
-  Phase24 C07-C10 are currently marked `Implemented`.
+  Phase24 C07-C10, and Phase25 C11-C12 are currently marked `Implemented`.
 - `Missing` adoption rows are not accepted migration work yet. They form the
   unresolved priority-decision surface and must become `Adopt`, scoped
   `Partial`, or `Excluded` before final closure.
@@ -173,7 +173,10 @@ control.
 The current implementation is useful, but the following mappings are too thin
 to resolve the recurring eval failures reliably:
 
-1. `active_job_priority` is metadata, not a real arbiter.
+1. Active-job arbitration is now implemented for the C11-C12 dispatch
+   boundary. Remaining recovery-depth work is tracked by the later
+   recovery-task, target-admission, verifier, and conflict rows rather than by
+   C11-C12.
 2. Scope-aware workspace admission is implemented for the C05 boundary.
    Remaining workspace-candidate discovery and broader walk parity belong to
    C38 rather than the C05 ownership gate.
@@ -457,4 +460,47 @@ migration_not_complete
 ```
 
 Reason: Phase24 closes C07-C10, but later accepted rows C11 onward still need
+row-level proof before final migration completion can be declared.
+
+## Phase25 Active Job Dispatch Appendix - 2026-06-23
+
+Phase25 closed C11 through C12 with row-level proof for active-job lifecycle
+projection, deterministic arbitration, single recovery owner/action dispatch,
+and Recovery Task Contract prompt-input propagation.
+
+Status changes:
+
+| row | previous | current | proof |
+| --- | --- | --- | --- |
+| C11 | Partial | Implemented | Candidate and selected/stop lifecycle evidence for selected, no-owner, ambiguous-tie, explicit-stop, and conflict-stop dispatch states. |
+| C12 | Partial | Implemented | Recovery dispatch evidence and recovery task rendering consume one selected owner/action or explicit stop before bounded repair prompt rendering. |
+
+Proof commands:
+
+```bash
+cargo test active_job
+cargo test recovery_orchestration
+cargo test recovery_task
+python3 tests/test_eval_report.py
+scripts/eval_agent_slice.sh --cases-dir eval/cases/focused/control-recovery/dispatch --out eval/runs/loadmap2-phase25-focused-fixtures --runs 1 --proof-mode deterministic_fixture
+python3 scripts/eval_report.py eval/runs/loadmap2-phase25-focused-fixtures/20260623T132110 --cases-dir eval/cases/focused/control-recovery/dispatch --recheck
+python3 scripts/eval_signoff.py --require-recheck --root smoke=eval/runs/loadmap2-phase16-smoke-local-llm/20260622T173759 --root focused=eval/runs/loadmap2-phase18-focused-local-llm/20260623T000638 --root focused-fixture=eval/runs/loadmap2-phase25-focused-fixtures/20260623T132110 --root large=eval/runs/loadmap2-phase16-large-local-llm-timebox/20260622T182149
+```
+
+Result:
+
+```text
+focused fixture root: eval/runs/loadmap2-phase25-focused-fixtures/20260623T132110
+focused assertions: passed: 10
+recheck assertions: passed_recheck: 10
+broad sign-off: pass
+```
+
+The migration decision remains:
+
+```text
+migration_not_complete
+```
+
+Reason: Phase25 closes C11-C12, but later accepted rows C13 onward still need
 row-level proof before final migration completion can be declared.

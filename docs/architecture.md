@@ -250,7 +250,7 @@ stops instead of choosing a path by heuristic.
 
 Active-job candidates carry their recovery owner, source layer, source of
 truth, target hint, artifact role, tool-policy projection, loop-control action,
-rerun authority, and deterministic reason. Profile policy may produce these
+rerun authority, lifecycle state, and deterministic reason. Profile policy may produce these
 candidates or evidence hints, but it must not bypass the dispatch gate. The
 gate is the single place where competing setup, manifest, route, source, test,
 docs, evidence-binding, verifier-contract, and tool-protocol owners are
@@ -376,7 +376,7 @@ payload. The observation records fields such as `terminal_state`,
 select repair actions, rerun commands, or alter retry budgets.
 
 The orchestration section may carry `recovery_owner`, `completion_evidence`,
-`loop_control_action`, `dispatch_status`, `dispatch_reason`, `candidate_jobs`,
+`loop_control_action`, `active_job_lifecycle`, `dispatch_status`, `dispatch_reason`, `candidate_jobs`,
 `tie_break_reason`, `evidence_binding`, `deliverable_obligations`,
 `repair_action_plan`, `semantic_failure_report`, `repair_job_state`,
 `attempt_outcomes`, `exhausted_targets`, `exhausted_roles`,

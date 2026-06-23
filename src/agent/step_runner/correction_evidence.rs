@@ -55,6 +55,7 @@ pub struct ContractEvidence {
     pub target_priority: Option<String>,
     pub workspace_scope: Option<String>,
     pub artifact_ownership: Option<String>,
+    pub active_job_lifecycle: Option<String>,
     pub active_job_priority: Option<String>,
     pub loop_control_action: Option<String>,
     pub dispatch_status: Option<String>,
@@ -357,6 +358,11 @@ impl ContractEvidence {
 
     pub fn with_artifact_ownership(mut self, artifact_ownership: impl Into<String>) -> Self {
         self.artifact_ownership = Some(artifact_ownership.into());
+        self
+    }
+
+    pub fn with_active_job_lifecycle(mut self, active_job_lifecycle: impl Into<String>) -> Self {
+        self.active_job_lifecycle = Some(active_job_lifecycle.into());
         self
     }
 
@@ -763,6 +769,11 @@ impl ContractEvidence {
         );
         push_field(
             &mut lines,
+            "active_job_lifecycle",
+            self.active_job_lifecycle.as_deref(),
+        );
+        push_field(
+            &mut lines,
             "active_job_priority",
             self.active_job_priority.as_deref(),
         );
@@ -912,6 +923,7 @@ impl ContractEvidence {
             && self.target_priority.is_none()
             && self.workspace_scope.is_none()
             && self.artifact_ownership.is_none()
+            && self.active_job_lifecycle.is_none()
             && self.active_job_priority.is_none()
             && self.loop_control_action.is_none()
             && self.dispatch_status.is_none()

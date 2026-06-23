@@ -184,6 +184,7 @@ Phase 24: C07-C10 artifact ledger, completion evidence, evidence binding,
           deliverable obligation audit
           (completed / closed_proven)
 Phase 25: C11-C12 active-job arbitration and recovery dispatch gate
+          (completed / closed_proven)
 Phase 26: C13-C20 recovery task, setup/profile, semantic repair/action envelope
 Phase 27: C21-C32 target admission, repair lifecycle, verifier, completion,
           and patch validation

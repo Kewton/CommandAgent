@@ -126,6 +126,7 @@ def runtime_failure_reason(evidence):
 
 RECOVERY_FIELD_NAMES = [
     "active_job",
+    "active_job_lifecycle",
     "recovery_owner",
     "loop_control_action",
     "dispatch_status",
@@ -331,6 +332,7 @@ def derived_recovery_fields(reason, case):
     role = artifact_role_for_path(target)
     fields = {
         "active_job": "",
+        "active_job_lifecycle": "",
         "recovery_owner": "",
         "loop_control_action": "",
         "dispatch_status": "",
@@ -423,6 +425,7 @@ def derived_recovery_fields(reason, case):
     }
     if reason == "ok":
         fields["active_job"] = "none"
+        fields["active_job_lifecycle"] = "not_applicable"
         fields["recovery_owner"] = "none"
         fields["loop_control_action"] = "none"
         fields["dispatch_status"] = "selected"
@@ -435,6 +438,7 @@ def derived_recovery_fields(reason, case):
     if category == "setup":
         fields.update(
             active_job="setup_bootstrap",
+            active_job_lifecycle="selected",
             recovery_owner="setup",
             loop_control_action="run_verifier_owned_setup",
             dispatch_status="selected",
@@ -445,6 +449,7 @@ def derived_recovery_fields(reason, case):
         if "route" in reason or "integration" in reason:
             fields.update(
                 active_job="route_integration_repair",
+                active_job_lifecycle="selected",
                 recovery_owner="route_integration",
                 loop_control_action="run_bounded_repair_task",
                 dispatch_status="selected",
@@ -454,6 +459,7 @@ def derived_recovery_fields(reason, case):
         elif "dependency" in reason or "version_conflict" in reason or "manifest" in reason:
             fields.update(
                 active_job="manifest_repair",
+                active_job_lifecycle="selected",
                 recovery_owner="manifest",
                 loop_control_action="run_bounded_repair_task",
                 dispatch_status="selected",
@@ -467,6 +473,7 @@ def derived_recovery_fields(reason, case):
         else:
             fields.update(
                 active_job="source_implementation_repair",
+                active_job_lifecycle="selected",
                 recovery_owner="source",
                 loop_control_action="run_bounded_repair_task",
                 dispatch_status="selected",
@@ -479,6 +486,7 @@ def derived_recovery_fields(reason, case):
             action = "emit_same_tool_with_required_fields"
         fields.update(
             active_job="tool_protocol_correction",
+            active_job_lifecycle="selected",
             recovery_owner="tool_protocol",
             loop_control_action="run_tool_protocol_correction",
             dispatch_status="selected",
@@ -495,6 +503,7 @@ def derived_recovery_fields(reason, case):
     elif category == "step_policy":
         fields.update(
             active_job="tool_protocol_correction",
+            active_job_lifecycle="selected",
             recovery_owner="tool_protocol",
             loop_control_action="run_tool_protocol_correction",
             dispatch_status="selected",
@@ -511,6 +520,7 @@ def derived_recovery_fields(reason, case):
             job, owner, action = missing_artifact_recovery(role)
             fields.update(
                 active_job=job,
+                active_job_lifecycle="selected",
                 recovery_owner=owner,
                 loop_control_action="run_bounded_repair_task",
                 dispatch_status="selected",
@@ -519,6 +529,7 @@ def derived_recovery_fields(reason, case):
         else:
             fields.update(
                 active_job="verifier_contract_correction",
+                active_job_lifecycle="selected",
                 recovery_owner="verifier_contract",
                 loop_control_action="run_bounded_repair_task",
                 dispatch_status="selected",
@@ -528,6 +539,7 @@ def derived_recovery_fields(reason, case):
     elif category == "quality":
         fields.update(
             active_job="source_implementation_repair",
+            active_job_lifecycle="selected",
             recovery_owner="source",
             loop_control_action="run_bounded_repair_task",
             dispatch_status="selected",
@@ -537,6 +549,7 @@ def derived_recovery_fields(reason, case):
     elif category == "verifier":
         fields.update(
             active_job="source_implementation_repair",
+            active_job_lifecycle="selected",
             recovery_owner="source",
             loop_control_action="run_bounded_repair_task",
             dispatch_status="selected",
@@ -546,6 +559,7 @@ def derived_recovery_fields(reason, case):
     else:
         fields.update(
             active_job="explicit_stop",
+            active_job_lifecycle="explicit_stop",
             recovery_owner="explicit_stop",
             loop_control_action="render_explicit_stop",
             dispatch_status="explicit_stop",

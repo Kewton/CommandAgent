@@ -897,6 +897,7 @@ class EvalReportCategorizeTests(unittest.TestCase):
                         "    - README.md",
                         "expected_terminal_state: ok",
                         "expected_active_job: none",
+                        "expected_active_job_lifecycle: not_applicable",
                         "expected_diagnostic_failure_kind: assertion_mismatch",
                         "expected_unknown_diagnostic_count: 0",
                         "expected_lifecycle_stage: completed",
@@ -914,6 +915,10 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertIn("focused-assertion", cases)
         self.assertEqual(cases["focused-assertion"]["expected_fields"]["terminal_state"], "ok")
         self.assertEqual(cases["focused-assertion"]["expected_fields"]["active_job"], "none")
+        self.assertEqual(
+            cases["focused-assertion"]["expected_fields"]["active_job_lifecycle"],
+            "not_applicable",
+        )
         self.assertEqual(
             cases["focused-assertion"]["expected_fields"]["diagnostic_failure_kind"],
             "assertion_mismatch",

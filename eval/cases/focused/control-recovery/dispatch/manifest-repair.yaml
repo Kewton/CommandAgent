@@ -1,0 +1,41 @@
+id: focused-dispatch-manifest-repair
+title: Active-job dispatch selects manifest repair
+profile: nextjs
+style: default
+mode: plan-run
+intent: modify
+prompt: "Repair package.json dependency contract for the generated Next.js app."
+matrix_row: phase25-dispatch-manifest-repair
+proof_mode: deterministic_fixture
+fixture_reason: profile_verification:nextjs_dependency_version_conflict
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: manifest_repair
+  active_job_lifecycle: selected
+  recovery_owner: manifest
+  loop_control_action: run_bounded_repair_task
+  dispatch_status: selected
+  dispatch_reason: manifest_or_dependency_contract_failure
+  candidate_jobs: lifecycle=candidate job=manifest_repair target=package.json
+  target_path: package.json
+  target_role: setup_manifest
+  selected_target: package.json
+  selected_target_role: setup_manifest
+  repair_action: add_missing_manifest_dependency
+  tool_policy: setup_config_mutation_only
+expected_active_job: manifest_repair
+expected_active_job_lifecycle: selected
+expected_recovery_owner: manifest
+expected_dispatch_status: selected
+expected_dispatch_reason: manifest_or_dependency_contract_failure
+expected_candidate_jobs: lifecycle=candidate job=manifest_repair target=package.json
+expected_target_path: package.json
+expected_target_role: setup_manifest
+expected_repair_action: add_missing_manifest_dependency
+expected_lifecycle_stage: setup
+expected_active_owner: manifest
+expected_selected_action: add_missing_manifest_dependency
+expected_target_admission_status: admitted
+expected_repair_action_plan_status: planned
+expected_completion_source: none

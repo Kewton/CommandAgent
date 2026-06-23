@@ -94,7 +94,10 @@ The observation fields are `terminal_state`, `failure_class`,
 `rejected_target_reason`, `read_paths`, `changed_paths`, `created_paths`,
 `verifier_mentioned_paths`, `scaffold_created_paths`,
 `setup_created_paths`, `out_of_scope_paths`, `setup_state`, and `port`,
-alongside existing recovery fields. The terminal-state taxonomy is shared with
+alongside existing recovery fields. Recovery dispatch fields include
+`active_job`, `active_job_lifecycle`, `recovery_owner`,
+`loop_control_action`, `dispatch_status`, `dispatch_reason`,
+`candidate_jobs`, and `tie_break_reason`. The terminal-state taxonomy is shared with
 runtime through `scripts/failure_observation_taxonomy.tsv`; tests should fail
 when the Python fallback mapping drifts from the Rust mapping. Runtime job
 fields may also include
@@ -201,7 +204,7 @@ helps distinguish failures in planning, execution/tool protocol, profile,
 setup bootstrap, verification, eval success checks, and unknown boundaries.
 New eval runs also write `failure_category`, `contract_layer`, and the recovery
 report fields into `summary.tsv` and each run's `meta.json`. The recovery
-fields are `active_job`, `recovery_owner`, `loop_control_action`,
+fields are `active_job`, `active_job_lifecycle`, `recovery_owner`, `loop_control_action`,
 `dispatch_status`, `dispatch_reason`, `candidate_jobs`, `tie_break_reason`,
 `target_path`, `target_role`, `selected_failure_cluster`,
 `semantic_failure_kind`, `preferred_repair_role`, `weak_verifier_reason`,
@@ -522,6 +525,7 @@ into one route integration category.
 Contract Boundary Propagation fields should be recorded when present:
 
 - `active_job`
+- `active_job_lifecycle`
 - `artifact_role`
 - `repair_kind`
 - `repair_action`
