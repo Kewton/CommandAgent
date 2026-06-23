@@ -2,6 +2,7 @@
 import argparse
 import csv
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -531,6 +532,7 @@ def recheck(root, cases):
         )
         rows[-1]["failure_category"] = observation["failure_category"]
         rows[-1]["contract_layer"] = observation["contract_layer"]
+        admit_recheck_target_from_profile_artifacts(rows[-1], workspace)
         rows[-1].update(
             build_runtime_job_report(
                 rows[-1],
@@ -593,6 +595,150 @@ def recheck_observation_input(
     return observation_input
 
 
+def admit_recheck_target_from_profile_artifacts(row, workspace):
+    """Admit an existing profile/workspace target for failed recheck rows.
+
+    This is report-only attribution. It never creates files, reruns verifiers,
+    changes runtime policy, or derives a target from task intent alone.
+    """
+
+    if str(row.get("success", "")).casefold() == "true":
+        return
+    if clean(row.get("target_path") or row.get("selected_target")):
+        return
+    if not source_repair_context(row):
+        return
+    if not useful_diagnostic(row):
+        return
+
+    candidates = deterministic_target_candidates(row)
+    if not candidates:
+        return
+    for candidate in candidates:
+        if not admissible_workspace_target(workspace, candidate):
+            continue
+        role = artifact_role_for_path(candidate)
+        row["target_path"] = candidate
+        row["selected_target"] = candidate
+        row["target_role"] = role
+        row["selected_target_role"] = role
+        row["target_admission_status"] = "admitted"
+        row["target_source_of_truth"] = (
+            row.get("target_source_of_truth") or "profile_artifact_hint"
+        )
+        row["target_ownership_source"] = (
+            row.get("target_ownership_source") or "profile_workspace_artifact"
+        )
+        row["target_workspace_scope"] = (
+            row.get("target_workspace_scope") or "run_workspace"
+        )
+        row["target_evidence_freshness"] = (
+            row.get("target_evidence_freshness") or "fresh"
+        )
+        row["target_candidate_count"] = row.get("target_candidate_count") or str(
+            len(candidates)
+        )
+        row["target_admitted_count"] = row.get("target_admitted_count") or "1"
+        row["current_excerpt_available"] = (
+            row.get("current_excerpt_available") or "true"
+        )
+        row["target_priority_components"] = (
+            row.get("target_priority_components")
+            or "profile_artifact_hint|workspace_file_exists|useful_diagnostic"
+        )
+        return
+
+
+def source_repair_context(row):
+    active_job = clean(row.get("active_job"))
+    owner = clean(row.get("recovery_owner"))
+    action = clean(row.get("repair_action"))
+    return (
+        active_job in {"source_implementation_repair", "route_integration_repair"}
+        or owner in {"source", "route_integration"}
+        or action
+        in {
+            "edit_source_for_diagnostic",
+            "connect_existing_artifact_to_entrypoint",
+            "repair_source_error",
+        }
+    )
+
+
+def useful_diagnostic(row):
+    diagnostic = clean(row.get("diagnostic_code"))
+    return bool(
+        diagnostic
+        and diagnostic not in {"ok", "unknown"}
+        and not diagnostic.startswith("rc_")
+        and not diagnostic.startswith("command_failed_")
+    )
+
+
+def deterministic_target_candidates(row):
+    candidates = []
+    for field in [
+        "verifier_mentioned_paths",
+        "admitted_cluster_targets",
+        "candidate_artifacts",
+        "profile_entrypoints",
+        "profile_integration_artifacts",
+        "required_paths",
+    ]:
+        candidates.extend(split_path_candidates(row.get(field, "")))
+    return unique_preserve_order(candidates)
+
+
+def split_path_candidates(value):
+    if not value:
+        return []
+    candidates = []
+    for token in re.split(r"[\s,|]+", str(value)):
+        candidate = normalize_candidate_path(token)
+        if candidate:
+            candidates.append(candidate)
+    return candidates
+
+
+def normalize_candidate_path(value):
+    candidate = value.strip().strip("[](){}'\"`")
+    if not candidate:
+        return ""
+    candidate = re.sub(r":\d+(?::\d+)?$", "", candidate)
+    candidate = candidate.strip().strip("[](){}'\"`")
+    if (
+        not candidate
+        or candidate.startswith("/")
+        or "\\" in candidate
+        or ".." in Path(candidate).parts
+    ):
+        return ""
+    if "/" not in candidate and "." not in candidate:
+        return ""
+    return candidate
+
+
+def unique_preserve_order(values):
+    seen = set()
+    result = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
+
+
+def admissible_workspace_target(workspace, candidate):
+    root = workspace.resolve()
+    target = (workspace / candidate).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError:
+        return False
+    return target.is_file()
+
+
 def semantic_mismatches(workspace, case, missing):
     mismatches = []
     for path, needles in case.get("must_include", {}).items():
@@ -612,6 +758,12 @@ def semantic_contains(text, needle, case):
     if case.get("type") == "semantic":
         return needle.casefold() in text.casefold()
     return needle in text
+
+
+def clean(value):
+    if value is None:
+        return ""
+    return str(value).strip()
 
 
 def categorize(reason):

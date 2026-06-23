@@ -34,7 +34,7 @@ create a row for each case:
 | `large-nextjs-app-modify` | `edit_target_not_found` | stale/missing edit target cause, admitted replacement target, action |
 | `large-nextjs-app-new` | `read_only_step_mutation` | step-policy owner, explicit stop or admitted repair action, target admission rationale |
 | `large-rust-app-modify` | `edit_target_not_found` | stale/missing edit target cause, admitted replacement target, action |
-| `large-rust-app-new` | `rc_1` plus missing target evidence | diagnostic classification, candidate target extraction, owner/action/target evidence |
+| `large-rust-app-new` | `blocked_bash_command_policy` with admitted `src/main.rs` target | large failure remains failed, but raw diagnostic and missing-target blockers are closed by Phase34 evidence projection |
 
 ## Lessons Applied
 

@@ -31,7 +31,7 @@ Reason:
 | P32-R004 | Focused current eval | Re-run focused recheck after P32-R003. | completed | `eval/runs/current-all-local-llm/focused-control-recovery/20260623T203236/recheck_summary.tsv`. | False fixture-field assertion failures drop from 45 to 35. |
 | P32-R005 | Broad signoff | Re-run current broad signoff on current roots. | completed / failed as expected | `python3 scripts/eval_signoff.py --require-recheck ...` returned `status: fail`. | Phase32 remains open until this command exits zero on current roots. |
 | P32-R006 | Focused assertions | Classify and fix or accept the remaining focused assertion failures. | Phase33 projection closed / Phase35 open | `focused_worklist.md`; `phase_33/implementation_report.md`; updated focused `recheck_summary.tsv`. | Phase35 clears the remaining setup/profile/dev-server/dispatch assertion failures or assigns row-level accepted dispositions. |
-| P32-R007 | Raw diagnostic coverage | Eliminate or explicitly accept remaining raw `rc:1` / `rc_1` / unknown-contract findings. | classified / implementation open | Current focused and large recheck roots; `focused_worklist.md`; `followup_phase_split.md`. | Phase34 leaves no unowned raw diagnostic in signoff output. |
+| P32-R007 | Raw diagnostic coverage | Eliminate or explicitly accept remaining raw `rc:1` / `rc_1` / unknown-contract findings. | completed by Phase34 | `phase_34/implementation_report.md`; current large `recheck_summary.tsv`; current broad signoff output. | Phase34 leaves no unowned raw diagnostic in signoff output. Remaining signoff failures are focused assertion blockers assigned to Phase35+. |
 | P32-R008 | Large real LLM blockers | Classify six large failures into migration blocker, model-quality failure, or explicit limitation. | classified / implementation open | Current large summary below; `followup_phase_split.md` Phase36. | Large rows have owner/action/target/evidence or accepted limitation. |
 | P32-R009 | Row-to-case mapping | Add row -> eval case -> proof root -> recheck result mapping for all C01-C54 adopted rows. | open / assigned | Current manifest plus coverage table; `followup_phase_split.md` Phase37 and Phase38. | No adopted row can be closed without a current proof case or documented rationale, and sign-off roots cover the current case set. |
 | P32-R010 | Follow-up phase split | Create follow-up phases for remaining runtime/eval-report blockers after P32-R006 to P32-R009 classification. | completed | `followup_phase_split.md`. | Each open blocker has assigned phase, owner layer, source evidence, and proof command family. |
@@ -71,7 +71,7 @@ later.
 | `large-nextjs-app-modify` | verifier | verifier_command_failed | edit_target_not_found | owner/action/target present |
 | `large-nextjs-app-new` | step_policy | step_policy_failed | read_only_step_mutation | classified but contract layer still needs signoff-safe mapping |
 | `large-rust-app-modify` | verifier | verifier_command_failed | edit_target_not_found | owner/action/target present |
-| `large-rust-app-new` | verifier | verifier_command_failed | rc_1 | missing target/candidate evidence; migration blocker candidate |
+| `large-rust-app-new` | verifier | verifier_command_failed | blocked_bash_command_policy | Phase34 admitted `src/main.rs` from profile/workspace evidence; large blocker remains failed but no longer raw/unowned |
 
 These six rows are assigned to Phase36 by `followup_phase_split.md`. Phase32
 does not classify them as accepted external limitations.

@@ -148,6 +148,35 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertEqual(observation["failure_category"], "provider_transport")
         self.assertEqual(observation["contract_layer"], "execution_contract")
 
+    def test_raw_rc_with_loop_exhaustion_uses_specific_diagnostic(self):
+        observation = eval_failure_observation.normalize_observation(
+            {
+                "reason": "rc:1",
+                "success": False,
+                "stderr": "ERROR: initial turn error: minimal loop reached max iterations",
+            }
+        )
+
+        self.assertEqual(observation["terminal_state"], "verifier_command_failed")
+        self.assertEqual(observation["diagnostic_code"], "minimal_loop_max_iterations")
+
+    def test_raw_rc_with_blocked_bash_uses_tool_policy_diagnostic(self):
+        observation = eval_failure_observation.normalize_observation(
+            {
+                "reason": "rc:1",
+                "success": False,
+                "evidence": (
+                    "reason: turn_error\n"
+                    "diagnostic: tool error: bash command blocked as Unknown: "
+                    "compound shell commands, pipes, redirects, and shell substitutions "
+                    "are blocked"
+                ),
+            }
+        )
+
+        self.assertEqual(observation["terminal_state"], "verifier_command_failed")
+        self.assertEqual(observation["diagnostic_code"], "blocked_bash_command_policy")
+
     def test_plan_lint_invalid_expected_path_has_specific_diagnostic(self):
         observation = eval_failure_observation.normalize_observation(
             {
@@ -495,6 +524,131 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertEqual(row["terminal_state"], "verifier_command_failed")
         self.assertEqual(row["evidence_binding_status"], "bound")
         self.assertEqual(row["completion_evidence_status"], "failed")
+
+    def test_recheck_admits_existing_profile_entrypoint_target_for_raw_rc_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            run_dir = root / "large-rust-app-new" / "run-1"
+            workspace = run_dir / "workspace"
+            repairs = workspace / ".commandagent" / "repairs"
+            (workspace / "src").mkdir(parents=True)
+            repairs.mkdir(parents=True)
+            (workspace / "src" / "main.rs").write_text(
+                "fn main() {}\n", encoding="utf-8"
+            )
+            (run_dir / "stdout.txt").write_text("", encoding="utf-8")
+            (run_dir / "stderr.txt").write_text(
+                "ERROR: initial turn error: minimal loop reached max iterations\n",
+                encoding="utf-8",
+            )
+            (repairs / "repair.md").write_text(
+                "\n".join(
+                    [
+                        "Verification failures:",
+                        "- command: repair turn",
+                        "- reason: turn_error",
+                        "- diagnostic: tool error: bash command blocked as Unknown: "
+                        "compound shell commands, pipes, redirects, and shell "
+                        "substitutions are blocked",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (run_dir / "meta.json").write_text(
+                json.dumps(
+                    {
+                        "case_id": "large-rust-app-new",
+                        "run_index": 1,
+                        "rc": 1,
+                        "success": False,
+                        "elapsed_ms": 1,
+                        "success_check_reason": "rc:1",
+                        "matrix_row": "large-rust-app-new",
+                        "proof_mode": "real_llm",
+                        "dry_run": False,
+                        "active_job": "source_implementation_repair",
+                        "recovery_owner": "source",
+                        "repair_action": "edit_source_for_diagnostic",
+                        "profile_entrypoints": "src/main.rs|src/lib.rs",
+                        "profile_integration_artifacts": "src/main.rs|src/lib.rs",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            rows, _ = eval_report.recheck(
+                root,
+                {
+                    "large-rust-app-new": {
+                        "required_paths": [],
+                        "must_include": {},
+                        "type": "semantic",
+                        "matrix_row": "large-rust-app-new",
+                        "proof_mode": "real_llm",
+                    }
+                },
+            )
+
+        row = rows[0]
+        self.assertEqual(row["diagnostic_code"], "blocked_bash_command_policy")
+        self.assertEqual(row["target_path"], "src/main.rs")
+        self.assertEqual(row["selected_target"], "src/main.rs")
+        self.assertEqual(row["target_admission_status"], "admitted")
+        self.assertEqual(row["target_source_of_truth"], "profile_artifact_hint")
+        self.assertEqual(row["target_ownership_source"], "profile_workspace_artifact")
+
+    def test_recheck_does_not_invent_target_without_existing_profile_artifact(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            run_dir = root / "large-rust-app-new" / "run-1"
+            workspace = run_dir / "workspace"
+            workspace.mkdir(parents=True)
+            (run_dir / "stdout.txt").write_text("", encoding="utf-8")
+            (run_dir / "stderr.txt").write_text(
+                "ERROR: initial turn error: minimal loop reached max iterations\n",
+                encoding="utf-8",
+            )
+            (run_dir / "meta.json").write_text(
+                json.dumps(
+                    {
+                        "case_id": "large-rust-app-new",
+                        "run_index": 1,
+                        "rc": 1,
+                        "success": False,
+                        "elapsed_ms": 1,
+                        "success_check_reason": "rc:1",
+                        "matrix_row": "large-rust-app-new",
+                        "proof_mode": "real_llm",
+                        "dry_run": False,
+                        "active_job": "source_implementation_repair",
+                        "recovery_owner": "source",
+                        "repair_action": "edit_source_for_diagnostic",
+                        "profile_entrypoints": "src/main.rs|src/lib.rs",
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            rows, _ = eval_report.recheck(
+                root,
+                {
+                    "large-rust-app-new": {
+                        "required_paths": [],
+                        "must_include": {},
+                        "type": "semantic",
+                        "matrix_row": "large-rust-app-new",
+                        "proof_mode": "real_llm",
+                    }
+                },
+            )
+
+        row = rows[0]
+        self.assertEqual(row["diagnostic_code"], "minimal_loop_max_iterations")
+        self.assertEqual(row["target_path"], "")
+        self.assertEqual(row["target_admission_status"], "unknown")
 
     def test_recheck_reprojects_fixture_fields_for_focused_assertions(self):
         with tempfile.TemporaryDirectory() as tmp:

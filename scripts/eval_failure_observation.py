@@ -119,7 +119,9 @@ def normalize_observation(raw: dict[str, Any]) -> dict[str, str]:
         terminal_state, failure_class
     )
     raw_diagnostic_code = clean(raw.get("diagnostic_code"))
-    evidence_diagnostic_code = contract_value(evidence, "diagnostic_code")
+    evidence_diagnostic_code = contract_value(
+        evidence, "diagnostic_code"
+    ) or diagnostic_code_from_evidence(evidence)
     diagnostic_code = (
         evidence_diagnostic_code
         if raw_diagnostic_code.startswith("rc_") and evidence_diagnostic_code
@@ -439,6 +441,35 @@ def diagnostic_code_from_reason(reason: str, terminal_state: str) -> str:
     if terminal_state != "unknown":
         return terminal_state
     return "unknown"
+
+
+def diagnostic_code_from_evidence(evidence: str) -> str:
+    """Extract stable diagnostics from already recorded run evidence.
+
+    This is eval/report projection only. It keeps raw process-code rows
+    attributable when stderr or repair packets already contain a deterministic
+    failure signature, and it does not change runtime repair behavior.
+    """
+
+    text = evidence.casefold()
+    if "bash command blocked" in text and (
+        "compound shell command" in text
+        or "compound shell commands" in text
+        or "pipes" in text
+        or "redirects" in text
+        or "shell substitutions" in text
+    ):
+        return "blocked_bash_command_policy"
+    if "minimal loop reached max iterations" in text:
+        return "minimal_loop_max_iterations"
+    if (
+        "reason: turn_error" in text
+        or "reason=turn_error" in text
+        or "initial turn error" in text
+        or "repair turn error" in text
+    ):
+        return "turn_error"
+    return ""
 
 
 def source_for_terminal_state(terminal_state: str, reason: str) -> str:

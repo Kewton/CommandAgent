@@ -69,6 +69,31 @@ class EvalSignoffTests(unittest.TestCase):
 
         self.assertEqual([item.code for item in findings], ["raw_undiagnostic_rc"])
 
+    def test_accepts_classified_rc_failure_with_admitted_target(self):
+        rows = [
+            {
+                "case_id": "large-rust-app-new",
+                "run": "1",
+                "success": "false",
+                "reason": "rc:1",
+                "terminal_state": "verifier_command_failed",
+                "failure_category": "verifier",
+                "contract_layer": "verification_contract",
+                "diagnostic_code": "blocked_bash_command_policy",
+                "active_job": "source_implementation_repair",
+                "recovery_owner": "source",
+                "repair_action": "edit_source_for_diagnostic",
+                "target_path": "src/main.rs",
+                "target_admission_status": "admitted",
+                "evidence_binding_status": "bound",
+                "completion_evidence_status": "failed",
+                "attempt_outcome": "failed",
+            }
+        ]
+        spec = eval_signoff.RootSpec("large", pathlib.Path("root"))
+
+        self.assertEqual(eval_signoff.classify(spec, rows), [])
+
     def test_flags_focused_assertion_failure(self):
         rows = [
             {

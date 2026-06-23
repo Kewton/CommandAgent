@@ -201,6 +201,19 @@ When a report can only identify a raw process-code reason such as `rc:1`
 without a diagnostic code or known terminal state, it should list the row under
 unknown/raw failure coverage defects. That is an observation gap, not a reason
 to weaken the verifier or retry more.
+Recheck reporting may also derive a non-raw diagnostic from stable run
+evidence already present in stdout, stderr, or repair packets. For example,
+`minimal loop reached max iterations` maps to
+`diagnostic_code=minimal_loop_max_iterations`, and blocked Bash policy evidence
+for compound commands maps to `diagnostic_code=blocked_bash_command_policy`.
+This projection is report-only: it does not rerun the model, change tool
+policy, or treat the failed run as successful.
+When a failed recheck row has a useful diagnostic but no explicit target,
+reports may admit an existing target from deterministic verifier/profile
+artifact fields such as `verifier_mentioned_paths`, `profile_entrypoints`, or
+`profile_integration_artifacts`, but only when that path exists inside the run
+workspace and the row is already in a source or route repair context. Reports
+must leave the target blank when no such evidence exists.
 Plan-file failures should distinguish parse, schema, and lint boundaries.
 Unsupported or malformed plan-file syntax is a planning parse failure. Missing
 or wrongly typed required fields are planning schema failures. Readable plans
