@@ -119,8 +119,8 @@ workspace/mvp/logic/anvil/loadmap2/anvil_source_baseline.md
 | C46 | Working memory/reminders | `working_memory_messages.rs`, `reminder.rs`, `reminder_pipeline.rs`, `precaution_relevance.rs` | Adds memory/reminder guidance to model turns. | None | Excluded | Excluded | No equivalent. | Keep excluded unless a separate design decision admits memory/advisory systems. |
 | C47 | Case record and anti-pattern corpora | `case_record_flow.rs`, `case_record_extract.rs`, `anti_pattern_flow.rs`, recovery masking modules | Records cases and retrieves anti-pattern guidance. | None | Excluded | Excluded | No equivalent. | Keep excluded for MVP; not needed for explicit contract recovery. |
 | C48 | PAM/Photon advisory | `pam_advisory.rs`, `photon_feedback_derive.rs`, `photon_user_feedback.rs`, related tests | Adds sidecar/advisory feedback. | None | Excluded | Excluded | No equivalent. | Keep excluded; would reintroduce advisory stack. |
-| C49 | Quality classification/confirmation | `quality.rs`, `quality_confirm.rs`, `feedback_kind_confirm.rs`, `task_classification.rs` | Classifies quality/feedback/task intent through secondary confirmation. | Eval/profile/final guard | Missing | Missing | Some eval quality checks exist outside runtime. | Default to exclusion unless deterministic quality classification is required by recovery/eval evidence; do not adopt semantic advisory confirmation by default. |
-| C50 | Slash/plan/command UI helpers | `slash_commands.rs`, `plan_sections.rs`, `plan_mode_helpers.rs`, `commands.rs`, `tool_display.rs`, `message_push.rs`, `footer.rs` | User-interface and rendering helpers. | CLI/repl/slash command | Partial | Missing | CommandAgent has independent CLI/slash implementation. | Default to exclusion unless CommandAgent UX/eval evidence shows a recovery-parity gap; do not import Anvil slash commands into the REPL by default. |
+| C49 | Quality classification/confirmation | `quality.rs`, `quality_confirm.rs`, `feedback_kind_confirm.rs`, `task_classification.rs` | Classifies quality/feedback/task intent through secondary confirmation. | Eval/profile/final guard | Excluded | Excluded | CommandAgent already has deterministic eval/report categories and recovery evidence for verifier/profile/setup/tool/implementation-quality stops. | Phase30 decision: exclude Anvil semantic quality scoring, secondary model confirmation, and advisory feedback classification. Keep `quality` as an eval/report category, not a runtime confirmation loop. |
+| C50 | Slash/plan/command UI helpers | `slash_commands.rs`, `plan_sections.rs`, `plan_mode_helpers.rs`, `commands.rs`, `tool_display.rs`, `message_push.rs`, `footer.rs` | User-interface and rendering helpers. | CLI/repl/slash command | Excluded | Excluded | CommandAgent has an independent CLI/REPL slash parser and command docs/tests. | Phase30 decision: exclude Anvil UI helper/rendering compatibility. Keep CommandAgent-native slash commands, but do not import plan-mode UI helpers, footer/spinner/message rendering, or legacy command affordances as migration responsibilities. |
 | C51 | Legacy engine selector | historical legacy switches | Switches between multiple engines/controllers. | None | Excluded | Excluded | No equivalent. | Keep excluded. CommandAgent has one execution engine. |
 | C52 | Hidden or unbounded repair loop | historical broad recovery loops | Continues internally until success. | None | Excluded | Excluded | Repair remains bounded and user-visible. | Keep excluded. |
 | C53 | Provider/model-specific behavioral policy | historical provider/model branches | Changes repair/planning behavior for one provider or model. | None | Excluded | Excluded | Shared behavior lives outside provider transports. | Keep excluded. |
@@ -137,9 +137,9 @@ Current implementation status:
 | Current status | Count |
 | --- | ---: |
 | Implemented | 45 |
-| Partial | 1 |
-| Missing | 1 |
-| Excluded | 7 |
+| Partial | 0 |
+| Missing | 0 |
+| Excluded | 9 |
 
 Adoption decision:
 
@@ -147,8 +147,8 @@ Adoption decision:
 | --- | ---: |
 | Adopt | 45 |
 | Partial | 0 |
-| Missing | 2 |
-| Excluded | 7 |
+| Missing | 0 |
+| Excluded | 9 |
 
 Interpretation:
 
@@ -158,9 +158,8 @@ Interpretation:
 - Of those 45 accepted rows, all rows through C45 now have row-level
   implementation proof. Phase29 closes C34-C44 with focused fixture root
   `eval/runs/loadmap2-phase29-runtime-support-fixtures/20260623T161335`.
-- `Missing` adoption rows are not accepted migration work yet. They form the
-  unresolved priority-decision surface and must become `Adopt`, scoped
-  `Partial`, or `Excluded` before final closure.
+- There are no remaining `Missing` adoption rows. Phase30 resolved C49-C50 as
+  excluded legacy advisory/UI surfaces with explicit design rationale.
 - `Excluded` rows are not gaps for the current architecture.
 
 The table is not a byte-for-byte file inventory. Test modules, e2e fixtures,

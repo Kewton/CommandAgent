@@ -37,7 +37,7 @@ The source baseline is the coverage-table baseline:
 | Phase27 | `P20-COV-003` | Closed C21-C32 target/repair/verifier/completion/patch responsibilities; conflict-dependent branches record a Phase28 dependency instead of claiming C33 resolution. |
 | Phase28 | `P20-COV-004` | Closed C33 contract conflict job and Phase27 conflict-dependent branches with focused C33 proof. |
 | Phase29 | `P20-COV-005` | Close C34-C44 cross-profile/runtime-support responsibilities. |
-| Phase30 | `P20-COV-006` | Decide C49-C50 priority/adoption status; may be pulled forward if needed. |
+| Phase30 | `P20-COV-006` | Closed C49-C50 priority decisions as excluded legacy advisory/UI surfaces. |
 | Phase31 | `P20-LEDGER-001` | Resolve large timeout proof as proven or explicit external limitation. |
 | Phase32 | final closure | Reconcile coverage, sign-off, and final migration state. |
 
@@ -53,7 +53,7 @@ The source baseline is the coverage-table baseline:
 | KI-006 | closed_proven | P20-COV-003 | C21-C32 | Target admission, verifier orchestration, repair lifecycle, completion job, focused edit, patch validation, and no-progress behavior are implemented by Phase27. C33 conflict resolution remains Phase28-owned. | Phase27 | target/repair/verifier/patch tests, focused fixture root `eval/runs/loadmap2-phase27-focused-fixtures/20260623T144917`, broad sign-off |
 | KI-007 | closed_proven | P20-COV-004 | C33 | Contract conflict job is implemented with authority decision, repair-target-side projection, and ambiguous/insufficient-authority safe stop. | Phase28 | `cargo test contract_conflict`, `cargo test recovery_orchestration`, focused fixture root `eval/runs/loadmap2-phase28-contract-conflict-fixtures/20260623T152521`, broad sign-off |
 | KI-008 | closed_proven | P20-COV-005 | C34-C44 | Language adapters, tool policy/failure recovery, command classification, workspace walk, job reporting, scaffold/data/docs support, answer-mode gating, lifecycle, and provider boundary are implemented as bounded runtime-support projections. | Phase29 | targeted Rust/Python tests, focused fixture root `eval/runs/loadmap2-phase29-runtime-support-fixtures/20260623T161335`, broad sign-off |
-| KI-009 | open | P20-COV-006 | C49-C50 | Quality and slash/plan UI helper rows are unresolved priority decisions. Default toward exclusion unless deterministic recovery or eval evidence shows the row is necessary. | Phase30, pull-forward allowed | coverage decision update with proof or design exclusion |
+| KI-009 | closed_excluded | P20-COV-006 | C49-C50 | Quality confirmation and slash/plan UI helper rows were reviewed in Phase30 and excluded as legacy advisory/UI surfaces. Existing CommandAgent eval taxonomy and CLI/slash parser remain native responsibilities, not Anvil compatibility ports. | Phase30 | coverage decision update, Phase30 source alignment, `git diff --check`, `python3 tests/test_eval_report.py`, `cargo test slash_command --lib` |
 | KI-010 | open | P20-LEDGER-001 | P17-L001 | Large timeout rows are owned/evidence-bound but not pure completion proof. | Phase31 | non-timeboxed successful proof or explicit external limitation |
 | KI-011 | open | final closure | all adopted rows | Final migration state is blocked until adopted rows are implemented or explicitly excluded. | Phase32 | final broad sign-off pass and final migration decision report |
 
@@ -188,10 +188,25 @@ Proof:
 
 ### Phase30: C49-C50
 
+Phase30 status: `closed_excluded`.
+
+Proof:
+
+- Coverage decision: C49-C50 are `Excluded / Excluded` in
+  `docs/eval/legacy-control-stack-coverage-20260621.md`.
+- C49 rationale: existing deterministic eval/recovery taxonomy covers
+  verifier, profile, setup, tool protocol, and implementation-quality
+  attribution; Anvil semantic quality confirmation remains outside the
+  minimal-loop architecture.
+- C50 rationale: CommandAgent keeps native CLI/REPL slash commands and excludes
+  Anvil UI rendering/helper compatibility as migration work.
+- Verification: `git diff --check`, `python3 tests/test_eval_report.py`,
+  `cargo test slash_command --lib`.
+
 | row | minimum blocker | expected proof family |
 | --- | --- | --- |
-| C49 | Decide whether deterministic quality classification/confirmation is adopted, partially adopted, or excluded. Default exclusion unless a deterministic recovery/eval gap requires adoption. | coverage decision report, tests only if adopted |
-| C50 | Decide whether slash/plan/command UI helpers are recovery-parity work or excluded from migration scope. Default exclusion unless a CommandAgent UX/eval gap proves it is necessary; do not import Anvil slash commands into the REPL by default. | coverage decision report, tests only if adopted |
+| C49 | Excluded with rationale: no deterministic gap requires Anvil semantic quality confirmation. | coverage decision report and docs/test checks |
+| C50 | Excluded with rationale: Anvil slash/plan UI helpers are not recovery-parity work. | coverage decision report and slash parser regression check |
 
 ### Phase31: P20-LEDGER-001
 
