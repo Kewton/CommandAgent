@@ -1066,7 +1066,7 @@ Deliverables:
   - no `Partial`
   - no unowned `Missing`
 - Add final report:
-  - `docs/eval/anvil-migration-complete.md`
+  - `docs/eval/loadmap2-final-migration-decision-20260623.md`
 - Update:
   - `docs/philosophy.md`
   - `docs/architecture.md`
@@ -1116,7 +1116,7 @@ migration_complete_with_explicit_exclusions
 
 Final evidence:
 
-- final report: `docs/eval/anvil-migration-complete.md`;
+- final report: `docs/eval/loadmap2-final-migration-decision-20260623.md`;
 - final sign-off: `python3 scripts/eval_signoff.py --require-recheck ...`,
   result `status: pass`;
 - Phase32 report:

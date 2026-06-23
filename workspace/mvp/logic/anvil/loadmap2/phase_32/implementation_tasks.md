@@ -60,7 +60,7 @@ python3 scripts/eval_signoff.py --require-recheck \
 
 ### 5. Final Report
 
-- [x] Create or update `docs/eval/anvil-migration-complete.md`.
+- [x] Create or update `docs/eval/loadmap2-final-migration-decision-20260623.md`.
 - [x] Include final decision:
   - `migration_complete`,
   - `migration_complete_with_explicit_exclusions`, or

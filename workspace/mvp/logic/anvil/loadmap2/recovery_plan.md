@@ -409,7 +409,7 @@ Closure evidence:
 
 - coverage table final state: `Implemented=45`, `Partial=0`, `Missing=0`,
   `Excluded=9`;
-- final report: `docs/eval/anvil-migration-complete.md`;
+- final report: `docs/eval/loadmap2-final-migration-decision-20260623.md`;
 - final broad sign-off:
   `python3 scripts/eval_signoff.py --require-recheck ...`, result
   `status: pass`;

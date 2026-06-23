@@ -14,7 +14,7 @@ Status: completed / reviewed
 | Phase30 report | C49-C50 exclusion decision. | FC-03 | Carry exclusion rationale into final report. | Phase30 report and coverage table. |
 | Phase31 report | P17-L001 fresh large proof. | FC-04 | Use Phase31 large root in final sign-off. | Sign-off pass. |
 | `current_issue_phase_map.md` KI-011 | Final closure issue. | KI-011 | Update only after FC rows close. | Roadmap consistency review. |
-| `recovery_plan.md` Phase32 gate | Final decision authority. | FC-05 | Write final migration report. | `docs/eval/anvil-migration-complete.md`. |
+| `recovery_plan.md` Phase32 gate | Final decision authority. | FC-05 | Write final migration report. | `docs/eval/loadmap2-final-migration-decision-20260623.md`. |
 
 ## Required Consistency
 

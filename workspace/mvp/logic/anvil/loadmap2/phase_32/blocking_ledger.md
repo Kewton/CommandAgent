@@ -12,7 +12,7 @@ Status: completed / reviewed
 | P32-FC-002 | FC-02 | Recovery plan / ledgers | Phase22-Phase31 ledgers must contain no open blocker. | Phase22-Phase31 phase directories. | Phase-local report audit. | Every phase row is closed, excluded, or explicitly accepted. | closed_proven |
 | P32-FC-003 | FC-03 | Architecture / coverage decision | Excluded rows must have rationale. | Coverage table, Phase30 report, final report. | Exclusion rationale audit. | No excluded row hides adopted behavior. | closed_proven |
 | P32-FC-004 | FC-04 | Eval/sign-off | Final broad sign-off must exit zero. | Eval roots and `scripts/eval_signoff.py`. | `python3 scripts/eval_signoff.py --require-recheck ...` | Sign-off status is `pass`. | closed_proven |
-| P32-FC-005 | FC-05 | Eval docs / final report | Final migration state must be written and bounded. | `docs/eval/anvil-migration-complete.md`. | Report review plus `git diff --check`. | Report states the final decision and evidence. | closed_proven |
+| P32-FC-005 | FC-05 | Eval docs / final report | Final migration state must be written and bounded. | `docs/eval/loadmap2-final-migration-decision-20260623.md`. | Report review plus `git diff --check`. | Report states the final decision and evidence. | closed_proven |
 | P32-FC-006 | KI-011 | Current issue map / recovery plan | Final closure issue remains open. | loadmap2 README, recovery plan, current issue map. | Roadmap consistency review. | KI-011 is closed because P32-FC-001 through P32-FC-005 closed. | closed_proven |
 
 ## If A Blocker Fails

@@ -60,7 +60,7 @@ It passed. If it had failed:
 Created:
 
 ```text
-docs/eval/anvil-migration-complete.md
+docs/eval/loadmap2-final-migration-decision-20260623.md
 ```
 
 The report must include:
@@ -122,7 +122,7 @@ Created `implementation_report.md` with:
 
 Primary targets:
 
-- `docs/eval/anvil-migration-complete.md`
+- `docs/eval/loadmap2-final-migration-decision-20260623.md`
 - `workspace/mvp/logic/anvil/loadmap2/README.md`
 - `workspace/mvp/logic/anvil/loadmap2/recovery_plan.md`
 - `workspace/mvp/logic/anvil/loadmap2/current_issue_phase_map.md`

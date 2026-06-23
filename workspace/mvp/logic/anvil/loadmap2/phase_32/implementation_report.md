@@ -14,7 +14,7 @@ No runtime, provider, profile, or hidden retry behavior changed.
 ## Implemented Changes
 
 - Added final report:
-  - `docs/eval/anvil-migration-complete.md`
+  - `docs/eval/loadmap2-final-migration-decision-20260623.md`
 - Updated loadmap2 final-closure status:
   - `workspace/mvp/logic/anvil/loadmap2/README.md`
   - `workspace/mvp/logic/anvil/loadmap2/recovery_plan.md`
@@ -42,7 +42,7 @@ There are no adopted `Partial` rows and no adopted `Missing` rows.
 | FC-02 | `closed_proven` | Phase22-Phase31 implementation reports close their assigned ledgers. |
 | FC-03 | `closed_proven` | C46-C54 exclusions have design rationale in the coverage table and final report. |
 | FC-04 | `closed_proven` | Final broad sign-off returned `status: pass`. |
-| FC-05 | `closed_proven` | `docs/eval/anvil-migration-complete.md` records the final decision and evidence. |
+| FC-05 | `closed_proven` | `docs/eval/loadmap2-final-migration-decision-20260623.md` records the final decision and evidence. |
 | KI-011 | `closed_proven` | FC-01 through FC-05 are closed and roadmap documents are updated. |
 
 ## Final Sign-off

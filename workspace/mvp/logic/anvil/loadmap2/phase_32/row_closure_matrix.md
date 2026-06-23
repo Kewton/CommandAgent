@@ -12,7 +12,7 @@ Status: completed / migration_complete_with_explicit_exclusions
 | FC-02 / ledger closure audit | Recovery plan / phase-local ledgers | KI-001 through KI-010 were closed; KI-011 was open. | `closed_proven`. | Phase-local reports and KI map. | Phase22-Phase31 ledgers close their assigned rows. |
 | FC-03 / exclusion rationale audit | Coverage authority / architecture docs | C46-C54 and C49-C50 are excluded. | `closed_proven`. | Coverage table, Phase30 report, final report. | Exclusions are explicit and not adopted gaps. |
 | FC-04 / final broad sign-off | Eval/sign-off | Last Phase31 broad sign-off passed. | `closed_proven`. | `python3 scripts/eval_signoff.py --require-recheck ...`. | Final Phase32 sign-off returned `status: pass`. |
-| FC-05 / final migration report | Documentation / eval reporting | No final Phase32 report existed. | `closed_proven`. | `docs/eval/anvil-migration-complete.md`. | Report states `migration_complete_with_explicit_exclusions` and evidence without overstating completion. |
+| FC-05 / final migration report | Documentation / eval reporting | No final Phase32 report existed. | `closed_proven`. | `docs/eval/loadmap2-final-migration-decision-20260623.md`. | Report states `migration_complete_with_explicit_exclusions` and evidence without overstating completion. |
 | KI-011 | Recovery plan final closure | Open. | `closed_proven`. | Roadmap updates plus final report. | Current issue map and recovery plan mark Phase32 closed. |
 
 ## Allowed Dispositions

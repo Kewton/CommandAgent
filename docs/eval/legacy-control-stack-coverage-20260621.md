@@ -676,7 +676,7 @@ status: pass
 
 Supporting artifacts:
 
-- `docs/eval/anvil-migration-complete.md`
+- `docs/eval/loadmap2-final-migration-decision-20260623.md`
 - `workspace/mvp/logic/anvil/loadmap2/phase_32/implementation_report.md`
 
 The accepted migration surface is complete. Excluded rows remain excluded with

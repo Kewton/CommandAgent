@@ -84,7 +84,7 @@ not create profile-specific or provider-specific behavior.
 
 Expected documentation targets during implementation:
 
-- `docs/eval/anvil-migration-complete.md`
+- `docs/eval/loadmap2-final-migration-decision-20260623.md`
 - `docs/eval/legacy-control-stack-coverage-20260621.md`
 - `workspace/mvp/logic/anvil/loadmap2/README.md`
 - `workspace/mvp/logic/anvil/loadmap2/recovery_plan.md`
@@ -126,7 +126,7 @@ Phase32 completed with:
 
 - final decision: `migration_complete_with_explicit_exclusions`;
 - final broad sign-off: `status: pass`;
-- final report: `docs/eval/anvil-migration-complete.md`;
+- final report: `docs/eval/loadmap2-final-migration-decision-20260623.md`;
 - implementation report: `phase_32/implementation_report.md`.
 
 No runtime, provider, profile, or hidden retry behavior changed.

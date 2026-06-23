@@ -55,7 +55,7 @@ The source baseline is the coverage-table baseline:
 | KI-008 | closed_proven | P20-COV-005 | C34-C44 | Language adapters, tool policy/failure recovery, command classification, workspace walk, job reporting, scaffold/data/docs support, answer-mode gating, lifecycle, and provider boundary are implemented as bounded runtime-support projections. | Phase29 | targeted Rust/Python tests, focused fixture root `eval/runs/loadmap2-phase29-runtime-support-fixtures/20260623T161335`, broad sign-off |
 | KI-009 | closed_excluded | P20-COV-006 | C49-C50 | Quality confirmation and slash/plan UI helper rows were reviewed in Phase30 and excluded as legacy advisory/UI surfaces. Existing CommandAgent eval taxonomy and CLI/slash parser remain native responsibilities, not Anvil compatibility ports. | Phase30 | coverage decision update, Phase30 source alignment, `git diff --check`, `python3 tests/test_eval_report.py`, `cargo test slash_command --lib` |
 | KI-010 | closed_proven | P20-LEDGER-001 | P17-L001 | Large timeout rows are closed by a fresh no-timeout large proof root. | Phase31 | `eval/runs/loadmap2-phase31-large-non-timeboxed/20260623T174624`, large recheck, broad sign-off pass |
-| KI-011 | closed_proven | final closure | all adopted rows | Final migration state is closed as `migration_complete_with_explicit_exclusions`: adopted rows are implemented, explicit exclusions are documented, and final sign-off passes. | Phase32 | final broad sign-off pass and `docs/eval/anvil-migration-complete.md` |
+| KI-011 | closed_proven | final closure | all adopted rows | Final migration state is closed as `migration_complete_with_explicit_exclusions`: adopted rows are implemented, explicit exclusions are documented, and final sign-off passes. | Phase32 | final broad sign-off pass and `docs/eval/loadmap2-final-migration-decision-20260623.md` |
 
 ## Minimum Internal Split
 
@@ -218,7 +218,7 @@ Proof:
 
 | row | minimum blocker | expected proof family |
 | --- | --- | --- |
-| final | No adopted `Partial` or `Missing`, all ledgers closed/excluded/accepted external, final sign-off zero. | closed_proven by final coverage closure report `docs/eval/anvil-migration-complete.md` and broad sign-off pass |
+| final | No adopted `Partial` or `Missing`, all ledgers closed/excluded/accepted external, final sign-off zero. | closed_proven by final coverage closure report `docs/eval/loadmap2-final-migration-decision-20260623.md` and broad sign-off pass |
 
 Phase32 status: `closed_proven`.
 
@@ -230,7 +230,7 @@ migration_complete_with_explicit_exclusions
 
 Proof:
 
-- final report: `docs/eval/anvil-migration-complete.md`;
+- final report: `docs/eval/loadmap2-final-migration-decision-20260623.md`;
 - final sign-off: `python3 scripts/eval_signoff.py --require-recheck ...`,
   result `status: pass`;
 - Phase32 implementation report:
