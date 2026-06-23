@@ -628,3 +628,56 @@ migration_not_complete
 
 Reason: Phase26 closes C13-C20, but later accepted rows C21 onward still need
 row-level proof before final migration completion can be declared.
+
+## Phase32 Final Closure Appendix - 2026-06-23
+
+Phase32 reconciled this coverage table against Phase22 through Phase31
+implementation reports and final broad sign-off evidence.
+
+Final decision:
+
+```text
+migration_complete_with_explicit_exclusions
+```
+
+Final coverage state:
+
+| Current status | Count |
+| --- | ---: |
+| Implemented | 45 |
+| Partial | 0 |
+| Missing | 0 |
+| Excluded | 9 |
+
+Final adoption state:
+
+| Adoption decision | Count |
+| --- | ---: |
+| Adopt | 45 |
+| Partial | 0 |
+| Missing | 0 |
+| Excluded | 9 |
+
+Proof:
+
+```bash
+python3 scripts/eval_signoff.py --require-recheck \
+  --root smoke=eval/runs/loadmap2-phase16-smoke-local-llm/20260622T173759 \
+  --root focused=eval/runs/loadmap2-phase18-focused-local-llm/20260623T000638 \
+  --root focused-fixture=eval/runs/loadmap2-phase29-runtime-support-fixtures/20260623T161335 \
+  --root large=eval/runs/loadmap2-phase31-large-non-timeboxed/20260623T174624
+```
+
+Result:
+
+```text
+status: pass
+```
+
+Supporting artifacts:
+
+- `docs/eval/anvil-migration-complete.md`
+- `workspace/mvp/logic/anvil/loadmap2/phase_32/implementation_report.md`
+
+The accepted migration surface is complete. Excluded rows remain excluded with
+design rationale and are not Anvil migration gaps for CommandAgent.

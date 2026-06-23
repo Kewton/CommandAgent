@@ -198,7 +198,7 @@ blockers. The remaining known work is assigned as follows:
 | Phase29 | P20-COV-005 / C34-C44 | completed / closed_proven: language/profile/tool/workspace/runtime-support surface |
 | Phase30 | P20-COV-006 / C49-C50 | completed / closed_excluded: quality confirmation and slash/plan UI helper priority decisions |
 | Phase31 | P20-LEDGER-001 / P17-L001 | completed / closed_proven: fresh no-timeout large proof root and broad sign-off |
-| Phase32 | final closure | final coverage closure, broad sign-off, migration decision |
+| Phase32 | final closure | completed / migration_complete_with_explicit_exclusions: final coverage closure, broad sign-off, migration decision |
 
 Detailed issue mapping is recorded in `current_issue_phase_map.md`.
 
@@ -1091,20 +1091,43 @@ Acceptance:
 
 Migration is complete only when every item is checked:
 
-- [ ] Coverage table has no adopted `Partial` rows.
-- [ ] Coverage table has no adopted `Missing` rows.
-- [ ] Every adopted row is at stage 5 or has an approved exception.
-- [ ] Every excluded row has design rationale.
-- [ ] Focused control-recovery matrix passes.
-- [ ] Broad local LLM eval has no unowned terminal state.
-- [ ] No raw `rc:1` appears without diagnostic classification.
-- [ ] No profile failure is disconnected from recovery job selection.
-- [ ] No evidence/completion success is claimed without bound evidence.
-- [ ] No repair prompt is built without selected owner, target, action, tool
+- [x] Coverage table has no adopted `Partial` rows.
+- [x] Coverage table has no adopted `Missing` rows.
+- [x] Every adopted row is at stage 5 or has an approved exception.
+- [x] Every excluded row has design rationale.
+- [x] Focused control-recovery matrix passes.
+- [x] Broad local LLM eval has no unowned terminal state.
+- [x] No raw `rc:1` appears without diagnostic classification.
+- [x] No profile failure is disconnected from recovery job selection.
+- [x] No evidence/completion success is claimed without bound evidence.
+- [x] No repair prompt is built without selected owner, target, action, tool
   policy, and rerun authority.
-- [ ] No repeated no-progress repair continues without strategy switch or
+- [x] No repeated no-progress repair continues without strategy switch or
   explicit stop.
-- [ ] Docs and ADRs reflect the final architecture.
+- [x] Docs and ADRs reflect the final architecture.
+
+## Phase32 Final Closure Appendix - 2026-06-23
+
+Phase32 closed the roadmap with:
+
+```text
+migration_complete_with_explicit_exclusions
+```
+
+Final evidence:
+
+- final report: `docs/eval/anvil-migration-complete.md`;
+- final sign-off: `python3 scripts/eval_signoff.py --require-recheck ...`,
+  result `status: pass`;
+- Phase32 report:
+  `workspace/mvp/logic/anvil/loadmap2/phase_32/implementation_report.md`;
+- final coverage state: `Implemented=45`, `Partial=0`, `Missing=0`,
+  `Excluded=9`.
+
+The accepted Anvil responsibility surface is migrated into CommandAgent's
+explicit contract-recovery architecture. Excluded legacy advisory, UI helper,
+engine selector, hidden-loop, provider-policy, and implicit model-issued setup
+surfaces remain outside the product direction.
 
 ## Review Notes
 
