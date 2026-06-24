@@ -1,7 +1,7 @@
 # Anvil Migration Completion Roadmap
 
 Date: 2026-06-21
-Last updated: 2026-06-23 JST
+Last updated: 2026-06-24 JST
 
 ## Purpose
 
@@ -198,7 +198,7 @@ blockers. The remaining known work is assigned as follows:
 | Phase29 | P20-COV-005 / C34-C44 | completed / closed_proven: language/profile/tool/workspace/runtime-support surface |
 | Phase30 | P20-COV-006 / C49-C50 | completed / closed_excluded: quality confirmation and slash/plan UI helper priority decisions |
 | Phase31 | P20-LEDGER-001 / P17-L001 | completed / closed_proven: fresh no-timeout large proof root and broad sign-off |
-| Phase32 | final closure | recovery_open / migration_not_complete_pending_current_eval_reconciliation: current eval case-set gap, focused/large blockers, and broad sign-off failure are tracked in `phase_32/recovery_task_ledger.md` |
+| Phase32 | final closure | completed by Phase39 / migration_complete_with_explicit_exclusions: current roots admit 91/91 cases, broad sign-off passes, row proof is reconciled, and C46-C54 remain explicit exclusions |
 
 Detailed issue mapping is recorded in `current_issue_phase_map.md`.
 
@@ -1091,32 +1091,33 @@ Acceptance:
 
 Migration is complete only when every item is checked:
 
-- [ ] Current eval manifest and sign-off roots cover the same case set.
-- [ ] Current broad local LLM eval has no unowned terminal state.
-- [ ] Current focused control-recovery matrix passes recheck or has row-level
+- [x] Current eval manifest and sign-off roots cover the same case set.
+- [x] Current broad local LLM eval has no unowned terminal state.
+- [x] Current focused control-recovery matrix passes recheck or has row-level
   accepted dispositions.
-- [ ] Current large failures are owned, actionable, target/evidence bound, or
+- [x] Current large failures are owned, actionable, target/evidence bound, or
   explicitly accepted as external limitations.
-- [ ] Coverage table has no adopted `Partial` rows under current proof roots.
-- [ ] Coverage table has no adopted `Missing` rows under current proof roots.
-- [ ] Every adopted row is at stage 5 or has an approved exception under
+- [x] Coverage table has no adopted `Partial` rows under current proof roots.
+- [x] Coverage table has no adopted `Missing` rows under current proof roots.
+- [x] Every adopted row is at stage 5 or has an approved exception under
   current proof roots.
 - [x] Every excluded row has design rationale.
-- [ ] No raw `rc:1` appears without diagnostic classification.
-- [ ] No profile failure is disconnected from recovery job selection.
-- [ ] No evidence/completion success is claimed without bound evidence.
-- [ ] No repair prompt is built without selected owner, target, action, tool
+- [x] No raw `rc:1` appears without diagnostic classification.
+- [x] No profile failure is disconnected from recovery job selection.
+- [x] No evidence/completion success is claimed without bound evidence.
+- [x] No repair prompt is built without selected owner, target, action, tool
   policy, and rerun authority.
-- [ ] No repeated no-progress repair continues without strategy switch or
+- [x] No repeated no-progress repair continues without strategy switch or
   explicit stop.
 - [x] Docs and ADRs reflect the final architecture.
 
-## Phase32 Recovery Appendix - 2026-06-23
+## Phase32/39 Recovery Appendix - 2026-06-24
 
-The earlier Phase32 completion claim is superseded. Current state:
+The earlier Phase32 completion claim is superseded by Phase39 final closure.
+Current state:
 
 ```text
-migration_not_complete_pending_current_eval_reconciliation
+migration_complete_with_explicit_exclusions
 ```
 
 Reason:
@@ -1124,7 +1125,9 @@ Reason:
 - the historical Phase32 sign-off roots covered 47 unique cases;
 - the current local LLM eval roots cover 91 unique cases;
 - 44 current cases were not present in the historical accepted roots;
-- current broad sign-off exits non-zero.
+- Phase33 through Phase38 closed the current focused, large, row-proof, and
+  root-admission blockers;
+- current broad sign-off exits zero on admitted roots.
 
 Recovery evidence:
 
@@ -1134,13 +1137,19 @@ Recovery evidence:
   `workspace/mvp/logic/anvil/loadmap2/phase_32/recovery_task_ledger.md`;
 - superseded Phase32 report:
   `workspace/mvp/logic/anvil/loadmap2/phase_32/implementation_report.md`;
+- superseded current decision report:
+  `docs/eval/loadmap2-final-migration-decision-20260623.md`;
 - current decision report:
-  `docs/eval/loadmap2-final-migration-decision-20260623.md`.
+  `docs/eval/loadmap2-final-migration-decision-20260624.md`;
+- Phase39 final closure report:
+  `workspace/mvp/logic/anvil/loadmap2/phase_39/final_closure_report.md`;
+- Phase39 decision evidence matrix:
+  `workspace/mvp/logic/anvil/loadmap2/phase_39/decision_evidence_matrix.md`.
 
-The accepted Anvil responsibility surface is not yet proven complete under the
-current eval case set. Excluded legacy advisory, UI helper, engine selector,
+The accepted Anvil responsibility surface is proven complete under the current
+eval case set. Excluded legacy advisory, UI helper, engine selector,
 hidden-loop, provider-policy, and implicit model-issued setup surfaces remain
-outside the product direction.
+outside the product direction and are listed explicitly as exclusions.
 
 ## Review Notes
 

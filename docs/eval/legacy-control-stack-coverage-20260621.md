@@ -629,18 +629,19 @@ migration_not_complete
 Reason: Phase26 closes C13-C20, but later accepted rows C21 onward still need
 row-level proof before final migration completion can be declared.
 
-## Phase32 Recovery Appendix - 2026-06-23
+## Phase39 Final Closure Appendix - 2026-06-24
 
 The earlier Phase32 final closure statement is superseded. A fresh local LLM
 eval run showed that the historical Phase32 sign-off roots covered 47 unique
-cases, while the current eval roots cover 91 unique cases. The omitted 44
-current cases mean the historical sign-off cannot serve as final migration
-completion proof.
+cases, while the current eval roots cover 91 unique cases. Phase33 through
+Phase38 closed the current focused, large, row-proof, and root-admission
+blockers. Phase39 then consumed those current roots and produced the final
+decision.
 
 Current decision:
 
 ```text
-migration_not_complete_pending_current_eval_reconciliation
+migration_complete_with_explicit_exclusions
 ```
 
 Historical coverage state claimed by the superseded Phase32 report:
@@ -661,7 +662,7 @@ Final adoption state:
 | Missing | 0 |
 | Excluded | 9 |
 
-Historical proof:
+Historical proof, now regression evidence only:
 
 ```bash
 python3 scripts/eval_signoff.py --require-recheck \
@@ -677,13 +678,35 @@ Historical result:
 status: pass
 ```
 
+Current final-current proof:
+
+```bash
+python3 scripts/eval_signoff.py --require-recheck \
+  --root smoke=eval/runs/current-all-local-llm/smoke/20260623T203030 \
+  --root focused=eval/runs/current-all-local-llm/focused-control-recovery/20260623T203236 \
+  --root large=eval/runs/current-all-local-llm/large/20260623T204816
+```
+
+Current result:
+
+```text
+root_admission_status: pass
+current_case_coverage: 91/91
+status: pass
+```
+
 Current recovery artifacts:
 
 - `docs/eval/loadmap2-final-migration-decision-20260623.md`
+- `docs/eval/loadmap2-final-migration-decision-20260624.md`
 - `workspace/mvp/logic/anvil/loadmap2/phase_32/implementation_report.md`
 - `workspace/mvp/logic/anvil/loadmap2/phase_32/current_eval_manifest.md`
 - `workspace/mvp/logic/anvil/loadmap2/phase_32/recovery_task_ledger.md`
+- `workspace/mvp/logic/anvil/loadmap2/phase_39/decision_evidence_matrix.md`
+- `workspace/mvp/logic/anvil/loadmap2/phase_39/final_closure_report.md`
 
-The accepted migration surface remains open until current eval roots cover the
-current case set, current broad sign-off exits zero, and remaining focused and
-large blockers have row-level dispositions.
+The accepted migration surface is closed under the current case set. This does
+not claim large application-generation success. The current large rows are
+failed user tasks that are migration-safe because they are owned,
+actionable, target/evidence-bound failures. Rows C46-C54 remain explicit
+architecture exclusions, not hidden gaps.

@@ -2,7 +2,16 @@
 
 Date: 2026-06-23 JST
 
-Status: recovery_open / migration_not_complete_pending_current_eval_reconciliation
+Status: superseded by Phase39 / closed_current_final_decision
+
+Phase39 supersedes this historical closure matrix with:
+
+```text
+migration_complete_with_explicit_exclusions
+```
+
+See `../phase_39/decision_evidence_matrix.md` and
+`../phase_39/final_closure_report.md` for the current final closure evidence.
 
 ## Closure Rows
 

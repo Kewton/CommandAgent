@@ -2,7 +2,13 @@
 
 Date: 2026-06-23 JST
 
-Status: recovery_open / reviewed
+Status: superseded by Phase39 / reviewed
+
+Phase39 closes the remaining final-reporting blocker with
+`migration_complete_with_explicit_exclusions`. This ledger is retained as
+historical recovery context; current closure evidence is in
+`../phase_39/decision_evidence_matrix.md` and
+`../phase_39/final_closure_report.md`.
 
 ## Planned Blockers
 
@@ -12,8 +18,8 @@ Status: recovery_open / reviewed
 | P32-FC-002 | FC-02 | Recovery plan / ledgers | Phase22-Phase31 ledgers must contain no open blocker. | Phase22-Phase31 phase directories. | Phase-local report audit. | Every phase row is closed, excluded, or explicitly accepted. | closed_proven |
 | P32-FC-003 | FC-03 | Architecture / coverage decision | Excluded rows must have rationale. | Coverage table, Phase30 report, final report. | Exclusion rationale audit. | No excluded row hides adopted behavior. | closed_proven |
 | P32-FC-004 | FC-04 | Eval/sign-off | Final broad sign-off must exit zero. | Eval roots and `scripts/eval_signoff.py`. | `python3 scripts/eval_signoff.py --require-recheck ...` | Sign-off status is `pass`. | closed_proven_phase35 |
-| P32-FC-005 | FC-05 | Eval docs / final report | Final migration state must be written and bounded. | `docs/eval/loadmap2-final-migration-decision-20260623.md`. | Report review plus `git diff --check`. | Report states the final decision and evidence. | reopened_current_eval_gap |
-| P32-FC-006 | KI-011 | Current issue map / recovery plan | Final closure issue remains open. | loadmap2 README, recovery plan, current issue map. | Roadmap consistency review. | KI-011 is closed because P32-FC-001 through P32-FC-005 closed. | open |
+| P32-FC-005 | FC-05 | Eval docs / final report | Final migration state must be written and bounded. | `docs/eval/loadmap2-final-migration-decision-20260624.md`. | Report review plus `git diff --check`. | Report states the current final decision and evidence. | closed_proven_phase39 |
+| P32-FC-006 | KI-011 | Current issue map / recovery plan | Final closure issue must close against current roots. | loadmap2 README, recovery plan, current issue map, Phase39 reports. | Roadmap consistency review. | KI-011 is closed because P32-FC-001 through P32-FC-005 closed under current roots. | closed_proven_phase39 |
 
 ## Recovery Blockers
 
@@ -24,8 +30,8 @@ Status: recovery_open / reviewed
 | P32-R003 | FC-05 | Eval/report | Fixture recheck projection dropped `fixture_fields`. | `scripts/eval_report.py` | `python3 tests/test_eval_report.py`; focused recheck | Fixture values survive `--recheck`. | closed_proven |
 | P32-R004 | C07-C44 | Eval/report / focused matrix | 35 focused assertions still fail after fixture recheck repair. | focused current root | `python3 scripts/eval_report.py eval/runs/current-all-local-llm/focused-control-recovery/20260623T203236 --cases-dir eval/cases/focused/control-recovery --recheck` | Focused assertions pass or each failure has row-level accepted disposition. | closed_proven_phase35 |
 | P32-R005 | C07-C44 / large | Failure observation | Raw `rc:1` or `rc_1` diagnostics remain in current recheck/signoff output. | focused and large current roots | current broad signoff | No unowned raw diagnostic remains. | closed_proven_phase35 |
-| P32-R006 | large proof | Runtime/eval proof | Six current large real LLM rows fail; one row lacks target/candidate evidence. | `eval/runs/current-all-local-llm/large/20260623T204816` | large report and recheck | Large failures are owned/actionable/target-bound or explicitly accepted. | open |
-| P32-R007 | FC-02 / FC-04 | Row proof mapping | C01-C54 row closure is not tied to current eval case coverage. | coverage table and eval cases | row-to-case reconciliation | Every adopted row has current proof root or explicit rationale. | open |
+| P32-R006 | large proof | Runtime/eval proof | Six current large real LLM rows fail; one row lacks target/candidate evidence. | `eval/runs/current-all-local-llm/large/20260623T204816` | large report and recheck | Large failures are owned/actionable/target-bound or explicitly accepted. | closed_proven_phase36 |
+| P32-R007 | FC-02 / FC-04 | Row proof mapping | C01-C54 row closure is not tied to current eval case coverage. | coverage table and eval cases | row-to-case reconciliation | Every adopted row has current proof root or explicit rationale. | closed_proven_phase37 |
 
 ## If A Blocker Fails
 

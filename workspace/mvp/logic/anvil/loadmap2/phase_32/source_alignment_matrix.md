@@ -2,7 +2,12 @@
 
 Date: 2026-06-23 JST
 
-Status: recovery_open / reviewed
+Status: superseded by Phase39 / reviewed
+
+Phase39 supersedes this historical Phase32 source alignment with
+`migration_complete_with_explicit_exclusions`. Current final closure evidence
+is recorded in `../phase_39/decision_evidence_matrix.md` and
+`../phase_39/final_closure_report.md`.
 
 ## Matrix
 

@@ -2,13 +2,29 @@
 
 Date: 2026-06-23 JST
 
-Status: recovery_open / migration_not_complete_pending_current_eval_reconciliation
+Status: superseded by Phase39 / closed_current_final_decision
+
+## Phase39 Supersession Notice
+
+This Phase32 plan is retained as historical recovery context. Phase33 through
+Phase38 closed the current focused, large, row-proof, and root-admission
+blockers, and Phase39 produced the current final decision:
+
+```text
+migration_complete_with_explicit_exclusions
+```
+
+Current closure evidence lives in:
+
+- `workspace/mvp/logic/anvil/loadmap2/phase_39/decision_evidence_matrix.md`
+- `workspace/mvp/logic/anvil/loadmap2/phase_39/final_closure_report.md`
+- `docs/eval/loadmap2-final-migration-decision-20260624.md`
 
 ## Objective
 
 Phase32 is the only phase allowed to declare the final Anvil migration state.
 
-The goal is to close `KI-011` by reconciling the authoritative coverage table,
+The historical goal was to close `KI-011` by reconciling the authoritative coverage table,
 Phase17+ recovery rules, Phase22-Phase31 phase-local ledgers, and final broad
 sign-off evidence.
 

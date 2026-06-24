@@ -2,16 +2,16 @@
 
 Date: 2026-06-23 JST
 
-Status: open / recovery in progress
+Status: closed by Phase39
 
 ## Recovery Decision
 
-The previous Phase32 decision is superseded.
+The previous Phase32 decision is superseded by Phase39 final closure.
 
 Current decision:
 
 ```text
-migration_not_complete_pending_current_eval_reconciliation
+migration_complete_with_explicit_exclusions
 ```
 
 Reason:
@@ -19,7 +19,9 @@ Reason:
 - Previous Phase32 signoff roots covered 47 unique cases.
 - Current eval roots cover 91 unique cases.
 - 44 current cases were not present in the previous accepted signoff roots.
-- Current broad signoff on fresh roots fails.
+- Phase33 through Phase38 closed current focused, large, row-proof, and
+  root-admission blockers.
+- Current broad signoff on admitted roots passes.
 
 ## Recovery Tasks
 
@@ -36,6 +38,7 @@ Reason:
 | P32-R009 | Row-to-case mapping | Add row -> eval case -> proof root -> recheck result mapping for all C01-C54 adopted rows. | completed by Phase37 | `phase_37/row_case_proof_matrix.md`; `phase_37/proof_gap_ledger.md`; `phase_37/implementation_report.md`. | C01-C54 are represented, C01-C45 have current or accepted proof, C46-C54 have exclusion rationale, all 91 current cases are mapped or supplemental, and no open `proof_gap` remains. |
 | P32-R010 | Follow-up phase split | Create follow-up phases for remaining runtime/eval-report blockers after P32-R006 to P32-R009 classification. | completed | `followup_phase_split.md`. | Each open blocker has assigned phase, owner layer, source evidence, and proof command family. |
 | P32-R011 | Sign-off root admission | Add deterministic admission for final-current sign-off roots before row findings are interpreted. | completed by Phase38 | `phase_38/root_admission_report.md`; `scripts/eval_signoff.py`; `tests/test_eval_signoff.py`. | Current roots admit 3 smoke, 82 focused, and 6 large cases; duplicated root labels/paths and stale smaller roots fail closed. |
+| P32-R012 | Final closure decision | Consume Phase33-Phase38 proof and write the current final migration decision. | completed by Phase39 | `phase_39/decision_evidence_matrix.md`; `phase_39/final_closure_report.md`; `docs/eval/loadmap2-final-migration-decision-20260624.md`. | Final report states exactly one current decision without relying on superseded historical roots. |
 
 ## Current Focused Recheck Summary
 
@@ -91,12 +94,13 @@ Phase37 closes P32-R009.
 | current eval cases mapped or supplemental | 91 |
 | open proof gaps | 0 |
 
-The proof matrix does not declare migration completion. Phase38 now satisfies
-sign-off root admission, and Phase39 still owns final closure retry/reporting.
+The proof matrix did not declare migration completion by itself. Phase38
+satisfies sign-off root admission, and Phase39 now closes final
+retry/reporting.
 
 ## Phase32 Exit Gate After Recovery
 
-Phase32 may declare migration completion only when all are true:
+Phase32/39 may declare migration completion only when all are true:
 
 1. current eval manifest and signoff roots cover the same case set;
 2. current broad signoff exits zero;
@@ -108,5 +112,7 @@ Phase32 may declare migration completion only when all are true:
    evidence.
 
 Phase37 satisfies item 5 for row-to-case proof reconciliation. Phase38
-satisfies item 1 for root admission and current case coverage. Item 6 remains
-owned by Phase39.
+satisfies item 1 for root admission and current case coverage. Phase35
+satisfies item 3, Phase36 satisfies item 4, and Phase39 satisfies item 6.
+Current broad signoff satisfies item 2. The recovery ledger is therefore
+closed by Phase39 with `migration_complete_with_explicit_exclusions`.

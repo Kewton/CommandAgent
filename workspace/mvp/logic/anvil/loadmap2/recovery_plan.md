@@ -107,8 +107,9 @@ found:
 
 Phase20 is therefore a historical checkpoint. It produced the
 `migration_not_complete` decision and the continuation ledger; it is not the
-current migration-complete authority. Phase32 is the current final closure
-phase.
+current migration-complete authority. Phase32 reopened final closure, and
+Phase39 is the current closure proof that consumes the Phase33-Phase38
+recovery outputs.
 
 The Anvil source baseline is the coverage-table baseline:
 
@@ -199,10 +200,12 @@ Phase 30: C49-C50 priority decision rows
 Phase 31: P20-LEDGER-001 fresh large timeout proof
           (completed / closed_proven)
 Phase 32: Final coverage closure and migration-complete decision
+Phase 39: Final current-root closure retry/reporting after Phase33-Phase38
+          (completed / migration_complete_with_explicit_exclusions)
 ```
 
-Phase32 is now the only phase allowed to declare migration complete. Earlier
-phases can close only their assigned blockers.
+Phase32/Phase39 are the final closure sequence. Earlier phases can close only
+their assigned blockers.
 
 ## Phase Exit Gates
 
@@ -223,7 +226,8 @@ phases can close only their assigned blockers.
 | Phase 29 | C34-C44 are `closed_proven`: Phase29 runtime-support fields, command classification, workspace candidate policy, job/scaffold/noncoding/lifecycle/provider boundary projection, focused fixture root `eval/runs/loadmap2-phase29-runtime-support-fixtures/20260623T161335`, targeted tests, and broad sign-off pass. |
 | Phase 30 | C49-C50 are `closed_excluded`: Phase30 records design rationale excluding Anvil semantic quality confirmation and slash/plan UI helper compatibility, updates coverage, and verifies with docs/report and slash parser checks. |
 | Phase 31 | P20-LEDGER-001 is `closed_proven` by fresh no-timeout large root `eval/runs/loadmap2-phase31-large-non-timeboxed/20260623T174624`, large recheck, and broad sign-off pass. |
-| Phase 32 | Recovery open: the previous completion claim is superseded because current eval roots cover 91 cases while the historical sign-off roots covered 47. Phase32 exits only after current broad sign-off exits zero and the remaining focused/large blockers have row-level dispositions. |
+| Phase 32 | Reopened final closure because current eval roots cover 91 cases while the historical sign-off roots covered 47. The reopened exit gate is satisfied by Phase39 after current broad sign-off exits zero and focused/large blockers have row-level dispositions. |
+| Phase 39 | Final current-root closure retry/reporting is complete: current roots admit 91/91 cases, broad sign-off passes, row-level proof is reconciled, C46-C54 remain explicit exclusions, and the final decision report states exactly one decision. |
 
 `blocked_external` is not allowed for missing owner/action/evidence. It is only
 allowed for a provider, model-throughput, network, or environment constraint
@@ -397,12 +401,13 @@ Coverage `Partial` and adoption `Partial` are intentionally different:
 
 Neither form of `Partial` may remain as a final Phase32 state.
 
-## Phase32 Recovery Result
+## Phase32/39 Recovery Result
 
-The earlier Phase32 final result is superseded. Current recovery decision:
+The earlier Phase32 final result is superseded by Phase39. Current recovery
+decision:
 
 ```text
-migration_not_complete_pending_current_eval_reconciliation
+migration_complete_with_explicit_exclusions
 ```
 
 Reason:
@@ -410,7 +415,9 @@ Reason:
 - historical sign-off roots covered 47 unique cases;
 - current eval roots cover 91 unique cases;
 - 44 current cases were not represented in the historical accepted roots;
-- current broad sign-off exits non-zero.
+- Phase33 through Phase38 closed current focused, large, row-proof, and
+  root-admission blockers;
+- current broad sign-off exits zero on admitted roots.
 
 Recovery evidence:
 
@@ -420,11 +427,18 @@ Recovery evidence:
   `workspace/mvp/logic/anvil/loadmap2/phase_32/recovery_task_ledger.md`;
 - current decision report:
   `docs/eval/loadmap2-final-migration-decision-20260623.md`;
+- final current decision report:
+  `docs/eval/loadmap2-final-migration-decision-20260624.md`;
+- Phase39 final closure report:
+  `workspace/mvp/logic/anvil/loadmap2/phase_39/final_closure_report.md`;
+- Phase39 decision evidence matrix:
+  `workspace/mvp/logic/anvil/loadmap2/phase_39/decision_evidence_matrix.md`;
 - superseded implementation report:
   `workspace/mvp/logic/anvil/loadmap2/phase_32/implementation_report.md`.
 
-No accepted external proof limitation is being used to close Phase32 while
-current focused and large blockers remain open.
+No accepted external proof limitation is being used to close Phase32/39. The
+large rows remain failed user tasks, but each current large failure is owned,
+actionable, and target/evidence-bound, so no unowned migration blocker remains.
 
 ## Non-goals
 

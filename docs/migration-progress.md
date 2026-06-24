@@ -1,6 +1,6 @@
 # Migration Progress
 
-Updated: 2026-06-16
+Updated: 2026-06-24
 
 This file tracks completed migration tickets from the external migration work
 plan. It is intentionally kept inside the CommandAgent repository so progress is
@@ -61,16 +61,38 @@ Live UAT now passes for docs, Python, Rust, a Next.js file-set workflow,
 planner/executor split, and repair fallback prompt saving. Larger
 `/ultra-plan-run` sign-off remains pending.
 
-Latest eval sign-off:
+Latest Anvil migration sign-off:
+
+```text
+docs/eval/loadmap2-final-migration-decision-20260624.md
+```
+
+Result: `migration_complete_with_explicit_exclusions`.
+
+Current local LLM proof roots are admitted with 3 smoke, 82 focused, and 6
+large cases, for `91/91` current case coverage. Current broad sign-off exits
+zero. Adopted Anvil control/recovery rows C01-C45 are implemented/proven, and
+excluded rows C46-C54 remain explicit design exclusions.
+
+The six current large rows are still failed application-generation tasks. They
+are migration-safe only because each is classified as an owned failure with
+action, target/evidence, and disposition; they are not counted as successful
+generated applications.
+
+Historical Phase32 evidence from 2026-06-23 remains regression evidence only.
+It is superseded as the final migration proof because it covered a smaller
+case set.
+
+Latest MVP eval sign-off:
 
 ```text
 docs/eval/mvp-eval-report.md
 ```
 
 Result: offline smoke and live UAT pass. Clean `/plan-run` smoke eval is not yet
-stable enough to be a release gate. The large eval runner now supports per-case
-`/ultra-plan-run` mode and fixture seeding, and a fresh clean large run exists,
-but large eval is still 0/6 and needs triage before release-quality use.
+stable enough to be a release gate. The large eval runner supports per-case
+`/ultra-plan-run` mode and fixture seeding, but large app-generation quality
+remains a separate product/eval limitation from Anvil migration parity.
 
 Latest large triage:
 

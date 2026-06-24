@@ -2,13 +2,26 @@
 
 Date: 2026-06-23 JST
 
-Status: superseded / recovery_open
+Status: superseded by Phase39 / closed_current_final_decision
 
 ## Recovery Notice
 
-This implementation report is superseded by the Phase32 recovery work.
+This implementation report is superseded by the Phase32 recovery work and the
+Phase39 final closure report.
 
-Current decision:
+Current Phase39 decision:
+
+```text
+migration_complete_with_explicit_exclusions
+```
+
+Current closure evidence:
+
+- `workspace/mvp/logic/anvil/loadmap2/phase_39/decision_evidence_matrix.md`
+- `workspace/mvp/logic/anvil/loadmap2/phase_39/final_closure_report.md`
+- `docs/eval/loadmap2-final-migration-decision-20260624.md`
+
+Historical recovery decision:
 
 ```text
 migration_not_complete_pending_current_eval_reconciliation

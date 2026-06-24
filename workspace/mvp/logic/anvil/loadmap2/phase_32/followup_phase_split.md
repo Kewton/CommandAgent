@@ -2,7 +2,7 @@
 
 Date: 2026-06-23 JST
 
-Status: recovery output / follow-up required
+Status: recovery output / follow-up complete by Phase39
 
 ## Purpose
 
@@ -20,7 +20,7 @@ explicit follow-up work without claiming migration completion.
 | Phase36 | large real-LLM blocker ownership | Closed by Phase36. Six current large cases still fail as user tasks, but each has owner/action/target/evidence and a row disposition. | `phase_36/implementation_report.md`; `phase_36/large_row_ledger.md`; `eval/runs/current-all-local-llm/large/20260623T204816/recheck_summary.tsv`. | Large recheck reports `large_disposition=closed_owned_failure` for all six rows; broad sign-off has no unowned or contradictory large failure. |
 | Phase37 | row-to-case proof reconciliation | Closed by Phase37. Adopted C rows and excluded rows now have explicit proof or rationale, and current eval cases are mapped or supplemental. | `phase_37/row_case_proof_matrix.md`; `phase_37/proof_gap_ledger.md`; `phase_37/implementation_report.md`. | C01-C54 are represented, all 91 current cases are mapped or supplemental, no adopted row closes on omitted historical evidence only, and no open `proof_gap` remains. |
 | Phase38 | sign-off root admission gate | Closed by Phase38. Phase32 previously accepted a smaller root bundle, and a later check accidentally duplicated the focused root as `focused-fixture`. | `phase_38/root_admission_report.md`; `scripts/eval_signoff.py`; `tests/test_eval_signoff.py`; `eval/README.md`. | Current root bundle is admitted with 3 smoke, 82 focused, and 6 large cases; duplicated focused root path fails before sign-off interpretation. |
-| Phase39 | final closure retry | Phase32 final decision remains open until current proof roots are green and row-level proof is complete. | Phase33-Phase38 outputs. | Current broad sign-off exits zero and final decision report can truthfully declare completion or explicit non-completion. |
+| Phase39 | final closure retry | Closed by Phase39. Current proof roots are admitted/green, row-level proof is complete, and explicit exclusions are retained. | Phase33-Phase38 outputs; `phase_39/decision_evidence_matrix.md`; `phase_39/final_closure_report.md`; `docs/eval/loadmap2-final-migration-decision-20260624.md`. | Current broad sign-off exits zero and final decision report declares `migration_complete_with_explicit_exclusions`. |
 
 ## Large Case Sub-ledger Requirement
 
@@ -52,7 +52,7 @@ Phase37 satisfied the row-to-case proof reconciliation requirement in
 | current 91 cases mapped or supplemental | pass |
 | open proof gaps | 0 |
 
-Phase38 satisfies sign-off root admission. Phase39 still owns final closure
+Phase38 satisfies sign-off root admission. Phase39 satisfies final closure
 retry/reporting.
 
 ## Lessons Applied
