@@ -1,0 +1,30 @@
+id: focused-phase26-semantic-conflict-object
+title: Phase26 semantic failure report keeps conflict object inputs
+profile: python
+style: default
+mode: plan-run
+intent: modify
+prompt: "Record semantic conflict evidence without resolving the conflict job."
+matrix_row: phase26-c17-semantic-conflict-object
+proof_mode: deterministic_fixture
+fixture_reason: rc:1
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  diagnostic_code: assertion_contract_conflict
+  diagnostic_failure_kind: contract_conflict
+  semantic_failure_kind: contract_conflict
+  semantic_cluster_source_of_truth: test_contract_and_original_verifier
+  observed_expected: observed=200_expected=404
+  affected_cases: pytest_tests/test_app.py
+  candidate_artifacts: tests/test_app.py|src/app.py
+  preferred_repair_role: test
+  unknown_diagnostic_count: 0
+expected_diagnostic_code: assertion_contract_conflict
+expected_diagnostic_failure_kind: contract_conflict
+expected_semantic_failure_kind: contract_conflict
+expected_semantic_cluster_source_of_truth: test_contract_and_original_verifier
+expected_observed_expected: observed=200_expected=404
+expected_affected_cases: pytest_tests/test_app.py
+expected_candidate_artifacts: tests/test_app.py|src/app.py
+expected_unknown_diagnostic_count: 0

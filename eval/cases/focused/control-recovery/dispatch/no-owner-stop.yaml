@@ -1,0 +1,39 @@
+id: focused-dispatch-no-owner-stop
+title: Active-job dispatch stops when no owner is eligible
+profile: generic
+style: default
+mode: plan-run
+intent: modify
+prompt: "Stop with structured evidence when no deterministic recovery owner is eligible."
+matrix_row: phase25-dispatch-no-owner-stop
+proof_mode: deterministic_fixture
+fixture_reason: explicit_stop
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: explicit_stop
+  active_job_lifecycle: no_owner
+  recovery_owner: explicit_stop
+  loop_control_action: render_explicit_stop
+  dispatch_status: no_owner
+  dispatch_reason: no active job candidate was produced
+  candidate_jobs: none
+  tie_break_reason: none
+  repair_action: stop_with_structured_evidence
+  tool_policy: explicit_stop
+  explicit_stop_reason: no_active_job_candidate
+expected_active_job: explicit_stop
+expected_active_job_lifecycle: no_owner
+expected_recovery_owner: explicit_stop
+expected_dispatch_status: no_owner
+expected_dispatch_reason: no active job candidate was produced
+expected_candidate_jobs: none
+expected_tie_break_reason: none
+expected_repair_action: stop_with_structured_evidence
+expected_explicit_stop_reason: no_active_job_candidate
+expected_lifecycle_stage: explicit_stop
+expected_active_owner: explicit_stop
+expected_selected_action: stop_with_structured_evidence
+expected_target_admission_status: unknown
+expected_repair_action_plan_status: planned
+expected_completion_source: none

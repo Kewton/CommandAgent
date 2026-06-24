@@ -1,5 +1,7 @@
 use crate::agent::step_runner::correction_evidence::{ContractEvidence, failure_signature};
 use crate::agent::step_runner::profiles::ProfileVerificationFailure;
+use crate::agent::step_runner::recovery_orchestration::orchestrate_evidence;
+use crate::agent::step_runner::recovery_policy::profile_failure_policy;
 use crate::agent::step_runner::recovery_task::RecoveryTaskContract;
 use crate::agent::step_runner::verify::VerificationFailure;
 use crate::util::workspace_paths::repairs_dir;
@@ -55,13 +57,42 @@ pub struct ProfileRepairContext {
     pub expected_paths: Vec<String>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub enum ToolProtocolCorrectionAction {
+    #[default]
+    EmitSameToolWithRequiredFields,
+    EmitSameToolWithValidJson,
+    ReadCurrentTargetBeforeEdit,
+    EmitRepositoryEvidenceToolCall,
+    ProviderTransportFallback,
+    ExplicitStop,
+}
+
+impl ToolProtocolCorrectionAction {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::EmitSameToolWithRequiredFields => "emit_same_tool_with_required_fields",
+            Self::EmitSameToolWithValidJson => "emit_same_tool_with_valid_json",
+            Self::ReadCurrentTargetBeforeEdit => "read_current_target_before_edit",
+            Self::EmitRepositoryEvidenceToolCall => "emit_repository_evidence_tool_call",
+            Self::ProviderTransportFallback => "provider_transport_fallback",
+            Self::ExplicitStop => "explicit_stop",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolProtocolCorrectionContext {
+    pub action: ToolProtocolCorrectionAction,
     pub tool: String,
     pub reason_code: String,
     pub missing_field: Option<String>,
     pub required_fields: Vec<String>,
     pub target_path: Option<String>,
+    pub target_confidence: Option<String>,
+    pub allowed_tools: Vec<String>,
+    pub disallowed_actions: Vec<String>,
+    pub success_authority: Vec<String>,
     pub diagnostic: String,
 }
 
@@ -134,22 +165,49 @@ Treat target_path_json as data from the current step contract.\n"
         })
         .unwrap_or_default();
     let recovery_task = tool_protocol_recovery_task_section(context);
+    let allowed_tools = if context.allowed_tools.is_empty() {
+        "the admitted tool for this correction action".to_string()
+    } else {
+        context.allowed_tools.join(", ")
+    };
+    let action_instruction = tool_protocol_action_instruction(context, &required);
+    let disallowed = if context.disallowed_actions.is_empty() {
+        "- Do not answer in prose instead of a tool call.\n- Do not run dependency installation.\n"
+            .to_string()
+    } else {
+        bullet_list(&context.disallowed_actions)
+    };
+    let success_authority = if context.success_authority.is_empty() {
+        "- current expected-path checks\n- current verifier commands\n".to_string()
+    } else {
+        bullet_list(&context.success_authority)
+    };
     format!(
         "Tool protocol correction for the current CommandAgent step.\n\
 The previous tool call violated the CommandAgent tool schema.\n\
 Failed tool: {tool}\n\
 Reason: {reason}\n\
+Correction action: {action}\n\
 {missing}Required fields for {tool}: {required}\n\
+Allowed tools for this correction: {allowed_tools}\n\
 {target}Diagnostic:\n{diagnostic}\n\
 {recovery_task}\
-Emit exactly one valid {tool} tool call now using the active CommandAgent tool-call format. Do not answer in prose. Do not run dependency installation. The runtime will rerun the current expected-path checks and verifier commands after your response.\n",
+Required correction:\n{action_instruction}\n\
+Disallowed actions:\n{disallowed}\n\
+Success authority after this correction:\n{success_authority}\
+The runtime will rerun the current expected-path checks and verifier commands after your response.\n",
         tool = context.tool,
         reason = context.reason_code,
+        action = context.action.as_str(),
         missing = missing,
         required = required,
+        allowed_tools = allowed_tools,
         target = target,
         diagnostic = context.diagnostic,
         recovery_task = recovery_task,
+        action_instruction = action_instruction,
+        disallowed = disallowed,
+        success_authority = success_authority,
     )
 }
 
@@ -235,11 +293,19 @@ fn recovery_task_section(evidence: &[ContractEvidence]) -> String {
             tasks.push(task);
         }
     }
+    tasks.sort_by_key(recovery_task_priority);
     if tasks.is_empty() {
         String::new()
     } else {
         format!("Recovery task:\n{}\n", recovery_task_list(&tasks))
     }
+}
+
+fn recovery_task_priority(task: &RecoveryTaskContract) -> u8 {
+    task.active_job_priority
+        .as_deref()
+        .and_then(|value| value.parse::<u8>().ok())
+        .unwrap_or(u8::MAX)
 }
 
 fn tool_protocol_recovery_task_section(context: &ToolProtocolCorrectionContext) -> String {
@@ -248,26 +314,24 @@ fn tool_protocol_recovery_task_section(context: &ToolProtocolCorrectionContext) 
     } else {
         context.required_fields.join(", ")
     };
-    let required_action = if context.tool == "Write"
-        && context.missing_field.as_deref() == Some("path")
-        && let Some(path) = context.target_path.as_deref()
-    {
-        format!(
-            "Emit exactly one valid Write tool call with path={path} and required fields: {required}."
-        )
-    } else {
-        format!(
-            "Emit exactly one valid {} tool call with required fields: {required}.",
-            context.tool
-        )
-    };
+    let required_action = tool_protocol_action_instruction(context, &required);
     let mut task = RecoveryTaskContract::new("tool_protocol")
         .with_contract_code(context.reason_code.clone())
         .with_blocker(format!("Tool call violated schema for {}", context.tool))
         .with_required_action(required_action)
-        .with_allowed_tool(context.tool.clone())
-        .with_disallowed_action("Do not answer in prose instead of a tool call.")
-        .with_disallowed_action("Do not run dependency installation.")
+        .with_allowed_tools(if context.allowed_tools.is_empty() {
+            vec![context.tool.clone()]
+        } else {
+            context.allowed_tools.clone()
+        })
+        .with_disallowed_actions(if context.disallowed_actions.is_empty() {
+            vec![
+                "Do not answer in prose instead of a tool call.".to_string(),
+                "Do not run dependency installation.".to_string(),
+            ]
+        } else {
+            context.disallowed_actions.clone()
+        })
         .with_success_check("tool schema validation");
     if let Some(path) = context.target_path.clone() {
         task = task
@@ -277,10 +341,62 @@ fn tool_protocol_recovery_task_section(context: &ToolProtocolCorrectionContext) 
     format!("Recovery task:\n{}\n", recovery_task_list(&[task]))
 }
 
+fn tool_protocol_action_instruction(
+    context: &ToolProtocolCorrectionContext,
+    required: &str,
+) -> String {
+    match context.action {
+        ToolProtocolCorrectionAction::EmitSameToolWithRequiredFields => {
+            if context.tool == "Write"
+                && context.missing_field.as_deref() == Some("path")
+                && let Some(path) = context.target_path.as_deref()
+            {
+                format!(
+                    "Emit exactly one valid Write tool call with path={path} and required fields: {required}."
+                )
+            } else {
+                format!(
+                    "Emit exactly one valid {} tool call with required fields: {required}.",
+                    context.tool
+                )
+            }
+        }
+        ToolProtocolCorrectionAction::EmitSameToolWithValidJson => format!(
+            "Emit exactly one valid {} tool call whose arguments are one complete JSON object.",
+            context.tool
+        ),
+        ToolProtocolCorrectionAction::ReadCurrentTargetBeforeEdit => {
+            if let Some(path) = context.target_path.as_deref() {
+                format!(
+                    "Emit exactly one valid Read tool call with path={path}. Do not call Edit again until the current file contents have been observed."
+                )
+            } else {
+                "Emit exactly one valid Read or Glob tool call to inspect the current target before any Edit. Do not retry stale Edit text.".to_string()
+            }
+        }
+        ToolProtocolCorrectionAction::EmitRepositoryEvidenceToolCall => {
+            if let Some(path) = context.target_path.as_deref() {
+                format!(
+                    "Emit exactly one valid Read tool call with path={path} to provide repository evidence. Do not use Write/Edit in this correction."
+                )
+            } else {
+                "Emit exactly one valid read-only repository evidence tool call such as Read, Glob, or Grep. Do not use Write/Edit in this correction.".to_string()
+            }
+        }
+        ToolProtocolCorrectionAction::ProviderTransportFallback => {
+            "Return one complete response that satisfies the shared provider tool-call transport contract. Do not attempt source repair in this correction.".to_string()
+        }
+        ToolProtocolCorrectionAction::ExplicitStop => {
+            "No safe tool protocol correction is admitted. Stop with structured evidence instead of issuing a tool call.".to_string()
+        }
+    }
+}
+
 fn recovery_task_list(tasks: &[RecoveryTaskContract]) -> String {
     tasks
         .iter()
         .filter_map(RecoveryTaskContract::render)
+        .map(|rendered| truncate_bytes(rendered, 1536))
         .map(|rendered| indent(&rendered, "  "))
         .enumerate()
         .map(|(index, rendered)| format!("- task {}:\n{}", index + 1, rendered))
@@ -332,11 +448,11 @@ Original goal: {goal}\n\
 Profile: {profile}\n\
 Style: {style}\n\
 Step instruction: {instruction}\n\
-{active_contract}\
-{recovery_task}\
-Repair focus:\n{focus}\n\
-Missing expected paths:\n{missing}\n\
 Contract evidence:\n{contract_evidence}\n\
+Repair focus:\n{focus}\n\
+{recovery_task}\
+{active_contract}\
+Missing expected paths:\n{missing}\n\
 Verification failures:\n{failures}\n\
 Changed files in failed repair attempts:\n{changed}\n\
 \n\
@@ -380,11 +496,11 @@ Phase goal: {phase_goal}\n\
 Profile: {profile}\n\
 Style: {style}\n\
 Expected paths from completed phase:\n{expected}\n\
-{recovery_task}\
-Repair focus:\n{focus}\n\
-Contract evidence:\n{contract_evidence}\n\
-Profile verification failures:\n{failures}\n\
 {route_targets}\
+Profile verification failures:\n{failures}\n\
+Contract evidence:\n{contract_evidence}\n\
+Repair focus:\n{focus}\n\
+{recovery_task}\
 Phase contract facts:\n{phase_facts}\n\
 Profile facts after phase:\n{profile_facts}\n\
 \n\
@@ -509,7 +625,10 @@ fn contract_evidence_section(evidence: &[ContractEvidence]) -> String {
     }
     evidence
         .iter()
-        .filter_map(ContractEvidence::render)
+        .cloned()
+        .map(orchestrate_evidence)
+        .filter_map(|evidence| evidence.render())
+        .map(|rendered| truncate_bytes(rendered, 2048))
         .map(|rendered| indent(&rendered, "  "))
         .enumerate()
         .map(|(index, rendered)| format!("- evidence {}:\n{}", index + 1, rendered))
@@ -559,8 +678,8 @@ fn profile_failure_contract_evidence(
     phase_id: &str,
     failure: &ProfileVerificationFailure,
 ) -> ContractEvidence {
-    let repair_target = profile_repair_target(failure);
-    let propagation = profile_failure_propagation(failure);
+    let policy = profile_failure_policy(failure);
+    let repair_target = policy.repair_target.clone();
     let mut evidence = ContractEvidence::new("profile_verification")
         .with_failed_step(phase_id.to_string())
         .with_violated_contract(failure.code.clone())
@@ -575,94 +694,37 @@ fn profile_failure_contract_evidence(
         ]))
         .with_candidate_artifacts(failure.paths.clone())
         .with_observed_expected_pairs(vec![profile_observed_expected_pair(failure)])
-        .with_required_action(profile_required_action(failure))
         .with_repair_focus(profile_repair_focus(failure))
-        .with_repair_kind(propagation.repair_kind)
-        .with_setup_implication(propagation.setup_implication)
-        .with_rerun_authority(propagation.rerun_authority)
         .with_diagnostic(failure.message.clone());
-    if let Some(target) = repair_target {
-        evidence = evidence
-            .with_target_path(target.clone())
-            .with_repair_target(target);
+    if let Some(obligation) = profile_obligation_key(failure.code.as_str()) {
+        evidence = evidence.with_required_literals(vec![obligation.to_string()]);
     }
-    evidence
+    orchestrate_evidence(policy.apply_to_evidence(evidence))
 }
 
-fn profile_repair_target(failure: &ProfileVerificationFailure) -> Option<String> {
-    match failure.code.as_str() {
-        "nextjs_integration_artifact_missing" => failure.paths.first().cloned(),
-        "nextjs_route_not_integrated" => failure
-            .paths
-            .get(2)
-            .cloned()
-            .or_else(|| failure.paths.first().cloned()),
-        "nextjs_app_root_ambiguous" => None,
+fn profile_obligation_key(code: &str) -> Option<&'static str> {
+    match code {
+        "nextjs_dev_port_drift" | "nextjs_dev_script_drift" => {
+            Some("profile.obligation.nextjs_dev_port_required")
+        }
+        "nextjs_build_script_drift" => Some("profile.obligation.nextjs_build_script_required"),
         "nextjs_missing_dependency"
-        | "nextjs_dependency_version_conflict"
-        | "nextjs_build_script_drift"
-        | "nextjs_dev_port_drift" => Some("package.json".to_string()),
-        "nextjs_tailwind_contract" => nextjs_tailwind_repair_target(failure),
-        "nextjs_alias_missing" | "nextjs_tsconfig_excludes_route" => {
-            Some("tsconfig.json".to_string())
+        | "nextjs_dependency_missing"
+        | "nextjs_dependency_version_missing"
+        | "nextjs_dependency_version_conflict" => {
+            Some("profile.obligation.nextjs_dependencies_required")
         }
-        _ => failure.paths.first().cloned(),
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ProfileFailurePropagation {
-    repair_kind: String,
-    setup_implication: String,
-    rerun_authority: Vec<String>,
-}
-
-fn profile_failure_propagation(failure: &ProfileVerificationFailure) -> ProfileFailurePropagation {
-    match failure.code.as_str() {
-        "nextjs_dependency_version_conflict" | "nextjs_missing_dependency" => {
-            ProfileFailurePropagation {
-                repair_kind: "manifest_dependency_repair".to_string(),
-                setup_implication: "setup_after_manifest_repair_required".to_string(),
-                rerun_authority: vec![
-                    "profile_verification".to_string(),
-                    "npm run build".to_string(),
-                ],
-            }
+        "nextjs_tailwind_contract"
+        | "nextjs_tailwind_missing"
+        | "nextjs_tailwind_content_missing"
+        | "nextjs_tailwind_css_missing"
+        | "nextjs_tailwind_postcss_missing" => {
+            Some("profile.obligation.nextjs_tailwind_dependencies_required")
         }
-        "nextjs_tailwind_contract" => {
-            let setup_implication =
-                if nextjs_tailwind_repair_target(failure).as_deref() == Some("package.json") {
-                    "setup_after_manifest_repair_required"
-                } else {
-                    "none"
-                };
-            ProfileFailurePropagation {
-                repair_kind: "tailwind_contract_repair".to_string(),
-                setup_implication: setup_implication.to_string(),
-                rerun_authority: vec![
-                    "profile_verification".to_string(),
-                    "npm run build".to_string(),
-                ],
-            }
+        "nextjs_route_not_integrated" => {
+            Some("profile.obligation.nextjs_route_integration_required")
         }
-        "nextjs_route_not_integrated" => ProfileFailurePropagation {
-            repair_kind: "route_integration_repair".to_string(),
-            setup_implication: "none".to_string(),
-            rerun_authority: vec![
-                "profile_verification".to_string(),
-                "npm run build".to_string(),
-            ],
-        },
-        "nextjs_integration_artifact_missing" => ProfileFailurePropagation {
-            repair_kind: "integration_artifact_creation".to_string(),
-            setup_implication: "none".to_string(),
-            rerun_authority: vec!["profile_verification".to_string()],
-        },
-        _ => ProfileFailurePropagation {
-            repair_kind: "profile_contract_repair".to_string(),
-            setup_implication: "none".to_string(),
-            rerun_authority: vec!["profile_verification".to_string()],
-        },
+        _ => None,
     }
 }
 
@@ -782,7 +844,7 @@ fn profile_required_action(failure: &ProfileVerificationFailure) -> String {
             "edit package.json so scripts.build runs next build".to_string()
         }
         "nextjs_dependency_version_conflict" => {
-            "edit package.json so next, react, react-dom, TypeScript, and React type versions use a stable compatible generated-app dependency family; use TypeScript 5.x and @types/react 18.x with React 18/Next.js 14; do not switch generated setup repair to latest packages; preserve scripts.build=next build; do not keep exact React pins below 18.2 with Next.js 14, TypeScript 6, or @types/react 19".to_string()
+            "edit package.json so next, react, react-dom, TypeScript, and React type versions use a stable compatible generated-app dependency family; use a stable TypeScript 5.x range such as ^5.4.0 and @types/react 18.x with React 18/Next.js 14; do not switch generated setup repair to latest packages; preserve scripts.build=next build; do not keep exact React pins below 18.2 with Next.js 14, TypeScript 6, exact TypeScript pins such as 5.0.0, or @types/react 19".to_string()
         }
         _ => "fix the reported profile contract before adding feature work".to_string(),
     }
@@ -1054,7 +1116,9 @@ mod tests {
         assert!(packet.contains("selected route imports or references"));
         assert!(packet.contains("repair_target: app/page.tsx"));
         assert!(packet.contains("candidate_artifacts: app/page.tsx, app/hooks/useGame.ts"));
+        assert!(packet.contains("active_job: route_integration_repair"));
         assert!(packet.contains("repair_kind: route_integration_repair"));
+        assert!(packet.contains("repair_action: connect_artifact_to_selected_route"));
         assert!(packet.contains("setup_implication: none"));
         assert!(packet.contains("rerun_authority: profile_verification, npm run build"));
         assert!(
@@ -1081,10 +1145,14 @@ mod tests {
         assert!(packet.contains("selected_route=app/page.tsx"));
         assert!(packet.contains("unintegrated_artifact=app/hooks/useGame.ts"));
         assert!(packet.contains("repair_target: app/components/GameBoard.tsx"));
+        assert!(packet.contains("required_action: edit app/components/GameBoard.tsx"));
         assert!(packet.contains(
             "candidate_artifacts: app/page.tsx, app/hooks/useGame.ts, app/components/GameBoard.tsx"
         ));
+        assert!(packet.contains("active_job: route_integration_repair"));
         assert!(packet.contains("repair_kind: route_integration_repair"));
+        assert!(packet.contains("repair_action: connect_artifact_to_selected_route"));
+        assert!(packet.contains("Do not create an unrelated replacement app or route tree"));
     }
 
     #[test]
@@ -1108,7 +1176,9 @@ mod tests {
         ));
         assert!(packet.contains("repair_target: components/SpaceInvaders.tsx"));
         assert!(packet.contains("candidate_artifacts: components/SpaceInvaders.tsx, app/page.tsx"));
+        assert!(packet.contains("active_job: integration_artifact_creation"));
         assert!(packet.contains("repair_kind: integration_artifact_creation"));
+        assert!(packet.contains("repair_action: create_missing_integration_artifact"));
         assert!(packet.contains("rerun_authority: profile_verification"));
         assert!(packet.contains("missing artifact path exists, then profile verification"));
         assert!(packet.contains(
@@ -1135,15 +1205,18 @@ mod tests {
         assert!(packet.contains(
             "edit package.json so next, react, react-dom, TypeScript, and React type versions use a stable compatible generated-app dependency family"
         ));
-        assert!(packet.contains("use TypeScript 5.x and @types/react 18.x"));
+        assert!(packet.contains("use a stable TypeScript 5.x range such as ^5.4.0"));
         assert!(packet.contains("Do not switch generated setup repair to latest packages"));
         assert!(packet.contains("Do not rewrite scripts.build away from next build"));
         assert!(packet.contains("Do not keep exact React pins below 18.2 with Next.js 14"));
         assert!(packet.contains("TypeScript 6"));
         assert!(packet.contains("@types/react 19"));
         assert!(packet.contains("repair_kind: manifest_dependency_repair"));
+        assert!(packet.contains("repair_action: add_manifest_dependency"));
         assert!(packet.contains("setup_implication: setup_after_manifest_repair_required"));
-        assert!(packet.contains("rerun_authority: profile_verification, npm run build"));
+        assert!(
+            packet.contains("rerun_authority: profile_verification, npm install, npm run build")
+        );
         assert!(packet.contains(
             "observed=package.json pins Next.js and React peer versions that are incompatible"
         ));
@@ -1163,6 +1236,7 @@ mod tests {
         assert!(packet.contains("nextjs_missing_dependency"));
         assert!(packet.contains("repair_target: package.json"));
         assert!(packet.contains("repair_kind: manifest_dependency_repair"));
+        assert!(packet.contains("repair_action: add_manifest_dependency"));
         assert!(packet.contains("setup_implication: setup_after_manifest_repair_required"));
         assert!(
             packet.contains("edit package.json to include required Next.js runtime dependencies")
@@ -1204,6 +1278,7 @@ mod tests {
         assert!(packet.contains("create or edit postcss.config.js"));
         assert!(packet.contains("edit package.json to include the required Tailwind/PostCSS"));
         assert!(packet.contains("repair_kind: tailwind_contract_repair"));
+        assert!(packet.contains("repair_action: repair_tailwind_contract"));
         assert!(packet.contains("setup_implication: setup_after_manifest_repair_required"));
     }
 
@@ -1220,6 +1295,7 @@ mod tests {
 
         assert!(packet.contains("nextjs_alias_missing"));
         assert!(packet.contains("repair_target: tsconfig.json"));
+        assert!(packet.contains("repair_action: repair_tsconfig_alias"));
         assert!(packet.contains("edit tsconfig.json so @/* resolves"));
         assert!(packet.contains("fix tsconfig path aliases"));
     }
@@ -1381,11 +1457,19 @@ mod tests {
     #[test]
     fn tool_protocol_correction_prompt_includes_schema_and_target() {
         let prompt = build_tool_protocol_correction_prompt(&ToolProtocolCorrectionContext {
+            action: ToolProtocolCorrectionAction::EmitSameToolWithRequiredFields,
             tool: "Write".to_string(),
             reason_code: "tool_args_missing_required_field".to_string(),
             missing_field: Some("path".to_string()),
             required_fields: vec!["path".to_string(), "content".to_string()],
             target_path: Some("tailwind.config.js".to_string()),
+            target_confidence: Some("safe_single_target".to_string()),
+            allowed_tools: vec!["Write".to_string()],
+            disallowed_actions: vec![
+                "Do not answer in prose instead of a tool call.".to_string(),
+                "Do not run dependency installation.".to_string(),
+            ],
+            success_authority: vec!["expected-path checks".to_string()],
             diagnostic: "Write requires: path, content".to_string(),
         });
 
@@ -1397,6 +1481,8 @@ mod tests {
         assert!(prompt.contains("success_check: tool schema validation"));
         assert!(prompt.contains("Failed tool: Write"));
         assert!(prompt.contains("Reason: tool_args_missing_required_field"));
+        assert!(prompt.contains("Correction action: emit_same_tool_with_required_fields"));
+        assert!(prompt.contains("Allowed tools for this correction: Write"));
         assert!(prompt.contains("Missing required field: path"));
         assert!(prompt.contains("Required fields for Write: path, content"));
         assert!(prompt.contains("target_path_json=\"tailwind.config.js\""));
@@ -1410,15 +1496,21 @@ mod tests {
     #[test]
     fn tool_protocol_correction_prompt_handles_invalid_json_without_target() {
         let prompt = build_tool_protocol_correction_prompt(&ToolProtocolCorrectionContext {
+            action: ToolProtocolCorrectionAction::EmitSameToolWithValidJson,
             tool: "Write".to_string(),
             reason_code: "tool_args_invalid_json".to_string(),
             missing_field: None,
             required_fields: Vec::new(),
             target_path: None,
+            target_confidence: None,
+            allowed_tools: vec!["Write".to_string()],
+            disallowed_actions: Vec::new(),
+            success_authority: Vec::new(),
             diagnostic: "Write arguments are not valid JSON".to_string(),
         });
 
         assert!(prompt.contains("Reason: tool_args_invalid_json"));
+        assert!(prompt.contains("Correction action: emit_same_tool_with_valid_json"));
         assert!(prompt.contains("Required fields for Write: unknown"));
         assert!(!prompt.contains("Missing required field"));
         assert!(!prompt.contains("target_path_json"));

@@ -9,37 +9,80 @@ boundary, it should be split before more behavior is added.
 CommandAgent has one execution engine and several first-class contract
 surfaces around it:
 
-- Task Contract: records the user goal, required artifacts, constraints,
-  success checks, and task scope that later contracts must preserve.
+- Task Contract: records the user goal, task kind, admission status,
+  lifecycle state, request signals, required artifacts, behavior obligations,
+  artifact role projections, deterministic constraints, completion evidence
+  expectations, and task scope that later contracts must preserve.
 - Planning Contract: turns a user goal into explicit step or phase contracts,
   expected artifacts, step ownership, and lintable success conditions.
 - Profile Contract: provides deterministic domain facts, artifact
   classification, obligations, verifier hints, protected paths, and
   profile-verification evidence without owning workflow control.
-- Artifact Role and Workspace Scope Contract: classifies paths before they are
-  used for plan lint, setup bootstrap, verification, route integration, or
-  repair targeting.
-- Active Job Arbitration Contract: classifies the current blocker as setup,
-  manifest, route integration, source implementation, verifier policy,
-  documentation, or explicit stop before a repair task is rendered.
+- ArtifactGraph and Workspace Scope Contract: classifies artifact lifecycle,
+  roles, relationships, and in-scope paths before they are used for plan lint,
+  setup bootstrap, verification, route integration, or repair targeting.
+- Recovery Orchestration Contract: consumes deterministic failure evidence and
+  artifact graph facts, selects the active recovery job for the current
+  blocker, selects or rejects the repair action, projects the tool policy, and
+  hands a bounded recovery task or setup action to execution.
+- Failure Observation Boundary: projects deterministic failure evidence into
+  one normalized terminal-state identity record before recovery or eval
+  reporting consumes it.
+- Recovery Policy Contract: the policy-decision part of recovery orchestration.
+  It admits and prioritizes repair targets and selects one allowed repair
+  action from deterministic evidence.
 - Setup Bootstrap Contract: owns bounded dependency setup, setup/config
   artifact preparation, and deterministic manifest/scaffold materialization
   when a profile can name the required setup artifacts.
+- Setup Job Lifecycle Boundary: records setup/profile/verifier setup state as
+  typed evidence such as manifest kind, manifest path, validation status,
+  readiness, command authority, setup result, verifier rerun result, and stale
+  reason. It is a record/rendering boundary and never executes commands.
+- Runtime Job Report Boundary: projects already observed runtime, setup,
+  verification, repair, evidence, and explicit-stop facts into one lifecycle
+  report record for eval artifacts and human-readable reports. It records the
+  lifecycle stage, active owner, selected action, target admission status,
+  repair action plan status, attempt outcome, evidence runner status, verifier
+  rerun result, explicit stop reason, and completion source. It does not select
+  jobs, run verifiers, repair files, or change success criteria.
+- Contract Conflict Boundary: classifies already detected implementation,
+  test, docs/API, or verifier-contract conflicts into a bounded authority
+  decision. It records the conflict sides, authoritative side, repair target
+  side, selected action, missing authority evidence, source of truth, and
+  safe-stop reason. It does not resolve ambiguity by path order, run tools, or
+  add retry authority.
 - Execution Contract: gives the minimal loop one clear executable task, a tool
   policy, path safety, observations, and bounded completion guards.
 - Recovery Task Contract: turns a classified deterministic failure into a clear
   repair instruction for the minimal loop.
 - Attempt Ledger Contract: records bounded repair attempts, changed files,
-  verifier/profile results, and repeated failure classes so no-progress stops
-  are explicit.
+  verifier/profile results, before/after signatures, target/role/cluster
+  exhaustion, and repeated failure classes so no-progress stops are explicit.
+- Patch Validation Contract: validates model edits, mechanical proposals, and
+  rollback candidates before progress is attributed. It owns deterministic
+  unsafe/noop/duplicate/worsened classifications and reports them through the
+  attempt ledger and eval fields.
+- Mechanical Repair Adapter Boundary: maps deterministic verifier diagnostics
+  to bounded hints or patch proposals after recovery owner, target, action,
+  source of truth, and rerun authority are already admitted. It does not
+  execute tools or choose targets.
 
 Contract Boundary Propagation is the handoff rule between these surfaces, not a
 second execution engine. When a deterministic guard rejects work, it may pass
-only the facts it owns to the next layer: violated contract, active job, repair
-kind, deterministic target, setup implication, rerun authority, and
-attempt-ledger context. This lets Active Job Arbitration, Recovery Task
-Contract, or verifier-owned setup recovery choose the correct bounded path
-without asking the minimal loop to infer strategy from broad failure prose.
+only the facts it owns to the next layer: violated contract, artifact graph
+facts, active job, repair kind, admitted target, repair action when
+deterministic, semantic failure kind, source of truth, allowed change kind,
+expected evidence delta, workspace scope, artifact ownership, setup
+implication, recovery owner, loop control action, dispatch status, dispatch
+reason, candidate jobs, tie-break reason, completion evidence, evidence
+binding, deliverable obligations, repair action plan, semantic failure report,
+repair job state, verifier diagnostic payload, diagnostic code,
+observed/expected pairs, affected cases, preferred repair role, weak verifier
+reason, admitted cluster targets, contract conflict decision fields, patch
+validation, eval report fields, rerun authority, and attempt-ledger context.
+This lets Recovery Orchestration Contract choose the correct bounded path
+before Recovery Task Contract, Setup Bootstrap, or verifier-owned setup
+recovery delegates execution to the minimal loop.
 
 These fields are rendered through existing contract evidence and recovery task
 payloads. For example, `repair_kind=manifest_dependency_repair` can target
@@ -49,12 +92,60 @@ state that dependency setup may be stale after manifest repair, and
 still judge success. The fields do not create retry authority or an unbounded
 controller.
 
+Patch validation is the admission boundary after a repair attempt proposes a
+workspace change. It consumes the selected owner/action/target facts, touched
+paths, source of truth, before/after signatures, and profile artifact
+classification. It rejects unsafe patch classes before verifier rerun when the
+violation is deterministic, and it records post-rerun outcomes such as noop,
+duplicate, no progress, worsened, or passed through the attempt ledger. A
+worsened attempt may enter rollback admission only when the original authority
+proved the regression and safe rollback data exists; otherwise the runtime
+reports a rejected rollback gate and stops or selects another bounded strategy.
+
+Mechanical repair adapters sit beside, not inside, the minimal loop. They
+convert diagnostic payloads such as Rust compile errors, Python import errors,
+TypeScript/Next.js type failures, route integration failures, or dependency
+missing into bounded hints for the Recovery Task Contract. The adapter output
+is admitted only after owner, action, target, target role, source-of-truth
+authority, and allowed change kind are already present. It is still validated
+as a patch proposal and judged by the original verifier.
+
 The Planning Contract must validate more than schema shape. It owns step
 decomposition checks such as whether a `setup` step is trying to create a
 source artifact, whether a `verify` step is mixed with mutation, and whether an
 expected path belongs to the step that names it. Profile artifact
 classification supplies typed path facts for these checks, but the profile does
 not become a planner.
+
+Task Contract projection is the shared authority that turns explicit intent,
+goal keywords, required artifacts, profile obligations, and deliverable roles
+into bounded facts such as `task.contract.kind`,
+`task.contract.lifecycle`, `task.contract.request_signals`,
+`task.contract.constraints`,
+`task.contract.expected_completion_evidence`,
+`task.contract.behavior_obligation.<code>`, and
+`task.contract.artifact_roles`. The step runner may include those facts in the
+planning prompt, active step contract, plan-lint evidence, and eval reports.
+It may reject a plan that drops a required task artifact, proceeds with a
+partial/conflicting task admission where artifact ownership matters, or omits
+a deterministic behavior-obligation owner for setup, manifest, route, docs,
+data, test, or source obligations. It must not use Task Contract projection to
+run tools, add hidden retry authority, perform semantic confirmation, or force
+every ultra phase to own every final artifact.
+
+Task Contract persistence is bounded. The contract is rendered into generated
+plan prompts, active step facts, plan-lint evidence, saved run artifacts,
+session-visible output, and eval reports. CommandAgent does not maintain a
+separate cross-command task-contract memory; later commands reconstruct the
+contract from public inputs and workspace facts instead of relying on hidden
+state.
+
+Profile-specific planning guidance and profile-specific plan lint are exposed
+through the Profile Contract. The step runner may call the shared profile
+interface to render guidance, classify artifacts, collect obligations, run
+profile-specific plan lint, or verify profile facts. The step runner must not
+embed Next.js, Python, Rust, docs, or data rules directly in generic plan-lint
+logic; it should consume the profile result as common contract evidence.
 
 Profile Contract may include small dependency compatibility producers when
 they operate only on deterministic manifest facts or classified setup failure
@@ -65,27 +156,153 @@ TypeScript app that drifted to TypeScript 6 or `@types/react` 19. Profiles
 still must not execute package managers, query registries, choose workflows, or
 retry setup.
 
-The Recovery Task Contract is not an execution engine. It does not retry until
-success or continue hidden work. It is a contract layer that prepares the next
-bounded repair turn when a guard, verifier, profile check, or active job
-arbiter already knows enough to name the blocker, violated contract, target or
-candidate paths, required action, disallowed actions, and the original
-guard/verifier that will judge the repair.
+Profile output is rendered through one common schema across profiles. The
+schema includes project root hints, classified artifacts, setup artifacts,
+scaffold artifacts, route/integration artifacts, verifier commands, protected
+paths, behavior obligations, verification failures, recovery candidate hints,
+profile project kind, manifest artifacts, entrypoints, integration artifacts,
+completion evidence requirements, failure mappings, adapter families, and a
+capability matrix. These are profile facts and hints for the common contracts.
+They make cross-profile parity observable without letting a profile select the
+final active job, bypass dispatch, execute setup, or materialize scaffold files
+by itself.
 
-In short, planning, setup, job arbitration, and recovery clarify what should be
-done; the minimal loop executes the already-clarified task. Profiles classify
-and verify domain facts for those contracts. If CommandAgent cannot form a
-deterministic job classification or recovery task, it should stop with
+The Recovery Orchestration Contract is not an execution engine. It does not
+retry until success or continue hidden work. It is a deterministic decision
+layer that prepares the repair path when a guard, verifier, profile check, or
+plan lint failure already knows enough to classify the blocker, map it to the
+ArtifactGraph, admit the target, prioritize candidates, select one allowed
+repair action, project tool policy, and name disallowed actions and rerun
+authority.
+
+Contract conflicts are resolved inside Recovery Orchestration as a decision
+boundary, not as a separate engine. When deterministic evidence says that an
+implementation, test, docs/API, or verifier contract disagree, the
+contract-conflict classifier first separates the authoritative side from the
+side that may be repaired. A generated test without binding may select test
+alignment instead of source repair. A pre-existing in-scope test or bound
+docs/API contract may select source implementation repair. A weak or
+self-referential verifier routes to verifier contract correction. Ambiguous or
+insufficient authority becomes an explicit structured stop. These decisions are
+rendered through fields such as `contract_conflict_status`,
+`contract_conflict_sides`, `contract_conflict_authority`,
+`contract_conflict_repair_target_side`,
+`contract_conflict_selected_action`,
+`contract_conflict_safe_stop_reason`,
+`contract_conflict_missing_evidence`, and
+`contract_conflict_source_of_truth`.
+
+Completion evidence and evidence binding are part of this visible contract
+surface. Completion evidence records whether a repository edit, verifier exit,
+docs section, structured-data check, report completeness check, or command
+observation satisfied a deliverable. Evidence binding records whether a
+required deliverable is connected to an observable proof path such as a
+manifest identity, import symbol, executable handle, test script, required
+section, schema column, citation, or file layout. Evidence producers may
+derive these records from artifact ledger facts, verifier results, profile
+facts, setup validation, or tool protocol failures, but they must not run
+tools, repair files, or select recovery jobs. A binding failure can select an
+`evidence_binding_repair` job, but it still remains a bounded repair task for
+the existing minimal loop.
+
+Runtime Job Report is the rendering boundary for these facts. It lets eval
+output answer where a workflow stopped without reading raw logs: planning,
+running, setup, verifying, repairing, rechecking, completed, blocked, failed,
+explicit stop, or dry-run placeholder. Completion source is separate from
+success: runtime success, existing success, dry-run placeholder success,
+evidence-only success, recheck success, and recheck failure must remain
+distinguishable. These values are report projection only and must not become
+hidden orchestration triggers.
+
+Artifact Ledger and Completion Authority are the attribution boundary for
+deliverable completion. The ledger records required, observed, changed, and
+verifier-mentioned paths with role, lifecycle, ownership, source, and source of
+truth. It is fed by bounded workspace snapshots, normalized `Read` / `Write` /
+`Edit` tool target paths, verifier-mentioned source paths, and deterministic
+scaffold/setup provenance when such provenance is already available. Completion
+Authority then classifies already observed facts into
+`missing_deliverable`, `missing_evidence`, `completion_evidence_failed`,
+`evidence_binding_failed`, or `stale_evidence`. It also records the completion
+source of truth and freshness status when current-run evidence is required.
+Only in-scope owned deliverables can satisfy required paths. Candidate-only
+observations, dependency caches, generated/build outputs, and protected raw
+inputs are not completion authority even if the path was observed.
+It does not repair, retry, choose a future phase, or replace the verifier. It
+only prevents path existence, evidence execution, evidence freshness, and
+evidence binding from being collapsed into one generic failure.
+
+Artifact ledger producer attribution is itself observable. Eval-visible fields
+such as `artifact_ledger_sources`, `required_paths`, `read_paths`,
+`changed_paths`, `created_paths`, `verifier_mentioned_paths`,
+`scaffold_created_paths`, and `setup_created_paths` are derived from ledger
+entries and producer flags. They let reports distinguish graph/tool/verifier,
+setup/scaffold, workspace, and completion-authority inputs without introducing
+a hidden post-tool job. Deliverable obligation fields such as
+`deliverable_obligation_kind`, `deliverable_obligation_path`, and
+`deliverable_obligation` are also report projections; they do not select
+repair jobs or execute checks.
+
+Verifier Diagnostic Payload is the attribution boundary for failed verifier
+commands. It classifies already-observed command output into bounded,
+deterministic fields such as `diagnostic_code`, `failure_signature`,
+`diagnostic_failure_kind`, `observed_expected`, `affected_cases`, `candidate_artifacts`,
+`source_of_truth`, `preferred_repair_role`, `weak_verifier_reason`, and
+`admitted_cluster_targets`. It does not run commands, choose a model strategy,
+or decide retries. Recovery Orchestration may consume those fields to avoid
+collapsing `command_failed:1` into generic source repair, but the original
+verifier remains the success authority.
+
+The Recovery Task Contract renders that policy into the next bounded repair
+turn for the minimal loop. It should not decide the repair strategy from broad
+prose; it should consume the Recovery Policy decision and make the executable
+repair instruction clear.
+
+In short, planning, setup, recovery orchestration, recovery policy, and
+recovery tasks clarify what should be done; the minimal loop executes the
+already-clarified task. Profiles classify and verify domain facts for those
+contracts. If CommandAgent cannot form a deterministic artifact graph mapping,
+job classification, policy decision, or recovery task, it should stop with
 structured evidence instead of asking the minimal loop to infer the repair
 strategy from broad failure prose.
+
+The dispatch gate is the final decision boundary inside Recovery Orchestration
+before a Recovery Task Contract is rendered. It receives active-job candidates
+from deterministic evidence, selects exactly one owner/action pair, projects a
+loop control action such as bounded repair task, verifier-owned setup,
+tool-protocol correction, or explicit stop, and records why that decision was
+made. If the top candidates are ambiguous, it records `contract_conflict` and
+stops instead of choosing a path by heuristic.
+
+Active-job candidates carry their recovery owner, source layer, source of
+truth, target hint, artifact role, tool-policy projection, loop-control action,
+rerun authority, lifecycle state, and deterministic reason. Profile policy may produce these
+candidates or evidence hints, but it must not bypass the dispatch gate. The
+gate is the single place where competing setup, manifest, route, source, test,
+docs, evidence-binding, verifier-contract, and tool-protocol owners are
+selected or stopped.
 
 Propagation must stay visible and bounded. It can route a manifest dependency
 repair toward `package.json`, mark dependency setup stale after that manifest
 changes, route a disconnected artifact toward selected-route integration, or
 select setup bootstrap when verifier evidence and policy make that action
-deterministic. It must not choose arbitrary future phases, silently run setup
-without a setup contract, increase retry count, authorize model-issued
-dependency installs, or let profiles become hidden workflow engines.
+deterministic. It can also run a bounded verifier-owned `dev_server_smoke`
+job when a profile exposes a requested-port contract and a build verifier has
+completed. That job validates the dev script, port preflight, endpoint smoke,
+and process cleanup as runtime evidence. It must not choose arbitrary future
+phases, silently run setup without a setup contract, increase retry count,
+authorize model-issued dependency installs, keep background dev servers
+running, or let profiles become hidden workflow engines.
+
+Setup lifecycle records are the common runtime job evidence for setup and
+manifest blockers. Manifest validation can classify Node, Cargo, and Python
+manifest failures before they collapse into generic source repair. The record
+can state `setup_readiness=manifest_missing`, `manifest_invalid`,
+`missing_dependency_artifact`, `setup_stale`, or
+`setup_attempted_for_fingerprint`, and can state command authority such as
+`allowed`, `blocked_invalid_manifest`, `blocked_repeated_attempt`, or
+`blocked`. The existing setup runtime remains the only place that may run an
+authorized setup command, and the original verifier/profile/dev-server check
+remains the success authority after setup.
 
 Next.js route integration is profile evidence, not workflow control. The
 profile may build a bounded static graph from the selected route through
@@ -118,6 +335,11 @@ The envelope must not add retry authority or provider/model-specific behavior.
 - `safety`: path confinement and host validation.
 - `util`: shared workspace path and file classification helpers.
 - `agent/events`: shared passive runtime events for UI and tests.
+- `agent/event_protocol`: versioned external Job/Event envelopes, event JSONL
+  observer, command accepted/rejected events, and replayable job state
+  projection. It observes runtime events but does not schedule work.
+- `agent/budget`: budget contract data, budget decisions, and deterministic
+  tool-result truncation helpers.
 - `tui`: terminal rendering for interactive progress and final-answer
   formatting.
 
@@ -128,14 +350,122 @@ The envelope must not add retry authority or provider/model-specific behavior.
 | Provider | HTTP/API transport, provider-specific payload shapes | Planning, repair policy, profile behavior |
 | Minimal loop | Tool-call execution, observations, bounded completion guards | Multi-step plans, recovery strategy, domain profiles, unbounded retry |
 | Profile | Domain facts, artifact classification, verifier hints, protected prefixes, profile evidence, setup artifact templates | Hidden task-specific agents, execution policy, package-registry solving |
-| Step runner | Plan schema, step-decomposition lint, verifier, active job arbitration, setup bootstrap, recovery task contracts, repair packet, attempt ledger, ultra phase order | Provider transport, low-level tool implementation, unbounded workflow control |
+| Step runner | Plan schema, step-decomposition lint, ArtifactGraph projection, verifier, recovery orchestration, active job selection, recovery policy, setup bootstrap, dev-server smoke, recovery task contracts, patch validation, mechanical repair hints, rollback admission, repair packet, setup/repair attempt ledger, ultra phase order | Provider transport, low-level tool implementation, unbounded workflow control |
 | TUI | TTY-aware rendering of runtime events and final answers | Planning, repair, retry, provider parsing, filesystem policy |
 | Tools | Deterministic workspace actions | Task interpretation or planning |
 | Eval | Run roots, summaries, recheck, reports | Runtime behavior changes |
+| Event protocol | Versioned external events, command response events, replay projection | TUI rendering, queueing, scheduling, approval UI, retry policy |
+| Budget | Budget data, bounded tool-result truncation, explicit budget decisions | Provider/model selection, hidden continuation, verifier success policy |
 
 This separation is the main defense against rebuilding hidden legacy behavior
 under new names. The orchestration may become richer, but each decision must
 remain attributable to a contract surface.
+
+## Versioned Job/Event Boundary
+
+Runtime events remain passive internal observations for TUI and tests.
+CommandAgent can also adapt them into a versioned external event envelope:
+
+```text
+RuntimeEvent -> VersionedEvent(schema_version, run_id, job_id, sequence, payload)
+```
+
+The external protocol is append-only and replay-oriented. A projector can
+derive a durable job state such as planning, running, verifying, repairing,
+blocked, completed, failed, or cancelled from the event sequence. Unknown
+event types or unknown fields must not break replay. TUI continues to consume
+internal events and must not parse external JSONL display text.
+
+For one-shot runs, setting `COMMANDAGENT_EVENT_JSONL=/path/to/events.jsonl`
+records the versioned event stream while preserving normal stderr TUI output.
+This is an observability path for eval and CommandMate integration, not a new
+runtime control path.
+
+## Evidence, Usage, And Budget Records
+
+`ContractEvidence` remains readable for compatibility, but new evidence can be
+projected through an `EvidenceEnvelope` and typed `EvidencePayload` variants:
+planning, provider transport, tool protocol, step policy, verification,
+profile, setup, recovery attempt, or unsupported. Evidence describes what
+failed. ArtifactGraph describes which artifacts and relationships are involved.
+Recovery Orchestration, Recovery Policy, and Recovery Task still own what to do
+next.
+
+`FailureObservation` is the shared terminal-state identity projection of
+failure evidence. A `ContractEvidence` failure can render a compact observation
+line, and an `EvidenceEnvelope` carries the same projection alongside its typed
+payload. The observation records fields such as `terminal_state`,
+`failure_class`, `contract_layer`, `violated_contract`, `producer`, `guard`,
+`diagnostic_code`, `failure_signature`, `source`, `source_of_truth`, and
+`actionability`. It is deliberately data-only: it does not admit targets,
+select repair actions, rerun commands, or alter retry budgets.
+
+The orchestration section may carry `recovery_owner`, `completion_evidence`,
+`loop_control_action`, `active_job_lifecycle`, `dispatch_status`, `dispatch_reason`, `candidate_jobs`,
+`tie_break_reason`, `evidence_binding`, `deliverable_obligations`,
+`repair_action_plan`, `semantic_failure_report`, `repair_job_state`,
+`attempt_outcomes`, `exhausted_targets`, `exhausted_roles`,
+`exhausted_clusters`, `no_progress_strategy`, `repair_state_status`,
+`safe_stop_payload`, `patch_validation`, and `eval_report_fields`.
+`attempt_outcomes` are consumed by target admission through exhausted target,
+role, and cluster facts; repeated ineffective repairs therefore narrow or stop
+the next bounded repair instead of silently reusing the same target.
+Target-admission data may carry
+`proposed_targets`, `admitted_targets`, `rejected_targets`, `repair_brief`,
+`selected_failure_cluster`, `repair_brief_status`, `action_envelope_status`,
+`target_source_of_truth`, `target_ownership_source`, `target_workspace_scope`,
+`target_evidence_freshness`, `focused_edit_status`,
+`current_excerpt_available`, `target_priority_components`, and
+`target_conflict_reason`. Semantic diagnostic fields add
+`diagnostic_failure_kind`, `semantic_cluster_source_of_truth`,
+`observed_expected`, `affected_cases`, `candidate_artifacts`, and
+`unknown_diagnostic_count` so eval can distinguish raw verifier failure,
+verifier-contract failure, setup/dev-server failure, and implementation
+failure without reparsing logs. Repair-action envelope fields add
+`allowed_tool_category`, `repair_root_cause`, `repair_hypothesis`,
+`expected_improvement`, `target_confidence`, `must_preserve`, `success_check`,
+and `repair_plan_rejection_reason`. A rejected repair action envelope is a
+deterministic stop before a repair prompt, not another model turn. These
+fields are reporting and repair-contract data. They do not grant retry
+authority or create another execution loop.
+
+Target admission is a deterministic gate between active-job dispatch and
+repair prompt rendering. It uses ArtifactGraph, ArtifactLedger, workspace
+scope, artifact ownership, selected active job, and selected action to admit
+or reject target candidates before the model turn. Focused edit signals from
+read/edit/write records, verifier mentions, setup/scaffold deltas, completion
+evidence, and evidence bindings are candidate sources only. The admission gate
+must reject stale targets, missing current excerpts, out-of-scope files,
+role-mismatched targets, exhausted targets/roles/clusters, and ambiguous
+same-priority candidates before the repair prompt is built. Semantic repair
+planning is bounded contract data that selects a failure cluster and repair
+hypothesis from existing evidence. The repair brief is the structured source
+for the existing Recovery Task Contract; it is not a planner, executor, or
+retry mechanism.
+
+Eval failure observations use the same terminal-state taxonomy through the
+shared fixture under `scripts/failure_observation_taxonomy.tsv`. The eval
+helper can still backfill old run roots, but new runtime evidence should prefer
+the normalized observation fields over raw reasons such as `rc:1`. Reports can
+therefore flag unknown or raw failures as observation coverage defects without
+changing runtime behavior.
+
+Provider usage is normalized into a common `ModelUsage` shape at the provider
+parse boundary and carried on `ChatResponse` into runtime events. Missing usage
+is recorded as unavailable, not as a runtime failure. Cost records are separate
+from usage records and may remain unavailable when pricing is not configured.
+
+Tool results are subject to deterministic output budgeting. If a result is
+truncated, CommandAgent emits a truncation event and includes a marker in the
+tool observation. This prevents large local outputs from silently overwhelming
+model context while keeping the truncation observable.
+
+Successful repository-observation and file-mutation tool records also carry
+safe target metadata. `Read`, `Write`, and `Edit` retain the normalized target
+path, not raw file contents or full tool arguments. Recovery changed-file
+summaries and artifact-ledger summaries use these exact paths so repair policy
+can distinguish "this target was read" and "this target was edited" from the
+older coarse fact that some tool ran.
 
 ## REPL
 
@@ -295,6 +625,24 @@ otherwise a single step `expected_paths` entry can be used as data. Repeated
 schema failures stop explicitly and are reported in repair packets and eval
 summaries. This is not provider policy, profile verification, dependency setup,
 or verifier success.
+The step runner first normalizes deterministic protocol failures into a common
+payload, then selects one bounded correction action. The action may allow only
+the failed tool, require a `Read` before retrying a stale edit, require
+repository-evidence tools after prose-only output, or reject unsafe/provider
+parse failures with explicit stop. The minimal loop receives this as a narrow
+execution envelope and an allowlist of tools; it still does not plan future
+recovery work.
+
+Runtime-support parity is represented as reportable support facts, not as a
+new controller. The step runner may project already-selected recovery evidence
+into fields such as language repair adapter status, effective tool policy,
+tool-failure recovery status, setup command classification, workspace
+candidate policy, job owner/action, scaffold contract status, non-coding
+evidence status, answer/work-mode gate status, lifecycle projection, and
+provider-boundary status. These projections make C34-C44 recovery support
+auditable in eval reports. They must not execute tools, choose a new job,
+increase retry budgets, run dependency setup implicitly, make profiles into
+workflow engines, or move behavior policy into provider transports.
 
 Search tools walk the workspace deterministically and skip hidden paths by
 default. Search output is bounded so a tool result cannot flood the next model
@@ -324,10 +672,12 @@ expected result, expected paths, and verifier commands. Plan files are a public
 contract boundary for built-in and external planner surfaces. The reader
 accepts ordinary scalar forms for known fields, including block scalars for
 long goals or instructions, then normalizes into typed plan structs before
-schema validation and linting. The writer emits a stable canonical form for
-saved plans. This keeps planning bounded without making external planners match
-one incidental line shape. Missing fields in older plan files are defaulted on
-read and normalized on save.
+schema validation and linting. Known long text fields accept `|`, `|-`, `|+`,
+`>`, `>-`, and `>+`; canonical rendering may still use quoted scalar strings.
+The writer emits a stable canonical form for saved plans. This keeps planning
+bounded without making external planners match one incidental line shape.
+Missing fields in older plan files are defaulted on read and normalized on
+save.
 
 Plan linting is a separate pass. It rejects obvious schema-contract mistakes:
 non-file `expected_paths`, JSON/property selectors, alternative paths, glob
@@ -460,13 +810,14 @@ plan is explicitly resumed or replanned and finishes.
 ## Profile Boundary
 
 Profiles are intentionally small. They provide profile text, optional verifier
-commands, optional protected path prefixes, read-only fact summaries, and
-read-only profile obligations and verification. They do not own planning logic,
-edit files, or run domain-specific agents. Profile obligations are projected
-into common step-plan lint and active step/repair prompt facts; profile
-verification can fail a phase with explicit diagnostics and a bounded
-standalone repair packet, but it does not auto-repair or auto-resume the
-original ultra plan.
+commands, optional protected path prefixes, profile-specific planning
+guidance, artifact classification, read-only fact summaries, profile
+obligations, profile-specific plan lint, and profile verification. They do not
+own workflow selection, edit files, execute package managers, or run
+domain-specific agents. Profile obligations and profile lint are projected into
+common step-plan lint and active step/repair prompt facts; profile verification
+can fail a phase with explicit diagnostics and a bounded standalone repair
+packet, but it does not auto-repair or auto-resume the original ultra plan.
 
 The current profile set is MVP-sized: `generic`, `nextjs`, `python`, `rust`,
 `investigation`, `docs`, `data-analysis`, and `data-pipeline`. A new profile

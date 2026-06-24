@@ -1,0 +1,673 @@
+use crate::agent::step_runner::correction_evidence::ContractEvidence;
+use crate::agent::step_runner::failure_observation::FailureObservation;
+use serde::{Deserialize, Serialize};
+
+pub const EVIDENCE_SCHEMA_VERSION: &str = "1.0";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceProducer {
+    PlanLint,
+    ProviderParser,
+    ToolSchemaGuard,
+    StepToolPolicy,
+    Verifier,
+    ProfileVerification,
+    SetupRuntime,
+    RecoveryLoop,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FailureClass {
+    Planning,
+    ProviderTransport,
+    ToolProtocol,
+    StepPolicy,
+    Verification,
+    Profile,
+    Setup,
+    RecoveryAttempt,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EvidenceEnvelope {
+    pub schema_version: String,
+    pub evidence_id: String,
+    pub(crate) failure_observation: FailureObservation,
+    pub producer: EvidenceProducer,
+    pub failure_class: FailureClass,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failed_step: Option<String>,
+    pub reason_code: String,
+    pub timestamp: String,
+    pub payload: EvidencePayload,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orchestration: Option<OrchestrationEvidence>,
+}
+
+impl EvidenceEnvelope {
+    pub fn from_contract_evidence(
+        evidence_id: impl Into<String>,
+        timestamp: impl Into<String>,
+        evidence: &ContractEvidence,
+    ) -> Self {
+        let producer = producer_from_guard(&evidence.guard);
+        let payload = EvidencePayload::from_contract_evidence(evidence);
+        let failure_observation = FailureObservation::from_contract_evidence(evidence);
+        Self {
+            schema_version: EVIDENCE_SCHEMA_VERSION.to_string(),
+            evidence_id: evidence_id.into(),
+            failure_observation,
+            producer,
+            failure_class: payload.failure_class(),
+            failed_step: evidence.failed_step.clone(),
+            reason_code: evidence
+                .reason_code
+                .clone()
+                .or_else(|| evidence.violated_contract.clone())
+                .unwrap_or_else(|| evidence.guard.clone()),
+            timestamp: timestamp.into(),
+            orchestration: OrchestrationEvidence::from_contract_evidence(evidence),
+            payload,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum EvidencePayload {
+    Planning(PlanningEvidence),
+    ProviderTransport(ProviderTransportEvidence),
+    ToolProtocol(ToolProtocolEvidence),
+    StepPolicy(StepPolicyEvidence),
+    Verification(VerificationEvidence),
+    Profile(ProfileEvidence),
+    Setup(SetupEvidence),
+    RecoveryAttempt(RecoveryAttemptEvidence),
+    Unsupported(UnsupportedEvidence),
+}
+
+impl EvidencePayload {
+    pub fn failure_class(&self) -> FailureClass {
+        match self {
+            Self::Planning(_) => FailureClass::Planning,
+            Self::ProviderTransport(_) => FailureClass::ProviderTransport,
+            Self::ToolProtocol(_) => FailureClass::ToolProtocol,
+            Self::StepPolicy(_) => FailureClass::StepPolicy,
+            Self::Verification(_) => FailureClass::Verification,
+            Self::Profile(_) => FailureClass::Profile,
+            Self::Setup(_) => FailureClass::Setup,
+            Self::RecoveryAttempt(_) => FailureClass::RecoveryAttempt,
+            Self::Unsupported(_) => FailureClass::Unsupported,
+        }
+    }
+
+    pub fn from_contract_evidence(evidence: &ContractEvidence) -> Self {
+        let guard = evidence.guard.as_str();
+        if guard.starts_with("plan_lint") || guard.contains("planning") {
+            return Self::Planning(PlanningEvidence {
+                violated_contract: evidence.violated_contract.clone(),
+                target_field: evidence.target_field.clone(),
+                target_path: evidence.target_path.clone(),
+                rejected_value: evidence.rejected_value.clone(),
+                required_values: merge_lists(&evidence.required_literals, &evidence.required_paths),
+                missing_values: merge_lists(&evidence.missing_literals, &evidence.missing_paths),
+            });
+        }
+        if guard == "tool_protocol"
+            || evidence
+                .reason_code
+                .as_deref()
+                .is_some_and(|code| code.starts_with("tool_args_"))
+        {
+            return Self::ToolProtocol(ToolProtocolEvidence {
+                tool: evidence.tool.clone(),
+                error_kind: evidence
+                    .reason_code
+                    .clone()
+                    .or_else(|| evidence.diagnostic_code.clone()),
+                required_fields: evidence.required_fields.clone(),
+                missing_fields: evidence
+                    .target_field
+                    .iter()
+                    .cloned()
+                    .chain(evidence.missing_literals.iter().cloned())
+                    .collect(),
+                invalid_payload_excerpt: evidence.diagnostic.clone(),
+            });
+        }
+        if guard == "step_policy" {
+            return Self::StepPolicy(StepPolicyEvidence {
+                step_id: evidence.failed_step.clone(),
+                policy: evidence.violated_contract.clone(),
+                disallowed_tool: evidence.tool.clone(),
+                violation: evidence
+                    .reason_code
+                    .clone()
+                    .or_else(|| evidence.diagnostic.clone()),
+            });
+        }
+        if guard == "verifier" || evidence.command.is_some() {
+            return Self::Verification(VerificationEvidence {
+                command: evidence.command.clone(),
+                failure_kind: evidence.failure_kind.clone(),
+                failure_signature: evidence.failure_signature.clone(),
+                diagnostic_code: evidence.diagnostic_code.clone(),
+                diagnostic_excerpt: evidence.diagnostic.clone(),
+                related_source_excerpt: evidence.related_source_excerpt.clone(),
+                observed_expected_pairs: evidence.observed_expected_pairs.clone(),
+                affected_cases: evidence.affected_cases.clone(),
+                candidate_artifacts: evidence.candidate_artifacts.clone(),
+                preferred_repair_role: evidence.preferred_repair_role.clone(),
+                weak_verifier_reason: evidence.weak_verifier_reason.clone(),
+                verifier_diagnostic_payload: evidence.verifier_diagnostic_payload.clone(),
+            });
+        }
+        if guard == "profile" || guard.starts_with("profile_") {
+            return Self::Profile(ProfileEvidence {
+                profile: evidence
+                    .affected_cases
+                    .first()
+                    .cloned()
+                    .unwrap_or_else(|| "unknown".to_string()),
+                check_code: evidence
+                    .diagnostic_code
+                    .clone()
+                    .or_else(|| evidence.reason_code.clone()),
+                affected_paths: merge_lists(&evidence.required_paths, &evidence.missing_paths),
+                observed: evidence.observed_expected_pairs.clone(),
+                expected: evidence.required_literals.clone(),
+            });
+        }
+        if guard == "setup"
+            || evidence
+                .reason_code
+                .as_deref()
+                .is_some_and(|code| code.contains("dependency"))
+        {
+            return Self::Setup(SetupEvidence {
+                setup_command: evidence.command.clone(),
+                setup_status: evidence.reason_code.clone(),
+                missing_dependency: evidence.missing_literals.first().cloned(),
+                affected_manifest: evidence
+                    .repair_target
+                    .clone()
+                    .or_else(|| evidence.target_path.clone()),
+            });
+        }
+        if guard == "evidence_binding" || guard == "recovery" || guard == "repair" {
+            return Self::RecoveryAttempt(RecoveryAttemptEvidence {
+                attempt_id: evidence.prior_attempts.first().cloned(),
+                recovery_task_id: evidence
+                    .active_job
+                    .clone()
+                    .or_else(|| evidence.repair_kind.clone()),
+                observed_result: evidence.reason_code.clone(),
+                rerun_verifier: evidence.rerun_authority.first().cloned(),
+                final_status: evidence.failure_kind.clone(),
+            });
+        }
+        if guard.starts_with("provider") {
+            return Self::ProviderTransport(ProviderTransportEvidence {
+                provider: None,
+                model: None,
+                parse_error: evidence
+                    .reason_code
+                    .clone()
+                    .or_else(|| evidence.diagnostic.clone()),
+                raw_response_excerpt: evidence.related_source_excerpt.clone(),
+            });
+        }
+        Self::Unsupported(UnsupportedEvidence {
+            original_guard: evidence.guard.clone(),
+            diagnostic: evidence.diagnostic.clone(),
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlanningEvidence {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub violated_contract: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_field: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rejected_value: Option<String>,
+    #[serde(default)]
+    pub required_values: Vec<String>,
+    #[serde(default)]
+    pub missing_values: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderTransportEvidence {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parse_error: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raw_response_excerpt: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolProtocolEvidence {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_kind: Option<String>,
+    #[serde(default)]
+    pub required_fields: Vec<String>,
+    #[serde(default)]
+    pub missing_fields: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invalid_payload_excerpt: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct StepPolicyEvidence {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub policy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disallowed_tool: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub violation: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VerificationEvidence {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_signature: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic_excerpt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub related_source_excerpt: Option<String>,
+    #[serde(default)]
+    pub observed_expected_pairs: Vec<String>,
+    #[serde(default)]
+    pub affected_cases: Vec<String>,
+    #[serde(default)]
+    pub candidate_artifacts: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preferred_repair_role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weak_verifier_reason: Option<String>,
+    #[serde(default)]
+    pub verifier_diagnostic_payload: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProfileEvidence {
+    pub profile: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check_code: Option<String>,
+    #[serde(default)]
+    pub affected_paths: Vec<String>,
+    #[serde(default)]
+    pub observed: Vec<String>,
+    #[serde(default)]
+    pub expected: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetupEvidence {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup_command: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub setup_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub missing_dependency: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub affected_manifest: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RecoveryAttemptEvidence {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attempt_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_task_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub observed_result: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rerun_verifier: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub final_status: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UnsupportedEvidence {
+    pub original_guard: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrchestrationEvidence {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_job: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repair_action: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repair_target: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool_policy_projection: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_admission: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_priority: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantic_failure_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_of_truth: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_change_kind: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_evidence_delta: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace_scope: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub artifact_ownership: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_job_lifecycle: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_job_priority: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub loop_control_action: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dispatch_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dispatch_reason: Option<String>,
+    #[serde(default)]
+    pub candidate_jobs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tie_break_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub explicit_stop_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_owner: Option<String>,
+    #[serde(default)]
+    pub completion_evidence: Vec<String>,
+    #[serde(default)]
+    pub evidence_binding: Vec<String>,
+    #[serde(default)]
+    pub deliverable_obligations: Vec<String>,
+    #[serde(default)]
+    pub repair_action_plan: Vec<String>,
+    #[serde(default)]
+    pub semantic_failure_report: Vec<String>,
+    #[serde(default)]
+    pub repair_job_state: Vec<String>,
+    #[serde(default)]
+    pub attempt_outcomes: Vec<String>,
+    #[serde(default)]
+    pub patch_validation: Vec<String>,
+    #[serde(default)]
+    pub eval_report_fields: Vec<String>,
+    #[serde(default)]
+    pub artifact_graph_summary: Vec<String>,
+    #[serde(default)]
+    pub verifier_diagnostic_payload: Vec<String>,
+    #[serde(default)]
+    pub proposed_targets: Vec<String>,
+    #[serde(default)]
+    pub admitted_targets: Vec<String>,
+    #[serde(default)]
+    pub admitted_cluster_targets: Vec<String>,
+    #[serde(default)]
+    pub rejected_targets: Vec<String>,
+    #[serde(default)]
+    pub repair_brief: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_failure_cluster: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preferred_repair_role: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weak_verifier_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repair_brief_status: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_envelope_status: Option<String>,
+    #[serde(default)]
+    pub exhausted_clusters: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub no_progress_strategy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repair_state_status: Option<String>,
+}
+
+impl OrchestrationEvidence {
+    fn from_contract_evidence(evidence: &ContractEvidence) -> Option<Self> {
+        let orchestration = Self {
+            active_job: evidence.active_job.clone(),
+            repair_action: evidence.repair_action.clone(),
+            repair_target: evidence.repair_target.clone(),
+            tool_policy_projection: evidence.tool_policy_projection.clone(),
+            target_admission: evidence.target_admission.clone(),
+            target_priority: evidence.target_priority.clone(),
+            semantic_failure_kind: evidence.semantic_failure_kind.clone(),
+            source_of_truth: evidence.source_of_truth.clone(),
+            allowed_change_kind: evidence.allowed_change_kind.clone(),
+            expected_evidence_delta: evidence.expected_evidence_delta.clone(),
+            workspace_scope: evidence.workspace_scope.clone(),
+            artifact_ownership: evidence.artifact_ownership.clone(),
+            active_job_lifecycle: evidence.active_job_lifecycle.clone(),
+            active_job_priority: evidence.active_job_priority.clone(),
+            loop_control_action: evidence.loop_control_action.clone(),
+            dispatch_status: evidence.dispatch_status.clone(),
+            dispatch_reason: evidence.dispatch_reason.clone(),
+            candidate_jobs: evidence.candidate_jobs.clone(),
+            tie_break_reason: evidence.tie_break_reason.clone(),
+            explicit_stop_reason: evidence.explicit_stop_reason.clone(),
+            recovery_owner: evidence.recovery_owner.clone(),
+            completion_evidence: evidence.completion_evidence.clone(),
+            evidence_binding: evidence.evidence_binding.clone(),
+            deliverable_obligations: evidence.deliverable_obligations.clone(),
+            repair_action_plan: evidence.repair_action_plan.clone(),
+            semantic_failure_report: evidence.semantic_failure_report.clone(),
+            repair_job_state: evidence.repair_job_state.clone(),
+            attempt_outcomes: evidence.attempt_outcomes.clone(),
+            patch_validation: evidence.patch_validation.clone(),
+            eval_report_fields: evidence.eval_report_fields.clone(),
+            artifact_graph_summary: evidence.artifact_graph_summary.clone(),
+            verifier_diagnostic_payload: evidence.verifier_diagnostic_payload.clone(),
+            proposed_targets: evidence.proposed_targets.clone(),
+            admitted_targets: evidence.admitted_targets.clone(),
+            admitted_cluster_targets: evidence.admitted_cluster_targets.clone(),
+            rejected_targets: evidence.rejected_targets.clone(),
+            repair_brief: evidence.repair_brief.clone(),
+            selected_failure_cluster: evidence.selected_failure_cluster.clone(),
+            preferred_repair_role: evidence.preferred_repair_role.clone(),
+            weak_verifier_reason: evidence.weak_verifier_reason.clone(),
+            repair_brief_status: evidence.repair_brief_status.clone(),
+            action_envelope_status: evidence.action_envelope_status.clone(),
+            exhausted_clusters: evidence.exhausted_clusters.clone(),
+            no_progress_strategy: evidence.no_progress_strategy.clone(),
+            repair_state_status: evidence.repair_state_status.clone(),
+        };
+        if orchestration.active_job.is_none()
+            && orchestration.repair_action.is_none()
+            && orchestration.repair_target.is_none()
+            && orchestration.tool_policy_projection.is_none()
+            && orchestration.target_admission.is_none()
+            && orchestration.target_priority.is_none()
+            && orchestration.semantic_failure_kind.is_none()
+            && orchestration.source_of_truth.is_none()
+            && orchestration.allowed_change_kind.is_none()
+            && orchestration.expected_evidence_delta.is_none()
+            && orchestration.workspace_scope.is_none()
+            && orchestration.artifact_ownership.is_none()
+            && orchestration.active_job_lifecycle.is_none()
+            && orchestration.active_job_priority.is_none()
+            && orchestration.loop_control_action.is_none()
+            && orchestration.dispatch_status.is_none()
+            && orchestration.dispatch_reason.is_none()
+            && orchestration.candidate_jobs.is_empty()
+            && orchestration.tie_break_reason.is_none()
+            && orchestration.explicit_stop_reason.is_none()
+            && orchestration.recovery_owner.is_none()
+            && orchestration.completion_evidence.is_empty()
+            && orchestration.evidence_binding.is_empty()
+            && orchestration.deliverable_obligations.is_empty()
+            && orchestration.repair_action_plan.is_empty()
+            && orchestration.semantic_failure_report.is_empty()
+            && orchestration.repair_job_state.is_empty()
+            && orchestration.attempt_outcomes.is_empty()
+            && orchestration.patch_validation.is_empty()
+            && orchestration.eval_report_fields.is_empty()
+            && orchestration.artifact_graph_summary.is_empty()
+            && orchestration.verifier_diagnostic_payload.is_empty()
+            && orchestration.proposed_targets.is_empty()
+            && orchestration.admitted_targets.is_empty()
+            && orchestration.admitted_cluster_targets.is_empty()
+            && orchestration.rejected_targets.is_empty()
+            && orchestration.repair_brief.is_empty()
+            && orchestration.selected_failure_cluster.is_none()
+            && orchestration.preferred_repair_role.is_none()
+            && orchestration.weak_verifier_reason.is_none()
+            && orchestration.repair_brief_status.is_none()
+            && orchestration.action_envelope_status.is_none()
+            && orchestration.exhausted_clusters.is_empty()
+            && orchestration.no_progress_strategy.is_none()
+            && orchestration.repair_state_status.is_none()
+        {
+            None
+        } else {
+            Some(orchestration)
+        }
+    }
+}
+
+fn producer_from_guard(guard: &str) -> EvidenceProducer {
+    if guard.starts_with("plan_lint") {
+        EvidenceProducer::PlanLint
+    } else if guard.starts_with("provider") {
+        EvidenceProducer::ProviderParser
+    } else if guard == "tool_protocol" {
+        EvidenceProducer::ToolSchemaGuard
+    } else if guard == "step_policy" {
+        EvidenceProducer::StepToolPolicy
+    } else if guard == "verifier" {
+        EvidenceProducer::Verifier
+    } else if guard == "profile" || guard.starts_with("profile_") {
+        EvidenceProducer::ProfileVerification
+    } else if guard == "setup" {
+        EvidenceProducer::SetupRuntime
+    } else if guard == "evidence_binding" || guard == "recovery" || guard == "repair" {
+        EvidenceProducer::RecoveryLoop
+    } else {
+        EvidenceProducer::Unknown
+    }
+}
+
+fn merge_lists(left: &[String], right: &[String]) -> Vec<String> {
+    let mut merged = Vec::new();
+    for value in left.iter().chain(right.iter()) {
+        if !merged.contains(value) {
+            merged.push(value.clone());
+        }
+    }
+    merged
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plan_lint_contract_evidence_maps_to_planning_payload() {
+        let evidence = ContractEvidence::new("plan_lint.profile_obligations")
+            .with_failed_step("create-package-json")
+            .with_violated_contract("nextjs_dependencies_required")
+            .with_target_field("instruction")
+            .with_required_literals(["next", "react", "react-dom"])
+            .with_missing_literals(["react-dom"]);
+
+        let envelope =
+            EvidenceEnvelope::from_contract_evidence("ev1", "2026-06-20T00:00:00Z", &evidence);
+
+        assert_eq!(envelope.producer, EvidenceProducer::PlanLint);
+        assert_eq!(envelope.failure_class, FailureClass::Planning);
+        assert_eq!(envelope.failed_step.as_deref(), Some("create-package-json"));
+        match envelope.payload {
+            EvidencePayload::Planning(payload) => {
+                assert_eq!(payload.target_field.as_deref(), Some("instruction"));
+                assert_eq!(payload.missing_values, vec!["react-dom"]);
+            }
+            other => panic!("unexpected payload: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tool_protocol_contract_evidence_maps_to_tool_payload() {
+        let evidence = ContractEvidence::new("tool_protocol")
+            .with_reason_code("tool_args_missing_required_field")
+            .with_tool("Write")
+            .with_target_field("path")
+            .with_required_fields(["path", "content"]);
+
+        let envelope = EvidenceEnvelope::from_contract_evidence("ev2", "ts", &evidence);
+
+        assert_eq!(envelope.failure_class, FailureClass::ToolProtocol);
+        match envelope.payload {
+            EvidencePayload::ToolProtocol(payload) => {
+                assert_eq!(payload.tool.as_deref(), Some("Write"));
+                assert_eq!(payload.missing_fields, vec!["path"]);
+            }
+            other => panic!("unexpected payload: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn orchestration_fields_are_carried_on_envelope() {
+        let evidence = ContractEvidence::new("profile_verification")
+            .with_reason_code("nextjs_route_not_integrated")
+            .with_active_job("route_integration_repair")
+            .with_repair_action("connect_existing_artifact_to_entrypoint")
+            .with_repair_target("app/page.tsx")
+            .with_tool_policy_projection("file_mutation_repair")
+            .with_target_admission("admitted: target app/page.tsx")
+            .with_target_priority("priority=0 repair_target from deterministic evidence")
+            .with_artifact_graph_summary(vec![
+                "app/page.tsx role=entrypoint lifecycle=integration_target source=contract.repair_target",
+            ]);
+
+        let envelope = EvidenceEnvelope::from_contract_evidence("ev4", "ts", &evidence);
+        let orchestration = envelope.orchestration.unwrap();
+
+        assert_eq!(
+            orchestration.active_job.as_deref(),
+            Some("route_integration_repair")
+        );
+        assert_eq!(
+            orchestration.tool_policy_projection.as_deref(),
+            Some("file_mutation_repair")
+        );
+        assert_eq!(orchestration.repair_target.as_deref(), Some("app/page.tsx"));
+        assert_eq!(orchestration.artifact_graph_summary.len(), 1);
+    }
+
+    #[test]
+    fn unknown_contract_evidence_stays_unsupported() {
+        let evidence = ContractEvidence::new("custom_guard").with_diagnostic("custom failure");
+
+        let envelope = EvidenceEnvelope::from_contract_evidence("ev3", "ts", &evidence);
+
+        assert_eq!(envelope.failure_class, FailureClass::Unsupported);
+        assert!(matches!(envelope.payload, EvidencePayload::Unsupported(_)));
+    }
+}

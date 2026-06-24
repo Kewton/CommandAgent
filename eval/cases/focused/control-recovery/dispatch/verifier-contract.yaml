@@ -1,0 +1,41 @@
+id: focused-dispatch-verifier-contract
+title: Active-job dispatch selects verifier contract correction
+profile: generic
+style: default
+mode: plan-run
+intent: modify
+prompt: "Repair the verifier contract rather than source files."
+matrix_row: phase25-dispatch-verifier-contract
+proof_mode: deterministic_fixture
+fixture_reason: plan_lint.failed
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: verifier_contract_correction
+  active_job_lifecycle: selected
+  recovery_owner: verifier_contract
+  loop_control_action: run_bounded_repair_task
+  dispatch_status: selected
+  dispatch_reason: plan_lint_guard
+  candidate_jobs: lifecycle=candidate job=verifier_contract_correction source_layer=planning
+  target_path: step:verify-build
+  target_role: verifier
+  selected_target: step:verify-build
+  selected_target_role: verifier
+  repair_action: replace_invalid_verifier_command
+  tool_policy: read_only
+expected_active_job: verifier_contract_correction
+expected_active_job_lifecycle: selected
+expected_recovery_owner: verifier_contract
+expected_dispatch_status: selected
+expected_dispatch_reason: plan_lint_guard
+expected_candidate_jobs: lifecycle=candidate job=verifier_contract_correction source_layer=planning
+expected_target_path: step:verify-build
+expected_target_role: verifier
+expected_repair_action: replace_invalid_verifier_command
+expected_lifecycle_stage: repairing
+expected_active_owner: verifier_contract
+expected_selected_action: replace_invalid_verifier_command
+expected_target_admission_status: admitted
+expected_repair_action_plan_status: planned
+expected_completion_source: none

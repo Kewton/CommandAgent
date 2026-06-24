@@ -1,16 +1,49 @@
+pub(crate) mod active_job;
+pub(crate) mod artifact_completion;
+pub(crate) mod artifact_graph;
+pub(crate) mod artifact_ledger;
+pub(crate) mod artifact_ownership;
+pub(crate) mod command_classification;
+pub(crate) mod completion_evidence;
+pub(crate) mod contract_conflict;
 pub mod correction_evidence;
+pub(crate) mod deliverable_obligation;
+pub mod evidence;
+pub(crate) mod evidence_authority;
+pub(crate) mod evidence_binding;
+pub(crate) mod evidence_producer;
+pub(crate) mod failure_observation;
+pub(crate) mod integrity_guard;
+pub(crate) mod mechanical_repair;
 pub mod plan_lint;
 pub(crate) mod profile_artifact;
 pub mod profiles;
+pub(crate) mod recovery_contract;
+pub(crate) mod recovery_orchestration;
+pub(crate) mod recovery_policy;
 pub mod recovery_task;
 pub mod repair;
+pub(crate) mod repair_action_plan;
+pub(crate) mod repair_brief;
+pub(crate) mod repair_job;
 pub mod runtime;
+pub(crate) mod runtime_support;
+pub(crate) mod semantic_failure;
+pub(crate) mod setup_artifact_validation;
+pub(crate) mod setup_lifecycle;
+pub(crate) mod target_admission;
+pub(crate) mod task_contract;
 pub mod ultra_plan;
 pub mod ultra_run;
+pub(crate) mod verifier_diagnostic;
+pub(crate) mod verifier_selection;
 pub mod verify;
+pub(crate) mod workspace_scope;
+pub(crate) mod workspace_snapshot;
 
 mod plan;
 mod plan_error;
+mod plan_input;
 mod plan_prompt;
 mod plan_store;
 mod plan_yaml;
@@ -136,6 +169,35 @@ steps:
     }
 
     #[test]
+    fn accepts_folded_strip_block_scalar_instruction() {
+        let yaml = r#"
+goal: Create Next app
+profile: nextjs
+style: default
+steps:
+  - id: create-package-json
+    kind: create
+    instruction: >-
+      Create package.json.
+      Include next, react, and react-dom.
+    expected_paths:
+      - package.json
+    verify:
+      - test -f package.json
+"#;
+
+        let plan = parse_step_plan_yaml(yaml).unwrap();
+        let rendered = render_step_plan_yaml(&plan);
+        let reparsed = parse_step_plan_yaml(&rendered).unwrap();
+
+        assert_eq!(
+            plan.steps[0].instruction,
+            "Create package.json. Include next, react, and react-dom."
+        );
+        assert_eq!(reparsed, plan);
+    }
+
+    #[test]
     fn accepts_literal_block_scalar_goal_and_canonicalizes() {
         let yaml = r#"
 goal: |
@@ -159,6 +221,31 @@ steps:
         assert_eq!(plan.goal, "Build docs.\nKeep the output concise.");
         assert_eq!(reparsed, plan);
         assert!(rendered.contains("goal: \"Build docs.\\nKeep the output concise.\""));
+    }
+
+    #[test]
+    fn accepts_literal_strip_block_scalar_goal_and_canonicalizes() {
+        let yaml = r#"
+goal: |-
+  Build docs.
+  Keep the output concise.
+profile: docs
+style: default
+steps:
+  - id: write-readme
+    instruction: Create README.md.
+    expected_paths:
+      - README.md
+    verify:
+      - test -f README.md
+"#;
+
+        let plan = parse_step_plan_yaml(yaml).unwrap();
+        let rendered = render_step_plan_yaml(&plan);
+        let reparsed = parse_step_plan_yaml(&rendered).unwrap();
+
+        assert_eq!(plan.goal, "Build docs.\nKeep the output concise.");
+        assert_eq!(reparsed, plan);
     }
 
     #[test]
@@ -333,7 +420,7 @@ steps:
         assert!(prompt.contains("npm run build"));
         assert!(prompt.contains("grep -q"));
         assert!(prompt.contains("use build/test/check commands"));
-        assert!(prompt.contains("Rust uses cargo check/cargo test"));
+        assert!(prompt.contains("active profile"));
         assert!(prompt.contains("not source-code semantics"));
         assert!(prompt.contains("if it exists"));
         assert!(prompt.contains("Inspect steps are observation-only"));
@@ -347,7 +434,10 @@ steps:
         assert!(prompt.contains("React 18.2 or newer compatibility"));
         assert!(prompt.contains("Do not use exact React pins below 18.2"));
         assert!(prompt.contains("typescript 5.x compatibility"));
+        assert!(prompt.contains("stable TypeScript 5.x range such as ^5.4.0"));
+        assert!(prompt.contains("exact TypeScript pins such as 5.0.0"));
         assert!(prompt.contains("@types/react 18.x compatibility"));
+        assert!(prompt.contains("If source imports use @/*"));
         assert!(prompt.contains("latest as the compatibility strategy"));
         assert!(prompt.contains("Use plain CSS unless"));
         assert!(prompt.contains("same step plan must also include"));

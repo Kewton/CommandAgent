@@ -16,6 +16,8 @@ matches="$(
     | grep -v '^./scripts/check_branding.sh:' \
     | grep -v '^./docs/eval/triage/large-root-20260617T003924.md:' \
     | grep -v '^./docs/eval/triage/large-root-20260617T110312.md:' \
+    | grep -v '^./docs/eval/legacy-control-stack-coverage-20260621.md:' \
+    | grep -v '^./docs/eval/loadmap2-[^:]*:' \
     | grep -v '^./docs/adr/0002-contract-recovery.md:' || true
 )"
 

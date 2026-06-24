@@ -1,0 +1,41 @@
+id: focused-dispatch-source-diagnostic
+title: Active-job dispatch selects source diagnostic repair
+profile: rust
+style: default
+mode: plan-run
+intent: modify
+prompt: "Repair the Rust source diagnostic from the original verifier."
+matrix_row: phase25-dispatch-source-diagnostic
+proof_mode: deterministic_fixture
+fixture_reason: command_failed:1
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: source_implementation_repair
+  active_job_lifecycle: selected
+  recovery_owner: source
+  loop_control_action: run_bounded_repair_task
+  dispatch_status: selected
+  dispatch_reason: preferred_repair_role_implementation
+  candidate_jobs: lifecycle=candidate job=source_implementation_repair source_layer=verifier
+  target_path: src/lib.rs
+  target_role: implementation
+  selected_target: src/lib.rs
+  selected_target_role: implementation
+  repair_action: edit_source_for_diagnostic
+  tool_policy: file_mutation_repair
+expected_active_job: source_implementation_repair
+expected_active_job_lifecycle: selected
+expected_recovery_owner: source
+expected_dispatch_status: selected
+expected_dispatch_reason: preferred_repair_role_implementation
+expected_candidate_jobs: lifecycle=candidate job=source_implementation_repair source_layer=verifier
+expected_target_path: src/lib.rs
+expected_target_role: implementation
+expected_repair_action: edit_source_for_diagnostic
+expected_lifecycle_stage: repairing
+expected_active_owner: source
+expected_selected_action: edit_source_for_diagnostic
+expected_target_admission_status: admitted
+expected_repair_action_plan_status: planned
+expected_completion_source: none

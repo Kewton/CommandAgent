@@ -4,6 +4,8 @@
 //! must not carry retry state, target authority, semantic guesses, sidecar
 //! results, memory references, or provider policy.
 
+use crate::agent::step_runner::failure_observation::FailureObservation;
+
 const MAX_FIELD_CHARS: usize = 240;
 const MAX_LIST_ITEMS: usize = 8;
 
@@ -42,8 +44,54 @@ pub struct ContractEvidence {
     pub repair_attempt_ledger: Vec<String>,
     pub repair_focus: Option<String>,
     pub repair_kind: Option<String>,
+    pub repair_action: Option<String>,
+    pub semantic_failure_kind: Option<String>,
+    pub source_of_truth: Option<String>,
+    pub allowed_change_kind: Option<String>,
+    pub expected_evidence_delta: Option<String>,
     pub setup_implication: Option<String>,
+    pub tool_policy_projection: Option<String>,
+    pub target_admission: Option<String>,
+    pub target_priority: Option<String>,
+    pub workspace_scope: Option<String>,
+    pub artifact_ownership: Option<String>,
+    pub active_job_lifecycle: Option<String>,
+    pub active_job_priority: Option<String>,
+    pub loop_control_action: Option<String>,
+    pub dispatch_status: Option<String>,
+    pub dispatch_reason: Option<String>,
+    pub candidate_jobs: Vec<String>,
+    pub tie_break_reason: Option<String>,
+    pub explicit_stop_reason: Option<String>,
+    pub recovery_owner: Option<String>,
+    pub completion_evidence: Vec<String>,
+    pub evidence_binding: Vec<String>,
+    pub deliverable_obligations: Vec<String>,
+    pub repair_action_plan: Vec<String>,
+    pub semantic_failure_report: Vec<String>,
+    pub repair_job_state: Vec<String>,
+    pub attempt_outcomes: Vec<String>,
+    pub patch_validation: Vec<String>,
+    pub eval_report_fields: Vec<String>,
+    pub artifact_graph_summary: Vec<String>,
+    pub verifier_diagnostic_payload: Vec<String>,
     pub rerun_authority: Vec<String>,
+    pub proposed_targets: Vec<String>,
+    pub admitted_targets: Vec<String>,
+    pub admitted_cluster_targets: Vec<String>,
+    pub rejected_targets: Vec<String>,
+    pub repair_brief: Vec<String>,
+    pub selected_failure_cluster: Option<String>,
+    pub preferred_repair_role: Option<String>,
+    pub weak_verifier_reason: Option<String>,
+    pub repair_brief_status: Option<String>,
+    pub action_envelope_status: Option<String>,
+    pub exhausted_targets: Vec<String>,
+    pub exhausted_roles: Vec<String>,
+    pub exhausted_clusters: Vec<String>,
+    pub no_progress_strategy: Option<String>,
+    pub repair_state_status: Option<String>,
+    pub safe_stop_payload: Vec<String>,
     pub diagnostic: Option<String>,
 }
 
@@ -252,8 +300,212 @@ impl ContractEvidence {
         self
     }
 
+    pub fn with_repair_action(mut self, repair_action: impl Into<String>) -> Self {
+        self.repair_action = Some(repair_action.into());
+        self
+    }
+
+    pub fn with_semantic_failure_kind(mut self, semantic_failure_kind: impl Into<String>) -> Self {
+        self.semantic_failure_kind = Some(semantic_failure_kind.into());
+        self
+    }
+
+    pub fn with_source_of_truth(mut self, source_of_truth: impl Into<String>) -> Self {
+        self.source_of_truth = Some(source_of_truth.into());
+        self
+    }
+
+    pub fn with_allowed_change_kind(mut self, allowed_change_kind: impl Into<String>) -> Self {
+        self.allowed_change_kind = Some(allowed_change_kind.into());
+        self
+    }
+
+    pub fn with_expected_evidence_delta(
+        mut self,
+        expected_evidence_delta: impl Into<String>,
+    ) -> Self {
+        self.expected_evidence_delta = Some(expected_evidence_delta.into());
+        self
+    }
+
     pub fn with_setup_implication(mut self, setup_implication: impl Into<String>) -> Self {
         self.setup_implication = Some(setup_implication.into());
+        self
+    }
+
+    pub fn with_tool_policy_projection(
+        mut self,
+        tool_policy_projection: impl Into<String>,
+    ) -> Self {
+        self.tool_policy_projection = Some(tool_policy_projection.into());
+        self
+    }
+
+    pub fn with_target_admission(mut self, target_admission: impl Into<String>) -> Self {
+        self.target_admission = Some(target_admission.into());
+        self
+    }
+
+    pub fn with_target_priority(mut self, target_priority: impl Into<String>) -> Self {
+        self.target_priority = Some(target_priority.into());
+        self
+    }
+
+    pub fn with_workspace_scope(mut self, workspace_scope: impl Into<String>) -> Self {
+        self.workspace_scope = Some(workspace_scope.into());
+        self
+    }
+
+    pub fn with_artifact_ownership(mut self, artifact_ownership: impl Into<String>) -> Self {
+        self.artifact_ownership = Some(artifact_ownership.into());
+        self
+    }
+
+    pub fn with_active_job_lifecycle(mut self, active_job_lifecycle: impl Into<String>) -> Self {
+        self.active_job_lifecycle = Some(active_job_lifecycle.into());
+        self
+    }
+
+    pub fn with_active_job_priority(mut self, active_job_priority: impl Into<String>) -> Self {
+        self.active_job_priority = Some(active_job_priority.into());
+        self
+    }
+
+    pub fn with_loop_control_action(mut self, loop_control_action: impl Into<String>) -> Self {
+        self.loop_control_action = Some(loop_control_action.into());
+        self
+    }
+
+    pub fn with_dispatch_status(mut self, dispatch_status: impl Into<String>) -> Self {
+        self.dispatch_status = Some(dispatch_status.into());
+        self
+    }
+
+    pub fn with_dispatch_reason(mut self, dispatch_reason: impl Into<String>) -> Self {
+        self.dispatch_reason = Some(dispatch_reason.into());
+        self
+    }
+
+    pub fn with_candidate_jobs<I, S>(mut self, candidate_jobs: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.candidate_jobs = collect_values(candidate_jobs);
+        self
+    }
+
+    pub fn with_tie_break_reason(mut self, tie_break_reason: impl Into<String>) -> Self {
+        self.tie_break_reason = Some(tie_break_reason.into());
+        self
+    }
+
+    pub fn with_explicit_stop_reason(mut self, explicit_stop_reason: impl Into<String>) -> Self {
+        self.explicit_stop_reason = Some(explicit_stop_reason.into());
+        self
+    }
+
+    pub fn with_recovery_owner(mut self, recovery_owner: impl Into<String>) -> Self {
+        self.recovery_owner = Some(recovery_owner.into());
+        self
+    }
+
+    pub fn with_completion_evidence<I, S>(mut self, completion_evidence: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.completion_evidence = collect_values(completion_evidence);
+        self
+    }
+
+    pub fn with_evidence_binding<I, S>(mut self, evidence_binding: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.evidence_binding = collect_values(evidence_binding);
+        self
+    }
+
+    pub fn with_deliverable_obligations<I, S>(mut self, deliverable_obligations: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.deliverable_obligations = collect_values(deliverable_obligations);
+        self
+    }
+
+    pub fn with_repair_action_plan<I, S>(mut self, repair_action_plan: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.repair_action_plan = collect_values(repair_action_plan);
+        self
+    }
+
+    pub fn with_semantic_failure_report<I, S>(mut self, semantic_failure_report: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.semantic_failure_report = collect_values(semantic_failure_report);
+        self
+    }
+
+    pub fn with_repair_job_state<I, S>(mut self, repair_job_state: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.repair_job_state = collect_values(repair_job_state);
+        self
+    }
+
+    pub fn with_attempt_outcomes<I, S>(mut self, attempt_outcomes: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.attempt_outcomes = collect_values(attempt_outcomes);
+        self
+    }
+
+    pub fn with_patch_validation<I, S>(mut self, patch_validation: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.patch_validation = collect_values(patch_validation);
+        self
+    }
+
+    pub fn with_eval_report_fields<I, S>(mut self, eval_report_fields: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.eval_report_fields = collect_values(eval_report_fields);
+        self
+    }
+
+    pub fn with_artifact_graph_summary<I, S>(mut self, artifact_graph_summary: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.artifact_graph_summary = collect_values(artifact_graph_summary);
+        self
+    }
+
+    pub fn with_verifier_diagnostic_payload<I, S>(mut self, verifier_diagnostic_payload: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.verifier_diagnostic_payload = collect_values(verifier_diagnostic_payload);
         self
     }
 
@@ -263,6 +515,128 @@ impl ContractEvidence {
         S: Into<String>,
     {
         self.rerun_authority = collect_values(rerun_authority);
+        self
+    }
+
+    pub fn with_proposed_targets<I, S>(mut self, proposed_targets: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.proposed_targets = collect_values(proposed_targets);
+        self
+    }
+
+    pub fn with_admitted_targets<I, S>(mut self, admitted_targets: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.admitted_targets = collect_values(admitted_targets);
+        self
+    }
+
+    pub fn with_admitted_cluster_targets<I, S>(mut self, admitted_cluster_targets: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.admitted_cluster_targets = collect_values(admitted_cluster_targets);
+        self
+    }
+
+    pub fn with_rejected_targets<I, S>(mut self, rejected_targets: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.rejected_targets = collect_values(rejected_targets);
+        self
+    }
+
+    pub fn with_repair_brief<I, S>(mut self, repair_brief: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.repair_brief = collect_values(repair_brief);
+        self
+    }
+
+    pub fn with_selected_failure_cluster(
+        mut self,
+        selected_failure_cluster: impl Into<String>,
+    ) -> Self {
+        self.selected_failure_cluster = Some(selected_failure_cluster.into());
+        self
+    }
+
+    pub fn with_preferred_repair_role(mut self, preferred_repair_role: impl Into<String>) -> Self {
+        self.preferred_repair_role = Some(preferred_repair_role.into());
+        self
+    }
+
+    pub fn with_weak_verifier_reason(mut self, weak_verifier_reason: impl Into<String>) -> Self {
+        self.weak_verifier_reason = Some(weak_verifier_reason.into());
+        self
+    }
+
+    pub fn with_repair_brief_status(mut self, repair_brief_status: impl Into<String>) -> Self {
+        self.repair_brief_status = Some(repair_brief_status.into());
+        self
+    }
+
+    pub fn with_action_envelope_status(
+        mut self,
+        action_envelope_status: impl Into<String>,
+    ) -> Self {
+        self.action_envelope_status = Some(action_envelope_status.into());
+        self
+    }
+
+    pub fn with_exhausted_targets<I, S>(mut self, exhausted_targets: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.exhausted_targets = collect_values(exhausted_targets);
+        self
+    }
+
+    pub fn with_exhausted_roles<I, S>(mut self, exhausted_roles: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.exhausted_roles = collect_values(exhausted_roles);
+        self
+    }
+
+    pub fn with_exhausted_clusters<I, S>(mut self, exhausted_clusters: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.exhausted_clusters = collect_values(exhausted_clusters);
+        self
+    }
+
+    pub fn with_no_progress_strategy(mut self, strategy: impl Into<String>) -> Self {
+        self.no_progress_strategy = Some(strategy.into());
+        self
+    }
+
+    pub fn with_repair_state_status(mut self, status: impl Into<String>) -> Self {
+        self.repair_state_status = Some(status.into());
+        self
+    }
+
+    pub fn with_safe_stop_payload<I, S>(mut self, safe_stop_payload: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.safe_stop_payload = collect_values(safe_stop_payload);
         self
     }
 
@@ -278,6 +652,12 @@ impl ContractEvidence {
 
         let mut lines = vec!["Contract correction evidence:".to_string()];
         push_field(&mut lines, "guard", Some(&self.guard));
+        let observation = FailureObservation::from_contract_evidence(self);
+        push_field(
+            &mut lines,
+            "failure_observation",
+            Some(&observation.render_inline()),
+        );
         push_field(&mut lines, "failed_step", self.failed_step.as_deref());
         push_field(
             &mut lines,
@@ -335,12 +715,169 @@ impl ContractEvidence {
         );
         push_field(&mut lines, "repair_focus", self.repair_focus.as_deref());
         push_field(&mut lines, "repair_kind", self.repair_kind.as_deref());
+        push_field(&mut lines, "repair_action", self.repair_action.as_deref());
+        push_field(
+            &mut lines,
+            "semantic_failure_kind",
+            self.semantic_failure_kind.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "source_of_truth",
+            self.source_of_truth.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "allowed_change_kind",
+            self.allowed_change_kind.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "expected_evidence_delta",
+            self.expected_evidence_delta.as_deref(),
+        );
         push_field(
             &mut lines,
             "setup_implication",
             self.setup_implication.as_deref(),
         );
         push_list(&mut lines, "rerun_authority", &self.rerun_authority);
+        push_field(
+            &mut lines,
+            "tool_policy_projection",
+            self.tool_policy_projection.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "target_admission",
+            self.target_admission.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "target_priority",
+            self.target_priority.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "workspace_scope",
+            self.workspace_scope.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "artifact_ownership",
+            self.artifact_ownership.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "active_job_lifecycle",
+            self.active_job_lifecycle.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "active_job_priority",
+            self.active_job_priority.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "loop_control_action",
+            self.loop_control_action.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "dispatch_status",
+            self.dispatch_status.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "dispatch_reason",
+            self.dispatch_reason.as_deref(),
+        );
+        push_list(&mut lines, "candidate_jobs", &self.candidate_jobs);
+        push_field(
+            &mut lines,
+            "tie_break_reason",
+            self.tie_break_reason.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "explicit_stop_reason",
+            self.explicit_stop_reason.as_deref(),
+        );
+        push_field(&mut lines, "recovery_owner", self.recovery_owner.as_deref());
+        push_list(&mut lines, "completion_evidence", &self.completion_evidence);
+        push_list(&mut lines, "evidence_binding", &self.evidence_binding);
+        push_list(
+            &mut lines,
+            "deliverable_obligations",
+            &self.deliverable_obligations,
+        );
+        push_list(&mut lines, "repair_action_plan", &self.repair_action_plan);
+        push_list(
+            &mut lines,
+            "semantic_failure_report",
+            &self.semantic_failure_report,
+        );
+        push_list(&mut lines, "repair_job_state", &self.repair_job_state);
+        push_list(&mut lines, "attempt_outcomes", &self.attempt_outcomes);
+        push_list(&mut lines, "patch_validation", &self.patch_validation);
+        push_list(&mut lines, "eval_report_fields", &self.eval_report_fields);
+        push_list(
+            &mut lines,
+            "artifact_graph_summary",
+            &self.artifact_graph_summary,
+        );
+        push_list(
+            &mut lines,
+            "verifier_diagnostic_payload",
+            &self.verifier_diagnostic_payload,
+        );
+        push_list(&mut lines, "proposed_targets", &self.proposed_targets);
+        push_list(&mut lines, "admitted_targets", &self.admitted_targets);
+        push_list(
+            &mut lines,
+            "admitted_cluster_targets",
+            &self.admitted_cluster_targets,
+        );
+        push_list(&mut lines, "rejected_targets", &self.rejected_targets);
+        push_field(
+            &mut lines,
+            "selected_failure_cluster",
+            self.selected_failure_cluster.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "preferred_repair_role",
+            self.preferred_repair_role.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "weak_verifier_reason",
+            self.weak_verifier_reason.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "repair_brief_status",
+            self.repair_brief_status.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "action_envelope_status",
+            self.action_envelope_status.as_deref(),
+        );
+        push_list(&mut lines, "exhausted_targets", &self.exhausted_targets);
+        push_list(&mut lines, "exhausted_roles", &self.exhausted_roles);
+        push_list(&mut lines, "exhausted_clusters", &self.exhausted_clusters);
+        push_field(
+            &mut lines,
+            "no_progress_strategy",
+            self.no_progress_strategy.as_deref(),
+        );
+        push_field(
+            &mut lines,
+            "repair_state_status",
+            self.repair_state_status.as_deref(),
+        );
+        push_list(&mut lines, "safe_stop_payload", &self.safe_stop_payload);
         push_field(&mut lines, "diagnostic", self.diagnostic.as_deref());
         Some(lines.join("\n"))
     }
@@ -375,8 +912,54 @@ impl ContractEvidence {
             && self.repair_attempt_ledger.is_empty()
             && self.repair_focus.is_none()
             && self.repair_kind.is_none()
+            && self.repair_action.is_none()
+            && self.semantic_failure_kind.is_none()
+            && self.source_of_truth.is_none()
+            && self.allowed_change_kind.is_none()
+            && self.expected_evidence_delta.is_none()
             && self.setup_implication.is_none()
+            && self.tool_policy_projection.is_none()
+            && self.target_admission.is_none()
+            && self.target_priority.is_none()
+            && self.workspace_scope.is_none()
+            && self.artifact_ownership.is_none()
+            && self.active_job_lifecycle.is_none()
+            && self.active_job_priority.is_none()
+            && self.loop_control_action.is_none()
+            && self.dispatch_status.is_none()
+            && self.dispatch_reason.is_none()
+            && self.candidate_jobs.is_empty()
+            && self.tie_break_reason.is_none()
+            && self.explicit_stop_reason.is_none()
+            && self.recovery_owner.is_none()
+            && self.completion_evidence.is_empty()
+            && self.evidence_binding.is_empty()
+            && self.deliverable_obligations.is_empty()
+            && self.repair_action_plan.is_empty()
+            && self.semantic_failure_report.is_empty()
+            && self.repair_job_state.is_empty()
+            && self.attempt_outcomes.is_empty()
+            && self.patch_validation.is_empty()
+            && self.eval_report_fields.is_empty()
+            && self.artifact_graph_summary.is_empty()
+            && self.verifier_diagnostic_payload.is_empty()
             && self.rerun_authority.is_empty()
+            && self.proposed_targets.is_empty()
+            && self.admitted_targets.is_empty()
+            && self.admitted_cluster_targets.is_empty()
+            && self.rejected_targets.is_empty()
+            && self.repair_brief.is_empty()
+            && self.selected_failure_cluster.is_none()
+            && self.preferred_repair_role.is_none()
+            && self.weak_verifier_reason.is_none()
+            && self.repair_brief_status.is_none()
+            && self.action_envelope_status.is_none()
+            && self.exhausted_targets.is_empty()
+            && self.exhausted_roles.is_empty()
+            && self.exhausted_clusters.is_empty()
+            && self.no_progress_strategy.is_none()
+            && self.repair_state_status.is_none()
+            && self.safe_stop_payload.is_empty()
             && self.diagnostic.is_none()
     }
 }
@@ -522,7 +1105,14 @@ mod tests {
             ])
             .with_repair_focus("emit valid Write call for src/components/GameCanvas.tsx")
             .with_repair_kind("tool_protocol_correction")
+            .with_repair_action("repair_source_error")
             .with_setup_implication("none")
+            .with_tool_policy_projection("file_mutation_repair")
+            .with_target_admission("admitted: target src/components/GameCanvas.tsx")
+            .with_target_priority("priority=0 repair_target from deterministic evidence")
+            .with_artifact_graph_summary(vec![
+                "src/components/GameCanvas.tsx role=implementation lifecycle=required source=contract.repair_target",
+            ])
             .with_rerun_authority(vec!["tool schema validation"])
             .with_diagnostic("Write missing path");
 
@@ -561,7 +1151,12 @@ mod tests {
         ));
         assert!(rendered.contains("- repair_focus: emit valid Write call"));
         assert!(rendered.contains("- repair_kind: tool_protocol_correction"));
+        assert!(rendered.contains("- repair_action: repair_source_error"));
         assert!(rendered.contains("- setup_implication: none"));
+        assert!(rendered.contains("- tool_policy_projection: file_mutation_repair"));
+        assert!(rendered.contains("- target_admission: admitted"));
+        assert!(rendered.contains("- target_priority: priority=0"));
+        assert!(rendered.contains("- artifact_graph_summary: src/components/GameCanvas.tsx"));
         assert!(rendered.contains("- rerun_authority: tool schema validation"));
     }
 

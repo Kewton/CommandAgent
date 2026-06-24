@@ -1,0 +1,52 @@
+id: focused-phase26-setup-node-readiness
+title: Phase26 setup lifecycle records Node dependency readiness
+profile: nextjs
+style: default
+mode: ultra-plan-run
+intent: new
+prompt: "Create a Next.js app and classify missing dependencies as setup lifecycle evidence."
+matrix_row: phase26-c14-setup-node-readiness
+proof_mode: deterministic_fixture
+fixture_reason: dependency_missing
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: setup_bootstrap
+  active_job_lifecycle: selected
+  recovery_owner: setup
+  loop_control_action: run_verifier_owned_setup
+  dispatch_status: selected
+  repair_action: install_or_prepare_dependencies
+  tool_policy: verifier_owned_setup_only
+  runtime_job_kind: setup_bootstrap
+  runtime_job_outcome: blocked
+  setup_job_kind: setup_bootstrap
+  setup_job_state: blocked
+  setup_target: package.json
+  setup_manifest_kind: node_package
+  setup_manifest_path: package.json
+  setup_artifact_validation_status: passed
+  setup_readiness: missing_dependency_artifact
+  setup_command_authority: verifier_owned_setup_only
+  setup_attempt_key: profile=nextjs;command=npm_run_build;manifest=package.json
+  setup_manifest_fingerprint: package_json=present
+  setup_result: blocked_by_dependency_missing
+  setup_failure_signature: setup|node|npm_run_build|dependency_missing
+expected_active_job: setup_bootstrap
+expected_recovery_owner: setup
+expected_loop_control_action: run_verifier_owned_setup
+expected_repair_action: install_or_prepare_dependencies
+expected_tool_policy: verifier_owned_setup_only
+expected_runtime_job_kind: setup_bootstrap
+expected_runtime_job_outcome: blocked
+expected_setup_job_kind: setup_bootstrap
+expected_setup_job_state: blocked
+expected_setup_target: package.json
+expected_setup_manifest_kind: node_package
+expected_setup_manifest_path: package.json
+expected_setup_artifact_validation_status: passed
+expected_setup_readiness: missing_dependency_artifact
+expected_setup_command_authority: verifier_owned_setup_only
+expected_setup_attempt_key: profile=nextjs;command=npm_run_build;manifest=package.json
+expected_setup_result: blocked_by_dependency_missing
+expected_setup_failure_signature: setup|node|npm_run_build|dependency_missing

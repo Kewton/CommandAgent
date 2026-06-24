@@ -4,8 +4,7 @@ use serde_json::Value;
 use std::collections::HashSet;
 
 pub fn extract_plan_from_response(response: &str) -> Result<StepPlan, PlanError> {
-    let yaml = strip_yaml_fence(response.trim());
-    parse_step_plan_yaml(yaml)
+    super::plan_input::parse_step_plan_input(response)
 }
 
 pub fn render_step_plan_yaml(plan: &StepPlan) -> String {

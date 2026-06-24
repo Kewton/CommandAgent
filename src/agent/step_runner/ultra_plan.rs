@@ -49,7 +49,7 @@ Rules:\n\
 - Preserve the requested profile, style, and intent.\n\
 - Preserve required_artifacts exactly; they are final user-requested outputs.\n\
 - Do not include implementation details that belong inside a step plan.\n\
-- Long text fields such as goal and phase goal may use quoted strings or YAML block scalars; do not use anchors, aliases, merge keys, custom tags, or extra nested maps.\n\
+- Long text fields such as goal and phase goal may use quoted strings or YAML block scalars with markers |, |-, |+, >, >-, or >+; do not use anchors, aliases, merge keys, custom tags, or extra nested maps.\n\
 \n\
 Goal: {goal}\n\
 Profile: {profile}\n\
@@ -482,6 +482,31 @@ phases:
     }
 
     #[test]
+    fn accepts_folded_strip_block_scalar_ultra_goal() {
+        let yaml = r#"
+goal: >-
+  Build a Next.js app.
+  Keep it runnable on port 3011.
+profile: nextjs
+style: default
+intent: new
+phases:
+  - id: scaffold
+    goal: Create files.
+"#;
+
+        let plan = parse_ultra_plan_yaml(yaml).unwrap();
+        let rendered = render_ultra_plan_yaml(&plan);
+        let reparsed = parse_ultra_plan_yaml(&rendered).unwrap();
+
+        assert_eq!(
+            plan.goal,
+            "Build a Next.js app. Keep it runnable on port 3011."
+        );
+        assert_eq!(reparsed, plan);
+    }
+
+    #[test]
     fn accepts_literal_block_scalar_phase_goal() {
         let yaml = r#"
 goal: Build app
@@ -503,6 +528,33 @@ phases:
             plan.phases[0].goal,
             "Create package.json.\nCreate the app route."
         );
+    }
+
+    #[test]
+    fn accepts_literal_strip_block_scalar_phase_goal() {
+        let yaml = r#"
+goal: Build app
+profile: nextjs
+style: default
+intent: new
+phases:
+  - id: scaffold
+    goal: |-
+      Create package.json.
+      Create the app route.
+  - id: verify
+    goal: Verify build.
+"#;
+
+        let plan = parse_ultra_plan_yaml(yaml).unwrap();
+        let rendered = render_ultra_plan_yaml(&plan);
+        let reparsed = parse_ultra_plan_yaml(&rendered).unwrap();
+
+        assert_eq!(
+            plan.phases[0].goal,
+            "Create package.json.\nCreate the app route."
+        );
+        assert_eq!(reparsed, plan);
     }
 
     #[test]

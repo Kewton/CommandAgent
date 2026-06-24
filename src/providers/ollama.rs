@@ -1,4 +1,5 @@
 use crate::config::Provider;
+use crate::providers::usage::extract_usage;
 use crate::providers::{
     ChatMessage, ChatProvider, ChatRequest, ChatResponse, ChatRole, ExecutorProvider,
     PlannerProvider, ToolCall, ToolCallMode, ToolSpec,
@@ -312,8 +313,11 @@ fn parse_tags_response(body: &str) -> Result<Vec<String>, OllamaError> {
 }
 
 fn parse_chat_response(body: &str) -> Result<ChatResponse, OllamaError> {
-    let parsed: OllamaChatResponse =
+    let value: Value =
         serde_json::from_str(body).map_err(|err| OllamaError::Json(err.to_string()))?;
+    let usage = extract_usage(Provider::Ollama, &value);
+    let parsed: OllamaChatResponse =
+        serde_json::from_value(value).map_err(|err| OllamaError::Json(err.to_string()))?;
     let message = parsed.message.unwrap_or(OllamaResponseMessage {
         content: String::new(),
         tool_calls: Vec::new(),
@@ -330,10 +334,7 @@ fn parse_chat_response(body: &str) -> Result<ChatResponse, OllamaError> {
         })
         .collect();
 
-    Ok(ChatResponse {
-        content: message.content,
-        tool_calls,
-    })
+    Ok(ChatResponse::new(message.content, tool_calls).with_usage(usage))
 }
 
 fn ensure_success(endpoint: &str, status: u16, body: &str) -> Result<(), OllamaError> {
@@ -501,7 +502,8 @@ mod tests {
     fn chat_omits_tools_for_xml_fallback_mode() {
         let transport = MockTransport::with_responses([Ok(HttpResponse {
             status: 200,
-            body: r#"{"message":{"content":"ok"}}"#.to_string(),
+            body: r#"{"message":{"content":"ok"},"prompt_eval_count":8,"eval_count":4}"#
+                .to_string(),
         })]);
         let client = OllamaClient::with_transport(
             "http://127.0.0.1:11434",
@@ -523,6 +525,10 @@ mod tests {
         let response = client.chat(&request).unwrap();
 
         assert_eq!(response.content, "ok");
+        assert_eq!(response.usage.input_tokens, Some(8));
+        assert_eq!(response.usage.output_tokens, Some(4));
+        assert_eq!(response.usage.total_tokens, Some(12));
+        assert!(response.usage.estimated);
         let posted = transport.last_json().unwrap();
         assert!(posted.get("tools").is_none());
     }

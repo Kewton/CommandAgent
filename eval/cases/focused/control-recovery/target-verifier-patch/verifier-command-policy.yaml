@@ -1,0 +1,37 @@
+id: phase27-verifier-command-policy
+title: Phase27 verifier command policy
+profile: python
+style: default
+mode: plan-run
+intent: modify
+prompt: "Reject generated or self-referential verifier evidence before claiming completion."
+matrix_row: C28-verifier-policy
+proof_mode: deterministic_fixture
+fixture_reason: explicit_stop
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  diagnostic_code: self_referential_verifier
+  diagnostic_failure_kind: verifier_contract_failure
+  active_job: explicit_stop
+  recovery_owner: explicit_stop
+  loop_control_action: render_explicit_stop
+  dispatch_status: explicit_stop
+  repair_action: stop_with_structured_evidence
+  weak_verifier_reason: verifier_only_checks_generated_test_artifact
+  patch_validation_status: rejected
+  patch_validation_source: model_tool_edit
+  patch_validation_outcomes: generated_test_unsupported_assertion|self_referential_verifier
+  patch_validation_rejected_paths: tests/generated_test.py
+  explicit_stop_reason: weak_verifier_contract
+expected_terminal_state: explicit_stop
+expected_contract_layer: unknown_contract
+expected_diagnostic_code: self_referential_verifier
+expected_diagnostic_failure_kind: verifier_contract_failure
+expected_weak_verifier_reason: verifier_only_checks_generated_test_artifact
+expected_patch_validation_status: rejected
+expected_patch_validation_source: model_tool_edit
+expected_patch_validation_outcomes: generated_test_unsupported_assertion|self_referential_verifier
+expected_target_admission_status: unknown
+expected_repair_action_plan_status: planned
+expected_completion_source: none

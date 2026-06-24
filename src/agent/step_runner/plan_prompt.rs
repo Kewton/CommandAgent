@@ -1,4 +1,6 @@
 use super::{PlanError, WorkIntent};
+use crate::agent::step_runner::profiles::profile_plan_guidance;
+use crate::agent::step_runner::task_contract::TaskContract;
 
 pub fn detect_work_intent(goal: &str) -> WorkIntent {
     let lower = goal.to_ascii_lowercase();
@@ -11,7 +13,10 @@ pub fn detect_work_intent(goal: &str) -> WorkIntent {
         &["fix", "modify", "update", "repair", "修正", "改修"],
     ) {
         WorkIntent::Modify
-    } else if contains_any(&lower, &["data", "csv", "report", "分析", "整形"]) {
+    } else if contains_any(
+        &lower,
+        &["data", "csv", "json", "schema", "report", "分析", "整形"],
+    ) {
         WorkIntent::Data
     } else if contains_any(
         &lower,
@@ -30,6 +35,27 @@ pub fn plan_generation_prompt(
     intent: WorkIntent,
     required_artifacts: &[String],
 ) -> String {
+    plan_generation_prompt_with_task_contract(
+        goal,
+        profile,
+        style,
+        intent,
+        required_artifacts,
+        None,
+    )
+}
+
+pub(crate) fn plan_generation_prompt_with_task_contract(
+    goal: &str,
+    profile: &str,
+    style: &str,
+    intent: WorkIntent,
+    required_artifacts: &[String],
+    task_contract: Option<&TaskContract>,
+) -> String {
+    let task_contract_section = task_contract
+        .map(|contract| format!("Task contract:\n{}\n", contract.render_prompt_section()))
+        .unwrap_or_else(|| "Task contract:\n- none\n".to_string());
     format!(
         "Create a small step plan for CommandAgent.\n\
 Return only YAML in this schema:\n\
@@ -66,37 +92,27 @@ Rules:\n\
 - Inspect steps are observation-only: use verify: [] unless the step is intentionally asserting a required existing file listed in expected_paths. Do not use test -d/test -f to make optional discovery fatal.\n\
 - Verifier commands must be one simple local check each; split shell chaining into separate list items and avoid unquoted &&, ||, or ;.\n\
 - Prefer canonical verifier commands: test -f <path>, python -m py_compile <path.py>, python -m pytest <path-or-test>, cargo check, cargo test, npm run build, or grep -q <literal> <path>.\n\
-- For source-code behavior, use build/test/check commands: Rust uses cargo check/cargo test; Next.js uses npm run build; Python/FastAPI uses python -m py_compile or pytest. Use grep -q only for literal documentation, data, or content requirements, not source-code semantics.\n\
+- For source-code behavior, use build/test/check commands appropriate to the active profile and profile guidance. Use grep -q only for literal documentation, data, or content requirements, not source-code semantics.\n\
 - If no file path is expected for a step, use an empty list.\n\
 - required_artifacts are final user-requested outputs and must be preserved exactly.\n\
 - setup prepares local dependencies or configuration; verify runs deterministic checks and must not change files.\n\
 - report steps explicitly report blockers such as dependency_missing or verifier_unavailable and should use verify: [].\n\
 - Do not use true as a verifier; use an empty verify list for report-only steps.\n\
 - Do not include tool-call fields such as action, path, content, old, or new in the plan.\n\
-- Long text fields such as goal and instruction may use quoted strings or YAML block scalars; do not use anchors, aliases, merge keys, custom tags, or extra nested maps.\n\
+- Long text fields such as goal and instruction may use quoted strings or YAML block scalars with markers |, |-, |+, >, >-, or >+; do not use anchors, aliases, merge keys, custom tags, or extra nested maps.\n\
 \n\
 Goal: {goal}\n\
 Profile: {profile}\n\
 Style: {style}\n\
 Intent: {intent}\n\
 Required final artifacts:\n{artifacts}\n\
+{task_contract_section}\
 Profile guidance:\n{profile_guidance}",
         intent = intent.as_str(),
         artifacts = bullet_list(required_artifacts),
-        profile_guidance = plan_profile_guidance(profile)
+        task_contract_section = task_contract_section,
+        profile_guidance = profile_plan_guidance(profile)
     )
-}
-
-fn plan_profile_guidance(profile: &str) -> &'static str {
-    match profile {
-        "nextjs" => {
-            "For Next.js apps, generated package.json steps must instruct a compatible dependency family: next plus react/react-dom with React 18.2 or newer compatibility. If the plan creates tsconfig.json, .ts, .tsx, or TypeScript code, the package.json step must also literally include typescript 5.x compatibility and @types/react 18.x compatibility. Do not use exact React pins below 18.2 with Next.js 14, TypeScript 6 with Next.js 14, @types/react 19 with React 18, or latest as the compatibility strategy. Use plain CSS unless the goal or phase explicitly requires Tailwind. If any source/style step mentions Tailwind, @tailwind, or Tailwind directives, the same step plan must also include exact package.json dependency literals tailwindcss, postcss, and autoprefixer, plus setup/config outputs tailwind.config.js and postcss.config.js. Do not write only Tailwind CSS dependencies as a substitute for the exact package names. For Next.js source verification, use npm run build in a separate verify step; do not use npx tsc --noEmit or other npx verifiers because npx may perform dependency setup and is blocked. Do not plan npm install; verifier-owned setup handles dependency installation when approved."
-        }
-        "rust" => {
-            "For new Rust projects, plan explicit file creation for Cargo.toml and src/main.rs. Do not plan cargo init or cargo new shell scaffolding."
-        }
-        _ => "No additional profile-specific plan guidance.",
-    }
 }
 
 pub fn invalid_plan_correction_prompt(
@@ -110,7 +126,7 @@ Original goal:\n{original_goal}\n\n\
 Validation error:\n{error}\n\n\
 Invalid plan:\n{invalid_plan}\n\n\
 If the invalid plan includes tool-call fields such as action, path, content, old, or new, rewrite them into instruction and expected_paths fields.\n\
-Long text fields such as goal and instruction may use quoted strings or YAML block scalars; do not use anchors, aliases, merge keys, custom tags, or extra nested maps.\n\
+Long text fields such as goal and instruction may use quoted strings or YAML block scalars with markers |, |-, |+, >, >-, or >+; do not use anchors, aliases, merge keys, custom tags, or extra nested maps.\n\
 Return only corrected YAML using the required CommandAgent step plan schema."
     )
 }

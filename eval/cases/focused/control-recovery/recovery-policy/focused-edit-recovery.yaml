@@ -1,0 +1,44 @@
+id: focused-edit-recovery
+title: Focused edit recovery admission
+profile: rust
+style: default
+mode: plan-run
+intent: modify
+prompt: "Repair only src/main.rs based on the verifier diagnostic."
+matrix_row: focused-edit-recovery
+proof_mode: deterministic_fixture
+fixture_reason: rc:1
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: source_implementation_repair
+  recovery_owner: source
+  loop_control_action: run_bounded_repair_task
+  dispatch_status: selected
+  repair_action: edit_source_for_diagnostic
+  tool_policy: file_mutation_repair
+  diagnostic_code: rust_compile_error
+  focused_edit_status: admitted
+  current_excerpt_available: true
+  target_path: src/main.rs
+  selected_target: src/main.rs
+  target_role: implementation
+  target_admitted_count: 1
+  target_candidate_count: 1
+  target_priority_components: verifier_mentioned_path,owned_source
+expected_terminal_state: verifier_command_failed
+expected_contract_layer: verification_contract
+expected_diagnostic_code: rust_compile_error
+expected_active_job: source_implementation_repair
+expected_recovery_owner: source
+expected_repair_action: edit_source_for_diagnostic
+expected_focused_edit_status: admitted
+expected_target_path: src/main.rs
+expected_selected_target: src/main.rs
+expected_target_role: implementation
+expected_lifecycle_stage: repairing
+expected_active_owner: source
+expected_selected_action: edit_source_for_diagnostic
+expected_target_admission_status: admitted
+expected_repair_action_plan_status: planned
+expected_completion_source: none

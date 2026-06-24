@@ -1,4 +1,5 @@
 use super::SlashRuntime;
+use super::dev_server::{requested_dev_port, verify_nextjs_dev_server_smoke};
 use super::paths::{display_path, missing_paths};
 use super::planning::{StepPlanCorrectionContext, planner_text};
 use super::prompts::step_prompt;
@@ -8,6 +9,15 @@ use crate::agent::events::{
 };
 use crate::agent::minimal_loop::config::{ActionRequirement, StepToolPolicy};
 use crate::agent::minimal_loop::loop_run::ChatClient;
+use crate::agent::minimal_loop::result::ToolExecutionRecord;
+use crate::agent::step_runner::artifact_graph::{ArtifactGraph, ArtifactLifecycle};
+use crate::agent::step_runner::artifact_ledger::ArtifactLedgerSummary;
+use crate::agent::step_runner::evidence_authority::{
+    CompletionAuthorityResult, evaluate_completion_authority,
+};
+use crate::agent::step_runner::evidence_producer::{
+    EvidenceProducerInput, produce_completion_evidence,
+};
 use crate::agent::step_runner::plan_lint::lint_step_plan_with_workspace;
 use crate::agent::step_runner::profiles::{
     ProfileVerificationContext, profile_contract_text, profile_fact_summary, verify_profile,
@@ -16,9 +26,11 @@ use crate::agent::step_runner::repair::{ProfileRepairContext, save_profile_repai
 use crate::agent::step_runner::runtime::phase_contract::{
     ActiveStepContract, PhaseWorkspaceContract, current_profile_facts,
 };
+use crate::agent::step_runner::task_contract::TaskContract;
 use crate::agent::step_runner::ultra_plan::{UltraPlan, parse_ultra_plan_yaml};
 use crate::agent::step_runner::ultra_run::phase_step_plan_prompt;
 use crate::agent::step_runner::verify::{VerificationFailure, run_verifiers};
+use crate::agent::step_runner::workspace_scope::WorkspaceScope;
 use crate::agent::step_runner::{
     ExpectedResult, StepKind, StepPlan, StepPlanStep, WorkIntent, parse_step_plan_yaml,
     save_step_plan,
@@ -39,6 +51,7 @@ where
     let profile_contract = profile_contract_text(&plan.profile).map_err(|err| err.to_string())?;
     let mut lines = Vec::new();
     lines.push(format!("ultra plan: {} phases", plan.phases.len()));
+    let mut nextjs_build_verifier_seen = false;
 
     for (idx, phase) in plan.phases.iter().enumerate() {
         observer.on_event(RuntimeEvent::UltraPhaseStarted {
@@ -70,18 +83,29 @@ where
             &profile_contract,
         );
         let text = planner_text(runtime.planner, &runtime.planner_config, &prompt)?;
+        let phase_task_contract = TaskContract::from_goal(
+            &plan.profile,
+            &phase.goal,
+            WorkIntent::parse(&plan.intent).unwrap_or(WorkIntent::Unknown),
+            &[],
+            &phase_contract.profile_obligations,
+        );
         let correction_context = StepPlanCorrectionContext {
             goal: &phase.goal,
             profile: &plan.profile,
             style: &plan.style,
             intent: WorkIntent::parse(&plan.intent).unwrap_or(WorkIntent::Unknown),
-            required_artifacts: &plan.required_artifacts,
+            required_artifacts: &[],
             profile_obligations: &phase_contract.profile_obligations,
+            task_contract: Some(&phase_task_contract),
             save_kind: "phase-step-plan",
             prompt_kind: "phase step plan",
         };
         let step_plan =
             runtime.parse_generated_step_plan_with_corrections(text, correction_context)?;
+        if step_plan_has_nextjs_build_verifier(&step_plan) {
+            nextjs_build_verifier_seen = true;
+        }
         let path = save_step_plan(runtime.cwd, &step_plan).map_err(|err| err.to_string())?;
         observer.on_event(RuntimeEvent::PlanSaved {
             kind: PlanKind::PhaseStepPlan,
@@ -140,16 +164,113 @@ where
         lines.push(format!("phase {}: ok\n{}", phase.id, report));
     }
 
-    let missing = missing_paths(runtime.cwd, &plan.required_artifacts);
+    let authority = final_required_artifact_authority(runtime.cwd, &plan.required_artifacts);
+    let missing = authority.missing_deliverables.clone();
     emit_final_artifact_status(observer, &plan.required_artifacts, &missing);
-    if !missing.is_empty() {
+    if !authority.success_eligible() {
+        if !missing.is_empty() {
+            return Err(format!(
+                "missing required final artifacts: {}\nContract completion evidence:\n{}",
+                missing.join(", "),
+                authority.render_contract_lines().join("\n")
+            ));
+        }
         return Err(format!(
-            "missing required final artifacts: {}",
-            missing.join(", ")
+            "final completion evidence failed: {}\nContract completion evidence:\n{}",
+            authority.terminal_state(),
+            authority.render_contract_lines().join("\n")
         ));
+    }
+    if let Some(smoke_report) = verify_requested_dev_server_contract(
+        runtime.cwd,
+        &plan.profile,
+        &ultra_plan_requested_text(plan),
+        nextjs_build_verifier_seen,
+    )? {
+        lines.push(smoke_report);
     }
 
     Ok(lines.join("\n"))
+}
+
+pub(super) fn step_plan_has_nextjs_build_verifier(plan: &StepPlan) -> bool {
+    plan.steps
+        .iter()
+        .flat_map(|step| step.verify.iter())
+        .any(|command| command.trim().eq_ignore_ascii_case("npm run build"))
+}
+
+pub(super) fn verify_requested_dev_server_contract(
+    cwd: &Path,
+    profile: &str,
+    requested_text: &str,
+    build_verifier_seen: bool,
+) -> Result<Option<String>, String> {
+    if !build_verifier_seen {
+        return Ok(None);
+    }
+    let Some(requested_port) = requested_dev_port(profile, requested_text) else {
+        return Ok(None);
+    };
+    let report = verify_nextjs_dev_server_smoke(cwd, requested_port);
+    let rendered = report.render_lines().join("\n");
+    if report.is_ok() {
+        Ok(Some(format!("dev-server smoke: ok\n{rendered}")))
+    } else {
+        Err(format!("dev-server smoke failed:\n{rendered}"))
+    }
+}
+
+fn ultra_plan_requested_text(plan: &UltraPlan) -> String {
+    let mut text = String::new();
+    text.push_str(&plan.goal);
+    for artifact in &plan.required_artifacts {
+        text.push(' ');
+        text.push_str(artifact);
+    }
+    for phase in &plan.phases {
+        text.push(' ');
+        text.push_str(&phase.goal);
+    }
+    text
+}
+
+fn final_required_artifact_authority(
+    cwd: &Path,
+    required_artifacts: &[String],
+) -> CompletionAuthorityResult {
+    let mut graph = ArtifactGraph::new();
+    for path in required_artifacts {
+        let lifecycle = if cwd.join(path).exists() {
+            ArtifactLifecycle::Existing
+        } else {
+            ArtifactLifecycle::Required
+        };
+        graph.add_path(path, lifecycle, "ultra_plan.required_artifacts");
+    }
+    let scope = WorkspaceScope::from_graph(&graph);
+    let mut ledger = ArtifactLedgerSummary::from_tool_records(&[], &graph, &scope);
+    for path in required_artifacts {
+        if cwd.join(path).exists() {
+            ledger.record_workspace_observation(path, &graph, &scope);
+        }
+    }
+    let produced = produce_completion_evidence(&EvidenceProducerInput {
+        step_id: "final-required-artifacts",
+        profile: "final",
+        required_paths: required_artifacts,
+        verifier_commands: &[],
+        verifier_failures: &[],
+        ledger: &ledger,
+        observed_completion_facts: &[],
+        observed_bindings: &[],
+    });
+    evaluate_completion_authority(
+        required_artifacts,
+        &ledger,
+        &produced.completion_evidence,
+        &produced.evidence_bindings,
+    )
 }
 
 fn verify_phase_profile(
@@ -277,7 +398,11 @@ where
     config.action_requirement = action_requirement_for_step(step, &missing_expected_paths);
     if matches!(step.kind, StepKind::Verify) && !step.verify.is_empty() {
         let failures = verify_step_with_observer(runtime.cwd, step, observer)?;
-        if failures.is_empty() || step_accepts_verifier_failure(step) {
+        if failures.is_empty() {
+            ensure_step_completion_authority(runtime.cwd, plan, step, &[], &failures)?;
+            return Ok(());
+        }
+        if step_accepts_verifier_failure(step) {
             return Ok(());
         }
         return runtime.repair_step_with_state(
@@ -294,9 +419,16 @@ where
                 initial_turn_error: None,
                 dependency_setup_attempt_keys: Vec::new(),
                 dependency_setup_note: None,
+                setup_job_state: Vec::new(),
+                tool_records: Vec::new(),
                 contract_evidence: Vec::new(),
                 repair_attempt_ledger: Vec::new(),
+                repair_job_state: crate::agent::step_runner::repair_job::RepairJobState::new(
+                    "unknown",
+                )
+                .with_step_id(step.id.clone()),
                 tool_arg_schema_correction_spent: false,
+                pending_tool_protocol_failure: None,
                 pending_tool_arg_error: None,
                 pending_tool_arg_error_source: None,
             },
@@ -317,6 +449,9 @@ where
         Err(err) => {
             let failures = verify_step_with_observer(runtime.cwd, step, observer)?;
             if fatal_turn_error_for_step(&err) {
+                if completion_probe_after_blocked_bash(runtime.cwd, step, &err, observer)? {
+                    return Ok(());
+                }
                 return runtime.repair_step_after_turn_error(
                     RepairStepRequest {
                         plan,
@@ -330,6 +465,9 @@ where
                 );
             }
             if failures.is_empty() || step_accepts_verifier_failure(step) {
+                if failures.is_empty() {
+                    ensure_step_completion_authority(runtime.cwd, plan, step, &[], &failures)?;
+                }
                 return Ok(());
             }
             return runtime.repair_step_after_turn_error(
@@ -346,7 +484,11 @@ where
         }
     };
     let failures = verify_step_with_observer(runtime.cwd, step, observer)?;
-    if failures.is_empty() || step_accepts_verifier_failure(step) {
+    if failures.is_empty() {
+        ensure_step_completion_authority(runtime.cwd, plan, step, &result.tool_results, &failures)?;
+        return Ok(());
+    }
+    if step_accepts_verifier_failure(step) {
         return Ok(());
     }
 
@@ -360,6 +502,74 @@ where
         result,
         failures,
         observer,
+    )
+}
+
+fn ensure_step_completion_authority(
+    cwd: &Path,
+    plan: &StepPlan,
+    step: &StepPlanStep,
+    tool_records: &[ToolExecutionRecord],
+    verifier_failures: &[VerificationFailure],
+) -> Result<(), String> {
+    let authority = step_completion_authority(cwd, plan, step, tool_records, verifier_failures);
+    if authority.success_eligible() {
+        Ok(())
+    } else {
+        Err(completion_authority_error(step, &authority))
+    }
+}
+
+fn step_completion_authority(
+    cwd: &Path,
+    plan: &StepPlan,
+    step: &StepPlanStep,
+    tool_records: &[ToolExecutionRecord],
+    verifier_failures: &[VerificationFailure],
+) -> CompletionAuthorityResult {
+    let mut graph = ArtifactGraph::new();
+    for path in &step.expected_paths {
+        let lifecycle = if cwd.join(path).exists() {
+            ArtifactLifecycle::Existing
+        } else {
+            ArtifactLifecycle::Required
+        };
+        graph.add_path(path, lifecycle, &step.id);
+    }
+    let scope = WorkspaceScope::from_graph(&graph);
+    let mut ledger = ArtifactLedgerSummary::from_tool_records(tool_records, &graph, &scope);
+    for path in &step.expected_paths {
+        if cwd.join(path).exists() {
+            ledger.record_workspace_observation(path, &graph, &scope);
+        }
+    }
+    let produced = produce_completion_evidence(&EvidenceProducerInput {
+        step_id: &step.id,
+        profile: &plan.profile,
+        required_paths: &step.expected_paths,
+        verifier_commands: &step.verify,
+        verifier_failures,
+        ledger: &ledger,
+        observed_completion_facts: &[],
+        observed_bindings: &[],
+    });
+    evaluate_completion_authority(
+        &step.expected_paths,
+        &ledger,
+        &produced.completion_evidence,
+        &produced.evidence_bindings,
+    )
+}
+
+fn completion_authority_error(
+    step: &StepPlanStep,
+    authority: &CompletionAuthorityResult,
+) -> String {
+    format!(
+        "step completion authority rejected {}: {}\nContract completion evidence:\n{}",
+        step.id,
+        authority.terminal_state(),
+        authority.render_contract_lines().join("\n")
     )
 }
 
@@ -406,6 +616,35 @@ fn fatal_turn_error_for_step(error: &crate::agent::minimal_loop::result::Minimal
         | MinimalLoopError::ActionRequiredNoEvidence(_)
         | MinimalLoopError::MissingArtifacts(_) => false,
     }
+}
+
+fn completion_probe_after_blocked_bash(
+    cwd: &Path,
+    step: &StepPlanStep,
+    error: &crate::agent::minimal_loop::result::MinimalLoopError,
+    observer: &mut dyn RuntimeObserver,
+) -> Result<bool, String> {
+    if !is_blocked_bash_turn_error(error) {
+        return Ok(false);
+    }
+    if !missing_paths(cwd, &step.expected_paths).is_empty() {
+        return Ok(false);
+    }
+    let failures = verify_step_with_observer(cwd, step, observer)?;
+    Ok(failures.is_empty() || step_accepts_verifier_failure(step))
+}
+
+fn is_blocked_bash_turn_error(
+    error: &crate::agent::minimal_loop::result::MinimalLoopError,
+) -> bool {
+    use crate::agent::minimal_loop::result::MinimalLoopError;
+
+    let MinimalLoopError::Tool(message) = error else {
+        return false;
+    };
+    message
+        .to_ascii_lowercase()
+        .contains("bash command blocked")
 }
 
 pub(super) fn verify_step_with_observer(

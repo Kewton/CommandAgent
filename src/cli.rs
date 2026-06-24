@@ -1,3 +1,4 @@
+use crate::agent::event_protocol::{EventProtocolContext, EventSource, JsonlEventObserver};
 use crate::agent::minimal_loop::config::DependencySetupPolicy;
 use crate::agent::minimal_loop::loop_run::{MinimalLoopConfig, run_session_with_observer};
 use crate::agent::repl::{MinimalReplRunner, run_repl};
@@ -11,7 +12,9 @@ use crate::runtime_client::{runtime_client, runtime_client_for};
 use crate::tui::terminal::{TerminalUi, render_final_answer};
 use std::ffi::OsString;
 use std::io::{self, IsTerminal};
+use std::path::PathBuf;
 use std::process::ExitCode;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -123,15 +126,41 @@ fn run_one_shot(config: Config, prompt: &str) -> Result<(), String> {
                 .unwrap_or_else(|| "default".to_string()),
             tool_call_mode: request_tool_mode(targets.planner.provider),
         };
-        let mut ui = TerminalUi::stderr_from_env();
-        let output = SlashRuntime {
-            executor: &mut client,
-            planner: &mut planner_client,
-            cwd: &config.cwd,
-            loop_config: minimal_loop_config(&config),
-            planner_config,
-        }
-        .run_with_observer(command, &mut ui)?;
+        let output = if let Some(path) = event_jsonl_path() {
+            let ui = TerminalUi::stderr_from_env();
+            let mut observer = JsonlEventObserver::new(
+                ui,
+                path,
+                event_context(
+                    "slash",
+                    Some(targets.executor.provider.as_str().to_string()),
+                    targets
+                        .executor
+                        .model
+                        .clone()
+                        .or_else(|| config.model.clone()),
+                ),
+            )
+            .map_err(|err| err.to_string())?;
+            SlashRuntime {
+                executor: &mut client,
+                planner: &mut planner_client,
+                cwd: &config.cwd,
+                loop_config: minimal_loop_config(&config),
+                planner_config,
+            }
+            .run_with_observer(command, &mut observer)?
+        } else {
+            let mut ui = TerminalUi::stderr_from_env();
+            SlashRuntime {
+                executor: &mut client,
+                planner: &mut planner_client,
+                cwd: &config.cwd,
+                loop_config: minimal_loop_config(&config),
+                planner_config,
+            }
+            .run_with_observer(command, &mut ui)?
+        };
         if !output.trim().is_empty() {
             println!("{}", output.trim());
         }
@@ -139,15 +168,37 @@ fn run_one_shot(config: Config, prompt: &str) -> Result<(), String> {
     }
 
     let mut client = runtime_client(&config)?;
-    let mut ui = TerminalUi::stderr_from_env();
-    let result = run_session_with_observer(
-        &mut client,
-        &config.cwd,
-        prompt,
-        minimal_loop_config(&config),
-        &mut ui,
-    )
-    .map_err(|err| err.to_string())?;
+    let result = if let Some(path) = event_jsonl_path() {
+        let ui = TerminalUi::stderr_from_env();
+        let mut observer = JsonlEventObserver::new(
+            ui,
+            path,
+            event_context(
+                "worker",
+                Some(config.provider.as_str().to_string()),
+                config.model.clone(),
+            ),
+        )
+        .map_err(|err| err.to_string())?;
+        run_session_with_observer(
+            &mut client,
+            &config.cwd,
+            prompt,
+            minimal_loop_config(&config),
+            &mut observer,
+        )
+        .map_err(|err| err.to_string())?
+    } else {
+        let mut ui = TerminalUi::stderr_from_env();
+        run_session_with_observer(
+            &mut client,
+            &config.cwd,
+            prompt,
+            minimal_loop_config(&config),
+            &mut ui,
+        )
+        .map_err(|err| err.to_string())?
+    };
     if !result.final_answer.trim().is_empty() {
         println!("{}", render_final_answer(&result.final_answer));
     }
@@ -197,6 +248,28 @@ fn minimal_loop_config(config: &Config) -> MinimalLoopConfig {
         },
         ..MinimalLoopConfig::default()
     }
+}
+
+fn event_jsonl_path() -> Option<PathBuf> {
+    std::env::var_os("COMMANDAGENT_EVENT_JSONL").map(PathBuf::from)
+}
+
+fn event_context(
+    role: &str,
+    provider: Option<String>,
+    model: Option<String>,
+) -> EventProtocolContext {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let run_id = format!("run_{}_{}", now, std::process::id());
+    let job_id = format!("job_{}_{}", now, std::process::id());
+    EventProtocolContext::new(
+        run_id,
+        job_id,
+        EventSource::commandagent(role, provider, model),
+    )
 }
 
 fn collect_prompt_arg(args: &[OsString]) -> Option<String> {

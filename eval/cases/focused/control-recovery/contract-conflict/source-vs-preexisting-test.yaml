@@ -1,0 +1,47 @@
+id: phase28-source-vs-preexisting-test
+title: Contract conflict keeps preexisting test authoritative over source
+profile: rust
+style: default
+mode: plan-run
+intent: modify
+prompt: "Classify a preexisting regression test mismatch against source implementation."
+matrix_row: C33-source-vs-preexisting-test
+proof_mode: deterministic_fixture
+fixture_reason: rc:1
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  diagnostic_code: contract_conflict
+  diagnostic_failure_kind: contract_conflict
+  semantic_failure_kind: source_implementation_failure
+  semantic_cluster_source_of_truth: test_contract_and_original_verifier
+  active_job: source_implementation_repair
+  recovery_owner: implementation
+  loop_control_action: run_bounded_repair_task
+  dispatch_status: selected
+  repair_action: edit_source_for_diagnostic
+  tool_policy: file_mutation_repair
+  candidate_artifacts: src/lib.rs|tests/regression_test.rs
+  contract_conflict_status: resolved
+  contract_conflict_sides: implementation|test
+  contract_conflict_authority: test_authoritative
+  contract_conflict_repair_target_side: implementation
+  contract_conflict_selected_action: edit_source_for_diagnostic
+  contract_conflict_safe_stop_reason: none
+  contract_conflict_missing_evidence: none
+  contract_conflict_source_of_truth: test_contract_and_original_verifier
+expected_terminal_state: verifier_command_failed
+expected_contract_layer: verification_contract
+expected_active_job: source_implementation_repair
+expected_recovery_owner: implementation
+expected_loop_control_action: run_bounded_repair_task
+expected_dispatch_status: selected
+expected_repair_action: edit_source_for_diagnostic
+expected_contract_conflict_status: resolved
+expected_contract_conflict_sides: implementation|test
+expected_contract_conflict_authority: test_authoritative
+expected_contract_conflict_repair_target_side: implementation
+expected_contract_conflict_selected_action: edit_source_for_diagnostic
+expected_contract_conflict_safe_stop_reason: none
+expected_contract_conflict_missing_evidence: none
+expected_contract_conflict_source_of_truth: test_contract_and_original_verifier

@@ -1,0 +1,39 @@
+id: phase27-target-priority-tie-stop
+title: Phase27 target priority ambiguous tie stop
+profile: rust
+style: default
+mode: plan-run
+intent: modify
+prompt: "Repair the Rust verifier failure, but stop if two admitted source targets have equal authority."
+matrix_row: C22-target-priority
+proof_mode: deterministic_fixture
+fixture_reason: explicit_stop
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  diagnostic_code: rust_compile_error
+  active_job: explicit_stop
+  recovery_owner: explicit_stop
+  loop_control_action: render_explicit_stop
+  dispatch_status: explicit_stop
+  repair_action: stop_with_structured_evidence
+  tool_policy: explicit_stop
+  target_candidate_count: 2
+  target_admitted_count: 2
+  target_rejected_count: 0
+  selected_target: none
+  selected_target_role: unknown
+  target_conflict_reason: ambiguous_recovery_target_tie:src/a.rs|src/b.rs
+  target_priority_components: priority=24;source=verifier_diagnostic;role=implementation;ownership=owned
+  explicit_stop_reason: ambiguous_recovery_target_tie
+expected_terminal_state: explicit_stop
+expected_contract_layer: unknown_contract
+expected_active_job: explicit_stop
+expected_recovery_owner: explicit_stop
+expected_target_candidate_count: 2
+expected_target_admitted_count: 2
+expected_target_conflict_reason: ambiguous_recovery_target_tie:src/a.rs|src/b.rs
+expected_explicit_stop_reason: ambiguous_recovery_target_tie
+expected_target_admission_status: admitted
+expected_repair_action_plan_status: planned
+expected_completion_source: none

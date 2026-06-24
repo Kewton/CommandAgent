@@ -2,13 +2,15 @@ use crate::agent::step_runner::profiles::{
     ProfileObligation, ProfileObligationContext, profile_fact_summary, profile_obligations,
     render_profile_obligations,
 };
+use crate::agent::step_runner::task_contract::{TaskContract, render_task_contract_lines};
+use crate::agent::step_runner::{WorkIntent, detect_work_intent};
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
 
 const MAX_WORKSPACE_ENTRIES: usize = 20;
-const MAX_RENDER_LINES: usize = 40;
+const MAX_RENDER_LINES: usize = 80;
 const MAX_LINE_CHARS: usize = 180;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -20,6 +22,7 @@ pub(crate) struct PhaseWorkspaceContract {
     pub(crate) required_artifacts: Vec<String>,
     pub(crate) profile_summary: Vec<String>,
     pub(crate) profile_obligations: Vec<ProfileObligation>,
+    pub(crate) task_contract: TaskContract,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -44,9 +47,12 @@ impl ActiveStepContract {
         phase_contract: &PhaseWorkspaceContract,
         current_profile_facts: Vec<String>,
     ) -> Self {
+        let mut base_phase_contract_facts =
+            render_task_contract_lines(&phase_contract.task_contract);
+        base_phase_contract_facts.extend(phase_contract.base_fact_lines());
         Self {
             profile: profile.to_string(),
-            base_phase_contract_facts: phase_contract.base_fact_lines(),
+            base_phase_contract_facts,
             profile_obligations: phase_contract.profile_obligations.clone(),
             current_profile_facts,
         }
@@ -100,6 +106,7 @@ impl PhaseWorkspaceContract {
                 .map(|summary| summary.lines)
                 .unwrap_or_default(),
             profile_obligations: Vec::new(),
+            task_contract: TaskContract::new(profile, WorkIntent::Unknown, required_artifacts, &[]),
         };
         let obligation_context = ProfileObligationContext {
             goal_excerpt: goal_excerpt.to_string(),
@@ -109,11 +116,19 @@ impl PhaseWorkspaceContract {
         };
         contract.profile_obligations =
             profile_obligations(profile, &obligation_context).unwrap_or_default();
+        contract.task_contract = TaskContract::from_goal(
+            profile,
+            goal_excerpt,
+            detect_work_intent(goal_excerpt),
+            required_artifacts,
+            &contract.profile_obligations,
+        );
         contract
     }
 
     pub(crate) fn fact_lines(&self) -> Vec<String> {
         let mut lines = self.base_fact_lines();
+        lines.extend(render_task_contract_lines(&self.task_contract));
         lines.extend(render_profile_obligations(&self.profile_obligations));
         lines
     }
@@ -369,6 +384,25 @@ mod tests {
     }
 
     #[test]
+    fn includes_task_contract_facts_for_phase_planning() {
+        let root = temp_workspace("task-contract");
+
+        let contract = PhaseWorkspaceContract::collect_with_goal(
+            &root,
+            "nextjs",
+            &["app/page.tsx".to_string()],
+            "Create a Next.js app on port 3011",
+        );
+
+        let lines = contract.fact_lines();
+        assert!(lines.iter().any(|line| line == "task.contract.kind=new"));
+        assert!(lines.iter().any(|line| {
+            line.starts_with("task.contract.behavior_obligations=")
+                && line.contains("nextjs_dev_port_required")
+        }));
+    }
+
+    #[test]
     fn generic_profile_renders_no_obligations() {
         let root = temp_workspace("generic-obligation");
 
@@ -414,6 +448,11 @@ mod tests {
                 .filter(|line| line.starts_with("profile.obligation.nextjs_dev_port_required="))
                 .count(),
             1
+        );
+        assert!(
+            rendered
+                .iter()
+                .any(|line| line.starts_with("task.contract.kind="))
         );
         assert_eq!(
             rendered

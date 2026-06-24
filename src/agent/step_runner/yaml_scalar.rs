@@ -6,15 +6,8 @@ pub(crate) fn parse_block_scalar_value(
     field_name: &str,
 ) -> Result<Option<String>, String> {
     let value = value.trim();
-    let style = match value {
-        "|" => BlockScalarStyle::Literal,
-        ">" => BlockScalarStyle::Folded,
-        _ if value.starts_with('|') || value.starts_with('>') => {
-            return Err(format!(
-                "unsupported block scalar style for {field_name}: {value}"
-            ));
-        }
-        _ => return Ok(None),
+    let Some(style) = parse_block_scalar_marker(value, field_name)? else {
+        return Ok(None);
     };
 
     let field_indent = leading_spaces(field_line);
@@ -59,6 +52,20 @@ pub(crate) fn parse_block_scalar_value(
         BlockScalarStyle::Folded => fold_block_scalar_lines(&deindented),
     };
     Ok(Some(parsed))
+}
+
+fn parse_block_scalar_marker(
+    value: &str,
+    field_name: &str,
+) -> Result<Option<BlockScalarStyle>, String> {
+    match value {
+        "|" | "|-" | "|+" => Ok(Some(BlockScalarStyle::Literal)),
+        ">" | ">-" | ">+" => Ok(Some(BlockScalarStyle::Folded)),
+        _ if value.starts_with('|') || value.starts_with('>') => Err(format!(
+            "unsupported block scalar style for {field_name}: {value}"
+        )),
+        _ => Ok(None),
+    }
 }
 
 fn fold_block_scalar_lines(lines: &[String]) -> String {
@@ -125,11 +132,63 @@ mod tests {
     }
 
     #[test]
-    fn rejects_chomping_indicators_for_now() {
-        let lines = vec!["instruction: |-"];
+    fn parses_literal_strip_chomping_block_scalar() {
+        let lines = vec!["instruction: |-", "  one", "  two", "expected_paths:"];
         let mut index = 1;
 
-        let err = parse_block_scalar_value(&lines, &mut index, lines[0], "|-", "instruction")
+        let parsed = parse_block_scalar_value(&lines, &mut index, lines[0], "|-", "instruction")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(parsed, "one\ntwo");
+        assert_eq!(index, 3);
+    }
+
+    #[test]
+    fn parses_literal_keep_chomping_block_scalar() {
+        let lines = vec!["instruction: |+", "  one", "  two", "expected_paths:"];
+        let mut index = 1;
+
+        let parsed = parse_block_scalar_value(&lines, &mut index, lines[0], "|+", "instruction")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(parsed, "one\ntwo");
+        assert_eq!(index, 3);
+    }
+
+    #[test]
+    fn parses_folded_strip_chomping_block_scalar() {
+        let lines = vec!["instruction: >-", "  one", "  two", "expected_paths:"];
+        let mut index = 1;
+
+        let parsed = parse_block_scalar_value(&lines, &mut index, lines[0], ">-", "instruction")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(parsed, "one two");
+        assert_eq!(index, 3);
+    }
+
+    #[test]
+    fn parses_folded_keep_chomping_block_scalar() {
+        let lines = vec!["instruction: >+", "  one", "  two", "expected_paths:"];
+        let mut index = 1;
+
+        let parsed = parse_block_scalar_value(&lines, &mut index, lines[0], ">+", "instruction")
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(parsed, "one two");
+        assert_eq!(index, 3);
+    }
+
+    #[test]
+    fn rejects_unsupported_block_scalar_indicator() {
+        let lines = vec!["instruction: |2"];
+        let mut index = 1;
+
+        let err = parse_block_scalar_value(&lines, &mut index, lines[0], "|2", "instruction")
             .unwrap_err();
 
         assert!(err.contains("unsupported block scalar style"));

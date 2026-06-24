@@ -1,4 +1,5 @@
 use crate::config::Provider;
+use crate::providers::usage::extract_usage;
 use crate::providers::xml_fallback::extract_tool_calls_with_content;
 use crate::providers::{
     ChatMessage, ChatProvider, ChatRequest, ChatResponse, ChatRole, ExecutorProvider,
@@ -311,8 +312,11 @@ struct GeminiResponseFunctionCall {
 }
 
 fn parse_generate_content_response(body: &str) -> Result<ChatResponse, GeminiError> {
-    let parsed: GenerateContentResponse =
+    let value: Value =
         serde_json::from_str(body).map_err(|err| GeminiError::Json(err.to_string()))?;
+    let usage = extract_usage(Provider::Gemini, &value);
+    let parsed: GenerateContentResponse =
+        serde_json::from_value(value).map_err(|err| GeminiError::Json(err.to_string()))?;
     let mut text_parts = Vec::new();
     let mut native_tool_calls = Vec::new();
     let mut native_parse_errors = Vec::new();
@@ -336,27 +340,22 @@ fn parse_generate_content_response(body: &str) -> Result<ChatResponse, GeminiErr
     }
 
     if !native_parse_errors.is_empty() {
-        return Ok(ChatResponse {
-            content: tool_call_parse_error_content(native_parse_errors.join("; ")),
-            tool_calls: Vec::new(),
-        });
+        return Ok(ChatResponse::new(
+            tool_call_parse_error_content(native_parse_errors.join("; ")),
+            Vec::new(),
+        )
+        .with_usage(usage));
     }
 
     let content = text_parts.join("\n");
     if !native_tool_calls.is_empty() {
-        return Ok(ChatResponse {
-            content,
-            tool_calls: native_tool_calls,
-        });
+        return Ok(ChatResponse::new(content, native_tool_calls).with_usage(usage));
     }
 
     let extraction = extract_tool_calls_with_content(&content)
         .map_err(|err| GeminiError::Json(err.to_string()))?;
 
-    Ok(ChatResponse {
-        content: extraction.content,
-        tool_calls: extraction.tool_calls,
-    })
+    Ok(ChatResponse::new(extraction.content, extraction.tool_calls).with_usage(usage))
 }
 
 fn ensure_success(status: u16, body: &str) -> Result<(), GeminiError> {
@@ -731,7 +730,7 @@ mod tests {
     fn chat_parses_native_function_call() {
         let transport = MockTransport::with_responses([Ok(HttpResponse {
             status: 200,
-            body: r#"{"candidates":[{"content":{"parts":[{"functionCall":{"id":"call-1","name":"Write","args":{"path":"hello.txt","content":"ok"}},"thoughtSignature":"sig-1"}]}}]}"#
+            body: r#"{"candidates":[{"content":{"parts":[{"functionCall":{"id":"call-1","name":"Write","args":{"path":"hello.txt","content":"ok"}},"thoughtSignature":"sig-1"}]}}],"usageMetadata":{"promptTokenCount":11,"candidatesTokenCount":7,"totalTokenCount":18}}"#
                 .to_string(),
         })]);
         let client = GeminiClient::with_transport(
@@ -762,6 +761,10 @@ mod tests {
             response.tool_calls[0].args_json,
             r#"{"content":"ok","path":"hello.txt"}"#
         );
+        assert_eq!(response.usage.input_tokens, Some(11));
+        assert_eq!(response.usage.output_tokens, Some(7));
+        assert_eq!(response.usage.total_tokens, Some(18));
+        assert!(response.usage.unavailable_reason.is_none());
     }
 
     #[test]

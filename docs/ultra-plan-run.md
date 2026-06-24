@@ -68,9 +68,12 @@ planning/lint behavior; profiles do not become workflow engines. Next.js also
 has a narrow route-integration obligation: if a selected route such as
 `app/page.tsx` is known and a classified UI source artifact such as
 `app/hooks/useGame.ts` is an explicit phase output, the generated source step
-must include the selected route in the instruction or `expected_paths`. This
-prevents a phase from creating isolated UI/game code while leaving the selected
-route unchanged. Workspace entries, generated declarations such as
+must include the selected route in the instruction or `expected_paths`, or the
+same step plan must contain a later route-editing step that touches the
+selected route and names the artifact by path or file stem. This prevents a
+phase from creating isolated UI/game code while still allowing a clean
+create-component step followed by an explicit page-integration step. Workspace
+entries, generated declarations such as
 `next-env.d.ts`, dependency caches, and build output are context only; they do
 not become route-integration artifacts by token matching. The rule is limited
 to the Next.js profile until another observed failure justifies a common
@@ -82,6 +85,13 @@ block. That block can name the failed step, violated contract, exact missing
 literals, or required paths, such as `react-dom` for a Next.js package
 obligation. It is not a retry expansion: the original guard reruns unchanged
 and the run still stops if the bounded correction fails.
+
+Failure packets also include a compact normalized failure observation when
+structured evidence exists. The observation names the terminal state, owning
+contract layer, violated contract, producer, guard, diagnostic code, source of
+truth, and actionability. It helps the next explicit repair or eval report
+identify the failure class, but it does not choose a repair job or increase the
+bounded correction budget.
 
 Some high-confidence plan-lint failures can also select an active job before
 correction. For example, a Next.js Tailwind source/style step whose package
@@ -95,9 +105,25 @@ include an attempt ledger rather than starting another hidden correction loop.
 Generated phase step plans are plan-file contract inputs. Before lint or
 execution, CommandAgent parses supported ordinary YAML scalar forms and
 normalizes them into the typed step-plan schema. Long phase goals or step
-instructions may use YAML block scalars; anchors, merge keys, custom tags, and
-extra nested maps remain outside the contract. Parse errors, schema errors, and
-plan-lint errors should be reported as distinct planning failures.
+instructions may use YAML block scalar markers `|`, `|-`, `|+`, `>`, `>-`,
+and `>+`; CommandAgent normalizes them into typed strings before linting.
+Anchors, merge keys, custom tags, and extra nested maps remain outside the
+contract. Parse errors, schema errors, and plan-lint errors should be reported
+as distinct planning failures.
+
+Phase planning also carries Task Contract facts. Required artifacts, profile
+obligations, and deliverable roles are projected into bounded lines such as
+`task.contract.kind`, `task.contract.lifecycle`,
+`task.contract.request_signals`, `task.contract.constraints`,
+`task.contract.expected_completion_evidence`,
+`task.contract.behavior_obligation.<code>`, and
+`task.contract.artifact_roles`. These facts may guide the planner and may let
+plan lint reject a dropped required artifact, a partial/conflicting task
+admission where artifact ownership matters, or a missing deterministic behavior
+obligation owner.
+For ultra phases, the global final artifacts remain visible as context, but
+phase-local step plans are not forced to list every final artifact in their own
+`required_artifacts`; final artifacts are still checked at the final boundary.
 
 Step decomposition is also a planning contract. For example, a generated
 `setup` step may own `package.json` or `tailwind.config.js`, but it may not own
@@ -126,6 +152,15 @@ Profile obligation and verification producers consume classified artifacts
 rather than rendered profile text. Future producers for Python, Rust, docs, or
 data profiles should use the same classified-artifact boundary and must not
 scan `workspace.entries` as contract artifacts.
+
+Profile-specific planning guidance and profile-specific plan lint use the same
+boundary. Generic plan generation renders guidance returned by the active
+profile; generic plan lint validates schema, paths, step kind, verifier safety,
+and workspace scope, then consumes profile-specific lint results as common
+contract evidence. Framework rules such as Next.js dependency literals,
+TypeScript/Tailwind plan contracts, route integration obligations, and `npx`
+verifier rejection live behind the profile interface rather than in generic
+Plan Lint.
 
 The same phase contract is carried as an active contract during step
 execution. Before each executable step, CommandAgent refreshes current profile
@@ -168,15 +203,109 @@ components. It does not create another execution engine: the minimal loop still
 receives one bounded repair turn and the original verifier or guard reruns
 unchanged.
 
+When deterministic failure evidence is specific enough, a Recovery Policy
+Contract is applied before the Recovery Task Contract is rendered. The policy
+may classify the active job, admit and prioritize repair targets, and select a
+single repair action such as `connect_artifact_to_selected_route`,
+`create_missing_integration_artifact`, `add_manifest_dependency`, or
+`repair_tailwind_contract`. This is not dispatch to another engine. It only
+makes the next bounded minimal-loop repair task explicit and keeps the original
+guard, verifier, or profile check as the success authority.
+
+The broader Recovery Orchestration Contract renders that decision as
+structured evidence. Repair prompts and packets may include
+`target_admission`, `target_priority`, `tool_policy_projection`,
+`explicit_stop_reason`, `recovery_owner`, `loop_control_action`,
+`dispatch_status`, `dispatch_reason`, `candidate_jobs`, `tie_break_reason`,
+`repair_action_plan`, `completion_evidence`, `evidence_binding`,
+`deliverable_obligations`, `semantic_failure_report`, `repair_job_state`,
+`attempt_outcomes`, `exhausted_targets`, `exhausted_roles`,
+`exhausted_clusters`, `no_progress_strategy`, `repair_state_status`,
+`safe_stop_payload`,
+`verifier_diagnostic_payload`, `diagnostic_code`, `observed_expected`,
+`affected_cases`, `preferred_repair_role`, `weak_verifier_reason`,
+`admitted_cluster_targets`, `patch_validation`, `eval_report_fields`,
+`proposed_targets`, `admitted_targets`, `rejected_targets`, `repair_brief`,
+`selected_failure_cluster`, `repair_brief_status`, `action_envelope_status`,
+`workspace_scope`, `artifact_ownership`, `artifact_graph_summary`, and bounded
+artifact-ledger eval fields such as `read_paths`, `changed_paths`,
+`verifier_mentioned_paths`, `setup_created_paths`, and `out_of_scope_paths`.
+Phase 7 also renders target-admission attribution fields such as
+`target_source_of_truth`, `target_ownership_source`, `target_workspace_scope`,
+`target_evidence_freshness`, `focused_edit_status`,
+`current_excerpt_available`, `target_priority_components`, and
+`target_conflict_reason`.
+
+Patch validation is applied after a bounded repair turn proposes changes and
+before the run claims progress. It rejects deterministic unsafe classes such
+as test weakening, generated/cache output mutation, dependency-cache mutation,
+protected input mutation, or out-of-scope paths. Verifier rerun still remains
+the success authority for admitted patches. Mechanical repair adapters can add
+bounded hints for classified Rust/Python/Node/Next diagnostics, but they do not
+mutate files or choose targets. Rollback is reported through a separate gate
+and is not admitted unless the original authority proves worsening and safe
+rollback data exists.
+
+`candidate_jobs` are produced before the repair prompt is rendered. They are
+not alternatives for the model to choose from. The dispatch gate selects one
+owner/action using deterministic priority, source layer, and source-of-truth
+strength, then renders the selected job into the Recovery Task Contract. If the
+top candidates still compete, the selected job is `contract_conflict` or
+`explicit_stop` and no repair prompt is constructed for an arbitrary owner.
+Completion authority fields such as `completion_authority_status`,
+`completion_source_of_truth`, `freshness_status`, `missing_evidence`,
+`failed_evidence`, `failed_bindings`, and `stale_evidence` can also be
+rendered when deliverable completion is rejected. This lets the standalone
+repair plan see why a
+target is allowed, why another action is forbidden, which owner/action was
+selected, which failure cluster is being repaired, whether a prior bounded
+attempt made progress, and which original check must be rerun. These fields
+are diagnostics and policy projection; they do not change the retry budget or
+continue phases silently.
+
+Eval output also projects the same runtime facts through a runtime job report
+record. `lifecycle_stage`, `active_owner`, `selected_action`,
+`target_admission_status`, `repair_action_plan_status`, and
+`completion_source` make the stop point visible in `summary.tsv`,
+`recheck_summary.tsv`, and generated reports. These fields distinguish runtime
+success, existing success, dry-run placeholder success, evidence-only success,
+recheck success, and recheck failure. They are report projection only; they do
+not grant `/ultra-plan-run` authority to continue a failed phase or rerun a
+different recovery owner.
+
+Verifier diagnostic fields are derived from already-observed verifier output.
+They let the repair packet distinguish a Rust compile error, Python import
+failure, Next.js type error, route integration failure, dependency/setup
+boundary, port conflict, or weak verifier command without asking the model to
+infer the class from prose. Unknown verifier failures remain failures, but
+they should still carry the original command, exit status, failure signature,
+and bounded diagnostic excerpt instead of appearing only as `rc:1`.
+
 If every verifier failure is `dependency_missing` and the step's expected paths
 already exist, CommandAgent treats the problem as setup recovery, not source
 repair. With `--yes` and without `--offline`, it runs one deterministic setup
 command selected from manifest and lockfile evidence (`npm ci`,
 `pnpm install`, or `npm install`), stores setup logs under
 `.commandagent/setup/`, and reruns the original verifier once. If setup is not
-approved, offline, unsupported, ambiguous,
-fails, times out, or still leaves `dependency_missing`, CommandAgent stops with
-a setup blocker instead of creating a repair prompt. When setup fails with a
+approved, offline, unsupported, ambiguous, fails, times out, or still leaves
+`dependency_missing`, CommandAgent stops with a setup blocker and structured
+setup evidence. Setup attempts are keyed by verifier step, setup command, and
+manifest fingerprint. If a later bounded repair edits a setup manifest or setup
+config, setup state is marked stale and a later setup attempt must still pass
+the same setup policy and fingerprint guard.
+
+When a Next.js task explicitly requests a dev-server port and a generated plan
+has run `npm run build`, CommandAgent treats launchability as a separate
+dev-server contract. Passing `npm run build` is not enough to prove that
+`npm run dev` can serve the app on the requested port. The bounded
+`dev_server_smoke` check validates `scripts.dev`, checks port availability,
+starts `npm run dev` with a timeout, requests `/` over localhost, and cleans up
+the child process. Occupied ports are reported as `port_in_use` with
+`contract_layer=dev_server_port_contract`. The check is verifier-owned
+runtime evidence; it does not install dependencies, keep a background server,
+or add a hidden repair loop.
+
+When setup fails with a
 deterministic package-manager diagnostic such as npm `ERESOLVE` peer dependency
 evidence, the blocker may include structured manifest compatibility evidence
 that names `package.json`, the dependent package, the required peer range, and
@@ -194,6 +323,13 @@ If a later bounded repair changes package-manager manifests such as
 state is keyed by the new manifest fingerprint. Approved online setup may run
 once for that changed manifest state and then rerun the same verifier. This is
 still verifier-owned setup, not repair-turn authority.
+
+Setup and manifest blockers are rendered through a setup lifecycle record.
+That record can name the setup job kind, target manifest, manifest validation
+status, readiness, command authority, selected command when any, setup result,
+stale reason, failure signature, and original verifier rerun result. It is
+evidence for active-job dispatch and eval reporting. It does not run setup,
+select arbitrary commands, or convert dependency blockers into source repair.
 
 If `package-lock.json` exists but no longer reflects dependencies declared by
 `package.json`, setup recovery may select `npm install` instead of `npm ci` so
@@ -221,6 +357,12 @@ fixing a failed verifier, because the repair turn is an explicit
 mutation-allowed session. It then reruns the same expected-path checks and
 verifier commands. Repeated malformed tool calls stop explicitly and do not
 count as original ultra-plan completion.
+The correction packet names the normalized tool-protocol source, selected
+correction action, allowed tools, disallowed actions, target confidence, and
+original success authority. This keeps stale-edit inspection, same-tool schema
+correction, prose-only repository-evidence correction, unsafe path rejection,
+and provider-transport parse evidence in the tool-protocol layer instead of
+letting a generic source repair infer the next action.
 
 If a read-only step such as `inspect` or `report` attempts mutation,
 CommandAgent records a `step_policy` evidence entry with the failed tool and
@@ -239,10 +381,12 @@ suggested command starts a standalone repair plan; it is not hidden continuation
 of the original ultra plan. For Next.js route integration failures, the packet
 also names the selected route, unintegrated artifact, and route-tree repair
 target when known so the standalone repair plan receives deterministic target
-evidence instead of only prose.
+evidence and `repair_action=connect_artifact_to_selected_route` instead of only
+prose.
 For Next.js missing integration artifacts, the packet names the missing
 artifact itself as the repair target and requires creating it before route
-integration is checked.
+integration is checked, with
+`repair_action=create_missing_integration_artifact`.
 
 ## Repair Replan Example
 

@@ -1,0 +1,49 @@
+id: focused-no-progress-target-switch
+title: No-progress target switch evidence
+profile: docs
+style: default
+mode: plan-run
+intent: docs
+prompt: "Create README.md with a section titled Recovery Policy and mention no-progress target switching."
+matrix_row: no-progress-target-switch
+proof_mode: deterministic_fixture
+fixture_reason: bounded_plan_correction_exhausted
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: source_implementation_repair
+  recovery_owner: source
+  loop_control_action: run_bounded_repair_task
+  dispatch_status: selected
+  repair_action: edit_source_for_diagnostic
+  tool_policy: file_mutation_repair
+  attempt_outcome: no_progress
+  repair_state_status: exhausted
+  no_progress_strategy: switch_target
+  exhausted_targets: README.md
+  exhausted_roles: docs
+expected_artifacts:
+  - README.md
+verify:
+  - cat README.md
+success_check:
+  type: semantic
+  required_paths:
+    - README.md
+  must_include:
+    README.md:
+      - Recovery Policy
+      - no-progress
+expected_terminal_state: repair_exhausted
+expected_contract_layer: planning_contract
+expected_active_job: source_implementation_repair
+expected_recovery_owner: source
+expected_attempt_outcome: no_progress
+expected_no_progress_strategy: switch_target
+expected_repair_state_status: exhausted
+expected_lifecycle_stage: repairing
+expected_active_owner: source
+expected_selected_action: edit_source_for_diagnostic
+expected_target_admission_status: unknown
+expected_repair_action_plan_status: planned
+expected_completion_source: none

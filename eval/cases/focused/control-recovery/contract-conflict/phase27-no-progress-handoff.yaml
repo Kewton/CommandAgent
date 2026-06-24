@@ -1,0 +1,52 @@
+id: phase28-phase27-no-progress-handoff
+title: Phase27 no-progress handoff becomes explicit contract conflict stop
+profile: rust
+style: default
+mode: plan-run
+intent: modify
+prompt: "Classify an exhausted implementation/test loop as an ambiguous contract conflict."
+matrix_row: C33-phase27-no-progress-handoff
+proof_mode: deterministic_fixture
+fixture_reason: explicit_stop
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  diagnostic_code: contract_conflict
+  diagnostic_failure_kind: contract_conflict
+  semantic_failure_kind: contract_conflict_failure
+  active_job: contract_conflict
+  recovery_owner: contract_conflict
+  loop_control_action: render_explicit_stop
+  dispatch_status: explicit_stop
+  repair_action: stop_with_structured_evidence
+  tool_policy: explicit_stop
+  no_progress_strategy: escalate_to_contract_conflict
+  exhausted_targets: src/lib.rs|tests/lib_test.rs
+  exhausted_roles: implementation|test
+  explicit_stop_reason: ambiguous_contract_authority
+  safe_stop_payload: contract_conflict_safe_stop reason=ambiguous_contract_authority authority=ambiguous_authority sides=implementation|test
+  contract_conflict_status: safe_stop
+  contract_conflict_sides: implementation|test
+  contract_conflict_authority: ambiguous_authority
+  contract_conflict_repair_target_side: none
+  contract_conflict_selected_action: stop_with_structured_evidence
+  contract_conflict_safe_stop_reason: ambiguous_contract_authority
+  contract_conflict_missing_evidence: none
+  contract_conflict_source_of_truth: unknown
+expected_terminal_state: explicit_stop
+expected_contract_layer: unknown_contract
+expected_active_job: contract_conflict
+expected_recovery_owner: contract_conflict
+expected_loop_control_action: render_explicit_stop
+expected_dispatch_status: explicit_stop
+expected_repair_action: stop_with_structured_evidence
+expected_no_progress_strategy: escalate_to_contract_conflict
+expected_explicit_stop_reason: ambiguous_contract_authority
+expected_contract_conflict_status: safe_stop
+expected_contract_conflict_sides: implementation|test
+expected_contract_conflict_authority: ambiguous_authority
+expected_contract_conflict_repair_target_side: none
+expected_contract_conflict_selected_action: stop_with_structured_evidence
+expected_contract_conflict_safe_stop_reason: ambiguous_contract_authority
+expected_contract_conflict_missing_evidence: none
+expected_contract_conflict_source_of_truth: unknown

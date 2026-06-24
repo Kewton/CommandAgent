@@ -1,0 +1,19 @@
+id: phase29-provider-boundary
+title: Phase29 provider boundary remains transport-only
+profile: generic
+style: default
+mode: plan-run
+intent: modify
+prompt: "Report provider transport failure without provider-owned behavior policy."
+matrix_row: C44-provider-boundary
+proof_mode: deterministic_fixture
+fixture_reason: provider_transport:gemini_tool_call_parse
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  phase29_support_rows: C44
+  provider_boundary_status: transport_only
+  diagnostic_code: provider_transport:gemini_tool_call_parse
+expected_phase29_support_rows: C44
+expected_provider_boundary_status: transport_only
+expected_diagnostic_code: provider_transport:gemini_tool_call_parse

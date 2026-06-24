@@ -1,3 +1,5 @@
+pub mod budget;
+pub mod event_protocol;
 pub mod events;
 pub mod minimal_loop;
 pub mod repl;

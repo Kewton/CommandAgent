@@ -1,0 +1,77 @@
+id: focused-nextjs-route-integration
+title: Next.js route integration recovery
+profile: nextjs
+style: default
+mode: ultra-plan-run
+intent: new
+prompt: "Create a minimal Next.js app with a Game component and make the selected route render it on port 3011."
+matrix_row: nextjs-route-integration
+proof_mode: deterministic_fixture
+fixture_reason: read_only_step_mutation
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  terminal_state: step_policy_failed
+  failure_category: step_policy
+  contract_layer: verification_contract
+  diagnostic_code: read_only_step_mutation
+  active_job: explicit_stop
+  active_job_lifecycle: explicit_stop
+  recovery_owner: explicit_stop
+  loop_control_action: render_explicit_stop
+  dispatch_status: explicit_stop
+  dispatch_reason: provided_active_job
+  target_path: app/page.tsx
+  selected_target: app/page.tsx
+  repair_action: stop_with_structured_evidence
+  tool_policy: explicit_stop
+  attempt_outcome: not_attempted
+  evidence_binding_status: bound
+  completion_evidence_status: failed
+  lifecycle_stage: explicit_stop
+  active_owner: explicit_stop
+  selected_action: stop_with_structured_evidence
+  target_admission_status: admitted
+  repair_action_plan_status: planned
+  completion_source: none
+  runtime_job_outcome: failed
+expected_artifacts:
+  - package.json
+  - app/page.tsx
+  - components/Game.tsx
+verify:
+  - npm run build
+success_check:
+  type: semantic
+  required_paths:
+    - package.json
+    - app/page.tsx
+    - components/Game.tsx
+  must_include:
+    app/page.tsx:
+      - Game
+    components/Game.tsx:
+      - export
+expected_terminal_state: step_policy_failed
+expected_contract_layer: verification_contract
+expected_diagnostic_code: read_only_step_mutation
+expected_active_job: explicit_stop
+expected_active_job_lifecycle: explicit_stop
+expected_recovery_owner: explicit_stop
+expected_loop_control_action: render_explicit_stop
+expected_dispatch_status: explicit_stop
+expected_dispatch_reason: provided_active_job
+expected_target_path: app/page.tsx
+expected_selected_target: app/page.tsx
+expected_repair_action: stop_with_structured_evidence
+expected_tool_policy: explicit_stop
+expected_attempt_outcome: not_attempted
+expected_evidence_binding_status: bound
+expected_completion_evidence_status: failed
+expected_lifecycle_stage: explicit_stop
+expected_active_owner: explicit_stop
+expected_selected_action: stop_with_structured_evidence
+expected_target_admission_status: admitted
+expected_repair_action_plan_status: planned
+expected_completion_source: none
+expected_runtime_job_outcome: failed

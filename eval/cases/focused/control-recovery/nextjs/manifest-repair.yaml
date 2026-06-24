@@ -1,0 +1,43 @@
+id: focused-nextjs-manifest-repair
+title: Next.js manifest repair action
+profile: nextjs
+style: default
+mode: ultra-plan-run
+intent: new
+prompt: "Repair package.json so the Next.js app has next, react, and react-dom."
+matrix_row: nextjs-manifest-repair
+proof_mode: deterministic_fixture
+fixture_reason: dependency_missing
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: manifest_repair
+  recovery_owner: manifest
+  loop_control_action: run_bounded_repair_task
+  dispatch_status: selected
+  repair_action: add_missing_manifest_dependency
+  tool_policy: setup_config_mutation_only
+  setup_manifest_kind: package_json
+  setup_manifest_path: package.json
+  setup_artifact_validation_status: missing_dependency
+  setup_target: react-dom
+  behavior_obligation_codes: nextjs_manifest
+  behavior_obligation_status: projected
+  target_path: package.json
+  selected_target: package.json
+  target_role: setup_manifest
+  target_admitted_count: 1
+expected_terminal_state: dependency_missing
+expected_contract_layer: setup_bootstrap_contract
+expected_active_job: manifest_repair
+expected_recovery_owner: manifest
+expected_repair_action: add_missing_manifest_dependency
+expected_setup_manifest_path: package.json
+expected_setup_artifact_validation_status: missing_dependency
+expected_behavior_obligation_status: projected
+expected_lifecycle_stage: setup
+expected_active_owner: manifest
+expected_selected_action: add_missing_manifest_dependency
+expected_target_admission_status: admitted
+expected_repair_action_plan_status: planned
+expected_completion_source: none

@@ -1,0 +1,37 @@
+id: focused-phase26-action-envelope-admission
+title: Phase26 action envelope admits a selected manifest repair
+profile: nextjs
+style: default
+mode: ultra-plan-run
+intent: modify
+prompt: "Admit a manifest repair only under setup-config mutation authority."
+matrix_row: phase26-c20-action-envelope-admission
+proof_mode: deterministic_fixture
+fixture_reason: profile_verification:nextjs_dependency_version_conflict
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: manifest_repair
+  recovery_owner: manifest
+  loop_control_action: run_bounded_repair_task
+  dispatch_status: selected
+  repair_action: resolve_manifest_conflict
+  tool_policy: setup_config_mutation_only
+  repair_brief_status: admitted
+  action_envelope_status: admitted
+  allowed_change_kind: setup_manifest_only
+  allowed_tool_category: setup_config_mutation
+  target_path: package.json
+  target_role: setup_manifest
+expected_active_job: manifest_repair
+expected_recovery_owner: manifest
+expected_loop_control_action: run_bounded_repair_task
+expected_dispatch_status: selected
+expected_repair_action: resolve_manifest_conflict
+expected_tool_policy: setup_config_mutation_only
+expected_repair_brief_status: admitted
+expected_action_envelope_status: admitted
+expected_allowed_change_kind: setup_manifest_only
+expected_allowed_tool_category: setup_config_mutation
+expected_target_path: package.json
+expected_target_role: setup_manifest

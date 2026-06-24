@@ -1,0 +1,19 @@
+id: phase29-answer-work-mode
+title: Phase29 answer-only work mode is a deterministic gate
+profile: generic
+style: default
+mode: plan-run
+intent: modify
+prompt: "Stop answer-only work with an explicit deterministic gate."
+matrix_row: C42-answer-work-mode
+proof_mode: deterministic_fixture
+fixture_reason: explicit_stop
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  phase29_support_rows: C42
+  answer_work_mode_status: deterministic_gate
+  loop_control_action: render_explicit_stop
+expected_phase29_support_rows: C42
+expected_answer_work_mode_status: deterministic_gate
+expected_loop_control_action: render_explicit_stop

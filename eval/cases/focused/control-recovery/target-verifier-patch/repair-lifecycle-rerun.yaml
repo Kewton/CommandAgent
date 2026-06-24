@@ -1,0 +1,39 @@
+id: phase27-repair-lifecycle-rerun
+title: Phase27 repair lifecycle verifier rerun
+profile: python
+style: default
+mode: plan-run
+intent: modify
+prompt: "Repair the Python import failure and record the original verifier rerun outcome."
+matrix_row: C23-repair-lifecycle
+proof_mode: deterministic_fixture
+fixture_reason: rc:1
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  diagnostic_code: python_import_missing
+  active_job: source_implementation_repair
+  active_job_lifecycle: selected
+  recovery_owner: source
+  loop_control_action: run_bounded_repair_task
+  dispatch_status: selected
+  repair_action: edit_source_for_diagnostic
+  tool_policy: file_mutation_repair
+  repair_state_status: attempted
+  verifier_rerun_result: failed
+  repair_attempt_count: 1
+  attempt_outcome: improved_still_failing
+  before_signature: python_import_missing
+  after_signature: python_assertion_mismatch
+  selected_target: app/main.py
+  selected_target_role: implementation
+expected_terminal_state: verifier_command_failed
+expected_contract_layer: verification_contract
+expected_diagnostic_code: python_import_missing
+expected_repair_state_status: attempted
+expected_verifier_rerun_result: failed
+expected_repair_attempt_count: 1
+expected_attempt_outcome: improved_still_failing
+expected_target_admission_status: admitted
+expected_repair_action_plan_status: planned
+expected_completion_source: none

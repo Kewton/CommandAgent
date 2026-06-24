@@ -1,0 +1,47 @@
+id: focused-contract-conflict-explicit-stop
+title: Contract conflict explicit stop evidence
+profile: docs
+style: default
+mode: plan-run
+intent: docs
+prompt: "Create README.md with a section titled Explicit Stop and explain that contract conflicts stop with structured evidence."
+matrix_row: contract-conflict-explicit-stop
+proof_mode: deterministic_fixture
+fixture_reason: explicit_stop
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: explicit_stop
+  recovery_owner: explicit_stop
+  loop_control_action: render_explicit_stop
+  dispatch_status: explicit_stop
+  repair_action: stop_with_structured_evidence
+  tool_policy: explicit_stop
+  explicit_stop_reason: contract_conflict
+  safe_stop_payload: present
+expected_artifacts:
+  - README.md
+verify:
+  - cat README.md
+success_check:
+  type: semantic
+  required_paths:
+    - README.md
+  must_include:
+    README.md:
+      - Explicit Stop
+      - contract conflicts
+expected_terminal_state: explicit_stop
+expected_contract_layer: unknown_contract
+expected_active_job: explicit_stop
+expected_recovery_owner: explicit_stop
+expected_dispatch_status: explicit_stop
+expected_repair_action: stop_with_structured_evidence
+expected_explicit_stop_reason: contract_conflict
+expected_safe_stop_payload: present
+expected_lifecycle_stage: explicit_stop
+expected_active_owner: explicit_stop
+expected_selected_action: stop_with_structured_evidence
+expected_target_admission_status: unknown
+expected_repair_action_plan_status: planned
+expected_completion_source: none

@@ -1,0 +1,21 @@
+id: phase29-tool-failure-recovery
+title: Phase29 tool failure recovery is bounded and visible
+profile: generic
+style: default
+mode: plan-run
+intent: modify
+prompt: "Expose tool failure recovery without hidden continuation."
+matrix_row: C36-tool-failure-recovery
+proof_mode: deterministic_fixture
+fixture_reason: tool_args_missing_required_field:path
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  phase29_support_rows: C36
+  tool_failure_recovery_status: bounded_correction
+  tool_protocol_status: admitted
+  tool_protocol_action: emit_same_tool_with_required_fields
+expected_phase29_support_rows: C36
+expected_tool_failure_recovery_status: bounded_correction
+expected_tool_protocol_status: admitted
+expected_tool_protocol_action: emit_same_tool_with_required_fields

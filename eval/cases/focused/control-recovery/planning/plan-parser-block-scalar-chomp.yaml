@@ -1,0 +1,33 @@
+id: focused-plan-parser-block-scalar-chomp
+title: Plan parser block scalar chomping contract
+profile: docs
+style: default
+mode: plan-run
+intent: docs
+prompt: "Create README.md with a short note that mentions YAML block scalar >- support."
+matrix_row: plan-parser-block-scalar-chomp
+proof_mode: real_llm
+expected_artifacts:
+  - README.md
+verify:
+  - cat README.md
+success_check:
+  type: semantic
+  required_paths:
+    - README.md
+  must_include:
+    README.md:
+      - block scalar
+      - ">-"
+expected_terminal_state: ok
+expected_contract_layer: ok
+expected_active_job: none
+expected_attempt_outcome: passed
+expected_evidence_binding_status: bound
+expected_completion_evidence_status: passed
+expected_lifecycle_stage: completed
+expected_active_owner: none
+expected_selected_action: none
+expected_target_admission_status: not_applicable
+expected_repair_action_plan_status: not_applicable
+expected_completion_source: runtime_success

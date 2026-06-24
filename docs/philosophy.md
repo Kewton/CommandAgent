@@ -33,6 +33,9 @@ and stops boundedly when progress cannot be proven.
 - Keep profile facts, artifact classification, obligations, verification, and
   recovery evidence separate.
 - Treat task and step decomposition as contract data, not just planner prose.
+- Treat task behavior obligations as contract data. Required artifacts,
+  profile obligations, and deliverable roles should project into a visible Task
+  Contract before plan lint, recovery, or eval reporting consumes them.
 - Validate step kind, artifact role, and workspace scope before relying on the
   execution guard.
 - Treat setup bootstrap, manifest/scaffold materialization, active job
@@ -42,6 +45,9 @@ and stops boundedly when progress cannot be proven.
 - Split large work into explicit steps instead of relying on a single long
   conversation.
 - Keep planning, execution, verification, and repair as separate contracts.
+- Treat recovery orchestration as a peer contract surface next to planning and
+  execution. It decides the current failure's recovery job and action before
+  the minimal loop is asked to execute a repair.
 - Treat recovery as contract correction, not hidden autonomy.
 - Treat recovery tasks as first-class tasks: clarify what to fix before asking
   the minimal loop to execute the repair.
@@ -49,9 +55,34 @@ and stops boundedly when progress cannot be proven.
   executes a clarified task; it should not decide whether the blocker is setup,
   manifest, route integration, source implementation, verifier policy, or
   documentation.
+- Treat recovery policy as a first-class contract. It classifies the active
+  job, admits and prioritizes repair targets, and selects one allowed repair
+  action before a Recovery Task Contract is rendered.
 - Treat contract boundary propagation as part of the design. A deterministic
   failure should carry the repair kind, setup implication, and rerun authority
   needed by the next contract layer.
+- Treat setup lifecycle as contract data, not command execution. Manifest
+  validation, setup readiness, command authority, setup result, and verifier
+  rerun result should be rendered as typed evidence before setup or source
+  repair is considered.
+- Treat failure observation as a first-class attribution boundary. A failed
+  guard, verifier, profile check, provider parser, tool protocol check, setup
+  check, or eval assertion should project into one normalized terminal-state
+  record before repair or reporting consumes it.
+- Treat artifact relationships as graph data, not scattered path strings. The
+  runtime should distinguish existing artifacts, missing required artifacts,
+  setup manifests, integration targets, generated outputs, and dependency
+  caches before planning, profile verification, setup, or repair.
+- Treat profile output as a common contract schema. Profiles may expose root
+  hints, setup/scaffold/integration artifacts, verifier commands, obligations,
+  failures, completion-evidence requirements, failure mappings, adapter
+  families, capability status, and candidate hints, but final job selection
+  stays in common recovery orchestration.
+- Treat completion evidence and evidence binding as authoritative completion
+  data when a task or profile declares that evidence is required. Path
+  existence, evidence execution, evidence freshness, and evidence binding are
+  separate facts and should not be collapsed into generic success or source
+  failure.
 - Treat plan files as public contract inputs when they can be produced by
   external planner surfaces, not as incidental runtime text.
 - Treat evaluation scripts and docs as part of the product.
@@ -59,12 +90,17 @@ and stops boundedly when progress cannot be proven.
 CommandAgent's control model is therefore:
 
 ```text
-Task Contract -> Artifact Role and Workspace Scope
-  -> Planning Contract -> Profile Contract -> Active Job Arbitration
-  -> Setup Bootstrap or Recovery Task Contract or Execution Contract
+Task Contract -> ArtifactGraph and Workspace Scope
+  -> Planning Contract -> Profile Contract
+  -> Recovery Orchestration Contract
+       -> Active Job Candidate Set
+       -> Dispatch Gate
+       -> Recovery Policy Decision
+       -> Recovery Task Contract or verifier-owned setup recovery
 classified failure -> Contract Boundary Propagation
-  -> Recovery Target Hint -> Semantic Repair Planning
-  -> Recovery Task Contract or verifier-owned setup recovery
+  -> Failure Observation
+  -> Completion Evidence / Evidence Binding Authority when deliverables are judged
+  -> Recovery Orchestration Contract
   -> Attempt Ledger and original guard/verifier rerun
   -> Execution Contract
 ```
@@ -73,6 +109,23 @@ The non-execution contracts are orchestration boundaries, not additional
 execution engines. They exist so normal work, setup work, and repair work can
 be classified and narrowed before delegation to the minimal loop instead of
 asking the loop to infer strategy from broad prose.
+
+The Recovery Orchestration Contract is the explicit owner of failure-time
+strategy selection. It consumes structured failure evidence and the
+ArtifactGraph, selects exactly one active recovery job for the current blocker,
+selects or rejects a repair action through a dispatch gate, projects the tool
+policy for that action, and hands a bounded Recovery Task Contract or setup
+action to the existing Execution Contract. It must not execute tools, advance
+arbitrary future phases, or retry until success. If multiple same-priority
+owners conflict, dispatch must choose an explicit stop instead of arbitrarily
+selecting a repair path.
+
+Failure Observation is the classification handoff into that recovery path. It
+normalizes deterministic failure identity fields such as terminal state,
+contract layer, violated contract, producer, guard, diagnostic code, source of
+truth, failure signature, and actionability. It does not select an active job,
+choose a target, run setup, retry, or repair. Those decisions remain with the
+later recovery contracts.
 
 ## Stability And Predictability
 
@@ -138,8 +191,13 @@ artifact roles, workspace scope, setup bootstrap, job arbitration, recovery
 targets, semantic repair plans, and attempt ledgers are legitimate control data
 when they stay deterministic and visible:
 
-- A task contract records the goal, required artifacts, constraints, and
-  success checks that are already explicit or deterministically inferred.
+- A task contract records the goal, task kind, admission status, lifecycle
+  state, request signals, required artifacts, constraints, and completion
+  evidence expectations that are already explicit or deterministically
+  inferred. It also records behavior obligations and artifact-role projections
+  when those can be derived from required artifacts, deliverable kind, or
+  profile obligations. These fields are contract evidence; they do not execute
+  tools, ask hidden confirmation questions, or add retry authority.
 - An artifact role classifies paths as setup/config, implementation, test,
   documentation, generated output, dependency cache, raw input, or derived
   output before those paths are used for lint, verification, or repair.
@@ -148,6 +206,11 @@ when they stay deterministic and visible:
 - Setup bootstrap treats dependency installation, manifest repair, framework
   config, and initial scaffold as setup jobs, not incidental side effects of
   source implementation.
+- Setup lifecycle records make setup readiness, stale setup, command
+  authority, manifest validation, setup result, and verifier rerun result
+  observable. They do not execute setup or authorize additional retries.
+- Dev-server launchability treats requested-port proof as a verifier-owned
+  runtime job, not as a side effect of `npm run build` or source repair.
 - Deterministic manifest or scaffold materialization is acceptable for
   profile-owned boilerplate when the profile can name the setup artifacts,
   required dependency family, and verifier that will judge success.
@@ -156,11 +219,22 @@ when they stay deterministic and visible:
   explicit stop before a recovery task is built.
 - Recovery target hints name the file, artifact, or command that the rejecting
   guard already identified as the repair target.
-- Semantic repair planning selects the allowed repair action from deterministic
-  evidence and artifact roles. It does not invent a new user goal.
-- Attempt ledgers record failure kind, target artifact, repair action, changed
-  files, verifier result, and repeated-failure count so no-progress can stop
-  explicitly instead of retrying blindly.
+- Recovery policy combines active job arbitration, target admission and
+  prioritization, and repair action selection from deterministic evidence and
+  artifact roles. It does not invent a new user goal.
+- Attempt ledgers record failure kind, target artifact, target role, failure
+  cluster, repair action, changed files, before/after signature, verifier
+  result, and outcome reason so no-progress can reject exhausted targets,
+  roles, or clusters explicitly instead of retrying blindly.
+- Patch validation records whether a proposed repair edit is admissible before
+  progress is claimed. It may reject test weakening, generated/cache output
+  mutation, protected input mutation, out-of-scope paths, noop/duplicate
+  attempts, or verifier-worsening, and it feeds the attempt ledger and eval
+  report instead of silently continuing.
+- Mechanical repair adapters may translate deterministic compiler/import/type
+  diagnostics into bounded hints or proposals after owner, target, action, and
+  rerun authority are already selected. They must not mutate files, select
+  targets, run setup, or become language-specific workflow engines.
 
 These concepts should be adopted as explicit contract orchestration. They may
 actively classify the current job and choose a bounded repair action, but they
@@ -173,16 +247,153 @@ When choosing between mechanisms, prefer this order:
 2. structured evidence and recovery target hints
 3. artifact role and workspace-scope classification
 4. active job arbitration for the current blocker
-5. setup bootstrap or deterministic manifest/scaffold materialization when the
+5. target admission and repair action selection for the classified blocker
+6. setup bootstrap or deterministic manifest/scaffold materialization when the
    blocker is setup/config and policy permits it
-6. semantic repair planning that selects one allowed repair action
-7. explicit recovery task contract under the original guard
-8. attempt-ledger no-progress stop
+7. bounded dev-server smoke when the task contract requires requested-port
+   launchability
+8. explicit recovery task contract under the original guard
+9. patch validation, mechanical adapter hints, and rollback admission under the
+   admitted recovery action
+10. attempt-ledger no-progress target/role/cluster exhaustion and explicit stop
 
 This preserves the practical value of stronger task contracts while moving the
 admission line away from "small only" and toward "explicit, bounded, and
 attributable." The system may be more capable than the earliest MVP, but it
 must remain explainable from visible contract data.
+
+## Recovery Orchestration Contract
+
+Recovery Orchestration Contract is the explicit failure-time counterpart to
+Planning Contract. Planning Contract decomposes normal work before execution.
+Recovery Orchestration Contract classifies a deterministic failure before
+repair. It is not an execution engine; it is a typed decision boundary that
+keeps repair strategy out of the minimal loop while keeping all repair actions
+visible and bounded.
+
+The orchestration flow is:
+
+```text
+FailureEvidence
+  -> Failure Classification
+  -> ArtifactGraph / Obligation Mapping
+  -> Recovery Job Selection
+  -> Recovery Action Plan
+  -> Tool Policy Projection
+  -> Minimal Loop Execution
+  -> Original Guard / Verifier Rerun
+  -> Success or Explicit Stop
+```
+
+This layer owns the decision "what kind of recovery is this?" for the current
+blocker. It may classify the job as setup bootstrap, manifest repair, route
+integration repair, missing artifact creation, source implementation repair,
+test repair, documentation repair, verifier policy repair, tool protocol
+repair, plan correction, or explicit stop. It may also reject recovery when no
+deterministic target or action can be admitted.
+
+It must not execute tools, choose arbitrary later phases, increase retry
+budgets, run dependency setup from an ordinary repair turn, weaken verifiers,
+or add provider/model-specific behavior. Its output is contract data consumed
+by Setup Bootstrap, Recovery Task Contract, Execution Contract, and Attempt
+Ledger.
+
+## Recovery Policy Contract
+
+Recovery Policy Contract is the policy-decision part of Recovery Orchestration
+Contract. Structured evidence says what failed; recovery policy decides, from
+deterministic facts, what single recovery action is allowed next.
+
+Recovery Policy Contract is the contract layer between structured failure
+evidence and a rendered recovery task. It is not a workflow engine and it does
+not execute tools. Its responsibility is to make the repair decision explicit
+before the minimal loop is asked to act.
+
+The policy consumes only deterministic inputs:
+
+- violated contract, failure code, and stable failure signature
+- profile or verifier evidence
+- ArtifactGraph facts, classified artifact roles, and workspace scope
+- recovery target hints from the rejecting guard
+- setup implication and rerun authority
+- prior bounded attempts for the same target and failure class
+
+The policy may produce only bounded contract data:
+
+- active job, such as manifest repair, setup bootstrap, route integration
+  repair, source implementation repair, test repair, docs repair, verifier
+  policy repair, or explicit stop
+- loop control action and dispatch status, such as bounded repair task,
+  verifier-owned setup, tool-protocol correction, or explicit stop
+- candidate jobs and tie-break reason when deterministic evidence produces
+  more than one possible owner
+- repair action, such as add a manifest dependency, repair a build script,
+  create a missing integration artifact, connect an existing artifact to the
+  selected route, repair a source error, or stop with a setup blocker
+- admitted repair target and ordered candidate artifacts
+- disallowed actions
+- success check and rerun authority
+- no-progress strategy and exhausted target, role, or failure cluster when the
+  same job/target/failure repeats after a bounded repair attempt
+
+This contract exists because structured evidence alone does not guarantee a
+correct repair. A small execution model can be good at carrying out a clear
+task while still being weak at deciding whether a failure is setup, manifest,
+route integration, source implementation, test, docs, or verifier policy. The
+runtime should make that decision deterministically when the evidence supports
+it, then hand the clarified task to the minimal loop.
+
+For example, `nextjs_route_not_integrated` should not ask the minimal loop to
+infer a strategy from prose. The recovery policy should classify the active job
+as route integration repair, admit the selected route or nearest route-graph
+connection point as the repair target, select the action "connect the existing
+artifact to the selected route graph", disallow placeholder artifact creation
+and unrelated feature work, then rerun profile verification and `npm run
+build` as the original success checks.
+
+The policy must stay provider-independent and bounded. It must not increase
+retry budgets, pick arbitrary future phases, run dependency setup from an
+ordinary repair turn, weaken a verifier, or encode model-specific behavior.
+
+## ArtifactGraph
+
+ArtifactGraph is the shared representation of artifact relationships used by
+planning, profiles, setup, verification, and recovery. It is not a dependency
+graph builder, compiler, or framework runtime. It is deterministic contract
+data built from facts CommandAgent already has: requested artifacts, step
+expected paths, workspace observations, profile facts, verifier references,
+and setup outputs.
+
+The graph should preserve these distinctions:
+
+- `existing`: present in the workspace before the current step or phase
+- `required`: requested by the user, eval case, profile obligation, or plan
+- `to_be_created`: required but not present yet
+- `setup_manifest`: package, build, config, or framework setup artifact
+- `integration_target`: route, entry point, module, test, or document that must
+  reference another artifact
+- `implementation`: source artifact that implements behavior
+- `test`: artifact that checks behavior
+- `generated_output`: build output, generated declarations, lock-derived files,
+  and dependency caches that should not become repair targets by observation
+  alone
+
+The graph should answer bounded questions for other contracts:
+
+- Can this step inspect the path, create it, edit it, verify it, or only report
+  it?
+- Is this path an existing artifact, a missing required artifact, or a future
+  output of a later phase?
+- Is this artifact eligible as a repair target, or only as context?
+- Is this artifact disconnected from a selected integration target?
+- Does changing this setup manifest imply dependency setup freshness must be
+  reconsidered before rerunning the verifier?
+
+Profiles may add domain-specific edges such as selected Next.js route
+integration, but the graph remains contract data. It must not execute code,
+run package managers, score UI quality, or choose a workflow. If the graph
+cannot distinguish a path deterministically, recovery should stop with
+evidence instead of guessing.
 
 ## Plan Files As Public Contracts
 
@@ -201,9 +412,12 @@ the accepted syntax should cover ordinary, deterministic YAML shapes that
 planning tools naturally emit, then normalize them into CommandAgent's
 canonical internal representation before linting or execution. For example,
 quoted strings, unquoted scalar strings, and standard block scalars for long
-instructions are reasonable contract syntax. Anchors, merge keys, custom tags,
-implicit execution, environment expansion, and other complex YAML features are
-not part of the contract unless a separate design decision admits them.
+instructions are reasonable contract syntax. Known long text fields accept
+block scalar markers `|`, `|-`, `|+`, `>`, `>-`, and `>+`; exact trailing
+newline chomping is normalized rather than exposed as task behavior. Anchors,
+merge keys, custom tags, implicit execution, environment expansion, and other
+complex YAML features are not part of the contract unless a separate design
+decision admits them.
 
 The parser boundary and lint boundary must stay separate:
 
@@ -237,7 +451,7 @@ The shape of an acceptable recovery mechanism is:
 
 ```text
 classified failure -> violated contract -> active job classification
-  -> recovery target hint -> allowed repair action
+  -> dispatch gate -> recovery target hint -> allowed repair action
   -> rerun the original guard/verifier -> success or explicit bounded stop
 ```
 
@@ -251,8 +465,10 @@ weaken the check that failed.
 Active job arbitration is a recovery input, not hidden continuation. It may
 decide that the current blocker is setup bootstrap, manifest repair, route
 integration, source implementation, verifier policy, docs, or explicit stop.
-It may not silently advance to the next phase after a failed contract or create
-new user-visible goals.
+The dispatch gate may select only one owner/action pair, choose verifier-owned
+setup or tool-protocol correction, or stop with structured evidence. It may not
+silently advance to the next phase after a failed contract, create new
+user-visible goals, or resolve same-priority ambiguity by guessing.
 
 Dependency setup remains verifier-owned. If a bounded repair changes package
 manager manifests, setup state may become stale for that verifier step.
@@ -297,17 +513,84 @@ The minimum propagation shape is:
 ```text
 classified failure
   -> violated contract
+  -> active job
   -> repair kind
-  -> target path, command, or artifact role when known
+  -> semantic failure kind and source of truth
+  -> admitted target path, command, or artifact role when known
+  -> proposed/admitted/rejected repair targets
+  -> selected deterministic failure cluster
+  -> repair action when the current blocker has one deterministic action
+  -> allowed change kind and disallowed actions
+  -> repair brief and action envelope
+  -> workspace scope and artifact ownership when a target is admitted
+  -> bounded artifact ledger facts for observed/read/changed/verifier-mentioned paths
+  -> expected evidence delta
   -> setup implication when the failure or repair affects dependencies
+  -> recovery owner and repair action plan
+  -> completion evidence, evidence binding, deliverable obligations
+  -> semantic failure report and repair job state
+  -> attempt outcome, exhausted target/role/cluster, no-progress strategy,
+     safe-stop payload, patch validation, and eval report fields when present
   -> rerun authority
 ```
 
 These values are carried as bounded contract evidence fields such as
-`repair_kind`, `setup_implication`, and `rerun_authority`. They are data for
-the existing Recovery Task Contract or verifier-owned setup recovery path. They
-are not hidden workflow state, retry counters, or permission for the model to
-choose a new job.
+`active_job`, `repair_kind`, `semantic_failure_kind`, `source_of_truth`,
+`repair_action`, `allowed_change_kind`, `workspace_scope`,
+`artifact_ownership`, `expected_evidence_delta`, `setup_implication`, and
+`rerun_authority`. Newer recovery-control fields such as `recovery_owner`,
+`completion_evidence`, `evidence_binding`, `deliverable_obligations`,
+`repair_action_plan`, `semantic_failure_report`, `repair_job_state`,
+`attempt_outcomes`, `exhausted_targets`, `exhausted_roles`,
+`exhausted_clusters`, `no_progress_strategy`, `repair_state_status`,
+`safe_stop_payload`, `patch_validation`, and `eval_report_fields` are also
+bounded contract evidence. Target-admission evidence may also carry
+`proposed_targets`, `admitted_targets`, `rejected_targets`, `repair_brief`,
+`selected_failure_cluster`, `repair_brief_status`, `action_envelope_status`,
+`target_source_of_truth`, `target_ownership_source`, `target_workspace_scope`,
+`target_evidence_freshness`, `focused_edit_status`,
+`current_excerpt_available`, `target_priority_components`, and
+`target_conflict_reason`. Semantic diagnostic evidence may also carry
+`diagnostic_failure_kind`, `semantic_cluster_source_of_truth`,
+`observed_expected`, `affected_cases`, `candidate_artifacts`, and
+`unknown_diagnostic_count`. Repair-action admission evidence may also carry
+`allowed_tool_category`, `repair_root_cause`, `repair_hypothesis`,
+`expected_improvement`, `target_confidence`, `must_preserve`, `success_check`,
+`repair_plan_rejection_reason`, and safe-stop evidence such as
+`safe_stop_payload`. These fields clarify the next bounded repair task or the
+reason no repair task is admitted. Attempt outcomes are not advisory text:
+`duplicate`, `no_progress`, and `worsened` attempts may exhaust the current
+target, role, or failure cluster before the next repair task is admitted.
+They are data for
+Recovery Policy Contract, Recovery Task Contract, verifier-owned setup
+recovery, focused target admission, or repair-action admission. They are not
+hidden workflow state, retry counters, or permission for the model to choose a
+new job.
+
+Active-job candidate data is part of the same contract boundary. Each candidate
+should name the recovery owner, source layer, source of truth, target hint,
+artifact role, tool-policy projection, loop-control action, rerun authority,
+and deterministic reason. Profile-specific recovery policy may emit candidates
+or evidence hints, but final owner/action selection belongs to the common
+dispatch gate. If top candidates conflict, the correct behavior is structured
+stop, not a model-chosen fallback.
+
+Artifact facts are now a separate attribution boundary. The bounded workspace
+snapshot, artifact ledger, workspace scope, and artifact ownership decision
+record which files were already present, read, changed, created, mentioned by
+a verifier, scaffold-created, setup-created, generated/cache, or out of scope.
+Those facts may be rendered into `artifact_graph_summary`,
+`artifact_ownership`, and `eval_report_fields`, but they do not by themselves
+authorize an edit, verifier rewrite, dependency setup, or retry. Recovery
+Orchestration may consume them only as deterministic input to target admission
+and repair-task rendering.
+
+Focused edit recovery is intentionally expressed as target-admission data, not
+as a new engine. A read/edit/write/tool or verifier signal may propose a file
+target, but admission must still check ownership, workspace scope, active-job
+role, freshness, current excerpt availability, exhausted targets/roles/clusters,
+and deterministic priority. Ambiguous same-priority targets must produce an
+explicit stop instead of asking the model to pick one.
 
 Examples:
 
@@ -330,6 +613,14 @@ turn, or hide continuation after a failed guard. It only makes the next
 visible repair or setup step precise enough that the minimal loop is not asked
 to decide what kind of repair is needed.
 
+When an active job requires a file target, target admission must happen before
+the repair prompt is built. Wrong-role, out-of-scope, generated-output,
+dependency-cache, exhausted, or candidate-only paths should be rejected with
+structured evidence. If no target is admitted, recovery stops explicitly
+instead of broadening the prompt. Semantic repair planning may explain the
+selected target through a bounded failure cluster, but it must not parse broad
+model prose or select future workflow steps.
+
 When propagation is not deterministic, CommandAgent should stop with bounded
 evidence rather than invent a repair kind. When it is deterministic, the
 runtime should prefer an explicit recovery task or verifier-owned setup
@@ -339,9 +630,10 @@ recovery over a generic "fix the build" instruction.
 
 Profiles are structured domain contracts. They may describe domain facts,
 classify artifacts, project deterministic obligations, and verify
-profile-specific contracts. They must not own planning, execute tools, retry
-work, infer hidden workflow state, or become a provider/model-specific policy
-layer.
+profile-specific contracts. They may also provide profile-specific planning
+guidance and profile-specific plan-lint evidence through a shared profile
+interface. They must not own planning, execute tools, retry work, infer hidden
+workflow state, or become a provider/model-specific policy layer.
 
 Profile facts are observations. A fact such as a workspace entry, package
 script, route path, dependency list, or config file does not become an
@@ -375,6 +667,14 @@ declaration file may be observed in the workspace, but it is not a
 route-integration artifact unless the profile classifier explicitly marks it
 eligible. Workspace observation alone should not create a route-integration or
 source-integration obligation.
+
+Plan lint may call profile-specific lint through the same shared profile
+interface, but the boundary stays narrow. Core lint owns schema, path safety,
+step kind, mutation boundary, workspace scope, and shell/verifier safety.
+Profiles own domain rules such as Next.js package obligations, route-root
+drift, route integration obligations, and framework-specific verifier
+guidance. Core may know the selected profile id; it must not embed the
+profile's framework rules directly.
 
 Profile verification failures may emit structured contract evidence for
 repair. The profile identifies the violated contract, deterministic target, and
@@ -432,6 +732,14 @@ a read-only envelope that requires repository read evidence from `Read`,
 `Glob`, `Grep`, or read-only `Bash`; verifier/profile source repair keeps the
 file-mutation repair envelope. This prevents a recovery task that says
 "read-only" from being run as a mutation-allowed file repair.
+Tool protocol correction follows the same boundary. A malformed tool call,
+stale edit, prose-only action failure, invalid path, or provider-transport
+parse failure is first normalized into deterministic protocol evidence. The
+step runner may then select one visible action, such as same-tool schema
+correction, read-before-edit, repository-evidence tool call, or explicit stop,
+and project the allowed tools into the next execution envelope. The minimal
+loop does not infer that action from prose and providers do not own the shared
+recovery policy.
 
 This does not turn recovery into a workflow engine. The contract narrows the
 next repair turn; it does not choose future phases, add attempts, run hidden
@@ -490,6 +798,35 @@ retry authority, semantic confidence, sidecar or memory references, or any
 instruction to continue automatically. A repair target is admissible only when
 it is deterministically selected by the failing verifier/profile contract, such
 as a compiler source path or a selected Next.js route.
+
+## Contract Telemetry
+
+Job/Event, Evidence, Usage, Cost, and Budget records are contract telemetry.
+They make runtime state, failure boundaries, and resource use visible to users,
+eval, CommandMate, and future external planner surfaces. They are not another
+execution engine.
+
+The admission rule for telemetry is the same as other contract mechanisms:
+
+- it must be derived from observable runtime facts;
+- it must have a versioned schema when persisted or exposed externally;
+- it must not increase retry authority, weaken guards, or continue work;
+- it must keep provider transport details separate from shared behavior;
+- it must remain replayable enough to explain what happened after the fact.
+
+The external Job/Event protocol exists so a separate orchestrator can observe
+and project job state without CommandAgent owning queueing, scheduling,
+approval UI, dashboards, or parallel execution. CommandAgent may emit a
+versioned event envelope, evidence payload, usage record, budget-exceeded
+record, or command accepted/rejected event. It must not turn those records into
+a hidden workflow controller.
+
+Budget enforcement is also a contract. `context_budget` should bound model
+requests, tool results, iterations, and cumulative usage where the runtime can
+measure or safely estimate them. When a budget is exceeded, the runtime should
+stop, shrink deterministic tool output, compact deterministic context, request
+an explicit replan, or request approval. It should not silently raise the
+budget, retry until success, or switch providers/models as a hidden policy.
 
 ## Why Legacy Is Removed
 

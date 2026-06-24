@@ -1,0 +1,43 @@
+id: focused-python-fastapi-assertion-mismatch
+title: FastAPI assertion mismatch repair target
+profile: python
+style: default
+mode: plan-run
+intent: modify
+prompt: "Create a FastAPI app whose /health endpoint returns ok and include a test for it."
+matrix_row: python-fastapi-assertion-mismatch
+proof_mode: deterministic_fixture
+fixture_reason: semantic_mismatch:app/main.py:/health returned 500 instead of 200
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: source_implementation_repair
+  recovery_owner: source
+  loop_control_action: run_bounded_repair_task
+  dispatch_status: selected
+  repair_action: edit_source_for_diagnostic
+  semantic_failure_kind: assertion_mismatch
+  selected_failure_cluster: python_fastapi_endpoint
+  observed_expected: observed=500_expected=200
+  affected_cases: tests/test_app.py::test_health
+  candidate_artifacts: app/main.py
+  preferred_repair_role: implementation
+  target_path: app/main.py
+  selected_target: app/main.py
+  target_role: implementation
+  target_admitted_count: 1
+expected_terminal_state: eval_assertion_failed
+expected_contract_layer: eval_success_contract
+expected_active_job: source_implementation_repair
+expected_recovery_owner: source
+expected_semantic_failure_kind: assertion_mismatch
+expected_observed_expected: observed=500_expected=200
+expected_affected_cases: tests/test_app.py::test_health
+expected_candidate_artifacts: app/main.py
+expected_target_path: app/main.py
+expected_lifecycle_stage: repairing
+expected_active_owner: source
+expected_selected_action: edit_source_for_diagnostic
+expected_target_admission_status: admitted
+expected_repair_action_plan_status: planned
+expected_completion_source: none

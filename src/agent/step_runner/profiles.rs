@@ -1,4 +1,10 @@
-use crate::agent::step_runner::profile_artifact::{ArtifactProvenance, classify_profile_artifact};
+use crate::agent::step_runner::correction_evidence::PlanCorrectionEvidence;
+use crate::agent::step_runner::mechanical_repair::mechanical_adapter_family_specs;
+use crate::agent::step_runner::plan_lint::PlanLintError;
+use crate::agent::step_runner::profile_artifact::{
+    ArtifactKind, ArtifactProvenance, artifact_kind_label, classify_profile_artifact,
+};
+use crate::agent::step_runner::{StepKind, StepPlan, StepPlanStep};
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -66,7 +72,7 @@ pub fn profile_contract(id: ProfileId) -> ProfileContract {
         },
         ProfileId::NextJs => ProfileContract {
             id,
-            text: "For Next.js work, preserve honest build scripts. New apps need package.json with next/react/react-dom dependencies, app/page.tsx or pages/index.tsx, and a build script that remains `next build`. If node_modules/.bin/next is missing, install dependencies when allowed or report dependency_missing; never fake build success.".to_string(),
+            text: "For Next.js work, preserve honest build scripts. New apps need package.json with next/react/react-dom dependencies, app/page.tsx or pages/index.tsx, and a build script that remains `next build`. If TypeScript or .tsx files are used, use a stable TypeScript 5.x range such as ^5.4.0 with @types/react 18.x. If source imports use @/*, create tsconfig.json with compilerOptions.paths for @/*; otherwise use relative imports. If node_modules/.bin/next is missing, install dependencies when allowed or report dependency_missing; never fake build success.".to_string(),
             verifier_commands: vec!["npm run build".to_string()],
             protected_path_prefixes: Vec::new(),
         },
@@ -128,6 +134,219 @@ pub fn protected_by_profile(profile: &str, path: &str) -> Result<bool, ProfileEr
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProfileFactSummary {
     pub lines: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProfileCapabilityFamily {
+    ProjectKind,
+    RootHints,
+    ManifestContract,
+    EntrypointContract,
+    IntegrationContract,
+    SetupContract,
+    VerifierContract,
+    CompletionEvidenceContract,
+    ProtectedInputContract,
+    ScaffoldContract,
+    ProfileFailureMapping,
+    LanguageAdapterFamily,
+}
+
+impl ProfileCapabilityFamily {
+    fn eval_key(self) -> &'static str {
+        match self {
+            Self::ProjectKind => "project",
+            Self::RootHints => "roots",
+            Self::ManifestContract => "manifest",
+            Self::EntrypointContract => "entrypoint",
+            Self::IntegrationContract => "integration",
+            Self::SetupContract => "setup",
+            Self::VerifierContract => "verifier",
+            Self::CompletionEvidenceContract => "evidence",
+            Self::ProtectedInputContract => "protected",
+            Self::ScaffoldContract => "scaffold",
+            Self::ProfileFailureMapping => "failure",
+            Self::LanguageAdapterFamily => "adapter",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ProfileCapabilityStatus {
+    Supported,
+    Partial,
+    NotApplicable,
+}
+
+impl ProfileCapabilityStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Supported => "supported",
+            Self::Partial => "partial",
+            Self::NotApplicable => "not_applicable",
+        }
+    }
+
+    fn summary_str(self) -> &'static str {
+        match self {
+            Self::Supported => "ok",
+            Self::Partial => "partial",
+            Self::NotApplicable => "na",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProfileCapability {
+    pub(crate) family: ProfileCapabilityFamily,
+    pub(crate) status: ProfileCapabilityStatus,
+    pub(crate) source_of_truth: String,
+    pub(crate) artifacts: Vec<String>,
+    pub(crate) recovery_owner_hint: Option<String>,
+    pub(crate) authority: Option<String>,
+    pub(crate) reason: Option<String>,
+}
+
+impl ProfileCapability {
+    fn render_line(&self) -> String {
+        format!(
+            "profile.output.capability.{}=status:{} artifacts:{} owner:{} authority:{} reason:{}",
+            self.family.eval_key(),
+            self.status.as_str(),
+            join_profile_values_limited(&self.artifacts, 1),
+            bounded_value(self.recovery_owner_hint.as_deref().unwrap_or("none")),
+            bounded_value(self.authority.as_deref().unwrap_or("none")),
+            bounded_value(self.reason.as_deref().unwrap_or("none"))
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProfileOutput {
+    pub(crate) id: ProfileId,
+    pub(crate) project_kind: String,
+    pub(crate) project_root_hints: Vec<String>,
+    pub(crate) manifest_artifacts: Vec<String>,
+    pub(crate) entrypoints: Vec<String>,
+    pub(crate) integration_artifacts: Vec<String>,
+    pub(crate) completion_evidence_requirements: Vec<String>,
+    pub(crate) failure_mappings: Vec<String>,
+    pub(crate) adapter_families: Vec<String>,
+    pub(crate) capabilities: Vec<ProfileCapability>,
+    pub(crate) artifact_classifications: Vec<String>,
+    pub(crate) setup_artifacts: Vec<String>,
+    pub(crate) scaffold_artifacts: Vec<String>,
+    pub(crate) route_integration_artifacts: Vec<String>,
+    pub(crate) verifier_commands: Vec<String>,
+    pub(crate) protected_paths: Vec<String>,
+    pub(crate) behavior_obligations: Vec<String>,
+    pub(crate) verification_failures: Vec<String>,
+    pub(crate) recovery_candidate_hints: Vec<String>,
+}
+
+impl ProfileOutput {
+    pub(crate) fn render_lines(&self) -> Vec<String> {
+        let mut lines = vec![
+            format!("profile.output.id={}", self.id.as_str()),
+            format!("profile.output.project_kind={}", self.project_kind),
+            format!(
+                "profile.output.project_roots={}",
+                join_profile_values(&self.project_root_hints)
+            ),
+            format!(
+                "profile.output.manifests={}",
+                join_profile_values(&self.manifest_artifacts)
+            ),
+            format!(
+                "profile.output.entrypoints={}",
+                join_profile_values(&self.entrypoints)
+            ),
+            format!(
+                "profile.output.integration_artifacts={}",
+                join_profile_values(&self.integration_artifacts)
+            ),
+            format!(
+                "profile.output.artifacts={}",
+                join_profile_values(&self.artifact_classifications)
+            ),
+            format!(
+                "profile.output.setup_artifacts={}",
+                join_profile_values(&self.setup_artifacts)
+            ),
+            format!(
+                "profile.output.scaffold_artifacts={}",
+                join_profile_values(&self.scaffold_artifacts)
+            ),
+            format!(
+                "profile.output.route_artifacts={}",
+                join_profile_values(&self.route_integration_artifacts)
+            ),
+            format!(
+                "profile.output.verifiers={}",
+                join_profile_values(&self.verifier_commands)
+            ),
+            format!(
+                "profile.output.protected_paths={}",
+                join_profile_values(&self.protected_paths)
+            ),
+            format!(
+                "profile.output.behavior_obligations={}",
+                join_profile_values(&self.behavior_obligations)
+            ),
+            format!(
+                "profile.output.completion_evidence={}",
+                join_profile_values(&self.completion_evidence_requirements)
+            ),
+            format!(
+                "profile.output.verification_failures={}",
+                join_profile_values(&self.verification_failures)
+            ),
+            format!(
+                "profile.output.failure_mappings={}",
+                join_profile_values(&self.failure_mappings)
+            ),
+            format!(
+                "profile.output.adapter_families={}",
+                join_profile_values(&self.adapter_families)
+            ),
+            format!(
+                "profile.output.recovery_candidate_hints={}",
+                join_profile_values(&self.recovery_candidate_hints)
+            ),
+            format!("profile_project_kind={}", self.project_kind),
+            format!(
+                "profile_manifest_artifacts={}",
+                join_profile_values(&self.manifest_artifacts)
+            ),
+            format!(
+                "profile_entrypoints={}",
+                join_profile_values(&self.entrypoints)
+            ),
+            format!(
+                "profile_integration_artifacts={}",
+                join_profile_values(&self.integration_artifacts)
+            ),
+            format!(
+                "profile_completion_evidence={}",
+                join_profile_values(&self.completion_evidence_requirements)
+            ),
+            format!(
+                "profile_failure_mapping={}",
+                join_profile_values(&self.failure_mappings)
+            ),
+            format!(
+                "profile_adapter_families={}",
+                join_profile_values(&self.adapter_families)
+            ),
+            format!(
+                "profile_capability_status={}",
+                profile_capability_status_summary(&self.capabilities)
+            ),
+        ];
+        lines.extend(self.capabilities.iter().map(ProfileCapability::render_line));
+        lines.retain(|line| line.len() <= 240);
+        lines
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -219,9 +438,14 @@ impl ProfileObligation {
 }
 
 pub fn profile_fact_summary(profile: &str, cwd: &Path) -> Result<ProfileFactSummary, ProfileError> {
-    match ProfileId::parse(profile)? {
-        ProfileId::NextJs => Ok(nextjs_fact_summary(cwd)),
-        _ => Ok(ProfileFactSummary { lines: Vec::new() }),
+    let id = ProfileId::parse(profile)?;
+    let mut lines = profile_output_summary(id, cwd).render_lines();
+    match id {
+        ProfileId::NextJs => {
+            lines.extend(nextjs_fact_summary(cwd).lines);
+            Ok(ProfileFactSummary { lines })
+        }
+        _ => Ok(ProfileFactSummary { lines }),
     }
 }
 
@@ -243,6 +467,47 @@ pub fn profile_obligations(
     match ProfileId::parse(profile)? {
         ProfileId::NextJs => Ok(nextjs_profile_obligations(context)),
         _ => Ok(Vec::new()),
+    }
+}
+
+pub fn profile_plan_guidance(profile: &str) -> &'static str {
+    match ProfileId::parse(profile).unwrap_or(ProfileId::Generic) {
+        ProfileId::NextJs => {
+            "For Next.js apps, generated package.json steps must instruct a compatible dependency family: next plus react/react-dom with React 18.2 or newer compatibility. If the plan creates tsconfig.json, .ts, .tsx, or TypeScript code, the package.json step must also literally include typescript 5.x compatibility, a stable TypeScript 5.x range such as ^5.4.0, and @types/react 18.x compatibility. Do not use exact React pins below 18.2 with Next.js 14, TypeScript 6 with Next.js 14, @types/react 19 with React 18, exact TypeScript pins such as 5.0.0, or latest as the compatibility strategy. If source imports use @/*, the same plan must create or edit tsconfig.json with compilerOptions.paths mapping @/* to the selected source root; otherwise use relative imports. Use plain CSS unless the goal or phase explicitly requires Tailwind. If any source/style step mentions Tailwind, @tailwind, or Tailwind directives, the same step plan must also include exact package.json dependency literals tailwindcss, postcss, and autoprefixer, plus setup/config outputs tailwind.config.js and postcss.config.js. Do not write only Tailwind CSS dependencies as a substitute for the exact package names. For Next.js source verification, use npm run build in a separate verify step; do not use npx tsc --noEmit or other npx verifiers because npx may perform dependency setup and is blocked. Do not plan npm install; verifier-owned setup handles dependency installation when approved."
+        }
+        ProfileId::Rust => {
+            "For new Rust projects, plan explicit file creation for Cargo.toml and src/main.rs. Do not plan cargo init or cargo new shell scaffolding."
+        }
+        _ => "No additional profile-specific plan guidance.",
+    }
+}
+
+pub fn lint_profile_plan(
+    plan: &StepPlan,
+    cwd: Option<&Path>,
+    obligations: &[ProfileObligation],
+) -> Result<(), PlanLintError> {
+    match ProfileId::parse(plan.profile.as_str()).unwrap_or(ProfileId::Generic) {
+        ProfileId::NextJs => lint_nextjs_plan(plan, cwd, obligations),
+        ProfileId::Rust => Ok(()),
+        _ => Ok(()),
+    }
+}
+
+pub fn lint_profile_step_contract(
+    profile: &str,
+    step_id: &str,
+    kind: StepKind,
+    instruction: &str,
+    expected_paths: &[String],
+    cwd: Option<&Path>,
+) -> Result<(), PlanLintError> {
+    match ProfileId::parse(profile).unwrap_or(ProfileId::Generic) {
+        ProfileId::NextJs => {
+            lint_nextjs_scaffolding_and_root_drift(step_id, kind, instruction, expected_paths, cwd)
+        }
+        ProfileId::Rust => lint_rust_step_contract(step_id, instruction),
+        _ => Ok(()),
     }
 }
 
@@ -276,6 +541,622 @@ pub fn render_profile_obligations(obligations: &[ProfileObligation]) -> Vec<Stri
         .collect()
 }
 
+fn profile_output_summary(id: ProfileId, cwd: &Path) -> ProfileOutput {
+    let contract = profile_contract(id);
+    let project_kind = profile_project_kind(id).to_string();
+    let project_root_hints = profile_project_root_hints(id, cwd);
+    let observed_paths = profile_observed_paths(id, cwd);
+    let artifact_classifications = observed_paths
+        .iter()
+        .map(|path| {
+            let classified =
+                classify_profile_artifact(id, path, ArtifactProvenance::WorkspaceObservation);
+            format!(
+                "{}:{}",
+                classified.path,
+                artifact_kind_label(classified.kind)
+            )
+        })
+        .collect::<Vec<_>>();
+    let setup_artifacts = observed_paths
+        .iter()
+        .filter(|path| {
+            let kind =
+                classify_profile_artifact(id, path, ArtifactProvenance::WorkspaceObservation).kind;
+            matches!(kind, ArtifactKind::Manifest | ArtifactKind::Config)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let scaffold_artifacts = profile_scaffold_artifacts(id, cwd);
+    let route_integration_artifacts = observed_paths
+        .iter()
+        .filter(|path| {
+            let classified =
+                classify_profile_artifact(id, path, ArtifactProvenance::WorkspaceObservation);
+            classified.eligibility.route_integration
+                || matches!(classified.kind, ArtifactKind::RouteEntry)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let manifest_artifacts = profile_manifest_artifacts(id, cwd, &setup_artifacts);
+    let entrypoints = profile_entrypoints(id, cwd);
+    let integration_artifacts =
+        profile_integration_artifacts(id, cwd, &route_integration_artifacts);
+    let completion_evidence_requirements = profile_completion_evidence_requirements(id);
+    let failure_mappings = profile_failure_mappings(id);
+    let adapter_families = profile_adapter_families(id);
+    let behavior_obligations = profile_behavior_obligations(id, cwd);
+    let recovery_candidate_hints = profile_recovery_candidate_hints(
+        id,
+        &setup_artifacts,
+        &scaffold_artifacts,
+        &route_integration_artifacts,
+    );
+    let verifier_commands = contract.verifier_commands;
+    let protected_paths = contract.protected_path_prefixes;
+    let mut output = ProfileOutput {
+        id,
+        project_kind,
+        project_root_hints,
+        manifest_artifacts,
+        entrypoints,
+        integration_artifacts,
+        completion_evidence_requirements,
+        failure_mappings,
+        adapter_families,
+        capabilities: Vec::new(),
+        artifact_classifications,
+        setup_artifacts,
+        scaffold_artifacts,
+        route_integration_artifacts,
+        verifier_commands,
+        protected_paths,
+        behavior_obligations,
+        verification_failures: Vec::new(),
+        recovery_candidate_hints,
+    };
+    output.capabilities = profile_capabilities(&output);
+    output
+}
+
+fn profile_project_kind(id: ProfileId) -> &'static str {
+    match id {
+        ProfileId::Generic => "generic_workspace",
+        ProfileId::NextJs => "nextjs_app",
+        ProfileId::Python => "python_app",
+        ProfileId::Rust => "rust_crate",
+        ProfileId::Investigation => "investigation",
+        ProfileId::Docs => "documentation",
+        ProfileId::DataAnalysis => "data_analysis",
+        ProfileId::DataPipeline => "data_pipeline",
+    }
+}
+
+fn profile_project_root_hints(id: ProfileId, cwd: &Path) -> Vec<String> {
+    match id {
+        ProfileId::NextJs => {
+            let mut roots = Vec::new();
+            if cwd.join("src/app").exists() {
+                roots.push("src/app".to_string());
+            }
+            if cwd.join("app").exists() {
+                roots.push("app".to_string());
+            }
+            if roots.is_empty() {
+                roots.push("app".to_string());
+            }
+            roots
+        }
+        ProfileId::Rust => vec![".".to_string()],
+        ProfileId::Python => {
+            if cwd.join("app").exists() {
+                vec!["app".to_string()]
+            } else {
+                vec![".".to_string()]
+            }
+        }
+        ProfileId::Docs => vec!["docs".to_string(), ".".to_string()],
+        ProfileId::DataAnalysis | ProfileId::DataPipeline => {
+            vec!["data".to_string(), "reports".to_string()]
+        }
+        ProfileId::Generic | ProfileId::Investigation => Vec::new(),
+    }
+}
+
+fn profile_observed_paths(id: ProfileId, cwd: &Path) -> Vec<String> {
+    let candidates: &[&str] = match id {
+        ProfileId::NextJs => &[
+            "package.json",
+            "package-lock.json",
+            "pnpm-lock.yaml",
+            "next.config.js",
+            "next.config.mjs",
+            "tsconfig.json",
+            "tailwind.config.js",
+            "postcss.config.js",
+            "app/page.tsx",
+            "app/layout.tsx",
+            "app/globals.css",
+            "src/app/page.tsx",
+            "src/app/layout.tsx",
+            "src/app/globals.css",
+            "components/Game.tsx",
+        ],
+        ProfileId::Rust => &["Cargo.toml", "Cargo.lock", "src/main.rs", "src/lib.rs"],
+        ProfileId::Python => &[
+            "pyproject.toml",
+            "requirements.txt",
+            "app/__init__.py",
+            "app/main.py",
+            "main.py",
+            "tests/test_app.py",
+        ],
+        ProfileId::Docs => &["README.md", "docs/README.md", "docs/index.md"],
+        ProfileId::DataAnalysis | ProfileId::DataPipeline => &[
+            "data/raw",
+            "data/processed",
+            "output/report.csv",
+            "reports/report.md",
+        ],
+        ProfileId::Generic | ProfileId::Investigation => &[],
+    };
+    candidates
+        .iter()
+        .filter(|path| cwd.join(path).exists())
+        .map(|path| (*path).to_string())
+        .collect()
+}
+
+fn profile_manifest_artifacts(
+    id: ProfileId,
+    cwd: &Path,
+    setup_artifacts: &[String],
+) -> Vec<String> {
+    let expected = match id {
+        ProfileId::NextJs => &["package.json"][..],
+        ProfileId::Rust => &["Cargo.toml"][..],
+        ProfileId::Python => &["pyproject.toml", "requirements.txt", "setup.py"][..],
+        ProfileId::DataAnalysis | ProfileId::DataPipeline => &["pipeline.yaml", "pipeline.yml"][..],
+        ProfileId::Generic | ProfileId::Investigation | ProfileId::Docs => &[][..],
+    };
+    let existing = expected
+        .iter()
+        .filter(|path| cwd.join(path).exists())
+        .map(|path| (*path).to_string())
+        .collect::<Vec<_>>();
+    if !existing.is_empty() {
+        existing
+    } else if !setup_artifacts.is_empty() {
+        setup_artifacts.to_vec()
+    } else {
+        expected.iter().map(|path| (*path).to_string()).collect()
+    }
+}
+
+fn profile_entrypoints(id: ProfileId, cwd: &Path) -> Vec<String> {
+    let candidates = match id {
+        ProfileId::NextJs => vec!["src/app/page.tsx", "app/page.tsx", "pages/index.tsx"],
+        ProfileId::Rust => vec!["src/main.rs", "src/lib.rs"],
+        ProfileId::Python => vec!["app/main.py", "main.py", "app/__init__.py"],
+        ProfileId::Docs => vec!["README.md", "docs/README.md", "docs/index.md"],
+        ProfileId::DataAnalysis | ProfileId::DataPipeline => {
+            vec![
+                "scripts/analyze.py",
+                "scripts/pipeline.py",
+                "notebooks/analysis.ipynb",
+            ]
+        }
+        ProfileId::Generic | ProfileId::Investigation => Vec::new(),
+    };
+    existing_or_expected(cwd, &candidates)
+}
+
+fn profile_integration_artifacts(
+    id: ProfileId,
+    cwd: &Path,
+    route_artifacts: &[String],
+) -> Vec<String> {
+    match id {
+        ProfileId::NextJs if !route_artifacts.is_empty() => route_artifacts.to_vec(),
+        ProfileId::NextJs => existing_or_expected(
+            cwd,
+            &["src/app/page.tsx", "app/page.tsx", "components/Game.tsx"],
+        ),
+        ProfileId::Rust => {
+            existing_or_expected(cwd, &["tests/integration.rs", "src/main.rs", "src/lib.rs"])
+        }
+        ProfileId::Python => {
+            existing_or_expected(cwd, &["tests/test_app.py", "app/main.py", "main.py"])
+        }
+        ProfileId::Docs => existing_or_expected(cwd, &["README.md", "docs/README.md"]),
+        ProfileId::DataAnalysis | ProfileId::DataPipeline => existing_or_expected(
+            cwd,
+            &["output/report.csv", "reports/report.md", "data/processed"],
+        ),
+        ProfileId::Generic | ProfileId::Investigation => Vec::new(),
+    }
+}
+
+fn profile_completion_evidence_requirements(id: ProfileId) -> Vec<String> {
+    match id {
+        ProfileId::NextJs => vec![
+            "npm_run_build".to_string(),
+            "selected_route_binding".to_string(),
+            "dev_port_smoke_when_requested".to_string(),
+        ],
+        ProfileId::Rust => vec![
+            "cargo_test_or_build".to_string(),
+            "cargo_manifest_binding".to_string(),
+            "binary_or_library_binding".to_string(),
+        ],
+        ProfileId::Python => vec![
+            "pytest_or_script_verifier".to_string(),
+            "import_binding".to_string(),
+        ],
+        ProfileId::Docs => vec!["requested_doc_literal_or_section".to_string()],
+        ProfileId::DataAnalysis | ProfileId::DataPipeline => vec![
+            "derived_output_present".to_string(),
+            "raw_input_unchanged".to_string(),
+        ],
+        ProfileId::Generic | ProfileId::Investigation => Vec::new(),
+    }
+}
+
+fn profile_failure_mappings(id: ProfileId) -> Vec<String> {
+    match id {
+        ProfileId::NextJs => vec![
+            "nextjs_missing_dependency->manifest_repair".to_string(),
+            "nextjs_route_not_integrated->route_integration_repair".to_string(),
+            "nextjs_app_root_ambiguous->explicit_stop".to_string(),
+            "nextjs_dev_port_drift->manifest_repair".to_string(),
+        ],
+        ProfileId::Rust => vec![
+            "cargo_manifest_missing->manifest_repair".to_string(),
+            "rust_compile_error->source_implementation_repair".to_string(),
+            "rust_test_failure->test_or_source_repair".to_string(),
+        ],
+        ProfileId::Python => vec![
+            "python_manifest_missing->manifest_repair".to_string(),
+            "python_import_missing->source_implementation_repair".to_string(),
+            "pytest_failure->test_or_source_repair".to_string(),
+        ],
+        ProfileId::Docs => vec!["docs_literal_missing->documentation_repair".to_string()],
+        ProfileId::DataAnalysis | ProfileId::DataPipeline => vec![
+            "raw_input_mutation->explicit_stop".to_string(),
+            "derived_output_missing->data_artifact_completion".to_string(),
+        ],
+        ProfileId::Generic | ProfileId::Investigation => Vec::new(),
+    }
+}
+
+fn profile_adapter_families(id: ProfileId) -> Vec<String> {
+    let ids = match id {
+        ProfileId::NextJs => &[
+            "node_next_type",
+            "nextjs_route_integration",
+            "manifest_dependency",
+        ][..],
+        ProfileId::Rust => &["rust_compile", "rust_cargo_manifest", "rust_assertion"][..],
+        ProfileId::Python => &["python_import", "python_assertion", "fastapi_response"][..],
+        ProfileId::Docs => &["docs_literal"][..],
+        ProfileId::DataAnalysis | ProfileId::DataPipeline => &["data_schema"][..],
+        ProfileId::Generic | ProfileId::Investigation => &[][..],
+    };
+    let registered = mechanical_adapter_family_specs()
+        .iter()
+        .map(|spec| spec.id)
+        .collect::<BTreeSet<_>>();
+    ids.iter()
+        .filter(|id| registered.contains(**id))
+        .map(|id| (*id).to_string())
+        .collect()
+}
+
+fn existing_or_expected(cwd: &Path, candidates: &[&str]) -> Vec<String> {
+    let existing = candidates
+        .iter()
+        .filter(|path| cwd.join(path).exists())
+        .map(|path| (*path).to_string())
+        .collect::<Vec<_>>();
+    if existing.is_empty() {
+        candidates.iter().map(|path| (*path).to_string()).collect()
+    } else {
+        existing
+    }
+}
+
+fn profile_scaffold_artifacts(id: ProfileId, cwd: &Path) -> Vec<String> {
+    match id {
+        ProfileId::NextJs => {
+            let root = if cwd.join("src/app").exists() {
+                "src/app"
+            } else {
+                "app"
+            };
+            vec![
+                "package.json".to_string(),
+                format!("{root}/page.tsx"),
+                format!("{root}/layout.tsx"),
+            ]
+        }
+        ProfileId::Rust => vec!["Cargo.toml".to_string(), "src/main.rs".to_string()],
+        ProfileId::Python => vec!["pyproject.toml".to_string(), "app/main.py".to_string()],
+        ProfileId::Docs => vec!["README.md".to_string()],
+        ProfileId::DataAnalysis | ProfileId::DataPipeline => vec!["output/report.csv".to_string()],
+        ProfileId::Generic | ProfileId::Investigation => Vec::new(),
+    }
+}
+
+fn profile_behavior_obligations(id: ProfileId, cwd: &Path) -> Vec<String> {
+    match id {
+        ProfileId::NextJs => {
+            let mut obligations = vec![
+                "manifest_contract".to_string(),
+                "route_integration".to_string(),
+                "build_verifier".to_string(),
+            ];
+            if cwd.join("package.json").exists() {
+                obligations.push("dependency_setup_readiness".to_string());
+            }
+            obligations
+        }
+        ProfileId::Rust => vec!["cargo_manifest".to_string(), "cargo_verifier".to_string()],
+        ProfileId::Python => vec!["python_imports".to_string(), "pytest_verifier".to_string()],
+        ProfileId::Docs => vec!["documentation_literal".to_string()],
+        ProfileId::DataAnalysis | ProfileId::DataPipeline => vec!["derived_output".to_string()],
+        ProfileId::Generic | ProfileId::Investigation => Vec::new(),
+    }
+}
+
+fn profile_recovery_candidate_hints(
+    id: ProfileId,
+    setup_artifacts: &[String],
+    scaffold_artifacts: &[String],
+    route_artifacts: &[String],
+) -> Vec<String> {
+    let mut hints = Vec::new();
+    if !setup_artifacts.is_empty() {
+        hints.push(format!("manifest_repair:{}", setup_artifacts.join("|")));
+    }
+    if !scaffold_artifacts.is_empty() {
+        hints.push(format!(
+            "scaffold_materialization:{}",
+            scaffold_artifacts.join("|")
+        ));
+    }
+    if !route_artifacts.is_empty() {
+        hints.push(format!(
+            "route_integration_repair:{}",
+            route_artifacts.join("|")
+        ));
+    }
+    match id {
+        ProfileId::NextJs => hints.push("dev_server_smoke:requested_port".to_string()),
+        ProfileId::Rust | ProfileId::Python => {
+            hints.push("source_implementation_repair:verifier_diagnostic".to_string())
+        }
+        _ => {}
+    }
+    hints
+}
+
+fn profile_capabilities(output: &ProfileOutput) -> Vec<ProfileCapability> {
+    use ProfileCapabilityFamily as Family;
+    use ProfileCapabilityStatus as Status;
+
+    let id = output.id;
+    let manifest_status = if matches!(
+        id,
+        ProfileId::Generic | ProfileId::Investigation | ProfileId::Docs
+    ) {
+        Status::NotApplicable
+    } else if output.manifest_artifacts.is_empty() {
+        Status::Partial
+    } else {
+        Status::Supported
+    };
+    let integration_status = if matches!(id, ProfileId::Generic | ProfileId::Investigation) {
+        Status::NotApplicable
+    } else if output.integration_artifacts.is_empty() {
+        Status::Partial
+    } else {
+        Status::Supported
+    };
+    let setup_status = if matches!(
+        id,
+        ProfileId::NextJs | ProfileId::Rust | ProfileId::Python | ProfileId::DataPipeline
+    ) {
+        Status::Supported
+    } else {
+        Status::NotApplicable
+    };
+    let verifier_status = if output.verifier_commands.is_empty() {
+        match id {
+            ProfileId::Docs | ProfileId::DataAnalysis | ProfileId::DataPipeline => {
+                Status::NotApplicable
+            }
+            ProfileId::Generic | ProfileId::Investigation => Status::NotApplicable,
+            _ => Status::Partial,
+        }
+    } else {
+        Status::Supported
+    };
+    let protected_status = if output.protected_paths.is_empty() {
+        Status::NotApplicable
+    } else {
+        Status::Supported
+    };
+
+    vec![
+        ProfileCapability {
+            family: Family::ProjectKind,
+            status: Status::Supported,
+            source_of_truth: "profile_id".to_string(),
+            artifacts: vec![output.project_kind.clone()],
+            recovery_owner_hint: None,
+            authority: Some("profile_contract".to_string()),
+            reason: None,
+        },
+        ProfileCapability {
+            family: Family::RootHints,
+            status: if output.project_root_hints.is_empty() {
+                Status::NotApplicable
+            } else {
+                Status::Supported
+            },
+            source_of_truth: "workspace_observation".to_string(),
+            artifacts: output.project_root_hints.clone(),
+            recovery_owner_hint: None,
+            authority: Some("profile_contract".to_string()),
+            reason: None,
+        },
+        ProfileCapability {
+            family: Family::ManifestContract,
+            status: manifest_status,
+            source_of_truth: "profile_manifest_artifacts".to_string(),
+            artifacts: output.manifest_artifacts.clone(),
+            recovery_owner_hint: Some("manifest_repair".to_string()),
+            authority: Some("profile_contract".to_string()),
+            reason: Some("manifest_or_setup_boundary".to_string()),
+        },
+        ProfileCapability {
+            family: Family::EntrypointContract,
+            status: if output.entrypoints.is_empty() {
+                Status::NotApplicable
+            } else {
+                Status::Supported
+            },
+            source_of_truth: "profile_entrypoints".to_string(),
+            artifacts: output.entrypoints.clone(),
+            recovery_owner_hint: Some("artifact_completion".to_string()),
+            authority: Some("profile_contract".to_string()),
+            reason: None,
+        },
+        ProfileCapability {
+            family: Family::IntegrationContract,
+            status: integration_status,
+            source_of_truth: "profile_integration_artifacts".to_string(),
+            artifacts: output.integration_artifacts.clone(),
+            recovery_owner_hint: Some("route_or_entrypoint_integration_repair".to_string()),
+            authority: Some("profile_verification".to_string()),
+            reason: None,
+        },
+        ProfileCapability {
+            family: Family::SetupContract,
+            status: setup_status,
+            source_of_truth: "profile_setup_artifacts".to_string(),
+            artifacts: output.setup_artifacts.clone(),
+            recovery_owner_hint: Some("setup_recovery".to_string()),
+            authority: Some("verifier_owned_setup".to_string()),
+            reason: None,
+        },
+        ProfileCapability {
+            family: Family::VerifierContract,
+            status: verifier_status,
+            source_of_truth: "profile_verifier_commands".to_string(),
+            artifacts: output.verifier_commands.clone(),
+            recovery_owner_hint: Some("verifier_repair".to_string()),
+            authority: Some("step_runner_verification".to_string()),
+            reason: None,
+        },
+        ProfileCapability {
+            family: Family::CompletionEvidenceContract,
+            status: if output.completion_evidence_requirements.is_empty() {
+                Status::Partial
+            } else {
+                Status::Supported
+            },
+            source_of_truth: "profile_completion_evidence".to_string(),
+            artifacts: output.completion_evidence_requirements.clone(),
+            recovery_owner_hint: Some("completion_evidence_binding".to_string()),
+            authority: Some("profile_contract".to_string()),
+            reason: None,
+        },
+        ProfileCapability {
+            family: Family::ProtectedInputContract,
+            status: protected_status,
+            source_of_truth: "profile_protected_paths".to_string(),
+            artifacts: output.protected_paths.clone(),
+            recovery_owner_hint: Some("explicit_stop".to_string()),
+            authority: Some("safety_guard".to_string()),
+            reason: Some("raw_or_protected_inputs".to_string()),
+        },
+        ProfileCapability {
+            family: Family::ScaffoldContract,
+            status: if output.scaffold_artifacts.is_empty() {
+                Status::NotApplicable
+            } else {
+                Status::Supported
+            },
+            source_of_truth: "profile_scaffold_artifacts".to_string(),
+            artifacts: output.scaffold_artifacts.clone(),
+            recovery_owner_hint: Some("scaffold_materialization".to_string()),
+            authority: Some("profile_contract".to_string()),
+            reason: None,
+        },
+        ProfileCapability {
+            family: Family::ProfileFailureMapping,
+            status: if output.failure_mappings.is_empty() {
+                Status::Partial
+            } else {
+                Status::Supported
+            },
+            source_of_truth: "profile_failure_mapping".to_string(),
+            artifacts: output.failure_mappings.clone(),
+            recovery_owner_hint: Some("recovery_task_contract".to_string()),
+            authority: Some("profile_failure_mapping".to_string()),
+            reason: None,
+        },
+        ProfileCapability {
+            family: Family::LanguageAdapterFamily,
+            status: if output.adapter_families.is_empty() {
+                Status::Partial
+            } else {
+                Status::Supported
+            },
+            source_of_truth: "profile_adapter_families".to_string(),
+            artifacts: output.adapter_families.clone(),
+            recovery_owner_hint: Some("mechanical_repair_adapter".to_string()),
+            authority: Some("diagnostic_adapter_registry".to_string()),
+            reason: None,
+        },
+    ]
+}
+
+fn profile_capability_status_summary(capabilities: &[ProfileCapability]) -> String {
+    if capabilities.is_empty() {
+        return "none".to_string();
+    }
+    capabilities
+        .iter()
+        .map(|capability| {
+            format!(
+                "{}:{}",
+                capability.family.eval_key(),
+                capability.status.summary_str()
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("|")
+}
+
+fn join_profile_values(values: &[String]) -> String {
+    join_profile_values_limited(values, 8)
+}
+
+fn join_profile_values_limited(values: &[String], limit: usize) -> String {
+    if values.is_empty() {
+        "none".to_string()
+    } else {
+        values
+            .iter()
+            .take(limit)
+            .map(|value| bounded_value(value))
+            .collect::<Vec<_>>()
+            .join("|")
+    }
+}
+
 fn data_protected_prefixes() -> Vec<String> {
     vec![
         "raw".to_string(),
@@ -283,6 +1164,883 @@ fn data_protected_prefixes() -> Vec<String> {
         "input".to_string(),
         "inputs".to_string(),
     ]
+}
+
+fn lint_rust_step_contract(step_id: &str, instruction: &str) -> Result<(), PlanLintError> {
+    let lower = instruction.to_ascii_lowercase();
+    if contains_any(&lower, &["cargo init", "cargo new"]) {
+        return Err(PlanLintError::ShellScaffold {
+            step_id: step_id.to_string(),
+            command: "cargo init/new".to_string(),
+            guidance: "create Cargo.toml and src/main.rs with Write/Edit".to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn lint_nextjs_plan(
+    plan: &StepPlan,
+    cwd: Option<&Path>,
+    obligations: &[ProfileObligation],
+) -> Result<(), PlanLintError> {
+    lint_nextjs_verifier_contract(plan)?;
+    lint_nextjs_typescript_plan_contract(plan)?;
+    lint_nextjs_alias_plan_contract(plan)?;
+    lint_nextjs_app_layout_plan_contract(plan, cwd)?;
+    lint_nextjs_tailwind_plan_contract(plan)?;
+    lint_package_profile_obligations(plan, cwd, obligations)?;
+    lint_nextjs_route_integration_obligations(plan, cwd, obligations)
+}
+
+fn lint_nextjs_scaffolding_and_root_drift(
+    step_id: &str,
+    kind: StepKind,
+    instruction: &str,
+    expected_paths: &[String],
+    cwd: Option<&Path>,
+) -> Result<(), PlanLintError> {
+    let lower = instruction.to_ascii_lowercase();
+    if mentions_nextjs_shell_scaffold(&lower) {
+        return Err(PlanLintError::ShellScaffold {
+            step_id: step_id.to_string(),
+            command: "create-next-app".to_string(),
+            guidance: "create package.json and app/page.tsx with Write/Edit".to_string(),
+        });
+    }
+    lint_nextjs_root_drift(step_id, kind, &lower, expected_paths, cwd)?;
+    if mentions_noop_nextjs_build_script(&lower) {
+        return Err(PlanLintError::InvalidStepInstruction {
+            step_id: step_id.to_string(),
+            reason:
+                "Next.js build script must remain honest; do not replace it with no-op commands"
+                    .to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn mentions_noop_nextjs_build_script(lower_instruction: &str) -> bool {
+    contains_any(
+        lower_instruction,
+        &[
+            "\"build\":\"true\"",
+            "\"build\": \"true\"",
+            "'build':'true'",
+            "'build': 'true'",
+            "scripts.build=true",
+            "scripts.build = true",
+            "scripts.build as true",
+            "scripts.build to true",
+            "build script as true",
+            "build script to true",
+            "build script is true",
+            "build script runs true",
+            "build script with true",
+            "\"build\":\"echo ok\"",
+            "\"build\": \"echo ok\"",
+            "'build':'echo ok'",
+            "'build': 'echo ok'",
+            "scripts.build=echo ok",
+            "scripts.build = echo ok",
+            "scripts.build as echo ok",
+            "scripts.build to echo ok",
+            "build script as echo ok",
+            "build script to echo ok",
+            "build script is echo ok",
+            "build script runs echo ok",
+            "build script with echo ok",
+        ],
+    )
+}
+
+fn mentions_nextjs_shell_scaffold(lower_instruction: &str) -> bool {
+    contains_any(
+        lower_instruction,
+        &[
+            "npm create next-app",
+            "pnpm create next-app",
+            "yarn create next-app",
+        ],
+    ) || contains_any(
+        lower_instruction,
+        &[
+            "using create-next-app",
+            "use create-next-app",
+            "run create-next-app",
+            "execute create-next-app",
+            "with create-next-app",
+            "via create-next-app",
+        ],
+    )
+}
+
+fn lint_nextjs_root_drift(
+    step_id: &str,
+    kind: StepKind,
+    lower_instruction: &str,
+    expected_paths: &[String],
+    cwd: Option<&Path>,
+) -> Result<(), PlanLintError> {
+    if !matches!(kind, StepKind::Create | StepKind::Edit | StepKind::Repair) {
+        return Ok(());
+    }
+    if contains_any(
+        lower_instruction,
+        &["migrate", "migration", "move app root", "move route root"],
+    ) {
+        return Ok(());
+    }
+    let Some(cwd) = cwd else {
+        return Ok(());
+    };
+    let has_src_app =
+        cwd.join("src/app/page.tsx").exists() || cwd.join("src/app/layout.tsx").exists();
+    let has_root_app = cwd.join("app/page.tsx").exists() || cwd.join("app/layout.tsx").exists();
+    if has_src_app && !has_root_app && expected_paths.iter().any(|path| path == "app/page.tsx") {
+        return Err(PlanLintError::InvalidStepInstruction {
+            step_id: step_id.to_string(),
+            reason: "Next.js workspace already uses src/app; creating app/page.tsx would split the app root unless this is an explicit migration"
+                .to_string(),
+        });
+    }
+    if has_root_app && !has_src_app && expected_paths.iter().any(|path| path == "src/app/page.tsx")
+    {
+        return Err(PlanLintError::InvalidStepInstruction {
+            step_id: step_id.to_string(),
+            reason: "Next.js workspace already uses app; creating src/app/page.tsx would split the app root unless this is an explicit migration"
+                .to_string(),
+        });
+    }
+    Ok(())
+}
+
+fn lint_nextjs_verifier_contract(plan: &StepPlan) -> Result<(), PlanLintError> {
+    for step in &plan.steps {
+        for command in &step.verify {
+            let lower = command.trim().to_ascii_lowercase();
+            if !lower.starts_with("npx ") {
+                continue;
+            }
+            let reason = format!(
+                "Next.js verifier `{}` uses npx, which may perform dependency setup and is blocked by the execution policy; use npm run build so verifier-owned setup recovery can classify dependency_missing",
+                command.trim()
+            );
+            return Err(PlanLintError::ContractViolation {
+                step_id: step.id.clone(),
+                reason: reason.clone(),
+                evidence: Box::new(
+                    PlanCorrectionEvidence::new("plan_lint.nextjs_verifier_contract")
+                        .with_failed_step(step.id.clone())
+                        .with_violated_contract("nextjs_verifier_command_required")
+                        .with_target_field("verify")
+                        .with_rejected_value(command.clone())
+                        .with_required_literals(vec!["npm run build"])
+                        .with_missing_literals(vec!["npm run build"])
+                        .with_required_action(
+                            "replace the npx verifier with npm run build in a separate verify step; do not add npm install, npm ci, node_modules checks, or npx commands",
+                        )
+                        .with_diagnostic(reason),
+                ),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn lint_nextjs_typescript_plan_contract(plan: &StepPlan) -> Result<(), PlanLintError> {
+    if !plan.steps.iter().any(step_mentions_package_json) {
+        return Ok(());
+    }
+    let Some(source_step) = plan_typescript_source_step(plan) else {
+        return Ok(());
+    };
+    let package_steps = plan
+        .steps
+        .iter()
+        .filter(|step| step_mentions_package_json(step))
+        .collect::<Vec<_>>();
+    let package_step_id = match package_steps.as_slice() {
+        [step] => Some(step.id.clone()),
+        _ => None,
+    };
+    let package_plan_text = package_steps
+        .iter()
+        .map(|step| step_contract_text(step))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut missing = Vec::new();
+    let mut required_literals = Vec::new();
+    let mut missing_literals = Vec::new();
+    for literal in ["typescript", "@types/react", "18"] {
+        push_unique(&mut required_literals, literal);
+        if !package_plan_text.contains(literal) {
+            push_unique(&mut missing_literals, literal);
+            missing.push(literal.to_string());
+        }
+    }
+    push_unique(&mut required_literals, "5.x or ^5.");
+    if !stable_typescript_5_plan_literal(&package_plan_text) {
+        push_unique(&mut missing_literals, "5.x or ^5.");
+        missing.push("5.x or ^5.".to_string());
+    }
+    if missing.is_empty() {
+        return Ok(());
+    }
+    let reason = format!(
+        "Next.js TypeScript step `{}` uses tsconfig, .ts, .tsx, or TypeScript, but the package.json plan does not make the TypeScript toolchain contract complete: missing {}",
+        source_step.id,
+        missing.join(", ")
+    );
+    let mut evidence = PlanCorrectionEvidence::new("plan_lint.nextjs_typescript_plan_contract")
+        .with_failed_step(source_step.id.clone())
+        .with_violated_contract("nextjs_typescript_toolchain_plan_contract")
+        .with_target_field("steps")
+        .with_target_path("package.json")
+        .with_active_job("manifest_repair")
+        .with_artifact_role("manifest")
+        .with_repair_kind("typescript_toolchain_contract_repair")
+        .with_repair_action("add_manifest_dependency")
+        .with_setup_implication("setup_after_manifest_repair_required")
+        .with_rerun_authority(vec!["plan lint", "profile verification", "npm run build"])
+        .with_required_literals(required_literals)
+        .with_missing_literals(missing_literals)
+        .with_required_action(
+            "make the Next.js TypeScript toolchain explicit in the package.json step: include exact literals typescript, @types/react, and 18, plus a stable TypeScript 5.x range such as ^5.4.0; do not use TypeScript 6, exact TypeScript pins such as 5.0.0, or @types/react 19 with Next.js 14"
+        )
+        .with_disallowed_actions(vec![
+            "Do not rewrite source/gameplay behavior while repairing the manifest plan contract.",
+            "Do not add npm install, npm ci, pnpm install, yarn install, node_modules, or lockfile checks as required plan work.",
+            "Do not replace npm run build with a weaker verifier.",
+        ])
+        .with_diagnostic(reason.clone());
+    if let Some(package_step_id) = package_step_id {
+        evidence = evidence
+            .with_repair_target(format!("step:{package_step_id}:instruction"))
+            .with_candidate_artifacts(vec![
+                format!("step:{package_step_id}"),
+                "package.json".to_string(),
+            ]);
+    } else {
+        evidence = evidence.with_repair_attempt(
+            "active job arbitration could not select one package.json step for deterministic plan materialization",
+        );
+    }
+    Err(PlanLintError::ContractViolation {
+        step_id: source_step.id.clone(),
+        reason: reason.clone(),
+        evidence: Box::new(evidence),
+    })
+}
+
+fn stable_typescript_5_plan_literal(text: &str) -> bool {
+    text.contains("5.x") || text.contains("^5.") || text.contains("~5.")
+}
+
+fn plan_typescript_source_step(plan: &StepPlan) -> Option<&StepPlanStep> {
+    plan.steps.iter().find(|step| {
+        let text = step_contract_text(step);
+        text.contains("typescript")
+            || text.contains("tsconfig")
+            || step.expected_paths.iter().any(|path| {
+                matches!(
+                    Path::new(path).extension().and_then(|ext| ext.to_str()),
+                    Some("ts" | "tsx")
+                )
+            })
+    })
+}
+
+fn lint_nextjs_alias_plan_contract(plan: &StepPlan) -> Result<(), PlanLintError> {
+    let Some(source_step) = plan.steps.iter().find(|step| {
+        let text = step_contract_text(step);
+        text.contains("\"@/")
+            || text.contains("'@/")
+            || text.contains("from \"@")
+            || text.contains("from '@")
+    }) else {
+        return Ok(());
+    };
+    let plan_text = plan
+        .steps
+        .iter()
+        .map(step_contract_text)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let required_alias_literals = nextjs_required_alias_literals(&plan_text);
+    let has_tsconfig_path = plan.steps.iter().any(|step| {
+        step.expected_paths
+            .iter()
+            .any(|path| path == "tsconfig.json")
+    }) || plan_text.contains("tsconfig.json");
+    let has_alias_contract = plan_text.contains("compileroptions.paths")
+        || plan_text.contains("compileroptions paths")
+        || plan_text.contains("paths mapping")
+        || plan_text.contains("\"paths\"");
+    let missing_alias_literals = required_alias_literals
+        .iter()
+        .filter(|literal| !plan_text.contains(literal.as_str()))
+        .cloned()
+        .collect::<Vec<_>>();
+    if has_tsconfig_path && has_alias_contract && missing_alias_literals.is_empty() {
+        return Ok(());
+    }
+    let reason = format!(
+        "Next.js source step `{}` uses @/* imports, but the plan does not create or edit tsconfig.json with compilerOptions.paths for @/*",
+        source_step.id
+    );
+    Err(PlanLintError::ContractViolation {
+        step_id: source_step.id.clone(),
+        reason: reason.clone(),
+        evidence: Box::new(
+            PlanCorrectionEvidence::new("plan_lint.nextjs_alias_plan_contract")
+                .with_failed_step(source_step.id.clone())
+                .with_violated_contract("nextjs_alias_plan_contract")
+                .with_target_field("steps")
+                .with_target_path("tsconfig.json")
+                .with_repair_target("tsconfig.json")
+                .with_active_job("manifest_repair")
+                .with_artifact_role("setup_config")
+                .with_repair_action("add_missing_manifest_dependency")
+                .with_required_paths(vec!["tsconfig.json"])
+                .with_missing_paths(vec!["tsconfig.json"])
+                .with_required_literals(
+                    std::iter::once("compilerOptions.paths".to_string())
+                        .chain(required_alias_literals)
+                        .collect::<Vec<_>>(),
+                )
+                .with_missing_literals(
+                    std::iter::once("compilerOptions.paths".to_string())
+                        .chain(missing_alias_literals)
+                        .collect::<Vec<_>>(),
+                )
+                .with_required_action(
+                    "either replace @/* imports with relative imports, or add a tsconfig.json step with compilerOptions.paths mapping @/* to the selected source root",
+                )
+                .with_disallowed_actions(vec![
+                    "Do not leave @/* imports without tsconfig compilerOptions.paths.",
+                    "Do not replace npm run build with a weaker verifier.",
+                ])
+                .with_rerun_authority(vec!["plan lint", "profile verification", "npm run build"])
+                .with_diagnostic(reason),
+        ),
+    })
+}
+
+fn nextjs_required_alias_literals(plan_text: &str) -> Vec<String> {
+    let mut aliases = Vec::new();
+    if plan_text.contains("\"@/") || plan_text.contains("'@/") {
+        push_unique(&mut aliases, "@/*");
+    }
+    if plan_text.contains("\"@components/") || plan_text.contains("'@components/") {
+        push_unique(&mut aliases, "@components/*");
+    }
+    aliases
+}
+
+fn lint_nextjs_app_layout_plan_contract(
+    plan: &StepPlan,
+    cwd: Option<&Path>,
+) -> Result<(), PlanLintError> {
+    let Some(page_path) = plan
+        .steps
+        .iter()
+        .flat_map(|step| step.expected_paths.iter())
+        .find(|path| nextjs_app_route_page_path(path))
+        .cloned()
+    else {
+        return Ok(());
+    };
+    let layout_path = nextjs_layout_path_for_page(&page_path);
+    if cwd
+        .map(collect_nextjs_facts)
+        .is_some_and(|facts| facts.layouts.iter().any(|path| path == &layout_path))
+        || plan.steps.iter().any(|step| {
+            step.expected_paths.iter().any(|path| path == &layout_path)
+                || step.instruction.contains(&layout_path)
+        })
+    {
+        return Ok(());
+    }
+    let reason = format!(
+        "Next.js app route `{page_path}` requires root layout `{layout_path}` in the same app root"
+    );
+    Err(PlanLintError::ContractViolation {
+        step_id: "nextjs-app-layout".to_string(),
+        reason: reason.clone(),
+        evidence: Box::new(
+            PlanCorrectionEvidence::new("plan_lint.nextjs_app_layout_plan_contract")
+                .with_failed_step("nextjs-app-layout")
+                .with_violated_contract("nextjs_app_layout_plan_contract")
+                .with_target_field("steps")
+                .with_target_path(layout_path.clone())
+                .with_repair_target(layout_path.clone())
+                .with_active_job("route_integration_repair")
+                .with_artifact_role("route_layout")
+                .with_repair_kind("route_layout_repair")
+                .with_repair_action("add_missing_route_layout")
+                .with_required_paths(vec![layout_path.clone()])
+                .with_missing_paths(vec![layout_path])
+                .with_required_action(
+                    "add a minimal root layout file for the selected Next.js app root before running npm run build",
+                )
+                .with_disallowed_actions(vec![
+                    "Do not weaken npm run build.",
+                    "Do not switch to pages router to avoid the layout contract.",
+                ])
+                .with_rerun_authority(vec!["plan lint", "profile verification", "npm run build"])
+                .with_diagnostic(reason),
+        ),
+    })
+}
+
+fn nextjs_app_route_page_path(path: &str) -> bool {
+    matches!(
+        path,
+        "app/page.tsx" | "app/page.ts" | "src/app/page.tsx" | "src/app/page.ts"
+    )
+}
+
+fn nextjs_layout_path_for_page(page_path: &str) -> String {
+    if page_path.starts_with("src/app/") {
+        "src/app/layout.tsx".to_string()
+    } else {
+        "app/layout.tsx".to_string()
+    }
+}
+
+fn lint_nextjs_tailwind_plan_contract(plan: &StepPlan) -> Result<(), PlanLintError> {
+    let Some(source_step) = plan_tailwind_source_step(plan) else {
+        return Ok(());
+    };
+    let package_steps = plan
+        .steps
+        .iter()
+        .filter(|step| step_mentions_package_json(step))
+        .collect::<Vec<_>>();
+    let package_step_id = match package_steps.as_slice() {
+        [step] => Some(step.id.clone()),
+        _ => None,
+    };
+    let package_plan_text = plan
+        .steps
+        .iter()
+        .filter(|step| step_mentions_package_json(step))
+        .map(step_contract_text)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let plan_text = plan
+        .steps
+        .iter()
+        .map(step_contract_text)
+        .collect::<Vec<_>>()
+        .join("\n");
+    let mut missing = Vec::new();
+    let mut required_literals = Vec::new();
+    let mut missing_literals = Vec::new();
+    for literal in ["tailwindcss", "postcss", "autoprefixer"] {
+        push_unique(&mut required_literals, literal);
+        if !package_plan_text.contains(literal) {
+            push_unique(&mut missing_literals, literal);
+            missing.push(literal.to_string());
+        }
+    }
+    for literal in ["tailwind.config", "postcss.config"] {
+        push_unique(&mut required_literals, literal);
+        if !plan_text.contains(literal) {
+            push_unique(&mut missing_literals, literal);
+            missing.push(literal.to_string());
+        }
+    }
+    if missing.is_empty() {
+        return Ok(());
+    }
+    let reason = format!(
+        "Next.js source/style step `{}` mentions Tailwind, but the plan does not make the Tailwind package/config setup contract complete: missing {}",
+        source_step.id,
+        missing.join(", ")
+    );
+    let mut evidence = PlanCorrectionEvidence::new("plan_lint.nextjs_tailwind_plan_contract")
+        .with_failed_step(source_step.id.clone())
+        .with_violated_contract("nextjs_tailwind_plan_contract")
+        .with_target_field("steps")
+        .with_target_path("package.json")
+        .with_active_job("manifest_repair")
+        .with_artifact_role("manifest")
+        .with_repair_kind("tailwind_contract_repair")
+        .with_repair_action("repair_tailwind_contract")
+        .with_setup_implication("setup_after_manifest_repair_required")
+        .with_rerun_authority(vec!["plan lint", "profile verification", "npm run build"])
+        .with_required_literals(required_literals)
+        .with_missing_literals(missing_literals)
+        .with_required_action(
+            "manifest repair: either remove Tailwind from source/style steps, or update the package.json plan step to literally include tailwindcss, postcss, and autoprefixer plus setup/config outputs tailwind.config.js and postcss.config.js; the phrase Tailwind CSS dependencies is not sufficient",
+        )
+        .with_disallowed_actions(vec![
+            "Do not rewrite source/gameplay behavior while repairing the manifest plan contract.",
+            "Do not add npm install, npm ci, pnpm install, yarn install, node_modules, or lockfile checks as required plan work.",
+            "Do not replace npm run build with a weaker verifier.",
+        ])
+        .with_diagnostic(reason.clone());
+    if let Some(package_step_id) = package_step_id {
+        evidence = evidence
+            .with_repair_target(format!("step:{package_step_id}:instruction"))
+            .with_candidate_artifacts(vec![
+                format!("step:{package_step_id}"),
+                "package.json".to_string(),
+            ]);
+    } else {
+        evidence = evidence.with_repair_attempt(
+            "active job arbitration could not select one package.json step for deterministic plan materialization",
+        );
+    }
+    Err(PlanLintError::ContractViolation {
+        step_id: source_step.id.clone(),
+        reason: reason.clone(),
+        evidence: Box::new(evidence),
+    })
+}
+
+fn plan_tailwind_source_step(plan: &StepPlan) -> Option<&StepPlanStep> {
+    plan.steps.iter().find(|step| {
+        let text = step_contract_text(step);
+        if !(text.contains("tailwind") || text.contains("@tailwind")) {
+            return false;
+        }
+        step.expected_paths
+            .iter()
+            .any(|path| nextjs_style_source_path(path))
+            || text.contains("globals.css")
+    })
+}
+
+fn nextjs_style_source_path(path: &str) -> bool {
+    matches!(
+        path,
+        "app/globals.css" | "src/app/globals.css" | "styles/globals.css" | "src/styles/globals.css"
+    )
+}
+
+fn lint_package_profile_obligations(
+    plan: &StepPlan,
+    cwd: Option<&Path>,
+    obligations: &[ProfileObligation],
+) -> Result<(), PlanLintError> {
+    let package_steps = plan
+        .steps
+        .iter()
+        .filter(|step| {
+            matches!(
+                step.kind,
+                StepKind::Create | StepKind::Edit | StepKind::Setup | StepKind::Repair
+            ) && step_mentions_package_json(step)
+        })
+        .collect::<Vec<_>>();
+    if package_steps.is_empty() {
+        return Ok(());
+    }
+    let first_step_id = package_steps[0].id.clone();
+    let package_plan_text = package_steps
+        .iter()
+        .map(|step| step_contract_text(step))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let facts = cwd.map(collect_nextjs_facts);
+    let mut missing = Vec::new();
+    let mut violated_contracts = Vec::new();
+    let mut required_literals = Vec::new();
+    let mut missing_literals = Vec::new();
+    for obligation in obligations {
+        match obligation.code.as_str() {
+            "nextjs_dev_port_required"
+                if !nextjs_dev_port_satisfied(facts.as_ref())
+                    && !package_plan_text.contains("3011") =>
+            {
+                missing.push("nextjs_dev_port_required: requested port 3011");
+                violated_contracts.push("nextjs_dev_port_required".to_string());
+                collect_missing_literals(
+                    &package_plan_text,
+                    &["3011"],
+                    &mut required_literals,
+                    &mut missing_literals,
+                );
+            }
+            "nextjs_build_script_required"
+                if !nextjs_build_script_satisfied(facts.as_ref())
+                    && !package_plan_text.contains("next build") =>
+            {
+                missing.push("nextjs_build_script_required: scripts.build as next build");
+                violated_contracts.push("nextjs_build_script_required".to_string());
+                collect_missing_literals(
+                    &package_plan_text,
+                    &["next build"],
+                    &mut required_literals,
+                    &mut missing_literals,
+                );
+            }
+            "nextjs_dependencies_required"
+                if !nextjs_runtime_dependencies_satisfied(facts.as_ref())
+                    && !["next", "react", "react-dom", "18.2"]
+                        .iter()
+                        .all(|dep| package_plan_text.contains(dep)) =>
+            {
+                missing.push(
+                    "nextjs_dependencies_required: next, react, react-dom, and React 18.2+ compatibility",
+                );
+                violated_contracts.push("nextjs_dependencies_required".to_string());
+                collect_missing_literals(
+                    &package_plan_text,
+                    &["next", "react", "react-dom", "18.2"],
+                    &mut required_literals,
+                    &mut missing_literals,
+                );
+            }
+            "nextjs_tailwind_dependencies_required"
+                if !nextjs_tailwind_dependencies_satisfied(facts.as_ref())
+                    && !["tailwindcss", "postcss", "autoprefixer"]
+                        .iter()
+                        .all(|dep| package_plan_text.contains(dep)) =>
+            {
+                missing.push(
+                    "nextjs_tailwind_dependencies_required: tailwindcss, postcss, and autoprefixer",
+                );
+                violated_contracts.push("nextjs_tailwind_dependencies_required".to_string());
+                collect_missing_literals(
+                    &package_plan_text,
+                    &["tailwindcss", "postcss", "autoprefixer"],
+                    &mut required_literals,
+                    &mut missing_literals,
+                );
+            }
+            _ => {}
+        }
+    }
+    if !missing.is_empty() {
+        let reason = format!(
+            "profile obligations require package.json work to mention {}",
+            missing.join("; ")
+        );
+        let mut evidence = PlanCorrectionEvidence::new("plan_lint.profile_obligations")
+            .with_failed_step(package_steps[0].id.clone())
+            .with_violated_contract(violated_contracts.join(", "))
+            .with_target_field("instruction")
+            .with_target_path("package.json")
+            .with_active_job("manifest_repair")
+            .with_artifact_role("manifest")
+            .with_repair_kind("manifest_dependency_repair")
+            .with_repair_action("add_manifest_dependency")
+            .with_setup_implication("setup_after_manifest_repair_required")
+            .with_rerun_authority(vec!["plan lint", "profile verification", "npm run build"])
+            .with_required_literals(required_literals)
+            .with_missing_literals(missing_literals)
+            .with_required_action(
+                "manifest repair: include these exact package/profile literals in the corrected package.json step instruction",
+            )
+            .with_disallowed_actions(vec![
+                "Do not rewrite source/gameplay behavior while repairing the manifest plan contract.",
+                "Do not add npm install, npm ci, pnpm install, yarn install, node_modules, or lockfile checks as required plan work.",
+                "Do not replace npm run build with a weaker verifier.",
+            ])
+            .with_diagnostic(reason.clone());
+        if package_steps.len() == 1 {
+            evidence = evidence
+                .with_repair_target(format!("step:{}:instruction", package_steps[0].id))
+                .with_candidate_artifacts(vec![
+                    format!("step:{}", package_steps[0].id),
+                    "package.json".to_string(),
+                ]);
+        } else {
+            evidence = evidence.with_repair_attempt(
+                "active job arbitration could not select one package.json step for deterministic plan materialization",
+            );
+        }
+        return Err(PlanLintError::ContractViolation {
+            step_id: first_step_id,
+            reason: reason.clone(),
+            evidence: Box::new(evidence),
+        });
+    }
+    Ok(())
+}
+
+fn nextjs_dev_port_satisfied(facts: Option<&NextJsFacts>) -> bool {
+    facts
+        .and_then(|facts| facts.scripts_dev.as_deref())
+        .is_some_and(|script| script.contains("next dev") && script.contains("3011"))
+}
+
+fn nextjs_build_script_satisfied(facts: Option<&NextJsFacts>) -> bool {
+    facts
+        .and_then(|facts| facts.scripts_build.as_deref())
+        .is_some_and(|script| script.trim() == "next build")
+}
+
+fn nextjs_runtime_dependencies_satisfied(facts: Option<&NextJsFacts>) -> bool {
+    facts.is_some_and(|facts| {
+        ["next", "react", "react-dom"]
+            .iter()
+            .all(|dep| facts.dependencies.contains(*dep))
+            && facts
+                .dependency_versions
+                .get("react")
+                .is_some_and(|version| version_major_at_least(version, 18))
+    })
+}
+
+fn nextjs_tailwind_dependencies_satisfied(facts: Option<&NextJsFacts>) -> bool {
+    facts.is_some_and(|facts| {
+        ["tailwindcss", "postcss", "autoprefixer"]
+            .iter()
+            .all(|dep| facts.dependencies.contains(*dep))
+    })
+}
+
+fn lint_nextjs_route_integration_obligations(
+    plan: &StepPlan,
+    cwd: Option<&Path>,
+    obligations: &[ProfileObligation],
+) -> Result<(), PlanLintError> {
+    let selected_route = selected_route_from_route_obligations(obligations)
+        .or_else(|| cwd.and_then(nextjs_selected_route_from_workspace));
+    let Some(selected_route) = selected_route else {
+        return Ok(());
+    };
+    for step in plan.steps.iter().filter(|step| {
+        matches!(
+            step.kind,
+            StepKind::Create | StepKind::Edit | StepKind::Repair
+        )
+    }) {
+        let Some(candidate) = step
+            .expected_paths
+            .iter()
+            .find(|path| nextjs_route_integration_candidate(path))
+        else {
+            continue;
+        };
+        if step
+            .expected_paths
+            .iter()
+            .any(|path| path == &selected_route)
+            || step.instruction.contains(&selected_route)
+        {
+            continue;
+        }
+        if route_integration_planned_in_step_plan(plan, candidate, &selected_route) {
+            continue;
+        }
+        let reason = format!(
+            "profile obligations require Next.js route integration: step creates or edits {candidate} but does not mention selected route {selected_route} in instruction or expected_paths"
+        );
+        return Err(PlanLintError::ContractViolation {
+            step_id: step.id.clone(),
+            reason: reason.clone(),
+            evidence: Box::new(PlanCorrectionEvidence::new("plan_lint.profile_obligations")
+                .with_failed_step(step.id.clone())
+                .with_violated_contract("nextjs_route_integration_required")
+                .with_target_field("instruction_or_expected_paths")
+                .with_active_job("route_integration_repair")
+                .with_artifact_role("route_integration")
+                .with_repair_kind("route_integration_repair")
+                .with_repair_action("connect_artifact_to_selected_route")
+                .with_rerun_authority(vec!["plan lint", "profile verification", "npm run build"])
+                .with_required_paths(vec![selected_route.clone()])
+                .with_missing_paths(vec![selected_route])
+                .with_rejected_value(candidate.clone())
+                .with_required_action(
+                    "include the selected route in expected_paths or explicitly mention updating it"
+                )
+                .with_diagnostic(reason)),
+        });
+    }
+    Ok(())
+}
+
+fn route_integration_planned_in_step_plan(
+    plan: &StepPlan,
+    candidate: &str,
+    selected_route: &str,
+) -> bool {
+    let Some(candidate_stem) = path_stem(candidate) else {
+        return false;
+    };
+    plan.steps
+        .iter()
+        .filter(|step| {
+            matches!(
+                step.kind,
+                StepKind::Create | StepKind::Edit | StepKind::Repair
+            )
+        })
+        .any(|step| {
+            let touches_selected_route = step
+                .expected_paths
+                .iter()
+                .any(|path| path == selected_route)
+                || step.instruction.contains(selected_route);
+            let mentions_artifact =
+                step.instruction.contains(candidate) || step.instruction.contains(candidate_stem);
+            touches_selected_route && mentions_artifact
+        })
+}
+
+fn selected_route_from_route_obligations(obligations: &[ProfileObligation]) -> Option<String> {
+    obligations
+        .iter()
+        .find(|obligation| obligation.code == "nextjs_route_integration_required")
+        .and_then(|obligation| obligation.paths.first())
+        .cloned()
+}
+
+fn step_contract_text(step: &StepPlanStep) -> String {
+    format!(
+        "{}\n{}\n{}",
+        step.instruction.to_ascii_lowercase(),
+        step.expected_paths
+            .iter()
+            .map(|path| path.to_ascii_lowercase())
+            .collect::<Vec<_>>()
+            .join("\n"),
+        step.verify.join("\n").to_ascii_lowercase()
+    )
+}
+
+fn step_mentions_package_json(step: &StepPlanStep) -> bool {
+    step.expected_paths
+        .iter()
+        .any(|path| path == "package.json")
+        || step
+            .instruction
+            .to_ascii_lowercase()
+            .contains("package.json")
+}
+
+fn collect_missing_literals(
+    text: &str,
+    required: &[&str],
+    required_literals: &mut Vec<String>,
+    missing_literals: &mut Vec<String>,
+) {
+    for literal in required {
+        push_unique(required_literals, literal);
+        if !text.contains(literal) {
+            push_unique(missing_literals, literal);
+        }
+    }
+}
+
+fn push_unique(values: &mut Vec<String>, value: &str) {
+    if !values.iter().any(|existing| existing == value) {
+        values.push(value.to_string());
+    }
+}
+
+fn path_stem(path: &str) -> Option<&str> {
+    let file_name = path.rsplit('/').next().unwrap_or(path);
+    file_name.rsplit_once('.').map(|(stem, _)| stem)
+}
+
+fn contains_any(text: &str, needles: &[&str]) -> bool {
+    needles.iter().any(|needle| text.contains(needle))
 }
 
 #[derive(Debug, Default)]
@@ -915,6 +2673,13 @@ fn nextjs_typescript_toolchain_version_conflict(facts: &NextJsFacts) -> Option<S
             "typescript@{}",
             facts.dependency_versions.get("typescript").unwrap()
         ));
+    }
+    if facts
+        .dependency_versions
+        .get("typescript")
+        .is_some_and(|version| version.trim() == "5.0.0")
+    {
+        conflicts.push("typescript@5.0.0".to_string());
     }
 
     let react_major = facts
@@ -1744,6 +3509,26 @@ mod tests {
     }
 
     #[test]
+    fn nextjs_verification_rejects_unstable_typescript_5_0_0_pin() {
+        let root = temp_workspace("verify-typescript-5-0-0");
+        write_next_app_with_dependencies(
+            &root,
+            r#"{"next":"14.0.0","react":"^18.2.0","react-dom":"^18.2.0","typescript":"5.0.0","@types/react":"18.2.79"}"#,
+        );
+
+        let failures =
+            verify_profile("nextjs", &root, &context_with_goal("run on port 3011")).unwrap();
+
+        let failure = failures
+            .iter()
+            .find(|failure| failure.code == "nextjs_dependency_version_conflict")
+            .expect("dependency conflict failure");
+        assert!(failure.message.contains("typescript@5.0.0"));
+        assert!(failure.message.contains("stable TypeScript 5.x"));
+        assert_eq!(failure.paths, vec!["package.json".to_string()]);
+    }
+
+    #[test]
     fn nextjs_verification_rejects_react19_types_for_react18_generated_app() {
         let root = temp_workspace("verify-react-types-major");
         write_next_app_with_dependencies(
@@ -2167,6 +3952,159 @@ mod tests {
                 .all(|failure| failure.code != "nextjs_route_not_integrated"),
             "{failures:?}"
         );
+    }
+
+    #[test]
+    fn profile_fact_summary_renders_common_nextjs_output_schema() {
+        let root = temp_workspace("profile-output-nextjs");
+        write_minimal_next_app(&root, r#"{"dev":"next dev -p 3011","build":"next build"}"#);
+
+        let summary = profile_fact_summary("nextjs", &root).unwrap();
+
+        assert!(
+            summary
+                .lines
+                .iter()
+                .any(|line| line == "profile.output.id=nextjs")
+        );
+        assert!(
+            summary
+                .lines
+                .iter()
+                .any(|line| line.contains("profile.output.setup_artifacts=package.json"))
+        );
+        assert!(
+            summary
+                .lines
+                .iter()
+                .any(|line| line.contains("scaffold_materialization:"))
+        );
+        assert!(
+            summary
+                .lines
+                .iter()
+                .any(|line| line.contains("dev_server_smoke:requested_port"))
+        );
+    }
+
+    #[test]
+    fn profile_fact_summary_renders_common_rust_and_python_schema() {
+        let rust_root = temp_workspace("profile-output-rust");
+        fs::create_dir_all(rust_root.join("src")).unwrap();
+        fs::write(rust_root.join("Cargo.toml"), "[package]\nname = \"x\"").unwrap();
+        fs::write(rust_root.join("src/main.rs"), "fn main() {}").unwrap();
+
+        let rust = profile_fact_summary("rust", &rust_root).unwrap();
+        assert!(
+            rust.lines
+                .iter()
+                .any(|line| line == "profile.output.id=rust")
+        );
+        assert!(
+            rust.lines
+                .iter()
+                .any(|line| line.contains("profile.output.setup_artifacts=Cargo.toml"))
+        );
+
+        let python_root = temp_workspace("profile-output-python");
+        fs::create_dir_all(python_root.join("app")).unwrap();
+        fs::write(python_root.join("requirements.txt"), "pytest\n").unwrap();
+        fs::write(python_root.join("app/main.py"), "def app(): pass").unwrap();
+
+        let python = profile_fact_summary("python", &python_root).unwrap();
+        assert!(
+            python
+                .lines
+                .iter()
+                .any(|line| line == "profile.output.id=python")
+        );
+        assert!(
+            python
+                .lines
+                .iter()
+                .any(|line| line.contains("profile.output.setup_artifacts=requirements.txt"))
+        );
+    }
+
+    #[test]
+    fn profile_fact_summary_renders_phase13_parity_fields_for_all_profiles() {
+        let root = temp_workspace("profile-output-parity");
+        fs::create_dir_all(root.join("app")).unwrap();
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join("docs")).unwrap();
+        fs::write(root.join("package.json"), "{}").unwrap();
+        fs::write(
+            root.join("app/page.tsx"),
+            "export default function Page() { return null; }",
+        )
+        .unwrap();
+        fs::write(root.join("Cargo.toml"), "[package]\nname = \"x\"").unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() {}").unwrap();
+        fs::write(root.join("requirements.txt"), "pytest\n").unwrap();
+        fs::write(root.join("app/main.py"), "def app(): pass").unwrap();
+        fs::write(root.join("README.md"), "# Docs").unwrap();
+
+        for profile in [
+            "nextjs",
+            "rust",
+            "python",
+            "docs",
+            "data-analysis",
+            "data-pipeline",
+        ] {
+            let summary = profile_fact_summary(profile, &root).unwrap();
+            for prefix in [
+                "profile_project_kind=",
+                "profile_manifest_artifacts=",
+                "profile_entrypoints=",
+                "profile_integration_artifacts=",
+                "profile_completion_evidence=",
+                "profile_failure_mapping=",
+                "profile_adapter_families=",
+                "profile_capability_status=",
+                "profile.output.capability.project=",
+                "profile.output.capability.failure=",
+                "profile.output.capability.adapter=",
+            ] {
+                assert!(
+                    summary.lines.iter().any(|line| line.starts_with(prefix)),
+                    "missing {prefix} for {profile}: {:?}",
+                    summary.lines
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn phase26_nextjs_profile_output_renders_scaffold_failure_and_capability_facts() {
+        let root = temp_workspace("profile-output-phase26-nextjs");
+        fs::create_dir_all(root.join("app")).unwrap();
+        fs::create_dir_all(root.join("components")).unwrap();
+        fs::write(root.join("package.json"), "{}").unwrap();
+        fs::write(
+            root.join("app/page.tsx"),
+            "import Game from '../components/Game'; export default function Page() { return <Game />; }",
+        )
+        .unwrap();
+        fs::write(
+            root.join("components/Game.tsx"),
+            "export default function Game() { return null; }",
+        )
+        .unwrap();
+
+        let summary = profile_fact_summary("nextjs", &root).unwrap();
+        let lines = summary.lines.join("\n");
+
+        assert!(lines.contains("profile.output.project_kind=nextjs"));
+        assert!(lines.contains("profile.output.manifests=package.json"));
+        assert!(lines.contains("profile.output.entrypoints=app/page.tsx"));
+        assert!(lines.contains("profile.output.integration_artifacts="));
+        assert!(lines.contains("profile.output.scaffold_artifacts="));
+        assert!(lines.contains("profile.output.failure_mappings="));
+        assert!(lines.contains("profile_failure_mapping="));
+        assert!(lines.contains("profile_capability_status="));
+        assert!(lines.contains("scaffold:"));
+        assert!(lines.contains("failure:"));
     }
 
     fn context_with_goal(goal: &str) -> ProfileVerificationContext {

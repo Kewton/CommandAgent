@@ -1,0 +1,41 @@
+id: focused-artifact-ledger-producers
+title: Artifact ledger producer source families
+profile: generic
+style: default
+mode: plan-run
+intent: modify
+prompt: "Project read, write, verifier, scaffold, setup, and completion authority artifact facts."
+matrix_row: phase24-c07-artifact-ledger-producers
+proof_mode: deterministic_fixture
+fixture_reason: ok
+fixture_success: true
+fixture_rc: 0
+fixture_fields:
+  artifact_ledger_status: complete
+  artifact_ledger_entries: 4
+  artifact_ledger_summary: entries:4;overflow:false
+  artifact_ledger_sources: completion_authority:1|scaffold_delta:1|setup_delta:1|tool_read:1|tool_write:1|verifier_diagnostic:1
+  required_paths: "[app/page.tsx,package.json]"
+  read_paths: "[README.md]"
+  changed_paths: "[app/page.tsx,package.json]"
+  created_paths: "[app/page.tsx,package.json]"
+  verifier_mentioned_paths: "[app/page.tsx]"
+  scaffold_created_paths: "[app/page.tsx]"
+  setup_created_paths: "[package.json]"
+  workspace_scope_kind: greenfield
+expected_terminal_state: ok
+expected_contract_layer: ok
+expected_artifact_ledger_status: complete
+expected_artifact_ledger_entries: 4
+expected_artifact_ledger_summary: entries:4;overflow:false
+expected_artifact_ledger_sources: completion_authority:1|scaffold_delta:1|setup_delta:1|tool_read:1|tool_write:1|verifier_diagnostic:1
+expected_required_paths: "[app/page.tsx,package.json]"
+expected_read_paths: "[README.md]"
+expected_changed_paths: "[app/page.tsx,package.json]"
+expected_created_paths: "[app/page.tsx,package.json]"
+expected_verifier_mentioned_paths: "[app/page.tsx]"
+expected_scaffold_created_paths: "[app/page.tsx]"
+expected_setup_created_paths: "[package.json]"
+expected_workspace_scope_kind: greenfield
+expected_lifecycle_stage: completed
+expected_completion_source: runtime_success

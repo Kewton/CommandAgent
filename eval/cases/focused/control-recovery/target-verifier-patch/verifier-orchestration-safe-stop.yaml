@@ -1,0 +1,34 @@
+id: phase27-verifier-orchestration-safe-stop
+title: Phase27 verifier orchestration safe stop
+profile: nextjs
+style: default
+mode: plan-run
+intent: modify
+prompt: "Rerun the original verifier once and stop with evidence when it repeats the same failure class."
+matrix_row: C27-verifier-orchestration
+proof_mode: deterministic_fixture
+fixture_reason: explicit_stop
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  diagnostic_code: typescript_type_error
+  active_job: explicit_stop
+  recovery_owner: explicit_stop
+  loop_control_action: render_explicit_stop
+  dispatch_status: explicit_stop
+  repair_action: stop_with_structured_evidence
+  verifier_rerun_result: repeated_same_failure_class
+  repair_attempt_count: 2
+  attempt_outcome: no_progress
+  repair_state_status: exhausted
+  explicit_stop_reason: verifier_attempt_limit_reached
+  safe_stop_payload: owner=source;job=source_implementation_repair;action=edit_source_for_diagnostic;reason=verifier_attempt_limit_reached
+expected_terminal_state: explicit_stop
+expected_contract_layer: unknown_contract
+expected_verifier_rerun_result: repeated_same_failure_class
+expected_repair_state_status: exhausted
+expected_explicit_stop_reason: verifier_attempt_limit_reached
+expected_safe_stop_payload: owner=source;job=source_implementation_repair;action=edit_source_for_diagnostic;reason=verifier_attempt_limit_reached
+expected_target_admission_status: unknown
+expected_repair_action_plan_status: planned
+expected_completion_source: none

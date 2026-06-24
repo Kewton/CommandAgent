@@ -1,0 +1,40 @@
+id: focused-out-of-scope-target-rejection
+title: Out-of-scope target rejection
+profile: generic
+style: default
+mode: plan-run
+intent: modify
+prompt: "Do not edit files outside the workspace root."
+matrix_row: out-of-scope-target-rejection
+proof_mode: deterministic_fixture
+fixture_reason: explicit_stop
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: explicit_stop
+  recovery_owner: explicit_stop
+  loop_control_action: render_explicit_stop
+  dispatch_status: explicit_stop
+  repair_action: stop_with_structured_evidence
+  tool_policy: explicit_stop
+  explicit_stop_reason: out_of_scope_target
+  target_rejection_reasons: out_of_scope_path
+  rejected_target_reason: out_of_scope_path
+  out_of_scope_paths: ../outside.txt
+  target_path: ../outside.txt
+  selected_target: ../outside.txt
+  target_role: unknown
+  target_rejected_count: 1
+expected_terminal_state: explicit_stop
+expected_contract_layer: unknown_contract
+expected_active_job: explicit_stop
+expected_recovery_owner: explicit_stop
+expected_explicit_stop_reason: out_of_scope_target
+expected_target_rejection_reasons: out_of_scope_path
+expected_rejected_target_reason: out_of_scope_path
+expected_lifecycle_stage: explicit_stop
+expected_active_owner: explicit_stop
+expected_selected_action: stop_with_structured_evidence
+expected_target_admission_status: rejected
+expected_repair_action_plan_status: planned
+expected_completion_source: none

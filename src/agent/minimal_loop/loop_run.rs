@@ -63,6 +63,7 @@ where
         &guard,
         config.dependency_setup_policy,
         config.step_tool_policy,
+        config.allowed_tools.clone(),
     );
     let mut mode = config.initial_tool_call_mode;
     let tools = file_tool_specs();
@@ -93,17 +94,34 @@ where
         let response = match client.chat(&request) {
             Ok(response) => response,
             Err(err) => {
+                if let Some(parse_error) = provider_tool_parse_error(&err, mode) {
+                    let previous_mode = mode;
+                    mode = mode_after_parse_failure(mode);
+                    observer.on_event(RuntimeEvent::ParserFeedbackSent {
+                        iteration,
+                        previous_tool_call_mode: previous_mode,
+                        next_tool_call_mode: mode,
+                        error: bounded_event_text(&parse_error),
+                    });
+                    messages.push(ChatMessage::new(
+                        ChatRole::User,
+                        parser_failure_feedback(&parse_error),
+                    ));
+                    continue;
+                }
                 let err = MinimalLoopError::Model(err);
                 emit_session_error(observer, &err);
                 return Err(err);
             }
         };
+        let elapsed_ms = started.elapsed().as_millis();
         observer.on_event(RuntimeEvent::ModelResponseReceived {
             iteration,
             tool_call_mode: mode,
             tool_call_count: response.tool_calls.len(),
             content_chars: response.content.chars().count(),
-            elapsed_ms: started.elapsed().as_millis(),
+            elapsed_ms,
+            usage: response.usage.clone().with_latency(elapsed_ms as u64),
         });
 
         let calls = tool_calls_from_response(&response, mode);
@@ -140,6 +158,15 @@ where
                         output_chars: record.output.chars().count(),
                         error: None,
                     });
+                    if record.output_truncated {
+                        observer.on_event(RuntimeEvent::ToolResultTruncated {
+                            iteration,
+                            tool_name: record.name.clone(),
+                            original_chars: record.original_output_chars,
+                            returned_chars: record.output.chars().count(),
+                            reason: "max_output_chars".to_string(),
+                        });
+                    }
                     if record.ok && is_file_change_tool(&record.name) {
                         file_change_count += 1;
                     }
@@ -313,6 +340,24 @@ fn tool_calls_from_response(
     }
 }
 
+fn provider_tool_parse_error(error: &str, mode: ToolCallMode) -> Option<String> {
+    if mode != ToolCallMode::Native {
+        return None;
+    }
+
+    let lower = error.to_ascii_lowercase();
+    let is_tool_parse_error = lower.contains("tool call is missing a tool name")
+        || (lower.contains("json parse failed") && lower.contains("tool"))
+        || (lower.contains("xml syntax error")
+            && (lower.contains("function") || lower.contains("tool") || lower.contains("ollama")));
+
+    if is_tool_parse_error {
+        Some(error.to_string())
+    } else {
+        None
+    }
+}
+
 fn assistant_history_content(
     response: &ChatResponse,
     calls: &[ToolCall],
@@ -404,10 +449,14 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"path":"nested/hello.txt","content":"hello"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Created nested/hello.txt.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
 
@@ -439,10 +488,14 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"path":"nested/file.txt","content":"secret"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Created nested/file.txt.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
         let mut observer = CaptureObserver::default();
@@ -494,10 +547,14 @@ mod tests {
             ChatResponse {
                 content: "<commandagent_tool_call>{\"name\":\"Write\"".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Recovered.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
 
@@ -525,11 +582,46 @@ mod tests {
                     "gemini_native_function_call_missing_name",
                 ),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Recovered.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
+        ]);
+
+        let result = run_session(
+            &mut client,
+            &root,
+            "create a file",
+            MinimalLoopConfig::default(),
+        )
+        .unwrap();
+
+        assert_eq!(result.tool_call_mode, ToolCallMode::XmlFallback);
+        assert_eq!(
+            client.modes,
+            vec![ToolCallMode::Native, ToolCallMode::XmlFallback]
+        );
+    }
+
+    #[test]
+    fn provider_tool_parse_error_downgrades_next_request_to_xml_fallback() {
+        let root = temp_workspace("provider-tool-parse-error");
+        let mut client = MockClient::with_results(vec![
+            Err(
+                "Ollama ollama failed: status 500: {\"error\":\"XML syntax error on line 4: element <function> closed by </parameter>\"}"
+                    .to_string(),
+            ),
+            Ok(ChatResponse {
+                content: "Recovered.".to_string(),
+                tool_calls: Vec::new(),
+
+                usage: Default::default(),
+            }),
         ]);
 
         let result = run_session(
@@ -554,10 +646,14 @@ mod tests {
             ChatResponse {
                 content: "<commandagent_tool_call>{\"name\":\"Write\"".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "No changes needed.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
         let mut observer = CaptureObserver::default();
@@ -592,6 +688,8 @@ mod tests {
             ChatResponse {
                 content: "Now I'll create the files.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: String::new(),
@@ -601,10 +699,14 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"path":"created.txt","content":"ok"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Created created.txt.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
 
@@ -633,10 +735,14 @@ mod tests {
             ChatResponse {
                 content: "Now I'll create the files.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Let me write the file now.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
 
@@ -658,11 +764,13 @@ mod tests {
             ChatResponse {
                 content: r#"<commandagent_tool_call>{"name":"Write","args":{"path":"a.txt","content":"x"}}</commandagent_tool_call>"#.to_string(),
                 tool_calls: Vec::new(),
-            },
+
+                usage: Default::default(),},
             ChatResponse {
                 content: "Created a.txt.".to_string(),
                 tool_calls: Vec::new(),
-            },
+
+                usage: Default::default(),},
         ]);
 
         run_session(
@@ -685,6 +793,8 @@ mod tests {
         let mut client = MockClient::new(vec![ChatResponse {
             content: "Done.".to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         }]);
 
         let result = run_session(
@@ -712,6 +822,8 @@ mod tests {
             ChatResponse {
                 content: "Done.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: String::new(),
@@ -721,10 +833,14 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"path":"created.txt","content":"ok"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Created created.txt.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
         let mut observer = CaptureObserver::default();
@@ -765,10 +881,14 @@ mod tests {
             ChatResponse {
                 content: "Done.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Still done.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
 
@@ -798,6 +918,8 @@ mod tests {
             ChatResponse {
                 content: "Already checked package.json.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: String::new(),
@@ -807,10 +929,14 @@ mod tests {
                     name: "Read".to_string(),
                     args_json: r#"{"path":"package.json"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Read package.json and confirmed the build script.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
 
@@ -846,10 +972,14 @@ mod tests {
             ChatResponse {
                 content: "package.json looks fine.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "I already inspected package.json.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
 
@@ -875,6 +1005,8 @@ mod tests {
             ChatResponse {
                 content: "Done.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: String::new(),
@@ -884,10 +1016,14 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"path":"dist/report.md","content":"ok"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Created dist/report.md.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
 
@@ -922,10 +1058,14 @@ mod tests {
             ChatResponse {
                 content: "Done.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "No changes needed.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
 
@@ -953,10 +1093,12 @@ mod tests {
             ChatResponse {
                 content: "Done.".to_string(),
                 tool_calls: Vec::new(),
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Still done.".to_string(),
                 tool_calls: Vec::new(),
+                usage: Default::default(),
             },
         ]);
         let mut observer = CaptureObserver::default();
@@ -1002,12 +1144,19 @@ mod tests {
     }
 
     struct MockClient {
-        responses: VecDeque<ChatResponse>,
+        responses: VecDeque<Result<ChatResponse, String>>,
         modes: Vec<ToolCallMode>,
     }
 
     impl MockClient {
         fn new(responses: Vec<ChatResponse>) -> Self {
+            Self {
+                responses: responses.into_iter().map(Ok).collect(),
+                modes: Vec::new(),
+            }
+        }
+
+        fn with_results(responses: Vec<Result<ChatResponse, String>>) -> Self {
             Self {
                 responses: VecDeque::from(responses),
                 modes: Vec::new(),
@@ -1020,7 +1169,7 @@ mod tests {
             self.modes.push(request.tool_call_mode);
             self.responses
                 .pop_front()
-                .ok_or_else(|| "no mock response".to_string())
+                .unwrap_or_else(|| Err("no mock response".to_string()))
         }
     }
 

@@ -1,0 +1,42 @@
+id: focused-setup-manifest-invalid
+title: Setup manifest invalid classification
+profile: nextjs
+style: default
+mode: ultra-plan-run
+intent: new
+prompt: "Repair invalid package.json before running the Next.js build."
+matrix_row: setup-manifest-invalid
+proof_mode: deterministic_fixture
+fixture_reason: setup:manifest_invalid
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: manifest_repair
+  recovery_owner: manifest
+  loop_control_action: run_bounded_repair_task
+  dispatch_status: selected
+  repair_action: repair_invalid_manifest
+  tool_policy: setup_config_mutation_only
+  setup_manifest_kind: package_json
+  setup_manifest_path: package.json
+  setup_artifact_validation_status: invalid
+  setup_job_kind: manifest_validation
+  setup_job_state: failed
+  setup_failure_signature: invalid_json
+  target_path: package.json
+  selected_target: package.json
+  target_role: setup_manifest
+  target_admitted_count: 1
+expected_terminal_state: setup_failed
+expected_contract_layer: setup_bootstrap_contract
+expected_active_job: manifest_repair
+expected_recovery_owner: manifest
+expected_repair_action: repair_invalid_manifest
+expected_setup_manifest_path: package.json
+expected_setup_artifact_validation_status: invalid
+expected_lifecycle_stage: setup
+expected_active_owner: manifest
+expected_selected_action: repair_invalid_manifest
+expected_target_admission_status: admitted
+expected_repair_action_plan_status: planned
+expected_completion_source: none

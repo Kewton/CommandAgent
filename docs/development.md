@@ -85,6 +85,9 @@ when the result would immediately become stale.
 - Separate code changes from eval-report-only commits when practical.
 - Commit focused behavior changes before running eval so `meta.json` records a
   clean commit and `dirty: false`.
+- When a change affects an adopted control-recovery path, add or update the
+  focused `matrix_row` and its `expected_*` assertions. A case name alone is
+  not evidence that the control path is covered.
 - Do not commit raw eval workspaces by default. Commit summaries and triage
   reports under `docs/eval/` instead.
 - Do not include API keys, `.env`, local model caches, or generated dependency
@@ -179,6 +182,7 @@ Record eval results with:
 - binary path
 - provider/model
 - eval root
+- event JSONL path when `COMMANDAGENT_EVENT_JSONL` is used
 - headline result
 - failure category
 - interpretation and follow-up decision
@@ -244,3 +248,27 @@ Before finishing a task, check:
 - Tests appropriate to the change ran.
 - Eval ran when behavior changed, or the reason it did not run is recorded.
 - Docs were updated when users or future agents need the decision.
+
+## Event Protocol And Budget Changes
+
+Changes to versioned Job/Event protocol, evidence envelopes, usage records, or
+budget behavior require compatibility tests. At minimum, verify:
+
+- schema version is present on persisted/external records;
+- unknown event or evidence variants are ignored or reported as unsupported
+  without panicking;
+- replay projection derives the expected job state from ordered events;
+- budget exceeded behavior is explicit and finite;
+- provider token usage is carried from `ChatResponse` into runtime events when
+  present;
+- usage unavailable is recorded as unavailable instead of treated as failure
+  when provider metadata is absent.
+
+One-shot runs can record external events with:
+
+```bash
+COMMANDAGENT_EVENT_JSONL=/tmp/commandagent-events.jsonl commandagent "..."
+```
+
+Use this for focused eval evidence when the change affects event, usage,
+budget, or CommandMate-facing behavior.

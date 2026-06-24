@@ -1,0 +1,47 @@
+id: phase28-source-vs-generated-test
+title: Contract conflict keeps implementation authoritative over generated test
+profile: nextjs
+style: default
+mode: plan-run
+intent: modify
+prompt: "Classify a generated test mismatch against an existing source implementation."
+matrix_row: C33-source-vs-generated-test
+proof_mode: deterministic_fixture
+fixture_reason: rc:1
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  diagnostic_code: contract_conflict
+  diagnostic_failure_kind: contract_conflict
+  semantic_failure_kind: test_or_verifier_alignment_failure
+  semantic_cluster_source_of_truth: generated_test_not_authoritative
+  active_job: test_alignment_repair
+  recovery_owner: test
+  loop_control_action: run_bounded_repair_task
+  dispatch_status: selected
+  repair_action: align_test_and_verifier
+  tool_policy: file_mutation_repair
+  candidate_artifacts: app/page.tsx|tests/generated-space-invaders.test.ts
+  contract_conflict_status: resolved
+  contract_conflict_sides: implementation|test
+  contract_conflict_authority: implementation_authoritative
+  contract_conflict_repair_target_side: test
+  contract_conflict_selected_action: align_test_and_verifier
+  contract_conflict_safe_stop_reason: none
+  contract_conflict_missing_evidence: none
+  contract_conflict_source_of_truth: generated_test_not_authoritative
+expected_terminal_state: verifier_command_failed
+expected_contract_layer: verification_contract
+expected_active_job: test_alignment_repair
+expected_recovery_owner: test
+expected_loop_control_action: run_bounded_repair_task
+expected_dispatch_status: selected
+expected_repair_action: align_test_and_verifier
+expected_contract_conflict_status: resolved
+expected_contract_conflict_sides: implementation|test
+expected_contract_conflict_authority: implementation_authoritative
+expected_contract_conflict_repair_target_side: test
+expected_contract_conflict_selected_action: align_test_and_verifier
+expected_contract_conflict_safe_stop_reason: none
+expected_contract_conflict_missing_evidence: none
+expected_contract_conflict_source_of_truth: generated_test_not_authoritative

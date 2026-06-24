@@ -1,0 +1,31 @@
+# Phase27 Blocking Ledger
+
+Date: 2026-06-23 JST
+
+| blocker id | coverage id | owner layer | incomplete contract | suspected module family | downstream task | proof command / case | closure condition | status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| P27-C21-001 | C21 | target admission | Route/source/test/docs/setup/evidence-binding target admission and rejection are not fully proven. | `target_admission`, artifact contracts, eval scripts | Add common target admission matrix and row-specific rejection reasons. | `cargo test target_admission`; focused target matrix | Every selected target family is admitted/rejected with owner, role, scope, freshness, excerpt, and exhaustion facts. | closed_proven |
+| P27-C22-001 | C22 | target priority | Failure-kind, authority, role, and progress-history priority are not fully deterministic. | `target_admission`, `semantic_failure`, `repair_job` | Add priority components and ambiguous tie stop evidence. | target-priority tests; focused prioritization fixture | Priority is stable and same-priority ambiguity stops explicitly. | closed_proven |
+| P27-C23-001 | C23 | repair lifecycle | Verifier rerun transitions and safe-stop lifecycle are incomplete. | `repair_job`, `runtime/repair_loop`, `recovery_task` | Add lifecycle stages, rerun outcome events, safe-stop report fields. | repair-job tests; focused lifecycle fixture | Repair state shows selected, running, rerun, completed, failed, no-progress, or explicit-stop transitions. | closed_proven |
+| P27-C24-001 | C24 | attempt ledger | Attempt outcomes are not proven across profile families and outcome classes. | `repair_job`, `runtime/repair_loop`, `artifact_ledger` | Record outcome matrix with before/after signatures and changed files. | attempt-ledger tests; focused attempt matrix | Attempt ledger records target/role/cluster/signatures/changed paths/outcome without masking failure. | closed_proven |
+| P27-C25-001 | C25 | no-progress strategy | No-progress switch/stop strategy branches are incomplete. | `repair_job`, `target_admission`, `recovery_orchestration` | Add no-progress strategy matrix for target, role, evidence, scaffold, explicit stop. | no-progress tests; focused no-progress matrix | Repeated no-progress narrows or stops boundedly without retry expansion. | closed_proven |
+| P27-C25-002 | C25 | contract-conflict branch | Contract-conflict no-progress branch must defer to Phase28 instead of generic source repair. | `repair_job`, `semantic_failure`, `recovery_orchestration` | Record C33 deferral evidence and Phase28 blocker reference. | focused contract-conflict deferral fixture | Phase27 proves branch selection and deferral only; C33 resolution remains Phase28. | closed_proven |
+| P27-C26-001 | C26 | verifier diagnostic | Language-specific diagnostic assessment and weak target filters are incomplete. | `verifier_diagnostic`, `semantic_failure`, `recovery_contract` | Add Rust/Python/Next.js/common diagnostic fields and weak reason filters. | `cargo test verifier_diagnostic`; focused verifier fixture | Diagnostic evidence has kind, code, source excerpt, observed/expected, affected cases, candidates, and unknown count. | closed_proven |
+| P27-C27-001 | C27 | verifier orchestration | Original verifier rerun events, attempt limits, and binding scope are incomplete. | `verify`, `runtime/repair_loop`, `repair_job`, `evidence_binding` | Add rerun event records, attempt limit policy, binding scope, safe-stop report. | verifier orchestration tests; focused verifier-rerun fixture | Original verifier authority is preserved and rerun outcomes are visible. | closed_proven |
+| P27-C28-001 | C28 | verifier policy | Generated-test, self-reference, unsupported assertion, and expectation-audit checks are incomplete. | `verifier_selection`, `integrity_guard`, `plan_lint/verifiers` | Add verifier/test integrity policy and focused rejection fixtures. | verifier-selection/integrity tests; focused verifier-policy fixture | Weak generated/self-referential/unsupported checks cannot satisfy completion. | closed_proven |
+| P27-C29-001 | C29 | artifact completion | Completion job is not fully bound to ledger, ownership, freshness, and missing-evidence distinction. | `artifact_completion`, `evidence_authority`, `deliverable_obligation` | Add completion job lifecycle and evidence authority checks. | artifact-completion/evidence-authority tests; focused completion-job fixture | Missing artifact, missing evidence, failed evidence, and stale evidence are distinct and owned. | closed_proven |
+| P27-C30-001 | C30 | focused edit | Current excerpt and stale-target rejection are not fully proven. | `target_admission`, `artifact_ledger`, `runtime/repair_loop` | Add focused edit admission and stale-target rejection proof. | target-admission/ledger tests; focused edit fixture | Focused edit proceeds only with current excerpt and rejects stale targets. | closed_proven |
+| P27-C31-001 | C31 | mechanical fallback | Deterministic fallback admission and safe mutation proof are incomplete. | `mechanical_repair`, `repair_action_plan`, `target_admission` | Add bounded adapter admission and validation handoff. | mechanical-repair tests; patch admission fixture | Mechanical fallback is admitted only under target/verifier/patch validation authority. | closed_proven |
+| P27-C32-001 | C32 | patch validation | Unsafe/noop/duplicate/protected/generated/cache/test-weakening patch rejection and rollback proof are incomplete. | `integrity_guard`, `mechanical_repair`, `runtime/repair_loop`, `repair_job` | Add patch validation outcome matrix and rollback admission/proof. | patch-validation tests; focused patch fixture | Patch outcomes are validated before progress; unsafe changes are rejected and rollback is evidence-bound. | closed_proven |
+
+## Review Result
+
+Review findings applied:
+
+- Split blockers by coverage row and responsible layer.
+- Added separate C25 contract-conflict deferral blocker because that path must
+  be Phase28-owned.
+- Kept target admission, verifier, completion, focused edit, mechanical
+  fallback, and patch validation distinct.
+- No blocker uses provider throughput, model quality, CI success, or broad
+  sign-off as a row-level closure condition.

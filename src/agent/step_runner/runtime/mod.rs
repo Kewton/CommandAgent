@@ -5,16 +5,16 @@ use crate::agent::minimal_loop::loop_run::{ChatClient, MinimalLoopConfig, RunRes
 use crate::agent::minimal_loop::result::MinimalLoopError;
 use crate::agent::slash_command::{SlashCommand, SlashCommandKind};
 use crate::agent::step_runner::correction_evidence::PlanCorrectionEvidence;
+use crate::agent::step_runner::plan_prompt::plan_generation_prompt_with_task_contract;
 use crate::agent::step_runner::ultra_plan::{
     UltraPlan, save_ultra_plan, ultra_plan_generation_prompt,
 };
 use crate::agent::step_runner::verify::VerificationFailure;
-use crate::agent::step_runner::{
-    StepPlan, WorkIntent, detect_work_intent, plan_generation_prompt, save_step_plan,
-};
+use crate::agent::step_runner::{StepPlan, WorkIntent, detect_work_intent, save_step_plan};
 use crate::providers::ToolCallMode;
 use std::path::Path;
 
+mod dev_server;
 mod execution;
 mod paths;
 pub(crate) mod phase_contract;
@@ -225,7 +225,20 @@ where
             goal: bounded_event_text(goal),
             profile: bounded_event_text(profile),
         });
-        let prompt = plan_generation_prompt(goal, profile, style, intent, required_artifacts);
+        let phase_contract = phase_contract::PhaseWorkspaceContract::collect_with_goal(
+            self.cwd,
+            profile,
+            required_artifacts,
+            goal,
+        );
+        let prompt = plan_generation_prompt_with_task_contract(
+            goal,
+            profile,
+            style,
+            intent,
+            required_artifacts,
+            Some(&phase_contract.task_contract),
+        );
         let text = planner_text(self.planner, &self.planner_config, &prompt)?;
         let correction_context = StepPlanCorrectionContext {
             goal,
@@ -233,7 +246,8 @@ where
             style,
             intent,
             required_artifacts,
-            profile_obligations: &[],
+            profile_obligations: &phase_contract.profile_obligations,
+            task_contract: Some(&phase_contract.task_contract),
             save_kind: "step-plan",
             prompt_kind: "step plan",
         };
@@ -259,6 +273,7 @@ where
                 intent: context.intent,
                 required_artifacts: context.required_artifacts,
                 profile_obligations: context.profile_obligations,
+                task_contract: context.task_contract,
             };
             match parse_generated_step_plan(self.cwd, &text, &generated_context) {
                 Ok(plan) => return Ok(plan),
@@ -356,7 +371,17 @@ where
             &phase_contract,
             Vec::new(),
         );
-        execution::execute_step_plan(self, plan, &active_contract_seed, observer)
+        let mut report = execution::execute_step_plan(self, plan, &active_contract_seed, observer)?;
+        if let Some(smoke_report) = execution::verify_requested_dev_server_contract(
+            self.cwd,
+            &plan.profile,
+            &plan.goal,
+            execution::step_plan_has_nextjs_build_verifier(plan),
+        )? {
+            report.push('\n');
+            report.push_str(&smoke_report);
+        }
+        Ok(report)
     }
 
     fn repair_step_after_turn_error(
@@ -417,6 +442,8 @@ mod tests {
         let mut planner = MockClient::new(vec![ChatResponse {
             content: plan_yaml.to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         }]);
         let mut executor = MockClient::new(vec![]);
         let command = SlashCommand {
@@ -452,6 +479,8 @@ mod tests {
         let mut planner = MockClient::new(vec![ChatResponse {
             content: plan_yaml.to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         }]);
         let mut executor = MockClient::new(vec![
             ChatResponse {
@@ -462,10 +491,14 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"path":"README.md","content":"ok"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Created README.md.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
         let command = SlashCommand {
@@ -495,12 +528,73 @@ mod tests {
     }
 
     #[test]
+    fn plan_run_accepts_completed_step_after_blocked_bash() {
+        let root = temp_workspace("plan-run-blocked-bash-completed");
+        let plan_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    kind: \"create\"\n    instruction: \"Create README.md with a Usage section.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"grep -q Usage README.md\"\n";
+        let mut planner = MockClient::new(vec![ChatResponse {
+            content: plan_yaml.to_string(),
+            tool_calls: Vec::new(),
+            usage: Default::default(),
+        }]);
+        let mut executor = MockClient::new(vec![ChatResponse {
+            content: String::new(),
+            tool_calls: vec![
+                ToolCall {
+                    id: None,
+                    thought_signature: None,
+                    name: "Write".to_string(),
+                    args_json:
+                        r##"{"path":"README.md","content":"# Demo\n\n## Usage\nRun it.\n"}"##
+                            .to_string(),
+                },
+                ToolCall {
+                    id: None,
+                    thought_signature: None,
+                    name: "Bash".to_string(),
+                    args_json: r#"{"command":"cat README.md && true"}"#.to_string(),
+                },
+            ],
+            usage: Default::default(),
+        }]);
+        let command = SlashCommand {
+            kind: SlashCommandKind::PlanRun,
+            profile: Some("docs".to_string()),
+            style: None,
+            intent: Some("document".to_string()),
+            artifacts: Vec::new(),
+            argument: "Create docs".to_string(),
+        };
+
+        let output = SlashRuntime {
+            executor: &mut executor,
+            planner: &mut planner,
+            cwd: &root,
+            loop_config: MinimalLoopConfig::default(),
+            planner_config: PlannerRuntimeConfig {
+                model: "planner".to_string(),
+                tool_call_mode: ToolCallMode::XmlFallback,
+            },
+        }
+        .run(command)
+        .unwrap();
+
+        assert!(output.contains("step write-readme: ok"), "{output}");
+        assert!(
+            fs::read_to_string(root.join("README.md"))
+                .unwrap()
+                .contains("## Usage")
+        );
+    }
+
+    #[test]
     fn plan_run_emits_step_runner_events() {
         let root = temp_workspace("plan-run-events");
         let plan_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    kind: \"create\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"cat README.md\"\n";
         let mut planner = MockClient::new(vec![ChatResponse {
             content: plan_yaml.to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         }]);
         let mut executor = MockClient::new(vec![
             ChatResponse {
@@ -511,10 +605,14 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"path":"README.md","content":"ok"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Created README.md.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
         let command = SlashCommand {
@@ -578,6 +676,8 @@ mod tests {
         let mut planner = MockClient::new(vec![ChatResponse {
             content: plan_yaml.to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         }]);
         let mut executor = MockClient::new(vec![]);
         let command = SlashCommand {
@@ -612,6 +712,8 @@ mod tests {
         let mut planner = MockClient::new(vec![ChatResponse {
             content: plan_yaml.to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         }]);
         let mut executor = MockClient::new(vec![
             ChatResponse {
@@ -622,10 +724,14 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"path":"README.md","content":"repaired"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Created README.md.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
         let command = SlashCommand {
@@ -664,15 +770,21 @@ mod tests {
         let mut planner = MockClient::new(vec![ChatResponse {
             content: plan_yaml.to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         }]);
         let mut executor = MockClient::new(vec![
             ChatResponse {
                 content: "Let me create README.md now.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Now I'll create README.md.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: String::new(),
@@ -682,10 +794,14 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"path":"README.md","content":"recovered"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Created README.md.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
         let command = SlashCommand {
@@ -729,6 +845,8 @@ mod tests {
         let mut planner = MockClient::new(vec![ChatResponse {
             content: plan_yaml.to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         }]);
         let mut executor = MockClient::new(Vec::new());
         let command = SlashCommand {
@@ -791,10 +909,14 @@ mod tests {
             ChatResponse {
                 content: "Let me read README.md first.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "I'll create README.md now.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: String::new(),
@@ -804,10 +926,14 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"path":"README.md","content":"guarded"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Created README.md.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
         let mut planner = MockClient::new(Vec::new());
@@ -850,9 +976,16 @@ mod tests {
                 initial_turn_error: None,
                 dependency_setup_attempt_keys: Vec::new(),
                 dependency_setup_note: None,
+                setup_job_state: Vec::new(),
+                tool_records: Vec::new(),
                 contract_evidence: Vec::new(),
                 repair_attempt_ledger: Vec::new(),
+                repair_job_state: crate::agent::step_runner::repair_job::RepairJobState::new(
+                    "unknown",
+                )
+                .with_step_id(step.id.clone()),
                 tool_arg_schema_correction_spent: false,
+                pending_tool_protocol_failure: None,
                 pending_tool_arg_error: None,
                 pending_tool_arg_error_source: None,
             },
@@ -869,7 +1002,14 @@ mod tests {
             .iter()
             .filter(|prompt| prompt.contains("The required path is still missing: README.md"))
             .count();
-        assert_eq!(guard_prompt_count, 1);
+        assert_eq!(guard_prompt_count, 0);
+        assert!(
+            executor
+                .prompts
+                .iter()
+                .any(|prompt| prompt.contains("Tool protocol correction")
+                    && prompt.contains("Correction action: emit_same_tool_with_required_fields"))
+        );
     }
 
     #[test]
@@ -943,13 +1083,22 @@ mod tests {
     }
 
     #[test]
-    fn plan_run_does_not_enforce_required_artifacts_as_step_gate() {
-        let root = temp_workspace("plan-run-final-artifact-pressure-only");
-        let plan_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    kind: \"create\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"cat README.md\"\n";
-        let mut planner = MockClient::new(vec![ChatResponse {
-            content: plan_yaml.to_string(),
-            tool_calls: Vec::new(),
-        }]);
+    fn plan_run_corrects_unowned_required_artifact_before_execution() {
+        let root = temp_workspace("plan-run-required-artifact-owner");
+        let invalid_plan = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    kind: \"create\"\n    instruction: \"Create README.md.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"cat README.md\"\n";
+        let corrected_plan = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-final\"\n    kind: \"create\"\n    instruction: \"Create FINAL.md.\"\n    expected_paths:\n      - \"FINAL.md\"\n    verify:\n      - \"cat FINAL.md\"\n";
+        let mut planner = MockClient::new(vec![
+            ChatResponse {
+                content: invalid_plan.to_string(),
+                tool_calls: Vec::new(),
+                usage: Default::default(),
+            },
+            ChatResponse {
+                content: corrected_plan.to_string(),
+                tool_calls: Vec::new(),
+                usage: Default::default(),
+            },
+        ]);
         let mut executor = MockClient::new(vec![
             ChatResponse {
                 content: String::new(),
@@ -957,12 +1106,16 @@ mod tests {
                     id: None,
                     thought_signature: None,
                     name: "Write".to_string(),
-                    args_json: r#"{"path":"README.md","content":"ok"}"#.to_string(),
+                    args_json: r#"{"path":"FINAL.md","content":"ok"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
-                content: "Created README.md.".to_string(),
+                content: "Created FINAL.md.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
         let command = SlashCommand {
@@ -987,9 +1140,8 @@ mod tests {
         .run(command)
         .unwrap();
 
-        assert!(output.contains("step write-readme: ok"));
-        assert!(root.join("README.md").exists());
-        assert!(!root.join("FINAL.md").exists());
+        assert!(output.contains("step write-final: ok"), "{output}");
+        assert!(root.join("FINAL.md").exists());
     }
 
     #[test]
@@ -999,6 +1151,8 @@ mod tests {
         let mut planner = MockClient::new(vec![ChatResponse {
             content: plan_yaml.to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         }]);
         let mut executor = MockClient::new(vec![ChatResponse {
             content: String::new(),
@@ -1008,6 +1162,8 @@ mod tests {
                 name: "Write".to_string(),
                 args_json: r#"{"path":"README.md","content":"ok"}"#.to_string(),
             }],
+
+            usage: Default::default(),
         }]);
         let command = SlashCommand {
             kind: SlashCommandKind::PlanRun,
@@ -1047,6 +1203,8 @@ mod tests {
         let mut planner = MockClient::new(vec![ChatResponse {
             content: plan_yaml.to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         }]);
         let mut executor = MockClient::new(vec![ChatResponse {
             content: String::new(),
@@ -1056,6 +1214,8 @@ mod tests {
                 name: "Glob".to_string(),
                 args_json: "{}".to_string(),
             }],
+
+            usage: Default::default(),
         }]);
         let command = SlashCommand {
             kind: SlashCommandKind::PlanRun,
@@ -1092,6 +1252,8 @@ mod tests {
         let mut planner = MockClient::new(vec![ChatResponse {
             content: plan_yaml.to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         }]);
         let mut executor = MockClient::new(vec![
             ChatResponse {
@@ -1102,6 +1264,8 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"content":"missing path"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: String::new(),
@@ -1111,10 +1275,14 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"path":"README.md","content":"corrected"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Created README.md.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
         let command = SlashCommand {
@@ -1165,6 +1333,8 @@ mod tests {
         let mut planner = MockClient::new(vec![ChatResponse {
             content: plan_yaml.to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         }]);
         let mut executor = MockClient::new(vec![
             ChatResponse {
@@ -1175,6 +1345,8 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"content":"missing path"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: String::new(),
@@ -1184,6 +1356,8 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"content":"still missing path"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: String::new(),
@@ -1193,6 +1367,8 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"path":"README.md","content":"should not run"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
         ]);
         let command = SlashCommand {
@@ -1243,6 +1419,8 @@ mod tests {
         let mut planner = MockClient::new(vec![ChatResponse {
             content: plan_yaml.to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         }]);
         let mut executor = MockClient::new(vec![
             ChatResponse {
@@ -1253,10 +1431,14 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"path":"README.md","content":"broken"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Wrote README.md.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: String::new(),
@@ -1266,6 +1448,8 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"content":"missing path"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: String::new(),
@@ -1275,10 +1459,14 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"path":"README.md","content":"fixed"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Fixed README.md.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
         let command = SlashCommand {
@@ -1322,10 +1510,14 @@ mod tests {
         let mut planner = MockClient::new(vec![ChatResponse {
             content: plan_yaml.to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         }]);
         let mut executor = MockClient::new(vec![ChatResponse {
             content: "Let me verify README.md.".to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         }]);
         let command = SlashCommand {
             kind: SlashCommandKind::PlanRun,
@@ -1379,10 +1571,14 @@ mod tests {
             ChatResponse {
                 content: invalid_yaml.to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: corrected_yaml.to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
         let mut executor = MockClient::new(vec![]);
@@ -1421,14 +1617,20 @@ mod tests {
             ChatResponse {
                 content: ultra_yaml.to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: invalid_plan.to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: corrected_plan.to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
         let mut executor = MockClient::new(vec![
@@ -1448,11 +1650,28 @@ mod tests {
                         args_json: r#"{"path":"app/page.tsx","content":"export default function Page() { return null }"}"#.to_string(),
                     },
                 ],
-            },
+
+                usage: Default::default(),},
             ChatResponse {
                 content: "Created app files.".to_string(),
                 tool_calls: Vec::new(),
-            },
+
+                usage: Default::default(),},
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
+                    name: "Write".to_string(),
+                    args_json: r#"{"path":"app/layout.tsx","content":"import type { ReactNode } from \"react\";\n\nexport default function RootLayout({ children }: { children: ReactNode }) {\n  return <html lang=\"en\"><body>{children}</body></html>;\n}\n"}"#.to_string(),
+                }],
+
+                usage: Default::default(),},
+            ChatResponse {
+                content: "Created root layout.".to_string(),
+                tool_calls: Vec::new(),
+
+                usage: Default::default(),},
         ]);
         let command = SlashCommand {
             kind: SlashCommandKind::UltraPlanRun,
@@ -1490,20 +1709,28 @@ mod tests {
             ChatResponse {
                 content: ultra_yaml.to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: inspect_plan.to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: create_plan.to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
         let mut executor = MockClient::new(vec![
             ChatResponse {
                 content: "Inspection complete.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: String::new(),
@@ -1513,10 +1740,14 @@ mod tests {
                     name: "Write".to_string(),
                     args_json: r#"{"path":"FINAL.md","content":"done"}"#.to_string(),
                 }],
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Created FINAL.md.".to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
         let command = SlashCommand {
@@ -1555,15 +1786,21 @@ mod tests {
             ChatResponse {
                 content: ultra_yaml.to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: inspect_plan.to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
         let mut executor = MockClient::new(vec![ChatResponse {
             content: "Inspection complete.".to_string(),
             tool_calls: Vec::new(),
+
+            usage: Default::default(),
         }]);
         let command = SlashCommand {
             kind: SlashCommandKind::UltraPlanRun,
@@ -1611,10 +1848,14 @@ mod tests {
             ChatResponse {
                 content: ultra_yaml.to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: scaffold_plan.to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
         let mut executor = MockClient::new(vec![
@@ -1634,11 +1875,28 @@ mod tests {
                         args_json: r#"{"path":"app/page.tsx","content":"export default function Page() { return null }"}"#.to_string(),
                     },
                 ],
-            },
+
+                usage: Default::default(),},
             ChatResponse {
                 content: "Created app files.".to_string(),
                 tool_calls: Vec::new(),
-            },
+
+                usage: Default::default(),},
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
+                    name: "Write".to_string(),
+                    args_json: r#"{"path":"app/layout.tsx","content":"import type { ReactNode } from \"react\";\n\nexport default function RootLayout({ children }: { children: ReactNode }) {\n  return <html lang=\"en\"><body>{children}</body></html>;\n}\n"}"#.to_string(),
+                }],
+
+                usage: Default::default(),},
+            ChatResponse {
+                content: "Created root layout.".to_string(),
+                tool_calls: Vec::new(),
+
+                usage: Default::default(),},
         ]);
         let command = SlashCommand {
             kind: SlashCommandKind::UltraPlanRun,
@@ -1798,10 +2056,14 @@ mod tests {
             ChatResponse {
                 content: invalid_yaml.to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: corrected_yaml.to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
         let mut executor = MockClient::new(vec![]);
@@ -1849,10 +2111,14 @@ mod tests {
             ChatResponse {
                 content: invalid_yaml.to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: corrected_yaml.to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
         let mut executor = MockClient::new(vec![]);
@@ -1942,14 +2208,20 @@ steps:
             ChatResponse {
                 content: invalid_yaml.to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: still_invalid_yaml.to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
             ChatResponse {
                 content: corrected_yaml.to_string(),
                 tool_calls: Vec::new(),
+
+                usage: Default::default(),
             },
         ]);
         let mut executor = MockClient::new(vec![]);
@@ -1999,14 +2271,17 @@ steps:
             ChatResponse {
                 content: ultra_yaml.to_string(),
                 tool_calls: Vec::new(),
+                usage: Default::default(),
             },
             ChatResponse {
                 content: invalid_step_yaml.to_string(),
                 tool_calls: Vec::new(),
+                usage: Default::default(),
             },
             ChatResponse {
                 content: corrected_step_yaml.to_string(),
                 tool_calls: Vec::new(),
+                usage: Default::default(),
             },
         ]);
         let mut executor = MockClient::new(vec![
@@ -2018,10 +2293,12 @@ steps:
                     name: "Write".to_string(),
                     args_json: r#"{"path":"src/main.rs","content":"fn main() {}\n"}"#.to_string(),
                 }],
+                usage: Default::default(),
             },
             ChatResponse {
                 content: "Created src/main.rs.".to_string(),
                 tool_calls: Vec::new(),
+                usage: Default::default(),
             },
         ]);
         let command = SlashCommand {
@@ -2096,6 +2373,7 @@ steps:
             intent,
             required_artifacts,
             profile_obligations,
+            task_contract: None,
         }
     }
 

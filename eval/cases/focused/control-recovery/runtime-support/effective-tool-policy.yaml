@@ -1,0 +1,19 @@
+id: phase29-effective-tool-policy
+title: Phase29 effective tool policy is reportable
+profile: python
+style: default
+mode: plan-run
+intent: modify
+prompt: "Expose the selected bounded tool policy for the recovery job."
+matrix_row: C35-effective-tool-policy
+proof_mode: deterministic_fixture
+fixture_reason: profile_verification:route_integration_failure
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  phase29_support_rows: C35
+  effective_tool_policy: file_mutation_repair
+  effective_tool_policy_status: projected
+expected_phase29_support_rows: C35
+expected_effective_tool_policy: file_mutation_repair
+expected_effective_tool_policy_status: projected

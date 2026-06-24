@@ -1,0 +1,39 @@
+id: focused-missing-evidence
+title: Missing evidence completion authority
+profile: generic
+style: default
+mode: plan-run
+intent: modify
+prompt: "Create app/page.tsx and prove the verifier actually ran."
+matrix_row: missing-evidence
+proof_mode: deterministic_fixture
+fixture_reason: missing_evidence
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: evidence_collection
+  recovery_owner: evidence
+  loop_control_action: render_explicit_stop
+  dispatch_status: explicit_stop
+  repair_action: collect_missing_evidence
+  evidence_runner_status: missing
+  evidence_runner_kind: verifier
+  completion_authority_status: missing_evidence
+  completion_evidence_status: missing
+  artifact_ledger_status: complete
+  target_path: app/page.tsx
+  selected_target: app/page.tsx
+expected_terminal_state: missing_evidence
+expected_contract_layer: eval_success_contract
+expected_active_job: evidence_collection
+expected_recovery_owner: evidence
+expected_completion_authority_status: missing_evidence
+expected_evidence_runner_status: missing
+expected_completion_evidence_status: missing
+expected_artifact_ledger_status: complete
+expected_lifecycle_stage: verifying
+expected_active_owner: evidence
+expected_selected_action: collect_missing_evidence
+expected_target_admission_status: admitted
+expected_repair_action_plan_status: planned
+expected_completion_source: none

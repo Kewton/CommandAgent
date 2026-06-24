@@ -1,0 +1,41 @@
+id: focused-dispatch-docs-literal
+title: Active-job dispatch selects docs literal repair
+profile: docs
+style: default
+mode: plan-run
+intent: docs
+prompt: "Repair the requested docs literal without falling back to source repair."
+matrix_row: phase25-dispatch-docs-literal
+proof_mode: deterministic_fixture
+fixture_reason: semantic_mismatch:README.md
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: documentation_repair
+  active_job_lifecycle: selected
+  recovery_owner: docs
+  loop_control_action: run_bounded_repair_task
+  dispatch_status: selected
+  dispatch_reason: documentation_contract_failure
+  candidate_jobs: lifecycle=candidate job=documentation_repair target=README.md
+  target_path: README.md
+  target_role: docs
+  selected_target: README.md
+  selected_target_role: docs
+  repair_action: update_docs_literal
+  tool_policy: file_mutation_repair
+expected_active_job: documentation_repair
+expected_active_job_lifecycle: selected
+expected_recovery_owner: docs
+expected_dispatch_status: selected
+expected_dispatch_reason: documentation_contract_failure
+expected_candidate_jobs: lifecycle=candidate job=documentation_repair target=README.md
+expected_target_path: README.md
+expected_target_role: docs
+expected_repair_action: update_docs_literal
+expected_lifecycle_stage: repairing
+expected_active_owner: docs
+expected_selected_action: update_docs_literal
+expected_target_admission_status: admitted
+expected_repair_action_plan_status: planned
+expected_completion_source: none

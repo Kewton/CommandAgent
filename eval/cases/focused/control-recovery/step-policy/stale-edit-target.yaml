@@ -1,0 +1,43 @@
+id: focused-stale-edit-target
+title: Stale edit target recovery
+profile: generic
+style: default
+mode: plan-run
+intent: modify
+prompt: "Update src/main.rs after reading the current file content."
+matrix_row: stale-edit-target
+proof_mode: deterministic_fixture
+fixture_reason: step_policy:stale_edit_target
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: tool_protocol_correction
+  recovery_owner: tool_protocol
+  loop_control_action: run_tool_protocol_correction
+  dispatch_status: selected
+  repair_action: correct_tool_protocol
+  tool_policy: tool_protocol_correction
+  tool_protocol_status: admitted
+  tool_protocol_source: stale_edit_guard
+  tool_protocol_action: read_current_target_before_edit
+  target_path: src/main.rs
+  selected_target: src/main.rs
+  target_role: implementation
+  target_admitted_count: 1
+  target_evidence_freshness: stale
+expected_terminal_state: step_policy_failed
+expected_contract_layer: execution_contract
+expected_active_job: tool_protocol_correction
+expected_recovery_owner: tool_protocol
+expected_repair_action: correct_tool_protocol
+expected_tool_protocol_status: admitted
+expected_tool_protocol_source: stale_edit_guard
+expected_tool_protocol_action: read_current_target_before_edit
+expected_target_path: src/main.rs
+expected_target_evidence_freshness: stale
+expected_lifecycle_stage: repairing
+expected_active_owner: tool_protocol
+expected_selected_action: correct_tool_protocol
+expected_target_admission_status: admitted
+expected_repair_action_plan_status: planned
+expected_completion_source: none

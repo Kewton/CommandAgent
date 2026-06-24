@@ -1,0 +1,40 @@
+id: phase27-mechanical-fallback-admission
+title: Phase27 mechanical fallback admission
+profile: rust
+style: default
+mode: plan-run
+intent: modify
+prompt: "Render a bounded Rust compile mechanical repair hint only after owner/action/target/verifier authority exists."
+matrix_row: C31-mechanical-fallback
+proof_mode: deterministic_fixture
+fixture_reason: rc:1
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  diagnostic_code: rust_compile_error
+  active_job: source_implementation_repair
+  recovery_owner: source
+  loop_control_action: run_bounded_repair_task
+  dispatch_status: selected
+  repair_action: edit_source_for_diagnostic
+  selected_target: src/main.rs
+  selected_target_role: implementation
+  target_source_of_truth: original_verifier_diagnostic
+  mechanical_adapter: rust_compile_diagnostic
+  mechanical_adapter_status: admitted
+  mechanical_adapter_action: repair_rust_compile_error
+  patch_validation_status: accepted
+  patch_validation_source: mechanical_adapter
+  patch_validation_outcomes: accepted
+expected_terminal_state: verifier_command_failed
+expected_contract_layer: verification_contract
+expected_diagnostic_code: rust_compile_error
+expected_mechanical_adapter: rust_compile_diagnostic
+expected_mechanical_adapter_status: admitted
+expected_mechanical_adapter_action: repair_rust_compile_error
+expected_patch_validation_status: accepted
+expected_patch_validation_source: mechanical_adapter
+expected_patch_validation_outcomes: accepted
+expected_target_admission_status: admitted
+expected_repair_action_plan_status: planned
+expected_completion_source: none

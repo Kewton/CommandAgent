@@ -1,0 +1,45 @@
+id: focused-phase26-repair-brief-rendering
+title: Phase26 repair brief exposes target constraints and success check
+profile: nextjs
+style: default
+mode: ultra-plan-run
+intent: modify
+prompt: "Render a bounded route repair brief for the selected route."
+matrix_row: phase26-c19-repair-brief-rendering
+proof_mode: deterministic_fixture
+fixture_reason: profile_verification:nextjs_route_not_integrated
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  repair_brief_status: admitted
+  action_envelope_status: admitted
+  active_job: route_integration_repair
+  recovery_owner: route_integration
+  repair_action: connect_existing_artifact_to_entrypoint
+  selected_failure_cluster: nextjs_route_not_integrated:profile_contract:app/page.tsx
+  repair_root_cause: nextjs_route_not_integrated from profile_contract
+  repair_hypothesis: connect existing artifact to route
+  expected_improvement: profile verification passes
+  target_path: app/page.tsx
+  target_confidence: profile_contract:current:not_required
+  allowed_change_kind: route_or_integration_target_only
+  allowed_tool_category: file_mutation
+  must_preserve: profile_verification|npm_run_build
+  disallowed_actions: do_not_edit_package_json|do_not_create_placeholder
+  success_check: profile verification plus npm run build
+expected_repair_brief_status: admitted
+expected_action_envelope_status: admitted
+expected_active_job: route_integration_repair
+expected_recovery_owner: route_integration
+expected_repair_action: connect_existing_artifact_to_entrypoint
+expected_selected_failure_cluster: nextjs_route_not_integrated:profile_contract:app/page.tsx
+expected_repair_root_cause: nextjs_route_not_integrated from profile_contract
+expected_repair_hypothesis: connect existing artifact to route
+expected_expected_improvement: profile verification passes
+expected_target_path: app/page.tsx
+expected_target_confidence: profile_contract:current:not_required
+expected_allowed_change_kind: route_or_integration_target_only
+expected_allowed_tool_category: file_mutation
+expected_must_preserve: profile_verification|npm_run_build
+expected_disallowed_actions: do_not_edit_package_json|do_not_create_placeholder
+expected_success_check: profile verification plus npm run build

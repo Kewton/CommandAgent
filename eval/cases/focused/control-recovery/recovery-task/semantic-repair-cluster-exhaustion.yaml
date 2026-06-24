@@ -1,0 +1,37 @@
+id: focused-phase26-semantic-repair-cluster-exhaustion
+title: Phase26 semantic repair plan records exhausted cluster handoff
+profile: rust
+style: default
+mode: plan-run
+intent: modify
+prompt: "Record semantic repair context after a no-progress repair attempt."
+matrix_row: phase26-c18-semantic-repair-cluster-exhaustion
+proof_mode: deterministic_fixture
+fixture_reason: rc:1
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  diagnostic_code: rust_compile_error
+  diagnostic_failure_kind: compile_or_type_error
+  selected_failure_cluster: rust_compile_error:compile_or_type_error:src/lib.rs
+  semantic_failure_kind: compile_or_type_error
+  repair_hypothesis: repair implementation behavior at src/lib.rs
+  expected_improvement: original verifier diagnostic changes or passes
+  exhausted_targets: src/lib.rs
+  exhausted_roles: implementation
+  exhausted_clusters: rust_compile_error:compile_or_type_error:src/lib.rs
+  no_progress_strategy: handoff_to_phase27_repair_lifecycle
+  repair_state_status: no_progress
+  repair_attempt_count: 1
+expected_diagnostic_code: rust_compile_error
+expected_diagnostic_failure_kind: compile_or_type_error
+expected_selected_failure_cluster: rust_compile_error:compile_or_type_error:src/lib.rs
+expected_semantic_failure_kind: compile_or_type_error
+expected_repair_hypothesis: repair implementation behavior at src/lib.rs
+expected_expected_improvement: original verifier diagnostic changes or passes
+expected_exhausted_targets: src/lib.rs
+expected_exhausted_roles: implementation
+expected_exhausted_clusters: rust_compile_error:compile_or_type_error:src/lib.rs
+expected_no_progress_strategy: handoff_to_phase27_repair_lifecycle
+expected_repair_state_status: no_progress
+expected_repair_attempt_count: 1

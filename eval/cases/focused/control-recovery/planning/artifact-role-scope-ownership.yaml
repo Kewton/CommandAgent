@@ -1,0 +1,57 @@
+id: focused-artifact-role-scope-ownership
+title: Artifact role, scope, and ownership projection
+profile: generic
+style: default
+mode: plan-run
+intent: data
+prompt: "Do not repair raw data inputs; produce deterministic ownership evidence."
+matrix_row: artifact-role-scope-ownership
+proof_mode: deterministic_fixture
+fixture_reason: explicit_stop
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: explicit_stop
+  recovery_owner: explicit_stop
+  loop_control_action: render_explicit_stop
+  dispatch_status: explicit_stop
+  repair_action: stop_with_structured_evidence
+  tool_policy: explicit_stop
+  explicit_stop_reason: protected_raw_input
+  artifact_role_projection_status: projected
+  target_path: data/raw/source.csv
+  selected_target: none
+  target_role: raw_input
+  selected_target_role: raw_input
+  target_source_of_truth: artifact_graph
+  target_ownership_source: raw_input
+  target_workspace_scope: kind=explicit roots=[apps/web]
+  target_rejection_reasons: inadmissible_artifact_target:protected_raw_input
+  rejected_target_reason: protected_raw_input
+  target_rejected_count: 1
+  workspace_scope_kind: explicit
+  workspace_scope_roots: "[apps/web]"
+  artifact_ownership: out_of_scope
+  artifact_source_of_truth: artifact_graph
+expected_terminal_state: explicit_stop
+expected_contract_layer: unknown_contract
+expected_active_job: explicit_stop
+expected_recovery_owner: explicit_stop
+expected_dispatch_status: explicit_stop
+expected_repair_action: stop_with_structured_evidence
+expected_artifact_role_projection_status: projected
+expected_target_role: raw_input
+expected_selected_target: none
+expected_target_source_of_truth: artifact_graph
+expected_target_ownership_source: raw_input
+expected_workspace_scope_kind: explicit
+expected_artifact_ownership: out_of_scope
+expected_artifact_source_of_truth: artifact_graph
+expected_rejected_target_reason: protected_raw_input
+expected_explicit_stop_reason: protected_raw_input
+expected_lifecycle_stage: explicit_stop
+expected_active_owner: explicit_stop
+expected_selected_action: stop_with_structured_evidence
+expected_target_admission_status: rejected
+expected_repair_action_plan_status: planned
+expected_completion_source: none

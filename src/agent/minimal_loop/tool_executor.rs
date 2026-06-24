@@ -1,5 +1,6 @@
 use super::config::{DependencySetupPolicy, StepToolPolicy};
 use super::result::{MinimalLoopError, ToolArgError, ToolExecutionRecord};
+use crate::agent::budget::{ToolResultBudget, enforce_tool_result_budget};
 use crate::providers::ToolCall;
 use crate::safety::path_guard::PathGuard;
 use crate::tools::bash::{BashPolicy, BashTool, CommandClass, enforce_bash_policy};
@@ -15,6 +16,7 @@ pub(super) struct ToolExecutor<'a> {
     guard: &'a PathGuard,
     dependency_policy: DependencySetupPolicy,
     step_tool_policy: StepToolPolicy,
+    allowed_tools: Vec<String>,
     read: ReadTool<'a>,
     write: WriteTool<'a>,
     edit: EditTool<'a>,
@@ -28,11 +30,13 @@ impl<'a> ToolExecutor<'a> {
         guard: &'a PathGuard,
         dependency_policy: DependencySetupPolicy,
         step_tool_policy: StepToolPolicy,
+        allowed_tools: Vec<String>,
     ) -> Self {
         Self {
             guard,
             dependency_policy,
             step_tool_policy,
+            allowed_tools,
             read: ReadTool::new(guard),
             write: WriteTool::new(guard),
             edit: EditTool::new(guard),
@@ -49,28 +53,32 @@ impl<'a> ToolExecutor<'a> {
         let args: Value =
             serde_json::from_str(&call.args_json).map_err(|err| invalid_json(call, err))?;
         self.enforce_step_tool_policy(call.name.as_str(), &args)?;
+        let mut target_paths = Vec::new();
         let output = match call.name.as_str() {
-            "Read" => self
-                .read
-                .read(required_str_for_tool(&args, "Read", "path")?)
-                .map_err(tool_err)?,
+            "Read" => {
+                let path = required_str_for_tool(&args, "Read", "path")?;
+                let output = self.read.read(path).map_err(tool_err)?;
+                target_paths.push(normalize_tool_path(path));
+                output
+            }
             "Write" => {
+                let path = required_str_for_tool(&args, "Write", "path")?;
                 self.write
-                    .write(
-                        required_str_for_tool(&args, "Write", "path")?,
-                        required_str_for_tool(&args, "Write", "content")?,
-                    )
+                    .write(path, required_str_for_tool(&args, "Write", "content")?)
                     .map_err(tool_err)?;
+                target_paths.push(normalize_tool_path(path));
                 "wrote file".to_string()
             }
             "Edit" => {
+                let path = required_str_for_tool(&args, "Edit", "path")?;
                 self.edit
                     .replace_once(
-                        required_str_for_tool(&args, "Edit", "path")?,
+                        path,
                         required_str_for_tool(&args, "Edit", "old")?,
                         required_str_for_tool(&args, "Edit", "new")?,
                     )
                     .map_err(tool_err)?;
+                target_paths.push(normalize_tool_path(path));
                 "edited file".to_string()
             }
             "Bash" => {
@@ -108,10 +116,15 @@ impl<'a> ToolExecutor<'a> {
             other => return Err(MinimalLoopError::Tool(format!("unknown tool: {}", other))),
         };
 
+        let (output, truncation) = enforce_tool_result_budget(output, ToolResultBudget::default());
+
         Ok(ToolExecutionRecord {
             name: call.name.clone(),
             ok: true,
             output,
+            output_truncated: truncation.truncated,
+            original_output_chars: truncation.original_chars,
+            target_paths,
         })
     }
 
@@ -120,6 +133,14 @@ impl<'a> ToolExecutor<'a> {
         tool_name: &str,
         args: &Value,
     ) -> Result<(), MinimalLoopError> {
+        if !self.allowed_tools.is_empty()
+            && !self.allowed_tools.iter().any(|tool| tool == tool_name)
+        {
+            return Err(policy_violation(format!(
+                "{tool_name} is not allowed for this correction action; allowed tools: {}",
+                self.allowed_tools.join(", ")
+            )));
+        }
         match self.step_tool_policy {
             StepToolPolicy::FileMutationAllowed => Ok(()),
             StepToolPolicy::ReadOnly => self.enforce_read_only(tool_name, args),
@@ -230,6 +251,10 @@ fn policy_violation(message: String) -> MinimalLoopError {
     MinimalLoopError::Tool(format!("tool_policy_violation: {message}"))
 }
 
+fn normalize_tool_path(path: &str) -> String {
+    path.trim().trim_start_matches("./").replace('\\', "/")
+}
+
 fn is_setup_or_config_path(path: &Path) -> bool {
     if path.is_absolute()
         || path
@@ -298,6 +323,7 @@ mod tests {
             &guard,
             DependencySetupPolicy::default(),
             StepToolPolicy::ReadOnly,
+            Vec::new(),
         );
 
         let err = executor
@@ -317,6 +343,7 @@ mod tests {
             &guard,
             DependencySetupPolicy::default(),
             StepToolPolicy::ReadOnly,
+            Vec::new(),
         );
 
         let result = executor
@@ -334,6 +361,7 @@ mod tests {
             &guard,
             DependencySetupPolicy::default(),
             StepToolPolicy::NoMutation,
+            Vec::new(),
         );
 
         let err = executor
@@ -345,6 +373,27 @@ mod tests {
     }
 
     #[test]
+    fn allowed_tools_blocks_unlisted_tool() {
+        let root = temp_workspace("allowed-tools");
+        fs::write(root.join("README.md"), "hello").unwrap();
+        let guard = PathGuard::new(&root).unwrap();
+        let executor = ToolExecutor::new(
+            &guard,
+            DependencySetupPolicy::default(),
+            StepToolPolicy::FileMutationAllowed,
+            vec!["Read".to_string()],
+        );
+
+        let err = executor
+            .execute(&call("Write", json!({"path":"README.md","content":"x"})))
+            .unwrap_err();
+
+        assert!(err.to_string().contains("tool_policy_violation"));
+        assert!(err.to_string().contains("allowed tools: Read"));
+        assert_eq!(fs::read_to_string(root.join("README.md")).unwrap(), "hello");
+    }
+
+    #[test]
     fn setup_policy_allows_manifest_write_but_blocks_source_write() {
         let root = temp_workspace("setup-policy");
         let guard = PathGuard::new(&root).unwrap();
@@ -352,6 +401,7 @@ mod tests {
             &guard,
             DependencySetupPolicy::default(),
             StepToolPolicy::SetupMutationOnly,
+            Vec::new(),
         );
 
         executor
@@ -373,6 +423,70 @@ mod tests {
     }
 
     #[test]
+    fn write_records_exact_changed_path() {
+        let root = temp_workspace("write-target-path");
+        let guard = PathGuard::new(&root).unwrap();
+        let executor = ToolExecutor::new(
+            &guard,
+            DependencySetupPolicy::default(),
+            StepToolPolicy::FileMutationAllowed,
+            Vec::new(),
+        );
+
+        let result = executor
+            .execute(&call(
+                "Write",
+                json!({"path":"./src/main.rs","content":"fn main() {}\n"}),
+            ))
+            .unwrap();
+
+        assert_eq!(result.target_paths, vec!["src/main.rs"]);
+    }
+
+    #[test]
+    fn read_records_exact_observed_path() {
+        let root = temp_workspace("read-target-path");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+        let guard = PathGuard::new(&root).unwrap();
+        let executor = ToolExecutor::new(
+            &guard,
+            DependencySetupPolicy::default(),
+            StepToolPolicy::ReadOnly,
+            Vec::new(),
+        );
+
+        let result = executor
+            .execute(&call("Read", json!({"path":"./src/main.rs"})))
+            .unwrap();
+
+        assert_eq!(result.target_paths, vec!["src/main.rs"]);
+    }
+
+    #[test]
+    fn edit_records_exact_changed_path() {
+        let root = temp_workspace("edit-target-path");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+        let guard = PathGuard::new(&root).unwrap();
+        let executor = ToolExecutor::new(
+            &guard,
+            DependencySetupPolicy::default(),
+            StepToolPolicy::FileMutationAllowed,
+            Vec::new(),
+        );
+
+        let result = executor
+            .execute(&call(
+                "Edit",
+                json!({"path":"src/main.rs","old":"fn main() {}","new":"fn main() { println!(\"ok\"); }"}),
+            ))
+            .unwrap();
+
+        assert_eq!(result.target_paths, vec!["src/main.rs"]);
+    }
+
+    #[test]
     fn write_missing_path_reports_tool_arg_schema_failure() {
         let root = temp_workspace("missing-write-path");
         let guard = PathGuard::new(&root).unwrap();
@@ -380,6 +494,7 @@ mod tests {
             &guard,
             DependencySetupPolicy::default(),
             StepToolPolicy::FileMutationAllowed,
+            Vec::new(),
         );
 
         let err = executor
@@ -410,6 +525,7 @@ mod tests {
             &guard,
             DependencySetupPolicy::default(),
             StepToolPolicy::FileMutationAllowed,
+            Vec::new(),
         );
 
         let err = executor
@@ -441,6 +557,7 @@ mod tests {
             &guard,
             DependencySetupPolicy::default(),
             StepToolPolicy::SetupMutationOnly,
+            Vec::new(),
         );
 
         let err = executor

@@ -1,0 +1,44 @@
+id: focused-task-contract-admission
+title: Task contract admission projection
+profile: generic
+style: default
+mode: plan-run
+intent: new
+prompt: "Create notes.txt containing a task contract admission note."
+matrix_row: task-contract-admission
+proof_mode: deterministic_fixture
+fixture_reason: ok
+fixture_success: true
+fixture_rc: 0
+fixture_fields:
+  active_job: none
+  recovery_owner: none
+  repair_action: none
+  task_contract_kind: new_project
+  task_contract_status: admitted
+  task_contract_lifecycle: projected
+  task_contract_request_signals: explicit_intent:new:intent|goal_keyword:new:goal|artifact_roles:new:artifact_role
+  task_contract_constraints: profile:profile:generic|intent:intent:new|source_authority:goal:explicit_intent
+  task_contract_completion_evidence: artifact_exists:required_artifact:notes.txt
+  behavior_obligation_status: projected
+  behavior_obligation_owners: required_artifact:notes_txt:scaffold
+  behavior_obligation_paths: required_artifact:notes_txt:notes.txt
+  artifact_role_projection_status: projected
+expected_terminal_state: ok
+expected_contract_layer: ok
+expected_task_contract_kind: new_project
+expected_task_contract_status: admitted
+expected_task_contract_lifecycle: projected
+expected_task_contract_request_signals: explicit_intent:new:intent|goal_keyword:new:goal|artifact_roles:new:artifact_role
+expected_task_contract_constraints: profile:profile:generic|intent:intent:new|source_authority:goal:explicit_intent
+expected_task_contract_completion_evidence: artifact_exists:required_artifact:notes.txt
+expected_behavior_obligation_status: projected
+expected_behavior_obligation_owners: required_artifact:notes_txt:scaffold
+expected_behavior_obligation_paths: required_artifact:notes_txt:notes.txt
+expected_artifact_role_projection_status: projected
+expected_lifecycle_stage: completed
+expected_active_owner: none
+expected_selected_action: none
+expected_target_admission_status: not_applicable
+expected_repair_action_plan_status: not_applicable
+expected_completion_source: runtime_success

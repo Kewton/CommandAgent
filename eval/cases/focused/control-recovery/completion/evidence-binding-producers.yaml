@@ -1,0 +1,37 @@
+id: focused-evidence-binding-producers
+title: Evidence binding producer fields
+profile: generic
+style: default
+mode: plan-run
+intent: modify
+prompt: "Expose evidence binding kind, failure list, and completion source."
+matrix_row: phase24-c09-evidence-binding-producers
+proof_mode: deterministic_fixture
+fixture_reason: evidence_binding_failed
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  active_job: evidence_binding_repair
+  recovery_owner: evidence_binding
+  dispatch_status: explicit_stop
+  repair_action: bind_completion_evidence_to_target
+  completion_authority_status: evidence_binding_failed
+  completion_source_of_truth: completion_authority
+  evidence_binding_status: failed
+  evidence_binding_kind: import_symbol|file_layout
+  failed_bindings: import_symbol:GameCanvas->app/page.tsx
+  completion_evidence_status: passed
+  artifact_ledger_status: complete
+expected_terminal_state: evidence_binding_failed
+expected_contract_layer: eval_success_contract
+expected_active_job: evidence_binding_repair
+expected_recovery_owner: evidence_binding
+expected_completion_authority_status: evidence_binding_failed
+expected_completion_source_of_truth: completion_authority
+expected_evidence_binding_status: failed
+expected_evidence_binding_kind: import_symbol|file_layout
+expected_failed_bindings: import_symbol:GameCanvas->app/page.tsx
+expected_completion_evidence_status: passed
+expected_artifact_ledger_status: complete
+expected_lifecycle_stage: verifying
+expected_completion_source: none

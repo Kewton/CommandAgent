@@ -14,6 +14,9 @@ pub struct ToolExecutionRecord {
     pub name: String,
     pub ok: bool,
     pub output: String,
+    pub output_truncated: bool,
+    pub original_output_chars: usize,
+    pub target_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
