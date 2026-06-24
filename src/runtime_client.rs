@@ -88,10 +88,10 @@ impl<C> ModelIoTracingClient<C> {
         let Some(path) = self.path.as_ref() else {
             return;
         };
-        if let Some(parent) = path.parent() {
-            if std::fs::create_dir_all(parent).is_err() {
-                return;
-            }
+        if let Some(parent) = path.parent()
+            && std::fs::create_dir_all(parent).is_err()
+        {
+            return;
         }
         self.sequence += 1;
         let value = json!({
