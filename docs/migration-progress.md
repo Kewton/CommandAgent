@@ -61,7 +61,7 @@ Live UAT now passes for docs, Python, Rust, a Next.js file-set workflow,
 planner/executor split, and repair fallback prompt saving. Larger
 `/ultra-plan-run` sign-off remains pending.
 
-Latest Anvil migration sign-off:
+Latest legacy control-stack migration sign-off:
 
 ```text
 docs/eval/loadmap2-final-migration-decision-20260624.md
@@ -71,7 +71,7 @@ Result: `migration_complete_with_explicit_exclusions`.
 
 Current local LLM proof roots are admitted with 3 smoke, 82 focused, and 6
 large cases, for `91/91` current case coverage. Current broad sign-off exits
-zero. Adopted Anvil control/recovery rows C01-C45 are implemented/proven, and
+zero. Adopted legacy control/recovery rows C01-C45 are implemented/proven, and
 excluded rows C46-C54 remain explicit design exclusions.
 
 The six current large rows are still failed application-generation tasks. They
@@ -92,7 +92,7 @@ docs/eval/mvp-eval-report.md
 Result: offline smoke and live UAT pass. Clean `/plan-run` smoke eval is not yet
 stable enough to be a release gate. The large eval runner supports per-case
 `/ultra-plan-run` mode and fixture seeding, but large app-generation quality
-remains a separate product/eval limitation from Anvil migration parity.
+remains a separate product/eval limitation from legacy migration parity.
 
 Latest large triage:
 
