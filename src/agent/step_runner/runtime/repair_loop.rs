@@ -21,6 +21,7 @@ use crate::agent::step_runner::evidence_binding::{
 };
 use crate::agent::step_runner::integrity_guard::{
     PatchProposal, PatchProposalSource, PatchValidation, PatchValidationReport,
+    detect_manifest_unexpected_version_change, detect_nextjs_manifest_version_family_conflict,
     detect_test_weakening, validate_patch_proposal,
 };
 use crate::agent::step_runner::mechanical_repair::{
@@ -60,6 +61,7 @@ use crate::agent::step_runner::{
     completion_evidence::{CompletionEvidence, CompletionEvidenceKind, CompletionEvidenceStatus},
 };
 use crate::safety::path_guard::PathGuard;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use std::time::Instant;
@@ -111,6 +113,14 @@ fn turn_error_reason_and_diagnostic(error: &MinimalLoopError) -> (&'static str, 
                 "{}\nOriginal error: {}",
                 arg_error.diagnostic_excerpt(),
                 error
+            ),
+        );
+    }
+    if let MinimalLoopError::ProgressBudgetExhausted(message) = error {
+        return (
+            "progress_budget_exhausted",
+            format!(
+                "Minimal loop made no required progress before exhausting its iteration budget.\nOriginal error: {message}"
             ),
         );
     }
@@ -728,6 +738,37 @@ where
             break;
         }
         let selected_envelope = recovery_execution_envelope(&current_contract_evidence);
+        let recovery_start =
+            recovery_task_start_context(&current_contract_evidence, selected_envelope);
+        observer.on_event(RuntimeEvent::RecoveryTaskStarted {
+            step_id: bounded_event_text(&step.id),
+            attempt: repair_turns,
+            active_job: bounded_event_text(&recovery_start.active_job),
+            dispatch_status: bounded_event_text(&recovery_start.dispatch_status),
+            execution_envelope: recovery_start
+                .execution_envelope
+                .as_deref()
+                .map(bounded_event_text),
+            target_path: recovery_start
+                .target_path
+                .as_deref()
+                .map(bounded_event_text),
+        });
+        let mut repair_job_state = state
+            .repair_job_state
+            .clone()
+            .with_step_id(step.id.clone())
+            .with_active_job(recovery_start.active_job.clone())
+            .with_recovery_owner(attempt_context.recovery_owner.clone())
+            .with_repair_action(attempt_context.repair_action.clone())
+            .with_recovery_task_started(
+                Some(recovery_start.dispatch_status.clone()),
+                recovery_start.execution_envelope.clone(),
+            );
+        if let Some(target) = &recovery_start.target_path {
+            repair_job_state = repair_job_state.with_current_target(target.clone());
+        }
+        state.repair_job_state = repair_job_state;
         let correction_decision = tool_protocol_correction_decision(
             step,
             state.pending_tool_protocol_failure.as_ref(),
@@ -775,6 +816,7 @@ where
         if let Some(context) = correction_context_for_policy.as_ref() {
             apply_tool_protocol_correction_policy(&mut repair_config, context);
         }
+        let manifest_contents_before = manifest_contents(runtime.cwd);
         let result = match crate::agent::minimal_loop::loop_run::run_session_with_observer(
             runtime.executor,
             runtime.cwd,
@@ -880,6 +922,7 @@ where
             &plan.profile,
             &attempt_context,
             &attempt_changed_markers,
+            &manifest_contents_before,
         );
         state.changed_files.extend(attempt_changed_markers.clone());
         record_stale_setup_after_manifest_change(runtime.cwd, &mut state, &attempt_changed_markers);
@@ -1011,7 +1054,7 @@ fn apply_repair_execution_envelope(
         )
         | None => {
             config.action_requirement = ActionRequirement::Required;
-            config.step_tool_policy = StepToolPolicy::FileMutationAllowed;
+            config.step_tool_policy = StepToolPolicy::FileMutationWithReadOnlyBash;
         }
     }
 }
@@ -1030,7 +1073,7 @@ fn apply_tool_protocol_correction_policy(
         ToolProtocolCorrectionAction::EmitSameToolWithRequiredFields
         | ToolProtocolCorrectionAction::EmitSameToolWithValidJson => {
             config.action_requirement = ActionRequirement::Required;
-            config.step_tool_policy = StepToolPolicy::FileMutationAllowed;
+            config.step_tool_policy = StepToolPolicy::FileMutationWithReadOnlyBash;
         }
         ToolProtocolCorrectionAction::ProviderTransportFallback
         | ToolProtocolCorrectionAction::ExplicitStop => {
@@ -1360,6 +1403,7 @@ fn patch_validation_report_for_changed_files(
     profile: &str,
     context: &RepairAttemptContext,
     changed_files: &[String],
+    manifest_contents_before: &BTreeMap<String, String>,
 ) -> PatchValidationReport {
     let mut proposal =
         PatchProposal::new(PatchProposalSource::ModelToolEdit, changed_files.to_vec());
@@ -1376,14 +1420,20 @@ fn patch_validation_report_for_changed_files(
     let mut validations = validate_patch_proposal(profile_id, &proposal).validations;
     validations.extend(content_patch_validations_for_changed_files(
         cwd,
+        profile_id,
+        context.repair_action.as_deref(),
         changed_files,
+        manifest_contents_before,
     ));
     PatchValidationReport::from_proposal(&proposal, validations)
 }
 
 fn content_patch_validations_for_changed_files(
     cwd: &std::path::Path,
+    profile_id: ProfileId,
+    repair_action: Option<&str>,
     changed_files: &[String],
+    manifest_contents_before: &BTreeMap<String, String>,
 ) -> Vec<PatchValidation> {
     let mut validations = Vec::new();
     for path in changed_files {
@@ -1394,8 +1444,74 @@ fn content_patch_validations_for_changed_files(
         if let Some(validation) = detect_test_weakening(path, &content) {
             validations.push(validation);
         }
+        if profile_id == ProfileId::NextJs
+            && let Some(validation) = detect_nextjs_manifest_version_family_conflict(path, &content)
+        {
+            validations.push(validation);
+        }
+        if let Some(before_content) = manifest_contents_before.get(path)
+            && let Some(validation) = detect_manifest_unexpected_version_change(
+                path,
+                before_content,
+                &content,
+                repair_action,
+            )
+        {
+            validations.push(validation);
+        }
     }
     validations
+}
+
+const MANIFEST_CAPTURE_MAX_DEPTH: usize = 5;
+
+fn manifest_contents(cwd: &Path) -> BTreeMap<String, String> {
+    let mut contents = BTreeMap::new();
+    collect_manifest_contents(cwd, cwd, 0, &mut contents);
+    contents
+}
+
+fn collect_manifest_contents(
+    root: &Path,
+    dir: &Path,
+    depth: usize,
+    contents: &mut BTreeMap<String, String>,
+) {
+    if depth > MANIFEST_CAPTURE_MAX_DEPTH {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let file_name = entry.file_name().to_string_lossy().to_string();
+        if path.is_dir() {
+            if ignored_manifest_snapshot_dir(&file_name) {
+                continue;
+            }
+            collect_manifest_contents(root, &path, depth + 1, contents);
+            continue;
+        }
+        if file_name != "package.json" {
+            continue;
+        }
+        let Ok(relative) = path.strip_prefix(root) else {
+            continue;
+        };
+        let normalized = relative.to_string_lossy().replace('\\', "/");
+        let Ok(content) = fs::read_to_string(&path) else {
+            continue;
+        };
+        contents.insert(normalized, content);
+    }
+}
+
+fn ignored_manifest_snapshot_dir(name: &str) -> bool {
+    matches!(
+        name,
+        ".git" | "node_modules" | "target" | ".next" | "dist" | "build" | "__pycache__"
+    )
 }
 
 fn push_patch_validation_contract_evidence(
@@ -1555,6 +1671,9 @@ fn step_policy_contract_evidence(
         .with_required_action(violation.required_action)
         .with_repair_focus(violation.repair_focus)
         .with_diagnostic(message.clone());
+    if !violation.eval_report_fields.is_empty() {
+        evidence = evidence.with_eval_report_fields(violation.eval_report_fields.clone());
+    }
     if let Some(path) = violation.target_path {
         evidence = evidence
             .with_target_path(path.clone())
@@ -1571,9 +1690,21 @@ struct StepPolicyViolation {
     expected: &'static str,
     required_action: &'static str,
     repair_focus: &'static str,
+    eval_report_fields: Vec<String>,
 }
 
 fn step_policy_violation(message: &str) -> Option<StepPolicyViolation> {
+    if let Some(blocked) = read_only_bash_policy_block(message) {
+        return Some(StepPolicyViolation {
+            code: "blocked_bash_command_policy",
+            tool: "Bash",
+            target_path: None,
+            expected: "worker mutation steps may use Bash only for read-only inspection",
+            required_action: "do not run build/test or mutating Bash from a worker mutation step; let the runtime verifier own build/test execution",
+            repair_focus: "return repository evidence or continue file mutation without executing build/test Bash",
+            eval_report_fields: blocked.eval_report_fields(),
+        });
+    }
     if let Some(tool) = read_only_policy_tool(message) {
         return Some(StepPolicyViolation {
             code: "read_only_step_mutation",
@@ -1582,6 +1713,7 @@ fn step_policy_violation(message: &str) -> Option<StepPolicyViolation> {
             expected: "read-only step uses Read, Glob, Grep, or read-only Bash only",
             required_action: "use only read-only tools in inspect/report steps; move mutation into create/edit/repair steps",
             repair_focus: "provide concrete repository read evidence or replan mutation into a mutation-allowed step",
+            eval_report_fields: Vec::new(),
         });
     }
     if let Some((tool, path)) = setup_source_mutation(message) {
@@ -1592,19 +1724,166 @@ fn step_policy_violation(message: &str) -> Option<StepPolicyViolation> {
             expected: "setup step changes only package, lockfile, or configuration paths",
             required_action: "do not edit source routes/components in setup steps; move source changes into create/edit/repair steps or keep setup changes to package/config files only",
             repair_focus: "preserve the setup/source boundary before continuing this setup step",
+            eval_report_fields: Vec::new(),
         });
     }
-    if message.starts_with("bash command blocked as EnvSetup:") {
+    if let Some(blocked) = bash_tool_policy_block(message) {
         return Some(StepPolicyViolation {
-            code: "model_issued_dependency_setup",
+            code: "blocked_bash_command_policy",
             tool: "Bash",
             target_path: None,
-            expected: "dependency setup is performed only by verifier-owned bounded setup recovery",
-            required_action: "do not run dependency installation from a model tool call; report the setup blocker or let verifier-owned setup recovery handle dependency_missing",
-            repair_focus: "stop model-issued dependency setup and return concrete repository evidence or blocker",
+            expected: "Bash tool calls must satisfy the bounded local command policy",
+            required_action: "do not run blocked Bash commands from a model tool call; report the blocker or use the verifier-owned path when applicable",
+            repair_focus: "stop model-issued blocked Bash and return concrete repository evidence or blocker",
+            eval_report_fields: blocked.eval_report_fields(),
         });
     }
     None
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BlockedBashEvidence {
+    command_class: String,
+    blocked_command: Option<String>,
+    classification_reason: Option<String>,
+    first_actionable_divergence: String,
+}
+
+impl BlockedBashEvidence {
+    fn eval_report_fields(&self) -> Vec<String> {
+        let mut fields = vec![
+            "failed_tool=Bash".to_string(),
+            "command_authority=worker_tool_call".to_string(),
+            format!("command_class={}", self.command_class),
+            format!(
+                "first_actionable_divergence={}",
+                self.first_actionable_divergence
+            ),
+        ];
+        if let Some(command) = &self.blocked_command {
+            fields.push(format!("blocked_command={}", eval_field_value(command)));
+        }
+        if let Some(reason) = &self.classification_reason {
+            fields.push(format!(
+                "command_classification_reason={}",
+                eval_field_value(reason)
+            ));
+        }
+        fields
+    }
+}
+
+fn read_only_bash_policy_block(message: &str) -> Option<BlockedBashEvidence> {
+    let detail = message
+        .strip_prefix("tool_policy_violation: ")
+        .unwrap_or(message);
+    let rest = detail.strip_prefix("Bash command is not read-only for this step: ")?;
+    let command_class = value_after(rest, "class=")
+        .and_then(|value| value.split(';').next())
+        .unwrap_or("unknown")
+        .trim();
+    let classification_reason = value_after(rest, "reason=")
+        .and_then(|value| value.split(';').next())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let blocked_command = value_after(rest, "command=")
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let normalized_class = normalize_command_class(command_class);
+    let first_actionable_divergence = first_actionable_divergence_for_blocked_bash(
+        &normalized_class,
+        classification_reason.as_deref(),
+        blocked_command.as_deref(),
+    );
+    Some(BlockedBashEvidence {
+        command_class: normalized_class,
+        blocked_command,
+        classification_reason,
+        first_actionable_divergence,
+    })
+}
+
+fn bash_tool_policy_block(message: &str) -> Option<BlockedBashEvidence> {
+    let rest = message.strip_prefix("bash command blocked as ")?;
+    let (class, tail) = rest.split_once(':')?;
+    let normalized_class = normalize_command_class(class.trim());
+    let classification_reason = tail
+        .split_once("; command=")
+        .map(|(reason, _)| reason)
+        .unwrap_or(tail)
+        .trim()
+        .to_string();
+    let classification_reason =
+        (!classification_reason.is_empty()).then_some(classification_reason);
+    let blocked_command = value_after(tail, "command=")
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let first_actionable_divergence = first_actionable_divergence_for_blocked_bash(
+        &normalized_class,
+        classification_reason.as_deref(),
+        blocked_command.as_deref(),
+    );
+    Some(BlockedBashEvidence {
+        command_class: normalized_class,
+        blocked_command,
+        classification_reason,
+        first_actionable_divergence,
+    })
+}
+
+fn value_after<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+    text.split_once(key).map(|(_, value)| value)
+}
+
+fn normalize_command_class(value: &str) -> String {
+    match value {
+        "ReadOnly" => "read_only".to_string(),
+        "ScriptRun" => "script_run".to_string(),
+        "BuildTest" => "build_test".to_string(),
+        "DirectoryCreation" => "directory_creation".to_string(),
+        "EnvSetup" => "env_setup".to_string(),
+        other => other.trim().to_ascii_lowercase(),
+    }
+}
+
+fn first_actionable_divergence_for_blocked_bash(
+    command_class: &str,
+    classification_reason: Option<&str>,
+    blocked_command: Option<&str>,
+) -> String {
+    if matches!(command_class, "build_test" | "script_run") {
+        return "verifier_requested_before_mutation".to_string();
+    }
+    if is_compound_read_check(classification_reason, blocked_command) {
+        return "compound_read_check_requested".to_string();
+    }
+    if command_class == "env_setup" {
+        return "verifier_requested_before_mutation".to_string();
+    }
+    "compound_read_check_requested".to_string()
+}
+
+fn is_compound_read_check(
+    classification_reason: Option<&str>,
+    blocked_command: Option<&str>,
+) -> bool {
+    let reason = classification_reason
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let command = blocked_command.unwrap_or_default().to_ascii_lowercase();
+    let compound = reason.contains("compound")
+        || ["&&", "||", "|", ";"]
+            .iter()
+            .any(|token| command.contains(token));
+    let read_like = command.starts_with("test ")
+        || command.starts_with("[ ")
+        || command.starts_with("ls ")
+        || command.starts_with("cat ")
+        || command.starts_with("grep ")
+        || command.starts_with("find ")
+        || command.contains(" test -")
+        || command.contains(" echo ");
+    compound && read_like
 }
 
 fn setup_source_mutation(message: &str) -> Option<(&'static str, String)> {
@@ -2435,6 +2714,48 @@ struct RepairAttemptUpdate<'a> {
     changed_files: &'a [String],
     verifier_passed: bool,
     forced_outcome: Option<RepairAttemptOutcomeKind>,
+}
+
+#[derive(Debug, Clone)]
+struct RecoveryTaskStartContext {
+    active_job: String,
+    dispatch_status: String,
+    target_path: Option<String>,
+    execution_envelope: Option<String>,
+}
+
+fn recovery_task_start_context(
+    evidence: &[ContractEvidence],
+    envelope: Option<RecoveryExecutionEnvelope>,
+) -> RecoveryTaskStartContext {
+    let selected = evidence
+        .iter()
+        .cloned()
+        .map(orchestrate_evidence)
+        .min_by_key(|item| {
+            item.active_job_priority
+                .as_deref()
+                .and_then(|value| value.parse::<u8>().ok())
+                .unwrap_or(u8::MAX)
+        });
+    let target_path = selected.as_ref().and_then(|item| {
+        item.repair_target
+            .clone()
+            .or_else(|| item.target_path.clone())
+            .or_else(|| item.candidate_artifacts.first().cloned())
+    });
+    RecoveryTaskStartContext {
+        active_job: selected
+            .as_ref()
+            .and_then(|item| item.active_job.clone())
+            .unwrap_or_else(|| "unknown".to_string()),
+        dispatch_status: selected
+            .as_ref()
+            .and_then(|item| item.dispatch_status.clone())
+            .unwrap_or_else(|| "unknown".to_string()),
+        target_path,
+        execution_envelope: envelope.map(|item| item.as_str().to_string()),
+    }
 }
 
 fn repair_attempt_context(
@@ -3567,7 +3888,7 @@ mod tests {
         let evidence = step_policy_contract_evidence(
             &step(StepKind::Setup),
             &MinimalLoopError::Tool(
-                "bash command blocked as EnvSetup: dependency setup is runtime-owned and only allowed during verifier dependency recovery"
+                "bash command blocked as EnvSetup: dependency setup is runtime-owned and only allowed during verifier dependency recovery; command=npm install"
                     .to_string(),
             ),
         )
@@ -3576,10 +3897,71 @@ mod tests {
         let rendered = evidence.render().unwrap();
 
         assert!(rendered.contains("guard: step_policy"));
-        assert!(rendered.contains("violated_contract: model_issued_dependency_setup"));
+        assert!(rendered.contains("violated_contract: blocked_bash_command_policy"));
         assert!(rendered.contains("tool: Bash"));
-        assert!(rendered.contains("verifier-owned bounded setup recovery"));
-        assert!(rendered.contains("do not run dependency installation from a model tool call"));
+        assert!(rendered.contains("command_class=env_setup"));
+        assert!(rendered.contains("blocked_command=npm_install"));
+        assert!(rendered.contains("command_authority=worker_tool_call"));
+        assert!(
+            rendered.contains(
+                "command_classification_reason=dependency_setup_is_runtime-owned_and_only_allowed_during_verifier_dependency_recovery"
+            )
+        );
+        assert!(rendered.contains("do not run blocked Bash commands from a model tool call"));
+    }
+
+    #[test]
+    fn worker_build_test_bash_contract_evidence_records_command_fields() {
+        let evidence = step_policy_contract_evidence(
+            &step(StepKind::Repair),
+            &MinimalLoopError::Tool(
+                "tool_policy_violation: Bash command is not read-only for this step: class=BuildTest; reason=build/test Bash is verifier-owned; command=cargo test"
+                    .to_string(),
+            ),
+        )
+        .unwrap();
+
+        let rendered = evidence.render().unwrap();
+
+        assert!(rendered.contains("violated_contract: blocked_bash_command_policy"));
+        assert!(rendered.contains("diagnostic_code: blocked_bash_command_policy"));
+        assert!(rendered.contains("failed_tool=Bash"));
+        assert!(rendered.contains("command_class=build_test"));
+        assert!(rendered.contains("blocked_command=cargo_test"));
+        assert!(rendered.contains("command_authority=worker_tool_call"));
+        assert!(
+            rendered.contains("command_classification_reason=build/test_Bash_is_verifier-owned")
+        );
+        assert!(
+            rendered.contains("first_actionable_divergence=verifier_requested_before_mutation")
+        );
+        assert!(rendered.contains("runtime verifier own build/test execution"));
+    }
+
+    #[test]
+    fn compound_read_check_bash_contract_evidence_records_first_divergence() {
+        let evidence = step_policy_contract_evidence(
+            &step(StepKind::Create),
+            &MinimalLoopError::Tool(
+                "tool_policy_violation: Bash command is not read-only for this step: class=Unknown; reason=compound shell commands, pipes, redirects, and shell substitutions are blocked; command=test -f Cargo.toml && echo exists || echo missing"
+                    .to_string(),
+            ),
+        )
+        .unwrap();
+
+        let rendered = evidence.render().unwrap();
+
+        assert!(rendered.contains("violated_contract: blocked_bash_command_policy"));
+        assert!(rendered.contains("command_class=unknown"));
+        assert!(
+            rendered.contains("blocked_command=test_-f_Cargo.toml_&&_echo_exists_||_echo_missing")
+        );
+        assert!(rendered.contains("first_actionable_divergence=compound_read_check_requested"));
+        assert!(
+            rendered.contains(
+                "command_classification_reason=compound_shell_commands+_pipes+_redirects+_and_shell_substitutions_are_blocked"
+            )
+        );
     }
 
     #[test]
@@ -3982,7 +4364,7 @@ mod tests {
     }
 
     #[test]
-    fn file_repair_envelope_keeps_file_mutation_repair_config() {
+    fn file_repair_envelope_uses_read_only_bash_file_mutation_config() {
         let mut config = MinimalLoopConfig::default();
 
         apply_repair_execution_envelope(
@@ -3991,7 +4373,10 @@ mod tests {
         );
 
         assert_eq!(config.action_requirement, ActionRequirement::Required);
-        assert_eq!(config.step_tool_policy, StepToolPolicy::FileMutationAllowed);
+        assert_eq!(
+            config.step_tool_policy,
+            StepToolPolicy::FileMutationWithReadOnlyBash
+        );
     }
 
     #[test]
@@ -4085,6 +4470,7 @@ mod tests {
             "rust",
             &context,
             &["tests/app_test.rs".to_string()],
+            &BTreeMap::new(),
         );
         let mut state = empty_state();
 
@@ -4101,6 +4487,104 @@ mod tests {
         assert!(rendered.contains("eval_report_fields: patch_validation_status=rejected"));
         assert!(rendered.contains("explicit_stop_reason: patch_validation_rejected_unsafe_repair"));
         assert!(rendered.contains("safe_stop_payload: owner=repair;job=explicit_stop"));
+    }
+
+    #[test]
+    fn patch_validation_rejects_manifest_mutation_without_manifest_authority() {
+        let root = temp_workspace("patch-validation-manifest");
+        std::fs::write(root.join("package.json"), "{}\n").unwrap();
+        let context = RepairAttemptContext {
+            step_id: "step".to_string(),
+            active_job: "source_implementation_repair".to_string(),
+            recovery_owner: Some("source".to_string()),
+            repair_action: Some("edit_source_for_diagnostic".to_string()),
+            selected_failure_cluster: Some("source_implementation".to_string()),
+            selected_target: Some("app/page.tsx".to_string()),
+            selected_target_role: Some("implementation".to_string()),
+            candidate_targets: vec!["app/page.tsx".to_string()],
+            verifier_command: "npm run build".to_string(),
+            candidate_roles: vec!["implementation".to_string()],
+            evidence_binding_available: false,
+            scaffold_rebuild_admitted: false,
+        };
+        let report = patch_validation_report_for_changed_files(
+            &root,
+            "nextjs",
+            &context,
+            &["package.json".to_string()],
+            &BTreeMap::new(),
+        );
+        let mut state = empty_state();
+
+        push_patch_validation_contract_evidence(&mut state, &step(StepKind::Repair), &report);
+        let evidence = orchestrate_evidence(state.contract_evidence[0].clone());
+        let rendered = evidence.render().unwrap();
+
+        assert!(report.is_rejected());
+        assert_eq!(
+            report.outcomes(),
+            vec!["manifest_mutation_without_authority".to_string()]
+        );
+        assert!(rendered.contains("outcome=manifest_mutation_without_authority"));
+        assert!(rendered.contains("target_path: package.json"));
+        assert!(rendered.contains("active_job: explicit_stop"));
+        assert!(rendered.contains("explicit_stop_reason: patch_validation_rejected_unsafe_repair"));
+    }
+
+    #[test]
+    fn patch_validation_rejects_unexpected_manifest_version_change() {
+        let root = temp_workspace("patch-validation-manifest-version-change");
+        std::fs::write(
+            root.join("package.json"),
+            r#"{
+                "dependencies": {
+                    "next": "14.2.35",
+                    "react": "19.0.0",
+                    "react-dom": "18.3.1"
+                }
+            }"#,
+        )
+        .unwrap();
+        let mut before = BTreeMap::new();
+        before.insert(
+            "package.json".to_string(),
+            r#"{
+                "dependencies": {
+                    "next": "14.2.35",
+                    "react": "18.3.1"
+                }
+            }"#
+            .to_string(),
+        );
+        let context = RepairAttemptContext {
+            step_id: "step".to_string(),
+            active_job: "manifest_repair".to_string(),
+            recovery_owner: Some("manifest".to_string()),
+            repair_action: Some("add_missing_manifest_dependency".to_string()),
+            selected_failure_cluster: Some("manifest_dependency_missing".to_string()),
+            selected_target: Some("package.json".to_string()),
+            selected_target_role: Some("setup_manifest".to_string()),
+            candidate_targets: vec!["package.json".to_string()],
+            verifier_command: "npm run build".to_string(),
+            candidate_roles: vec!["setup_manifest".to_string()],
+            evidence_binding_available: false,
+            scaffold_rebuild_admitted: false,
+        };
+
+        let report = patch_validation_report_for_changed_files(
+            &root,
+            "nextjs",
+            &context,
+            &["package.json".to_string()],
+            &before,
+        );
+
+        assert!(report.is_rejected());
+        assert!(
+            report
+                .outcomes()
+                .contains(&"manifest_unexpected_version_change".to_string())
+        );
     }
 
     #[test]

@@ -1,0 +1,24 @@
+id: large-gold-rust-app-modify
+title: Gold plan: modify an existing Rust app
+profile: rust
+style: default
+mode: run-plan
+intent: modify
+fixture: eval/fixtures/large/rust-app-modify
+gold_plan_fixture: eval/gold_plans/large/rust-app-modify.yaml
+prompt: "Execute the gold step plan to refactor an existing Rust CLI into modules, add error handling, and keep cargo test passing."
+matrix_row: gold-rust-app-modify
+proof_mode: real_llm
+expected_artifacts:
+  - Cargo.toml
+  - src/main.rs
+  - src/lib.rs
+verify:
+  - cargo test
+success_check:
+  type: semantic
+  required_paths:
+    - src/lib.rs
+  must_include:
+    src/lib.rs:
+      - pub

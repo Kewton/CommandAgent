@@ -92,6 +92,9 @@ pub(crate) struct RepairJobState {
     pub(crate) active_job: String,
     pub(crate) recovery_owner: Option<String>,
     pub(crate) repair_action: Option<String>,
+    pub(crate) recovery_task_started: bool,
+    pub(crate) dispatch_status: Option<String>,
+    pub(crate) execution_envelope: Option<String>,
     pub(crate) verifier_command: Option<String>,
     pub(crate) previous_signature: Option<String>,
     pub(crate) current_signature: Option<String>,
@@ -138,6 +141,9 @@ impl RepairJobState {
             active_job: active_job.into(),
             recovery_owner: None,
             repair_action: None,
+            recovery_task_started: false,
+            dispatch_status: None,
+            execution_envelope: None,
             verifier_command: None,
             previous_signature: None,
             current_signature: None,
@@ -170,6 +176,17 @@ impl RepairJobState {
 
     pub(crate) fn with_repair_action(mut self, action: Option<String>) -> Self {
         self.repair_action = action;
+        self
+    }
+
+    pub(crate) fn with_recovery_task_started(
+        mut self,
+        dispatch_status: Option<String>,
+        execution_envelope: Option<String>,
+    ) -> Self {
+        self.recovery_task_started = true;
+        self.dispatch_status = dispatch_status;
+        self.execution_envelope = execution_envelope;
         self
     }
 
@@ -260,6 +277,16 @@ impl RepairJobState {
         if let Some(action) = &self.repair_action {
             lines.push(format!("repair_action={action}"));
         }
+        lines.push(format!(
+            "recovery_task_started={}",
+            self.recovery_task_started
+        ));
+        if let Some(status) = &self.dispatch_status {
+            lines.push(format!("dispatch_status={status}"));
+        }
+        if let Some(envelope) = &self.execution_envelope {
+            lines.push(format!("execution_envelope={envelope}"));
+        }
         if let Some(command) = &self.verifier_command {
             lines.push(format!("verifier_command={}", compact(command)));
         }
@@ -340,13 +367,16 @@ impl RepairJobState {
     pub(crate) fn eval_report_fields(&self) -> Vec<String> {
         let latest = self.attempt_ledger.last();
         let mut fields = vec![
+            format!("recovery_task_started={}", self.recovery_task_started),
             format!("repair_attempt_count={}", self.attempt_ledger.len()),
             format!(
                 "repair_state_status={}",
-                if self.attempt_ledger.is_empty() {
-                    "not_attempted"
-                } else {
+                if !self.attempt_ledger.is_empty() {
                     "attempted"
+                } else if self.recovery_task_started {
+                    "started"
+                } else {
+                    "not_attempted"
                 }
             ),
             format!(

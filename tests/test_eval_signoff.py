@@ -64,13 +64,37 @@ def current_root_specs(base: pathlib.Path) -> list[object]:
     focused = base / "focused-control-recovery" / "run"
     large = base / "large" / "run"
     write_root(smoke, case_rows("smoke", 3))
-    write_root(focused, focused_rows(82))
+    write_root(focused, focused_rows(83))
     write_root(large, case_rows("large", 6))
     return [
         eval_signoff.RootSpec("smoke", smoke),
         eval_signoff.RootSpec("focused", focused),
         eval_signoff.RootSpec("large", large),
     ]
+
+
+def failed_large_row() -> dict[str, str]:
+    return {
+        "case_id": "large-rust",
+        "run": "1",
+        "success": "false",
+        "reason": "command_failed:1",
+        "terminal_state": "verifier_command_failed",
+        "failure_category": "verifier",
+        "contract_layer": "verification_contract",
+        "diagnostic_code": "rust_compile_error",
+        "active_job": "source_implementation_repair",
+        "recovery_owner": "source",
+        "repair_action": "edit_source_for_diagnostic",
+        "target_path": "src/main.rs",
+        "evidence_binding_status": "bound",
+        "completion_evidence_status": "failed",
+        "attempt_outcome": "failed",
+        "large_disposition": "closed_owned_failure",
+        "large_disposition_reason": "owned_verifier",
+        "large_disposition_owner_action_status": "consistent",
+        "large_disposition_evidence": "owner=source;target=src/main.rs",
+    }
 
 
 class EvalSignoffTests(unittest.TestCase):
@@ -85,10 +109,10 @@ class EvalSignoffTests(unittest.TestCase):
             )
 
         self.assertEqual(admission.findings, [])
-        self.assertEqual(admission.current_case_coverage, 91)
+        self.assertEqual(admission.current_case_coverage, 92)
         self.assertEqual(
             admission.family_case_counts,
-            {"focused": 82, "large": 6, "small": 0, "smoke": 3},
+            {"focused": 83, "large": 6, "small": 0, "smoke": 3},
         )
 
     def test_rejects_duplicate_root_label(self):
@@ -100,7 +124,7 @@ class EvalSignoffTests(unittest.TestCase):
                     pathlib.Path(tmp) / "focused-control-recovery-copy" / "run",
                 )
             )
-            write_root(specs[-1].path, focused_rows(82))
+            write_root(specs[-1].path, focused_rows(83))
 
             admission = eval_signoff.admit_roots(
                 specs,
@@ -170,6 +194,42 @@ class EvalSignoffTests(unittest.TestCase):
         self.assertNotIn("missing_required_root", [item.code for item in admission.findings])
         self.assertEqual(admission.family_case_counts["small"], 0)
 
+    def test_allows_optional_small_root_when_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            specs = current_root_specs(pathlib.Path(tmp))
+            small = pathlib.Path(tmp) / "small" / "run"
+            write_root(small, case_rows("small", 3))
+            specs.append(eval_signoff.RootSpec("small", small))
+
+            admission = eval_signoff.admit_roots(
+                specs,
+                require_recheck=True,
+                summary_name=None,
+            )
+
+        self.assertEqual(admission.findings, [])
+        self.assertEqual(admission.family_case_counts["small"], 3)
+        self.assertEqual(admission.current_case_coverage, 92)
+
+    def test_render_separates_control_and_task_completion_signoff(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            specs = current_root_specs(pathlib.Path(tmp))
+            write_root(specs[2].path, [*case_rows("large", 5), failed_large_row()])
+
+            admission = eval_signoff.admit_roots(
+                specs,
+                require_recheck=True,
+                summary_name=None,
+            )
+            rendered = eval_signoff.render([], admission)
+
+        self.assertIn("control_contract_signoff: pass", rendered)
+        self.assertIn("task_completion_signoff: fail", rendered)
+        self.assertIn("smoke_task_success: 3/3", rendered)
+        self.assertIn("small_task_success: not_available", rendered)
+        self.assertIn("large_task_success: 5/6", rendered)
+        self.assertIn("focused_assertion_pass: 83/83", rendered)
+
     def test_admission_requires_recheck_summary_when_requested(self):
         with tempfile.TemporaryDirectory() as tmp:
             specs = current_root_specs(pathlib.Path(tmp))
@@ -184,29 +244,7 @@ class EvalSignoffTests(unittest.TestCase):
         self.assertIn("missing_recheck_summary", [item.code for item in admission.findings])
 
     def test_passes_owned_large_failure(self):
-        rows = [
-            {
-                "case_id": "large-rust",
-                "run": "1",
-                "success": "false",
-                "reason": "command_failed:1",
-                "terminal_state": "verifier_command_failed",
-                "failure_category": "verifier",
-                "contract_layer": "verification_contract",
-                "diagnostic_code": "rust_compile_error",
-                "active_job": "source_implementation_repair",
-                "recovery_owner": "source",
-                "repair_action": "edit_source_for_diagnostic",
-                "target_path": "src/main.rs",
-                "evidence_binding_status": "bound",
-                "completion_evidence_status": "failed",
-                "attempt_outcome": "failed",
-                "large_disposition": "closed_owned_failure",
-                "large_disposition_reason": "owned_verifier",
-                "large_disposition_owner_action_status": "consistent",
-                "large_disposition_evidence": "owner=source;target=src/main.rs",
-            }
-        ]
+        rows = [failed_large_row()]
         with tempfile.TemporaryDirectory() as tmp:
             root = pathlib.Path(tmp)
             write_summary(root, "summary.tsv", rows)
@@ -261,6 +299,20 @@ class EvalSignoffTests(unittest.TestCase):
 
         self.assertEqual(eval_signoff.classify(spec, rows), [])
 
+    def test_flags_large_not_attempted_projection_fallback(self):
+        row = failed_large_row()
+        row["attempt_outcome"] = "not_attempted"
+        row["attempt_outcome_source"] = "eval_projection_fallback"
+        rows = [row]
+        spec = eval_signoff.RootSpec("large", pathlib.Path("root"))
+
+        findings = eval_signoff.classify(spec, rows)
+
+        self.assertIn(
+            "attempt_outcome_projection_fallback",
+            [item.code for item in findings],
+        )
+
     def test_flags_focused_assertion_failure(self):
         rows = [
             {
@@ -277,6 +329,23 @@ class EvalSignoffTests(unittest.TestCase):
 
         self.assertEqual([item.code for item in findings], ["focused_assertion_failed"])
         self.assertIn("active_job mismatch", findings[0].detail)
+
+    def test_flags_focused_assertion_recheck_failure(self):
+        rows = [
+            {
+                "case_id": "focused",
+                "run": "1",
+                "success": "true",
+                "expected_assertion_status": "failed_recheck",
+                "expected_assertion_failures": "terminal_state mismatch",
+            }
+        ]
+        spec = eval_signoff.RootSpec("focused", pathlib.Path("root"))
+
+        findings = eval_signoff.classify(spec, rows)
+
+        self.assertEqual([item.code for item in findings], ["focused_assertion_failed"])
+        self.assertIn("terminal_state mismatch", findings[0].detail)
 
     def test_flags_generic_source_fallback_for_setup_failure(self):
         rows = [

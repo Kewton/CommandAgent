@@ -1,0 +1,23 @@
+id: large-gold-fastapi-app-modify
+title: Gold plan: modify an existing FastAPI app
+profile: python
+style: default
+mode: run-plan
+intent: modify
+fixture: eval/fixtures/large/fastapi-app-modify
+gold_plan_fixture: eval/gold_plans/large/fastapi-app-modify.yaml
+prompt: "Execute the gold step plan to add request validation, error handling, and tests to an existing FastAPI service."
+matrix_row: gold-fastapi-app-modify
+proof_mode: real_llm
+expected_artifacts:
+  - app/main.py
+  - tests/test_app.py
+verify:
+  - python3 -m pytest
+success_check:
+  type: semantic
+  required_paths:
+    - tests/test_app.py
+  must_include:
+    tests/test_app.py:
+      - test_

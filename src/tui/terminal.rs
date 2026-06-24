@@ -344,6 +344,29 @@ impl<W: Write> TerminalUi<W> {
                 sanitize_for_progress(&status),
                 truncate_chars(&sanitize_for_progress(&command), 60)
             )),
+            RuntimeEvent::RecoveryTaskStarted {
+                step_id,
+                attempt,
+                active_job,
+                dispatch_status,
+                execution_envelope,
+                target_path,
+            } => {
+                let step_id = sanitize_for_progress(&step_id);
+                let active_job = sanitize_for_progress(&active_job);
+                let dispatch_status = sanitize_for_progress(&dispatch_status);
+                let envelope = execution_envelope
+                    .as_deref()
+                    .map(sanitize_for_progress)
+                    .unwrap_or_else(|| "default".to_string());
+                let target = target_path
+                    .as_deref()
+                    .map(sanitize_for_progress)
+                    .unwrap_or_else(|| "none".to_string());
+                self.write_line(&format!(
+                    "recovery task {step_id} attempt {attempt}: job={active_job} dispatch={dispatch_status} envelope={envelope} target={target}"
+                ))
+            }
             RuntimeEvent::RepairAttemptStarted {
                 step_id,
                 attempt,

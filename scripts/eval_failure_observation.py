@@ -318,6 +318,11 @@ def terminal_state_from_reason(reason: str, evidence: str = "", raw: dict[str, A
         or "arguments are not valid json" in combined
     ):
         return "tool_protocol_failed"
+    if (
+        reason_lc.startswith("progress_budget_exhausted")
+        or "minimal loop progress budget exhausted" in combined
+    ):
+        return "progress_budget_exhausted"
     if reason_lc.startswith("step_policy:") or reason == "read_only_step_mutation":
         return "step_policy_failed"
     if "read_only_step_mutation" in combined or "read-only step" in combined:
@@ -462,6 +467,8 @@ def diagnostic_code_from_evidence(evidence: str) -> str:
         return "blocked_bash_command_policy"
     if "minimal loop reached max iterations" in text:
         return "minimal_loop_max_iterations"
+    if "minimal loop progress budget exhausted" in text:
+        return "progress_budget_exhausted"
     if (
         "reason: turn_error" in text
         or "reason=turn_error" in text

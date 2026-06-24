@@ -1,0 +1,21 @@
+id: small-docs-section-add
+title: Add a docs section
+profile: docs
+style: default
+mode: plan-run
+intent: docs
+evaluation_purpose: task_success
+prompt: "Create docs/quickstart-note.md with a short Quickstart section for local CommandAgent use."
+expected_artifacts:
+  - docs/quickstart-note.md
+verify:
+  - cat docs/quickstart-note.md
+success_check:
+  type: semantic
+  required_paths:
+    - docs/quickstart-note.md
+  must_include:
+    docs/quickstart-note.md:
+      - Quickstart
+      - local
+      - CommandAgent

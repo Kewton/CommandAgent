@@ -77,6 +77,14 @@ pub enum RuntimeEvent {
         elapsed_ms: u128,
         status: String,
     },
+    RecoveryTaskStarted {
+        step_id: String,
+        attempt: usize,
+        active_job: String,
+        dispatch_status: String,
+        execution_envelope: Option<String>,
+        target_path: Option<String>,
+    },
     RepairAttemptStarted {
         step_id: String,
         attempt: usize,

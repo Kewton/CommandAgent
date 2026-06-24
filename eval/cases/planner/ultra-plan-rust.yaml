@@ -1,0 +1,16 @@
+id: planner-ultra-plan-rust
+title: Planner ultra plan Rust
+profile: rust
+style: default
+mode: ultra-plan-only
+intent: new
+component: planner
+prompt: "Plan a Rust CLI with Cargo.toml, src/main.rs, unit tests, and cargo test verification."
+evaluation_purpose: task_success
+expected_artifacts:
+  - Cargo.toml
+  - src/main.rs
+success_check:
+  type: semantic
+  required_paths: []
+  must_include: {}

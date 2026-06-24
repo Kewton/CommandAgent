@@ -22,6 +22,9 @@ pub struct UltraPlan {
 pub struct UltraPhase {
     pub id: String,
     pub goal: String,
+    pub owned_artifacts: Vec<String>,
+    pub preserve_artifacts: Vec<String>,
+    pub verify_only_artifacts: Vec<String>,
 }
 
 pub fn ultra_plan_generation_prompt(
@@ -42,12 +45,20 @@ required_artifacts:\n\
 phases:\n\
   - id: <short-slug>\n\
     goal: <phase goal to pass to /plan-run>\n\
+    owned_artifacts:\n\
+      - <artifact this phase may create or mutate>\n\
+    preserve_artifacts:\n\
+      - <artifact this phase may inspect but must not mutate>\n\
+    verify_only_artifacts:\n\
+      - <artifact this phase verifies but does not create or mutate>\n\
 \n\
 Rules:\n\
 - Use 2 to {max} phases unless the task is truly tiny.\n\
 - Each phase must be independently useful and small enough for a step plan.\n\
 - Preserve the requested profile, style, and intent.\n\
 - Preserve required_artifacts exactly; they are final user-requested outputs.\n\
+- Use phase artifact fields to separate current-phase ownership from preserve and verify-only context. If there is no artifact for a field, omit the field or use an empty list.\n\
+- Every required_artifacts path must appear in owned_artifacts for at least one phase that creates or mutates that artifact.\n\
 - Do not include implementation details that belong inside a step plan.\n\
 - Long text fields such as goal and phase goal may use quoted strings or YAML block scalars with markers |, |-, |+, >, >-, or >+; do not use anchors, aliases, merge keys, custom tags, or extra nested maps.\n\
 \n\
@@ -73,6 +84,13 @@ pub fn render_ultra_plan_yaml(plan: &UltraPlan) -> String {
     for phase in &plan.phases {
         out.push_str(&format!("  - id: {}\n", yaml_string(&phase.id)));
         out.push_str(&format!("    goal: {}\n", yaml_string(&phase.goal)));
+        render_phase_list(&mut out, "owned_artifacts", &phase.owned_artifacts);
+        render_phase_list(&mut out, "preserve_artifacts", &phase.preserve_artifacts);
+        render_phase_list(
+            &mut out,
+            "verify_only_artifacts",
+            &phase.verify_only_artifacts,
+        );
     }
     out
 }
@@ -113,7 +131,7 @@ pub fn parse_ultra_plan_yaml(yaml: &str) -> Result<UltraPlan, UltraPlanError> {
         } else if let Some(value) = line.strip_prefix("intent:") {
             intent = Some(parse_yaml_string(value.trim())?);
         } else if line == "required_artifacts:" {
-            current_list = Some(ListField::RequiredArtifacts);
+            current_list = Some(ListField::Required);
         } else if let Some(value) = line.strip_prefix("required_artifacts:") {
             if parse_inline_empty_list(value.trim())? {
                 current_list = None;
@@ -128,6 +146,9 @@ pub fn parse_ultra_plan_yaml(yaml: &str) -> Result<UltraPlan, UltraPlanError> {
             current_phase = Some(UltraPhase {
                 id: parse_yaml_string(value.trim())?,
                 goal: String::new(),
+                owned_artifacts: Vec::new(),
+                preserve_artifacts: Vec::new(),
+                verify_only_artifacts: Vec::new(),
             });
             current_list = None;
         } else if let Some(value) = phase_field_value(line, "goal") {
@@ -138,11 +159,47 @@ pub fn parse_ultra_plan_yaml(yaml: &str) -> Result<UltraPlan, UltraPlanError> {
             };
             phase.goal = parse_yaml_scalar(&lines, &mut index, line, value, "phase.goal")?;
             current_list = None;
+        } else if let Some(value) = phase_field_value(line, "owned_artifacts") {
+            ensure_phase(&current_phase, "owned_artifacts")?;
+            current_list = parse_phase_list_start(value, ListField::PhaseOwned)?;
+        } else if let Some(value) = phase_field_value(line, "preserve_artifacts") {
+            ensure_phase(&current_phase, "preserve_artifacts")?;
+            current_list = parse_phase_list_start(value, ListField::PhasePreserve)?;
+        } else if let Some(value) = phase_field_value(line, "verify_only_artifacts") {
+            ensure_phase(&current_phase, "verify_only_artifacts")?;
+            current_list = parse_phase_list_start(value, ListField::PhaseVerifyOnly)?;
         } else if let Some(value) = list_item_value(line) {
             match current_list {
-                Some(ListField::RequiredArtifacts) => {
+                Some(ListField::Required) => {
                     required_artifacts.push(parse_yaml_string(value.trim())?)
                 }
+                Some(ListField::PhaseOwned) => current_phase
+                    .as_mut()
+                    .ok_or_else(|| {
+                        UltraPlanError::InvalidYaml(
+                            "owned_artifacts item appears before phase id".to_string(),
+                        )
+                    })?
+                    .owned_artifacts
+                    .push(parse_yaml_string(value.trim())?),
+                Some(ListField::PhasePreserve) => current_phase
+                    .as_mut()
+                    .ok_or_else(|| {
+                        UltraPlanError::InvalidYaml(
+                            "preserve_artifacts item appears before phase id".to_string(),
+                        )
+                    })?
+                    .preserve_artifacts
+                    .push(parse_yaml_string(value.trim())?),
+                Some(ListField::PhaseVerifyOnly) => current_phase
+                    .as_mut()
+                    .ok_or_else(|| {
+                        UltraPlanError::InvalidYaml(
+                            "verify_only_artifacts item appears before phase id".to_string(),
+                        )
+                    })?
+                    .verify_only_artifacts
+                    .push(parse_yaml_string(value.trim())?),
                 None if current_phase.is_some() => {}
                 None => {
                     return Err(UltraPlanError::InvalidYaml(
@@ -173,7 +230,7 @@ pub fn parse_ultra_plan_yaml(yaml: &str) -> Result<UltraPlan, UltraPlanError> {
         style: style.unwrap_or_else(|| "default".to_string()),
         intent: intent.unwrap_or_else(|| "unknown".to_string()),
         required_artifacts: dedupe_required_artifacts(required_artifacts),
-        phases,
+        phases: dedupe_phase_artifacts(phases),
     };
     validate_ultra_plan(&plan)?;
     Ok(plan)
@@ -188,6 +245,18 @@ fn dedupe_required_artifacts(paths: Vec<String>) -> Vec<String> {
         }
     }
     out
+}
+
+fn dedupe_phase_artifacts(phases: Vec<UltraPhase>) -> Vec<UltraPhase> {
+    phases
+        .into_iter()
+        .map(|phase| UltraPhase {
+            owned_artifacts: dedupe_required_artifacts(phase.owned_artifacts),
+            preserve_artifacts: dedupe_required_artifacts(phase.preserve_artifacts),
+            verify_only_artifacts: dedupe_required_artifacts(phase.verify_only_artifacts),
+            ..phase
+        })
+        .collect()
 }
 
 pub fn validate_ultra_plan(plan: &UltraPlan) -> Result<(), UltraPlanError> {
@@ -228,8 +297,30 @@ pub fn validate_ultra_plan(plan: &UltraPlan) -> Result<(), UltraPlanError> {
                 phase.id
             )));
         }
+        for (field, values) in [
+            ("owned_artifacts", &phase.owned_artifacts),
+            ("preserve_artifacts", &phase.preserve_artifacts),
+            ("verify_only_artifacts", &phase.verify_only_artifacts),
+        ] {
+            if values.iter().any(|value| value.trim().is_empty()) {
+                return Err(UltraPlanError::EmptyField(format!(
+                    "phase.{}.{}",
+                    phase.id, field
+                )));
+            }
+        }
     }
     Ok(())
+}
+
+fn render_phase_list(out: &mut String, key: &str, values: &[String]) {
+    if values.is_empty() {
+        return;
+    }
+    out.push_str(&format!("    {key}:\n"));
+    for value in values {
+        out.push_str(&format!("      - {}\n", yaml_string(value)));
+    }
 }
 
 pub fn save_ultra_plan(cwd: impl AsRef<Path>, plan: &UltraPlan) -> Result<PathBuf, UltraPlanError> {
@@ -305,7 +396,10 @@ fn phase_field_value<'a>(line: &'a str, field: &str) -> Option<&'a str> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ListField {
-    RequiredArtifacts,
+    Required,
+    PhaseOwned,
+    PhasePreserve,
+    PhaseVerifyOnly,
 }
 
 fn list_item_value(line: &str) -> Option<&str> {
@@ -321,6 +415,30 @@ fn parse_inline_empty_list(value: &str) -> Result<bool, UltraPlanError> {
     } else {
         Err(UltraPlanError::InvalidYaml(format!(
             "unsupported inline list value: {value}"
+        )))
+    }
+}
+
+fn parse_phase_list_start(
+    value: &str,
+    field: ListField,
+) -> Result<Option<ListField>, UltraPlanError> {
+    let value = value.trim();
+    if value.is_empty() {
+        Ok(Some(field))
+    } else if parse_inline_empty_list(value)? {
+        Ok(None)
+    } else {
+        unreachable!("parse_inline_empty_list returns Err for unsupported values")
+    }
+}
+
+fn ensure_phase(phase: &Option<UltraPhase>, field: &str) -> Result<(), UltraPlanError> {
+    if phase.is_some() {
+        Ok(())
+    } else {
+        Err(UltraPlanError::InvalidYaml(format!(
+            "phase {field} appears before phase id"
         )))
     }
 }
@@ -531,6 +649,41 @@ phases:
     }
 
     #[test]
+    fn parses_and_renders_phase_artifact_scope() {
+        let yaml = r#"
+goal: Build app
+profile: nextjs
+style: default
+intent: modify
+required_artifacts:
+  - app/page.tsx
+phases:
+  - id: ui
+    goal: Update the UI only.
+    owned_artifacts:
+      - app/page.tsx
+      - app/page.tsx
+    preserve_artifacts:
+      - package.json
+    verify_only_artifacts:
+      - tests/ui.test.ts
+"#;
+
+        let plan = parse_ultra_plan_yaml(yaml).unwrap();
+        let rendered = render_ultra_plan_yaml(&plan);
+        let reparsed = parse_ultra_plan_yaml(&rendered).unwrap();
+
+        assert_eq!(plan.phases[0].owned_artifacts, vec!["app/page.tsx"]);
+        assert_eq!(plan.phases[0].preserve_artifacts, vec!["package.json"]);
+        assert_eq!(
+            plan.phases[0].verify_only_artifacts,
+            vec!["tests/ui.test.ts"]
+        );
+        assert!(rendered.contains("owned_artifacts:"));
+        assert_eq!(reparsed, plan);
+    }
+
+    #[test]
     fn accepts_literal_strip_block_scalar_phase_goal() {
         let yaml = r#"
 goal: Build app
@@ -687,10 +840,16 @@ goal: Verify the build.
                 UltraPhase {
                     id: "scaffold".to_string(),
                     goal: "Create the app skeleton.".to_string(),
+                    owned_artifacts: Vec::new(),
+                    preserve_artifacts: Vec::new(),
+                    verify_only_artifacts: Vec::new(),
                 },
                 UltraPhase {
                     id: "verify".to_string(),
                     goal: "Run the build and fix failures.".to_string(),
+                    owned_artifacts: Vec::new(),
+                    preserve_artifacts: Vec::new(),
+                    verify_only_artifacts: Vec::new(),
                 },
             ],
         }

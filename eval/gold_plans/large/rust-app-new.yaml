@@ -1,0 +1,37 @@
+goal: "Create a Rust CLI with argument parsing, file input support, unit tests, and clear errors."
+profile: "rust"
+style: "default"
+intent: "new"
+required_artifacts:
+  - Cargo.toml
+  - src/main.rs
+  - src/lib.rs
+steps:
+  - id: create-rust-manifest
+    kind: create
+    instruction: "Use Write directly to create Cargo.toml for a Rust 2021 CLI package with no required external dependencies. Do not call Bash in this create step."
+    expected_result: pass
+    expected_paths:
+      - Cargo.toml
+    verify: []
+  - id: create-rust-library
+    kind: create
+    instruction: "Use Write directly to create src/lib.rs with public argument parsing and file input helper functions plus unit tests for success and clear error cases. Do not call Bash in this create step."
+    expected_result: pass
+    expected_paths:
+      - src/lib.rs
+    verify: []
+  - id: create-rust-main
+    kind: create
+    instruction: "Use Write directly to create src/main.rs with fn main that calls the library CLI entrypoint, prints results, and reports errors without panicking. Do not call Bash in this create step."
+    expected_result: pass
+    expected_paths:
+      - src/main.rs
+    verify: []
+  - id: verify-rust-cli
+    kind: verify
+    instruction: "Run the Rust test suite."
+    expected_result: pass
+    expected_paths: []
+    verify:
+      - cargo test

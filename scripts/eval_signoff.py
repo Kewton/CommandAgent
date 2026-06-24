@@ -16,6 +16,7 @@ from pathlib import Path
 
 KNOWN_FAMILIES = {
     "smoke",
+    "small",
     "focused",
     "focused-fixture",
     "large",
@@ -81,12 +82,46 @@ class AdmittedRoot:
 
 
 @dataclass(frozen=True)
+class SignoffMetrics:
+    task_success_counts: dict[str, tuple[int, int]]
+    focused_assertion_passed: int
+    focused_assertion_total: int
+
+    def task_success_text(self, family: str) -> str:
+        passed, total = self.task_success_counts.get(family, (0, 0))
+        if total == 0:
+            return "not_available"
+        return f"{passed}/{total}"
+
+    @property
+    def focused_assertion_text(self) -> str:
+        if self.focused_assertion_total == 0:
+            return "not_available"
+        return f"{self.focused_assertion_passed}/{self.focused_assertion_total}"
+
+    @property
+    def task_completion_status(self) -> str:
+        required_task_families = ("smoke", "large")
+        optional_task_families = ("small",)
+        for family in required_task_families:
+            passed, total = self.task_success_counts.get(family, (0, 0))
+            if total == 0 or passed != total:
+                return "fail"
+        for family in optional_task_families:
+            passed, total = self.task_success_counts.get(family, (0, 0))
+            if total > 0 and passed != total:
+                return "fail"
+        return "pass"
+
+
+@dataclass(frozen=True)
 class RootAdmission:
     findings: list["Finding"]
     admitted_roots: list[AdmittedRoot]
     family_case_counts: dict[str, int]
     current_case_coverage: int
     expected_current_case_coverage: int
+    metrics: SignoffMetrics
 
     @property
     def status(self) -> str:
@@ -109,7 +144,7 @@ class Finding:
 
 FINAL_CURRENT_REQUIREMENTS = {
     "smoke": FamilyRequirement(expected_count=3, required=True),
-    "focused": FamilyRequirement(expected_count=82, required=True),
+    "focused": FamilyRequirement(expected_count=83, required=True),
     "large": FamilyRequirement(expected_count=6, required=True),
     "small": FamilyRequirement(expected_count=0, required=False),
 }
@@ -368,7 +403,14 @@ def admit_roots(
         if spec.family in FINAL_CURRENT_REQUIREMENTS:
             family_case_counts[spec.family] = case_count
             requirement = FINAL_CURRENT_REQUIREMENTS[spec.family]
-            if case_count != requirement.expected_count:
+            if (
+                case_count != requirement.expected_count
+                and not (
+                    not requirement.required
+                    and requirement.expected_count == 0
+                    and case_count >= 0
+                )
+            ):
                 findings.append(
                     root_finding(
                         spec,
@@ -431,6 +473,37 @@ def admit_roots(
         family_case_counts=family_case_counts,
         current_case_coverage=current_case_coverage,
         expected_current_case_coverage=expected_current_case_coverage,
+        metrics=build_signoff_metrics(selected_rows),
+    )
+
+
+def build_signoff_metrics(
+    selected_rows: dict[str, list[dict[str, str]]]
+) -> SignoffMetrics:
+    task_success_counts = {}
+    for family in ("smoke", "small", "large"):
+        rows = selected_rows.get(family, [])
+        task_success_counts[family] = (
+            sum(1 for row in rows if is_success(row)),
+            len(rows),
+        )
+
+    focused_rows = selected_rows.get("focused", [])
+    assertion_rows = [
+        row
+        for row in focused_rows
+        if value(row, "expected_assertion_status")
+        and value(row, "expected_assertion_status") != "not_configured"
+    ]
+    focused_assertion_passed = sum(
+        1
+        for row in assertion_rows
+        if value(row, "expected_assertion_status") in {"passed", "passed_recheck"}
+    )
+    return SignoffMetrics(
+        task_success_counts=task_success_counts,
+        focused_assertion_passed=focused_assertion_passed,
+        focused_assertion_total=len(assertion_rows),
     )
 
 
@@ -477,7 +550,7 @@ def observation_findings(spec: RootSpec, row: dict[str, str]) -> list[Finding]:
 
 def focused_findings(spec: RootSpec, row: dict[str, str]) -> list[Finding]:
     status = value(row, "expected_assertion_status")
-    if status == "failed":
+    if status in {"failed", "failed_recheck"}:
         failures = value(row, "expected_assertion_failures")
         return [
             finding(
@@ -527,6 +600,7 @@ def large_ownership_findings(spec: RootSpec, row: dict[str, str]) -> list[Findin
     evidence_binding = value(row, "evidence_binding_status")
     completion_evidence = value(row, "completion_evidence_status")
     attempt_outcome = value(row, "attempt_outcome")
+    attempt_outcome_source = value(row, "attempt_outcome_source")
     target_optional = target_optional_context(row)
     required = [
         ("missing_active_job", "active_job", active_job),
@@ -545,6 +619,18 @@ def large_ownership_findings(spec: RootSpec, row: dict[str, str]) -> list[Findin
     for code, field, raw in required:
         if is_missing_for(row, field, raw):
             findings.append(finding(spec, row, code, f"{code} for failed large row"))
+    if attempt_outcome == "not_attempted" and attempt_outcome_source in {
+        "",
+        "eval_projection_fallback",
+    }:
+        findings.append(
+            finding(
+                spec,
+                row,
+                "attempt_outcome_projection_fallback",
+                "attempt_outcome=not_attempted came from eval projection rather than runtime evidence",
+            )
+        )
     return findings
 
 
@@ -753,6 +839,23 @@ def render(findings: list[Finding], admission: RootAdmission | None = None) -> s
             "current_case_coverage: "
             f"{admission.current_case_coverage}/"
             f"{admission.expected_current_case_coverage}"
+        )
+        control_status = "fail" if findings else "pass"
+        lines.append(f"control_contract_signoff: {control_status}")
+        lines.append(
+            f"task_completion_signoff: {admission.metrics.task_completion_status}"
+        )
+        lines.append(
+            f"smoke_task_success: {admission.metrics.task_success_text('smoke')}"
+        )
+        lines.append(
+            f"small_task_success: {admission.metrics.task_success_text('small')}"
+        )
+        lines.append(
+            f"large_task_success: {admission.metrics.task_success_text('large')}"
+        )
+        lines.append(
+            f"focused_assertion_pass: {admission.metrics.focused_assertion_text}"
         )
         lines.append("")
     if not findings:

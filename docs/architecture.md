@@ -406,7 +406,8 @@ The orchestration section may carry `recovery_owner`, `completion_evidence`,
 `repair_action_plan`, `semantic_failure_report`, `repair_job_state`,
 `attempt_outcomes`, `exhausted_targets`, `exhausted_roles`,
 `exhausted_clusters`, `no_progress_strategy`, `repair_state_status`,
-`safe_stop_payload`, `patch_validation`, and `eval_report_fields`.
+`recovery_task_started`, `safe_stop_payload`, `patch_validation`, and
+`eval_report_fields`.
 `attempt_outcomes` are consumed by target admission through exhausted target,
 role, and cluster facts; repeated ineffective repairs therefore narrow or stop
 the next bounded repair instead of silently reusing the same target.

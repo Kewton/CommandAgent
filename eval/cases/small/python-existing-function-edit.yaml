@@ -1,0 +1,21 @@
+id: small-python-existing-function-edit
+title: Edit an existing Python function
+profile: python
+style: default
+mode: plan-run
+intent: modify
+evaluation_purpose: task_success
+fixture: eval/fixtures/small/python-existing-function
+prompt: "Update math_tools.py so add(a, b) returns the arithmetic sum and keep the module simple."
+expected_artifacts:
+  - math_tools.py
+verify:
+  - python3 -c "from math_tools import add; assert add(2, 3) == 5"
+success_check:
+  type: semantic
+  required_paths:
+    - math_tools.py
+  must_include:
+    math_tools.py:
+      - def add
+      - return a + b

@@ -1,0 +1,18 @@
+id: minimal-docs-direct-create
+title: Direct minimal loop docs create
+profile: docs
+style: default
+mode: minimal
+intent: docs
+component: minimal_loop
+prompt: "Create README.md with a short CommandAgent direct minimal loop note."
+evaluation_purpose: task_success
+expected_artifacts:
+  - README.md
+success_check:
+  type: semantic
+  required_paths:
+    - README.md
+  must_include:
+    README.md:
+      - minimal loop

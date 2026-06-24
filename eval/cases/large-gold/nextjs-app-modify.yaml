@@ -1,0 +1,24 @@
+id: large-gold-nextjs-app-modify
+title: Gold plan: modify an existing Next.js app
+profile: nextjs
+style: default
+mode: run-plan
+intent: modify
+fixture: eval/fixtures/large/nextjs-app-modify
+gold_plan_fixture: eval/gold_plans/large/nextjs-app-modify.yaml
+prompt: "Execute the gold step plan to improve an existing Next.js dashboard with an analytics panel and keep npm run build passing."
+matrix_row: gold-nextjs-app-modify
+proof_mode: real_llm
+expected_artifacts:
+  - package.json
+  - app/page.tsx
+  - components/AnalyticsPanel.tsx
+verify:
+  - npm run build
+success_check:
+  type: semantic
+  required_paths:
+    - components/AnalyticsPanel.tsx
+  must_include:
+    components/AnalyticsPanel.tsx:
+      - Analytics

@@ -1,0 +1,59 @@
+id: focused-step-complexity-decomposition
+title: Step complexity lint requires smaller mutation owners
+profile: rust
+style: default
+mode: plan-run
+intent: new
+evaluation_purpose: expected_failure_classification
+prompt: "Reject an oversized create step that tries to own multiple missing Rust artifacts."
+matrix_row: step-complexity-decomposition
+proof_mode: deterministic_fixture
+fixture_reason: plan_lint.failed
+fixture_success: false
+fixture_rc: 1
+fixture_fields:
+  terminal_state: plan_lint_failed
+  failure_category: planning
+  contract_layer: planning_contract
+  diagnostic_code: mutation_step_too_many_missing_artifacts
+  active_job: plan_correction
+  active_job_lifecycle: selected
+  recovery_owner: planning
+  loop_control_action: run_bounded_repair_task
+  dispatch_status: selected
+  dispatch_reason: plan_lint_guard
+  target_path: Cargo.toml
+  target_role: required_artifact
+  selected_target: Cargo.toml
+  selected_target_role: required_artifact
+  repair_action: split_oversized_mutation_step
+  tool_policy: read_only
+  attempt_outcome: not_attempted
+  lifecycle_stage: planning
+  active_owner: planning
+  selected_action: split_oversized_mutation_step
+  target_admission_status: admitted
+  repair_action_plan_status: planned
+  completion_source: none
+expected_terminal_state: plan_lint_failed
+expected_contract_layer: planning_contract
+expected_diagnostic_code: mutation_step_too_many_missing_artifacts
+expected_active_job: plan_correction
+expected_active_job_lifecycle: selected
+expected_recovery_owner: planning
+expected_loop_control_action: run_bounded_repair_task
+expected_dispatch_status: selected
+expected_dispatch_reason: plan_lint_guard
+expected_target_path: Cargo.toml
+expected_target_role: required_artifact
+expected_selected_target: Cargo.toml
+expected_selected_target_role: required_artifact
+expected_repair_action: split_oversized_mutation_step
+expected_tool_policy: read_only
+expected_attempt_outcome: not_attempted
+expected_lifecycle_stage: planning
+expected_active_owner: planning
+expected_selected_action: split_oversized_mutation_step
+expected_target_admission_status: admitted
+expected_repair_action_plan_status: planned
+expected_completion_source: none

@@ -8,7 +8,7 @@ use crate::agent::step_runner::runtime::SlashRuntime;
 use crate::config::Config;
 use crate::providers::planner::resolve_targets;
 use crate::providers::request_tool_mode;
-use crate::runtime_client::{runtime_client, runtime_client_for};
+use crate::runtime_client::{ModelIoTracingClient, runtime_client, runtime_client_for};
 use crate::tui::terminal::{TerminalUi, render_final_answer};
 use std::ffi::OsString;
 use std::io::{self, IsTerminal};
@@ -116,8 +116,14 @@ fn run_one_shot(config: Config, prompt: &str) -> Result<(), String> {
         parse_slash_command(prompt, &config.cwd).map_err(|err| err.to_string())?
     {
         let targets = resolve_targets(&config);
-        let mut client = runtime_client_for(&config, targets.executor.provider)?;
-        let mut planner_client = runtime_client_for(&config, targets.planner.provider)?;
+        let mut client = ModelIoTracingClient::from_env(
+            runtime_client_for(&config, targets.executor.provider)?,
+            "executor",
+        );
+        let mut planner_client = ModelIoTracingClient::from_env(
+            runtime_client_for(&config, targets.planner.provider)?,
+            "planner",
+        );
         let planner_config = PlannerRuntimeConfig {
             model: targets
                 .planner
@@ -167,7 +173,7 @@ fn run_one_shot(config: Config, prompt: &str) -> Result<(), String> {
         return Ok(());
     }
 
-    let mut client = runtime_client(&config)?;
+    let mut client = ModelIoTracingClient::from_env(runtime_client(&config)?, "minimal_loop");
     let result = if let Some(path) = event_jsonl_path() {
         let ui = TerminalUi::stderr_from_env();
         let mut observer = JsonlEventObserver::new(

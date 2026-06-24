@@ -3,8 +3,11 @@
 
 use crate::agent::step_runner::profile_artifact::{
     ArtifactKind, ArtifactProvenance, artifact_kind_label, classify_profile_artifact,
+    is_manifest_path,
 };
 use crate::agent::step_runner::profiles::ProfileId;
+use serde_json::Value;
+use std::collections::BTreeMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PatchValidationOutcome {
@@ -21,6 +24,9 @@ pub(crate) enum PatchValidationOutcome {
     ProtectedPath,
     GeneratedOrCacheOutput,
     DependencyArtifactMutation,
+    ManifestMutationWithoutAuthority,
+    ManifestVersionFamilyConflict,
+    ManifestUnexpectedVersionChange,
     WorsenedVerifier,
 }
 
@@ -40,6 +46,9 @@ impl PatchValidationOutcome {
             Self::ProtectedPath => "protected_path",
             Self::GeneratedOrCacheOutput => "generated_or_cache_output",
             Self::DependencyArtifactMutation => "dependency_artifact_mutation",
+            Self::ManifestMutationWithoutAuthority => "manifest_mutation_without_authority",
+            Self::ManifestVersionFamilyConflict => "manifest_version_family_conflict",
+            Self::ManifestUnexpectedVersionChange => "manifest_unexpected_version_change",
             Self::WorsenedVerifier => "worsened_verifier",
         }
     }
@@ -320,6 +329,9 @@ pub(crate) fn validate_patch_proposal(
         if let Some(validation) = validate_patch_path(profile, path) {
             validations.push(validation);
         }
+        if let Some(validation) = validate_manifest_patch_authority(proposal, path) {
+            validations.push(validation);
+        }
     }
     PatchValidationReport::from_proposal(proposal, validations)
 }
@@ -363,6 +375,46 @@ pub(crate) fn validate_patch_path(profile: ProfileId, path: &str) -> Option<Patc
         }
         _ => None,
     }
+}
+
+fn validate_manifest_patch_authority(
+    proposal: &PatchProposal,
+    path: &str,
+) -> Option<PatchValidation> {
+    let normalized = normalize_path(path);
+    if !is_manifest_path(&normalized) || proposal_allows_manifest_mutation(proposal) {
+        return None;
+    }
+    Some(PatchValidation::new(
+        PatchValidationOutcome::ManifestMutationWithoutAuthority,
+        Some(normalized),
+        "repair attempted to mutate a package/dependency manifest without manifest repair authority",
+    ))
+}
+
+fn proposal_allows_manifest_mutation(proposal: &PatchProposal) -> bool {
+    let action = proposal.repair_action.as_deref().unwrap_or("");
+    let manifest_action = matches!(
+        action,
+        "add_manifest_dependency"
+            | "add_missing_manifest_dependency"
+            | "resolve_manifest_conflict"
+            | "repair_tailwind_contract"
+            | "script_contract_repair"
+            | "profile_contract_repair"
+            | "dependency_missing_from_verifier"
+            | "dependency_required_by_import"
+            | "user_requested_dependency_change"
+    );
+    if !manifest_action {
+        return false;
+    }
+    proposal.active_job == "manifest_repair"
+        || proposal.recovery_owner.as_deref() == Some("manifest")
+        || proposal
+            .target_role
+            .as_deref()
+            .is_some_and(|role| matches!(role, "manifest" | "setup_manifest"))
 }
 
 pub(crate) fn detect_test_weakening(path: &str, content: &str) -> Option<PatchValidation> {
@@ -460,6 +512,197 @@ pub(crate) fn detect_self_referential_verifier(
         ));
     }
     None
+}
+
+pub(crate) fn detect_nextjs_manifest_version_family_conflict(
+    path: &str,
+    content: &str,
+) -> Option<PatchValidation> {
+    let normalized = normalize_path(path);
+    if normalized != "package.json" && !normalized.ends_with("/package.json") {
+        return None;
+    }
+    let json = serde_json::from_str::<Value>(content).ok()?;
+    let versions = package_dependency_versions(&json);
+    let next_major = versions
+        .get("next")
+        .and_then(|version| version_major(version));
+    if next_major.is_none_or(|major| major < 14) {
+        return None;
+    }
+
+    let mut conflicts = Vec::new();
+    for dep in ["react", "react-dom"] {
+        if versions
+            .get(dep)
+            .and_then(|version| exact_version_tuple(version))
+            .is_some_and(|version| version < (18, 2, 0))
+        {
+            conflicts.push(format!("{dep}@{}", versions.get(dep).unwrap()));
+        }
+    }
+
+    let react_major = versions
+        .get("react")
+        .and_then(|version| version_major(version));
+    let react_dom_major = versions
+        .get("react-dom")
+        .and_then(|version| version_major(version));
+    if let (Some(react), Some(react_dom)) = (react_major, react_dom_major)
+        && react != react_dom
+    {
+        conflicts.push(format!(
+            "react@{} vs react-dom@{}",
+            versions.get("react").unwrap(),
+            versions.get("react-dom").unwrap()
+        ));
+    }
+    if react_major == Some(18)
+        && versions
+            .get("@types/react")
+            .and_then(|version| version_major(version))
+            .is_some_and(|major| major >= 19)
+    {
+        conflicts.push(format!(
+            "@types/react@{}",
+            versions.get("@types/react").unwrap()
+        ));
+    }
+    if react_dom_major == Some(18)
+        && versions
+            .get("@types/react-dom")
+            .and_then(|version| version_major(version))
+            .is_some_and(|major| major >= 19)
+    {
+        conflicts.push(format!(
+            "@types/react-dom@{}",
+            versions.get("@types/react-dom").unwrap()
+        ));
+    }
+    if versions
+        .get("typescript")
+        .and_then(|version| version_major(version))
+        .is_some_and(|major| major >= 6)
+    {
+        conflicts.push(format!(
+            "typescript@{}",
+            versions.get("typescript").unwrap()
+        ));
+    }
+    if versions
+        .get("typescript")
+        .is_some_and(|version| version.trim() == "5.0.0")
+    {
+        conflicts.push("typescript@5.0.0".to_string());
+    }
+
+    if conflicts.is_empty() {
+        None
+    } else {
+        Some(PatchValidation::new(
+            PatchValidationOutcome::ManifestVersionFamilyConflict,
+            Some(normalized),
+            format!(
+                "Next.js 14 manifest patch produced an incompatible dependency version family: {}",
+                conflicts.join(", ")
+            ),
+        ))
+    }
+}
+
+pub(crate) fn detect_manifest_unexpected_version_change(
+    path: &str,
+    before_content: &str,
+    after_content: &str,
+    repair_action: Option<&str>,
+) -> Option<PatchValidation> {
+    let normalized = normalize_path(path);
+    if normalized != "package.json" && !normalized.ends_with("/package.json") {
+        return None;
+    }
+    if manifest_action_allows_existing_version_changes(repair_action) {
+        return None;
+    }
+
+    let before_json = serde_json::from_str::<Value>(before_content).ok()?;
+    let after_json = serde_json::from_str::<Value>(after_content).ok()?;
+    let before_versions = package_dependency_versions(&before_json);
+    let after_versions = package_dependency_versions(&after_json);
+
+    let mut changed = Vec::new();
+    for (name, before_version) in before_versions {
+        let Some(after_version) = after_versions.get(&name) else {
+            continue;
+        };
+        if after_version != &before_version {
+            changed.push(format!("{name}:{before_version}->{after_version}"));
+        }
+    }
+
+    if changed.is_empty() {
+        None
+    } else {
+        Some(PatchValidation::new(
+            PatchValidationOutcome::ManifestUnexpectedVersionChange,
+            Some(normalized),
+            format!(
+                "manifest repair action {} changed existing dependency versions without version-change authority: {}",
+                repair_action.unwrap_or("unknown"),
+                changed.join(", ")
+            ),
+        ))
+    }
+}
+
+fn manifest_action_allows_existing_version_changes(repair_action: Option<&str>) -> bool {
+    matches!(
+        repair_action.unwrap_or(""),
+        "resolve_manifest_conflict"
+            | "script_contract_repair"
+            | "profile_contract_repair"
+            | "user_requested_dependency_change"
+    )
+}
+
+fn package_dependency_versions(json: &Value) -> BTreeMap<String, String> {
+    let mut versions = BTreeMap::new();
+    for section in [
+        "dependencies",
+        "devDependencies",
+        "peerDependencies",
+        "optionalDependencies",
+    ] {
+        let Some(object) = json.get(section).and_then(Value::as_object) else {
+            continue;
+        };
+        for (name, value) in object {
+            if let Some(version) = value.as_str() {
+                versions.insert(name.clone(), version.to_string());
+            }
+        }
+    }
+    versions
+}
+
+fn version_major(version: &str) -> Option<u64> {
+    let start = version.find(|ch: char| ch.is_ascii_digit())?;
+    let digits = version[start..]
+        .chars()
+        .take_while(|ch| ch.is_ascii_digit())
+        .collect::<String>();
+    digits.parse().ok()
+}
+
+fn exact_version_tuple(version: &str) -> Option<(u64, u64, u64)> {
+    let version = version.trim();
+    if !version.chars().next().is_some_and(|ch| ch.is_ascii_digit()) {
+        return None;
+    }
+    let mut parts = version.split('.');
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next().unwrap_or("0").parse().ok()?;
+    let patch = parts.next().unwrap_or("0").parse().ok()?;
+    Some((major, minor, patch))
 }
 
 fn is_test_like(path: &str) -> bool {
@@ -608,6 +851,162 @@ mod tests {
 
         assert!(!report.is_rejected());
         assert_eq!(report.outcomes(), vec!["accepted".to_string()]);
+    }
+
+    #[test]
+    fn rejects_manifest_patch_without_manifest_authority() {
+        let mut proposal = PatchProposal::new(
+            PatchProposalSource::ModelToolEdit,
+            vec!["package.json".to_string()],
+        );
+        proposal.active_job = "source_implementation_repair".to_string();
+        proposal.recovery_owner = Some("source".to_string());
+        proposal.repair_action = Some("edit_source_for_diagnostic".to_string());
+        proposal.target_path = Some("app/page.tsx".to_string());
+        proposal.target_role = Some("implementation".to_string());
+
+        let report = validate_patch_proposal(ProfileId::NextJs, &proposal);
+
+        assert!(report.is_rejected());
+        assert_eq!(
+            report.outcomes(),
+            vec!["manifest_mutation_without_authority".to_string()]
+        );
+        assert_eq!(report.rejected_paths(), vec!["package.json".to_string()]);
+    }
+
+    #[test]
+    fn accepts_manifest_patch_with_manifest_repair_authority() {
+        let mut proposal = PatchProposal::new(
+            PatchProposalSource::ModelToolEdit,
+            vec!["package.json".to_string()],
+        );
+        proposal.active_job = "manifest_repair".to_string();
+        proposal.recovery_owner = Some("manifest".to_string());
+        proposal.repair_action = Some("add_missing_manifest_dependency".to_string());
+        proposal.target_path = Some("package.json".to_string());
+        proposal.target_role = Some("setup_manifest".to_string());
+
+        let report = validate_patch_proposal(ProfileId::NextJs, &proposal);
+
+        assert!(!report.is_rejected());
+        assert_eq!(report.outcomes(), vec!["accepted".to_string()]);
+    }
+
+    #[test]
+    fn rejects_nextjs_manifest_version_family_conflict() {
+        let validation = detect_nextjs_manifest_version_family_conflict(
+            "package.json",
+            r#"{
+                "dependencies": {
+                    "next": "14.2.35",
+                    "react": "18.3.1",
+                    "react-dom": "18.3.1"
+                },
+                "devDependencies": {
+                    "typescript": "^5.4.0",
+                    "@types/react": "19.2.17"
+                }
+            }"#,
+        )
+        .expect("React 18 with @types/react 19 should be rejected");
+
+        assert_eq!(
+            validation.outcome,
+            PatchValidationOutcome::ManifestVersionFamilyConflict
+        );
+        assert!(validation.reason.contains("@types/react@19.2.17"));
+    }
+
+    #[test]
+    fn accepts_nextjs_manifest_compatible_type_family() {
+        let validation = detect_nextjs_manifest_version_family_conflict(
+            "package.json",
+            r#"{
+                "dependencies": {
+                    "next": "14.2.35",
+                    "react": "18.3.1",
+                    "react-dom": "18.3.1"
+                },
+                "devDependencies": {
+                    "typescript": "^5.4.0",
+                    "@types/react": "^18.2.79"
+                }
+            }"#,
+        );
+
+        assert_eq!(validation, None);
+    }
+
+    #[test]
+    fn rejects_manifest_existing_version_change_for_dependency_addition() {
+        let validation = detect_manifest_unexpected_version_change(
+            "package.json",
+            r#"{
+                "dependencies": {
+                    "next": "14.2.35",
+                    "react": "18.3.1"
+                }
+            }"#,
+            r#"{
+                "dependencies": {
+                    "next": "14.2.35",
+                    "react": "19.0.0",
+                    "react-dom": "18.3.1"
+                }
+            }"#,
+            Some("add_missing_manifest_dependency"),
+        )
+        .expect("existing dependency version change should be rejected");
+
+        assert_eq!(
+            validation.outcome,
+            PatchValidationOutcome::ManifestUnexpectedVersionChange
+        );
+        assert!(validation.reason.contains("react:18.3.1->19.0.0"));
+    }
+
+    #[test]
+    fn accepts_manifest_dependency_addition_without_existing_version_change() {
+        let validation = detect_manifest_unexpected_version_change(
+            "package.json",
+            r#"{
+                "dependencies": {
+                    "next": "14.2.35",
+                    "react": "18.3.1"
+                }
+            }"#,
+            r#"{
+                "dependencies": {
+                    "next": "14.2.35",
+                    "react": "18.3.1",
+                    "react-dom": "18.3.1"
+                }
+            }"#,
+            Some("add_missing_manifest_dependency"),
+        );
+
+        assert_eq!(validation, None);
+    }
+
+    #[test]
+    fn accepts_manifest_existing_version_change_for_conflict_resolution() {
+        let validation = detect_manifest_unexpected_version_change(
+            "package.json",
+            r#"{
+                "dependencies": {
+                    "react": "19.0.0"
+                }
+            }"#,
+            r#"{
+                "dependencies": {
+                    "react": "18.3.1"
+                }
+            }"#,
+            Some("resolve_manifest_conflict"),
+        );
+
+        assert_eq!(validation, None);
     }
 
     #[test]

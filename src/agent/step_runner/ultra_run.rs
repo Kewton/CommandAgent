@@ -51,10 +51,14 @@ where
 
     for phase in &plan.phases {
         let snapshot = workspace_snapshot(cwd);
-        let phase_contract = PhaseWorkspaceContract::collect_with_goal(
+        let phase_artifacts = phase_owned_artifacts(plan, phase);
+        let phase_contract = PhaseWorkspaceContract::collect_with_scope(
             cwd,
             &plan.profile,
             &plan.required_artifacts,
+            &phase_artifacts,
+            &phase.preserve_artifacts,
+            &phase.verify_only_artifacts,
             &format!("{} {}", plan.goal, phase.goal),
         )
         .render();
@@ -106,9 +110,22 @@ pub fn phase_step_plan_prompt(
     phase_contract: &str,
     profile_contract: &str,
 ) -> String {
+    let phase_artifacts = phase_owned_artifacts(plan, phase);
+    let phase_artifact_list = bullet_list(&phase_artifacts);
+    let preserve_artifact_list = bullet_list(&phase.preserve_artifacts);
+    let verify_only_artifact_list = bullet_list(&phase.verify_only_artifacts);
+    let global_artifact_list = bullet_list(&plan.required_artifacts);
     format!(
         "{}\n\n\
 Ultra phase context:\n\
+- current phase owned artifacts:\n{phase_artifact_list}\n\
+- current phase preserve artifacts:\n{preserve_artifact_list}\n\
+- current phase verify-only artifacts:\n{verify_only_artifact_list}\n\
+- global final artifacts:\n{global_artifact_list}\n\
+- Only put current phase owned artifacts in this phase step plan's required_artifacts and mutation steps.\n\
+- Preserve artifacts may be inspected but must not be listed as mutation targets unless a dedicated repair/setup reason grants authority.\n\
+- Verify-only artifacts may appear in verification context, not as create/edit targets for this phase.\n\
+- Treat global final artifacts outside this phase as final conditions or existing context, not as create/edit targets.\n\
 - original goal: {original_goal}\n\
 - current phase id: {phase_id}\n\
 - current phase goal: {phase_goal}\n\n\
@@ -121,12 +138,57 @@ Create a step plan only for this phase. Do not redo completed phases.",
             &plan.profile,
             &plan.style,
             WorkIntent::parse(&plan.intent).unwrap_or(WorkIntent::Unknown),
-            &plan.required_artifacts,
+            &phase_artifacts,
         ),
         original_goal = plan.goal,
         phase_id = phase.id,
         phase_goal = phase.goal,
     )
+}
+
+pub fn phase_owned_artifacts(plan: &UltraPlan, phase: &UltraPhase) -> Vec<String> {
+    let mut owned = phase.owned_artifacts.clone();
+    for artifact in plan
+        .required_artifacts
+        .iter()
+        .filter(|artifact| artifact_matches_phase_goal(artifact, &phase.goal))
+    {
+        if !owned.iter().any(|owned_path| owned_path == artifact) {
+            owned.push(artifact.clone());
+        }
+    }
+    owned
+}
+
+fn artifact_matches_phase_goal(artifact: &str, goal: &str) -> bool {
+    let goal = goal.to_ascii_lowercase();
+    let artifact = artifact.to_ascii_lowercase();
+    let basename = artifact.rsplit('/').next().unwrap_or(artifact.as_str());
+    if goal.contains(&artifact) || goal.contains(basename) {
+        return true;
+    }
+    artifact == "package.json"
+        && [
+            "package",
+            "dependencies",
+            "dependency",
+            "project structure",
+            "initialize",
+        ]
+        .iter()
+        .any(|needle| goal.contains(needle))
+}
+
+fn bullet_list(values: &[String]) -> String {
+    if values.is_empty() {
+        "- none".to_string()
+    } else {
+        values
+            .iter()
+            .map(|value| format!("- {value}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 }
 
 pub fn workspace_snapshot(cwd: &Path) -> String {
@@ -222,10 +284,93 @@ mod tests {
 
         assert!(prompt.contains("current phase id: scaffold"));
         assert!(prompt.contains("- README.md"));
+        assert!(prompt.contains("current phase owned artifacts"));
+        assert!(prompt.contains("current phase preserve artifacts"));
+        assert!(prompt.contains("current phase verify-only artifacts"));
+        assert!(prompt.contains("global final artifacts"));
         assert!(prompt.contains("Phase workspace contract"));
         assert!(prompt.contains("required_artifacts=app/page.tsx"));
         assert!(prompt.contains("Use Next.js."));
         assert!(prompt.contains("Do not redo completed phases"));
+    }
+
+    #[test]
+    fn phase_owned_artifacts_are_inferred_from_phase_goal() {
+        let plan = UltraPlan {
+            goal: "Create a Next.js app".to_string(),
+            profile: "nextjs".to_string(),
+            style: "default".to_string(),
+            intent: "new".to_string(),
+            required_artifacts: vec![
+                "package.json".to_string(),
+                "postcss.config.js".to_string(),
+                "tailwind.config.ts".to_string(),
+                "app/globals.css".to_string(),
+                "app/layout.tsx".to_string(),
+                "app/page.tsx".to_string(),
+            ],
+            phases: vec![UltraPhase {
+                id: "layout".to_string(),
+                goal: "Create app/layout.tsx and app/globals.css for base layout.".to_string(),
+                owned_artifacts: Vec::new(),
+                preserve_artifacts: Vec::new(),
+                verify_only_artifacts: Vec::new(),
+            }],
+        };
+
+        let owned = phase_owned_artifacts(&plan, &plan.phases[0]);
+
+        assert_eq!(
+            owned,
+            vec!["app/globals.css".to_string(), "app/layout.tsx".to_string()]
+        );
+    }
+
+    #[test]
+    fn phase_owned_artifacts_prefer_explicit_scope() {
+        let plan = UltraPlan {
+            goal: "Create a Next.js app".to_string(),
+            profile: "nextjs".to_string(),
+            style: "default".to_string(),
+            intent: "new".to_string(),
+            required_artifacts: vec!["app/page.tsx".to_string()],
+            phases: vec![UltraPhase {
+                id: "ui".to_string(),
+                goal: "Work on the page.".to_string(),
+                owned_artifacts: vec!["app/components/Card.tsx".to_string()],
+                preserve_artifacts: vec!["package.json".to_string()],
+                verify_only_artifacts: vec!["tests/ui.test.ts".to_string()],
+            }],
+        };
+
+        let owned = phase_owned_artifacts(&plan, &plan.phases[0]);
+
+        assert_eq!(owned, vec!["app/components/Card.tsx"]);
+    }
+
+    #[test]
+    fn phase_owned_artifacts_merge_explicit_scope_with_goal_matched_required_artifacts() {
+        let plan = UltraPlan {
+            goal: "Create a Next.js app".to_string(),
+            profile: "nextjs".to_string(),
+            style: "default".to_string(),
+            intent: "new".to_string(),
+            required_artifacts: vec!["package.json".to_string(), "app/page.tsx".to_string()],
+            phases: vec![UltraPhase {
+                id: "setup".to_string(),
+                goal: "Initialize project structure and dependencies.".to_string(),
+                owned_artifacts: vec!["app/page.tsx".to_string()],
+                preserve_artifacts: Vec::new(),
+                verify_only_artifacts: Vec::new(),
+            }],
+        };
+
+        let owned = phase_owned_artifacts(&plan, &plan.phases[0]);
+
+        assert_eq!(
+            owned,
+            vec!["app/page.tsx".to_string(), "package.json".to_string()]
+        );
     }
 
     #[test]
@@ -319,10 +464,16 @@ mod tests {
                 UltraPhase {
                     id: "scaffold".to_string(),
                     goal: "Create skeleton.".to_string(),
+                    owned_artifacts: Vec::new(),
+                    preserve_artifacts: Vec::new(),
+                    verify_only_artifacts: Vec::new(),
                 },
                 UltraPhase {
                     id: "build".to_string(),
                     goal: "Verify build.".to_string(),
+                    owned_artifacts: Vec::new(),
+                    preserve_artifacts: Vec::new(),
+                    verify_only_artifacts: Vec::new(),
                 },
             ],
         }

@@ -335,7 +335,9 @@ pub fn project_job_state(events: &[VersionedEvent]) -> Option<JobState> {
             "plan_generation.started" => state.status = JobStatus::Planning,
             "ultra_phase.started" | "step.started" => state.status = JobStatus::Running,
             "verifier.started" => state.status = JobStatus::Verifying,
-            "repair_attempt.started" => state.status = JobStatus::Repairing,
+            "repair_attempt.started" | "recovery_task.started" => {
+                state.status = JobStatus::Repairing
+            }
             "dependency_setup.finished" if !payload_bool(&event.payload, "ok").unwrap_or(true) => {
                 state.status = JobStatus::Blocked;
                 state.last_failure = payload_string(&event.payload, "status");
@@ -555,6 +557,26 @@ fn runtime_event_payload(
             Some(step_id.clone()),
             None,
             json!({"command": command, "ok": ok, "elapsed_ms": elapsed_ms, "status": status}),
+        ),
+        RuntimeEvent::RecoveryTaskStarted {
+            step_id,
+            attempt,
+            active_job,
+            dispatch_status,
+            execution_envelope,
+            target_path,
+        } => (
+            "recovery_task.started".to_string(),
+            None,
+            Some(step_id.clone()),
+            Some(format!("attempt_{attempt}")),
+            json!({
+                "attempt": attempt,
+                "active_job": active_job,
+                "dispatch_status": dispatch_status,
+                "execution_envelope": execution_envelope,
+                "target_path": target_path,
+            }),
         ),
         RuntimeEvent::RepairAttemptStarted {
             step_id,
@@ -838,6 +860,35 @@ mod tests {
         let state = project_job_state(&events).unwrap();
 
         assert_eq!(state.status, JobStatus::Completed);
+        assert_eq!(state.active_step.as_deref(), Some("write-readme"));
+    }
+
+    #[test]
+    fn recovery_task_started_projects_repairing_state() {
+        let mut context = EventProtocolContext::new(
+            "run1",
+            "job1",
+            EventSource::commandagent("worker", None, None),
+        );
+
+        let event = context.next_runtime_event(&RuntimeEvent::RecoveryTaskStarted {
+            step_id: "write-readme".to_string(),
+            attempt: 1,
+            active_job: "scaffold_materialization".to_string(),
+            dispatch_status: "selected".to_string(),
+            execution_envelope: Some("file_mutation_repair".to_string()),
+            target_path: Some("README.md".to_string()),
+        });
+        let state = project_job_state(std::slice::from_ref(&event)).unwrap();
+
+        assert_eq!(event.event_type, "recovery_task.started");
+        assert_eq!(event.step_id.as_deref(), Some("write-readme"));
+        assert_eq!(event.attempt_id.as_deref(), Some("attempt_1"));
+        assert_eq!(event.payload["active_job"], "scaffold_materialization");
+        assert_eq!(event.payload["dispatch_status"], "selected");
+        assert_eq!(event.payload["execution_envelope"], "file_mutation_repair");
+        assert_eq!(event.payload["target_path"], "README.md");
+        assert_eq!(state.status, JobStatus::Repairing);
         assert_eq!(state.active_step.as_deref(), Some("write-readme"));
     }
 

@@ -29,6 +29,7 @@ pub enum ToolError {
     },
     BashBlocked {
         class: CommandClass,
+        command: String,
         message: String,
     },
 }
@@ -49,8 +50,16 @@ impl std::fmt::Display for ToolError {
                     count
                 )
             }
-            Self::BashBlocked { class, message } => {
-                write!(f, "bash command blocked as {:?}: {}", class, message)
+            Self::BashBlocked {
+                class,
+                command,
+                message,
+            } => {
+                write!(
+                    f,
+                    "bash command blocked as {:?}: {}; command={}",
+                    class, message, command
+                )
             }
         }
     }

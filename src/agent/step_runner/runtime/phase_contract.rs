@@ -20,6 +20,10 @@ pub(crate) struct PhaseWorkspaceContract {
     pub(crate) lockfiles: Vec<String>,
     pub(crate) package_scripts: Vec<String>,
     pub(crate) required_artifacts: Vec<String>,
+    pub(crate) global_required_artifacts: Vec<String>,
+    pub(crate) phase_owned_artifacts: Vec<String>,
+    pub(crate) phase_preserve_artifacts: Vec<String>,
+    pub(crate) phase_verify_only_artifacts: Vec<String>,
     pub(crate) profile_summary: Vec<String>,
     pub(crate) profile_obligations: Vec<ProfileObligation>,
     pub(crate) task_contract: TaskContract,
@@ -96,21 +100,50 @@ impl PhaseWorkspaceContract {
         required_artifacts: &[String],
         goal_excerpt: &str,
     ) -> Self {
+        Self::collect_with_scope(
+            cwd,
+            profile,
+            required_artifacts,
+            required_artifacts,
+            &[],
+            &[],
+            goal_excerpt,
+        )
+    }
+
+    pub(crate) fn collect_with_scope(
+        cwd: &Path,
+        profile: &str,
+        global_required_artifacts: &[String],
+        phase_owned_artifacts: &[String],
+        phase_preserve_artifacts: &[String],
+        phase_verify_only_artifacts: &[String],
+        goal_excerpt: &str,
+    ) -> Self {
         let mut contract = Self {
             workspace_entries: workspace_entries(cwd),
             package_manager: package_manager(cwd),
             lockfiles: lockfiles(cwd),
             package_scripts: package_scripts(cwd),
-            required_artifacts: required_artifacts.to_vec(),
+            required_artifacts: phase_owned_artifacts.to_vec(),
+            global_required_artifacts: global_required_artifacts.to_vec(),
+            phase_owned_artifacts: phase_owned_artifacts.to_vec(),
+            phase_preserve_artifacts: phase_preserve_artifacts.to_vec(),
+            phase_verify_only_artifacts: phase_verify_only_artifacts.to_vec(),
             profile_summary: profile_fact_summary(profile, cwd)
                 .map(|summary| summary.lines)
                 .unwrap_or_default(),
             profile_obligations: Vec::new(),
-            task_contract: TaskContract::new(profile, WorkIntent::Unknown, required_artifacts, &[]),
+            task_contract: TaskContract::new(
+                profile,
+                WorkIntent::Unknown,
+                phase_owned_artifacts,
+                &[],
+            ),
         };
         let obligation_context = ProfileObligationContext {
             goal_excerpt: goal_excerpt.to_string(),
-            required_artifacts: required_artifacts.to_vec(),
+            required_artifacts: phase_owned_artifacts.to_vec(),
             phase_contract_facts: contract.base_fact_lines(),
             profile_facts: contract.profile_summary.clone(),
         };
@@ -120,7 +153,7 @@ impl PhaseWorkspaceContract {
             profile,
             goal_excerpt,
             detect_work_intent(goal_excerpt),
-            required_artifacts,
+            phase_owned_artifacts,
             &contract.profile_obligations,
         );
         contract
@@ -149,6 +182,22 @@ impl PhaseWorkspaceContract {
         lines.push(format!(
             "required_artifacts={}",
             join_or(&self.required_artifacts, "none")
+        ));
+        lines.push(format!(
+            "global_required_artifacts={}",
+            join_or(&self.global_required_artifacts, "none")
+        ));
+        lines.push(format!(
+            "phase_owned_artifacts={}",
+            join_or(&self.phase_owned_artifacts, "none")
+        ));
+        lines.push(format!(
+            "phase_preserve_artifacts={}",
+            join_or(&self.phase_preserve_artifacts, "none")
+        ));
+        lines.push(format!(
+            "phase_verify_only_artifacts={}",
+            join_or(&self.phase_verify_only_artifacts, "none")
         ));
         lines.extend(self.profile_summary.iter().cloned());
         lines
@@ -301,6 +350,28 @@ mod tests {
         assert!(rendered.contains("package.manager=npm"));
         assert!(rendered.contains("lockfiles=package-lock.json"));
         assert!(rendered.contains("required_artifacts=app/page.tsx"));
+    }
+
+    #[test]
+    fn renders_explicit_phase_artifact_scope() {
+        let root = temp_workspace("phase-scope");
+
+        let contract = PhaseWorkspaceContract::collect_with_scope(
+            &root,
+            "generic",
+            &["app/page.tsx".to_string(), "package.json".to_string()],
+            &["app/page.tsx".to_string()],
+            &["package.json".to_string()],
+            &["tests/page.test.ts".to_string()],
+            "Update UI without changing package.json",
+        );
+
+        let rendered = contract.render();
+        assert!(rendered.contains("required_artifacts=app/page.tsx"));
+        assert!(rendered.contains("global_required_artifacts=app/page.tsx,package.json"));
+        assert!(rendered.contains("phase_owned_artifacts=app/page.tsx"));
+        assert!(rendered.contains("phase_preserve_artifacts=package.json"));
+        assert!(rendered.contains("phase_verify_only_artifacts=tests/page.test.ts"));
     }
 
     #[test]

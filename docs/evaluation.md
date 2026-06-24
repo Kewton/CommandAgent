@@ -7,15 +7,36 @@ evidence packet for repair.
 Eval case YAML lives under `eval/cases`. Case sets are split into `smoke`,
 `small`, and `large`. Large cases should use semantic checks based on required
 artifacts, verifier commands, and content signals rather than line count alone.
+The case `mode` can target direct `minimal` execution, planner-only
+`plan-only` / `ultra-plan-only`, regular `plan-run` / `ultra-plan-run`, or
+gold-plan `run-plan`. The `component` field records whether a row primarily
+evaluates `minimal_loop`, `planner`, `worker`, `recovery`, or full-agent
+behavior.
+Planner-capable modes also record generated-plan quality. The eval runner
+scores responsibility decomposition, clarity, granularity, and verifier
+separation from saved plan YAML; these scores are reporting evidence and do not
+alter runtime execution or retry behavior.
 
 `scripts/eval_agent_slice.sh` runs a case directory with the release binary and
 writes a timestamped root containing per-run `meta.json`, stdout/stderr, a
-workspace directory, and `summary.tsv`. Use `--dry-run` for offline wiring
-checks. The runner records `success_check` in `meta.json` and applies semantic
-checks for required paths and required file content signals in addition to the
-process return code and expected artifacts. For `success_check.type:
-semantic`, `must_include` content signals are case-insensitive; use a future
-literal check type when exact casing is the contract being evaluated.
+workspace directory, normalized trace files, and `summary.tsv`. Use `--dry-run`
+for offline wiring checks. The runner records `success_check` in `meta.json`
+and applies semantic checks for required paths and required file content
+signals in addition to the process return code, expected artifacts, and
+case-level `verify` commands. For `success_check.type: semantic`,
+`must_include` content signals are case-insensitive; use a future literal check
+type when exact casing is the contract being evaluated.
+Each root also writes `environment.json` with reproducibility metadata: git
+commit, branch, dirty flag/status, dirty diff SHA-256, binary path and SHA-256,
+provider/model, `OLLAMA_HOST`, best-effort Ollama version and model digest,
+case directory, run count, timeout mode, proof-mode filters, and best-effort
+temperature/seed/context-length environment values. Missing Ollama
+metadata is recorded as `unknown`; it is evidence, not a setup command or a
+sign-off blocker. The root also writes `source_status.txt`, `source.patch`, and
+`source_tree_hash.txt` so a run can be tied to the exact dirty source state used
+for the binary/eval invocation.
+Root-level `manifest.json` records case YAML hashes and eval script hashes, and
+`cases.snapshot/` preserves the evaluated case set.
 When a child CommandAgent process exceeds `--timeout-secs`, the runner records
 the row as `provider_transport:eval_timeout` with `rc=124`, writes bounded
 stdout/stderr, and continues the remaining cases. Timeout recording is eval
@@ -65,6 +86,7 @@ Current terminal states are:
 - `provider_parse_failed`
 - `tool_protocol_failed`
 - `step_policy_failed`
+- `progress_budget_exhausted`
 - `profile_contract_failed`
 - `verifier_command_failed`
 - `dependency_missing`
@@ -120,7 +142,8 @@ Runtime-support parity fields may also include
 `phase29_support_rows`, `language_repair_adapter_status`,
 `effective_tool_policy`, `effective_tool_policy_status`,
 `tool_failure_recovery_status`, `setup_command_classification`,
-`command_authority`, `command_classification_reason`,
+`failed_tool`, `blocked_command`, `command_class`, `command_authority`,
+`command_classification_reason`, `first_actionable_divergence`,
 `workspace_candidate_status`, `workspace_ignored_dir_policy`,
 `workspace_candidate_ignored_reasons`, `job_report_status`,
 `job_report_owner_action`, `scaffold_contract_status`,
@@ -129,6 +152,37 @@ Runtime-support parity fields may also include
 project already-selected evidence, owner/action state, setup lifecycle, and
 provider-boundary facts into reports. They must not execute setup, choose a
 new repair owner, retry a tool call, or move behavior policy into providers.
+Eval rows also include causal trace fields:
+`first_divergence_event_id`, `first_divergence_phase_id`,
+`first_divergence_step_id`, `last_successful_contract`,
+`last_successful_action`, `last_successful_artifact`, `planner_requests`,
+`worker_requests`, `model_requests`, `tool_calls`, `artifact_changes`,
+`verifier_runs`, `recovery_attempts`, `input_tokens`, `output_tokens`,
+`observed_active_job`, `derived_active_job`, `rechecked_active_job`,
+`observed_target_path`, `derived_target_path`, `rechecked_target_path`,
+`observed_attempt_outcome`, `derived_attempt_outcome`, and
+`rechecked_attempt_outcome`. `observed_*` values come from runtime events,
+`derived_*` values come from evaluator projection, and `rechecked_*` values
+come from `--recheck`.
+Planner-capable rows also include plan quality fields:
+`plan_quality_status`, `plan_quality_plan_files`,
+`plan_quality_phase_count`, `plan_quality_step_count`,
+`plan_quality_mutation_step_count`, `plan_quality_verify_step_count`,
+`plan_quality_expected_path_count`,
+`plan_quality_owned_required_artifact_count`,
+`plan_quality_missing_owner_count`,
+`plan_quality_multi_owner_unit_count`,
+`plan_quality_verify_mixed_with_mutation_count`,
+`plan_quality_empty_instruction_count`,
+`plan_quality_avg_instruction_chars`,
+`plan_quality_responsibility_score`, `plan_quality_clarity_score`,
+`plan_quality_granularity_score`,
+`plan_quality_verifier_separation_score`, `plan_quality_overall_score`, and
+`plan_quality_notes`. Responsibility is based on required artifacts being
+owned by step `expected_paths` or ultra phase `owned_artifacts`; clarity is
+based on present step instructions and phase goals; granularity flags broad
+ownership units; verifier separation flags heavy build/test checks mixed into
+mutation steps.
 `artifact_ledger_status` records whether the required artifact ledger was
 complete or missing a required deliverable. `freshness_status` records whether
 completion evidence is fresh, stale, unknown, or not required. The ledger signal fields are
@@ -218,6 +272,18 @@ evidence already present in stdout, stderr, or repair packets. For example,
 `minimal loop reached max iterations` maps to
 `diagnostic_code=minimal_loop_max_iterations`, and blocked Bash policy evidence
 for compound commands maps to `diagnostic_code=blocked_bash_command_policy`.
+When runtime evidence includes a worker-issued blocked Bash tool call, reports
+should preserve bounded command evidence as `failed_tool`, `blocked_command`,
+`command_class`, `command_classification_reason`,
+`command_authority=worker_tool_call`, and `first_actionable_divergence`.
+Build/test-shaped worker Bash records
+`first_actionable_divergence=verifier_requested_before_mutation`; compound
+read-check probes such as `test -f ... && ...` record
+`first_actionable_divergence=compound_read_check_requested`.
+The runtime verifier transition is narrower than the observation field: it runs
+only when the blocked worker Bash command is build/test or script-run shaped,
+exactly matches a step verifier command, and the step's expected paths already
+exist. Otherwise the row remains a blocker/repair observation.
 This projection is report-only: it does not rerun the model, change tool
 policy, or treat the failed run as successful.
 When a failed recheck row has a useful diagnostic but no explicit target,
@@ -234,14 +300,15 @@ scope are planning lint failures. Ordinary block scalar strings in known long
 text fields should not be treated as failures after the plan-file public
 contract update.
 `scripts/eval_report.py <root> --recheck` rechecks existing workspaces against
-current case
-`success_check.required_paths` and `success_check.must_include`, then writes
-`recheck_summary.tsv` without overwriting the original summary. Recheck rows
-also project the runtime job report fields and set `lifecycle_stage` to
-`rechecking`. A recheck pass is reported as `completion_source=recheck_success`;
-a recheck miss is `completion_source=recheck_failure`. This shows whether the
-recheck validated existing evidence rather than implying that the original
-runtime job succeeded.
+current case `success_check.required_paths` and `success_check.must_include`,
+then writes `recheck_summary.tsv`, `recheck_result.json`, and
+`recheck_delta.json` without overwriting the original summary or
+`runtime_result.json`. Recheck output is derived analysis, not runtime source
+of truth. Recheck rows also project the runtime job report fields and set
+`lifecycle_stage` to `rechecking`. A recheck pass is reported as
+`completion_source=recheck_success`; a recheck miss is
+`completion_source=recheck_failure`. This shows whether the recheck validated
+existing evidence rather than implying that the original runtime job succeeded.
 Focused expected-field assertions are also re-evaluated for recheck rows, but
 the recheck projection has its own lifecycle vocabulary. `rechecking` is
 accepted as the recheck-stage equivalent for the original lifecycle expectation,
@@ -277,7 +344,7 @@ fields are `active_job`, `active_job_lifecycle`, `recovery_owner`, `loop_control
 `target_path`, `target_role`, `selected_failure_cluster`,
 `semantic_failure_kind`, `preferred_repair_role`, `weak_verifier_reason`,
 `admitted_cluster_targets`, `repair_action`, `tool_policy`,
-`attempt_outcome`, `completion_authority_status`,
+`recovery_task_started`, `attempt_outcome`, `completion_authority_status`,
 `completion_source_of_truth`, `evidence_binding_status`,
 `evidence_binding_kind`, `completion_evidence_status`,
 `evidence_runner_kind`, `freshness_status`, `missing_evidence`,
@@ -342,7 +409,11 @@ be used to hide continuation after a failed phase.
 The eval runner executes cases through the mode declared in each case. Omitted
 mode defaults to `/plan-run`; large cases should normally use `/ultra-plan-run`.
 Modification cases can declare a fixture directory, which is copied into each
-run workspace before execution.
+run workspace before execution. Gold-plan cases use `mode: run-plan` plus
+`gold_plan_fixture`; the runner copies the checked-in step plan into the run
+workspace and passes that path to `/run-plan`. This bypasses planner
+generation but still exercises the same minimal loop executor, tool policies,
+verification, and bounded repair paths.
 
 Case `intent` is passed to the slash command as `--intent`. Case
 `expected_artifacts` are passed as repeated `--artifact` flags and are also
@@ -391,6 +462,12 @@ deterministic fixtures. Use `scripts/eval_agent_slice.sh --proof-mode
 deterministic_fixture` to run only deterministic fixture rows when validating
 report assertions without invoking a local model.
 
+`eval/cases/large-gold` is the broad Gold Plan set. It mirrors the six large
+task surfaces with human-authored step plans under `eval/gold_plans/large`.
+Use `scripts/eval_large_gold_tasks.sh` when you need to isolate
+worker/tool-interface behavior from planner quality. These rows are broad task
+evidence, not focused control fixtures.
+
 ## Broad Migration Sign-off
 
 Broad migration sign-off checks that local LLM runs stop with owned,
@@ -426,13 +503,25 @@ change runtime behavior.
 
 Before interpreting row findings, final-current sign-off admits the supplied
 root bundle. The admission gate requires unique labels, unique root paths,
-`smoke`, `focused`, and `large` roots, and current case coverage of 3 smoke
-rows, 82 focused control-recovery rows, and 6 large rows. `small` remains
-optional while its current case count is zero. Supplemental roots such as
-focused fixtures may be used for separate regression reports, but they are not
-current-case proof; a duplicated supplemental root path fails admission.
-Historical root bundles that omit current cases must fail before their row
-outcomes can be treated as final migration evidence.
+`smoke`, `focused`, and `large` roots, and current required case coverage of 3
+smoke rows, 83 focused control-recovery rows, and 6 large rows. `small` roots
+are optional task-success evidence and are reported separately from required
+current-case coverage. Supplemental roots such as focused fixtures may be used
+for separate regression reports, but they are not current-case proof; a
+duplicated supplemental root path fails admission. Historical root bundles
+that omit current cases must fail before their row outcomes can be treated as
+final migration evidence.
+
+The sign-off report separates control accounting from task completion:
+
+- `control_contract_signoff` is the existing migration-control gate. It passes
+  only when root admission, expected focused assertions, failure attribution,
+  and large-row dispositions satisfy the policy.
+- `task_completion_signoff` is a task-success headline for task families. A
+  `closed_owned_failure` can satisfy control sign-off while still counting as a
+  task-completion failure.
+- `smoke_task_success`, `small_task_success`, `large_task_success`, and
+  `focused_assertion_pass` show the counters behind those two signs.
 
 The checker fails on:
 
@@ -640,12 +729,14 @@ Contract Boundary Propagation fields should be recorded when present:
 - `attempt_outcomes`
 - `repair_attempt_count`
 - `attempt_outcome_reason`
+- `attempt_outcome_source`
 - `before_signature`
 - `after_signature`
 - `exhausted_targets`
 - `exhausted_roles`
 - `exhausted_clusters`
 - `no_progress_strategy`
+- `recovery_task_started`
 - `repair_state_status`
 - `safe_stop_payload`
 - `patch_validation`

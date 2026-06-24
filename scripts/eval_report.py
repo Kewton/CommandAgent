@@ -28,6 +28,7 @@ from eval_runtime_job_report import (  # noqa: E402
     RUNTIME_JOB_REPORT_FIELD_NAMES,
     build_runtime_job_report,
 )
+from eval_trace import PLAN_QUALITY_FIELD_NAMES, TRACE_FIELD_NAMES, write_json  # noqa: E402
 
 
 def parse_args():
@@ -57,6 +58,7 @@ def read_case(path):
         "expected_fields": case.get("expected_fields", {}),
         "matrix_row": case.get("matrix_row", case["id"]),
         "proof_mode": case.get("proof_mode", "real_llm"),
+        "component": case.get("component", ""),
     }
 
 
@@ -167,9 +169,11 @@ def write_summary(path, rows):
         "repair_plan_rejection_reason",
         "repair_action",
         "tool_policy",
+        "recovery_task_started",
         "repair_attempt_count",
         "attempt_outcome",
         "attempt_outcome_reason",
+        "attempt_outcome_source",
         "before_signature",
         "after_signature",
         "exhausted_targets",
@@ -233,8 +237,12 @@ def write_summary(path, rows):
         "effective_tool_policy_status",
         "tool_failure_recovery_status",
         "setup_command_classification",
+        "failed_tool",
+        "blocked_command",
+        "command_class",
         "command_authority",
         "command_classification_reason",
+        "first_actionable_divergence",
         "workspace_candidate_status",
         "workspace_ignored_dir_policy",
         "workspace_candidate_ignored_reasons",
@@ -245,6 +253,8 @@ def write_summary(path, rows):
         "answer_work_mode_status",
         "lifecycle_projection_status",
         "provider_boundary_status",
+        *TRACE_FIELD_NAMES,
+        *PLAN_QUALITY_FIELD_NAMES,
         *ASSERTION_FIELD_NAMES,
     ]
     with open(path, "w", encoding="utf-8", newline="") as handle:
@@ -305,6 +315,7 @@ def recheck(root, cases):
                 ),
                 "matrix_row": meta.get("matrix_row", case.get("matrix_row", meta["case_id"])),
                 "proof_mode": meta.get("proof_mode", case.get("proof_mode", "real_llm")),
+                "component": meta.get("component", case.get("component", "")),
                 "active_job": meta.get("active_job", derive_active_job(reason)),
                 "active_job_lifecycle": meta.get(
                     "active_job_lifecycle",
@@ -415,9 +426,16 @@ def recheck(root, cases):
                 ),
                 "repair_action": meta.get("repair_action", derive_repair_action(reason)),
                 "tool_policy": meta.get("tool_policy", derive_tool_policy(reason)),
+                "recovery_task_started": meta.get("recovery_task_started", ""),
                 "repair_attempt_count": meta.get("repair_attempt_count", "0"),
                 "attempt_outcome": meta.get("attempt_outcome", "not_attempted" if reason != "ok" else "passed"),
                 "attempt_outcome_reason": meta.get("attempt_outcome_reason", ""),
+                "attempt_outcome_source": meta.get(
+                    "attempt_outcome_source",
+                    "",
+                )
+                or contract_value(evidence, "attempt_outcome_source")
+                or ("eval_projection_fallback" if reason != "ok" else "runtime_success"),
                 "before_signature": meta.get("before_signature", ""),
                 "after_signature": meta.get("after_signature", ""),
                 "exhausted_targets": meta.get("exhausted_targets", ""),
@@ -489,10 +507,22 @@ def recheck(root, cases):
                 "setup_command_classification": meta.get(
                     "setup_command_classification", ""
                 ),
-                "command_authority": meta.get("command_authority", ""),
+                "failed_tool": meta.get("failed_tool", "")
+                or contract_value(evidence, "failed_tool"),
+                "blocked_command": meta.get("blocked_command", "")
+                or contract_value(evidence, "blocked_command"),
+                "command_class": meta.get("command_class", "")
+                or contract_value(evidence, "command_class"),
+                "command_authority": meta.get("command_authority", "")
+                or contract_value(evidence, "command_authority"),
                 "command_classification_reason": meta.get(
                     "command_classification_reason", ""
-                ),
+                )
+                or contract_value(evidence, "command_classification_reason"),
+                "first_actionable_divergence": meta.get(
+                    "first_actionable_divergence", ""
+                )
+                or contract_value(evidence, "first_actionable_divergence"),
                 "workspace_candidate_status": meta.get("workspace_candidate_status", ""),
                 "workspace_ignored_dir_policy": meta.get(
                     "workspace_ignored_dir_policy", ""
@@ -542,6 +572,52 @@ def recheck(root, cases):
                 dry_run=bool(meta.get("dry_run")),
                 recheck=True,
             )
+        )
+        trace_fields = {name: str(meta.get(name, "")) for name in TRACE_FIELD_NAMES}
+        trace_fields["rechecked_active_job"] = rows[-1].get("active_job", "")
+        trace_fields["rechecked_target_path"] = rows[-1].get("target_path", "")
+        trace_fields["rechecked_attempt_outcome"] = rows[-1].get("attempt_outcome", "")
+        rows[-1].update(trace_fields)
+        rows[-1].update(
+            {name: str(meta.get(name, "")) for name in PLAN_QUALITY_FIELD_NAMES}
+        )
+        recheck_delta = []
+        for field in [
+            "success",
+            "reason",
+            "failure_category",
+            "contract_layer",
+            "active_job",
+            "target_path",
+            "attempt_outcome",
+        ]:
+            before = str(meta.get(field, ""))
+            after = str(rows[-1].get(field, ""))
+            if before != after:
+                recheck_delta.append(
+                    {
+                        "field": field,
+                        "before": before,
+                        "after": after,
+                        "reason": "recheck_workspace_and_evidence_projection",
+                        "authority": "derived",
+                        "changes_runtime_result": False,
+                    }
+                )
+        write_json(
+            meta_path.parent / "recheck_result.json",
+            {
+                "schema_version": "1.0",
+                "case_id": meta["case_id"],
+                "run_index": meta.get("run_index"),
+                "success": success,
+                "reason": reason,
+                "row": rows[-1],
+            },
+        )
+        write_json(
+            meta_path.parent / "recheck_delta.json",
+            {"schema_version": "1.0", "changes": recheck_delta},
         )
         observed_fields = {
             "failure_category": rows[-1].get("failure_category", ""),
@@ -1022,8 +1098,12 @@ def render_report(rows):
     effective_tool_policy_statuses = {}
     tool_failure_recovery_statuses = {}
     setup_command_classifications = {}
+    failed_tools = {}
+    blocked_commands = {}
+    command_classes = {}
     command_authorities = {}
     command_classification_reasons = {}
+    first_actionable_divergences = {}
     workspace_candidate_statuses = {}
     workspace_ignored_dir_policies = {}
     workspace_candidate_ignored_reasons = {}
@@ -1058,6 +1138,7 @@ def render_report(rows):
     large_disposition_reasons = {}
     large_owner_action_statuses = {}
     attempt_outcomes = {}
+    attempt_outcome_sources = {}
     verifier_rerun_results = {}
     explicit_stop_reasons = {}
     evidence_runner_statuses = {}
@@ -1085,6 +1166,17 @@ def render_report(rows):
     focused_assertion_failures = []
     matrix_rows = {}
     proof_modes = {}
+    components = {}
+    plan_quality_statuses = {}
+    plan_quality_score_fields = [
+        "plan_quality_responsibility_score",
+        "plan_quality_clarity_score",
+        "plan_quality_granularity_score",
+        "plan_quality_verifier_separation_score",
+        "plan_quality_overall_score",
+    ]
+    plan_quality_score_totals = {field: 0 for field in plan_quality_score_fields}
+    plan_quality_score_counts = {field: 0 for field in plan_quality_score_fields}
     for row in rows:
         observation = normalize_observation(row)
         runtime_job_report = build_runtime_job_report(row)
@@ -1127,6 +1219,7 @@ def render_report(rows):
             or runtime_job_report.get("large_disposition_owner_action_status", "")
         )
         attempt_outcome = row.get("attempt_outcome", "")
+        attempt_outcome_source = row.get("attempt_outcome_source", "")
         verifier_rerun_result = row.get("verifier_rerun_result", "")
         explicit_stop_reason = row.get("explicit_stop_reason", "")
         completion_authority_status = (
@@ -1239,8 +1332,12 @@ def render_report(rows):
         effective_tool_policy_status = row.get("effective_tool_policy_status", "")
         tool_failure_recovery_status = row.get("tool_failure_recovery_status", "")
         setup_command_classification = row.get("setup_command_classification", "")
+        failed_tool = row.get("failed_tool", "")
+        blocked_command = row.get("blocked_command", "")
+        command_class = row.get("command_class", "")
         command_authority = row.get("command_authority", "")
         command_classification_reason = row.get("command_classification_reason", "")
+        first_actionable_divergence = row.get("first_actionable_divergence", "")
         workspace_candidate_status = row.get("workspace_candidate_status", "")
         workspace_ignored_dir_policy = row.get("workspace_ignored_dir_policy", "")
         workspace_candidate_ignored_reason = row.get(
@@ -1269,8 +1366,24 @@ def render_report(rows):
         artifact_role_projection_status = row.get("artifact_role_projection_status", "")
         matrix_row = row.get("matrix_row", "") or row["case_id"]
         proof_mode = row.get("proof_mode", "") or "unknown"
+        component = row.get("component", "") or "unknown"
+        plan_quality_status = row.get("plan_quality_status", "")
         matrix_rows[matrix_row] = matrix_rows.get(matrix_row, 0) + 1
         proof_modes[proof_mode] = proof_modes.get(proof_mode, 0) + 1
+        components[component] = components.get(component, 0) + 1
+        if plan_quality_status:
+            plan_quality_statuses[plan_quality_status] = (
+                plan_quality_statuses.get(plan_quality_status, 0) + 1
+            )
+        for field in plan_quality_score_fields:
+            value = row.get(field, "")
+            if value == "" or row.get("plan_quality_status") == "not_applicable":
+                continue
+            try:
+                plan_quality_score_totals[field] += int(value)
+                plan_quality_score_counts[field] += 1
+            except ValueError:
+                pass
         categories[category] = categories.get(category, 0) + 1
         layers[layer] = layers.get(layer, 0) + 1
         terminal_states[terminal_state] = terminal_states.get(terminal_state, 0) + 1
@@ -1502,6 +1615,12 @@ def render_report(rows):
             setup_command_classifications[setup_command_classification] = (
                 setup_command_classifications.get(setup_command_classification, 0) + 1
             )
+        if failed_tool:
+            failed_tools[failed_tool] = failed_tools.get(failed_tool, 0) + 1
+        if blocked_command:
+            blocked_commands[blocked_command] = blocked_commands.get(blocked_command, 0) + 1
+        if command_class:
+            command_classes[command_class] = command_classes.get(command_class, 0) + 1
         if command_authority:
             command_authorities[command_authority] = (
                 command_authorities.get(command_authority, 0) + 1
@@ -1509,6 +1628,10 @@ def render_report(rows):
         if command_classification_reason:
             command_classification_reasons[command_classification_reason] = (
                 command_classification_reasons.get(command_classification_reason, 0) + 1
+            )
+        if first_actionable_divergence:
+            first_actionable_divergences[first_actionable_divergence] = (
+                first_actionable_divergences.get(first_actionable_divergence, 0) + 1
             )
         if workspace_candidate_status:
             workspace_candidate_statuses[workspace_candidate_status] = (
@@ -1639,6 +1762,10 @@ def render_report(rows):
         if attempt_outcome:
             attempt_outcomes[attempt_outcome] = (
                 attempt_outcomes.get(attempt_outcome, 0) + 1
+            )
+        if attempt_outcome_source:
+            attempt_outcome_sources[attempt_outcome_source] = (
+                attempt_outcome_sources.get(attempt_outcome_source, 0) + 1
             )
         if verifier_rerun_result:
             verifier_rerun_results[verifier_rerun_result] = (
@@ -1782,6 +1909,8 @@ def render_report(rows):
             lines.append(f"- owner_action={name}: {count}")
     for name, count in sorted(attempt_outcomes.items()):
         lines.append(f"- attempt_outcome={name}: {count}")
+    for name, count in sorted(attempt_outcome_sources.items()):
+        lines.append(f"- attempt_outcome_source={name}: {count}")
     for name, count in sorted(verifier_rerun_results.items()):
         lines.append(f"- verifier_rerun_result={name}: {count}")
     if explicit_stop_reasons:
@@ -1987,8 +2116,12 @@ def render_report(rows):
         or effective_tool_policy_statuses
         or tool_failure_recovery_statuses
         or setup_command_classifications
+        or failed_tools
+        or blocked_commands
+        or command_classes
         or command_authorities
         or command_classification_reasons
+        or first_actionable_divergences
         or workspace_candidate_statuses
         or workspace_ignored_dir_policies
         or workspace_candidate_ignored_reasons
@@ -2012,10 +2145,18 @@ def render_report(rows):
             lines.append(f"- tool_failure_recovery_status={name}: {count}")
         for name, count in sorted(setup_command_classifications.items()):
             lines.append(f"- setup_command_classification={name}: {count}")
+        for name, count in sorted(failed_tools.items()):
+            lines.append(f"- failed_tool={name}: {count}")
+        for name, count in sorted(blocked_commands.items()):
+            lines.append(f"- blocked_command={name}: {count}")
+        for name, count in sorted(command_classes.items()):
+            lines.append(f"- command_class={name}: {count}")
         for name, count in sorted(command_authorities.items()):
             lines.append(f"- command_authority={name}: {count}")
         for name, count in sorted(command_classification_reasons.items()):
             lines.append(f"- command_classification_reason={name}: {count}")
+        for name, count in sorted(first_actionable_divergences.items()):
+            lines.append(f"- first_actionable_divergence={name}: {count}")
         for name, count in sorted(workspace_candidate_statuses.items()):
             lines.append(f"- workspace_candidate_status={name}: {count}")
         for name, count in sorted(workspace_ignored_dir_policies.items()):
@@ -2069,7 +2210,21 @@ def render_report(rows):
     lines.extend(["", "## Artifact Role Projection"])
     for name, count in sorted(artifact_role_projection_statuses.items()):
         lines.append(f"- status={name}: {count}")
+    lines.extend(["", "## Plan Quality"])
+    if plan_quality_statuses:
+        for name, count in sorted(plan_quality_statuses.items()):
+            lines.append(f"- status={name}: {count}")
+        for field in plan_quality_score_fields:
+            count = plan_quality_score_counts[field]
+            if count:
+                label = field.removeprefix("plan_quality_").removesuffix("_score")
+                average = round(plan_quality_score_totals[field] / count)
+                lines.append(f"- avg_{label}_score={average}")
+    else:
+        lines.append("- not_recorded: 0")
     lines.extend(["", "## Focused Matrix"])
+    for name, count in sorted(components.items()):
+        lines.append(f"- component={name}: {count}")
     for name, count in sorted(proof_modes.items()):
         lines.append(f"- proof_mode={name}: {count}")
     for name, count in sorted(matrix_rows.items()):

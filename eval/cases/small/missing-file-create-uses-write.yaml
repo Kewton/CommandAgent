@@ -1,0 +1,20 @@
+id: small-missing-file-create-uses-write
+title: Create a missing file with Write
+profile: docs
+style: default
+mode: plan-run
+intent: docs
+evaluation_purpose: task_success
+prompt: "Create docs/write-contract.md containing a short note that says Write creates missing files."
+expected_artifacts:
+  - docs/write-contract.md
+verify:
+  - cat docs/write-contract.md
+success_check:
+  type: semantic
+  required_paths:
+    - docs/write-contract.md
+  must_include:
+    docs/write-contract.md:
+      - Write
+      - missing files

@@ -16,6 +16,7 @@ pub(crate) enum TerminalState {
     ProviderParseFailed,
     ToolProtocolFailed,
     StepPolicyFailed,
+    ProgressBudgetExhausted,
     ProfileContractFailed,
     VerifierCommandFailed,
     DependencyMissing,
@@ -43,6 +44,7 @@ impl TerminalState {
         Self::ProviderParseFailed,
         Self::ToolProtocolFailed,
         Self::StepPolicyFailed,
+        Self::ProgressBudgetExhausted,
         Self::ProfileContractFailed,
         Self::VerifierCommandFailed,
         Self::DependencyMissing,
@@ -69,6 +71,7 @@ impl TerminalState {
             Self::ProviderParseFailed => "provider_parse_failed",
             Self::ToolProtocolFailed => "tool_protocol_failed",
             Self::StepPolicyFailed => "step_policy_failed",
+            Self::ProgressBudgetExhausted => "progress_budget_exhausted",
             Self::ProfileContractFailed => "profile_contract_failed",
             Self::VerifierCommandFailed => "verifier_command_failed",
             Self::DependencyMissing => "dependency_missing",
@@ -98,7 +101,9 @@ impl TerminalState {
                 FailureObservationClass::ProviderTransport
             }
             Self::ToolProtocolFailed => FailureObservationClass::ToolProtocol,
-            Self::StepPolicyFailed => FailureObservationClass::StepPolicy,
+            Self::StepPolicyFailed | Self::ProgressBudgetExhausted => {
+                FailureObservationClass::StepPolicy
+            }
             Self::ProfileContractFailed => FailureObservationClass::Profile,
             Self::VerifierCommandFailed => FailureObservationClass::Verifier,
             Self::DependencyMissing | Self::SetupFailed | Self::PortInUse => {
@@ -124,7 +129,8 @@ impl TerminalState {
             Self::ProviderTransportFailed
             | Self::ProviderParseFailed
             | Self::ToolProtocolFailed
-            | Self::StepPolicyFailed => ContractLayer::ExecutionContract,
+            | Self::StepPolicyFailed
+            | Self::ProgressBudgetExhausted => ContractLayer::ExecutionContract,
             Self::ProfileContractFailed => ContractLayer::ProfileContract,
             Self::VerifierCommandFailed => ContractLayer::VerificationContract,
             Self::DependencyMissing | Self::SetupFailed => ContractLayer::SetupBootstrapContract,
@@ -148,6 +154,7 @@ impl TerminalState {
             Self::ProviderParseFailed => "provider_tool_call_parse_contract",
             Self::ToolProtocolFailed => "tool_protocol_contract",
             Self::StepPolicyFailed => "step_execution_policy_contract",
+            Self::ProgressBudgetExhausted => "minimal_loop_progress_contract",
             Self::ProfileContractFailed => "profile_contract",
             Self::VerifierCommandFailed => "verification_contract",
             Self::DependencyMissing | Self::SetupFailed => "setup_bootstrap_contract",
@@ -173,7 +180,9 @@ impl TerminalState {
             Self::ProviderTransportFailed | Self::ProviderParseFailed => {
                 ObservationSource::ProviderResponse
             }
-            Self::ToolProtocolFailed | Self::StepPolicyFailed => ObservationSource::ExecutionGuard,
+            Self::ToolProtocolFailed | Self::StepPolicyFailed | Self::ProgressBudgetExhausted => {
+                ObservationSource::ExecutionGuard
+            }
             Self::ProfileContractFailed => ObservationSource::ProfileVerifier,
             Self::DependencyMissing | Self::SetupFailed | Self::PortInUse => {
                 ObservationSource::EnvironmentVerifier
@@ -573,6 +582,11 @@ fn terminal_state_from_contract_evidence(evidence: &ContractEvidence) -> Termina
     if guard == "tool_protocol" {
         return TerminalState::ToolProtocolFailed;
     }
+    if combined.contains("progress_budget_exhausted")
+        || combined.contains("progress budget exhausted")
+    {
+        return TerminalState::ProgressBudgetExhausted;
+    }
     if guard == "step_policy" {
         return TerminalState::StepPolicyFailed;
     }
@@ -638,6 +652,7 @@ fn producer_from_contract_evidence(
         TerminalState::ProviderParseFailed => FailureProducer::ProviderParser,
         TerminalState::ToolProtocolFailed => FailureProducer::ToolProtocol,
         TerminalState::StepPolicyFailed => FailureProducer::StepPolicy,
+        TerminalState::ProgressBudgetExhausted => FailureProducer::StepPolicy,
         TerminalState::ProfileContractFailed => FailureProducer::ProfileVerification,
         TerminalState::VerifierCommandFailed => FailureProducer::Verifier,
         TerminalState::DependencyMissing | TerminalState::SetupFailed => {

@@ -17,6 +17,7 @@ fixture_fields:
   recovery_owner: source
   loop_control_action: run_bounded_repair_task
   dispatch_status: selected
+  recovery_task_started: true
   repair_action: edit_source_for_diagnostic
   tool_policy: file_mutation_repair
   repair_state_status: attempted
@@ -30,6 +31,7 @@ fixture_fields:
 expected_terminal_state: verifier_command_failed
 expected_contract_layer: verification_contract
 expected_diagnostic_code: python_import_missing
+expected_recovery_task_started: true
 expected_repair_state_status: attempted
 expected_verifier_rerun_result: failed
 expected_repair_attempt_count: 1

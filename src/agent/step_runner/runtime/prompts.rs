@@ -129,6 +129,8 @@ Step tool policy: {policy}\n\
 {action_guidance}\n\
 Preserve the active profile contract facts while doing only this step.\n\
 The runtime executes verifier commands after your response. Do not run listed verifier commands yourself unless the step kind is verify and the command is a single allowed local check.\n\
+Do not use Bash to check whether expected paths exist; the runtime checks expected paths after your tool call.\n\
+In create/edit/repair steps, Bash is for read-only inspection only; do not run build or test Bash from worker mutation steps.\n\
 Do not use compound Bash commands with &&, ||, or ;.\n\
 Do not install network dependencies unless the step explicitly asks for dependency setup and the environment allows it.",
         goal = plan.goal,
@@ -170,8 +172,14 @@ fn step_tool_policy_text(kind: StepKind) -> &'static str {
         StepKind::Setup => {
             "setup/config file mutation only; do not edit source routes/components and do not run dependency installation yourself"
         }
-        StepKind::Create | StepKind::Edit | StepKind::Repair => {
-            "file mutation allowed when needed; keep changes scoped to this step"
+        StepKind::Create => {
+            "create missing artifact only; use Write for missing paths and do not call Edit, replace existing files, or run build/test Bash"
+        }
+        StepKind::Edit => {
+            "edit existing artifact only; read the current file and use Edit, do not call Write, create missing files, or run build/test Bash"
+        }
+        StepKind::Repair => {
+            "file mutation allowed when needed; keep changes scoped to this step and use Bash only for read-only inspection"
         }
     }
 }
@@ -187,8 +195,14 @@ fn step_action_guidance(kind: StepKind) -> &'static str {
         StepKind::Setup => {
             "Do only this step. Use Write/Edit only for setup or configuration files; Write creates parent directories automatically."
         }
-        StepKind::Create | StepKind::Edit | StepKind::Repair => {
-            "Do only this step. Use Write/Edit for file changes; Write creates parent directories automatically."
+        StepKind::Create => {
+            "Do only this step. Use Write only for the listed Expected paths; Write creates parent directories automatically. Do not create other required final artifacts in this step. Do not use Edit, existence-check Bash, or build/test Bash in create steps."
+        }
+        StepKind::Edit => {
+            "Do only this step. Read the current file first, then use Edit with exact existing text. Do not use Write or build/test Bash in edit steps."
+        }
+        StepKind::Repair => {
+            "Do only this step. Use Write/Edit only for the listed Expected paths; Write creates parent directories automatically. Do not create other required final artifacts in this step. Use Bash only for read-only inspection, not expected-path existence checks."
         }
     }
 }
@@ -203,14 +217,30 @@ fn missing_expected_paths_hint(step: &StepPlanStep, missing_expected_paths: &[St
         return String::new();
     }
 
+    let guidance = match step.kind {
+        StepKind::Create => {
+            "If this step is supposed to produce one of these paths, create it with Write. Do not use Edit for missing paths.\n\
+If the path should not be created by this step, report a concrete blocker instead of pretending the step is complete.\n\
+If more context is required, use Read/Glob first, then continue to Write in the same turn when a file change is still required.\n"
+        }
+        StepKind::Edit => {
+            "This edit step can only modify existing paths. Use Read/Glob to confirm the missing target, then report a concrete blocker or plan issue instead of creating it with Write.\n"
+        }
+        StepKind::Repair => {
+            "If this step is supposed to produce one of these paths, create or update it with Write/Edit.\n\
+If the path should not be created by this step, report a concrete blocker instead of pretending the step is complete.\n\
+If more context is required, use Read/Glob first, then continue to Write/Edit in the same turn when a file change is still required.\n"
+        }
+        _ => "",
+    };
+
     format!(
         "Currently missing expected paths:\n{missing}\n\n\
 This step is not complete until the missing expected paths are created or the step reports a concrete blocker.\n\
-If this step is supposed to produce one of these paths, create or update it with Write/Edit.\n\
-If the path should not be created by this step, report a concrete blocker instead of pretending the step is complete.\n\
-If more context is required, use Read/Glob first, then continue to Write/Edit in the same turn when a file change is still required.\n\
+{guidance}\
 Do not finish with only a plan for the next action.\n\n",
-        missing = bullet_list(missing_expected_paths)
+        missing = bullet_list(missing_expected_paths),
+        guidance = guidance
     )
 }
 
@@ -275,8 +305,21 @@ mod tests {
             "{prompt}"
         );
         assert!(prompt.contains("- src/commands.rs"), "{prompt}");
+        assert!(prompt.contains("create it with Write"), "{prompt}");
         assert!(
-            prompt.contains("create or update it with Write/Edit"),
+            prompt.contains("Do not use Edit for missing paths"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("Use Write only for the listed Expected paths"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("Do not create other required final artifacts"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("Do not use Bash to check whether expected paths exist"),
             "{prompt}"
         );
         assert!(
@@ -301,8 +344,55 @@ mod tests {
             prompt.contains("Currently missing expected paths"),
             "{prompt}"
         );
-        assert!(prompt.contains("concrete blocker"), "{prompt}");
-        assert!(prompt.contains("Write/Edit"), "{prompt}");
+        assert!(
+            prompt.contains("can only modify existing paths"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("report a concrete blocker or plan issue"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("instead of creating it with Write"),
+            "{prompt}"
+        );
+    }
+
+    #[test]
+    fn step_prompt_distinguishes_create_and_edit_tool_policy() {
+        let plan = prompt_test_plan();
+        let create_prompt = step_prompt(
+            &plan,
+            &prompt_test_step(StepKind::Create),
+            &[],
+            &empty_contract("rust"),
+        )
+        .unwrap();
+        let edit_prompt = step_prompt(
+            &plan,
+            &prompt_test_step(StepKind::Edit),
+            &[],
+            &empty_contract("rust"),
+        )
+        .unwrap();
+
+        assert!(
+            create_prompt.contains("create missing artifact only"),
+            "{create_prompt}"
+        );
+        assert!(create_prompt.contains("Do not use Edit"), "{create_prompt}");
+        assert!(
+            create_prompt.contains("existence-check Bash"),
+            "{create_prompt}"
+        );
+        assert!(
+            edit_prompt.contains("edit existing artifact only"),
+            "{edit_prompt}"
+        );
+        assert!(
+            edit_prompt.contains("Do not use Write or build/test Bash in edit steps"),
+            "{edit_prompt}"
+        );
     }
 
     #[test]

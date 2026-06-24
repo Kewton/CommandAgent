@@ -1,0 +1,35 @@
+goal: "Improve an existing Next.js dashboard with an analytics panel and keep npm run build passing."
+profile: "nextjs"
+style: "default"
+intent: "modify"
+required_artifacts:
+  - app/page.tsx
+  - components/AnalyticsPanel.tsx
+steps:
+  - id: inspect-nextjs-dashboard
+    kind: inspect
+    instruction: "Inspect package.json, app/page.tsx, app/layout.tsx, and tsconfig.json before editing the existing Next.js dashboard."
+    expected_result: pass
+    expected_paths: []
+    verify: []
+  - id: create-analytics-panel
+    kind: create
+    instruction: "Use Write directly to create components/AnalyticsPanel.tsx as a typed React component that renders Analytics metrics, trend summaries, and compact dashboard UI. Do not call Bash in this create step."
+    expected_result: pass
+    expected_paths:
+      - components/AnalyticsPanel.tsx
+    verify: []
+  - id: integrate-analytics-panel
+    kind: repair
+    instruction: "Update app/page.tsx to import and render the AnalyticsPanel component while preserving the dashboard page export default. Use Write for a coherent full-file replacement if exact Edit text is uncertain. Do not call Bash in this repair step."
+    expected_result: pass
+    expected_paths:
+      - app/page.tsx
+    verify: []
+  - id: verify-nextjs-dashboard
+    kind: verify
+    instruction: "Run the Next.js production build."
+    expected_result: pass
+    expected_paths: []
+    verify:
+      - npm run build

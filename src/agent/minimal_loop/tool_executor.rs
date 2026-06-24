@@ -17,6 +17,8 @@ pub(super) struct ToolExecutor<'a> {
     dependency_policy: DependencySetupPolicy,
     step_tool_policy: StepToolPolicy,
     allowed_tools: Vec<String>,
+    initial_missing_artifacts: Vec<String>,
+    target_artifacts: Vec<String>,
     read: ReadTool<'a>,
     write: WriteTool<'a>,
     edit: EditTool<'a>,
@@ -26,17 +28,61 @@ pub(super) struct ToolExecutor<'a> {
 }
 
 impl<'a> ToolExecutor<'a> {
+    #[cfg(test)]
     pub(super) fn new(
         guard: &'a PathGuard,
         dependency_policy: DependencySetupPolicy,
         step_tool_policy: StepToolPolicy,
         allowed_tools: Vec<String>,
     ) -> Self {
+        Self::new_with_initial_missing_artifacts(
+            guard,
+            dependency_policy,
+            step_tool_policy,
+            allowed_tools,
+            Vec::new(),
+        )
+    }
+
+    #[cfg(test)]
+    pub(super) fn new_with_initial_missing_artifacts(
+        guard: &'a PathGuard,
+        dependency_policy: DependencySetupPolicy,
+        step_tool_policy: StepToolPolicy,
+        allowed_tools: Vec<String>,
+        initial_missing_artifacts: Vec<String>,
+    ) -> Self {
+        Self::new_with_contract_paths(
+            guard,
+            dependency_policy,
+            step_tool_policy,
+            allowed_tools,
+            initial_missing_artifacts,
+            Vec::new(),
+        )
+    }
+
+    pub(super) fn new_with_contract_paths(
+        guard: &'a PathGuard,
+        dependency_policy: DependencySetupPolicy,
+        step_tool_policy: StepToolPolicy,
+        allowed_tools: Vec<String>,
+        initial_missing_artifacts: Vec<String>,
+        target_artifacts: Vec<String>,
+    ) -> Self {
         Self {
             guard,
             dependency_policy,
             step_tool_policy,
             allowed_tools,
+            initial_missing_artifacts: initial_missing_artifacts
+                .into_iter()
+                .map(|path| normalize_tool_path(&path))
+                .collect(),
+            target_artifacts: target_artifacts
+                .into_iter()
+                .map(|path| normalize_tool_path(&path))
+                .collect(),
             read: ReadTool::new(guard),
             write: WriteTool::new(guard),
             edit: EditTool::new(guard),
@@ -143,6 +189,15 @@ impl<'a> ToolExecutor<'a> {
         }
         match self.step_tool_policy {
             StepToolPolicy::FileMutationAllowed => Ok(()),
+            StepToolPolicy::FileMutationWithReadOnlyBash => {
+                self.enforce_file_mutation_with_read_only_bash(tool_name, args)
+            }
+            StepToolPolicy::CreateMissingArtifactOnly => {
+                self.enforce_create_missing_artifact_only(tool_name, args)
+            }
+            StepToolPolicy::EditExistingArtifactOnly => {
+                self.enforce_edit_existing_artifact_only(tool_name, args)
+            }
             StepToolPolicy::ReadOnly => self.enforce_read_only(tool_name, args),
             StepToolPolicy::NoMutation => {
                 if matches!(tool_name, "Write" | "Edit") {
@@ -153,6 +208,97 @@ impl<'a> ToolExecutor<'a> {
                 Ok(())
             }
             StepToolPolicy::SetupMutationOnly => self.enforce_setup_mutation_only(tool_name, args),
+        }
+    }
+
+    fn enforce_create_missing_artifact_only(
+        &self,
+        tool_name: &str,
+        args: &Value,
+    ) -> Result<(), MinimalLoopError> {
+        match tool_name {
+            "Read" | "Glob" | "Grep" => Ok(()),
+            "Bash" => self.enforce_read_only(tool_name, args),
+            "Write" => {
+                let path = required_str_for_tool(args, "Write", "path")?;
+                self.enforce_target_artifact_path("Write", path)?;
+                let resolved = self.guard.resolve(path).map_err(tool_err)?;
+                if resolved.exists()
+                    && !self
+                        .initial_missing_artifacts
+                        .iter()
+                        .any(|initial| initial == &normalize_tool_path(path))
+                {
+                    return Err(policy_violation(format!(
+                        "Write is not allowed to replace an existing path in a create step: {path}; use an edit step for existing artifacts"
+                    )));
+                }
+                Ok(())
+            }
+            "Edit" => Err(policy_violation(
+                "Edit is not allowed in a create step; use Write for missing artifacts".to_string(),
+            )),
+            _ => Ok(()),
+        }
+    }
+
+    fn enforce_edit_existing_artifact_only(
+        &self,
+        tool_name: &str,
+        args: &Value,
+    ) -> Result<(), MinimalLoopError> {
+        match tool_name {
+            "Read" | "Glob" | "Grep" => Ok(()),
+            "Bash" => self.enforce_read_only(tool_name, args),
+            "Edit" => {
+                let path = required_str_for_tool(args, "Edit", "path")?;
+                self.enforce_target_artifact_path("Edit", path)?;
+                let resolved = self.guard.resolve(path).map_err(tool_err)?;
+                if !resolved.exists() {
+                    return Err(policy_violation(format!(
+                        "Edit target does not exist in an edit step: {path}; use a create step with Write for missing artifacts"
+                    )));
+                }
+                Ok(())
+            }
+            "Write" => Err(policy_violation(
+                "Write is not allowed in an edit step; read the existing file and use Edit"
+                    .to_string(),
+            )),
+            _ => Ok(()),
+        }
+    }
+
+    fn enforce_target_artifact_path(
+        &self,
+        tool_name: &str,
+        path: &str,
+    ) -> Result<(), MinimalLoopError> {
+        if self.target_artifacts.is_empty() {
+            return Ok(());
+        }
+        let normalized = normalize_tool_path(path);
+        if self
+            .target_artifacts
+            .iter()
+            .any(|target| target == &normalized)
+        {
+            return Ok(());
+        }
+        Err(policy_violation(format!(
+            "{tool_name} may only mutate the step target artifacts: {}; requested path: {path}",
+            self.target_artifacts.join(", ")
+        )))
+    }
+
+    fn enforce_file_mutation_with_read_only_bash(
+        &self,
+        tool_name: &str,
+        args: &Value,
+    ) -> Result<(), MinimalLoopError> {
+        match tool_name {
+            "Bash" => self.enforce_read_only(tool_name, args),
+            _ => Ok(()),
         }
     }
 
@@ -170,10 +316,12 @@ impl<'a> ToolExecutor<'a> {
                     Ok(())
                 } else {
                     Err(policy_violation(format!(
-                        "Bash command is not read-only for this step: {}",
+                        "Bash command is not read-only for this step: class={:?}; reason={}; command={}",
+                        decision.class,
                         decision
                             .message
-                            .unwrap_or_else(|| format!("{:?}", decision.class))
+                            .unwrap_or_else(|| format!("{:?}", decision.class)),
+                        bounded_command(command)
                     )))
                 }
             }
@@ -249,6 +397,15 @@ fn tool_err(err: impl std::fmt::Display) -> MinimalLoopError {
 
 fn policy_violation(message: String) -> MinimalLoopError {
     MinimalLoopError::Tool(format!("tool_policy_violation: {message}"))
+}
+
+fn bounded_command(command: &str) -> String {
+    let compact = command.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut out = compact.chars().take(240).collect::<String>();
+    if compact.chars().count() > 240 {
+        out.push_str("...");
+    }
+    out
 }
 
 fn normalize_tool_path(path: &str) -> String {
@@ -420,6 +577,317 @@ mod tests {
         assert!(root.join("package.json").exists());
         assert!(err.to_string().contains("tool_policy_violation"));
         assert!(!root.join("app/page.tsx").exists());
+    }
+
+    #[test]
+    fn create_policy_allows_write_to_missing_path() {
+        let root = temp_workspace("create-policy-write-missing");
+        let guard = PathGuard::new(&root).unwrap();
+        let executor = ToolExecutor::new(
+            &guard,
+            DependencySetupPolicy::default(),
+            StepToolPolicy::CreateMissingArtifactOnly,
+            Vec::new(),
+        );
+
+        executor
+            .execute(&call(
+                "Write",
+                json!({"path":"src/main.rs","content":"fn main() {}"}),
+            ))
+            .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(root.join("src/main.rs")).unwrap(),
+            "fn main() {}"
+        );
+    }
+
+    #[test]
+    fn create_policy_blocks_write_outside_target_artifacts() {
+        let root = temp_workspace("create-policy-target-only");
+        let guard = PathGuard::new(&root).unwrap();
+        let executor = ToolExecutor::new_with_contract_paths(
+            &guard,
+            DependencySetupPolicy::default(),
+            StepToolPolicy::CreateMissingArtifactOnly,
+            Vec::new(),
+            vec!["src/main.rs".to_string()],
+            vec!["src/main.rs".to_string()],
+        );
+
+        let err = executor
+            .execute(&call(
+                "Write",
+                json!({"path":"src/other.rs","content":"fn other() {}"}),
+            ))
+            .unwrap_err();
+
+        assert!(err.to_string().contains("tool_policy_violation"));
+        assert!(
+            err.to_string()
+                .contains("may only mutate the step target artifacts")
+        );
+        assert!(!root.join("src/other.rs").exists());
+    }
+
+    #[test]
+    fn create_policy_allows_rewrite_when_path_was_missing_at_step_start() {
+        let root = temp_workspace("create-policy-rewrite-initial-missing");
+        let guard = PathGuard::new(&root).unwrap();
+        let executor = ToolExecutor::new_with_initial_missing_artifacts(
+            &guard,
+            DependencySetupPolicy::default(),
+            StepToolPolicy::CreateMissingArtifactOnly,
+            Vec::new(),
+            vec!["src/main.rs".to_string()],
+        );
+
+        executor
+            .execute(&call(
+                "Write",
+                json!({"path":"src/main.rs","content":"fn main() {}"}),
+            ))
+            .unwrap();
+        executor
+            .execute(&call(
+                "Write",
+                json!({"path":"src/main.rs","content":"fn main() { println!(\"ok\"); }"}),
+            ))
+            .unwrap();
+
+        assert_eq!(
+            fs::read_to_string(root.join("src/main.rs")).unwrap(),
+            "fn main() { println!(\"ok\"); }"
+        );
+    }
+
+    #[test]
+    fn create_policy_blocks_edit() {
+        let root = temp_workspace("create-policy-edit");
+        fs::write(root.join("README.md"), "hello").unwrap();
+        let guard = PathGuard::new(&root).unwrap();
+        let executor = ToolExecutor::new(
+            &guard,
+            DependencySetupPolicy::default(),
+            StepToolPolicy::CreateMissingArtifactOnly,
+            Vec::new(),
+        );
+
+        let err = executor
+            .execute(&call(
+                "Edit",
+                json!({"path":"README.md","old":"hello","new":"hi"}),
+            ))
+            .unwrap_err();
+
+        assert!(err.to_string().contains("tool_policy_violation"));
+        assert!(
+            err.to_string()
+                .contains("Edit is not allowed in a create step")
+        );
+        assert_eq!(fs::read_to_string(root.join("README.md")).unwrap(), "hello");
+    }
+
+    #[test]
+    fn create_policy_blocks_write_to_existing_path() {
+        let root = temp_workspace("create-policy-write-existing");
+        fs::write(root.join("README.md"), "hello").unwrap();
+        let guard = PathGuard::new(&root).unwrap();
+        let executor = ToolExecutor::new(
+            &guard,
+            DependencySetupPolicy::default(),
+            StepToolPolicy::CreateMissingArtifactOnly,
+            Vec::new(),
+        );
+
+        let err = executor
+            .execute(&call(
+                "Write",
+                json!({"path":"README.md","content":"replace"}),
+            ))
+            .unwrap_err();
+
+        assert!(err.to_string().contains("tool_policy_violation"));
+        assert!(err.to_string().contains("existing path in a create step"));
+        assert_eq!(fs::read_to_string(root.join("README.md")).unwrap(), "hello");
+    }
+
+    #[test]
+    fn edit_policy_allows_edit_existing_path() {
+        let root = temp_workspace("edit-policy-existing");
+        fs::write(root.join("README.md"), "hello").unwrap();
+        let guard = PathGuard::new(&root).unwrap();
+        let executor = ToolExecutor::new(
+            &guard,
+            DependencySetupPolicy::default(),
+            StepToolPolicy::EditExistingArtifactOnly,
+            Vec::new(),
+        );
+
+        executor
+            .execute(&call(
+                "Edit",
+                json!({"path":"README.md","old":"hello","new":"hi"}),
+            ))
+            .unwrap();
+
+        assert_eq!(fs::read_to_string(root.join("README.md")).unwrap(), "hi");
+    }
+
+    #[test]
+    fn edit_policy_blocks_edit_outside_target_artifacts() {
+        let root = temp_workspace("edit-policy-target-only");
+        fs::write(root.join("README.md"), "hello").unwrap();
+        fs::write(root.join("NOTES.md"), "note").unwrap();
+        let guard = PathGuard::new(&root).unwrap();
+        let executor = ToolExecutor::new_with_contract_paths(
+            &guard,
+            DependencySetupPolicy::default(),
+            StepToolPolicy::EditExistingArtifactOnly,
+            Vec::new(),
+            Vec::new(),
+            vec!["README.md".to_string()],
+        );
+
+        let err = executor
+            .execute(&call(
+                "Edit",
+                json!({"path":"NOTES.md","old":"note","new":"changed"}),
+            ))
+            .unwrap_err();
+
+        assert!(err.to_string().contains("tool_policy_violation"));
+        assert!(
+            err.to_string()
+                .contains("may only mutate the step target artifacts")
+        );
+        assert_eq!(fs::read_to_string(root.join("NOTES.md")).unwrap(), "note");
+    }
+
+    #[test]
+    fn edit_policy_blocks_missing_edit_target() {
+        let root = temp_workspace("edit-policy-missing");
+        let guard = PathGuard::new(&root).unwrap();
+        let executor = ToolExecutor::new(
+            &guard,
+            DependencySetupPolicy::default(),
+            StepToolPolicy::EditExistingArtifactOnly,
+            Vec::new(),
+        );
+
+        let err = executor
+            .execute(&call(
+                "Edit",
+                json!({"path":"README.md","old":"hello","new":"hi"}),
+            ))
+            .unwrap_err();
+
+        assert!(err.to_string().contains("tool_policy_violation"));
+        assert!(err.to_string().contains("Edit target does not exist"));
+        assert!(!root.join("README.md").exists());
+    }
+
+    #[test]
+    fn edit_policy_blocks_write() {
+        let root = temp_workspace("edit-policy-write");
+        fs::write(root.join("README.md"), "hello").unwrap();
+        let guard = PathGuard::new(&root).unwrap();
+        let executor = ToolExecutor::new(
+            &guard,
+            DependencySetupPolicy::default(),
+            StepToolPolicy::EditExistingArtifactOnly,
+            Vec::new(),
+        );
+
+        let err = executor
+            .execute(&call(
+                "Write",
+                json!({"path":"README.md","content":"replace"}),
+            ))
+            .unwrap_err();
+
+        assert!(err.to_string().contains("tool_policy_violation"));
+        assert!(
+            err.to_string()
+                .contains("Write is not allowed in an edit step")
+        );
+        assert_eq!(fs::read_to_string(root.join("README.md")).unwrap(), "hello");
+    }
+
+    #[test]
+    fn create_policy_allows_read_only_bash_but_blocks_build_test_bash() {
+        let root = temp_workspace("create-readonly-bash");
+        fs::write(root.join("README.md"), "hello\n").unwrap();
+        let guard = PathGuard::new(&root).unwrap();
+        let executor = ToolExecutor::new(
+            &guard,
+            DependencySetupPolicy::default(),
+            StepToolPolicy::CreateMissingArtifactOnly,
+            Vec::new(),
+        );
+
+        executor
+            .execute(&call("Bash", json!({"command":"cat README.md"})))
+            .unwrap();
+        let err = executor
+            .execute(&call("Bash", json!({"command":"cargo test"})))
+            .unwrap_err();
+
+        assert!(err.to_string().contains("tool_policy_violation"));
+        assert!(
+            err.to_string()
+                .contains("Bash command is not read-only for this step")
+        );
+    }
+
+    #[test]
+    fn edit_policy_blocks_build_test_bash() {
+        let root = temp_workspace("edit-block-build-bash");
+        fs::write(root.join("README.md"), "hello\n").unwrap();
+        let guard = PathGuard::new(&root).unwrap();
+        let executor = ToolExecutor::new(
+            &guard,
+            DependencySetupPolicy::default(),
+            StepToolPolicy::EditExistingArtifactOnly,
+            Vec::new(),
+        );
+
+        let err = executor
+            .execute(&call("Bash", json!({"command":"npm run build"})))
+            .unwrap_err();
+
+        assert!(err.to_string().contains("tool_policy_violation"));
+        assert!(
+            err.to_string()
+                .contains("Bash command is not read-only for this step")
+        );
+    }
+
+    #[test]
+    fn file_mutation_repair_policy_blocks_build_test_bash() {
+        let root = temp_workspace("repair-block-build-bash");
+        fs::write(root.join("README.md"), "hello\n").unwrap();
+        let guard = PathGuard::new(&root).unwrap();
+        let executor = ToolExecutor::new(
+            &guard,
+            DependencySetupPolicy::default(),
+            StepToolPolicy::FileMutationWithReadOnlyBash,
+            Vec::new(),
+        );
+
+        executor
+            .execute(&call("Bash", json!({"command":"cat README.md"})))
+            .unwrap();
+        let err = executor
+            .execute(&call("Bash", json!({"command":"cargo test"})))
+            .unwrap_err();
+
+        assert!(err.to_string().contains("tool_policy_violation"));
+        assert!(
+            err.to_string()
+                .contains("Bash command is not read-only for this step")
+        );
     }
 
     #[test]

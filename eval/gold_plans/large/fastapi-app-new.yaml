@@ -1,0 +1,37 @@
+goal: "Create a FastAPI service with health, items CRUD routes, tests, and local run instructions."
+profile: "python"
+style: "default"
+intent: "new"
+required_artifacts:
+  - app/main.py
+  - tests/test_app.py
+  - requirements.txt
+steps:
+  - id: create-requirements
+    kind: create
+    instruction: "Use Write directly to create requirements.txt with fastapi, uvicorn, pytest, and httpx so the FastAPI app and tests have explicit local dependencies. Do not call Bash in this create step."
+    expected_result: pass
+    expected_paths:
+      - requirements.txt
+    verify: []
+  - id: create-fastapi-app
+    kind: create
+    instruction: "Use Write directly to create app/main.py with a FastAPI app, /health route, and in-memory items CRUD routes for listing, creating, reading, updating, and deleting items. Do not call Bash in this create step."
+    expected_result: pass
+    expected_paths:
+      - app/main.py
+    verify: []
+  - id: create-fastapi-tests
+    kind: create
+    instruction: "Use Write directly to create tests/test_app.py with pytest tests using FastAPI TestClient for /health and the items CRUD behavior. Do not call Bash in this create step."
+    expected_result: pass
+    expected_paths:
+      - tests/test_app.py
+    verify: []
+  - id: verify-fastapi
+    kind: verify
+    instruction: "Run the FastAPI test suite."
+    expected_result: pass
+    expected_paths: []
+    verify:
+      - python3 -m pytest

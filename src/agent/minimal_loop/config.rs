@@ -29,6 +29,9 @@ pub enum StepToolPolicy {
     ReadOnly,
     NoMutation,
     FileMutationAllowed,
+    FileMutationWithReadOnlyBash,
+    CreateMissingArtifactOnly,
+    EditExistingArtifactOnly,
     SetupMutationOnly,
 }
 
@@ -38,6 +41,7 @@ pub struct MinimalLoopConfig {
     pub max_iterations: usize,
     pub initial_tool_call_mode: ToolCallMode,
     pub expected_artifacts: Vec<String>,
+    pub initial_missing_artifacts: Vec<String>,
     pub dependency_setup_policy: DependencySetupPolicy,
     pub action_requirement: ActionRequirement,
     pub step_tool_policy: StepToolPolicy,
@@ -54,6 +58,7 @@ impl Default for MinimalLoopConfig {
             max_iterations: 8,
             initial_tool_call_mode: ToolCallMode::Native,
             expected_artifacts: Vec::new(),
+            initial_missing_artifacts: Vec::new(),
             dependency_setup_policy: DependencySetupPolicy::default(),
             action_requirement: ActionRequirement::Optional,
             step_tool_policy: StepToolPolicy::FileMutationAllowed,

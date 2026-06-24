@@ -75,6 +75,7 @@ impl<'a> BashTool<'a> {
         if !decision.allowed {
             return Err(ToolError::BashBlocked {
                 class: decision.class,
+                command: bounded_command(command),
                 message: decision
                     .message
                     .unwrap_or_else(|| "command blocked".to_string()),
@@ -97,6 +98,15 @@ impl<'a> BashTool<'a> {
             stderr: String::from_utf8_lossy(&output.stderr).to_string(),
         })
     }
+}
+
+fn bounded_command(command: &str) -> String {
+    let compact = command.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut out = compact.chars().take(240).collect::<String>();
+    if compact.chars().count() > 240 {
+        out.push_str("...");
+    }
+    out
 }
 
 pub fn enforce_offline_policy(command: &str, cwd: &Path) -> PolicyDecision {

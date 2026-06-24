@@ -16,6 +16,7 @@ fixture_fields:
   recovery_owner: route_integration
   loop_control_action: run_bounded_repair_task
   dispatch_status: selected
+  recovery_task_started: true
   dispatch_reason: profile_route_integration_failure
   candidate_jobs: route_integration_repair|manifest_repair|source_implementation_repair|scaffold_materialization
   target_path: app/page.tsx
@@ -27,6 +28,7 @@ expected_active_job: route_integration_repair
 expected_recovery_owner: route_integration
 expected_loop_control_action: run_bounded_repair_task
 expected_dispatch_status: selected
+expected_recovery_task_started: true
 expected_repair_action: connect_existing_artifact_to_entrypoint
 expected_tool_policy: file_mutation_repair
 expected_target_path: app/page.tsx

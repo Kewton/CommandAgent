@@ -46,6 +46,7 @@ EXPECTED_FIELD_NAMES = [
     "expected_success_check",
     "expected_repair_plan_rejection_reason",
     "expected_tool_policy",
+    "expected_recovery_task_started",
     "expected_target_role",
     "expected_target_path",
     "expected_selected_target",
@@ -139,6 +140,7 @@ EXPECTED_FIELD_NAMES = [
     "expected_deliverable_obligation_path",
     "expected_deliverable_obligation",
     "expected_attempt_outcome",
+    "expected_attempt_outcome_source",
     "expected_verifier_rerun_result",
     "expected_no_progress_strategy",
     "expected_repair_state_status",
@@ -182,8 +184,12 @@ EXPECTED_FIELD_NAMES = [
     "expected_effective_tool_policy_status",
     "expected_tool_failure_recovery_status",
     "expected_setup_command_classification",
+    "expected_failed_tool",
+    "expected_blocked_command",
+    "expected_command_class",
     "expected_command_authority",
     "expected_command_classification_reason",
+    "expected_first_actionable_divergence",
     "expected_workspace_candidate_status",
     "expected_workspace_ignored_dir_policy",
     "expected_workspace_candidate_ignored_reasons",
@@ -205,6 +211,7 @@ ASSERTION_FIELD_NAMES = [
 MATRIX_FIELD_NAMES = [
     "matrix_row",
     "proof_mode",
+    "component",
 ]
 
 CASE_METADATA_KEYS = {
@@ -216,8 +223,11 @@ CASE_METADATA_KEYS = {
     "prompt",
     "mode",
     "fixture",
+    "gold_plan_fixture",
+    "evaluation_purpose",
     "matrix_row",
     "proof_mode",
+    "component",
     "fixture_reason",
     "fixture_success",
     "fixture_rc",
@@ -231,6 +241,13 @@ PROOF_MODES = {
     "report_fixture",
 }
 
+EVALUATION_PURPOSES = {
+    "task_success",
+    "expected_failure_classification",
+    "contract_fixture",
+    "provider_smoke",
+}
+
 
 def iter_case_paths(cases_dir: str | Path) -> list[Path]:
     return sorted(Path(cases_dir).rglob("*.yaml"))
@@ -242,8 +259,11 @@ def read_eval_case(path: str | Path) -> dict:
         "verify": [],
         "mode": "plan-run",
         "fixture": None,
+        "gold_plan_fixture": "",
+        "evaluation_purpose": "task_success",
         "matrix_row": "",
         "proof_mode": "real_llm",
+        "component": "",
         "fixture_fields": {},
         "success_check": {
             "required_paths": [],
@@ -323,12 +343,41 @@ def read_eval_case(path: str | Path) -> dict:
     for required in ["id", "profile", "style", "prompt"]:
         if required not in data:
             raise SystemExit(f"{path}: missing required field {required}")
-    if data["mode"] not in {"plan-run", "ultra-plan-run"}:
+    if data["mode"] not in {
+        "minimal",
+        "plan-only",
+        "ultra-plan-only",
+        "plan-run",
+        "ultra-plan-run",
+        "run-plan",
+    }:
         raise SystemExit(f"{path}: unsupported mode {data['mode']}")
+    if data["mode"] == "run-plan" and not data["gold_plan_fixture"]:
+        raise SystemExit(f"{path}: run-plan cases require gold_plan_fixture")
     if not data["matrix_row"]:
         data["matrix_row"] = data["id"]
+    if not data["component"]:
+        normalized_path = Path(path).as_posix()
+        if "/focused/control-recovery/planning/" in normalized_path:
+            data["component"] = "planner"
+        elif "/focused/control-recovery/" in normalized_path:
+            data["component"] = "recovery"
+        elif data["mode"] == "minimal":
+            data["component"] = "minimal_loop"
+        elif data["mode"] in {"plan-only", "ultra-plan-only"}:
+            data["component"] = "planner"
+        elif data["mode"] == "run-plan":
+            data["component"] = "worker"
+        elif data["mode"] == "ultra-plan-run":
+            data["component"] = "full_agent_ultra"
+        else:
+            data["component"] = "full_agent_plan"
     if data["proof_mode"] not in PROOF_MODES:
         raise SystemExit(f"{path}: unsupported proof_mode {data['proof_mode']}")
+    if data["evaluation_purpose"] not in EVALUATION_PURPOSES:
+        raise SystemExit(
+            f"{path}: unsupported evaluation_purpose {data['evaluation_purpose']}"
+        )
     return data
 
 

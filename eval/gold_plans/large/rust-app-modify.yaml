@@ -1,0 +1,35 @@
+goal: "Refactor an existing Rust CLI into modules, add error handling, and keep cargo test passing."
+profile: "rust"
+style: "default"
+intent: "modify"
+required_artifacts:
+  - src/main.rs
+  - src/lib.rs
+steps:
+  - id: inspect-rust-cli
+    kind: inspect
+    instruction: "Inspect Cargo.toml and src/main.rs before refactoring the existing Rust CLI."
+    expected_result: pass
+    expected_paths: []
+    verify: []
+  - id: create-rust-lib-module
+    kind: create
+    instruction: "Use Write directly to create src/lib.rs with public CLI logic, argument handling, clear error types or messages, and unit tests. Do not call Bash in this create step."
+    expected_result: pass
+    expected_paths:
+      - src/lib.rs
+    verify: []
+  - id: repair-rust-main
+    kind: repair
+    instruction: "Update src/main.rs to delegate to src/lib.rs and preserve a small fn main that reports errors cleanly. Use Write for a coherent full-file replacement if exact Edit text is uncertain. Do not call Bash in this repair step."
+    expected_result: pass
+    expected_paths:
+      - src/main.rs
+    verify: []
+  - id: verify-rust-refactor
+    kind: verify
+    instruction: "Run the Rust test suite."
+    expected_result: pass
+    expected_paths: []
+    verify:
+      - cargo test

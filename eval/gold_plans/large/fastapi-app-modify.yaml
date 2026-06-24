@@ -1,0 +1,35 @@
+goal: "Add request validation, error handling, and tests to an existing FastAPI service."
+profile: "python"
+style: "default"
+intent: "modify"
+required_artifacts:
+  - app/main.py
+  - tests/test_app.py
+steps:
+  - id: inspect-existing-fastapi
+    kind: inspect
+    instruction: "Inspect app/main.py and requirements.txt before editing the existing FastAPI service."
+    expected_result: pass
+    expected_paths: []
+    verify: []
+  - id: repair-fastapi-validation
+    kind: repair
+    instruction: "Update app/main.py to add request validation with pydantic models, consistent HTTPException error handling, and validated item create/update behavior while preserving /health. Use Write for a coherent full-file replacement if exact Edit text is uncertain. Do not call Bash in this repair step."
+    expected_result: pass
+    expected_paths:
+      - app/main.py
+    verify: []
+  - id: create-fastapi-modify-tests
+    kind: create
+    instruction: "Use Write directly to create tests/test_app.py with pytest tests covering health, successful item requests, validation errors, and not-found error handling. Do not call Bash in this create step."
+    expected_result: pass
+    expected_paths:
+      - tests/test_app.py
+    verify: []
+  - id: verify-fastapi-modify
+    kind: verify
+    instruction: "Run the FastAPI test suite."
+    expected_result: pass
+    expected_paths: []
+    verify:
+      - python3 -m pytest

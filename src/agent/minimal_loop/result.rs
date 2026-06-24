@@ -28,6 +28,7 @@ pub enum MinimalLoopError {
     FinalAnswerContract(String),
     ActionRequiredNoEvidence(String),
     MissingArtifacts(Vec<String>),
+    ProgressBudgetExhausted(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -140,6 +141,9 @@ impl std::fmt::Display for MinimalLoopError {
             }
             Self::MissingArtifacts(paths) => {
                 write!(f, "missing expected artifacts: {}", paths.join(", "))
+            }
+            Self::ProgressBudgetExhausted(message) => {
+                write!(f, "minimal loop progress budget exhausted: {}", message)
             }
         }
     }

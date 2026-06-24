@@ -14,6 +14,10 @@ CommandAgent is still in MVP migration.
   fallback, and missing large-case owner/action/target/evidence fields. It does
   not run CommandAgent, change runtime policy, retry cases, or prove visual/UI
   quality.
+- Gold Plan large cases now exist to separate planner quality from
+  worker/tool-interface behavior. They bypass plan generation with checked-in
+  `/run-plan` inputs, but they still depend on the local model to execute the
+  steps correctly and on local toolchains/dependencies for the verifier.
 - Eval timeouts are now recorded as `provider_transport:eval_timeout` rows so
   broad runs can leave a root and report instead of crashing the harness. A
   timeout row is a blocker/evidence boundary, not a successful local LLM
@@ -99,8 +103,9 @@ CommandAgent is still in MVP migration.
 - Active-job dispatch now records `loop_control_action`, `dispatch_status`,
   `dispatch_reason`, candidate jobs, and tie-break stops. This improves
   attribution when multiple recovery owners are possible, but it is still a
-  bounded contract gate; it does not run another executor or retry different
-  owners until one passes.
+  bounded contract gate. Only safe single-target profile verification failures
+  may start one create/edit-constrained minimal-loop repair before rerunning
+  the same profile check; it does not retry different owners until one passes.
 - Target admission and repair briefs now record proposed, admitted, and
   rejected targets, selected failure cluster, repair brief status, and action
   envelope status before ordinary repair prompt rendering. This reduces

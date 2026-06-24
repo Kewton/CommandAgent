@@ -535,9 +535,21 @@ def disposition_evidence(raw: dict[str, Any], diagnostic_code: str) -> str:
     command = clean(raw.get("affected_cases") or raw.get("success_check"))
     if command:
         fields["verifier"] = command
-    failed_tool = clean(raw.get("tool_protocol_failed_tool"))
+    failed_tool = clean(raw.get("failed_tool") or raw.get("tool_protocol_failed_tool"))
     if failed_tool:
         fields["failed_tool"] = failed_tool
+    blocked_command = clean(raw.get("blocked_command"))
+    if blocked_command:
+        fields["blocked_command"] = blocked_command
+    command_class = clean(raw.get("command_class"))
+    if command_class:
+        fields["command_class"] = command_class
+    classification_reason = clean(raw.get("command_classification_reason"))
+    if classification_reason:
+        fields["command_reason"] = classification_reason
+    first_divergence = clean(raw.get("first_actionable_divergence"))
+    if first_divergence:
+        fields["first_divergence"] = first_divergence
     missing_field = clean(raw.get("tool_protocol_missing_field"))
     if missing_field:
         fields["missing_field"] = missing_field

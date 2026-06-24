@@ -530,7 +530,7 @@ mod tests {
     #[test]
     fn plan_run_accepts_completed_step_after_blocked_bash() {
         let root = temp_workspace("plan-run-blocked-bash-completed");
-        let plan_yaml = "goal: \"Create docs\"\nprofile: \"docs\"\nstyle: \"default\"\nsteps:\n  - id: \"write-readme\"\n    kind: \"create\"\n    instruction: \"Create README.md with a Usage section.\"\n    expected_paths:\n      - \"README.md\"\n    verify:\n      - \"grep -q Usage README.md\"\n";
+        let plan_yaml = "goal: \"Create script\"\nprofile: \"python\"\nstyle: \"default\"\nsteps:\n  - id: \"write-script\"\n    kind: \"create\"\n    instruction: \"Create scripts/check.py.\"\n    expected_paths:\n      - \"scripts/check.py\"\n    verify:\n      - \"python3 scripts/check.py\"\n";
         let mut planner = MockClient::new(vec![ChatResponse {
             content: plan_yaml.to_string(),
             tool_calls: Vec::new(),
@@ -543,26 +543,25 @@ mod tests {
                     id: None,
                     thought_signature: None,
                     name: "Write".to_string(),
-                    args_json:
-                        r##"{"path":"README.md","content":"# Demo\n\n## Usage\nRun it.\n"}"##
-                            .to_string(),
+                    args_json: r##"{"path":"scripts/check.py","content":"print(\"ok\")\n"}"##
+                        .to_string(),
                 },
                 ToolCall {
                     id: None,
                     thought_signature: None,
                     name: "Bash".to_string(),
-                    args_json: r#"{"command":"cat README.md && true"}"#.to_string(),
+                    args_json: r#"{"command":"python3 scripts/check.py"}"#.to_string(),
                 },
             ],
             usage: Default::default(),
         }]);
         let command = SlashCommand {
             kind: SlashCommandKind::PlanRun,
-            profile: Some("docs".to_string()),
+            profile: Some("python".to_string()),
             style: None,
-            intent: Some("document".to_string()),
+            intent: Some("new".to_string()),
             artifacts: Vec::new(),
-            argument: "Create docs".to_string(),
+            argument: "Create script".to_string(),
         };
 
         let output = SlashRuntime {
@@ -578,11 +577,11 @@ mod tests {
         .run(command)
         .unwrap();
 
-        assert!(output.contains("step write-readme: ok"), "{output}");
+        assert!(output.contains("step write-script: ok"), "{output}");
         assert!(
-            fs::read_to_string(root.join("README.md"))
+            fs::read_to_string(root.join("scripts/check.py"))
                 .unwrap()
-                .contains("## Usage")
+                .contains("print")
         );
     }
 
@@ -950,7 +949,7 @@ mod tests {
             source_excerpt: None,
         }];
 
-        let mut observer = NoopRuntimeObserver;
+        let mut observer = CaptureObserver::default();
         let contract_seed = phase_contract::ActiveStepContract::empty("docs");
         SlashRuntime {
             executor: &mut executor,
@@ -996,6 +995,41 @@ mod tests {
         assert_eq!(
             fs::read_to_string(root.join("README.md")).unwrap(),
             "guarded"
+        );
+        let recovery_events = observer
+            .events()
+            .iter()
+            .filter_map(|event| match event {
+                RuntimeEvent::RecoveryTaskStarted {
+                    step_id,
+                    active_job,
+                    dispatch_status,
+                    execution_envelope,
+                    target_path,
+                    ..
+                } => Some((
+                    step_id.clone(),
+                    active_job.clone(),
+                    dispatch_status.clone(),
+                    execution_envelope.clone(),
+                    target_path.clone(),
+                )),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            recovery_events.iter().any(|event| {
+                matches!(
+                    event,
+                    (step_id, active_job, dispatch_status, execution_envelope, target_path)
+                    if step_id == "write-readme"
+                    && active_job == "documentation_repair"
+                        && dispatch_status == "selected"
+                        && execution_envelope.as_deref() == Some("file_mutation_repair")
+                        && target_path.as_deref() == Some("README.md")
+                )
+            }),
+            "{recovery_events:#?}"
         );
         let guard_prompt_count = executor
             .prompts
@@ -1611,8 +1645,8 @@ mod tests {
     fn ultra_phase_step_plan_uses_profile_obligations_during_correction() {
         let root = temp_workspace("ultra-profile-obligation-correction");
         let ultra_yaml = "goal: \"Create Next.js app on port 3011\"\nprofile: \"nextjs\"\nstyle: \"default\"\nintent: \"new\"\nphases:\n  - id: \"scaffold\"\n    goal: \"Create app files.\"\n";
-        let invalid_plan = "goal: \"Create app files.\"\nprofile: \"nextjs\"\nstyle: \"default\"\nsteps:\n  - id: \"create-app\"\n    kind: \"create\"\n    instruction: \"Create package.json with scripts.build as next build, dependencies next, react, and react-dom with React 18.2 compatibility plus typescript 5.x compatibility and @types/react 18.x compatibility, plus app/page.tsx.\"\n    expected_paths:\n      - \"package.json\"\n      - \"app/page.tsx\"\n    verify:\n      - \"test -f package.json\"\n      - \"test -f app/page.tsx\"\n";
-        let corrected_plan = "goal: \"Create app files.\"\nprofile: \"nextjs\"\nstyle: \"default\"\nsteps:\n  - id: \"create-app\"\n    kind: \"create\"\n    instruction: \"Create package.json with scripts.dev as next dev -p 3011, scripts.build as next build, dependencies next, react, and react-dom with React 18.2 compatibility plus typescript 5.x compatibility and @types/react 18.x compatibility, plus app/page.tsx.\"\n    expected_paths:\n      - \"package.json\"\n      - \"app/page.tsx\"\n    verify:\n      - \"test -f package.json\"\n      - \"test -f app/page.tsx\"\n";
+        let invalid_plan = "goal: \"Create app files.\"\nprofile: \"nextjs\"\nstyle: \"default\"\nsteps:\n  - id: \"create-package\"\n    kind: \"create\"\n    instruction: \"Create package.json with scripts.build as next build, dependencies next, react, and react-dom with React 18.2 compatibility plus typescript 5.x compatibility and @types/react 18.x compatibility.\"\n    expected_paths:\n      - \"package.json\"\n    verify:\n      - \"test -f package.json\"\n  - id: \"create-page\"\n    kind: \"create\"\n    instruction: \"Create app/page.tsx.\"\n    expected_paths:\n      - \"app/page.tsx\"\n    verify:\n      - \"test -f app/page.tsx\"\n";
+        let corrected_plan = "goal: \"Create app files.\"\nprofile: \"nextjs\"\nstyle: \"default\"\nsteps:\n  - id: \"create-package\"\n    kind: \"create\"\n    instruction: \"Create package.json with scripts.dev as next dev -p 3011, scripts.build as next build, dependencies next, react, and react-dom with React 18.2 compatibility plus typescript 5.x compatibility and @types/react 18.x compatibility.\"\n    expected_paths:\n      - \"package.json\"\n    verify:\n      - \"test -f package.json\"\n  - id: \"create-page\"\n    kind: \"create\"\n    instruction: \"Create app/page.tsx.\"\n    expected_paths:\n      - \"app/page.tsx\"\n    verify:\n      - \"test -f app/page.tsx\"\n";
         let mut planner = MockClient::new(vec![
             ChatResponse {
                 content: ultra_yaml.to_string(),
@@ -1636,24 +1670,31 @@ mod tests {
         let mut executor = MockClient::new(vec![
             ChatResponse {
                 content: String::new(),
-                tool_calls: vec![
-                    ToolCall {
-                        id: None,
-                        thought_signature: None,
-                        name: "Write".to_string(),
-                        args_json: r#"{"path":"package.json","content":"{\"scripts\":{\"dev\":\"next dev -p 3011\",\"build\":\"next build\"},\"dependencies\":{\"next\":\"latest\",\"react\":\"latest\",\"react-dom\":\"latest\"}}"}"#.to_string(),
-                    },
-                    ToolCall {
-                        id: None,
-                        thought_signature: None,
-                        name: "Write".to_string(),
-                        args_json: r#"{"path":"app/page.tsx","content":"export default function Page() { return null }"}"#.to_string(),
-                    },
-                ],
+                tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
+                    name: "Write".to_string(),
+                    args_json: r#"{"path":"package.json","content":"{\"scripts\":{\"dev\":\"next dev -p 3011\",\"build\":\"next build\"},\"dependencies\":{\"next\":\"latest\",\"react\":\"latest\",\"react-dom\":\"latest\"}}"}"#.to_string(),
+                }],
 
                 usage: Default::default(),},
             ChatResponse {
-                content: "Created app files.".to_string(),
+                content: "Created package.json.".to_string(),
+                tool_calls: Vec::new(),
+
+                usage: Default::default(),},
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
+                    name: "Write".to_string(),
+                    args_json: r#"{"path":"app/page.tsx","content":"export default function Page() { return null }"}"#.to_string(),
+                }],
+
+                usage: Default::default(),},
+            ChatResponse {
+                content: "Created app/page.tsx.".to_string(),
                 tool_calls: Vec::new(),
 
                 usage: Default::default(),},
@@ -1843,7 +1884,7 @@ mod tests {
     fn ultra_plan_fails_phase_on_nextjs_profile_verification() {
         let root = temp_workspace("ultra-nextjs-profile-failure");
         let ultra_yaml = "goal: \"Create Next.js app on port 3011\"\nprofile: \"nextjs\"\nstyle: \"default\"\nintent: \"new\"\nphases:\n  - id: \"scaffold\"\n    goal: \"Create app files.\"\n";
-        let scaffold_plan = "goal: \"Create app files.\"\nprofile: \"nextjs\"\nstyle: \"default\"\nsteps:\n  - id: \"create-app\"\n    kind: \"create\"\n    instruction: \"Create package.json with scripts.dev as next dev -p 3011, scripts.build as next build, dependencies next, react, and react-dom with React 18.2 compatibility plus typescript 5.x compatibility and @types/react 18.x compatibility, plus app/page.tsx.\"\n    expected_paths:\n      - \"package.json\"\n      - \"app/page.tsx\"\n    verify:\n      - \"test -f package.json\"\n      - \"test -f app/page.tsx\"\n";
+        let scaffold_plan = "goal: \"Create app files.\"\nprofile: \"nextjs\"\nstyle: \"default\"\nsteps:\n  - id: \"create-package\"\n    kind: \"create\"\n    instruction: \"Create package.json with scripts.dev as next dev -p 3011, scripts.build as next build, dependencies next, react, and react-dom with React 18.2 compatibility plus typescript 5.x compatibility and @types/react 18.x compatibility.\"\n    expected_paths:\n      - \"package.json\"\n    verify:\n      - \"test -f package.json\"\n  - id: \"create-page\"\n    kind: \"create\"\n    instruction: \"Create app/page.tsx.\"\n    expected_paths:\n      - \"app/page.tsx\"\n    verify:\n      - \"test -f app/page.tsx\"\n";
         let mut planner = MockClient::new(vec![
             ChatResponse {
                 content: ultra_yaml.to_string(),
@@ -1861,24 +1902,31 @@ mod tests {
         let mut executor = MockClient::new(vec![
             ChatResponse {
                 content: String::new(),
-                tool_calls: vec![
-                    ToolCall {
-                        id: None,
-                        thought_signature: None,
-                        name: "Write".to_string(),
-                        args_json: r#"{"path":"package.json","content":"{\"scripts\":{\"dev\":\"next dev\",\"build\":\"next build\"},\"dependencies\":{\"next\":\"latest\",\"react\":\"latest\",\"react-dom\":\"latest\"}}"}"#.to_string(),
-                    },
-                    ToolCall {
-                        id: None,
-                        thought_signature: None,
-                        name: "Write".to_string(),
-                        args_json: r#"{"path":"app/page.tsx","content":"export default function Page() { return null }"}"#.to_string(),
-                    },
-                ],
+                tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
+                    name: "Write".to_string(),
+                    args_json: r#"{"path":"package.json","content":"{\"scripts\":{\"dev\":\"next dev\",\"build\":\"next build\"},\"dependencies\":{\"next\":\"latest\",\"react\":\"latest\",\"react-dom\":\"latest\"}}"}"#.to_string(),
+                }],
 
                 usage: Default::default(),},
             ChatResponse {
-                content: "Created app files.".to_string(),
+                content: "Created package.json.".to_string(),
+                tool_calls: Vec::new(),
+
+                usage: Default::default(),},
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
+                    name: "Write".to_string(),
+                    args_json: r#"{"path":"app/page.tsx","content":"export default function Page() { return null }"}"#.to_string(),
+                }],
+
+                usage: Default::default(),},
+            ChatResponse {
+                content: "Created app/page.tsx.".to_string(),
                 tool_calls: Vec::new(),
 
                 usage: Default::default(),},
@@ -1942,6 +1990,151 @@ mod tests {
             event,
             RuntimeEvent::ProfileVerificationFailed { profile, failures }
                 if profile == "nextjs" && failures.iter().any(|failure| failure.contains("nextjs_dev_port_drift"))
+        )));
+    }
+
+    #[test]
+    fn ultra_plan_auto_repairs_single_profile_verification_target_once() {
+        let root = temp_workspace("ultra-nextjs-profile-auto-repair");
+        let ultra_yaml = "goal: \"Create Next.js app on port 3011\"\nprofile: \"nextjs\"\nstyle: \"default\"\nintent: \"new\"\nphases:\n  - id: \"scaffold\"\n    goal: \"Create app files.\"\n";
+        let scaffold_plan = "goal: \"Create app files.\"\nprofile: \"nextjs\"\nstyle: \"default\"\nsteps:\n  - id: \"create-package\"\n    kind: \"create\"\n    instruction: \"Create package.json with scripts.dev as next dev, scripts.build as next build, stable Next.js 14, React 18, TypeScript 5.x, and @types/react 18.x dependencies.\"\n    expected_paths:\n      - \"package.json\"\n    verify:\n      - \"test -f package.json\"\n  - id: \"create-page\"\n    kind: \"create\"\n    instruction: \"Create app/page.tsx.\"\n    expected_paths:\n      - \"app/page.tsx\"\n    verify:\n      - \"test -f app/page.tsx\"\n  - id: \"create-layout\"\n    kind: \"create\"\n    instruction: \"Create app/layout.tsx.\"\n    expected_paths:\n      - \"app/layout.tsx\"\n    verify:\n      - \"test -f app/layout.tsx\"\n";
+        let package_before = r#"{"scripts":{"dev":"next dev","build":"next build"},"dependencies":{"next":"^14.2.0","react":"^18.2.0","react-dom":"^18.2.0"},"devDependencies":{"typescript":"^5.4.0","@types/react":"^18.2.0"}}"#;
+        let package_after = r#"{"scripts":{"dev":"next dev -p 3011","build":"next build"},"dependencies":{"next":"^14.2.0","react":"^18.2.0","react-dom":"^18.2.0"},"devDependencies":{"typescript":"^5.4.0","@types/react":"^18.2.0"}}"#;
+        let mut planner = MockClient::new(vec![
+            ChatResponse {
+                content: ultra_yaml.to_string(),
+                tool_calls: Vec::new(),
+                usage: Default::default(),
+            },
+            ChatResponse {
+                content: scaffold_plan.to_string(),
+                tool_calls: Vec::new(),
+                usage: Default::default(),
+            },
+        ]);
+        let mut executor = MockClient::new(vec![
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
+                    name: "Write".to_string(),
+                    args_json: format!(
+                        r#"{{"path":"package.json","content":{}}}"#,
+                        serde_json::to_string(package_before).unwrap()
+                    ),
+                }],
+                usage: Default::default(),
+            },
+            ChatResponse {
+                content: "Created package.json.".to_string(),
+                tool_calls: Vec::new(),
+                usage: Default::default(),
+            },
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
+                    name: "Write".to_string(),
+                    args_json: r#"{"path":"app/page.tsx","content":"export default function Page() { return <main>ok</main>; }\n"}"#.to_string(),
+                }],
+                usage: Default::default(),
+            },
+            ChatResponse {
+                content: "Created page.".to_string(),
+                tool_calls: Vec::new(),
+                usage: Default::default(),
+            },
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
+                    name: "Write".to_string(),
+                    args_json: r#"{"path":"app/layout.tsx","content":"import type { ReactNode } from \"react\";\n\nexport default function RootLayout({ children }: { children: ReactNode }) {\n  return <html lang=\"en\"><body>{children}</body></html>;\n}\n"}"#.to_string(),
+                }],
+                usage: Default::default(),
+            },
+            ChatResponse {
+                content: "Created layout.".to_string(),
+                tool_calls: Vec::new(),
+                usage: Default::default(),
+            },
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
+                    name: "Read".to_string(),
+                    args_json: r#"{"path":"package.json"}"#.to_string(),
+                }],
+                usage: Default::default(),
+            },
+            ChatResponse {
+                content: String::new(),
+                tool_calls: vec![ToolCall {
+                    id: None,
+                    thought_signature: None,
+                    name: "Edit".to_string(),
+                    args_json: r#"{"path":"package.json","old":"\"dev\":\"next dev\"","new":"\"dev\":\"next dev -p 3011\""}"#.to_string(),
+                }],
+                usage: Default::default(),
+            },
+            ChatResponse {
+                content: "Updated package.json.".to_string(),
+                tool_calls: Vec::new(),
+                usage: Default::default(),
+            },
+        ]);
+        let command = SlashCommand {
+            kind: SlashCommandKind::UltraPlanRun,
+            profile: Some("nextjs".to_string()),
+            style: None,
+            intent: Some("new".to_string()),
+            artifacts: Vec::new(),
+            argument: "Create Next.js app on port 3011".to_string(),
+        };
+
+        let mut observer = CaptureObserver::default();
+        let output = SlashRuntime {
+            executor: &mut executor,
+            planner: &mut planner,
+            cwd: &root,
+            loop_config: MinimalLoopConfig::default(),
+            planner_config: PlannerRuntimeConfig {
+                model: "planner".to_string(),
+                tool_call_mode: ToolCallMode::XmlFallback,
+            },
+        }
+        .run_with_observer(command, &mut observer)
+        .unwrap();
+
+        assert!(output.contains("phase scaffold: ok"), "{output}");
+        assert_eq!(
+            fs::read_to_string(root.join("package.json")).unwrap(),
+            package_after
+        );
+        assert!(!root.join(".commandagent/repairs").exists());
+        assert!(observer.events().iter().any(|event| matches!(
+            event,
+            RuntimeEvent::ProfileVerificationFailed { profile, failures }
+                if profile == "nextjs" && failures.iter().any(|failure| failure.contains("nextjs_dev_port_drift"))
+        )));
+        assert!(observer.events().iter().any(|event| matches!(
+            event,
+            RuntimeEvent::RecoveryTaskStarted {
+                step_id,
+                active_job,
+                dispatch_status,
+                execution_envelope,
+                target_path,
+                ..
+            } if step_id == "scaffold"
+                && active_job == "profile_contract_repair"
+                && dispatch_status == "selected"
+                && execution_envelope.as_deref() == Some("file_mutation_repair")
+                && target_path.as_deref() == Some("package.json")
         )));
     }
 

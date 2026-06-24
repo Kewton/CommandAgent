@@ -95,6 +95,7 @@ Rules:\n\
 - For source-code behavior, use build/test/check commands appropriate to the active profile and profile guidance. Use grep -q only for literal documentation, data, or content requirements, not source-code semantics.\n\
 - If no file path is expected for a step, use an empty list.\n\
 - required_artifacts are final user-requested outputs and must be preserved exactly.\n\
+- In modify plans, existing package/dependency manifests such as package.json, Cargo.toml, pyproject.toml, requirements*.txt, and lockfiles are preserve-by-default. Do not include them in mutation expected_paths unless the step is a dedicated setup/manifest repair and its instruction includes one reason code: dependency_required_by_import, dependency_missing_from_verifier, user_requested_dependency_change, profile_contract_repair, or script_contract_repair.\n\
 - setup prepares local dependencies or configuration; verify runs deterministic checks and must not change files.\n\
 - report steps explicitly report blockers such as dependency_missing or verifier_unavailable and should use verify: [].\n\
 - Do not use true as a verifier; use an empty verify list for report-only steps.\n\

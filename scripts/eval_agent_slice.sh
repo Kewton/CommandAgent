@@ -5,6 +5,7 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 python3 - "$repo_root" "$@" <<'PY'
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -33,6 +34,24 @@ from eval_case_schema import (  # noqa: E402
 from eval_runtime_job_report import (  # noqa: E402
     RUNTIME_JOB_REPORT_FIELD_NAMES,
     build_runtime_job_report,
+)
+from eval_trace import (  # noqa: E402
+    PLAN_QUALITY_FIELD_NAMES,
+    TRACE_FIELD_NAMES,
+    artifact_changes,
+    build_provenance,
+    causal_summary,
+    copy_cases_snapshot,
+    copy_workspace_snapshot,
+    empty_plan_quality,
+    file_snapshot,
+    plan_quality_from_workspace,
+    read_jsonl,
+    split_event_logs,
+    write_changes_patch,
+    write_json,
+    write_root_manifest,
+    append_jsonl,
 )
 
 
@@ -79,6 +98,168 @@ def git_value(repo, *args):
         return subprocess.check_output(["git", *args], cwd=repo, text=True).strip()
     except Exception:
         return "unknown"
+
+
+def command_output(repo, command, timeout=10):
+    try:
+        return subprocess.check_output(
+            command,
+            cwd=repo,
+            text=True,
+            stderr=subprocess.STDOUT,
+            timeout=timeout,
+        ).strip()
+    except Exception:
+        return "unknown"
+
+
+def sha256_file(path):
+    try:
+        digest = hashlib.sha256()
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except Exception:
+        return "unknown"
+
+
+def dirty_diff_hash(repo):
+    parts = []
+    for args in [
+        ["git", "diff", "--no-ext-diff", "--binary"],
+        ["git", "diff", "--cached", "--no-ext-diff", "--binary"],
+    ]:
+        try:
+            parts.append(
+                subprocess.check_output(
+                    args,
+                    cwd=repo,
+                    stderr=subprocess.DEVNULL,
+                )
+            )
+        except Exception:
+            return "unknown"
+    if not any(parts):
+        return ""
+    digest = hashlib.sha256()
+    for part in parts:
+        digest.update(part)
+    return digest.hexdigest()
+
+
+def git_text(repo, *args):
+    try:
+        return subprocess.check_output(
+            ["git", *args],
+            cwd=repo,
+            text=True,
+            stderr=subprocess.STDOUT,
+        )
+    except Exception as exc:
+        return f"unknown: {exc}\n"
+
+
+def source_tree_hash(repo, dirty_status, dirty_hash):
+    digest = hashlib.sha256()
+    for value in [
+        git_value(repo, "rev-parse", "HEAD"),
+        dirty_status,
+        dirty_hash,
+    ]:
+        digest.update(value.encode("utf-8", errors="replace"))
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def ollama_model_digest(repo, model):
+    if not model or model == "default":
+        return "unknown"
+    try:
+        text = subprocess.check_output(
+            ["ollama", "show", model, "--json"],
+            cwd=repo,
+            text=True,
+            stderr=subprocess.DEVNULL,
+            timeout=10,
+        )
+        data = json.loads(text)
+    except Exception:
+        return "unknown"
+    for key in ["digest", "model_digest", "sha256"]:
+        value = data.get(key)
+        if isinstance(value, str) and value:
+            return value
+    details = data.get("details")
+    if isinstance(details, dict):
+        for key in ["digest", "model_digest", "sha256"]:
+            value = details.get(key)
+            if isinstance(value, str) and value:
+                return value
+    return "unknown"
+
+
+def write_environment_metadata(root, repo, args, cases_dir):
+    binary_path = (repo / args.binary).resolve()
+    dirty_status = git_value(repo, "status", "--short")
+    dirty_hash = dirty_diff_hash(repo)
+    metadata = {
+        "schema_version": "1.0",
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "git_commit": git_value(repo, "rev-parse", "HEAD"),
+        "git_branch": git_value(repo, "rev-parse", "--abbrev-ref", "HEAD"),
+        "dirty": bool(dirty_status),
+        "dirty_status": dirty_status,
+        "dirty_diff_sha256": dirty_hash,
+        "source_tree_sha256": source_tree_hash(repo, dirty_status, dirty_hash),
+        "binary_path": str(binary_path),
+        "binary_sha256": sha256_file(binary_path),
+        "provider": args.provider,
+        "model": args.model,
+        "ollama_host": os.environ.get("OLLAMA_HOST", ""),
+        "ollama_version": command_output(repo, ["ollama", "--version"], timeout=5),
+        "model_digest": ollama_model_digest(repo, args.model)
+        if args.provider == "ollama"
+        else "not_applicable",
+        "cases_dir": str(cases_dir),
+        "runs": args.runs,
+        "dry_run": args.dry_run,
+        "timeout_secs": args.timeout_secs,
+        "timeout_mode": "none" if args.no_timeout else "bounded",
+        "proof_modes": args.proof_mode or [],
+        "commandagent_max_iterations": os.environ.get(
+            "COMMANDAGENT_MAX_ITERATIONS", "unknown"
+        ),
+        "temperature": os.environ.get("COMMANDAGENT_TEMPERATURE", "unknown"),
+        "seed": os.environ.get("COMMANDAGENT_SEED", "unknown"),
+        "context_length": os.environ.get("COMMANDAGENT_CONTEXT_LENGTH", "unknown"),
+    }
+    (root / "environment.json").write_text(
+        json.dumps(metadata, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    (root / "source_status.txt").write_text(
+        git_text(repo, "status", "--short"),
+        encoding="utf-8",
+    )
+    (root / "source.patch").write_text(
+        git_text(repo, "diff", "--no-ext-diff", "--binary")
+        + git_text(repo, "diff", "--cached", "--no-ext-diff", "--binary"),
+        encoding="utf-8",
+    )
+    (root / "source_tree_hash.txt").write_text(
+        "\n".join(
+            [
+                f"git_commit={metadata['git_commit']}",
+                f"git_branch={metadata['git_branch']}",
+                f"dirty={str(metadata['dirty']).lower()}",
+                f"dirty_diff_sha256={dirty_hash}",
+                f"source_tree_sha256={metadata['source_tree_sha256']}",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
 
 def failure_evidence(workdir, stdout, stderr):
@@ -198,9 +379,11 @@ RECOVERY_FIELD_NAMES = [
     "repair_plan_rejection_reason",
     "repair_action",
     "tool_policy",
+    "recovery_task_started",
     "repair_attempt_count",
     "attempt_outcome",
     "attempt_outcome_reason",
+    "attempt_outcome_source",
     "before_signature",
     "after_signature",
     "exhausted_targets",
@@ -273,8 +456,12 @@ RECOVERY_FIELD_NAMES = [
     "effective_tool_policy_status",
     "tool_failure_recovery_status",
     "setup_command_classification",
+    "failed_tool",
+    "blocked_command",
+    "command_class",
     "command_authority",
     "command_classification_reason",
+    "first_actionable_divergence",
     "workspace_candidate_status",
     "workspace_ignored_dir_policy",
     "workspace_candidate_ignored_reasons",
@@ -321,8 +508,24 @@ def recovery_fields(reason, evidence, case):
         fields["completion_evidence_status"] = status_from_contract_list(
             evidence, "completion_evidence"
         )
-    if not fields.get("attempt_outcome"):
-        fields["attempt_outcome"] = status_from_contract_list(evidence, "attempt_outcomes")
+    attempt_outcome_from_runtime = status_from_contract_list(evidence, "attempt_outcomes")
+    if attempt_outcome_from_runtime:
+        fields["attempt_outcome"] = attempt_outcome_from_runtime
+        fields["attempt_outcome_source"] = "runtime_attempt_ledger"
+    elif not fields.get("attempt_outcome"):
+        fields["attempt_outcome"] = "not_attempted" if reason != "ok" else "passed"
+        fields["attempt_outcome_source"] = (
+            "eval_projection_fallback" if reason != "ok" else "runtime_success"
+        )
+    elif not fields.get("attempt_outcome_source"):
+        if fields.get("explicit_stop_reason"):
+            fields["attempt_outcome_source"] = "explicit_stop"
+        elif fields.get("action_envelope_status") == "rejected":
+            fields["attempt_outcome_source"] = "correction_rejected_before_attempt"
+        elif fields.get("attempt_outcome") == "not_attempted" and reason != "ok":
+            fields["attempt_outcome_source"] = "eval_projection_fallback"
+        else:
+            fields["attempt_outcome_source"] = "runtime_reported"
     if not fields.get("repair_state_status"):
         fields["repair_state_status"] = (
             first_contract_value(evidence, "repair_state_status")
@@ -417,6 +620,9 @@ def derived_recovery_fields(reason, case):
         "repair_attempt_count": "0",
         "attempt_outcome": "not_attempted" if reason != "ok" else "passed",
         "attempt_outcome_reason": "",
+        "attempt_outcome_source": "eval_projection_fallback"
+        if reason != "ok"
+        else "runtime_success",
         "before_signature": "",
         "after_signature": "",
         "exhausted_targets": "",
@@ -458,8 +664,12 @@ def derived_recovery_fields(reason, case):
         "effective_tool_policy_status": "",
         "tool_failure_recovery_status": "",
         "setup_command_classification": "",
+        "failed_tool": "",
+        "blocked_command": "",
+        "command_class": "",
         "command_authority": "",
         "command_classification_reason": "",
+        "first_actionable_divergence": "",
         "workspace_candidate_status": "",
         "workspace_ignored_dir_policy": "",
         "workspace_candidate_ignored_reasons": "",
@@ -701,7 +911,73 @@ def semantic_contains(text, needle, check):
     return needle in text
 
 
-def success_reason(workdir, rc, missing, semantic_missing, semantic_mismatches, stdout, stderr):
+def run_evaluator_verifiers(workdir, case, skip=False):
+    rows = []
+    if skip:
+        return rows
+    for index, command in enumerate(case.get("verify", []), start=1):
+        started = time.time()
+        try:
+            process = subprocess.run(
+                command,
+                cwd=workdir,
+                shell=True,
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=180,
+            )
+            rows.append(
+                {
+                    "schema_version": "1.0",
+                    "index": index,
+                    "command": command,
+                    "rc": process.returncode,
+                    "ok": process.returncode == 0,
+                    "elapsed_ms": int((time.time() - started) * 1000),
+                    "stdout_excerpt": process.stdout[:4000],
+                    "stderr_excerpt": process.stderr[:4000],
+                }
+            )
+        except subprocess.TimeoutExpired as exc:
+            rows.append(
+                {
+                    "schema_version": "1.0",
+                    "index": index,
+                    "command": command,
+                    "rc": 124,
+                    "ok": False,
+                    "elapsed_ms": int((time.time() - started) * 1000),
+                    "stdout_excerpt": (exc.stdout or "")[:4000],
+                    "stderr_excerpt": (exc.stderr or "")[:4000],
+                    "timeout": True,
+                }
+            )
+    return rows
+
+
+def success_levels(missing, semantic_missing, semantic_mismatches, verifier_rows, success, reason):
+    verifier_ok = all(row.get("ok") for row in verifier_rows) if verifier_rows else None
+    return {
+        "artifact_completion": not missing and not semantic_missing,
+        "syntax": verifier_ok if verifier_ok is not None else not missing,
+        "unit_test": verifier_ok if verifier_ok is not None else None,
+        "integration": None,
+        "profile": not reason.startswith("profile_verification:"),
+        "task_contract": success and not semantic_mismatches,
+    }
+
+
+def success_reason(
+    workdir,
+    rc,
+    missing,
+    semantic_missing,
+    semantic_mismatches,
+    verifier_failures,
+    stdout,
+    stderr,
+):
     evidence = ""
     if rc != 0:
         evidence = failure_evidence(workdir, stdout, stderr)
@@ -714,6 +990,8 @@ def success_reason(workdir, rc, missing, semantic_missing, semantic_mismatches, 
         return "semantic_missing:" + ",".join(semantic_missing)
     if semantic_mismatches:
         return "semantic_mismatch:" + ",".join(semantic_mismatches)
+    if verifier_failures:
+        return "command_failed:evaluator_verifier"
     if rc == 0:
         return "ok"
 
@@ -735,6 +1013,9 @@ def run_case(repo, root, binary, case, run_index, args):
     stdout_path = run_dir / "stdout.txt"
     stderr_path = run_dir / "stderr.txt"
     meta_path = run_dir / "meta.json"
+    events_path = run_dir / "events.jsonl"
+    model_io_path = run_dir / "model_io.jsonl"
+    before_snapshot_dir = run_dir / "workspace_before_files"
 
     started = time.time()
     proof_mode = case.get("proof_mode", "real_llm")
@@ -747,12 +1028,32 @@ def run_case(repo, root, binary, case, run_index, args):
         shutil.copytree(fixture, workdir, dirs_exist_ok=True)
 
     mode = case.get("mode", "plan-run")
-    option_parts = [f"/{mode}", "--profile", case["profile"], "--style", case["style"]]
-    if case.get("intent"):
-        option_parts.extend(["--intent", case["intent"]])
-    for artifact in case["expected_artifacts"]:
-        option_parts.extend(["--artifact", artifact])
-    prompt = " ".join(option_parts + [case["prompt"]])
+    gold_plan_runtime_path = ""
+    if mode == "run-plan":
+        gold_plan_fixture = case.get("gold_plan_fixture", "")
+        if not gold_plan_fixture:
+            raise SystemExit(f"{case['id']}: run-plan case requires gold_plan_fixture")
+        source_plan = (repo / gold_plan_fixture).resolve()
+        if not source_plan.is_file():
+            raise SystemExit(f"{case['id']}: gold plan not found: {source_plan}")
+        gold_plan_path = workdir / ".commandagent" / "eval_gold_plan.yaml"
+        gold_plan_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source_plan, gold_plan_path)
+        gold_plan_runtime_path = str(gold_plan_path.relative_to(workdir))
+        prompt = f"/run-plan {gold_plan_runtime_path}"
+    elif mode == "minimal":
+        prompt = case["prompt"]
+    else:
+        slash_mode = {
+            "plan-only": "plan-steps",
+            "ultra-plan-only": "ultra-plan",
+        }.get(mode, mode)
+        option_parts = [f"/{slash_mode}", "--profile", case["profile"], "--style", case["style"]]
+        if case.get("intent"):
+            option_parts.extend(["--intent", case["intent"]])
+        for artifact in case["expected_artifacts"]:
+            option_parts.extend(["--artifact", artifact])
+        prompt = " ".join(option_parts + [case["prompt"]])
     command = [
         str((repo / binary).resolve()),
         "--provider",
@@ -764,6 +1065,21 @@ def run_case(repo, root, binary, case, run_index, args):
         "--yes",
         prompt,
     ]
+    command_json = {
+        "schema_version": "1.0",
+        "command": command,
+        "cwd": str(workdir),
+        "prompt": prompt,
+        "mode": mode,
+        "env": {
+            "COMMANDAGENT_EVENT_JSONL": str(events_path),
+            "COMMANDAGENT_MODEL_IO_JSONL": str(model_io_path),
+        },
+    }
+    write_json(run_dir / "command.json", command_json)
+    before_snapshot = file_snapshot(workdir)
+    write_json(run_dir / "workspace_before.json", before_snapshot)
+    copy_workspace_snapshot(workdir, before_snapshot_dir)
     timed_out = False
     timeout_mode = "none" if args.no_timeout else "bounded"
     effective_timeout_secs = None if args.no_timeout else args.timeout_secs
@@ -771,6 +1087,8 @@ def run_case(repo, root, binary, case, run_index, args):
         rc = 0
         stdout = f"dry-run: {case['id']}\n"
         stderr = ""
+        events_path.write_text("", encoding="utf-8")
+        model_io_path.write_text("", encoding="utf-8")
     elif fixture_mode:
         rc = int(
             case.get("fixture_rc")
@@ -778,11 +1096,17 @@ def run_case(repo, root, binary, case, run_index, args):
         )
         stdout = case.get("fixture_stdout") or f"fixture: {case['id']}\n"
         stderr = case.get("fixture_stderr") or ""
+        events_path.write_text("", encoding="utf-8")
+        model_io_path.write_text("", encoding="utf-8")
     else:
         try:
+            env = os.environ.copy()
+            env["COMMANDAGENT_EVENT_JSONL"] = str(events_path)
+            env["COMMANDAGENT_MODEL_IO_JSONL"] = str(model_io_path)
             process = subprocess.run(
                 command,
                 cwd=workdir,
+                env=env,
                 text=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -802,18 +1126,51 @@ def run_case(repo, root, binary, case, run_index, args):
     elapsed_ms = int((time.time() - started) * 1000)
     stdout_path.write_text(stdout, encoding="utf-8")
     stderr_path.write_text(stderr, encoding="utf-8")
+    for trace_path in [events_path, model_io_path]:
+        if not trace_path.exists():
+            trace_path.write_text("", encoding="utf-8")
+    after_snapshot = file_snapshot(workdir)
+    write_json(run_dir / "workspace_after.json", after_snapshot)
+    changes = artifact_changes(before_snapshot, after_snapshot)
+    append_jsonl(run_dir / "artifact_changes.jsonl", changes)
+    write_changes_patch(workdir, changes, before_snapshot_dir, run_dir / "changes.patch")
+    split_event_logs(run_dir)
 
     if fixture_mode and not args.dry_run:
         missing = []
         semantic_missing = []
         semantic_mismatches = []
+        verifier_rows = []
+        verifier_failures = []
+        append_jsonl(run_dir / "evaluator_verifier_runs.jsonl", verifier_rows)
         success = boolish(case.get("fixture_success"))
+    elif mode in {"plan-only", "ultra-plan-only"}:
+        plan_dir = workdir / ".commandagent" / "plans"
+        plan_files = sorted(plan_dir.glob("*.yaml")) if plan_dir.is_dir() else []
+        missing = []
+        semantic_missing = [] if plan_files else ["generated_plan"]
+        semantic_mismatches = []
+        verifier_rows = []
+        verifier_failures = []
+        append_jsonl(run_dir / "evaluator_verifier_runs.jsonl", verifier_rows)
+        success = rc == 0 and bool(plan_files)
     else:
         missing = [
             path for path in case["expected_artifacts"] if not (workdir / path).exists()
         ]
         semantic_missing, semantic_mismatches = semantic_failures(workdir, case)
-        success = rc == 0 and not missing and not semantic_missing and not semantic_mismatches
+        verifier_rows = run_evaluator_verifiers(
+            workdir, case, skip=args.dry_run or bool(missing) or bool(semantic_missing)
+        )
+        append_jsonl(run_dir / "evaluator_verifier_runs.jsonl", verifier_rows)
+        verifier_failures = [row for row in verifier_rows if not row.get("ok")]
+        success = (
+            rc == 0
+            and not missing
+            and not semantic_missing
+            and not semantic_mismatches
+            and not verifier_failures
+        )
     evidence = failure_evidence(workdir, stdout, stderr)
     if fixture_mode and not args.dry_run:
         reason = case.get("fixture_reason") or fixture_fields.get("reason")
@@ -823,7 +1180,14 @@ def run_case(repo, root, binary, case, run_index, args):
         reason = "provider_transport:eval_timeout"
     else:
         reason = success_reason(
-            workdir, rc, missing, semantic_missing, semantic_mismatches, stdout, stderr
+            workdir,
+            rc,
+            missing,
+            semantic_missing,
+            semantic_mismatches,
+            verifier_failures,
+            stdout,
+            stderr,
         )
     category = failure_category(reason)
     layer = contract_layer(reason)
@@ -868,6 +1232,83 @@ def run_case(repo, root, binary, case, run_index, args):
         if key in RUNTIME_JOB_REPORT_FIELD_NAMES:
             runtime_job_report[key] = value
     observed_fields.update(runtime_job_report)
+    events = read_jsonl(events_path)
+    trace = causal_summary(events, changes, success, reason)
+    if trace.get("first_actionable_divergence") and not observed_fields.get(
+        "first_actionable_divergence"
+    ):
+        observation["first_actionable_divergence"] = trace["first_actionable_divergence"]
+        recovery["first_actionable_divergence"] = trace["first_actionable_divergence"]
+        observed_fields["first_actionable_divergence"] = trace["first_actionable_divergence"]
+    trace_fields = {name: str(trace.get(name, "")) for name in TRACE_FIELD_NAMES}
+    derived_trace_fields = {
+        "derived_active_job": recovery.get("active_job", ""),
+        "derived_target_path": recovery.get("target_path", ""),
+        "derived_attempt_outcome": recovery.get("attempt_outcome", ""),
+    }
+    observed_trace_fields = {
+        "observed_active_job": "",
+        "observed_target_path": "",
+        "observed_attempt_outcome": "",
+    }
+    for event in events:
+        if event.get("event_type") == "recovery_task.started":
+            payload = event.get("payload") or {}
+            observed_trace_fields["observed_active_job"] = str(payload.get("active_job") or "")
+            observed_trace_fields["observed_target_path"] = str(payload.get("target_path") or "")
+            observed_trace_fields["observed_attempt_outcome"] = "started"
+            break
+    trace_fields.update(derived_trace_fields)
+    trace_fields.update(observed_trace_fields)
+    trace_fields.setdefault("rechecked_active_job", "")
+    trace_fields.setdefault("rechecked_target_path", "")
+    trace_fields.setdefault("rechecked_attempt_outcome", "")
+    if args.dry_run:
+        plan_quality = empty_plan_quality("not_applicable", "dry_run_no_generated_plan")
+    elif fixture_mode:
+        plan_quality = empty_plan_quality("not_applicable", "fixture_no_generated_plan")
+    else:
+        plan_quality = plan_quality_from_workspace(
+            workdir, mode, case.get("expected_artifacts", [])
+        )
+    provenance = build_provenance(observed_trace_fields, derived_trace_fields)
+    runtime_result = {
+        "schema_version": "1.0",
+        "case_id": case["id"],
+        "run_index": run_index,
+        "events_path": "events.jsonl",
+        "model_io_path": "model_io.jsonl",
+        "causal_summary": trace,
+        "observed": observed_trace_fields,
+        "provenance": provenance,
+    }
+    evaluator_result = {
+        "schema_version": "1.0",
+        "case_id": case["id"],
+        "run_index": run_index,
+        "success": success,
+        "reason": reason,
+        "failure_category": category,
+        "contract_layer": layer,
+        "missing_expected_artifacts": missing,
+        "semantic_missing": semantic_missing,
+        "semantic_mismatches": semantic_mismatches,
+        "verifier_failures": verifier_failures,
+        "success_levels": success_levels(
+            missing,
+            semantic_missing,
+            semantic_mismatches,
+            verifier_rows,
+            success,
+            reason,
+        ),
+        "plan_quality": plan_quality,
+        "derived": {**recovery, **runtime_job_report, **trace_fields},
+        "changes": changes,
+        "provenance": provenance,
+    }
+    write_json(run_dir / "runtime_result.json", runtime_result)
+    write_json(run_dir / "evaluator_result.json", evaluator_result)
     assertion = focused_assertions(
         case.get("expected_fields", {}),
         observed_fields,
@@ -887,6 +1328,9 @@ def run_case(repo, root, binary, case, run_index, args):
         "expected_fields": case.get("expected_fields", {}),
         "mode": mode,
         "fixture": case.get("fixture"),
+        "gold_plan_fixture": case.get("gold_plan_fixture", ""),
+        "gold_plan_runtime_path": gold_plan_runtime_path,
+        "evaluation_purpose": case.get("evaluation_purpose", "task_success"),
         "matrix_row": case.get("matrix_row", case["id"]),
         "proof_mode": proof_mode,
         "fixture_fields": fixture_fields,
@@ -908,6 +1352,8 @@ def run_case(repo, root, binary, case, run_index, args):
         **{name: observation.get(name, "") for name in OBSERVATION_FIELD_NAMES},
         **runtime_job_report,
         **recovery,
+        **trace_fields,
+        **plan_quality,
         **assertion,
     }
     meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
@@ -926,6 +1372,8 @@ def run_case(repo, root, binary, case, run_index, args):
         *(observation.get(name, "") for name in OBSERVATION_FIELD_NAMES),
         *(runtime_job_report[name] for name in RUNTIME_JOB_REPORT_FIELD_NAMES),
         *(recovery[name] for name in RECOVERY_FIELD_NAMES),
+        *(trace_fields[name] for name in TRACE_FIELD_NAMES),
+        *(plan_quality[name] for name in PLAN_QUALITY_FIELD_NAMES),
         *(assertion[name] for name in ASSERTION_FIELD_NAMES),
     ]
 
@@ -941,6 +1389,9 @@ def main():
     stamp = time.strftime("%Y%m%dT%H%M%S")
     root = (repo / args.out / stamp).resolve()
     root.mkdir(parents=True, exist_ok=True)
+    write_environment_metadata(root, repo, args, cases_dir)
+    write_root_manifest(root, repo, cases_dir, args)
+    copy_cases_snapshot(cases_dir, root / "cases.snapshot")
     rows = [
         [
             "case_id",
@@ -957,6 +1408,8 @@ def main():
             *OBSERVATION_FIELD_NAMES,
             *RUNTIME_JOB_REPORT_FIELD_NAMES,
             *RECOVERY_FIELD_NAMES,
+            *TRACE_FIELD_NAMES,
+            *PLAN_QUALITY_FIELD_NAMES,
             *ASSERTION_FIELD_NAMES,
         ]
     ]

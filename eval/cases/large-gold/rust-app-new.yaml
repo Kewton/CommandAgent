@@ -1,0 +1,24 @@
+id: large-gold-rust-app-new
+title: Gold plan: new Rust CLI app
+profile: rust
+style: default
+mode: run-plan
+intent: new
+gold_plan_fixture: eval/gold_plans/large/rust-app-new.yaml
+prompt: "Execute the gold step plan for a Rust CLI with argument parsing, file input support, unit tests, and clear errors."
+matrix_row: gold-rust-app-new
+proof_mode: real_llm
+expected_artifacts:
+  - Cargo.toml
+  - src/main.rs
+  - src/lib.rs
+verify:
+  - cargo test
+success_check:
+  type: semantic
+  required_paths:
+    - Cargo.toml
+    - src/main.rs
+  must_include:
+    src/main.rs:
+      - fn main

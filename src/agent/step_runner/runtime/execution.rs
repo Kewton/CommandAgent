@@ -7,7 +7,7 @@ use super::repair_loop::{RepairStepRequest, RepairStepState};
 use crate::agent::events::{
     ArtifactScope, ArtifactStatus, PlanKind, RuntimeEvent, RuntimeObserver, bounded_event_text,
 };
-use crate::agent::minimal_loop::config::{ActionRequirement, StepToolPolicy};
+use crate::agent::minimal_loop::config::{ActionRequirement, MinimalLoopConfig, StepToolPolicy};
 use crate::agent::minimal_loop::loop_run::ChatClient;
 use crate::agent::minimal_loop::result::ToolExecutionRecord;
 use crate::agent::step_runner::artifact_graph::{ArtifactGraph, ArtifactLifecycle};
@@ -22,13 +22,15 @@ use crate::agent::step_runner::plan_lint::lint_step_plan_with_workspace;
 use crate::agent::step_runner::profiles::{
     ProfileVerificationContext, profile_contract_text, profile_fact_summary, verify_profile,
 };
-use crate::agent::step_runner::repair::{ProfileRepairContext, save_profile_repair_prompt};
+use crate::agent::step_runner::repair::{
+    ProfileRepairContext, build_profile_replan_packet, save_profile_repair_prompt,
+};
 use crate::agent::step_runner::runtime::phase_contract::{
     ActiveStepContract, PhaseWorkspaceContract, current_profile_facts,
 };
 use crate::agent::step_runner::task_contract::TaskContract;
 use crate::agent::step_runner::ultra_plan::{UltraPlan, parse_ultra_plan_yaml};
-use crate::agent::step_runner::ultra_run::phase_step_plan_prompt;
+use crate::agent::step_runner::ultra_run::{phase_owned_artifacts, phase_step_plan_prompt};
 use crate::agent::step_runner::verify::{VerificationFailure, run_verifiers};
 use crate::agent::step_runner::workspace_scope::WorkspaceScope;
 use crate::agent::step_runner::{
@@ -66,10 +68,14 @@ where
             phase.id
         ));
         let snapshot = crate::agent::step_runner::ultra_run::workspace_snapshot(runtime.cwd);
-        let phase_contract = PhaseWorkspaceContract::collect_with_goal(
+        let phase_artifacts = phase_owned_artifacts(plan, phase);
+        let phase_contract = PhaseWorkspaceContract::collect_with_scope(
             runtime.cwd,
             &plan.profile,
             &plan.required_artifacts,
+            &phase_artifacts,
+            &phase.preserve_artifacts,
+            &phase.verify_only_artifacts,
             &format!("{} {}", plan.goal, phase.goal),
         );
         let active_contract_seed =
@@ -87,7 +93,7 @@ where
             &plan.profile,
             &phase.goal,
             WorkIntent::parse(&plan.intent).unwrap_or(WorkIntent::Unknown),
-            &[],
+            &phase_artifacts,
             &phase_contract.profile_obligations,
         );
         let correction_context = StepPlanCorrectionContext {
@@ -95,14 +101,15 @@ where
             profile: &plan.profile,
             style: &plan.style,
             intent: WorkIntent::parse(&plan.intent).unwrap_or(WorkIntent::Unknown),
-            required_artifacts: &[],
+            required_artifacts: &phase_artifacts,
             profile_obligations: &phase_contract.profile_obligations,
             task_contract: Some(&phase_task_contract),
             save_kind: "phase-step-plan",
             prompt_kind: "phase step plan",
         };
-        let step_plan =
+        let mut step_plan =
             runtime.parse_generated_step_plan_with_corrections(text, correction_context)?;
+        step_plan = prune_out_of_phase_mutation_steps(step_plan, &phase_artifacts);
         if step_plan_has_nextjs_build_verifier(&step_plan) {
             nextjs_build_verifier_seen = true;
         }
@@ -121,7 +128,7 @@ where
             Ok(report) => report,
             Err(err) => {
                 let err = match verify_phase_profile(
-                    runtime.cwd,
+                    runtime,
                     plan,
                     phase,
                     &step_plan,
@@ -140,14 +147,9 @@ where
                 return Err(err);
             }
         };
-        if let Err(err) = verify_phase_profile(
-            runtime.cwd,
-            plan,
-            phase,
-            &step_plan,
-            &phase_contract,
-            observer,
-        ) {
+        if let Err(err) =
+            verify_phase_profile(runtime, plan, phase, &step_plan, &phase_contract, observer)
+        {
             observer.on_event(RuntimeEvent::UltraPhaseFailed {
                 index: idx + 1,
                 total: plan.phases.len(),
@@ -191,6 +193,27 @@ where
     }
 
     Ok(lines.join("\n"))
+}
+
+fn prune_out_of_phase_mutation_steps(mut plan: StepPlan, phase_artifacts: &[String]) -> StepPlan {
+    if phase_artifacts.is_empty() {
+        return plan;
+    }
+    plan.required_artifacts = phase_artifacts.to_vec();
+    plan.steps.retain(|step| {
+        if !matches!(
+            step.kind,
+            StepKind::Create | StepKind::Edit | StepKind::Repair | StepKind::Setup
+        ) {
+            return true;
+        }
+        step.expected_paths.is_empty()
+            || step
+                .expected_paths
+                .iter()
+                .any(|path| phase_artifacts.iter().any(|artifact| artifact == path))
+    });
+    plan
 }
 
 pub(super) fn step_plan_has_nextjs_build_verifier(plan: &StepPlan) -> bool {
@@ -273,14 +296,19 @@ fn final_required_artifact_authority(
     )
 }
 
-fn verify_phase_profile(
-    cwd: &Path,
+fn verify_phase_profile<E, P>(
+    runtime: &mut SlashRuntime<'_, E, P>,
     plan: &UltraPlan,
     phase: &crate::agent::step_runner::ultra_plan::UltraPhase,
     step_plan: &StepPlan,
     phase_contract: &PhaseWorkspaceContract,
     observer: &mut dyn RuntimeObserver,
-) -> Result<(), String> {
+) -> Result<(), String>
+where
+    E: ChatClient,
+    P: ChatClient,
+{
+    let cwd = runtime.cwd;
     let profile_facts = profile_fact_summary(&plan.profile, cwd)
         .map_err(|err| err.to_string())?
         .lines;
@@ -309,25 +337,146 @@ fn verify_phase_profile(
         profile: bounded_event_text(&plan.profile),
         failures: rendered.clone(),
     });
-    let saved = save_profile_repair_prompt(
+    let repair_context = ProfileRepairContext {
+        phase_id: phase.id.clone(),
+        original_goal: plan.goal.clone(),
+        phase_goal: phase.goal.clone(),
+        profile: plan.profile.clone(),
+        style: plan.style.clone(),
+        profile_failures: failures.clone(),
+        phase_contract_facts: phase_contract.fact_lines(),
+        profile_facts,
+        expected_paths,
+    };
+    if let Some(targets) = profile_auto_repair_targets(cwd, &failures) {
+        observer.on_event(RuntimeEvent::RepairAttemptStarted {
+            step_id: bounded_event_text(&phase.id),
+            attempt: 1,
+            max_attempts: 1,
+            missing_expected_paths: missing_paths(cwd, &targets),
+        });
+        observer.on_event(RuntimeEvent::RecoveryTaskStarted {
+            step_id: bounded_event_text(&phase.id),
+            attempt: 1,
+            active_job: "profile_contract_repair".to_string(),
+            dispatch_status: "selected".to_string(),
+            execution_envelope: Some("file_mutation_repair".to_string()),
+            target_path: targets.first().map(bounded_event_text),
+        });
+        let mut repair_config = profile_repair_loop_config(cwd, &runtime.loop_config, &targets);
+        repair_config.max_iterations = repair_config.max_iterations.min(6);
+        let prompt = build_profile_replan_packet(&repair_context);
+        if let Err(err) = crate::agent::minimal_loop::loop_run::run_session_with_observer(
+            runtime.executor,
+            cwd,
+            &prompt,
+            repair_config,
+            observer,
+        ) {
+            return save_profile_repair_stop(
+                cwd,
+                &repair_context,
+                &rendered,
+                Some(err.to_string()),
+            );
+        }
+        let after_failures =
+            verify_profile(&plan.profile, cwd, &context).map_err(|err| err.to_string())?;
+        if after_failures.is_empty() {
+            return Ok(());
+        }
+        let after_rendered = after_failures
+            .iter()
+            .map(|failure| bounded_event_text(failure.render()))
+            .collect::<Vec<_>>();
+        observer.on_event(RuntimeEvent::ProfileVerificationFailed {
+            profile: bounded_event_text(&plan.profile),
+            failures: after_rendered.clone(),
+        });
+        let repeated =
+            profile_failure_signature(&failures) == profile_failure_signature(&after_failures);
+        let reason = if repeated {
+            "profile verification repair stopped after one bounded attempt because the same failure signature remained"
+        } else {
+            "profile verification repair was attempted once but profile verification still failed"
+        };
+        let after_context = ProfileRepairContext {
+            profile_failures: after_failures,
+            ..repair_context
+        };
+        return save_profile_repair_stop(cwd, &after_context, &after_rendered, Some(reason.into()));
+    }
+    save_profile_repair_stop(
         cwd,
-        &ProfileRepairContext {
-            phase_id: phase.id.clone(),
-            original_goal: plan.goal.clone(),
-            phase_goal: phase.goal.clone(),
-            profile: plan.profile.clone(),
-            style: plan.style.clone(),
-            profile_failures: failures,
-            phase_contract_facts: phase_contract.fact_lines(),
-            profile_facts,
-            expected_paths,
-        },
+        &repair_context,
+        &rendered,
+        Some("profile verification failure was not safe for automatic repair".to_string()),
     )
-    .map_err(|err| err.to_string())?;
+}
+
+fn profile_repair_loop_config(
+    cwd: &Path,
+    base: &MinimalLoopConfig,
+    targets: &[String],
+) -> MinimalLoopConfig {
+    let mut config = base.clone();
+    config.expected_artifacts = targets.to_vec();
+    config.action_requirement = ActionRequirement::Required;
+    config.step_tool_policy = if targets.iter().all(|target| cwd.join(target).exists()) {
+        StepToolPolicy::EditExistingArtifactOnly
+    } else {
+        StepToolPolicy::CreateMissingArtifactOnly
+    };
+    config
+}
+
+fn profile_auto_repair_targets(
+    cwd: &Path,
+    failures: &[crate::agent::step_runner::profiles::ProfileVerificationFailure],
+) -> Option<Vec<String>> {
+    if failures.len() != 1 {
+        return None;
+    }
+    let target = failures.first()?.paths.first()?.clone();
+    if target.trim().is_empty()
+        || target.split('/').any(|part| {
+            matches!(
+                part,
+                ".git" | "node_modules" | "target" | ".next" | "dist" | "build"
+            )
+        })
+    {
+        return None;
+    }
+    PathGuard::new(cwd).ok()?.resolve(&target).ok()?;
+    Some(vec![target])
+}
+
+fn profile_failure_signature(
+    failures: &[crate::agent::step_runner::profiles::ProfileVerificationFailure],
+) -> String {
+    failures
+        .iter()
+        .map(|failure| format!("{}:{}", failure.code, failure.paths.join("|")))
+        .collect::<Vec<_>>()
+        .join(";")
+}
+
+fn save_profile_repair_stop(
+    cwd: &Path,
+    context: &ProfileRepairContext,
+    rendered: &[String],
+    reason: Option<String>,
+) -> Result<(), String> {
+    let saved = save_profile_repair_prompt(cwd, context).map_err(|err| err.to_string())?;
+    let reason = reason
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| format!("\nstop reason: {value}"))
+        .unwrap_or_default();
     Err(format!(
-        "profile verification failed for {} after phase {}: {}.\nprofile repair prompt saved: {}\nsuggested command: {}\nRun an explicit repair or replan command; the runtime did not continue automatically.",
-        plan.profile,
-        phase.id,
+        "profile verification failed for {} after phase {}: {}.{reason}\nprofile repair prompt saved: {}\nsuggested command: {}\nRun an explicit repair or replan command before continuing the ultra plan.",
+        context.profile,
+        context.phase_id,
         rendered.join("; "),
         saved.relative_path,
         saved.suggested_command
@@ -346,6 +495,15 @@ where
 {
     let mut lines = Vec::new();
     lines.push(format!("step plan: {} steps", plan.steps.len()));
+    let plan_artifacts = if plan.required_artifacts.is_empty() {
+        plan.steps
+            .iter()
+            .flat_map(|step| step.expected_paths.clone())
+            .collect::<Vec<_>>()
+    } else {
+        plan.required_artifacts.clone()
+    };
+    let plan_initial_missing_artifacts = missing_paths(runtime.cwd, &plan_artifacts);
     for (idx, step) in plan.steps.iter().enumerate() {
         observer.on_event(RuntimeEvent::StepStarted {
             index: idx + 1,
@@ -358,7 +516,14 @@ where
             plan.steps.len(),
             step.id
         ));
-        if let Err(err) = execute_step(runtime, plan, step, contract_seed, observer) {
+        if let Err(err) = execute_step(
+            runtime,
+            plan,
+            step,
+            contract_seed,
+            &plan_initial_missing_artifacts,
+            observer,
+        ) {
             observer.on_event(RuntimeEvent::StepFailed {
                 index: idx + 1,
                 total: plan.steps.len(),
@@ -383,6 +548,7 @@ pub(super) fn execute_step<E, P>(
     plan: &StepPlan,
     step: &StepPlanStep,
     contract_seed: &ActiveStepContract,
+    plan_initial_missing_artifacts: &[String],
     observer: &mut dyn RuntimeObserver,
 ) -> Result<(), String>
 where
@@ -395,6 +561,7 @@ where
     }
     config.step_tool_policy = step_tool_policy_for_step(step);
     let missing_expected_paths = missing_paths(runtime.cwd, &step.expected_paths);
+    config.initial_missing_artifacts = plan_initial_missing_artifacts.to_vec();
     config.action_requirement = action_requirement_for_step(step, &missing_expected_paths);
     if matches!(step.kind, StepKind::Verify) && !step.verify.is_empty() {
         let failures = verify_step_with_observer(runtime.cwd, step, observer)?;
@@ -600,7 +767,9 @@ fn step_tool_policy_for_step(step: &StepPlanStep) -> StepToolPolicy {
         StepKind::Inspect | StepKind::Report => StepToolPolicy::ReadOnly,
         StepKind::Verify => StepToolPolicy::NoMutation,
         StepKind::Setup => StepToolPolicy::SetupMutationOnly,
-        StepKind::Create | StepKind::Edit | StepKind::Repair => StepToolPolicy::FileMutationAllowed,
+        StepKind::Create => StepToolPolicy::CreateMissingArtifactOnly,
+        StepKind::Edit => StepToolPolicy::EditExistingArtifactOnly,
+        StepKind::Repair => StepToolPolicy::FileMutationWithReadOnlyBash,
     }
 }
 
@@ -614,7 +783,8 @@ fn fatal_turn_error_for_step(error: &crate::agent::minimal_loop::result::Minimal
         MinimalLoopError::Model(_)
         | MinimalLoopError::FinalAnswerContract(_)
         | MinimalLoopError::ActionRequiredNoEvidence(_)
-        | MinimalLoopError::MissingArtifacts(_) => false,
+        | MinimalLoopError::MissingArtifacts(_)
+        | MinimalLoopError::ProgressBudgetExhausted(_) => false,
     }
 }
 
@@ -624,27 +794,105 @@ fn completion_probe_after_blocked_bash(
     error: &crate::agent::minimal_loop::result::MinimalLoopError,
     observer: &mut dyn RuntimeObserver,
 ) -> Result<bool, String> {
-    if !is_blocked_bash_turn_error(error) {
-        return Ok(false);
-    }
-    if !missing_paths(cwd, &step.expected_paths).is_empty() {
+    if worker_control_signal_after_turn_error(cwd, step, error)
+        != WorkerControlSignal::RequestVerifierTransition
+    {
         return Ok(false);
     }
     let failures = verify_step_with_observer(cwd, step, observer)?;
     Ok(failures.is_empty() || step_accepts_verifier_failure(step))
 }
 
-fn is_blocked_bash_turn_error(
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WorkerControlSignal {
+    ContinueExecution,
+    RequestVerifierTransition,
+    ReportConcreteBlocker,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BlockedBashTurn {
+    command_class: String,
+    command: Option<String>,
+}
+
+fn worker_control_signal_after_turn_error(
+    cwd: &Path,
+    step: &StepPlanStep,
     error: &crate::agent::minimal_loop::result::MinimalLoopError,
-) -> bool {
+) -> WorkerControlSignal {
+    let Some(blocked) = blocked_bash_turn_error(error) else {
+        return WorkerControlSignal::ContinueExecution;
+    };
+    if !missing_paths(cwd, &step.expected_paths).is_empty() {
+        return WorkerControlSignal::ReportConcreteBlocker;
+    }
+    if blocked.is_canonical_verifier_request(step) {
+        WorkerControlSignal::RequestVerifierTransition
+    } else {
+        WorkerControlSignal::ReportConcreteBlocker
+    }
+}
+
+fn blocked_bash_turn_error(
+    error: &crate::agent::minimal_loop::result::MinimalLoopError,
+) -> Option<BlockedBashTurn> {
     use crate::agent::minimal_loop::result::MinimalLoopError;
 
     let MinimalLoopError::Tool(message) = error else {
-        return false;
+        return None;
     };
-    message
-        .to_ascii_lowercase()
-        .contains("bash command blocked")
+    let detail = message
+        .strip_prefix("tool_policy_violation: ")
+        .unwrap_or(message);
+    if let Some(rest) = detail.strip_prefix("Bash command is not read-only for this step: ") {
+        let command_class = value_after(rest, "class=")
+            .and_then(|value| value.split(';').next())
+            .unwrap_or("unknown");
+        return Some(BlockedBashTurn {
+            command_class: normalize_command_class(command_class),
+            command: value_after(rest, "command=").map(normalize_shell_command),
+        });
+    }
+    let rest = detail.strip_prefix("bash command blocked as ")?;
+    let (command_class, tail) = rest.split_once(':')?;
+    Some(BlockedBashTurn {
+        command_class: normalize_command_class(command_class),
+        command: value_after(tail, "command=").map(normalize_shell_command),
+    })
+}
+
+impl BlockedBashTurn {
+    fn is_canonical_verifier_request(&self, step: &StepPlanStep) -> bool {
+        if !matches!(self.command_class.as_str(), "build_test" | "script_run") {
+            return false;
+        }
+        let Some(command) = &self.command else {
+            return false;
+        };
+        step.verify
+            .iter()
+            .any(|verify| normalize_shell_command(verify) == *command)
+    }
+}
+
+fn value_after<'a>(text: &'a str, key: &str) -> Option<&'a str> {
+    text.split_once(key).map(|(_, value)| value.trim())
+}
+
+fn normalize_shell_command(command: &str) -> String {
+    command.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn normalize_command_class(value: &str) -> String {
+    match value.trim() {
+        "ReadOnly" => "read_only".to_string(),
+        "ScriptRun" => "script_run".to_string(),
+        "BuildTest" => "build_test".to_string(),
+        "DirectoryCreation" => "directory_creation".to_string(),
+        "EnvSetup" => "env_setup".to_string(),
+        other => other.to_ascii_lowercase(),
+    }
 }
 
 pub(super) fn verify_step_with_observer(
@@ -709,4 +957,109 @@ pub(super) fn load_ultra_plan(cwd: &Path, path: &str) -> Result<UltraPlan, Strin
     let path = guard.resolve(path).map_err(|err| err.to_string())?;
     let text = fs::read_to_string(&path).map_err(|err| format!("{}: {err}", path.display()))?;
     parse_ultra_plan_yaml(&text).map_err(|err| err.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::minimal_loop::result::MinimalLoopError;
+    use crate::agent::step_runner::ExpectedResult;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn worker_build_test_before_artifact_reports_concrete_blocker() {
+        let root = temp_workspace("worker-build-before-artifact");
+        let step = step(&["README.md"], &["cargo test"]);
+        let error = read_only_bash_error(
+            "BuildTest",
+            "build/test Bash is verifier-owned",
+            "cargo test",
+        );
+
+        let signal = worker_control_signal_after_turn_error(&root, &step, &error);
+
+        assert_eq!(signal, WorkerControlSignal::ReportConcreteBlocker);
+    }
+
+    #[test]
+    fn worker_build_test_after_artifact_requests_verifier_transition() {
+        let root = temp_workspace("worker-build-after-artifact");
+        fs::write(root.join("README.md"), "ok\n").unwrap();
+        let step = step(&["README.md"], &["cargo test"]);
+        let error = read_only_bash_error(
+            "BuildTest",
+            "build/test Bash is verifier-owned",
+            "cargo test",
+        );
+
+        let signal = worker_control_signal_after_turn_error(&root, &step, &error);
+
+        assert_eq!(signal, WorkerControlSignal::RequestVerifierTransition);
+    }
+
+    #[test]
+    fn compound_read_check_does_not_request_verifier_transition() {
+        let root = temp_workspace("worker-compound-read-check");
+        fs::write(root.join("README.md"), "ok\n").unwrap();
+        let step = step(&["README.md"], &["cat README.md"]);
+        let error = read_only_bash_error(
+            "Unknown",
+            "compound shell commands, pipes, redirects, and shell substitutions are blocked",
+            "test -f README.md && echo exists",
+        );
+
+        let signal = worker_control_signal_after_turn_error(&root, &step, &error);
+
+        assert_eq!(signal, WorkerControlSignal::ReportConcreteBlocker);
+    }
+
+    #[test]
+    fn noncanonical_build_test_does_not_request_verifier_transition() {
+        let root = temp_workspace("worker-noncanonical-build");
+        fs::write(root.join("README.md"), "ok\n").unwrap();
+        let step = step(&["README.md"], &["cargo test --all"]);
+        let error = read_only_bash_error(
+            "BuildTest",
+            "build/test Bash is verifier-owned",
+            "cargo test",
+        );
+
+        let signal = worker_control_signal_after_turn_error(&root, &step, &error);
+
+        assert_eq!(signal, WorkerControlSignal::ReportConcreteBlocker);
+    }
+
+    fn step(expected_paths: &[&str], verify: &[&str]) -> StepPlanStep {
+        StepPlanStep {
+            id: "step".to_string(),
+            kind: StepKind::Create,
+            instruction: "create artifact".to_string(),
+            expected_result: ExpectedResult::Pass,
+            expected_paths: expected_paths
+                .iter()
+                .map(|path| (*path).to_string())
+                .collect(),
+            verify: verify
+                .iter()
+                .map(|command| (*command).to_string())
+                .collect(),
+        }
+    }
+
+    fn read_only_bash_error(class: &str, reason: &str, command: &str) -> MinimalLoopError {
+        MinimalLoopError::Tool(format!(
+            "tool_policy_violation: Bash command is not read-only for this step: class={class}; reason={reason}; command={command}"
+        ))
+    }
+
+    fn temp_workspace(name: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("commandagent-{name}-{stamp}"));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
 }

@@ -124,6 +124,16 @@ obligation owner.
 For ultra phases, the global final artifacts remain visible as context, but
 phase-local step plans are not forced to list every final artifact in their own
 `required_artifacts`; final artifacts are still checked at the final boundary.
+The ultra plan YAML schema can also carry explicit phase artifact scope:
+`owned_artifacts`, `preserve_artifacts`, and `verify_only_artifacts`. When
+`owned_artifacts` is present, it is the phase-local mutation scope. The runtime
+also merges any required final artifact that conservatively matches the phase
+goal, such as `package.json` for an initialization or dependency phase, so a
+required artifact is not dropped merely because the planner mixed explicit and
+inferred ownership. Preserve artifacts are rendered as inspect-only context,
+and verify-only artifacts are rendered as verification context rather than
+create/edit targets. If these fields are omitted, existing plans keep the
+conservative fallback behavior.
 
 Step decomposition is also a planning contract. For example, a generated
 `setup` step may own `package.json` or `tailwind.config.js`, but it may not own
@@ -133,6 +143,38 @@ mismatch, plan lint rejects the step before execution and sends the rejected
 path, observed artifact role, allowed setup roles, and required split or
 kind-change action through the same bounded correction path. The runtime
 setup-source tool policy remains the final guard, not the primary detector.
+Workspace-aware plan lint also rejects oversized worker mutation steps before
+execution. A create/edit/repair step should have one primary mutation target:
+multiple missing artifacts, manifest-plus-source edits, or three-or-more
+mutation targets are planning decomposition failures. The correction path asks
+the planner to split those steps instead of letting the minimal loop exhaust its
+iteration budget on a whole-app scaffold.
+
+Modify plans also treat existing package/dependency manifests as
+preserve-by-default. If a mutation step targets an existing manifest such as
+`package.json`, `Cargo.toml`, `pyproject.toml`, `requirements*.txt`, or a
+lockfile, the step instruction must be a dedicated setup/manifest repair and
+include one supported manifest mutation reason code:
+`dependency_required_by_import`, `dependency_missing_from_verifier`,
+`user_requested_dependency_change`, `profile_contract_repair`, or
+`script_contract_repair`. Ordinary source or UI edits should not list existing
+manifests in `expected_paths`; plan lint rejects those before execution instead
+of allowing dependency/version drift to reach profile verification.
+The repair patch-integrity guard enforces the same boundary after a bounded
+repair turn: if a source, test, docs, or other non-manifest repair touches a
+package/dependency manifest, the patch is rejected as
+`manifest_mutation_without_authority` and reported through the existing
+explicit-stop patch validation path. Only manifest repair authority, such as a
+missing dependency or manifest conflict repair, may mutate those files. For the
+Next.js profile, manifest repair patches are also checked for known incompatible
+version families, such as React 18 with `@types/react` 19 or TypeScript 6 with
+Next.js 14. Those patches are rejected as `manifest_version_family_conflict`
+instead of being treated as ordinary source repair. Manifest repair also
+compares the before/after dependency versions for `package.json`: dependency
+addition actions may add missing packages, but they may not change versions of
+packages that already existed unless the action is an explicit manifest
+conflict resolution or user-requested dependency change. Those patches are
+rejected as `manifest_unexpected_version_change`.
 
 This common evidence layer is implemented for plan-lint/profile obligations,
 provider transport parse failures, tool protocol failures, read-only
@@ -175,8 +217,11 @@ profile verification may also run at the failed phase boundary so the error can
 include profile drift that happened before the step failure. For example, the
 Next.js profile can reject app-root ambiguity, build/dev script drift, missing
 framework dependencies, Tailwind config/dependency drift, and route integration
-drift for explicit artifact paths. Profile verification is read-only and does
-not auto-repair.
+drift for explicit artifact paths. Profile verification itself remains
+read-only. When the failure has one safe target path, the runtime may start one
+bounded minimal-loop repair with a create-only or edit-only execution contract,
+then rerun the same profile check. Ambiguous or repeated failures stop with a
+saved profile repair packet.
 
 ## Verification And Repair
 
@@ -212,6 +257,13 @@ single repair action such as `connect_artifact_to_selected_route`,
 makes the next bounded minimal-loop repair task explicit and keeps the original
 guard, verifier, or profile check as the success authority.
 
+Worker mutation turns do not own build/test execution. In create, edit, and
+repair steps, Bash is limited to read-only inspection; build/test commands such
+as `npm run build`, `cargo test`, or `cargo check` are run by the step verifier
+or verifier-owned setup path. If the model tries to run those commands from a
+mutation turn, step tool policy rejects the Bash call and the normal verifier
+or bounded failure reporting remains the observable authority.
+
 The broader Recovery Orchestration Contract renders that decision as
 structured evidence. Repair prompts and packets may include
 `target_admission`, `target_priority`, `tool_policy_projection`,
@@ -221,7 +273,7 @@ structured evidence. Repair prompts and packets may include
 `deliverable_obligations`, `semantic_failure_report`, `repair_job_state`,
 `attempt_outcomes`, `exhausted_targets`, `exhausted_roles`,
 `exhausted_clusters`, `no_progress_strategy`, `repair_state_status`,
-`safe_stop_payload`,
+`recovery_task_started`, `safe_stop_payload`,
 `verifier_diagnostic_payload`, `diagnostic_code`, `observed_expected`,
 `affected_cases`, `preferred_repair_role`, `weak_verifier_reason`,
 `admitted_cluster_targets`, `patch_validation`, `eval_report_fields`,

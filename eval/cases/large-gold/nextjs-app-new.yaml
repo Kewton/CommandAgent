@@ -1,0 +1,29 @@
+id: large-gold-nextjs-app-new
+title: Gold plan: new Next.js app
+profile: nextjs
+style: default
+mode: run-plan
+intent: new
+gold_plan_fixture: eval/gold_plans/large/nextjs-app-new.yaml
+prompt: "Execute the gold step plan for a polished browser game as a Next.js app that can run on port 3011."
+matrix_row: gold-nextjs-app-new
+proof_mode: real_llm
+expected_artifacts:
+  - package.json
+  - app/page.tsx
+  - app/layout.tsx
+  - tsconfig.json
+verify:
+  - npm run build
+success_check:
+  type: semantic
+  required_paths:
+    - package.json
+    - app/page.tsx
+  must_include:
+    package.json:
+      - next build
+      - next dev
+      - "3011"
+    app/page.tsx:
+      - export default

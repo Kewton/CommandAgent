@@ -1,6 +1,7 @@
 use crate::agent::step_runner::correction_evidence::PlanCorrectionEvidence;
 use crate::agent::step_runner::profile_artifact::{
-    ArtifactProvenance, artifact_kind_label, classify_profile_artifact, setup_step_may_own_artifact,
+    ArtifactKind, ArtifactProvenance, artifact_kind_label, classify_profile_artifact,
+    is_manifest_path, setup_step_may_own_artifact,
 };
 use crate::agent::step_runner::profiles::{
     ProfileId, ProfileObligation, lint_profile_plan, lint_profile_step_contract,
@@ -8,7 +9,7 @@ use crate::agent::step_runner::profiles::{
 use crate::agent::step_runner::task_contract::{
     BehaviorObligationKind, TaskContract, TaskContractAdmissionStatus,
 };
-use crate::agent::step_runner::{StepKind, StepPlan};
+use crate::agent::step_runner::{StepKind, StepPlan, StepPlanStep, WorkIntent};
 use std::collections::BTreeSet;
 use std::path::Path;
 
@@ -78,6 +79,14 @@ fn lint_step_plan_generic(plan: &StepPlan, cwd: Option<&Path>) -> Result<(), Pla
             step.kind,
             &step.expected_paths,
         )?;
+        lint_step_complexity(
+            plan.profile.as_str(),
+            &step.id,
+            step.kind,
+            &step.expected_paths,
+            cwd,
+        )?;
+        lint_manifest_preserve_gate(plan, step, cwd)?;
     }
     lint_required_artifact_owners(plan, cwd)?;
     Ok(())
@@ -207,6 +216,237 @@ fn lint_step_artifact_ownership(
         });
     }
     Ok(())
+}
+
+fn lint_step_complexity(
+    profile: &str,
+    step_id: &str,
+    kind: StepKind,
+    expected_paths: &[String],
+    cwd: Option<&Path>,
+) -> Result<(), PlanLintError> {
+    if !matches!(kind, StepKind::Create | StepKind::Edit | StepKind::Repair) {
+        return Ok(());
+    }
+    let Some(cwd) = cwd else {
+        return Ok(());
+    };
+
+    let missing_paths = expected_paths
+        .iter()
+        .filter(|path| !cwd.join(normalize_plan_path(path)).exists())
+        .cloned()
+        .collect::<Vec<_>>();
+    if missing_paths.len() > 1 {
+        return Err(step_complexity_violation(StepComplexityViolationInput {
+            step_id,
+            violated_contract: "mutation_step_missing_artifact_owners",
+            reason_code: "mutation_step_too_many_missing_artifacts",
+            target_field: "missing_paths",
+            target_path: missing_paths[0].clone(),
+            missing_paths: missing_paths.clone(),
+            required_paths: missing_paths.clone(),
+            reason: format!(
+                "mutation step `{step_id}` owns multiple missing artifacts: {}; split each missing artifact into its own create/edit step",
+                missing_paths.join(", ")
+            ),
+            required_action: "split this mutation step so each missing artifact has one owner step before verification",
+            disallowed_actions: vec![
+                "do not create multiple missing deliverables in one worker mutation step",
+                "do not leave missing final artifacts to verify/report steps",
+            ],
+        }));
+    }
+
+    if expected_paths.len() >= 3 {
+        return Err(step_complexity_violation(StepComplexityViolationInput {
+            step_id,
+            violated_contract: "mutation_step_target_budget",
+            reason_code: "mutation_step_too_many_targets",
+            target_field: "expected_paths",
+            target_path: expected_paths[0].clone(),
+            missing_paths: Vec::new(),
+            required_paths: expected_paths.to_vec(),
+            reason: format!(
+                "mutation step `{step_id}` targets {} paths; split large mutation work into smaller steps",
+                expected_paths.len()
+            ),
+            required_action: "split this mutation step so each step has one primary target and at most two tightly-coupled expected paths",
+            disallowed_actions: vec![
+                "do not combine unrelated source, test, manifest, or integration edits in one worker step",
+                "do not rely on one worker step to complete a whole app scaffold",
+            ],
+        }));
+    }
+
+    let Ok(profile) = ProfileId::parse(profile) else {
+        return Ok(());
+    };
+    let classified = expected_paths
+        .iter()
+        .map(|path| classify_profile_artifact(profile, path, ArtifactProvenance::StepExpectedPath))
+        .collect::<Vec<_>>();
+    let manifest = classified
+        .iter()
+        .find(|artifact| artifact.kind == ArtifactKind::Manifest);
+    let source = classified.iter().find(|artifact| {
+        matches!(
+            artifact.kind,
+            ArtifactKind::RouteEntry
+                | ArtifactKind::RouteInfrastructure
+                | ArtifactKind::UiSource
+                | ArtifactKind::StyleSource
+                | ArtifactKind::RuntimeSource
+                | ArtifactKind::TestSource
+        )
+    });
+    if let (Some(manifest), Some(source)) = (manifest, source) {
+        return Err(step_complexity_violation(StepComplexityViolationInput {
+            step_id,
+            violated_contract: "mutation_step_artifact_role_separation",
+            reason_code: "mutation_step_mixes_manifest_and_source",
+            target_field: "expected_paths",
+            target_path: source.path.clone(),
+            missing_paths: Vec::new(),
+            required_paths: expected_paths.to_vec(),
+            reason: format!(
+                "mutation step `{step_id}` mixes manifest `{}` with source `{}`; split setup/manifest work from source implementation",
+                manifest.path, source.path
+            ),
+            required_action: "split manifest/config changes into a setup step or dedicated manifest step, and source changes into a separate create/edit step",
+            disallowed_actions: vec![
+                "do not edit package/dependency manifests and source files in the same worker mutation step",
+                "do not use manifest edits as part of ordinary source implementation unless a separate setup/manifest contract owns them",
+            ],
+        }));
+    }
+
+    Ok(())
+}
+
+struct StepComplexityViolationInput<'a> {
+    step_id: &'a str,
+    violated_contract: &'a str,
+    reason_code: &'a str,
+    target_field: &'a str,
+    target_path: String,
+    missing_paths: Vec<String>,
+    required_paths: Vec<String>,
+    reason: String,
+    required_action: &'a str,
+    disallowed_actions: Vec<&'a str>,
+}
+
+fn step_complexity_violation(input: StepComplexityViolationInput<'_>) -> PlanLintError {
+    PlanLintError::ContractViolation {
+        step_id: input.step_id.to_string(),
+        reason: input.reason.clone(),
+        evidence: Box::new(
+            PlanCorrectionEvidence::new("plan_lint.step_complexity")
+                .with_failed_step(input.step_id.to_string())
+                .with_violated_contract(input.violated_contract)
+                .with_reason_code(input.reason_code)
+                .with_failure_kind("plan_decomposition_failure")
+                .with_target_field(input.target_field)
+                .with_target_path(input.target_path.clone())
+                .with_required_paths(input.required_paths.clone())
+                .with_missing_paths(input.missing_paths)
+                .with_candidate_artifacts(input.required_paths)
+                .with_repair_target(input.target_path)
+                .with_active_job("plan_correction")
+                .with_recovery_owner("planning")
+                .with_repair_kind("plan_correction")
+                .with_repair_action("split_oversized_mutation_step")
+                .with_required_action(input.required_action)
+                .with_disallowed_actions(input.disallowed_actions)
+                .with_diagnostic(input.reason),
+        ),
+    }
+}
+
+fn lint_manifest_preserve_gate(
+    plan: &StepPlan,
+    step: &StepPlanStep,
+    cwd: Option<&Path>,
+) -> Result<(), PlanLintError> {
+    if plan.intent != WorkIntent::Modify
+        || !matches!(
+            step.kind,
+            StepKind::Create | StepKind::Edit | StepKind::Setup | StepKind::Repair
+        )
+    {
+        return Ok(());
+    }
+    let Some(cwd) = cwd else {
+        return Ok(());
+    };
+    for path in &step.expected_paths {
+        let normalized = normalize_plan_path(path);
+        if !is_manifest_path(&normalized) {
+            continue;
+        }
+        if !cwd.join(&normalized).exists() {
+            continue;
+        }
+        if instruction_has_manifest_mutation_reason(&step.instruction) {
+            continue;
+        }
+
+        let reason = format!(
+            "modify plan step `{}` targets existing manifest `{}` without a manifest mutation reason code",
+            step.id, normalized
+        );
+        return Err(PlanLintError::ContractViolation {
+            step_id: step.id.clone(),
+            reason: reason.clone(),
+            evidence: Box::new(
+                PlanCorrectionEvidence::new("plan_lint.manifest_preserve_gate")
+                    .with_failed_step(step.id.clone())
+                    .with_violated_contract("manifest_preserve_gate")
+                    .with_reason_code("existing_manifest_mutation_without_reason")
+                    .with_failure_kind("plan_decomposition_failure")
+                    .with_target_field("steps.expected_paths")
+                    .with_target_path(normalized.clone())
+                    .with_rejected_value(normalized.clone())
+                    .with_candidate_artifacts(vec![normalized.clone()])
+                    .with_repair_target(normalized)
+                    .with_active_job("plan_correction")
+                    .with_recovery_owner("planning")
+                    .with_repair_kind("plan_correction")
+                    .with_repair_action("remove_or_justify_manifest_mutation")
+                    .with_required_literals(manifest_mutation_reason_codes())
+                    .with_required_action(
+                        "remove the existing manifest from this modify step unless this step is a dedicated manifest/setup repair with one supported manifest mutation reason code"
+                    )
+                    .with_allowed_change_kind("manifest_reason_code_required")
+                    .with_target_admission("rejected: existing manifest is preserve-by-default in modify plans without reason code")
+                    .with_disallowed_actions(vec![
+                        "do not edit existing package/dependency manifests for ordinary source or UI changes",
+                        "do not change dependency versions, scripts, or lockfiles without a manifest mutation reason code",
+                    ])
+                    .with_diagnostic(reason),
+            ),
+        });
+    }
+
+    Ok(())
+}
+
+fn instruction_has_manifest_mutation_reason(instruction: &str) -> bool {
+    let lower = instruction.to_ascii_lowercase();
+    manifest_mutation_reason_codes()
+        .iter()
+        .any(|code| lower.contains(code))
+}
+
+fn manifest_mutation_reason_codes() -> Vec<&'static str> {
+    vec![
+        "dependency_required_by_import",
+        "dependency_missing_from_verifier",
+        "user_requested_dependency_change",
+        "profile_contract_repair",
+        "script_contract_repair",
+    ]
 }
 
 pub fn lint_step_plan_with_workspace_and_obligations(
@@ -976,6 +1216,186 @@ mod tests {
     }
 
     #[test]
+    fn rejects_create_step_with_multiple_missing_artifacts() {
+        let root = temp_workspace("complexity-multiple-missing");
+        let plan = StepPlan {
+            goal: "create rust app".to_string(),
+            profile: "rust".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::New,
+            required_artifacts: Vec::new(),
+            steps: vec![StepPlanStep {
+                id: "create-app".to_string(),
+                kind: StepKind::Create,
+                instruction: "Create Cargo.toml and src/main.rs.".to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec!["Cargo.toml".to_string(), "src/main.rs".to_string()],
+                verify: Vec::new(),
+            }],
+        };
+
+        let err = lint_step_plan_with_workspace(&plan, Some(&root)).unwrap_err();
+
+        match err {
+            PlanLintError::ContractViolation {
+                step_id,
+                reason,
+                evidence,
+            } => {
+                assert_eq!(step_id, "create-app");
+                assert!(reason.contains("multiple missing artifacts"), "{reason}");
+                assert_eq!(
+                    evidence.violated_contract.as_deref(),
+                    Some("mutation_step_missing_artifact_owners")
+                );
+                assert_eq!(
+                    evidence.reason_code.as_deref(),
+                    Some("mutation_step_too_many_missing_artifacts")
+                );
+                assert_eq!(
+                    evidence.missing_paths,
+                    vec!["Cargo.toml".to_string(), "src/main.rs".to_string()]
+                );
+                assert_eq!(
+                    evidence.required_paths,
+                    vec!["Cargo.toml".to_string(), "src/main.rs".to_string()]
+                );
+                assert_eq!(
+                    evidence.repair_action.as_deref(),
+                    Some("split_oversized_mutation_step")
+                );
+            }
+            other => panic!("expected step complexity violation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn accepts_create_step_when_existing_artifact_is_context_not_missing_owner() {
+        let root = temp_workspace("complexity-existing-context");
+        fs::create_dir_all(root.join("tests")).unwrap();
+        fs::write(root.join("tests/cli.rs"), "#[test]\nfn cli_smoke() {}\n").unwrap();
+        let plan = StepPlan {
+            goal: "add rust main".to_string(),
+            profile: "rust".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::Modify,
+            required_artifacts: Vec::new(),
+            steps: vec![StepPlanStep {
+                id: "create-main".to_string(),
+                kind: StepKind::Create,
+                instruction: "Create src/main.rs using the existing tests/cli.rs context."
+                    .to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec!["tests/cli.rs".to_string(), "src/main.rs".to_string()],
+                verify: Vec::new(),
+            }],
+        };
+
+        lint_step_plan_with_workspace(&plan, Some(&root)).unwrap();
+    }
+
+    #[test]
+    fn rejects_mutation_step_mixing_manifest_and_source() {
+        let root = temp_workspace("complexity-manifest-source");
+        fs::create_dir_all(root.join("app")).unwrap();
+        fs::write(
+            root.join("package.json"),
+            "{\"scripts\":{\"build\":\"next build\"}}\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("app/page.tsx"),
+            "export default function Page() { return null; }\n",
+        )
+        .unwrap();
+        let plan = StepPlan {
+            goal: "update Next.js app".to_string(),
+            profile: "nextjs".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::Modify,
+            required_artifacts: Vec::new(),
+            steps: vec![StepPlanStep {
+                id: "edit-app-and-manifest".to_string(),
+                kind: StepKind::Edit,
+                instruction: "Edit package.json and app/page.tsx.".to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec!["package.json".to_string(), "app/page.tsx".to_string()],
+                verify: Vec::new(),
+            }],
+        };
+
+        let err = lint_step_plan_with_workspace(&plan, Some(&root)).unwrap_err();
+
+        match err {
+            PlanLintError::ContractViolation {
+                step_id,
+                reason,
+                evidence,
+            } => {
+                assert_eq!(step_id, "edit-app-and-manifest");
+                assert!(reason.contains("mixes manifest"), "{reason}");
+                assert_eq!(
+                    evidence.reason_code.as_deref(),
+                    Some("mutation_step_mixes_manifest_and_source")
+                );
+                assert_eq!(
+                    evidence.violated_contract.as_deref(),
+                    Some("mutation_step_artifact_role_separation")
+                );
+                assert_eq!(evidence.target_path.as_deref(), Some("app/page.tsx"));
+            }
+            other => panic!("expected manifest/source split violation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_mutation_step_with_three_targets() {
+        let root = temp_workspace("complexity-three-targets");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(root.join("src/lib.rs"), "pub fn lib() {}\n").unwrap();
+        fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+        fs::write(root.join("src/cli.rs"), "pub fn run() {}\n").unwrap();
+        let plan = StepPlan {
+            goal: "edit rust sources".to_string(),
+            profile: "rust".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::Modify,
+            required_artifacts: Vec::new(),
+            steps: vec![StepPlanStep {
+                id: "edit-sources".to_string(),
+                kind: StepKind::Edit,
+                instruction: "Edit src/lib.rs, src/main.rs, and src/cli.rs.".to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec![
+                    "src/lib.rs".to_string(),
+                    "src/main.rs".to_string(),
+                    "src/cli.rs".to_string(),
+                ],
+                verify: Vec::new(),
+            }],
+        };
+
+        let err = lint_step_plan_with_workspace(&plan, Some(&root)).unwrap_err();
+
+        match err {
+            PlanLintError::ContractViolation {
+                step_id, evidence, ..
+            } => {
+                assert_eq!(step_id, "edit-sources");
+                assert_eq!(
+                    evidence.reason_code.as_deref(),
+                    Some("mutation_step_too_many_targets")
+                );
+                assert_eq!(
+                    evidence.violated_contract.as_deref(),
+                    Some("mutation_step_target_budget")
+                );
+            }
+            other => panic!("expected target budget violation, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn rejects_py_compile_for_non_python_source() {
         let mut plan = plan_with_paths("rust", vec!["src/main.rs"]);
         plan.steps[0].verify = vec!["python -m py_compile src/main.rs".to_string()];
@@ -1632,6 +2052,90 @@ mod tests {
             &["3011"],
             &["3011"],
         );
+    }
+
+    #[test]
+    fn rejects_modify_step_mutating_existing_manifest_without_reason_code() {
+        let root = temp_workspace("manifest-preserve-gate");
+        fs::write(
+            root.join("package.json"),
+            r#"{"scripts":{"build":"next build"},"dependencies":{"next":"14.2.35","react":"18.3.1","react-dom":"18.3.1"}}"#,
+        )
+        .unwrap();
+        let plan = StepPlan {
+            goal: "Change the dashboard heading without changing dependencies.".to_string(),
+            profile: "nextjs".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::Modify,
+            required_artifacts: vec!["app/page.tsx".to_string()],
+            steps: vec![StepPlanStep {
+                id: "update-package".to_string(),
+                kind: StepKind::Edit,
+                instruction: "Update package.json metadata while keeping dependencies unchanged."
+                    .to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec!["package.json".to_string()],
+                verify: Vec::new(),
+            }],
+        };
+
+        let err = lint_step_plan_with_workspace(&plan, Some(&root)).unwrap_err();
+
+        match err {
+            PlanLintError::ContractViolation {
+                step_id, evidence, ..
+            } => {
+                assert_eq!(step_id, "update-package");
+                assert_eq!(
+                    evidence.violated_contract.as_deref(),
+                    Some("manifest_preserve_gate")
+                );
+                assert_eq!(
+                    evidence.reason_code.as_deref(),
+                    Some("existing_manifest_mutation_without_reason")
+                );
+                assert_eq!(evidence.target_path.as_deref(), Some("package.json"));
+                assert!(
+                    evidence
+                        .required_literals
+                        .contains(&"script_contract_repair".to_string())
+                );
+                assert_eq!(
+                    evidence.allowed_change_kind.as_deref(),
+                    Some("manifest_reason_code_required")
+                );
+            }
+            other => panic!("expected manifest preserve gate violation, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn accepts_modify_manifest_step_with_reason_code() {
+        let root = temp_workspace("manifest-preserve-gate-reason");
+        fs::write(
+            root.join("package.json"),
+            r#"{"scripts":{"build":"next build"},"dependencies":{"next":"14.2.35","react":"18.3.1","react-dom":"18.3.1"}}"#,
+        )
+        .unwrap();
+        let plan = StepPlan {
+            goal: "Repair the package build script.".to_string(),
+            profile: "nextjs".to_string(),
+            style: "default".to_string(),
+            intent: WorkIntent::Modify,
+            required_artifacts: Vec::new(),
+            steps: vec![StepPlanStep {
+                id: "repair-build-script".to_string(),
+                kind: StepKind::Setup,
+                instruction:
+                    "Repair package.json with manifest mutation reason script_contract_repair."
+                        .to_string(),
+                expected_result: ExpectedResult::Pass,
+                expected_paths: vec!["package.json".to_string()],
+                verify: Vec::new(),
+            }],
+        };
+
+        lint_step_plan_with_workspace(&plan, Some(&root)).unwrap();
     }
 
     #[test]

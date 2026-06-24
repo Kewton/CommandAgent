@@ -1,0 +1,26 @@
+id: small-nextjs-manifest-preserve-ui
+title: Preserve manifest while editing UI
+profile: nextjs
+style: default
+mode: plan-run
+intent: modify
+evaluation_purpose: task_success
+fixture: eval/fixtures/small/nextjs-manifest-preserve
+prompt: "Change the dashboard heading in app/page.tsx to say Dashboard Analytics without changing package.json dependencies or scripts."
+expected_artifacts:
+  - app/page.tsx
+verify:
+  - cat app/page.tsx
+success_check:
+  type: semantic
+  required_paths:
+    - app/page.tsx
+    - package.json
+  must_include:
+    app/page.tsx:
+      - Dashboard
+      - Analytics
+    package.json:
+      - "14.2.35"
+      - "18.3.1"
+      - "next build"

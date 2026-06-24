@@ -160,6 +160,22 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertEqual(observation["terminal_state"], "verifier_command_failed")
         self.assertEqual(observation["diagnostic_code"], "minimal_loop_max_iterations")
 
+    def test_progress_budget_exhaustion_has_specific_terminal_state(self):
+        observation = eval_failure_observation.normalize_observation(
+            {
+                "reason": "rc:1",
+                "success": False,
+                "stderr": (
+                    "ERROR: initial turn error: minimal loop progress budget exhausted: "
+                    "mutation required but no file mutation evidence before max iterations"
+                ),
+            }
+        )
+
+        self.assertEqual(observation["terminal_state"], "progress_budget_exhausted")
+        self.assertEqual(observation["failure_category"], "step_policy")
+        self.assertEqual(observation["diagnostic_code"], "progress_budget_exhausted")
+
     def test_raw_rc_with_blocked_bash_uses_tool_policy_diagnostic(self):
         observation = eval_failure_observation.normalize_observation(
             {
@@ -362,9 +378,12 @@ class EvalReportCategorizeTests(unittest.TestCase):
                         "expected_effective_tool_policy: file_mutation_repair",
                         "expected_effective_tool_policy_status: projected",
                         "expected_tool_failure_recovery_status: bounded_correction",
+                        "expected_recovery_task_started: true",
+                        "expected_attempt_outcome_source: runtime_attempt_ledger",
                         "expected_setup_command_classification: verifier",
                         "expected_command_authority: original_verifier",
                         "expected_command_classification_reason: command_is_an_original_verifier_or_test_runner",
+                        "expected_first_actionable_divergence: verifier_requested_before_mutation",
                         "expected_workspace_candidate_status: observed:1|excluded:2",
                         "expected_workspace_ignored_dir_policy: single_source_of_truth",
                         "expected_workspace_candidate_ignored_reasons: build_output|dependency_cache",
@@ -387,10 +406,16 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertEqual(expected["phase29_support_rows"], "C35|C37|C39|C43")
         self.assertEqual(expected["setup_command_classification"], "verifier")
         self.assertEqual(expected["command_authority"], "original_verifier")
+        self.assertEqual(expected["attempt_outcome_source"], "runtime_attempt_ledger")
+        self.assertEqual(
+            expected["first_actionable_divergence"],
+            "verifier_requested_before_mutation",
+        )
         self.assertEqual(
             expected["workspace_ignored_dir_policy"], "single_source_of_truth"
         )
         self.assertEqual(expected["provider_boundary_status"], "transport_only")
+        self.assertEqual(expected["recovery_task_started"], "true")
 
     def test_phase29_runtime_support_report_section(self):
         report = eval_report.render_report(
@@ -578,6 +603,13 @@ class EvalReportCategorizeTests(unittest.TestCase):
                         "repair_action": "edit_source_for_diagnostic",
                         "profile_entrypoints": "src/main.rs|src/lib.rs",
                         "profile_integration_artifacts": "src/main.rs|src/lib.rs",
+                        "failed_tool": "Bash",
+                        "blocked_command": "cargo_test",
+                        "command_class": "build_test",
+                        "command_authority": "worker_tool_call",
+                        "command_classification_reason": "build/test_Bash_is_verifier-owned",
+                        "first_actionable_divergence": "verifier_requested_before_mutation",
+                        "attempt_outcome_source": "runtime_attempt_ledger",
                     }
                 )
                 + "\n",
@@ -604,6 +636,17 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertEqual(row["target_admission_status"], "admitted")
         self.assertEqual(row["target_source_of_truth"], "profile_artifact_hint")
         self.assertEqual(row["target_ownership_source"], "profile_workspace_artifact")
+        self.assertEqual(row["failed_tool"], "Bash")
+        self.assertEqual(row["blocked_command"], "cargo_test")
+        self.assertEqual(row["command_class"], "build_test")
+        self.assertEqual(row["command_authority"], "worker_tool_call")
+        self.assertEqual(
+            row["command_classification_reason"], "build/test_Bash_is_verifier-owned"
+        )
+        self.assertEqual(
+            row["first_actionable_divergence"], "verifier_requested_before_mutation"
+        )
+        self.assertEqual(row["attempt_outcome_source"], "runtime_attempt_ledger")
 
     def test_recheck_does_not_invent_target_without_existing_profile_artifact(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -655,6 +698,69 @@ class EvalReportCategorizeTests(unittest.TestCase):
         self.assertEqual(row["diagnostic_code"], "minimal_loop_max_iterations")
         self.assertEqual(row["target_path"], "")
         self.assertEqual(row["target_admission_status"], "unknown")
+
+    def test_recheck_restores_blocked_bash_fields_from_repair_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            run_dir = root / "large-rust-app-new" / "run-1"
+            repairs = run_dir / "workspace" / ".commandagent" / "repairs"
+            repairs.mkdir(parents=True)
+            (run_dir / "stdout.txt").write_text("", encoding="utf-8")
+            (run_dir / "stderr.txt").write_text(
+                "ERROR: initial turn error: minimal loop reached max iterations\n",
+                encoding="utf-8",
+            )
+            (repairs / "repair.md").write_text(
+                "\n".join(
+                    [
+                        "Contract correction evidence:",
+                        "  - diagnostic_code: blocked_bash_command_policy",
+                        "  - eval_report_fields: failed_tool=Bash, command_authority=worker_tool_call, command_class=unknown, blocked_command=test_-f_Cargo.toml_&&_echo_exists, command_classification_reason=compound_shell_commands__pipes, first_actionable_divergence=compound_read_check_requested, attempt_outcome_source=runtime_attempt_ledger",
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (run_dir / "meta.json").write_text(
+                json.dumps(
+                    {
+                        "case_id": "large-rust-app-new",
+                        "run_index": 1,
+                        "rc": 1,
+                        "success": False,
+                        "elapsed_ms": 1,
+                        "success_check_reason": "rc:1",
+                        "matrix_row": "large-rust-app-new",
+                        "proof_mode": "real_llm",
+                        "dry_run": False,
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+
+            rows, _ = eval_report.recheck(
+                root,
+                {
+                    "large-rust-app-new": {
+                        "required_paths": [],
+                        "must_include": {},
+                        "type": "semantic",
+                        "matrix_row": "large-rust-app-new",
+                        "proof_mode": "real_llm",
+                    }
+                },
+            )
+
+        row = rows[0]
+        self.assertEqual(row["failed_tool"], "Bash")
+        self.assertEqual(row["blocked_command"], "test_-f_Cargo.toml_&&_echo_exists")
+        self.assertEqual(row["command_class"], "unknown")
+        self.assertEqual(row["command_authority"], "worker_tool_call")
+        self.assertEqual(
+            row["first_actionable_divergence"], "compound_read_check_requested"
+        )
+        self.assertEqual(row["attempt_outcome_source"], "runtime_attempt_ledger")
 
     def test_recheck_reprojects_fixture_fields_for_focused_assertions(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1709,6 +1815,51 @@ class EvalReportCategorizeTests(unittest.TestCase):
             case["fixture_fields"]["active_job"], "tool_protocol_correction"
         )
         self.assertEqual(case["fixture_fields"]["tool_protocol_missing_field"], "path")
+
+    def test_read_eval_case_defaults_evaluation_purpose_to_task_success(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "case.yaml"
+            path.write_text(
+                "\n".join(
+                    [
+                        "id: small-docs",
+                        "profile: docs",
+                        "style: default",
+                        "prompt: \"Create docs/note.md\"",
+                        "expected_artifacts:",
+                        "  - docs/note.md",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            case = eval_case_schema.read_eval_case(path)
+
+        self.assertEqual(case["evaluation_purpose"], "task_success")
+
+    def test_read_eval_case_parses_evaluation_purpose(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "case.yaml"
+            path.write_text(
+                "\n".join(
+                    [
+                        "id: focused-stop",
+                        "profile: generic",
+                        "style: default",
+                        "prompt: \"Stop with structured evidence\"",
+                        "evaluation_purpose: expected_failure_classification",
+                        "expected_artifacts:",
+                        "  - notes.txt",
+                        "",
+                    ]
+                ),
+                encoding="utf-8",
+            )
+
+            case = eval_case_schema.read_eval_case(path)
+
+        self.assertEqual(case["evaluation_purpose"], "expected_failure_classification")
 
     def test_focused_assertion_mismatch_is_reported(self):
         report = eval_report.render_report(

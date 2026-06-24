@@ -1,0 +1,15 @@
+id: planner-plan-steps-docs
+title: Planner step plan docs
+profile: docs
+style: default
+mode: plan-only
+intent: docs
+component: planner
+prompt: "Plan a small docs task that creates README.md with a CommandAgent usage note."
+evaluation_purpose: task_success
+expected_artifacts:
+  - README.md
+success_check:
+  type: semantic
+  required_paths: []
+  must_include: {}

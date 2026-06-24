@@ -59,11 +59,18 @@ where
             return Err(err);
         }
     };
-    let executor = ToolExecutor::new(
+    let initial_missing_artifacts = if config.initial_missing_artifacts.is_empty() {
+        missing_artifacts(&guard, &config.expected_artifacts)
+    } else {
+        config.initial_missing_artifacts.clone()
+    };
+    let executor = ToolExecutor::new_with_contract_paths(
         &guard,
         config.dependency_setup_policy,
         config.step_tool_policy,
         config.allowed_tools.clone(),
+        initial_missing_artifacts,
+        config.expected_artifacts.clone(),
     );
     let mut mode = config.initial_tool_call_mode;
     let tools = file_tool_specs();
@@ -298,9 +305,51 @@ where
         }
     }
 
-    let err = MinimalLoopError::MaxIterations;
+    let err = progress_budget_error(
+        &guard,
+        &config,
+        file_change_count,
+        repository_evidence_count,
+    )
+    .unwrap_or(MinimalLoopError::MaxIterations);
     emit_session_error(observer, &err);
     Err(err)
+}
+
+fn progress_budget_error(
+    guard: &PathGuard,
+    config: &MinimalLoopConfig,
+    file_change_count: usize,
+    repository_evidence_count: usize,
+) -> Option<MinimalLoopError> {
+    let mut clauses = Vec::new();
+    match config.action_requirement {
+        ActionRequirement::Required if file_change_count == 0 => {
+            clauses.push(
+                "mutation required but no file mutation evidence before max iterations".to_string(),
+            );
+        }
+        ActionRequirement::RepositoryEvidenceRequired if repository_evidence_count == 0 => {
+            clauses.push(
+                "repository evidence required but no read evidence before max iterations"
+                    .to_string(),
+            );
+        }
+        _ => {}
+    }
+
+    let missing = missing_artifacts(guard, &config.expected_artifacts);
+    if !missing.is_empty() && file_change_count == 0 {
+        clauses.push(format!("missing_expected_artifacts={}", missing.join(",")));
+    }
+
+    if clauses.is_empty() {
+        None
+    } else {
+        Some(MinimalLoopError::ProgressBudgetExhausted(
+            clauses.join("; "),
+        ))
+    }
 }
 
 fn action_requirement_satisfied(
@@ -904,6 +953,81 @@ mod tests {
         .unwrap_err();
 
         assert!(matches!(err, MinimalLoopError::ActionRequiredNoEvidence(_)));
+    }
+
+    #[test]
+    fn max_iterations_without_required_mutation_reports_progress_budget() {
+        let root = temp_workspace("progress-budget-mutation");
+        let mut client = MockClient::new(vec![
+            ChatResponse {
+                content: "<commandagent_tool_call>{\"name\":\"Write\"".to_string(),
+                tool_calls: Vec::new(),
+
+                usage: Default::default(),
+            },
+            ChatResponse {
+                content: "<commandagent_tool_call>{\"name\":\"Write\"".to_string(),
+                tool_calls: Vec::new(),
+
+                usage: Default::default(),
+            },
+        ]);
+
+        let err = run_session(
+            &mut client,
+            &root,
+            "create a report",
+            MinimalLoopConfig {
+                action_requirement: ActionRequirement::Required,
+                expected_artifacts: vec!["dist/report.md".to_string()],
+                max_iterations: 2,
+                ..MinimalLoopConfig::default()
+            },
+        )
+        .unwrap_err();
+
+        let MinimalLoopError::ProgressBudgetExhausted(message) = err else {
+            panic!("expected progress budget error");
+        };
+        assert!(message.contains("no file mutation evidence"));
+        assert!(message.contains("missing_expected_artifacts=dist/report.md"));
+    }
+
+    #[test]
+    fn max_iterations_without_repository_read_reports_progress_budget() {
+        let root = temp_workspace("progress-budget-read");
+        let mut client = MockClient::new(vec![
+            ChatResponse {
+                content: "<commandagent_tool_call>{\"name\":\"Read\"".to_string(),
+                tool_calls: Vec::new(),
+
+                usage: Default::default(),
+            },
+            ChatResponse {
+                content: "<commandagent_tool_call>{\"name\":\"Read\"".to_string(),
+                tool_calls: Vec::new(),
+
+                usage: Default::default(),
+            },
+        ]);
+
+        let err = run_session(
+            &mut client,
+            &root,
+            "inspect package.json",
+            MinimalLoopConfig {
+                action_requirement: ActionRequirement::RepositoryEvidenceRequired,
+                step_tool_policy: StepToolPolicy::ReadOnly,
+                max_iterations: 2,
+                ..MinimalLoopConfig::default()
+            },
+        )
+        .unwrap_err();
+
+        let MinimalLoopError::ProgressBudgetExhausted(message) = err else {
+            panic!("expected progress budget error");
+        };
+        assert!(message.contains("no read evidence"));
     }
 
     #[test]

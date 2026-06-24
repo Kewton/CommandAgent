@@ -48,7 +48,7 @@ pub fn run_verifiers(
         match bash.run(command) {
             Ok(output) if output.success() => {}
             Ok(output) => failures.push(summarize_command_failure(&guard, command, &output)),
-            Err(ToolError::BashBlocked { class, message }) => {
+            Err(ToolError::BashBlocked { class, message, .. }) => {
                 failures.push(VerificationFailure {
                     command: command.clone(),
                     reason: format!("blocked:{class:?}: {message}"),

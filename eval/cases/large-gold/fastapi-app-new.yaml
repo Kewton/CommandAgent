@@ -1,0 +1,26 @@
+id: large-gold-fastapi-app-new
+title: Gold plan: new FastAPI app
+profile: python
+style: default
+mode: run-plan
+intent: new
+gold_plan_fixture: eval/gold_plans/large/fastapi-app-new.yaml
+prompt: "Execute the gold step plan for a FastAPI service with health, items CRUD routes, tests, and local run instructions."
+matrix_row: gold-fastapi-app-new
+proof_mode: real_llm
+expected_artifacts:
+  - app/main.py
+  - tests/test_app.py
+  - requirements.txt
+verify:
+  - python3 -m pytest
+success_check:
+  type: semantic
+  required_paths:
+    - app/main.py
+    - tests/test_app.py
+  must_include:
+    app/main.py:
+      - FastAPI
+      - health
+      - items

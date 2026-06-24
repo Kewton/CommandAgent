@@ -78,6 +78,11 @@ dependencies.
 For expensive evals, merge deterministic prerequisites first, then run the
 combined eval once. Avoid running a full matrix after each tiny prerequisite
 when the result would immediately become stale.
+When large failures may come from planner quality, run the Gold Plan slice
+(`scripts/eval_large_gold_tasks.sh`) before broad matrix comparisons. Gold Plan
+cases use checked-in `/run-plan` inputs, so they isolate the existing minimal
+loop worker, tool policy, verifier, and bounded repair behavior from plan
+generation.
 
 ## Commit Policy
 
@@ -201,6 +206,12 @@ evidence.
 - Normal model-issued `Bash(npm install)`, `Bash(npm ci)`, or
   `Bash(pnpm install)` remains blocked; dependency setup is triggered by the
   step runner after verifier evidence, not by planner/model choice.
+- In create/edit/repair worker turns, model-issued build/test or script-run
+  `Bash` is not executed by the worker. It may become a verifier transition
+  only when the command exactly matches the step verifier and the step's
+  expected paths already exist; otherwise it stays a structured blocker or
+  repair input. Compound read checks such as `test -f ... && ...` are not
+  verifier transitions.
 - Do not commit generated dependency directories or scratch lockfiles unless
   the task explicitly asks for them.
 - Do not change build scripts to fake verifier success.

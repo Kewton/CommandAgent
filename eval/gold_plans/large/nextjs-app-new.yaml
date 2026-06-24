@@ -1,0 +1,45 @@
+goal: "Create a polished browser game as a Next.js app that can run on port 3011."
+profile: "nextjs"
+style: "default"
+intent: "new"
+required_artifacts:
+  - package.json
+  - app/page.tsx
+  - app/layout.tsx
+  - tsconfig.json
+steps:
+  - id: create-nextjs-manifest
+    kind: create
+    instruction: "Use Write directly to create package.json with scripts for next dev on port 3011, next build, and next start on port 3011; dependencies must include next, react, and react-dom, and devDependencies must include typescript. Do not call Bash in this create step."
+    expected_result: pass
+    expected_paths:
+      - package.json
+    verify: []
+  - id: create-nextjs-tsconfig
+    kind: create
+    instruction: "Use Write directly to create tsconfig.json for a minimal typed Next.js App Router project. Do not call Bash in this create step."
+    expected_result: pass
+    expected_paths:
+      - tsconfig.json
+    verify: []
+  - id: create-nextjs-layout
+    kind: create
+    instruction: "Use Write directly to create app/layout.tsx with a root layout and metadata for the browser game. Do not call Bash in this create step."
+    expected_result: pass
+    expected_paths:
+      - app/layout.tsx
+    verify: []
+  - id: create-browser-game-page
+    kind: create
+    instruction: "Use Write directly to create app/page.tsx as a polished client-side browser game component with export default, visible game state, controls, scoring, and responsive styling. Do not call Bash in this create step."
+    expected_result: pass
+    expected_paths:
+      - app/page.tsx
+    verify: []
+  - id: verify-nextjs-game
+    kind: verify
+    instruction: "Run the Next.js production build."
+    expected_result: pass
+    expected_paths: []
+    verify:
+      - npm run build

@@ -14,6 +14,7 @@ style: default
 mode: plan-run
 intent: docs
 prompt: "Create README.md with a short usage note."
+evaluation_purpose: task_success
 expected_artifacts:
   - README.md
 verify:
@@ -32,15 +33,26 @@ Required fields:
 - `id`: stable case id
 - `profile`: one of the MVP profiles
 - `style`: `default`, `tdd`, or `test-hardening`
-- `mode`: optional, `plan-run` or `ultra-plan-run`; defaults to `plan-run`
+- `mode`: optional, `minimal`, `plan-only`, `ultra-plan-only`, `plan-run`,
+  `ultra-plan-run`, or `run-plan`; defaults to `plan-run`
 - `intent`: broad task intent
 - `prompt`: user-facing task prompt
+- `evaluation_purpose`: optional reporting purpose. Supported values are
+  `task_success`, `expected_failure_classification`, `contract_fixture`, and
+  `provider_smoke`; defaults to `task_success`.
 - `expected_artifacts`: concrete repository-relative files
 - `verify`: deterministic local commands when available
 - `success_check`: post-run check contract
 - `fixture`: optional repository-relative directory copied into each run
   workspace before execution. Use this for modification cases that need an
   existing project.
+- `gold_plan_fixture`: required for `mode: run-plan`. The eval runner copies
+  this repository-relative step-plan YAML into the run workspace and passes it
+  to `/run-plan`, bypassing planner generation while still using the normal
+  minimal loop executor.
+- `component`: optional reporting dimension. Defaults from `mode` and focused
+  path: `minimal_loop`, `planner`, `worker`, `recovery`, `full_agent_plan`, or
+  `full_agent_ultra`.
 
 ## Semantic Check Policy
 
@@ -58,12 +70,98 @@ criterion for MVP sign-off.
 ## Case Sets
 
 - `smoke`: fast cases for runner wiring
-- `small`: future small/medium regression cases
+- `small`: small/medium task-success regression cases
 - `large`: six MVP large-task cases covering Next.js, FastAPI, and Rust
+- `large-gold`: the same six large-task surfaces driven by checked-in step
+  plans under `eval/gold_plans/large`
+- `minimal`: direct one-shot minimal-loop cases that do not pass through a
+  slash command
+- `planner`: planner-only cases using `/plan-steps` or `/ultra-plan`
 - `focused/control-recovery`: focused E2E cases for contract recovery paths
 
 Large cases should usually set `mode: ultra-plan-run`. Modification cases should
 use fixtures instead of expecting the model to invent an existing project.
+Gold-plan cases should set `mode: run-plan` and are used to separate
+planner/plan-lint quality from worker/tool-interface behavior.
+
+Minimal cases should set `mode: minimal`. The runner passes `prompt` directly
+to the CommandAgent one-shot minimal loop instead of rendering `/plan-run` or
+`/ultra-plan-run`.
+
+Planner-only cases should set `mode: plan-only` or `mode: ultra-plan-only`.
+The runner renders `/plan-steps` or `/ultra-plan` and treats a saved plan under
+`.commandagent/plans` as the artifact under evaluation. These cases do not
+require final task artifacts to be created.
+
+Worker cases should usually use `mode: run-plan` with `gold_plan_fixture`.
+Recovery cases live under `focused/control-recovery` and are reported with
+`component=recovery` unless they are specifically planning-focused.
+
+## Run Artifacts
+
+Each run writes compatibility files plus normalized trace files:
+
+- `summary.tsv`: headline-compatible tabular report.
+- `command.json`: exact subprocess command and eval trace environment.
+- `events.jsonl`: versioned runtime events from `COMMANDAGENT_EVENT_JSONL`.
+- `model_io.jsonl`: eval-only model request/response trace from
+  `COMMANDAGENT_MODEL_IO_JSONL`.
+- `plans.jsonl`, `steps.jsonl`, `model_calls.jsonl`, `tool_calls.jsonl`,
+  `artifacts.jsonl`, `verifier_runs.jsonl`, and `recoveries.jsonl`: derived
+  event slices.
+- `workspace_before.json`, `workspace_after.json`,
+  `artifact_changes.jsonl`, and `changes.patch`: workspace delta evidence.
+- `runtime_result.json`: observed runtime/event-derived causal summary.
+- `evaluator_result.json`: evaluator success checks, staged success levels,
+  plan quality, and derived attribution.
+- `recheck_result.json` and `recheck_delta.json`: written only by
+  `eval_report.py --recheck`; recheck is derived analysis and does not change
+  runtime facts.
+
+Root-level `manifest.json` records case hashes and eval script hashes.
+`cases.snapshot/` preserves the exact case YAML set used for the run.
+
+## Causal Fields
+
+`summary.tsv` keeps old columns and adds causal/debug columns:
+
+- `component`
+- `first_actionable_divergence`
+- `first_divergence_event_id`
+- `first_divergence_phase_id`
+- `first_divergence_step_id`
+- `last_successful_contract`
+- `last_successful_action`
+- `last_successful_artifact`
+- `planner_requests`, `worker_requests`, `model_requests`
+- `tool_calls`, `artifact_changes`, `verifier_runs`, `recovery_attempts`
+- `input_tokens`, `output_tokens`
+- `observed_*`, `derived_*`, and `rechecked_*` fields for key owner/target
+  and attempt values
+
+`observed_*` values come from runtime events. `derived_*` values come from eval
+projection. `rechecked_*` values come from `--recheck` and must be treated as
+analysis, not runtime source of truth.
+
+## Plan Quality Fields
+
+For `plan-only`, `ultra-plan-only`, `plan-run`, and `ultra-plan-run`, the
+runner inspects generated YAML under `.commandagent/plans` and records plan
+quality fields in `summary.tsv` and `evaluator_result.json`.
+
+- `plan_quality_responsibility_score`: whether requested final artifacts are
+  owned by a step `expected_paths` or ultra phase `owned_artifacts`.
+- `plan_quality_clarity_score`: whether step instructions and phase goals are
+  present and concrete enough to inspect.
+- `plan_quality_granularity_score`: whether steps/phases avoid overly broad
+  ownership units.
+- `plan_quality_verifier_separation_score`: whether heavy build/test
+  verifiers are separated from mutation steps.
+- `plan_quality_status`: `pass`, `warn`, `fail`, `missing_plan`, or
+  `not_applicable`.
+
+These fields evaluate planner output separately from task execution success.
+They do not make the runner retry, rewrite plans, or change runtime behavior.
 
 ## Focused Case Assertions
 
@@ -90,6 +188,7 @@ Supported fields:
 - `expected_recovery_owner`
 - `expected_dispatch_status`
 - `expected_repair_action`
+- `expected_recovery_task_started`
 - `expected_target_role`
 - `expected_target_source_of_truth`
 - `expected_target_ownership_source`
@@ -141,6 +240,9 @@ Supported fields:
 - `expected_effective_tool_policy_status`
 - `expected_tool_failure_recovery_status`
 - `expected_setup_command_classification`
+- `expected_failed_tool`
+- `expected_blocked_command`
+- `expected_command_class`
 - `expected_command_authority`
 - `expected_command_classification_reason`
 - `expected_workspace_candidate_status`
@@ -205,11 +307,28 @@ fields.
 Final-current sign-off first admits the root bundle before row findings are
 interpreted. The current final bundle must provide unique root labels and root
 paths, must include `smoke`, `focused`, and `large`, and must cover the current
-case set exactly: 3 smoke rows, 82 focused control-recovery rows, and 6 large
-rows. `small` is optional while the current manifest has zero small cases.
-Supplemental roots such as `focused-fixture` are not counted toward current
-case coverage, and a duplicated root path under another label fails admission.
-Historical smaller roots cannot satisfy final-current sign-off.
+required case set exactly: 3 smoke rows, 83 focused control-recovery rows, and
+6 large rows. `small` roots are optional task-success evidence and are reported
+separately from required current-case coverage. Supplemental roots such as
+`focused-fixture` are not counted toward current case coverage, and a
+duplicated root path under another label fails admission. Historical smaller
+roots cannot satisfy final-current sign-off.
+
+Each eval root includes `summary.tsv` and `environment.json`. The environment
+file records commit, dirty state, dirty diff hash, binary hash,
+provider/model, `OLLAMA_HOST`, best-effort Ollama version/model digest, timeout
+mode, and proof-mode filters for reproducibility.
+
+The sign-off output separates control accounting from task completion:
+
+- `control_contract_signoff`: whether root admission, expected focused
+  assertions, failure attribution, and large dispositions satisfy the control
+  gate.
+- `task_completion_signoff`: whether task-success families that were supplied
+  completed successfully. `closed_owned_failure` remains a task failure even
+  when it is acceptable for control sign-off.
+- `smoke_task_success`, `small_task_success`, `large_task_success`, and
+  `focused_assertion_pass`: headline counters for interpreting those two gates.
 
 `--recheck` summaries may classify raw process-code failures from existing
 stderr/stdout/repair-packet evidence and may admit targets from existing
