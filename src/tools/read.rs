@@ -86,7 +86,7 @@ fn summarize_large_file(content: &str) -> String {
         .collect::<Vec<_>>()
         .join("\n");
     format!(
-        "{head}\n[anvilminimal: file summarized; omitted {} middle lines]\n{tail}",
+        "{head}\n[commandagent: file summarized; omitted {} middle lines]\n{tail}",
         lines
             .len()
             .saturating_sub(SUMMARY_HEAD_LINES + SUMMARY_TAIL_LINES)
@@ -97,7 +97,7 @@ fn truncate_with_marker(value: &str, max_bytes: usize) -> String {
     crate::util::excerpt_with_newline_marker(
         value,
         max_bytes,
-        &format!("[anvilminimal: output truncated at {max_bytes} bytes]"),
+        &format!("[commandagent: output truncated at {max_bytes} bytes]"),
     )
 }
 

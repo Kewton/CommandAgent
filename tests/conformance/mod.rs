@@ -2,14 +2,14 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use anvilminimal::config::{Action, Config, Provider};
-use anvilminimal::planner::step_plan::{PlanStep, StepPlan};
-use anvilminimal::planner::ultra_plan::{UltraPhase, UltraPlan, render_ultra_plan};
-use anvilminimal::providers::{AssistantReply, ChatClient};
-use anvilminimal::state::{ConversationMessage, ToolCall};
-use anvilminimal::tools::registry::ToolSpec;
-use anvilminimal::tui::status::UiStatus;
-use anvilminimal::tui::{InteractionUi, UiGuard};
+use commandagent::config::{Action, Config, Provider};
+use commandagent::planner::step_plan::{PlanStep, StepPlan};
+use commandagent::planner::ultra_plan::{UltraPhase, UltraPlan, render_ultra_plan};
+use commandagent::providers::{AssistantReply, ChatClient};
+use commandagent::state::{ConversationMessage, ToolCall};
+use commandagent::tools::registry::ToolSpec;
+use commandagent::tui::status::UiStatus;
+use commandagent::tui::{InteractionUi, UiGuard};
 use serde_json::{Value, json};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -150,7 +150,7 @@ fn conformance_matrix_runs_ultra_lifecycle_paths() {
         assert!(
             trace
                 .summary
-                .starts_with(&format!("{}\n", anvilminimal::build_info::summary_line())),
+                .starts_with(&format!("{}\n", commandagent::build_info::summary_line())),
             "{} summary:\n{}",
             scenario.name(),
             trace.summary
@@ -188,7 +188,7 @@ fn conformance_negative_monotonic_rebind_catches_smaller_rebind() {
         ],
         summary: format!(
             "{}\nStatus: completed\n",
-            anvilminimal::build_info::summary_line()
+            commandagent::build_info::summary_line()
         ),
         output: String::new(),
     };
@@ -214,7 +214,7 @@ fn conformance_negative_earned_assurance_catches_disconnected_gate() {
         })],
         summary: format!(
             "{}\nStatus: completed\n",
-            anvilminimal::build_info::summary_line()
+            commandagent::build_info::summary_line()
         ),
         output: String::new(),
     };
@@ -436,7 +436,7 @@ fn conformance_honest_terminal_covers_simulated_panic_exit() {
     let ui = FakeUi::default();
 
     let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = anvilminimal::tui::slash::handle_command(
+        let _ = commandagent::tui::slash::handle_command(
             "/run-ultra-plan ultra.yaml",
             &cfg,
             &mut planner,
@@ -471,8 +471,8 @@ fn conformance_negative_honest_terminal_rejects_false_success_run_stop_projectio
                 "assurance_reason": "missing_required_evidence:restart_or_recoverable_state_evidence",
                 "effective_profile": "nextjs",
                 "contract_origin": "initial",
-                "build_commit": anvilminimal::build_info::COMMIT,
-                "build_timestamp": anvilminimal::build_info::TIMESTAMP,
+                "build_commit": commandagent::build_info::COMMIT,
+                "build_timestamp": commandagent::build_info::TIMESTAMP,
                 "runtime_acceptance_status": "failed",
                 "final_acceptance_status": "incomplete",
                 "release_gate_status": "failed",
@@ -488,8 +488,8 @@ fn conformance_negative_honest_terminal_rejects_false_success_run_stop_projectio
                 "assurance_reason": "",
                 "effective_profile": "nextjs",
                 "contract_origin": "initial",
-                "build_commit": anvilminimal::build_info::COMMIT,
-                "build_timestamp": anvilminimal::build_info::TIMESTAMP,
+                "build_commit": commandagent::build_info::COMMIT,
+                "build_timestamp": commandagent::build_info::TIMESTAMP,
                 "runtime_acceptance_status": "failed",
                 "final_acceptance_status": "incomplete",
                 "release_gate_status": "failed",
@@ -499,7 +499,7 @@ fn conformance_negative_honest_terminal_rejects_false_success_run_stop_projectio
         ],
         summary: format!(
             "{}\nStatus: failed\n",
-            anvilminimal::build_info::summary_line()
+            commandagent::build_info::summary_line()
         ),
         output: String::new(),
     };
@@ -1097,7 +1097,7 @@ fn check_honest_terminal(trace: &Trace) -> Result<(), String> {
     }
     if !trace
         .summary
-        .starts_with(&anvilminimal::build_info::summary_line())
+        .starts_with(&commandagent::build_info::summary_line())
     {
         return Err("honest_terminal: summary is missing Build stamp".to_string());
     }
@@ -1511,7 +1511,7 @@ fn run_matrix_scenario(scenario: MatrixScenario) -> Trace {
     let mut planner = FakeClient::new("planner", scenario_planner_replies(scenario));
     let mut execution = FakeClient::new("execution", scenario_execution_replies(scenario));
     let ui = FakeUi::default();
-    let output = match anvilminimal::tui::slash::handle_command(
+    let output = match commandagent::tui::slash::handle_command(
         "/run-ultra-plan ultra.yaml",
         &cfg,
         &mut planner,
@@ -1712,8 +1712,8 @@ fn config(root: PathBuf) -> Config {
         context_budget: 1000,
         model: "m".to_string(),
         provider: Provider::Ollama,
-        prompt_layout: anvilminimal::config::PromptLayout::Stable,
-        plan_preset: anvilminimal::config::PlanPreset::None,
+        prompt_layout: commandagent::config::PromptLayout::Stable,
+        plan_preset: commandagent::config::PlanPreset::None,
         planner_model: "pm".to_string(),
         planner_provider: Provider::Gemini,
         ollama_host: "http://localhost:11434".to_string(),
@@ -1721,12 +1721,12 @@ fn config(root: PathBuf) -> Config {
         max_iterations: 6,
         chat_timeout_secs: 1,
         chat_timeout_source: "override:test".to_string(),
-        field_sources: anvilminimal::config::ConfigFieldSources::default(),
+        field_sources: commandagent::config::ConfigFieldSources::default(),
         chat_retries: 1,
         resume: None,
         fresh_session: false,
         no_footer: false,
-        narration: anvilminimal::config::NarrationMode::Normal,
+        narration: commandagent::config::NarrationMode::Normal,
         profile: "generic".to_string(),
         profile_explicit: false,
         profile_inference: None,
@@ -2278,8 +2278,8 @@ fn terminal_stop(status: &str) -> Value {
     json!({
         "event": "tui_command_stop",
         "status": status,
-        "build_commit": anvilminimal::build_info::COMMIT,
-        "build_timestamp": anvilminimal::build_info::TIMESTAMP,
+        "build_commit": commandagent::build_info::COMMIT,
+        "build_timestamp": commandagent::build_info::TIMESTAMP,
         "effective_profile": "generic",
         "contract_origin": "synthetic_conformance",
     })
@@ -2288,7 +2288,7 @@ fn terminal_stop(status: &str) -> Value {
 fn terminal_summary(status: &str) -> String {
     format!(
         "{}\nStatus: {status}\n",
-        anvilminimal::build_info::summary_line()
+        commandagent::build_info::summary_line()
     )
 }
 

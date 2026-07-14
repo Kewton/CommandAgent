@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use anvilminimal::eval_events::{
+use commandagent::eval_events::{
     CompletionSnapshot, append_completion_summary, project_completion,
 };
 
@@ -32,7 +32,7 @@ fn generic_profile_reduced_assurance_markers_still_render() {
     let mut snapshot = CompletionSnapshot::empty();
     snapshot.assurance_level = "reduced".to_string();
     snapshot.assurance_reason =
-        anvilminimal::eval_events::GENERIC_REDUCED_ASSURANCE_REASON.to_string();
+        commandagent::eval_events::GENERIC_REDUCED_ASSURANCE_REASON.to_string();
     snapshot.runtime_acceptance_status = "pass".to_string();
     snapshot.final_acceptance_status = "partial".to_string();
     snapshot.release_gate_status = "partial".to_string();
@@ -96,7 +96,7 @@ fn generic_profile_static_assurance_markers_render() {
     let mut snapshot = CompletionSnapshot::empty();
     snapshot.assurance_level = "static".to_string();
     snapshot.assurance_reason =
-        anvilminimal::eval_events::GENERIC_STATIC_ASSURANCE_REASON.to_string();
+        commandagent::eval_events::GENERIC_STATIC_ASSURANCE_REASON.to_string();
     snapshot.runtime_acceptance_status = "pass".to_string();
     snapshot.final_acceptance_status = "full_success".to_string();
     snapshot.release_gate_status = "pass".to_string();

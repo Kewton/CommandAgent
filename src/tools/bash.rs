@@ -646,7 +646,7 @@ fn truncate_stream(value: &str) -> String {
     crate::util::excerpt_with_newline_marker(
         value,
         MAX_STREAM_BYTES,
-        &format!("[anvilminimal: bash output truncated at {MAX_STREAM_BYTES} bytes]"),
+        &format!("[commandagent: bash output truncated at {MAX_STREAM_BYTES} bytes]"),
     )
 }
 

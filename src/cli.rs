@@ -28,7 +28,7 @@ pub enum PlanPresetArg {
 }
 
 #[derive(Debug, Parser)]
-#[command(name = "anvilminimal")]
+#[command(name = "commandagent")]
 #[command(about = "Minimal loop + YAML plan runner MVP")]
 #[command(version = crate::build_info::VERSION)]
 pub struct Cli {
@@ -222,19 +222,19 @@ mod tests {
 
     #[test]
     fn sidecar_model_is_rejected_by_default() {
-        let err = Cli::try_parse_from(["anvilminimal", "--sidecar-model", "x"]).unwrap_err();
+        let err = Cli::try_parse_from(["commandagent", "--sidecar-model", "x"]).unwrap_err();
         assert!(err.to_string().contains("unexpected argument"));
     }
 
     #[test]
     fn num_predict_defaults_to_source_minimal_budget() {
-        let cli = Cli::parse_from(["anvilminimal"]);
+        let cli = Cli::parse_from(["commandagent"]);
         assert_eq!(cli.num_predict, 8_192);
     }
 
     #[test]
     fn config_preset_fields_are_absent_until_resolved() {
-        let cli = Cli::parse_from(["anvilminimal"]);
+        let cli = Cli::parse_from(["commandagent"]);
         assert_eq!(cli.model, None);
         assert_eq!(cli.provider, None);
         assert_eq!(cli.context_budget, None);
@@ -242,14 +242,14 @@ mod tests {
 
     #[test]
     fn chat_timeout_defaults_to_source_config() {
-        let cli = Cli::parse_from(["anvilminimal"]);
+        let cli = Cli::parse_from(["commandagent"]);
         assert_eq!(cli.chat_timeout_secs, None);
     }
 
     #[test]
     fn ultra_plan_run_allows_profile_before_goal() {
         let cli = Cli::try_parse_from([
-            "anvilminimal",
+            "commandagent",
             "--provider",
             "ollama",
             "--model",
@@ -271,9 +271,9 @@ mod tests {
 
     #[test]
     fn profile_absent_is_distinguishable_from_explicit_generic() {
-        let implicit = Cli::parse_from(["anvilminimal"]);
+        let implicit = Cli::parse_from(["commandagent"]);
         assert_eq!(implicit.profile, None);
-        let explicit = Cli::parse_from(["anvilminimal", "--profile", "generic"]);
+        let explicit = Cli::parse_from(["commandagent", "--profile", "generic"]);
         assert_eq!(explicit.profile.as_deref(), Some("generic"));
     }
 }

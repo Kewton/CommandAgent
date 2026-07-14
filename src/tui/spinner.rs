@@ -73,7 +73,7 @@ impl Spinner {
         let thread_wake = wake.clone();
         let start = Instant::now();
         let handle = thread::Builder::new()
-            .name("anvilminimal-spinner".to_string())
+            .name("commandagent-spinner".to_string())
             .spawn(move || render_loop(start, label, env, thread_stop, thread_wake))
             .ok();
         match handle {

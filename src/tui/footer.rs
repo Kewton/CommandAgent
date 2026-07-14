@@ -132,7 +132,7 @@ impl Footer {
         let global_guard = status_bus::install_global(publisher.clone());
         let thread_state = state.clone();
         let handle = thread::Builder::new()
-            .name("anvilminimal-footer".to_string())
+            .name("commandagent-footer".to_string())
             .spawn(move || render_loop(thread_state, subscriber, cols, rows, footer_rows, env))
             .ok();
         match handle {
@@ -562,7 +562,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cwd = dir.path().to_string_lossy().to_string();
         let config = crate::config::Config::from_cli(crate::cli::Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--footer",

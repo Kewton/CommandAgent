@@ -43,7 +43,7 @@ fn system_prompt(
         .collect::<Vec<_>>()
         .join("\n");
     let mut prompt = format!(
-        "You are anvilminimal, a local coding agent. Work only inside workspace `{}`.\n\
+        "You are commandagent, a local coding agent. Work only inside workspace `{}`.\n\
 Use tools for file changes, repository facts, file inspection, build/test checks, and any action that changes the workspace.\n\
 Do not end with planned future work. Do not claim files, tests, or builds succeeded unless you observed them with tools.\n\
 Use workspace-relative paths only, and do not read or write outside the workspace.\n\

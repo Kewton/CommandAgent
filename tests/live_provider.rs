@@ -2,23 +2,23 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use anvilminimal::config::{Action, Config, Provider, load_api_key};
-use anvilminimal::mode::ExecutionMode;
-use anvilminimal::providers::ChatClient;
-use anvilminimal::providers::gemini::GeminiClient;
-use anvilminimal::providers::gemini_function_calling::{
+use commandagent::config::{Action, Config, Provider, load_api_key};
+use commandagent::mode::ExecutionMode;
+use commandagent::providers::ChatClient;
+use commandagent::providers::gemini::GeminiClient;
+use commandagent::providers::gemini_function_calling::{
     build_interactions_request, parse_interactions_response,
 };
-use anvilminimal::providers::ollama::OllamaClient;
-use anvilminimal::providers::ollama::parse_chat_response;
-use anvilminimal::providers::openai::{
+use commandagent::providers::ollama::OllamaClient;
+use commandagent::providers::ollama::parse_chat_response;
+use commandagent::providers::openai::{
     OpenAiClient, build_response_request, parse_openai_response,
 };
-use anvilminimal::state::{ConversationMessage, ToolCall};
-use anvilminimal::tools::registry::{
+use commandagent::state::{ConversationMessage, ToolCall};
+use commandagent::tools::registry::{
     ToolContext, ToolRegistry, recoverable_tool_error, tool_error_kind,
 };
-use anvilminimal::tools::workspace_policy::WorkspacePolicy;
+use commandagent::tools::workspace_policy::WorkspacePolicy;
 use serde_json::{Value, json};
 
 static PROVIDER_PROBE_EVENT_LOCK: Mutex<()> = Mutex::new(());
@@ -49,7 +49,7 @@ fn planner_live_openai_gemini_json_contract() {
         std::env::var("ANVIL_OPENAI_SMOKE_MODEL").unwrap_or_else(|_| "gpt-5.4-mini".to_string());
     openai_config.planner_provider = Provider::Openai;
     let mut openai = OpenAiClient::from_env(&openai_config).expect("openai client");
-    let openai_plan = anvilminimal::planner::generate_step_plan(&mut openai, goal, &openai_config)
+    let openai_plan = commandagent::planner::generate_step_plan(&mut openai, goal, &openai_config)
         .expect("OpenAI planner JSON contract");
     assert!(!openai_plan.steps.is_empty());
 
@@ -59,7 +59,7 @@ fn planner_live_openai_gemini_json_contract() {
         .unwrap_or_else(|_| "gemini-3.5-flash".to_string());
     gemini_config.planner_provider = Provider::Gemini;
     let mut gemini = GeminiClient::from_env(&gemini_config).expect("gemini client");
-    let gemini_plan = anvilminimal::planner::generate_step_plan(&mut gemini, goal, &gemini_config)
+    let gemini_plan = commandagent::planner::generate_step_plan(&mut gemini, goal, &gemini_config)
         .expect("Gemini planner JSON contract");
     assert!(!gemini_plan.steps.is_empty());
 }
@@ -368,8 +368,8 @@ fn live_openai_responses_no_tool_http_smoke() {
         model: std::env::var("ANVIL_OPENAI_SMOKE_MODEL")
             .unwrap_or_else(|_| "gpt-5.4-mini".to_string()),
         provider: Provider::Openai,
-        prompt_layout: anvilminimal::config::PromptLayout::Stable,
-        plan_preset: anvilminimal::config::PlanPreset::None,
+        prompt_layout: commandagent::config::PromptLayout::Stable,
+        plan_preset: commandagent::config::PlanPreset::None,
         planner_model: "unused".to_string(),
         planner_provider: Provider::Openai,
         ollama_host: "http://127.0.0.1:11434".to_string(),
@@ -377,12 +377,12 @@ fn live_openai_responses_no_tool_http_smoke() {
         max_iterations: 1,
         chat_timeout_secs: 30,
         chat_timeout_source: "override:test".to_string(),
-        field_sources: anvilminimal::config::ConfigFieldSources::default(),
+        field_sources: commandagent::config::ConfigFieldSources::default(),
         chat_retries: 0,
         resume: None,
         fresh_session: true,
         no_footer: false,
-        narration: anvilminimal::config::NarrationMode::Normal,
+        narration: commandagent::config::NarrationMode::Normal,
         profile: "default".to_string(),
         profile_explicit: false,
         profile_inference: None,
@@ -436,8 +436,8 @@ fn live_gemini_interactions_no_tool_http_smoke() {
         context_budget: 4096,
         model: "unused".to_string(),
         provider: Provider::Ollama,
-        prompt_layout: anvilminimal::config::PromptLayout::Stable,
-        plan_preset: anvilminimal::config::PlanPreset::None,
+        prompt_layout: commandagent::config::PromptLayout::Stable,
+        plan_preset: commandagent::config::PlanPreset::None,
         planner_model: std::env::var("ANVIL_GEMINI_SMOKE_MODEL")
             .unwrap_or_else(|_| "gemini-3.5-flash".to_string()),
         planner_provider: Provider::Gemini,
@@ -446,12 +446,12 @@ fn live_gemini_interactions_no_tool_http_smoke() {
         max_iterations: 1,
         chat_timeout_secs: 30,
         chat_timeout_source: "override:test".to_string(),
-        field_sources: anvilminimal::config::ConfigFieldSources::default(),
+        field_sources: commandagent::config::ConfigFieldSources::default(),
         chat_retries: 0,
         resume: None,
         fresh_session: true,
         no_footer: false,
-        narration: anvilminimal::config::NarrationMode::Normal,
+        narration: commandagent::config::NarrationMode::Normal,
         profile: "default".to_string(),
         profile_explicit: false,
         profile_inference: None,
@@ -609,8 +609,8 @@ fn smoke_config(tmp_root: &Path, key_root: PathBuf, provider: Provider) -> Confi
         context_budget: 4096,
         model: "unused".to_string(),
         provider,
-        prompt_layout: anvilminimal::config::PromptLayout::Stable,
-        plan_preset: anvilminimal::config::PlanPreset::None,
+        prompt_layout: commandagent::config::PromptLayout::Stable,
+        plan_preset: commandagent::config::PlanPreset::None,
         planner_model: "unused".to_string(),
         planner_provider: provider,
         ollama_host: "http://127.0.0.1:11434".to_string(),
@@ -618,12 +618,12 @@ fn smoke_config(tmp_root: &Path, key_root: PathBuf, provider: Provider) -> Confi
         max_iterations: 1,
         chat_timeout_secs: 60,
         chat_timeout_source: "override:test".to_string(),
-        field_sources: anvilminimal::config::ConfigFieldSources::default(),
+        field_sources: commandagent::config::ConfigFieldSources::default(),
         chat_retries: 0,
         resume: None,
         fresh_session: true,
         no_footer: false,
-        narration: anvilminimal::config::NarrationMode::Normal,
+        narration: commandagent::config::NarrationMode::Normal,
         profile: "generic".to_string(),
         profile_explicit: false,
         profile_inference: None,

@@ -250,7 +250,7 @@ mod tests {
     }
 
     #[test]
-    fn state_root_is_anvilminimal() {
+    fn state_root_keeps_legacy_anvilminimal_namespace() {
         let root = crate::config::default_state_dir();
         assert!(root.ends_with("anvilminimal"));
     }

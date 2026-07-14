@@ -1,12 +1,12 @@
 use clap::Parser;
 
-use anvilminimal::cli::Cli;
-use anvilminimal::config::{Action, Config};
+use commandagent::cli::Cli;
+use commandagent::config::{Action, Config};
 
 #[test]
 fn ultra_plan_run_cli_shape() {
     let cli = Cli::parse_from([
-        "anvilminimal",
+        "commandagent",
         "--provider",
         "ollama",
         "--model",
@@ -27,7 +27,7 @@ fn ultra_plan_run_cli_shape() {
 
 #[test]
 fn ux_demo_cli_shape() {
-    let cli = Cli::parse_from(["anvilminimal", "--ux-demo"]);
+    let cli = Cli::parse_from(["commandagent", "--ux-demo"]);
     let config = Config::from_cli(cli).unwrap();
     assert!(matches!(config.action, Action::UxDemo));
 }

@@ -1,15 +1,15 @@
 use std::collections::BTreeMap;
 use std::path::Path;
 
-use anvilminimal::minimal_loop::evidence::verify_runtime_acceptance_with_hints;
-use anvilminimal::minimal_loop::import_scan::route_bound_closure;
-use anvilminimal::minimal_loop::interaction_probe::static_html_probe_selection;
-use anvilminimal::planner::profile::{
+use commandagent::minimal_loop::evidence::verify_runtime_acceptance_with_hints;
+use commandagent::minimal_loop::import_scan::route_bound_closure;
+use commandagent::minimal_loop::interaction_probe::static_html_probe_selection;
+use commandagent::planner::profile::{
     ProfileSnapshot, profile_expected_paths, profile_generation_rules, profile_guidance,
     profile_preset_ultra_plan, profile_quality_expectations, profile_runtime_contract,
     profile_setup_scaffold_paths, verify_profile_final, verify_profile_invariant,
 };
-use anvilminimal::planner::profiles::nextjs;
+use commandagent::planner::profiles::nextjs;
 
 #[derive(Debug, Default)]
 struct CorpusCase {

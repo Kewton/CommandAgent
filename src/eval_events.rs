@@ -4017,7 +4017,7 @@ mod tests {
                 "ok": false,
                 "reason": "playwright_not_installed",
                 "remediation": crate::minimal_loop::interaction_probe::INTERACTION_PROBE_SETUP_REMEDIATION,
-                "message": "interaction probe preflight failed: playwright_not_installed; run /setup-interaction-probe (or anvilminimal --setup-interaction-probe) to enable interaction release checks",
+                "message": "interaction probe preflight failed: playwright_not_installed; run /setup-interaction-probe (or commandagent --setup-interaction-probe) to enable interaction release checks",
             }),
         );
         emit(

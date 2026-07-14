@@ -61,7 +61,7 @@ pub fn render_startup_banner(config: &Config, style: BannerStyle) -> String {
         BannerStyle::Legacy4Line => {}
     }
 
-    out.push_str("anvilminimal ");
+    out.push_str("commandagent ");
     out.push_str(env!("CARGO_PKG_VERSION"));
     out.push_str(" build=");
     out.push_str(&crate::build_info::commit_with_dirty());
@@ -152,7 +152,7 @@ mod tests {
 
     fn config() -> Config {
         Config {
-            workspace_root: std::path::PathBuf::from("/tmp/anvilminimal"),
+            workspace_root: std::path::PathBuf::from("/tmp/commandagent"),
             state_dir: std::path::PathBuf::from("state"),
             eval_events_path: None,
             completion_contract_path: None,
@@ -220,7 +220,7 @@ mod tests {
     #[test]
     fn banner_legacy_has_dynamic_lines_without_art() {
         let out = render_startup_banner(&config(), BannerStyle::Legacy4Line);
-        assert!(out.contains("anvilminimal"));
+        assert!(out.contains("commandagent"));
         assert!(out.contains(&crate::build_info::commit_with_dirty()));
         assert!(out.contains("context_budget=65536 (default)"));
         assert!(out.contains("prompt_layout=legacy (default)"));

@@ -7,7 +7,7 @@ fn tui_pty_smoke() {
     if cfg!(windows) {
         return;
     }
-    let bin = env!("CARGO_BIN_EXE_anvilminimal");
+    let bin = env!("CARGO_BIN_EXE_commandagent");
     let tmp = tempfile::tempdir().unwrap();
     let output = run_script_bsd(bin, tmp.path()).or_else(|_| run_script_linux(bin, tmp.path()));
     let output = output.expect("script(1) PTY helper must be available for release/manual UAT");
@@ -18,7 +18,7 @@ fn tui_pty_smoke() {
         "PTY output did not contain prompt. output={text:?}"
     );
     assert!(
-        text.contains("local-first agent") || text.contains("anvilminimal"),
+        text.contains("local-first agent") || text.contains("commandagent"),
         "PTY output did not contain startup banner. output={text:?}"
     );
 }

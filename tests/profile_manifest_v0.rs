@@ -1,4 +1,4 @@
-use anvilminimal::planner::profile_manifest::{
+use commandagent::planner::profile_manifest::{
     MANIFEST_V0_SECTIONS, ManifestStatus, nextjs_manifest,
 };
 

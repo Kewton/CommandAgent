@@ -481,7 +481,7 @@ fn http_get_local_route(port: u16, route: &str) -> Result<HttpProbeResult, Strin
         format!("/{route}")
     };
     let request = format!(
-        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nUser-Agent: anvilminimal-browser-readiness-probe\r\n\r\n"
+        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nUser-Agent: commandagent-browser-readiness-probe\r\n\r\n"
     );
     stream
         .write_all(request.as_bytes())

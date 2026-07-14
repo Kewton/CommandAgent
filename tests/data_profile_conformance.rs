@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use anvilminimal::planner::profiles::data::checks;
-use anvilminimal::planner::profiles::data::runtime::{
+use commandagent::planner::profiles::data::checks;
+use commandagent::planner::profiles::data::runtime::{
     DataAssurance, assurance_from_evidence, run_manifest_checks,
 };
 use serde::Deserialize;
@@ -112,7 +112,7 @@ fn materialize(name: &str) -> (tempfile::TempDir, DataFixture) {
     let fixture = load_fixture(name);
     let dir = tempfile::tempdir().unwrap();
     for (relative, content) in &fixture.files {
-        anvilminimal::tools::path_guard::validate_workspace_relative(relative).unwrap();
+        commandagent::tools::path_guard::validate_workspace_relative(relative).unwrap();
         let path = dir.path().join(relative);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         std::fs::write(path, content).unwrap();

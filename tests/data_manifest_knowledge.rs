@@ -1,4 +1,4 @@
-use anvilminimal::planner::profiles::data::manifest;
+use commandagent::planner::profiles::data::manifest;
 
 #[test]
 fn data_manifest_knowledge_matches_b2b_golden() {

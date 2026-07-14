@@ -1237,7 +1237,7 @@ mod tests {
         let output = tempfile::tempdir().unwrap();
         let cwd_arg = cwd.path().to_string_lossy().into_owned();
         let mut config = Config::from_cli(Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd_arg,
             "--model",

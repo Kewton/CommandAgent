@@ -400,7 +400,7 @@ fn current_reproduction_command() -> String {
         .collect::<Vec<_>>()
         .join(" ");
     if command.is_empty() {
-        "anvilminimal".to_string()
+        "commandagent".to_string()
     } else {
         command
     }
@@ -489,7 +489,7 @@ mod tests {
             action: "UltraPlanRun(\"fault injection\")".to_string(),
             profile: "nextjs".to_string(),
             prompt_layout: "legacy".to_string(),
-            reproduction_command: "anvilminimal --ultra-plan-run 'fault injection'".to_string(),
+            reproduction_command: "commandagent --ultra-plan-run 'fault injection'".to_string(),
         }
     }
 
@@ -545,7 +545,7 @@ mod tests {
         );
         assert!(note.contains("Panic location:"), "{note}");
         assert!(
-            note.contains("anvilminimal --ultra-plan-run 'fault injection'"),
+            note.contains("commandagent --ultra-plan-run 'fault injection'"),
             "{note}"
         );
     }

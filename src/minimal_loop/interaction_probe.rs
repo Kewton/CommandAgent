@@ -17,7 +17,7 @@ const INTERACTION_TIMEOUT: Duration = Duration::from_secs(120);
 const PROVISION_TIMEOUT: Duration = Duration::from_secs(180);
 const PROBE_SCRIPT_NAME: &str = "browser-interaction-probe.cjs";
 const MANAGED_INTERACTION_PROBE_REL: &[&str] = &[".anvil", "tools", "interaction-probe"];
-pub const INTERACTION_PROBE_SETUP_REMEDIATION: &str = "run /setup-interaction-probe (or anvilminimal --setup-interaction-probe) to enable interaction release checks";
+pub const INTERACTION_PROBE_SETUP_REMEDIATION: &str = "run /setup-interaction-probe (or commandagent --setup-interaction-probe) to enable interaction release checks";
 const PLAYWRIGHT_BROWSER_BINARIES_REMEDIATION: &str = INTERACTION_PROBE_SETUP_REMEDIATION;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1251,7 +1251,7 @@ function rawHttpGet(targetUrl) {
       timeout: SERVER_CHECK_TIMEOUT_MS,
       headers: {
         "Connection": "close",
-        "User-Agent": "anvilminimal-interaction-probe"
+        "User-Agent": "commandagent-interaction-probe"
       }
     }, (response) => {
       response.resume();

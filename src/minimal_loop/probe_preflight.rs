@@ -193,7 +193,7 @@ mod tests {
         assert!(text.contains(r#""event":"probe_preflight""#), "{text}");
         assert!(text.contains(r#""status":"failed""#), "{text}");
         assert!(
-            text.contains("anvilminimal --setup-interaction-probe"),
+            text.contains("commandagent --setup-interaction-probe"),
             "{text}"
         );
     }

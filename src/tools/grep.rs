@@ -124,7 +124,7 @@ fn summarize_hits(hits: &[String]) -> String {
         return joined;
     }
     format!(
-        "{}\n[anvilminimal: grep output truncated; showing at most {} hits / {} bytes]",
+        "{}\n[commandagent: grep output truncated; showing at most {} hits / {} bytes]",
         crate::util::truncate_at_char_boundary(&joined, MAX_GREP_BYTES),
         MAX_GREP_HITS,
         MAX_GREP_BYTES

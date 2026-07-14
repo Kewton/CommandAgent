@@ -156,7 +156,7 @@ pub struct VerifyCommandDiagnosis {
 /// Raw strings cannot be passed to verifier execution boundaries:
 ///
 /// ```compile_fail
-/// use anvilminimal::minimal_loop::verifier_env::run_checked;
+/// use commandagent::minimal_loop::verifier_env::run_checked;
 ///
 /// let raw = "npm run build";
 /// let root = std::path::Path::new(".");

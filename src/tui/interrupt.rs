@@ -83,7 +83,7 @@ impl InterruptMonitor {
         let thread_force_flag = force_flag.clone();
         let thread_state = state.clone();
         let handle = thread::Builder::new()
-            .name("anvilminimal-interrupt".to_string())
+            .name("commandagent-interrupt".to_string())
             .spawn(move || monitor_loop(thread_flag, thread_force_flag, thread_state))
             .ok();
         match handle {

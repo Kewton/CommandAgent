@@ -3,9 +3,9 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-use anvilminimal::cli::Cli;
-use anvilminimal::config::{Action, Config, Provider};
-use anvilminimal::tui::slash::{parse_slash, parse_words};
+use commandagent::cli::Cli;
+use commandagent::config::{Action, Config, Provider};
+use commandagent::tui::slash::{parse_slash, parse_words};
 
 fn config(root: PathBuf) -> Config {
     Config {
@@ -18,8 +18,8 @@ fn config(root: PathBuf) -> Config {
         context_budget: 1000,
         model: "m".to_string(),
         provider: Provider::Ollama,
-        prompt_layout: anvilminimal::config::PromptLayout::Stable,
-        plan_preset: anvilminimal::config::PlanPreset::None,
+        prompt_layout: commandagent::config::PromptLayout::Stable,
+        plan_preset: commandagent::config::PlanPreset::None,
         planner_model: "pm".to_string(),
         planner_provider: Provider::Gemini,
         ollama_host: "http://localhost:11434".to_string(),
@@ -27,12 +27,12 @@ fn config(root: PathBuf) -> Config {
         max_iterations: 4,
         chat_timeout_secs: 1,
         chat_timeout_source: "override:test".to_string(),
-        field_sources: anvilminimal::config::ConfigFieldSources::default(),
+        field_sources: commandagent::config::ConfigFieldSources::default(),
         chat_retries: 1,
         resume: None,
         fresh_session: false,
         no_footer: false,
-        narration: anvilminimal::config::NarrationMode::Normal,
+        narration: commandagent::config::NarrationMode::Normal,
         profile: "generic".to_string(),
         profile_explicit: false,
         profile_inference: None,
@@ -47,7 +47,7 @@ fn tui_non_tty_requires_action() {
         return;
     }
     let dir = tempfile::tempdir().unwrap();
-    let err = anvilminimal::repl::run_repl(config(dir.path().to_path_buf()))
+    let err = commandagent::repl::run_repl(config(dir.path().to_path_buf()))
         .unwrap_err()
         .to_string();
     assert!(err.contains("stdin is not a TTY"));
@@ -79,7 +79,7 @@ fn cli_repl_action_parity() {
     )
     .unwrap();
     let cli = Cli::parse_from([
-        "anvilminimal",
+        "commandagent",
         "--provider",
         "ollama",
         "--model",
@@ -104,7 +104,7 @@ fn cli_repl_action_parity() {
 
 #[test]
 fn no_footer_flag_reaches_config() {
-    let cli = Cli::parse_from(["anvilminimal", "--no-footer"]);
+    let cli = Cli::parse_from(["commandagent", "--no-footer"]);
     let config = Config::from_cli(cli).unwrap();
     assert!(config.no_footer);
 }

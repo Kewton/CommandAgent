@@ -834,7 +834,7 @@ mod tests {
         let events = dir.path().join("events.jsonl");
         let cwd = dir.path().to_string_lossy().to_string();
         let mut cfg = Config::from_cli(crate::cli::Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--planner-model",
@@ -1013,7 +1013,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let state_dir = dir.path().join("state");
         let cli = Cli::parse_from([
-            "anvilminimal".to_string(),
+            "commandagent".to_string(),
             "--cwd".to_string(),
             dir.path().display().to_string(),
             "--state-dir".to_string(),

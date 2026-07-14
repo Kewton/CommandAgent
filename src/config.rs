@@ -1156,7 +1156,7 @@ mod tests {
     #[test]
     fn cross_provider_planner_model_error() {
         let cli = Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--provider",
             "ollama",
             "--planner-provider",
@@ -1168,7 +1168,7 @@ mod tests {
 
     #[test]
     fn same_provider_defaults_planner_model() {
-        let cli = Cli::parse_from(["anvilminimal", "--provider", "ollama", "--model", "m"]);
+        let cli = Cli::parse_from(["commandagent", "--provider", "ollama", "--model", "m"]);
         let config = Config::from_cli(cli).unwrap();
         assert_eq!(config.planner_model, "m");
     }
@@ -1177,7 +1177,7 @@ mod tests {
     fn runs_action_is_read_only_selector() {
         let dir = tempfile::tempdir().unwrap();
         let cli = Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             dir.path().to_str().unwrap(),
             "--runs",
@@ -1194,12 +1194,12 @@ mod tests {
         let cwd = dir.path().to_string_lossy().to_string();
         std::fs::create_dir_all(dir.path().join(".anvil")).unwrap();
         std::fs::write(dir.path().join(".anvil/config"), "narration = \"quiet\"\n").unwrap();
-        let config = Config::from_cli(Cli::parse_from(["anvilminimal", "--cwd", &cwd])).unwrap();
+        let config = Config::from_cli(Cli::parse_from(["commandagent", "--cwd", &cwd])).unwrap();
         assert_eq!(config.narration, NarrationMode::Quiet);
 
         std::fs::write(dir.path().join(".anvil/config"), "narration = \"normal\"\n").unwrap();
         let config =
-            Config::from_cli(Cli::parse_from(["anvilminimal", "--cwd", &cwd, "--quiet"])).unwrap();
+            Config::from_cli(Cli::parse_from(["commandagent", "--cwd", &cwd, "--quiet"])).unwrap();
         assert_eq!(config.narration, NarrationMode::Quiet);
     }
 
@@ -1210,12 +1210,12 @@ mod tests {
         std::fs::create_dir_all(dir.path().join(".anvil")).unwrap();
         std::fs::write(dir.path().join(".anvil/config.toml"), "footer = \"off\"\n").unwrap();
 
-        let config = Config::from_cli(Cli::parse_from(["anvilminimal", "--cwd", &cwd])).unwrap();
+        let config = Config::from_cli(Cli::parse_from(["commandagent", "--cwd", &cwd])).unwrap();
         assert!(config.no_footer);
         assert_eq!(config.field_sources.footer, "config:config.toml");
 
         let config = Config::from_cli(Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--footer",
@@ -1231,7 +1231,7 @@ mod tests {
         )
         .unwrap();
         let config = Config::from_cli(Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--preset",
@@ -1254,7 +1254,7 @@ mod tests {
         .unwrap();
 
         let err = Config::from_cli(Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--preset",
@@ -1270,7 +1270,7 @@ mod tests {
 
     #[test]
     fn ollama_chat_timeout_defaults_to_local_provider_budget() {
-        let cli = Cli::parse_from(["anvilminimal", "--provider", "ollama"]);
+        let cli = Cli::parse_from(["commandagent", "--provider", "ollama"]);
         let config = Config::from_cli(cli).unwrap();
         assert_eq!(config.chat_timeout_secs, LOCAL_PROVIDER_CHAT_TIMEOUT_SECS);
         assert_eq!(config.chat_timeout_source, "default:local_provider");
@@ -1279,7 +1279,7 @@ mod tests {
     #[test]
     fn remote_chat_timeout_defaults_to_remote_provider_budget() {
         let cli = Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--provider",
             "openai",
             "--model",
@@ -1293,7 +1293,7 @@ mod tests {
     #[test]
     fn explicit_chat_timeout_wins_for_local_provider() {
         let cli = Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--provider",
             "ollama",
             "--chat-timeout-secs",
@@ -1327,7 +1327,7 @@ narration = "quiet"
         .unwrap();
 
         let config = Config::from_cli(Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--preset",
@@ -1386,7 +1386,7 @@ profile = "nextjs"
         .unwrap();
 
         let config = Config::from_cli(Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--preset",
@@ -1407,7 +1407,7 @@ profile = "nextjs"
 
     #[test]
     fn prompt_layout_flag_wins_over_config_and_defaults_legacy() {
-        let default = Config::from_cli(Cli::parse_from(["anvilminimal"])).unwrap();
+        let default = Config::from_cli(Cli::parse_from(["commandagent"])).unwrap();
         assert_eq!(default.prompt_layout, PromptLayout::Legacy);
         assert_eq!(default.field_sources.prompt_layout, "default");
 
@@ -1421,7 +1421,7 @@ profile = "nextjs"
         .unwrap();
 
         let from_config =
-            Config::from_cli(Cli::parse_from(["anvilminimal", "--cwd", &cwd])).unwrap();
+            Config::from_cli(Cli::parse_from(["commandagent", "--cwd", &cwd])).unwrap();
         assert_eq!(from_config.prompt_layout, PromptLayout::Legacy);
         assert_eq!(
             from_config.field_sources.prompt_layout,
@@ -1429,7 +1429,7 @@ profile = "nextjs"
         );
 
         let from_flag = Config::from_cli(Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--prompt-layout",
@@ -1442,7 +1442,7 @@ profile = "nextjs"
 
     #[test]
     fn plan_preset_flag_config_and_preset_resolution_take_precedence() {
-        let default = Config::from_cli(Cli::parse_from(["anvilminimal"])).unwrap();
+        let default = Config::from_cli(Cli::parse_from(["commandagent"])).unwrap();
         assert_eq!(default.plan_preset, PlanPreset::None);
         assert_eq!(default.plan_preset.as_str(), "none");
         assert_eq!(default.field_sources.plan_preset, "default:qwen27_planner");
@@ -1457,12 +1457,12 @@ profile = "nextjs"
         .unwrap();
 
         let from_config =
-            Config::from_cli(Cli::parse_from(["anvilminimal", "--cwd", &cwd])).unwrap();
+            Config::from_cli(Cli::parse_from(["commandagent", "--cwd", &cwd])).unwrap();
         assert_eq!(from_config.plan_preset, PlanPreset::Profile);
         assert_eq!(from_config.field_sources.plan_preset, "config:config.toml");
 
         let from_preset = Config::from_cli(Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--preset",
@@ -1473,7 +1473,7 @@ profile = "nextjs"
         assert_eq!(from_preset.field_sources.plan_preset, "preset:fast");
 
         let from_flag = Config::from_cli(Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--preset",
@@ -1513,7 +1513,7 @@ profile = "nextjs"
         .unwrap();
 
         let qwen = Config::from_cli(Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--preset",
@@ -1527,7 +1527,7 @@ profile = "nextjs"
         assert_eq!(qwen.plan_preset_origin(), "default");
 
         let gemma = Config::from_cli(Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--preset",
@@ -1541,7 +1541,7 @@ profile = "nextjs"
         assert_eq!(gemma.plan_preset_origin(), "default");
 
         let cli_override = Config::from_cli(Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--preset",
@@ -1560,7 +1560,7 @@ profile = "nextjs"
     #[test]
     fn resolved_cli_planner_model_controls_none_default_source() {
         let qwen = Config::from_cli(Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--planner-model",
             "Qwen3.6:27B-Coding-NVFP4",
         ]))
@@ -1570,7 +1570,7 @@ profile = "nextjs"
         assert_eq!(qwen.plan_preset_origin(), "default");
 
         let inherited = Config::from_cli(Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--model",
             "vendor/qwen-coder-27b",
         ]))
@@ -1583,7 +1583,7 @@ profile = "nextjs"
         );
 
         let explicit_off = Config::from_cli(Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--planner-model",
             "qwen3.6:27b-coding-nvfp4",
             "--plan-preset",
@@ -1595,7 +1595,7 @@ profile = "nextjs"
         assert_eq!(explicit_off.plan_preset_origin(), "cli");
 
         let gemma = Config::from_cli(Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--planner-model",
             "gemma4:31b-cloud",
         ]))
@@ -1617,7 +1617,7 @@ profile = "nextjs"
         .unwrap();
 
         let err = Config::from_cli(Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--preset",
@@ -1639,7 +1639,7 @@ profile = "nextjs"
         std::fs::write(dir.path().join(".anvil/config.toml"), "# no preset\n").unwrap();
 
         let err = Config::from_cli(Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--preset",
@@ -1668,7 +1668,7 @@ profile = "nextjs"
         .unwrap();
 
         let err = Config::from_cli(Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--preset",
@@ -1687,7 +1687,7 @@ profile = "nextjs"
         let dir = tempfile::tempdir().unwrap();
         let cwd = dir.path().to_string_lossy().to_string();
         let cli = Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--ultra-plan-run",
@@ -1705,7 +1705,7 @@ profile = "nextjs"
         let dir = tempfile::tempdir().unwrap();
         let cwd = dir.path().to_string_lossy().to_string();
         let cli = Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--ultra-plan-run",
@@ -1727,7 +1727,7 @@ profile = "nextjs"
         .unwrap();
         let cwd = dir.path().to_string_lossy().to_string();
         let cli = Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--ultra-plan-run",
@@ -1749,7 +1749,7 @@ profile = "nextjs"
         .unwrap();
         let cwd = dir.path().to_string_lossy().to_string();
         let cli = Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--ultra-plan-run",
@@ -1771,7 +1771,7 @@ profile = "nextjs"
         .unwrap();
         let cwd = dir.path().to_string_lossy().to_string();
         let cli = Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--profile",

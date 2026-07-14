@@ -771,7 +771,7 @@ fn command_slug(command: &str) -> String {
 /// Display excerpts are intentionally not accepted by this API.
 ///
 /// ```compile_fail
-/// use anvilminimal::minimal_loop::build_verifier::{parse_compile_errors, OutputExcerpt};
+/// use commandagent::minimal_loop::build_verifier::{parse_compile_errors, OutputExcerpt};
 ///
 /// let excerpt: OutputExcerpt = todo!();
 /// let _ = parse_compile_errors(&excerpt);

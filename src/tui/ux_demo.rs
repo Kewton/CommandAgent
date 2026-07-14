@@ -252,7 +252,7 @@ mod tests {
 
     fn config() -> Config {
         Config {
-            workspace_root: std::path::PathBuf::from("/tmp/anvilminimal"),
+            workspace_root: std::path::PathBuf::from("/tmp/commandagent"),
             state_dir: std::path::PathBuf::from("state"),
             eval_events_path: None,
             completion_contract_path: None,
@@ -289,7 +289,7 @@ mod tests {
         let text = render_scripted_demo_text(&config());
 
         for needle in [
-            "anvilminimal",
+            "commandagent",
             "### Plan",
             "── Phase 1/2: scaffold ──",
             "#### Phase: scaffold",

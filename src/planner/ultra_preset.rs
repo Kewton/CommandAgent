@@ -59,7 +59,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cwd = dir.path().to_string_lossy().to_string();
         let mut config = Config::from_cli(Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--planner-model",
@@ -87,7 +87,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cwd = dir.path().to_string_lossy().to_string();
         let mut config = Config::from_cli(Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--planner-model",
@@ -116,7 +116,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cwd = dir.path().to_string_lossy().to_string();
         let mut config = Config::from_cli(Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--planner-model",
@@ -150,7 +150,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let cwd = dir.path().to_string_lossy().to_string();
         let mut config = Config::from_cli(Cli::parse_from([
-            "anvilminimal",
+            "commandagent",
             "--cwd",
             &cwd,
             "--planner-model",

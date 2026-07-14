@@ -3,15 +3,15 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
-use anvilminimal::config::{Action, Config, Provider};
-use anvilminimal::minimal_loop::loop_run::run_session_with_required_paths_with_ui;
-use anvilminimal::planner::{generate_step_plan_with_ui, run_ultra_plan_with_ui};
-use anvilminimal::providers::{AssistantReply, ChatClient};
-use anvilminimal::state::{ConversationMessage, SessionSnapshot, ToolCall};
-use anvilminimal::tools::registry::ToolSpec;
-use anvilminimal::tui::markdown::TerminalMarkdownRenderer;
-use anvilminimal::tui::status::UiStatus;
-use anvilminimal::tui::{InteractionUi, OutputRenderer, UiGuard};
+use commandagent::config::{Action, Config, Provider};
+use commandagent::minimal_loop::loop_run::run_session_with_required_paths_with_ui;
+use commandagent::planner::{generate_step_plan_with_ui, run_ultra_plan_with_ui};
+use commandagent::providers::{AssistantReply, ChatClient};
+use commandagent::state::{ConversationMessage, SessionSnapshot, ToolCall};
+use commandagent::tools::registry::ToolSpec;
+use commandagent::tui::markdown::TerminalMarkdownRenderer;
+use commandagent::tui::status::UiStatus;
+use commandagent::tui::{InteractionUi, OutputRenderer, UiGuard};
 use serde_json::json;
 
 fn config(root: PathBuf) -> Config {
@@ -25,8 +25,8 @@ fn config(root: PathBuf) -> Config {
         context_budget: 1000,
         model: "m".to_string(),
         provider: Provider::Ollama,
-        prompt_layout: anvilminimal::config::PromptLayout::Stable,
-        plan_preset: anvilminimal::config::PlanPreset::None,
+        prompt_layout: commandagent::config::PromptLayout::Stable,
+        plan_preset: commandagent::config::PlanPreset::None,
         planner_model: "pm".to_string(),
         planner_provider: Provider::Gemini,
         ollama_host: "http://localhost:11434".to_string(),
@@ -34,12 +34,12 @@ fn config(root: PathBuf) -> Config {
         max_iterations: 4,
         chat_timeout_secs: 1,
         chat_timeout_source: "override:test".to_string(),
-        field_sources: anvilminimal::config::ConfigFieldSources::default(),
+        field_sources: commandagent::config::ConfigFieldSources::default(),
         chat_retries: 1,
         resume: None,
         fresh_session: false,
         no_footer: false,
-        narration: anvilminimal::config::NarrationMode::Normal,
+        narration: commandagent::config::NarrationMode::Normal,
         profile: "generic".to_string(),
         profile_explicit: false,
         profile_inference: None,
@@ -399,7 +399,7 @@ fn assert_in_order(text: &str, needles: &[&str]) {
 
 fn assert_terminal_summary(summary: &str, status: &str) {
     assert!(
-        summary.starts_with(&format!("{}\n", anvilminimal::build_info::summary_line())),
+        summary.starts_with(&format!("{}\n", commandagent::build_info::summary_line())),
         "{summary}"
     );
     let expected = format!("Status: {status}");
@@ -436,18 +436,18 @@ fn assert_recovery_artifacts_exist(root: &std::path::Path, events: &str) {
     assert!(root.join(plan_path).is_file(), "{plan_path}");
 }
 
-fn two_phase_ultra_plan() -> anvilminimal::planner::ultra_plan::UltraPlan {
-    anvilminimal::planner::ultra_plan::UltraPlan {
+fn two_phase_ultra_plan() -> commandagent::planner::ultra_plan::UltraPlan {
+    commandagent::planner::ultra_plan::UltraPlan {
         goal: "build app".to_string(),
         profile: "generic".to_string(),
         style: "default".to_string(),
         intent: "create".to_string(),
         phases: vec![
-            anvilminimal::planner::ultra_plan::UltraPhase {
+            commandagent::planner::ultra_plan::UltraPhase {
                 id: "p1".to_string(),
                 prompt: "phase 1".to_string(),
             },
-            anvilminimal::planner::ultra_plan::UltraPhase {
+            commandagent::planner::ultra_plan::UltraPhase {
                 id: "p2".to_string(),
                 prompt: "phase 2".to_string(),
             },
@@ -459,14 +459,14 @@ fn write_ultra_plan(root: &std::path::Path) -> String {
     let path = root.join("ultra.yaml");
     std::fs::write(
         &path,
-        anvilminimal::planner::ultra_plan::render_ultra_plan(&two_phase_ultra_plan()),
+        commandagent::planner::ultra_plan::render_ultra_plan(&two_phase_ultra_plan()),
     )
     .unwrap();
     "ultra.yaml".to_string()
 }
 
 fn implement_step_plan_json() -> String {
-    let mut step_plan = anvilminimal::planner::step_plan::StepPlan::single("write app");
+    let mut step_plan = commandagent::planner::step_plan::StepPlan::single("write app");
     step_plan.steps[0].kind = "implement".to_string();
     step_plan.steps[0]
         .expected_paths
@@ -696,7 +696,7 @@ fn primary_ultra_plan_run_renders_plan_then_activity_then_summary() {
     let events_path = dir.path().join(".anvil/runs/test/events.jsonl");
     let mut cfg = config(dir.path().to_path_buf());
     cfg.eval_events_path = Some(events_path);
-    let plan_text = anvilminimal::planner::ultra_plan::render_ultra_plan(&two_phase_ultra_plan());
+    let plan_text = commandagent::planner::ultra_plan::render_ultra_plan(&two_phase_ultra_plan());
     let step_json = implement_step_plan_json();
     let mut planner = FakeClient::new(
         "planner",
@@ -730,10 +730,10 @@ fn primary_ultra_plan_run_renders_plan_then_activity_then_summary() {
         ],
     );
     let ui = FakeUi::default();
-    let _presentation = anvilminimal::tui::presentation::install(&cfg);
-    let capture = anvilminimal::tui::markdown::capture::start();
+    let _presentation = commandagent::tui::presentation::install(&cfg);
+    let capture = commandagent::tui::markdown::capture::start();
 
-    let output = anvilminimal::tui::slash::handle_command(
+    let output = commandagent::tui::slash::handle_command(
         "/ultra-plan-run build app",
         &cfg,
         &mut planner,
@@ -770,7 +770,7 @@ fn in_flight_provider_interrupt_finishes_before_sleep_and_writes_terminal_record
     let ui = TimedInterruptUi::new(Duration::from_secs(1));
 
     let started = Instant::now();
-    let err = anvilminimal::tui::slash::handle_command(
+    let err = commandagent::tui::slash::handle_command(
         &format!("/run-ultra-plan {plan_path}"),
         &cfg,
         &mut planner,
@@ -821,7 +821,7 @@ fn in_flight_bash_interrupt_force_finalizes_without_waiting_for_grace() {
     let ui = ToolTimedInterruptUi::new(Duration::from_millis(100), Duration::from_millis(300));
 
     let started = Instant::now();
-    let err = anvilminimal::tui::slash::handle_command(
+    let err = commandagent::tui::slash::handle_command(
         &format!("/run-ultra-plan {plan_path}"),
         &cfg,
         &mut planner,
@@ -848,23 +848,23 @@ fn in_flight_bash_interrupt_force_finalizes_without_waiting_for_grace() {
 fn tui_ultra_plan_run_smoke_fake_clients() {
     let _guard = tui_integration_test_lock();
     let dir = tempfile::tempdir().unwrap();
-    let mut step_plan = anvilminimal::planner::step_plan::StepPlan::single("write app");
+    let mut step_plan = commandagent::planner::step_plan::StepPlan::single("write app");
     step_plan.steps[0].kind = "implement".to_string();
     step_plan.steps[0]
         .expected_paths
         .push("app.jsx".to_string());
     let step_json = serde_json::to_string(&step_plan).unwrap();
-    let plan = anvilminimal::planner::ultra_plan::UltraPlan {
+    let plan = commandagent::planner::ultra_plan::UltraPlan {
         goal: "build app".to_string(),
         profile: "generic".to_string(),
         style: "default".to_string(),
         intent: "create".to_string(),
         phases: vec![
-            anvilminimal::planner::ultra_plan::UltraPhase {
+            commandagent::planner::ultra_plan::UltraPhase {
                 id: "p1".to_string(),
                 prompt: "phase 1".to_string(),
             },
-            anvilminimal::planner::ultra_plan::UltraPhase {
+            commandagent::planner::ultra_plan::UltraPhase {
                 id: "p2".to_string(),
                 prompt: "phase 2".to_string(),
             },
@@ -939,17 +939,17 @@ fn tui_slash_promoted_profile_reflected_in_terminal_summary() {
     let goal = format!(
         "ちょっとしたメモアプリを作って。ブラウザで使えるようにしてください。{port}ポートで起動可能にしてください。"
     );
-    let plan = anvilminimal::planner::ultra_plan::UltraPlan {
+    let plan = commandagent::planner::ultra_plan::UltraPlan {
         goal,
         profile: "generic".to_string(),
         style: "default".to_string(),
         intent: "create".to_string(),
         phases: vec![
-            anvilminimal::planner::ultra_plan::UltraPhase {
+            commandagent::planner::ultra_plan::UltraPhase {
                 id: "setup-framework".to_string(),
                 prompt: "Create the package manifest".to_string(),
             },
-            anvilminimal::planner::ultra_plan::UltraPhase {
+            commandagent::planner::ultra_plan::UltraPhase {
                 id: "implement-ui".to_string(),
                 prompt: "Create the promoted Next.js route".to_string(),
             },
@@ -957,13 +957,13 @@ fn tui_slash_promoted_profile_reflected_in_terminal_summary() {
     };
     std::fs::write(
         &plan_path,
-        anvilminimal::planner::ultra_plan::render_ultra_plan(&plan),
+        commandagent::planner::ultra_plan::render_ultra_plan(&plan),
     )
     .unwrap();
-    let mut setup_step = anvilminimal::planner::step_plan::StepPlan::single("create package");
+    let mut setup_step = commandagent::planner::step_plan::StepPlan::single("create package");
     setup_step.steps[0].kind = "setup".to_string();
     setup_step.steps[0].expected_paths = vec!["package.json".to_string()];
-    let mut route_step = anvilminimal::planner::step_plan::StepPlan::single("create route");
+    let mut route_step = commandagent::planner::step_plan::StepPlan::single("create route");
     route_step.steps[0].kind = "implement".to_string();
     route_step.steps[0].expected_paths = vec![
         "tsconfig.json".to_string(),
@@ -1046,7 +1046,7 @@ fn tui_slash_promoted_profile_reflected_in_terminal_summary() {
     );
     let ui = FakeUi::default();
 
-    let output = anvilminimal::tui::slash::handle_command(
+    let output = commandagent::tui::slash::handle_command(
         "/run-ultra-plan ultra.yaml",
         &cfg,
         &mut planner,
@@ -1153,7 +1153,7 @@ fn tui_runs_lists_recent_runs_without_emitting_command_events() {
     let ui = FakeUi::default();
 
     let output =
-        anvilminimal::tui::slash::handle_command("/runs", &cfg, &mut planner, &mut execution, &ui)
+        commandagent::tui::slash::handle_command("/runs", &cfg, &mut planner, &mut execution, &ui)
             .unwrap();
 
     assert!(output.contains("018f2222"), "{output}");
@@ -1177,7 +1177,7 @@ fn tui_help_lists_recovery_commands_without_emitting_events() {
     let ui = FakeUi::default();
 
     let output =
-        anvilminimal::tui::slash::handle_command("/help", &cfg, &mut planner, &mut execution, &ui)
+        commandagent::tui::slash::handle_command("/help", &cfg, &mut planner, &mut execution, &ui)
             .unwrap();
 
     assert!(output.contains("/runs - list recent runs"), "{output}");
@@ -1287,7 +1287,7 @@ phases:
     );
     let ui = FakeUi::default();
 
-    let output = anvilminimal::tui::slash::handle_command(
+    let output = commandagent::tui::slash::handle_command(
         "/resume 018f6666",
         &cfg,
         &mut planner,
@@ -1337,7 +1337,7 @@ phases:
     );
 
     let plan_output =
-        anvilminimal::tui::slash::handle_command("/plan", &cfg, &mut planner, &mut execution, &ui)
+        commandagent::tui::slash::handle_command("/plan", &cfg, &mut planner, &mut execution, &ui)
             .unwrap();
     assert!(plan_output.contains("### Plan"), "{plan_output}");
     assert!(plan_output.contains("repair-phase"), "{plan_output}");
@@ -1358,7 +1358,7 @@ fn tui_slash_failure_records_run_events_and_failure_stage() {
     let mut planner = FakeClient::new("planner", Vec::new());
     let mut execution = FakeClient::new("exec", Vec::new());
     let ui = FakeUi::default();
-    let err = anvilminimal::tui::slash::handle_command(
+    let err = commandagent::tui::slash::handle_command(
         "/unknown-command test",
         &cfg,
         &mut planner,
@@ -1398,14 +1398,14 @@ fn tui_slash_failure_rewrites_existing_partial_summary_with_phase_breakdown() {
     let events_path = dir.path().join(".anvil/runs/test/events.jsonl");
     let mut cfg = config(dir.path().to_path_buf());
     cfg.eval_events_path = Some(events_path.clone());
-    anvilminimal::eval_events::write_run_summary(
+    commandagent::eval_events::write_run_summary(
         cfg.eval_events_path.as_deref(),
         "Status: incomplete\nCompleted phases:\n- scaffold\nFailed phase:\n- final\nPending phases:\n- none\nRecovery next action:\n- /run-ultra-plan .anvil/plans/recovery-ultra-plan-final.yaml",
     );
     let mut planner = FakeClient::new("planner", Vec::new());
     let mut execution = FakeClient::new("exec", Vec::new());
     let ui = FakeUi::default();
-    let err = anvilminimal::tui::slash::handle_command(
+    let err = commandagent::tui::slash::handle_command(
         "/unknown-command test",
         &cfg,
         &mut planner,
@@ -1432,7 +1432,7 @@ fn tui_slash_success_with_partial_release_gate_is_not_complete_only() {
     let events_path = dir.path().join(".anvil/runs/test/events.jsonl");
     let mut cfg = config(dir.path().to_path_buf());
     cfg.eval_events_path = Some(events_path.clone());
-    anvilminimal::eval_events::emit(
+    commandagent::eval_events::emit(
         cfg.eval_events_path.as_deref(),
         json!({
             "event": "ultra_final_acceptance",
@@ -1453,7 +1453,7 @@ fn tui_slash_success_with_partial_release_gate_is_not_complete_only() {
     let mut planner = FakeClient::new("planner", vec![AssistantReply::text(plan_json)]);
     let mut execution = FakeClient::new("exec", Vec::new());
     let ui = FakeUi::default();
-    let output = anvilminimal::tui::slash::handle_command(
+    let output = commandagent::tui::slash::handle_command(
         "/plan-steps test",
         &cfg,
         &mut planner,
@@ -1510,7 +1510,7 @@ fn tui_slash_completion_guard_records_aborted_on_panic() {
     let ui = FakeUi::default();
 
     let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = anvilminimal::tui::slash::handle_command(
+        let _ = commandagent::tui::slash::handle_command(
             "/plan-steps panic",
             &cfg,
             &mut planner,
@@ -1548,7 +1548,7 @@ fn tui_slash_ultra_panic_records_diagnostics_and_terminal_summary() {
     let ui = FakeUi::default();
 
     let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = anvilminimal::tui::slash::handle_command(
+        let _ = commandagent::tui::slash::handle_command(
             &format!("/run-ultra-plan {plan_path}"),
             &cfg,
             &mut planner,
@@ -1603,7 +1603,7 @@ fn tui_slash_completion_guard_records_interrupted_mid_phase() {
     let mut execution = FakeClient::new("exec", Vec::new());
     let ui = InterruptAfterUi::new(2);
 
-    let err = anvilminimal::tui::slash::handle_command(
+    let err = commandagent::tui::slash::handle_command(
         &format!("/run-ultra-plan {plan_path}"),
         &cfg,
         &mut planner,
@@ -1669,7 +1669,7 @@ fn tui_slash_ultra_plan_completion_records_phase_breakdown_and_acceptance() {
     );
     let ui = FakeUi::default();
 
-    let output = anvilminimal::tui::slash::handle_command(
+    let output = commandagent::tui::slash::handle_command(
         &format!("/run-ultra-plan {plan_path}"),
         &cfg,
         &mut planner,
@@ -1694,7 +1694,7 @@ fn tui_slash_ultra_plan_completion_records_phase_breakdown_and_acceptance() {
 #[test]
 fn plain_renderer_keeps_raw_output() {
     let _guard = tui_integration_test_lock();
-    let renderer = anvilminimal::tui::markdown::PlainRenderer;
+    let renderer = commandagent::tui::markdown::PlainRenderer;
     renderer
         .render_assistant("<think>secret</think>raw")
         .expect("plain renderer writes");
