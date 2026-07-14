@@ -515,6 +515,7 @@ fn generate_step_plan_with_ui_for_phase(
         );
     }
     let mut last_error = None;
+    let mut last_lint_report = None;
     let mut last_valid_plan: Option<StepPlan> = None;
     let mut lint_categories_seen = BTreeSet::new();
     let mut empty_response_count = 0usize;
@@ -539,6 +540,7 @@ fn generate_step_plan_with_ui_for_phase(
             session_mode,
         );
         if reply.content.trim().is_empty() {
+            last_lint_report = None;
             empty_response_count += 1;
             let message = format!(
                 "planner_empty_response: planner returned empty content on attempt {attempt}/3"
@@ -670,6 +672,7 @@ fn generate_step_plan_with_ui_for_phase(
                     continue;
                 }
                 let message = lint_report.primary_message();
+                last_lint_report = Some(lint_report.clone());
                 emit_planner_error_for_lint(config, client.label(), model, &lint_report, attempt);
                 last_error = Some(message.clone());
                 for err in &lint_report.errors {
@@ -680,6 +683,7 @@ fn generate_step_plan_with_ui_for_phase(
                 session_mode = PlannerSessionMode::Standard;
             }
             Err(err) => {
+                last_lint_report = None;
                 if let Some(plan) = last_valid_plan.clone() {
                     emit_planner_quality_retry_degraded(
                         config,
@@ -732,6 +736,11 @@ fn generate_step_plan_with_ui_for_phase(
         );
         emit_step_plan_presentation(phase_label, &plan, None);
         return Ok(plan);
+    }
+    if let Some(report) = last_lint_report {
+        return Err(anyhow::Error::new(
+            crate::planner::lint_rejection::PlanLintExhausted { report },
+        ));
     }
     anyhow::bail!(
         "invalid StepPlan after corrective retries: {}",
@@ -7591,6 +7600,7 @@ struct UltraPhaseRecoveryRequest<'a> {
     missing_paths: &'a [String],
     missing_signals: &'a [String],
     repair_targets: &'a [String],
+    verify_commands: &'a [String],
 }
 
 fn save_ultra_phase_recovery_handoff(
@@ -7622,7 +7632,7 @@ fn save_ultra_phase_recovery_handoff_with_evidence(
         },
         missing_paths: request.missing_paths.to_vec(),
         missing_capabilities: request.missing_signals.to_vec(),
-        verify_commands: Vec::new(),
+        verify_commands: request.verify_commands.to_vec(),
         changed_paths: Vec::new(),
         repair_targets: request.repair_targets.to_vec(),
     };
@@ -8160,13 +8170,13 @@ fn emit_planner_error_for_lint(
     attempt: usize,
 ) {
     let (stage, kind) = planner_stage_and_kind_for_lint(report);
-    emit_planner_error(
-        config,
+    crate::planner::lint_rejection::emit_planner_error(
+        config.eval_events_path.as_deref(),
         provider,
         model,
         stage,
         kind,
-        &report.primary_message(),
+        report,
         attempt,
     );
 }
@@ -8924,7 +8934,7 @@ fn build_lint_retry_prompt(
     let errors = report
         .errors
         .iter()
-        .map(|err| format!("- [{}] {}", err.category, err.message))
+        .map(crate::planner::lint_rejection::retry_error_line)
         .collect::<Vec<_>>()
         .join("\n");
     format!(
@@ -12533,6 +12543,7 @@ export default function Page() {
                 missing_paths: &evidence.missing_paths,
                 missing_signals: &[],
                 repair_targets: &["profile_contract".to_string()],
+                verify_commands: &[],
             },
             &evidence.failure_evidence,
         );
@@ -13515,6 +13526,7 @@ export default function Page() {
                 missing_paths: &report.missing_paths,
                 missing_signals: &missing_signals,
                 repair_targets: &targets,
+                verify_commands: &[],
             },
         )
         .expect("handoff saved");
@@ -17755,6 +17767,7 @@ exit 2\n",
                 missing_paths: &[],
                 missing_signals: &[],
                 repair_targets: &targets,
+                verify_commands: &[],
             },
             &evidence,
         )

@@ -30,6 +30,7 @@ pub struct PlanLintReport {
 pub struct PlanLintError {
     pub category: String,
     pub message: String,
+    pub verify_rejection: Option<crate::planner::lint_rejection::VerifyLintRejection>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,6 +90,7 @@ impl PlanLintReport {
         self.errors.push(PlanLintError {
             category: category.into(),
             message: message.into(),
+            verify_rejection: None,
         });
     }
 
@@ -235,15 +237,23 @@ pub fn lint_step_plan_report_with_workspace(
                 report.push("side_effect_expected_path", message);
             }
         }
-        for command in &step.verify {
+        for (command_index, command) in step.verify.iter().enumerate() {
             if crate::planner::profiles::data::step_policy::catalog_check_id(command).is_some() {
                 continue;
             }
             if crate::planner::verify::dependency_install_verify_segment(command).is_some() {
                 continue;
             }
-            if let Err(err) = validate_verify_command_for_lint(command) {
-                report.push("verify_policy", err.to_string());
+            if let Err(failure) = crate::planner::lint_rejection::lint_verify_command(
+                &step.id,
+                command_index,
+                command,
+            ) {
+                report.errors.push(PlanLintError {
+                    category: "verify_policy".to_string(),
+                    message: failure.message,
+                    verify_rejection: Some(failure.rejection),
+                });
             }
         }
     }

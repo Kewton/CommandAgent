@@ -299,6 +299,8 @@ pub fn run_ultra_plan_with_ui(
             preset_plan,
         )
         .map_err(|err| {
+            let rejected_verify_commands =
+                crate::planner::lint_rejection::rejected_commands_from_error(&err);
             let message = err.to_string();
             emit_ultra_phase_event(
                 config,
@@ -333,6 +335,7 @@ pub fn run_ultra_plan_with_ui(
                     ),
                     missing_signals: &[],
                     repair_targets: &["phase_scaffold".to_string()],
+                    verify_commands: &rejected_verify_commands,
                 },
             );
             anyhow::anyhow!(
@@ -433,6 +436,7 @@ pub fn run_ultra_plan_with_ui(
                         ),
                         missing_signals: &pending_signals,
                         repair_targets: &err.partial_outcome.repair_targets,
+                        verify_commands: &[],
                     },
                     &failure_evidence,
                 );
@@ -579,6 +583,7 @@ pub fn run_ultra_plan_with_ui(
                         missing_paths: &missing_paths,
                         missing_signals: &verification_missing_signals(&invariant_report),
                         repair_targets: &["profile_contract".to_string()],
+                        verify_commands: &[],
                     },
                     &failure_evidence,
                 );
@@ -1167,6 +1172,7 @@ pub fn run_ultra_plan_with_ui(
                             missing_paths: &acceptance_report.missing_paths,
                             missing_signals: &missing_signals,
                             repair_targets: &repair_targets,
+                            verify_commands: &[],
                         },
                         &failure_evidence,
                     );
@@ -1553,6 +1559,7 @@ pub fn run_ultra_plan_with_ui(
                     missing_paths: &acceptance_report.missing_paths,
                     missing_signals: &missing_signals,
                     repair_targets: &repair_targets,
+                    verify_commands: &[],
                 },
                 &failure_evidence,
             );

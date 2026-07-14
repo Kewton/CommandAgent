@@ -2193,6 +2193,86 @@ if __name__ == "__main__":
     }
 
     #[test]
+    fn verify_lint_rejection_flows_to_retry_event_and_repair_document() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.eval_events_path = Some(events.clone());
+        let original_command = "python3 pipeline/main.py > output/run.log";
+        let rejected_plan = StepPlan {
+            goal: "Inspect tabular input".to_string(),
+            steps: vec![PlanStep {
+                id: "verify-inspection".to_string(),
+                kind: "verify".to_string(),
+                expected_result: "pass".to_string(),
+                instruction: "Verify the generated inspection output".to_string(),
+                expected_paths: Vec::new(),
+                verify: vec![original_command.to_string()],
+            }],
+        };
+        let rejected_json = serde_json::to_string(&rejected_plan).unwrap();
+        let mut planner = FakeClient::new(vec![
+            AssistantReply::text(&rejected_json),
+            AssistantReply::text(&rejected_json),
+            AssistantReply::text(&rejected_json),
+        ]);
+        let mut execution = FakeClient::new(Vec::new());
+        let plan = UltraPlan {
+            goal: "Inspect tabular input".to_string(),
+            profile: "generic".to_string(),
+            style: "default".to_string(),
+            intent: "create".to_string(),
+            phases: vec![
+                crate::planner::ultra_plan::UltraPhase {
+                    id: "inspection".to_string(),
+                    prompt: "Inspect the data".to_string(),
+                },
+                crate::planner::ultra_plan::UltraPhase {
+                    id: "reporting".to_string(),
+                    prompt: "Report the inspected data".to_string(),
+                },
+            ],
+        };
+
+        let error = run_ultra_plan(&mut planner, &mut execution, &plan, &cfg)
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("phase scaffold failed"), "{error}");
+        assert!(
+            planner.messages()[1]
+                .iter()
+                .any(|message| message.content.contains(original_command))
+        );
+        let event_values = std::fs::read_to_string(events)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        let lint = event_values
+            .iter()
+            .find(|event| {
+                event["event"] == "planner_error"
+                    && event["planner_error_kind"] == "verify_command_policy_error"
+            })
+            .expect("verify lint event");
+        assert_eq!(lint["step_id"], "verify-inspection");
+        assert_eq!(lint["command_index"], 0);
+        assert_eq!(lint["original_command"], original_command);
+        assert_eq!(lint["normalized_commands"], serde_json::json!([]));
+        assert_eq!(lint["violation_kind"], "shell_control_syntax");
+        let repair_path = std::fs::read_dir(dir.path().join(".anvil/repairs"))
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| path.extension().and_then(|value| value.to_str()) == Some("md"))
+            .expect("repair markdown");
+        let repair = std::fs::read_to_string(repair_path).unwrap();
+        assert!(repair.contains("Verification commands:"), "{repair}");
+        assert!(repair.contains(original_command), "{repair}");
+        assert!(!repair.contains("Verification commands:\nnone"), "{repair}");
+    }
+
+    #[test]
     fn ultra_phase_planner_provider_error_names_terminal_reason() {
         let dir = tempfile::tempdir().unwrap();
         let events = dir.path().join("events.jsonl");
@@ -2341,6 +2421,7 @@ if __name__ == "__main__":
                 missing_paths: &missing_paths,
                 missing_signals: &missing_signals,
                 repair_targets: &repair_targets,
+                verify_commands: &[],
             },
         )
         .expect("handoff saved");
@@ -2373,6 +2454,7 @@ if __name__ == "__main__":
                 missing_paths: &[],
                 missing_signals: &["challenge_or_adversary_evidence".to_string()],
                 repair_targets: &["completion_contract".to_string()],
+                verify_commands: &[],
             },
         )
         .expect("recovery handoff should be saved");
