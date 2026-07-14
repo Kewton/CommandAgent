@@ -1,0 +1,132 @@
+case_id = "test0710_stage0_pivot"
+source = "stage-0 hybrid/depth pivot coverage fixtures"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["stage0", "near-root", "postcss", "depth", "hybrid", "quoting"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/diagnosis.md = [
+  "test0710_camp_001",
+  "not present in the local corpus",
+  "model-authored args"
+]
+fixtures/stale-path-near-root-corruption.jsonl = [
+  "\"event\":\"tool_args_path_near_root_corruption\"",
+  "\"root\":\"/Users/<user>/share/work/localwork/commandagent_mvp/01/test0710_camp_002\"",
+  "\"accepted\":false",
+  "\"error_kind\":\"tool_args_path_near_root_corruption\""
+]
+fixtures/postcss-structural-coherence.jsonl = [
+  "PostCSS config must export a plugins key",
+  "module.exports = { plugins: { tailwindcss: {}, autoprefixer: {} } };"
+]
+fixtures/depth-profile.jsonl = [
+  "\"event\":\"depth_profile\"",
+  "route_bound_source_lines=",
+  "data_anvil_action_kinds=",
+  "input_types_with_observed_state_change="
+]
+fixtures/hybrid-a3b-preset.jsonl = [
+  "\"provider\":\"ollama\"",
+  "\"model\":\"qwen3.6:35b-a3b-coding-nvfp4\"",
+  "\"planner_provider\":\"gemini\"",
+  "\"planner_model\":\"gemini-3.5-flash\""
+]
+fixtures/node-p-quoting-and-path-normalization.jsonl = [
+  "unbalanced shell quotes",
+  "node -p \\\"require('./package.json').scripts.dev\\\"",
+  "\"normalized_changed_path\":\"src/app/page.tsx\""
+]
+fixtures/package-port-only-grep-normalization.jsonl = [
+  "test0710_bs_002/combo2-002",
+  "literal grep expected a quoted port token",
+  "package_json_script_assertion",
+  "--port=3011"
+]
+fixtures/static-import-guards.jsonl = [
+  "test0710_bs_002/combo1-001",
+  "missing_export",
+  "does not export `CANVAS_W`",
+  "test0710_bs_002/combo1-003",
+  "jsx_in_ts",
+  "rename it to .tsx or remove JSX"
+]
+fixtures/read-only-write-required.jsonl = [
+  "test0710_bs_002/combo1-005",
+  "\"stage\":\"write_required\"",
+  "\"event\":\"read_only_tool_rejected\"",
+  "read-only tools are suspended; write",
+  "\"reason\":\"model_stagnation:read_only_loop\"",
+  "\"recovery_yaml_missing\":false"
+]
+fixtures/read-only-write-required-evidence-targets.jsonl = [
+  "test0710_bs_003/combo1",
+  "\"pending_capability_evidence\":[\"restart_or_recoverable_state_evidence\"]",
+  "\"required_paths\":[\"package.json\",\"src/app/page.tsx\"]",
+  "\"selected_targets\":[\"src/app/page.tsx\"]",
+  "\"selection_reason\":\"evidence_mapped\"",
+  "\"event\":\"write_required_off_target_write_allowed\"",
+  "\"actual_path\":\"package.json\""
+]
+fixtures/final-acceptance-target-resolution.jsonl = [
+  "test0711_bs_002/#1",
+  "\"event\":\"final_acceptance_repair_start\"",
+  "\"selected_evidence_keys\":[\"restart_or_recoverable_state_evidence\"]",
+  "\"required_paths\":[\"package.json\",\"src/app/page.tsx\"]",
+  "\"selected_target\":\"src/app/page.tsx\"",
+  "\"selected_targets\":[\"src/app/page.tsx\"]",
+  "\"selection_reason\":\"evidence_mapped\"",
+  "\"phase_scope\":\"final_acceptance_repair\"",
+  "\"event\":\"read_only_tool_rejected\""
+]
+fixtures/state-binding-diagnosis.jsonl = [
+  "test0710_bs_004/combo1",
+  "\"event\":\"state_binding_diagnosis\"",
+  "\"diagnosis\":\"state_bound_to_ref\"",
+  "\"referenced_identifiers\":[\"gameRef\"]",
+  "input_state_change_missing_after_start",
+  "data-anvil-state",
+  "State binding diagnosis: state_bound_to_ref"
+]
+fixtures/hook-snapshot-primary-restore.jsonl = [
+  "test0710_bs_003/combo3",
+  "\"event\":\"hook_snapshot_saved\"",
+  "\"event\":\"hook_snapshot_feedback\"",
+  "\"scope_id\":\"verify-primary-attribute\"",
+  "data-anvil-action=\\\"primary\\\"",
+  "--- last-known-good",
+  "+++ current",
+  "\"event\":\"hook_snapshot_restored\"",
+  "\"restored_path\":\"src/app/page.tsx\""
+]
+fixtures/deterministic-step-plan-used.jsonl = [
+  "test0710_bs_003/combo1",
+  "test0710_bs_003/combo2",
+  "\"event\":\"deterministic_step_plan_used\"",
+  "\"template_id\":\"nextjs-scaffold\"",
+  "\"planner_skipped\":true"
+]
+fixtures/preset-ultra-plan-used.jsonl = [
+  "test0710_bs_004/combo2",
+  "\"event\":\"preset_ultra_plan_used\"",
+  "\"profile\":\"nextjs\"",
+  "\"template_id\":\"nextjs-create-default-ultra\"",
+  "\"planner_skipped\":true"
+]

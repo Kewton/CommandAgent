@@ -1,0 +1,322 @@
+use reqwest::blocking::Client;
+use serde::Deserialize;
+use serde_json::{Value, json};
+
+use crate::state::{ConversationMessage, ToolCall};
+use crate::tools::args_recovery::recover_tool_arguments;
+use crate::tools::registry::ToolSpec;
+
+use super::parsing::tool_names;
+use super::{AssistantReply, ChatClient, ResponseTiming};
+
+#[derive(Debug, Clone)]
+pub struct OllamaClient {
+    base_url: String,
+    http: Client,
+    request_options: Value,
+    keep_alive: &'static str,
+    retries: usize,
+    last_response_timing: Option<ResponseTiming>,
+}
+
+impl OllamaClient {
+    pub fn new(
+        base_url: String,
+        timeout_secs: u64,
+        max_predict: usize,
+        retries: usize,
+    ) -> anyhow::Result<Self> {
+        let http = Client::builder()
+            .connect_timeout(std::time::Duration::from_secs(timeout_secs))
+            .timeout(std::time::Duration::from_secs(timeout_secs))
+            .build()?;
+        Ok(Self {
+            base_url,
+            http,
+            request_options: json!({
+                "num_predict": max_predict,
+            }),
+            keep_alive: "10m",
+            retries,
+            last_response_timing: None,
+        })
+    }
+
+    pub fn list_models(&self) -> anyhow::Result<Vec<String>> {
+        let response = self
+            .http
+            .get(format!("{}/api/tags", self.base_url))
+            .send()?;
+        if !response.status().is_success() {
+            anyhow::bail!("Ollama /api/tags failed: {}", response.status());
+        }
+        let body = response.text()?;
+        parse_tags_response(&body)
+    }
+}
+
+impl ChatClient for OllamaClient {
+    fn label(&self) -> &str {
+        "ollama"
+    }
+
+    fn boxed_clone(&self) -> Box<dyn ChatClient> {
+        Box::new(self.clone())
+    }
+
+    fn supports_native_tools(&self, _model: &str) -> bool {
+        true
+    }
+
+    fn allows_xml_fallback(&self) -> bool {
+        true
+    }
+
+    fn take_response_timing(&mut self) -> Option<ResponseTiming> {
+        self.last_response_timing.take()
+    }
+
+    fn chat(
+        &mut self,
+        model: &str,
+        messages: &[ConversationMessage],
+        tools: &[ToolSpec],
+        native_tools_enabled: bool,
+    ) -> anyhow::Result<AssistantReply> {
+        let body = self.chat_request_body(model, messages, tools, native_tools_enabled);
+        for attempt in 0..=self.retries {
+            match self
+                .http
+                .post(format!("{}/api/chat", self.base_url))
+                .json(&body)
+                .send()
+            {
+                Ok(response) if response.status().is_success() => {
+                    let body = response.text()?;
+                    let (reply, timing) = parse_chat_response_with_timing(
+                        &body,
+                        &tool_names(tools),
+                        !native_tools_enabled,
+                    )?;
+                    self.last_response_timing = timing;
+                    return Ok(reply);
+                }
+                Ok(response) if attempt == self.retries => {
+                    anyhow::bail!("Ollama /api/chat failed: {}", response.status());
+                }
+                Ok(_) => {}
+                Err(err) if attempt == self.retries => return Err(err.into()),
+                Err(_) => {}
+            }
+        }
+        unreachable!("retry loop always returns or bails")
+    }
+}
+
+impl OllamaClient {
+    fn chat_request_body(
+        &self,
+        model: &str,
+        messages: &[ConversationMessage],
+        tools: &[ToolSpec],
+        native_tools_enabled: bool,
+    ) -> Value {
+        let mut body = json!({
+            "model": model,
+            "messages": ollama_messages(messages),
+            "stream": false,
+            "keep_alive": self.keep_alive,
+            "options": self.request_options.clone(),
+        });
+        if native_tools_enabled && !tools.is_empty() {
+            body["tools"] = json!(tools);
+        }
+        body
+    }
+}
+
+fn ollama_messages(messages: &[ConversationMessage]) -> Vec<Value> {
+    messages
+        .iter()
+        .map(|message| {
+            let role = if message.role == "tool" {
+                "tool"
+            } else {
+                message.role.as_str()
+            };
+            let mut value = json!({"role": role, "content": message.content});
+            if let Some(name) = &message.name {
+                value["name"] = json!(name);
+            }
+            value
+        })
+        .collect()
+}
+
+#[derive(Deserialize)]
+struct TagsResponse {
+    #[serde(default)]
+    models: Vec<TagModel>,
+}
+
+#[derive(Deserialize)]
+struct TagModel {
+    name: String,
+}
+
+pub fn parse_tags_response(body: &str) -> anyhow::Result<Vec<String>> {
+    let parsed: TagsResponse = serde_json::from_str(body)?;
+    Ok(parsed.models.into_iter().map(|model| model.name).collect())
+}
+
+#[derive(Deserialize)]
+struct ChatResponse {
+    message: Option<ChatMessage>,
+    #[serde(default)]
+    prompt_eval_count: Option<u64>,
+    #[serde(default)]
+    eval_count: Option<u64>,
+    #[serde(default)]
+    prompt_eval_duration: Option<u64>,
+    #[serde(default)]
+    eval_duration: Option<u64>,
+    #[serde(default)]
+    load_duration: Option<u64>,
+    #[serde(default)]
+    total_duration: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct ChatMessage {
+    #[serde(default)]
+    content: String,
+    #[serde(default)]
+    tool_calls: Vec<OllamaToolCall>,
+}
+
+#[derive(Deserialize)]
+struct OllamaToolCall {
+    function: OllamaFunctionCall,
+}
+
+#[derive(Deserialize)]
+struct OllamaFunctionCall {
+    name: String,
+    #[serde(default)]
+    arguments: Value,
+}
+
+pub fn parse_chat_response(
+    body: &str,
+    allowed_tools: &[String],
+    xml_fallback: bool,
+) -> anyhow::Result<AssistantReply> {
+    parse_chat_response_with_timing(body, allowed_tools, xml_fallback).map(|(reply, _)| reply)
+}
+
+fn parse_chat_response_with_timing(
+    body: &str,
+    allowed_tools: &[String],
+    xml_fallback: bool,
+) -> anyhow::Result<(AssistantReply, Option<ResponseTiming>)> {
+    let parsed: ChatResponse = serde_json::from_str(body)?;
+    let message = parsed
+        .message
+        .ok_or_else(|| anyhow::anyhow!("Ollama response missing message"))?;
+    let timing = Some(ResponseTiming {
+        prompt_eval_duration: parsed.prompt_eval_duration,
+        eval_duration: parsed.eval_duration,
+        load_duration: parsed.load_duration,
+        total_duration: parsed.total_duration,
+    });
+    if xml_fallback {
+        let (tool_calls, content) =
+            super::xml_fallback::extract_tool_calls(&message.content, allowed_tools)?;
+        return Ok((
+            AssistantReply {
+                content,
+                tool_calls,
+                prompt_tokens: parsed.prompt_eval_count,
+                completion_tokens: parsed.eval_count,
+            },
+            timing,
+        ));
+    }
+    let tool_calls = message
+        .tool_calls
+        .into_iter()
+        .map(|call| {
+            let arguments =
+                recover_tool_arguments(&call.function.name, call.function.arguments).arguments;
+            ToolCall::new(call.function.name, arguments)
+        })
+        .collect();
+    Ok((
+        AssistantReply {
+            content: message.content,
+            tool_calls,
+            prompt_tokens: parsed.prompt_eval_count,
+            completion_tokens: parsed.eval_count,
+        },
+        timing,
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::ConversationMessage;
+
+    #[test]
+    fn parses_tags() {
+        assert_eq!(
+            parse_tags_response(r#"{"models":[{"name":"m"}]}"#).unwrap(),
+            vec!["m"]
+        );
+    }
+
+    #[test]
+    fn request_body_is_stable_and_keeps_alive() {
+        let client = OllamaClient::new("http://localhost".to_string(), 1, 42, 0).unwrap();
+        let messages = vec![ConversationMessage::user("hello")];
+        let tools: Vec<ToolSpec> = Vec::new();
+        let first = client.chat_request_body("m", &messages, &tools, false);
+        let second = client.chat_request_body("m", &messages, &tools, false);
+
+        assert_eq!(first, second);
+        assert_eq!(first.get("keep_alive").and_then(Value::as_str), Some("10m"));
+        assert_eq!(
+            first
+                .get("options")
+                .and_then(Value::as_object)
+                .and_then(|options| options.get("num_predict"))
+                .and_then(Value::as_u64),
+            Some(42)
+        );
+        assert!(first.get("tools").is_none());
+    }
+
+    #[test]
+    fn parse_chat_response_records_duration_fields() {
+        let (reply, timing) = parse_chat_response_with_timing(
+            r#"{
+                "message": {"content":"ok"},
+                "prompt_eval_count": 10,
+                "eval_count": 2,
+                "prompt_eval_duration": 4000000000,
+                "eval_duration": 2000000000,
+                "load_duration": 1000000000,
+                "total_duration": 7000000000
+            }"#,
+            &[],
+            false,
+        )
+        .unwrap();
+        assert_eq!(reply.prompt_tokens, Some(10));
+        let timing = timing.expect("timing");
+        assert_eq!(timing.prompt_eval_duration, Some(4_000_000_000));
+        assert_eq!(timing.eval_duration, Some(2_000_000_000));
+        assert_eq!(timing.load_duration, Some(1_000_000_000));
+        assert_eq!(timing.total_duration, Some(7_000_000_000));
+    }
+}

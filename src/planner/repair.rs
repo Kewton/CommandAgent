@@ -1,0 +1,1063 @@
+use std::path::{Path, PathBuf};
+
+use crate::config::PromptLayout;
+use crate::eval_events;
+use crate::minimal_loop::completion::{
+    CompileRepairPromptProtection, compile_repair_prompt_section_with_root,
+};
+use crate::minimal_loop::repair_target::classify_repair_target;
+use crate::planner::contract_attribute_repair;
+use crate::planner::ultra_plan::{
+    UltraPhase, UltraPlan, parse_ultra_plan, quote_yaml_string, render_ultra_plan,
+};
+use crate::planner::verify::VerificationReport;
+
+#[derive(Debug, Clone, Default)]
+pub struct RepairContext {
+    pub profile: Option<String>,
+    pub overall_goal: Option<String>,
+    pub required_final_artifacts: Vec<String>,
+    pub step_instruction: Option<String>,
+    pub expected_paths: Vec<String>,
+    pub verify_commands: Vec<String>,
+    pub expected_result: Option<String>,
+    pub repair_attempt: Option<usize>,
+    pub max_repair_turns: Option<usize>,
+    pub missing_paths: Vec<String>,
+    pub changed_files: Vec<String>,
+    pub repeated_changed_files: Vec<String>,
+    pub initial_stop_reason: Option<String>,
+    pub repair_stop_reason: Option<String>,
+    pub progress_warning: Option<String>,
+    pub compile_reanchored_retry: bool,
+    pub compile_narrow_no_snapshot_retry: bool,
+    pub workspace_root: Option<PathBuf>,
+    pub eval_events_path: Option<PathBuf>,
+    pub prompt_layout: PromptLayout,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RecoveryHandoff {
+    pub profile: String,
+    pub original_goal: String,
+    pub failed_phase: Option<String>,
+    pub failed_step: Option<String>,
+    pub failure_kind: String,
+    pub failure_evidence: Vec<String>,
+    pub missing_paths: Vec<String>,
+    pub missing_capabilities: Vec<String>,
+    pub verify_commands: Vec<String>,
+    pub changed_paths: Vec<String>,
+    pub repair_targets: Vec<String>,
+}
+
+pub fn build_repair_prompt(step_id: &str, report: &VerificationReport) -> String {
+    build_repair_prompt_with_context(step_id, report, &RepairContext::default())
+}
+
+pub fn build_repair_prompt_with_context(
+    step_id: &str,
+    report: &VerificationReport,
+    context: &RepairContext,
+) -> String {
+    match context.prompt_layout {
+        PromptLayout::Stable => build_repair_prompt_stable(step_id, report, context),
+        PromptLayout::Legacy => build_repair_prompt_legacy(step_id, report, context),
+    }
+}
+
+fn build_repair_prompt_stable(
+    step_id: &str,
+    report: &VerificationReport,
+    context: &RepairContext,
+) -> String {
+    let repair_target = classify_repair_target(report);
+    let mut prompt = repair_rules_prefix();
+    if let Some(goal) = &context.overall_goal {
+        prompt.push_str("\n\nOverall goal:\n");
+        prompt.push_str(goal);
+    }
+    if !context.required_final_artifacts.is_empty() {
+        prompt.push_str("\n\nRequired final artifacts:\n");
+        prompt.push_str(&bullet_list(&context.required_final_artifacts));
+    }
+    prompt.push_str("\n\nRepair step `");
+    prompt.push_str(step_id);
+    prompt.push_str("`. Verification failed: ");
+    prompt.push_str(&report.primary_reason());
+    prompt.push_str(".\nRepair target: ");
+    prompt.push_str(repair_target.as_str());
+    prompt.push_str(". ");
+    prompt.push_str(repair_target.guidance());
+    prompt.push_str("\nMake the smallest bounded change, then stop.");
+    if let (Some(attempt), Some(max)) = (context.repair_attempt, context.max_repair_turns) {
+        prompt.push_str("\n\nRepair budget:\n");
+        prompt.push_str(&format!("- attempt {attempt}/{max}\n"));
+    }
+    if let Some(instruction) = &context.step_instruction {
+        prompt.push_str("\n\nCurrent step instruction:\n");
+        prompt.push_str(instruction);
+    }
+    if !context.expected_paths.is_empty() {
+        prompt.push_str("\n\nExpected paths after this step:\n");
+        prompt.push_str(&bullet_list(&context.expected_paths));
+    }
+    if !context.verify_commands.is_empty() {
+        prompt.push_str("\n\nVerification commands for this step:\n");
+        prompt.push_str(&bullet_list(&context.verify_commands));
+    }
+    if !report.compile_errors.is_empty() {
+        prompt.push_str("\n\nCompile errors:\n");
+        prompt.push_str(&compile_repair_prompt_section_with_root(
+            context.workspace_root.as_deref(),
+            &report.compile_errors,
+            CompileRepairPromptProtection {
+                reanchored_retry: context.compile_reanchored_retry,
+                narrow_no_snapshot_retry: context.compile_narrow_no_snapshot_retry,
+            },
+        ));
+    }
+    let contract_attribute_guidance = contract_attribute_repair::guidance_section(
+        context.workspace_root.as_deref(),
+        report,
+        context.eval_events_path.as_deref(),
+    );
+    if !contract_attribute_guidance.is_empty() {
+        prompt.push_str("\n\n");
+        prompt.push_str(&contract_attribute_guidance);
+    }
+    append_profile_repair_guidance(&mut prompt, report, context);
+    if let Some(expected) = &context.expected_result {
+        prompt.push_str("\n\nExpected verification result:\n");
+        prompt.push_str(expected);
+    }
+    if !report.missing_paths.is_empty() {
+        prompt.push_str("\n\nMissing expected paths:\n");
+        prompt.push_str(&bullet_list(&report.missing_paths));
+    }
+    if !report.command_failures.is_empty() {
+        prompt.push_str("\n\nCommand failures:\n");
+        let failures = report
+            .command_failures
+            .iter()
+            .map(|failure| format!("{}: {}", failure.command, failure.reason))
+            .collect::<Vec<_>>();
+        prompt.push_str(&bullet_list(&failures));
+    }
+    if !context.changed_files.is_empty() {
+        prompt.push_str("\n\nFiles already changed in this step:\n");
+        prompt.push_str(&bullet_list(&context.changed_files));
+    }
+    if let Some(warning) = &context.progress_warning {
+        prompt.push_str("\n\nProgress warning:\n");
+        prompt.push_str(warning);
+    }
+    prompt
+}
+
+fn build_repair_prompt_legacy(
+    step_id: &str,
+    report: &VerificationReport,
+    context: &RepairContext,
+) -> String {
+    let repair_target = classify_repair_target(report);
+    let mut prompt = format!(
+        "Repair step `{step_id}`. Verification failed: {}.\n\
+Repair target: {}. {}\n\
+Make the smallest bounded change, then stop.",
+        report.primary_reason(),
+        repair_target.as_str(),
+        repair_target.guidance()
+    );
+    if let Some(goal) = &context.overall_goal {
+        prompt.push_str("\n\nOverall goal:\n");
+        prompt.push_str(goal);
+    }
+    if let (Some(attempt), Some(max)) = (context.repair_attempt, context.max_repair_turns) {
+        prompt.push_str("\n\nRepair budget:\n");
+        prompt.push_str(&format!("- attempt {attempt}/{max}\n"));
+    }
+    if !context.required_final_artifacts.is_empty() {
+        prompt.push_str("\n\nRequired final artifacts:\n");
+        prompt.push_str(&bullet_list(&context.required_final_artifacts));
+    }
+    if let Some(instruction) = &context.step_instruction {
+        prompt.push_str("\n\nCurrent step instruction:\n");
+        prompt.push_str(instruction);
+    }
+    if !context.expected_paths.is_empty() {
+        prompt.push_str("\n\nExpected paths after this step:\n");
+        prompt.push_str(&bullet_list(&context.expected_paths));
+    }
+    if !context.verify_commands.is_empty() {
+        prompt.push_str("\n\nVerification commands for this step:\n");
+        prompt.push_str(&bullet_list(&context.verify_commands));
+    }
+    if !report.compile_errors.is_empty() {
+        prompt.push_str("\n\nCompile errors:\n");
+        prompt.push_str(&compile_repair_prompt_section_with_root(
+            context.workspace_root.as_deref(),
+            &report.compile_errors,
+            CompileRepairPromptProtection {
+                reanchored_retry: context.compile_reanchored_retry,
+                narrow_no_snapshot_retry: context.compile_narrow_no_snapshot_retry,
+            },
+        ));
+    }
+    let contract_attribute_guidance = contract_attribute_repair::guidance_section(
+        context.workspace_root.as_deref(),
+        report,
+        context.eval_events_path.as_deref(),
+    );
+    if !contract_attribute_guidance.is_empty() {
+        prompt.push_str("\n\n");
+        prompt.push_str(&contract_attribute_guidance);
+    }
+    append_profile_repair_guidance(&mut prompt, report, context);
+    if let Some(expected) = &context.expected_result {
+        prompt.push_str("\n\nExpected verification result:\n");
+        prompt.push_str(expected);
+    }
+    if !report.missing_paths.is_empty() {
+        prompt.push_str("\n\nMissing expected paths:\n");
+        prompt.push_str(&bullet_list(&report.missing_paths));
+    }
+    if !report.command_failures.is_empty() {
+        prompt.push_str("\n\nCommand failures:\n");
+        let failures = report
+            .command_failures
+            .iter()
+            .map(|failure| format!("{}: {}", failure.command, failure.reason))
+            .collect::<Vec<_>>();
+        prompt.push_str(&bullet_list(&failures));
+    }
+    if !context.changed_files.is_empty() {
+        prompt.push_str("\n\nFiles already changed in this step:\n");
+        prompt.push_str(&bullet_list(&context.changed_files));
+    }
+    if let Some(warning) = &context.progress_warning {
+        prompt.push_str("\n\nProgress warning:\n");
+        prompt.push_str(warning);
+    }
+    prompt.push_str("\n\n");
+    prompt.push_str(&repair_rules_prefix());
+    prompt
+}
+
+fn append_profile_repair_guidance(
+    prompt: &mut String,
+    report: &VerificationReport,
+    context: &RepairContext,
+) {
+    let Some(guidance) = crate::planner::profiles::data::repair_policy::profile_guidance(
+        context.profile.as_deref(),
+        report,
+    ) else {
+        return;
+    };
+    prompt.push_str("\n\nProfile repair guidance:\n");
+    prompt.push_str(&guidance);
+}
+
+pub fn build_compact_compile_repair_prompt_with_context(
+    step_id: &str,
+    report: &VerificationReport,
+    context: &RepairContext,
+) -> String {
+    let compile_errors = compile_repair_prompt_section_with_root(
+        context.workspace_root.as_deref(),
+        &report.compile_errors,
+        CompileRepairPromptProtection {
+            reanchored_retry: true,
+            narrow_no_snapshot_retry: context.compile_narrow_no_snapshot_retry,
+        },
+    );
+    let prefix = match context.prompt_layout {
+        PromptLayout::Stable => format!("{}\n\n", repair_rules_prefix()),
+        PromptLayout::Legacy => String::new(),
+    };
+    format!(
+        "{prefix}\
+Repair session mode: compact.\n\
+Compile-error repair for step `{step_id}`.\n\n\
+Compile error frames and remedies:\n\
+{compile_errors}\n\n\
+Tool schema reminder:\n\
+- Use Write or Edit tool calls to modify the failing source file.\n\
+- Do not answer in prose only; a response without a source edit fails this compile repair.\n\
+- Keep the change bounded to the compile frame above, then stop."
+    )
+}
+
+pub fn build_compile_regeneration_prompt_with_context(
+    step_id: &str,
+    report: &VerificationReport,
+    context: &RepairContext,
+    target_path: &str,
+) -> String {
+    let compile_errors = compile_repair_prompt_section_with_root(
+        context.workspace_root.as_deref(),
+        &report.compile_errors,
+        CompileRepairPromptProtection {
+            reanchored_retry: true,
+            narrow_no_snapshot_retry: context.compile_narrow_no_snapshot_retry,
+        },
+    );
+    let current_content = context
+        .workspace_root
+        .as_deref()
+        .and_then(|root| std::fs::read_to_string(root.join(target_path)).ok())
+        .unwrap_or_default();
+    let prefix = match context.prompt_layout {
+        PromptLayout::Stable => format!("{}\n\n", repair_rules_prefix()),
+        PromptLayout::Legacy => String::new(),
+    };
+    format!(
+        "{prefix}\
+Repair session mode: compact regeneration.\n\
+Compile-error regeneration for step `{step_id}`.\n\n\
+Compile error frames and remedies:\n\
+{compile_errors}\n\n\
+Current content of {target_path}:\n\
+```tsx\n\
+{current_content}\n\
+```\n\n\
+Regeneration mandate:\n\
+- This is generation, not incremental editing.\n\
+- Write the complete corrected file via the Write tool (full content, one file only): {target_path}.\n\
+- Do not modify any other file.\n\
+- Preserve the user's app intent and keep caller/callee contracts consistent with the definition context above.\n\
+- Stop immediately after the Write tool call."
+    )
+}
+
+fn repair_rules_prefix() -> String {
+    "Repair rules:\n\
+- Work only on this step's missing or failed artifacts.\n\
+- Treat verifier output as actionable feedback.\n\
+- If this is an expected failing red test step, preserve the expected failure instead of implementing the feature.\n\
+- Re-run only the declared deterministic verification mentally or via tools needed for this step.\n\
+- Stop after the smallest bounded repair."
+        .to_string()
+}
+
+pub fn save_repair_report(
+    root: &Path,
+    step_id: &str,
+    report: &VerificationReport,
+) -> anyhow::Result<std::path::PathBuf> {
+    save_repair_report_with_context(root, step_id, report, &RepairContext::default())
+}
+
+pub fn save_repair_report_with_context(
+    root: &Path,
+    step_id: &str,
+    report: &VerificationReport,
+    context: &RepairContext,
+) -> anyhow::Result<std::path::PathBuf> {
+    let dir = root.join(".anvil").join("repairs");
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(format!("repair-{step_id}-{}.md", uuid::Uuid::now_v7()));
+    std::fs::write(&path, render_repair_report(step_id, report, context))?;
+    Ok(path)
+}
+
+pub fn save_ultra_recovery_prompt(
+    root: &Path,
+    scope: &str,
+    handoff: &RecoveryHandoff,
+) -> anyhow::Result<std::path::PathBuf> {
+    let dir = root.join(".anvil").join("repairs");
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(format!("repair-{scope}-{}.md", uuid::Uuid::now_v7()));
+    std::fs::write(&path, render_ultra_recovery_prompt(handoff))?;
+    Ok(path)
+}
+
+pub fn build_recovery_ultra_plan(handoff: &RecoveryHandoff) -> UltraPlan {
+    let failed_phase = handoff.failed_phase.as_deref().unwrap_or("unknown");
+    let failed_step = handoff.failed_step.as_deref().unwrap_or("unknown");
+    let missing_signals = recovery_missing_signals(handoff);
+    let verify_preference = recovery_verify_preference(handoff);
+    UltraPlan {
+        goal: handoff.original_goal.clone(),
+        profile: handoff.profile.clone(),
+        style: "recovery".to_string(),
+        intent: "recover".to_string(),
+        phases: vec![
+            UltraPhase {
+                id: "inspect-current-state".to_string(),
+                prompt: format!(
+                    "Inspect the current workspace before changing files. Original goal: {}. Failed acceptance layer or phase: {failed_phase}. Failed step: {failed_step}. Failure kind: {}. Preserve useful existing artifacts and identify the smallest remaining implementation gap.",
+                    handoff.original_goal, handoff.failure_kind
+                ),
+            },
+            UltraPhase {
+                id: format!("repair-{}", recovery_plan_phase_token(failed_phase)),
+                prompt: format!(
+                    "Repair the incomplete work for the failed phase without restarting from scratch.\nOriginal goal: {}\nFailed acceptance layer or phase: {failed_phase}\nFailed step: {failed_step}\nMissing capability or artifact signals:\n{}\nFailure evidence:\n{}\nRepair targets:\n{}\nCreate or update the task-specific implementation artifacts needed to satisfy the original goal. Do not treat scaffold-only, setup-only, style-only, or build-only output as complete.",
+                    handoff.original_goal,
+                    list_or_none(&missing_signals),
+                    list_or_none(&redacted_list(&handoff.failure_evidence)),
+                    list_or_none(&handoff.repair_targets),
+                ),
+            },
+            UltraPhase {
+                id: "verify-recovery".to_string(),
+                prompt: format!(
+                    "Verify the recovered output with deterministic checks and repair only targeted failures.\nOriginal goal: {}\nFailed acceptance layer or phase: {failed_phase}\nPreferred verify/browser check:\n{}\nVerify preference: use the preferred checks above.\nExpected recovery result: runnable task-specific output, not only a saved plan or diagnostic report.",
+                    handoff.original_goal,
+                    list_or_none(&verify_preference),
+                ),
+            },
+        ],
+    }
+}
+
+pub fn save_recovery_ultra_plan(
+    root: &Path,
+    scope: &str,
+    handoff: &RecoveryHandoff,
+) -> anyhow::Result<std::path::PathBuf> {
+    let plan = build_recovery_ultra_plan(handoff);
+    let rendered = render_recovery_ultra_plan(handoff, &plan);
+    save_recovery_ultra_plan_rendered(root, scope, handoff, &plan, rendered)
+}
+
+fn save_recovery_ultra_plan_rendered(
+    root: &Path,
+    scope: &str,
+    handoff: &RecoveryHandoff,
+    plan: &UltraPlan,
+    rendered: String,
+) -> anyhow::Result<std::path::PathBuf> {
+    let rendered = if let Some(reason) = recovery_ultra_plan_roundtrip_error(&rendered, plan) {
+        render_recovery_ultra_plan_with_review(handoff, plan, Some(&reason))
+    } else {
+        rendered
+    };
+    let dir = root.join(".anvil").join("plans");
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(format!(
+        "recovery-ultra-plan-{scope}-{}.yaml",
+        uuid::Uuid::now_v7()
+    ));
+    std::fs::write(&path, rendered)?;
+    Ok(path)
+}
+
+fn render_recovery_ultra_plan(handoff: &RecoveryHandoff, plan: &UltraPlan) -> String {
+    render_recovery_ultra_plan_with_review(handoff, plan, None)
+}
+
+fn render_recovery_ultra_plan_with_review(
+    handoff: &RecoveryHandoff,
+    plan: &UltraPlan,
+    needs_review_reason: Option<&str>,
+) -> String {
+    let mut out = String::new();
+    out.push_str("# anvil-recovery-ultra-plan\n");
+    out.push_str("recovery_schema_version: \"1\"\n");
+    if let Some(reason) = needs_review_reason {
+        out.push_str("recovery_needs_review: true\n");
+        out.push_str(&format!(
+            "recovery_needs_review_reason: {}\n",
+            quote_yaml_string(reason)
+        ));
+    }
+    out.push_str(&format!(
+        "recovery_original_goal: {}\n",
+        quote_yaml_string(&handoff.original_goal)
+    ));
+    out.push_str(&format!(
+        "recovery_failure_kind: {}\n",
+        quote_yaml_string(&handoff.failure_kind)
+    ));
+    out.push_str(&format!(
+        "recovery_profile: {}\n",
+        quote_yaml_string(&handoff.profile)
+    ));
+    if let Some(failed_phase) = &handoff.failed_phase {
+        out.push_str(&format!(
+            "recovery_failed_phase: {}\n",
+            quote_yaml_string(failed_phase)
+        ));
+    }
+    if let Some(failed_step) = &handoff.failed_step {
+        out.push_str(&format!(
+            "recovery_failed_step: {}\n",
+            quote_yaml_string(failed_step)
+        ));
+    }
+    if !handoff.changed_paths.is_empty() {
+        out.push_str("recovery_expected_completed_artifacts:\n");
+        for path in &handoff.changed_paths {
+            out.push_str(&format!("  - {}\n", quote_yaml_string(path)));
+        }
+    }
+    out.push_str(&render_ultra_plan(plan));
+    out
+}
+
+fn recovery_ultra_plan_roundtrip_error(rendered: &str, expected: &UltraPlan) -> Option<String> {
+    let parsed = match parse_ultra_plan(rendered) {
+        Ok(parsed) => parsed,
+        Err(err) => return Some(format!("render_parse_failed: {err}")),
+    };
+    if &parsed != expected {
+        return Some("render_parse_mismatch".to_string());
+    }
+    match parse_ultra_plan(&render_ultra_plan(&parsed)) {
+        Ok(reparsed) if reparsed == parsed => None,
+        Ok(_) => Some("render_roundtrip_mismatch".to_string()),
+        Err(err) => Some(format!("render_roundtrip_parse_failed: {err}")),
+    }
+}
+
+#[cfg(test)]
+fn save_recovery_ultra_plan_rendered_for_test(
+    root: &Path,
+    scope: &str,
+    handoff: &RecoveryHandoff,
+    rendered: String,
+) -> anyhow::Result<std::path::PathBuf> {
+    let plan = build_recovery_ultra_plan(handoff);
+    save_recovery_ultra_plan_rendered(root, scope, handoff, &plan, rendered)
+}
+
+pub fn suggested_ultra_recovery_command(path: &Path, profile: &str) -> String {
+    format!(
+        "/ultra-plan-run --profile {} \"$(cat {})\"",
+        shell_quote_token(profile),
+        shell_quote_path(path)
+    )
+}
+
+pub fn suggested_recovery_ultra_plan_command(path: &Path) -> String {
+    format!("/run-ultra-plan {}", shell_quote_path(path))
+}
+
+fn shell_quote_path(path: &Path) -> String {
+    let display = workspace_relative_handoff_path(path);
+    if display
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.' | '/'))
+    {
+        display
+    } else {
+        format!("{display:?}")
+    }
+}
+
+pub(crate) fn workspace_relative_handoff_path(path: &Path) -> String {
+    let components = path
+        .components()
+        .map(|component| component.as_os_str().to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    if let Some(index) = components.iter().position(|part| part == ".anvil") {
+        return components[index..].join("/");
+    }
+    path.to_string_lossy().replace('\\', "/")
+}
+
+fn recovery_missing_signals(handoff: &RecoveryHandoff) -> Vec<String> {
+    let mut signals = Vec::new();
+    signals.extend(handoff.missing_capabilities.iter().cloned());
+    signals.extend(
+        handoff
+            .missing_paths
+            .iter()
+            .map(|value| format!("missing artifact: {value}")),
+    );
+    if signals.is_empty() {
+        signals.extend(
+            handoff
+                .repair_targets
+                .iter()
+                .map(|value| format!("repair target: {value}")),
+        );
+    }
+    signals
+}
+
+fn recovery_verify_preference(handoff: &RecoveryHandoff) -> Vec<String> {
+    if handoff.verify_commands.is_empty() {
+        vec![
+            "use deterministic file existence, build, route, and capability evidence checks"
+                .to_string(),
+            "avoid shell control syntax and interactive dev-server-only verification".to_string(),
+        ]
+    } else {
+        handoff.verify_commands.clone()
+    }
+}
+
+fn recovery_plan_phase_token(value: &str) -> String {
+    let token = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    if token.trim_matches('-').is_empty() {
+        "failed-phase".to_string()
+    } else {
+        token
+    }
+}
+
+pub fn render_ultra_recovery_prompt(handoff: &RecoveryHandoff) -> String {
+    format!(
+        "Recover this failed run by producing and executing a focused ultra plan.\n\n\
+Original goal:\n{}\n\n\
+Profile: {}\n\n\
+Failure scope:\n- phase: {}\n- step: {}\n- kind: {}\n\n\
+Failure evidence:\n{}\n\n\
+Missing paths:\n{}\n\n\
+Missing capabilities:\n{}\n\n\
+Verification commands:\n{}\n\n\
+Changed paths:\n{}\n\n\
+Repair targets:\n{}\n\n\
+Required recovery action:\n\
+- Inspect the current workspace state first.\n\
+- Preserve already useful artifacts.\n\
+- Create or repair the missing implementation artifacts.\n\
+- Use deterministic verification.\n\
+- Do not treat scaffold-only or build-only output as complete.\n",
+        handoff.original_goal,
+        handoff.profile,
+        handoff.failed_phase.as_deref().unwrap_or("unknown"),
+        handoff.failed_step.as_deref().unwrap_or("unknown"),
+        handoff.failure_kind,
+        list_or_none(&redacted_list(&handoff.failure_evidence)),
+        list_or_none(&handoff.missing_paths),
+        list_or_none(&handoff.missing_capabilities),
+        list_or_none(&handoff.verify_commands),
+        list_or_none(&handoff.changed_paths),
+        list_or_none(&handoff.repair_targets),
+    )
+}
+
+fn render_repair_report(
+    step_id: &str,
+    report: &VerificationReport,
+    context: &RepairContext,
+) -> String {
+    let profile = context.profile.as_deref().unwrap_or("generic");
+    let recovery = RecoveryHandoff {
+        profile: profile.to_string(),
+        original_goal: context.overall_goal.clone().unwrap_or_default(),
+        failed_phase: None,
+        failed_step: Some(step_id.to_string()),
+        failure_kind: classify_repair_target(report).as_str().to_string(),
+        failure_evidence: std::iter::once(report.primary_reason())
+            .chain(context.progress_warning.iter().cloned())
+            .chain(
+                report
+                    .command_failures
+                    .iter()
+                    .map(|failure| format!("{}: {}", failure.command, failure.reason)),
+            )
+            .chain(
+                report
+                    .verifier_command_false_negatives
+                    .iter()
+                    .map(|failure| {
+                        format!(
+                            "deterministic_verify_command_bug: {}: {}",
+                            failure.command, failure.reason
+                        )
+                    }),
+            )
+            .collect(),
+        missing_paths: report.missing_paths.clone(),
+        missing_capabilities: Vec::new(),
+        verify_commands: context.verify_commands.clone(),
+        changed_paths: context.changed_files.clone(),
+        repair_targets: vec![classify_repair_target(report).as_str().to_string()],
+    };
+    format!(
+        "# Repair exhausted\n\n\
+Step: `{step_id}`\n\n\
+Primary failure: {}\n\n\
+Repair target: {}\n\n\
+## Missing Paths\n{}\n\n\
+## Command Failures\n{}\n\n\
+## Compile Errors\n{}\n\n\
+## Verifier Command False Negatives\n{}\n\n\
+## Dependency Missing\n{}\n\n\
+## Profile Failures\n{}\n\n\
+## Changed Files\n{}\n\n\
+## Repeated Changed Files\n{}\n\n\
+## Step Contract\n\
+- overall goal: {}\n\
+- expected result: {}\n\
+- expected paths: {}\n\
+- verify commands: {}\n\n\
+## Stop Reasons\n\
+- initial: {}\n\
+- repair: {}\n\n\
+## Suggested Replan\n\
+Next step: switch from local repair to explicit replanning with `/ultra-plan-run`.\n\n\
+Suggested command:\n\
+`/ultra-plan-run --profile {profile} \"$(cat .anvil/repairs/repair-...)\"`\n\n\
+## Ultra Recovery Prompt\n\
+{}\n",
+        report.primary_reason(),
+        classify_repair_target(report).as_str(),
+        list_or_none(&report.missing_paths),
+        list_or_none(
+            &report
+                .command_failures
+                .iter()
+                .map(|failure| format!("{}: {}", failure.command, failure.reason))
+                .collect::<Vec<_>>()
+        ),
+        compile_repair_prompt_section_with_root(
+            context.workspace_root.as_deref(),
+            &report.compile_errors,
+            CompileRepairPromptProtection {
+                reanchored_retry: context.compile_reanchored_retry,
+                narrow_no_snapshot_retry: context.compile_narrow_no_snapshot_retry,
+            }
+        ),
+        list_or_none(
+            &report
+                .verifier_command_false_negatives
+                .iter()
+                .map(|failure| format!(
+                    "deterministic_verify_command_bug: {}: {}",
+                    failure.command, failure.reason
+                ))
+                .collect::<Vec<_>>()
+        ),
+        list_or_none(&report.dependency_missing),
+        list_or_none(&report.profile_failures),
+        list_or_none(&context.changed_files),
+        list_or_none(&context.repeated_changed_files),
+        context.overall_goal.as_deref().unwrap_or("unknown"),
+        context.expected_result.as_deref().unwrap_or("unknown"),
+        list_or_none(&context.expected_paths),
+        list_or_none(&context.verify_commands),
+        context.initial_stop_reason.as_deref().unwrap_or("unknown"),
+        context.repair_stop_reason.as_deref().unwrap_or("unknown"),
+        render_ultra_recovery_prompt(&recovery)
+    )
+}
+
+fn list_or_none(items: &[String]) -> String {
+    if items.is_empty() {
+        "- none".to_string()
+    } else {
+        bullet_list(items)
+    }
+}
+
+fn bullet_list(items: &[String]) -> String {
+    items
+        .iter()
+        .map(|item| format!("- {item}"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn redacted_list(items: &[String]) -> Vec<String> {
+    items
+        .iter()
+        .map(|item| eval_events::body_snippet(item))
+        .collect()
+}
+
+fn shell_quote_token(value: &str) -> String {
+    if value
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+    {
+        value.to_string()
+    } else {
+        "generic".to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::minimal_loop::build_verifier::CompileError;
+
+    #[test]
+    fn repair_exhausted_report_contains_missing_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let report = VerificationReport::missing_path("src/app/page.tsx");
+        let path = save_repair_report(dir.path(), "step-1", &report).unwrap();
+        let text = std::fs::read_to_string(path).unwrap();
+        assert!(text.contains("src/app/page.tsx"));
+        assert!(text.contains("Suggested Replan"));
+    }
+
+    #[test]
+    fn repair_exhausted_report_contains_changed_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let report = VerificationReport::missing_path("package.json");
+        let context = RepairContext {
+            changed_files: vec!["src/app/page.tsx".to_string()],
+            repeated_changed_files: vec!["src/app/page.tsx".to_string()],
+            initial_stop_reason: Some("AssistantFinal".to_string()),
+            repair_stop_reason: Some("AssistantFinal".to_string()),
+            ..RepairContext::default()
+        };
+        let path =
+            save_repair_report_with_context(dir.path(), "step-1", &report, &context).unwrap();
+        let text = std::fs::read_to_string(path).unwrap();
+        assert!(text.contains("src/app/page.tsx"));
+        assert!(text.contains("initial: AssistantFinal"));
+    }
+
+    #[test]
+    fn repair_prompt_includes_source_contract() {
+        let report = VerificationReport::missing_path("src/app/page.tsx");
+        let context = RepairContext {
+            overall_goal: Some("Build a game".to_string()),
+            required_final_artifacts: vec![
+                "package.json".to_string(),
+                "src/app/page.tsx".to_string(),
+            ],
+            step_instruction: Some("Create the page".to_string()),
+            expected_paths: vec!["src/app/page.tsx".to_string()],
+            verify_commands: vec!["npm run build".to_string()],
+            expected_result: Some("pass".to_string()),
+            repair_attempt: Some(1),
+            max_repair_turns: Some(4),
+            ..RepairContext::default()
+        };
+        let prompt = build_repair_prompt_with_context("page", &report, &context);
+        assert!(prompt.contains("Overall goal:"));
+        assert!(prompt.contains("Build a game"));
+        assert!(prompt.contains("Current step instruction:"));
+        assert!(prompt.contains("Verification commands for this step:"));
+        assert!(prompt.contains("Expected verification result:"));
+        assert!(prompt.contains("attempt 1/4"));
+        assert!(prompt.contains("Repair target:"));
+    }
+
+    #[test]
+    fn repair_prompt_includes_contract_attribute_guidance() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
+        std::fs::write(
+            dir.path().join("src/app/page.tsx"),
+            "export default function Page(){ return <main><button data-anvil-action=\"primary\">Start</button><button data-anvil-action=\"restart\">Restart</button></main>; }\n",
+        )
+        .unwrap();
+        let events = dir.path().join("events.jsonl");
+        let mut report = VerificationReport::pass();
+        report.push_command_failure(
+            r#"node -p 'String(require("fs").readFileSync("src/app/page.tsx")).includes("data-anvil-state") ? true : process.exit(1)'"#,
+            "command failed",
+        );
+        let context = RepairContext {
+            workspace_root: Some(dir.path().to_path_buf()),
+            eval_events_path: Some(events.clone()),
+            ..RepairContext::default()
+        };
+
+        let prompt = build_repair_prompt_with_context("verify-anvil-attributes", &report, &context);
+
+        assert!(
+            prompt.contains("Repair target: contract_attribute_missing"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("missing attribute: `data-anvil-state`"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("target source file: `src/app/page.tsx`"),
+            "{prompt}"
+        );
+        assert!(prompt.contains("input-coupled dimension"), "{prompt}");
+        assert!(prompt.contains("Existing hook locations:"), "{prompt}");
+        assert!(
+            prompt.contains(r#"data-anvil-state={JSON.stringify({ phase, score, playerX })}"#),
+            "{prompt}"
+        );
+        let event_text = std::fs::read_to_string(events).unwrap();
+        assert!(event_text.contains(r#""event":"contract_attribute_repair_guidance""#));
+        assert!(event_text.contains(r#""attribute":"data-anvil-state""#));
+        assert!(event_text.contains(r#""path":"src/app/page.tsx""#));
+    }
+
+    #[test]
+    fn repair_prompt_includes_compile_frame_excerpt_and_edit_mandate() {
+        let mut report = VerificationReport::pass();
+        report.push_compile_errors(
+            "npm run build",
+            vec![CompileError {
+                path: "src/app/page.tsx".to_string(),
+                line: 801,
+                column: 35,
+                message: "Type error: Expected 0 arguments, but got 1.".to_string(),
+                excerpt:
+                    "799 | if (inv.hp <= 0) {\n800 |   // Destroyed!\n801 |   synth.playExplosion(false);\n|                         ^"
+                        .to_string(),
+                symbol: None,
+                route_bound: Some(true),
+            }],
+        );
+        let context = RepairContext {
+            compile_reanchored_retry: true,
+            ..RepairContext::default()
+        };
+        let prompt = build_repair_prompt_with_context("verify-nextjs-build", &report, &context);
+        assert!(
+            prompt.contains("Compile error: src/app/page.tsx:801:35"),
+            "{prompt}"
+        );
+        assert!(prompt.contains("Compile error excerpt"), "{prompt}");
+        assert!(prompt.contains("synth.playExplosion(false)"), "{prompt}");
+        assert!(
+            prompt.contains("You MUST modify src/app/page.tsx"),
+            "{prompt}"
+        );
+        assert!(prompt.contains("Compile repair edit mandate"), "{prompt}");
+        assert!(prompt.contains("Compile repair re-anchor"), "{prompt}");
+    }
+
+    #[test]
+    fn compact_compile_repair_prompt_preserves_swc_frame_excerpt() {
+        let mut report = VerificationReport::pass();
+        report.push_compile_errors(
+            "npm run build",
+            vec![CompileError {
+                path: "src/app/game.ts".to_string(),
+                line: 631,
+                column: 1,
+                message: "Expected ',', got '}'".to_string(),
+                excerpt:
+                    "628 |   const asteroids = [\n629 |     { x: 10, y: 20 },\n630 |     { x: 30, y: 40 }\n631 |   }\n|   ^\n632 |   return asteroids"
+                        .to_string(),
+                symbol: None,
+                route_bound: Some(true),
+            }],
+        );
+
+        let prompt = build_compact_compile_repair_prompt_with_context(
+            "verify-nextjs-build",
+            &report,
+            &RepairContext::default(),
+        );
+
+        assert!(prompt.contains("Repair session mode: compact"), "{prompt}");
+        assert!(
+            prompt.contains("Compile error: src/app/game.ts:631:1 Expected ',', got '}'"),
+            "{prompt}"
+        );
+        assert!(
+            prompt.contains("Compile error excerpt for src/app/game.ts:631:1"),
+            "{prompt}"
+        );
+        assert!(prompt.contains("631 |   }"), "{prompt}");
+        assert!(prompt.contains("|   ^"), "{prompt}");
+        assert!(prompt.contains("Tool schema reminder"), "{prompt}");
+    }
+
+    #[test]
+    fn recovery_ultra_plan_roundtrips_and_contains_recovery_contract() {
+        let dir = tempfile::tempdir().unwrap();
+        let handoff = RecoveryHandoff {
+            profile: "nextjs".to_string(),
+            original_goal: "Build an interactive web game".to_string(),
+            failed_phase: Some("web-audio-synth-and-ui".to_string()),
+            failed_step: None,
+            failure_kind: "phase_scaffold_error".to_string(),
+            failure_evidence: vec!["verify command may not use shell control syntax".to_string()],
+            missing_paths: vec!["src/app/page.tsx".to_string()],
+            missing_capabilities: vec!["interactive_ui".to_string()],
+            verify_commands: vec!["npm run build".to_string()],
+            changed_paths: vec!["src/app/page.tsx".to_string()],
+            repair_targets: vec!["phase_scaffold".to_string()],
+        };
+        let path = save_recovery_ultra_plan(dir.path(), "phase-web-audio", &handoff).unwrap();
+        assert!(path.starts_with(dir.path().join(".anvil").join("plans")));
+        assert!(
+            path.file_name()
+                .unwrap()
+                .to_string_lossy()
+                .starts_with("recovery-ultra-plan-phase-web-audio-")
+        );
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("# anvil-recovery-ultra-plan"));
+        assert!(text.contains("recovery_schema_version"));
+        assert!(text.contains("recovery_failure_kind: \"phase_scaffold_error\""));
+        assert!(text.contains("recovery_expected_completed_artifacts"));
+        assert!(text.contains("Build an interactive web game"));
+        assert!(text.contains("web-audio-synth-and-ui"));
+        assert!(text.contains("interactive_ui"));
+        assert!(text.contains("Failed acceptance layer or phase"));
+        assert!(text.contains("Preferred verify/browser check"));
+        assert!(text.contains("Verify preference"));
+        let parsed = parse_ultra_plan(&text).unwrap();
+        assert_eq!(parsed, build_recovery_ultra_plan(&handoff));
+        assert_eq!(
+            parse_ultra_plan(&render_ultra_plan(&parsed)).unwrap(),
+            parsed
+        );
+    }
+
+    #[test]
+    fn recovery_ultra_plan_save_writes_loadable_needs_review_on_roundtrip_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let handoff = RecoveryHandoff {
+            profile: "nextjs".to_string(),
+            original_goal: "Build \"thick\" game with path C:\\tmp\\game".to_string(),
+            failed_phase: Some("final-acceptance".to_string()),
+            failed_step: None,
+            failure_kind: "build_failed".to_string(),
+            failure_evidence: vec![
+                "./src/app/game.ts\nError:\n  x Expected ',', got '}'".to_string(),
+            ],
+            missing_paths: Vec::new(),
+            missing_capabilities: Vec::new(),
+            verify_commands: vec!["npm run build".to_string()],
+            changed_paths: vec!["src/app/game.ts".to_string()],
+            repair_targets: vec!["implementation".to_string()],
+        };
+        let broken_render =
+            "goal: \"wrong\"\nphases:\n  - id: \"bad\"\n    prompt: \"bad\"\n".to_string();
+
+        let path = save_recovery_ultra_plan_rendered_for_test(
+            dir.path(),
+            "phase-final-acceptance",
+            &handoff,
+            broken_render,
+        )
+        .unwrap();
+
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("recovery_needs_review: true"), "{text}");
+        assert!(
+            text.contains("recovery_needs_review_reason: \"render_parse_mismatch\""),
+            "{text}"
+        );
+        let parsed = parse_ultra_plan(&text).unwrap();
+        assert_eq!(parsed, build_recovery_ultra_plan(&handoff));
+    }
+
+    #[test]
+    fn suggested_recovery_commands_use_workspace_relative_anvil_paths() {
+        let path =
+            std::path::Path::new("/tmp/workspace/.anvil/plans/recovery-ultra-plan-phase-x.yaml");
+        assert_eq!(
+            suggested_recovery_ultra_plan_command(path),
+            "/run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-x.yaml"
+        );
+        let prompt = std::path::Path::new("/tmp/workspace/.anvil/repairs/repair-phase-x.md");
+        assert_eq!(
+            suggested_ultra_recovery_command(prompt, "nextjs"),
+            "/ultra-plan-run --profile nextjs \"$(cat .anvil/repairs/repair-phase-x.md)\""
+        );
+    }
+}
