@@ -66,7 +66,7 @@ class EvalEventReportTest(unittest.TestCase):
             )
             write_summary(run_root / "summary.eval.tsv", [row])
             report = generate_report(run_root)
-        self.assertIn("# anvilminimal Eval Report", report)
+        self.assertIn("# commandagent Eval Report", report)
         self.assertIn("## Planner Raw Output Shapes", report)
 
     def test_report_summarizes_target_metric_reasons_and_failure_layers(self):

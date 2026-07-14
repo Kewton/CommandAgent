@@ -1,6 +1,6 @@
 # Security Model
 
-`anvilminimal` is a local-first coding agent for trusted workspaces and trusted
+`commandagent` is a local-first coding agent for trusted workspaces and trusted
 goals. It is designed to reduce accidental damage from model tool calls, not to
 execute hostile projects or hostile instructions safely.
 

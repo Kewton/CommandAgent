@@ -60,10 +60,10 @@ for case in "${cases[@]}"; do
     mkdir -p "$workdir"
     start=$(date +%s)
     rc=0
-    extras=$(printf '{"engine_label":"anvilminimal","bench_seed":null,"bench_seed_enabled":false,"max_iterations":%s,"bench_no_debug":%s}' "$max_iterations" "$bench_no_debug")
+    extras=$(printf '{"engine_label":"commandagent","bench_seed":null,"bench_seed_enabled":false,"max_iterations":%s,"bench_no_debug":%s}' "$max_iterations" "$bench_no_debug")
     elapsed=$(( $(date +%s) - start ))
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "$run_idx" "$model" "$case" "anvilminimal" "$rc" "$elapsed" "$workdir" "false" "$extras" \
+      "$run_idx" "$model" "$case" "commandagent" "$rc" "$elapsed" "$workdir" "false" "$extras" \
       >> "$bench_root/summary.tsv"
     run_idx=$((run_idx + 1))
   done

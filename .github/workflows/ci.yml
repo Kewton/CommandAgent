@@ -11,8 +11,8 @@ env:
   RUSTFLAGS: "-D warnings"
 
 jobs:
-  anvilminimal-guardrails:
-    name: Anvilminimal Test and Guardrails
+  commandagent-guardrails:
+    name: CommandAgent Test and Guardrails
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

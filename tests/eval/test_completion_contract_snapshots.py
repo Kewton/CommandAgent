@@ -21,7 +21,7 @@ class CompletionContractSnapshotTest(unittest.TestCase):
         eval_run = load_eval_run()
         contract = eval_run.completion_contract_for_spec(
             {
-                "binary_kind": "anvilminimal",
+                "binary_kind": "commandagent",
                 "mode": "minimal-loop",
                 "scenario": {
                     "id": "nextjs-space-invaders-large",
@@ -53,7 +53,7 @@ class CompletionContractSnapshotTest(unittest.TestCase):
         eval_run = load_eval_run()
         contract = eval_run.completion_contract_for_spec(
             {
-                "binary_kind": "anvilminimal",
+                "binary_kind": "commandagent",
                 "mode": "minimal-loop",
                 "scenario": {
                     "profile": "generic",
@@ -75,7 +75,7 @@ class CompletionContractSnapshotTest(unittest.TestCase):
         eval_run = load_eval_run()
         contract = eval_run.completion_contract_for_spec(
             {
-                "binary_kind": "anvilminimal",
+                "binary_kind": "commandagent",
                 "mode": "minimal-loop",
                 "scenario": {
                     "profile": "generic",
@@ -101,7 +101,7 @@ class CompletionContractSnapshotTest(unittest.TestCase):
         eval_run = load_eval_run()
         contract = eval_run.completion_contract_for_spec(
             {
-                "binary_kind": "anvilminimal",
+                "binary_kind": "commandagent",
                 "mode": "minimal-loop",
                 "scenario": {
                     "profile": "generic",
@@ -132,7 +132,7 @@ class CompletionContractSnapshotTest(unittest.TestCase):
         eval_run = load_eval_run()
         contract = eval_run.completion_contract_for_spec(
             {
-                "binary_kind": "anvilminimal",
+                "binary_kind": "commandagent",
                 "mode": "minimal-loop",
                 "scenario": {
                     "profile": "generic",

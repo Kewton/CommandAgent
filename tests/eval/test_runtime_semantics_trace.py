@@ -20,7 +20,7 @@ class RuntimeSemanticsTraceTest(unittest.TestCase):
             {"event": "acceptance_summary", "run_id": "r1", "acceptance_success": False, "acceptance_failure_kind": "missing_required_capabilities"},
             {"event": "recovery_prompt_saved", "run_id": "r1"},
         ]
-        normalized = normalize_events(events, subject="mvp-anvilminimal")
+        normalized = normalize_events(events, subject="mvp-commandagent")
         stages = [event["stage"] for event in normalized]
         self.assertEqual(
             stages,
@@ -57,9 +57,9 @@ class RuntimeSemanticsTraceTest(unittest.TestCase):
             write_summary(run_root / "summary.eval.tsv", [row])
             report = write_trace_artifacts(
                 run_root,
-                subject="mvp-anvilminimal",
-                binary_kind="anvilminimal",
-                binary_path="anvilminimal",
+                subject="mvp-commandagent",
+                binary_kind="commandagent",
+                binary_path="commandagent",
             )
             events = [
                 json.loads(line)
@@ -81,7 +81,7 @@ class RuntimeSemanticsTraceTest(unittest.TestCase):
                     "action": "UltraPlanRun",
                 }
             ],
-            subject="mvp-anvilminimal",
+            subject="mvp-commandagent",
         )
         stages = [event["stage"] for event in normalized]
         self.assertIn("request_understood", stages)
@@ -135,7 +135,7 @@ class RuntimeSemanticsTraceTest(unittest.TestCase):
                     "recovery_next_action": "repair_final_acceptance_failure",
                 }
             ],
-            subject="mvp-anvilminimal",
+            subject="mvp-commandagent",
         )
         source = self._trace_report("source", rows, source_events)
         mvp = self._trace_report("mvp", rows, mvp_events)
@@ -171,7 +171,7 @@ class RuntimeSemanticsTraceTest(unittest.TestCase):
             run_dir = run_root / "runs" / run_id
             run_dir.mkdir(parents=True)
             command = [
-                "anvilminimal",
+                "commandagent",
                 "--prompt",
                 "build a secret app with sk-testsecret123456",
                 "--model",
@@ -199,9 +199,9 @@ class RuntimeSemanticsTraceTest(unittest.TestCase):
             write_summary(run_root / "summary.eval.tsv", [row])
             report = write_trace_artifacts(
                 run_root,
-                subject="mvp-anvilminimal",
-                binary_kind="anvilminimal",
-                binary_path="anvilminimal",
+                subject="mvp-commandagent",
+                binary_kind="commandagent",
+                binary_path="commandagent",
             )
             manifest = Path(report["manifest_path"]).read_text(encoding="utf-8")
         self.assertIn("<redacted-task-prompt>", manifest)

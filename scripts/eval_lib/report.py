@@ -17,7 +17,7 @@ from .run_summary import read_summary
 
 def generate_report(run_root: Path) -> str:
     rows = read_summary(run_root / "summary.eval.tsv")
-    lines = ["# anvilminimal Eval Report", ""]
+    lines = ["# commandagent Eval Report", ""]
     lines.extend(acceptance_summary(rows))
     lines.extend(schema_summary(rows))
     lines.extend(speed_diagnostics_summary(rows))

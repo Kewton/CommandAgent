@@ -1,4 +1,4 @@
-# anvilminimal eval
+# commandagent eval
 
 This directory contains the MVP eval harness for:
 
@@ -9,7 +9,7 @@ This directory contains the MVP eval harness for:
 - ultra-step-run diagnostic replay
 
 The harness is intentionally outside the Rust runtime. Python scripts under
-`scripts/` read YAML suites, expand model matrices, run `anvilminimal` or the
+`scripts/` read YAML suites, expand model matrices, run `commandagent` or the
 source `anvildev` binary, execute deterministic postchecks, score plans, and
 write comparable artifacts.
 
@@ -18,7 +18,7 @@ write comparable artifacts.
 Each run creates one run root:
 
 ```text
-workspace/eval-artifacts/anvilminimal-mvp/<timestamp>/
+workspace/eval-artifacts/commandagent-mvp/<timestamp>/
   preflight.json
   matrix.json
   summary.eval.tsv
@@ -308,9 +308,9 @@ are still available:
 
 ```bash
 python3 scripts/eval-rescore-runtime.py \
-  --run-root /private/tmp/anvilminimal-eval-run \
+  --run-root /private/tmp/commandagent-eval-run \
   --suite eval/suites/mvp-smoke.yaml \
-  --out-summary /private/tmp/anvilminimal-eval-run/summary.rescored.eval.tsv
+  --out-summary /private/tmp/commandagent-eval-run/summary.rescored.eval.tsv
 ```
 
 Values that cannot be reconstructed from the stored run root are written as
@@ -417,7 +417,7 @@ python3 scripts/eval-run.py \
   --modes minimal-loop,step-plan,plan-run,ultra-plan-run \
   --runs 1 \
   --parallel 4 \
-  --provider-smoke-summary workspace/eval-artifacts/anvilminimal-mvp/<provider-smoke>/summary.eval.tsv \
+  --provider-smoke-summary workspace/eval-artifacts/commandagent-mvp/<provider-smoke>/summary.eval.tsv \
   --timeout-sec 1800
 ```
 
@@ -519,7 +519,7 @@ Re-score a run root:
 
 ```bash
 python3 scripts/eval-score-plan.py \
-  --run-root workspace/eval-artifacts/anvilminimal-mvp/<timestamp> \
+  --run-root workspace/eval-artifacts/commandagent-mvp/<timestamp> \
   --rules eval/scoring_rules.yaml
 ```
 
@@ -529,7 +529,7 @@ python3 scripts/eval-score-plan.py \
 python3 scripts/eval-postcheck.py \
   --scenario eval/fixtures/postcheck/nextjs-dev-server.yaml \
   --workdir /path/to/workdir \
-  --out /tmp/anvilminimal-postcheck
+  --out /tmp/commandagent-postcheck
 ```
 
 Long-running dev servers are started as foreground child processes, checked for
@@ -539,16 +539,16 @@ HTTP readiness, then stopped with a signal.
 
 ```bash
 python3 scripts/eval-report.py \
-  --run-root workspace/eval-artifacts/anvilminimal-mvp/<timestamp>
+  --run-root workspace/eval-artifacts/commandagent-mvp/<timestamp>
 ```
 
 ## Compare
 
 ```bash
 python3 scripts/eval-compare.py \
-  --baseline workspace/eval-artifacts/anvilminimal-mvp/<baseline>/summary.eval.tsv \
-  --experiment workspace/eval-artifacts/anvilminimal-mvp/<experiment>/summary.eval.tsv \
-  --out workspace/eval-artifacts/anvilminimal-mvp/<experiment>/compare.md
+  --baseline workspace/eval-artifacts/commandagent-mvp/<baseline>/summary.eval.tsv \
+  --experiment workspace/eval-artifacts/commandagent-mvp/<experiment>/summary.eval.tsv \
+  --out workspace/eval-artifacts/commandagent-mvp/<experiment>/compare.md
 ```
 
 ## Tests
@@ -601,8 +601,8 @@ python3 scripts/eval-run.py \
   --runs 3 \
   --parallel 5 \
   --provider-limit 5 \
-  --binary target/release/anvilminimal \
-  --binary-kind anvilminimal
+  --binary target/release/commandagent \
+  --binary-kind commandagent
 ```
 
 If provider HTTP/rate-limit failures increase, rerun the same matrix with

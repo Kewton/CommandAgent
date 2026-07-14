@@ -1,6 +1,6 @@
 # Model Behavior Probe
 
-`anvilminimal --model-probe` and the TUI `/model-probe` command run a
+`commandagent --model-probe` and the TUI `/model-probe` command run a
 bounded dialect probe against the configured executor and planner model roles.
 The probe is measurement-only: results never auto-configure runtime behavior.
 The output is a JSON profile plus a markdown card for human review and
@@ -78,7 +78,7 @@ about redirect/heredoc fixture creation behavior.
 
 Standard order before scenario UAT:
 
-1. Run `anvilminimal --model-probe` or `/model-probe` with the intended
+1. Run `commandagent --model-probe` or `/model-probe` with the intended
    provider/model configuration and review the generated card.
 2. Run two smoke checks: one CLI task and one TOOL task.
 3. Run the full scenario round with landing criteria committed before the run.

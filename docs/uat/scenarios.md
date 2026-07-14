@@ -12,12 +12,12 @@ any probe, evidence, or profile change.
 
 ## Command Shape
 
-Start `anvilminimal` with the normal UAT model/provider options, then enter one
+Start `commandagent` with the normal UAT model/provider options, then enter one
 scenario command in the TUI. Use the exact scenario command; do not add
 `--profile nextjs` to `AMBIGUOUS`.
 
 ```text
-anvilminimal --yes --context-budget 65536 \
+commandagent --yes --context-budget 65536 \
   --model qwen3.6:27b-coding-nvfp4 \
   --planner-model gemini-3.5-flash \
   --planner-provider gemini \
@@ -97,7 +97,7 @@ identity is not pinned.
 
 ## Preflight Runbook
 
-1. Version check: `anvilminimal --version` must exactly match the intended
+1. Version check: `commandagent --version` must exactly match the intended
    commit or build identifier. Record the full output in the UAT report. A
    version mismatch fails preflight.
 2. Playwright check for web-gated scenarios only: verify that the browser probe
@@ -130,7 +130,7 @@ identity is not pinned.
 Every presentation-layer change must be checked by a human with:
 
 ```sh
-anvilminimal --ux-demo
+commandagent --ux-demo
 ```
 
 The reviewer requires explicit confirmation that the demo was run and that the
@@ -139,7 +139,7 @@ hint, and terminal summary card were visible and ordered correctly. This demo is
 offline and does not replace the scenario suite; it is the permanent acceptance
 vehicle for TUI/scrollback/footer presentation changes.
 
-For footer-specific changes, the reviewer also checks `anvilminimal --ux-demo`
+For footer-specific changes, the reviewer also checks `commandagent --ux-demo`
 and one real local run for zero blinking, readable long-turn breadcrumbs, and a
 stable footer. If a terminal shows cursor-region artifacts, rerun with
 `--footer off`; the fixed footer is disabled and scrollback breadcrumbs remain.

@@ -1,4 +1,4 @@
-# anvilminimal
+# commandagent
 
 Copyable MVP for a minimal local-first coding loop, YAML step plans, plan run,
 ultra plan run, and deterministic verification.
@@ -19,7 +19,7 @@ cargo run -- --help
 ## Run
 
 ```bash
-anvilminimal --yes --context-budget 65536 --model qwen3.6:27b-coding-nvfp4 --planner-model gemini-3.5-flash --planner-provider gemini --provider ollama
+commandagent --yes --context-budget 65536 --model qwen3.6:27b-coding-nvfp4 --planner-model gemini-3.5-flash --planner-provider gemini --provider ollama
 ```
 
 From the REPL:
@@ -31,7 +31,7 @@ From the REPL:
 CLI equivalent:
 
 ```bash
-anvilminimal --provider ollama --model qwen3.6:27b-coding-nvfp4 \
+commandagent --provider ollama --model qwen3.6:27b-coding-nvfp4 \
   --planner-provider gemini --planner-model gemini-3.5-flash \
   --ultra-plan-run --profile nextjs \
   "あなたが考える最高に面白くかっこいいスペースインベーダーゲームを3011ポートで起動可能なnext.jsアプリとして開発してください。"
@@ -77,7 +77,7 @@ These are examples only; Anvil does not auto-create them:
 ```
 
 ```bash
-anvilminimal --preset local --ultra-plan-run "Build a small CLI tool"
+commandagent --preset local --ultra-plan-run "Build a small CLI tool"
 ```
 
 Hybrid presets use the planner provider/model only for planning calls and the
@@ -101,25 +101,25 @@ terminal-only markdown rendering, spinner, Esc/Ctrl-C prompt interrupt, and a fi
 footer. Disable paths:
 
 ```bash
-ANVIL_NO_SPINNER=1 anvilminimal --yes
-ANVIL_NO_FOOTER=1 anvilminimal --yes
-ANVIL_NO_INTERRUPT=1 anvilminimal --yes
-ANVIL_NO_MARKDOWN=1 anvilminimal --yes
-NO_COLOR=1 anvilminimal --yes
-anvilminimal --yes --no-footer
-anvilminimal --yes --footer off
+ANVIL_NO_SPINNER=1 commandagent --yes
+ANVIL_NO_FOOTER=1 commandagent --yes
+ANVIL_NO_INTERRUPT=1 commandagent --yes
+ANVIL_NO_MARKDOWN=1 commandagent --yes
+NO_COLOR=1 commandagent --yes
+commandagent --yes --no-footer
+commandagent --yes --footer off
 ```
 
 Release/manual TTY smoke:
 
 ```bash
 ANVIL_PTY_TESTS=1 cargo test tui_pty_smoke -- --ignored
-anvilminimal --ux-demo
-anvilminimal --help
-anvilminimal --yes --context-budget 65536 --model qwen3.6:27b-coding-nvfp4 --planner-model gemini-3.5-flash --planner-provider gemini --provider ollama
+commandagent --ux-demo
+commandagent --help
+commandagent --yes --context-budget 65536 --model qwen3.6:27b-coding-nvfp4 --planner-model gemini-3.5-flash --planner-provider gemini --provider ollama
 ```
 
-`anvilminimal --ux-demo` is an offline presentation walkthrough for human
+`commandagent --ux-demo` is an offline presentation walkthrough for human
 review. It exercises the banner, plan card, phase header, activity narration,
 live footer interrupt hint, and terminal summary card without contacting a
 provider. If a terminal still shows cursor-region artifacts, rerun with
@@ -130,12 +130,12 @@ provider. If a terminal still shows cursor-region artifacts, rerun with
 Before a UAT run, verify the binary provenance:
 
 ```bash
-anvilminimal --version
-command -v anvilminimal
+commandagent --version
+command -v commandagent
 ```
 
-`anvilminimal --version` should show the intended commit, dirty marker, and
-build timestamp. `command -v anvilminimal` should resolve to the expected
+`commandagent --version` should show the intended commit, dirty marker, and
+build timestamp. `command -v commandagent` should resolve to the expected
 `target/` binary or install path for the run.
 
 ## API Keys
@@ -156,8 +156,8 @@ Smoke model IDs can be overridden with `ANVIL_OPENAI_SMOKE_MODEL` and
 
 ```bash
 cargo build --release
-ln -sfn "$(pwd)/target/release/anvilminimal" "$HOME/.local/bin/anvilminimal"
-anvilminimal --help
+ln -sfn "$(pwd)/target/release/commandagent" "$HOME/.local/bin/commandagent"
+commandagent --help
 ```
 
 The symlink is a local convenience and is not part of the copy artifact.

@@ -14,12 +14,12 @@ def main() -> int:
     parser.add_argument("--run-root", type=Path, help="Eval run root containing summary.eval.tsv and runs/.")
     parser.add_argument(
         "--subject",
-        choices=["mvp-anvilminimal", "source-anvildev"],
+        choices=["mvp-commandagent", "source-anvildev"],
         help="Trace subject.",
     )
     parser.add_argument(
         "--binary-kind",
-        choices=["anvilminimal", "anvildev"],
+        choices=["commandagent", "anvildev"],
         help="Binary dialect used by the run.",
     )
     parser.add_argument("--binary-path", default="")

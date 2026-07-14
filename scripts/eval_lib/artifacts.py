@@ -13,7 +13,7 @@ def default_eval_root(cwd: Path | None = None) -> Path:
     env = os.environ.get("ANVIL_EVAL_ROOT")
     if env:
         return Path(env)
-    return (cwd / "../../workspace/eval-artifacts/anvilminimal-mvp").resolve()
+    return (cwd / "../../workspace/eval-artifacts/commandagent-mvp").resolve()
 
 
 def create_run_root(root: Path | None = None, timestamp: str | None = None) -> Path:

@@ -24,7 +24,7 @@ from eval_lib.suites import load_suite
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Preflight checks for anvilminimal eval.")
+    parser = argparse.ArgumentParser(description="Preflight checks for commandagent eval.")
     parser.add_argument("--suite", required=True)
     parser.add_argument("--model-profile", required=True)
     parser.add_argument("--model-profiles", default="eval/model_profiles.yaml")
@@ -32,7 +32,7 @@ def main() -> int:
     parser.add_argument("--runs", type=int, default=1)
     parser.add_argument("--parallel", type=int, default=4)
     parser.add_argument("--context-budget", type=int, default=65536)
-    parser.add_argument("--binary", default="anvilminimal")
+    parser.add_argument("--binary", default="commandagent")
     parser.add_argument("--run-root")
     parser.add_argument("--offline-ok", action="store_true")
     parser.add_argument("--ollama-host", default="http://localhost:11434")
@@ -261,7 +261,7 @@ def dependency_status(suite: dict, binary: str) -> dict[str, str]:
             required.add(dev["command"].split()[0])
     status = {}
     for command in sorted(required):
-        if command == "anvilminimal" and not command_available(command):
+        if command == "commandagent" and not command_available(command):
             status[command] = "present" if local_binary_exists() else "missing"
         else:
             status[command] = "present" if command_available(command) else "missing"
@@ -269,7 +269,7 @@ def dependency_status(suite: dict, binary: str) -> dict[str, str]:
 
 
 def local_binary_exists() -> bool:
-    return Path("target/debug/anvilminimal").exists() or Path("target/release/anvilminimal").exists()
+    return Path("target/debug/commandagent").exists() or Path("target/release/commandagent").exists()
 
 
 if __name__ == "__main__":

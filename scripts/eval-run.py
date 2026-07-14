@@ -51,7 +51,7 @@ from eval_lib.suites import load_suite
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Run anvilminimal eval matrix.")
+    parser = argparse.ArgumentParser(description="Run commandagent eval matrix.")
     parser.add_argument("--suite", required=True)
     parser.add_argument("--model-profile", required=True)
     parser.add_argument("--model-profiles", default="eval/model_profiles.yaml")
@@ -61,12 +61,12 @@ def main() -> int:
     parser.add_argument("--parallel", type=int, default=4)
     parser.add_argument("--provider-limit", type=int)
     parser.add_argument("--context-budget", type=int, default=65536)
-    parser.add_argument("--binary", default="anvilminimal")
+    parser.add_argument("--binary", default="commandagent")
     parser.add_argument(
         "--binary-kind",
-        choices=["auto", "anvilminimal", "anvildev"],
+        choices=["auto", "commandagent", "anvildev"],
         default="auto",
-        help="CLI dialect for --binary. auto treats anvildev/anvil as source anvildev and otherwise anvilminimal.",
+        help="CLI dialect for --binary. auto treats anvildev/anvil as source anvildev and otherwise commandagent.",
     )
     parser.add_argument("--run-root")
     parser.add_argument("--timeout-sec", type=int)
@@ -209,9 +209,9 @@ def main() -> int:
 
 def trace_binary_kind(matrix: list[dict], requested: str) -> str:
     if matrix:
-        return str(matrix[0].get("binary_kind", requested if requested != "auto" else "anvilminimal"))
+        return str(matrix[0].get("binary_kind", requested if requested != "auto" else "commandagent"))
     if requested == "auto":
-        return "anvilminimal"
+        return "commandagent"
     return requested
 
 
@@ -219,7 +219,7 @@ def trace_subject(matrix: list[dict], requested: str) -> str:
     binary_kind = trace_binary_kind(matrix, requested)
     if binary_kind == "anvildev":
         return "source-anvildev"
-    return "mvp-anvilminimal"
+    return "mvp-commandagent"
 
 
 def summarize_provider_probe_results(paths: list[Path]) -> dict:
@@ -457,7 +457,7 @@ def actual_command(spec: dict, workdir: Path) -> list[str]:
 
 
 def completion_contract_for_spec(spec: dict) -> dict | None:
-    if spec.get("binary_kind", "anvilminimal") != "anvilminimal":
+    if spec.get("binary_kind", "commandagent") != "commandagent":
         return None
     if spec.get("mode") not in {"minimal-loop", "plan-run", "ultra-plan-run"}:
         return None

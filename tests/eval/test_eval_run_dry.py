@@ -69,7 +69,7 @@ class EvalRunDryTest(unittest.TestCase):
 
         contract = eval_run.completion_contract_for_spec(
             {
-                "binary_kind": "anvilminimal",
+                "binary_kind": "commandagent",
                 "mode": "minimal-loop",
                 "scenario": {
                     "profile": "nextjs",
@@ -113,7 +113,7 @@ class EvalRunDryTest(unittest.TestCase):
 
         contract = eval_run.completion_contract_for_spec(
             {
-                "binary_kind": "anvilminimal",
+                "binary_kind": "commandagent",
                 "mode": "minimal-loop",
                 "scenario": {
                     "profile": "generic",
@@ -139,7 +139,7 @@ class EvalRunDryTest(unittest.TestCase):
         spec.loader.exec_module(eval_run)
 
         command = eval_run.inject_completion_contract_arg(
-            ["anvilminimal", "--yes", "--prompt", "do it"],
+            ["commandagent", "--yes", "--prompt", "do it"],
             Path("/tmp/contract.json"),
         )
         self.assertLess(command.index("--completion-contract-json"), command.index("--prompt"))
@@ -152,8 +152,8 @@ class EvalRunDryTest(unittest.TestCase):
         profiles, _ = load_model_profiles(ROOT / "eval/model_profiles.yaml")
         self.assertEqual(profiles["speed-cloud"]["chat_retries"], 2)
         command = render_command(
-            binary="anvilminimal",
-            binary_kind="anvilminimal",
+            binary="commandagent",
+            binary_kind="commandagent",
             mode="minimal-loop",
             scenario={"prompt": "do it"},
             main=profiles["speed-cloud"]["runs"][0]["main"],
@@ -165,15 +165,15 @@ class EvalRunDryTest(unittest.TestCase):
         self.assertIn("--chat-retries", command)
         self.assertEqual(command[command.index("--chat-retries") + 1], "2")
 
-    def test_anvilminimal_ultra_plan_run_does_not_duplicate_profile(self):
+    def test_commandagent_ultra_plan_run_does_not_duplicate_profile(self):
         sys.path.insert(0, str(ROOT / "scripts"))
         from eval_lib.models import load_model_profiles
         from eval_lib.matrix import render_command
 
         profiles, _ = load_model_profiles(ROOT / "eval/model_profiles.yaml")
         command = render_command(
-            binary="anvilminimal",
-            binary_kind="anvilminimal",
+            binary="commandagent",
+            binary_kind="commandagent",
             mode="ultra-plan-run",
             scenario={"prompt": "do it", "profile": "nextjs"},
             main=profiles["speed-cloud"]["runs"][0]["main"],
@@ -260,7 +260,7 @@ class EvalRunDryTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("scenario not found", result.stderr + result.stdout)
 
-    def test_completion_contract_is_anvilminimal_only(self):
+    def test_completion_contract_is_commandagent_only(self):
         sys.path.insert(0, str(ROOT / "scripts"))
         import importlib.util
 

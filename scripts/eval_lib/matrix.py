@@ -9,7 +9,7 @@ from .models import ModelRef, cli_model_args
 from .suites import prompt_with_required_final_artifacts
 
 VALID_MODES = {"minimal-loop", "step-plan", "plan-run", "ultra-plan-run", "ultra-step-run"}
-VALID_BINARY_KINDS = {"anvilminimal", "anvildev"}
+VALID_BINARY_KINDS = {"commandagent", "anvildev"}
 
 
 def parse_modes(value: str) -> list[str]:
@@ -26,7 +26,7 @@ def expand_matrix(
     modes: list[str],
     runs: int,
     context_budget: int,
-    binary: str = "anvilminimal",
+    binary: str = "commandagent",
     binary_kind: str = "auto",
     scenario_filter: str | None = None,
 ) -> list[dict[str, Any]]:
@@ -93,7 +93,7 @@ def resolve_binary_kind(binary: str, binary_kind: str = "auto") -> str:
     name = Path(binary).name
     if name in {"anvildev", "anvil"}:
         return "anvildev"
-    return "anvilminimal"
+    return "commandagent"
 
 
 def scenario_port_mutex(scenario: dict[str, Any]) -> int | None:
@@ -116,7 +116,7 @@ def render_command(
     workdir: Path,
     chat_retries: int = 1,
 ) -> list[str]:
-    if binary_kind == "anvilminimal":
+    if binary_kind == "commandagent":
         base = [
             binary,
             "--yes",
@@ -149,7 +149,7 @@ def render_command(
     else:
         raise ValueError(f"unknown binary kind: {binary_kind}")
     prompt = prompt_with_required_final_artifacts(scenario)
-    if binary_kind == "anvilminimal":
+    if binary_kind == "commandagent":
         if mode == "minimal-loop":
             return [*base, "--prompt", prompt]
         if mode == "step-plan":

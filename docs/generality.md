@@ -4,7 +4,7 @@ M6 status: complete on 2026-07-04.
 
 ## Scope S
 
-Anvilminimal is generalized within scope S when the same profile, evidence, and
+CommandAgent is generalized within scope S when the same profile, evidence, and
 terminal-state mechanisms handle the covered task families without depending on
 a single prompt, corpus case, or Next.js game shape.
 

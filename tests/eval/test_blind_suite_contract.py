@@ -79,7 +79,7 @@ class BlindSuiteContractTest(unittest.TestCase):
         suite = load_suite(ROOT / "eval/suites/mvp-blind.yaml")
         scenario = next(s for s in suite["scenarios"] if s["id"] == "nextjs-memory-grid-large")
         contract = eval_run.completion_contract_for_spec(
-            {"binary_kind": "anvilminimal", "mode": "minimal-loop", "scenario": scenario}
+            {"binary_kind": "commandagent", "mode": "minimal-loop", "scenario": scenario}
         )
         self.assertEqual(contract["profile"], "nextjs")
         self.assertEqual(contract["verify_commands"], [])
@@ -99,7 +99,7 @@ class BlindSuiteContractTest(unittest.TestCase):
         suite = load_suite(ROOT / "eval/suites/mvp-blind.yaml")
         scenario = next(s for s in suite["scenarios"] if s["id"] == "cli-usage-reference-small")
         contract = eval_run.completion_contract_for_spec(
-            {"binary_kind": "anvilminimal", "mode": "minimal-loop", "scenario": scenario}
+            {"binary_kind": "commandagent", "mode": "minimal-loop", "scenario": scenario}
         )
         self.assertEqual(contract["required_paths"], ["docs/CLI_USAGE.md"])
         self.assertEqual(contract["verify_commands"], [])

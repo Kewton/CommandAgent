@@ -686,7 +686,7 @@ def provider_model_pair(row: dict[str, Any], spec: dict[str, Any]) -> str:
 
 def known_gaps(rows: list[dict[str, Any]], normalized: list[dict[str, Any]], subject: str) -> list[str]:
     gaps: list[str] = []
-    if subject == "mvp-anvilminimal":
+    if subject == "mvp-commandagent":
         gaps.append("source same-condition trace must be compared before parity gates can pass")
     if any(event.get("failure_kind") == "silent_exit_without_events" for event in normalized):
         gaps.append("one or more failed runs exited without per-run events")

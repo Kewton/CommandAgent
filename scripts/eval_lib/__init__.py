@@ -1,2 +1,2 @@
-"""Shared implementation for anvilminimal eval scripts."""
+"""Shared implementation for commandagent eval scripts."""
 
