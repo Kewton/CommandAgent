@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, "release/**"]
+  pull_request:
+    branches: [main, develop, "release/**"]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  anvilminimal-guardrails:
+    name: Anvilminimal Test and Guardrails
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: cargo test all targets
+        run: cargo test --all-targets
+      - name: corpus harness
+        run: cargo test --test corpus_regression
+      - name: M6 generality guardrails
+        run: cargo test --test generality_guardrails
+      - name: conformance matrix
+        run: cargo test --test conformance
+      - name: scenario contract-inference golden tests
+        run: |
+          python3 -m unittest tests/eval/test_acceptance_contract.py
+          python3 -m unittest tests/eval/test_completion_contract_snapshots.py
+          python3 -m unittest tests/eval/test_false_positive_regression.py
