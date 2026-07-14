@@ -4,6 +4,7 @@ pub(crate) mod final_acceptance_contract;
 pub mod hook_attributes;
 pub mod hook_snapshot;
 pub mod intent;
+pub mod interaction_qualification;
 pub(crate) mod interaction_repair;
 pub mod lint;
 pub(crate) mod lint_rejection;

@@ -761,6 +761,16 @@ pub(super) fn ultra_final_acceptance_report_inner(
             true,
         )
     };
+    crate::planner::interaction_qualification::enforce_release_gate(
+        &mut release_gate.status,
+        &mut release_gate.reasons,
+        &mut release_gate.interaction_evidence_status,
+        &release_gate.interaction_evidence_path,
+        crate::planner::interaction_qualification::contract_requires_restart(
+            &required_capabilities,
+            &required_evidence,
+        ),
+    );
     let signal_text = ultra_plan_signal_text(plan);
     let gate_telemetry = acceptance_gate_telemetry(
         &effective_profile,

@@ -3647,13 +3647,23 @@ fn verify_plan_final_contract(
             &required_obligations,
         )
     });
-    let release_gate = final_acceptance_release_gate(
+    let mut release_gate = final_acceptance_release_gate(
         config,
         &config.profile,
         &plan.goal,
         &required_capabilities,
         runtime_acceptance.as_ref(),
         false,
+    );
+    crate::planner::interaction_qualification::enforce_release_gate(
+        &mut release_gate.status,
+        &mut release_gate.reasons,
+        &mut release_gate.interaction_evidence_status,
+        &release_gate.interaction_evidence_path,
+        crate::planner::interaction_qualification::contract_requires_restart(
+            &required_capabilities,
+            &required_evidence,
+        ),
     );
     let contract_required =
         completion_contract_required(&config.profile, &plan.goal, &required_capabilities)

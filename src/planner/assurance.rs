@@ -199,7 +199,7 @@ pub(super) fn interaction_gate_required(
 pub(super) fn gate_execution_status(status: &str) -> String {
     if gate_status_disconnected(status) {
         "disconnected".to_string()
-    } else if status == "passed" {
+    } else if matches!(status, "passed" | "interaction_verified_heuristic_only") {
         "performed".to_string()
     } else if status.starts_with("failed") {
         "performed_failed".to_string()

@@ -46,6 +46,10 @@
 ## False-Full Check
 - False-full suspects: 0
 
+## FF-1 ledger
+- 初の意味論的false-full（`uat-test0714-m4-003` Run 6、クイズ→シューティング）。機械的偽装はゼロ継続。heuristic合格のfull資格を剥奪する厳格化で恒久修正。
+- 過去fullの契約モード監査: `scan_full_interaction_contract.py` 実行結果は管理アーカイブ内 `0/0`（browser-interaction.json未収録）。外部バンド対象は `--root` 指定で再走査する。
+
 ## Stop-Class Distribution
 | Scenario | Stop classes |
 | --- | --- |

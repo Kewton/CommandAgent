@@ -4,6 +4,7 @@ use std::path::Path;
 use commandagent::minimal_loop::evidence::verify_runtime_acceptance_with_hints;
 use commandagent::minimal_loop::import_scan::route_bound_closure;
 use commandagent::minimal_loop::interaction_probe::static_html_probe_selection;
+use commandagent::planner::interaction_qualification::qualify_interaction_evidence;
 use commandagent::planner::profile::{
     ProfileSnapshot, profile_expected_paths, profile_generation_rules, profile_guidance,
     profile_preset_ultra_plan, profile_quality_expectations, profile_runtime_contract,
@@ -32,6 +33,7 @@ struct CorpusCase {
     diagnostics_absent: Vec<String>,
     compile_expect: String,
     probe: Option<ProbeExpectation>,
+    release_qualification: Option<ReleaseQualificationExpectation>,
     json_fields: BTreeMap<String, String>,
     fixture_contains: BTreeMap<String, Vec<String>>,
     fixture_ordered: BTreeMap<String, Vec<String>>,
@@ -47,6 +49,15 @@ struct ProbeExpectation {
     first_candidate_text: Option<String>,
     first_candidate_index: Option<usize>,
     candidate_texts: Vec<String>,
+}
+
+#[derive(Debug, Default)]
+struct ReleaseQualificationExpectation {
+    evidence_fixture: String,
+    restart_required: bool,
+    full_eligible: bool,
+    evidence_status: String,
+    reasons: Vec<String>,
 }
 
 #[test]
@@ -218,6 +229,28 @@ fn generated_app_corpus_matches_detector_and_probe_expectations() {
                     "{display}: candidate text prefix; full={actual:?}"
                 );
             }
+        }
+
+        if let Some(expected) = expectations.release_qualification {
+            let evidence_path = case_dir.join(&expected.evidence_fixture);
+            let value: serde_json::Value = serde_json::from_str(
+                &std::fs::read_to_string(&evidence_path).unwrap_or_else(|err| {
+                    panic!(
+                        "{display}: failed to read {}: {err}",
+                        evidence_path.display()
+                    )
+                }),
+            )
+            .unwrap_or_else(|err| {
+                panic!("{display}: invalid JSON {}: {err}", evidence_path.display())
+            });
+            let actual = qualify_interaction_evidence(&value, expected.restart_required);
+            assert_eq!(actual.full_eligible, expected.full_eligible, "{display}");
+            assert_eq!(
+                actual.evidence_status, expected.evidence_status,
+                "{display}"
+            );
+            assert_eq!(actual.release_gate_reasons, expected.reasons, "{display}");
         }
 
         for (selector, expected) in &expectations.json_fields {
@@ -393,6 +426,23 @@ fn parse_expectations(path: &Path) -> CorpusCase {
                     }
                     "candidate_texts" => probe.candidate_texts = parse_string_array(value),
                     _ => panic!("{}:{}: unknown probe key {key}", path.display(), index + 1),
+                }
+            }
+            "release_qualification" => {
+                let expected = case
+                    .release_qualification
+                    .get_or_insert_with(ReleaseQualificationExpectation::default);
+                match key {
+                    "evidence_fixture" => expected.evidence_fixture = parse_string(value),
+                    "restart_required" => expected.restart_required = parse_bool(value),
+                    "full_eligible" => expected.full_eligible = parse_bool(value),
+                    "evidence_status" => expected.evidence_status = parse_string(value),
+                    "reasons" => expected.reasons = parse_string_array(value),
+                    _ => panic!(
+                        "{}:{}: unknown release_qualification key {key}",
+                        path.display(),
+                        index + 1
+                    ),
                 }
             }
             "json_fields" => {
