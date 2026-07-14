@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent Issue Create"
+  short_description: "Draft a high-quality CommandAgent issue"
+  default_prompt: "Use $issue-create to draft and, when authorized, create a CommandAgent issue."
+policy:
+  allow_implicit_invocation: false

@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent Multi-stage Design Review"
+  short_description: "Run staged CommandAgent design reviews"
+  default_prompt: "Use $multi-stage-design-review to run independent passes over an issue design."
+policy:
+  allow_implicit_invocation: false

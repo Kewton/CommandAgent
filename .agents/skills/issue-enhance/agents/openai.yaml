@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent Issue Enhance"
+  short_description: "Complete and clarify a CommandAgent issue"
+  default_prompt: "Use $issue-enhance to clarify and complete the selected CommandAgent issue."
+policy:
+  allow_implicit_invocation: false

@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent Design Policy"
+  short_description: "Write a CommandAgent issue design policy"
+  default_prompt: "Use $design-policy to write the design policy for the selected issue."
+policy:
+  allow_implicit_invocation: false

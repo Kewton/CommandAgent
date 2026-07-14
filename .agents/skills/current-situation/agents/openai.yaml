@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent Current Situation"
+  short_description: "Document a CommandAgent defect situation"
+  default_prompt: "Use $current-situation to document the observed defect and evidence."
+policy:
+  allow_implicit_invocation: false

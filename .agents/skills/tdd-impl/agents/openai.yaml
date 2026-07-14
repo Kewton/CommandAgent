@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent TDD Implementation"
+  short_description: "Implement CommandAgent changes with TDD"
+  default_prompt: "Use $tdd-impl to implement the requested behavior with a red-green-refactor cycle."
+policy:
+  allow_implicit_invocation: false

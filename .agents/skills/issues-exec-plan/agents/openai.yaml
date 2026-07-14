@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent Issues Execution Plan"
+  short_description: "Plan execution across CommandAgent issues"
+  default_prompt: "Use $issues-exec-plan to map dependencies and plan issue execution."
+policy:
+  allow_implicit_invocation: false

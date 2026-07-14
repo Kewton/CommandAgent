@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent Progress Report"
+  short_description: "Report current CommandAgent delivery progress"
+  default_prompt: "Use $progress-report to summarize repository, issue, and pull-request progress."
+policy:
+  allow_implicit_invocation: false
