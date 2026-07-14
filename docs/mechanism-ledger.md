@@ -277,3 +277,16 @@ Both report directories below were present when this closure was recorded.
 
 - 据え置きの根拠: 実害ゼロ（非ゲームは候補要素クリック経路が補完、バンド窓78runで本件起因の偽陰性/偽陽性ゼロ）に対し、修正には裁定層のタイミング再設計を要するため、コストが見合わない。
 - 再訪条件: (a) 第4のシナリオ族でdispatch不足起因の偽陰性が実測されたとき、(b) 近縁profile（Vue等）がプローブ拡張を要求したとき。再訪時はタイミングモデル再設計（listener登録待ち・rAF同期・リトライ付きdispatch）を含む適正スコープで行う。
+
+## Repository migration (2026-07-14)
+
+- 移送元: `Kewton/Anvil@anvilminimal-migration-base`。filter前の
+  `develop` HEADは`ec1519958c2210e3bcadcd19d7c23e51146a82ce`。
+- 方式: `git filter-repo`で旧クレートsubtreeと`workspace/management`の
+  2系統を`--path`選択し、旧クレートsubtreeをリポジトリrootへrenameした。
+  抽出履歴はsquashせずCommandAgentの履歴へmergeした。
+- 旧新SHA対応表: [`docs/migration/anvil-commit-map.txt`](migration/anvil-commit-map.txt)。
+
+本文書内の移行以前のコミットハッシュは旧Anvil上のSHAであり、
+`docs/migration/anvil-commit-map.txt`およびAnvilリポジトリの凍結タグ
+`anvilminimal-migration-base`で解決する。
