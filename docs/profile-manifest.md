@@ -9,8 +9,8 @@ Schema v1 is not implied by this draft.
 The embedded Next.js manifest is loaded independently of the existing runtime
 knowledge loader. Its status is `draft`, and no planner or minimal-loop path
 consults it yet. During this parallel period, Next.js behavior continues to
-come from `mvp/anvilminimal/src/planner/profiles/nextjs/knowledge.rs` and
-`mvp/anvilminimal/src/minimal_loop/evidence_knowledge.rs`.
+come from `src/planner/profiles/nextjs/knowledge.rs` and
+`src/minimal_loop/evidence_knowledge.rs`.
 
 ## Ownership model
 
@@ -24,9 +24,9 @@ knowledge, but it cannot replace Layer-1 behavior with executable text.
 | `metadata` | Profile `id`, display name, schema version, and admission status. | The loader validates `v0` and `draft`/`admitted`. B-3 may later use `status`; v0 does not gate execution. |
 | `plan` | Preset style, intent, ordered UltraPlan phase ids/prompts, the required literal `{goal}` placeholder, and the optional literal `{port}` placeholder. | UltraPlan construction, placeholder expansion, scheduling, and phase execution remain Rust mechanisms. |
 | `step_templates` | Scaffold/build-verification match words, implementation-kill words, ownership markers, and inert template artifact bytes moved from `knowledge.toml`. | Matching precedence, kill decisions, template selection, placeholder expansion, and file writes remain Rust mechanisms. |
-| `vocabulary` | A typed reference to `evidence_knowledge` sections `vocabulary` and `goal_hints.translations`. | The values remain single-sourced in `mvp/anvilminimal/src/minimal_loop/evidence_knowledge.toml`; evidence scanning and translation behavior remain Layer 1. |
+| `vocabulary` | A typed reference to `evidence_knowledge` sections `vocabulary` and `goal_hints.translations`. | The values remain single-sourced in `src/minimal_loop/evidence_knowledge.toml`; evidence scanning and translation behavior remain Layer 1. |
 | `guidance` | The `generic`, `canvas_game`, and `persistence` repair variants plus contract wording. | Failure classification, variant selection, ordering, and deduplication remain Rust mechanisms. |
-| `checks` | Named arrays of catalog bindings: an `id` and typed `params`. | `mvp/anvilminimal/src/planner/capability_catalog.rs` owns parameter schemas, validation, adapters, and execution. |
+| `checks` | Named arrays of catalog bindings: an `id` and typed `params`. | `src/planner/capability_catalog.rs` owns parameter schemas, validation, adapters, and execution. |
 | `evidence_targets` | Either a typed reference to shared `repair_targets` or a profile-local evidence-kind-to-path mapping. | Shared mappings remain single-sourced; local paths are validated as workspace-relative. Route closure and repair-target selection remain Rust mechanisms. |
 
 The vocabulary section uses a reference instead of copied arrays. Next.js also
@@ -38,7 +38,7 @@ single-sourced while preserving a typed manifest boundary.
 ## Schema and load contract
 
 The root section list is fixed by
-`mvp/anvilminimal/tests/golden/profile_manifest_v0_sections.txt`:
+`tests/golden/profile_manifest_v0_sections.txt`:
 
 1. `metadata`
 2. `plan`

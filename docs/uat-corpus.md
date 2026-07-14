@@ -10,7 +10,7 @@ evidence, or profile changes.
 Harvest a UAT workspace with:
 
 ```sh
-mvp/anvilminimal/scripts/snapshot-uat-corpus.sh \
+scripts/snapshot-uat-corpus.sh \
   /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0704_003 \
   test0704_003
 ```
@@ -18,7 +18,7 @@ mvp/anvilminimal/scripts/snapshot-uat-corpus.sh \
 The first ambiguous no-profile harvest from G3 is:
 
 ```sh
-mvp/anvilminimal/scripts/snapshot-uat-corpus.sh \
+scripts/snapshot-uat-corpus.sh \
   /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0704-4030444542434647484814950515354_001 \
   test0704-4030444542434647484814950515354_001
 ```
@@ -30,11 +30,11 @@ profile explicitly supports that stack.
 The Q1-final quality-track harvests are:
 
 ```sh
-mvp/anvilminimal/scripts/snapshot-uat-corpus.sh \
+scripts/snapshot-uat-corpus.sh \
   /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0704-999-Q1-62_001/tool_a \
   q1-final-tool-a-persistence-not-evaluated
 
-mvp/anvilminimal/scripts/snapshot-uat-corpus.sh \
+scripts/snapshot-uat-corpus.sh \
   /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0704-999-Q1-62_001/game_b \
   q1-final-game-b-rendered-hidden-probe-limit
 ```
@@ -53,11 +53,11 @@ honest failed fixture until the probe selection is changed deliberately.
 The local-tier Q1 round harvests are:
 
 ```sh
-mvp/anvilminimal/scripts/snapshot-uat-corpus.sh \
+scripts/snapshot-uat-corpus.sh \
   /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0704-999-Q1-6264656667686970_001/game_b \
   local-q1-game-b-artifact-stagnation
 
-mvp/anvilminimal/scripts/snapshot-uat-corpus.sh \
+scripts/snapshot-uat-corpus.sh \
   /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0704-999-Q1-6264656667686970_001/tool_b \
   local-q1-tool-b-output-pipe-verify
 ```
@@ -75,7 +75,7 @@ allowed to mask the build exit status.
 The local single-model GAME golden harvest is:
 
 ```sh
-mvp/anvilminimal/scripts/snapshot-uat-corpus.sh \
+scripts/snapshot-uat-corpus.sh \
   /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0707_009 \
   local-single-qwen36-game-full-pass
 ```
@@ -95,15 +95,15 @@ fixture for the repair-as-regeneration rung.
 The post-95/96 residual harvests are:
 
 ```sh
-mvp/anvilminimal/scripts/snapshot-uat-corpus.sh \
+scripts/snapshot-uat-corpus.sh \
   /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0708_010 \
   test0708_010
 
-mvp/anvilminimal/scripts/snapshot-uat-corpus.sh \
+scripts/snapshot-uat-corpus.sh \
   /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0708_011 \
   test0708_011
 
-mvp/anvilminimal/scripts/snapshot-uat-corpus.sh \
+scripts/snapshot-uat-corpus.sh \
   /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0708_012 \
   test0708_012
 ```
@@ -120,15 +120,15 @@ exhaustion was not naming pending restart/input evidence honestly.
 The post-97 five-run residual harvests are:
 
 ```sh
-mvp/anvilminimal/scripts/snapshot-uat-corpus.sh \
+scripts/snapshot-uat-corpus.sh \
   /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0708_013 \
   test0708_013
 
-mvp/anvilminimal/scripts/snapshot-uat-corpus.sh \
+scripts/snapshot-uat-corpus.sh \
   /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0708_016 \
   test0708_016
 
-mvp/anvilminimal/scripts/snapshot-uat-corpus.sh \
+scripts/snapshot-uat-corpus.sh \
   /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0708_017 \
   test0708_017
 ```
@@ -163,19 +163,19 @@ The confirmed Q1-full diagnosis harvests are:
 # Python CLI verify-boundary fixture, kept outside the Next.js app corpus.
 tests/fixtures/q1_full/cli_a_verify_redirect_command.txt
 
-mvp/anvilminimal/scripts/snapshot-uat-corpus.sh \
+scripts/snapshot-uat-corpus.sh \
   /Users/maenokota/share/work/localwork/commandagent_mvp/01/q1-full/tool_a \
   q1-full-tool-a-read-only-stagnation
 
-mvp/anvilminimal/scripts/snapshot-uat-corpus.sh \
+scripts/snapshot-uat-corpus.sh \
   /Users/maenokota/share/work/localwork/commandagent_mvp/01/q1-full/game_b \
   q1-full-game-b-evidence-repair-inspect-only
 
-mvp/anvilminimal/scripts/snapshot-uat-corpus.sh \
+scripts/snapshot-uat-corpus.sh \
   /Users/maenokota/share/work/localwork/commandagent_mvp/01/q1-full/content_b \
   q1-full-content-b-timeout-loop
 
-mvp/anvilminimal/scripts/snapshot-uat-corpus.sh \
+scripts/snapshot-uat-corpus.sh \
   /Users/maenokota/share/work/localwork/commandagent_mvp/01/q1-full/tool_a \
   q1-full-tool-a-orphan-port-in-use
 ```

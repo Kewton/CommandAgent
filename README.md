@@ -166,8 +166,8 @@ The symlink is a local convenience and is not part of the copy artifact.
 
 ```bash
 tmp=$(mktemp -d)
-cp -R mvp/anvilminimal "$tmp/"
-cd "$tmp/anvilminimal"
+git archive --format=tar HEAD | tar -x -C "$tmp"
+cd "$tmp"
 cargo test
 cargo run -- --help
 ```

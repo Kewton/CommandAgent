@@ -32,5 +32,5 @@ fixtures/profile-manifest-v0-contract.jsonl = [
   "\"unknown_id\":\"reject\"",
   "\"invalid_params\":\"reject\"",
   "\"runtime_wired\":false",
-  "mvp/anvilminimal/docs/profile-manifest.md#format-gap-ledger"
+  "docs/profile-manifest.md#format-gap-ledger"
 ]
