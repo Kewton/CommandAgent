@@ -10,6 +10,7 @@ pub(crate) mod lint_rejection;
 pub mod profile;
 pub mod profile_manifest;
 pub mod repair;
+mod repair_target_selection;
 pub mod repair_targeting;
 pub mod runner;
 pub mod sanitizer;

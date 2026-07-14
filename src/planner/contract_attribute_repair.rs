@@ -54,6 +54,13 @@ pub fn is_contract_attribute_missing(report: &VerificationReport) -> bool {
 
 pub fn merge_repair_target_paths(report: &VerificationReport, paths: &[String]) -> Vec<String> {
     let mut out = Vec::new();
+    if let Some(selection) =
+        crate::planner::repair_targeting::resolve_traceback_repair_target(report)
+    {
+        for path in selection.selected_targets {
+            push_unique(&mut out, path);
+        }
+    }
     if let Some(issue) = detect(report) {
         push_unique(&mut out, issue.path);
     }

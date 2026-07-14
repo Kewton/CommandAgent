@@ -95,6 +95,8 @@ pub struct PipelineProbeReport {
     pub isolation: PipelineIsolation,
     pub failure_kinds: Vec<String>,
     pub capture_warnings: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub python_error_extraction: Option<super::python_traceback::PythonTracebackExtraction>,
 }
 
 pub fn run(root: &Path, config: PipelineProbeConfig) -> anyhow::Result<PipelineProbeReport> {
@@ -158,6 +160,8 @@ pub fn run(root: &Path, config: PipelineProbeConfig) -> anyhow::Result<PipelineP
     if stderr.truncated {
         capture_warnings.push("stderr_truncated".to_string());
     }
+    let python_error_extraction = (outcome == PipelineOutcome::Exited && exit_code != Some(0))
+        .then(|| super::python_traceback::extract(&stderr.text, root));
     let ok = failure_kinds.is_empty();
     let report = PipelineProbeReport {
         capability_id: "pipeline_probe".to_string(),
@@ -181,6 +185,7 @@ pub fn run(root: &Path, config: PipelineProbeConfig) -> anyhow::Result<PipelineP
         },
         failure_kinds,
         capture_warnings,
+        python_error_extraction,
     };
     write_evidence(root, &report)?;
     Ok(report)

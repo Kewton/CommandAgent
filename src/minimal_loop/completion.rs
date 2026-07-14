@@ -357,6 +357,9 @@ impl CompletionContract {
                         report.compile_errors.push(error);
                     }
                 }
+                for traceback in profile_report.python_tracebacks {
+                    report.push_python_traceback(traceback);
+                }
                 for path in profile_report.missing_paths {
                     report.push_missing_path(path);
                 }

@@ -6,6 +6,7 @@ use serde_json::json;
 use super::{checks, manifest};
 use crate::eval_events;
 use crate::minimal_loop::pipeline_probe::{self, PipelineProbeConfig};
+use crate::minimal_loop::python_traceback;
 use crate::planner::capability_catalog::{
     DataInternalCheck, InternalCapability, ProbeCapability, ResolvedCapability,
 };
@@ -48,19 +49,22 @@ pub(crate) fn catalog_check_id(command: &str) -> Option<&str> {
 pub(crate) fn execute_catalog_check(
     root: &Path,
     command: &str,
+    report: &mut crate::planner::verify::VerificationReport,
+    eval_events_path: Option<&Path>,
 ) -> Option<anyhow::Result<CatalogCheckOutcome>> {
     let id = catalog_check_id(command)?.to_string();
-    Some(execute_bound_check(root, id))
+    Some(execute_bound_check(root, id, report, eval_events_path))
 }
 
 pub(crate) fn run_step_catalog_checks(
     root: &Path,
     profile: Option<&str>,
     step: &PlanStep,
+    eval_events_path: Option<&Path>,
     report: &mut crate::planner::verify::VerificationReport,
 ) {
     for command in &step.verify {
-        let Some(execution) = execute_catalog_check(root, command) else {
+        let Some(execution) = execute_catalog_check(root, command, report, eval_events_path) else {
             continue;
         };
         if profile
@@ -387,7 +391,12 @@ fn is_bound_check_id(id: &str) -> bool {
     manifest::check_ids().iter().any(|bound| bound == id)
 }
 
-fn execute_bound_check(root: &Path, id: String) -> anyhow::Result<CatalogCheckOutcome> {
+fn execute_bound_check(
+    root: &Path,
+    id: String,
+    report: &mut crate::planner::verify::VerificationReport,
+    eval_events_path: Option<&Path>,
+) -> anyhow::Result<CatalogCheckOutcome> {
     let resolved = manifest::get()
         .resolve()?
         .into_values()
@@ -423,6 +432,7 @@ fn execute_bound_check(root: &Path, id: String) -> anyhow::Result<CatalogCheckOu
                 PipelineProbeConfig::new(entry)
                     .with_timeout(Duration::from_secs(timeout_seconds.into())),
             )?;
+            python_traceback::attach_pipeline_report(&evidence, eval_events_path, report);
             (evidence.ok, evidence.failure_kinds)
         }
         ResolvedCapability::Probe(ProbeCapability::DataRerunConsistency {

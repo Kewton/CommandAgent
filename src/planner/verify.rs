@@ -34,6 +34,7 @@ pub struct VerificationReport {
     pub dependency_missing: Vec<String>,
     pub profile_failures: Vec<String>,
     pub compile_errors: Vec<CompileError>,
+    pub python_tracebacks: Vec<crate::minimal_loop::python_traceback::PythonTraceback>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -273,6 +274,7 @@ impl VerificationReport {
             dependency_missing: Vec::new(),
             profile_failures: Vec::new(),
             compile_errors: Vec::new(),
+            python_tracebacks: Vec::new(),
         }
     }
 
@@ -284,6 +286,7 @@ impl VerificationReport {
             && self.dependency_missing.is_empty()
             && self.profile_failures.is_empty()
             && self.compile_errors.is_empty()
+            && self.python_tracebacks.is_empty()
     }
 
     pub fn missing_path(path: impl Into<String>) -> Self {
@@ -356,6 +359,15 @@ impl VerificationReport {
     pub fn push_profile_failure(&mut self, reason: impl Into<String>) {
         self.profile_failures.push(reason.into());
         self.refresh_status();
+    }
+
+    pub fn push_python_traceback(
+        &mut self,
+        traceback: crate::minimal_loop::python_traceback::PythonTraceback,
+    ) {
+        if !self.python_tracebacks.contains(&traceback) {
+            self.python_tracebacks.push(traceback);
+        }
     }
 
     pub fn push_compile_errors(&mut self, command: impl Into<String>, errors: Vec<CompileError>) {
@@ -605,6 +617,7 @@ fn verify_step_with_setup_observed_with_options(
         root,
         profile,
         step,
+        eval_events_path,
         &mut report,
     );
     let prepared_verify = prepare_verify_commands_with_install_substitution(
@@ -695,7 +708,11 @@ fn verify_step_with_setup_observed_with_options(
             VerifyCommandRunResult::Failed {
                 command: failed_command,
                 reason,
+                traceback,
             } => {
+                if let Some(traceback) = traceback {
+                    report.push_python_traceback(traceback);
+                }
                 if build_verifier::is_dependency_missing_output(&reason) {
                     if setup_authority.allows_setup() {
                         let requirement =
@@ -968,6 +985,7 @@ enum VerifyCommandRunResult {
     Failed {
         command: String,
         reason: String,
+        traceback: Option<crate::minimal_loop::python_traceback::PythonTraceback>,
     },
     FalseNegative {
         command: String,
@@ -993,6 +1011,7 @@ fn run_verify_command_with_runtime_oracle(
         Err(err) => VerifyCommandRunResult::Failed {
             command: command.as_str().to_string(),
             reason: format!("failed to run verifier command: {err}"),
+            traceback: None,
         },
     }
 }
@@ -1018,16 +1037,24 @@ fn handle_failed_verify_command(
             outcome.elapsed_ms,
         );
     }
+    let traceback = crate::minimal_loop::python_traceback::extract_failed_command(
+        command_text,
+        &outcome.stderr,
+        root,
+        eval_events_path,
+    );
     if let Some(remedy) = invalid_semver_manifest_remedy(root, &formatted) {
         return VerifyCommandRunResult::Failed {
             command: command_text.to_string(),
             reason: format!("command failed: {command_text}\n{remedy}\n{formatted}"),
+            traceback,
         };
     }
     if !is_verify_command_tool_usage_error(command_text, &outcome) {
         return VerifyCommandRunResult::Failed {
             command: command_text.to_string(),
             reason: format!("command failed: {command_text}\n{formatted}"),
+            traceback,
         };
     }
     let Some(repair) = normalize_verify_command_for_oracle_repair(command_text) else {
@@ -1084,6 +1111,12 @@ fn handle_failed_verify_command(
                     reason: verify_command_false_negative_reason(command_text, &repaired_formatted),
                 }
             } else {
+                let traceback = crate::minimal_loop::python_traceback::extract_failed_command(
+                    repaired_command.as_str(),
+                    &repaired_outcome.stderr,
+                    root,
+                    eval_events_path,
+                );
                 VerifyCommandRunResult::Failed {
                     command: repaired_command.as_str().to_string(),
                     reason: format!(
@@ -1091,6 +1124,7 @@ fn handle_failed_verify_command(
                         repaired_command.as_str(),
                         repaired_formatted
                     ),
+                    traceback,
                 }
             }
         }

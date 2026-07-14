@@ -67,3 +67,16 @@ fixtures/run5-hidden-plan-read.jsonl = [
   "\"path\":\"output/inspection.json\"",
   "\"event\":\"tool_execute\",\"tool\":\"Write\",\"status\":\"ok\""
 ]
+fixtures/run1-python-traceback-repair.jsonl = [
+  "uat-test0714-m4-001/run-1",
+  "\"failure_kind\":\"pipeline_exit_nonzero\"",
+  "ValueError: invalid literal for int() with base 10: ''",
+  "\"event\":\"pipeline_error_extraction\"",
+  "\"line\":53",
+  "\"repair_target\":\"pipeline/main.py\"",
+  "\"selection_reason\":\"traceback_mapped\"",
+  "Python traceback repair guidance",
+  "do not continue with read-only inspection",
+  "\"event\":\"model_tool_call\",\"tool\":\"Write\",\"path\":\"pipeline/main.py\"",
+  "\"event\":\"pipeline_probe\",\"status\":\"passed\""
+]

@@ -7,39 +7,10 @@ use crate::minimal_loop::import_scan::{
 use crate::planner::profile::{is_nextjs_profile, profile_evidence_repair_target_paths};
 use crate::planner::runner::StepRunOutcome;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RepairTargetSelectionReason {
-    EvidenceMapped,
-    ContractAttribute,
-    RepairChanged,
-    RequiredPath,
-    Fallback,
-}
-
-impl RepairTargetSelectionReason {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::EvidenceMapped => "evidence_mapped",
-            Self::ContractAttribute => "contract_attribute",
-            Self::RepairChanged => "repair_changed",
-            Self::RequiredPath => "required_path",
-            Self::Fallback => "fallback",
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RepairTargetSelection {
-    pub(crate) selected_targets: Vec<String>,
-    pub(crate) selection_reason: RepairTargetSelectionReason,
-}
-
-impl RepairTargetSelection {
-    #[cfg(test)]
-    pub(crate) fn primary_target(&self) -> Option<&str> {
-        self.selected_targets.first().map(String::as_str)
-    }
-}
+pub(crate) use crate::minimal_loop::python_traceback::resolve_repair_target as resolve_traceback_repair_target;
+pub(crate) use crate::planner::repair_target_selection::{
+    RepairTargetSelection, RepairTargetSelectionReason,
+};
 
 pub(crate) struct RepairTargetResolutionInput<'a> {
     pub(crate) root: &'a Path,

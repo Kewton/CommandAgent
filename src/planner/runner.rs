@@ -3320,6 +3320,9 @@ fn merge_verification_report(report: &mut VerificationReport, extra: Verificatio
             report.compile_errors.push(error);
         }
     }
+    for traceback in extra.python_tracebacks {
+        report.push_python_traceback(traceback);
+    }
     for reason in extra.profile_failures {
         report.push_profile_failure(reason);
     }
@@ -4376,6 +4379,12 @@ fn verification_report_signature(report: &VerificationReport) -> Vec<String> {
             .profile_failures
             .iter()
             .map(|reason| format!("profile:{reason}")),
+    );
+    signature.extend(
+        report
+            .python_tracebacks
+            .iter()
+            .map(|value| value.signature()),
     );
     signature.sort();
     signature

@@ -16,6 +16,7 @@ pub mod loop_run;
 pub mod pipeline_probe;
 pub mod probe_preflight;
 pub mod prompt;
+pub mod python_traceback;
 pub mod reachability;
 pub mod read_only_stagnation_feedback;
 pub mod repair_pressure;
