@@ -176,8 +176,10 @@ where
     )
     .with_context(|| format!("failed to spawn command: {command}"))?;
 
-    let stdout = annotate_outside_workspace_output(&String::from_utf8_lossy(&output.stdout), root);
-    let stderr = annotate_outside_workspace_output(&String::from_utf8_lossy(&output.stderr), root);
+    let stdout = redact_engine_private_output(&String::from_utf8_lossy(&output.stdout), root);
+    let stderr = redact_engine_private_output(&String::from_utf8_lossy(&output.stderr), root);
+    let stdout = annotate_outside_workspace_output(&stdout, root);
+    let stderr = annotate_outside_workspace_output(&stderr, root);
     match output.kind {
         BoundedProcessOutcomeKind::Exited => {
             let status = output
@@ -675,6 +677,13 @@ fn annotate_outside_workspace_output(value: &str, root: &Path) -> String {
     annotated
 }
 
+fn redact_engine_private_output(value: &str, root: &Path) -> String {
+    value
+        .split_inclusive('\n')
+        .filter(|line| crate::tools::hidden_path::referenced_path(root, line).is_none())
+        .collect()
+}
+
 fn line_references_outside_workspace(line: &str, root: &Path) -> bool {
     for candidate in absolute_path_candidates(line) {
         let path = Path::new(candidate);
@@ -1016,6 +1025,18 @@ mod tests {
         assert!(
             normalize_inspect_command("grep -q primary src/app/page.tsx", dir.path()).is_none()
         );
+    }
+
+    #[test]
+    fn bash_redacts_engine_metadata_from_workspace_root_ls() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".anvil/plans")).unwrap();
+        std::fs::write(dir.path().join("visible.txt"), "ok").unwrap();
+
+        let outcome =
+            run_structured("ls -la", dir.path(), false, DEFAULT_TIMEOUT, || false).unwrap();
+        assert!(outcome.stdout.contains("visible.txt"), "{}", outcome.stdout);
+        assert!(!outcome.stdout.contains(".anvil"), "{}", outcome.stdout);
     }
 
     #[test]

@@ -96,6 +96,9 @@ canvas_input_wiring_checklist = "Derive validation rules only from output/inspec
 [guidance.persistence]
 persistence = "A rerun must reproduce the complete output/results.json document exactly; time, random state, and unstable iteration order may not change results."
 
+[guidance.hidden_path]
+continuation = "data/ の入力から作業を続け、output/inspection.json を作成せよ"
+
 [guidance.contracts]
 state_binding_contract = "output/results.json is the sole machine-readable source for report numeric claims."
 input_coupled_dimension_requirement = "input_rows must equal used_rows plus the sum of excluded rows."

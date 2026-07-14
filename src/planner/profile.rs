@@ -160,6 +160,10 @@ pub trait DomainProfile: Sync {
         None
     }
 
+    fn hidden_path_continuation(&self) -> Option<&'static str> {
+        None
+    }
+
     fn quality_expectations(&self, _root: &Path, _goal: &str) -> ProfileQualityExpectations {
         ProfileQualityExpectations::default()
     }
@@ -675,6 +679,16 @@ impl DomainProfile for DataProfile {
 
     fn generation_rules(&self, _intent: &str) -> Option<&'static str> {
         Some(crate::planner::profiles::data::manifest::generation_rules())
+    }
+
+    fn hidden_path_continuation(&self) -> Option<&'static str> {
+        Some(
+            crate::planner::profiles::data::manifest::get()
+                .guidance
+                .hidden_path
+                .continuation
+                .as_str(),
+        )
     }
 
     fn quality_expectations(&self, _root: &Path, _goal: &str) -> ProfileQualityExpectations {

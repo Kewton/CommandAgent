@@ -101,6 +101,11 @@ impl ToolRegistry {
                     );
                     command = normalization.normalized_command;
                 }
+                super::hidden_path::ensure_reference_allowed(
+                    &context.root,
+                    &command,
+                    context.workspace_policy,
+                )?;
                 if let Some(normalization) =
                     crate::tools::bash::normalize_inspect_command(&command, &context.root)
                 {
@@ -150,6 +155,11 @@ impl ToolRegistry {
             "Edit" => {
                 let raw = required_string(arguments, "path")?;
                 let normalized = normalize_path_arg(context, "Edit", raw)?;
+                super::hidden_path::ensure_reference_allowed(
+                    &context.root,
+                    &normalized,
+                    context.workspace_policy,
+                )?;
                 let path = resolve_policy_checked_path(
                     context,
                     "Edit",
@@ -210,6 +220,11 @@ fn resolve_policy_checked_path(
     resolution: PathResolution,
 ) -> anyhow::Result<PathBuf> {
     let normalized = normalize_path_arg(context, tool, raw)?;
+    super::hidden_path::ensure_reference_allowed(
+        &context.root,
+        &normalized,
+        context.workspace_policy,
+    )?;
     let path = match resolution {
         PathResolution::Existing => resolve_existing(&context.root, &normalized)?,
         PathResolution::Create => resolve_for_create(&context.root, &normalized)?,
@@ -306,13 +321,19 @@ fn normalize_path_arg(context: &ToolContext, tool: &str, raw: &str) -> anyhow::R
 }
 
 fn normalize_glob_arg(context: &ToolContext, tool: &str, raw: &str) -> anyhow::Result<String> {
-    match normalize_absolute_workspace_glob(&context.root, raw)? {
+    let normalized = match normalize_absolute_workspace_glob(&context.root, raw)? {
         Some(normalized) => {
             emit_path_normalized(context, tool, raw, &normalized);
-            Ok(normalized)
+            normalized
         }
-        None => Ok(raw.to_string()),
-    }
+        None => raw.to_string(),
+    };
+    super::hidden_path::ensure_reference_allowed(
+        &context.root,
+        &normalized,
+        context.workspace_policy,
+    )?;
+    Ok(normalized)
 }
 
 fn emit_path_normalized(context: &ToolContext, tool: &str, original: &str, normalized: &str) {
@@ -549,6 +570,9 @@ pub fn tool_error_kind(err: &anyhow::Error) -> &'static str {
 }
 
 pub fn recoverable_tool_error(err: &anyhow::Error) -> bool {
+    if super::hidden_path::access_from_error(err).is_some() {
+        return true;
+    }
     matches!(
         tool_error_kind(err),
         "missing_arg"
@@ -1444,7 +1468,37 @@ mod tests {
             .execute("Read", &json!({"path":".anvil/session.json"}), &context)
             .unwrap_err();
         assert_eq!(tool_error_kind(&err), "workspace_policy_blocked");
-        assert!(!recoverable_tool_error(&err));
+        assert!(recoverable_tool_error(&err));
+    }
+
+    #[test]
+    fn normal_task_blocks_anvil_consistently_for_read_glob_and_bash() {
+        let registry = ToolRegistry::default();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".anvil/plans")).unwrap();
+        std::fs::write(dir.path().join(".anvil/plans/plan.yaml"), "secret").unwrap();
+        let context = ToolContext {
+            root: dir.path().to_path_buf(),
+            mode: ExecutionMode::Act,
+            auto_approve: true,
+            interactive_approval: false,
+            offline: false,
+            workspace_policy: WorkspacePolicy::NormalTask,
+            eval_events_path: None,
+            expected_paths: Vec::new(),
+        };
+
+        for (tool, arguments) in [
+            ("Read", json!({"path":".anvil/plans/plan.yaml"})),
+            ("Glob", json!({"pattern":".anvil/plans/*.yaml"})),
+            ("Bash", json!({"command":"ls .anvil/plans/"})),
+        ] {
+            let error = registry.execute(tool, &arguments, &context).unwrap_err();
+            assert_eq!(tool_error_kind(&error), "workspace_policy_blocked");
+            assert!(recoverable_tool_error(&error));
+            let access = crate::tools::hidden_path::access_from_error(&error).unwrap();
+            assert!(access.path.contains(".anvil/plans"), "{access:?}");
+        }
     }
 
     #[test]

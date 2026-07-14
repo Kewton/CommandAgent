@@ -3,6 +3,7 @@ pub mod bash;
 pub mod edit;
 pub mod glob;
 pub mod grep;
+pub mod hidden_path;
 pub mod path_guard;
 pub mod read;
 pub mod registry;

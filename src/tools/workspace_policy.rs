@@ -42,6 +42,9 @@ pub fn ensure_tool_path_allowed(
             continue;
         };
         if !policy.allows_component(part) {
+            if part == super::hidden_path::ENGINE_PRIVATE_COMPONENT {
+                return Err(super::hidden_path::path_error(root, path));
+            }
             bail!("workspace_policy_blocked: path component `{part}` is hidden from normal tasks");
         }
     }

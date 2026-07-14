@@ -1162,4 +1162,116 @@ export default function Page(){
             event["reason"] == "model_stagnation:no_progress_recorded"
         }));
     }
+
+    #[test]
+    fn run5_hidden_plan_read_gets_bounded_feedback_then_continues_to_inspection() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("data")).unwrap();
+        std::fs::write(dir.path().join("data/sales.csv"), "month,region,sales\n1,east,10\n")
+            .unwrap();
+        std::fs::create_dir_all(dir.path().join(".anvil/plans")).unwrap();
+        std::fs::write(dir.path().join(".anvil/plans/plan.yaml"), "engine plan").unwrap();
+        std::fs::write(
+            dir.path().join(".anvil/plans/ultra-plan.yaml"),
+            "engine ultra plan",
+        )
+        .unwrap();
+        let events_path = dir.path().join("events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.profile = "data".to_string();
+        cfg.eval_events_path = Some(events_path.clone());
+        cfg.max_iterations = 6;
+        let hidden = ".anvil/plans/plan.yaml";
+        let second_hidden = ".anvil/plans/ultra-plan.yaml";
+        let mut fake = RecordingFake::new(vec![
+            Ok(AssistantReply {
+                content: String::new(),
+                tool_calls: vec![ToolCall::new("Read", json!({"path":"data/sales.csv"}))],
+                prompt_tokens: None,
+                completion_tokens: None,
+            }),
+            Ok(AssistantReply {
+                content: String::new(),
+                tool_calls: vec![ToolCall::new("Read", json!({"path":hidden}))],
+                prompt_tokens: None,
+                completion_tokens: None,
+            }),
+            Ok(AssistantReply {
+                content: String::new(),
+                tool_calls: vec![ToolCall::new("Read", json!({"path":hidden}))],
+                prompt_tokens: None,
+                completion_tokens: None,
+            }),
+            Ok(AssistantReply {
+                content: String::new(),
+                tool_calls: vec![ToolCall::new("Read", json!({"path":second_hidden}))],
+                prompt_tokens: None,
+                completion_tokens: None,
+            }),
+            Ok(AssistantReply {
+                content: String::new(),
+                tool_calls: vec![ToolCall::new(
+                    "Write",
+                    json!({"path":"output/inspection.json","content":"{\"columns\":[\"month\",\"region\",\"sales\"],\"input_rows\":1}"}),
+                )],
+                prompt_tokens: None,
+                completion_tokens: None,
+            }),
+        ]);
+        let mut session = SessionSnapshot::new();
+
+        let outcome = run_session_with_outcome_with_options(
+            &mut fake,
+            &mut session,
+            "Inspect data/sales.csv and create output/inspection.json.",
+            &["output/inspection.json".to_string()],
+            &cfg,
+            &NOOP_UI,
+            RunSessionOptions::plan_step(RunSessionStepKind::Verify),
+        )
+        .unwrap();
+
+        assert_eq!(
+            outcome.stop_reason,
+            RunStopReason::RequiredArtifactsSatisfiedAfterTool
+        );
+        let requests = fake.requests();
+        assert!(requests.iter().skip(2).any(|messages| {
+            messages.iter().any(|message| {
+                message.content.contains(
+                    ".anvil はエンジン私有のメタデータであり、タスクツールから参照できない。",
+                ) && message.content.contains("output/inspection.json を作成せよ")
+            })
+        }));
+        drop(requests);
+        let events = event_values(&events_path);
+        let hidden_events = events
+            .iter()
+            .filter(|event| event["event"] == "hidden_path_feedback")
+            .collect::<Vec<_>>();
+        assert_eq!(hidden_events.len(), 3);
+        assert_eq!(hidden_events[0]["path"], hidden);
+        assert_eq!(hidden_events[0]["tool"], "Read");
+        assert_eq!(hidden_events[0]["attempt"], 1);
+        assert_eq!(hidden_events[1]["attempt"], 2);
+        assert_eq!(hidden_events[2]["path"], second_hidden);
+        assert_eq!(hidden_events[2]["attempt"], 1);
+        assert!(events.iter().any(|event| {
+            event["event"] == "read_only_stagnation_feedback"
+                && event["read_only_streak"] == 3
+        }));
+        let hidden_index = events
+            .iter()
+            .rposition(|event| event["event"] == "hidden_path_feedback")
+            .unwrap();
+        let write_index = events
+            .iter()
+            .position(|event| {
+                event["event"] == "tool_execute"
+                    && event["name"] == "Write"
+                    && event["status"] == "ok"
+            })
+            .unwrap();
+        assert!(hidden_index < write_index, "{events:?}");
+    }
 }

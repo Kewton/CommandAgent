@@ -202,6 +202,15 @@ pub struct ManifestGuidance {
     pub canvas_game: CanvasGameGuidance,
     pub persistence: PersistenceGuidance,
     pub contracts: ContractGuidance,
+    #[serde(default)]
+    pub hidden_path: HiddenPathGuidance,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct HiddenPathGuidance {
+    #[serde(default)]
+    pub continuation: String,
 }
 
 #[derive(Debug, Deserialize)]

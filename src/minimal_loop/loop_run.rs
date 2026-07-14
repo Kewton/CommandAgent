@@ -959,7 +959,9 @@ struct RecoverableToolErrorState {
 impl RecoverableToolErrorState {
     fn record(&mut self, tool_name: &str, err: &anyhow::Error) -> usize {
         let kind = tool_error_kind(err);
-        let key = if kind == "command_timeout" {
+        let key = if let Some(access) = crate::tools::hidden_path::access_from_error(err) {
+            format!("hidden_path:{}", access.path)
+        } else if kind == "command_timeout" {
             format!(
                 "{tool_name}:{kind}:{}",
                 command_timeout_similarity_key(&err.to_string())
@@ -1809,6 +1811,7 @@ pub(crate) fn run_session_with_outcome_with_options(
         let mut batch_non_edit_tools = 0usize;
         let mut batch_all_read_only_tools = !tool_calls.is_empty();
         let mut batch_had_recoverable_tool_error = false;
+        let mut batch_had_hidden_path_feedback = false;
         let mut write_required_rejection: Option<(String, bool, usize, Vec<String>, String)> = None;
         let missing_before_batch = missing_paths(&config.workspace_root, &required_paths);
         for mut call in tool_calls {
@@ -1878,7 +1881,11 @@ pub(crate) fn run_session_with_outcome_with_options(
             if !names_seen.insert(call.name.clone()) {
                 // Multiple same-tool calls are fine; this keeps clippy from seeing unused state.
             }
-            if let (Some(command), Some(decision)) = (
+            if !crate::tools::hidden_path::tool_arguments_reference_hidden(
+                &call.name,
+                &call.arguments,
+                &config.workspace_root,
+            ) && let (Some(command), Some(decision)) = (
                 recovered_bash_command(&call.name, &call.arguments),
                 runtime_bash_policy_decision(
                     &options,
@@ -2071,6 +2078,14 @@ pub(crate) fn run_session_with_outcome_with_options(
                     let kind = tool_error_kind(&err);
                     let err_text = err.to_string();
                     let repeats = recoverable_tool_error_state.record(&call.name, &err);
+                    let hidden_path_feedback = super::hidden_path_feedback::emit_for_error(
+                        config.eval_events_path.as_deref(),
+                        &config.profile,
+                        &call.name,
+                        &err,
+                        repeats,
+                    );
+                    batch_had_hidden_path_feedback |= hidden_path_feedback.is_some();
                     let duration_ms = if kind == "command_timeout" {
                         extract_elapsed_ms(&err_text)
                     } else {
@@ -2170,11 +2185,13 @@ pub(crate) fn run_session_with_outcome_with_options(
                         );
                         bail!("recoverable tool error repeated: {kind}");
                     }
-                    super::tool_feedback::recoverable_tool_feedback(
-                        &call.name,
-                        &err,
-                        edit_anchor_recovery.as_ref(),
-                    )
+                    hidden_path_feedback.unwrap_or_else(|| {
+                        super::tool_feedback::recoverable_tool_feedback(
+                            &call.name,
+                            &err,
+                            edit_anchor_recovery.as_ref(),
+                        )
+                    })
                 }
                 Err(err) => {
                     eval_events::emit(
@@ -2277,9 +2294,11 @@ pub(crate) fn run_session_with_outcome_with_options(
             pressure_inputs.no_progress_streak =
                 pressure_inputs.no_progress_streak.saturating_add(1);
         }
-        if implement_step(&options)
-            && batch_all_read_only_tools
-            && !batch_had_recoverable_tool_error
+        let hidden_path_pressure = batch_had_hidden_path_feedback && !batch_had_edit;
+        let pressure_read_only_batch = batch_all_read_only_tools || hidden_path_pressure;
+        if (implement_step(&options) || batch_had_hidden_path_feedback)
+            && pressure_read_only_batch
+            && (!batch_had_recoverable_tool_error || batch_had_hidden_path_feedback)
         {
             pressure_inputs.read_only_streak = pressure_inputs.read_only_streak.saturating_add(1);
             let anchor_failure = stagnation_carryover::strongest_anchor_failure(
@@ -2322,7 +2341,7 @@ pub(crate) fn run_session_with_outcome_with_options(
                 pending_feedback = Some(feedback);
                 continue;
             }
-        } else if !batch_all_read_only_tools {
+        } else if !pressure_read_only_batch {
             pressure_inputs.read_only_streak = 0;
             pressure_inputs.anchor_failures = 0;
             pressure_inputs.anchor_target = None;

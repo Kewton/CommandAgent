@@ -9,6 +9,7 @@ pub mod edit_anchor_recovery;
 pub mod evidence;
 pub mod evidence_knowledge;
 pub mod feedback;
+pub mod hidden_path_feedback;
 pub mod import_scan;
 pub mod interaction_probe;
 pub mod loop_run;

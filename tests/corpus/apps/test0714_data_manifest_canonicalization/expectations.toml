@@ -56,3 +56,14 @@ fixtures/run3-workspace-root-cd.jsonl = [
   "\"normalized_command\":\"python3 pipeline/main.py\"",
   "\"status\":\"ok\""
 ]
+
+[fixture_ordered]
+fixtures/run5-hidden-plan-read.jsonl = [
+  "uat-test0714-m4-001/run-5",
+  "\"event\":\"tool_execute\",\"tool\":\"Read\",\"status\":\"ok\"",
+  "\"event\":\"hidden_path_feedback\"",
+  ".anvil はエンジン私有のメタデータであり、タスクツールから参照できない。",
+  "\"event\":\"model_tool_call\",\"tool\":\"Write\"",
+  "\"path\":\"output/inspection.json\"",
+  "\"event\":\"tool_execute\",\"tool\":\"Write\",\"status\":\"ok\""
+]

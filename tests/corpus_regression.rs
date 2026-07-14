@@ -34,6 +34,7 @@ struct CorpusCase {
     probe: Option<ProbeExpectation>,
     json_fields: BTreeMap<String, String>,
     fixture_contains: BTreeMap<String, Vec<String>>,
+    fixture_ordered: BTreeMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Default)]
@@ -225,6 +226,9 @@ fn generated_app_corpus_matches_detector_and_probe_expectations() {
         for (fixture, expected_lines) in &expectations.fixture_contains {
             assert_fixture_contains(&case_dir, display, fixture, expected_lines);
         }
+        for (fixture, ordered_tokens) in &expectations.fixture_ordered {
+            assert_fixture_ordered(&case_dir, display, fixture, ordered_tokens);
+        }
     }
 }
 
@@ -399,6 +403,10 @@ fn parse_expectations(path: &Path) -> CorpusCase {
                 case.fixture_contains
                     .insert(key.to_string(), parse_string_array(value));
             }
+            "fixture_ordered" => {
+                case.fixture_ordered
+                    .insert(key.to_string(), parse_string_array(value));
+            }
             _ => panic!(
                 "{}:{}: unknown expectations section [{}]",
                 path.display(),
@@ -436,6 +444,30 @@ fn assert_fixture_contains(
             text.contains(expected),
             "{display}: fixture {fixture} missing expected text {expected:?}"
         );
+    }
+}
+
+fn assert_fixture_ordered(
+    case_dir: &Path,
+    display: &str,
+    fixture: &str,
+    ordered_tokens: &[String],
+) {
+    let fixture_path = case_dir.join(fixture);
+    let text = std::fs::read_to_string(&fixture_path).unwrap_or_else(|err| {
+        panic!(
+            "{display}: failed to read fixture {}: {err}",
+            fixture_path.display()
+        )
+    });
+    let mut cursor = 0usize;
+    for token in ordered_tokens {
+        let offset = text[cursor..].find(token).unwrap_or_else(|| {
+            panic!(
+                "{display}: fixture {fixture} missing ordered token {token:?} after byte {cursor}"
+            )
+        });
+        cursor += offset + token.len();
     }
 }
 
