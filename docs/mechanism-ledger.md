@@ -303,4 +303,4 @@ Both report directories below were present when this closure was recorded.
 
 - 発見経緯: 機械はfullと判定したが、人間の監査（成果物の目視）がgoal種別との不一致を検出した。UAT報告者がG1 FAILと判定し台帳更新を保留した対応は、本プロジェクトの検収規律の実演である。
 - 残存する境界（本修正の対象外）: 契約フックを正しく備えた「goal種別と異なる成果物」は依然fullを獲得しうる。goal種別と要求surfaceの契約束縛は未実装であり、検収可能性階層の実測された境界として記録する（対処は契約設計の将来課題。安易なgoal語彙マッチは偽陰性を量産するため急がない）。
-- 過去バンドへの影響監査: audit pending
+- 過去バンドへの影響監査: 実施済み（[audit-report.md](../workspace/management/runs/ff1-band-audit/audit-report.md)参照）。ウィンドウ内full 31件はすべてcontract-mode（非空state dimensions）で、heuristic-only / unverifiableは0件。既存バンドは有効。
