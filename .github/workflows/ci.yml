@@ -23,6 +23,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.10"
+      - name: install harness test dependencies
+        run: pip install PyYAML==6.0.3 pytest==8.4.2 ruff==0.14.9
+      - name: Codex harness guardrails
+        run: |
+          python3 scripts/validate_codex_skills.py
+          ruff check scripts/codex_orchestrate.py scripts/validate_codex_skills.py tests/test_codex_orchestrate.py
+          python3 -m pytest tests/test_codex_orchestrate.py -q
       - name: cargo test all targets
         run: cargo test --all-targets
       - name: corpus harness

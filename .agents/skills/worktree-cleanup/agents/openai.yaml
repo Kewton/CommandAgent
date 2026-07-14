@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent Worktree Cleanup"
+  short_description: "Safely clean merged CommandAgent worktrees"
+  default_prompt: "Use $worktree-cleanup to inspect and remove safe issue worktrees."
+policy:
+  allow_implicit_invocation: false

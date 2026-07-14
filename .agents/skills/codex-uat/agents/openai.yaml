@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent UAT"
+  short_description: "Prepare and record CommandAgent UAT evidence"
+  default_prompt: "Use $codex-uat to prepare and record UAT for the selected issues."
+policy:
+  allow_implicit_invocation: false
