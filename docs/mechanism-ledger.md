@@ -290,3 +290,5 @@ Both report directories below were present when this closure was recorded.
 本文書内の移行以前のコミットハッシュは旧Anvil上のSHAであり、
 `docs/migration/anvil-commit-map.txt`およびAnvilリポジトリの凍結タグ
 `anvilminimal-migration-base`で解決する。
+
+- Rename: anvilminimal → commandagent（crate/binary: `d05a410`、生きた参照: `835c04f`、本コミット）。以後のUATレポートのversion表記は commandagent。旧名は歴史的記録内で有効。機械出力はversion/CLI、banner、remediation/再現コマンド、truncation marker、probe User-Agent、およびevalの`engine_label`/`binary_kind`/`subject`/レポート見出しのみ新名へ更新し、イベント名・JSONキー・スキーマは不変。
