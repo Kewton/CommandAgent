@@ -32,6 +32,13 @@ contains = []
 [compile]
 expect = "build_passed"
 
+[release_qualification]
+evidence_fixture = "fixtures/browser-interaction.json"
+restart_required = false
+full_eligible = true
+evidence_status = "passed"
+reasons = []
+
 [json_fields]
 fixtures/browser-readiness.json:ok = "true"
 fixtures/browser-readiness.json:status = "ready"

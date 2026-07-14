@@ -11725,7 +11725,7 @@ dependencies = ["requests"]
         cfg.profile = "generic".to_string();
         cfg.eval_events_path = Some(events.clone());
         let port = 3011;
-        write_probe_nextjs_workspace(dir.path(), port, interactive_game_page_source());
+        write_probe_nextjs_workspace(dir.path(), port, &contract_interactive_game_page_source());
         std::fs::write(
             dir.path().join("browser-readiness.json"),
             r#"{"ok":true,"http_status":200,"route_rendered":true}"#,
@@ -11733,7 +11733,7 @@ dependencies = ["requests"]
         .unwrap();
         std::fs::write(
             dir.path().join("browser-interaction.json"),
-            r#"{"ok":true,"interaction_performed":true,"start_transition":true,"input_state_change":true,"state_changed":true,"canvas_found":true}"#,
+            contract_interaction_pass_json(),
         )
         .unwrap();
         let plan = UltraPlan::deterministic(
@@ -11854,7 +11854,8 @@ dependencies = ["requests"]
                 "Complete the promoted app and add another manifest",
             )),
         ]);
-        let mut final_calls = nextjs_interactive_app_tool_calls(interactive_game_page_source());
+        let contract_page = contract_interactive_game_page_source();
+        let mut final_calls = nextjs_interactive_app_tool_calls(&contract_page);
         final_calls.remove(0);
         final_calls.push(crate::state::ToolCall::new(
             "Write",
@@ -12166,7 +12167,8 @@ dependencies = ["requests"]
                 "Finish the Next.js app",
             )),
         ]);
-        let mut final_calls = nextjs_interactive_app_tool_calls(interactive_game_page_source());
+        let contract_page = contract_interactive_game_page_source();
+        let mut final_calls = nextjs_interactive_app_tool_calls(&contract_page);
         final_calls.push(crate::state::ToolCall::new(
             "Write",
             serde_json::json!({"path":"pyproject.toml","content":"[project]\nname = \"ignored\"\nversion = \"0.1.0\"\n"}),
@@ -13422,7 +13424,7 @@ export default function Page() {
         assert!(repair_prompt.contains("src/app/page.tsx"));
         let mut fake = FakeClient::new(vec![probe_nextjs_scaffold_reply(
             port,
-            interactive_game_page_variant(9),
+            contract_interactive_game_page_variant(9),
         )]);
         let mut session = SessionSnapshot::new();
         let outcome = run_final_acceptance_repair_with_ultra_session(
@@ -13567,7 +13569,7 @@ export default function Page() {
 
     #[test]
     #[cfg(unix)]
-    fn overlay_only_restart_after_probe_success_is_partial_terminal_unreached() {
+    fn overlay_only_restart_after_probe_success_fails_without_reachable_restart_contract() {
         let _probe_guard = dev_server_probe_test_guard();
         let dir = tempfile::tempdir().unwrap();
         let port = free_local_port();
@@ -13603,7 +13605,7 @@ export default function Page() {
 
         let report = ultra_final_acceptance_report(&plan, &cfg).unwrap();
 
-        assert!(report.is_pass(), "{report:?}");
+        assert!(!report.is_pass(), "{report:?}");
         let event_text = std::fs::read_to_string(&events).unwrap();
         assert!(
             event_text.contains(
@@ -13615,7 +13617,8 @@ export default function Page() {
             event_text.contains("interaction_unverified:terminal_state_not_reached"),
             "{event_text}"
         );
-        assert!(event_text.contains("\"release_gate_status\":\"partial\""));
+        assert!(event_text.contains("contract_instrumentation_missing:restart"));
+        assert!(event_text.contains("\"release_gate_status\":\"failed\""));
         let ultra = latest_event(&events, "ultra_final_acceptance");
         let recovery_prompt_path = ultra
             .get("recovery_prompt_path")
@@ -13648,6 +13651,16 @@ export default function Page() {
                 .get("runtime_acceptance_status")
                 .and_then(Value::as_str),
             Some("partial")
+        );
+        assert_eq!(
+            ultra.get("final_acceptance_status").and_then(Value::as_str),
+            Some("incomplete")
+        );
+        assert_eq!(
+            ultra
+                .get("interaction_evidence_status")
+                .and_then(Value::as_str),
+            Some("failed:contract_instrumentation_missing:restart")
         );
         assert_eq!(
             ultra
@@ -13694,7 +13707,7 @@ export default function Page() {
                 },
             ],
         };
-        let fixed_page = interactive_game_page_with_restart_hook_source();
+        let fixed_page = contract_interactive_game_page_source();
         let mut planner = FakeClient::new(vec![
             AssistantReply::text(generated_nextjs_artifact_plan_json_with_build_verify(
                 "Create buildable app",
@@ -13704,7 +13717,7 @@ export default function Page() {
         let mut execution = FakeClient::new(vec![
             probe_nextjs_scaffold_reply(
                 port,
-                interactive_game_page_without_restart_source().to_string(),
+                contract_interactive_game_page_without_restart_source(),
             ),
             read_static_page_reply(),
             AssistantReply {
@@ -13866,8 +13879,14 @@ export default function Page() {
                 interactive_game_page_without_restart_source().to_string(),
             ),
             read_static_page_reply(),
-            probe_nextjs_scaffold_reply(port, interactive_game_page_without_restart_variant(101)),
-            probe_nextjs_scaffold_reply(port, interactive_game_page_without_restart_variant(102)),
+            probe_nextjs_scaffold_reply(
+                port,
+                contract_interactive_game_page_without_restart_variant(101),
+            ),
+            probe_nextjs_scaffold_reply(
+                port,
+                contract_interactive_game_page_without_restart_variant(102),
+            ),
         ]);
 
         let err = run_ultra_plan(&mut planner, &mut execution, &plan, &cfg)
@@ -15260,7 +15279,7 @@ export default function Page() {
                 "Write",
                 serde_json::json!({
                     "path": "browser-interaction.json",
-                    "content": r#"{"ok":true,"interaction_performed":true,"start_transition":true,"input_state_change":true,"state_changed":true,"canvas_found":true}"#
+                    "content": contract_interaction_pass_json()
                 }),
             ),
         ]
@@ -15683,11 +15702,32 @@ export default function Page(){
 "#
     }
 
-    fn interactive_game_page_with_restart_hook_source() -> String {
-        interactive_game_page_source().replace(
-            "<button onClick={restart}>Restart</button>",
-            "<button data-anvil-action=\"restart\" onClick={restart}>Restart</button>",
-        )
+    fn contract_interactive_game_page_source() -> String {
+        interactive_game_page_source()
+            .replace(
+                "<main>",
+                r#"<main data-anvil-state={JSON.stringify({ score, gameOver, bulletCount: bullets.length, enemyCount: enemies.length })}>"#,
+            )
+            .replace(
+                "<button onClick={fireBullet}>Start</button>",
+                r#"<button data-anvil-action="primary" onClick={fireBullet}>Start</button>"#,
+            )
+            .replace(
+                "<button onClick={restart}>Restart</button>",
+                r#"<button data-anvil-action="restart" onClick={restart}>Restart</button>"#,
+            )
+    }
+
+    fn contract_interactive_game_page_without_restart_source() -> String {
+        interactive_game_page_without_restart_source()
+            .replace(
+                "<main>",
+                r#"<main data-anvil-state={JSON.stringify({ score, gameOver, bulletCount: bullets.length, enemyCount: enemies.length })}>"#,
+            )
+            .replace(
+                "<button onClick={fireBullet}>Fire</button>",
+                r#"<button data-anvil-action="primary" onClick={fireBullet}>Fire</button>"#,
+            )
     }
 
     fn overlay_only_restart_game_page_source() -> &'static str {
@@ -16224,6 +16264,18 @@ export function useGame(canvasRef: RefObject<HTMLCanvasElement | null>) {
         serde_json::json!({
             "ok": true,
             "status": "passed",
+            "probe_mode": "contract",
+            "contract_hook_status": "usable",
+            "contract_hooks": {
+                "usable": true,
+                "primary_present": true,
+                "restart_present": true,
+                "valid_state_count": 1
+            },
+            "action_hooks": ["primary", "restart"],
+            "state_dimensions_changed": ["playerX", "score"],
+            "restart_hook_reachable_after_start": true,
+            "restart_hook_count_after_start": 1,
             "interaction_success": true,
             "interaction_performed": true,
             "input_event_observed": true,
@@ -16254,6 +16306,18 @@ export function useGame(canvasRef: RefObject<HTMLCanvasElement | null>) {
         serde_json::json!({
             "ok": true,
             "status": "passed",
+            "probe_mode": "contract",
+            "contract_hook_status": "usable",
+            "contract_hooks": {
+                "usable": true,
+                "primary_present": true,
+                "restart_present": false,
+                "valid_state_count": 1
+            },
+            "action_hooks": ["primary"],
+            "state_dimensions_changed": ["playerX", "score"],
+            "restart_hook_reachable_after_start": false,
+            "restart_hook_count_after_start": 0,
             "interaction_success": true,
             "interaction_performed": true,
             "input_event_observed": true,
@@ -16280,6 +16344,10 @@ export function useGame(canvasRef: RefObject<HTMLCanvasElement | null>) {
             "recovery_transition_status": "not_observed",
             "duration_ms": 23
         })
+    }
+
+    fn contract_interaction_pass_json() -> String {
+        serde_json::to_string(&interaction_state_changed_probe_result()).unwrap()
     }
 
     #[cfg(unix)]
@@ -16348,8 +16416,13 @@ export function useGame(canvasRef: RefObject<HTMLCanvasElement | null>) {
             .replace("score {score}", &format!("score {{score}} health {label}"))
     }
 
-    fn interactive_game_page_without_restart_variant(label: usize) -> String {
-        interactive_game_page_without_restart_source()
+    fn contract_interactive_game_page_variant(label: usize) -> String {
+        contract_interactive_game_page_source()
+            .replace("score {score}", &format!("score {{score}} health {label}"))
+    }
+
+    fn contract_interactive_game_page_without_restart_variant(label: usize) -> String {
+        contract_interactive_game_page_without_restart_source()
             .replace("score {score}", &format!("score {{score}} health {label}"))
     }
 
@@ -18118,7 +18191,9 @@ Type error: Cannot find name 'player'. Did you mean 'PLAYER_W'?\n\n\
 
     #[cfg(unix)]
     fn dev_server_probe_test_guard() -> std::sync::MutexGuard<'static, ()> {
-        DEV_SERVER_PROBE_TEST_LOCK.lock().unwrap()
+        DEV_SERVER_PROBE_TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     #[cfg(unix)]
@@ -18136,7 +18211,7 @@ Type error: Cannot find name 'player'. Did you mean 'PLAYER_W'?\n\n\
             if port == NEXTJS_DEV_SERVER_DEFAULT_PORT {
                 continue;
             }
-            if std::net::TcpListener::bind(("127.0.0.1", port)).is_ok() {
+            if test_dev_server_port_is_available(port) {
                 return port;
             }
         }
@@ -18144,13 +18219,25 @@ Type error: Cannot find name 'player'. Did you mean 'PLAYER_W'?\n\n\
             match std::net::TcpListener::bind(("127.0.0.1", 0)) {
                 Ok(listener) => {
                     let port = listener.local_addr().unwrap().port();
-                    if port != NEXTJS_DEV_SERVER_DEFAULT_PORT {
+                    drop(listener);
+                    if port != NEXTJS_DEV_SERVER_DEFAULT_PORT
+                        && test_dev_server_port_is_available(port)
+                    {
                         return port;
                     }
                 }
                 Err(_) => return NEXTJS_DEV_SERVER_DEFAULT_PORT + 1,
             }
         }
+    }
+
+    #[cfg(unix)]
+    fn test_dev_server_port_is_available(port: u16) -> bool {
+        let Ok(listener) = std::net::TcpListener::bind(("127.0.0.1", port)) else {
+            return false;
+        };
+        drop(listener);
+        !localhost_port_accepts_connection(port)
     }
 
     fn read_jsonl_events(path: &Path) -> Vec<Value> {

@@ -686,7 +686,8 @@ Profile runtime contract:\n- Preserve the workspace as a real Next.js app.\n\n{}
                 "Complete the promoted Next.js app",
             )),
         ]);
-        let mut final_calls = nextjs_interactive_app_tool_calls(interactive_game_page_source());
+        let contract_page = contract_interactive_game_page_source();
+        let mut final_calls = nextjs_interactive_app_tool_calls(&contract_page);
         final_calls.remove(0);
         final_calls.extend(browser_release_evidence_tool_calls());
         let mut execution = FakeClient::new(vec![
@@ -1373,7 +1374,7 @@ if __name__ == "__main__":
 
     #[test]
     #[cfg(unix)]
-    fn ultra_final_acceptance_runs_probe_when_runtime_evidence_is_missing() {
+    fn ultra_final_acceptance_probe_does_not_promote_missing_restart_contract() {
         let _probe_guard = dev_server_probe_test_guard();
         let dir = tempfile::tempdir().unwrap();
         let events = dir.path().join("events.jsonl");
@@ -1400,8 +1401,8 @@ if __name__ == "__main__":
         let package = format!(
             r#"{{"scripts":{{"build":"next build","dev":"next dev -p {port}"}},"dependencies":{{"next":"^14.2.0","react":"^18.3.0","react-dom":"^18.3.0"}},"devDependencies":{{"typescript":"^5.5.0","@types/node":"^20.14.0","@types/react":"^18.3.0","@types/react-dom":"^18.3.0"}}}}"#
         );
-        let mut app_tool_calls =
-            nextjs_interactive_app_tool_calls(interactive_game_page_without_restart_source());
+        let page_without_restart = contract_interactive_game_page_without_restart_source();
+        let mut app_tool_calls = nextjs_interactive_app_tool_calls(&page_without_restart);
         app_tool_calls[0] = crate::state::ToolCall::new(
             "Write",
             serde_json::json!({"path":"package.json","content":package}),
@@ -1410,7 +1411,7 @@ if __name__ == "__main__":
             "Write",
             serde_json::json!({
                 "path":"interaction-evidence.json",
-                "content":"{\"ok\":true,\"interaction_performed\":true,\"start_transition\":true,\"input_state_change\":true,\"input_event_observed\":true,\"state_changed\":true,\"canvas_found\":true}"
+                "content":serde_json::to_string(&recovery_not_observed_probe_result()).unwrap()
             }),
         ));
         app_tool_calls.push(crate::state::ToolCall::new(
@@ -1430,13 +1431,36 @@ if __name__ == "__main__":
                     "Write",
                     serde_json::json!({
                         "path":"src/app/page.tsx",
-                        "content":interactive_game_page_without_restart_source()
+                        "content":contract_interactive_game_page_without_restart_variant(1)
                     }),
                 )],
                 prompt_tokens: None,
                 completion_tokens: None,
             },
-            AssistantReply::text("final acceptance repair could not add restart behavior"),
+            AssistantReply {
+                content: String::new(),
+                tool_calls: vec![crate::state::ToolCall::new(
+                    "Write",
+                    serde_json::json!({
+                        "path":"src/app/page.tsx",
+                        "content":contract_interactive_game_page_without_restart_variant(2)
+                    }),
+                )],
+                prompt_tokens: None,
+                completion_tokens: None,
+            },
+            AssistantReply {
+                content: String::new(),
+                tool_calls: vec![crate::state::ToolCall::new(
+                    "Write",
+                    serde_json::json!({
+                        "path":"src/app/page.tsx",
+                        "content":contract_interactive_game_page_without_restart_variant(3)
+                    }),
+                )],
+                prompt_tokens: None,
+                completion_tokens: None,
+            },
         ]);
         let plan = UltraPlan {
             goal: explicit_port_goal("Create an interactive browser game", port),
@@ -1455,32 +1479,67 @@ if __name__ == "__main__":
             ],
         };
 
-        let result = run_ultra_plan(&mut planner, &mut execution, &plan, &cfg).unwrap();
+        let err = run_ultra_plan(&mut planner, &mut execution, &plan, &cfg)
+            .unwrap_err()
+            .to_string();
 
-        assert_eq!(result, "ultra-plan-run complete: 2 phases");
+        assert!(
+            err.contains("capability_evidence_unresolved:restart_or_recoverable_state_evidence"),
+            "{err}"
+        );
+        assert!(
+            !err.contains("contract_instrumentation_missing:primary"),
+            "{err}"
+        );
         let event_text = std::fs::read_to_string(&events).unwrap();
         let final_acceptance = latest_event(&events, "ultra_final_acceptance");
         assert!(event_text.contains("\"event\":\"ultra_phase_complete\""));
         assert!(event_text.contains("\"phase_id\":\"final\""));
         assert!(event_text.contains("\"event\":\"ultra_final_acceptance\""));
-        assert!(event_text.contains("\"runtime_acceptance_status\":\"partial\""));
-        assert!(event_text.contains("\"final_acceptance_status\":\"partial\""));
-        assert!(event_text.contains("\"release_gate_status\":\"partial\""));
+        assert_eq!(
+            final_acceptance
+                .get("runtime_acceptance_status")
+                .and_then(Value::as_str),
+            Some("failed")
+        );
+        assert_eq!(
+            final_acceptance
+                .get("final_acceptance_status")
+                .and_then(Value::as_str),
+            Some("incomplete")
+        );
+        assert_eq!(
+            final_acceptance
+                .get("release_gate_status")
+                .and_then(Value::as_str),
+            Some("failed")
+        );
+        assert!(event_text.contains("contract_instrumentation_missing:restart"));
         assert!(event_text.contains("\"restart_or_recoverable_state_evidence\""));
         assert!(
             final_acceptance
+                .get("missing_evidence")
+                .and_then(Value::as_array)
+                .is_some_and(|items| items
+                    .iter()
+                    .any(|item| item.as_str() == Some("restart_or_recoverable_state_evidence")))
+        );
+        assert_eq!(
+            final_acceptance
                 .get("unverified_evidence")
                 .and_then(Value::as_array)
-                .is_some_and(|items| items.iter().any(|item| item.as_str()
-                    == Some("restart_or_recoverable_state_evidence:unverified:probe_unavailable")))
+                .map(Vec::len),
+            Some(0)
         );
         assert!(
             event_text.contains("\"browser_readiness_status\":\"passed\""),
             "{event_text}"
         );
-        assert!(
-            event_text.contains("\"interaction_evidence_status\":\"passed\""),
-            "{event_text}"
+        assert_eq!(
+            final_acceptance
+                .get("interaction_evidence_status")
+                .and_then(Value::as_str),
+            Some("failed:contract_instrumentation_missing:restart")
         );
         assert!(
             !event_text.contains("\"browser_readiness_status\":\"not_checked\""),
@@ -1488,7 +1547,7 @@ if __name__ == "__main__":
         );
         assert!(event_text.contains("\"event\":\"dev_server_lifecycle\""));
         assert!(event_text.contains("\"stage\":\"probe\""));
-        assert!(!event_text.contains("\"event\":\"final_acceptance_repair_start\""));
+        assert!(event_text.contains("\"event\":\"final_acceptance_repair_start\""));
         assert!(
             events
                 .parent()
@@ -1496,7 +1555,7 @@ if __name__ == "__main__":
                 .join("browser-readiness.json")
                 .is_file()
         );
-        assert!(!execution.messages().iter().flatten().any(|message| {
+        assert!(execution.messages().iter().flatten().any(|message| {
             message
                 .content
                 .contains("Repair the final acceptance failure")
@@ -3369,7 +3428,8 @@ if __name__ == "__main__":
         let package = format!(
             r#"{{"scripts":{{"build":"next build","dev":"next dev -p {port}","start":"next start -p {port}"}},"dependencies":{{"next":"^14.2.0","react":"^18.3.0","react-dom":"^18.3.0"}},"devDependencies":{{"typescript":"^5.5.0","@types/node":"^20.14.0","@types/react":"^18.3.0","@types/react-dom":"^18.3.0","tailwindcss":"^3.4.19","postcss":"^8.5.15","autoprefixer":"^10.4.20"}}}}"#
         );
-        let mut tool_calls = nextjs_interactive_app_tool_calls(interactive_game_page_source());
+        let contract_page = contract_interactive_game_page_source();
+        let mut tool_calls = nextjs_interactive_app_tool_calls(&contract_page);
         tool_calls[0] = crate::state::ToolCall::new(
             "Write",
             serde_json::json!({"path":"package.json","content":package}),
@@ -3378,7 +3438,7 @@ if __name__ == "__main__":
             "Write",
             serde_json::json!({
                 "path":"interaction-evidence.json",
-                "content":"{\"ok\":true,\"interaction_performed\":true,\"start_transition\":true,\"input_state_change\":true,\"input_event_observed\":true,\"state_changed\":true,\"canvas_found\":true}"
+                "content":contract_interaction_pass_json()
             }),
         ));
         let mut execution_replies = vec![
@@ -3394,7 +3454,7 @@ if __name__ == "__main__":
                     "Write",
                     serde_json::json!({
                         "path":"interaction-evidence.json",
-                        "content":"{\"ok\":true,\"interaction_performed\":true,\"start_transition\":true,\"input_state_change\":true,\"input_event_observed\":true,\"state_changed\":true,\"canvas_found\":true}"
+                        "content":contract_interaction_pass_json()
                     }),
                 )],
                 prompt_tokens: None,

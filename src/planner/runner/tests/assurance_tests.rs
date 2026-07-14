@@ -63,7 +63,8 @@ export default function Memo() {
                 "Complete the promoted Next.js app",
             )),
         ]);
-        let mut final_calls = nextjs_interactive_app_tool_calls(interactive_game_page_source());
+        let contract_page = contract_interactive_game_page_source();
+        let mut final_calls = nextjs_interactive_app_tool_calls(&contract_page);
         final_calls.remove(0);
         final_calls.extend(browser_release_evidence_tool_calls());
         let mut execution = FakeClient::new(vec![
@@ -952,11 +953,7 @@ if __name__ == "__main__":
         let dir = tempfile::tempdir().unwrap();
         let port = free_local_port();
         let events = dir.path().join(".anvil/runs/surface-fit/events.jsonl");
-        write_probe_nextjs_workspace(
-            dir.path(),
-            port,
-            &interactive_game_page_with_restart_hook_source(),
-        );
+        write_probe_nextjs_workspace(dir.path(), port, &contract_interactive_game_page_source());
         let run_dir = events.parent().unwrap();
         std::fs::create_dir_all(run_dir).unwrap();
         std::fs::write(
@@ -1130,7 +1127,7 @@ if __name__ == "__main__":
         .unwrap();
         std::fs::write(
             dir.path().join("interaction-evidence.json"),
-            r#"{"ok":true,"interaction_performed":true,"start_transition":true,"input_state_change":true,"input_event_observed":true,"state_changed":true,"canvas_found":true}"#,
+            contract_interaction_pass_json(),
         )
         .unwrap();
         let plan = StepPlan {
@@ -1149,10 +1146,10 @@ if __name__ == "__main__":
                 verify: Vec::new(),
             }],
         };
-        let page = interactive_game_page_source();
+        let page = contract_interactive_game_page_source();
         let mut fake = FakeClient::new(vec![AssistantReply {
             content: String::new(),
-            tool_calls: nextjs_interactive_app_tool_calls(page),
+            tool_calls: nextjs_interactive_app_tool_calls(&page),
             prompt_tokens: None,
             completion_tokens: None,
         }]);
@@ -1179,7 +1176,7 @@ if __name__ == "__main__":
         .unwrap();
         std::fs::write(
             dir.path().join("interaction-evidence.json"),
-            r#"{"ok":true,"interaction_performed":true,"start_transition":true,"input_state_change":true,"state_changed":true,"canvas_found":true}"#,
+            contract_interaction_pass_json(),
         )
         .unwrap();
         let plan = StepPlan {
@@ -1198,10 +1195,10 @@ if __name__ == "__main__":
                 verify: Vec::new(),
             }],
         };
-        let page = interactive_game_page_source();
+        let page = contract_interactive_game_page_source();
         let mut fake = FakeClient::new(vec![AssistantReply {
             content: String::new(),
-            tool_calls: nextjs_interactive_app_tool_calls(page),
+            tool_calls: nextjs_interactive_app_tool_calls(&page),
             prompt_tokens: None,
             completion_tokens: None,
         }]);
