@@ -16,6 +16,13 @@ cargo test
 cargo run -- --help
 ```
 
+## Codex Harness
+
+Repository-local Codex skills live under `.agents/skills/` and are invoked as
+`$skill-name`. See [docs/codex-harness.md](docs/codex-harness.md) for the
+migrated command map, orchestration entry point, safety boundaries, and
+validation commands.
+
 ## Run
 
 ```bash

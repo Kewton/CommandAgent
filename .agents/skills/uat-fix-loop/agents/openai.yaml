@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent UAT Fix Loop"
+  short_description: "Repair and reverify failed CommandAgent UAT"
+  default_prompt: "Use $uat-fix-loop to repair failed UAT scenarios within the authorized iteration limit."
+policy:
+  allow_implicit_invocation: false

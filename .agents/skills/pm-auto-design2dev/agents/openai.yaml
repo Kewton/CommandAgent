@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent Design to Development"
+  short_description: "Run CommandAgent design through implementation"
+  default_prompt: "Use $pm-auto-design2dev to design, review, plan, implement, and verify the issue."
+policy:
+  allow_implicit_invocation: false

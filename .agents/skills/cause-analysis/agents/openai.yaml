@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent Cause Analysis"
+  short_description: "Analyze a CommandAgent root cause"
+  default_prompt: "Use $cause-analysis to trace the failure and produce an evidence-backed root cause."
+policy:
+  allow_implicit_invocation: false

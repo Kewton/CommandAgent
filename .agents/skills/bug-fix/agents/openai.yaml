@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent Bug Fix"
+  short_description: "Diagnose and fix a CommandAgent regression"
+  default_prompt: "Use $bug-fix to reproduce, fix, and verify the reported CommandAgent bug."
+policy:
+  allow_implicit_invocation: false

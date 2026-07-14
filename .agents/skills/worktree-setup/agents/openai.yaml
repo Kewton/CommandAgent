@@ -1,0 +1,6 @@
+interface:
+  display_name: "CommandAgent Worktree Setup"
+  short_description: "Create a safe CommandAgent issue worktree"
+  default_prompt: "Use $worktree-setup to create and verify a worktree for the selected issue."
+policy:
+  allow_implicit_invocation: false
