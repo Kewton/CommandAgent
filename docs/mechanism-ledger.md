@@ -336,3 +336,4 @@ UAT #7ではqwen35 profileでinspection書き込み非追従が2件、gemma31 pr
 バンド集計は`final_acceptance_status`と`evidence/data-assurance.json`を正とする。B-2j以前の完走runでは、獲得済みfullがterminal projectionの`completion_contract_not_bound`によりpartialへデフレした値を含む。B-2j（`13b994f`）は`full_success`時にE1〜E4の実在evidenceからassuranceを再導出して投影し、evidence不在・不整合時の保守側投影と早期失敗のT30判定を維持する。歴史的イベントは改変しない。
 
 - data × create バンド宣言（2026-07-15）: 機構安定後窓は2/6 full、全期間窓は2/38 full（観測48 run中、操作誤り・preflight未達の10 runを理由付きで分母外）。再計測は集計スクリプトのみとし、原表は[`band_summary_data.md`](../workspace/management/runs/band_summary_data.md)を参照する。
+- B-3 admission gate（2026-07-16）: `draft` profileのassurance宣言を`static / profile_not_admitted`に上限制限し、dataを[バンド宣言](generality.md#measured-capability-bands-data--create)に基づく初の`admitted` profileへ昇格した。以後、新profileはdraft起点でfull宣言不可。

@@ -142,6 +142,7 @@ fn nextjs_boundary_erosion_tripwire_keeps_dispatch_sites_audited() {
         ("src/planner/lint.rs".to_string(), 2),
         ("src/planner/final_acceptance.rs".to_string(), 1),
         ("src/planner/profile.rs".to_string(), 3),
+        ("src/planner/profile_admission.rs".to_string(), 1),
         ("src/planner/runner.rs".to_string(), 14),
         ("src/planner/verify.rs".to_string(), 3),
     ]);
@@ -149,6 +150,34 @@ fn nextjs_boundary_erosion_tripwire_keeps_dispatch_sites_audited() {
         actual, expected,
         "new production \"nextjs\" literal outside src/planner/profiles must be audited here or moved behind the profile boundary"
     );
+}
+
+#[test]
+fn manifest_execution_sections_exclude_measured_fixture_vocabulary() {
+    // Heuristic tripwire only: it catches known scenario leakage, not semantic overfitting.
+    for (profile, source) in [
+        (
+            "data",
+            include_str!("../src/planner/profiles/data/manifest.toml"),
+        ),
+        (
+            "nextjs",
+            include_str!("../src/planner/profiles/nextjs/manifest.toml"),
+        ),
+    ] {
+        let manifest = source.parse::<toml::Value>().unwrap();
+        for section in ["plan", "step_templates", "checks"] {
+            let value = manifest
+                .get(section)
+                .unwrap_or_else(|| panic!("{profile} manifest missing {section}"));
+            for token in ["sales", "売上", "東京", "大阪", "名古屋"] {
+                assert!(
+                    !toml_value_contains(value, token),
+                    "heuristic overfitting tripwire: {profile}.{section} contains {token:?}; vocabulary is intentionally outside this scan"
+                );
+            }
+        }
+    }
 }
 
 #[test]
@@ -568,6 +597,17 @@ fn collect_rust_source_files(root: &Path, out: &mut Vec<PathBuf>) {
         } else if path.extension().and_then(|ext| ext.to_str()) == Some("rs") {
             out.push(path);
         }
+    }
+}
+
+fn toml_value_contains(value: &toml::Value, token: &str) -> bool {
+    match value {
+        toml::Value::String(text) => text.to_lowercase().contains(token),
+        toml::Value::Array(values) => values.iter().any(|value| toml_value_contains(value, token)),
+        toml::Value::Table(table) => table.iter().any(|(key, value)| {
+            key.to_lowercase().contains(token) || toml_value_contains(value, token)
+        }),
+        _ => false,
     }
 }
 

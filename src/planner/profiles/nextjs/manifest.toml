@@ -2,7 +2,7 @@
 id = "nextjs"
 display_name = "Next.js"
 schema_version = "v0"
-status = "draft"
+status = "admitted"
 
 [plan]
 profile = "nextjs"

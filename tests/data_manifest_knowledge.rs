@@ -59,7 +59,7 @@ fn inspection_literal_example_is_observation_bound_and_reaches_repair_prompt() {
     let manifest = manifest::get();
     let phase = &manifest.plan.phases[0].prompt;
     let guidance = &manifest.guidance.canvas_game.canvas_input_wiring_checklist;
-    let literal = r#"{"column_names": ["date","region","amount"], "input_row_count": 60, "type_summaries": {"date":"string(YYYY-MM-DD)","region":"string","amount":"number"}, "distinct_values": {"region": ["東京","大阪","名古屋"]}, "sample_rows": [{"date":"2026-01-01","region":"東京","amount":1000}]}"#;
+    let literal = r#"{"column_names": ["recorded_at","category","metric"], "input_row_count": 3, "type_summaries": {"recorded_at":"string","category":"string","metric":"number"}, "distinct_values": {"category": ["alpha","beta"]}, "sample_rows": [{"recorded_at":"example-1","category":"alpha","metric":1}]}"#;
     for text in [phase, guidance] {
         assert!(text.contains(literal));
         assert!(text.contains("examples only"));

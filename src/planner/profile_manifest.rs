@@ -642,7 +642,7 @@ mod tests {
     #[test]
     fn invalid_status_is_rejected() {
         let invalid =
-            NEXTJS_MANIFEST_TOML.replacen("status = \"draft\"", "status = \"retired\"", 1);
+            NEXTJS_MANIFEST_TOML.replacen("status = \"admitted\"", "status = \"retired\"", 1);
         assert!(matches!(
             ManifestV0::from_toml(&invalid),
             Err(ManifestError::Parse(_))

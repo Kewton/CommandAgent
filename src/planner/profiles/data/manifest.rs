@@ -163,8 +163,8 @@ fn validate_data_contract(manifest: &ManifestV0) -> Result<(), String> {
     if manifest.metadata.id != "data" || manifest.plan.profile != "data" {
         return Err("metadata.id and plan.profile must both be data".to_string());
     }
-    if manifest.metadata.status != ManifestStatus::Draft {
-        return Err("metadata.status must remain draft until B-3".to_string());
+    if manifest.metadata.status != ManifestStatus::Admitted {
+        return Err("metadata.status must be admitted after B-3".to_string());
     }
     if manifest.plan.placeholders.port.is_some() {
         return Err("data profile must not declare an unused port placeholder".to_string());
@@ -204,7 +204,7 @@ mod tests {
     fn embedded_data_manifest_loads_once_with_five_phases_and_no_port() {
         let manifest = get();
         assert!(std::ptr::eq(manifest, get()));
-        assert_eq!(manifest.metadata.status, ManifestStatus::Draft);
+        assert_eq!(manifest.metadata.status, ManifestStatus::Admitted);
         assert_eq!(manifest.plan.phases.len(), 5);
         assert!(manifest.plan.placeholders.port.is_none());
         assert_eq!(

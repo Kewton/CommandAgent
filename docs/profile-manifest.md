@@ -1,15 +1,15 @@
 # Profile manifest v0
 
-`ManifestV0` is the draft profile format used for the rule-of-two work. Its
+`ManifestV0` is the profile format introduced by the rule-of-two work. Its
 scope is deliberately narrow: preserve the declarative values in the current
 Next.js knowledge, make every verification binding catalog-addressable, and
 let the B-2 data profile be written far enough to expose real format gaps.
 Schema v1 is not implied by this draft.
 
 The embedded Next.js manifest is loaded independently of the existing runtime
-knowledge loader. Its status is `draft`, and no planner or minimal-loop path
-consults it yet. During this parallel period, Next.js behavior continues to
-come from `src/planner/profiles/nextjs/knowledge.rs` and
+knowledge loader. Its status is `admitted`; the admission gate consults that
+status only when projecting assurance. Next.js behavior continues to come from
+`src/planner/profiles/nextjs/knowledge.rs` and
 `src/minimal_loop/evidence_knowledge.rs`.
 
 ## Ownership model
@@ -21,7 +21,7 @@ knowledge, but it cannot replace Layer-1 behavior with executable text.
 
 | Section | Layer-2 declaration | Layer-1 owner or reference boundary |
 | --- | --- | --- |
-| `metadata` | Profile `id`, display name, schema version, and admission status. | The loader validates `v0` and `draft`/`admitted`. B-3 may later use `status`; v0 does not gate execution. |
+| `metadata` | Profile `id`, display name, schema version, and admission status. | The loader validates `v0` and `draft`/`admitted`. The shared admission gate caps a draft profile's declared assurance at `static`; it does not suppress evidence collection. |
 | `plan` | Preset style, intent, ordered UltraPlan phase ids/prompts, the required literal `{goal}` placeholder, and the optional literal `{port}` placeholder. | UltraPlan construction, placeholder expansion, scheduling, and phase execution remain Rust mechanisms. |
 | `step_templates` | Scaffold/build-verification match words, implementation-kill words, ownership markers, and inert template artifact bytes moved from `knowledge.toml`. | Matching precedence, kill decisions, template selection, placeholder expansion, and file writes remain Rust mechanisms. |
 | `vocabulary` | A typed reference to `evidence_knowledge` sections `vocabulary` and `goal_hints.translations`. | The values remain single-sourced in `src/minimal_loop/evidence_knowledge.toml`; evidence scanning and translation behavior remain Layer 1. |
@@ -71,8 +71,8 @@ fallback and no deferred runtime validation.
 
 `nextjs_manifest()` follows the existing knowledge-loader pattern: the TOML is
 embedded with `include_str!`, parsed once through `OnceLock`, and an invalid
-embedded manifest panics immediately. Calling the new loader is not wired into
-the Next.js execution path in v0.
+embedded manifest panics immediately. The execution knowledge remains on the
+legacy loader in v0; only `metadata.status` is wired into assurance projection.
 
 ## Intentionally unsupported
 
@@ -82,7 +82,7 @@ Manifest v0 has no representation for:
 - conditionals, predicates, loops, or profile-authored branching;
 - executable template selection, expansion, write, or repair logic;
 - capability implementations, probe dispatch, or validation weakening; or
-- runtime admission and fallback policy.
+- profile-authored admission conditions or fallback policy.
 
 The artifact strings under `step_templates` are inert data retained from the
 existing Next.js knowledge. They do not make template logic declarative. A new
@@ -116,9 +116,29 @@ guidance variantの区画名がドメイン固有名(canvas_input_wiring_checkli
 
 B-2 の data プロファイル実装は docs/data-profile-contract.md（fixed）に適合しなければならない。契約との不整合はスキーマ側でなく実装側の問題として扱う。
 
-## Promotion boundary
+## Admission criteria
 
-`draft` and `admitted` are the only v0 status values. This task only reserves
-the field. B-3 owns any admission gate, and B-4 owns format-gap settlement and
-schema-v1 finalization. Until a later change explicitly wires an admitted
-manifest, the legacy Next.js loaders remain the sole runtime source of truth.
+Every new profile starts as `draft`. A draft profile can execute its checks and
+record evidence, but both `ultra_final_acceptance` and terminal projection cap
+its assurance at `static` with reason `profile_not_admitted`. The generic
+profile is admitted by definition; manifest-backed profiles must be promoted
+explicitly, and a named profile without a registered admitted manifest fails
+closed as draft.
+
+Promotion to `admitted` requires all five of the following:
+
+1. The profile contract is marked `fixed`.
+2. Its conformance suite is green, including false-success resistance negative tests.
+3. A corpus fixture records the profile's executable contract.
+4. Distribution measurement is complete and a capability band is declared from a committed `band_summary` source (for data, [`band_summary_data.md`](../workspace/management/runs/band_summary_data.md)).
+5. The promotion and evidence are recorded in `docs/mechanism-ledger.md`.
+
+If a false success is detected, the profile returns to `draft` immediately
+while the cause is investigated. The guardrail that rejects known measured
+fixture terms from `plan`, `step_templates`, and `checks` is explicitly a
+heuristic tripwire, not a proof against semantic overfitting; `vocabulary` is
+excluded because domain vocabulary is its declared purpose.
+
+B-4 owns format-gap settlement and schema-v1 finalization. The legacy Next.js
+loaders remain the execution source of truth in v0 apart from the admission
+status projection described above.

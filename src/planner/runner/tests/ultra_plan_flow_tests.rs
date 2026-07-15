@@ -875,7 +875,13 @@ if __name__ == "__main__":
             final_acceptance
                 .get("assurance_level")
                 .and_then(Value::as_str),
-            Some("full")
+            Some("static")
+        );
+        assert_eq!(
+            final_acceptance
+                .get("assurance_reason")
+                .and_then(Value::as_str),
+            Some(crate::planner::profile_admission::PROFILE_NOT_ADMITTED_REASON)
         );
         assert_eq!(
             final_acceptance

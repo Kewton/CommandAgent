@@ -9,7 +9,7 @@ fn embedded_nextjs_manifest_loads_and_resolves_every_check() {
     assert_eq!(manifest.metadata.id, "nextjs");
     assert_eq!(manifest.metadata.display_name, "Next.js");
     assert_eq!(manifest.metadata.schema_version.as_str(), "v0");
-    assert_eq!(manifest.metadata.status, ManifestStatus::Draft);
+    assert_eq!(manifest.metadata.status, ManifestStatus::Admitted);
     assert_eq!(
         manifest
             .plan
