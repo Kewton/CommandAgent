@@ -1,20 +1,24 @@
-use std::collections::BTreeMap;
-
-use super::{ClaimBinding, ExtractedClaim, date_labels};
+use super::candidates::Candidate;
+use super::{ClaimBinding, ExtractedClaim, comparison, date_labels};
 
 pub(super) fn bind_claim(
     report_path: &str,
     claim: ExtractedClaim,
-    values: &BTreeMap<String, f64>,
+    candidates: &[Candidate],
 ) -> ClaimBinding {
     let is_date_label = claim.claim_kind == date_labels::DATE_LABEL;
     let matched = (!is_date_label)
         .then(|| {
-            values.iter().find_map(|(key, value)| {
-                let rounded = round_to_printed_precision(*value, claim.printed_precision);
-                values_match(rounded, claim.normalized_value, claim.printed_precision)
-                    .then(|| (key.clone(), *value, rounded))
+            candidates.iter().find_map(|candidate| {
+                let rounded = comparison::round(candidate.value, claim.printed_precision);
+                comparison::values_match(rounded, claim.normalized_value, claim.printed_precision)
+                    .then_some((candidate, rounded))
             })
+        })
+        .flatten();
+    let nearest_miss = (!is_date_label && matched.is_none())
+        .then(|| {
+            comparison::nearest_miss(claim.normalized_value, claim.printed_precision, candidates)
         })
         .flatten();
     ClaimBinding {
@@ -26,23 +30,10 @@ pub(super) fn bind_claim(
         printed_precision: claim.printed_precision,
         percent: claim.percent,
         unit: claim.unit,
-        matched_key: matched.as_ref().map(|(key, _, _)| key.clone()),
-        matched_result_value: matched.as_ref().map(|(_, value, _)| *value),
-        rounded_result_value: matched.as_ref().map(|(_, _, rounded)| *rounded),
+        matched_key: matched.map(|(candidate, _)| candidate.key.clone()),
+        matched_result_value: matched.map(|(candidate, _)| candidate.value),
+        rounded_result_value: matched.map(|(_, rounded)| rounded),
+        nearest_miss,
         ok: is_date_label || matched.is_some(),
     }
-}
-
-fn round_to_printed_precision(value: f64, precision: u32) -> f64 {
-    if precision > 15 {
-        return value;
-    }
-    let scale = 10_f64.powi(precision as i32);
-    (value * scale).round() / scale
-}
-
-fn values_match(actual: f64, printed: f64, precision: u32) -> bool {
-    let scale = 10_f64.powi(-(precision.min(15) as i32));
-    let tolerance = (scale * 1e-9).max(f64::EPSILON * actual.abs().max(1.0) * 4.0);
-    (actual - printed).abs() <= tolerance
 }

@@ -5,7 +5,7 @@ use std::time::Duration;
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
-use super::claims_binding::{ClaimBinding, bind_report_claims, claim_limit_exceeded};
+use super::claims_binding::{ClaimBinding, bind_report_claims_to_results, claim_limit_exceeded};
 use super::results_schema::{self, ExcludedRows, ResultsDocument};
 use crate::minimal_loop::pipeline_probe::{self, PipelineProbeConfig};
 
@@ -277,7 +277,7 @@ fn evaluate_reports(root: &Path, results: &ResultsDocument, evidence: &mut Claim
         }
         evidence
             .claims
-            .extend(bind_report_claims(report_path, &text, &results.values));
+            .extend(bind_report_claims_to_results(report_path, &text, results));
     }
     if evidence.report_paths.is_empty() {
         evidence
