@@ -5,6 +5,9 @@ use std::sync::OnceLock;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
+mod date_labels;
+mod matching;
+
 const MAX_CLAIMS: usize = 10_000;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -12,6 +15,8 @@ pub struct ClaimBinding {
     pub report_path: String,
     pub byte_offset: usize,
     pub raw: String,
+    #[serde(default = "date_labels::default_quantity")]
+    pub claim_kind: String,
     pub normalized_value: f64,
     pub printed_precision: u32,
     pub percent: bool,
@@ -26,6 +31,7 @@ pub struct ClaimBinding {
 struct ExtractedClaim {
     byte_offset: usize,
     raw: String,
+    claim_kind: &'static str,
     normalized_value: f64,
     printed_precision: u32,
     percent: bool,
@@ -41,7 +47,7 @@ pub fn bind_report_claims(
     extract_numeric_claims(&visible)
         .into_iter()
         .take(MAX_CLAIMS)
-        .map(|claim| bind_claim(report_path, claim, values))
+        .map(|claim| matching::bind_claim(report_path, claim, values))
         .collect()
 }
 
@@ -50,32 +56,8 @@ pub fn claim_limit_exceeded(report_path: &str, text: &str) -> bool {
     numeric_claim_regex().find_iter(&visible).count() > MAX_CLAIMS
 }
 
-fn bind_claim(
-    report_path: &str,
-    claim: ExtractedClaim,
-    values: &BTreeMap<String, f64>,
-) -> ClaimBinding {
-    let matched = values.iter().find_map(|(key, value)| {
-        let rounded = round_to_printed_precision(*value, claim.printed_precision);
-        values_match(rounded, claim.normalized_value, claim.printed_precision)
-            .then(|| (key.clone(), *value, rounded))
-    });
-    ClaimBinding {
-        report_path: report_path.to_string(),
-        byte_offset: claim.byte_offset,
-        raw: claim.raw,
-        normalized_value: claim.normalized_value,
-        printed_precision: claim.printed_precision,
-        percent: claim.percent,
-        unit: claim.unit,
-        matched_key: matched.as_ref().map(|(key, _, _)| key.clone()),
-        matched_result_value: matched.as_ref().map(|(_, value, _)| *value),
-        rounded_result_value: matched.as_ref().map(|(_, _, rounded)| *rounded),
-        ok: matched.is_some(),
-    }
-}
-
 fn extract_numeric_claims(text: &str) -> Vec<ExtractedClaim> {
+    let date_labels = date_labels::DateLabelSpans::in_text(text);
     numeric_claim_regex()
         .find_iter(text)
         .filter_map(|found| {
@@ -89,6 +71,7 @@ fn extract_numeric_claims(text: &str) -> Vec<ExtractedClaim> {
             Some(ExtractedClaim {
                 byte_offset: found.start(),
                 raw: raw.to_string(),
+                claim_kind: date_labels.kind_for(found.start(), found.end()),
                 normalized_value,
                 printed_precision,
                 percent,
@@ -156,20 +139,6 @@ fn unit_after(text: &str, end: usize) -> Option<String> {
         .take(16)
         .collect::<String>();
     (!unit.is_empty()).then_some(unit)
-}
-
-fn round_to_printed_precision(value: f64, precision: u32) -> f64 {
-    if precision > 15 {
-        return value;
-    }
-    let scale = 10_f64.powi(precision as i32);
-    (value * scale).round() / scale
-}
-
-fn values_match(actual: f64, printed: f64, precision: u32) -> bool {
-    let scale = 10_f64.powi(-(precision.min(15) as i32));
-    let tolerance = (scale * 1e-9).max(f64::EPSILON * actual.abs().max(1.0) * 4.0);
-    (actual - printed).abs() <= tolerance
 }
 
 #[cfg(test)]

@@ -293,6 +293,18 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
             test_baseline: 54,
         },
         ChokepointBudget {
+            path: "src/planner/profiles/data/claims_binding/date_labels.rs",
+            total_baseline: 107,
+            production_baseline: 55,
+            test_baseline: 52,
+        },
+        ChokepointBudget {
+            path: "src/planner/profiles/data/claims_binding/matching.rs",
+            total_baseline: 48,
+            production_baseline: 48,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
             path: "src/planner/profile_manifest/validation.rs",
             total_baseline: 148,
             production_baseline: 148,
