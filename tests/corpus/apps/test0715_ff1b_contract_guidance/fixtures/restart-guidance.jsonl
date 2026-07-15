@@ -1,0 +1,2 @@
+{"action_hooks":["primary"],"case":"uat-test0715-ff1-001/ff1_space_qwen35","contract_hook_status":"usable","release_gate_reason":"contract_instrumentation_missing:restart","restart_hook_reachable_after_start":false,"state_dimensions_changed":["playerX"]}
+{"attribute":"data-anvil-action=\"restart\"","case":"uat-test0715-ff1-001/ff1_space_qwen35","event":"contract_attribute_repair_guidance","path":"src/app/page.tsx"}

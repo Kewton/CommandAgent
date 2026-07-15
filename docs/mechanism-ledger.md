@@ -294,12 +294,13 @@ Both report directories below were present when this closure was recorded.
 - Rename: anvilminimal → commandagent（crate/binary: `d05a410`、生きた参照: `835c04f`、本コミット）。以後のUATレポートのversion表記は commandagent。旧名は歴史的記録内で有効。機械出力はversion/CLI、banner、remediation/再現コマンド、truncation marker、probe User-Agent、およびevalの`engine_label`/`binary_kind`/`subject`/レポート見出しのみ新名へ更新し、イベント名・JSONキー・スキーマは不変。
 - M-4移行ゲート（`test0714_m4_001`、2026-07-14）: G1/G2 **PASS**（新buildから6/6を各1回実行・正直終端・収集完了、data失敗5/5がassurance契約準拠、partialインフレ0）につきRepository migration完了を正式宣言し、Phase Bを再開。Evidence: `/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0714_m4_001/uat-report.md` / `aggregate.json`。
 - B-2d（DATA-7/8/9、2026-07-14）: verify lint拒否原文テレメトリ（`82fff89`）、`.anvil`一貫私有化＋有界フィードバック（`bdca35c`）、Python traceback抽出・決定的修復注入・`traceback_mapped`ターゲット解決（本コミット）を、固定data契約を変更せず導入。一次資料: [`investigation-b2d.md`](../workspace/management/runs/uat-test0714-m4-001/investigation-b2d.md)。
+- DATA-10 / DATA-7段2 / FF-1b（2026-07-15）: dataチェックと正準成果物のフェーズスコープ化（`10d0143`）、`data_inspection_schema`（`4d9a4da`）、verify書き換え拡張＋runtimeテレメトリ（`0ba612f`）、contract instrumentation欠落ガイダンス配線（本コミット）を導入。一次資料: [`investigation-data10.md`](../workspace/management/runs/uat-test0714-m4-004/investigation-data10.md)。
 
 ## Incident: semantic false-full (2026-07-14)
 
 | ID | 機構 | コミット | 動機 | 検証 | 状態 |
 |---|---|---|---|---|---|
-| FF-1 | heuristic合格のfull資格剥奪 | `7dd98ad` | uat-test0714-m4-003 Run 6: 初の意味論的false-full。クイズのゴール（3問・スコア・リトライ）に対しシューティングゲームが生成され、契約フックゼロ（contract_hook_status=primary_missing、action_hooks=[]）のままheuristicプローブのmarker差分合格（element_count変化）によりfull_successを獲得した。根因: browser-interaction.json のprobe_mode / contract_hook_status がレポート整形専用で、release gateの判定に接続されていなかった（潜在欠陥、回帰ではない）。機械的偽装（evidence捏造・検証迂回・プローブ不実行のfull投影）はゼロ継続 | 回帰fixture tests/corpus/apps/test0714_m4_003_run6_false_full（full_eligible=false）、interaction_qualification 単体テスト、パリティ6本（結果は実施後に本行へ追記） | fixed |
+| FF-1 | heuristic合格のfull資格剥奪 | `7dd98ad` | uat-test0714-m4-003 Run 6: 初の意味論的false-full。クイズのゴール（3問・スコア・リトライ）に対しシューティングゲームが生成され、契約フックゼロ（contract_hook_status=primary_missing、action_hooks=[]）のままheuristicプローブのmarker差分合格（element_count変化）によりfull_successを獲得した。根因: browser-interaction.json のprobe_mode / contract_hook_status がレポート整形専用で、release gateの判定に接続されていなかった（潜在欠陥、回帰ではない）。機械的偽装（evidence捏造・検証迂回・プローブ不実行のfull投影）はゼロ継続 | 回帰fixture tests/corpus/apps/test0714_m4_003_run6_false_full（full_eligible=false）、interaction_qualification 単体テスト、パリティ6本PASS（uat-test0715-ff1-001、full 3本すべて probe_mode=contract、heuristic-full 0） | fixed |
 
 - 発見経緯: 機械はfullと判定したが、人間の監査（成果物の目視）がgoal種別との不一致を検出した。UAT報告者がG1 FAILと判定し台帳更新を保留した対応は、本プロジェクトの検収規律の実演である。
 - 残存する境界（本修正の対象外）: 契約フックを正しく備えた「goal種別と異なる成果物」は依然fullを獲得しうる。goal種別と要求surfaceの契約束縛は未実装であり、検収可能性階層の実測された境界として記録する（対処は契約設計の将来課題。安易なgoal語彙マッチは偽陰性を量産するため急がない）。

@@ -55,6 +55,53 @@ mod moved {
     }
 
     #[test]
+    fn final_acceptance_prompt_injects_restart_instrumentation_guidance() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src/app")).unwrap();
+        std::fs::write(
+            dir.path().join("package.json"),
+            nextjs_complete_package_json(),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("src/app/page.tsx"),
+            r#"export default function Page(){ return <main data-anvil-state="{}"><button data-anvil-action="primary">Start</button><button>Restart</button></main>; }"#,
+        )
+        .unwrap();
+        let report = VerificationReport::profile_failed(
+            "release gate failed: contract_instrumentation_missing:restart",
+        );
+        let plan = UltraPlan::deterministic(
+            "Create an interactive browser game with restart flow",
+            "nextjs",
+            "default",
+            "create",
+        );
+
+        let prompt = final_acceptance_repair_prompt(
+            dir.path(),
+            PromptLayout::Stable,
+            &plan,
+            &report,
+            &UltraRunContext::default(),
+            "implementation",
+            &["src/app/page.tsx".to_string()],
+            &[],
+            (1, 2),
+            false,
+            false,
+        );
+
+        assert!(
+            prompt.contains("Contract attribute repair guidance:"),
+            "{prompt}"
+        );
+        assert!(prompt.contains(r#"missing attribute: `data-anvil-action="restart"`"#));
+        assert!(prompt.contains("target source file: `src/app/page.tsx`"));
+        assert!(prompt.contains(r#"data-anvil-action="restart""#));
+    }
+
+    #[test]
     fn final_acceptance_evidence_regeneration_prompt_targets_route_bound_source() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();

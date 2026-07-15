@@ -1192,11 +1192,9 @@ fn final_acceptance_contract_attribute_guidance(
     report: &VerificationReport,
     eval_events_path: Option<&Path>,
 ) -> String {
-    let Some(status) = interaction_probe_json_from_report(report)
+    let status = interaction_probe_json_from_report(report)
         .and_then(|value| raw_text_field_deep(&value, &["contract_hook_status"]))
-    else {
-        return String::new();
-    };
+        .unwrap_or_default();
     crate::planner::final_acceptance_contract::guidance_for_hook_status(
         root,
         profile,
