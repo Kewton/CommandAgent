@@ -484,7 +484,7 @@ pub fn generate_step_plan_with_ui(
     config: &Config,
     ui: &dyn InteractionUi,
 ) -> anyhow::Result<StepPlan> {
-    generate_step_plan_with_ui_for_phase(client, goal, config, ui, None, false)
+    generate_step_plan_with_ui_for_phase(client, goal, config, ui, None, false, false)
 }
 
 fn generate_step_plan_with_ui_for_phase(
@@ -494,6 +494,7 @@ fn generate_step_plan_with_ui_for_phase(
     ui: &dyn InteractionUi,
     phase_label: Option<&str>,
     preset_phase: bool,
+    final_phase: bool,
 ) -> anyhow::Result<StepPlan> {
     if ui.interrupted() {
         anyhow::bail!("interrupted by user");
@@ -595,7 +596,7 @@ fn generate_step_plan_with_ui_for_phase(
                     &config.workspace_root,
                     &config.profile,
                     goal,
-                    phase_label,
+                    phase_label.map(|id| (id, final_phase)),
                     preset_phase,
                     config.eval_events_path.as_deref(),
                 );
@@ -11024,6 +11025,7 @@ Phase task: Scaffold and initialize the Next.js project shell";
             &cfg,
             &NOOP_UI,
             Some("project-setup"),
+            false,
             false,
         )
         .unwrap();

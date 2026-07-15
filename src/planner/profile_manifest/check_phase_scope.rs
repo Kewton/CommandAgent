@@ -32,22 +32,18 @@ pub(super) fn validate(manifest: &ManifestV0) -> Result<(), ManifestError> {
     Ok(())
 }
 
-pub(crate) fn check_ids_for_phase<'a>(manifest: &'a ManifestV0, phase_id: &str) -> Vec<&'a str> {
-    let final_phase = manifest
-        .plan
-        .phases
-        .last()
-        .is_some_and(|phase| phase.id == phase_id);
+pub(crate) fn check_ids_for_phase<'a>(
+    manifest: &'a ManifestV0,
+    phase_id: &str,
+    final_phase: bool,
+) -> Vec<&'a str> {
     manifest
         .checks
         .values()
         .flatten()
-        .filter(|check| {
-            final_phase
-                || check
-                    .phases
-                    .as_ref()
-                    .is_some_and(|phases| phases.iter().any(|phase| phase == phase_id))
+        .filter(|check| match &check.phases {
+            Some(phases) => phases.iter().any(|phase| phase == phase_id),
+            None => final_phase,
         })
         .map(|check| check.id.as_str())
         .collect()
@@ -63,17 +59,16 @@ fn invalid(reason: impl Into<String>) -> ManifestError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::planner::profiles::data::manifest;
 
     #[test]
-    fn omitted_scope_is_final_only_and_final_phase_collects_every_check() {
-        let nextjs = crate::planner::profile_manifest::nextjs_manifest();
-        assert!(check_ids_for_phase(nextjs, "project-setup").is_empty());
-        assert_eq!(check_ids_for_phase(nextjs, "build-verification").len(), 7);
-
-        let data = manifest::get();
-        assert!(check_ids_for_phase(data, "data-inspection").contains(&"data_inspection_schema"));
-        assert_eq!(check_ids_for_phase(data, "data-validation").len(), 6);
+    fn omitted_scope_is_final_only_and_explicit_other_phases_stay_excluded() {
+        let data = crate::planner::profiles::data::manifest::get();
+        assert!(
+            check_ids_for_phase(data, "data-inspection", false).contains(&"data_inspection_schema")
+        );
+        let final_ids = check_ids_for_phase(data, "dynamic-final", true);
+        assert_eq!(final_ids.len(), 5);
+        assert!(!final_ids.contains(&"data_inspection_schema"));
     }
 
     #[test]

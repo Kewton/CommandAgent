@@ -11,6 +11,7 @@ use crate::planner::capability_catalog::{InternalCapability, ProbeCapability, Re
 use crate::planner::step_plan::{PlanStep, StepKind, StepPlan};
 
 mod contract_assertion;
+mod phase_filter;
 
 pub(crate) const CATALOG_CHECK_PREFIX: &str = "anvil-catalog-check:";
 
@@ -23,11 +24,13 @@ pub(crate) struct CatalogCheckOutcome {
 
 pub(crate) fn canonicalize_step_plan(
     plan: &mut StepPlan,
+    phase_scope: Option<(&str, bool)>,
     eval_events_path: Option<&Path>,
 ) -> usize {
+    let allowed = phase_scope.map(|(id, final_phase)| phase_filter::ids(id, final_phase));
     plan.steps
         .iter_mut()
-        .map(|step| canonicalize_step(step, eval_events_path))
+        .map(|step| canonicalize_step(step, allowed.as_deref(), eval_events_path))
         .sum()
 }
 
@@ -168,10 +171,14 @@ pub(crate) fn supports_verify_conversion(step: &PlanStep) -> bool {
         .any(|token| matches!(token, "setup" | "inspect" | "inspection"))
 }
 
-fn canonicalize_step(step: &mut PlanStep, eval_events_path: Option<&Path>) -> usize {
+fn canonicalize_step(
+    step: &mut PlanStep,
+    allowed: Option<&[&str]>,
+    eval_events_path: Option<&Path>,
+) -> usize {
     let mut changes = canonicalize_expected_paths(step, eval_events_path);
     changes += canonicalize_instruction(step, eval_events_path);
-    changes + canonicalize_verify_commands(step, eval_events_path)
+    changes + phase_filter::canonicalize_verify_commands(step, allowed, eval_events_path)
 }
 
 fn canonicalize_expected_paths(step: &mut PlanStep, eval_events_path: Option<&Path>) -> usize {
@@ -219,45 +226,6 @@ fn canonicalize_instruction(step: &mut PlanStep, eval_events_path: Option<&Path>
         "canonical",
     );
     1
-}
-
-fn canonicalize_verify_commands(step: &mut PlanStep, eval_events_path: Option<&Path>) -> usize {
-    let original_commands = std::mem::take(&mut step.verify);
-    let mut canonical = Vec::with_capacity(original_commands.len());
-    let mut changes = 0;
-    for original in original_commands {
-        if catalog_check_id(&original).is_some() || !invented_verify_command(&original) {
-            push_unique(&mut canonical, original);
-            continue;
-        }
-        let replacements = inferred_catalog_checks(step, &original);
-        if replacements.is_empty() {
-            emit_canonicalized(
-                eval_events_path,
-                &step.id,
-                "verify",
-                &original,
-                "advisory",
-                "advisory",
-            );
-        } else {
-            for id in replacements {
-                let replacement = catalog_check_command(id);
-                push_unique(&mut canonical, replacement.clone());
-                emit_canonicalized(
-                    eval_events_path,
-                    &step.id,
-                    "verify",
-                    &original,
-                    &replacement,
-                    "canonical",
-                );
-            }
-        }
-        changes += 1;
-    }
-    step.verify = canonical;
-    changes
 }
 
 fn invented_verify_command(command: &str) -> bool {
@@ -486,7 +454,7 @@ mod tests {
             verify: vec!["python3 tests/verify_pipeline.py".to_string()],
         });
 
-        assert!(canonicalize_step_plan(&mut plan, Some(&events)) > 0);
+        assert!(canonicalize_step_plan(&mut plan, None, Some(&events)) > 0);
         assert!(
             plan.steps[0]
                 .verify
@@ -524,7 +492,7 @@ mod tests {
             ],
         });
 
-        assert_eq!(canonicalize_step_plan(&mut plan, Some(&events)), 1);
+        assert_eq!(canonicalize_step_plan(&mut plan, None, Some(&events)), 1);
         assert_eq!(
             plan.steps[0].verify,
             ["test -f output/results.json".to_string(), contract_marker]

@@ -16,6 +16,7 @@ pub(crate) fn setup_step_checks(phase_id: &str) -> Option<DataSetupStepChecks> {
         crate::planner::profile_manifest::check_phase_scope::check_ids_for_phase(
             manifest::get(),
             phase_id,
+            phase_id == "data-validation",
         )
         .into_iter()
         .map(step_policy::catalog_check_command)
@@ -74,7 +75,6 @@ mod tests {
             convert(inspection, "data-inspection"),
             convert(final_step, "data-validation"),
         ];
-
         assert_eq!(
             format!("{}\n", serde_json::to_string_pretty(&converted).unwrap()),
             SNAPSHOT
@@ -91,7 +91,6 @@ mod tests {
             assert_eq!(converted.verify[1], "test -f output/inspection.json");
         }
     }
-
     fn convert(step: PlanStep, phase_id: &str) -> PlanStep {
         let dir = tempfile::tempdir().unwrap();
         let mut plan = StepPlan {
@@ -103,7 +102,7 @@ mod tests {
             dir.path(),
             "data",
             "Inspect sales",
-            Some(phase_id),
+            Some((phase_id, phase_id == "data-validation")),
             true,
             None,
         );

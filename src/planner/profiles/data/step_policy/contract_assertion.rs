@@ -108,7 +108,7 @@ mod tests {
         let events_path = dir.path().join("events.jsonl");
 
         assert_eq!(
-            super::super::canonicalize_step_plan(&mut plan, Some(&events_path)),
+            super::super::canonicalize_step_plan(&mut plan, None, Some(&events_path)),
             2
         );
         assert_eq!(

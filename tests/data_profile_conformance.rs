@@ -10,6 +10,10 @@ use serde::Deserialize;
 const FIXTURE_ROOT: &str = "tests/corpus/apps/test0713_data_profile_contract_v0/fixtures";
 const E2_FIXTURE_ROOT: &str = "tests/corpus/apps/test0715_data_b2g_e2_calibration/fixtures";
 const E2_ARTIFACT_ROOT: &str = "workspace/management/runs/uat-test0715-ff1-002/artifacts";
+const DATA11_FIXTURE_ROOT: &str =
+    "tests/corpus/apps/test0715_data11_final_scope/fixtures/data5_qwen35_none_001";
+const DATA11_ARTIFACT_ROOT: &str =
+    "workspace/management/runs/uat-test0715-data-005/artifacts/data5_qwen35_none_001";
 
 #[derive(Debug, Deserialize)]
 struct DataFixture {
@@ -135,6 +139,43 @@ fn reconciliation_row_mismatch_remains_a_claims_binding_violation() {
     assert_eq!(nearest.key, "reconciliation.input_rows");
     assert_eq!(nearest.result_value, 60.0);
     assert_eq!(nearest.absolute_difference, 1.0);
+}
+
+#[test]
+fn measured_run3_earns_full_without_final_inspection_schema_gating() {
+    let dir = tempfile::tempdir().unwrap();
+    for relative in [
+        "data/sales.csv",
+        "pipeline/main.py",
+        "output/inspection.json",
+        "output/results.json",
+        "output/report.md",
+    ] {
+        let fixture = Path::new(DATA11_FIXTURE_ROOT).join(relative);
+        let artifact = Path::new(DATA11_ARTIFACT_ROOT).join(relative);
+        let bytes = std::fs::read(&fixture).unwrap();
+        assert_eq!(
+            bytes,
+            std::fs::read(artifact).unwrap(),
+            "fixture drift: {relative}"
+        );
+        let target = dir.path().join(relative);
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::write(target, bytes).unwrap();
+    }
+    let summary = run_manifest_checks(dir.path()).unwrap();
+
+    assert_eq!(summary.assurance, DataAssurance::Full, "{summary:?}");
+    for id in [
+        "pipeline_probe",
+        "data_results_schema",
+        "data_reconciliation",
+        "data_claims_binding",
+        "data_rerun_consistency",
+    ] {
+        assert!(summary.checks[id], "{id}: {summary:?}");
+    }
+    assert!(!summary.checks["data_inspection_schema"]);
 }
 
 #[test]

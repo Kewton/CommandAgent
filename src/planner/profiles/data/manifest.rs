@@ -110,7 +110,6 @@ pub fn required_capability_ids() -> Vec<String> {
         "data_reconciliation",
         "data_claims_binding",
         "data_rerun_consistency",
-        "data_inspection_schema",
     ]
     .into_iter()
     .map(str::to_string)
@@ -262,7 +261,6 @@ mod tests {
                 "data_reconciliation",
                 "data_claims_binding",
                 "data_rerun_consistency",
-                "data_inspection_schema",
                 "data_results_schema",
             ]
         );

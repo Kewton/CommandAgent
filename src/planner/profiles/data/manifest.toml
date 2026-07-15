@@ -30,7 +30,7 @@ prompt = '''Generate the required output/report.md from output/results.json; out
 
 [[plan.phases]]
 id = "data-validation"
-prompt = "Run only the manifest-bound inspection-schema, pipeline, results-schema, reconciliation, claims-binding, and rerun-consistency checks against the canonical artifacts. The inspection-phase verification must depend only on the input data and output/inspection.json, never on later-phase artifacts. Do not claim full assurance unless every bound check passes from observed artifacts."
+prompt = "Run only the final-bound pipeline, results-schema, reconciliation, claims-binding, and rerun-consistency checks against the canonical artifacts. data_inspection_schema belongs only to data-inspection and must not be carried into final acceptance. Do not claim full assurance unless every final-bound E1-E4 check passes from observed artifacts."
 
 [step_templates.scaffold]
 phase = ["data inspection", "inspect data", "CSV", "TSV", "データ検分"]
@@ -119,26 +119,23 @@ primary_example = "pipeline/main.py"
 id = "data_inspection_schema"
 phases = ["data-inspection"]
 
+# `phases` is intentionally omitted from every E1-E4 binding below: omitted
+# scope means final acceptance, including a dynamically named last phase.
 [[checks.execution]]
 id = "pipeline_probe"
-phases = ["data-validation"]
 params = { entry = "pipeline/main.py", timeout_seconds = 30 }
 
 [[checks.evidence]]
 id = "data_results_schema"
-phases = ["data-validation"]
 
 [[checks.evidence]]
 id = "data_reconciliation"
-phases = ["data-validation"]
 
 [[checks.evidence]]
 id = "data_claims_binding"
-phases = ["data-validation"]
 
 [[checks.reproducibility]]
 id = "data_rerun_consistency"
-phases = ["data-validation"]
 params = { entry = "pipeline/main.py", timeout_seconds = 30 }
 
 [evidence_targets.mappings]

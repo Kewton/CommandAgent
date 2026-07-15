@@ -149,6 +149,7 @@ Phase task: Implement game logic, player control, collision, score, and canvas b
             &NOOP_UI,
             Some("core-implementation"),
             true,
+            false,
         )
         .unwrap();
 
@@ -210,6 +211,7 @@ Phase task: Implement paddle movement, collisions, score, and canvas behavior";
             &NOOP_UI,
             Some("core-implementation"),
             true,
+            false,
         )
         .unwrap();
 

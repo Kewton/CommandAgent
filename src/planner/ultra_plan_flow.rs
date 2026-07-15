@@ -289,6 +289,7 @@ pub fn run_ultra_plan_with_ui(
             &ultra_context,
             ultra_session.messages.len(),
         );
+        let final_phase = index + 1 == plan.phases.len();
         let phase_prompt = ultra_phase_prompt(plan, phase, config, &ultra_context);
         let step_plan = generate_step_plan_with_ui_for_phase(
             planner,
@@ -297,6 +298,7 @@ pub fn run_ultra_plan_with_ui(
             ui,
             Some(&phase.id),
             preset_plan,
+            final_phase,
         )
         .map_err(|err| {
             let rejected_verify_commands =
@@ -366,7 +368,6 @@ pub fn run_ultra_plan_with_ui(
             Some(step_plan.steps.len()),
         );
         save_step_plan(&config.workspace_root, &step_plan)?;
-        let final_phase = index + 1 == plan.phases.len();
         let step_outcome = match run_step_plan_with_session_with_ui_and_run_authority(
             execution,
             &mut ultra_session,

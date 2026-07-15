@@ -166,10 +166,7 @@ fn classify(checks: &BTreeMap<String, bool>, probe_attempted: bool) -> DataAssur
         || !passed("data_rerun_consistency")
     {
         DataAssurance::Failed
-    } else if !passed("data_claims_binding")
-        || !passed("data_results_schema")
-        || !passed("data_inspection_schema")
-    {
+    } else if !passed("data_claims_binding") || !passed("data_results_schema") {
         DataAssurance::Partial
     } else {
         DataAssurance::Full

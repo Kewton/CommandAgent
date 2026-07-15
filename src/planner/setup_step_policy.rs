@@ -5,6 +5,7 @@ use serde_json::json;
 use crate::eval_events;
 use crate::planner::profile::{domain_profile, is_nextjs_profile};
 use crate::planner::profile_manifest::TemplateOwnedArtifacts;
+use crate::planner::profiles::data::step_policy::canonicalize_step_plan;
 use crate::planner::step_plan::{PlanStep, StepKind, StepPlan};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -27,10 +28,7 @@ pub(crate) fn runtime_step_with_profile_checks(
             goal: goal.to_string(),
             steps: vec![candidate],
         };
-        crate::planner::profiles::data::step_policy::canonicalize_step_plan(
-            &mut plan,
-            eval_events_path,
-        );
+        canonicalize_step_plan(&mut plan, None, eval_events_path);
         candidate = plan.steps.remove(0);
     }
     if !candidate.verify.is_empty()
@@ -116,12 +114,13 @@ pub(crate) fn convert_preset_phase_setup_steps(
     root: &Path,
     profile: &str,
     goal: &str,
-    phase_id: Option<&str>,
+    phase_scope: Option<(&str, bool)>,
     preset_phase: bool,
     eval_events_path: Option<&Path>,
 ) -> usize {
+    let phase_id = phase_scope.map(|(id, _)| id);
     let mut converted = if is_data_profile(profile) {
-        crate::planner::profiles::data::step_policy::canonicalize_step_plan(plan, eval_events_path)
+        canonicalize_step_plan(plan, phase_scope, eval_events_path)
     } else {
         0
     };
@@ -715,7 +714,7 @@ mod tests {
             dir.path(),
             "nextjs",
             "Build a Next.js app",
-            Some("core-implementation"),
+            Some(("core-implementation", false)),
             true,
             Some(&events),
         );
@@ -744,7 +743,7 @@ mod tests {
             dir.path(),
             "nextjs",
             "Build a Next.js app on port 3011",
-            Some("core-implementation"),
+            Some(("core-implementation", false)),
             true,
             Some(&events),
         );
@@ -780,7 +779,7 @@ mod tests {
             dir.path(),
             "data",
             "Inspect sales",
-            Some("data-inspection"),
+            Some(("data-inspection", false)),
             true,
             Some(&events),
         );
@@ -819,7 +818,7 @@ mod tests {
                 dir.path(),
                 "data",
                 "Report sales",
-                Some("data-reporting"),
+                Some(("data-reporting", false)),
                 true,
                 None,
             ),
@@ -854,7 +853,7 @@ mod tests {
                 dir.path(),
                 "nextjs",
                 "Build a Next.js app on port 3011",
-                Some("core-implementation"),
+                Some(("core-implementation", false)),
                 true,
                 None,
             ),
@@ -884,7 +883,7 @@ mod tests {
                 dir.path(),
                 "nextjs",
                 "Build a Next.js app",
-                Some("core-implementation"),
+                Some(("core-implementation", false)),
                 true,
                 None,
             ),
