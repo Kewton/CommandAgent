@@ -1,15 +1,15 @@
-use std::collections::BTreeSet;
-use std::io::{BufRead, Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+mod input_table;
+
 pub const EVIDENCE_PATH: &str = "evidence/inspection-schema.json";
 const INSPECTION_PATH: &str = "output/inspection.json";
 const MAX_INSPECTION_BYTES: u64 = 2 * 1024 * 1024;
-const MAX_HEADER_BYTES: u64 = 1024 * 1024;
 const REQUIRED_KEYS: [&str; 5] = [
     "column_names",
     "input_row_count",
@@ -64,17 +64,16 @@ fn evaluate(root: &Path, evidence: &mut InspectionSchemaEvidence) {
         ));
         return;
     }
-    let (input_path, headers) = match discover_input(root).and_then(|path| load_headers(root, path))
-    {
+    let input = match discover_input(root).and_then(|path| input_table::load(root, path)) {
         Ok(input) => input,
         Err(failure) => {
             evidence.failure_kinds.push(failure);
             return;
         }
     };
-    evidence.input_path = Some(input_path);
-    let columns = validate_columns(&document, &headers, &mut evidence.failure_kinds);
-    validate_row_count(&document, &mut evidence.failure_kinds);
+    evidence.input_path = Some(input.relative_path);
+    let columns = validate_columns(&document, &input.headers, &mut evidence.failure_kinds);
+    validate_row_count(&document, input.row_count, &mut evidence.failure_kinds);
     validate_type_summaries(&document, &columns, &mut evidence.failure_kinds);
     validate_distinct_values(&document, &columns, &mut evidence.failure_kinds);
     validate_sample_rows(&document, &mut evidence.failure_kinds);
@@ -143,69 +142,6 @@ fn collect_inputs(directory: &Path, files: &mut Vec<PathBuf>) -> std::io::Result
     Ok(())
 }
 
-fn load_headers(root: &Path, path: PathBuf) -> Result<(String, Vec<String>), String> {
-    let metadata = path
-        .metadata()
-        .map_err(|error| format!("inspection_schema_violation:input_metadata:{error}"))?;
-    if !metadata.is_file() {
-        return Err("inspection_schema_violation:input_not_file".to_string());
-    }
-    let file = std::fs::File::open(&path)
-        .map_err(|error| format!("inspection_schema_violation:input_unreadable:{error}"))?;
-    let mut line = String::new();
-    std::io::BufReader::new(file)
-        .take(MAX_HEADER_BYTES + 1)
-        .read_line(&mut line)
-        .map_err(|error| format!("inspection_schema_violation:input_header:{error}"))?;
-    if line.len() as u64 > MAX_HEADER_BYTES || line.trim_end_matches(['\r', '\n']).is_empty() {
-        return Err("inspection_schema_violation:input_header_invalid".to_string());
-    }
-    let delimiter = if path
-        .extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case("tsv"))
-    {
-        '\t'
-    } else {
-        ','
-    };
-    let mut headers = parse_record(line.trim_end_matches(['\r', '\n']), delimiter)?;
-    if let Some(first) = headers.first_mut() {
-        *first = first.trim_start_matches('\u{feff}').to_string();
-    }
-    if headers.iter().any(|header| header.trim().is_empty())
-        || headers.iter().collect::<BTreeSet<_>>().len() != headers.len()
-    {
-        return Err("inspection_schema_violation:input_header_invalid".to_string());
-    }
-    Ok((
-        crate::tools::path_guard::relative_display(root, &path),
-        headers,
-    ))
-}
-
-fn parse_record(line: &str, delimiter: char) -> Result<Vec<String>, String> {
-    let mut fields = vec![String::new()];
-    let mut chars = line.chars().peekable();
-    let mut quoted = false;
-    while let Some(ch) = chars.next() {
-        match ch {
-            '"' if quoted && chars.peek() == Some(&'"') => {
-                fields.last_mut().unwrap().push('"');
-                chars.next();
-            }
-            '"' => quoted = !quoted,
-            value if value == delimiter && !quoted => fields.push(String::new()),
-            value => fields.last_mut().unwrap().push(value),
-        }
-    }
-    if quoted {
-        Err("inspection_schema_violation:input_header_unclosed_quote".to_string())
-    } else {
-        Ok(fields)
-    }
-}
-
 fn validate_columns(
     document: &Map<String, Value>,
     headers: &[String],
@@ -234,9 +170,15 @@ fn validate_columns(
     columns
 }
 
-fn validate_row_count(document: &Map<String, Value>, failures: &mut Vec<String>) {
-    if !document["input_row_count"].is_number() {
+fn validate_row_count(document: &Map<String, Value>, expected: u64, failures: &mut Vec<String>) {
+    let Some(reported) = document["input_row_count"].as_number() else {
         failures.push("inspection_schema_violation:input_row_count:not_number".to_string());
+        return;
+    };
+    if reported.as_u64() != Some(expected) && reported.as_f64() != Some(expected as f64) {
+        failures.push(format!(
+            "inspection_schema_violation:input_row_count_mismatch:expected={expected}:reported={reported}"
+        ));
     }
 }
 

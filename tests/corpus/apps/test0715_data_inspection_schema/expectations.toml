@@ -35,3 +35,8 @@ fixtures/valid-inspection.json = [
   "distinct_values",
   "sample_rows"
 ]
+fixtures/uat5-run1-row-count-mismatch.json = [
+  "\"input_row_count\": 24",
+  "\"column_names\"",
+  "\"sample_rows\""
+]
