@@ -1,0 +1,53 @@
+{
+  "capability_id": "pipeline_probe",
+  "status": "pass",
+  "ok": true,
+  "outcome": "exited",
+  "command": [
+    "python3",
+    "-B",
+    "pipeline/main.py"
+  ],
+  "duration_ms": 52,
+  "exit_code": 0,
+  "stdout": {
+    "text": "",
+    "captured_bytes": 0,
+    "total_bytes": 0,
+    "truncated": false
+  },
+  "stderr": {
+    "text": "",
+    "captured_bytes": 0,
+    "total_bytes": 0,
+    "truncated": false
+  },
+  "artifacts": [
+    {
+      "path": "output/inspection.json",
+      "bytes": 708,
+      "fnv1a64": "05e04933059736ce"
+    },
+    {
+      "path": "output/report.md",
+      "bytes": 705,
+      "fnv1a64": "5fd6772980626b6f"
+    },
+    {
+      "path": "output/results.json",
+      "bytes": 814,
+      "fnv1a64": "25f4ba5bcd09c08e"
+    }
+  ],
+  "isolation": {
+    "level": "workspace_cwd_env_allowlist_bounded_offline_policy",
+    "workspace_cwd": true,
+    "environment_allowlist": true,
+    "process_group": true,
+    "bounded_timeout_ms": 30000,
+    "offline_policy_applied": true,
+    "network_namespace_enforced": false
+  },
+  "failure_kinds": [],
+  "capture_warnings": []
+}

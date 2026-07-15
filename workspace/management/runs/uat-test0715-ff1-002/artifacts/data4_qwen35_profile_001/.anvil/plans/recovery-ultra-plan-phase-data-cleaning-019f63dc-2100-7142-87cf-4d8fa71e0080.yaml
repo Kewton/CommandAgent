@@ -1,0 +1,17 @@
+# anvil-recovery-ultra-plan
+recovery_schema_version: "1"
+recovery_original_goal: "data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。"
+recovery_failure_kind: "phase_execute_error"
+recovery_profile: "data"
+recovery_failed_phase: "data-cleaning"
+goal: "data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。"
+profile: "data"
+style: "recovery"
+intent: "recover"
+phases:
+  - id: "inspect-current-state"
+    prompt: "Inspect the current workspace before changing files. Original goal: data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。. Failed acceptance layer or phase: data-cleaning. Failed step: unknown. Failure kind: phase_execute_error. Preserve useful existing artifacts and identify the smallest remaining implementation gap."
+  - id: "repair-data-cleaning"
+    prompt: "Repair the incomplete work for the failed phase without restarting from scratch.\nOriginal goal: data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。\nFailed acceptance layer or phase: data-cleaning\nFailed step: unknown\nMissing capability or artifact signals:\n- repair target: implementation\nFailure evidence:\n- model_stagnation:read_only_loop: write_required exhausted for pipeline/main.py; objective: Repair step `implement-pipeline`. Verification failed: data_claims_binding:claims_binding_violation:output/report.md:54:60; claims_binding_violation:output/report.md:73:57; claims_binding_violation:output/report.md:92:3; claims_binding_violation:output/report.md:170:1; claims_binding_violation:output/report.md:193:1; claims_binding_violation:output/report.md:214:1; Paths: - recovery prompt saved: .anvil/re\nRepair targets:\n- implementation\nCreate or update the task-specific implementation artifacts needed to satisfy the original goal. Do not treat scaffold-only, setup-only, style-only, or build-only output as complete."
+  - id: "verify-recovery"
+    prompt: "Verify the recovered output with deterministic checks and repair only targeted failures.\nOriginal goal: data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。\nFailed acceptance layer or phase: data-cleaning\nPreferred verify/browser check:\n- use deterministic file existence, build, route, and capability evidence checks\n- avoid shell control syntax and interactive dev-server-only verification\nVerify preference: use the preferred checks above.\nExpected recovery result: runnable task-specific output, not only a saved plan or diagnostic report."

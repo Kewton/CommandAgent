@@ -1,0 +1,335 @@
+{
+  "schema_version": 1,
+  "uat_id": "uat-test0715-data-004",
+  "record_directory": "workspace/management/runs/uat-test0715-ff1-002",
+  "record_directory_override": "User directed the data UAT record to uat-test0715-ff1-002 after the original task named uat-test0715-data-004.",
+  "recorded_at": "2026-07-15T13:41:18+09:00",
+  "repository": {
+    "branch": "develop",
+    "head": "a5bafcb3e17a098bb7b9edfcee21282f3fd4f634",
+    "head_oneline": "a5bafcb Wire contract instrumentation repair guidance",
+    "preflight_status_clean": true
+  },
+  "preflight": {
+    "cargo_test": {
+      "exit_code": 0,
+      "lib_passed": 1303,
+      "lib_ignored": 13,
+      "failures": 0,
+      "full_suite_green": true
+    },
+    "cargo_build_release": {
+      "exit_code": 0
+    },
+    "installed_binary": "/Users/maenokota/.local/bin/commandagent",
+    "version": "commandagent 0.1.0 a5bafcb 2026-07-15T03:10:46Z",
+    "dirty_suffix_present": false,
+    "release_binary_sha256": "80da779f8346eb4879796b43da9f20cfeeeb270da3a36b8896d243f3c7756d16",
+    "installed_binary_sha256": "80da779f8346eb4879796b43da9f20cfeeeb270da3a36b8896d243f3c7756d16"
+  },
+  "measurement": {
+    "workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0715_data_004",
+    "workspace_was_new": true,
+    "profile": "data",
+    "provider": "ollama",
+    "planner_model": "qwen3.6:27b-coding-nvfp4",
+    "planner_provider": "ollama",
+    "context_budget": 65536,
+    "ultra_plan_run": true,
+    "goal": "data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。",
+    "input_sha256": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873",
+    "input_hash_matches": 6,
+    "planned_runs": 6,
+    "executed_runs": 6,
+    "one_invocation_each": true,
+    "retries": 0
+  },
+  "criteria": {
+    "P0-a": {
+      "status": "pass",
+      "summary": "6/6 honest classified terminals; no panic, unclassified terminal, or unexplained interruption"
+    },
+    "P0-b": {
+      "status": "pass",
+      "summary": "zero assurance inflation under data profile contract section 4"
+    },
+    "P0-c": {
+      "status": "fail",
+      "summary": "one DATA-10 recurrence in data4_gemma31_profile_001: write_required exhausted for output/inspection.json"
+    },
+    "P1-a": {
+      "status": "pass",
+      "summary": "none-arm shell-syntax immediate deaths fell from 4/4 to 0/4; original_command and violation_kind recorded for two verify-policy rejections"
+    },
+    "P1-b": {
+      "status": "pass",
+      "summary": "data_inspection_schema executed in both profile runs, recording one pass and one missing-key failure"
+    }
+  },
+  "runs": [
+    {
+      "number": 1,
+      "name": "data4_qwen35_profile_001",
+      "run_id": "019f63c4-2752-7c01-9383-36604efd70c5",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "preset": "profile",
+      "invocations": 1,
+      "exit_code": 1,
+      "duration_seconds": 1571.38,
+      "terminal_status": "failed",
+      "final_acceptance_status": "not_checked",
+      "assurance_level": "failed",
+      "assurance_reason": "data_assurance_failed",
+      "terminal_phase": "data-cleaning",
+      "stop_class": "model_stagnation:read_only_loop:write_required_exhausted:pipeline/main.py",
+      "inspection": {
+        "canonical_phase_result": "pass",
+        "artifact_present": true,
+        "schema_result": "pass",
+        "missing_keys": [],
+        "write_required_events": 3,
+        "write_required_exhausted": false
+      },
+      "normalization_counts": {
+        "shell_control_split": 1,
+        "stderr_suppression_stripped": 1,
+        "fallback_true_stripped": 0
+      },
+      "evidence": {
+        "pipeline-run": "pass",
+        "reconciliation": "pass:60=57+3",
+        "claims-binding": "failed",
+        "rerun-consistency": "absent"
+      }
+    },
+    {
+      "number": 2,
+      "name": "data4_gemma31_profile_001",
+      "run_id": "019f63dc-b091-7e80-891e-8db9d29ddd08",
+      "executor": "gemma4:31b",
+      "preset": "profile",
+      "invocations": 1,
+      "exit_code": 1,
+      "duration_seconds": 306.99,
+      "terminal_status": "failed",
+      "final_acceptance_status": "not_checked",
+      "assurance_level": "failed",
+      "assurance_reason": "data_profile_script_not_generated",
+      "terminal_phase": "data-inspection",
+      "stop_class": "model_stagnation:read_only_loop:write_required_exhausted:output/inspection.json",
+      "inspection": {
+        "canonical_phase_result": "failed",
+        "artifact_present": true,
+        "schema_result": "failed",
+        "missing_keys": [
+          "column_names",
+          "input_row_count",
+          "type_summaries",
+          "distinct_values",
+          "sample_rows"
+        ],
+        "write_required_events": 2,
+        "write_required_exhausted": true
+      },
+      "normalization_counts": {
+        "shell_control_split": 0,
+        "stderr_suppression_stripped": 0,
+        "fallback_true_stripped": 0
+      },
+      "evidence": {
+        "pipeline-run": "absent",
+        "reconciliation": "absent",
+        "claims-binding": "absent",
+        "rerun-consistency": "absent"
+      }
+    },
+    {
+      "number": 3,
+      "name": "data4_qwen35_none_001",
+      "run_id": "019f63e1-c4d1-76a0-8627-36a7f40e6fb6",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "preset": "none",
+      "invocations": 1,
+      "exit_code": 1,
+      "duration_seconds": 632.64,
+      "terminal_status": "failed",
+      "final_acceptance_status": "not_checked",
+      "assurance_level": "static",
+      "assurance_reason": "data_profile_probe_not_run",
+      "terminal_phase": "inspect-schema-and-rules",
+      "stop_class": "artifact_follow_through_exhausted:tests/smoke_test.py",
+      "inspection": {
+        "canonical_phase_result": "not_present",
+        "artifact_present": false,
+        "schema_result": "not_executed",
+        "missing_keys": null,
+        "write_required_events": 0,
+        "write_required_exhausted": false
+      },
+      "normalization_counts": {
+        "shell_control_split": 0,
+        "stderr_suppression_stripped": 0,
+        "fallback_true_stripped": 0
+      },
+      "evidence": {
+        "pipeline-run": "absent",
+        "reconciliation": "absent",
+        "claims-binding": "absent",
+        "rerun-consistency": "absent"
+      }
+    },
+    {
+      "number": 4,
+      "name": "data4_qwen35_none_002",
+      "run_id": "019f63eb-d9e3-70a1-afd1-3e42649e3769",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "preset": "none",
+      "invocations": 1,
+      "exit_code": 1,
+      "duration_seconds": 939.76,
+      "terminal_status": "failed",
+      "final_acceptance_status": "not_checked",
+      "assurance_level": "failed",
+      "assurance_reason": "data_assurance_failed",
+      "terminal_phase": "load-and-validate-data",
+      "stop_class": "loop_progress_exhausted:model_stagnation:read_only_loop",
+      "inspection": {
+        "canonical_phase_result": "not_present",
+        "artifact_present": true,
+        "schema_result": "not_executed",
+        "missing_keys": [
+          "column_names",
+          "input_row_count",
+          "type_summaries",
+          "distinct_values",
+          "sample_rows"
+        ],
+        "write_required_events": 0,
+        "write_required_exhausted": false
+      },
+      "normalization_counts": {
+        "shell_control_split": 0,
+        "stderr_suppression_stripped": 0,
+        "fallback_true_stripped": 0
+      },
+      "evidence": {
+        "pipeline-run": "pass",
+        "reconciliation": "pass:60=56+4",
+        "claims-binding": "failed",
+        "rerun-consistency": "absent"
+      }
+    },
+    {
+      "number": 5,
+      "name": "data4_gemma31_none_001",
+      "run_id": "019f63fa-918e-7652-9a11-bfdcdf0cb3b7",
+      "executor": "gemma4:31b",
+      "preset": "none",
+      "invocations": 1,
+      "exit_code": 1,
+      "duration_seconds": 619.34,
+      "terminal_status": "failed",
+      "final_acceptance_status": "not_checked",
+      "assurance_level": "static",
+      "assurance_reason": "data_profile_probe_not_run",
+      "terminal_phase": "load-and-validate-data",
+      "stop_class": "artifact_follow_through_exhausted:output/results.json,output/report.md",
+      "inspection": {
+        "canonical_phase_result": "not_present",
+        "artifact_present": true,
+        "schema_result": "not_executed",
+        "missing_keys": [
+          "column_names",
+          "input_row_count",
+          "type_summaries",
+          "distinct_values",
+          "sample_rows"
+        ],
+        "write_required_events": 0,
+        "write_required_exhausted": false
+      },
+      "normalization_counts": {
+        "shell_control_split": 0,
+        "stderr_suppression_stripped": 0,
+        "fallback_true_stripped": 0
+      },
+      "evidence": {
+        "pipeline-run": "absent",
+        "reconciliation": "failed:results_absent",
+        "claims-binding": "failed:results_absent",
+        "rerun-consistency": "absent"
+      }
+    },
+    {
+      "number": 6,
+      "name": "data4_gemma31_none_002",
+      "run_id": "019f6404-6b2b-76a1-8bde-0e65996e04dc",
+      "executor": "gemma4:31b",
+      "preset": "none",
+      "invocations": 1,
+      "exit_code": 1,
+      "duration_seconds": 479.71,
+      "terminal_status": "failed",
+      "final_acceptance_status": "not_checked",
+      "assurance_level": "static",
+      "assurance_reason": "data_profile_probe_not_run",
+      "terminal_phase": "inspect-and-define-schema",
+      "stop_class": "artifact_follow_through_exhausted:output/results.json,output/report.md",
+      "inspection": {
+        "canonical_phase_result": "not_present",
+        "artifact_present": true,
+        "schema_result": "not_executed",
+        "missing_keys": [
+          "column_names",
+          "input_row_count",
+          "type_summaries",
+          "distinct_values",
+          "sample_rows"
+        ],
+        "write_required_events": 0,
+        "write_required_exhausted": false
+      },
+      "normalization_counts": {
+        "shell_control_split": 0,
+        "stderr_suppression_stripped": 0,
+        "fallback_true_stripped": 0
+      },
+      "evidence": {
+        "pipeline-run": "absent",
+        "reconciliation": "failed:results_absent",
+        "claims-binding": "failed:results_absent",
+        "rerun-consistency": "absent"
+      }
+    }
+  ],
+  "aggregates": {
+    "honest_terminals": 6,
+    "successful_runs": 0,
+    "full_runs": 0,
+    "profile_successes": 0,
+    "profile_runs": 2,
+    "none_successes": 0,
+    "none_runs": 4,
+    "data10_recurrences": 1,
+    "none_immediate_shell_syntax_deaths": 0,
+    "data_inspection_schema_executions": 2,
+    "data_inspection_schema_passes": 1,
+    "data_inspection_schema_failures": 1,
+    "normalization_counts": {
+      "shell_control_split": 1,
+      "stderr_suppression_stripped": 1,
+      "fallback_true_stripped": 0
+    },
+    "runtime_bash_policy_events": 40,
+    "runtime_bash_policy_rejections": 0,
+    "verify_policy_rejections": 2,
+    "pipeline_run_evidence_present": 2,
+    "pipeline_run_evidence_pass": 2,
+    "reconciliation_evidence_present": 4,
+    "reconciliation_evidence_pass": 2,
+    "claims_binding_evidence_present": 4,
+    "claims_binding_evidence_pass": 0,
+    "rerun_consistency_evidence_present": 0,
+    "rerun_consistency_evidence_pass": 0
+  }
+}

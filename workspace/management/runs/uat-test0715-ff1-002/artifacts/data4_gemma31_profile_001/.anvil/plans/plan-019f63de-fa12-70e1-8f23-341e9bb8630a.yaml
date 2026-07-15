@@ -1,0 +1,35 @@
+goal: "Original ultra goal: data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。\nProfile: data\nStyle: default\nIntent: create\nPhase id: data-inspection\nPhase task: Inspect the workspace CSV or TSV input for: data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。. Write output/inspection.json with column names, input row count, type summaries, distinct observed values for every categorical column (for example the actual region values), and sample rows. Derive later validation rules such as valid regions and date formats only from output/inspection.json observations; never invent an unobserved value set. Verify this phase without depending on pipeline/main.py, output/results.json, or output/report.md.\n\nWorkspace snapshot:\n- data\n\nPrior ultra context:\n- Pending final artifacts:\n  - pipeline/main.py\n  - output/inspection.json\n  - output/results.json\n  - output/report.md\n\nUnmet final requirements from earlier phases:\n- none\n\nRequested features not yet detected:\n- account\n- actual\n- additional\n- against\n- aggregates\n- artifact\n- … and 110 more\n\nProfile generation rules:\nThe pipeline must be deterministic: use a fixed seed whenever randomness is unavoidable, do not depend on execution time, and keep iteration and output ordering stable. Derive validation rules only from output/inspection.json observations and never invent unobserved value sets. This is class knowledge required by docs/data-profile-contract.md section 8.\nProfile runtime contract:\n- Generate pipeline/main.py, output/inspection.json, output/results.json, and required output/report.md; output/report.html is optional in addition.\n- Write output/results.json exactly as {\"reconciliation\":{\"input_rows\":N,\"used_rows\":N,\"excluded\":[{\"reason\":\"...\",\"rows\":N}]},\"values\":{\"<claim_key>\":number}} and store every numeric report claim under values.\n- input_rows must equal used_rows plus the sum of excluded rows.\n- A rerun must reproduce the complete output/results.json document exactly; time, random state, and unstable iteration order may not change results.Deterministic verification preference:\n- none\n\n\nRequired final artifacts:\n- pipeline/main.py\n- output/inspection.json\n- output/results.json\n- output/report.md\n\nRequired final capabilities:\n- data_reconciliation\n- data_claims_binding\n- data_rerun_consistency\n- data_inspection_schema\n- data_results_schema"
+steps:
+  - id: "inspect-csv-input"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read data/sales.csv to identify column names, data patterns, and sample rows for type inference and distinct value extraction."
+    expected_paths:
+    verify:
+  - id: "create-inspection-script"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Verify the profile-owned data_manifest_artifact contract by running every declared check and report any exact failure."
+    expected_paths:
+      - "output/inspection.json"
+    verify:
+      - "anvil-catalog-check:data_inspection_schema"
+      - "test -f output/inspection.json"
+  - id: "run-inspection"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Verify the profile-owned data_manifest_artifact contract by running every declared check and report any exact failure."
+    expected_paths:
+      - "output/inspection.json"
+    verify:
+      - "anvil-catalog-check:data_inspection_schema"
+      - "test -f output/inspection.json"
+  - id: "verify-inspection-artifact"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Verify the profile-owned data_manifest_artifact contract by running every declared check and report any exact failure."
+    expected_paths:
+      - "output/inspection.json"
+    verify:
+      - "anvil-catalog-check:data_inspection_schema"
+      - "test -f output/inspection.json"

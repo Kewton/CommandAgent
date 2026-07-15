@@ -1,0 +1,25 @@
+{
+  "columns": [
+    {
+      "name": "date",
+      "type": "string",
+      "format": "YYYY-MM-DD",
+      "description": "Transaction date"
+    },
+    {
+      "name": "region",
+      "type": "string",
+      "observed_values": ["North", "South", "East", "West"],
+      "description": "Sales region"
+    },
+    {
+      "name": "amount",
+      "type": "number",
+      "description": "Sales amount"
+    }
+  ],
+  "observations": {
+    "total_rows": null,
+    "null_values": {}
+  }
+}
