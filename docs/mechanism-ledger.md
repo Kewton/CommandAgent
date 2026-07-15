@@ -309,3 +309,28 @@ Both report directories below were present when this closure was recorded.
 - 発見経緯: 機械はfullと判定したが、人間の監査（成果物の目視）がgoal種別との不一致を検出した。UAT報告者がG1 FAILと判定し台帳更新を保留した対応は、本プロジェクトの検収規律の実演である。
 - 残存する境界（本修正の対象外）: 契約フックを正しく備えた「goal種別と異なる成果物」は依然fullを獲得しうる。goal種別と要求surfaceの契約束縛は未実装であり、検収可能性階層の実測された境界として記録する（対処は契約設計の将来課題。安易なgoal語彙マッチは偽陰性を量産するため急がない）。
 - 過去バンドへの影響監査: 実施済み（[audit-report.md](../workspace/management/runs/ff1-band-audit/audit-report.md)参照）。ウィンドウ内full 31件はすべてcontract-mode（非空state dimensions）で、heuristic-only / unverifiableは0件。既存バンドは有効。
+
+## Data profile first fulls (2026-07-15)
+
+[`uat-test0715-data-007`](../workspace/management/runs/uat-test0715-data-007/uat-report.md) は、dataプロファイルで初めてのfullを同一固定コード上の2 runで記録した。
+
+| run | preset / phase | 獲得evidence | 工程・短絡 |
+|---|---|---|---|
+| Run 3 `data7_gemma31_profile_001` | gemma31 / profile、5/5 phase | E1 `60 = 57 + 3`、E2 `26/26`、E3 passを含むE1〜E4全PASS | inspection行数照合を1回修復し、`step_short_circuited` 16件 |
+| Run 4 `data7_qwen35_none_001` | qwen35 / none、3/3 phase | E2 `46/46`、E3 passを含むE1〜E4全PASS | 動的計画から最終受け入れまで完走 |
+
+これは、実行プローブ、勘定照合、レポート数値束縛、再現性からなる非ブラウザ裁定チェーンがend-to-endでfullを獲得した初の実証である。到達までの計測はdata UAT #1〜#7の48 run。機械起因クラスDATA-1〜12は全て根治済みで、修正経路は上記B-2d（DATA-7/8/9）、DATA-10、B-2f、B-2g、B-2h（DATA-11）、B-2i（DATA-12）の各台帳行と一次資料を参照する。
+
+### Preset A/B裁定
+
+- 固定コードA/Bはprofileが1完走・1full、noneも1完走・1fullで同率だった。noneの死因はplanner scaffold起因優勢ではない。
+- 事前宣言した打ち切り条項により、dataのデフォルト`plan-preset`は`none`維持、presetはopt-inで確定する。この問いへの追加計測は行わない。
+- UAT #4〜#6のnone 0/12完走は機械欠陥期の正直な記録である。欠陥根治後の固定コードではnoneアームからもfullが出たため、過去値でA/B裁定を上書きしない。
+
+### Inspection書き込み非追従の再分類
+
+UAT #7ではqwen35 profileでinspection書き込み非追従が2件、gemma31 profileでは0件で完走となり、executor横断で発生率が異なるモデル分散クラスと確定した。機械側は字義JSON例、欠落キー列挙、`nearest_miss`まで導入済みであり、以後は[Spaceの4%分散](../workspace/management/runs/band_summary.md)と同じバンド特性として受容・文書化する。DATA-10の機械的なフェーズ束縛欠陥は根治済みであり、この残存クラスとは区別する。
+
+### 集計注記
+
+バンド集計は`final_acceptance_status`と`evidence/data-assurance.json`を正とする。B-2j以前の完走runでは、獲得済みfullがterminal projectionの`completion_contract_not_bound`によりpartialへデフレした値を含む。B-2j（`13b994f`）は`full_success`時にE1〜E4の実在evidenceからassuranceを再導出して投影し、evidence不在・不整合時の保守側投影と早期失敗のT30判定を維持する。歴史的イベントは改変しない。
