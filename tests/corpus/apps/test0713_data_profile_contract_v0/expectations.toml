@@ -27,6 +27,7 @@ fixtures/full.jsonl = [
   "\"expected_assurance\":\"full\"",
   "input/source.csv",
   "pipeline/main.py",
+  "output/inspection.json",
   "output/results.json",
   "output/report.md",
   "missing amount",

@@ -1,16 +1,17 @@
+use crate::planner::verify::VerificationReport;
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
-
-use crate::planner::verify::VerificationReport;
-
 pub mod checks;
 mod claims_binding;
+mod inspection_schema;
+pub(crate) mod internal_checks;
 pub mod manifest;
 pub(crate) mod phase_scope;
 pub(crate) mod repair_policy;
 pub mod results_schema;
 pub mod runtime;
+pub(crate) mod runtime_checks;
 pub(crate) mod step_policy;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -86,7 +86,9 @@ mod tests {
         for raw in [RUN1, RUN2] {
             let converted = convert(serde_json::from_str(raw).unwrap(), "data-inspection");
             assert_eq!(converted.expected_paths, ["output/inspection.json"]);
-            assert_eq!(converted.verify, ["test -f output/inspection.json"]);
+            assert_eq!(converted.verify.len(), 2);
+            assert!(converted.verify[0].ends_with(":data_inspection_schema"));
+            assert_eq!(converted.verify[1], "test -f output/inspection.json");
         }
     }
 

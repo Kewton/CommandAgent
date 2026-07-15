@@ -11,6 +11,7 @@ scaffold_files_present | InternalCheck
   - files: [path] required default=-
 browser_readiness | Probe
 browser_interaction | Probe
+data_inspection_schema | InternalCheck
 data_results_schema | InternalCheck
 data_reconciliation | InternalCheck
 data_claims_binding | InternalCheck

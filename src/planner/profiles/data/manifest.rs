@@ -12,7 +12,8 @@ const REQUIRED_PHASE_IDS: [&str; 5] = [
     "data-reporting",
     "data-validation",
 ];
-const REQUIRED_CHECK_IDS: [&str; 5] = [
+const REQUIRED_CHECK_IDS: [&str; 6] = [
+    "data_inspection_schema",
     "pipeline_probe",
     "data_results_schema",
     "data_reconciliation",
@@ -109,6 +110,7 @@ pub fn required_capability_ids() -> Vec<String> {
         "data_reconciliation",
         "data_claims_binding",
         "data_rerun_consistency",
+        "data_inspection_schema",
     ]
     .into_iter()
     .map(str::to_string)
@@ -226,21 +228,16 @@ mod tests {
             .map(|check| &check.capability)
             .collect::<Vec<_>>();
 
-        assert!(
-            capabilities.contains(&&ResolvedCapability::Internal(InternalCapability::Data(
-                DataInternalCheck::ResultsSchema
-            )))
-        );
-        assert!(
-            capabilities.contains(&&ResolvedCapability::Internal(InternalCapability::Data(
-                DataInternalCheck::Reconciliation
-            )))
-        );
-        assert!(
-            capabilities.contains(&&ResolvedCapability::Internal(InternalCapability::Data(
-                DataInternalCheck::ClaimsBinding
-            )))
-        );
+        for check in [
+            DataInternalCheck::InspectionSchema,
+            DataInternalCheck::ResultsSchema,
+            DataInternalCheck::Reconciliation,
+            DataInternalCheck::ClaimsBinding,
+        ] {
+            assert!(capabilities.contains(&&ResolvedCapability::Internal(
+                InternalCapability::Data(check)
+            )));
+        }
         assert!(capabilities.iter().any(|capability| matches!(
             capability,
             ResolvedCapability::Probe(ProbeCapability::Pipeline { entry, timeout_seconds })
@@ -265,6 +262,7 @@ mod tests {
                 "data_reconciliation",
                 "data_claims_binding",
                 "data_rerun_consistency",
+                "data_inspection_schema",
                 "data_results_schema",
             ]
         );
@@ -273,7 +271,7 @@ mod tests {
             ["pipeline/main.py"]
         );
         let acceptance = crate::minimal_loop::evidence::verify_runtime_acceptance(
-            &tempfile::tempdir().unwrap().path().to_path_buf(),
+            tempfile::tempdir().unwrap().path(),
             &[],
             &[],
             &required_capability_ids(),

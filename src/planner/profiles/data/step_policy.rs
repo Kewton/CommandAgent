@@ -3,13 +3,11 @@ use std::time::Duration;
 
 use serde_json::json;
 
-use super::{checks, manifest, phase_scope::DataSetupStepChecks};
+use super::{checks, internal_checks, manifest, phase_scope::DataSetupStepChecks};
 use crate::eval_events;
 use crate::minimal_loop::pipeline_probe::{self, PipelineProbeConfig};
 use crate::minimal_loop::python_traceback;
-use crate::planner::capability_catalog::{
-    DataInternalCheck, InternalCapability, ProbeCapability, ResolvedCapability,
-};
+use crate::planner::capability_catalog::{InternalCapability, ProbeCapability, ResolvedCapability};
 use crate::planner::step_plan::{PlanStep, StepKind, StepPlan};
 
 pub(crate) const CATALOG_CHECK_PREFIX: &str = "anvil-catalog-check:";
@@ -399,23 +397,8 @@ fn execute_bound_check(
         .ok_or_else(|| anyhow::anyhow!("data manifest check `{id}` is not bound"))?
         .capability;
     let (ok, reasons) = match resolved {
-        ResolvedCapability::Internal(InternalCapability::Data(
-            DataInternalCheck::ResultsSchema,
-        )) => {
-            let evidence = checks::check_results_schema(root)?;
-            (evidence.ok, evidence.error.into_iter().collect())
-        }
-        ResolvedCapability::Internal(InternalCapability::Data(
-            DataInternalCheck::Reconciliation,
-        )) => {
-            let evidence = checks::check_reconciliation(root)?;
-            (evidence.ok, evidence.failure_kinds)
-        }
-        ResolvedCapability::Internal(InternalCapability::Data(
-            DataInternalCheck::ClaimsBinding,
-        )) => {
-            let evidence = checks::check_claims_binding(root)?;
-            (evidence.ok, evidence.failure_kinds)
+        ResolvedCapability::Internal(InternalCapability::Data(check)) => {
+            internal_checks::execute(root, check)?
         }
         ResolvedCapability::Probe(ProbeCapability::Pipeline {
             entry,

@@ -30,7 +30,7 @@ prompt = '''Generate the required output/report.md from output/results.json; out
 
 [[plan.phases]]
 id = "data-validation"
-prompt = "Run only the manifest-bound pipeline, results-schema, reconciliation, claims-binding, and rerun-consistency checks against pipeline/main.py, output/results.json, and output/report.md. The inspection-phase verification must depend only on the input data and output/inspection.json, never on later-phase artifacts. Do not claim full assurance unless every bound check passes from observed artifacts."
+prompt = "Run only the manifest-bound inspection-schema, pipeline, results-schema, reconciliation, claims-binding, and rerun-consistency checks against the canonical artifacts. The inspection-phase verification must depend only on the input data and output/inspection.json, never on later-phase artifacts. Do not claim full assurance unless every bound check passes from observed artifacts."
 
 [step_templates.scaffold]
 phase = ["data inspection", "inspect data", "CSV", "TSV", "データ検分"]
@@ -112,6 +112,12 @@ state_example = "{\"reconciliation\":{\"input_rows\":3,\"used_rows\":2,\"exclude
 restart_example = "rerun the manifest-bound pipeline entry"
 input_example = "input/source.csv"
 primary_example = "pipeline/main.py"
+
+# The inspection phase prompt declares the five required fields; this bound
+# catalog adapter is the executable validation of that declaration.
+[[checks.inspection]]
+id = "data_inspection_schema"
+phases = ["data-inspection"]
 
 [[checks.execution]]
 id = "pipeline_probe"

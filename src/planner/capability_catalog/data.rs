@@ -9,6 +9,7 @@ use super::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DataInternalCheck {
+    InspectionSchema,
     ResultsSchema,
     Reconciliation,
     ClaimsBinding,
@@ -35,25 +36,20 @@ static PIPELINE_PARAMS: [ParamSpec; 2] = [
     },
 ];
 
-static REGISTRY: [CapabilitySpec; 5] = [
+const fn internal_check(id: &'static str, description: &'static str) -> CapabilitySpec {
     CapabilitySpec {
-        id: "data_results_schema",
+        id,
         kind: CapabilityKind::InternalCheck,
         params: &super::NO_PARAMS,
-        description: "Validate output/results.json against the fixed data schema.",
-    },
-    CapabilitySpec {
-        id: "data_reconciliation",
-        kind: CapabilityKind::InternalCheck,
-        params: &super::NO_PARAMS,
-        description: "Check input, used, and reasoned exclusion row accounting.",
-    },
-    CapabilitySpec {
-        id: "data_claims_binding",
-        kind: CapabilityKind::InternalCheck,
-        params: &super::NO_PARAMS,
-        description: "Bind every report numeric claim to output/results.json values.",
-    },
+        description,
+    }
+}
+
+static REGISTRY: [CapabilitySpec; 6] = [
+    internal_check("data_inspection_schema", "Validate inspection.json."),
+    internal_check("data_results_schema", "Validate the fixed results schema."),
+    internal_check("data_reconciliation", "Check reasoned row accounting."),
+    internal_check("data_claims_binding", "Bind report claims."),
     CapabilitySpec {
         id: "pipeline_probe",
         kind: CapabilityKind::Probe,
@@ -82,6 +78,9 @@ pub(super) fn resolve(
     params: &Table,
 ) -> Result<ResolvedCapability, CatalogError> {
     match spec.id {
+        "data_inspection_schema" => Ok(ResolvedCapability::Internal(InternalCapability::Data(
+            DataInternalCheck::InspectionSchema,
+        ))),
         "data_results_schema" => Ok(ResolvedCapability::Internal(InternalCapability::Data(
             DataInternalCheck::ResultsSchema,
         ))),
@@ -157,10 +156,12 @@ mod tests {
 
     #[test]
     fn data_internal_checks_resolve_without_free_form_parameters() {
+        use DataInternalCheck as D;
         for (id, expected) in [
-            ("data_results_schema", DataInternalCheck::ResultsSchema),
-            ("data_reconciliation", DataInternalCheck::Reconciliation),
-            ("data_claims_binding", DataInternalCheck::ClaimsBinding),
+            ("data_inspection_schema", D::InspectionSchema),
+            ("data_results_schema", D::ResultsSchema),
+            ("data_reconciliation", D::Reconciliation),
+            ("data_claims_binding", D::ClaimsBinding),
         ] {
             assert_eq!(
                 super::super::resolve(id, &Table::new()).unwrap(),

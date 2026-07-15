@@ -35,6 +35,7 @@ fixtures/capability-catalog-contract.jsonl = [
   "\"id\":\"browser_readiness\"",
   "\"kind\":\"Probe\"",
   "\"resolve_status\":\"unimplemented\"",
+  "\"id\":\"data_inspection_schema\"",
   "\"id\":\"data_results_schema\"",
   "\"id\":\"data_reconciliation\"",
   "\"id\":\"data_claims_binding\"",

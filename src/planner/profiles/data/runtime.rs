@@ -6,11 +6,9 @@ use std::time::Duration;
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
-use super::{checks, manifest};
+use super::{checks, manifest, runtime_checks};
 use crate::minimal_loop::pipeline_probe::{self, PipelineProbeConfig, PipelineProbeReport};
-use crate::planner::capability_catalog::{
-    DataInternalCheck, InternalCapability, ProbeCapability, ResolvedCapability,
-};
+use crate::planner::capability_catalog::{ProbeCapability, ResolvedCapability};
 
 pub const DATA_ASSURANCE_EVIDENCE_PATH: &str = "evidence/data-assurance.json";
 
@@ -59,19 +57,9 @@ pub fn run_manifest_checks(root: &Path) -> anyhow::Result<DataCheckSummary> {
     let pipeline_ok = run_pipeline(root, &adapters, &mut reasons);
     checks.insert("pipeline_probe".to_string(), pipeline_ok);
 
-    let schema = checks::check_results_schema(root)?;
-    checks.insert("data_results_schema".to_string(), schema.ok);
-    if let Some(error) = schema.error {
-        reasons.push(format!("data_results_schema:{error}"));
-    }
-
-    let reconciliation = checks::check_reconciliation(root)?;
-    checks.insert("data_reconciliation".to_string(), reconciliation.ok);
-    reasons.extend(reconciliation.failure_kinds);
-
-    let claims = checks::check_claims_binding(root)?;
-    checks.insert("data_claims_binding".to_string(), claims.ok);
-    reasons.extend(claims.failure_kinds);
+    let internal = runtime_checks::run(root)?;
+    checks.extend(internal.statuses);
+    reasons.extend(internal.reasons);
 
     let rerun_ok = run_rerun(root, &adapters, &mut reasons)?;
     checks.insert("data_rerun_consistency".to_string(), rerun_ok);
@@ -100,21 +88,7 @@ pub fn assurance_from_evidence(root: &Path) -> DataAssurance {
     };
     let mut statuses = BTreeMap::new();
     statuses.insert("pipeline_probe".to_string(), pipeline.ok);
-    statuses.insert(
-        "data_results_schema".to_string(),
-        read_json::<checks::ResultsSchemaEvidence>(root, checks::RESULTS_SCHEMA_EVIDENCE_PATH)
-            .is_some_and(|evidence| evidence.ok),
-    );
-    statuses.insert(
-        "data_reconciliation".to_string(),
-        read_json::<checks::ReconciliationEvidence>(root, checks::RECONCILIATION_EVIDENCE_PATH)
-            .is_some_and(|evidence| evidence.ok),
-    );
-    statuses.insert(
-        "data_claims_binding".to_string(),
-        read_json::<checks::ClaimsBindingEvidence>(root, checks::CLAIMS_BINDING_EVIDENCE_PATH)
-            .is_some_and(|evidence| evidence.ok),
-    );
+    statuses.extend(runtime_checks::observed(root));
     statuses.insert(
         "data_rerun_consistency".to_string(),
         read_json::<checks::RerunConsistencyEvidence>(
@@ -192,7 +166,10 @@ fn classify(checks: &BTreeMap<String, bool>, probe_attempted: bool) -> DataAssur
         || !passed("data_rerun_consistency")
     {
         DataAssurance::Failed
-    } else if !passed("data_claims_binding") || !passed("data_results_schema") {
+    } else if !passed("data_claims_binding")
+        || !passed("data_results_schema")
+        || !passed("data_inspection_schema")
+    {
         DataAssurance::Partial
     } else {
         DataAssurance::Full
@@ -220,30 +197,7 @@ fn read_json<T: for<'de> Deserialize<'de>>(root: &Path, relative: &str) -> Optio
 }
 
 pub fn has_all_manifest_adapters() -> bool {
-    adapters().is_ok_and(|adapters| {
-        adapters.iter().any(|adapter| {
-            matches!(
-                adapter,
-                ResolvedCapability::Internal(InternalCapability::Data(
-                    DataInternalCheck::ResultsSchema
-                ))
-            )
-        }) && adapters.iter().any(|adapter| {
-            matches!(
-                adapter,
-                ResolvedCapability::Internal(InternalCapability::Data(
-                    DataInternalCheck::Reconciliation
-                ))
-            )
-        }) && adapters.iter().any(|adapter| {
-            matches!(
-                adapter,
-                ResolvedCapability::Internal(InternalCapability::Data(
-                    DataInternalCheck::ClaimsBinding
-                ))
-            )
-        })
-    })
+    adapters().is_ok_and(|adapters| runtime_checks::adapters_complete(&adapters))
 }
 
 #[cfg(test)]
@@ -251,7 +205,7 @@ mod tests {
     use super::*;
 
     fn write_pipeline(root: &Path, report_number: &str, total_expression: &str) {
-        std::fs::create_dir_all(root.join("pipeline")).unwrap();
+        runtime_checks::write_valid_inspection(root);
         std::fs::write(
             root.join("pipeline/main.py"),
             format!(
@@ -279,6 +233,7 @@ Path("output/report.md").write_text("Total {report_number}")
         assert!(summary.checks.values().all(|ok| *ok), "{summary:?}");
         for path in [
             pipeline_probe::PIPELINE_RUN_EVIDENCE_PATH,
+            checks::INSPECTION_SCHEMA_EVIDENCE_PATH,
             checks::RESULTS_SCHEMA_EVIDENCE_PATH,
             checks::RECONCILIATION_EVIDENCE_PATH,
             checks::CLAIMS_BINDING_EVIDENCE_PATH,
@@ -315,7 +270,7 @@ Path("output/report.md").write_text("Total {report_number}")
     #[test]
     fn changed_rerun_results_are_failed() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join("pipeline")).unwrap();
+        runtime_checks::write_valid_inspection(dir.path());
         std::fs::write(
             dir.path().join("pipeline/main.py"),
             r#"import json

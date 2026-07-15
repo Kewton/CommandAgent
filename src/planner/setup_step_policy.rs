@@ -788,7 +788,9 @@ mod tests {
         assert!(changes >= 2);
         assert_eq!(plan.steps[0].kind, "verify");
         assert_eq!(plan.steps[0].expected_paths, ["output/inspection.json"]);
-        assert_eq!(plan.steps[0].verify, ["test -f output/inspection.json"]);
+        assert_eq!(plan.steps[0].verify.len(), 2);
+        assert!(plan.steps[0].verify[0].ends_with(":data_inspection_schema"));
+        assert_eq!(plan.steps[0].verify[1], "test -f output/inspection.json");
         let event = std::fs::read_to_string(events).unwrap();
         assert!(event.contains("\"event\":\"verify_canonicalized\""));
         assert!(event.contains("\"replacement\":\"advisory\""));

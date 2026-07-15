@@ -72,8 +72,8 @@ mod tests {
         assert_eq!(check_ids_for_phase(nextjs, "build-verification").len(), 7);
 
         let data = manifest::get();
-        assert!(check_ids_for_phase(data, "data-inspection").is_empty());
-        assert_eq!(check_ids_for_phase(data, "data-validation").len(), 5);
+        assert!(check_ids_for_phase(data, "data-inspection").contains(&"data_inspection_schema"));
+        assert_eq!(check_ids_for_phase(data, "data-validation").len(), 6);
     }
 
     #[test]

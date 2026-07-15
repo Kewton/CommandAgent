@@ -9,6 +9,11 @@ use super::claims_binding::{ClaimBinding, bind_report_claims, claim_limit_exceed
 use super::results_schema::{self, ExcludedRows, ResultsDocument};
 use crate::minimal_loop::pipeline_probe::{self, PipelineProbeConfig};
 
+pub use super::inspection_schema::{
+    EVIDENCE_PATH as INSPECTION_SCHEMA_EVIDENCE_PATH, InspectionSchemaEvidence,
+    check as check_inspection_schema,
+};
+
 pub const RESULTS_SCHEMA_EVIDENCE_PATH: &str = "evidence/results-schema.json";
 pub const RECONCILIATION_EVIDENCE_PATH: &str = "evidence/reconciliation.json";
 pub const CLAIMS_BINDING_EVIDENCE_PATH: &str = "evidence/claims-binding.json";

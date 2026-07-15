@@ -29,6 +29,7 @@ fn full_fixture_runs_end_to_end_and_emits_full_evidence() {
     assert!(summary.checks.values().all(|passed| *passed));
     for path in [
         "evidence/pipeline-run.json",
+        checks::INSPECTION_SCHEMA_EVIDENCE_PATH,
         checks::RESULTS_SCHEMA_EVIDENCE_PATH,
         checks::RECONCILIATION_EVIDENCE_PATH,
         checks::CLAIMS_BINDING_EVIDENCE_PATH,
@@ -47,6 +48,7 @@ fn fabricated_number_fails_e2_and_cannot_earn_full() {
 
     assert_eq!(summary.assurance.as_str(), fixture.expected_assurance);
     assert!(!summary.checks[fixture.expected_failed_check.as_deref().unwrap()]);
+    assert!(summary.checks["data_inspection_schema"]);
     assert!(summary.checks["data_reconciliation"]);
     assert!(summary.checks["data_rerun_consistency"]);
     let evidence =
@@ -62,6 +64,7 @@ fn silent_exclusion_fails_e1() {
 
     assert_eq!(summary.assurance.as_str(), fixture.expected_assurance);
     assert!(!summary.checks[fixture.expected_failed_check.as_deref().unwrap()]);
+    assert!(summary.checks["data_inspection_schema"]);
     let evidence =
         std::fs::read_to_string(dir.path().join(checks::RECONCILIATION_EVIDENCE_PATH)).unwrap();
     assert!(evidence.contains("reconciliation_violation"));
@@ -75,6 +78,7 @@ fn time_dependent_pipeline_fails_e3() {
 
     assert_eq!(summary.assurance.as_str(), fixture.expected_assurance);
     assert!(!summary.checks[fixture.expected_failed_check.as_deref().unwrap()]);
+    assert!(summary.checks["data_inspection_schema"]);
     let evidence =
         std::fs::read_to_string(dir.path().join(checks::RERUN_CONSISTENCY_EVIDENCE_PATH)).unwrap();
     assert!(evidence.contains("results_changed"));

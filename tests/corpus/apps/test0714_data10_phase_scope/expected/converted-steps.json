@@ -8,6 +8,7 @@
       "output/inspection.json"
     ],
     "verify": [
+      "anvil-catalog-check:data_inspection_schema",
       "test -f output/inspection.json"
     ]
   },
@@ -27,6 +28,7 @@
       "anvil-catalog-check:data_reconciliation",
       "anvil-catalog-check:data_claims_binding",
       "anvil-catalog-check:pipeline_probe",
+      "anvil-catalog-check:data_inspection_schema",
       "anvil-catalog-check:data_rerun_consistency",
       "test -f pipeline/main.py",
       "test -f output/inspection.json",
