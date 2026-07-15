@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Aggregate local-tier nextjs/create UAT capability bands.
+"""Aggregate local-tier nextjs/create and data/create UAT capability bands.
 
-The source of truth is workspace/management/runs/uat-* aggregate.json files.
-For the one post-window report-only smoke set, this script falls back to the
-report markdown. The generated summary is written to stdout and to
-workspace/management/runs/band_summary.md.
+Next.js retains its original aggregate.json/report input path and output bytes.
+Data uses repository-managed uat-meta.json files plus a frozen index for the
+pre-uat-meta campaigns. Generated summaries are written below
+workspace/management/runs/ and printed to stdout.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import re
 import statistics
@@ -21,7 +22,11 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[3]
 RUNS_DIR = ROOT / "workspace" / "management" / "runs"
 OUTPUT = RUNS_DIR / "band_summary.md"
+DATA_OUTPUT = RUNS_DIR / "band_summary_data.md"
 WINDOW_START = "uat-test0711-bs-003"
+DATA_STABLE_WINDOW_START = "uat-test0715-data-007"
+DATA_PLANNER = "qwen3.6:27b-coding-nvfp4"
+DATA_FIXTURE_SHA256 = "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
 
 FINAL_STATES = ("full_success", "partial", "incomplete", "failed")
 PROVISIONAL = {"Quiz": 85, "Breakout": 30, "Space": 7}
@@ -42,6 +47,62 @@ class RunRecord:
     excluded_reason: str = ""
     false_full_reason: str = ""
     prompt: str = ""
+
+
+@dataclass(frozen=True)
+class DataRunRecord:
+    set_id: str
+    record_dir: str
+    run_name: str
+    planner: str
+    executor: str
+    preset: str
+    final_acceptance: str
+    assurance: str
+    failure_class: str
+    duration_seconds: int | None
+    source: str
+    excluded_reason: str = ""
+    evidence_dir: Path | None = None
+
+    @property
+    def is_full(self) -> bool:
+        return self.final_acceptance == "full_success" and self.assurance == "full"
+
+
+# UAT #1 and the M-4 rounds predate repository-managed campaign-level
+# uat-meta.json. This frozen row index preserves their immutable run metadata;
+# later campaigns are always discovered from uat-meta.json. The 24 entries are
+# cross-referenced by the repository investigations, ledger, and M-4 report.
+# They must not be edited to tune a band result.
+# Fields: set|run|executor|preset|final|assurance|class|seconds|exclusion|source
+DATA_ARCHIVED_RUN_INDEX = """\
+uat-test0713-data-001|data_agg_qwen27_plan_qwen35_exec_preset_profile_001|qwen3.6:35b-a3b-coding-nvfp4|profile|not_checked|failed|verify_repair_progress_unchanged|139||uat-test0713-data-001/investigation-01.md
+uat-test0713-data-001|data_agg_qwen27_plan_gemma31_exec_preset_profile_001|gemma4:31b-cloud|profile|not_checked|static|verify_repair_progress_unchanged|386||uat-test0713-data-001/investigation-01.md
+uat-test0713-data-001|data_agg_qwen27_plan_qwen35_exec_preset_none_001|qwen3.6:35b-a3b-coding-nvfp4|none|not_checked|static|artifact_follow_through_exhausted|556||uat-test0713-data-001/investigation-01.md
+uat-test0713-data-001|data_agg_qwen27_plan_gemma31_exec_preset_none_001|gemma4:31b-cloud|none|not_checked|static|dependency_setup_authority_required|473||uat-test0713-data-001/investigation-01.md
+uat-test0714-m4-001|data_agg_qwen27_plan_qwen35_exec_preset_profile_001|qwen3.6:35b-a3b-coding-nvfp4|profile|not_checked|failed|pipeline_exit_nonzero_then_model_stagnation_read_only|362||uat-test0714-m4-001/investigation-b2d.md
+uat-test0714-m4-001|data_agg_qwen27_plan_gemma31_exec_preset_profile_001|gemma4:31b-cloud|profile|not_checked|failed|model_stagnation_read_only_write_required_inspection|142||uat-test0714-m4-001/investigation-b2d.md
+uat-test0714-m4-001|data_agg_qwen27_plan_qwen35_exec_preset_none_001|qwen3.6:35b-a3b-coding-nvfp4|none|not_checked|static|planner_shell_control_syntax_after_corrective_retries|801||uat-test0714-m4-001/investigation-b2d.md
+uat-test0714-m4-001|data_agg_qwen27_plan_gemma31_exec_preset_none_001|gemma4:31b-cloud|none|not_checked|failed|planner_shell_control_syntax_after_corrective_retries|556||uat-test0714-m4-001/investigation-b2d.md
+uat-test0714-m4-001|data_agg_qwen27_plan_qwen35_exec_preset_profile_002|qwen3.6:35b-a3b-coding-nvfp4|profile|not_checked|failed|workspace_policy_blocked_hidden_anvil_path|161||uat-test0714-m4-001/investigation-b2d.md
+uat-test0714-m4-002|data_agg_qwen27_plan_qwen35_exec_preset_profile_001|qwen35|profile|not_checked|failed|executor_model_identifier_not_found_404|141|operator_model_substitution_error|archived:test0714_m4_002/aggregate.json
+uat-test0714-m4-002|data_agg_qwen27_plan_gemma31_exec_preset_profile_001|gemma31|profile|not_checked|failed|executor_model_identifier_not_found_404|180|operator_model_substitution_error|archived:test0714_m4_002/aggregate.json
+uat-test0714-m4-002|data_agg_qwen27_plan_qwen35_exec_preset_none_001|qwen35|none|not_checked|failed|planner_shell_control_syntax_after_corrective_retries|612|operator_model_substitution_error|archived:test0714_m4_002/aggregate.json
+uat-test0714-m4-002|data_agg_qwen27_plan_gemma31_exec_preset_none_001|gemma31|none|not_checked|failed|executor_model_identifier_not_found_404|275|operator_model_substitution_error|archived:test0714_m4_002/aggregate.json
+uat-test0714-m4-002|data_agg_qwen27_plan_qwen35_exec_preset_profile_002|qwen35|profile|not_checked|failed|executor_model_identifier_not_found_404|130|operator_model_substitution_error|archived:test0714_m4_002/aggregate.json
+uat-test0714-m4-003|data_agg_qwen27_plan_qwen35_exec_preset_profile_001|qwen3.6:35b-a3b-coding-nvfp4|profile|not_checked|failed|claims_binding_failure_then_read_only_stagnation|660||archived:test0714_m4_003/aggregate.json
+uat-test0714-m4-003|data_agg_qwen27_plan_gemma31_exec_preset_profile_001|gemma4:31b-cloud|profile|not_checked|failed|script_absent_then_inspection_read_only_stagnation|240||archived:test0714_m4_003/aggregate.json
+uat-test0714-m4-003|data_agg_qwen27_plan_qwen35_exec_preset_none_001|qwen3.6:35b-a3b-coding-nvfp4|none|not_checked|static|lint_recovered_then_results_missing_read_only_stagnation|831||archived:test0714_m4_003/aggregate.json
+uat-test0714-m4-003|data_agg_qwen27_plan_gemma31_exec_preset_none_001|gemma4:31b-cloud|none|not_checked|static|lint_recovered_then_artifact_follow_through_exhausted|442||archived:test0714_m4_003/aggregate.json
+uat-test0714-m4-003|data_agg_qwen27_plan_qwen35_exec_preset_profile_002|qwen3.6:35b-a3b-coding-nvfp4|profile|not_checked|failed|claims_binding_failure_then_inspection_read_only_stagnation|418||archived:test0714_m4_003/aggregate.json
+uat-test0714-m4-004|data_agg_qwen27_plan_qwen35_exec_preset_profile_001|qwen3.6:35b-a3b-coding-nvfp4|profile|not_checked|failed|model_stagnation_read_only_write_required_inspection|355|preflight_not_green_and_campaign_incomplete|uat-test0714-m4-004/uat-report.md
+uat-test0714-m4-004|data_agg_qwen27_plan_gemma31_exec_preset_profile_001|gemma4:31b|profile|not_checked|failed|campaign_interrupted|166|preflight_not_green_and_campaign_incomplete|uat-test0714-m4-004/uat-report.md
+uat-test0714-m4-004|data_agg_qwen27_plan_qwen35_exec_preset_none_001|qwen3.6:35b-a3b-coding-nvfp4|none|not_checked|failed|campaign_interrupted||preflight_not_green_and_campaign_incomplete|uat-test0714-m4-004/uat-report.md
+uat-test0714-m4-004|data_agg_qwen27_plan_gemma31_exec_preset_none_001|gemma4:31b|none|not_checked|failed|campaign_interrupted||preflight_not_green_and_campaign_incomplete|uat-test0714-m4-004/uat-report.md
+uat-test0714-m4-004|data_agg_qwen27_plan_qwen35_exec_preset_profile_002|qwen3.6:35b-a3b-coding-nvfp4|profile|not_checked|failed|campaign_interrupted||preflight_not_green_and_campaign_incomplete|uat-test0714-m4-004/uat-report.md
+"""
+
 
 
 def normalize_scenario(*parts: Any) -> str:
@@ -501,10 +562,495 @@ def build_summary(records: list[RunRecord], aggregate_row_total: int, scanned_se
     return "\n".join(lines)
 
 
+def archived_data_records() -> list[DataRunRecord]:
+    records: list[DataRunRecord] = []
+    for line in DATA_ARCHIVED_RUN_INDEX.splitlines():
+        fields = line.split("|")
+        assert len(fields) == 10, f"invalid archived data row: {line}"
+        (
+            set_id,
+            run_name,
+            executor,
+            preset,
+            final_acceptance,
+            assurance,
+            failure_class,
+            duration,
+            excluded_reason,
+            source,
+        ) = fields
+        duration_seconds = int(duration) if duration else None
+        if not source.startswith("archived:"):
+            assert (RUNS_DIR / source).exists(), (
+                f"missing archived data source: {source}"
+            )
+        records.append(
+            DataRunRecord(
+                set_id=set_id,
+                record_dir=set_id,
+                run_name=run_name,
+                planner=DATA_PLANNER,
+                executor=executor,
+                preset=preset,
+                final_acceptance=final_acceptance,
+                assurance=assurance,
+                failure_class=failure_class,
+                duration_seconds=duration_seconds,
+                source=source,
+                excluded_reason=excluded_reason,
+            )
+        )
+    return records
+
+
+def data_meta_is_data(data: dict[str, Any]) -> bool:
+    measurement = data.get("measurement")
+    if isinstance(measurement, dict) and measurement.get("profile") == "data":
+        return True
+    uat_id = str(data.get("uat_id") or "")
+    runs = data.get("runs")
+    return "-data-" in uat_id and isinstance(runs, list)
+
+
+def read_json_dict(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def data_assurance_status(evidence_dir: Path) -> str:
+    data = read_json_dict(evidence_dir / "data-assurance.json")
+    if data is None:
+        return ""
+    return str(data.get("status") or data.get("assurance_level") or "").lower()
+
+
+def data_record_from_meta(
+    set_dir: Path,
+    set_id: str,
+    planner: str,
+    row: dict[str, Any],
+) -> DataRunRecord:
+    run_name = str(row.get("name") or row.get("run") or row.get("id") or "unknown")
+    final_acceptance = str(
+        row.get("final_acceptance_status")
+        or row.get("final_acceptance")
+        or "not_checked"
+    ).lower()
+    evidence_dir = set_dir / "artifacts" / run_name / "evidence"
+    earned_status = data_assurance_status(evidence_dir)
+    if final_acceptance == "full_success":
+        assurance = earned_status or "missing"
+    else:
+        # Campaign uat-meta assurance is the evidence-audited value in these
+        # records, not the tui_command_stop/run_stop terminal projection.
+        assurance = str(row.get("assurance_level") or earned_status or "failed").lower()
+    failure_class = str(row.get("stop_class") or row.get("failure_class") or "")
+    if final_acceptance == "full_success" and not failure_class:
+        failure_class = "full"
+    duration = row.get("duration_seconds")
+    duration_seconds = (
+        round(float(duration)) if isinstance(duration, (int, float)) else None
+    )
+    return DataRunRecord(
+        set_id=set_id,
+        record_dir=set_dir.name,
+        run_name=run_name,
+        planner=planner,
+        executor=str(row.get("executor") or row.get("model") or "unknown"),
+        preset=str(row.get("preset") or row.get("plan_preset") or "unknown"),
+        final_acceptance=final_acceptance,
+        assurance=assurance,
+        failure_class=failure_class or final_acceptance,
+        duration_seconds=duration_seconds,
+        source=f"{set_dir.name}/uat-meta.json",
+        evidence_dir=evidence_dir,
+    )
+
+
+def discover_data_records() -> tuple[list[DataRunRecord], int, int, list[str]]:
+    meta_records: list[DataRunRecord] = []
+    meta_row_count = 0
+    scanned_sets: set[str] = set()
+    for set_dir in sorted(RUNS_DIR.glob("uat-*")):
+        meta_path = set_dir / "uat-meta.json"
+        data = read_json_dict(meta_path)
+        if data is None or not data_meta_is_data(data):
+            continue
+        runs = data.get("runs")
+        assert isinstance(runs, list), f"data uat-meta runs is not a list: {meta_path}"
+        measurement = data.get("measurement")
+        assert isinstance(measurement, dict), f"data measurement missing: {meta_path}"
+        fixture_sha = str(measurement.get("input_sha256") or "")
+        if fixture_sha:
+            assert fixture_sha == DATA_FIXTURE_SHA256, (
+                f"fixture hash mismatch in {meta_path}: {fixture_sha}"
+            )
+        set_id = str(data.get("uat_id") or set_dir.name)
+        planner = str(measurement.get("planner_model") or DATA_PLANNER)
+        scanned_sets.add(set_id)
+        for row in runs:
+            assert isinstance(row, dict), f"non-object run in {meta_path}"
+            meta_records.append(data_record_from_meta(set_dir, set_id, planner, row))
+            meta_row_count += 1
+
+    # If a pre-uat-meta campaign later gains managed metadata, prefer that
+    # metadata and suppress the matching frozen row rather than double count.
+    meta_keys = {(record.set_id, record.run_name) for record in meta_records}
+    archived = [
+        record
+        for record in archived_data_records()
+        if (record.set_id, record.run_name) not in meta_keys
+    ]
+    records = archived + meta_records
+    scanned_sets.update(record.set_id for record in archived)
+    scanned_run_count = len(archived) + meta_row_count
+    assert len(records) == scanned_run_count, (
+        f"data output rows {len(records)} != scanned run rows {scanned_run_count}"
+    )
+    keys = [(record.set_id, record.run_name) for record in records]
+    assert len(keys) == len(set(keys)), "duplicate data set/run rows discovered"
+    return records, scanned_run_count, meta_row_count, sorted(scanned_sets)
+
+
+def evidence_passes(path: Path) -> bool:
+    data = read_json_dict(path)
+    if data is None:
+        return False
+    status = str(data.get("status") or "").lower()
+    return data.get("ok") is True or status in {"pass", "passed", "success", "full"}
+
+
+def assert_full_data_evidence(records: list[DataRunRecord]) -> int:
+    required = (
+        "pipeline-run.json",
+        "reconciliation.json",
+        "claims-binding.json",
+        "rerun-consistency.json",
+        "results-schema.json",
+    )
+    verified = 0
+    for record in records:
+        if record.final_acceptance != "full_success":
+            continue
+        assert record.evidence_dir is not None, (
+            f"full row has no evidence directory: {record.set_id}/{record.run_name}"
+        )
+        missing_or_failed = [
+            name for name in required if not evidence_passes(record.evidence_dir / name)
+        ]
+        assert not missing_or_failed, (
+            f"false-full evidence gap for {record.set_id}/{record.run_name}: "
+            f"{', '.join(missing_or_failed)}"
+        )
+        assurance = read_json_dict(record.evidence_dir / "data-assurance.json")
+        assert (
+            assurance is not None
+            and data_assurance_status(record.evidence_dir) == "full"
+        ), f"full row lacks earned data-assurance: {record.set_id}/{record.run_name}"
+        checks = assurance.get("checks")
+        assert isinstance(checks, dict), (
+            f"full data-assurance lacks checks: {record.set_id}/{record.run_name}"
+        )
+        required_checks = (
+            "pipeline_probe",
+            "data_reconciliation",
+            "data_claims_binding",
+            "data_rerun_consistency",
+            "data_results_schema",
+        )
+        assert all(checks.get(check) is True for check in required_checks), (
+            f"full data-assurance check mismatch: {record.set_id}/{record.run_name}"
+        )
+        verified += 1
+    return verified
+
+
+def data_rate_rows(records: list[DataRunRecord]) -> list[list[str]]:
+    counts: dict[tuple[str, str], Counter[str]] = defaultdict(Counter)
+    for record in records:
+        counts[(record.executor, record.preset)][
+            "full" if record.is_full else "non_full"
+        ] += 1
+    rows: list[list[str]] = []
+    for (executor, preset), counter in sorted(counts.items()):
+        full = counter["full"]
+        denominator = sum(counter.values())
+        note = " n<10" if denominator < 10 else ""
+        rows.append(
+            [
+                executor,
+                preset,
+                str(full),
+                str(denominator),
+                f"{pct(full, denominator)}{note}",
+            ]
+        )
+    return rows
+
+
+def data_failure_rows(records: list[DataRunRecord]) -> list[list[str]]:
+    counts: dict[tuple[str, str], Counter[str]] = defaultdict(Counter)
+    for record in records:
+        if not record.is_full:
+            counts[(record.executor, record.preset)][record.failure_class] += 1
+    rows: list[list[str]] = []
+    for (executor, preset), counter in sorted(counts.items()):
+        distribution = ", ".join(
+            f"{failure_class}={count}"
+            for failure_class, count in sorted(counter.items())
+        )
+        rows.append([executor, preset, distribution])
+    return rows
+
+
+def append_data_window(
+    lines: list[str],
+    title: str,
+    definition: str,
+    records: list[DataRunRecord],
+) -> None:
+    lines.append(f"## {title}")
+    lines.append("")
+    lines.append(definition)
+    lines.append("")
+    lines.append(f"- Denominator: `{len(records)}`")
+    lines.append(f"- Full: `{sum(record.is_full for record in records)}`")
+    lines.append("")
+    lines.extend(
+        table(
+            ["Executor", "Preset", "full", "n", "full rate"],
+            data_rate_rows(records),
+        )
+    )
+    lines.append("")
+    lines.append("### Failure-class distribution")
+    lines.append("")
+    lines.extend(
+        table(
+            ["Executor", "Preset", "Failure classes"],
+            data_failure_rows(records),
+        )
+    )
+    lines.append("")
+
+
+def build_data_summary(
+    records: list[DataRunRecord],
+    scanned_run_count: int,
+    meta_row_count: int,
+    scanned_sets: list[str],
+    full_evidence_verified: int,
+) -> str:
+    included = [record for record in records if not record.excluded_reason]
+    excluded = [record for record in records if record.excluded_reason]
+    stable = [
+        record for record in included if record.set_id >= DATA_STABLE_WINDOW_START
+    ]
+    assert len(records) == scanned_run_count
+    assert len(included) + len(excluded) == scanned_run_count
+    assert stable, "mechanism-stable data window is empty"
+
+    lines: list[str] = [
+        "# Data × Create Capability Band Summary",
+        "",
+        "<!-- Generated by band_aggregate.py --profile data. Do not edit by hand. -->",
+        "",
+        f"- Planner: `{DATA_PLANNER}`",
+        f"- Input fixture SHA-256: `{DATA_FIXTURE_SHA256}`",
+        f"- Scanned campaign sets: `{len(scanned_sets)}`",
+        f"- Scanned data run rows: `{scanned_run_count}`",
+        f"- Repository uat-meta rows: `{meta_row_count}`",
+        f"- Frozen pre-uat-meta rows: `{scanned_run_count - meta_row_count}`",
+        f"- Window A included denominator: `{len(included)}`",
+        f"- Excluded invalid/discarded rows: `{len(excluded)}`",
+        f"- Full rows with E1–E4 and data-assurance verified: `{full_evidence_verified}`",
+        "- False-full evidence gaps: `0` (generation aborts on any gap)",
+        "",
+        "Assurance truth follows B-2j: final acceptance and "
+        "`evidence/data-assurance.json` are authoritative for full; historical "
+        "terminal projection fields are not read. Non-full levels come from the "
+        "campaign's evidence-audited `uat-meta.json` or frozen pre-uat-meta audit row.",
+        "",
+        "The frozen pre-uat-meta index is code-owned input for UAT #1 and M-4; "
+        "it preserves rows whose original aggregate files predate repository-managed "
+        "`uat-meta.json`. New and mixed campaigns are discovered from every "
+        "`workspace/management/runs/uat-*/uat-meta.json` whose measurement profile is data.",
+        "",
+    ]
+    append_data_window(
+        lines,
+        "Window A — all history",
+        "UAT #1 through #7, including the machine-defect era. Invalid or discarded "
+        "measurements remain visible below but are outside this denominator.",
+        included,
+    )
+    append_data_window(
+        lines,
+        "Window B — mechanism-stable",
+        f"`{DATA_STABLE_WINDOW_START}` and later: DATA-1–12 are fixed and the "
+        "earned-assurance projection contract is in force. This is the update baseline.",
+        stable,
+    )
+
+    full_records = [record for record in included if record.is_full]
+    duration_values = [
+        record.duration_seconds
+        for record in full_records
+        if record.duration_seconds is not None
+    ]
+    lines.extend(["## Full durations", ""])
+    duration_rows = [
+        [
+            record.set_id,
+            record.run_name,
+            record.executor,
+            record.preset,
+            f"{record.duration_seconds}s"
+            if record.duration_seconds is not None
+            else "unknown",
+        ]
+        for record in full_records
+    ]
+    lines.extend(
+        table(
+            ["Set", "Run", "Executor", "Preset", "Duration"],
+            duration_rows,
+        )
+    )
+    if duration_values:
+        lines.extend(
+            [
+                "",
+                f"- n=`{len(duration_values)}`; min=`{min(duration_values)}s`; "
+                f"median=`{median(duration_values)}s`; max=`{max(duration_values)}s`.",
+            ]
+        )
+
+    lines.extend(["", "## Excluded rows", ""])
+    lines.extend(
+        table(
+            ["Set", "Run", "Final acceptance", "Failure class", "Reason"],
+            [
+                [
+                    record.set_id,
+                    record.run_name,
+                    record.final_acceptance,
+                    record.failure_class,
+                    record.excluded_reason,
+                ]
+                for record in excluded
+            ],
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "`uat-test0714-m4-002` is discarded for operator model-ID substitution. "
+            "`uat-test0714-m4-004` is outside the denominator because cargo-test "
+            "preflight was not green and the campaign was interrupted before four of "
+            "its five data rows completed; no interrupted result is inferred.",
+            "",
+            "## Per-run ledger",
+            "",
+        ]
+    )
+    ledger_rows: list[list[str]] = []
+    for record in sorted(records, key=lambda item: (item.set_id, item.run_name)):
+        if record.excluded_reason:
+            window = "excluded"
+        elif record.set_id >= DATA_STABLE_WINDOW_START:
+            window = "A+B"
+        else:
+            window = "A"
+        ledger_rows.append(
+            [
+                record.set_id,
+                record.record_dir,
+                record.run_name,
+                record.executor,
+                record.preset,
+                record.final_acceptance,
+                record.assurance,
+                record.failure_class,
+                f"{record.duration_seconds}s"
+                if record.duration_seconds is not None
+                else "unknown",
+                window,
+            ]
+        )
+    assert len(ledger_rows) == scanned_run_count, (
+        f"rendered ledger rows {len(ledger_rows)} != scanned rows {scanned_run_count}"
+    )
+    lines.extend(
+        table(
+            [
+                "Set",
+                "Record directory",
+                "Run",
+                "Executor",
+                "Preset",
+                "Final acceptance",
+                "Assurance",
+                "Failure class",
+                "Duration",
+                "Window",
+            ],
+            ledger_rows,
+        )
+    )
+    lines.extend(["", "## Source sets", ""])
+    lines.extend(
+        table(
+            ["Set ID", "Record directory"],
+            [
+                [set_id, record_dir]
+                for set_id, record_dir in sorted(
+                    {(record.set_id, record.record_dir) for record in records}
+                )
+            ],
+        )
+    )
+    lines.append("")
+    return "\n".join(lines)
+
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--profile",
+        choices=("nextjs", "data"),
+        default="nextjs",
+        help="capability band to aggregate (default: nextjs)",
+    )
+    return parser.parse_args()
+
+
 def main() -> int:
-    records, aggregate_row_total, _aggregate_record_total, scanned_sets = discover_records()
-    summary = build_summary(records, aggregate_row_total, scanned_sets)
-    OUTPUT.write_text(summary, encoding="utf-8")
+    args = parse_args()
+    if args.profile == "data":
+        data_records, scanned_rows, meta_rows, scanned_sets = discover_data_records()
+        full_verified = assert_full_data_evidence(data_records)
+        summary = build_data_summary(
+            data_records,
+            scanned_rows,
+            meta_rows,
+            scanned_sets,
+            full_verified,
+        )
+        output = DATA_OUTPUT
+    else:
+        records, aggregate_row_total, _aggregate_record_total, scanned_sets = (
+            discover_records()
+        )
+        summary = build_summary(records, aggregate_row_total, scanned_sets)
+        output = OUTPUT
+    output.write_text(summary, encoding="utf-8")
     print(summary)
     return 0
 
