@@ -298,6 +298,7 @@ Both report directories below were present when this closure was recorded.
 - B-2f（2026-07-15）: inspectionの5キー字義例と実測値拘束をmanifest・修復ガイダンスへ追補（`bc9ec91`）し、data契約をassertする実測 `python/python3 -c` verifyを対応カタログチェックへ正準化（本コミット）。既存13件の正準化とNext.jsバイト列は維持。一次資料: [`uat-report.md`](../workspace/management/runs/uat-test0715-ff1-002/uat-report.md)。
 - B-2g E2較正（2026-07-15）: 偽陽性49件（日付分割36＋照合域13）を除去。モデル起因の違反は0件だった（[`investigation-e2.md`](../workspace/management/runs/uat-test0715-ff1-002/investigation-e2.md)）。契約§6ネガティブ維持＋照合域の新設ネガティブで非緩和を担保。
 - B-2h DATA-11／inspection行数照合／nearest_miss修復注入（2026-07-15）: 動的・正準最終フェーズから他フェーズ明示束縛チェックを除外してE1〜E4のみをfullゲート化（`2d42ae4`）、inspection報告行数を実CSV/TSV論理行数と照合（`4ddffcf`）、claims-bindingの違反claim・最近傍キー／値・差分をstep／最終受け入れ修復へ注入（本コミット）。根拠: [`uat-report.md`](../workspace/management/runs/uat-test0715-data-005/uat-report.md)。
+- B-2i DATA-12（2026-07-15）: data stepを全expected_paths実在＋実verify全pass時だけモデルターン前に短絡し、動的phaseで正準化後に空となったverify stepへphase別の既定checkを束縛する。根拠: [`uat-test0715-data-006`](../workspace/management/runs/uat-test0715-data-006/uat-report.md)。
 
 ## Incident: semantic false-full (2026-07-14)
 

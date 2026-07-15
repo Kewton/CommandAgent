@@ -12,6 +12,7 @@ use crate::planner::step_plan::{PlanStep, StepKind, StepPlan};
 
 mod contract_assertion;
 mod phase_filter;
+pub(crate) mod verify_default;
 
 pub(crate) const CATALOG_CHECK_PREFIX: &str = "anvil-catalog-check:";
 
@@ -28,10 +29,12 @@ pub(crate) fn canonicalize_step_plan(
     eval_events_path: Option<&Path>,
 ) -> usize {
     let allowed = phase_scope.map(|(id, final_phase)| phase_filter::ids(id, final_phase));
-    plan.steps
+    let changes = plan
+        .steps
         .iter_mut()
         .map(|step| canonicalize_step(step, allowed.as_deref(), eval_events_path))
-        .sum()
+        .sum::<usize>();
+    changes + verify_default::bind_empty_verify_steps(plan, phase_scope, eval_events_path)
 }
 
 pub(crate) fn catalog_check_command(id: &str) -> String {

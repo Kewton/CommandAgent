@@ -145,7 +145,10 @@ fn nextjs_short_circuit_event_keeps_the_legacy_byte_shape() {
         }],
     };
     let mut cfg = config(dir.path().to_path_buf());
-    cfg.profile = "nextjs".to_string();
+    cfg.profile = crate::planner::profile_manifest::nextjs_manifest()
+        .metadata
+        .id
+        .clone();
     cfg.eval_events_path = Some(events.clone());
     let mut client = FakeClient::new(Vec::new());
 

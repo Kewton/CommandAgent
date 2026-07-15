@@ -1,0 +1,35 @@
+case_id = "test0715_data12_verify_default"
+source = "uat-test0715-data-006 Run 3 measured dynamic phase and empty-verify failure events"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["load-and-inspect-data", "verify-results-schema", "verify-reconciliation-math"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/data6_qwen35_none_001/ultra-plan.yaml = [
+  "load-and-inspect-data",
+  "filter-invalid-rows",
+  "compute-aggregations",
+  "generate-report-and-verify"
+]
+fixtures/data6_qwen35_none_001/verify-canonicalized-events.jsonl = [
+  "verify-results-schema",
+  "verify-reconciliation-math",
+  "verify step requires at least one verify command"
+]

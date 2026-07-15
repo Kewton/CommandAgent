@@ -91,7 +91,7 @@ mod tests {
     }
 
     #[test]
-    fn measured_dynamic_final_plan_drops_only_the_inspection_check() {
+    fn measured_dynamic_final_plan_rebinds_the_emptied_step_to_final_checks() {
         let mut plan = crate::planner::step_plan::parse_step_plan(RUN3_FINAL_PLAN).unwrap();
         let changes = super::super::canonicalize_step_plan(
             &mut plan,
@@ -99,18 +99,18 @@ mod tests {
             None,
         );
 
-        assert_eq!(changes, 1);
+        assert_eq!(changes, 2);
+        let rebound = &plan.steps[3].verify;
         assert!(
-            plan.steps
+            rebound
                 .iter()
-                .flat_map(|step| &step.verify)
-                .all(|command| { !command.ends_with(":data_inspection_schema") })
+                .all(|command| !command.ends_with(":data_inspection_schema"))
         );
         assert!(
-            plan.steps
+            rebound
                 .iter()
-                .flat_map(|step| &step.verify)
-                .any(|command| { command.ends_with(":data_rerun_consistency") })
+                .any(|command| command.ends_with(":data_rerun_consistency"))
         );
+        assert!(rebound.contains(&"test -f output/inspection.json".to_string()));
     }
 }
