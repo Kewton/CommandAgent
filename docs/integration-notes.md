@@ -118,3 +118,26 @@ listener登録待ち・rAF同期・リトライ付きdispatchを含むタイミ�
 DATA-5。dataゴールの特徴抽出で英語ストップワードが60個超のノイズとして
 生成される事象を記録する。B-2bではdata manifestの知識注入・検証正準化・
 dependency拒否フィードバックを優先し、この特徴抽出ロジックは変更しない。
+
+## Phase B profile relocation settlement (2026-07-16)
+
+B-4 audited the core-resident Next.js knowledge recorded by the frozen
+template-owned-step exception, the declarative-knowledge extraction, the
+profile-manifest format-gap ledger, and the production `"nextjs"` literal
+guardrail. The audit distinguishes movable profile policy from execution-order
+code that still belongs at a shared chokepoint.
+
+| Area | B-4 disposition | Reason |
+| --- | --- | --- |
+| `NextjsProfile` implementation, aliases, manifest admission lookup | **Moved** from `planner/profile.rs` and `profile_admission.rs` to `planner/profiles/nextjs/domain.rs`. | The adapter, identity aliases, dependency policy, capability inference, and evidence requirements are used only by Next.js. Core now retains only `DomainProfile` dispatch. |
+| Profile-invariant repair excerpt path discovery | **Moved** from `planner/final_acceptance.rs` to `planner/profiles/nextjs/repair_excerpts.rs`. | Tailwind/scaffold excerpt selection is Next.js repair policy; final acceptance only formats the returned paths. |
+| Browser probe lifecycle (`minimal_loop/browser_probe.rs`) | **Retained in core**: 2 audited literals. | Spawn/timeout/build-readiness sequencing and evidence writes are shared minimal-loop lifecycle boundaries. Moving only the profile branch would split one lifecycle and risk event-order changes. |
+| Route-bound evidence and import closure (`minimal_loop/evidence.rs`, `import_scan.rs`) | **Retained in core**: 4 + 1 audited literals. | Route closure feeds the shared evidence graph and source-role classifier. Its Next.js default is coupled to cross-profile evidence collection; relocation requires an explicit evidence-provider interface, not a file move. |
+| Dependency reconciliation (`minimal_loop/loop_run.rs`, `planner/verify.rs`) | **Retained in core**: 2 + 3 audited literals. | The branches select Next.js dependency setup inside shared verify execution and authority tracking. Their ordering is part of the minimal-loop/setup state machine. |
+| Plan lint and runner lifecycle (`planner/lint.rs`, `runner.rs`) | **Retained in core**: 2 + 14 audited literals. | The lint terms participate in common plan-quality ordering; runner occurrences label browser/dev-server lifecycle telemetry at the runner tripwire. Moving them without a profile lifecycle interface would move orchestration rather than policy. |
+
+The literal guardrail decreased from 34 production occurrences across 11 core
+files to 28 across 7 files. No baseline was raised: removed entries disappear
+from the exact expected map. The remaining list above is the Phase B
+relocation list; it is intentionally non-zero and each retained group requires
+a new shared interface before movement.

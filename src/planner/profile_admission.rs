@@ -1,18 +1,19 @@
 use crate::planner::profile::canonical_profile_name;
-use crate::planner::profile_manifest::{ManifestStatus, nextjs_manifest};
+use crate::planner::profile_manifest::ManifestStatus;
 
 pub(crate) const PROFILE_NOT_ADMITTED_REASON: &str = "profile_not_admitted";
 
 pub(crate) fn status(profile: &str) -> ManifestStatus {
-    match canonical_profile_name(profile).as_str() {
+    let canonical = canonical_profile_name(profile);
+    match canonical.as_str() {
         "generic" => ManifestStatus::Admitted,
         "data" => {
             crate::planner::profiles::data::manifest::get()
                 .metadata
                 .status
         }
-        "nextjs" => nextjs_manifest().metadata.status,
-        _ => ManifestStatus::Draft,
+        _ => crate::planner::profiles::nextjs::manifest_status(&canonical)
+            .unwrap_or(ManifestStatus::Draft),
     }
 }
 

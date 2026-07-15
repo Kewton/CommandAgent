@@ -38,7 +38,7 @@ pub(super) fn final_acceptance_release_gate(
     check_browser_on_runtime_failure: bool,
 ) -> ReleaseGateSummary {
     let effective_profile = canonical_profile_name(profile);
-    let is_next = effective_profile == "nextjs";
+    let is_next = is_nextjs_profile(&effective_profile);
     let acceptance_required_evidence = acceptance
         .map(|report| report.evidence_tiers.keys().cloned().collect::<Vec<_>>())
         .unwrap_or_default();

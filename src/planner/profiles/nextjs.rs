@@ -1,4 +1,10 @@
+mod domain;
 pub(crate) mod knowledge;
+mod repair_excerpts;
+
+pub use domain::{NextjsProfile, PROFILE_ID};
+pub(crate) use domain::{canonical_profile_alias, manifest_status, matches_profile};
+pub(crate) use repair_excerpts::profile_invariant_relevant_paths;
 
 use std::path::{Path, PathBuf};
 

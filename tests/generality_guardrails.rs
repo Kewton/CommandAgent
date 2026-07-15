@@ -138,11 +138,7 @@ fn nextjs_boundary_erosion_tripwire_keeps_dispatch_sites_audited() {
         ("src/minimal_loop/evidence.rs".to_string(), 4),
         ("src/minimal_loop/import_scan.rs".to_string(), 1),
         ("src/minimal_loop/loop_run.rs".to_string(), 2),
-        ("src/planner/assurance.rs".to_string(), 1),
         ("src/planner/lint.rs".to_string(), 2),
-        ("src/planner/final_acceptance.rs".to_string(), 1),
-        ("src/planner/profile.rs".to_string(), 3),
-        ("src/planner/profile_admission.rs".to_string(), 1),
         ("src/planner/runner.rs".to_string(), 14),
         ("src/planner/verify.rs".to_string(), 3),
     ]);
@@ -242,6 +238,18 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
             total_baseline: 3_684,
             production_baseline: 2_361,
             test_baseline: 1_323,
+        },
+        ChokepointBudget {
+            path: "src/planner/profiles/nextjs/domain.rs",
+            total_baseline: 309,
+            production_baseline: 294,
+            test_baseline: 15,
+        },
+        ChokepointBudget {
+            path: "src/planner/profiles/nextjs/repair_excerpts.rs",
+            total_baseline: 60,
+            production_baseline: 40,
+            test_baseline: 20,
         },
         ChokepointBudget {
             path: "src/minimal_loop/evidence.rs",

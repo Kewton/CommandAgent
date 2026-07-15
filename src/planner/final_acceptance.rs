@@ -490,7 +490,8 @@ pub(super) fn profile_invariant_offending_file_excerpts(
     profile: &str,
     reason: &str,
 ) -> String {
-    let paths = profile_invariant_relevant_paths(root, profile, reason);
+    let paths =
+        crate::planner::profiles::nextjs::profile_invariant_relevant_paths(root, profile, reason);
     if paths.is_empty() {
         return "- no matching profile files found".to_string();
     }
@@ -509,45 +510,6 @@ pub(super) fn profile_invariant_offending_file_excerpts(
         })
         .collect::<Vec<_>>()
         .join("\n\n")
-}
-
-pub(super) fn profile_invariant_relevant_paths(
-    root: &Path,
-    profile: &str,
-    reason: &str,
-) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    if !matches!(profile, "nextjs" | "next-js" | "next.js") {
-        return out;
-    }
-    let tailwind_failure = reason.contains("tailwind_contract_failure");
-    let rels = crate::planner::repair_targeting::profile_invariant_excerpt_candidates(
-        root,
-        profile,
-        tailwind_failure,
-    );
-    for project_root in profile_excerpt_project_roots(root) {
-        for rel in &rels {
-            let path = project_root.join(rel);
-            if path.is_file() && !out.contains(&path) {
-                out.push(path);
-            }
-        }
-    }
-    out
-}
-
-pub(super) fn profile_excerpt_project_roots(root: &Path) -> Vec<PathBuf> {
-    let mut roots = vec![root.to_path_buf()];
-    if let Ok(entries) = std::fs::read_dir(root) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() && path.join("package.json").is_file() && !roots.contains(&path) {
-                roots.push(path);
-            }
-        }
-    }
-    roots
 }
 
 pub(super) fn bounded_file_excerpt(content: &str, max_chars: usize) -> String {
