@@ -1,0 +1,46 @@
+{
+  "column_observations": {
+    "columns": [
+      "date",
+      "region",
+      "amount"
+    ],
+    "total_rows": 60,
+    "regions_observed": [
+      "名古屋",
+      "大阪",
+      "東京"
+    ],
+    "amount_stats": {
+      "min": -500.0,
+      "max": 3183.0,
+      "sum": 117438.0,
+      "count": 57
+    },
+    "date_samples": [
+      "2026-01-01",
+      "2026-01-03",
+      "2026-01-07",
+      "2026-01-09",
+      "2026-01-13"
+    ]
+  },
+  "validation_summary": {
+    "input_rows": 60,
+    "used_rows": 57,
+    "excluded": [
+      {
+        "reason": "invalid_amount",
+        "rows": 1
+      },
+      {
+        "reason": "invalid_date",
+        "rows": 1
+      },
+      {
+        "reason": "missing_date",
+        "rows": 1
+      }
+    ]
+  }
+}

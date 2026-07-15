@@ -1,0 +1,15 @@
+{
+  "status": "full",
+  "assurance": "full",
+  "checks": {
+    "data_claims_binding": true,
+    "data_inspection_schema": false,
+    "data_reconciliation": true,
+    "data_rerun_consistency": true,
+    "data_results_schema": true,
+    "pipeline_probe": true
+  },
+  "reasons": [
+    "inspection_schema_violation:missing_keys:column_names,input_row_count,type_summaries,distinct_values,sample_rows"
+  ]
+}

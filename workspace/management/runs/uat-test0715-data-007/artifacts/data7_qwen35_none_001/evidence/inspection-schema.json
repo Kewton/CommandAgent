@@ -1,0 +1,10 @@
+{
+  "capability_id": "data_inspection_schema",
+  "status": "failed",
+  "ok": false,
+  "inspection_path": "output/inspection.json",
+  "input_path": null,
+  "failure_kinds": [
+    "inspection_schema_violation:missing_keys:column_names,input_row_count,type_summaries,distinct_values,sample_rows"
+  ]
+}

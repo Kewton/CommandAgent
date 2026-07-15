@@ -1,0 +1,84 @@
+{
+  "capability_id": "data_rerun_consistency",
+  "status": "pass",
+  "ok": true,
+  "entry": "pipeline/main.py",
+  "pipeline_run_ok": true,
+  "baseline_results": {
+    "reconciliation": {
+      "input_rows": 60,
+      "used_rows": 57,
+      "excluded": [
+        {
+          "reason": "invalid_amount",
+          "rows": 1
+        },
+        {
+          "reason": "invalid_date",
+          "rows": 1
+        },
+        {
+          "reason": "missing_date",
+          "rows": 1
+        }
+      ]
+    },
+    "values": {
+      "2026-01_東京": 19990.0,
+      "2026-02_大阪": 18657.0,
+      "2026-03_名古屋": 20730.0,
+      "2026-04_東京": 16824.0,
+      "2026-05_大阪": 21470.0,
+      "2026-06_名古屋": 19767.0,
+      "grand_total": 117438.0,
+      "total_2026-01": 19990.0,
+      "total_2026-02": 18657.0,
+      "total_2026-03": 20730.0,
+      "total_2026-04": 16824.0,
+      "total_2026-05": 21470.0,
+      "total_2026-06": 19767.0,
+      "total_名古屋": 40497.0,
+      "total_大阪": 40127.0,
+      "total_東京": 36814.0
+    }
+  },
+  "rerun_results": {
+    "reconciliation": {
+      "input_rows": 60,
+      "used_rows": 57,
+      "excluded": [
+        {
+          "reason": "invalid_amount",
+          "rows": 1
+        },
+        {
+          "reason": "invalid_date",
+          "rows": 1
+        },
+        {
+          "reason": "missing_date",
+          "rows": 1
+        }
+      ]
+    },
+    "values": {
+      "2026-01_東京": 19990.0,
+      "2026-02_大阪": 18657.0,
+      "2026-03_名古屋": 20730.0,
+      "2026-04_東京": 16824.0,
+      "2026-05_大阪": 21470.0,
+      "2026-06_名古屋": 19767.0,
+      "grand_total": 117438.0,
+      "total_2026-01": 19990.0,
+      "total_2026-02": 18657.0,
+      "total_2026-03": 20730.0,
+      "total_2026-04": 16824.0,
+      "total_2026-05": 21470.0,
+      "total_2026-06": 19767.0,
+      "total_名古屋": 40497.0,
+      "total_大阪": 40127.0,
+      "total_東京": 36814.0
+    }
+  },
+  "failure_kinds": []
+}
