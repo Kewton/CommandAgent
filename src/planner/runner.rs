@@ -2090,6 +2090,7 @@ fn run_step(
             &config.profile,
             &prompt_context.overall_goal,
             step,
+            phase_scope,
             config.eval_events_path.as_deref(),
         );
     let instruction = build_step_prompt(plan, &runtime_step, prompt_context, config.prompt_layout);
@@ -2121,7 +2122,17 @@ fn run_step(
         contract_setup_authority,
     )
     .with_required_mutation_before_short_circuit(synthesized_precheck);
-    if setup_step_policy::step_short_circuit_precheck_applicable(&config.profile, &runtime_step) {
+    let data_pre_satisfied =
+        crate::planner::profiles::data::pre_satisfied::profile_applies(&config.profile);
+    let verify_first_applicable = if data_pre_satisfied {
+        crate::planner::profiles::data::pre_satisfied::verify_first_applicable(
+            &config.workspace_root,
+            &runtime_step,
+        )
+    } else {
+        setup_step_policy::step_short_circuit_precheck_applicable(&config.profile, &runtime_step)
+    };
+    if verify_first_applicable {
         let (report, build_lifecycles) = verify_step_completion_observed(
             config,
             &runtime_step,
@@ -2139,13 +2150,22 @@ fn run_step(
             );
         }
         if report.is_pass() {
-            emit_runner_step_short_circuited(
-                config,
-                &runtime_step,
-                phase_scope,
-                &runtime_step.expected_paths,
-                "start",
-            );
+            if data_pre_satisfied {
+                crate::planner::profiles::data::pre_satisfied::emit_short_circuited(
+                    config.eval_events_path.as_deref(),
+                    &runtime_step,
+                    phase_scope,
+                    &report,
+                );
+            } else {
+                emit_runner_step_short_circuited(
+                    config,
+                    &runtime_step,
+                    phase_scope,
+                    &runtime_step.expected_paths,
+                    "start",
+                );
+            }
             if production_build_lifecycle_passed(&build_lifecycles) {
                 snapshot_last_known_good_sources(
                     config,
@@ -9989,6 +10009,9 @@ mod tests {
 
     #[path = "ultra_plan_flow_tests.rs"]
     mod ultra_plan_flow_tests;
+
+    #[path = "data_pre_satisfied_tests.rs"]
+    mod data_pre_satisfied_tests;
 
     #[path = "assurance_tests.rs"]
     mod assurance_tests;

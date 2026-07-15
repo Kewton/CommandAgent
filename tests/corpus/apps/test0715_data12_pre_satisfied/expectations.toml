@@ -1,0 +1,38 @@
+case_id = "test0715_data12_pre_satisfied"
+source = "uat-test0715-data-006 Run 1 measured cleaning artifacts and step plan"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["implement-pipeline-main", "pipeline/main.py", "output/results.json"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/data6_qwen35_profile_001/cleaning-step-plan.yaml = [
+  "Phase id: data-cleaning",
+  "implement-pipeline-main",
+  "output/results.json",
+  "output/report.md"
+]
+fixtures/data6_qwen35_profile_001/output/results.json = [
+  "reconciliation",
+  "values"
+]
+fixtures/data6_qwen35_profile_001/pipeline/main.py = [
+  "output/results.json",
+  "output/report.md"
+]

@@ -20,6 +20,7 @@ pub(crate) fn runtime_step_with_profile_checks(
     profile: &str,
     goal: &str,
     step: &PlanStep,
+    phase_id: Option<&str>,
     eval_events_path: Option<&Path>,
 ) -> (PlanStep, bool) {
     let mut candidate = step.clone();
@@ -37,7 +38,7 @@ pub(crate) fn runtime_step_with_profile_checks(
     {
         return (candidate, false);
     }
-    let Some(checks) = profile_setup_checks(root, profile, goal, &candidate, None) else {
+    let Some(checks) = profile_setup_checks(root, profile, goal, &candidate, phase_id) else {
         return (candidate, false);
     };
     let mut runtime_step = candidate;
@@ -596,6 +597,7 @@ mod tests {
             "Build a Next.js app",
             &setup_scripts_step(),
             None,
+            None,
         );
         let (report, _) = verify_step_with_profile_setup_observed_with_offline(
             dir.path(),
@@ -620,6 +622,7 @@ mod tests {
             "nextjs",
             "Build a Next.js app on port 3011",
             &ensure_port_scripts_implement_step(),
+            None,
             None,
         );
         let (report, _) = verify_step_with_profile_setup_observed_with_offline(
@@ -647,6 +650,7 @@ mod tests {
             "nextjs",
             "Build a Next.js app",
             &setup_scripts_step(),
+            None,
             None,
         );
         let (report, _) = verify_step_with_profile_setup_observed_with_offline(
@@ -680,6 +684,7 @@ mod tests {
             "nextjs",
             "Build a Next.js app",
             &step,
+            None,
             None,
         );
         let (report, _) = verify_step_with_profile_setup_observed_with_offline(
@@ -909,6 +914,7 @@ mod tests {
             "nextjs",
             "Build a Next.js app",
             &step,
+            None,
             None,
         );
 

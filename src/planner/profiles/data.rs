@@ -8,12 +8,12 @@ mod inspection_schema;
 pub(crate) mod internal_checks;
 pub mod manifest;
 pub(crate) mod phase_scope;
+pub(crate) mod pre_satisfied;
 pub(crate) mod repair_policy;
 pub mod results_schema;
 pub mod runtime;
 pub(crate) mod runtime_checks;
 pub(crate) mod step_policy;
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProfileSnapshot {
     pub protected_files: Vec<ProtectedFile>,
