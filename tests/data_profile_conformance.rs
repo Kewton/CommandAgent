@@ -8,6 +8,8 @@ use commandagent::planner::profiles::data::runtime::{
 use serde::Deserialize;
 
 const FIXTURE_ROOT: &str = "tests/corpus/apps/test0713_data_profile_contract_v0/fixtures";
+const E2_FIXTURE_ROOT: &str = "tests/corpus/apps/test0715_data_b2g_e2_calibration/fixtures";
+const E2_ARTIFACT_ROOT: &str = "workspace/management/runs/uat-test0715-ff1-002/artifacts";
 
 #[derive(Debug, Deserialize)]
 struct DataFixture {
@@ -54,6 +56,85 @@ fn fabricated_number_fails_e2_and_cannot_earn_full() {
     let evidence =
         std::fs::read_to_string(dir.path().join(checks::CLAIMS_BINDING_EVIDENCE_PATH)).unwrap();
     assert!(evidence.contains("claims_binding_violation"));
+}
+
+#[test]
+fn measured_uat_run1_and_run4_pass_e2_after_calibration() {
+    for (case, expected_claims, expected_date_labels, expected_reconciliation) in [
+        ("data4_qwen35_profile_001", 43, 24, 6),
+        ("data4_qwen35_none_002", 29, 12, 7),
+    ] {
+        let dir = materialize_e2_output(case);
+        let evidence = checks::check_claims_binding(dir.path()).unwrap();
+
+        assert!(evidence.ok, "{case}: {evidence:?}");
+        assert_eq!(evidence.status, "pass");
+        assert_eq!(evidence.claims.len(), expected_claims);
+        assert_eq!(
+            evidence
+                .claims
+                .iter()
+                .filter(|claim| claim.claim_kind == "date_label")
+                .count(),
+            expected_date_labels
+        );
+        assert_eq!(
+            evidence
+                .claims
+                .iter()
+                .filter(|claim| claim
+                    .matched_key
+                    .as_deref()
+                    .is_some_and(|key| key.starts_with("reconciliation.")))
+                .count(),
+            expected_reconciliation
+        );
+        assert!(evidence.failure_kinds.is_empty());
+    }
+}
+
+#[test]
+fn measured_e2_fixtures_are_byte_identical_to_archived_uat_artifacts() {
+    for case in ["data4_qwen35_profile_001", "data4_qwen35_none_002"] {
+        for name in ["report.md", "results.json"] {
+            let fixture = Path::new(E2_FIXTURE_ROOT)
+                .join(case)
+                .join("output")
+                .join(name);
+            let artifact = Path::new(E2_ARTIFACT_ROOT)
+                .join(case)
+                .join("output")
+                .join(name);
+            assert_eq!(
+                std::fs::read(&fixture).unwrap(),
+                std::fs::read(&artifact).unwrap(),
+                "fixture drift: {}",
+                fixture.display()
+            );
+        }
+    }
+}
+
+#[test]
+fn reconciliation_row_mismatch_remains_a_claims_binding_violation() {
+    let dir = materialize_e2_output("reconciliation-row-mismatch");
+
+    let evidence = checks::check_claims_binding(dir.path()).unwrap();
+
+    assert!(!evidence.ok);
+    assert_eq!(evidence.failure_kinds.len(), 1);
+    assert!(evidence.failure_kinds[0].starts_with("claims_binding_violation"));
+    let claim = evidence
+        .claims
+        .iter()
+        .find(|claim| claim.raw == "61")
+        .unwrap();
+    assert!(!claim.ok);
+    assert!(claim.matched_key.is_none());
+    let nearest = claim.nearest_miss.as_ref().unwrap();
+    assert_eq!(nearest.key, "reconciliation.input_rows");
+    assert_eq!(nearest.result_value, 60.0);
+    assert_eq!(nearest.absolute_difference, 1.0);
 }
 
 #[test]
@@ -122,6 +203,23 @@ fn materialize(name: &str) -> (tempfile::TempDir, DataFixture) {
         std::fs::write(path, content).unwrap();
     }
     (dir, fixture)
+}
+
+fn materialize_e2_output(case: &str) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("output")).unwrap();
+    for name in ["report.md", "results.json"] {
+        let source = Path::new(E2_FIXTURE_ROOT)
+            .join(case)
+            .join("output")
+            .join(name);
+        std::fs::write(
+            dir.path().join("output").join(name),
+            std::fs::read(source).unwrap(),
+        )
+        .unwrap();
+    }
+    dir
 }
 
 fn load_fixture(name: &str) -> DataFixture {
