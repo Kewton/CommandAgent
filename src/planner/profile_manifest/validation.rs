@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 
 use super::{
-    EvidenceTargetsSection, ManifestError, ManifestV0, SharedKnowledgeSource, VocabularySection,
+    EvidenceTargetsSection, ManifestError, ManifestV1, SharedKnowledgeSource, VocabularySection,
 };
 
-pub(super) fn validate(manifest: &ManifestV0) -> Result<(), ManifestError> {
+pub(super) fn validate(manifest: &ManifestV1) -> Result<(), ManifestError> {
     require_non_empty("metadata.id", &manifest.metadata.id)?;
     require_non_empty("metadata.display_name", &manifest.metadata.display_name)?;
     require_non_empty("plan.profile", &manifest.plan.profile)?;
@@ -13,7 +13,7 @@ pub(super) fn validate(manifest: &ManifestV0) -> Result<(), ManifestError> {
     if manifest.plan.profile != manifest.metadata.id {
         return Err(invalid(
             "plan.profile",
-            "must match metadata.id for schema v0",
+            "must match metadata.id for schema v1",
         ));
     }
     if manifest.plan.placeholders.goal != "{goal}" {
@@ -42,7 +42,7 @@ pub(super) fn validate(manifest: &ManifestV0) -> Result<(), ManifestError> {
     Ok(())
 }
 
-fn validate_phases(manifest: &ManifestV0) -> Result<(), ManifestError> {
+fn validate_phases(manifest: &ManifestV1) -> Result<(), ManifestError> {
     if manifest.plan.phases.is_empty() {
         return Err(invalid("plan.phases", "must contain at least one phase"));
     }
@@ -57,7 +57,7 @@ fn validate_phases(manifest: &ManifestV0) -> Result<(), ManifestError> {
     Ok(())
 }
 
-fn validate_vocabulary(manifest: &ManifestV0) -> Result<(), ManifestError> {
+fn validate_vocabulary(manifest: &ManifestV1) -> Result<(), ManifestError> {
     let sections = manifest
         .vocabulary
         .sections
@@ -78,7 +78,7 @@ fn validate_vocabulary(manifest: &ManifestV0) -> Result<(), ManifestError> {
     Ok(())
 }
 
-fn validate_checks(manifest: &ManifestV0) -> Result<(), ManifestError> {
+fn validate_checks(manifest: &ManifestV1) -> Result<(), ManifestError> {
     if manifest.checks.is_empty() {
         return Err(invalid("checks", "must contain at least one binding"));
     }
@@ -99,7 +99,7 @@ fn validate_checks(manifest: &ManifestV0) -> Result<(), ManifestError> {
     Ok(())
 }
 
-fn validate_evidence_targets(manifest: &ManifestV0) -> Result<(), ManifestError> {
+fn validate_evidence_targets(manifest: &ManifestV1) -> Result<(), ManifestError> {
     let targets = &manifest.evidence_targets;
     match (targets.source, targets.section, targets.mappings.is_empty()) {
         (

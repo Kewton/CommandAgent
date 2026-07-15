@@ -682,13 +682,10 @@ impl DomainProfile for DataProfile {
     }
 
     fn hidden_path_continuation(&self) -> Option<&'static str> {
-        Some(
-            crate::planner::profiles::data::manifest::get()
-                .guidance
-                .hidden_path
-                .continuation
-                .as_str(),
-        )
+        Some(crate::planner::profiles::data::manifest::guidance_message(
+            "hidden_path",
+            "continuation",
+        ))
     }
 
     fn quality_expectations(&self, _root: &Path, _goal: &str) -> ProfileQualityExpectations {

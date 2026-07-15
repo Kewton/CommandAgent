@@ -4,7 +4,7 @@ use commandagent::planner::repair::{RepairContext, build_repair_prompt_with_cont
 use commandagent::planner::verify::VerificationReport;
 
 #[test]
-fn data_manifest_knowledge_matches_b2b_golden() {
+fn data_manifest_v1_knowledge_matches_golden() {
     let manifest = manifest::get();
     let phase = |id: &str| {
         manifest
@@ -37,10 +37,22 @@ template_owned.path_contains={}\n",
         phase("data-aggregation"),
         phase("data-reporting"),
         phase("data-validation"),
-        manifest.guidance.generic.generic_interaction,
-        manifest.guidance.canvas_game.canvas_input_wiring_checklist,
-        manifest.guidance.contracts.state_requirement,
-        manifest.guidance.contracts.contract_attribute_guidance,
+        manifest
+            .guidance
+            .message("generic", "generic_interaction")
+            .unwrap(),
+        manifest
+            .guidance
+            .message("inspection", "canvas_input_wiring_checklist")
+            .unwrap(),
+        manifest
+            .guidance
+            .message("contracts", "state_requirement")
+            .unwrap(),
+        manifest
+            .guidance
+            .message("contracts", "contract_attribute_guidance")
+            .unwrap(),
         manifest::required_artifacts().join(","),
         owned.package_phrases.join(","),
         owned.scaffold_phrases.join(","),
@@ -50,7 +62,7 @@ template_owned.path_contains={}\n",
 
     assert_eq!(
         actual,
-        include_str!("golden/data_manifest_v0_knowledge.txt")
+        include_str!("golden/data_manifest_v1_knowledge.txt")
     );
 }
 
@@ -58,7 +70,10 @@ template_owned.path_contains={}\n",
 fn inspection_literal_example_is_observation_bound_and_reaches_repair_prompt() {
     let manifest = manifest::get();
     let phase = &manifest.plan.phases[0].prompt;
-    let guidance = &manifest.guidance.canvas_game.canvas_input_wiring_checklist;
+    let guidance = manifest
+        .guidance
+        .message("inspection", "canvas_input_wiring_checklist")
+        .unwrap();
     let literal = r#"{"column_names": ["recorded_at","category","metric"], "input_row_count": 3, "type_summaries": {"recorded_at":"string","category":"string","metric":"number"}, "distinct_values": {"category": ["alpha","beta"]}, "sample_rows": [{"recorded_at":"example-1","category":"alpha","metric":1}]}"#;
     for text in [phase, guidance] {
         assert!(text.contains(literal));

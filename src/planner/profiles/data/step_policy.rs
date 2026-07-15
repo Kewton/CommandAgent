@@ -214,7 +214,7 @@ fn canonicalize_instruction(step: &mut PlanStep, eval_events_path: Option<&Path>
         return 0;
     }
     let original = step.instruction.clone();
-    let requirement = &manifest::get().guidance.contracts.state_requirement;
+    let requirement = manifest::guidance_message("contracts", "state_requirement");
     step.instruction = format!(
         "{original}\n\nThe preceding schema example is invalid and must not be used. Canonical data contract: {requirement}"
     );

@@ -3,19 +3,22 @@ use std::fmt;
 use std::sync::OnceLock;
 
 use serde::Deserialize;
-use toml::value::Table;
 
 use crate::planner::capability_catalog::{self, CatalogError, ResolvedCapability};
 
 pub(crate) mod check_phase_scope;
+mod schema_v1;
+mod v1_validation;
 mod validation;
+pub use schema_v1::*;
 
 const NEXTJS_MANIFEST_TOML: &str = include_str!("profiles/nextjs/manifest.toml");
 
-pub const MANIFEST_V0_SECTIONS: &[&str] = &[
+pub const MANIFEST_V1_SECTIONS: &[&str] = &[
     "metadata",
     "plan",
     "step_templates",
+    "artifacts",
     "vocabulary",
     "guidance",
     "checks",
@@ -24,259 +27,15 @@ pub const MANIFEST_V0_SECTIONS: &[&str] = &[
 
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct ManifestV0 {
+pub struct ManifestV1 {
     pub metadata: ManifestMetadata,
     pub plan: ManifestPlan,
     pub step_templates: StepTemplates,
+    pub artifacts: ArtifactRequirements,
     pub vocabulary: VocabularyReference,
     pub guidance: ManifestGuidance,
     pub checks: BTreeMap<String, Vec<CheckBinding>>,
     pub evidence_targets: EvidenceTargetsReference,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ManifestMetadata {
-    pub id: String,
-    pub display_name: String,
-    pub schema_version: SchemaVersion,
-    pub status: ManifestStatus,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-pub enum SchemaVersion {
-    #[serde(rename = "v0")]
-    V0,
-}
-
-impl SchemaVersion {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::V0 => "v0",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ManifestStatus {
-    Draft,
-    Admitted,
-}
-
-impl ManifestStatus {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Draft => "draft",
-            Self::Admitted => "admitted",
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ManifestPlan {
-    pub profile: String,
-    pub style: String,
-    pub intent: String,
-    pub placeholders: PlanPlaceholders,
-    pub phases: Vec<ManifestPlanPhase>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PlanPlaceholders {
-    pub goal: String,
-    #[serde(default)]
-    pub port: Option<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ManifestPlanPhase {
-    pub id: String,
-    pub prompt: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct StepTemplates {
-    pub scaffold: ScaffoldTemplateMatcher,
-    pub build_verify: PhaseKeywordMatcher,
-    pub implementation_kill: PhaseKeywordMatcher,
-    pub ownership: TemplateOwnership,
-    pub artifacts: TemplateArtifacts,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ScaffoldTemplateMatcher {
-    pub phase: Vec<String>,
-    pub phase_id: Vec<String>,
-    pub port_phase_markers: Vec<String>,
-    pub port_script_phase: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PhaseKeywordMatcher {
-    pub phase: Vec<String>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TemplateOwnership {
-    pub setup_classifier: SetupClassifier,
-    pub template_owned_artifacts: TemplateOwnedArtifacts,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct SetupClassifier {
-    pub package_phrases: Vec<String>,
-    pub package_tokens: Vec<String>,
-    pub scaffold_phrases: Vec<String>,
-    pub scaffold_tokens: Vec<String>,
-    pub scaffold_setup_markers: Vec<String>,
-    pub scaffold_project_marker: String,
-    pub scaffold_dependency_exclusion: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TemplateOwnedArtifacts {
-    pub package_phrases: Vec<String>,
-    pub package_tokens: Vec<String>,
-    pub scaffold_phrases: Vec<String>,
-    pub scaffold_tokens: Vec<String>,
-    pub package_manifest_names: Vec<String>,
-    pub artifact_path_suffixes: Vec<String>,
-    pub artifact_path_contains: Vec<String>,
-    pub package_check_marker: String,
-    pub scaffold_check_marker: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct TemplateArtifacts {
-    pub package_script_build: String,
-    pub package_script_dev: String,
-    pub package_script_start: String,
-    pub required_hooks: Vec<String>,
-    pub scaffold_files: Vec<String>,
-    pub tailwind_config_rels: Vec<String>,
-    pub tailwind_config: String,
-    pub tailwind_config_cjs: String,
-    pub package_json: String,
-    pub tsconfig: String,
-    pub postcss_config: String,
-    pub tailwind_css: String,
-    pub global_d_ts: String,
-    pub layout_tsx: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct VocabularyReference {
-    pub source: SharedKnowledgeSource,
-    pub sections: Vec<VocabularySection>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum SharedKnowledgeSource {
-    EvidenceKnowledge,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Deserialize)]
-pub enum VocabularySection {
-    #[serde(rename = "vocabulary")]
-    Vocabulary,
-    #[serde(rename = "goal_hints.translations")]
-    GoalHintTranslations,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ManifestGuidance {
-    pub generic: GenericGuidance,
-    pub canvas_game: CanvasGameGuidance,
-    pub persistence: PersistenceGuidance,
-    pub contracts: ContractGuidance,
-    #[serde(default)]
-    pub hidden_path: HiddenPathGuidance,
-}
-
-#[derive(Debug, Default, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct HiddenPathGuidance {
-    #[serde(default)]
-    pub continuation: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct GenericGuidance {
-    pub generic_interaction: String,
-    pub start_interaction: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CanvasGameGuidance {
-    pub canvas_game_interaction: String,
-    pub canvas_render_loop_checklist: String,
-    pub canvas_input_wiring_checklist: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct PersistenceGuidance {
-    pub persistence: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct ContractGuidance {
-    pub state_binding_contract: String,
-    pub input_coupled_dimension_requirement: String,
-    pub contract_attribute_missing_kind: String,
-    pub contract_attribute_guidance: String,
-    pub state_requirement: String,
-    pub restart_requirement: String,
-    pub input_requirement: String,
-    pub primary_requirement: String,
-    pub state_example: String,
-    pub restart_example: String,
-    pub input_example: String,
-    pub primary_example: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CheckBinding {
-    pub id: String,
-    #[serde(default)]
-    pub phases: Option<Vec<String>>,
-    #[serde(default)]
-    pub params: Table,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct EvidenceTargetsReference {
-    #[serde(default)]
-    pub source: Option<SharedKnowledgeSource>,
-    #[serde(default)]
-    pub section: Option<EvidenceTargetsSection>,
-    #[serde(default)]
-    pub mappings: BTreeMap<String, Vec<String>>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-pub enum EvidenceTargetsSection {
-    #[serde(rename = "repair_targets")]
-    RepairTargets,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -333,7 +92,7 @@ impl std::error::Error for ManifestError {
     }
 }
 
-impl ManifestV0 {
+impl ManifestV1 {
     pub fn from_toml(input: &str) -> Result<Self, ManifestError> {
         let manifest = toml::from_str::<Self>(input).map_err(ManifestError::Parse)?;
         manifest.resolve()?;
@@ -367,14 +126,15 @@ impl ManifestV0 {
     }
 
     fn validate_structure(&self) -> Result<(), ManifestError> {
-        validation::validate(self)
+        validation::validate(self)?;
+        v1_validation::validate(self)
     }
 }
 
-pub fn nextjs_manifest() -> &'static ManifestV0 {
-    static MANIFEST: OnceLock<ManifestV0> = OnceLock::new();
+pub fn nextjs_manifest() -> &'static ManifestV1 {
+    static MANIFEST: OnceLock<ManifestV1> = OnceLock::new();
     MANIFEST.get_or_init(|| {
-        ManifestV0::from_toml(NEXTJS_MANIFEST_TOML)
+        ManifestV1::from_toml(NEXTJS_MANIFEST_TOML)
             .expect("embedded Next.js profile manifest.toml must parse and resolve")
     })
 }
@@ -524,76 +284,77 @@ mod tests {
         assert_eq!(artifacts.layout_tsx, canonical.layout_tsx);
 
         let guidance = &manifest.guidance;
+        let message = |variant, name| guidance.message(variant, name).unwrap();
         assert_eq!(
-            guidance.generic.generic_interaction,
+            message("interaction", "generic_interaction"),
             existing.repair_guidance.generic_interaction
         );
         assert_eq!(
-            guidance.generic.start_interaction,
+            message("interaction", "start_interaction"),
             existing.repair_guidance.start_interaction
         );
         assert_eq!(
-            guidance.canvas_game.canvas_game_interaction,
+            message("canvas_game", "canvas_game_interaction"),
             existing.repair_guidance.canvas_game_interaction
         );
         assert_eq!(
-            guidance.canvas_game.canvas_render_loop_checklist,
+            message("canvas_game", "canvas_render_loop_checklist"),
             existing.repair_guidance.canvas_render_loop_checklist
         );
         assert_eq!(
-            guidance.canvas_game.canvas_input_wiring_checklist,
+            message("canvas_game", "canvas_input_wiring_checklist"),
             existing.repair_guidance.canvas_input_wiring_checklist
         );
         assert_eq!(
-            guidance.persistence.persistence,
+            message("persistence", "persistence"),
             existing.repair_guidance.persistence
         );
         assert_eq!(
-            guidance.contracts.state_binding_contract,
+            message("contracts", "state_binding_contract"),
             existing.contracts.state_binding_contract
         );
         assert_eq!(
-            guidance.contracts.input_coupled_dimension_requirement,
+            message("contracts", "input_coupled_dimension_requirement"),
             existing.contracts.input_coupled_dimension_requirement
         );
         assert_eq!(
-            guidance.contracts.contract_attribute_missing_kind,
+            message("contracts", "contract_attribute_missing_kind"),
             existing.contracts.contract_attribute_missing_kind
         );
         assert_eq!(
-            guidance.contracts.contract_attribute_guidance,
+            message("contracts", "contract_attribute_guidance"),
             existing.contracts.contract_attribute_guidance
         );
         assert_eq!(
-            guidance.contracts.state_requirement,
+            message("contracts", "state_requirement"),
             existing.contracts.state_requirement
         );
         assert_eq!(
-            guidance.contracts.restart_requirement,
+            message("contracts", "restart_requirement"),
             existing.contracts.restart_requirement
         );
         assert_eq!(
-            guidance.contracts.input_requirement,
+            message("contracts", "input_requirement"),
             existing.contracts.input_requirement
         );
         assert_eq!(
-            guidance.contracts.primary_requirement,
+            message("contracts", "primary_requirement"),
             existing.contracts.primary_requirement
         );
         assert_eq!(
-            guidance.contracts.state_example,
+            message("contracts", "state_example"),
             existing.contracts.state_example
         );
         assert_eq!(
-            guidance.contracts.restart_example,
+            message("contracts", "restart_example"),
             existing.contracts.restart_example
         );
         assert_eq!(
-            guidance.contracts.input_example,
+            message("contracts", "input_example"),
             existing.contracts.input_example
         );
         assert_eq!(
-            guidance.contracts.primary_example,
+            message("contracts", "primary_example"),
             existing.contracts.primary_example
         );
     }
@@ -607,7 +368,7 @@ mod tests {
     fn unknown_root_section_is_rejected() {
         let invalid = format!("{NEXTJS_MANIFEST_TOML}\n[unknown_section]\nvalue = true\n");
         assert!(matches!(
-            ManifestV0::from_toml(&invalid),
+            ManifestV1::from_toml(&invalid),
             Err(ManifestError::Parse(_))
         ));
     }
@@ -620,7 +381,7 @@ mod tests {
             1,
         );
         assert!(matches!(
-            ManifestV0::from_toml(&invalid),
+            ManifestV1::from_toml(&invalid),
             Err(ManifestError::CheckBinding { source, .. })
                 if matches!(source.as_ref(), CatalogError::UnknownId(id) if id == "unknown_build_check")
         ));
@@ -630,7 +391,7 @@ mod tests {
     fn invalid_check_params_are_rejected_during_load() {
         let invalid = NEXTJS_MANIFEST_TOML.replacen("port = 3011", "port = \"3011\"", 1);
         assert!(matches!(
-            ManifestV0::from_toml(&invalid),
+            ManifestV1::from_toml(&invalid),
             Err(ManifestError::CheckBinding { source, .. })
                 if matches!(
                     source.as_ref(),
@@ -644,7 +405,7 @@ mod tests {
         let invalid =
             NEXTJS_MANIFEST_TOML.replacen("status = \"admitted\"", "status = \"retired\"", 1);
         assert!(matches!(
-            ManifestV0::from_toml(&invalid),
+            ManifestV1::from_toml(&invalid),
             Err(ManifestError::Parse(_))
         ));
     }

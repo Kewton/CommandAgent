@@ -1,7 +1,7 @@
 [metadata]
 id = "data"
 display_name = "Tabular Data Pipeline"
-schema_version = "v0"
+schema_version = "v1"
 status = "admitted"
 
 [plan]
@@ -80,26 +80,55 @@ tailwind_css = ""
 global_d_ts = ""
 layout_tsx = ""
 
+[artifacts]
+required = ["pipeline/main.py", "output/inspection.json", "output/results.json"]
+
+[[artifacts.groups]]
+id = "human-report"
+cardinality = "exactly_one_of"
+paths = ["output/report.md", "output/report.html"]
+preferred = "output/report.md"
+
 [vocabulary]
 source = "evidence_knowledge"
 sections = ["vocabulary", "goal_hints.translations"]
 
-[guidance.generic]
+[guidance.variants.generic]
+triggers = [{ condition = "always" }]
+
+[guidance.variants.generic.messages]
 generic_interaction = "Build one reproducible tabular-data pipeline with Python 3 standard-library csv/json/statistics only. Preserve input files. The canonical artifacts are pipeline/main.py, output/inspection.json, output/results.json, and required output/report.md; output/report.html is optional in addition to report.md."
 start_interaction = "The pipeline must be deterministic: use a fixed seed whenever randomness is unavoidable, do not depend on execution time, and keep iteration and output ordering stable. Derive validation rules only from output/inspection.json observations and never invent unobserved value sets. This is class knowledge required by docs/data-profile-contract.md section 8."
 
-[guidance.canvas_game]
+[guidance.variants.results_contract]
+triggers = [{ condition = "check_failure", values = ["data_results_schema", "data_reconciliation", "data_claims_binding"] }]
+
+[guidance.variants.results_contract.messages]
 canvas_game_interaction = '''output/results.json must have exactly this shape: {"reconciliation":{"input_rows":N,"used_rows":N,"excluded":[{"reason":"...","rows":N}]},"values":{"<claim_key>":number}}. Every numeric claim printed in output/report.md must be stored under values.'''
 canvas_render_loop_checklist = "Reconcile input rows to used rows plus reasoned exclusions before reporting, and regenerate output/results.json rather than weakening a bound check."
+
+[guidance.variants.inspection]
+triggers = [{ condition = "check_failure", values = ["data_inspection_schema"] }]
+
+[guidance.variants.inspection.messages]
 canvas_input_wiring_checklist = '''When data_inspection_schema fails, write output/inspection.json in this literal shape: {"column_names": ["recorded_at","category","metric"], "input_row_count": 3, "type_summaries": {"recorded_at":"string","category":"string","metric":"number"}, "distinct_values": {"category": ["alpha","beta"]}, "sample_rows": [{"recorded_at":"example-1","category":"alpha","metric":1}]}. The values shown are examples only: fill every field with actual observed values from the input data, and never copy the example values as fixed data. Derive validation rules only from output/inspection.json observations. Never invent valid categorical values, field formats, or category sets that are absent from the inspected data. Inspection verification may read only the input data and output/inspection.json, not later-phase artifacts.'''
 
-[guidance.persistence]
+[guidance.variants.reproducibility]
+triggers = [{ condition = "check_failure", values = ["data_rerun_consistency"] }]
+
+[guidance.variants.reproducibility.messages]
 persistence = "A rerun must reproduce the complete output/results.json document exactly; time, random state, and unstable iteration order may not change results."
 
-[guidance.hidden_path]
+[guidance.variants.hidden_path]
+triggers = [{ condition = "hidden_path", values = ["data/"] }]
+
+[guidance.variants.hidden_path.messages]
 continuation = "data/ の入力から作業を続け、output/inspection.json を作成せよ"
 
-[guidance.contracts]
+[guidance.variants.contracts]
+triggers = [{ condition = "failure_kind_prefix", values = ["data_contract_evidence_missing", "data_claims_binding"] }]
+
+[guidance.variants.contracts.messages]
 state_binding_contract = "output/results.json is the sole machine-readable source for report numeric claims."
 input_coupled_dimension_requirement = "input_rows must equal used_rows plus the sum of excluded rows."
 contract_attribute_missing_kind = "data_contract_evidence_missing"

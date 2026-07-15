@@ -1,0 +1,35 @@
+case_id = "test0716_profile_manifest_v1"
+source = "profile manifest v1 settlement contract"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["profile_manifest", "schema_v1", "capability_catalog"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/profile-manifest-v1-contract.jsonl = [
+  "\"event\":\"profile_manifest_v1_contract\"",
+  "\"schema_version\":\"v1\"",
+  "\"root_sections\":[\"metadata\",\"plan\",\"step_templates\",\"artifacts\",\"vocabulary\",\"guidance\",\"checks\",\"evidence_targets\"]",
+  "\"shape\":\"named_variant_map\"",
+  "\"typed_triggers\":true",
+  "\"cardinalities\":[\"either_of\",\"exactly_one_of\"]",
+  "\"phase_binding\":\"explicit_or_final_default\"",
+  "\"legacy_schema\":\"reject\"",
+  "\"values\":\"byte_preserved\""
+]

@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::sync::OnceLock;
 
-use crate::planner::profile_manifest::{ManifestStatus, ManifestV0};
+use crate::planner::profile_manifest::{ManifestStatus, ManifestV1};
 use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
 
 const DATA_MANIFEST_TOML: &str = include_str!("manifest.toml");
@@ -21,10 +21,10 @@ const REQUIRED_CHECK_IDS: [&str; 6] = [
     "data_rerun_consistency",
 ];
 
-pub fn get() -> &'static ManifestV0 {
-    static MANIFEST: OnceLock<ManifestV0> = OnceLock::new();
+pub fn get() -> &'static ManifestV1 {
+    static MANIFEST: OnceLock<ManifestV1> = OnceLock::new();
     MANIFEST.get_or_init(|| {
-        let manifest = ManifestV0::from_toml(DATA_MANIFEST_TOML)
+        let manifest = ManifestV1::from_toml(DATA_MANIFEST_TOML)
             .expect("embedded data profile manifest.toml must parse and resolve");
         validate_data_contract(&manifest)
             .expect("embedded data profile manifest.toml must satisfy the fixed data contract");
@@ -57,38 +57,38 @@ pub fn preset_ultra_plan(goal: &str, style: &str, intent: &str) -> Option<UltraP
 }
 
 pub fn guidance() -> String {
-    let guidance = &get().guidance;
     format!(
         "{}\n{}\n{}\n{}",
-        guidance.generic.generic_interaction,
-        guidance.generic.start_interaction,
-        guidance.persistence.persistence,
-        guidance.contracts.contract_attribute_guidance,
+        guidance_message("generic", "generic_interaction"),
+        guidance_message("generic", "start_interaction"),
+        guidance_message("reproducibility", "persistence"),
+        guidance_message("contracts", "contract_attribute_guidance"),
     )
 }
 
 pub fn generation_rules() -> &'static str {
-    get().guidance.generic.start_interaction.as_str()
+    guidance_message("generic", "start_interaction")
 }
 
 pub fn runtime_contract() -> String {
-    let contracts = &get().guidance.contracts;
     format!(
         "- {}\n- {}\n- {}\n- {}",
-        contracts.primary_requirement,
-        contracts.state_requirement,
-        contracts.input_coupled_dimension_requirement,
-        get().guidance.persistence.persistence,
+        guidance_message("contracts", "primary_requirement"),
+        guidance_message("contracts", "state_requirement"),
+        guidance_message("contracts", "input_coupled_dimension_requirement"),
+        guidance_message("reproducibility", "persistence"),
     )
 }
 
 pub fn required_artifacts() -> Vec<String> {
-    vec![
-        "pipeline/main.py".to_string(),
-        "output/inspection.json".to_string(),
-        "output/results.json".to_string(),
-        "output/report.md".to_string(),
-    ]
+    get().artifacts.preferred_paths()
+}
+
+pub fn guidance_message(variant: &str, message: &str) -> &'static str {
+    get()
+        .guidance
+        .message(variant, message)
+        .unwrap_or_else(|| panic!("missing data guidance {variant}.{message}"))
 }
 
 pub fn dependency_order_hint() -> String {
@@ -159,7 +159,7 @@ pub fn check_ids() -> Vec<String> {
         .collect()
 }
 
-fn validate_data_contract(manifest: &ManifestV0) -> Result<(), String> {
+fn validate_data_contract(manifest: &ManifestV1) -> Result<(), String> {
     if manifest.metadata.id != "data" || manifest.plan.profile != "data" {
         return Err("metadata.id and plan.profile must both be data".to_string());
     }
@@ -287,20 +287,20 @@ mod tests {
             "goal = \"{goal}\"\nport = \"{goal}\"",
             1,
         );
-        assert!(ManifestV0::from_toml(&bad_port).is_err());
+        assert!(ManifestV1::from_toml(&bad_port).is_err());
 
         let mixed_targets = DATA_MANIFEST_TOML.replacen(
             "[evidence_targets.mappings]",
             "[evidence_targets]\nsource = \"evidence_knowledge\"\nsection = \"repair_targets\"\n\n[evidence_targets.mappings]",
             1,
         );
-        assert!(ManifestV0::from_toml(&mixed_targets).is_err());
+        assert!(ManifestV1::from_toml(&mixed_targets).is_err());
 
         let unsafe_target = DATA_MANIFEST_TOML.replacen(
             "results_schema = [\"pipeline/main.py\"]",
             "results_schema = [\"../pipeline/main.py\"]",
             1,
         );
-        assert!(ManifestV0::from_toml(&unsafe_target).is_err());
+        assert!(ManifestV1::from_toml(&unsafe_target).is_err());
     }
 }

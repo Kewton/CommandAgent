@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
-use super::{ManifestError, ManifestV0};
+use super::{ManifestError, ManifestV1};
 
-pub(super) fn validate(manifest: &ManifestV0) -> Result<(), ManifestError> {
+pub(super) fn validate(manifest: &ManifestV1) -> Result<(), ManifestError> {
     let declared = manifest
         .plan
         .phases
@@ -33,7 +33,7 @@ pub(super) fn validate(manifest: &ManifestV0) -> Result<(), ManifestError> {
 }
 
 pub(crate) fn check_ids_for_phase<'a>(
-    manifest: &'a ManifestV0,
+    manifest: &'a ManifestV1,
     phase_id: &str,
     final_phase: bool,
 ) -> Vec<&'a str> {
@@ -79,7 +79,7 @@ mod tests {
             1,
         );
         assert!(matches!(
-            crate::planner::profile_manifest::ManifestV0::from_toml(&source),
+            crate::planner::profile_manifest::ManifestV1::from_toml(&source),
             Err(ManifestError::Invalid {
                 field: "checks.<binding>[].phases",
                 ..

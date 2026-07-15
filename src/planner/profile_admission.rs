@@ -36,7 +36,7 @@ mod tests {
     use std::path::Path;
 
     use super::*;
-    use crate::planner::profile_manifest::ManifestV0;
+    use crate::planner::profile_manifest::ManifestV1;
     use crate::planner::profiles::data::runtime::{DataAssurance, assurance_from_evidence};
 
     const RUN4_FIXTURE: &str = concat!(
@@ -75,7 +75,7 @@ mod tests {
         assert_eq!(observed, DataAssurance::Full);
         let draft_source = include_str!("profiles/data/manifest.toml")
             .replace("status = \"admitted\"", "status = \"draft\"");
-        let draft = ManifestV0::from_toml(&draft_source).unwrap();
+        let draft = ManifestV1::from_toml(&draft_source).unwrap();
         assert_eq!(draft.metadata.status, ManifestStatus::Draft);
 
         for boundary in ["ultra_final_acceptance", "terminal_projection"] {
