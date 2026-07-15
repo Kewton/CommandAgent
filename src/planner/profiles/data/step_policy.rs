@@ -10,6 +10,8 @@ use crate::minimal_loop::python_traceback;
 use crate::planner::capability_catalog::{InternalCapability, ProbeCapability, ResolvedCapability};
 use crate::planner::step_plan::{PlanStep, StepKind, StepPlan};
 
+mod contract_assertion;
+
 pub(crate) const CATALOG_CHECK_PREFIX: &str = "anvil-catalog-check:";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -259,7 +261,9 @@ fn canonicalize_verify_commands(step: &mut PlanStep, eval_events_path: Option<&P
 }
 
 fn invented_verify_command(command: &str) -> bool {
-    invented_workspace_python_check(command) || inspection_literal_check(command)
+    invented_workspace_python_check(command)
+        || inspection_literal_check(command)
+        || contract_assertion::catalog_checks(command).is_some()
 }
 
 fn invented_workspace_python_check(command: &str) -> bool {
@@ -286,6 +290,9 @@ fn inspection_literal_check(command: &str) -> bool {
 }
 
 fn inferred_catalog_checks<'a>(step: &PlanStep, command: &'a str) -> Vec<&'a str> {
+    if let Some(checks) = contract_assertion::catalog_checks(command) {
+        return checks;
+    }
     let lower = format!("{} {} {command}", step.id, step.instruction).to_ascii_lowercase();
     let mut ids = Vec::new();
     if [
