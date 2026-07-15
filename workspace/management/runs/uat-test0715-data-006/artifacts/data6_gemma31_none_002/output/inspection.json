@@ -1,0 +1,20 @@
+{
+  "columns": [
+    {
+      "name": "Date",
+      "type": "string",
+      "description": "Sales date in YYYY-MM-DD format"
+    },
+    {
+      "name": "Region",
+      "type": "string",
+      "description": "Sales region"
+    },
+    {
+      "name": "Amount",
+      "type": "number",
+      "description": "Sales amount"
+    }
+  ],
+  "anomalies": []
+}

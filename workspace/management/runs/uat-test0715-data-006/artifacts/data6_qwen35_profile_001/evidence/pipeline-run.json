@@ -1,0 +1,53 @@
+{
+  "capability_id": "pipeline_probe",
+  "status": "pass",
+  "ok": true,
+  "outcome": "exited",
+  "command": [
+    "python3",
+    "-B",
+    "pipeline/main.py"
+  ],
+  "duration_ms": 78,
+  "exit_code": 0,
+  "stdout": {
+    "text": "Pipeline complete: 60 input rows, 57 used, 3 excluded\nResults written to /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0715_data_006/data6_qwen35_profile_001/output/results.json\nReport written to /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0715_data_006/data6_qwen35_profile_001/output/report.md\n",
+    "captured_bytes": 330,
+    "total_bytes": 330,
+    "truncated": false
+  },
+  "stderr": {
+    "text": "",
+    "captured_bytes": 0,
+    "total_bytes": 0,
+    "truncated": false
+  },
+  "artifacts": [
+    {
+      "path": "output/inspection.json",
+      "bytes": 478,
+      "fnv1a64": "4e88d82714d53d7d"
+    },
+    {
+      "path": "output/report.md",
+      "bytes": 710,
+      "fnv1a64": "df7b59a81f4e9ec6"
+    },
+    {
+      "path": "output/results.json",
+      "bytes": 963,
+      "fnv1a64": "941678b67343a07a"
+    }
+  ],
+  "isolation": {
+    "level": "workspace_cwd_env_allowlist_bounded_offline_policy",
+    "workspace_cwd": true,
+    "environment_allowlist": true,
+    "process_group": true,
+    "bounded_timeout_ms": 30000,
+    "offline_policy_applied": true,
+    "network_namespace_enforced": false
+  },
+  "failure_kinds": [],
+  "capture_warnings": []
+}
