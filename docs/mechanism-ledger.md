@@ -337,3 +337,94 @@ UAT #7ではqwen35 profileでinspection書き込み非追従が2件、gemma31 pr
 
 - data × create バンド宣言（2026-07-15）: 機構安定後窓は2/6 full、全期間窓は2/38 full（観測48 run中、操作誤り・preflight未達の10 runを理由付きで分母外）。再計測は集計スクリプトのみとし、原表は[`band_summary_data.md`](../workspace/management/runs/band_summary_data.md)を参照する。
 - B-3 admission gate（2026-07-16）: `draft` profileのassurance宣言を`static / profile_not_admitted`に上限制限し、dataを[バンド宣言](generality.md#measured-capability-bands-data--create)に基づく初の`admitted` profileへ昇格した。以後、新profileはdraft起点でfull宣言不可。
+
+## Phase B settlement: data profile cost (2026-07-15)
+
+data契約のfixedから初バンド宣言までを、次の再現可能な境界で集計した。
+移行前SHA `2c982fc` は
+[`docs/migration/anvil-commit-map.txt`](migration/anvil-commit-map.txt) 上の
+現リポジトリSHA `4f57714`（2026-07-13 21:23:57 JST）に対応する。終点は
+`68fdaf0`（2026-07-16 00:19:41 JST、7月15日キャンペーンのバンド宣言）
+で、実時間は50時間55分44秒、キャンペーン日では3日である。移行mergeが
+別履歴を含むため単純な `rev-list` は使わず、data契約・実装パス、上記の
+B-2台帳行、調査/UAT記録、バンド生成物からfull SHAを集めて重複排除した。
+
+### タスク、コミット、計測
+
+| 集計項目 | 実測 | 集計規律 |
+|---|---:|---|
+| 台帳上のタスクID | 18 | B-0〜B-3の4 ID、B-2a〜B-2jの10 ID、下記4調査。B-2は配下a〜jのumbrellaなので、重複しない実行タスク数は17 |
+| 一次資料調査 | 4 | [`investigation-01.md`](../workspace/management/runs/uat-test0713-data-001/investigation-01.md)、[`investigation-b2d.md`](../workspace/management/runs/uat-test0714-m4-001/investigation-b2d.md)、[`investigation-data10.md`](../workspace/management/runs/uat-test0714-m4-004/investigation-data10.md)、[`investigation-e2.md`](../workspace/management/runs/uat-test0715-ff1-002/investigation-e2.md) を `rg --files workspace/management/runs` で列挙 |
+| fixed→初バンドのscoped commits | 38 | `4f57714`〜`68fdaf0`からdata/B系の契約・実装・調査・UAT・バンドcommitを対象パスと台帳で選び、full SHAで重複排除 |
+| B-0〜B-3の全ライフサイクルcommit | 42 | 上記38に、fixed直前のB-1 schema/doc 2件（`bb510b7`、`62a3320`）と、バンド後のB-3 gate/admission 2件（`2c2d154`、`8930784`）を加算。B-4清算commitは含めない |
+| 観測キャンペーン | 9 set | 正式data UAT #1〜#7の7 setに、無効計測 `uat-test0714-m4-002` / `m4-004` の2 setを加えた「7 set + α」 |
+| 観測run | 48 | [`band_summary_data.md`](../workspace/management/runs/band_summary_data.md) の走査行数。正式分母38、操作上のmodel-ID誤り5とpreflight未達・未完了5の計10は理由付き分母外 |
+| full | 2/38 | E1〜E4とdata-assuranceの実在を集計器が横断確認。evidence欠口を持つfalse-fullは0 |
+
+38 commitは、`git show -s --format='%H %s'` で各対象SHAの存在とsubjectを
+確認した。42という値は期間を曖昧に広げた値ではなく、B-1がfixedの直前、
+B-3が初バンドの直後という工程境界を別枠で明示した全ライフサイクル値で
+ある。
+
+対象38 SHA（表示は短縮形）: `4f57714 ac336a8 728dc5c 81a94dd baf008b
+16af7c2 ae76537 23b18dc 1ee67e3 97f9b94 18e07ea 82fff89 bdca35c e6a6697
+cbe5fe2 476d132 10d0143 4d9a4da 0ba612f f049af7 dc701aa bc9ec91 b8d405b
+a708a22 c418d4d 0103ae5 cc829bc 2d42ae4 4ddffcf 859cd08 8b97959 3b99c64
+7b177fe 88e0a69 13b994f 4b4426e 88d0bff 68fdaf0`。
+
+### コード量
+
+行数は終点 `68fdaf0` のblobを `git ls-tree` / `git show` / `wc -l` で
+数え、変更量は `git diff --numstat 4f57714 68fdaf0` で集計した。生成物や
+空白を推定換算せず、Rust内の同居テストを含む物理行数である。
+
+| 境界 | ファイル / 行 | 注記 |
+|---|---:|---|
+| data profile一式 | 25 files / 4,638 lines | `src/planner/profiles/data.rs` と `src/planner/profiles/data/**`。期間差分は +4,492/-3 |
+| manifest | 145 lines | `src/planner/profiles/data/manifest.toml`。上の4,638行に内包 |
+| E系チェック群 | 10 files / 1,635 lines | `checks.rs`、`results_schema.rs`、`runtime*.rs`、`claims_binding.rs` と同submodules。上の4,638行に内包 |
+| 層2のcatalog/probe | 2 files / 665 lines | `capability_catalog/data.rs` 205行、`minimal_loop/pipeline_probe.rs` 460行 |
+| 指定された層2範囲の合計 | 12 files / 2,300 lines | E系1,635行とcatalog/probe 665行の非重複和 |
+| profile境界外の `src/` 差分 | 71 paths / +4,980/-604 | 新規leaf 16 pathsは +2,934/-0、既存core 55 pathsは +2,046/-604。profile外コストを新規leafだけに見せない |
+
+### 共通機構の再利用監査
+
+共通機構は置換せず再利用したが、「全て変更ゼロ」という一括記述はGit差分
+では裏付けられなかったため、機構本体とdata配線を分けて記録する。
+
+| 共通機構 | 実測された再利用状態 |
+|---|---|
+| minimal loop | 実行・修復ループ本体を再利用。data配線と共通境界修正により `loop_run.rs` は +89/-79で、byte-zeroではない |
+| 修復圧力状態機械 | `repair_pressure.rs` は両端ともblob `1cb04168a98bd992c165ccad4ee30335acd0ffab`。変更ゼロで流用 |
+| ターゲット解決 | 既存解決経路を流用しつつtraceback/選択leafを追加。`repair_targeting.rs` は型のleaf移設により +4/-33で、変更ゼロではない |
+| `eval_events` | productionのevent emitter/schemaは変更ゼロ。ファイル差分 +1/-1 はbinary renameに伴うtest期待文字列だけ |
+| 計測規律 | preflight、1 run 1回、artifact退避、理由付き分母除外を変更せず流用。集計器自体にはdata対応 +554/-8を追加 |
+
+したがって、ゼロ変更で再利用できたと機械的に言えるのは修復圧力の遷移
+kernel、productionの`eval_events`契約、およびUAT実行規律である。minimal
+loopとターゲット解決は共通機構を再利用したが、dataで観測した一般欠陥の
+配線修正を含む。この区別もdataプロファイル追加コストに算入する。
+
+歴史的な縦穴との丸め比較は、nextjsが約10計測set・約200 run・2日、
+dataが7正式set + α（観測9 set）・48 run・3日である。nextjs側はPhase A
+台帳の概数、data側は上記集計器の実数であり、同精度の比率としては扱わない。
+
+## Phase B seal (2026-07-15)
+
+| 出口条件 | 照合結果 | 根拠 |
+|---|---|---|
+| 正直終端 | 達成 | 機構安定後UAT #7は6/6が理由付き終端。全期間の無効10 runも破棄・中断理由を保存し、成功へ投影していない |
+| 偽成功ゼロ | 達成 | 初full 2件はE1〜E4実在を横断確認し、false-full evidence gap 0。契約§6ネガティブとB-3 admission gateを維持 |
+| 2実例からの汎用化 | 達成 | nextjs/dataの2 manifestからschema v1とprofile admissionを確定 |
+| 2シナリオ分布 | 限定達成・継続 | executor/presetの分布は測ったが、dataバンドは同一fixtureの月次×地域集計という単一シナリオ族だけ。複数dataシナリオ族への外的妥当性は主張しない |
+| コスト実測 | 達成 | 本節のタスク、commit、run、行数、core差分をGitと生成バンドから集計 |
+| schema v1 | 達成 | `6986cc8`。named guidance variants、artifact either/exactly-one、phase bindingを確定し、repository manifestはv1のみ受理 |
+| relocation | 達成 | `472b3f3`。移設可能なNext.js policyをprofile leafへ移し、productionのNext.js literal guardを34件/11 filesから28件/7 filesへ減少。残置理由はintegration notesに保存 |
+| admission gate | 達成 | `2c2d154` / `8930784`。draftはevidence full相当でもstatic上限、data/nextjsは根拠付きadmitted |
+
+Phase Bは上記の限定を含む現在スコープで封緘する。残存事項は次の3点で、
+既存バンドやfullの意味を拡張解釈しない。
+
+- inspection成果物への書き込み非追従はexecutorごとのモデル分散として受容済みであり、DATA-10の機械的束縛欠陥とは分離してバンドに残す。
+- dataの計測シナリオ族は1本である。シナリオ族の拡張はPhase B後の継続項目とする。
+- E4のアサーション範囲拡張は候補として残す。現行E4を実行せずfullを与える変更は行わない。
