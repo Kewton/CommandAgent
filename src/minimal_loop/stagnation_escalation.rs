@@ -54,21 +54,11 @@ impl ReadOnlyStagnationStage {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub(crate) struct WriteRequiredState {
     pressure_inputs: PressureInputs,
     pressure_state: PressureState,
     diagnostic_feedback: String,
-}
-
-impl Default for WriteRequiredState {
-    fn default() -> Self {
-        Self {
-            pressure_inputs: PressureInputs::default(),
-            pressure_state: PressureState::default(),
-            diagnostic_feedback: String::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

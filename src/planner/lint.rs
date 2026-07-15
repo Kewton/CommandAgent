@@ -252,7 +252,7 @@ pub fn lint_step_plan_report_with_workspace(
                 report.errors.push(PlanLintError {
                     category: "verify_policy".to_string(),
                     message: failure.message,
-                    verify_rejection: Some(failure.rejection),
+                    verify_rejection: Some(*failure.rejection),
                 });
             }
         }

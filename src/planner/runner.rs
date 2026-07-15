@@ -500,12 +500,11 @@ fn generate_step_plan_with_ui_for_phase(
         anyhow::bail!("interrupted by user");
     }
     let model = model_for(config, true);
-    if phase_label.is_some() {
-        if let Some(plan) =
+    if phase_label.is_some()
+        && let Some(plan) =
             deterministic_step_plan_for_phase(client.label(), model, goal, config, phase_label)?
-        {
-            return Ok(plan);
-        }
+    {
+        return Ok(plan);
     }
     let mut prompt = build_step_plan_user_prompt(goal, config);
     if let Some(guidance) = profile_guidance(&config.profile, goal) {

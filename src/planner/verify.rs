@@ -2458,9 +2458,7 @@ fn parse_hook_grep_value(input: &str) -> Option<(String, &str)> {
             .map(|rest| (value, rest));
     }
     let mut chars = input.char_indices();
-    let Some((_, first)) = chars.next() else {
-        return None;
-    };
+    let (_, first) = chars.next()?;
     if matches!(first, '"' | '\'' | '`') {
         let quote = first;
         let rest = &input[first.len_utf8()..];

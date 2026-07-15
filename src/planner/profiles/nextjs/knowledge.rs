@@ -115,9 +115,11 @@ pub(crate) fn get() -> &'static NextJsKnowledge {
 }
 
 pub(crate) fn generic_interaction_repair_guidance(failure_kind: &str) -> Vec<String> {
-    interaction_failure_kind(failure_kind)
-        .then(|| vec![get().repair_guidance.generic_interaction.clone()])
-        .unwrap_or_default()
+    if interaction_failure_kind(failure_kind) {
+        vec![get().repair_guidance.generic_interaction.clone()]
+    } else {
+        Vec::new()
+    }
 }
 
 pub(crate) fn interaction_repair_guidance(

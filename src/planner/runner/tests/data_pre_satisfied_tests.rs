@@ -36,7 +36,7 @@ fn run_without_final_acceptance(
     plan: &StepPlan,
     cfg: &Config,
     phase_scope: Option<&str>,
-) -> Result<StepPlanRunOutcome, StepPlanRunError> {
+) -> Result<StepPlanRunOutcome, Box<StepPlanRunError>> {
     let mut session = SessionSnapshot::new();
     run_step_plan_with_session_with_ui(
         client,
@@ -49,6 +49,7 @@ fn run_without_final_acceptance(
         phase_scope,
         None,
     )
+    .map_err(Box::new)
 }
 
 #[test]

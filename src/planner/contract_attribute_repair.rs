@@ -89,7 +89,7 @@ pub(crate) fn guidance_for_issue(
     issue: &ContractAttributeIssue,
     eval_events_path: Option<&Path>,
 ) -> String {
-    emit_guidance_event(eval_events_path, &issue);
+    emit_guidance_event(eval_events_path, issue);
     let contracts = &knowledge::get().contracts;
     let requirement = requirement_for_attribute(&issue.attribute);
     let excerpts = hook_location_excerpts(root, &issue.path);
@@ -285,12 +285,8 @@ fn line_numbered_excerpt(lines: &[&str], index: usize) -> String {
     let start = index.saturating_sub(2);
     let end = (index + 3).min(lines.len());
     let mut out = format!("- near line {}\n", index + 1);
-    for line_index in start..end {
-        out.push_str(&format!(
-            "  {:>4} | {}\n",
-            line_index + 1,
-            lines[line_index]
-        ));
+    for (line_index, line) in lines.iter().enumerate().take(end).skip(start) {
+        out.push_str(&format!("  {:>4} | {}\n", line_index + 1, line));
     }
     out.trim_end().to_string()
 }

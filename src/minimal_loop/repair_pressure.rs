@@ -6,20 +6,15 @@ pub(crate) const NO_PROGRESS_FEEDBACK_LIMIT: usize = 3;
 pub(crate) const READ_ONLY_STAGNATION_REASON: &str = "model_stagnation:read_only_loop";
 pub(crate) const NO_PROGRESS_STAGNATION_REASON: &str = "model_stagnation:no_progress_recorded";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum PressureLevel {
+    #[default]
     Normal,
     Intervention,
     CompactRestatement,
     WriteRequired,
     FullFileWrite,
     Exhausted,
-}
-
-impl Default for PressureLevel {
-    fn default() -> Self {
-        Self::Normal
-    }
 }
 
 impl PressureLevel {

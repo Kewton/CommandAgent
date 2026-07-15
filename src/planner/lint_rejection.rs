@@ -18,7 +18,7 @@ pub struct VerifyLintRejection {
 #[derive(Debug)]
 pub struct VerifyLintFailure {
     pub message: String,
-    pub rejection: VerifyLintRejection,
+    pub rejection: Box<VerifyLintRejection>,
 }
 
 #[derive(Debug, Clone)]
@@ -55,13 +55,13 @@ pub fn lint_verify_command(
             Err(error) => {
                 return Err(VerifyLintFailure {
                     message: error.to_string(),
-                    rejection: VerifyLintRejection {
+                    rejection: Box::new(VerifyLintRejection {
                         step_id: step_id.to_string(),
                         command_index,
                         original_command: command.to_string(),
                         normalized_commands: Vec::new(),
                         violation_kind,
-                    },
+                    }),
                 });
             }
         };
@@ -78,13 +78,13 @@ pub fn lint_verify_command(
     }) {
         return Err(VerifyLintFailure {
             message,
-            rejection: VerifyLintRejection {
+            rejection: Box::new(VerifyLintRejection {
                 step_id: step_id.to_string(),
                 command_index,
                 original_command: command.to_string(),
                 normalized_commands,
                 violation_kind: normalized_kind,
-            },
+            }),
         });
     }
     Ok(())
@@ -192,7 +192,7 @@ mod tests {
         let error = PlanLintError {
             category: "verify_policy".to_string(),
             message: failure.message,
-            verify_rejection: Some(failure.rejection),
+            verify_rejection: Some(*failure.rejection),
         };
 
         let line = retry_error_line(&error);
@@ -210,7 +210,7 @@ mod tests {
             errors: vec![PlanLintError {
                 category: "verify_policy".to_string(),
                 message: failure.message,
-                verify_rejection: Some(failure.rejection),
+                verify_rejection: Some(*failure.rejection),
             }],
         };
 

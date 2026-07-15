@@ -650,7 +650,8 @@ fn code_line_counts(text: &str) -> CodeLineCounts {
 fn production_lines(text: &str) -> Vec<String> {
     classified_rust_lines(text)
         .into_iter()
-        .filter_map(|(line, class)| (class == RustLineClass::Production).then(|| line.to_string()))
+        .filter(|(_, class)| *class == RustLineClass::Production)
+        .map(|(line, _)| line.to_string())
         .collect()
 }
 
