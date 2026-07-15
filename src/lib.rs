@@ -384,7 +384,8 @@ fn emit_direct_command_stop_with_status(
     let mut completion_snapshot =
         eval_events::latest_completion_snapshot(config.eval_events_path.as_deref());
     completion_metadata::apply_config_completion_metadata(config, &mut completion_snapshot);
-    let completion = eval_events::project_completion(requested_ok, &completion_snapshot);
+    let mut completion = eval_events::project_completion(requested_ok, &completion_snapshot);
+    completion_metadata::apply_config_completion_projection(config, &mut completion);
     let terminal_status = effective_direct_status(requested_status, &completion);
     let ok = terminal_status.ok();
     let failure_kind = terminal_status.failure_kind();
@@ -646,6 +647,7 @@ fn emit_run_stop(config: &Config, result: &anyhow::Result<()>) {
     if let Some(event) = terminal_stop.as_ref() {
         eval_events::apply_tui_command_stop_projection(&mut completion, event);
     }
+    completion_metadata::apply_config_completion_projection(config, &mut completion);
     eval_events::emit(
         config.eval_events_path.as_deref(),
         json!({
@@ -920,6 +922,72 @@ mod tests {
             run_stop.get("next_action").and_then(|value| value.as_str()),
             Some("repair_release_gate_failure")
         );
+    }
+
+    #[test]
+    fn data_full_evidence_projects_to_both_terminal_events() {
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "tests/corpus/apps/test0715_data_b2j_terminal_projection/fixtures/data7_gemma31_profile_001",
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join(".anvil/runs/test-run/events.jsonl");
+        let mut cfg = config(fixture);
+        cfg.eval_events_path = Some(events.clone());
+        cfg.profile = "data".to_string();
+        cfg.profile_explicit = true;
+        cfg.action = Action::UltraPlanRun("measured data full".to_string());
+        eval_events::emit(
+            cfg.eval_events_path.as_deref(),
+            json!({
+                "event": "ultra_final_acceptance",
+                "profile": "data",
+                "effective_profile": "data",
+                "runtime_acceptance_status": "pass",
+                "final_acceptance_status": "full_success",
+                "release_gate_status": "pass",
+                "assurance_level": "full",
+                "completion_contract_verification_enabled": false,
+                "external_contract_checked": false,
+            }),
+        );
+        let result: anyhow::Result<()> = Ok(());
+
+        let projection = emit_direct_command_stop_with_status(
+            &cfg,
+            "--ultra-plan-run",
+            &result,
+            DirectCommandStatus::Completed,
+        );
+        emit_run_stop(&cfg, &result);
+
+        assert_eq!(projection.assurance_level, "full");
+        assert!(projection.assurance_reason.is_empty());
+        let terminal_events = std::fs::read_to_string(events)
+            .unwrap()
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .filter(|event| {
+                matches!(
+                    event.get("event").and_then(serde_json::Value::as_str),
+                    Some("tui_command_stop" | "run_stop")
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(terminal_events.len(), 2);
+        for event in terminal_events {
+            assert_eq!(
+                event
+                    .get("assurance_level")
+                    .and_then(serde_json::Value::as_str),
+                Some("full")
+            );
+            assert_eq!(
+                event
+                    .get("assurance_reason")
+                    .and_then(serde_json::Value::as_str),
+                Some("")
+            );
+        }
     }
 
     #[test]

@@ -495,7 +495,8 @@ fn emit_tui_command_stop_with_status(
     let mut completion_snapshot =
         crate::eval_events::latest_completion_snapshot(config.eval_events_path.as_deref());
     crate::completion_metadata::apply_config_completion_metadata(config, &mut completion_snapshot);
-    let completion = crate::eval_events::project_completion(requested_ok, &completion_snapshot);
+    let mut completion = crate::eval_events::project_completion(requested_ok, &completion_snapshot);
+    crate::completion_metadata::apply_config_completion_projection(config, &mut completion);
     let terminal_status = effective_terminal_status(terminal_status, &completion);
     let ok = terminal_status.ok();
     let failure_kind = terminal_status.failure_kind();

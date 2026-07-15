@@ -1,0 +1,40 @@
+case_id = "test0715_data_b2j_terminal_projection"
+source = "uat-test0715-data-007 Run 3 and Run 4 measured full evidence"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["pipeline-run", "reconciliation", "claims-binding", "rerun-consistency"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/data7_gemma31_profile_001/evidence/data-assurance.json = [
+  "\"assurance\": \"full\"",
+  "\"data_rerun_consistency\": true"
+]
+fixtures/data7_qwen35_none_001/evidence/data-assurance.json = [
+  "\"assurance\": \"full\"",
+  "\"data_rerun_consistency\": true"
+]
+fixtures/data7_gemma31_profile_001/SHA256SUMS = [
+  "f8a305f5a17dfc23bbd6fc2dc530239715a9ddd5a0d319696334eb07557f4479  pipeline/main.py",
+  "ff1a104e5ff8750922c5908d114a802692524febbc912ba312935e8fc7cc0360  evidence/rerun-consistency.json"
+]
+fixtures/data7_qwen35_none_001/SHA256SUMS = [
+  "c89c4ac9602f6275119a66e9645acbc74cd819f9190001c4fdfe9cfac0381d25  pipeline/main.py",
+  "ebe9eefc78457cdb7fb220ba642f884c258cec1a4abe188fac0e354417a3fc44  evidence/rerun-consistency.json"
+]
