@@ -39,7 +39,7 @@ pub(crate) fn runtime_step_with_profile_checks(
     {
         return (candidate, false);
     }
-    let Some(checks) = profile_setup_checks(root, profile, goal, &candidate) else {
+    let Some(checks) = profile_setup_checks(root, profile, goal, &candidate, None) else {
         return (candidate, false);
     };
     let mut runtime_step = candidate;
@@ -144,7 +144,7 @@ pub(crate) fn convert_preset_phase_setup_steps(
         if !references_template_owned_artifacts(profile, step) {
             continue;
         }
-        let Some(checks) = profile_setup_checks(root, profile, goal, step) else {
+        let Some(checks) = profile_setup_checks(root, profile, goal, step, phase_id) else {
             continue;
         };
         if !profile_owns_declared_paths(root, profile, step) {
@@ -156,7 +156,11 @@ pub(crate) fn convert_preset_phase_setup_steps(
             "Verify the profile-owned {} contract by running every declared check and report any exact failure.",
             checks.ownership
         );
-        merge_unique_paths(&mut step.expected_paths, checks.expected_paths);
+        if is_data_profile(profile) {
+            step.expected_paths = checks.expected_paths;
+        } else {
+            merge_unique_paths(&mut step.expected_paths, checks.expected_paths);
+        }
         step.verify = checks.verify_commands;
         eval_events::emit(
             eval_events_path,
@@ -177,9 +181,12 @@ fn profile_setup_checks(
     profile: &str,
     goal: &str,
     step: &PlanStep,
+    phase_id: Option<&str>,
 ) -> Option<ProfileSetupChecks> {
     if is_data_profile(profile) {
-        let checks = crate::planner::profiles::data::step_policy::setup_step_checks(step)?;
+        let checks = crate::planner::profiles::data::phase_scope::setup_step_checks_for_phase(
+            step, phase_id,
+        )?;
         return Some(ProfileSetupChecks {
             ownership: "data_manifest_artifact",
             expected_paths: checks.expected_paths,

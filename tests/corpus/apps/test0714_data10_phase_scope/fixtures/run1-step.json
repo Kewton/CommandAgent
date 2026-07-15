@@ -1,0 +1,19 @@
+{
+  "id": "run-inspection",
+  "kind": "verify",
+  "expected_result": "pass",
+  "instruction": "Verify the profile-owned data_manifest_artifact contract by running every declared check and report any exact failure.",
+  "expected_paths": [
+    "output/inspection.json",
+    "pipeline/main.py",
+    "output/results.json",
+    "output/report.md"
+  ],
+  "verify": [
+    "anvil-catalog-check:pipeline_probe",
+    "test -f output/inspection.json",
+    "anvil-catalog-check:data_results_schema",
+    "anvil-catalog-check:data_reconciliation",
+    "anvil-catalog-check:data_claims_binding"
+  ]
+}

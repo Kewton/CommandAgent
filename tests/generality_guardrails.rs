@@ -221,6 +221,12 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
             test_baseline: 270,
         },
         ChokepointBudget {
+            path: "src/planner/profile_manifest/check_phase_scope.rs",
+            total_baseline: 94,
+            production_baseline: 62,
+            test_baseline: 32,
+        },
+        ChokepointBudget {
             path: "src/planner/profiles/data/results_schema.rs",
             total_baseline: 187,
             production_baseline: 106,
@@ -243,6 +249,12 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
             total_baseline: 452,
             production_baseline: 304,
             test_baseline: 148,
+        },
+        ChokepointBudget {
+            path: "src/planner/profiles/data/phase_scope.rs",
+            total_baseline: 110,
+            production_baseline: 52,
+            test_baseline: 58,
         },
         ChokepointBudget {
             path: "src/planner/profiles/data/claims_binding.rs",

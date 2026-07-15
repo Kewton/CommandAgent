@@ -115,19 +115,24 @@ primary_example = "pipeline/main.py"
 
 [[checks.execution]]
 id = "pipeline_probe"
+phases = ["data-validation"]
 params = { entry = "pipeline/main.py", timeout_seconds = 30 }
 
 [[checks.evidence]]
 id = "data_results_schema"
+phases = ["data-validation"]
 
 [[checks.evidence]]
 id = "data_reconciliation"
+phases = ["data-validation"]
 
 [[checks.evidence]]
 id = "data_claims_binding"
+phases = ["data-validation"]
 
 [[checks.reproducibility]]
 id = "data_rerun_consistency"
+phases = ["data-validation"]
 params = { entry = "pipeline/main.py", timeout_seconds = 30 }
 
 [evidence_targets.mappings]

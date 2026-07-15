@@ -37,6 +37,7 @@ pub(super) fn validate(manifest: &ManifestV0) -> Result<(), ManifestError> {
     validate_phases(manifest)?;
     validate_vocabulary(manifest)?;
     validate_checks(manifest)?;
+    super::check_phase_scope::validate(manifest)?;
     validate_evidence_targets(manifest)?;
     Ok(())
 }

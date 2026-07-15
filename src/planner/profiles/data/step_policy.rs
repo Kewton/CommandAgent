@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use serde_json::json;
 
-use super::{checks, manifest};
+use super::{checks, manifest, phase_scope::DataSetupStepChecks};
 use crate::eval_events;
 use crate::minimal_loop::pipeline_probe::{self, PipelineProbeConfig};
 use crate::minimal_loop::python_traceback;
@@ -19,12 +19,6 @@ pub(crate) struct CatalogCheckOutcome {
     pub id: String,
     pub ok: bool,
     pub reasons: Vec<String>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct DataSetupStepChecks {
-    pub expected_paths: Vec<String>,
-    pub verify_commands: Vec<String>,
 }
 
 pub(crate) fn canonicalize_step_plan(

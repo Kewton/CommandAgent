@@ -7,6 +7,7 @@ use crate::planner::verify::VerificationReport;
 pub mod checks;
 mod claims_binding;
 pub mod manifest;
+pub(crate) mod phase_scope;
 pub(crate) mod repair_policy;
 pub mod results_schema;
 pub mod runtime;

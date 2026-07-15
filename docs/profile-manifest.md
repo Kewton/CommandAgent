@@ -26,7 +26,7 @@ knowledge, but it cannot replace Layer-1 behavior with executable text.
 | `step_templates` | Scaffold/build-verification match words, implementation-kill words, ownership markers, and inert template artifact bytes moved from `knowledge.toml`. | Matching precedence, kill decisions, template selection, placeholder expansion, and file writes remain Rust mechanisms. |
 | `vocabulary` | A typed reference to `evidence_knowledge` sections `vocabulary` and `goal_hints.translations`. | The values remain single-sourced in `src/minimal_loop/evidence_knowledge.toml`; evidence scanning and translation behavior remain Layer 1. |
 | `guidance` | The `generic`, `canvas_game`, and `persistence` repair variants plus contract wording. | Failure classification, variant selection, ordering, and deduplication remain Rust mechanisms. |
-| `checks` | Named arrays of catalog bindings: an `id` and typed `params`. | `src/planner/capability_catalog.rs` owns parameter schemas, validation, adapters, and execution. |
+| `checks` | Named arrays of catalog bindings: an `id`, optional phase ids, and typed `params`. | `src/planner/capability_catalog.rs` owns parameter schemas, validation, adapters, and execution. Omitted `phases` binds only at final acceptance; the final phase always collects all checks. |
 | `evidence_targets` | Either a typed reference to shared `repair_targets` or a profile-local evidence-kind-to-path mapping. | Shared mappings remain single-sourced; local paths are validated as workspace-relative. Route closure and repair-target selection remain Rust mechanisms. |
 
 The vocabulary section uses a reference instead of copied arrays. Next.js also
@@ -59,6 +59,7 @@ Check bindings use TOML arrays under a logical binding name:
 ```toml
 [[checks.project-setup]]
 id = "package_json_port_script"
+phases = ["project-setup"]
 params = { port = 3011 }
 ```
 
@@ -109,6 +110,7 @@ declared complete while a row remains `open`.
 | `FG-B2-001` | Data plan/guidance from contract §8 | Populate the existing `step_templates` and T28-shaped `guidance` slots with data keywords and deterministic pipeline guidance. | v0 has Next.js-shaped artifact and guidance field names rather than profile-neutral typed variants; unrelated inert fields must remain empty. | `planner::profiles::data::manifest::tests::manifest_drives_plan_guidance_requirements_and_repair_targets` | `open` |
 | `FG-B2-002` | Contract §1 permits `output/report.{html,md}` | B-2b fixes `output/report.md` as the required v0 artifact and permits `output/report.html` only as an additional artifact; E2 continues to inspect either present report. | v0 artifact lists cannot express an exactly-one-of path requirement without conditional manifest logic, so the mandatory Markdown path is an intentional Layer-1 policy choice. | `data_manifest_knowledge_matches_b2b_golden`; `planner::profiles::data::runtime::tests::manifest_dispatch_produces_full_only_after_all_checks_pass` | `accepted-layer1` |
 | `FG-B2-003` | Contract §4 earned assurance hierarchy | Bind all checks declaratively, then classify observed check evidence in the typed data runtime adapter. | `full`/`partial`/`static`/`failed` depends on execution history and cannot be safely expressed as manifest branching. | `planner::runner::tests::assurance_tests::moved::data_assurance_is_earned_from_the_observed_profile_probe_level` | `open` |
+| `FG-B2-004` | DATA-10 inspection stagnation in `uat-test0714-m4-004` and `uat-test0714-m4-001` | Add optional `phases = ["<phase-id>", ...]` to each check binding; omission means final acceptance only, while the final phase collects every binding. | v0 previously had no way to bind a catalog check to the phase where its required artifacts can exist, so conversion attached final checks to inspection steps. | `planner::profiles::data::phase_scope::tests::converted_inspection_and_final_steps_match_phase_scope_snapshot`; `both_observed_data10_steps_drop_later_phase_obligations` | `resolved-v0` |
 
 B-2 の data プロファイル実装は docs/data-profile-contract.md（fixed）に適合しなければならない。契約との不整合はスキーマ側でなく実装側の問題として扱う。
 

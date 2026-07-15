@@ -7,6 +7,7 @@ use toml::value::Table;
 
 use crate::planner::capability_catalog::{self, CatalogError, ResolvedCapability};
 
+pub(crate) mod check_phase_scope;
 mod validation;
 
 const NEXTJS_MANIFEST_TOML: &str = include_str!("profiles/nextjs/manifest.toml");
@@ -256,6 +257,8 @@ pub struct ContractGuidance {
 pub struct CheckBinding {
     pub id: String,
     #[serde(default)]
+    pub phases: Option<Vec<String>>,
+    #[serde(default)]
     pub params: Table,
 }
 
@@ -279,6 +282,7 @@ pub enum EvidenceTargetsSection {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedCheck {
     pub id: String,
+    pub phases: Option<Vec<String>>,
     pub capability: ResolvedCapability,
 }
 
@@ -353,6 +357,7 @@ impl ManifestV0 {
                     })?;
                 entries.push(ResolvedCheck {
                     id: check.id.clone(),
+                    phases: check.phases.clone(),
                     capability,
                 });
             }
