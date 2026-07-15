@@ -1,4 +1,7 @@
+use commandagent::config::PromptLayout;
 use commandagent::planner::profiles::data::manifest;
+use commandagent::planner::repair::{RepairContext, build_repair_prompt_with_context};
+use commandagent::planner::verify::VerificationReport;
 
 #[test]
 fn data_manifest_knowledge_matches_b2b_golden() {
@@ -49,4 +52,32 @@ template_owned.path_contains={}\n",
         actual,
         include_str!("golden/data_manifest_v0_knowledge.txt")
     );
+}
+
+#[test]
+fn inspection_literal_example_is_observation_bound_and_reaches_repair_prompt() {
+    let manifest = manifest::get();
+    let phase = &manifest.plan.phases[0].prompt;
+    let guidance = &manifest.guidance.canvas_game.canvas_input_wiring_checklist;
+    let literal = r#"{"column_names": ["date","region","amount"], "input_row_count": 60, "type_summaries": {"date":"string(YYYY-MM-DD)","region":"string","amount":"number"}, "distinct_values": {"region": ["東京","大阪","名古屋"]}, "sample_rows": [{"date":"2026-01-01","region":"東京","amount":1000}]}"#;
+    for text in [phase, guidance] {
+        assert!(text.contains(literal));
+        assert!(text.contains("examples only"));
+        assert!(text.contains("actual observed values"));
+        assert!(text.contains("never copy the example values as fixed data"));
+    }
+
+    let mut report = VerificationReport::pass();
+    report.push_profile_failure(
+        "data_inspection_schema:inspection_schema_violation:missing_keys:column_names,input_row_count,type_summaries,distinct_values,sample_rows",
+    );
+    let context = RepairContext {
+        profile: Some("data".to_string()),
+        prompt_layout: PromptLayout::Stable,
+        ..RepairContext::default()
+    };
+    let prompt = build_repair_prompt_with_context("verify-inspection", &report, &context);
+    assert!(prompt.contains("Profile repair guidance:"));
+    assert!(prompt.contains(literal));
+    assert!(prompt.contains("actual observed values"));
 }

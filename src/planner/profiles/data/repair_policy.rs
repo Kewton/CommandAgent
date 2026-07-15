@@ -8,6 +8,8 @@ use crate::minimal_loop::reachability::RepairActionClass;
 use crate::minimal_loop::reachability::{RepairReachability, assess_repair_reachability};
 use crate::planner::verify::VerificationReport;
 
+mod inspection_guidance;
+
 pub(crate) const DEPENDENCY_DENIAL_GUIDANCE: &str = "Dependency installation is forbidden for this profile. Rewrite with the Python 3 standard library only (csv/json/statistics); do not run pip install or add dependencies.";
 
 pub(crate) struct StepRepairPolicy<'a> {
@@ -119,13 +121,7 @@ pub(crate) fn profile_guidance(
             .iter()
             .any(|id| reason == id || reason.starts_with(&format!("{id}:")))
     }) {
-        guidance.push(
-            super::manifest::get()
-                .guidance
-                .contracts
-                .contract_attribute_guidance
-                .clone(),
-        );
+        guidance.push(inspection_guidance::repair_text(report).to_string());
     }
     (!guidance.is_empty()).then(|| guidance.join("\n"))
 }

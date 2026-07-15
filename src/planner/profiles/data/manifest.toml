@@ -14,7 +14,7 @@ goal = "{goal}"
 
 [[plan.phases]]
 id = "data-inspection"
-prompt = '''Inspect the workspace CSV or TSV input for: {goal}. Write output/inspection.json with column names, input row count, type summaries, distinct observed values for every categorical column (for example the actual region values), and sample rows. Derive later validation rules such as valid regions and date formats only from output/inspection.json observations; never invent an unobserved value set. Verify this phase without depending on pipeline/main.py, output/results.json, or output/report.md.'''
+prompt = '''Inspect the workspace CSV or TSV input for: {goal}. Write output/inspection.json with column names, input row count, type summaries, distinct observed values for every categorical column (for example the actual region values), and sample rows. Always write output/inspection.json in this literal shape: {"column_names": ["date","region","amount"], "input_row_count": 60, "type_summaries": {"date":"string(YYYY-MM-DD)","region":"string","amount":"number"}, "distinct_values": {"region": ["東京","大阪","名古屋"]}, "sample_rows": [{"date":"2026-01-01","region":"東京","amount":1000}]}. The values shown are examples only: fill every field with actual observed values from the input data, and never copy the example values as fixed data. Derive later validation rules such as valid regions and date formats only from output/inspection.json observations; never invent an unobserved value set. Verify this phase without depending on pipeline/main.py, output/results.json, or output/report.md.'''
 
 [[plan.phases]]
 id = "data-cleaning"
@@ -91,7 +91,7 @@ start_interaction = "The pipeline must be deterministic: use a fixed seed whenev
 [guidance.canvas_game]
 canvas_game_interaction = '''output/results.json must have exactly this shape: {"reconciliation":{"input_rows":N,"used_rows":N,"excluded":[{"reason":"...","rows":N}]},"values":{"<claim_key>":number}}. Every numeric claim printed in output/report.md must be stored under values.'''
 canvas_render_loop_checklist = "Reconcile input rows to used rows plus reasoned exclusions before reporting, and regenerate output/results.json rather than weakening a bound check."
-canvas_input_wiring_checklist = "Derive validation rules only from output/inspection.json observations. Never invent valid regions, date formats, or category sets that are absent from the inspected data. Inspection verification may read only the input data and output/inspection.json, not later-phase artifacts."
+canvas_input_wiring_checklist = '''When data_inspection_schema fails, write output/inspection.json in this literal shape: {"column_names": ["date","region","amount"], "input_row_count": 60, "type_summaries": {"date":"string(YYYY-MM-DD)","region":"string","amount":"number"}, "distinct_values": {"region": ["東京","大阪","名古屋"]}, "sample_rows": [{"date":"2026-01-01","region":"東京","amount":1000}]}. The values shown are examples only: fill every field with actual observed values from the input data, and never copy the example values as fixed data. Derive validation rules only from output/inspection.json observations. Never invent valid regions, date formats, or category sets that are absent from the inspected data. Inspection verification may read only the input data and output/inspection.json, not later-phase artifacts.'''
 
 [guidance.persistence]
 persistence = "A rerun must reproduce the complete output/results.json document exactly; time, random state, and unstable iteration order may not change results."
