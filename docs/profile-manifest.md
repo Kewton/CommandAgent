@@ -112,6 +112,8 @@ declared complete while a row remains `open`.
 | `FG-B2-003` | Contract §4 earned assurance hierarchy | Bind all checks declaratively, then classify observed check evidence in the typed data runtime adapter. | `full`/`partial`/`static`/`failed` depends on execution history and cannot be safely expressed as manifest branching. | `planner::runner::tests::assurance_tests::moved::data_assurance_is_earned_from_the_observed_profile_probe_level` | `open` |
 | `FG-B2-004` | DATA-10 inspection stagnation in `uat-test0714-m4-004` and `uat-test0714-m4-001` | Add optional `phases = ["<phase-id>", ...]` to each check binding; omission means final acceptance only, while the final phase collects every binding. | v0 previously had no way to bind a catalog check to the phase where its required artifacts can exist, so conversion attached final checks to inspection steps. | `planner::profiles::data::phase_scope::tests::converted_inspection_and_final_steps_match_phase_scope_snapshot`; `both_observed_data10_steps_drop_later_phase_obligations` | `resolved-v0` |
 
+guidance variantの区画名がドメイン固有名(canvas_input_wiring_checklist等)で固定されており、data固有のvariant名を宣言できない。schema v1で汎用化する
+
 B-2 の data プロファイル実装は docs/data-profile-contract.md（fixed）に適合しなければならない。契約との不整合はスキーマ側でなく実装側の問題として扱う。
 
 ## Promotion boundary

@@ -1,0 +1,15 @@
+{
+  "total_rows": 60,
+  "valid_rows": 57,
+  "invalid_rows": 3,
+  "excluded_reasons": {
+    "empty_date": 1,
+    "invalid_date": 1,
+    "non_numeric_amount": 1
+  },
+  "valid_regions": [
+    "名古屋",
+    "大阪",
+    "東京"
+  ]
+}

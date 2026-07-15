@@ -1,0 +1,32 @@
+goal: "Original ultra goal: data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。\nProfile: data\nStyle: default\nIntent: create\nPhase id: load-and-validate-sales-data\nPhase task: data/sales.csvを読み込み列構造を解析し、無効な行を理由別に分類して除外する。除外された行の理由ごとの件数を明記した検証結果を出力し、有効データの構造が集計に適していることを確認する。\n\nWorkspace snapshot:\n- data\n\nPrior ultra context:\n- Pending final artifacts:\n  - pipeline/main.py\n  - output/inspection.json\n  - output/results.json\n  - output/report.md\n\nUnmet final requirements from earlier phases:\n- none\n\nRequested features not yet detected:\n- csv\n- data\n- sales\n- クリーン\n- グループ\n- タスク\n- … and 3 more\n\nProfile generation rules:\nThe pipeline must be deterministic: use a fixed seed whenever randomness is unavoidable, do not depend on execution time, and keep iteration and output ordering stable. Derive validation rules only from output/inspection.json observations and never invent unobserved value sets. This is class knowledge required by docs/data-profile-contract.md section 8.\nProfile runtime contract:\n- Generate pipeline/main.py, output/inspection.json, output/results.json, and required output/report.md; output/report.html is optional in addition.\n- Write output/results.json exactly as {\"reconciliation\":{\"input_rows\":N,\"used_rows\":N,\"excluded\":[{\"reason\":\"...\",\"rows\":N}]},\"values\":{\"<claim_key>\":number}} and store every numeric report claim under values.\n- input_rows must equal used_rows plus the sum of excluded rows.\n- A rerun must reproduce the complete output/results.json document exactly; time, random state, and unstable iteration order may not change results.Deterministic verification preference:\n- none\n\n\nRequired final artifacts:\n- pipeline/main.py\n- output/inspection.json\n- output/results.json\n- output/report.md\n\nRequired final capabilities:\n- data_reconciliation\n- data_claims_binding\n- data_rerun_consistency\n- data_inspection_schema\n- data_results_schema"
+steps:
+  - id: "setup-directories"
+    kind: "setup"
+    expected_result: "pass"
+    instruction: "Create pipeline and output directories to hold the execution script and generated artifacts."
+    expected_paths:
+      - "pipeline"
+      - "output"
+    verify:
+      - "ls -d pipeline output"
+  - id: "implement-pipeline-and-smoke"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Create pipeline/main.py that reads data/sales.csv, parses columns, classifies invalid rows by reason, calculates monthly/regional sales aggregates, and writes output/inspection.json, output/results.json, and output/report.md. Also create smoke_check.py that executes pipeline/main.py and asserts the existence and schema correctness of all output artifacts.\n\nProfile contract:\nBuild one reproducible tabular-data pipeline with Python 3 standard-library csv/json/statistics only. Preserve input files. The canonical artifacts are pipeline/main.py, output/inspection.json, output/results.json, and required output/report.md; output/report.html is optional in addition to report.md.\nThe pipeline must be deterministic: use a fixed seed whenever randomness is unavoidable, do not depend on execution time, and keep iteration and output ordering stable. Derive validation rules only from output/inspection.json observations and never invent unobserved value sets. This is class knowledge required by docs/data-profile-contract.md section 8.\nA rerun must reproduce the complete output/results.json document exactly; time, random state, and unstable iteration order may not change results.\nRepair pipeline/main.py and regenerate output/results.json exactly as {\"reconciliation\":{\"input_rows\":N,\"used_rows\":N,\"excluded\":[{\"reason\":\"...\",\"rows\":N}]},\"values\":{\"<claim_key>\":number}}. Every numeric claim printed in output/report.md must be present under values. Never weaken or replace the manifest-bound evidence checks."
+    expected_paths:
+      - "pipeline/main.py"
+      - "smoke_check.py"
+      - "output/inspection.json"
+      - "output/results.json"
+      - "output/report.md"
+    verify:
+      - "test -f pipeline/main.py"
+      - "test -f smoke_check.py"
+  - id: "verify-execution"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Run the smoke check script to execute the pipeline and validate that all output files are generated with correct structure and deterministic content."
+    expected_paths:
+    verify:
+      - "anvil-catalog-check:data_rerun_consistency"
+      - "anvil-catalog-check:pipeline_probe"
