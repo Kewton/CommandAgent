@@ -167,6 +167,12 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
             test_baseline: 2_485,
         },
         ChokepointBudget {
+            path: "src/minimal_loop/loop_run/runtime_bash_policy_telemetry.rs",
+            total_baseline: 79,
+            production_baseline: 79,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
             path: "src/minimal_loop/repair_pressure.rs",
             total_baseline: 746,
             production_baseline: 278,
@@ -315,6 +321,12 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
             total_baseline: 4_757,
             production_baseline: 3_029,
             test_baseline: 1_728,
+        },
+        ChokepointBudget {
+            path: "src/planner/verify/shell_rewrite.rs",
+            total_baseline: 221,
+            production_baseline: 113,
+            test_baseline: 108,
         },
         ChokepointBudget {
             path: "src/planner/profiles/data.rs",

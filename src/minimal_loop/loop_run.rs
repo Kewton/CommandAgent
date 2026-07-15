@@ -53,6 +53,8 @@ use super::repair_pressure::{
 use super::repair_progress::{
     RepairProgressVerdict, VerificationSignature, classify_repair_progress,
 };
+
+mod runtime_bash_policy_telemetry;
 use super::repair_target::{
     RepairFollowThrough, RepairTarget, classify_repair_follow_through, classify_repair_target,
 };
@@ -563,8 +565,9 @@ impl RuntimeBashPolicyDecision {
                 };
             }
         };
-        let normalized_command = (normalized_plan.normalized_command != command.trim())
-            .then(|| normalized_plan.normalized_command.clone());
+        let normalized_command = (!normalized_plan.normalization_kind.is_empty()
+            || normalized_plan.normalized_command != command.trim())
+        .then(|| normalized_plan.normalized_command.clone());
         let reason = if normalized_command.is_some() {
             "runtime Bash admitted as deterministic verifier evidence after mechanical normalization"
         } else {
@@ -635,32 +638,6 @@ fn deterministic_verify_substitute(root: &Path, required_paths: &[String]) -> Op
     normalize_verify_command(&command)
         .ok()
         .map(|command| command.into_string())
-}
-
-fn emit_runtime_bash_policy(
-    path: Option<&Path>,
-    decision: &RuntimeBashPolicyDecision,
-    command: &str,
-) {
-    eval_events::emit(
-        path,
-        json!({
-            "event": "runtime_bash_policy",
-            "tool_name": "Bash",
-            "step_kind": decision.step_kind,
-            "bash_policy_purpose": decision.bash_policy_purpose,
-            "verifier_policy_checked": decision.verifier_policy_checked,
-            "verifier_policy_ok": decision.verifier_policy_ok,
-            "deterministic_verifier_evidence": decision.deterministic_verifier_evidence,
-            "blocked": decision.blocked,
-            "policy_error_kind": decision.policy_error_kind,
-            "verify_command_violation_kind": decision.violation_kind,
-            "normalization_kind": decision.normalization_kind,
-            "normalized_command_summary": decision.normalized_command.as_deref().map(eval_events::body_snippet).unwrap_or_default(),
-            "reason": eval_events::body_snippet(&decision.reason),
-            "command_summary": eval_events::body_snippet(command),
-        }),
-    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1894,7 +1871,11 @@ pub(crate) fn run_session_with_outcome_with_options(
                     &config.workspace_root,
                 ),
             ) {
-                emit_runtime_bash_policy(config.eval_events_path.as_deref(), &decision, &command);
+                runtime_bash_policy_telemetry::emit_policy(
+                    config.eval_events_path.as_deref(),
+                    &decision,
+                    &command,
+                );
                 if decision.blocked {
                     batch_had_recoverable_tool_error = true;
                     let policy_error =
@@ -1985,17 +1966,11 @@ pub(crate) fn run_session_with_outcome_with_options(
                     }
                 }
                 if let Some(normalized_command) = decision.normalized_command.clone() {
-                    eval_events::emit(
+                    runtime_bash_policy_telemetry::emit_normalization(
                         config.eval_events_path.as_deref(),
-                        json!({
-                            "event": "verify_command_normalized_at_runtime",
-                            "classification": "deterministic_verify_policy",
-                            "kind": decision.normalization_kind,
-                            "normalization_source": decision.normalization_kind,
-                            "original": eval_events::body_snippet(&command),
-                            "repaired": eval_events::body_snippet(&normalized_command),
-                            "reason": eval_events::body_snippet(&decision.normalization_reason),
-                        }),
+                        &decision,
+                        &command,
+                        &normalized_command,
                     );
                     set_bash_command(&mut call.arguments, normalized_command);
                 }
@@ -5845,6 +5820,13 @@ export default function Page(){
             blocked_policy.and_then(|event| event.get("deterministic_verifier_evidence")),
             Some(&json!(false))
         );
+        let blocked_policy = blocked_policy.unwrap();
+        assert_eq!(
+            blocked_policy["original_command"],
+            "cat package.json | grep 3011"
+        );
+        assert_eq!(blocked_policy["violation_kind"], "shell_control_syntax");
+        assert_eq!(blocked_policy["normalized_commands"], json!([]));
         let successful_bash_execs = events
             .iter()
             .filter(|event| {
@@ -5928,6 +5910,24 @@ export default function Page(){
         assert_eq!(
             policy.get("normalization_kind").and_then(Value::as_str),
             Some("shell_control_split")
+        );
+        assert_eq!(
+            policy["original_command"],
+            "ls -R src/app && node -p \"require('./package.json').scripts.build\""
+        );
+        assert_eq!(policy["violation_kind"], "shell_control_split");
+        assert_eq!(policy["normalized_commands"].as_array().unwrap().len(), 2);
+        let normalization = events
+            .iter()
+            .find(|event| event["event"] == "verify_command_normalized_at_runtime")
+            .unwrap();
+        assert_eq!(normalization["normalization_kind"], "shell_control_split");
+        assert_eq!(
+            normalization["normalized_commands"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
         );
     }
 
@@ -6282,6 +6282,16 @@ export default function Page(){
         assert_eq!(
             normalization.and_then(|event| event.get("repaired").and_then(Value::as_str)),
             Some("test -f src/app/page.tsx")
+        );
+        assert_eq!(
+            normalization.and_then(|event| event.get("original_command")),
+            Some(&json!(
+                "test -f src/app/page.tsx && echo \"EXISTS\" || echo \"MISSING\""
+            ))
+        );
+        assert_eq!(
+            normalization.and_then(|event| event.get("normalized_commands")),
+            Some(&json!(["test -f src/app/page.tsx"]))
         );
     }
 

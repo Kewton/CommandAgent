@@ -357,6 +357,11 @@ fn normalize_repairable_verify_commands(
 ) {
     for step in &mut plan.steps {
         for command in &mut step.verify {
+            if split_sanitizable_shell_control_verify_command(command)
+                .is_some_and(|split| split.dropped_fallback.is_some())
+            {
+                continue;
+            }
             let repair = workspace_root
                 .and_then(|root| {
                     normalize_verify_command_for_oracle_repair_with_root(command, root)

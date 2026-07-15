@@ -14,6 +14,8 @@ use crate::{
     tools::bash::{BashOutcome, BashOutcomeKind},
 };
 
+mod shell_rewrite;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VerifyStatus {
     Pass,
@@ -83,6 +85,8 @@ pub enum VerifyCommandViolationKind {
     StderrMergeStripped,
     ExitCodeEchoStripped,
     FallbackTrueStripped,
+    FallbackEchoStripped,
+    StderrSuppressionStripped,
     SuccessFailureEchoStripped,
     WorkspaceCdNormalized,
 }
@@ -103,6 +107,8 @@ impl VerifyCommandViolationKind {
             Self::StderrMergeStripped => "stderr_merge_stripped",
             Self::ExitCodeEchoStripped => "exit_code_echo_stripped",
             Self::FallbackTrueStripped => "fallback_true_stripped",
+            Self::FallbackEchoStripped => "fallback_echo_stripped",
+            Self::StderrSuppressionStripped => "stderr_suppression_stripped",
             Self::SuccessFailureEchoStripped => "success_failure_echo_stripped",
             Self::WorkspaceCdNormalized => "workspace_cd_normalized",
         }
@@ -135,6 +141,10 @@ impl VerifyCommandViolationKind {
             Self::StderrMergeStripped => "verify command stderr merge should be stripped",
             Self::ExitCodeEchoStripped => "verify command exit-code echo should be stripped",
             Self::FallbackTrueStripped => "verify command fallback true should be stripped",
+            Self::FallbackEchoStripped => "verify command echo fallback should be stripped",
+            Self::StderrSuppressionStripped => {
+                "verify command stderr suppression should be stripped"
+            }
             Self::SuccessFailureEchoStripped => {
                 "verify command success/failure echo branches should be stripped"
             }
@@ -1569,31 +1579,7 @@ pub fn validate_verify_command(command: &str) -> anyhow::Result<()> {
 }
 
 pub fn normalize_verify_command(command: &str) -> anyhow::Result<NormalizedVerifyCommand> {
-    let diagnosis = diagnose_verify_command(command);
-    if let Some(violation) = diagnosis.violation {
-        if matches!(
-            violation,
-            VerifyCommandViolationKind::GrepDashPattern
-                | VerifyCommandViolationKind::PackageJsonScriptGrep
-                | VerifyCommandViolationKind::HookAttributeGrep
-                | VerifyCommandViolationKind::SourceImplementationGrep
-                | VerifyCommandViolationKind::OutputPipeStripped
-                | VerifyCommandViolationKind::StderrMergeStripped
-                | VerifyCommandViolationKind::ExitCodeEchoStripped
-                | VerifyCommandViolationKind::FallbackTrueStripped
-                | VerifyCommandViolationKind::SuccessFailureEchoStripped
-                | VerifyCommandViolationKind::WorkspaceCdNormalized
-        ) {
-            return Ok(NormalizedVerifyCommand::new(diagnosis.normalized));
-        }
-        anyhow::bail!(
-            "{}",
-            diagnosis
-                .reason
-                .unwrap_or_else(|| violation.message().to_string())
-        );
-    }
-    Ok(NormalizedVerifyCommand::new(diagnosis.normalized))
+    shell_rewrite::normalize_shared(command)
 }
 
 pub fn normalize_planner_verify_command(command: &str) -> anyhow::Result<Vec<String>> {
@@ -1620,14 +1606,18 @@ pub fn normalize_planner_verify_command(command: &str) -> anyhow::Result<Vec<Str
         }
         return Ok(out);
     }
-    let normalized_attempt = normalize_verify_command(trimmed);
-    match normalized_attempt {
-        Ok(normalized) => return Ok(vec![normalized.into_string()]),
-        Err(err) if contains_file_redirect_syntax(trimmed) => return Err(err),
-        Err(_) => {}
-    }
-    if !contains_shell_control_syntax(trimmed) {
-        return Ok(vec![normalize_verify_command(trimmed)?.into_string()]);
+    let error = match normalize_verify_command(trimmed) {
+        Ok(normalized) => {
+            let normalized = normalized.into_string();
+            if normalized != trimmed && contains_shell_control_syntax(&normalized) {
+                return normalize_planner_verify_command(&normalized);
+            }
+            return Ok(vec![normalized]);
+        }
+        Err(error) => error,
+    };
+    if contains_file_redirect_syntax(trimmed) || !contains_shell_control_syntax(trimmed) {
+        return Err(error);
     }
     normalize_planner_shell_and_verify_command(trimmed)
 }
@@ -1677,9 +1667,7 @@ pub fn normalize_runtime_bash_command_for_boundary(
         });
     }
     let normalized_command = join_runtime_shell_segments(&normalized_segments);
-    if normalized_command != trimmed {
-        reasons.push("shell_control_split: runtime Bash command split into bounded segments with original short-circuit semantics".to_string());
-    }
+    reasons.push("shell_control_split: runtime Bash command split into bounded segments with original short-circuit semantics".to_string());
     Ok(RuntimeNormalizedCommandPlan {
         normalized_command,
         normalization_kind: "shell_control_split",
@@ -1735,7 +1723,8 @@ pub fn diagnose_verify_command(command: &str) -> VerifyCommandDiagnosis {
                 VerifyCommandViolationKind::SuccessFailureEchoStripped
             }
             "workspace_cd_normalized" => VerifyCommandViolationKind::WorkspaceCdNormalized,
-            _ => VerifyCommandViolationKind::GrepDashPattern,
+            _ => shell_rewrite::violation_kind(repair.kind)
+                .unwrap_or(VerifyCommandViolationKind::GrepDashPattern),
         };
         return verify_command_violation(repair.normalized, violation, Some(repair.reason));
     }
@@ -1824,6 +1813,9 @@ pub fn normalize_verify_command_for_oracle_repair(
             reason: SUCCESS_FAILURE_ECHO_STRIPPED_REASON.to_string(),
             kind: "success_failure_echo_stripped",
         });
+    }
+    if let Some(repair) = shell_rewrite::normalize(command) {
+        return Some(repair);
     }
     if let Some(stripped) = strip_redundant_stderr_merge(command) {
         return Some(VerifyCommandOracleRepair {
@@ -1914,9 +1906,6 @@ pub fn normalize_workspace_cd_verify_command(
 ) -> Option<VerifyCommandOracleRepair> {
     let trimmed = command.trim();
     let (cd_part, verify_part) = split_once_outside_quotes_sequence(trimmed, "&&")?;
-    if find_outside_quotes_sequence(verify_part, "&&").is_some() {
-        return None;
-    }
     let cd_tokens = shell_words_with_spans(cd_part.trim())?;
     if cd_tokens.len() != 2 || cd_tokens[0].value != "cd" {
         return None;
@@ -2010,10 +1999,12 @@ fn is_plain_echo_command(command: &str) -> bool {
     let Some(tokens) = shell_words_with_spans(command) else {
         return false;
     };
-    if tokens.len() != 2 || tokens[0].value != "echo" {
+    if tokens.len() < 2 || tokens[0].value != "echo" {
         return false;
     }
-    !contains_shell_control_syntax(tokens[1].value.as_str())
+    tokens[1..]
+        .iter()
+        .all(|token| !contains_shell_control_syntax(&token.value))
 }
 
 fn strip_redundant_stderr_merge(command: &str) -> Option<String> {
