@@ -8,7 +8,12 @@ use crate::minimal_loop::reachability::RepairActionClass;
 use crate::minimal_loop::reachability::{RepairReachability, assess_repair_reachability};
 use crate::planner::verify::VerificationReport;
 
+mod claims_binding_guidance;
 mod inspection_guidance;
+
+pub(crate) use claims_binding_guidance::{
+    combined as profile_guidance_with_evidence, for_failure as claims_binding_nearest_miss_guidance,
+};
 
 pub(crate) const DEPENDENCY_DENIAL_GUIDANCE: &str = "Dependency installation is forbidden for this profile. Rewrite with the Python 3 standard library only (csv/json/statistics); do not run pip install or add dependencies.";
 

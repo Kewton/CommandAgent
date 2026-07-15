@@ -55,6 +55,59 @@ mod moved {
     }
 
     #[test]
+    fn final_acceptance_data_claims_failure_injects_measured_nearest_misses() {
+        let dir = tempfile::tempdir().unwrap();
+        let evidence_path = dir
+            .path()
+            .join(crate::planner::profiles::data::checks::CLAIMS_BINDING_EVIDENCE_PATH);
+        std::fs::create_dir_all(evidence_path.parent().unwrap()).unwrap();
+        std::fs::write(
+            evidence_path,
+            include_str!(
+                "../../../../tests/corpus/apps/test0715_data_b2g_e2_calibration/fixtures/data5_qwen35_profile_001/evidence/claims-binding.json"
+            ),
+        )
+        .unwrap();
+        let report =
+            VerificationReport::profile_failed("missing_required_capabilities:data_claims_binding");
+        let plan = UltraPlan::deterministic("Summarize sales", "data", "default", "create");
+
+        let prompt = final_acceptance_repair_prompt(
+            dir.path(),
+            PromptLayout::Stable,
+            &plan,
+            &report,
+            &UltraRunContext::default(),
+            "required_evidence_missing",
+            &[
+                "pipeline/main.py".to_string(),
+                "output/results.json".to_string(),
+            ],
+            &[],
+            (1, 2),
+            false,
+            false,
+        );
+
+        for (claim, difference) in [
+            ("40497.00", "19027"),
+            ("40127.00", "18657"),
+            ("36814.00", "15344"),
+        ] {
+            assert!(
+                prompt.contains(&format!("Report claim \"{claim}\"")),
+                "{prompt}"
+            );
+            assert!(
+                prompt.contains(&format!(
+                    "Nearest candidate \"2026-05_大阪\"=21470; absolute difference={difference}"
+                )),
+                "{prompt}"
+            );
+        }
+    }
+
+    #[test]
     fn final_acceptance_prompt_injects_restart_instrumentation_guidance() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("src/app")).unwrap();

@@ -1787,8 +1787,14 @@ pub(super) fn final_acceptance_pending_evidence_guidance(
     report: &VerificationReport,
 ) -> String {
     let pending_keys = verification_missing_signals(report);
+    let nearest_misses =
+        crate::planner::profiles::data::repair_policy::claims_binding_nearest_miss_guidance(
+            Some(profile),
+            report,
+            Some(root),
+        );
     if pending_keys.is_empty() {
-        return "- none".to_string();
+        return nearest_misses.unwrap_or_else(|| "- none".to_string());
     }
     let mut lines = capability_evidence_failure_evidence(
         root,
@@ -1799,7 +1805,12 @@ pub(super) fn final_acceptance_pending_evidence_guidance(
     if lines.is_empty() {
         lines = capability_evidence_remedy_lines(&pending_keys);
     }
-    render_prompt_bullets(&lines)
+    let mut guidance = render_prompt_bullets(&lines);
+    if let Some(nearest_misses) = nearest_misses {
+        guidance.push('\n');
+        guidance.push_str(&nearest_misses);
+    }
+    guidance
 }
 
 #[cfg(test)]

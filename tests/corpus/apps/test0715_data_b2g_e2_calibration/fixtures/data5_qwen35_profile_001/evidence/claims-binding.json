@@ -1,0 +1,75 @@
+{
+  "capability_id": "data_claims_binding",
+  "status": "failed",
+  "ok": false,
+  "report_paths": [
+    "output/report.md"
+  ],
+  "claims": [
+    {
+      "report_path": "output/report.md",
+      "byte_offset": 651,
+      "raw": "40497.00",
+      "claim_kind": "quantity",
+      "normalized_value": 40497.0,
+      "printed_precision": 2,
+      "percent": false,
+      "unit": null,
+      "matched_key": null,
+      "matched_result_value": null,
+      "rounded_result_value": null,
+      "nearest_miss": {
+        "key": "2026-05_大阪",
+        "result_value": 21470.0,
+        "rounded_result_value": 21470.0,
+        "absolute_difference": 19027.0
+      },
+      "ok": false
+    },
+    {
+      "report_path": "output/report.md",
+      "byte_offset": 673,
+      "raw": "40127.00",
+      "claim_kind": "quantity",
+      "normalized_value": 40127.0,
+      "printed_precision": 2,
+      "percent": false,
+      "unit": null,
+      "matched_key": null,
+      "matched_result_value": null,
+      "rounded_result_value": null,
+      "nearest_miss": {
+        "key": "2026-05_大阪",
+        "result_value": 21470.0,
+        "rounded_result_value": 21470.0,
+        "absolute_difference": 18657.0
+      },
+      "ok": false
+    },
+    {
+      "report_path": "output/report.md",
+      "byte_offset": 695,
+      "raw": "36814.00",
+      "claim_kind": "quantity",
+      "normalized_value": 36814.0,
+      "printed_precision": 2,
+      "percent": false,
+      "unit": null,
+      "matched_key": null,
+      "matched_result_value": null,
+      "rounded_result_value": null,
+      "nearest_miss": {
+        "key": "2026-05_大阪",
+        "result_value": 21470.0,
+        "rounded_result_value": 21470.0,
+        "absolute_difference": 15344.0
+      },
+      "ok": false
+    }
+  ],
+  "failure_kinds": [
+    "claims_binding_violation:output/report.md:651:40497.00",
+    "claims_binding_violation:output/report.md:673:40127.00",
+    "claims_binding_violation:output/report.md:695:36814.00"
+  ]
+}

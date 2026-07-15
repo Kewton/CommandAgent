@@ -407,6 +407,12 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
             test_baseline: 103,
         },
         ChokepointBudget {
+            path: "src/planner/profiles/data/repair_policy/claims_binding_guidance.rs",
+            total_baseline: 141,
+            production_baseline: 87,
+            test_baseline: 54,
+        },
+        ChokepointBudget {
             path: "src/planner/profiles/data/repair_policy/inspection_guidance.rs",
             total_baseline: 12,
             production_baseline: 12,

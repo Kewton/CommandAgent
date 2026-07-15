@@ -1,5 +1,5 @@
 case_id = "test0715_data_b2g_e2_calibration"
-source = "uat-test0715-data-004 Run 1 / Run 4 report.md and results.json archived with investigation-e2.md"
+source = "uat-test0715-data-004 Run 1 / Run 4 report.md and results.json archived with investigation-e2.md; uat-test0715-data-005 Run 1 nearest_miss violations extracted without value changes"
 required_paths = []
 verify_commands = []
 required_capabilities = []
@@ -47,4 +47,13 @@ fixtures/reconciliation-row-mismatch/output/results.json = [
   "\"input_rows\": 60",
   "\"used_rows\": 56",
   "\"rows\": 4"
+]
+fixtures/data5_qwen35_profile_001/evidence/claims-binding.json = [
+  "\"raw\": \"40497.00\"",
+  "\"raw\": \"40127.00\"",
+  "\"raw\": \"36814.00\"",
+  "\"key\": \"2026-05_大阪\"",
+  "\"absolute_difference\": 19027.0",
+  "\"absolute_difference\": 18657.0",
+  "\"absolute_difference\": 15344.0"
 ]

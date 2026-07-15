@@ -7,6 +7,7 @@ use crate::minimal_loop::completion::{
 };
 use crate::minimal_loop::repair_target::classify_repair_target;
 use crate::planner::contract_attribute_repair;
+use crate::planner::profiles::data::repair_policy;
 use crate::planner::ultra_plan::{
     UltraPhase, UltraPlan, parse_ultra_plan, quote_yaml_string, render_ultra_plan,
 };
@@ -251,9 +252,10 @@ fn append_profile_repair_guidance(
     report: &VerificationReport,
     context: &RepairContext,
 ) {
-    let Some(guidance) = crate::planner::profiles::data::repair_policy::profile_guidance(
+    let Some(guidance) = repair_policy::profile_guidance_with_evidence(
         context.profile.as_deref(),
         report,
+        context.workspace_root.as_deref(),
     ) else {
         return;
     };
