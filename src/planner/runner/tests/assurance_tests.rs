@@ -46,6 +46,39 @@ export default function Memo() {
     }
 
     #[test]
+    fn unadmitted_profile_caps_ultra_final_assurance_without_failing_acceptance() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.eval_events_path = Some(events.clone());
+        cfg.profile = "external-draft".to_string();
+        std::fs::write(dir.path().join("artifact.txt"), "measured output\n").unwrap();
+        let plan = UltraPlan::deterministic(
+            "Create artifact.txt with measured output",
+            "external-draft",
+            "default",
+            "create",
+        );
+
+        let report = ultra_final_acceptance_report(&plan, &cfg).unwrap();
+
+        assert!(report.is_pass(), "{report:?}");
+        let event = latest_event(&events, "ultra_final_acceptance");
+        assert_eq!(
+            event.get("final_acceptance_status").and_then(Value::as_str),
+            Some("full_success")
+        );
+        assert_eq!(
+            event.get("assurance_level").and_then(Value::as_str),
+            Some("static")
+        );
+        assert_eq!(
+            event.get("assurance_reason").and_then(Value::as_str),
+            Some(crate::planner::profile_admission::PROFILE_NOT_ADMITTED_REASON)
+        );
+    }
+
+    #[test]
     fn ambiguous_generic_app_promotion_keeps_union_contract_and_earns_full_after_gates() {
         let dir = tempfile::tempdir().unwrap();
         let events = dir.path().join("events.jsonl");

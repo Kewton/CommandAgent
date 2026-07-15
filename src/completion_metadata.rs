@@ -6,6 +6,7 @@ use crate::eval_events::{
     GENERIC_STATIC_ASSURANCE_REASON,
 };
 use crate::planner::profile::canonical_profile_name;
+use crate::planner::profile_admission::cap_assurance;
 
 pub(crate) fn apply_config_completion_metadata(config: &Config, snapshot: &mut CompletionSnapshot) {
     if let Some(inference) = config.profile_inference {
@@ -42,4 +43,9 @@ pub(crate) fn apply_config_completion_projection(
     projection: &mut CompletionProjection,
 ) {
     data::apply_terminal_projection(&config.workspace_root, projection);
+    let (level, reason) = (
+        &mut projection.assurance_level,
+        &mut projection.assurance_reason,
+    );
+    cap_assurance(&projection.effective_profile, level, reason);
 }

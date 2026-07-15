@@ -9,6 +9,7 @@ pub(crate) mod interaction_repair;
 pub mod lint;
 pub(crate) mod lint_rejection;
 pub mod profile;
+pub(crate) mod profile_admission;
 pub mod profile_manifest;
 pub mod repair;
 mod repair_target_selection;

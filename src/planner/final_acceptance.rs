@@ -824,7 +824,7 @@ pub(super) fn ultra_final_acceptance_report_inner(
         "static" => "static",
         _ => runtime_acceptance_status(acceptance.passed, Some(&acceptance)),
     };
-    let (assurance_level, assurance_reason) = earned_assurance_for_completion(
+    let (mut assurance_level, mut assurance_reason) = earned_assurance_for_completion(
         &effective_profile,
         &required_capabilities,
         !contract_required || (external_contract_checked && !contract_binding_missing),
@@ -832,6 +832,11 @@ pub(super) fn ultra_final_acceptance_report_inner(
         &release_gate,
         &gate_telemetry,
         Some(&profile_behavior_probe),
+    );
+    crate::planner::profile_admission::cap_assurance(
+        &effective_profile,
+        &mut assurance_level,
+        &mut assurance_reason,
     );
     let release_quality_completion =
         release_quality_completion_status(&release_gate, final_acceptance_status);

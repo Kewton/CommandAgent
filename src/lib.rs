@@ -991,6 +991,44 @@ mod tests {
     }
 
     #[test]
+    fn unadmitted_profile_caps_full_terminal_projection() {
+        let fixture = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+            "tests/corpus/apps/test0715_data_b2j_terminal_projection/fixtures/data7_qwen35_none_001",
+        );
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        let mut cfg = config(fixture);
+        cfg.eval_events_path = Some(events.clone());
+        cfg.profile = "external-draft".to_string();
+        eval_events::emit(
+            cfg.eval_events_path.as_deref(),
+            json!({
+                "event": "ultra_final_acceptance",
+                "profile": "external-draft",
+                "effective_profile": "external-draft",
+                "runtime_acceptance_status": "pass",
+                "final_acceptance_status": "full_success",
+                "release_gate_status": "pass",
+                "assurance_level": "full",
+            }),
+        );
+        let result: anyhow::Result<()> = Ok(());
+
+        let projection = emit_direct_command_stop_with_status(
+            &cfg,
+            "--ultra-plan-run",
+            &result,
+            DirectCommandStatus::Completed,
+        );
+
+        assert_eq!(projection.assurance_level, "static");
+        assert_eq!(
+            projection.assurance_reason,
+            planner::profile_admission::PROFILE_NOT_ADMITTED_REASON
+        );
+    }
+
+    #[test]
     fn run_stop_preserves_known_profile_from_early_death_events() {
         let dir = tempfile::tempdir().unwrap();
         let events = dir.path().join(".anvil/runs/test-run/events.jsonl");
