@@ -1,7 +1,9 @@
 use crate::planner::profile::canonical_profile_name;
 use crate::planner::profile_manifest::ManifestStatus;
 
-pub(crate) const PROFILE_NOT_ADMITTED_REASON: &str = "profile_not_admitted";
+#[cfg(test)]
+pub(crate) use crate::planner::adjudication::PROFILE_NOT_ADMITTED_REASON;
+use crate::planner::adjudication::cap_assurance_for_status as apply_admission_cap;
 
 pub(crate) fn status(profile: &str) -> ManifestStatus {
     let canonical = canonical_profile_name(profile);
@@ -26,10 +28,7 @@ pub(crate) fn cap_assurance_for_status(
     level: &mut String,
     reason: &mut String,
 ) {
-    if status == ManifestStatus::Draft && matches!(level.as_str(), "full" | "partial") {
-        *level = "static".to_string();
-        *reason = PROFILE_NOT_ADMITTED_REASON.to_string();
-    }
+    apply_admission_cap(status, level, reason);
 }
 
 #[cfg(test)]

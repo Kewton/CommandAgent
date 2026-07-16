@@ -54,6 +54,7 @@ use crate::minimal_loop::stagnation_carryover::{
     EscalationCarryoverHandle, attach_to_options, run_final_acceptance_repair_with_carryover,
 };
 use crate::minimal_loop::verifier_env;
+use crate::planner::adjudication::*;
 use crate::planner::intent::detect_intent;
 use crate::planner::lint::{
     PlanLintReport, PlanQualityContext, PlanQualityReport, lint_step_plan_report_with_workspace,
@@ -104,6 +105,10 @@ use serde_json::{Value, json};
 #[path = "final_acceptance.rs"]
 mod final_acceptance;
 use final_acceptance::*;
+
+#[path = "adjudication/create.rs"]
+mod adjudication_create;
+use adjudication_create::*;
 
 #[path = "assurance.rs"]
 mod assurance;
@@ -3483,36 +3488,6 @@ fn required_final_artifacts(plan: &StepPlan, root: &Path) -> Vec<String> {
     out
 }
 
-fn completion_contract_required(
-    profile: &str,
-    goal: &str,
-    required_capabilities: &[String],
-) -> bool {
-    if domain_profile(profile).completion_contract_required(goal, required_capabilities) {
-        return true;
-    }
-    let profile = canonical_profile_name(profile);
-    let web_or_app_profile = matches!(profile.as_str(), "vite" | "react" | "web");
-    let interactive_goal = signals::contains_app_like_token(goal)
-        || signals::contains_browser_probe_token(goal)
-        || signals::contains_canvas_token(goal);
-    let interactive_capability = required_capabilities.iter().any(|capability| {
-        matches!(
-            capability.as_str(),
-            "stateful_interaction"
-                | "start_or_restart_flow"
-                | "player_control"
-                | "adversary_or_challenge"
-                | "progression_or_score"
-                | "failure_or_collision_rule"
-                | "persistence"
-                | "browser_interaction"
-                | "playable_ui"
-        )
-    });
-    interactive_capability || (web_or_app_profile && interactive_goal)
-}
-
 fn explicit_completion_contract_path(config: &Config) -> Option<PathBuf> {
     config
         .completion_contract_path
@@ -5159,178 +5134,6 @@ fn ultra_plan_signal_text(plan: &UltraPlan) -> String {
     }
 }
 
-fn maybe_run_ultra_final_browser_probe(
-    config: &Config,
-    plan: &UltraPlan,
-    effective_profile: &str,
-    required_capabilities: &[String],
-    interaction_options: BrowserInteractionProbeOptions,
-) -> Option<BrowserReadinessObservation> {
-    let phase_text = ultra_plan_phase_signal_text(plan);
-    let signal_text = ultra_plan_signal_text(plan);
-    if !ultra_browser_probe_required(effective_profile, &signal_text, required_capabilities)
-        || !ultra_browser_probe_runtime_enabled(config)
-    {
-        return None;
-    }
-    let requested_port = effective_requested_port(effective_profile, &plan.goal, Some(&phase_text));
-    let observation = probe_browser_readiness_with_offline_and_interaction_options(
-        &config.workspace_root,
-        effective_profile,
-        requested_port.as_ref().map(|requested| requested.port),
-        Duration::from_secs(30),
-        config.offline,
-        interaction_options,
-    );
-    emit_browser_probe_event(
-        config,
-        &observation,
-        requested_port
-            .as_ref()
-            .map(|requested| requested.telemetry.clone()),
-    );
-    Some(observation)
-}
-fn run_ultra_final_browser_checks_before_arbitration(
-    config: &Config,
-    plan: &UltraPlan,
-    effective_profile: &str,
-    required_capabilities: &[String],
-    required_evidence: &[String],
-) -> Option<BrowserReadinessObservation> {
-    let phase_text = ultra_plan_phase_signal_text(plan);
-    let signal_text = ultra_plan_signal_text(plan);
-    if !ultra_browser_probe_required(effective_profile, &signal_text, required_capabilities) {
-        return None;
-    }
-    let requested_port = effective_requested_port(effective_profile, &plan.goal, Some(&phase_text));
-    let interaction_options =
-        browser_interaction_probe_options(required_capabilities, required_evidence);
-    if ultra_browser_probe_runtime_enabled(config) {
-        crate::minimal_loop::probe_preflight::emit_interaction_probe_preflight(
-            config.eval_events_path.as_deref(),
-            &config.workspace_root,
-            "ultra_final_acceptance",
-        );
-    }
-    let browser_probe = maybe_run_ultra_final_browser_probe(
-        config,
-        plan,
-        effective_profile,
-        required_capabilities,
-        interaction_options,
-    );
-    let _ = browser_release_gate_with_options(
-        config,
-        requires_canvas_surface(&signal_text, required_capabilities),
-        interaction_options,
-        requested_port.as_ref().map(|requested| requested.port),
-    );
-    browser_probe
-}
-
-fn browser_interaction_probe_options(
-    required_capabilities: &[String],
-    required_evidence: &[String],
-) -> BrowserInteractionProbeOptions {
-    let text_entry_required = required_capabilities
-        .iter()
-        .chain(required_evidence.iter())
-        .any(|value| {
-            let lower = value.to_ascii_lowercase();
-            lower.contains("text")
-                || lower.contains("editor")
-                || lower.contains("note")
-                || lower.contains("todo")
-                || lower.contains("content")
-                || lower.contains("preview")
-                || lower.contains("render")
-                || lower == "input_output_contract"
-                || lower == "requested_content"
-                || lower == "requested_content_evidence"
-                || lower == "live_preview"
-                || lower == "live_preview_evidence"
-        });
-    let token_echo_required = required_capabilities
-        .iter()
-        .chain(required_evidence.iter())
-        .any(|value| {
-            let lower = value.to_ascii_lowercase();
-            lower.contains("preview")
-                || lower.contains("render")
-                || lower.contains("content")
-                || lower == "requested_content"
-                || lower == "requested_content_evidence"
-                || lower == "live_preview"
-                || lower == "live_preview_evidence"
-        });
-    BrowserInteractionProbeOptions {
-        persistence_required: required_capabilities
-            .iter()
-            .any(|capability| capability == "persistence")
-            || required_evidence
-                .iter()
-                .any(|evidence| evidence == "persistence_evidence"),
-        text_entry_required,
-        token_echo_required,
-    }
-}
-
-fn report_has_production_build_failure(report: &VerificationReport) -> bool {
-    !report.compile_errors.is_empty()
-        || report.dependency_missing.iter().any(|reason| {
-            let lower = reason.to_ascii_lowercase();
-            lower.contains("next.js build")
-                || lower.contains("next build")
-                || lower.contains("npm run build")
-                || lower.contains("dependency_setup_missing")
-        })
-        || report.command_failures.iter().any(|failure| {
-            let lower = format!("{} {}", failure.command, failure.reason).to_ascii_lowercase();
-            lower.contains("npm run build")
-                || lower.contains("next build")
-                || lower.contains("build_verify_failed")
-                || lower.contains("implementation_compile_error")
-        })
-}
-
-fn ultra_browser_probe_required(
-    profile: &str,
-    signal_text: &str,
-    required_capabilities: &[String],
-) -> bool {
-    canonical_profile_name(profile) == "nextjs"
-        && (required_capabilities.iter().any(|capability| {
-            matches!(
-                capability.as_str(),
-                "stateful_interaction"
-                    | "player_control"
-                    | "user_input_or_action"
-                    | "visible_state_change"
-                    | "persistence"
-                    | "adversary_or_challenge"
-                    | "progression_or_score"
-                    | "failure_or_collision_rule"
-            )
-        }) || signals::contains_browser_probe_token(signal_text))
-}
-
-fn ultra_browser_probe_runtime_enabled(config: &Config) -> bool {
-    #[cfg(test)]
-    {
-        config
-            .workspace_root
-            .join(".anvil")
-            .join("enable-browser-probe-tests")
-            .is_file()
-    }
-    #[cfg(not(test))]
-    {
-        let _ = config;
-        true
-    }
-}
-
 fn emit_browser_probe_event(
     config: &Config,
     observation: &BrowserReadinessObservation,
@@ -5622,84 +5425,6 @@ fn emit_profile_behavior_probe_event(
             "evidence_path": report.evidence_path.clone().unwrap_or_default(),
         }),
     );
-}
-
-fn external_contract_ok_after_runtime_arbitration(
-    report: Option<&VerificationReport>,
-    acceptance: Option<&RuntimeAcceptanceReport>,
-) -> bool {
-    report.is_none_or(|report| {
-        report.is_pass()
-            || external_contract_report_covered_by_runtime_arbitration(report, acceptance)
-    })
-}
-
-fn external_contract_report_covered_by_runtime_arbitration(
-    report: &VerificationReport,
-    acceptance: Option<&RuntimeAcceptanceReport>,
-) -> bool {
-    let Some(acceptance) = acceptance.filter(|acceptance| acceptance.passed) else {
-        return false;
-    };
-    report.missing_paths.is_empty()
-        && report.command_failures.is_empty()
-        && report.verifier_command_false_negatives.is_empty()
-        && report.dependency_missing.is_empty()
-        && report
-            .profile_failures
-            .iter()
-            .all(|failure| external_profile_failure_covered_by_runtime(failure, acceptance))
-}
-
-fn external_profile_failure_covered_by_runtime(
-    failure: &str,
-    acceptance: &RuntimeAcceptanceReport,
-) -> bool {
-    if let Some(evidence) = failure.strip_prefix("missing_required_evidence:") {
-        if evidence.starts_with("required_obligation:") {
-            return false;
-        }
-        return evidence
-            .split(',')
-            .map(str::trim)
-            .filter(|evidence| !evidence.is_empty())
-            .all(|evidence| runtime_acceptance_satisfied_evidence(acceptance, evidence));
-    }
-    if let Some(weak_evidence) = failure.strip_prefix("weak_verification_evidence:") {
-        return weak_evidence
-            .split(',')
-            .map(str::trim)
-            .filter(|item| !item.is_empty())
-            .all(|item| weak_source_evidence_covered_by_runtime(acceptance, item));
-    }
-    false
-}
-
-fn runtime_acceptance_satisfied_evidence(
-    acceptance: &RuntimeAcceptanceReport,
-    evidence: &str,
-) -> bool {
-    !acceptance
-        .missing_evidence
-        .iter()
-        .any(|missing| missing == evidence)
-        && acceptance
-            .evidence_tiers
-            .get(evidence)
-            .is_some_and(|tier| tier != "absent" && tier != "weak")
-}
-
-fn weak_source_evidence_covered_by_runtime(
-    acceptance: &RuntimeAcceptanceReport,
-    weak_evidence: &str,
-) -> bool {
-    let Some(rest) = weak_evidence.strip_prefix("weak_source_evidence:") else {
-        return false;
-    };
-    let Some((evidence, _reason)) = rest.split_once(':') else {
-        return false;
-    };
-    runtime_acceptance_satisfied_evidence(acceptance, evidence.trim())
 }
 
 fn runtime_acceptance_repair_guidance(
@@ -7575,15 +7300,6 @@ fn behavior_depth_evidence_key(evidence: &str) -> bool {
             | "persistence_evidence"
             | "live_preview_evidence"
     )
-}
-
-fn dedup_strings(values: Vec<String>) -> Vec<String> {
-    let mut seen = BTreeSet::new();
-    values
-        .into_iter()
-        .filter(|value| !value.trim().is_empty())
-        .filter(|value| seen.insert(value.clone()))
-        .collect()
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -5,6 +5,10 @@ use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 
+use crate::planner::adjudication::{
+    next_action, projected_assurance, release_quality_completion, task_status, terminal_status,
+};
+
 const SNIPPET_LIMIT: usize = 500;
 const SUMMARY_LIMIT: usize = 8_000;
 pub const GENERIC_REDUCED_ASSURANCE_REASON: &str =
@@ -852,66 +856,21 @@ fn projected_assurance_from_snapshot(
     release_gate: &str,
     final_acceptance: &str,
 ) -> (String, String) {
-    let mut level = snapshot.assurance_level.clone();
-    let mut reason = snapshot.assurance_reason.clone();
-    if level != "full" {
-        return (level, reason);
-    }
     let effective_profile = snapshot_effective_profile(snapshot);
-    if effective_profile.trim().is_empty() {
-        return (
-            "partial".to_string(),
-            "effective_profile_unknown".to_string(),
-        );
-    }
-    if final_acceptance == "partial" || release_gate == "partial" {
-        return (
-            "partial".to_string(),
-            snapshot
-                .release_gate_reasons
-                .first()
-                .cloned()
-                .unwrap_or_else(|| "acceptance_partial".to_string()),
-        );
-    }
-    if final_acceptance != "full_success" || release_gate == "failed" {
-        level = "partial".to_string();
-        reason = snapshot
-            .release_gate_reasons
-            .first()
-            .cloned()
-            .unwrap_or_else(|| "acceptance_not_full_success".to_string());
-        return (level, reason);
-    }
-    if !snapshot.completion_contract_verification_enabled && !snapshot.external_contract_checked {
-        return (
-            "partial".to_string(),
-            "completion_contract_not_bound".to_string(),
-        );
-    }
-    if snapshot.browser_readiness_applicable
-        && snapshot.browser_readiness_execution_status != "performed"
-    {
-        return (
-            "partial".to_string(),
-            format!(
-                "browser_readiness_not_performed:{}",
-                snapshot.browser_readiness_execution_status
-            ),
-        );
-    }
-    if snapshot.interaction_evidence_applicable
-        && snapshot.interaction_evidence_execution_status != "performed"
-    {
-        return (
-            "partial".to_string(),
-            format!(
-                "interaction_evidence_not_performed:{}",
-                snapshot.interaction_evidence_execution_status
-            ),
-        );
-    }
-    (level, reason)
+    projected_assurance(
+        &snapshot.assurance_level,
+        &snapshot.assurance_reason,
+        &effective_profile,
+        release_gate,
+        final_acceptance,
+        &snapshot.release_gate_reasons,
+        snapshot.completion_contract_verification_enabled,
+        snapshot.external_contract_checked,
+        snapshot.browser_readiness_applicable,
+        &snapshot.browser_readiness_execution_status,
+        snapshot.interaction_evidence_applicable,
+        &snapshot.interaction_evidence_execution_status,
+    )
 }
 
 fn compile_rollback_summaries_from_events(events: &[Value]) -> Vec<String> {
@@ -2510,68 +2469,6 @@ fn runtime_acceptance_status_from_bool(event: &Value) -> Option<String> {
                 "failed".to_string()
             }
         })
-}
-
-fn terminal_status(ok: bool, release_gate: &str, final_acceptance: &str) -> String {
-    if !ok {
-        return "incomplete".to_string();
-    }
-    match release_gate {
-        "partial" => "complete_with_partial_release_gate".to_string(),
-        "failed" => "incomplete_release_gate_failed".to_string(),
-        "pass" | "not_applicable" | "not_checked" | "" => match final_acceptance {
-            "partial" => "complete_with_partial_release_gate".to_string(),
-            "incomplete" | "failed" => "incomplete".to_string(),
-            _ => "complete".to_string(),
-        },
-        _ => "incomplete".to_string(),
-    }
-}
-
-fn task_status(ok: bool, release_gate: &str, final_acceptance: &str) -> String {
-    if !ok {
-        return "failed".to_string();
-    }
-    match release_gate {
-        "partial" => "partial".to_string(),
-        "failed" => "failed".to_string(),
-        "pass" => "complete".to_string(),
-        "not_applicable" | "not_checked" | "" => match final_acceptance {
-            "partial" => "partial".to_string(),
-            "incomplete" => "incomplete".to_string(),
-            "failed" => "failed".to_string(),
-            _ => "complete".to_string(),
-        },
-        _ => "incomplete".to_string(),
-    }
-}
-
-fn release_quality_completion(release_gate: &str, final_acceptance: &str) -> String {
-    match release_gate {
-        "pass" | "not_applicable" => "release_ready".to_string(),
-        "partial" => "partial".to_string(),
-        "failed" => "failed".to_string(),
-        _ if final_acceptance == "partial" => "partial".to_string(),
-        _ if matches!(final_acceptance, "incomplete" | "failed") => "failed".to_string(),
-        _ => "not_checked".to_string(),
-    }
-}
-
-fn next_action(ok: bool, release_gate: &str, final_acceptance: &str) -> String {
-    if !ok {
-        return "fix_command_failure".to_string();
-    }
-    match release_gate {
-        "partial" => "collect_missing_release_evidence_or_continue_release_recovery".to_string(),
-        "failed" => "repair_release_gate_failure".to_string(),
-        _ if final_acceptance == "partial" => {
-            "collect_missing_final_acceptance_evidence".to_string()
-        }
-        _ if matches!(final_acceptance, "incomplete" | "failed") => {
-            "repair_final_acceptance_failure".to_string()
-        }
-        _ => "none".to_string(),
-    }
 }
 
 fn render_completion_summary(

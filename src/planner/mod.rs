@@ -1,3 +1,4 @@
+pub(crate) mod adjudication;
 pub mod capability_catalog;
 pub mod contract_attribute_repair;
 pub(crate) mod final_acceptance_contract;

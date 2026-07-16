@@ -8,6 +8,7 @@ use crate::minimal_loop::evidence_knowledge;
 use crate::minimal_loop::import_scan::{
     route_bound_closure, route_bound_unattached_ref_diagnostics,
 };
+use crate::planner::adjudication::evaluate_requirements;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RuntimeAcceptanceReport {
@@ -1264,36 +1265,29 @@ pub fn verify_runtime_acceptance_with_browser_dirs_and_hints(
     diagnostics.sort();
     diagnostics.dedup();
     prune_non_gate_relevant_weak_evidence(&mut weak_evidence, &missing_evidence, &diagnostics);
-    let inconclusive = !inconclusive_reasons.is_empty();
     let weak_evidence_blocks_completion = !weak_evidence.is_empty()
         && source_first_completion_authority_required(
             required_capabilities,
             required_evidence,
             required_obligations,
         );
-    let passed = missing_capabilities.is_empty()
-        && missing_evidence.is_empty()
-        && missing_obligations.is_empty()
-        && !inconclusive
-        && !weak_evidence_blocks_completion;
-    let primary_reason = if let Some(reason) = missing_capabilities.first() {
-        format!("missing_required_capabilities:{reason}")
-    } else if let Some(reason) = missing_evidence.first() {
-        format!("missing_required_evidence:{reason}")
-    } else if let Some(reason) = missing_obligations.first() {
-        format!("missing_required_obligations:{reason}")
-    } else if let Some(reason) = inconclusive_reasons.first() {
-        format!("inconclusive_acceptance:{reason}")
-    } else if let Some(reason) = weak_evidence.first() {
-        format!("weak_verification_evidence:{reason}")
-    } else {
-        "pass".to_string()
-    };
+    let evaluation = evaluate_requirements(
+        required_capabilities,
+        required_evidence,
+        required_obligations,
+        &missing_capabilities,
+        &missing_evidence,
+        &missing_obligations,
+        &[],
+        &inconclusive_reasons,
+        &weak_evidence,
+        weak_evidence_blocks_completion,
+    );
     let browser_interaction = browser_interaction.unwrap_or_default();
 
     RuntimeAcceptanceReport {
-        passed,
-        inconclusive,
+        passed: evaluation.passed,
+        inconclusive: evaluation.inconclusive,
         missing_capabilities,
         missing_evidence,
         missing_obligations,
@@ -1309,7 +1303,7 @@ pub fn verify_runtime_acceptance_with_browser_dirs_and_hints(
         browser_readiness_evidence_path: browser_interaction.browser_readiness_evidence_path,
         interaction_evidence_status: browser_interaction.interaction_evidence_status,
         interaction_evidence_path: browser_interaction.interaction_evidence_path,
-        primary_reason,
+        primary_reason: evaluation.primary_reason,
     }
 }
 
@@ -1329,7 +1323,6 @@ pub(crate) fn refresh_runtime_acceptance_report(
     required_evidence: &[String],
     required_obligations: &[String],
 ) {
-    report.inconclusive = !report.inconclusive_reasons.is_empty();
     report.capability_evidence_bindings = capability_evidence_bindings(
         required_capabilities,
         &report.artifact_obligations,
@@ -1346,24 +1339,21 @@ pub(crate) fn refresh_runtime_acceptance_report(
             required_evidence,
             required_obligations,
         );
-    report.passed = report.missing_capabilities.is_empty()
-        && report.missing_evidence.is_empty()
-        && report.missing_obligations.is_empty()
-        && !report.inconclusive
-        && !weak_evidence_blocks_completion;
-    report.primary_reason = if let Some(reason) = report.missing_capabilities.first() {
-        format!("missing_required_capabilities:{reason}")
-    } else if let Some(reason) = report.missing_evidence.first() {
-        format!("missing_required_evidence:{reason}")
-    } else if let Some(reason) = report.missing_obligations.first() {
-        format!("missing_required_obligations:{reason}")
-    } else if let Some(reason) = report.inconclusive_reasons.first() {
-        format!("inconclusive_acceptance:{reason}")
-    } else if let Some(reason) = report.weak_evidence.first() {
-        format!("weak_verification_evidence:{reason}")
-    } else {
-        "pass".to_string()
-    };
+    let evaluation = evaluate_requirements(
+        required_capabilities,
+        required_evidence,
+        required_obligations,
+        &report.missing_capabilities,
+        &report.missing_evidence,
+        &report.missing_obligations,
+        &report.unverified_evidence,
+        &report.inconclusive_reasons,
+        &report.weak_evidence,
+        weak_evidence_blocks_completion,
+    );
+    report.passed = evaluation.passed;
+    report.inconclusive = evaluation.inconclusive;
+    report.primary_reason = evaluation.primary_reason;
 }
 
 pub fn artifact_obligation_evidence(
