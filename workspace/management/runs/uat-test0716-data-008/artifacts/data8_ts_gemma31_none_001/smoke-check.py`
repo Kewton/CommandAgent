@@ -1,0 +1,113 @@
+import json
+import csv
+import os
+import sys
+
+def check_results_json():
+    path = 'output/results.json'
+    if not os.path.exists(path):
+        print(f"Error: {path} missing")
+        return False
+    try:
+        with open(path, 'r') as f:
+            data = json.load(f)
+    except Exception as e:
+        print(f"Error reading {path}: {e}")
+        return False
+
+    if 'reconciliation' not in data or 'values' not in data:
+        print(f"Error: {path} missing reconciliation or values keys")
+        return False
+
+    recon = data['reconciliation']
+    input_rows = recon.get('input_rows', 0)
+    used_rows = recon.get('used_rows', 0)
+    excluded = recon.get('excluded', [])
+    
+    sum_excluded = sum(item.get('rows', 0) for item in excluded)
+    if input_rows != used_rows + sum_excluded:
+        print(f"Error: Reconciliation mismatch in {path}: {input_rows} != {used_rows} + {sum_excluded}")
+        return False
+    
+    return True
+
+def check_cleaned_csv():
+    path = 'output/cleaned_sales.csv'
+    if not os.path.exists(path):
+        print(f"Error: {path} missing")
+        return False
+    try:
+        with open(path, 'r', newline='') as f:
+            reader = csv.reader(f)
+            headers = next(reader)
+            if not headers:
+                print(f"Error: {path} has no headers")
+                return False
+            rows = list(reader)
+            if not rows:
+                print(f"Error: {path} has no data rows")
+                return False
+    except Exception as e:
+        print(f"Error reading {path}: {e}")
+        return False
+    return True
+
+def check_validation_summary():
+    path = 'output/validation_summary.json'
+    if not os.path.exists(path):
+        print(f"Error: {path} missing")
+        return False
+    try:
+        with open(path, 'r') as f:
+            json.load(f)
+    except Exception as e:
+        print(f"Error reading {path}: {e}")
+        return False
+    return True
+
+def check_report_md():
+    path = 'output/report.md'
+    if not os.path.exists(path):
+        print(f"Error: {path} missing")
+        return False
+    try:
+        with open(path, 'r') as f:
+            content = f.read()
+            if len(content.strip()) == 0:
+                print(f"Error: {path} is empty")
+                return False
+            if "Sales Summary Report" not in content and "Monthly Sales Analysis" not in content:
+                 # The report might have different headers, let's just check if it contains some basic keywords
+                 if "Total Sales" not in content and "MoM Change" not in content:
+                     print(f"Error: {path} does not seem to contain summary text")
+                     return False
+    except Exception as e:
+        print(f"Error reading {path}: {e}")
+        return False
+    return True
+
+def main():
+    checks = [
+        ("Results JSON", check_results_json),
+        ("Cleaned CSV", check_cleaned_csv),
+        ("Validation Summary", check_validation_summary),
+        ("Report MD", check_report_md),
+    ]
+    
+    all_passed = True
+    for name, check_fn in checks:
+        if not check_fn():
+            print(f"FAILED: {name}")
+            all_passed = False
+        else:
+            print(f"PASSED: {name}")
+            
+    if all_passed:
+        print("All smoke checks passed!")
+        sys.exit(0)
+    else:
+        print("Some smoke checks failed.")
+        sys.exit(1)
+
+if __name__ == '__main__':
+    main()
