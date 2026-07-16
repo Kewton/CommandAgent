@@ -458,3 +458,4 @@ UAT #8で観測したDATA-13 / DATA-7bの機械偽陽性は、B-2k後のUAT #9�
 | ID | 機構 | コミット | 動機 | 検証 | 状態 |
 |---|---|---|---|---|---|
 | D-0b | intent非依存裁定骨格とcreate差し込みの挙動保存抽出 | `7f26ad0` / `e1095ac` | createに癒着した要求集約、provenance、assurance写像、admission cap、正直終端をleafへ分離し、create→骨格の一方向境界を確立 | Next.js full/build-failed/interaction-partial＋data full/static/failedの6本をevent 81-key・JSONL・verdict・assurance・terminal projectionのbyte fixtureで固定。骨格productionのcreate固有語ゼロをguardrail化し、`cargo test`（unit/conformance/corpus/data conformance/guardrail/doc）全green、fmt・clippy `-D warnings` green | **complete** |
+| D-0c | intent裁定骨格のlive非悪化ゲート | 本コミット | D-0b抽出後の両profile live runでverdict・assurance・event形・正直終端の非悪化を確認しD-0を閉じる | `uat-test0716-d0c-001` 12/12正直終端、false-full 0、Quiz 1/2 full、assuranceインフレ/デフレ0、source event名148/148追加削除0、裁定event 81/43/54-key signature一致、byte fixture 6/6・`cargo test`全green | **complete** |

@@ -1,0 +1,13 @@
+goal: "あなたが考える最高に面白くかっこいいスペースインベーダーゲームを3011ポートで起動可能なnext.jsアプリとして開発してください。"
+profile: "nextjs"
+style: "default"
+intent: "create"
+phases:
+  - id: "project-setup"
+    prompt: "Scaffold and setup the Next.js App Router project shell. Create or complete the package manifest, TypeScript config, styling config, and route-bound scaffold so the deterministic nextjs-scaffold template owns setup artifacts."
+  - id: "core-implementation"
+    prompt: "Implement the core task-specific behavior for: あなたが考える最高に面白くかっこいいスペースインベーダーゲームを3011ポートで起動可能なnext.jsアプリとして開発してください。. Keep one route-bound implementation, extend the instrumented skeleton instead of replacing it, and keep the implementation in the Next.js route-bound source."
+  - id: "contract-wiring"
+    prompt: "Wire controls and data-anvil observability. Preserve or add data-anvil-action=\"primary\" on the main start/submit/action control, data-anvil-action=\"input\" on the main text entry surface when one exists, and data-anvil-state with a JSON snapshot of meaningful visible state. The data-anvil-state snapshot must include at least one dimension that immediately responds to input, such as player/paddle x position. When the contract includes start_or_restart_flow, every restart affordance (game-over, victory, and in-play when present) should carry data-anvil-action=\"restart\"; the initial primary action alone cannot satisfy recovery verification."
+  - id: "build-verification"
+    prompt: "Run build verification for the deterministic Next.js scaffold. Verify package scripts, dependency boundary, and npm run build / next build only; keep this final phase verification-only."

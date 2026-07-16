@@ -1,0 +1,13 @@
+{
+  "entries": {
+    "src/app/page.tsx": {
+      "snapshot_phase": "build-verification",
+      "snapshot_path": ".anvil/snapshots/019f6aa9-23cb-70f0-a9ef-acdbfca4d4a8/src/app/page.tsx",
+      "attributes": [
+        "PrimaryAction",
+        "RestartAction",
+        "State"
+      ]
+    }
+  }
+}

@@ -1,0 +1,17 @@
+# anvil-recovery-ultra-plan
+recovery_schema_version: "1"
+recovery_original_goal: "シンプルで美しいクイズアプリ（3問・スコア表示・リトライ可能）を3011ポートで起動可能なnext.jsアプリとして開発してください。"
+recovery_failure_kind: "final_acceptance_repair_failed"
+recovery_profile: "nextjs"
+recovery_failed_phase: "build-verification"
+goal: "シンプルで美しいクイズアプリ（3問・スコア表示・リトライ可能）を3011ポートで起動可能なnext.jsアプリとして開発してください。"
+profile: "nextjs"
+style: "recovery"
+intent: "recover"
+phases:
+  - id: "inspect-current-state"
+    prompt: "Inspect the current workspace before changing files. Original goal: シンプルで美しいクイズアプリ（3問・スコア表示・リトライ可能）を3011ポートで起動可能なnext.jsアプリとして開発してください。. Failed acceptance layer or phase: build-verification. Failed step: unknown. Failure kind: final_acceptance_repair_failed. Preserve useful existing artifacts and identify the smallest remaining implementation gap."
+  - id: "repair-build-verification"
+    prompt: "Repair the incomplete work for the failed phase without restarting from scratch.\nOriginal goal: シンプルで美しいクイズアプリ（3問・スコア表示・リトライ可能）を3011ポートで起動可能なnext.jsアプリとして開発してください。\nFailed acceptance layer or phase: build-verification\nFailed step: unknown\nMissing capability or artifact signals:\n- repair target: contract_attribute_missing\nFailure evidence:\n- artifact_follow_through_exhausted: missing expected paths: hook_snapshot_regression:src/app/page.tsx; artifact_stagnation_feedback_count: 2\nRepair targets:\n- contract_attribute_missing\nCreate or update the task-specific implementation artifacts needed to satisfy the original goal. Do not treat scaffold-only, setup-only, style-only, or build-only output as complete."
+  - id: "verify-recovery"
+    prompt: "Verify the recovered output with deterministic checks and repair only targeted failures.\nOriginal goal: シンプルで美しいクイズアプリ（3問・スコア表示・リトライ可能）を3011ポートで起動可能なnext.jsアプリとして開発してください。\nFailed acceptance layer or phase: build-verification\nPreferred verify/browser check:\n- use deterministic file existence, build, route, and capability evidence checks\n- avoid shell control syntax and interactive dev-server-only verification\nVerify preference: use the preferred checks above.\nExpected recovery result: runnable task-specific output, not only a saved plan or diagnostic report."

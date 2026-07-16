@@ -1,0 +1,13 @@
+{
+  "status": "full",
+  "assurance": "full",
+  "checks": {
+    "data_claims_binding": true,
+    "data_inspection_schema": true,
+    "data_reconciliation": true,
+    "data_rerun_consistency": true,
+    "data_results_schema": true,
+    "pipeline_probe": true
+  },
+  "reasons": []
+}

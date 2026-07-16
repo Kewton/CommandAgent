@@ -1,0 +1,85 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0716-d0c-001",
+  "executed_on": "2026-07-16",
+  "timezone": "Asia/Tokyo",
+  "repository": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop",
+  "branch": "develop",
+  "head": "df833ab2bb3943e4b145653e3ccab4c157b48966",
+  "head_subject": "Record D-0b adjudication extraction",
+  "origin_develop_equal": true,
+  "df833ab_is_ancestor": true,
+  "commits_after_df833ab": [],
+  "git_clean": true,
+  "isolated_preexisting_untracked_path": "workspace/management/runs/uat-test0715-ff1-001/",
+  "isolated_stash": "uat-test0716-d0c-001-preflight",
+  "isolated_path_restored_unchanged": true,
+  "workspace_was_new": true,
+  "report_path_was_new": true,
+  "disk_available_gib": 339,
+  "models": {
+    "planner": "qwen3.6:27b-coding-nvfp4",
+    "executors": [
+      "qwen3.6:35b-a3b-coding-nvfp4",
+      "gemma4:31b"
+    ],
+    "available": true
+  },
+  "cargo_test": {
+    "status": "passed",
+    "exit_code": 0,
+    "browser_probe_permissions": "enabled",
+    "lib": {
+      "passed": 1346,
+      "failed": 0,
+      "ignored": 13
+    },
+    "adjudication_byte_fixtures": {
+      "passed": 6,
+      "failed": 0
+    },
+    "conformance": {
+      "passed": 18,
+      "failed": 0,
+      "ignored": 1
+    },
+    "corpus_regression": {
+      "passed": 1,
+      "failed": 0
+    },
+    "data_profile_conformance": {
+      "passed": 10,
+      "failed": 0
+    },
+    "generality_guardrails": {
+      "passed": 7,
+      "failed": 0
+    },
+    "doc_tests": {
+      "passed": 2,
+      "failed": 0
+    }
+  },
+  "release_build": {
+    "status": "passed",
+    "exit_code": 0,
+    "target": "target/release/commandagent"
+  },
+  "install": {
+    "status": "passed",
+    "path": "/Users/maenokota/.local/bin/commandagent",
+    "target_sha256": "d8ac1355fffcad948b5d56fbb524207e9ba9b4566db04c92127e4c36e332cc51",
+    "installed_sha256": "d8ac1355fffcad948b5d56fbb524207e9ba9b4566db04c92127e4c36e332cc51",
+    "sha256_equal": true
+  },
+  "version": {
+    "value": "commandagent 0.1.0 df833ab 2026-07-16T10:32:06Z",
+    "dirty": false
+  },
+  "interaction_probe": {
+    "status": "ready",
+    "version": "playwright 1.61.1",
+    "source": "managed_interaction_probe"
+  },
+  "data_input_sha256": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
+}

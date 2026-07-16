@@ -1,0 +1,7 @@
+{
+  "capability_id": "data_results_schema",
+  "status": "pass",
+  "ok": true,
+  "results_path": "output/results.json",
+  "error": null
+}

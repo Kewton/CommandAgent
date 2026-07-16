@@ -1,0 +1,13 @@
+{
+  "entries": {
+    "src/app/components/SpaceInvadersGame.tsx": {
+      "snapshot_phase": "build-verification",
+      "snapshot_path": ".anvil/snapshots/019f6a80-481a-7621-846e-530d3f9484f5/src/app/components/SpaceInvadersGame.tsx",
+      "attributes": [
+        "PrimaryAction",
+        "RestartAction",
+        "State"
+      ]
+    }
+  }
+}
