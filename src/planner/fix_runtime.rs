@@ -73,7 +73,12 @@ pub(crate) fn applies(plan: &UltraPlan) -> bool {
     is_fix_intent(&plan.intent)
 }
 
-pub(crate) fn phase_prompt(plan: &UltraPlan, phase: &UltraPhase, base: String) -> String {
+pub(crate) fn phase_prompt(
+    plan: &UltraPlan,
+    phase: &UltraPhase,
+    base: String,
+    explicit_fix: bool,
+) -> String {
     if !applies(plan) {
         return base;
     }
@@ -83,6 +88,10 @@ pub(crate) fn phase_prompt(plan: &UltraPlan, phase: &UltraPhase, base: String) -
         .is_some_and(|first| first.id == phase.id)
     {
         "Fix contract phase role: reproducer_before. Return exactly one verify step, expected_result=\"fail\", with exactly one deterministic verify command. Declare no expected_paths and do not inspect, write, edit, set up, install, or repair anything. The runtime executes this command directly before any repair."
+    } else if explicit_fix && phase.id == "isolate-cause" {
+        "Fix contract phase role: cause_isolation. Inspect and narrow the cause of the observed failure without writing, editing, setting up, installing, or repairing."
+    } else if explicit_fix && phase.id == "verify-regressions" {
+        "Fix contract phase role: regression_verification. Use verify-only steps and do not modify the workspace. The runtime independently reruns the original reproducer and frozen profile regression set after this phase."
     } else {
         "Fix contract phase role: repair. Do not use expected_result=\"fail\" after the baseline phase. Repair the observed defect; the runtime will independently rerun the original reproducer and the frozen profile regression set."
     };
@@ -736,14 +745,20 @@ mod tests {
     }
 
     #[test]
-    fn create_prompts_remain_byte_identical() {
+    fn create_prompts_stay_identical_and_explicit_fix_roles_stay_bounded() {
         assert_eq!(generation_rules("create"), "");
         let plan = UltraPlan::deterministic("goal", "generic", "default", "create");
         assert_eq!(
-            phase_prompt(&plan, &plan.phases[0], "base".to_string()),
+            phase_prompt(&plan, &plan.phases[0], "base".to_string(), false),
             "base"
         );
         assert!(!is_before_prompt("Intent: create"));
+
+        let plan = crate::planner::intent::explicit_fix_plan("fix", "generic", "default");
+        let cause = phase_prompt(&plan, &plan.phases[1], "base".to_string(), true);
+        let regression = phase_prompt(&plan, &plan.phases[3], "base".to_string(), true);
+        assert!(cause.contains("cause_isolation"));
+        assert!(regression.contains("regression_verification"));
     }
 
     #[test]

@@ -370,6 +370,7 @@ fn live_openai_responses_no_tool_http_smoke() {
         provider: Provider::Openai,
         prompt_layout: commandagent::config::PromptLayout::Stable,
         plan_preset: commandagent::config::PlanPreset::None,
+        intent_override: None,
         planner_model: "unused".to_string(),
         planner_provider: Provider::Openai,
         ollama_host: "http://127.0.0.1:11434".to_string(),
@@ -438,6 +439,7 @@ fn live_gemini_interactions_no_tool_http_smoke() {
         provider: Provider::Ollama,
         prompt_layout: commandagent::config::PromptLayout::Stable,
         plan_preset: commandagent::config::PlanPreset::None,
+        intent_override: None,
         planner_model: std::env::var("ANVIL_GEMINI_SMOKE_MODEL")
             .unwrap_or_else(|_| "gemini-3.5-flash".to_string()),
         planner_provider: Provider::Gemini,
@@ -611,6 +613,7 @@ fn smoke_config(tmp_root: &Path, key_root: PathBuf, provider: Provider) -> Confi
         provider,
         prompt_layout: commandagent::config::PromptLayout::Stable,
         plan_preset: commandagent::config::PlanPreset::None,
+        intent_override: None,
         planner_model: "unused".to_string(),
         planner_provider: provider,
         ollama_host: "http://127.0.0.1:11434".to_string(),

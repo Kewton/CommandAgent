@@ -575,6 +575,7 @@ mod anchor_tests {
             provider: Provider::Ollama,
             prompt_layout: PromptLayout::Stable,
             plan_preset: PlanPreset::None,
+            intent_override: None,
             planner_model: "m".to_string(),
             planner_provider: Provider::Ollama,
             ollama_host: "http://localhost:11434".to_string(),

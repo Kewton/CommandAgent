@@ -18,8 +18,9 @@ pub fn generate_ultra_plan_with_ui(
         anyhow::bail!("interrupted by user");
     }
     let model = model_for(config, true);
-    let intent = detect_intent(goal);
-    if let Some(plan) = crate::planner::ultra_preset::maybe_preset_ultra_plan(config, goal, intent)?
+    let intent = config.resolved_intent(goal);
+    if let Some(plan) =
+        crate::planner::ultra_preset::maybe_prebuilt_ultra_plan(config, goal, intent)?
     {
         crate::tui::presentation::emit_ultra_plan_card(
             &plan,
@@ -95,8 +96,7 @@ pub fn generate_ultra_plan_with_ui(
         }
         match parse_ultra_plan(&reply.content) {
             Ok(mut plan) => {
-                let normalized =
-                    normalize_ultra_plan_metadata(&mut plan, goal, &config.profile, &config.style);
+                let normalized = normalize_ultra_plan_metadata(&mut plan, goal, config);
                 if !normalized.is_empty() {
                     emit_ultra_plan_generation_metadata_normalized(
                         config,
@@ -203,7 +203,8 @@ pub fn run_ultra_plan_file_with_ui(
 ) -> anyhow::Result<String> {
     let path = resolve_plan_file_path(&config.workspace_root, path)?;
     let text = std::fs::read_to_string(path)?;
-    let plan = parse_ultra_plan(&text)?;
+    let mut plan = parse_ultra_plan(&text)?;
+    config.apply_intent_override(&mut plan.intent);
     run_ultra_plan_with_ui(planner, execution, &plan, config, ui)
 }
 

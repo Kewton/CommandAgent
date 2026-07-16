@@ -54,8 +54,8 @@ use crate::minimal_loop::stagnation_carryover::{
     EscalationCarryoverHandle, attach_to_options, run_final_acceptance_repair_with_carryover,
 };
 use crate::minimal_loop::verifier_env;
+use crate::planner::adjudication::contract::IntentId;
 use crate::planner::adjudication::*;
-use crate::planner::intent::detect_intent;
 use crate::planner::lint::{
     PlanLintReport, PlanQualityContext, PlanQualityReport, lint_step_plan_report_with_workspace,
     lint_ultra_plan_report, step_plan_quality_report, step_plan_quality_warnings,
@@ -8837,7 +8837,7 @@ fn ultra_plan_generation_messages(
     goal: &str,
     config: &Config,
 ) -> Vec<crate::state::ConversationMessage> {
-    let intent = detect_intent(goal);
+    let intent = config.resolved_intent(goal);
     vec![
         crate::state::ConversationMessage::system(ultra_plan_generation_system_prompt(
             &config.profile,
@@ -8965,28 +8965,22 @@ Goal: {goal}"
     )
 }
 
-fn normalize_ultra_plan_metadata(
-    plan: &mut UltraPlan,
-    goal: &str,
-    profile: &str,
-    style: &str,
-) -> Vec<String> {
-    let intent = detect_intent(goal);
+fn normalize_ultra_plan_metadata(plan: &mut UltraPlan, goal: &str, config: &Config) -> Vec<String> {
     let mut normalized = Vec::new();
     if plan.goal != goal {
         plan.goal = goal.to_string();
         normalized.push("goal".to_string());
     }
-    if plan.profile != profile {
-        plan.profile = profile.to_string();
+    if plan.profile != config.profile {
+        plan.profile = config.profile.clone();
         normalized.push("profile".to_string());
     }
-    if plan.style != style {
-        plan.style = style.to_string();
+    if plan.style != config.style {
+        plan.style = config.style.clone();
         normalized.push("style".to_string());
     }
-    if plan.intent != intent {
-        plan.intent = intent.to_string();
+    if plan.intent != config.resolved_intent(goal) {
+        plan.intent = config.resolved_intent(goal).to_string();
         normalized.push("intent".to_string());
     }
     normalized
@@ -9205,7 +9199,7 @@ fn plan_quality_context(config: &Config, goal: &str) -> PlanQualityContext {
         required_artifacts: expectations.required_artifacts,
         preferred_verify: expectations.preferred_verify,
         dependency_order_hint: expectations.dependency_order_hint,
-        task_intent: detect_intent(goal).to_string(),
+        task_intent: config.resolved_intent(goal).to_string(),
         workspace_context_known: workspace.context_known,
         workspace_snapshot_class: workspace.snapshot_class,
         has_user_seed_files: workspace.has_user_seed_files,
@@ -9482,7 +9476,12 @@ fn ultra_phase_prompt(
         PromptLayout::Stable => ultra_phase_prompt_stable(plan, phase, config, context),
         PromptLayout::Legacy => ultra_phase_prompt_legacy(plan, phase, config, context),
     };
-    crate::planner::fix_runtime::phase_prompt(plan, phase, prompt)
+    crate::planner::fix_runtime::phase_prompt(
+        plan,
+        phase,
+        prompt,
+        config.intent_override == Some(IntentId::Fix),
+    )
 }
 
 fn ultra_phase_prompt_stable(
@@ -18153,6 +18152,31 @@ Type error: Cannot find name 'player'. Did you mean 'PLAYER_W'?\n\n\
     }
 
     #[test]
+    fn omitted_intent_preserves_legacy_ultra_prompt_bytes() {
+        let cfg = config(PathBuf::from("/tmp/work"));
+        let goal = "parserを修正して";
+        let intent = crate::planner::intent::detect_intent(goal);
+        let expected = vec![
+            crate::state::ConversationMessage::system(ultra_plan_generation_system_prompt(
+                &cfg.profile,
+                &cfg.style,
+                intent,
+            )),
+            crate::state::ConversationMessage::user(ultra_plan_generation_user_prompt(
+                goal,
+                &cfg.profile,
+                &cfg.style,
+                intent,
+            )),
+        ];
+
+        assert_eq!(
+            serde_json::to_vec(&ultra_plan_generation_messages(goal, &cfg)).unwrap(),
+            serde_json::to_vec(&expected).unwrap()
+        );
+    }
+
+    #[test]
     fn fix_contract_freezes_the_run_start_profile_binding() {
         let dir = tempfile::tempdir().unwrap();
         let mut cfg = config(dir.path().to_path_buf());
@@ -18178,6 +18202,7 @@ Type error: Cannot find name 'player'. Did you mean 'PLAYER_W'?\n\n\
             provider: crate::config::Provider::Ollama,
             prompt_layout: crate::config::PromptLayout::Stable,
             plan_preset: crate::config::PlanPreset::None,
+            intent_override: None,
             planner_model: "m".to_string(),
             planner_provider: crate::config::Provider::Ollama,
             ollama_host: "http://localhost:11434".to_string(),

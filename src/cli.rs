@@ -27,6 +27,12 @@ pub enum PlanPresetArg {
     None,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum IntentArg {
+    Create,
+    Fix,
+}
+
 #[derive(Debug, Parser)]
 #[command(name = "commandagent")]
 #[command(about = "Minimal loop + YAML plan runner MVP")]
@@ -56,6 +62,13 @@ pub struct Cli {
         help = "Override planner-tier UltraPlan preset selection"
     )]
     pub plan_preset: Option<PlanPresetArg>,
+    #[arg(
+        long,
+        value_enum,
+        value_name = "create|fix",
+        help = "Select create or fix intent explicitly; omitted keeps goal-based resolution"
+    )]
+    pub intent: Option<IntentArg>,
     #[arg(long)]
     pub planner_model: Option<String>,
     #[arg(long, value_enum)]
@@ -177,6 +190,31 @@ mod tests {
         assert!(help.contains("--plan-preset"));
         assert!(help.contains("profile|none"));
         assert!(help.contains("Override planner-tier UltraPlan preset selection"));
+    }
+
+    #[test]
+    fn help_includes_intent() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--intent"));
+        assert!(help.contains("create|fix"));
+        assert!(help.contains("omitted keeps goal-based resolution"));
+    }
+
+    #[test]
+    fn intent_parses_create_fix_and_omission() {
+        let create = Cli::try_parse_from(["commandagent", "--intent", "create"]).unwrap();
+        let fix = Cli::try_parse_from(["commandagent", "--intent", "fix"]).unwrap();
+        let omitted = Cli::try_parse_from(["commandagent"]).unwrap();
+
+        assert_eq!(create.intent, Some(IntentArg::Create));
+        assert_eq!(fix.intent, Some(IntentArg::Fix));
+        assert_eq!(omitted.intent, None);
+    }
+
+    #[test]
+    fn invalid_intent_is_rejected_before_execution() {
+        let error = Cli::try_parse_from(["commandagent", "--intent", "research"]).unwrap_err();
+        assert!(error.to_string().contains("invalid value 'research'"));
     }
 
     #[test]

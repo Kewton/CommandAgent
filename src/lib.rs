@@ -565,6 +565,15 @@ fn emit_run_start(config: &Config) {
     eval_events::emit(
         config.eval_events_path.as_deref(),
         json!({
+            "event": "intent_resolved",
+            "value": config.resolved_run_intent().as_str(),
+            "origin": config.intent_origin(),
+            "source": config.intent_source(),
+        }),
+    );
+    eval_events::emit(
+        config.eval_events_path.as_deref(),
+        json!({
             "event": "plan_preset_resolved",
             "plan_preset": config.plan_preset.as_str(),
             "origin": config.plan_preset_origin(),
@@ -737,7 +746,7 @@ mod tests {
     use super::*;
     use crate::config::{Action, Provider};
     use clap::Parser;
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     fn config(root: PathBuf) -> Config {
         Config {
@@ -752,6 +761,7 @@ mod tests {
             provider: Provider::Ollama,
             prompt_layout: crate::config::PromptLayout::Stable,
             plan_preset: crate::config::PlanPreset::None,
+            intent_override: None,
             planner_model: "m".to_string(),
             planner_provider: Provider::Ollama,
             ollama_host: "http://localhost:11434".to_string(),
@@ -855,6 +865,77 @@ mod tests {
         assert!(event_text.contains("\"event\":\"plan_preset_resolved\""));
         assert!(event_text.contains("\"origin\":\"default\""));
         assert!(event_text.contains("\"source\":\"default:qwen27_planner\""));
+    }
+
+    #[test]
+    fn run_start_emits_one_default_intent_resolution() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        let cwd = dir.path().to_string_lossy().to_string();
+        let mut cfg = Config::from_cli(crate::cli::Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--ultra-plan-run",
+            "parserを修正して",
+        ]))
+        .unwrap();
+        cfg.eval_events_path = Some(events.clone());
+
+        emit_run_start(&cfg);
+
+        let resolved = std::fs::read_to_string(events)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .filter(|event| event.get("event").and_then(Value::as_str) == Some("intent_resolved"))
+            .collect::<Vec<_>>();
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(
+            resolved[0].get("value").and_then(Value::as_str),
+            Some("fix")
+        );
+        assert_eq!(
+            resolved[0].get("origin").and_then(Value::as_str),
+            Some("default")
+        );
+        assert_eq!(resolved[0].get("source").and_then(Value::as_str), Some(""));
+    }
+
+    #[test]
+    fn run_start_records_explicit_intent_source_value() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        let cwd = dir.path().to_string_lossy().to_string();
+        let mut cfg = Config::from_cli(crate::cli::Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--intent",
+            "create",
+            "--ultra-plan-run",
+            "parserを修正して",
+        ]))
+        .unwrap();
+        cfg.eval_events_path = Some(events.clone());
+
+        emit_run_start(&cfg);
+
+        let resolved = std::fs::read_to_string(events)
+            .unwrap()
+            .lines()
+            .map(|line| serde_json::from_str::<Value>(line).unwrap())
+            .find(|event| event.get("event").and_then(Value::as_str) == Some("intent_resolved"))
+            .unwrap();
+        assert_eq!(
+            resolved.get("value").and_then(Value::as_str),
+            Some("create")
+        );
+        assert_eq!(resolved.get("origin").and_then(Value::as_str), Some("cli"));
+        assert_eq!(
+            resolved.get("source").and_then(Value::as_str),
+            Some("create")
+        );
     }
 
     #[test]

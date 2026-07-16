@@ -1,4 +1,5 @@
 {"event":"run_start","action":"UltraPlanRun(\"build app\")","profile":"generic"}
+{"event":"intent_resolved","value":"create","origin":"default","source":""}
 {"event":"tui_command_start","command":"/ultra-plan-run","profile":"generic"}
 {"event":"ultra_plan_generation_attempt","attempt":1,"profile":"generic"}
 {"event":"provider_turn_duration","scope":"planner_ultra","duration_secs":2}

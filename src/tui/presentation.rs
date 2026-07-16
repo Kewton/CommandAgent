@@ -565,7 +565,7 @@ pub fn activity_projection_status(event: &Value) -> ActivityProjectionStatus {
 pub fn documented_activity_ignore_reason(name: &str) -> Option<&'static str> {
     match name {
         // Process and command lifecycle records are summarized by the terminal card.
-        "run_start" | "run_stop" | "tui_command_start" | "tui_command_stop" => {
+        "run_start" | "intent_resolved" | "run_stop" | "tui_command_start" | "tui_command_stop" => {
             Some("lifecycle summarized by terminal summary card")
         }
         // Planner bookkeeping is noisy in scrollback; visible plan cards cover the accepted result.
@@ -1239,6 +1239,7 @@ mod tests {
             provider: Provider::Ollama,
             prompt_layout: crate::config::PromptLayout::Stable,
             plan_preset: crate::config::PlanPreset::None,
+            intent_override: None,
             planner_model: "planner".to_string(),
             planner_provider: Provider::Gemini,
             ollama_host: "http://localhost:11434".to_string(),

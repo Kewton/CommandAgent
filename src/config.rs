@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::cli::{Cli, FooterArg, PlanPresetArg, PromptLayoutArg, ProviderArg};
+use crate::cli::{Cli, FooterArg, IntentArg, PlanPresetArg, PromptLayoutArg, ProviderArg};
+use crate::planner::adjudication::contract::IntentId;
+use crate::planner::intent::detect_intent;
 use crate::planner::profile::{ProfileInference, infer_profile};
 
 pub const LOCAL_PROVIDER_CHAT_TIMEOUT_SECS: u64 = 600;
@@ -128,6 +130,15 @@ impl From<PlanPresetArg> for PlanPreset {
     }
 }
 
+impl From<IntentArg> for IntentId {
+    fn from(value: IntentArg) -> Self {
+        match value {
+            IntentArg::Create => Self::Create,
+            IntentArg::Fix => Self::Fix,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Action {
     Repl,
@@ -178,6 +189,7 @@ pub struct Config {
     pub provider: Provider,
     pub prompt_layout: PromptLayout,
     pub plan_preset: PlanPreset,
+    pub intent_override: Option<IntentId>,
     pub planner_model: String,
     pub planner_provider: Provider,
     pub ollama_host: String,
@@ -271,6 +283,40 @@ struct ConfigFile {
 impl Config {
     pub fn plan_preset_origin(&self) -> &'static str {
         config_source_origin(&self.field_sources.plan_preset)
+    }
+
+    pub fn resolved_intent(&self, goal: &str) -> &'static str {
+        self.intent_override
+            .map(IntentId::as_str)
+            .unwrap_or_else(|| detect_intent(goal))
+    }
+
+    pub fn resolved_run_intent(&self) -> IntentId {
+        self.intent_override.unwrap_or_else(|| {
+            if action_goal(&self.action).is_some_and(|goal| detect_intent(goal) == "fix") {
+                IntentId::Fix
+            } else {
+                IntentId::Create
+            }
+        })
+    }
+
+    pub const fn intent_origin(&self) -> &'static str {
+        if self.intent_override.is_some() {
+            "cli"
+        } else {
+            "default"
+        }
+    }
+
+    pub fn intent_source(&self) -> &'static str {
+        self.intent_override.map(IntentId::as_str).unwrap_or("")
+    }
+
+    pub fn apply_intent_override(&self, intent: &mut String) {
+        if let Some(value) = self.intent_override {
+            *intent = value.as_str().to_string();
+        }
     }
 
     pub fn from_cli(cli: Cli) -> anyhow::Result<Self> {
@@ -423,6 +469,7 @@ impl Config {
             provider: provider.value,
             prompt_layout: prompt_layout.value,
             plan_preset: plan_preset.value,
+            intent_override: cli.intent.map(IntentId::from),
             planner_model: planner_model.value,
             planner_provider: planner_provider.value,
             ollama_host: cli.ollama_host,
@@ -1152,6 +1199,33 @@ pub fn redact(value: &str) -> String {
 mod tests {
     use super::*;
     use clap::Parser;
+
+    #[test]
+    fn explicit_create_overrides_fix_wording_while_omission_keeps_detection() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_string_lossy().to_string();
+        let explicit = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--intent",
+            "create",
+            "--ultra-plan-run",
+            "parserを修正して",
+        ]))
+        .unwrap();
+        let omitted = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--ultra-plan-run",
+            "parserを修正して",
+        ]))
+        .unwrap();
+
+        assert_eq!(explicit.resolved_intent("parserを修正して"), "create");
+        assert_eq!(omitted.resolved_intent("parserを修正して"), "fix");
+    }
 
     #[test]
     fn cross_provider_planner_model_error() {

@@ -1714,6 +1714,7 @@ fn config(root: PathBuf) -> Config {
         provider: Provider::Ollama,
         prompt_layout: commandagent::config::PromptLayout::Stable,
         plan_preset: commandagent::config::PlanPreset::None,
+        intent_override: None,
         planner_model: "pm".to_string(),
         planner_provider: Provider::Gemini,
         ollama_host: "http://localhost:11434".to_string(),
