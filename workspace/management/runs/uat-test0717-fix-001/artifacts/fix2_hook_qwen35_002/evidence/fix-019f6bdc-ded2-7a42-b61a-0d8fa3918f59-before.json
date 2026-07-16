@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "requirement_id": "before_fails",
+  "binding_id": "grep -rq 'data-anvil-action=\"restart\"' src/app/",
+  "stage": "before",
+  "expected": "failure",
+  "lineage": "reproducer:990de9aab424c3d3",
+  "epoch": 1,
+  "run_id": "019f6bdc-ded2-7a42-b61a-0d8fa3918f59",
+  "executed": true,
+  "outcome": "failure",
+  "reason": "outcome: CommandFailed status: exit status: 1 elapsed_ms: 30 summary: command did not succeed: grep -rq 'data-anvil-action=\"restart\"' src/app/ stdout: stderr:"
+}

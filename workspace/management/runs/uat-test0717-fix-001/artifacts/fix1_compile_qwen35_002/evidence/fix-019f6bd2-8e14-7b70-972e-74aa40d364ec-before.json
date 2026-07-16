@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "requirement_id": "before_fails",
+  "binding_id": "npm run build",
+  "stage": "before",
+  "expected": "failure",
+  "lineage": "reproducer:a33c603932fd7056",
+  "epoch": 1,
+  "run_id": "019f6bd2-8e14-7b70-972e-74aa40d364ec",
+  "executed": true,
+  "outcome": "failure",
+  "reason": "outcome: CommandFailed status: exit status: 1 elapsed_ms: 5079 summary: Failed to compile. Type error: Argument of type '{ x: number; y: number; }' is not assignable to parameter of type 'Bullet'. stdout: > anvilminimal-nextjs-app@1.0.0 build > next build ▲ Next.js 14.2.35 Creating an optimized production build ... ✓ Compiled successfully Linting and checking validity of types ... stderr: (node:8388) ExperimentalWarning: Type Stripping is an experimental feature and might change at any time (Use"
+}

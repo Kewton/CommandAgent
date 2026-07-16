@@ -1,0 +1,20 @@
+goal: "Isolate the cause of the reproduced failure without modifying the workspace for: このNext."
+steps:
+  - id: "inspect-package-config"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read package.json to verify Next.js, React, and Tailwind dependencies, and check scripts.build and scripts.dev/start configurations."
+    expected_paths:
+    verify:
+  - id: "inspect-page-component"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read src/app/page.tsx to locate the main interactive UI components and identify where data-anvil-action=\"restart\" is missing or incorrectly applied. Check for game-over, victory, or in-play states that require a restart affordance."
+    expected_paths:
+    verify:
+  - id: "inspect-evidence-and-contract"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read files in the evidence directory to understand the verifier's expectations and the exact failure message related to the missing restart hook, then correlate with the page component structure to isolate the cause."
+    expected_paths:
+    verify:

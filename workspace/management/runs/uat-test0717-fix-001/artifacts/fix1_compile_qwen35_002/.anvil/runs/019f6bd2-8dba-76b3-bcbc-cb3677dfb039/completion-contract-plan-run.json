@@ -1,0 +1,30 @@
+{
+  "required_paths": [
+    "package.json",
+    "tsconfig.json",
+    "postcss.config.js",
+    "tailwind.config.ts",
+    "src/app/layout.tsx",
+    "src/app/page.tsx",
+    "src/app/globals.css",
+    "src/app/global.d.ts"
+  ],
+  "verify_commands": [],
+  "profile": null,
+  "goal": "Verify the deterministic Next.js build.",
+  "required_capabilities": [],
+  "deterministic_oracles": [],
+  "required_evidence": [
+    "nextjs_route_evidence",
+    "build_command_or_dependency_missing_boundary"
+  ],
+  "evidence_hint_tokens": [
+    "verify",
+    "deterministic"
+  ],
+  "required_obligations": [
+    "implementation"
+  ],
+  "deferred_verify_requirements": [],
+  "verify_repair_cap": 2
+}

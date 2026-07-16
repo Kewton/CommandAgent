@@ -1,0 +1,13 @@
+{
+  "entries": {
+    "src/app/components/SpaceInvaders.tsx": {
+      "snapshot_phase": "verify-regressions",
+      "snapshot_path": ".anvil/snapshots/019f6bcb-78df-7231-803e-5d9710247e34/src/app/components/SpaceInvaders.tsx",
+      "attributes": [
+        "PrimaryAction",
+        "RestartAction",
+        "State"
+      ]
+    }
+  }
+}
