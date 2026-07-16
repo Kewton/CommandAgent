@@ -423,7 +423,7 @@ settlement `fcb9ac8`の次から族別band生成`207dd33`までである。
 | 追加commit | 5 | `git rev-list --count fcb9ac8..207dd33`。UAT #8（`46d9e34`）、B-2k 2件、UAT #9（`c4d5727`）、族別band生成（`207dd33`）。本封緘docs commitは自己参照を避けて境界外 |
 | 族別分布 | aggregation 2/38、timeseries 0/12 | Window Bはaggregation 2/6、timeseries 0/6。機械生成原表は[`band_summary_data.md`](../workspace/management/runs/band_summary_data.md) |
 
-## Phase B seal (2026-07-15)
+## Phase B seal (2026-07-16)
 
 | 出口条件 | 照合結果 | 根拠 |
 |---|---|---|
