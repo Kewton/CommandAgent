@@ -1,0 +1,11 @@
+goal: "data/sales.csv を読み込み、月次の売上合計・前月比（%）・3ヶ月移動平均を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。"
+profile: "data"
+style: "default"
+intent: "create"
+phases:
+  - id: "data-validation-and-cleaning"
+    prompt: "Load data/sales.csv and identify all invalid rows. Categorize exclusions by reason (e.g., missing/invalid dates, non-numeric sales values, duplicate entries, or out-of-range months) and count them. Output a cleaned dataset and a structured summary of excluded row counts by reason. Verify that the cleaned dataset contains only valid, complete records ready for aggregation."
+  - id: "monthly-aggregation-and-metrics"
+    prompt: "Using the cleaned dataset, calculate monthly total sales, month-over-month change percentage, and a 3-month moving average for sales. Handle edge cases for the first month(s) appropriately. Output a structured table containing month, total sales, MoM change %, and 3-month moving average. Verify that calculations align with standard financial formulas and that all months in the dataset are represented."
+  - id: "summary-report-generation"
+    prompt: "Generate a final summary report that includes the exclusion summary (reasons and counts) and the calculated monthly metrics table. Format the report clearly in Markdown and save it to reports/sales_summary.md. Verify that the report accurately reflects the cleaned data, calculations, and exclusion counts, and that all requested metrics are present and correctly labeled."

@@ -1,0 +1,24 @@
+{
+  "schema": {
+    "columns": ["date", "region", "amount"],
+    "column_types": {
+      "date": "string (YYYY-MM-DD)",
+      "region": "string",
+      "amount": "numeric"
+    }
+  },
+  "sample_rows": [
+    {"date": "2026-01-01", "region": "東京", "amount": "1000"},
+    {"date": "2026-02-02", "region": "大阪", "amount": "1037"},
+    {"date": "2026-03-03", "region": "名古屋", "amount": "1074"}
+  ],
+  "observations": {
+    "total_rows": 22,
+    "date_format": "YYYY-MM-DD",
+    "regions": ["東京", "大阪", "名古屋"],
+    "invalid_dates": ["2026-02-30", ""],
+    "amount_range": {"min": 1000, "max": 5000},
+    "missing_dates": 1,
+    "invalid_dates_count": 1
+  }
+}
