@@ -14,6 +14,7 @@ use crate::{
     tools::bash::{BashOutcome, BashOutcomeKind},
 };
 
+mod shell_control;
 mod shell_rewrite;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -546,8 +547,7 @@ pub(crate) fn verify_step_with_context(
     verify_step_with_setup_observed_with_options(
         root,
         step,
-        profile,
-        goal,
+        (profile, goal),
         setup_authority,
         Path::new("npm"),
         offline,
@@ -631,13 +631,13 @@ fn verify_setup_dependency_state_with_setup_observed_inner(
 fn verify_step_with_setup_observed_with_options(
     root: &Path,
     step: &PlanStep,
-    profile: Option<&str>,
-    goal: Option<&str>,
+    profile_and_goal: (Option<&str>, Option<&str>),
     setup_authority: NodeDependencySetupAuthority,
     npm_program: &Path,
     offline: bool,
     eval_events_path: Option<&Path>,
 ) -> (VerificationReport, Vec<BuildVerifierLifecycleObservation>) {
+    let (profile, goal) = profile_and_goal;
     let mut report = VerificationReport::pass();
     let mut build_lifecycles = Vec::new();
     for path in &step.expected_paths {
@@ -1757,6 +1757,13 @@ pub fn diagnose_verify_command(command: &str) -> VerifyCommandDiagnosis {
             normalized,
             VerifyCommandViolationKind::SetupOrDevServer,
             None,
+        );
+    }
+    if shell_control::has_unquoted_escape(&normalized) {
+        return verify_command_violation(
+            normalized,
+            VerifyCommandViolationKind::Blocked,
+            Some(shell_control::UNQUOTED_ESCAPE_REASON.to_string()),
         );
     }
     if contains_shell_control_syntax(&normalized) {
@@ -3058,12 +3065,7 @@ fn find_outside_quotes(text: &str, needle: &str) -> Option<usize> {
 }
 
 fn contains_shell_control_syntax(command: &str) -> bool {
-    command.bytes().any(|byte| {
-        matches!(
-            byte,
-            b';' | b'&' | b'|' | b'<' | b'>' | b'`' | b'\n' | b'\r' | b'\\'
-        )
-    }) || command.contains("$(")
+    shell_control::contains(command)
 }
 
 fn build_verifier_profile<'a>(profile: Option<&'a str>, command: &str) -> Option<&'a str> {
@@ -4166,8 +4168,7 @@ EOF\n\
         let (report, lifecycles) = verify_step_with_setup_observed_with_options(
             dir.path(),
             &step,
-            None,
-            None,
+            (None, None),
             NodeDependencySetupAuthority::PlanSetupStep,
             &fake_npm,
             false,
@@ -4233,8 +4234,7 @@ EOF\n\
         let (report, lifecycles) = verify_step_with_setup_observed_with_options(
             dir.path(),
             &step,
-            Some("nextjs"),
-            None,
+            (Some("nextjs"), None),
             NodeDependencySetupAuthority::PlanSetupStep,
             &fake_npm,
             false,
@@ -4272,8 +4272,7 @@ EOF\n\
         let report = verify_step_with_setup_observed_with_options(
             dir.path(),
             &step,
-            Some("python-cli"),
-            None,
+            (Some("python-cli"), None),
             NodeDependencySetupAuthority::PlanSetupStep,
             Path::new("npm"),
             false,
@@ -4325,8 +4324,7 @@ EOF\n\
         let (initial_report, initial_lifecycles) = verify_step_with_setup_observed_with_options(
             dir.path(),
             &step,
-            None,
-            None,
+            (None, None),
             NodeDependencySetupAuthority::PlanSetupStep,
             &fake_npm,
             false,

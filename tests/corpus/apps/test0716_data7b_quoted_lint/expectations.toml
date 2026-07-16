@@ -1,0 +1,30 @@
+case_id = "test0716_data7b_quoted_lint"
+source = "uat-test0716-data-008 Run 6 measured planner_error telemetry"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["shell_control_syntax", "original_command", "quote_aware_lint"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/run6-runtime-rejection.jsonl = [
+  "\"violation_kind\":\"shell_control_syntax\"",
+  "python -c \\\"import pandas as pd;",
+  "assert 'moving_avg' in df.columns;",
+  "\"step_id\":\"verify-metrics-output\""
+]

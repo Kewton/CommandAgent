@@ -299,6 +299,7 @@ Both report directories below were present when this closure was recorded.
 - B-2g E2較正（2026-07-15）: 偽陽性49件（日付分割36＋照合域13）を除去。モデル起因の違反は0件だった（[`investigation-e2.md`](../workspace/management/runs/uat-test0715-ff1-002/investigation-e2.md)）。契約§6ネガティブ維持＋照合域の新設ネガティブで非緩和を担保。
 - B-2h DATA-11／inspection行数照合／nearest_miss修復注入（2026-07-15）: 動的・正準最終フェーズから他フェーズ明示束縛チェックを除外してE1〜E4のみをfullゲート化（`2d42ae4`）、inspection報告行数を実CSV/TSV論理行数と照合（`4ddffcf`）、claims-bindingの違反claim・最近傍キー／値・差分をstep／最終受け入れ修復へ注入（本コミット）。根拠: [`uat-report.md`](../workspace/management/runs/uat-test0715-data-005/uat-report.md)。
 - B-2i DATA-12（2026-07-15）: data stepを全expected_paths実在＋実verify全pass時だけモデルターン前に短絡し、動的phaseで正準化後に空となったverify stepへphase別の既定checkを束縛する。根拠: [`uat-test0715-data-006`](../workspace/management/runs/uat-test0715-data-006/uat-report.md)。
+- B-2k DATA-7b（2026-07-16）: verify lintのシェル制御構文判定をshクォート対応とし、引用payload内の`; | & || &&`の偽陽性を除去。E2較正と同属の検証器精度修正であり、Next.js方向の影響は偽陽性減少のみ。既存のクォート外制御構文・ファイル書き込みredirectネガティブ維持で非緩和を担保。根拠: [`uat-test0716-data-008`](../workspace/management/runs/uat-test0716-data-008/uat-report.md) Run 6。
 
 ## Incident: semantic false-full (2026-07-14)
 
