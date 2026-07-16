@@ -24,9 +24,19 @@ RUNS_DIR = ROOT / "workspace" / "management" / "runs"
 OUTPUT = RUNS_DIR / "band_summary.md"
 DATA_OUTPUT = RUNS_DIR / "band_summary_data.md"
 WINDOW_START = "uat-test0711-bs-003"
-DATA_STABLE_WINDOW_START = "uat-test0715-data-007"
 DATA_PLANNER = "qwen3.6:27b-coding-nvfp4"
 DATA_FIXTURE_SHA256 = "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
+# The frozen pre-uat-meta rows all use this goal, quoted in their immutable UAT
+# and investigation records; family classification still consumes goal text.
+DATA_AGGREGATION_GOAL = (
+    "data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、"
+    "無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。"
+)
+DATA_FAMILIES = ("aggregation", "timeseries", "unknown")
+DATA_FAMILY_STABLE_WINDOWS = {
+    "aggregation": ("uat-test0715-data-007", "7b177fe"),
+    "timeseries": ("uat-test0716-data-009", "2028eb4"),
+}
 
 FINAL_STATES = ("full_success", "partial", "incomplete", "failed")
 PROVISIONAL = {"Quiz": 85, "Breakout": 30, "Space": 7}
@@ -57,6 +67,8 @@ class DataRunRecord:
     planner: str
     executor: str
     preset: str
+    goal: str
+    family: str
     final_acceptance: str
     assurance: str
     failure_class: str
@@ -68,6 +80,29 @@ class DataRunRecord:
     @property
     def is_full(self) -> bool:
         return self.final_acceptance == "full_success" and self.assurance == "full"
+
+
+def classify_data_family(goal: str) -> str:
+    """Classify a data scenario only from its recorded goal text."""
+    normalized = re.sub(r"\s+", "", goal).lower()
+    if "前月比" in normalized or "移動平均" in normalized:
+        return "timeseries"
+    if (
+        "月次×地域" in normalized
+        or "月次x地域" in normalized
+        or (
+            "月次" in normalized
+            and "地域" in normalized
+            and ("集計" in normalized or "合計" in normalized)
+        )
+    ):
+        return "aggregation"
+    return "unknown"
+
+
+def data_record_in_stable_window(record: DataRunRecord) -> bool:
+    window = DATA_FAMILY_STABLE_WINDOWS.get(record.family)
+    return window is not None and record.set_id >= window[0]
 
 
 # UAT #1 and the M-4 rounds predate repository-managed campaign-level
@@ -592,6 +627,8 @@ def archived_data_records() -> list[DataRunRecord]:
                 planner=DATA_PLANNER,
                 executor=executor,
                 preset=preset,
+                goal=DATA_AGGREGATION_GOAL,
+                family=classify_data_family(DATA_AGGREGATION_GOAL),
                 final_acceptance=final_acceptance,
                 assurance=assurance,
                 failure_class=failure_class,
@@ -633,6 +670,7 @@ def data_record_from_meta(
     set_dir: Path,
     set_id: str,
     planner: str,
+    goal: str,
     row: dict[str, Any],
 ) -> DataRunRecord:
     run_name = str(row.get("name") or row.get("run") or row.get("id") or "unknown")
@@ -663,6 +701,8 @@ def data_record_from_meta(
         planner=planner,
         executor=str(row.get("executor") or row.get("model") or "unknown"),
         preset=str(row.get("preset") or row.get("plan_preset") or "unknown"),
+        goal=goal,
+        family=classify_data_family(goal),
         final_acceptance=final_acceptance,
         assurance=assurance,
         failure_class=failure_class or final_acceptance,
@@ -692,10 +732,13 @@ def discover_data_records() -> tuple[list[DataRunRecord], int, int, list[str]]:
             )
         set_id = str(data.get("uat_id") or set_dir.name)
         planner = str(measurement.get("planner_model") or DATA_PLANNER)
+        goal = str(measurement.get("goal") or "")
         scanned_sets.add(set_id)
         for row in runs:
             assert isinstance(row, dict), f"non-object run in {meta_path}"
-            meta_records.append(data_record_from_meta(set_dir, set_id, planner, row))
+            meta_records.append(
+                data_record_from_meta(set_dir, set_id, planner, goal, row)
+            )
             meta_row_count += 1
 
     # If a pre-uat-meta campaign later gains managed metadata, prefer that
@@ -793,6 +836,35 @@ def data_rate_rows(records: list[DataRunRecord]) -> list[list[str]]:
     return rows
 
 
+def data_band_state(record: DataRunRecord) -> str:
+    if record.is_full:
+        return "full"
+    if record.assurance in {"partial", "static"}:
+        return "partial_static"
+    return "failed"
+
+
+def data_family_rows(records: list[DataRunRecord]) -> list[list[str]]:
+    counts: dict[str, Counter[str]] = defaultdict(Counter)
+    for record in records:
+        counts[record.family][data_band_state(record)] += 1
+    rows: list[list[str]] = []
+    for family in DATA_FAMILIES:
+        counter = counts[family]
+        denominator = sum(counter.values())
+        rows.append(
+            [
+                family,
+                str(counter["full"]),
+                str(counter["partial_static"]),
+                str(counter["failed"]),
+                str(denominator),
+                pct(counter["full"], denominator),
+            ]
+        )
+    return rows
+
+
 def data_failure_rows(records: list[DataRunRecord]) -> list[list[str]]:
     counts: dict[tuple[str, str], Counter[str]] = defaultdict(Counter)
     for record in records:
@@ -823,6 +895,22 @@ def append_data_window(
     lines.append("")
     lines.extend(
         table(
+            [
+                "Family",
+                "full",
+                "partial+static",
+                "failed",
+                "denominator",
+                "full rate",
+            ],
+            data_family_rows(records),
+        )
+    )
+    lines.append("")
+    lines.append("### Executor × preset full rates")
+    lines.append("")
+    lines.extend(
+        table(
             ["Executor", "Preset", "full", "n", "full rate"],
             data_rate_rows(records),
         )
@@ -848,12 +936,12 @@ def build_data_summary(
 ) -> str:
     included = [record for record in records if not record.excluded_reason]
     excluded = [record for record in records if record.excluded_reason]
-    stable = [
-        record for record in included if record.set_id >= DATA_STABLE_WINDOW_START
-    ]
+    stable = [record for record in included if data_record_in_stable_window(record)]
+    unknown_family = [record for record in included if record.family == "unknown"]
     assert len(records) == scanned_run_count
     assert len(included) + len(excluded) == scanned_run_count
     assert stable, "mechanism-stable data window is empty"
+    assert all(record.family in DATA_FAMILIES for record in records)
 
     lines: list[str] = [
         "# Data × Create Capability Band Summary",
@@ -876,24 +964,34 @@ def build_data_summary(
         "terminal projection fields are not read. Non-full levels come from the "
         "campaign's evidence-audited `uat-meta.json` or frozen pre-uat-meta audit row.",
         "",
+        "Family is classified only from the recorded goal: `前月比` or `移動平均` "
+        "selects `timeseries`; a monthly-by-region aggregation goal selects "
+        "`aggregation`; anything else remains included in Window A as `unknown`.",
+        "",
         "The frozen pre-uat-meta index is code-owned input for UAT #1 and M-4; "
         "it preserves rows whose original aggregate files predate repository-managed "
-        "`uat-meta.json`. New and mixed campaigns are discovered from every "
+        "`uat-meta.json` and carries the aggregation goal recorded by those campaigns. "
+        "New and mixed campaigns are discovered from every "
         "`workspace/management/runs/uat-*/uat-meta.json` whose measurement profile is data.",
         "",
     ]
     append_data_window(
         lines,
         "Window A — all history",
-        "UAT #1 through #7, including the machine-defect era. Invalid or discarded "
+        "UAT #1 through #9, including the machine-defect era. Invalid or discarded "
         "measurements remain visible below but are outside this denominator.",
         included,
     )
     append_data_window(
         lines,
-        "Window B — mechanism-stable",
-        f"`{DATA_STABLE_WINDOW_START}` and later: DATA-1–12 are fixed and the "
-        "earned-assurance projection contract is in force. This is the update baseline.",
+        "Window B — family-specific mechanism-stable",
+        "Family-specific fixed-code baselines: aggregation starts at "
+        f"`{DATA_FAMILY_STABLE_WINDOWS['aggregation'][0]}` (B-2i code HEAD "
+        f"`{DATA_FAMILY_STABLE_WINDOWS['aggregation'][1]}`); timeseries starts at "
+        f"`{DATA_FAMILY_STABLE_WINDOWS['timeseries'][0]}` (B-2k code HEAD "
+        f"`{DATA_FAMILY_STABLE_WINDOWS['timeseries'][1]}`). `unknown` has no "
+        "mechanism-stable threshold and therefore remains an explicit zero row here "
+        "while any such records stay visible in Window A and the ledger.",
         stable,
     )
 
@@ -906,6 +1004,7 @@ def build_data_summary(
     lines.extend(["## Full durations", ""])
     duration_rows = [
         [
+            record.family,
             record.set_id,
             record.run_name,
             record.executor,
@@ -918,7 +1017,7 @@ def build_data_summary(
     ]
     lines.extend(
         table(
-            ["Set", "Run", "Executor", "Preset", "Duration"],
+            ["Family", "Set", "Run", "Executor", "Preset", "Duration"],
             duration_rows,
         )
     )
@@ -930,13 +1029,37 @@ def build_data_summary(
                 f"median=`{median(duration_values)}s`; max=`{max(duration_values)}s`.",
             ]
         )
+    family_duration_rows: list[list[str]] = []
+    for family in DATA_FAMILIES:
+        values = [
+            record.duration_seconds
+            for record in full_records
+            if record.family == family and record.duration_seconds is not None
+        ]
+        family_duration_rows.append(
+            [
+                family,
+                str(len(values)),
+                f"{min(values)}s" if values else "N/A",
+                f"{median(values)}s" if values else "N/A",
+                f"{max(values)}s" if values else "N/A",
+            ]
+        )
+    lines.extend(["", "### Full-duration summary by family", ""])
+    lines.extend(
+        table(
+            ["Family", "full runs", "min", "median", "max"],
+            family_duration_rows,
+        )
+    )
 
     lines.extend(["", "## Excluded rows", ""])
     lines.extend(
         table(
-            ["Set", "Run", "Final acceptance", "Failure class", "Reason"],
+            ["Family", "Set", "Run", "Final acceptance", "Failure class", "Reason"],
             [
                 [
+                    record.family,
                     record.set_id,
                     record.run_name,
                     record.final_acceptance,
@@ -955,6 +1078,32 @@ def build_data_summary(
             "preflight was not green and the campaign was interrupted before four of "
             "its five data rows completed; no interrupted result is inferred.",
             "",
+            "## Unknown family records",
+            "",
+        ]
+    )
+    if unknown_family:
+        lines.extend(
+            table(
+                ["Set", "Run", "Goal", "Source"],
+                [
+                    [record.set_id, record.run_name, record.goal, record.source]
+                    for record in unknown_family
+                ],
+            )
+        )
+        lines.extend(
+            [
+                "",
+                "These records remain in the Window A denominator and per-run ledger; "
+                "they are not assigned to a Window B baseline.",
+            ]
+        )
+    else:
+        lines.append("- Unknown family records: `0`")
+    lines.extend(
+        [
+            "",
             "## Per-run ledger",
             "",
         ]
@@ -963,7 +1112,7 @@ def build_data_summary(
     for record in sorted(records, key=lambda item: (item.set_id, item.run_name)):
         if record.excluded_reason:
             window = "excluded"
-        elif record.set_id >= DATA_STABLE_WINDOW_START:
+        elif data_record_in_stable_window(record):
             window = "A+B"
         else:
             window = "A"
@@ -972,6 +1121,7 @@ def build_data_summary(
                 record.set_id,
                 record.record_dir,
                 record.run_name,
+                record.family,
                 record.executor,
                 record.preset,
                 record.final_acceptance,
@@ -992,6 +1142,7 @@ def build_data_summary(
                 "Set",
                 "Record directory",
                 "Run",
+                "Family",
                 "Executor",
                 "Preset",
                 "Final acceptance",

@@ -4,146 +4,189 @@
 
 - Planner: `qwen3.6:27b-coding-nvfp4`
 - Input fixture SHA-256: `2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873`
-- Scanned campaign sets: `9`
-- Scanned data run rows: `48`
-- Repository uat-meta rows: `24`
+- Scanned campaign sets: `11`
+- Scanned data run rows: `60`
+- Repository uat-meta rows: `36`
 - Frozen pre-uat-meta rows: `24`
-- Window A included denominator: `38`
+- Window A included denominator: `50`
 - Excluded invalid/discarded rows: `10`
 - Full rows with E1–E4 and data-assurance verified: `2`
 - False-full evidence gaps: `0` (generation aborts on any gap)
 
 Assurance truth follows B-2j: final acceptance and `evidence/data-assurance.json` are authoritative for full; historical terminal projection fields are not read. Non-full levels come from the campaign's evidence-audited `uat-meta.json` or frozen pre-uat-meta audit row.
 
-The frozen pre-uat-meta index is code-owned input for UAT #1 and M-4; it preserves rows whose original aggregate files predate repository-managed `uat-meta.json`. New and mixed campaigns are discovered from every `workspace/management/runs/uat-*/uat-meta.json` whose measurement profile is data.
+Family is classified only from the recorded goal: `前月比` or `移動平均` selects `timeseries`; a monthly-by-region aggregation goal selects `aggregation`; anything else remains included in Window A as `unknown`.
+
+The frozen pre-uat-meta index is code-owned input for UAT #1 and M-4; it preserves rows whose original aggregate files predate repository-managed `uat-meta.json` and carries the aggregation goal recorded by those campaigns. New and mixed campaigns are discovered from every `workspace/management/runs/uat-*/uat-meta.json` whose measurement profile is data.
 
 ## Window A — all history
 
-UAT #1 through #7, including the machine-defect era. Invalid or discarded measurements remain visible below but are outside this denominator.
+UAT #1 through #9, including the machine-defect era. Invalid or discarded measurements remain visible below but are outside this denominator.
 
-- Denominator: `38`
+- Denominator: `50`
 - Full: `2`
+
+| Family | full | partial+static | failed | denominator | full rate |
+| --- | --- | --- | --- | --- | --- |
+| aggregation | 2 | 15 | 21 | 38 | 5% |
+| timeseries | 0 | 7 | 5 | 12 | 0% |
+| unknown | 0 | 0 | 0 | 0 | 0% |
+
+### Executor × preset full rates
 
 | Executor | Preset | full | n | full rate |
 | --- | --- | --- | --- | --- |
-| gemma4:31b | none | 0 | 7 | 0% n<10 |
-| gemma4:31b | profile | 1 | 4 | 25% n<10 |
+| gemma4:31b | none | 0 | 9 | 0% n<10 |
+| gemma4:31b | profile | 1 | 6 | 17% n<10 |
 | gemma4:31b-cloud | none | 0 | 3 | 0% n<10 |
 | gemma4:31b-cloud | profile | 0 | 3 | 0% n<10 |
-| qwen3.6:35b-a3b-coding-nvfp4 | none | 1 | 11 | 9% |
-| qwen3.6:35b-a3b-coding-nvfp4 | profile | 0 | 10 | 0% |
+| qwen3.6:35b-a3b-coding-nvfp4 | none | 1 | 15 | 7% |
+| qwen3.6:35b-a3b-coding-nvfp4 | profile | 0 | 14 | 0% |
 
 ### Failure-class distribution
 
 | Executor | Preset | Failure classes |
 | --- | --- | --- |
-| gemma4:31b | none | artifact_follow_through_exhausted=1, artifact_follow_through_exhausted:missing_output/results.json,output/report.md=1, artifact_follow_through_exhausted:output/results.json,output/report.md=3, phase_scaffold_error:planner_empty_response:attempt_3_of_3=1, verify_repair_progress_unchanged:data_results_schema:results_absent=1 |
-| gemma4:31b | profile | model_stagnation:read_only_loop:write_required_exhausted:output/inspection.json=3 |
+| gemma4:31b | none | artifact_follow_through_exhausted=1, artifact_follow_through_exhausted:missing_output/results.json,output/report.md=1, artifact_follow_through_exhausted:output/results.json,output/report.md=3, model_stagnation:no_progress_recorded=1, phase_scaffold_error:planner_empty_response:attempt_3_of_3=1, phase_scaffold_error:verify_command_policy_error:shell_control_syntax=1, verify_repair_progress_unchanged:data_results_schema:results_absent=1 |
+| gemma4:31b | profile | model_stagnation:read_only_loop:write_required_exhausted:output/inspection.json=5 |
 | gemma4:31b-cloud | none | dependency_setup_authority_required=1, lint_recovered_then_artifact_follow_through_exhausted=1, planner_shell_control_syntax_after_corrective_retries=1 |
 | gemma4:31b-cloud | profile | model_stagnation_read_only_write_required_inspection=1, script_absent_then_inspection_read_only_stagnation=1, verify_repair_progress_unchanged=1 |
-| qwen3.6:35b-a3b-coding-nvfp4 | none | artifact_follow_through_exhausted=1, artifact_follow_through_exhausted:output/results.json,output/report.md=1, artifact_follow_through_exhausted:tests/smoke_test.py=1, lint_recovered_then_results_missing_read_only_stagnation=1, loop_progress_exhausted:model_stagnation:read_only_loop=1, phase_scaffold_error:verify_command_may_not_use_shell_control_syntax=1, phase_scaffold_error:verify_step_requires_at_least_one_verify_command=1, planner_shell_control_syntax_after_corrective_retries=1, recoverable_tool_error_repeated:missing_arg=1, verify_repair_progress_unchanged:data_inspection_schema:missing_all_five_keys=1 |
-| qwen3.6:35b-a3b-coding-nvfp4 | profile | claims_binding_failure_then_inspection_read_only_stagnation=1, claims_binding_failure_then_read_only_stagnation=1, model_stagnation:read_only_loop=1, model_stagnation:read_only_loop:write_required_exhausted:output/inspection.json=2, model_stagnation:read_only_loop:write_required_exhausted:output/results.json=1, model_stagnation:read_only_loop:write_required_exhausted:pipeline/main.py=1, pipeline_exit_nonzero_then_model_stagnation_read_only=1, verify_repair_progress_unchanged=1, workspace_policy_blocked_hidden_anvil_path=1 |
+| qwen3.6:35b-a3b-coding-nvfp4 | none | artifact_follow_through_exhausted=1, artifact_follow_through_exhausted:output/results.json,output/report.md=2, artifact_follow_through_exhausted:tests/smoke_test.py=1, artifact_recovery_exhausted_before_pipeline_write=1, inspection_schema_multiple_inputs_then_write_required_exhausted=1, lint_recovered_then_results_missing_read_only_stagnation=1, loop_progress_exhausted:model_stagnation:read_only_loop=2, phase_scaffold_error:verify_command_may_not_use_shell_control_syntax=1, phase_scaffold_error:verify_step_requires_at_least_one_verify_command=1, planner_shell_control_syntax_after_corrective_retries=1, recoverable_tool_error_repeated:missing_arg=1, verify_repair_progress_unchanged:data_inspection_schema:missing_all_five_keys=1 |
+| qwen3.6:35b-a3b-coding-nvfp4 | profile | artifact_recovery_exhausted:output/results.json,output/report.md=2, claims_binding_failure_then_inspection_read_only_stagnation=1, claims_binding_failure_then_read_only_stagnation=1, inspection_schema_repair_then_read_only_write_required_exhausted=1, model_stagnation:read_only_loop=1, model_stagnation:read_only_loop:write_required_exhausted:output/inspection.json=2, model_stagnation:read_only_loop:write_required_exhausted:output/results.json=1, model_stagnation:read_only_loop:write_required_exhausted:pipeline/main.py=2, pipeline_exit_nonzero_then_model_stagnation_read_only=1, verify_repair_progress_unchanged=1, workspace_policy_blocked_hidden_anvil_path=1 |
 
-## Window B — mechanism-stable
+## Window B — family-specific mechanism-stable
 
-`uat-test0715-data-007` and later: DATA-1–12 are fixed and the earned-assurance projection contract is in force. This is the update baseline.
+Family-specific fixed-code baselines: aggregation starts at `uat-test0715-data-007` (B-2i code HEAD `7b177fe`); timeseries starts at `uat-test0716-data-009` (B-2k code HEAD `2028eb4`). `unknown` has no mechanism-stable threshold and therefore remains an explicit zero row here while any such records stay visible in Window A and the ledger.
 
-- Denominator: `6`
+- Denominator: `12`
 - Full: `2`
+
+| Family | full | partial+static | failed | denominator | full rate |
+| --- | --- | --- | --- | --- | --- |
+| aggregation | 2 | 1 | 3 | 6 | 33% |
+| timeseries | 0 | 3 | 3 | 6 | 0% |
+| unknown | 0 | 0 | 0 | 0 | 0% |
+
+### Executor × preset full rates
 
 | Executor | Preset | full | n | full rate |
 | --- | --- | --- | --- | --- |
-| gemma4:31b | none | 0 | 1 | 0% n<10 |
-| gemma4:31b | profile | 1 | 1 | 100% n<10 |
-| qwen3.6:35b-a3b-coding-nvfp4 | none | 1 | 2 | 50% n<10 |
-| qwen3.6:35b-a3b-coding-nvfp4 | profile | 0 | 2 | 0% n<10 |
+| gemma4:31b | none | 0 | 2 | 0% n<10 |
+| gemma4:31b | profile | 1 | 2 | 50% n<10 |
+| qwen3.6:35b-a3b-coding-nvfp4 | none | 1 | 4 | 25% n<10 |
+| qwen3.6:35b-a3b-coding-nvfp4 | profile | 0 | 4 | 0% n<10 |
 
 ### Failure-class distribution
 
 | Executor | Preset | Failure classes |
 | --- | --- | --- |
-| gemma4:31b | none | artifact_follow_through_exhausted=1 |
-| qwen3.6:35b-a3b-coding-nvfp4 | none | recoverable_tool_error_repeated:missing_arg=1 |
-| qwen3.6:35b-a3b-coding-nvfp4 | profile | model_stagnation:read_only_loop:write_required_exhausted:output/inspection.json=2 |
+| gemma4:31b | none | artifact_follow_through_exhausted=1, model_stagnation:no_progress_recorded=1 |
+| gemma4:31b | profile | model_stagnation:read_only_loop:write_required_exhausted:output/inspection.json=1 |
+| qwen3.6:35b-a3b-coding-nvfp4 | none | artifact_follow_through_exhausted:output/results.json,output/report.md=1, artifact_recovery_exhausted_before_pipeline_write=1, recoverable_tool_error_repeated:missing_arg=1 |
+| qwen3.6:35b-a3b-coding-nvfp4 | profile | inspection_schema_repair_then_read_only_write_required_exhausted=1, model_stagnation:read_only_loop:write_required_exhausted:output/inspection.json=2, model_stagnation:read_only_loop:write_required_exhausted:pipeline/main.py=1 |
 
 ## Full durations
 
-| Set | Run | Executor | Preset | Duration |
-| --- | --- | --- | --- | --- |
-| uat-test0715-data-007 | data7_gemma31_profile_001 | gemma4:31b | profile | 2030s |
-| uat-test0715-data-007 | data7_qwen35_none_001 | qwen3.6:35b-a3b-coding-nvfp4 | none | 1464s |
+| Family | Set | Run | Executor | Preset | Duration |
+| --- | --- | --- | --- | --- | --- |
+| aggregation | uat-test0715-data-007 | data7_gemma31_profile_001 | gemma4:31b | profile | 2030s |
+| aggregation | uat-test0715-data-007 | data7_qwen35_none_001 | qwen3.6:35b-a3b-coding-nvfp4 | none | 1464s |
 
 - n=`2`; min=`1464s`; median=`1747s`; max=`2030s`.
 
+### Full-duration summary by family
+
+| Family | full runs | min | median | max |
+| --- | --- | --- | --- | --- |
+| aggregation | 2 | 1464s | 1747s | 2030s |
+| timeseries | 0 | N/A | N/A | N/A |
+| unknown | 0 | N/A | N/A | N/A |
+
 ## Excluded rows
 
-| Set | Run | Final acceptance | Failure class | Reason |
-| --- | --- | --- | --- | --- |
-| uat-test0714-m4-002 | data_agg_qwen27_plan_qwen35_exec_preset_profile_001 | not_checked | executor_model_identifier_not_found_404 | operator_model_substitution_error |
-| uat-test0714-m4-002 | data_agg_qwen27_plan_gemma31_exec_preset_profile_001 | not_checked | executor_model_identifier_not_found_404 | operator_model_substitution_error |
-| uat-test0714-m4-002 | data_agg_qwen27_plan_qwen35_exec_preset_none_001 | not_checked | planner_shell_control_syntax_after_corrective_retries | operator_model_substitution_error |
-| uat-test0714-m4-002 | data_agg_qwen27_plan_gemma31_exec_preset_none_001 | not_checked | executor_model_identifier_not_found_404 | operator_model_substitution_error |
-| uat-test0714-m4-002 | data_agg_qwen27_plan_qwen35_exec_preset_profile_002 | not_checked | executor_model_identifier_not_found_404 | operator_model_substitution_error |
-| uat-test0714-m4-004 | data_agg_qwen27_plan_qwen35_exec_preset_profile_001 | not_checked | model_stagnation_read_only_write_required_inspection | preflight_not_green_and_campaign_incomplete |
-| uat-test0714-m4-004 | data_agg_qwen27_plan_gemma31_exec_preset_profile_001 | not_checked | campaign_interrupted | preflight_not_green_and_campaign_incomplete |
-| uat-test0714-m4-004 | data_agg_qwen27_plan_qwen35_exec_preset_none_001 | not_checked | campaign_interrupted | preflight_not_green_and_campaign_incomplete |
-| uat-test0714-m4-004 | data_agg_qwen27_plan_gemma31_exec_preset_none_001 | not_checked | campaign_interrupted | preflight_not_green_and_campaign_incomplete |
-| uat-test0714-m4-004 | data_agg_qwen27_plan_qwen35_exec_preset_profile_002 | not_checked | campaign_interrupted | preflight_not_green_and_campaign_incomplete |
+| Family | Set | Run | Final acceptance | Failure class | Reason |
+| --- | --- | --- | --- | --- | --- |
+| aggregation | uat-test0714-m4-002 | data_agg_qwen27_plan_qwen35_exec_preset_profile_001 | not_checked | executor_model_identifier_not_found_404 | operator_model_substitution_error |
+| aggregation | uat-test0714-m4-002 | data_agg_qwen27_plan_gemma31_exec_preset_profile_001 | not_checked | executor_model_identifier_not_found_404 | operator_model_substitution_error |
+| aggregation | uat-test0714-m4-002 | data_agg_qwen27_plan_qwen35_exec_preset_none_001 | not_checked | planner_shell_control_syntax_after_corrective_retries | operator_model_substitution_error |
+| aggregation | uat-test0714-m4-002 | data_agg_qwen27_plan_gemma31_exec_preset_none_001 | not_checked | executor_model_identifier_not_found_404 | operator_model_substitution_error |
+| aggregation | uat-test0714-m4-002 | data_agg_qwen27_plan_qwen35_exec_preset_profile_002 | not_checked | executor_model_identifier_not_found_404 | operator_model_substitution_error |
+| aggregation | uat-test0714-m4-004 | data_agg_qwen27_plan_qwen35_exec_preset_profile_001 | not_checked | model_stagnation_read_only_write_required_inspection | preflight_not_green_and_campaign_incomplete |
+| aggregation | uat-test0714-m4-004 | data_agg_qwen27_plan_gemma31_exec_preset_profile_001 | not_checked | campaign_interrupted | preflight_not_green_and_campaign_incomplete |
+| aggregation | uat-test0714-m4-004 | data_agg_qwen27_plan_qwen35_exec_preset_none_001 | not_checked | campaign_interrupted | preflight_not_green_and_campaign_incomplete |
+| aggregation | uat-test0714-m4-004 | data_agg_qwen27_plan_gemma31_exec_preset_none_001 | not_checked | campaign_interrupted | preflight_not_green_and_campaign_incomplete |
+| aggregation | uat-test0714-m4-004 | data_agg_qwen27_plan_qwen35_exec_preset_profile_002 | not_checked | campaign_interrupted | preflight_not_green_and_campaign_incomplete |
 
 `uat-test0714-m4-002` is discarded for operator model-ID substitution. `uat-test0714-m4-004` is outside the denominator because cargo-test preflight was not green and the campaign was interrupted before four of its five data rows completed; no interrupted result is inferred.
 
+## Unknown family records
+
+- Unknown family records: `0`
+
 ## Per-run ledger
 
-| Set | Record directory | Run | Executor | Preset | Final acceptance | Assurance | Failure class | Duration | Window |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| uat-test0713-data-001 | uat-test0713-data-001 | data_agg_qwen27_plan_gemma31_exec_preset_none_001 | gemma4:31b-cloud | none | not_checked | static | dependency_setup_authority_required | 473s | A |
-| uat-test0713-data-001 | uat-test0713-data-001 | data_agg_qwen27_plan_gemma31_exec_preset_profile_001 | gemma4:31b-cloud | profile | not_checked | static | verify_repair_progress_unchanged | 386s | A |
-| uat-test0713-data-001 | uat-test0713-data-001 | data_agg_qwen27_plan_qwen35_exec_preset_none_001 | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | static | artifact_follow_through_exhausted | 556s | A |
-| uat-test0713-data-001 | uat-test0713-data-001 | data_agg_qwen27_plan_qwen35_exec_preset_profile_001 | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | verify_repair_progress_unchanged | 139s | A |
-| uat-test0714-m4-001 | uat-test0714-m4-001 | data_agg_qwen27_plan_gemma31_exec_preset_none_001 | gemma4:31b-cloud | none | not_checked | failed | planner_shell_control_syntax_after_corrective_retries | 556s | A |
-| uat-test0714-m4-001 | uat-test0714-m4-001 | data_agg_qwen27_plan_gemma31_exec_preset_profile_001 | gemma4:31b-cloud | profile | not_checked | failed | model_stagnation_read_only_write_required_inspection | 142s | A |
-| uat-test0714-m4-001 | uat-test0714-m4-001 | data_agg_qwen27_plan_qwen35_exec_preset_none_001 | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | static | planner_shell_control_syntax_after_corrective_retries | 801s | A |
-| uat-test0714-m4-001 | uat-test0714-m4-001 | data_agg_qwen27_plan_qwen35_exec_preset_profile_001 | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | pipeline_exit_nonzero_then_model_stagnation_read_only | 362s | A |
-| uat-test0714-m4-001 | uat-test0714-m4-001 | data_agg_qwen27_plan_qwen35_exec_preset_profile_002 | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | workspace_policy_blocked_hidden_anvil_path | 161s | A |
-| uat-test0714-m4-002 | uat-test0714-m4-002 | data_agg_qwen27_plan_gemma31_exec_preset_none_001 | gemma31 | none | not_checked | failed | executor_model_identifier_not_found_404 | 275s | excluded |
-| uat-test0714-m4-002 | uat-test0714-m4-002 | data_agg_qwen27_plan_gemma31_exec_preset_profile_001 | gemma31 | profile | not_checked | failed | executor_model_identifier_not_found_404 | 180s | excluded |
-| uat-test0714-m4-002 | uat-test0714-m4-002 | data_agg_qwen27_plan_qwen35_exec_preset_none_001 | qwen35 | none | not_checked | failed | planner_shell_control_syntax_after_corrective_retries | 612s | excluded |
-| uat-test0714-m4-002 | uat-test0714-m4-002 | data_agg_qwen27_plan_qwen35_exec_preset_profile_001 | qwen35 | profile | not_checked | failed | executor_model_identifier_not_found_404 | 141s | excluded |
-| uat-test0714-m4-002 | uat-test0714-m4-002 | data_agg_qwen27_plan_qwen35_exec_preset_profile_002 | qwen35 | profile | not_checked | failed | executor_model_identifier_not_found_404 | 130s | excluded |
-| uat-test0714-m4-003 | uat-test0714-m4-003 | data_agg_qwen27_plan_gemma31_exec_preset_none_001 | gemma4:31b-cloud | none | not_checked | static | lint_recovered_then_artifact_follow_through_exhausted | 442s | A |
-| uat-test0714-m4-003 | uat-test0714-m4-003 | data_agg_qwen27_plan_gemma31_exec_preset_profile_001 | gemma4:31b-cloud | profile | not_checked | failed | script_absent_then_inspection_read_only_stagnation | 240s | A |
-| uat-test0714-m4-003 | uat-test0714-m4-003 | data_agg_qwen27_plan_qwen35_exec_preset_none_001 | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | static | lint_recovered_then_results_missing_read_only_stagnation | 831s | A |
-| uat-test0714-m4-003 | uat-test0714-m4-003 | data_agg_qwen27_plan_qwen35_exec_preset_profile_001 | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | claims_binding_failure_then_read_only_stagnation | 660s | A |
-| uat-test0714-m4-003 | uat-test0714-m4-003 | data_agg_qwen27_plan_qwen35_exec_preset_profile_002 | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | claims_binding_failure_then_inspection_read_only_stagnation | 418s | A |
-| uat-test0714-m4-004 | uat-test0714-m4-004 | data_agg_qwen27_plan_gemma31_exec_preset_none_001 | gemma4:31b | none | not_checked | failed | campaign_interrupted | unknown | excluded |
-| uat-test0714-m4-004 | uat-test0714-m4-004 | data_agg_qwen27_plan_gemma31_exec_preset_profile_001 | gemma4:31b | profile | not_checked | failed | campaign_interrupted | 166s | excluded |
-| uat-test0714-m4-004 | uat-test0714-m4-004 | data_agg_qwen27_plan_qwen35_exec_preset_none_001 | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | failed | campaign_interrupted | unknown | excluded |
-| uat-test0714-m4-004 | uat-test0714-m4-004 | data_agg_qwen27_plan_qwen35_exec_preset_profile_001 | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | model_stagnation_read_only_write_required_inspection | 355s | excluded |
-| uat-test0714-m4-004 | uat-test0714-m4-004 | data_agg_qwen27_plan_qwen35_exec_preset_profile_002 | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | campaign_interrupted | unknown | excluded |
-| uat-test0715-data-004 | uat-test0715-ff1-002 | data4_gemma31_none_001 | gemma4:31b | none | not_checked | static | artifact_follow_through_exhausted:output/results.json,output/report.md | 619s | A |
-| uat-test0715-data-004 | uat-test0715-ff1-002 | data4_gemma31_none_002 | gemma4:31b | none | not_checked | static | artifact_follow_through_exhausted:output/results.json,output/report.md | 480s | A |
-| uat-test0715-data-004 | uat-test0715-ff1-002 | data4_gemma31_profile_001 | gemma4:31b | profile | not_checked | failed | model_stagnation:read_only_loop:write_required_exhausted:output/inspection.json | 307s | A |
-| uat-test0715-data-004 | uat-test0715-ff1-002 | data4_qwen35_none_001 | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | static | artifact_follow_through_exhausted:tests/smoke_test.py | 633s | A |
-| uat-test0715-data-004 | uat-test0715-ff1-002 | data4_qwen35_none_002 | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | failed | loop_progress_exhausted:model_stagnation:read_only_loop | 940s | A |
-| uat-test0715-data-004 | uat-test0715-ff1-002 | data4_qwen35_profile_001 | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | model_stagnation:read_only_loop:write_required_exhausted:pipeline/main.py | 1571s | A |
-| uat-test0715-data-005 | uat-test0715-data-005 | data5_gemma31_none_001 | gemma4:31b | none | not_checked | static | verify_repair_progress_unchanged:data_results_schema:results_absent | 504s | A |
-| uat-test0715-data-005 | uat-test0715-data-005 | data5_gemma31_none_002 | gemma4:31b | none | not_checked | static | artifact_follow_through_exhausted:output/results.json,output/report.md | 686s | A |
-| uat-test0715-data-005 | uat-test0715-data-005 | data5_gemma31_profile_001 | gemma4:31b | profile | not_checked | failed | model_stagnation:read_only_loop:write_required_exhausted:output/inspection.json | 406s | A |
-| uat-test0715-data-005 | uat-test0715-data-005 | data5_qwen35_none_001 | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | partial | verify_repair_progress_unchanged:data_inspection_schema:missing_all_five_keys | 1561s | A |
-| uat-test0715-data-005 | uat-test0715-data-005 | data5_qwen35_none_002 | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | static | artifact_follow_through_exhausted:output/results.json,output/report.md | 787s | A |
-| uat-test0715-data-005 | uat-test0715-data-005 | data5_qwen35_profile_001 | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | model_stagnation:read_only_loop:write_required_exhausted:output/results.json | 733s | A |
-| uat-test0715-data-006 | uat-test0715-data-006 | data6_gemma31_none_001 | gemma4:31b | none | not_checked | failed | phase_scaffold_error:planner_empty_response:attempt_3_of_3 | 500s | A |
-| uat-test0715-data-006 | uat-test0715-data-006 | data6_gemma31_none_002 | gemma4:31b | none | not_checked | static | artifact_follow_through_exhausted:missing_output/results.json,output/report.md | 569s | A |
-| uat-test0715-data-006 | uat-test0715-data-006 | data6_gemma31_profile_001 | gemma4:31b | profile | not_checked | failed | model_stagnation:read_only_loop:write_required_exhausted:output/inspection.json | 275s | A |
-| uat-test0715-data-006 | uat-test0715-data-006 | data6_qwen35_none_001 | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | failed | phase_scaffold_error:verify_step_requires_at_least_one_verify_command | 613s | A |
-| uat-test0715-data-006 | uat-test0715-data-006 | data6_qwen35_none_002 | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | failed | phase_scaffold_error:verify_command_may_not_use_shell_control_syntax | 505s | A |
-| uat-test0715-data-006 | uat-test0715-data-006 | data6_qwen35_profile_001 | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | model_stagnation:read_only_loop | 1160s | A |
-| uat-test0715-data-007 | uat-test0715-data-007 | data7_gemma31_none_001 | gemma4:31b | none | not_checked | static | artifact_follow_through_exhausted | 703s | A+B |
-| uat-test0715-data-007 | uat-test0715-data-007 | data7_gemma31_profile_001 | gemma4:31b | profile | full_success | full | completed | 2030s | A+B |
-| uat-test0715-data-007 | uat-test0715-data-007 | data7_qwen35_none_001 | qwen3.6:35b-a3b-coding-nvfp4 | none | full_success | full | completed | 1464s | A+B |
-| uat-test0715-data-007 | uat-test0715-data-007 | data7_qwen35_none_002 | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | failed | recoverable_tool_error_repeated:missing_arg | 234s | A+B |
-| uat-test0715-data-007 | uat-test0715-data-007 | data7_qwen35_profile_001 | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | model_stagnation:read_only_loop:write_required_exhausted:output/inspection.json | 280s | A+B |
-| uat-test0715-data-007 | uat-test0715-data-007 | data7_qwen35_profile_002 | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | model_stagnation:read_only_loop:write_required_exhausted:output/inspection.json | 242s | A+B |
+| Set | Record directory | Run | Family | Executor | Preset | Final acceptance | Assurance | Failure class | Duration | Window |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| uat-test0713-data-001 | uat-test0713-data-001 | data_agg_qwen27_plan_gemma31_exec_preset_none_001 | aggregation | gemma4:31b-cloud | none | not_checked | static | dependency_setup_authority_required | 473s | A |
+| uat-test0713-data-001 | uat-test0713-data-001 | data_agg_qwen27_plan_gemma31_exec_preset_profile_001 | aggregation | gemma4:31b-cloud | profile | not_checked | static | verify_repair_progress_unchanged | 386s | A |
+| uat-test0713-data-001 | uat-test0713-data-001 | data_agg_qwen27_plan_qwen35_exec_preset_none_001 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | static | artifact_follow_through_exhausted | 556s | A |
+| uat-test0713-data-001 | uat-test0713-data-001 | data_agg_qwen27_plan_qwen35_exec_preset_profile_001 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | verify_repair_progress_unchanged | 139s | A |
+| uat-test0714-m4-001 | uat-test0714-m4-001 | data_agg_qwen27_plan_gemma31_exec_preset_none_001 | aggregation | gemma4:31b-cloud | none | not_checked | failed | planner_shell_control_syntax_after_corrective_retries | 556s | A |
+| uat-test0714-m4-001 | uat-test0714-m4-001 | data_agg_qwen27_plan_gemma31_exec_preset_profile_001 | aggregation | gemma4:31b-cloud | profile | not_checked | failed | model_stagnation_read_only_write_required_inspection | 142s | A |
+| uat-test0714-m4-001 | uat-test0714-m4-001 | data_agg_qwen27_plan_qwen35_exec_preset_none_001 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | static | planner_shell_control_syntax_after_corrective_retries | 801s | A |
+| uat-test0714-m4-001 | uat-test0714-m4-001 | data_agg_qwen27_plan_qwen35_exec_preset_profile_001 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | pipeline_exit_nonzero_then_model_stagnation_read_only | 362s | A |
+| uat-test0714-m4-001 | uat-test0714-m4-001 | data_agg_qwen27_plan_qwen35_exec_preset_profile_002 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | workspace_policy_blocked_hidden_anvil_path | 161s | A |
+| uat-test0714-m4-002 | uat-test0714-m4-002 | data_agg_qwen27_plan_gemma31_exec_preset_none_001 | aggregation | gemma31 | none | not_checked | failed | executor_model_identifier_not_found_404 | 275s | excluded |
+| uat-test0714-m4-002 | uat-test0714-m4-002 | data_agg_qwen27_plan_gemma31_exec_preset_profile_001 | aggregation | gemma31 | profile | not_checked | failed | executor_model_identifier_not_found_404 | 180s | excluded |
+| uat-test0714-m4-002 | uat-test0714-m4-002 | data_agg_qwen27_plan_qwen35_exec_preset_none_001 | aggregation | qwen35 | none | not_checked | failed | planner_shell_control_syntax_after_corrective_retries | 612s | excluded |
+| uat-test0714-m4-002 | uat-test0714-m4-002 | data_agg_qwen27_plan_qwen35_exec_preset_profile_001 | aggregation | qwen35 | profile | not_checked | failed | executor_model_identifier_not_found_404 | 141s | excluded |
+| uat-test0714-m4-002 | uat-test0714-m4-002 | data_agg_qwen27_plan_qwen35_exec_preset_profile_002 | aggregation | qwen35 | profile | not_checked | failed | executor_model_identifier_not_found_404 | 130s | excluded |
+| uat-test0714-m4-003 | uat-test0714-m4-003 | data_agg_qwen27_plan_gemma31_exec_preset_none_001 | aggregation | gemma4:31b-cloud | none | not_checked | static | lint_recovered_then_artifact_follow_through_exhausted | 442s | A |
+| uat-test0714-m4-003 | uat-test0714-m4-003 | data_agg_qwen27_plan_gemma31_exec_preset_profile_001 | aggregation | gemma4:31b-cloud | profile | not_checked | failed | script_absent_then_inspection_read_only_stagnation | 240s | A |
+| uat-test0714-m4-003 | uat-test0714-m4-003 | data_agg_qwen27_plan_qwen35_exec_preset_none_001 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | static | lint_recovered_then_results_missing_read_only_stagnation | 831s | A |
+| uat-test0714-m4-003 | uat-test0714-m4-003 | data_agg_qwen27_plan_qwen35_exec_preset_profile_001 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | claims_binding_failure_then_read_only_stagnation | 660s | A |
+| uat-test0714-m4-003 | uat-test0714-m4-003 | data_agg_qwen27_plan_qwen35_exec_preset_profile_002 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | claims_binding_failure_then_inspection_read_only_stagnation | 418s | A |
+| uat-test0714-m4-004 | uat-test0714-m4-004 | data_agg_qwen27_plan_gemma31_exec_preset_none_001 | aggregation | gemma4:31b | none | not_checked | failed | campaign_interrupted | unknown | excluded |
+| uat-test0714-m4-004 | uat-test0714-m4-004 | data_agg_qwen27_plan_gemma31_exec_preset_profile_001 | aggregation | gemma4:31b | profile | not_checked | failed | campaign_interrupted | 166s | excluded |
+| uat-test0714-m4-004 | uat-test0714-m4-004 | data_agg_qwen27_plan_qwen35_exec_preset_none_001 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | failed | campaign_interrupted | unknown | excluded |
+| uat-test0714-m4-004 | uat-test0714-m4-004 | data_agg_qwen27_plan_qwen35_exec_preset_profile_001 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | model_stagnation_read_only_write_required_inspection | 355s | excluded |
+| uat-test0714-m4-004 | uat-test0714-m4-004 | data_agg_qwen27_plan_qwen35_exec_preset_profile_002 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | campaign_interrupted | unknown | excluded |
+| uat-test0715-data-004 | uat-test0715-ff1-002 | data4_gemma31_none_001 | aggregation | gemma4:31b | none | not_checked | static | artifact_follow_through_exhausted:output/results.json,output/report.md | 619s | A |
+| uat-test0715-data-004 | uat-test0715-ff1-002 | data4_gemma31_none_002 | aggregation | gemma4:31b | none | not_checked | static | artifact_follow_through_exhausted:output/results.json,output/report.md | 480s | A |
+| uat-test0715-data-004 | uat-test0715-ff1-002 | data4_gemma31_profile_001 | aggregation | gemma4:31b | profile | not_checked | failed | model_stagnation:read_only_loop:write_required_exhausted:output/inspection.json | 307s | A |
+| uat-test0715-data-004 | uat-test0715-ff1-002 | data4_qwen35_none_001 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | static | artifact_follow_through_exhausted:tests/smoke_test.py | 633s | A |
+| uat-test0715-data-004 | uat-test0715-ff1-002 | data4_qwen35_none_002 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | failed | loop_progress_exhausted:model_stagnation:read_only_loop | 940s | A |
+| uat-test0715-data-004 | uat-test0715-ff1-002 | data4_qwen35_profile_001 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | model_stagnation:read_only_loop:write_required_exhausted:pipeline/main.py | 1571s | A |
+| uat-test0715-data-005 | uat-test0715-data-005 | data5_gemma31_none_001 | aggregation | gemma4:31b | none | not_checked | static | verify_repair_progress_unchanged:data_results_schema:results_absent | 504s | A |
+| uat-test0715-data-005 | uat-test0715-data-005 | data5_gemma31_none_002 | aggregation | gemma4:31b | none | not_checked | static | artifact_follow_through_exhausted:output/results.json,output/report.md | 686s | A |
+| uat-test0715-data-005 | uat-test0715-data-005 | data5_gemma31_profile_001 | aggregation | gemma4:31b | profile | not_checked | failed | model_stagnation:read_only_loop:write_required_exhausted:output/inspection.json | 406s | A |
+| uat-test0715-data-005 | uat-test0715-data-005 | data5_qwen35_none_001 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | partial | verify_repair_progress_unchanged:data_inspection_schema:missing_all_five_keys | 1561s | A |
+| uat-test0715-data-005 | uat-test0715-data-005 | data5_qwen35_none_002 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | static | artifact_follow_through_exhausted:output/results.json,output/report.md | 787s | A |
+| uat-test0715-data-005 | uat-test0715-data-005 | data5_qwen35_profile_001 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | model_stagnation:read_only_loop:write_required_exhausted:output/results.json | 733s | A |
+| uat-test0715-data-006 | uat-test0715-data-006 | data6_gemma31_none_001 | aggregation | gemma4:31b | none | not_checked | failed | phase_scaffold_error:planner_empty_response:attempt_3_of_3 | 500s | A |
+| uat-test0715-data-006 | uat-test0715-data-006 | data6_gemma31_none_002 | aggregation | gemma4:31b | none | not_checked | static | artifact_follow_through_exhausted:missing_output/results.json,output/report.md | 569s | A |
+| uat-test0715-data-006 | uat-test0715-data-006 | data6_gemma31_profile_001 | aggregation | gemma4:31b | profile | not_checked | failed | model_stagnation:read_only_loop:write_required_exhausted:output/inspection.json | 275s | A |
+| uat-test0715-data-006 | uat-test0715-data-006 | data6_qwen35_none_001 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | failed | phase_scaffold_error:verify_step_requires_at_least_one_verify_command | 613s | A |
+| uat-test0715-data-006 | uat-test0715-data-006 | data6_qwen35_none_002 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | failed | phase_scaffold_error:verify_command_may_not_use_shell_control_syntax | 505s | A |
+| uat-test0715-data-006 | uat-test0715-data-006 | data6_qwen35_profile_001 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | model_stagnation:read_only_loop | 1160s | A |
+| uat-test0715-data-007 | uat-test0715-data-007 | data7_gemma31_none_001 | aggregation | gemma4:31b | none | not_checked | static | artifact_follow_through_exhausted | 703s | A+B |
+| uat-test0715-data-007 | uat-test0715-data-007 | data7_gemma31_profile_001 | aggregation | gemma4:31b | profile | full_success | full | completed | 2030s | A+B |
+| uat-test0715-data-007 | uat-test0715-data-007 | data7_qwen35_none_001 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | none | full_success | full | completed | 1464s | A+B |
+| uat-test0715-data-007 | uat-test0715-data-007 | data7_qwen35_none_002 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | failed | recoverable_tool_error_repeated:missing_arg | 234s | A+B |
+| uat-test0715-data-007 | uat-test0715-data-007 | data7_qwen35_profile_001 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | model_stagnation:read_only_loop:write_required_exhausted:output/inspection.json | 280s | A+B |
+| uat-test0715-data-007 | uat-test0715-data-007 | data7_qwen35_profile_002 | aggregation | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | model_stagnation:read_only_loop:write_required_exhausted:output/inspection.json | 242s | A+B |
+| uat-test0716-data-008 | uat-test0716-data-008 | data8_ts_gemma31_none_001 | timeseries | gemma4:31b | none | not_checked | static | phase_scaffold_error:verify_command_policy_error:shell_control_syntax | 1012s | A |
+| uat-test0716-data-008 | uat-test0716-data-008 | data8_ts_gemma31_profile_001 | timeseries | gemma4:31b | profile | not_checked | failed | model_stagnation:read_only_loop:write_required_exhausted:output/inspection.json | 302s | A |
+| uat-test0716-data-008 | uat-test0716-data-008 | data8_ts_qwen35_none_001 | timeseries | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | static | loop_progress_exhausted:model_stagnation:read_only_loop | 739s | A |
+| uat-test0716-data-008 | uat-test0716-data-008 | data8_ts_qwen35_none_002 | timeseries | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | failed | inspection_schema_multiple_inputs_then_write_required_exhausted | 560s | A |
+| uat-test0716-data-008 | uat-test0716-data-008 | data8_ts_qwen35_profile_001 | timeseries | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | static | artifact_recovery_exhausted:output/results.json,output/report.md | 1236s | A |
+| uat-test0716-data-008 | uat-test0716-data-008 | data8_ts_qwen35_profile_002 | timeseries | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | static | artifact_recovery_exhausted:output/results.json,output/report.md | 750s | A |
+| uat-test0716-data-009 | uat-test0716-data-009 | data9_ts_gemma31_none_001 | timeseries | gemma4:31b | none | not_checked | static | model_stagnation:no_progress_recorded | 736s | A+B |
+| uat-test0716-data-009 | uat-test0716-data-009 | data9_ts_gemma31_profile_001 | timeseries | gemma4:31b | profile | not_checked | failed | model_stagnation:read_only_loop:write_required_exhausted:output/inspection.json | 284s | A+B |
+| uat-test0716-data-009 | uat-test0716-data-009 | data9_ts_qwen35_none_001 | timeseries | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | static | artifact_follow_through_exhausted:output/results.json,output/report.md | 525s | A+B |
+| uat-test0716-data-009 | uat-test0716-data-009 | data9_ts_qwen35_none_002 | timeseries | qwen3.6:35b-a3b-coding-nvfp4 | none | not_checked | failed | artifact_recovery_exhausted_before_pipeline_write | 530s | A+B |
+| uat-test0716-data-009 | uat-test0716-data-009 | data9_ts_qwen35_profile_001 | timeseries | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | inspection_schema_repair_then_read_only_write_required_exhausted | 552s | A+B |
+| uat-test0716-data-009 | uat-test0716-data-009 | data9_ts_qwen35_profile_002 | timeseries | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | static | model_stagnation:read_only_loop:write_required_exhausted:pipeline/main.py | 676s | A+B |
 
 ## Source sets
 
@@ -158,3 +201,5 @@ UAT #1 through #7, including the machine-defect era. Invalid or discarded measur
 | uat-test0715-data-005 | uat-test0715-data-005 |
 | uat-test0715-data-006 | uat-test0715-data-006 |
 | uat-test0715-data-007 | uat-test0715-data-007 |
+| uat-test0716-data-008 | uat-test0716-data-008 |
+| uat-test0716-data-009 | uat-test0716-data-009 |
