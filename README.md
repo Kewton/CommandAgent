@@ -101,6 +101,17 @@ from a direct CLI option, the executor-model fallback, or a named config preset.
 Set `plan_preset = "profile"` in config or pass `--plan-preset profile` to opt in;
 an explicit CLI flag always wins over config and tier defaults.
 
+Use `--intent create` or `--intent fix` to select the run intent explicitly:
+
+```bash
+commandagent --intent fix --ultra-plan-run "Fix the parser; reproducer: cargo test parser"
+```
+
+When `--intent` is omitted, the existing goal-based resolution remains unchanged.
+Invalid values are rejected by the CLI before a run starts. Every run records one
+`intent_resolved` event with the resolved `value`, its `origin`, and the explicit
+flag value in `source` (empty when omitted).
+
 ## TUI
 
 Interactive TTY mode uses the same `anvil>` prompt and slash commands, plus
