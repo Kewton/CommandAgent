@@ -11,7 +11,8 @@ pub(super) fn apply_snapshot(root: &Path, snapshot: &mut CompletionSnapshot) {
 }
 
 pub(super) fn apply_terminal_projection(root: &Path, projection: &mut CompletionProjection) {
-    if canonical_profile_name(&projection.effective_profile) != "data"
+    if projection.contract_origin == crate::planner::fix_runtime::FIX_CONTRACT_ORIGIN
+        || canonical_profile_name(&projection.effective_profile) != "data"
         || projection.final_acceptance != "full_success"
     {
         return;

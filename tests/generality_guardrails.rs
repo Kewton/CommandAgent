@@ -153,6 +153,7 @@ fn nextjs_boundary_erosion_tripwire_keeps_dispatch_sites_audited() {
 fn adjudication_dependency_direction_stays_create_to_skeleton() {
     for path in [
         "src/planner/adjudication/mod.rs",
+        "src/planner/adjudication/contract.rs",
         "src/planner/adjudication/core.rs",
         "src/planner/adjudication/requirements.rs",
         "src/planner/adjudication/terminal.rs",
@@ -189,6 +190,16 @@ fn adjudication_dependency_direction_stays_create_to_skeleton() {
     assert!(
         create.contains("use crate::planner::adjudication::{"),
         "the create adapter must consume the intent-independent skeleton"
+    );
+    let fix = std::fs::read_to_string("src/planner/adjudication/fix.rs").expect("read fix adapter");
+    assert!(
+        fix.contains("super::contract::{"),
+        "the fix adapter must consume the intent-independent contract types"
+    );
+    let profile = std::fs::read_to_string("src/planner/profile.rs").expect("read profile boundary");
+    assert!(
+        !profile.contains("adjudication::fix"),
+        "profile hooks must return skeleton outcomes without depending on the fix evaluator"
     );
 }
 
@@ -272,6 +283,18 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
             test_baseline: 0,
         },
         ChokepointBudget {
+            path: "src/planner/adjudication/contract.rs",
+            total_baseline: 279,
+            production_baseline: 246,
+            test_baseline: 33,
+        },
+        ChokepointBudget {
+            path: "src/planner/adjudication/fix.rs",
+            total_baseline: 521,
+            production_baseline: 351,
+            test_baseline: 170,
+        },
+        ChokepointBudget {
             path: "src/planner/adjudication/create.rs",
             total_baseline: 2_179,
             production_baseline: 2_165,
@@ -300,6 +323,12 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
             total_baseline: 1_570,
             production_baseline: 1_570,
             test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/planner/fix_runtime.rs",
+            total_baseline: 919,
+            production_baseline: 650,
+            test_baseline: 269,
         },
         ChokepointBudget {
             path: "src/planner/assurance.rs",

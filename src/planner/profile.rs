@@ -7,10 +7,11 @@ use crate::minimal_loop::dependency_setup::{
     self, NodeDependencySetupAuthority, NodeDependencySetupRequirement,
 };
 use crate::minimal_loop::evidence::required_evidence_for_capability;
+use crate::planner::adjudication::contract::{ProbeOutcome, is_fix_intent};
 use crate::planner::signals;
 use crate::planner::step_plan::StepPlan;
 use crate::planner::ultra_plan::UltraPlan;
-use crate::planner::verify::VerificationReport;
+use crate::planner::verify::{NormalizedVerifyCommand, VerificationReport};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ProfileQualityExpectations {
@@ -67,6 +68,26 @@ pub struct ProfileBehaviorProbeReport {
     pub status: &'static str,
     pub reasons: Vec<String>,
     pub evidence_path: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProfileFixRegressionAdapter {
+    VerifyCommand(String),
+    ProfileContract,
+    DataManifestCheck,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProfileFixRegressionBinding {
+    pub id: String,
+    pub adapter: ProfileFixRegressionAdapter,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProfileFixRegressionObservation {
+    pub id: String,
+    pub outcome: ProbeOutcome,
+    pub reason: String,
 }
 
 impl ProfileBehaviorProbeReport {
@@ -128,6 +149,10 @@ pub trait DomainProfile: Sync {
     }
 
     fn before_phase(&self, _root: &Path) -> anyhow::Result<ProfileSnapshot> {
+        Ok(ProfileSnapshot::None)
+    }
+
+    fn before_fix_phase(&self, _root: &Path) -> anyhow::Result<ProfileSnapshot> {
         Ok(ProfileSnapshot::None)
     }
 
@@ -282,6 +307,108 @@ pub trait DomainProfile: Sync {
     ) -> anyhow::Result<ProfileBehaviorProbeReport> {
         Ok(ProfileBehaviorProbeReport::pass())
     }
+
+    fn fix_regression_bindings(&self, root: &Path, goal: &str) -> Vec<ProfileFixRegressionBinding> {
+        let mut bindings = vec![ProfileFixRegressionBinding {
+            id: "profile_contract".to_string(),
+            adapter: ProfileFixRegressionAdapter::ProfileContract,
+        }];
+        bindings.extend(
+            self.quality_expectations(root, goal)
+                .preferred_verify
+                .into_iter()
+                .enumerate()
+                .map(|(index, command)| ProfileFixRegressionBinding {
+                    id: format!("profile_verify_{}", index + 1),
+                    adapter: ProfileFixRegressionAdapter::VerifyCommand(command),
+                }),
+        );
+        bindings
+    }
+
+    fn run_fix_regressions(
+        &self,
+        root: &Path,
+        goal: &str,
+        bindings: &[ProfileFixRegressionBinding],
+        offline: bool,
+    ) -> Vec<ProfileFixRegressionObservation> {
+        bindings
+            .iter()
+            .map(|binding| run_profile_fix_regression(self, root, goal, binding, offline))
+            .collect()
+    }
+}
+
+fn run_profile_fix_regression<P: DomainProfile + ?Sized>(
+    profile: &P,
+    root: &Path,
+    goal: &str,
+    binding: &ProfileFixRegressionBinding,
+    offline: bool,
+) -> ProfileFixRegressionObservation {
+    let (outcome, reason) = match &binding.adapter {
+        ProfileFixRegressionAdapter::ProfileContract => {
+            let report = profile.verify_final(root, goal);
+            if report.is_pass() {
+                (ProbeOutcome::Success, String::new())
+            } else {
+                (ProbeOutcome::Failure, report.primary_reason())
+            }
+        }
+        ProfileFixRegressionAdapter::VerifyCommand(command) => {
+            let normalized: NormalizedVerifyCommand =
+                match crate::planner::verify::normalize_verify_command(command) {
+                    Ok(normalized) => normalized,
+                    Err(err) => {
+                        return ProfileFixRegressionObservation {
+                            id: binding.id.clone(),
+                            outcome: ProbeOutcome::Unavailable,
+                            reason: format!("regression_command_rejected:{err}"),
+                        };
+                    }
+                };
+            match crate::minimal_loop::verifier_env::run_structured_for_verify_with_profile(
+                &normalized,
+                root,
+                Some(profile.id()),
+                offline,
+            ) {
+                Ok(observation) => match observation.kind {
+                    crate::tools::bash::BashOutcomeKind::Success => {
+                        (ProbeOutcome::Success, String::new())
+                    }
+                    crate::tools::bash::BashOutcomeKind::CommandFailed => (
+                        ProbeOutcome::Failure,
+                        crate::eval_events::body_snippet(
+                            &crate::minimal_loop::verifier_env::format_verify_outcome(&observation),
+                        ),
+                    ),
+                    crate::tools::bash::BashOutcomeKind::Blocked
+                    | crate::tools::bash::BashOutcomeKind::Timeout
+                    | crate::tools::bash::BashOutcomeKind::Cancelled => (
+                        ProbeOutcome::Unavailable,
+                        crate::eval_events::body_snippet(
+                            &crate::minimal_loop::verifier_env::format_verify_outcome(&observation),
+                        ),
+                    ),
+                },
+                Err(err) => (
+                    ProbeOutcome::Unavailable,
+                    format!("regression_probe_error:{err}"),
+                ),
+            }
+        }
+        ProfileFixRegressionAdapter::DataManifestCheck => (
+            ProbeOutcome::Unavailable,
+            "data_manifest_adapter_not_dispatched".to_string(),
+        ),
+    };
+    ProfileFixRegressionObservation {
+        id: binding.id.clone(),
+        outcome,
+        reason,
+    }
 }
 
 pub struct DataProfile;
@@ -400,6 +527,12 @@ impl DomainProfile for DataProfile {
         ))
     }
 
+    fn before_fix_phase(&self, root: &Path) -> anyhow::Result<ProfileSnapshot> {
+        Ok(ProfileSnapshot::Data(
+            crate::planner::profiles::data::before_phase(root)?,
+        ))
+    }
+
     fn after_phase(&self, root: &Path, snapshot: &ProfileSnapshot) -> VerificationReport {
         match snapshot {
             ProfileSnapshot::Data(snapshot) => {
@@ -482,6 +615,67 @@ impl DomainProfile for DataProfile {
             ),
         })
     }
+
+    fn fix_regression_bindings(
+        &self,
+        _root: &Path,
+        _goal: &str,
+    ) -> Vec<ProfileFixRegressionBinding> {
+        let mut ids = vec!["pipeline_probe".to_string()];
+        ids.extend(crate::planner::profiles::data::manifest::required_capability_ids());
+        ids.into_iter()
+            .map(|id| ProfileFixRegressionBinding {
+                id,
+                adapter: ProfileFixRegressionAdapter::DataManifestCheck,
+            })
+            .collect()
+    }
+
+    fn run_fix_regressions(
+        &self,
+        root: &Path,
+        goal: &str,
+        bindings: &[ProfileFixRegressionBinding],
+        _offline: bool,
+    ) -> Vec<ProfileFixRegressionObservation> {
+        match crate::planner::profiles::data::runtime::run_manifest_checks_with_goal(
+            root,
+            Some(goal),
+        ) {
+            Ok(summary) => bindings
+                .iter()
+                .map(|binding| {
+                    let passed = summary.checks.get(&binding.id).copied();
+                    ProfileFixRegressionObservation {
+                        id: binding.id.clone(),
+                        outcome: match passed {
+                            Some(true) => ProbeOutcome::Success,
+                            Some(false) => ProbeOutcome::Failure,
+                            None => ProbeOutcome::Unavailable,
+                        },
+                        reason: if passed == Some(true) {
+                            String::new()
+                        } else {
+                            summary
+                                .reasons
+                                .iter()
+                                .find(|reason| reason.contains(&binding.id))
+                                .cloned()
+                                .unwrap_or_else(|| format!("{}:check_unavailable", binding.id))
+                        },
+                    }
+                })
+                .collect(),
+            Err(err) => bindings
+                .iter()
+                .map(|binding| ProfileFixRegressionObservation {
+                    id: binding.id.clone(),
+                    outcome: ProbeOutcome::Unavailable,
+                    reason: format!("data_regression_probe_error:{err}"),
+                })
+                .collect(),
+        }
+    }
 }
 
 impl DomainProfile for GenericProfile {
@@ -507,6 +701,23 @@ impl DomainProfile for GenericProfile {
             ),
             _ => None,
         }
+    }
+
+    fn run_fix_regressions(
+        &self,
+        _root: &Path,
+        _goal: &str,
+        bindings: &[ProfileFixRegressionBinding],
+        _offline: bool,
+    ) -> Vec<ProfileFixRegressionObservation> {
+        bindings
+            .iter()
+            .map(|binding| ProfileFixRegressionObservation {
+                id: binding.id.clone(),
+                outcome: ProbeOutcome::Unavailable,
+                reason: "generic_profile_regression_contract_unavailable".to_string(),
+            })
+            .collect()
     }
 
     fn interaction_repair_guidance(
@@ -740,6 +951,36 @@ pub fn profile_before_phase(root: &Path, profile: &str) -> anyhow::Result<Profil
     domain_profile(profile).before_phase(root)
 }
 
+pub fn profile_before_fix_phase(root: &Path, profile: &str) -> anyhow::Result<ProfileSnapshot> {
+    domain_profile(profile).before_fix_phase(root)
+}
+
+pub fn profile_before_plan(root: &Path, plan: &UltraPlan) -> anyhow::Result<ProfileSnapshot> {
+    if is_fix_intent(&plan.intent) {
+        profile_before_fix_phase(root, &plan.profile)
+    } else {
+        profile_before_phase(root, &plan.profile)
+    }
+}
+
+pub fn profile_fix_regression_bindings(
+    root: &Path,
+    profile: &str,
+    goal: &str,
+) -> Vec<ProfileFixRegressionBinding> {
+    domain_profile(profile).fix_regression_bindings(root, goal)
+}
+
+pub fn run_profile_fix_regressions(
+    root: &Path,
+    profile: &str,
+    goal: &str,
+    bindings: &[ProfileFixRegressionBinding],
+    offline: bool,
+) -> Vec<ProfileFixRegressionObservation> {
+    domain_profile(profile).run_fix_regressions(root, goal, bindings, offline)
+}
+
 pub fn profile_after_phase(
     root: &Path,
     profile: &str,
@@ -955,6 +1196,82 @@ mod tests {
     use super::*;
 
     const FAILURE: &str = "browser_interaction_failed:input_state_change_missing_after_start";
+
+    #[test]
+    fn fix_before_hook_never_preprovisions_create_scaffolds() {
+        for profile in ["nextjs", "python-cli"] {
+            let dir = tempfile::tempdir().unwrap();
+            profile_before_fix_phase(dir.path(), profile).unwrap();
+            assert!(!dir.path().join("package.json").exists(), "{profile}");
+            assert!(!dir.path().join("pyproject.toml").exists(), "{profile}");
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let snapshot = profile_before_fix_phase(dir.path(), "data").unwrap();
+        assert!(matches!(snapshot, ProfileSnapshot::Data(_)));
+        assert!(!dir.path().join("pipeline/main.py").exists());
+    }
+
+    #[test]
+    fn nextjs_fix_regressions_bind_profile_contract_and_build() {
+        let dir = tempfile::tempdir().unwrap();
+        let bindings = profile_fix_regression_bindings(dir.path(), "nextjs", "fix app");
+
+        assert_eq!(
+            bindings
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            ["profile_contract", "profile_verify_1"]
+        );
+        assert_eq!(
+            bindings[0].adapter,
+            ProfileFixRegressionAdapter::ProfileContract
+        );
+        assert_eq!(
+            bindings[1].adapter,
+            ProfileFixRegressionAdapter::VerifyCommand("npm run build".to_string())
+        );
+    }
+
+    #[test]
+    fn data_fix_regressions_bind_the_full_manifest_runtime_set() {
+        let dir = tempfile::tempdir().unwrap();
+        let bindings = profile_fix_regression_bindings(dir.path(), "data", "fix pipeline");
+
+        assert_eq!(
+            bindings
+                .iter()
+                .map(|item| item.id.as_str())
+                .collect::<Vec<_>>(),
+            [
+                "pipeline_probe",
+                "data_reconciliation",
+                "data_claims_binding",
+                "data_rerun_consistency",
+                "data_results_schema",
+            ]
+        );
+        assert!(bindings.iter().all(|binding| matches!(
+            binding.adapter,
+            ProfileFixRegressionAdapter::DataManifestCheck
+        )));
+    }
+
+    #[test]
+    fn generic_fix_regression_is_unavailable_instead_of_a_noop_pass() {
+        let dir = tempfile::tempdir().unwrap();
+        let bindings = profile_fix_regression_bindings(dir.path(), "generic", "fix app");
+        let observations =
+            run_profile_fix_regressions(dir.path(), "generic", "fix app", &bindings, true);
+
+        assert_eq!(observations.len(), 1);
+        assert_eq!(observations[0].outcome, ProbeOutcome::Unavailable);
+        assert_eq!(
+            observations[0].reason,
+            "generic_profile_regression_contract_unavailable"
+        );
+    }
 
     #[test]
     fn quiz_contract_uses_generic_interaction_guidance_only() {

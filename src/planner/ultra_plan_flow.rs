@@ -256,11 +256,9 @@ pub fn run_ultra_plan_with_ui(
     }
     let mut final_expected_paths =
         profile_expected_paths(&config.workspace_root, &plan.profile, &plan.goal);
-    let mut ultra_context = UltraRunContext::new(missing_final_artifacts(
-        &config.workspace_root,
-        &final_expected_paths,
-    ));
+    let mut ultra_context = UltraRunContext::for_run(&config.workspace_root, &final_expected_paths);
     let mut ultra_session = SessionSnapshot::new();
+    let mut fix_runtime = crate::planner::fix_runtime::FixRuntime::for_plan(plan, config);
     let mut promotion_state = ProfilePromotionState::for_run(plan, config);
     let mut setup_authority_state = UltraRunSetupAuthorityState::default();
     emit_ultra_context_initialized(config, plan, &ultra_context, ultra_session.messages.len());
@@ -280,7 +278,7 @@ pub fn run_ultra_plan_with_ui(
             None,
             None,
         );
-        let profile_snapshot = profile_before_phase(&config.workspace_root, &plan.profile)?;
+        let profile_snapshot = profile_before_plan(&config.workspace_root, plan)?;
         emit_ultra_phase_context_attached(
             config,
             plan,
@@ -368,6 +366,12 @@ pub fn run_ultra_plan_with_ui(
             Some(step_plan.steps.len()),
         );
         save_step_plan(&config.workspace_root, &step_plan)?;
+        if let Some(runtime) = fix_runtime.as_mut()
+            && runtime.is_before_phase(index)
+        {
+            runtime.run_before_phase(&step_plan, config, plan, phase, index)?;
+            continue;
+        }
         let step_outcome = match run_step_plan_with_session_with_ui_and_run_authority(
             execution,
             &mut ultra_session,
@@ -458,8 +462,7 @@ pub fn run_ultra_plan_with_ui(
         for rollback in &step_outcome.compile_rollbacks {
             emit_compile_rollback_context_carried(config, rollback);
         }
-        let acceptance = ultra_contract_runtime_acceptance_report(plan, config)?;
-        ultra_context.refresh_pending_capability_evidence(&acceptance);
+        ultra_context.refresh_intent_acceptance(plan, config)?;
         emit_ultra_phase_context_updated(
             config,
             plan,
@@ -730,6 +733,9 @@ pub fn run_ultra_plan_with_ui(
                 &setup_authority_state,
             )?;
         }
+    }
+    if let Some(runtime) = fix_runtime {
+        return runtime.finish(config, plan);
     }
     let mut final_acceptance_cycle_deltas = Vec::new();
     let (mut acceptance_report, mut deterministic_remedies_applied) =

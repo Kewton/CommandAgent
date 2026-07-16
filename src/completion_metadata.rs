@@ -22,7 +22,9 @@ pub(crate) fn apply_config_completion_metadata(config: &Config, snapshot: &mut C
     if snapshot.prompt_layout.trim().is_empty() {
         snapshot.prompt_layout = config.prompt_layout.as_str().to_string();
     }
-
+    if snapshot.contract_origin == crate::planner::fix_runtime::FIX_CONTRACT_ORIGIN {
+        return;
+    }
     if canonical_profile_name(&snapshot.effective_profile) == "data" {
         data::apply_snapshot(&config.workspace_root, snapshot);
     } else if canonical_profile_name(&snapshot.profile) == "generic" {

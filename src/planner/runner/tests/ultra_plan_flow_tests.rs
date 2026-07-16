@@ -671,6 +671,96 @@ Profile runtime contract:\n- Preserve the workspace as a real Next.js app.\n\n{}
     }
 
     #[test]
+    fn fix_ultra_binds_before_without_executor_then_reruns_after_repair() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.eval_events_path = Some(events.clone());
+        cfg.offline = true;
+        cfg.profile = "python-cli".to_string();
+        cfg.profile_explicit = true;
+        let scaffold_paths = profile_setup_scaffold_paths(dir.path(), &cfg.profile);
+        domain_profile(&cfg.profile)
+            .complete_scaffold(dir.path(), &scaffold_paths)
+            .unwrap();
+        let plan = UltraPlan {
+            goal: "fix missing marker".to_string(),
+            profile: "python-cli".to_string(),
+            style: "default".to_string(),
+            intent: "fix".to_string(),
+            phases: vec![
+                UltraPhase {
+                    id: "reproducer-before".to_string(),
+                    prompt: "Bind the failing marker reproducer without editing".to_string(),
+                },
+                UltraPhase {
+                    id: "repair".to_string(),
+                    prompt: "Repair the missing marker".to_string(),
+                },
+            ],
+        };
+        let before = serde_json::to_string(&StepPlan {
+            goal: "Bind the failing reproducer".to_string(),
+            steps: vec![PlanStep {
+                id: "reproduce-before".to_string(),
+                kind: "verify".to_string(),
+                expected_result: "fail".to_string(),
+                instruction: "Run the deterministic marker check".to_string(),
+                expected_paths: Vec::new(),
+                verify: vec!["test -f fixed.marker".to_string()],
+            }],
+        })
+        .unwrap();
+        let repair = single_write_step_plan_json("Repair the missing marker", "fixed.marker");
+        let mut planner = FakeClient::new(vec![
+            AssistantReply::text(before),
+            AssistantReply::text(repair),
+        ]);
+        let mut execution = FakeClient::new(vec![AssistantReply {
+            content: String::new(),
+            tool_calls: vec![crate::state::ToolCall::new(
+                "Write",
+                serde_json::json!({"path":"fixed.marker","content":"fixed\n"}),
+            )],
+            prompt_tokens: None,
+            completion_tokens: None,
+        }]);
+
+        let result = run_ultra_plan(&mut planner, &mut execution, &plan, &cfg).unwrap();
+
+        assert_eq!(result, "ultra-plan-run complete: 2 phases");
+        assert_eq!(execution.messages().len(), 1, "before must bypass executor");
+        let final_event = latest_event(&events, "ultra_final_acceptance");
+        assert_eq!(final_event["intent"], "fix");
+        assert_eq!(final_event["verdict"], "full");
+        assert_eq!(final_event["assurance_level"], "static");
+        assert_eq!(
+            final_event["assurance_reason"],
+            crate::planner::adjudication::PROFILE_NOT_ADMITTED_REASON
+        );
+        assert_eq!(final_event["before_epoch"], 1);
+        assert_eq!(final_event["after_epoch"], 2);
+        assert_eq!(
+            final_event["bound_regression_ids"],
+            json!(["profile_contract", "profile_verify_1"])
+        );
+        assert!(
+            final_event["bound_regression_lineages"]["profile_contract"]
+                .as_str()
+                .is_some_and(|lineage| lineage.starts_with("regression:"))
+        );
+        assert!(
+            final_event["bound_regression_lineages"]["profile_verify_1"]
+                .as_str()
+                .is_some_and(|lineage| lineage.starts_with("regression:"))
+        );
+        let text = std::fs::read_to_string(events).unwrap();
+        assert!(text.contains("\"event\":\"fix_evidence_recorded\""));
+        assert!(text.contains("\"expected_polarity\":\"failure\""));
+        assert!(text.contains("\"expected_polarity\":\"success\""));
+    }
+
+    #[test]
     fn generic_ultra_promotes_to_nextjs_after_workspace_manifest() {
         let dir = tempfile::tempdir().unwrap();
         let events = dir.path().join("events.jsonl");

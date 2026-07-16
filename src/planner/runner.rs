@@ -63,7 +63,7 @@ use crate::planner::lint::{
 use crate::planner::profile::{
     GENERIC_INTERACTIVE_CONTRACT_CAPABILITY, PhaseVerificationMode, ProfileBehaviorProbeReport,
     ProfileInferenceSource, ProfileSnapshot, canonical_profile_name, domain_profile, infer_profile,
-    is_nextjs_profile, profile_auto_repair, profile_before_phase, profile_deterministic_step_plan,
+    is_nextjs_profile, profile_auto_repair, profile_before_plan, profile_deterministic_step_plan,
     profile_expected_paths, profile_generation_rules, profile_guidance, profile_post_step_repair,
     profile_quality_expectations, profile_runtime_contract, profile_setup_scaffold_paths,
     verify_profile_final, verify_profile_invariant,
@@ -503,6 +503,7 @@ fn generate_step_plan_with_ui_for_phase(
     if ui.interrupted() {
         anyhow::bail!("interrupted by user");
     }
+    let fix_before = crate::planner::fix_runtime::is_before_prompt(goal);
     let model = model_for(config, true);
     if phase_label.is_some()
         && let Some(plan) =
@@ -594,15 +595,19 @@ fn generate_step_plan_with_ui_for_phase(
                 repair_generated_step_plan_contract(&mut plan);
                 let sanitizer_report =
                     sanitize_step_plan_against_policy(&mut plan, Some(&config.workspace_root));
-                let preset_converted = setup_step_policy::convert_preset_phase_setup_steps(
-                    &mut plan,
-                    &config.workspace_root,
-                    &config.profile,
-                    goal,
-                    phase_label.map(|id| (id, final_phase)),
-                    preset_phase,
-                    config.eval_events_path.as_deref(),
-                );
+                let preset_converted = if fix_before {
+                    0
+                } else {
+                    setup_step_policy::convert_preset_phase_setup_steps(
+                        &mut plan,
+                        &config.workspace_root,
+                        &config.profile,
+                        goal,
+                        phase_label.map(|id| (id, final_phase)),
+                        preset_phase,
+                        config.eval_events_path.as_deref(),
+                    )
+                };
                 let plan_was_sanitized = verify_was_normalized
                     || !generated_sanitization.is_empty()
                     || !sanitizer_report.is_empty()
@@ -627,7 +632,8 @@ fn generate_step_plan_with_ui_for_phase(
                         attempt,
                         &quality_report,
                     );
-                    if quality_report.has_retryable_quality() && !plan_was_sanitized {
+                    if quality_report.has_retryable_quality() && !plan_was_sanitized && !fix_before
+                    {
                         last_valid_plan = Some(plan.clone());
                         if attempt < 3 {
                             emit_planner_quality_retry(
@@ -759,6 +765,9 @@ fn deterministic_step_plan_for_phase(
     config: &Config,
     phase_label: Option<&str>,
 ) -> anyhow::Result<Option<StepPlan>> {
+    if crate::planner::fix_runtime::is_before_prompt(phase_prompt) {
+        return Ok(None);
+    }
     let Some(template) = profile_deterministic_step_plan(
         &config.workspace_root,
         &config.profile,
@@ -973,7 +982,8 @@ const ULTRA_PROMPT_GUIDANCE_MAX_LINES: usize = 8;
 impl ProfilePromotionState {
     fn for_run(plan: &UltraPlan, config: &Config) -> Self {
         Self {
-            eligible: canonical_profile_name(&plan.profile) == "generic"
+            eligible: !crate::planner::fix_runtime::applies(plan)
+                && canonical_profile_name(&plan.profile) == "generic"
                 && !config.profile_explicit,
             promoted: false,
         }
@@ -985,6 +995,10 @@ impl ProfilePromotionState {
 }
 
 impl UltraRunContext {
+    fn for_run(root: &Path, expected_paths: &[String]) -> Self {
+        Self::new(missing_final_artifacts(root, expected_paths))
+    }
+
     fn new(pending_final_artifacts: Vec<String>) -> Self {
         Self {
             pending_final_artifacts,
@@ -1059,6 +1073,18 @@ impl UltraRunContext {
             ULTRA_CONTEXT_MAX_MESSAGES,
             &mut self.truncated,
         );
+    }
+
+    fn refresh_intent_acceptance(
+        &mut self,
+        plan: &UltraPlan,
+        config: &Config,
+    ) -> anyhow::Result<()> {
+        if !crate::planner::fix_runtime::applies(plan) {
+            let acceptance = ultra_contract_runtime_acceptance_report(plan, config)?;
+            self.refresh_pending_capability_evidence(&acceptance);
+        }
+        Ok(())
     }
 
     fn render_unmet_final_requirements_section(&self) -> String {
@@ -8828,6 +8854,7 @@ fn ultra_plan_generation_messages(
 }
 
 fn ultra_plan_generation_system_prompt(profile: &str, style: &str, intent: &str) -> String {
+    let intent_rules = crate::planner::fix_runtime::generation_rules(intent);
     let style_rules = match style {
         "tdd" => {
             "- Style tdd: use phases for inspect, failing test, implementation, focused verification, and cleanup. The failing-test phase should ask /plan-run to create an expected_result:\"fail\" red verification step.\n"
@@ -8867,7 +8894,7 @@ Rules:\n\
 - Phase descriptions must not request dev-server startup or page-load/browser-route verification outside the final phase.\n\
 - Browser readiness and page-route acceptance are verified by the runtime at final acceptance.\n\
 - Stop at a clean final verification or cleanup phase.\n\
-{styling_choice_rule}{profile_rules}{style_rules}"
+{styling_choice_rule}{profile_rules}{style_rules}{intent_rules}"
     )
 }
 
@@ -9451,10 +9478,11 @@ fn ultra_phase_prompt(
     config: &Config,
     context: &UltraRunContext,
 ) -> String {
-    match config.prompt_layout {
+    let prompt = match config.prompt_layout {
         PromptLayout::Stable => ultra_phase_prompt_stable(plan, phase, config, context),
         PromptLayout::Legacy => ultra_phase_prompt_legacy(plan, phase, config, context),
-    }
+    };
+    crate::planner::fix_runtime::phase_prompt(plan, phase, prompt)
 }
 
 fn ultra_phase_prompt_stable(
@@ -18122,6 +18150,19 @@ Type error: Cannot find name 'player'. Did you mean 'PLAYER_W'?\n\n\
             effective_requested_port("python-cli", "CSVを集計するCLI", None),
             None
         );
+    }
+
+    #[test]
+    fn fix_contract_freezes_the_run_start_profile_binding() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.profile = "generic".to_string();
+        cfg.profile_explicit = false;
+        let fix = UltraPlan::deterministic("fix parser", "generic", "default", "fix");
+        let create = UltraPlan::deterministic("create parser", "generic", "default", "create");
+
+        assert!(!ProfilePromotionState::for_run(&fix, &cfg).eligible);
+        assert!(ProfilePromotionState::for_run(&create, &cfg).eligible);
     }
 
     fn config(root: PathBuf) -> Config {
