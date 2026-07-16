@@ -404,3 +404,91 @@ D-0a では `src/` と `tests/` を一切変更しない。D-0b / D-0c が parit
 - fix intent の runtime 登録、probe 実装、契約文書の seal、または create 以外への新しい裁定分岐
 
 凍結対象を変える必要が出た場合は、D-0 の「挙動保存」から切り離した schema / contract migration として別途裁定する。
+
+## 7. D-0b 実施結果（2026-07-16）
+
+D-0b は `7f26ad0`（骨格抽出）と `e1095ac`（互換証明）で実施した。新しい intent、knowledge、event field、verdict、assurance 値は追加していない。実行可能な経路は従来の create のみで、fix は本書 §4 の設計 fixture のままである。
+
+### 7.1 抽出境界と依存方向
+
+`src/planner/adjudication/` は次の境界になった。
+
+- `requirements.rs`: 宣言済み capability / evidence / obligation ごとの `Pass` / `Failed` / `Unverified` と、現行の pass / inconclusive / primary-reason 集約。
+- `core.rs`: create 固有名を持たない `GateObservation`、contract / gate provenance、未実行 gate の拒否、acceptance / assurance 階層写像、release recovery 判定、admission cap。
+- `terminal.rs`: event snapshot から assurance、terminal status、task status、release-quality completion、next action への正直終端投影。
+- `create.rs`: 現行 create の contract 接続、probe / build / interaction / external-contract / profile-probe の実行順序と evidence 定義。
+
+Rust の module 境界では `create.rs` を `runner` の private child `adjudication_create` として宣言する。create adapter は `crate::planner::adjudication` の骨格 API を import できるが、private child は sibling の骨格 module から import できない。したがって依存方向は **create差し込み → 骨格** だけで、骨格 → create はコンパイル境界で閉じている。`tests/generality_guardrails.rs::adjudication_dependency_direction_stays_create_to_skeleton` が宣言と import に加え、骨格 production に `browser_readiness` / `interaction_evidence` / `nextjs` / create gate 型名が混入しないことを常時監査する。
+
+### 7.2 旧所在から新所在への対応
+
+行番号の旧側は D-0a 棚卸し時点、新側は D-0b 完了時点である。
+
+| 旧: ファイル・行 / 決定点 | 新: module・関数 | 挙動保存上の扱い |
+|---|---|---|
+| `final_acceptance.rs` 37–51 `contract_origin_for_acceptance` | `adjudication/core.rs` 20–38 同名関数 | event replay 由来の contract provenance 文字列をそのまま移動。 |
+| `minimal_loop/evidence.rs` 990–999、1247–1291、1326–1367 の要求集合集約 | `adjudication/requirements.rs` 1–109 `RequirementStatus` / `RequirementOutcome` / `evaluate_requirements`; wiring は `evidence.rs` 1274–1309、1320–1364 | missing / weak / inconclusive の pass 条件と primary-reason 優先順位を保存し、既存 report field は増やしていない。 |
+| `assurance.rs` 154–164、199–243 の gate execution / disconnected 判定 | `adjudication/core.rs` 11–18、45–83 `GateObservation` / `execution_status_from_observed` / `gate_status_disconnected` / `disconnected_gate_observations_reason`; create field adapter は `create.rs` 29–54 | applicable だが未実行の gate から獲得できない規則を移動。create 固有 gate 名は adapter が入力し、status / reason は同一。 |
+| `assurance.rs` 245–265、357–400 の profile 上限・release observation 投影 | `adjudication/core.rs` 85–119 `profile_behavior_failure_reasons` / `append_gate_observation`; create adapter は `adjudication/create.rs` 56–64、1393–1424 | 共通の failure 合流順を保存し、browser evidence と compile error の読み方は create 側に残した。 |
+| `assurance.rs` 1158–1180 の final / runtime status 写像 | `adjudication/core.rs` 121–141 `final_acceptance_status_from_release_gate` / `runtime_acceptance_status`; create wrapper は `create.rs` 66–74 | `full_success` / `partial` / `incomplete` と runtime status の文字列をそのまま移動。 |
+| `assurance.rs` 1236–1291 の earned-full downgrade | `adjudication/core.rs` 144–200 `earned_assurance_from_base`; create field adapter は `create.rs` 109–136 | unknown profile、unbound contract、non-full acceptance、未実行 gate の full 拒否を移動。profile seed と legacy `reduced` は `assurance.rs` 3–61 に据え置いた。 |
+| `assurance.rs` 1293–1335 の release-quality / next-action / recovery 写像 | `adjudication/core.rs` 202–244; create wrappers は `create.rs` 76–107 | status と reason の選択順をそのまま移動。 |
+| `profile_admission.rs` 24–33 の draft cap | `adjudication/core.rs` 246–254 `cap_assurance_for_status`; profile dispatch wrapper は `profile_admission.rs` 8–32 | 適用点は create final acceptance (`create.rs` 737–741) と completion metadata (`completion_metadata.rs` 50) の二箇所を維持し、順序を統合していない。 |
+| `eval_events.rs` 850–915 の full 再投影拒否 | `adjudication/terminal.rs` 4–62 `projected_assurance`; create-shaped event field adapter は `eval_events.rs` 855–888 | B-2j を含む既存 earned 値を昇格せず、legacy `reduced` を passthrough する。 |
+| `eval_events.rs` 2515–2575 の terminal / task / release / action 写像 | `adjudication/terminal.rs` 64–122; wiring は `eval_events.rs` 736–773 | process failure を completed にせず、既存の表示文字列を byte 保存。 |
+| `final_acceptance.rs` 64–114、542–1072、1089–1104、2853–2930 の create orchestration | `adjudication/create.rs` 419–1123 | contract bind、retry、runtime→profile→external→build/browser→qualification→profile probe→adjudicate、event / report 投影を関数単位で移動。骨格判定は上記 core API を呼ぶ。 |
+| `runner.rs` 3486–3514、5194–5316、5627–5703 の create 判定補助 | `adjudication/create.rs` 138–417 | contract 必須性、browser probe、build 優先、external-contract coverage を移動。`runner.rs` には private module 宣言と呼び出し wiring を残した。 |
+| 旧 `assurance.rs` の browser / release evidence 定義 21–1156 | `adjudication/create.rs` 1125–2179 | create 固有 evidence の意味をまとめて移動。profile probe 実装や manifest check は profile 境界のまま。 |
+
+`final_acceptance.rs` の 744–1072 にあった frozen event schema と failure-report 合流は、create-shaped field を骨格型へ逆流させないため `ultra_final_acceptance_report_inner` の byte-compatible projection adapter として移動した。status、assurance、provenance、cap、terminal の決定 authority は上表の骨格関数である。
+
+### 7.3 残した create 差し込み
+
+| create 差し込み | D-0b 後の所在 |
+|---|---|
+| `CompletionContract` の要求判定、生成、bind と外部 contract coverage | `adjudication/create.rs` 138–167、340–479 |
+| deterministic remedy、dependency reconcile、evidence clear、再試行順序 | `adjudication/create.rs` 481–526、1014–1123 |
+| runtime scanner、profile verify、external verify、build、browser、interaction qualification、profile probe の順序 | `adjudication/create.rs` 528–1012 |
+| browser / interaction release evidence の定義と fail-closed 読み出し | `adjudication/create.rs` 1125–2179 |
+| browser behavior arbitration | `minimal_loop/behavior_evidence.rs` 117–438。create adapter から既存関数を呼ぶ。 |
+| FF-1 interaction full qualification | `planner/interaction_qualification.rs` 14–123。条件も reason も変更していない。 |
+| FF-1b contract attribute guidance / target | `planner/final_acceptance_contract.rs` 10–108。裁定後の修復差し込みとして据え置き。 |
+| profile probe / manifest check 実装 | `DomainProfile` と `planner/profiles/{nextjs,data}/`。profile 差し込みのまま。 |
+
+### 7.4 D-1 予約と未裁定事項
+
+D-0b の `RequirementOutcome` は `kind`、requirement ID、現行互換 status だけを持つ。次の field は **予約のみ** で、型、event、contract、runtime namespace のいずれにも追加していない。
+
+- `stage`: `before_change` / `after_change` などの時系列 slot
+- `expected polarity`: pass と expected failure の区別
+- `lineage`: before / after が同一 reproducer / oracle であることの相関
+
+これらと fix 契約文書、fix runtime 登録、baseline 非再現の tier は D-1 に委譲する。D-0a の [要裁定] である profile hard-code seed、generic `reduced`、requirement inference と scanner の混在 adapter、completion metadata dispatch、run inventory の投影差、unknown intent の扱いには触れていない。
+
+### 7.5 機械的な挙動保存
+
+`tests/adjudication_compat.rs` は次の6 fixtureを、completion event の全81-key shape、persisted JSONL bytes、runtime / final / release verdict、assurance level / reason、terminal / task / release-quality / next-action の決定的 bytes で固定する。
+
+1. Next.js full
+2. Next.js production-build failed
+3. Next.js interaction partial / probe unavailable
+4. data full
+5. data static
+6. data failed
+
+実 emitter の81-key集合は `ultra_final_acceptance_event_carries_generic_static_assurance` でも固定した。`cargo fmt --all -- --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test` は green で、全体実行には unit、6 byte fixtures、conformance、corpus regression、data profile conformance、guardrail、doc tests が含まれる。D-0c の live 12-run matrix は §5.2 の後続 gate であり、D-0b の fixture replay と混同しない。
+
+### 7.6 行数予算
+
+物理行数と `generality_guardrails` の production / `cfg(test)` 分類を D-0b 完了値で固定した。
+
+| 新 module | total | production | test / cfg(test) |
+|---|---:|---:|---:|
+| `adjudication/mod.rs` | 7 | 7 | 0 |
+| `adjudication/core.rs` | 255 | 255 | 0 |
+| `adjudication/create.rs` | 2,179 | 2,165 | 14 |
+| `adjudication/requirements.rs` | 184 | 110 | 74 |
+| `adjudication/terminal.rs` | 124 | 124 | 0 |
+| **合計** | **2,749** | **2,661** | **88** |
+
+`src/planner/final_acceptance.rs` は D-0b 開始時の 2,931 行から 2,209 行へ **722 行削減**した。guardrail baseline も 2,942 / 2,937 production から 2,209 / 2,204 production へ引き下げた。`assurance.rs` の baseline も 1,311 行から、[要裁定] seed だけを残す 63 行へ引き下げた。既存 baseline を増やした箇所はない。

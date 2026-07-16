@@ -452,3 +452,9 @@ UAT #8で観測したDATA-13 / DATA-7bの機械偽陽性は、B-2k後のUAT #9�
 時系列族が未完走のため未実戦であり、初完走待ちのWATCHへ移す。
 
 **Phase B sealed (2026-07-16): 出口条件——2族分布・偽成功ゼロ・E1〜E4実証・schema v1・admission gate・コスト表——全達成。timeseries 0/12 は受容済み能力バンドとして宣言（nextjs Spaceと同位置づけ）。**
+
+## Phase D task ledger (2026-07-16)
+
+| ID | 機構 | コミット | 動機 | 検証 | 状態 |
+|---|---|---|---|---|---|
+| D-0b | intent非依存裁定骨格とcreate差し込みの挙動保存抽出 | `7f26ad0` / `e1095ac` | createに癒着した要求集約、provenance、assurance写像、admission cap、正直終端をleafへ分離し、create→骨格の一方向境界を確立 | Next.js full/build-failed/interaction-partial＋data full/static/failedの6本をevent 81-key・JSONL・verdict・assurance・terminal projectionのbyte fixtureで固定。骨格productionのcreate固有語ゼロをguardrail化し、`cargo test`（unit/conformance/corpus/data conformance/guardrail/doc）全green、fmt・clippy `-D warnings` green | **complete** |
