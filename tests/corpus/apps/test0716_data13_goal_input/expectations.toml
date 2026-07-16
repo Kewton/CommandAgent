@@ -1,0 +1,45 @@
+case_id = "test0716_data13_goal_input"
+source = "uat-test0716-data-008 Run 5 measured table bytes; derived tables were under data/ when inspection failed"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["data_inspection_schema", "multiple_inputs", "goal_input"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/data8_ts_qwen35_none_002/output/inspection.json = [
+  "\"column_names\"",
+  "\"input_row_count\": 60",
+  "\"sample_rows\""
+]
+fixtures/data8_ts_qwen35_none_002/data/sales.csv = [
+  "date,region,amount",
+  "2026-02-30"
+]
+fixtures/data8_ts_qwen35_none_002/data/sales_clean.csv = [
+  "date,region,amount",
+  "2026-01-01"
+]
+fixtures/data8_ts_qwen35_none_002/data/validation_log.csv = [
+  "row_num,date,region,amount,reasons",
+  "invalid_date"
+]
+fixtures/data8_ts_qwen35_none_002/evidence/inspection-schema.json = [
+  "inspection_schema_violation:multiple_inputs:data/sales.csv,data/sales_clean.csv,data/validation_log.csv",
+  "\"input_path\": null"
+]

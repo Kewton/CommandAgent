@@ -13,13 +13,13 @@ pub(crate) struct InternalCheckSummary {
     pub reasons: Vec<String>,
 }
 
-pub(crate) fn run(root: &Path) -> anyhow::Result<InternalCheckSummary> {
+pub(crate) fn run(root: &Path, goal: Option<&str>) -> anyhow::Result<InternalCheckSummary> {
     let mut summary = InternalCheckSummary {
         statuses: BTreeMap::new(),
         reasons: Vec::new(),
     };
     for check in all() {
-        let (ok, failures) = internal_checks::execute(root, check)?;
+        let (ok, failures) = internal_checks::execute(root, check, goal)?;
         summary.statuses.insert(id(check).to_string(), ok);
         if check == DataInternalCheck::ResultsSchema {
             summary.reasons.extend(

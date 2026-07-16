@@ -466,11 +466,14 @@ impl DomainProfile for DataProfile {
     fn behavior_probe(
         &self,
         root: &Path,
-        _goal: &str,
+        goal: &str,
         _required_capabilities: &[String],
         _offline: bool,
     ) -> anyhow::Result<ProfileBehaviorProbeReport> {
-        let summary = crate::planner::profiles::data::runtime::run_manifest_checks(root)?;
+        let summary = crate::planner::profiles::data::runtime::run_manifest_checks_with_goal(
+            root,
+            Some(goal),
+        )?;
         Ok(ProfileBehaviorProbeReport {
             status: summary.assurance.behavior_status(),
             reasons: summary.reasons,

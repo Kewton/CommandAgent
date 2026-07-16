@@ -523,10 +523,31 @@ pub fn verify_step_with_profile_setup_observed_with_offline_and_events(
     offline: bool,
     eval_events_path: Option<&Path>,
 ) -> (VerificationReport, Vec<BuildVerifierLifecycleObservation>) {
+    verify_step_with_context(
+        root,
+        step,
+        profile,
+        None,
+        setup_authority,
+        offline,
+        eval_events_path,
+    )
+}
+
+pub(crate) fn verify_step_with_context(
+    root: &Path,
+    step: &PlanStep,
+    profile: Option<&str>,
+    goal: Option<&str>,
+    setup_authority: NodeDependencySetupAuthority,
+    offline: bool,
+    eval_events_path: Option<&Path>,
+) -> (VerificationReport, Vec<BuildVerifierLifecycleObservation>) {
     verify_step_with_setup_observed_with_options(
         root,
         step,
         profile,
+        goal,
         setup_authority,
         Path::new("npm"),
         offline,
@@ -611,6 +632,7 @@ fn verify_step_with_setup_observed_with_options(
     root: &Path,
     step: &PlanStep,
     profile: Option<&str>,
+    goal: Option<&str>,
     setup_authority: NodeDependencySetupAuthority,
     npm_program: &Path,
     offline: bool,
@@ -626,6 +648,7 @@ fn verify_step_with_setup_observed_with_options(
     crate::planner::profiles::data::step_policy::run_step_catalog_checks(
         root,
         profile,
+        goal,
         step,
         eval_events_path,
         &mut report,
@@ -4144,6 +4167,7 @@ EOF\n\
             dir.path(),
             &step,
             None,
+            None,
             NodeDependencySetupAuthority::PlanSetupStep,
             &fake_npm,
             false,
@@ -4210,6 +4234,7 @@ EOF\n\
             dir.path(),
             &step,
             Some("nextjs"),
+            None,
             NodeDependencySetupAuthority::PlanSetupStep,
             &fake_npm,
             false,
@@ -4248,6 +4273,7 @@ EOF\n\
             dir.path(),
             &step,
             Some("python-cli"),
+            None,
             NodeDependencySetupAuthority::PlanSetupStep,
             Path::new("npm"),
             false,
@@ -4299,6 +4325,7 @@ EOF\n\
         let (initial_report, initial_lifecycles) = verify_step_with_setup_observed_with_options(
             dir.path(),
             &step,
+            None,
             None,
             NodeDependencySetupAuthority::PlanSetupStep,
             &fake_npm,

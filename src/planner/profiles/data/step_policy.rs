@@ -46,25 +46,34 @@ pub(crate) fn catalog_check_id(command: &str) -> Option<&str> {
     (!id.is_empty() && !id.chars().any(char::is_whitespace) && is_bound_check_id(id)).then_some(id)
 }
 
-pub(crate) fn execute_catalog_check(
+fn execute_catalog_check(
     root: &Path,
     command: &str,
     report: &mut crate::planner::verify::VerificationReport,
     eval_events_path: Option<&Path>,
+    goal: Option<&str>,
 ) -> Option<anyhow::Result<CatalogCheckOutcome>> {
     let id = catalog_check_id(command)?.to_string();
-    Some(execute_bound_check(root, id, report, eval_events_path))
+    Some(execute_bound_check(
+        root,
+        id,
+        report,
+        eval_events_path,
+        goal,
+    ))
 }
 
 pub(crate) fn run_step_catalog_checks(
     root: &Path,
     profile: Option<&str>,
+    goal: Option<&str>,
     step: &PlanStep,
     eval_events_path: Option<&Path>,
     report: &mut crate::planner::verify::VerificationReport,
 ) {
     for command in &step.verify {
-        let Some(execution) = execute_catalog_check(root, command, report, eval_events_path) else {
+        let Some(execution) = execute_catalog_check(root, command, report, eval_events_path, goal)
+        else {
             continue;
         };
         if profile
@@ -366,6 +375,7 @@ fn execute_bound_check(
     id: String,
     report: &mut crate::planner::verify::VerificationReport,
     eval_events_path: Option<&Path>,
+    goal: Option<&str>,
 ) -> anyhow::Result<CatalogCheckOutcome> {
     let resolved = manifest::get()
         .resolve()?
@@ -376,7 +386,7 @@ fn execute_bound_check(
         .capability;
     let (ok, reasons) = match resolved {
         ResolvedCapability::Internal(InternalCapability::Data(check)) => {
-            internal_checks::execute(root, check)?
+            internal_checks::execute(root, check, goal)?
         }
         ResolvedCapability::Probe(ProbeCapability::Pipeline {
             entry,

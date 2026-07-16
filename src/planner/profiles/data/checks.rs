@@ -11,7 +11,7 @@ use crate::minimal_loop::pipeline_probe::{self, PipelineProbeConfig};
 
 pub use super::inspection_schema::{
     EVIDENCE_PATH as INSPECTION_SCHEMA_EVIDENCE_PATH, InspectionSchemaEvidence,
-    check as check_inspection_schema,
+    check as check_inspection_schema, check_with_goal as check_inspection_schema_with_goal,
 };
 
 pub const RESULTS_SCHEMA_EVIDENCE_PATH: &str = "evidence/results-schema.json";

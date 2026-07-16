@@ -87,8 +87,7 @@ use crate::planner::ultra_plan::{UltraPhase, UltraPlan, parse_ultra_plan, render
 use crate::planner::verify::verify_setup_dependency_state_with_setup_observed_with_options;
 use crate::planner::verify::{
     VerificationReport, verify_setup_dependency_state_with_setup_observed_with_offline,
-    verify_step_with_profile_setup_observed_with_offline,
-    verify_step_with_profile_setup_observed_with_offline_and_events,
+    verify_step_with_context, verify_step_with_profile_setup_observed_with_offline,
 };
 use crate::planner::{
     contract_attribute_repair::merge_repair_target_paths, hook_snapshot, repair_targeting,
@@ -2134,6 +2133,7 @@ fn run_step(
     if verify_first_applicable {
         let (report, build_lifecycles) = verify_step_completion_observed(
             config,
+            &prompt_context.overall_goal,
             &runtime_step,
             step,
             phase_scope,
@@ -2246,8 +2246,14 @@ fn run_step(
         outcome.partial = true;
         return Err(StepRunError { message, outcome });
     }
-    let (report, build_lifecycles) =
-        verify_step_completion_observed(config, &runtime_step, step, phase_scope, setup_authority);
+    let (report, build_lifecycles) = verify_step_completion_observed(
+        config,
+        &prompt_context.overall_goal,
+        &runtime_step,
+        step,
+        phase_scope,
+        setup_authority,
+    );
     apply_runtime_command_normalizations(&mut runtime_step, &report);
     for lifecycle in &build_lifecycles {
         emit_dependency_build_lifecycle(
@@ -2511,15 +2517,15 @@ fn run_step(
                 outcome.partial = true;
                 return Err(StepRunError { message, outcome });
             }
-            let (retry, retry_lifecycles) =
-                verify_step_with_profile_setup_observed_with_offline_and_events(
-                    &config.workspace_root,
-                    &runtime_step,
-                    Some(&config.profile),
-                    setup_authority,
-                    config.offline,
-                    config.eval_events_path.as_deref(),
-                );
+            let (retry, retry_lifecycles) = verify_step_with_context(
+                &config.workspace_root,
+                &runtime_step,
+                Some(&config.profile),
+                Some(overall_goal),
+                setup_authority,
+                config.offline,
+                config.eval_events_path.as_deref(),
+            );
             apply_runtime_command_normalizations(&mut runtime_step, &retry);
             context.verify_commands = runtime_step.verify.clone();
             for lifecycle in &retry_lifecycles {
@@ -2641,15 +2647,15 @@ fn run_step(
                             &mut outcome.repair_changed_paths,
                             std::slice::from_ref(&restored.restored_path),
                         );
-                        let (restored_retry, restored_lifecycles) =
-                            verify_step_with_profile_setup_observed_with_offline_and_events(
-                                &config.workspace_root,
-                                &runtime_step,
-                                Some(&config.profile),
-                                setup_authority,
-                                config.offline,
-                                config.eval_events_path.as_deref(),
-                            );
+                        let (restored_retry, restored_lifecycles) = verify_step_with_context(
+                            &config.workspace_root,
+                            &runtime_step,
+                            Some(&config.profile),
+                            Some(overall_goal),
+                            setup_authority,
+                            config.offline,
+                            config.eval_events_path.as_deref(),
+                        );
                         apply_runtime_command_normalizations(&mut runtime_step, &restored_retry);
                         context.verify_commands = runtime_step.verify.clone();
                         for lifecycle in &restored_lifecycles {
@@ -2822,10 +2828,11 @@ fn run_step(
                         let one_file_write =
                             changed_paths_only_target(&regeneration_changed_paths, &target_path);
                         let (regenerated_report, regeneration_lifecycles) =
-                            verify_step_with_profile_setup_observed_with_offline_and_events(
+                            verify_step_with_context(
                                 &config.workspace_root,
                                 &runtime_step,
                                 Some(&config.profile),
+                                Some(overall_goal),
                                 setup_authority,
                                 config.offline,
                                 config.eval_events_path.as_deref(),
@@ -3392,20 +3399,21 @@ fn plan_expected_paths(plan: &StepPlan) -> Vec<String> {
 
 fn verify_step_completion_observed(
     config: &Config,
+    goal: &str,
     runtime_step: &PlanStep,
     original_step: &PlanStep,
     phase_scope: Option<&str>,
     setup_authority: NodeDependencySetupAuthority,
 ) -> (VerificationReport, Vec<BuildVerifierLifecycleObservation>) {
-    let (mut report, mut build_lifecycles) =
-        verify_step_with_profile_setup_observed_with_offline_and_events(
-            &config.workspace_root,
-            runtime_step,
-            Some(&config.profile),
-            setup_authority,
-            config.offline,
-            config.eval_events_path.as_deref(),
-        );
+    let (mut report, mut build_lifecycles) = verify_step_with_context(
+        &config.workspace_root,
+        runtime_step,
+        Some(&config.profile),
+        Some(goal),
+        setup_authority,
+        config.offline,
+        config.eval_events_path.as_deref(),
+    );
     if should_run_setup_step_dependency_state_lifecycle(
         &config.workspace_root,
         original_step,

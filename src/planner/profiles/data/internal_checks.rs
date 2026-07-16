@@ -6,10 +6,11 @@ use crate::planner::capability_catalog::DataInternalCheck;
 pub(crate) fn execute(
     root: &Path,
     check: DataInternalCheck,
+    goal: Option<&str>,
 ) -> anyhow::Result<(bool, Vec<String>)> {
     Ok(match check {
         DataInternalCheck::InspectionSchema => {
-            let evidence = checks::check_inspection_schema(root)?;
+            let evidence = checks::check_inspection_schema_with_goal(root, goal)?;
             (evidence.ok, evidence.failure_kinds)
         }
         DataInternalCheck::ResultsSchema => {

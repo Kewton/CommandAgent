@@ -1,10 +1,11 @@
 use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+mod input_selection;
 mod input_table;
 
 pub const EVIDENCE_PATH: &str = "evidence/inspection-schema.json";
@@ -29,6 +30,13 @@ pub struct InspectionSchemaEvidence {
 }
 
 pub fn check(root: &Path) -> anyhow::Result<InspectionSchemaEvidence> {
+    check_with_goal(root, None)
+}
+
+pub fn check_with_goal(
+    root: &Path,
+    goal: Option<&str>,
+) -> anyhow::Result<InspectionSchemaEvidence> {
     let mut evidence = InspectionSchemaEvidence {
         capability_id: "data_inspection_schema".to_string(),
         status: "failed".to_string(),
@@ -37,14 +45,14 @@ pub fn check(root: &Path) -> anyhow::Result<InspectionSchemaEvidence> {
         input_path: None,
         failure_kinds: Vec::new(),
     };
-    evaluate(root, &mut evidence);
+    evaluate(root, goal, &mut evidence);
     evidence.ok = evidence.failure_kinds.is_empty();
     evidence.status = if evidence.ok { "pass" } else { "failed" }.to_string();
     write_evidence(root, &evidence)?;
     Ok(evidence)
 }
 
-fn evaluate(root: &Path, evidence: &mut InspectionSchemaEvidence) {
+fn evaluate(root: &Path, goal: Option<&str>, evidence: &mut InspectionSchemaEvidence) {
     let document = match load_document(root) {
         Ok(document) => document,
         Err(failure) => {
@@ -64,7 +72,7 @@ fn evaluate(root: &Path, evidence: &mut InspectionSchemaEvidence) {
         ));
         return;
     }
-    let input = match discover_input(root).and_then(|path| input_table::load(root, path)) {
+    let input = match input_selection::load(root, goal) {
         Ok(input) => input,
         Err(failure) => {
             evidence.failure_kinds.push(failure);
@@ -95,51 +103,6 @@ fn load_document(root: &Path) -> Result<Map<String, Value>, String> {
         .as_object()
         .cloned()
         .ok_or_else(|| "inspection_schema_violation:root_not_object".to_string())
-}
-
-fn discover_input(root: &Path) -> Result<PathBuf, String> {
-    let mut files = Vec::new();
-    for directory in ["data", "input"] {
-        collect_inputs(&root.join(directory), &mut files)
-            .map_err(|error| format!("inspection_schema_violation:input_scan:{error}"))?;
-    }
-    files.sort();
-    match files.as_slice() {
-        [path] => Ok(path.clone()),
-        [] => Err("inspection_schema_violation:input_missing".to_string()),
-        _ => Err(format!(
-            "inspection_schema_violation:multiple_inputs:{}",
-            files
-                .iter()
-                .map(|path| crate::tools::path_guard::relative_display(root, path))
-                .collect::<Vec<_>>()
-                .join(",")
-        )),
-    }
-}
-
-fn collect_inputs(directory: &Path, files: &mut Vec<PathBuf>) -> std::io::Result<()> {
-    if !directory.is_dir() {
-        return Ok(());
-    }
-    for entry in std::fs::read_dir(directory)? {
-        let entry = entry?;
-        let file_type = entry.file_type()?;
-        if file_type.is_dir() {
-            collect_inputs(&entry.path(), files)?;
-        } else if file_type.is_file()
-            && entry
-                .path()
-                .extension()
-                .and_then(|extension| extension.to_str())
-                .is_some_and(|extension| {
-                    matches!(extension.to_ascii_lowercase().as_str(), "csv" | "tsv")
-                })
-        {
-            files.push(entry.path());
-        }
-    }
-    Ok(())
 }
 
 fn validate_columns(

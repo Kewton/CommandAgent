@@ -50,6 +50,13 @@ pub struct DataCheckSummary {
 }
 
 pub fn run_manifest_checks(root: &Path) -> anyhow::Result<DataCheckSummary> {
+    run_manifest_checks_with_goal(root, None)
+}
+
+pub fn run_manifest_checks_with_goal(
+    root: &Path,
+    goal: Option<&str>,
+) -> anyhow::Result<DataCheckSummary> {
     let adapters = adapters()?;
     let mut checks = BTreeMap::new();
     let mut reasons = Vec::new();
@@ -57,7 +64,7 @@ pub fn run_manifest_checks(root: &Path) -> anyhow::Result<DataCheckSummary> {
     let pipeline_ok = run_pipeline(root, &adapters, &mut reasons);
     checks.insert("pipeline_probe".to_string(), pipeline_ok);
 
-    let internal = runtime_checks::run(root)?;
+    let internal = runtime_checks::run(root, goal)?;
     checks.extend(internal.statuses);
     reasons.extend(internal.reasons);
 

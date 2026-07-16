@@ -1,0 +1,4 @@
+row_num,date,region,amount,reasons
+11,2026-02-30,東京,5000,invalid_date
+21,,大阪,3000,missing_date
+31,2026-03-15,名古屋,,missing_amount
