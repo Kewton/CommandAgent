@@ -141,3 +141,31 @@ files to 28 across 7 files. No baseline was raised: removed entries disappear
 from the exact expected map. The remaining list above is the Phase B
 relocation list; it is intentionally non-zero and each retained group requires
 a new shared interface before movement.
+
+## Phase B post-seal queue (2026-07-16)
+
+### Scenario-bound E4 assertions [QUEUED]
+
+Add scenario-bound semantic assertions such as `non_negative(amount)` without
+weakening or bypassing the current E4 schema gate. The measured motivation is
+present in both data families: aggregation UAT #7 produced a full run whose
+April value included the `-500` amount, and the timeseries UAT #8 / #9 reports
+also recorded negative-value adoption. This is a purchase of additional
+meaning verification; it does not retroactively change the mechanical meaning
+of existing full results.
+
+### E2 percent-claim exercise [WATCH]
+
+The timeseries family produced percent-bearing reports but reached no
+`claims-binding.json` evidence in 12 runs. Keep percent normalization and
+matching on WATCH until the first timeseries completion exercises E2. Do not
+infer a pass or failure from report text alone.
+
+### DATA-10 inspection write non-follow-through [ACCEPTED; CLOUD FOLLOW-UP]
+
+The residual inspection write non-follow-through class recurred six times
+across UAT #7, #8, and #9 (2 + 2 + 2), including gemma31 as well as qwen35.
+Literal JSON examples, missing-key feedback, phase scoping, and verified
+short-circuiting have exhausted the machine-side countermeasures; the remaining
+distribution is recorded as model-originated. Keep the local-tier failures in
+the band denominator and use the emitted recovery YAML for cloud follow-up.

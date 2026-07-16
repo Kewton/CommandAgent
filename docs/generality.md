@@ -129,33 +129,30 @@ The data band fixes the planner at `qwen3.6:27b-coding-nvfp4`, measures the
 qwen35 and gemma31 executor families, and uses the deterministic
 `data/sales.csv` fixture with SHA-256
 `2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873`.
-The early gemma31 rows used `gemma4:31b-cloud`; UAT #4 onward used the local
-`gemma4:31b`, so the all-history table keeps those exact identifiers separate.
+Recorded goal text assigns each run to `aggregation`, `timeseries`, or
+`unknown`; an unknown goal remains in the all-history denominator rather than
+being silently excluded.
 
-Window B is the primary declaration window. It starts at
-`uat-test0715-data-007`, after DATA-1–12 were fixed and earned-assurance
-projection conformed to the data contract. Every cell is below ten runs and is
-therefore explicitly marked `n<10`.
+Window B is the primary, family-specific fixed-code declaration. Aggregation
+starts at UAT #7 (B-2i code HEAD `7b177fe`), while timeseries starts at UAT #9
+(B-2k code HEAD `2028eb4`). Each measured family cell has `n=6`, so all rates
+remain explicitly `n<10`.
 
-| executor | preset | full | n | full rate |
-|---|---|---:|---:|---:|
-| `gemma4:31b` | profile | 1 | 1 | 100% n<10 |
-| `gemma4:31b` | none | 0 | 1 | 0% n<10 |
-| `qwen3.6:35b-a3b-coding-nvfp4` | profile | 0 | 2 | 0% n<10 |
-| `qwen3.6:35b-a3b-coding-nvfp4` | none | 1 | 2 | 50% n<10 |
+| family | Window B start | full | partial+static | failed | n | full rate | median full duration |
+|---|---|---:|---:|---:|---:|---:|---:|
+| aggregation | `uat-test0715-data-007` | 2 | 1 | 3 | 6 | 33% n<10 | 1747s (`n=2`) |
+| timeseries | `uat-test0716-data-009` | 0 | 3 | 3 | 6 | 0% n<10 | N/A |
+| unknown | no stable threshold | 0 | 0 | 0 | 0 | N/A | N/A |
 
-Window A is the honest all-history reference from data UAT #1 through #7. It
-retains the machine-defect era: 48 data run rows were observed, ten invalid or
-discarded rows are shown but excluded, and the valid denominator is 38.
+Window A is the honest all-history reference from data UAT #1 through #9. It
+contains 60 observed rows: ten invalid or discarded rows stay listed with
+reasons but outside the denominator, leaving 50 valid runs.
 
-| executor | preset | full | n | full rate |
-|---|---|---:|---:|---:|
-| `gemma4:31b` | profile | 1 | 4 | 25% n<10 |
-| `gemma4:31b` | none | 0 | 7 | 0% n<10 |
-| `gemma4:31b-cloud` | profile | 0 | 3 | 0% n<10 |
-| `gemma4:31b-cloud` | none | 0 | 3 | 0% n<10 |
-| `qwen3.6:35b-a3b-coding-nvfp4` | profile | 0 | 10 | 0% |
-| `qwen3.6:35b-a3b-coding-nvfp4` | none | 1 | 11 | 9% |
+| family | full | partial+static | failed | n | full rate | median full duration |
+|---|---:|---:|---:|---:|---:|---:|
+| aggregation | 2 | 15 | 21 | 38 | 5% | 1747s (`n=2`) |
+| timeseries | 0 | 7 | 5 | 12 | 0% | N/A |
+| unknown | 0 | 0 | 0 | 0 | N/A | N/A |
 
 The two full runs both belong to Window B: UAT #7 Run 3
 (`data7_gemma31_profile_001`) took 2030s, and Run 4
@@ -165,19 +162,29 @@ numeric claim binding, schema checks, and rerun consistency. It does not claim
 that the analysis or recommendations are substantively correct; see
 [`data-profile-contract.md` §2](data-profile-contract.md#2-full-の意味最重要不変条件).
 
-The disclosed residual class is inspection write non-follow-through. UAT #7
-confirmed it as executor-varying model dispersion after the mechanical
-countermeasures were exhausted; it is accepted as a band characteristic, not
-hidden from the denominator. See the
+時系列族では、移動平均・比率導出を含むパイプラインの完遂が現行ローカル
+ティアの能力の壁である。機械偽陽性はDATA-13 / DATA-7bで除去済みで、
+`uat-test0716-data-009`では両クラスとも再発0を確認した。運用はrecovery
+YAMLによるクラウド後詰めを推奨する。時系列族は全史0/12、B-2k後の固定
+コード窓でも0/6である。
+
+E2のpercent claim照合は、時系列族がE2 evidenceへ未到達のため未実戦で
+ある。timeseries初の完走時に実戦確認されるまで、%正規化の能力をこの
+バンドから推定しない。
+
+The disclosed residual class is inspection write non-follow-through. Across
+UAT #7–#9 it recurred six times, including gemma31, and is recorded as
+executor-varying model dispersion after the mechanical countermeasures were
+exhausted. It is accepted as a band characteristic, not hidden from the
+denominator. See the
 [`Data profile first fulls`](mechanism-ledger.md#data-profile-first-fulls-2026-07-15)
 ledger entry.
 
-The two-window rule was declared before aggregation. Window B is used for
-future updates because it holds the mechanism-stable code state, not because it
-improves the displayed rate; Window A remains beside it so the defect-era
-history cannot disappear. Honest failed runs remain in their applicable
-denominator. `uat-test0714-m4-002` is excluded for operator model-ID
-substitution, and `uat-test0714-m4-004` is excluded because cargo-test
+The two-window rule uses the family-specific mechanism-stable states, not a
+rate-selected cutoff. Window A remains beside it so both the defect-era history
+and the initial timeseries measurement stay visible. Honest failed runs remain
+in their applicable denominator. `uat-test0714-m4-002` is excluded for operator
+model-ID substitution, and `uat-test0714-m4-004` is excluded because cargo-test
 preflight was not green and the campaign was interrupted before four of five
 data rows completed. No interrupted outcome is inferred.
 

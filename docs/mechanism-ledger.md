@@ -410,6 +410,19 @@ loopとターゲット解決は共通機構を再利用したが、dataで観測
 dataが7正式set + α（観測9 set）・48 run・3日である。nextjs側はPhase A
 台帳の概数、data側は上記集計器の実数であり、同精度の比率としては扱わない。
 
+### 第2シナリオ族の追加コスト（2026-07-16）
+
+時系列族UAT #8 / #9とB-2k後の再計測による追加コストの境界は、B-4
+settlement `fcb9ac8`の次から族別band生成`207dd33`までである。
+
+| 第2族の追加コスト | 実測 | 集計方法・内訳 |
+|---|---:|---|
+| B-2kタスク | 2 | DATA-13 goal参照入力優先（`271deeb`）とDATA-7bクォート考慮lint（`2028eb4`） |
+| 一次資料調査 | 0 | 独立したinvestigation task / reportは追加せず、UAT #8一次資料を直接fixture化 |
+| UAT | 2 set / 12 run | [`uat-test0716-data-008`](../workspace/management/runs/uat-test0716-data-008/uat-report.md) と [`uat-test0716-data-009`](../workspace/management/runs/uat-test0716-data-009/uat-report.md)、各6 run・再試行なし |
+| 追加commit | 5 | `git rev-list --count fcb9ac8..207dd33`。UAT #8（`46d9e34`）、B-2k 2件、UAT #9（`c4d5727`）、族別band生成（`207dd33`）。本封緘docs commitは自己参照を避けて境界外 |
+| 族別分布 | aggregation 2/38、timeseries 0/12 | Window Bはaggregation 2/6、timeseries 0/6。機械生成原表は[`band_summary_data.md`](../workspace/management/runs/band_summary_data.md) |
+
 ## Phase B seal (2026-07-15)
 
 | 出口条件 | 照合結果 | 根拠 |
@@ -429,3 +442,13 @@ Phase Bは上記の限定を含む現在スコープで封緘する。残存事�
 - inspection成果物への書き込み非追従はexecutorごとのモデル分散として受容済みであり、DATA-10の機械的束縛欠陥とは分離してバンドに残す。
 - dataの計測シナリオ族は1本である。シナリオ族の拡張はPhase B後の継続項目とする。
 - E4のアサーション範囲拡張は候補として残す。現行E4を実行せずfullを与える変更は行わない。
+
+### 第2シナリオ族の清算と最終封緘（2026-07-16）
+
+上の2026-07-15時点の「単一シナリオ族」という限定を履歴として残した上で、
+UAT #8で観測したDATA-13 / DATA-7bの機械偽陽性は、B-2k後のUAT #9で
+いずれも再発0だった。時系列族の0/12は機械不良による無効計測として捨てず、
+現行ローカルティアの能力バンドとして分母に残す。E2のpercent claim照合は
+時系列族が未完走のため未実戦であり、初完走待ちのWATCHへ移す。
+
+**Phase B sealed (2026-07-16): 出口条件——2族分布・偽成功ゼロ・E1〜E4実証・schema v1・admission gate・コスト表——全達成。timeseries 0/12 は受容済み能力バンドとして宣言（nextjs Spaceと同位置づけ）。**
