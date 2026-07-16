@@ -1,3 +1,5 @@
+use super::core::GateObservation;
+
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn projected_assurance(
     assurance_level: &str,
@@ -8,10 +10,7 @@ pub(crate) fn projected_assurance(
     release_gate_reasons: &[String],
     completion_contract_verification_enabled: bool,
     external_contract_checked: bool,
-    browser_readiness_applicable: bool,
-    browser_readiness_execution_status: &str,
-    interaction_evidence_applicable: bool,
-    interaction_evidence_execution_status: &str,
+    gate_observations: &[GateObservation<'_>],
 ) -> (String, String) {
     let mut level = assurance_level.to_string();
     let mut reason = assurance_reason.to_string();
@@ -47,16 +46,16 @@ pub(crate) fn projected_assurance(
             "completion_contract_not_bound".to_string(),
         );
     }
-    if browser_readiness_applicable && browser_readiness_execution_status != "performed" {
+    if let Some(observation) = gate_observations
+        .iter()
+        .find(|observation| observation.applicable && observation.execution_status != "performed")
+    {
         return (
             "partial".to_string(),
-            format!("browser_readiness_not_performed:{browser_readiness_execution_status}"),
-        );
-    }
-    if interaction_evidence_applicable && interaction_evidence_execution_status != "performed" {
-        return (
-            "partial".to_string(),
-            format!("interaction_evidence_not_performed:{interaction_evidence_execution_status}"),
+            format!(
+                "{}_not_performed:{}",
+                observation.reason_key, observation.execution_status
+            ),
         );
     }
     (level, reason)

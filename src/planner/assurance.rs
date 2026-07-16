@@ -51,7 +51,7 @@ pub(super) fn earned_assurance_for_completion(
     } else {
         assurance_for_completion(profile, required_capabilities)
     };
-    crate::planner::adjudication::earned_assurance_from_base(
+    earned_assurance_from_release_gate(
         profile,
         base_level,
         base_reason,

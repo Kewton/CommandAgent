@@ -138,13 +138,57 @@ fn nextjs_boundary_erosion_tripwire_keeps_dispatch_sites_audited() {
         ("src/minimal_loop/evidence.rs".to_string(), 4),
         ("src/minimal_loop/import_scan.rs".to_string(), 1),
         ("src/minimal_loop/loop_run.rs".to_string(), 2),
+        ("src/planner/adjudication/create.rs".to_string(), 1),
         ("src/planner/lint.rs".to_string(), 2),
-        ("src/planner/runner.rs".to_string(), 14),
+        ("src/planner/runner.rs".to_string(), 13),
         ("src/planner/verify.rs".to_string(), 3),
     ]);
     assert_eq!(
         actual, expected,
         "new production \"nextjs\" literal outside src/planner/profiles must be audited here or moved behind the profile boundary"
+    );
+}
+
+#[test]
+fn adjudication_dependency_direction_stays_create_to_skeleton() {
+    for path in [
+        "src/planner/adjudication/mod.rs",
+        "src/planner/adjudication/core.rs",
+        "src/planner/adjudication/requirements.rs",
+        "src/planner/adjudication/terminal.rs",
+    ] {
+        let source = std::fs::read_to_string(path).expect("read adjudication skeleton module");
+        assert!(
+            !source.contains("adjudication_create") && !source.contains("create::"),
+            "{path} must not depend on the private create adapter"
+        );
+        let production = production_lines(&source).join("\n");
+        for create_token in [
+            "browser_readiness",
+            "interaction_evidence",
+            "nextjs",
+            "ReleaseGateSummary",
+            "AcceptanceGateTelemetry",
+        ] {
+            assert!(
+                !production.contains(create_token),
+                "{path} must not bake create token {create_token:?} into the skeleton"
+            );
+        }
+    }
+
+    let runner = std::fs::read_to_string("src/planner/runner.rs").expect("read runner");
+    assert!(
+        runner.contains("mod adjudication_create;"),
+        "the create adapter must remain private so skeleton modules cannot import it"
+    );
+    assert!(!runner.contains("pub(crate) mod adjudication_create;"));
+
+    let create =
+        std::fs::read_to_string("src/planner/adjudication/create.rs").expect("read create adapter");
+    assert!(
+        create.contains("use crate::planner::adjudication::{"),
+        "the create adapter must consume the intent-independent skeleton"
     );
 }
 
@@ -211,9 +255,39 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/final_acceptance.rs",
-            total_baseline: 2_942,
-            production_baseline: 2_937,
+            total_baseline: 2_209,
+            production_baseline: 2_204,
             test_baseline: 5,
+        },
+        ChokepointBudget {
+            path: "src/planner/adjudication/mod.rs",
+            total_baseline: 7,
+            production_baseline: 7,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/planner/adjudication/core.rs",
+            total_baseline: 255,
+            production_baseline: 255,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/planner/adjudication/create.rs",
+            total_baseline: 2_179,
+            production_baseline: 2_165,
+            test_baseline: 14,
+        },
+        ChokepointBudget {
+            path: "src/planner/adjudication/requirements.rs",
+            total_baseline: 184,
+            production_baseline: 110,
+            test_baseline: 74,
+        },
+        ChokepointBudget {
+            path: "src/planner/adjudication/terminal.rs",
+            total_baseline: 124,
+            production_baseline: 124,
+            test_baseline: 0,
         },
         ChokepointBudget {
             path: "src/planner/final_acceptance_contract.rs",
@@ -229,9 +303,9 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/assurance.rs",
-            total_baseline: 1_311,
-            production_baseline: 1_305,
-            test_baseline: 6,
+            total_baseline: 63,
+            production_baseline: 63,
+            test_baseline: 0,
         },
         ChokepointBudget {
             path: "src/planner/profiles/nextjs.rs",

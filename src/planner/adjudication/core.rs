@@ -1,30 +1,20 @@
 use std::collections::BTreeSet;
 
 use crate::config::Config;
-use crate::minimal_loop::build_verifier::CompileError;
 use crate::minimal_loop::evidence::RuntimeAcceptanceReport;
-use crate::planner::profile::{ProfileBehaviorProbeReport, canonical_profile_name};
+use crate::planner::profile::canonical_profile_name;
 use crate::planner::profile_manifest::ManifestStatus;
 use crate::planner::verify::VerificationReport;
 
 pub(crate) const PROFILE_NOT_ADMITTED_REASON: &str = "profile_not_admitted";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ReleaseGateSummary {
-    pub(crate) status: String,
-    pub(crate) reasons: Vec<String>,
-    pub(crate) browser_readiness_status: String,
-    pub(crate) browser_readiness_evidence_path: String,
-    pub(crate) interaction_evidence_status: String,
-    pub(crate) interaction_evidence_path: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct AcceptanceGateTelemetry {
-    pub(crate) browser_readiness_applicable: bool,
-    pub(crate) browser_readiness_execution_status: String,
-    pub(crate) interaction_evidence_applicable: bool,
-    pub(crate) interaction_evidence_execution_status: String,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct GateObservation<'a> {
+    pub(crate) reason_key: &'a str,
+    pub(crate) status_key: &'a str,
+    pub(crate) applicable: bool,
+    pub(crate) observed_status: &'a str,
+    pub(crate) execution_status: &'a str,
 }
 
 pub(crate) fn contract_origin_for_acceptance(config: &Config) -> &'static str {
@@ -52,10 +42,13 @@ pub(crate) fn dedup_strings(values: Vec<String>) -> Vec<String> {
         .collect()
 }
 
-pub(crate) fn gate_execution_status(status: &str) -> String {
+pub(crate) fn execution_status_from_observed(
+    status: &str,
+    performed_status_aliases: &[&str],
+) -> String {
     if gate_status_disconnected(status) {
         "disconnected".to_string()
-    } else if matches!(status, "passed" | "interaction_verified_heuristic_only") {
+    } else if status == "passed" || performed_status_aliases.contains(&status) {
         "performed".to_string()
     } else if status.starts_with("failed") {
         "performed_failed".to_string()
@@ -73,93 +66,60 @@ pub(crate) fn gate_status_disconnected(status: &str) -> bool {
         || status.starts_with("skipped:")
 }
 
-pub(crate) fn acceptance_gates_disconnected_reason(
-    telemetry: &AcceptanceGateTelemetry,
-    release_gate: &ReleaseGateSummary,
+pub(crate) fn disconnected_gate_observations_reason(
+    observations: &[GateObservation<'_>],
 ) -> Option<String> {
     let mut disconnected = Vec::new();
-    if telemetry.browser_readiness_applicable
-        && gate_status_disconnected(&release_gate.browser_readiness_status)
-    {
-        disconnected.push(format!(
-            "browser_readiness_status={}",
-            release_gate.browser_readiness_status
-        ));
-    }
-    if telemetry.interaction_evidence_applicable
-        && gate_status_disconnected(&release_gate.interaction_evidence_status)
-    {
-        disconnected.push(format!(
-            "interaction_evidence_status={}",
-            release_gate.interaction_evidence_status
-        ));
+    for observation in observations {
+        if observation.applicable && gate_status_disconnected(observation.observed_status) {
+            disconnected.push(format!(
+                "{}={}",
+                observation.status_key, observation.observed_status
+            ));
+        }
     }
     (!disconnected.is_empty())
         .then(|| format!("acceptance_gates_disconnected:{}", disconnected.join(",")))
 }
 
-pub(crate) fn mark_release_gate_profile_behavior_failed(
-    release_gate: &mut ReleaseGateSummary,
-    profile_behavior_probe: &ProfileBehaviorProbeReport,
-) {
-    let mut reasons = release_gate.reasons.clone();
-    if profile_behavior_probe.reasons.is_empty() {
+pub(crate) fn profile_behavior_failure_reasons(
+    existing_reasons: &[String],
+    probe_reasons: &[String],
+    evidence_path: Option<&str>,
+) -> Vec<String> {
+    let mut reasons = existing_reasons.to_vec();
+    if probe_reasons.is_empty() {
         reasons.push("profile_behavior_probe_failed".to_string());
     } else {
         reasons.extend(
-            profile_behavior_probe
-                .reasons
+            probe_reasons
                 .iter()
                 .map(|reason| format!("profile_behavior_probe_failed:{reason}")),
         );
     }
-    if let Some(path) = &profile_behavior_probe.evidence_path {
+    if let Some(path) = evidence_path {
         reasons.push(format!("profile_behavior_probe_evidence:{path}"));
     }
-    release_gate.status = "failed".to_string();
-    release_gate.reasons = dedup_strings(reasons);
+    dedup_strings(reasons)
 }
 
-pub(crate) fn append_release_gate_observations(
+pub(crate) fn append_gate_observation(
     report: &mut VerificationReport,
-    release_gate: &ReleaseGateSummary,
-    browser_compile_errors: Vec<CompileError>,
+    status_label: &str,
+    evidence_label: &str,
+    status: &str,
+    evidence_path: &str,
 ) {
-    if release_gate.browser_readiness_status != "not_checked"
-        && release_gate.browser_readiness_status != "not_applicable"
-    {
-        report.push_profile_failure(format!(
-            "browser readiness status: {}",
-            release_gate.browser_readiness_status
-        ));
+    if status != "not_checked" && status != "not_applicable" {
+        report.push_profile_failure(format!("{status_label}: {status}"));
     }
-    if !release_gate.browser_readiness_evidence_path.is_empty() {
-        report.push_profile_failure(format!(
-            "browser readiness evidence: {}",
-            release_gate.browser_readiness_evidence_path
-        ));
-        report.push_compile_errors("browser readiness build verifier", browser_compile_errors);
-    }
-    if release_gate.interaction_evidence_status != "not_checked"
-        && release_gate.interaction_evidence_status != "not_applicable"
-    {
-        report.push_profile_failure(format!(
-            "interaction evidence status: {}",
-            release_gate.interaction_evidence_status
-        ));
-    }
-    if !release_gate.interaction_evidence_path.is_empty() {
-        report.push_profile_failure(format!(
-            "interaction evidence path: {}",
-            release_gate.interaction_evidence_path
-        ));
+    if !evidence_path.is_empty() {
+        report.push_profile_failure(format!("{evidence_label}: {evidence_path}"));
     }
 }
 
-pub(crate) fn release_gate_final_acceptance_status(
-    release_gate: &ReleaseGateSummary,
-) -> &'static str {
-    match release_gate.status.as_str() {
+pub(crate) fn final_acceptance_status_from_release_gate(release_gate_status: &str) -> &'static str {
+    match release_gate_status {
         "pass" | "not_applicable" => "full_success",
         "partial" => "partial",
         "failed" => "incomplete",
@@ -187,27 +147,26 @@ pub(crate) fn earned_assurance_from_base(
     base_reason: &str,
     contract_bound: bool,
     final_acceptance_status: &str,
-    release_gate: &ReleaseGateSummary,
-    gate_telemetry: &AcceptanceGateTelemetry,
+    release_gate_status: &str,
+    release_gate_reasons: &[String],
+    gate_observations: &[GateObservation<'_>],
 ) -> (String, String) {
     if base_level != "full" {
         return (base_level.to_string(), base_reason.to_string());
     }
-    if final_acceptance_status == "partial" || release_gate.status == "partial" {
+    if final_acceptance_status == "partial" || release_gate_status == "partial" {
         return (
             "partial".to_string(),
-            release_gate
-                .reasons
+            release_gate_reasons
                 .first()
                 .cloned()
                 .unwrap_or_else(|| "acceptance_partial".to_string()),
         );
     }
-    if final_acceptance_status != "full_success" || release_gate.status == "failed" {
+    if final_acceptance_status != "full_success" || release_gate_status == "failed" {
         return (
             "partial".to_string(),
-            release_gate
-                .reasons
+            release_gate_reasons
                 .first()
                 .cloned()
                 .unwrap_or_else(|| "acceptance_not_full_success".to_string()),
@@ -225,36 +184,26 @@ pub(crate) fn earned_assurance_from_base(
             "completion_contract_not_bound".to_string(),
         );
     }
-    if gate_telemetry.browser_readiness_applicable
-        && gate_telemetry.browser_readiness_execution_status != "performed"
+    if let Some(observation) = gate_observations
+        .iter()
+        .find(|observation| observation.applicable && observation.execution_status != "performed")
     {
         return (
             "partial".to_string(),
             format!(
-                "browser_readiness_not_performed:{}",
-                gate_telemetry.browser_readiness_execution_status
-            ),
-        );
-    }
-    if gate_telemetry.interaction_evidence_applicable
-        && gate_telemetry.interaction_evidence_execution_status != "performed"
-    {
-        return (
-            "partial".to_string(),
-            format!(
-                "interaction_evidence_not_performed:{}",
-                gate_telemetry.interaction_evidence_execution_status
+                "{}_not_performed:{}",
+                observation.reason_key, observation.execution_status
             ),
         );
     }
     ("full".to_string(), String::new())
 }
 
-pub(crate) fn release_quality_completion_status(
-    release_gate: &ReleaseGateSummary,
+pub(crate) fn release_quality_from_gate_status(
+    release_gate_status: &str,
     final_acceptance_status: &str,
 ) -> &'static str {
-    match release_gate.status.as_str() {
+    match release_gate_status {
         "pass" | "not_applicable" => "release_ready",
         "partial" => "partial",
         "failed" => "failed",
@@ -263,11 +212,11 @@ pub(crate) fn release_quality_completion_status(
     }
 }
 
-pub(crate) fn release_gate_next_action(
-    release_gate: &ReleaseGateSummary,
+pub(crate) fn next_action_from_gate_status(
+    release_gate_status: &str,
     final_acceptance_status: &str,
 ) -> &'static str {
-    match release_gate.status.as_str() {
+    match release_gate_status {
         "partial" => "collect_missing_release_evidence_or_continue_release_recovery",
         "failed" => "repair_release_gate_failure",
         _ if final_acceptance_status == "partial" => "collect_missing_final_acceptance_evidence",
@@ -275,19 +224,19 @@ pub(crate) fn release_gate_next_action(
     }
 }
 
-pub(crate) fn release_recovery_needed(
-    release_gate: &ReleaseGateSummary,
+pub(crate) fn recovery_needed_for_gate_status(
+    release_gate_status: &str,
     final_acceptance_status: &str,
 ) -> bool {
-    matches!(release_gate.status.as_str(), "partial" | "failed")
+    matches!(release_gate_status, "partial" | "failed")
         || matches!(final_acceptance_status, "partial" | "failed" | "incomplete")
 }
 
-pub(crate) fn release_recovery_acceptance_layer(
-    release_gate: &ReleaseGateSummary,
+pub(crate) fn recovery_acceptance_layer_for_gate_status(
+    release_gate_status: &str,
     final_acceptance_status: &str,
 ) -> &'static str {
-    match release_gate.status.as_str() {
+    match release_gate_status {
         "partial" | "failed" => "release_gate",
         _ if final_acceptance_status == "partial" => "final_acceptance_partial",
         _ => "final_acceptance",

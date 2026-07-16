@@ -107,3 +107,78 @@ pub(crate) fn evaluate_requirements(
         primary_reason,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn declared_requirements_keep_pass_failed_and_unverified_outcomes() {
+        let evaluation = evaluate_requirements(
+            &["browser_interaction".to_string()],
+            &["build_oracle".to_string(), "interaction_probe".to_string()],
+            &["implementation".to_string()],
+            &[],
+            &["build_oracle".to_string()],
+            &[],
+            &["interaction_probe:unverified:probe_unavailable".to_string()],
+            &[],
+            &[],
+            false,
+        );
+
+        assert_eq!(
+            evaluation.outcomes,
+            vec![
+                RequirementOutcome {
+                    kind: RequirementKind::Capability,
+                    requirement: "browser_interaction".to_string(),
+                    status: RequirementStatus::Pass,
+                },
+                RequirementOutcome {
+                    kind: RequirementKind::Evidence,
+                    requirement: "build_oracle".to_string(),
+                    status: RequirementStatus::Failed,
+                },
+                RequirementOutcome {
+                    kind: RequirementKind::Evidence,
+                    requirement: "interaction_probe".to_string(),
+                    status: RequirementStatus::Unverified,
+                },
+                RequirementOutcome {
+                    kind: RequirementKind::Obligation,
+                    requirement: "implementation".to_string(),
+                    status: RequirementStatus::Pass,
+                },
+            ]
+        );
+        assert!(!evaluation.passed);
+        assert_eq!(
+            evaluation.primary_reason,
+            "missing_required_evidence:build_oracle"
+        );
+    }
+
+    #[test]
+    fn requirement_aggregation_preserves_primary_reason_precedence() {
+        let evaluation = evaluate_requirements(
+            &[],
+            &[],
+            &[],
+            &["capability".to_string()],
+            &["evidence".to_string()],
+            &["obligation".to_string()],
+            &[],
+            &["probe unavailable".to_string()],
+            &["weak source".to_string()],
+            true,
+        );
+
+        assert!(!evaluation.passed);
+        assert!(evaluation.inconclusive);
+        assert_eq!(
+            evaluation.primary_reason,
+            "missing_required_capabilities:capability"
+        );
+    }
+}

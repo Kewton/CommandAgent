@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 
 use crate::planner::adjudication::{
-    next_action, projected_assurance, release_quality_completion, task_status, terminal_status,
+    GateObservation, next_action, projected_assurance, release_quality_completion, task_status,
+    terminal_status,
 };
 
 const SNIPPET_LIMIT: usize = 500;
@@ -857,6 +858,22 @@ fn projected_assurance_from_snapshot(
     final_acceptance: &str,
 ) -> (String, String) {
     let effective_profile = snapshot_effective_profile(snapshot);
+    let gate_observations = [
+        GateObservation {
+            reason_key: "browser_readiness",
+            status_key: "browser_readiness_status",
+            applicable: snapshot.browser_readiness_applicable,
+            observed_status: &snapshot.browser_readiness_status,
+            execution_status: &snapshot.browser_readiness_execution_status,
+        },
+        GateObservation {
+            reason_key: "interaction_evidence",
+            status_key: "interaction_evidence_status",
+            applicable: snapshot.interaction_evidence_applicable,
+            observed_status: &snapshot.interaction_evidence_status,
+            execution_status: &snapshot.interaction_evidence_execution_status,
+        },
+    ];
     projected_assurance(
         &snapshot.assurance_level,
         &snapshot.assurance_reason,
@@ -866,10 +883,7 @@ fn projected_assurance_from_snapshot(
         &snapshot.release_gate_reasons,
         snapshot.completion_contract_verification_enabled,
         snapshot.external_contract_checked,
-        snapshot.browser_readiness_applicable,
-        &snapshot.browser_readiness_execution_status,
-        snapshot.interaction_evidence_applicable,
-        &snapshot.interaction_evidence_execution_status,
+        &gate_observations,
     )
 }
 

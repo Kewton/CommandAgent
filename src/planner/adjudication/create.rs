@@ -1,8 +1,140 @@
 use super::*;
 use crate::planner::adjudication::{
-    AcceptanceGateTelemetry, ReleaseGateSummary, append_release_gate_observations, dedup_strings,
-    gate_execution_status,
+    GateObservation, append_gate_observation, dedup_strings, disconnected_gate_observations_reason,
+    execution_status_from_observed, profile_behavior_failure_reasons,
 };
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct ReleaseGateSummary {
+    pub(super) status: String,
+    pub(super) reasons: Vec<String>,
+    pub(super) browser_readiness_status: String,
+    pub(super) browser_readiness_evidence_path: String,
+    pub(super) interaction_evidence_status: String,
+    pub(super) interaction_evidence_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct AcceptanceGateTelemetry {
+    pub(super) browser_readiness_applicable: bool,
+    pub(super) browser_readiness_execution_status: String,
+    pub(super) interaction_evidence_applicable: bool,
+    pub(super) interaction_evidence_execution_status: String,
+}
+
+pub(super) fn gate_execution_status(status: &str) -> String {
+    execution_status_from_observed(status, &["interaction_verified_heuristic_only"])
+}
+
+pub(super) fn gate_observations<'a>(
+    telemetry: &'a AcceptanceGateTelemetry,
+    release_gate: &'a ReleaseGateSummary,
+) -> [GateObservation<'a>; 2] {
+    [
+        GateObservation {
+            reason_key: "browser_readiness",
+            status_key: "browser_readiness_status",
+            applicable: telemetry.browser_readiness_applicable,
+            observed_status: &release_gate.browser_readiness_status,
+            execution_status: &telemetry.browser_readiness_execution_status,
+        },
+        GateObservation {
+            reason_key: "interaction_evidence",
+            status_key: "interaction_evidence_status",
+            applicable: telemetry.interaction_evidence_applicable,
+            observed_status: &release_gate.interaction_evidence_status,
+            execution_status: &telemetry.interaction_evidence_execution_status,
+        },
+    ]
+}
+
+pub(super) fn acceptance_gates_disconnected_reason(
+    telemetry: &AcceptanceGateTelemetry,
+    release_gate: &ReleaseGateSummary,
+) -> Option<String> {
+    disconnected_gate_observations_reason(&gate_observations(telemetry, release_gate))
+}
+
+pub(super) fn mark_release_gate_profile_behavior_failed(
+    release_gate: &mut ReleaseGateSummary,
+    profile_behavior_probe: &ProfileBehaviorProbeReport,
+) {
+    release_gate.status = "failed".to_string();
+    release_gate.reasons = profile_behavior_failure_reasons(
+        &release_gate.reasons,
+        &profile_behavior_probe.reasons,
+        profile_behavior_probe.evidence_path.as_deref(),
+    );
+}
+
+pub(super) fn release_gate_final_acceptance_status(
+    release_gate: &ReleaseGateSummary,
+) -> &'static str {
+    crate::planner::adjudication::final_acceptance_status_from_release_gate(&release_gate.status)
+}
+
+pub(super) fn release_quality_completion_status(
+    release_gate: &ReleaseGateSummary,
+    final_acceptance_status: &str,
+) -> &'static str {
+    crate::planner::adjudication::release_quality_from_gate_status(
+        &release_gate.status,
+        final_acceptance_status,
+    )
+}
+
+pub(super) fn release_gate_next_action(
+    release_gate: &ReleaseGateSummary,
+    final_acceptance_status: &str,
+) -> &'static str {
+    crate::planner::adjudication::next_action_from_gate_status(
+        &release_gate.status,
+        final_acceptance_status,
+    )
+}
+
+pub(super) fn release_recovery_needed(
+    release_gate: &ReleaseGateSummary,
+    final_acceptance_status: &str,
+) -> bool {
+    crate::planner::adjudication::recovery_needed_for_gate_status(
+        &release_gate.status,
+        final_acceptance_status,
+    )
+}
+
+pub(super) fn release_recovery_acceptance_layer(
+    release_gate: &ReleaseGateSummary,
+    final_acceptance_status: &str,
+) -> &'static str {
+    crate::planner::adjudication::recovery_acceptance_layer_for_gate_status(
+        &release_gate.status,
+        final_acceptance_status,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn earned_assurance_from_release_gate(
+    profile: &str,
+    base_level: &str,
+    base_reason: &str,
+    contract_bound: bool,
+    final_acceptance_status: &str,
+    release_gate: &ReleaseGateSummary,
+    gate_telemetry: &AcceptanceGateTelemetry,
+) -> (String, String) {
+    crate::planner::adjudication::earned_assurance_from_base(
+        profile,
+        base_level,
+        base_reason,
+        contract_bound,
+        final_acceptance_status,
+        &release_gate.status,
+        &release_gate.reasons,
+        &gate_observations(gate_telemetry, release_gate),
+    )
+}
+
 pub(super) fn completion_contract_required(
     profile: &str,
     goal: &str,
@@ -1271,7 +1403,23 @@ pub(super) fn append_release_gate_observation_failures(
     } else {
         Vec::new()
     };
-    append_release_gate_observations(report, release_gate, browser_compile_errors);
+    append_gate_observation(
+        report,
+        "browser readiness status",
+        "browser readiness evidence",
+        &release_gate.browser_readiness_status,
+        &release_gate.browser_readiness_evidence_path,
+    );
+    if !release_gate.browser_readiness_evidence_path.is_empty() {
+        report.push_compile_errors("browser readiness build verifier", browser_compile_errors);
+    }
+    append_gate_observation(
+        report,
+        "interaction evidence status",
+        "interaction evidence path",
+        &release_gate.interaction_evidence_status,
+        &release_gate.interaction_evidence_path,
+    );
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
