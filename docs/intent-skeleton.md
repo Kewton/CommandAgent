@@ -492,3 +492,119 @@ D-0b の `RequirementOutcome` は `kind`、requirement ID、現行互換 status 
 | **合計** | **2,749** | **2,661** | **88** |
 
 `src/planner/final_acceptance.rs` は D-0b 開始時の 2,931 行から 2,209 行へ **722 行削減**した。guardrail baseline も 2,942 / 2,937 production から 2,209 / 2,204 production へ引き下げた。`assurance.rs` の baseline も 1,311 行から、[要裁定] seed だけを残す 63 行へ引き下げた。既存 baseline を増やした箇所はない。
+
+## 8. D-1 fix intent v0 実施結果（2026-07-16）
+
+### 8.1 契約の封緘と registry
+
+規範文書を [`fix-intent-contract.md`](fix-intent-contract.md) v0 として実装前に
+fixed とした。`adjudication/contract.rs` の registry は、従来 create 経路を
+`create/current` adapter として保持したまま `fix/v0` を追加し、次の3要求と
+4つの plan role を宣言する。
+
+| fix requirement | stage | expected polarity | execution / correlation | plan role |
+|---|---|---|---|---|
+| `before_fails` | `before` | `failure` | `must_execute`、lineage必須 | `reproducer_before` |
+| `after_passes` | `after` | `success` | `must_execute`、`before_fails`と同一lineage、より新しいepoch | `reproducer_after` |
+| `no_regression` | `after` | `success` | profileがrun開始時に束縛した全件を`must_execute` | `regression` |
+
+`repair` role は `before_fails` 成立後だけに置く。`FixRuntime::for_plan` は文字列の
+独自分岐ではなくこの registry を解決し、unknown intent の従来挙動は変更しない。
+
+### 8.2 実行順序と evidence provenance
+
+実装は `planner/fix_runtime.rs` に閉じ、`ultra_plan_flow.rs` には初期化、before
+差し込み、fix終端へのdispatchだけを置いた。実行順は次で固定した。
+
+1. run開始時にprofile regression binding集合を凍結し、run IDを発行する。
+2. 第1 phaseのStepPlanは、expected_result=`fail`のverify step 1件、verify
+   command 1件、expected paths 0件だけを受理する。profile scaffold、presetの
+   deterministic template、quality retry、executorを通さず、正規化したRを
+   bounded verifierで直接実行する。
+3. Rが開始時から成功した場合は修正phaseへ進まず、
+   `failed(baseline_not_reproduced)`で停止する。blocked / timeout / unavailableも
+   未実行成功へ読み替えない。
+4. repair phase群の終了後、保存した同一bindingのRを再実行する。commandの
+   正規化済み本文と安定hashをbinding / lineageとし、after epochがbeforeより
+  新しいことを共通evaluatorで検証する。
+5. F2成功時だけ、凍結済みprofile regression集合を全件実行する。集合の欠落、
+   重複、差し替えは`regression_set_mismatch`等でfailedにする。途中のprofile
+   promotionはfixでは無効にし、run開始時の集合を後から弱いprofileへ替えない。
+
+各観測は `evidence/fix-<run-id>-*.json` に `intent`、contract version/ref、
+requirement ID、binding ID、`stage`、`expected`、`lineage`、run-local `epoch`、
+run ID、`executed`、outcome、reasonを保存する。completion eventにも同じ
+correlation値とevidence path集合を投影するが、create eventの既存key / 値 /
+byte fixtureは変更していない。
+
+### 8.3 profile差し込み
+
+`DomainProfile` に `before_fix_phase`、`fix_regression_bindings`、
+`run_fix_regressions` を追加した。defaultのbefore hookは何も生成しないため、
+baseline前にcreate scaffoldが障害を消すことはない。dataだけは入力保護snapshotを
+読み取り、書き込みはしない。
+
+| profile | 凍結するF3集合 | adapter |
+|---|---|---|
+| Next.js | `profile_contract`、`profile_verify_1` (`npm run build`) | 既存final profile verifier＋bounded verify command |
+| data | `pipeline_probe`、`data_reconciliation`、`data_claims_binding`、`data_rerun_consistency`、`data_results_schema` | manifest解決済みruntime checks。inspection checkは現行契約どおりfinal-boundではない |
+| Python CLI | `profile_contract`、`profile_verify_1` (`python -m compileall -q src`) | 既存final profile verifier＋bounded verify command。現行はmanifest未admissionのためraw fullもterminal assuranceはstatic上限 |
+| generic / 未登録 | `profile_contract` | no-op passとして数えず`unavailable`。F1 / F2成立時はpartial、未登録profileはさらにadmission capでstatic |
+
+profileはcheckの具体実装とbindingを供給するが、F1〜F3のtier式、lineage、epoch、
+集合一致条件は変更できない。
+
+### 8.4 assuranceと正直終端
+
+`adjudication/fix.rs::evaluate_fix_evidence` が唯一のfix tier authorityである。
+F1〜F3全成立をfull、F1 / F2成立かつF3にinconclusive / unavailableが残る場合を
+partial、修正済みだがF系実行ゼロをstatic、F2失敗・実行済み回帰失敗・
+baseline非再現をfailedへ写像する。修正の設計品質を示すfieldやtierは持たない。
+
+fixの `ultra_final_acceptance` は `contract_origin=fix_intent_v0` とし、
+`completion_metadata` のcreate/profile seedがfixで獲得したtierを再解釈しない。
+ただし共通のprofile admission capは従来と同じfinal acceptance eventとterminal
+projectionの2箇所で適用する。rawのfix契約tierはeventの`verdict`に保持し、cap後の
+値を`assurance_level`へ投影する。
+data create evidenceからfix assuranceを再導出する経路もfix originでは停止する。
+repair phaseのplanner / executor / profile checkが早期returnした場合も、runtimeの
+終端guardが保存済みF1から`failed(after_not_executed)`を投影する。baseline前の
+中断は`failed(before_not_executed)`とし、途中失敗をcreate由来のtierへ落とさない。
+
+### 8.5 機械的検証と互換境界
+
+- `tests/fix_intent_conformance.rs` は開始時成功、Rのlineageすり替え、回帰集合縮小、
+  回帰binding改変、stale after epoch、未実行provenanceの6ネガティブに、F2失敗・
+  実行済み回帰失敗のfailed写像とevidence schemaを加えた9ケースを固定する。
+- runtime unit / UltraPlan flow testは、beforeでexecutorが呼ばれず、失敗観測後の
+  repairだけが実行され、同じRのafterとprofile regression後にのみfullになること、
+  およびbaseline非再現でrepair前停止することを実行で確認する。
+- `test0716_d1_fix_intent_contract` corpusはfullと
+  `baseline_not_reproduced`のevent / evidence語彙を固定する。
+- D-0bのNext.js 3件＋data 3件の`adjudication_compat` byte fixtureは6/6一致を維持し、
+  create promptへのfix guidance混入もunit testで拒否する。
+- `generality_guardrails` はcontract / fix evaluator / fix runtimeの行数予算と、
+  skeletonがcreate private adapterへ逆依存しない境界を追加で固定する。
+
+D-0aで保留したgeneric `reduced`のcreate意味論、requirement inferenceとscannerの
+混在、run inventory、unknown intentは変更していない。completion metadata dispatchは
+fix originの上書き禁止だけをD-1の契約要件として追加し、create側の既存dispatch値は
+byte互換のまま残した。v0の意味を変える将来変更は、台帳に明示した契約改訂としてのみ
+行う。
+
+### 8.6 行数予算
+
+新しいleaf moduleはD-1完了時の物理行数とproduction / `cfg(test)`分類を
+`generality_guardrails`に固定した。
+
+| module | total | production | test / cfg(test) |
+|---|---:|---:|---:|
+| `adjudication/contract.rs` | 279 | 246 | 33 |
+| `adjudication/fix.rs` | 521 | 351 | 170 |
+| `planner/fix_runtime.rs` | 919 | 650 | 269 |
+| **合計** | **1,719** | **1,247** | **472** |
+
+既存chokepoint baselineは引き上げていない。`ultra_plan_flow.rs`は1,601行で既存
+baseline 1,570の2%許容上限1,602以内、`runner.rs`も既存baseline未満に留めた。
+`ultra_plan_flow.rs`の差分はruntime生成、before dispatch、fix終端dispatchの最小
+wiringであり、tier式とprobe実装はleaf側に置いた。
