@@ -9476,11 +9476,17 @@ fn ultra_phase_prompt(
         PromptLayout::Stable => ultra_phase_prompt_stable(plan, phase, config, context),
         PromptLayout::Legacy => ultra_phase_prompt_legacy(plan, phase, config, context),
     };
-    crate::planner::fix_runtime::phase_prompt(
+    let prompt = crate::planner::fix_runtime::phase_prompt(
         plan,
         phase,
         prompt,
         config.intent_override == Some(IntentId::Fix),
+    );
+    crate::planner::fix_reproducer::attach_to_phase_prompt(
+        plan,
+        phase,
+        config.eval_events_path.as_deref(),
+        prompt,
     )
 }
 

@@ -2,6 +2,7 @@ pub mod adjudication;
 pub mod capability_catalog;
 pub mod contract_attribute_repair;
 pub(crate) mod final_acceptance_contract;
+pub(crate) mod fix_reproducer;
 pub(crate) mod fix_runtime;
 pub mod hook_attributes;
 pub mod hook_snapshot;

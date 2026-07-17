@@ -1,0 +1,39 @@
+case_id = "test0717_fix2_reproducer_suggestion"
+source = "uat-test0717-fix-002 Run 3/4 reproducer relevance failures"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["fix_reproducer_suggested", "hook_attribute_present", "src/app/page.tsx"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/fix-reproducer-suggested.jsonl = [
+  "\"event\":\"fix_reproducer_suggested\"",
+  "\"basis\":\"goal_contract_attribute:data-anvil-action=restart\"",
+  "profile_catalog:hook_attribute_present",
+  "attribute=action,value=restart,path=src/app/page.tsx",
+  "node -p"
+]
+
+[fixture_ordered]
+fixtures/fix-reproducer-suggested.jsonl = [
+  "\"event\":\"run_start\"",
+  "\"event\":\"fix_reproducer_suggested\"",
+  "\"event\":\"fix_evidence_recorded\"",
+  "\"event\":\"run_stop\""
+]
