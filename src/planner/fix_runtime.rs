@@ -24,6 +24,7 @@ use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
 mod evidence;
 use evidence::*;
 mod data_isolate;
+mod data_role;
 #[cfg(test)]
 mod fix6_tests;
 
@@ -48,6 +49,7 @@ pub(crate) struct FixRuntime {
     regressions: Vec<FixEvidenceObservation>,
     contract_predicate: Option<crate::planner::fix_contract_predicate::FixContractPredicateContext>,
     diagnostic: Option<crate::planner::fix_diagnostics::FixFailureDiagnostic>,
+    data_role_policy: data_role::DataRolePolicy,
     epoch: u64,
     fix_written: bool,
     terminalized: bool,
@@ -111,19 +113,19 @@ pub(crate) fn is_before_prompt(prompt: &str) -> bool {
 }
 
 pub(crate) fn bind_step_plan(
-    runtime: Option<&FixRuntime>,
+    runtime: Option<&mut FixRuntime>,
     phase: &UltraPhase,
     plan: &mut StepPlan,
 ) {
-    data_isolate::bind_step_plan(runtime, phase, plan);
-    crate::planner::fix_diagnostics::bind_step_plan(
-        phase,
-        runtime.and_then(FixRuntime::repair_diagnostic),
-        plan,
-    );
+    let Some(runtime) = runtime else {
+        return;
+    };
+    data_isolate::bind_step_plan(Some(&*runtime), phase, plan);
+    data_role::bind_step_plan(runtime, phase, plan);
+    crate::planner::fix_diagnostics::bind_step_plan(phase, runtime.repair_diagnostic(), plan);
     crate::planner::fix_contract_predicate::bind_step_plan(
         phase,
-        runtime.and_then(FixRuntime::contract_predicate),
+        runtime.contract_predicate(),
         plan,
     );
 }
@@ -133,7 +135,8 @@ pub(crate) fn attach_phase_policy_prompt(
     phase: &UltraPhase,
     prompt: String,
 ) -> String {
-    data_isolate::attach_to_phase_prompt(runtime, phase, prompt)
+    let prompt = data_isolate::attach_to_phase_prompt(runtime, phase, prompt);
+    data_role::attach_to_phase_prompt(runtime, phase, prompt)
 }
 
 impl FixRuntime {
@@ -157,6 +160,7 @@ impl FixRuntime {
             regressions: Vec::new(),
             contract_predicate: None,
             diagnostic: None,
+            data_role_policy: data_role::DataRolePolicy::for_plan(plan),
             epoch: 0,
             fix_written: false,
             terminalized: false,

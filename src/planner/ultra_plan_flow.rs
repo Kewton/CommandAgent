@@ -311,7 +311,7 @@ pub fn run_ultra_plan_with_ui(
                 render_failure_stop_reason(format!("phase scaffold failed: {message}"), handoff,)
             )
         })?;
-        crate::planner::fix_runtime::bind_step_plan(fix_runtime.as_ref(), phase, &mut step_plan);
+        crate::planner::fix_runtime::bind_step_plan(fix_runtime.as_mut(), phase, &mut step_plan);
         emit_ultra_phase_event(
             config,
             "ultra_phase_scaffold_complete",

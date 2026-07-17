@@ -1,0 +1,34 @@
+{
+  "goal": "Isolate the cause of the reproduced pipeline TypeError.",
+  "steps": [
+    {
+      "id": "inspect-source",
+      "kind": "inspect",
+      "expected_result": "pass",
+      "instruction": "Read pipeline/main.py around line 164 to identify the exact list.append TypeError.",
+      "expected_paths": [],
+      "verify": []
+    },
+    {
+      "id": "fix-append-error",
+      "kind": "implement",
+      "expected_result": "pass",
+      "instruction": "Fix the TypeError in pipeline/main.py at line 164 and preserve the data contract.",
+      "expected_paths": ["pipeline/main.py"],
+      "verify": []
+    },
+    {
+      "id": "verify-pipeline-run",
+      "kind": "verify",
+      "expected_result": "pass",
+      "instruction": "Run the deterministic pipeline and required artifact checks.",
+      "expected_paths": [],
+      "verify": [
+        "python3 -B pipeline/main.py",
+        "test -f output/inspection.json",
+        "test -f output/results.json",
+        "test -f output/report.md"
+      ]
+    }
+  ]
+}

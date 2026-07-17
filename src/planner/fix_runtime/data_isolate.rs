@@ -91,7 +91,9 @@ pub(super) fn bind_for_workspace(
             id: "inspect-f1-existing-subject".to_string(),
             kind: "inspect".to_string(),
             expected_result: "pass".to_string(),
-            instruction: "Inspect the executed F1 failure evidence and its existing subject files without modifying the workspace.".to_string(),
+            instruction:
+                "Read only the executed F1 failure evidence and its existing subject files."
+                    .to_string(),
             expected_paths: Vec::new(),
             verify: Vec::new(),
         });

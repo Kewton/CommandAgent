@@ -1,0 +1,14 @@
+Source: uat-test0717-dfix-002 Run 2 isolate-cause plan.
+
+Before FIX-7b:
+- inspect-source executes in cause-isolation.
+- fix-append-error is an implement step incorrectly embedded in cause-isolation.
+- the read-only cause-isolation executor cannot perform the requested write.
+
+After FIX-7b:
+Data fix phase-role boundary (runtime-bound):
+- inspect-source remains in isolate-cause.
+- fix-append-error moves to repair and remains kind=implement.
+- pipeline/main.py is selected by traceback_mapped through the shared fix target resolver.
+- the moved action executes with write authority in the repair context.
+- in-place reclassification is reserved for non-standard plans with no repair phase.

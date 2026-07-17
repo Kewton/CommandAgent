@@ -1,0 +1,45 @@
+case_id = "test0718_fix7b_data_isolate_roles"
+source = "uat-test0717-dfix-002 pipe Runs 2/3 implement work leaked into read-only isolate-cause"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["isolate-cause", "repair", "traceback_mapped", "write authority"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/run2-isolate-plan.json = [
+  "inspect-source",
+  "fix-append-error",
+  "\"kind\": \"implement\"",
+  "pipeline/main.py"
+]
+fixtures/run2-role-calibration.txt = [
+  "Data fix phase-role boundary (runtime-bound):",
+  "moves to repair and remains kind=implement",
+  "traceback_mapped through the shared fix target resolver",
+  "write authority",
+  "no repair phase"
+]
+
+[fixture_ordered]
+fixtures/run2-role-calibration.txt = [
+  "Before FIX-7b:",
+  "incorrectly embedded in cause-isolation",
+  "After FIX-7b:",
+  "moves to repair"
+]

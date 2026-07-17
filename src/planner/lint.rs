@@ -871,7 +871,7 @@ fn has_nextjs_entrypoint(
     })
 }
 
-fn looks_like_file_change_instruction(instruction: &str) -> bool {
+pub(crate) fn looks_like_file_change_instruction(instruction: &str) -> bool {
     let lower = instruction.to_ascii_lowercase();
     lower.contains("write")
         || lower.contains("edit")
