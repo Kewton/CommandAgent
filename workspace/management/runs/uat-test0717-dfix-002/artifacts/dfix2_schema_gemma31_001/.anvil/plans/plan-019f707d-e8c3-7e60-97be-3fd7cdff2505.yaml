@@ -1,0 +1,42 @@
+goal: "Original ultra goal: output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。\nProfile: data\nStyle: default\nIntent: fix\nPhase id: isolate-cause\nPhase task: Isolate the cause of the reproduced failure without modifying the workspace for: output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。\n\nWorkspace snapshot:\n- data\n- evidence\n- output\n- pipeline\n- uat-console.log\n\nPrior ultra context:\n- Pending final artifacts:\n  - output/inspection.json\n\nUnmet final requirements from earlier phases:\n- none\n\nRequested features not yet detected:\n- any\n- apply\n- before\n- behavior\n- bind\n- bound\n- … and 21 more\n\nProfile generation rules:\nThe pipeline must be deterministic: use a fixed seed whenever randomness is unavoidable, do not depend on execution time, and keep iteration and output ordering stable. Derive validation rules only from output/inspection.json observations and never invent unobserved value sets. This is class knowledge required by docs/data-profile-contract.md section 8.\nProfile runtime contract:\n- Generate pipeline/main.py, output/inspection.json, output/results.json, and required output/report.md; output/report.html is optional in addition.\n- Write output/results.json exactly as {\"reconciliation\":{\"input_rows\":N,\"used_rows\":N,\"excluded\":[{\"reason\":\"...\",\"rows\":N}]},\"values\":{\"<claim_key>\":number}} and store every numeric report claim under values.\n- input_rows must equal used_rows plus the sum of excluded rows.\n- A rerun must reproduce the complete output/results.json document exactly; time, random state, and unstable iteration order may not change results.Deterministic verification preference:\n- none\n\n\nRequired final artifacts:\n- pipeline/main.py\n- output/inspection.json\n- output/results.json\n- output/report.md\n\nRequired final capabilities:\n- data_reconciliation\n- data_claims_binding\n- data_rerun_consistency\n- data_results_schema\n\nFix contract phase role: cause_isolation. Inspect and narrow the cause of the observed failure without writing, editing, setting up, installing, or repairing."
+steps:
+  - id: "inspect-current-state"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read output/results.json, pipeline/main.py, and uat-console.log to assess the current pipeline output, error logs, and existing code structure."
+    expected_paths:
+    verify:
+  - id: "inspect-schema-contract"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read docs/data-profile-contract.md if present to understand the exact schema requirements, or rely on the goal description for the required structure."
+    expected_paths:
+    verify:
+  - id: "verify-top-level-keys"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Check if output/results.json contains the required top-level keys reconciliation and values."
+    expected_paths:
+    verify:
+      - "python -c \"import json,sys;d=json.load(open('output/results.json'));sys.exit(0 if 'reconciliation' in d and 'values' in d else 1)\""
+  - id: "verify-reconciliation-structure"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Check if the reconciliation object contains input_rows, used_rows, and an excluded list."
+    expected_paths:
+    verify:
+      - "python -c \"import json,sys;d=json.load(open('output/results.json'));r=d.get('reconciliation',{});sys.exit(0 if isinstance(r.get('excluded'),list) and 'input_rows' in r and 'used_rows' in r else 1)\""
+  - id: "verify-values-structure"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Check if the values object contains only numeric claim values."
+    expected_paths:
+    verify:
+      - "python -c \"import json,sys;d=json.load(open('output/results.json'));v=d.get('values',{});sys.exit(0 if all(isinstance(val,(int,float)) for val in v.values()) else 1)\""
+  - id: "verify-reconciliation-math"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Verify that input_rows equals used_rows plus the sum of excluded rows."
+    expected_paths:
+    verify:
+      - "python -c \"import json,sys;d=json.load(open('output/results.json'));r=d.get('reconciliation',{});exp=r.get('used_rows',0)+sum(e.get('rows',0) for e in r.get('excluded',[]));sys.exit(0 if r.get('input_rows',0)==exp else 1)\""

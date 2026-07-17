@@ -1,0 +1,127 @@
+{
+  "campaign": "uat-test0717-dfix-002",
+  "intent_resolved": {
+    "expected": {"value": "fix", "origin": "cli", "source": "fix"},
+    "matching_runs": 6,
+    "total_runs": 6,
+    "exactly_once_per_run": true
+  },
+  "fix6a": {
+    "pipe": {
+      "suggestion_runs": 3,
+      "total_runs": 3,
+      "basis_counts": {
+        "goal_failure_kind:pipeline_execution": 3,
+        "goal_path_mention": 0
+      },
+      "suggestion": "profile_catalog:pipeline_probe(entry=pipeline/main.py) => python3 -B pipeline/main.py",
+      "exact_adoption_runs": 3,
+      "semantic_adoption_runs": 3,
+      "note": "The live goal matches both calibrated failure wording and the canonical path; failure-kind vocabulary has deterministic precedence over goal_path_mention."
+    },
+    "schema": {
+      "suggestion_runs": 3,
+      "total_runs": 3,
+      "basis": "goal_profile_contract:data_results_schema",
+      "suggestion": "profile_catalog:data_results_schema => anvil-catalog-check:data_results_schema",
+      "exact_adoption_runs": 0,
+      "semantic_adoption_runs": 3,
+      "note": "All model-built assertions read output/results.json and failed on the named schema keys."
+    },
+    "all_suggestions": "6/6",
+    "all_semantically_relevant_reproducers": "6/6"
+  },
+  "fix6b": {
+    "reproducer_defect_events": 0,
+    "before_attempt_evidence_files": 0,
+    "reconstruction_prompts": 0,
+    "status": "not_exercised",
+    "observation": "No generated R failed before evaluating its subject. The escaped-newline SyntaxError seen in dfix-001 Run 6 did not recur."
+  },
+  "shared_f3_binding": {
+    "matching_runs": 6,
+    "total_runs": 6,
+    "shrink_count": 0,
+    "bound_regression_ids": [
+      "pipeline_probe",
+      "data_reconciliation",
+      "data_claims_binding",
+      "data_rerun_consistency",
+      "data_results_schema"
+    ],
+    "bound_regression_lineages": {
+      "pipeline_probe": "regression:539f12e6adea8590",
+      "data_reconciliation": "regression:aad7a27c9f14260b",
+      "data_claims_binding": "regression:5ee07e4968be4199",
+      "data_rerun_consistency": "regression:09f9be875c51316d",
+      "data_results_schema": "regression:292fa5e5cb8065da"
+    }
+  },
+  "runs": [
+    {
+      "name": "dfix2_pipe_qwen35_001",
+      "f1": {"status": "passed", "stage": "before", "expected": "failure", "executed": true, "epoch": 1, "binding_id": "python3 -B pipeline/main.py", "outcome": "failure", "symptom": "ValueError at pipeline/main.py:53"},
+      "f2": {"status": "not_executed", "evidence": null},
+      "f3": {"status": "not_executed", "bound_count": 5, "executed_count": 0, "shrunken": false},
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed"
+    },
+    {
+      "name": "dfix2_pipe_gemma31_001",
+      "f1": {"status": "passed", "stage": "before", "expected": "failure", "executed": true, "epoch": 1, "binding_id": "python3 -B pipeline/main.py", "outcome": "failure", "symptom": "TypeError at pipeline/main.py:164"},
+      "f2": {"status": "not_executed", "evidence": null},
+      "f3": {"status": "not_executed", "bound_count": 5, "executed_count": 0, "shrunken": false},
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed"
+    },
+    {
+      "name": "dfix2_pipe_qwen35_002",
+      "f1": {"status": "passed", "stage": "before", "expected": "failure", "executed": true, "epoch": 1, "binding_id": "python3 -B pipeline/main.py", "outcome": "failure", "symptom": "TypeError at pipeline/main.py:164"},
+      "f2": {"status": "not_executed", "evidence": null},
+      "f3": {"status": "not_executed", "bound_count": 5, "executed_count": 0, "shrunken": false},
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed"
+    },
+    {
+      "name": "dfix2_schema_qwen35_001",
+      "f1": {"status": "passed", "stage": "before", "expected": "failure", "executed": true, "epoch": 1, "binding_id": "python -c schema assertion", "outcome": "failure", "symptom": "AssertionError after reading output/results.json"},
+      "f2": {"status": "not_executed", "evidence": null},
+      "f3": {"status": "not_executed", "bound_count": 5, "executed_count": 0, "shrunken": false},
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed"
+    },
+    {
+      "name": "dfix2_schema_gemma31_001",
+      "f1": {"status": "passed", "stage": "before", "expected": "failure", "executed": true, "epoch": 1, "binding_id": "python -c schema assertion", "outcome": "failure", "symptom": "AssertionError after reading output/results.json"},
+      "f2": {"status": "not_executed", "evidence": null},
+      "f3": {"status": "not_executed", "bound_count": 5, "executed_count": 0, "shrunken": false},
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed"
+    },
+    {
+      "name": "dfix2_schema_qwen35_002",
+      "f1": {"status": "passed", "stage": "before", "expected": "failure", "executed": true, "epoch": 1, "binding_id": "python -c schema assertion", "outcome": "failure", "symptom": "AssertionError after reading output/results.json"},
+      "f2": {"status": "not_executed", "evidence": null},
+      "f3": {"status": "not_executed", "bound_count": 5, "executed_count": 0, "shrunken": false},
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed"
+    }
+  ],
+  "spoof_resistance": {
+    "baseline_not_reproduced": 0,
+    "lineage_mismatch": "not_exercised",
+    "regression_shrink_rejection": "not_exercised; no shrink attempt occurred",
+    "epoch_reversal": "not_exercised",
+    "false_full": 0
+  },
+  "host_environment": {
+    "host_env_contamination_node_env_production": "6/6",
+    "host_env_normalized_unset_inherited": "6/6"
+  }
+}
