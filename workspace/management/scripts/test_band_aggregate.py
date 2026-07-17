@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Focused regression tests for the data capability-band aggregator."""
+"""Focused regression tests for the intent-aware capability-band aggregator."""
 
 from __future__ import annotations
 
@@ -33,6 +33,7 @@ def data_record(
         failure_class="test_failure",
         duration_seconds=10,
         source="test",
+        intent="create",
         evidence_dir=evidence_dir,
     )
 
@@ -156,6 +157,161 @@ class DataFamilyBandTests(unittest.TestCase):
             "10s | A |",
             summary,
         )
+
+
+class IntentAxisTests(unittest.TestCase):
+    def test_intent_resolution_precedence_and_legacy_default(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            events = Path(directory) / "events.jsonl"
+            events.write_text(
+                '{"event":"intent_resolved","value":"fix"}\n',
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                band.resolve_intent(
+                    metadata={"intent_resolved": {"value": "create"}},
+                    row={},
+                    events_path=events,
+                    legacy_create=False,
+                ),
+                band.IntentResolution("create", "uat-meta"),
+            )
+            self.assertEqual(
+                band.resolve_intent(
+                    metadata=None,
+                    row={},
+                    events_path=events,
+                    legacy_create=False,
+                ),
+                band.IntentResolution("fix", "events"),
+            )
+            self.assertEqual(
+                band.resolve_intent(
+                    metadata=None,
+                    row={},
+                    events_path=None,
+                    legacy_create=True,
+                ),
+                band.IntentResolution("create", "legacy-default"),
+            )
+            self.assertEqual(
+                band.resolve_intent(
+                    metadata=None,
+                    row={},
+                    events_path=None,
+                    legacy_create=False,
+                ),
+                band.IntentResolution("unknown", "unresolved"),
+            )
+
+    def test_conflicting_event_intents_stay_unknown(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            events = Path(directory) / "events.jsonl"
+            events.write_text(
+                '{"event":"intent_resolved","value":"create"}\n'
+                '{"event":"intent_resolved","value":"fix"}\n',
+                encoding="utf-8",
+            )
+            self.assertEqual(band.event_intent(events), (True, "unknown"))
+
+    def test_historical_data_rows_resolve_as_create(self) -> None:
+        records, scanned_rows, _meta_rows, _sets = band.discover_data_records()
+        self.assertEqual(len(records), scanned_rows)
+        self.assertTrue(records)
+        self.assertEqual({record.intent for record in records}, {"create"})
+
+
+class FixBandTests(unittest.TestCase):
+    def test_fix_family_classification(self) -> None:
+        self.assertEqual(
+            band.classify_fix_family("fix_compile_001", ""),
+            "compile_error_fix",
+        )
+        self.assertEqual(
+            band.classify_fix_family(
+                "run-001",
+                'data-anvil-action="restart" の契約フックを修正しbuildも確認する',
+            ),
+            "contract_hook_fix",
+        )
+        self.assertEqual(
+            band.classify_fix_family("run-001", "不具合を修正してください"),
+            "unknown",
+        )
+
+    def test_repository_fix_window_and_full_evidence(self) -> None:
+        records, scanned_sets = band.discover_fix_records()
+        self.assertEqual(scanned_sets, list(band.FIX_WINDOW_SETS))
+        self.assertEqual(len(records), 24)
+        self.assertEqual(sum(record.intent == "fix" for record in records), 24)
+        self.assertEqual(sum(bool(record.excluded_reason) for record in records), 2)
+        self.assertEqual(band.assert_full_fix_evidence(records), 1)
+
+        official = [record for record in records if not record.excluded_reason]
+        self.assertEqual(
+            band.fix_rate_rows(official),
+            [
+                [
+                    "fix",
+                    "compile_error_fix",
+                    "gemma4:31b",
+                    "1",
+                    "3",
+                    "4",
+                    "25%",
+                ],
+                [
+                    "fix",
+                    "compile_error_fix",
+                    "qwen3.6:35b-a3b-coding-nvfp4",
+                    "0",
+                    "5",
+                    "5",
+                    "0%",
+                ],
+                [
+                    "fix",
+                    "contract_hook_fix",
+                    "gemma4:31b",
+                    "0",
+                    "7",
+                    "7",
+                    "0%",
+                ],
+                [
+                    "fix",
+                    "contract_hook_fix",
+                    "qwen3.6:35b-a3b-coding-nvfp4",
+                    "0",
+                    "6",
+                    "6",
+                    "0%",
+                ],
+            ],
+        )
+
+    def test_full_fix_row_without_f_evidence_aborts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            record = band.FixRunRecord(
+                set_id="uat-test",
+                run_name="fix_compile",
+                event_run_id="event-run",
+                fix_run_id="fix-run",
+                intent="fix",
+                intent_source="events",
+                goal="build failure",
+                family="compile_error_fix",
+                executor="executor",
+                final_acceptance="full_success",
+                verdict="full",
+                assurance="full",
+                failure_class="",
+                duration_seconds=1,
+                source="test",
+                evidence_dir=Path(directory),
+            )
+            with self.assertRaisesRegex(AssertionError, "missing fix adjudication"):
+                band.assert_full_fix_evidence([record])
 
 
 if __name__ == "__main__":

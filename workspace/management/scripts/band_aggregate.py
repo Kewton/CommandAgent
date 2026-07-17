@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Aggregate local-tier nextjs/create and data/create UAT capability bands.
+"""Aggregate local-tier capability bands across profile and intent axes.
 
 Next.js retains its original aggregate.json/report input path and output bytes.
 Data uses repository-managed uat-meta.json files plus a frozen index for the
-pre-uat-meta campaigns. Generated summaries are written below
-workspace/management/runs/ and printed to stdout.
+pre-uat-meta campaigns. Fix/nextjs uses the four fixed D-1 measurement sets,
+their event streams, and their F1-F3 evidence. Generated summaries are written
+below workspace/management/runs/ and printed to stdout.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[3]
 RUNS_DIR = ROOT / "workspace" / "management" / "runs"
 OUTPUT = RUNS_DIR / "band_summary.md"
 DATA_OUTPUT = RUNS_DIR / "band_summary_data.md"
+FIX_OUTPUT = RUNS_DIR / "band_summary_fix.md"
 WINDOW_START = "uat-test0711-bs-003"
 DATA_PLANNER = "qwen3.6:27b-coding-nvfp4"
 DATA_FIXTURE_SHA256 = "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
@@ -37,6 +39,20 @@ DATA_FAMILY_STABLE_WINDOWS = {
     "aggregation": ("uat-test0715-data-007", "7b177fe"),
     "timeseries": ("uat-test0716-data-009", "2028eb4"),
 }
+FIX_WINDOW_SETS = tuple(f"uat-test0717-fix-{index:03d}" for index in range(1, 5))
+FIX_EXPECTED_RUNS = 24
+FIX_FAMILIES = ("compile_error_fix", "contract_hook_fix", "unknown")
+FIX_ENVIRONMENT_HOLDS = {
+    (
+        "uat-test0717-fix-001",
+        "fix2_hook_qwen35_001",
+    ): "host NODE_ENV=production skipped devDependencies before FIX-1",
+    (
+        "uat-test0717-fix-001",
+        "fix2_hook_qwen35_002",
+    ): "host NODE_ENV=production skipped devDependencies before FIX-1",
+}
+KNOWN_INTENTS = {"create", "fix"}
 
 FINAL_STATES = ("full_success", "partial", "incomplete", "failed")
 PROVISIONAL = {"Quiz": 85, "Breakout": 30, "Space": 7}
@@ -54,6 +70,7 @@ class RunRecord:
     stop_class: str
     elapsed_seconds: int | None
     source: str
+    intent: str
     excluded_reason: str = ""
     false_full_reason: str = ""
     prompt: str = ""
@@ -74,12 +91,56 @@ class DataRunRecord:
     failure_class: str
     duration_seconds: int | None
     source: str
+    intent: str
     excluded_reason: str = ""
     evidence_dir: Path | None = None
 
     @property
     def is_full(self) -> bool:
         return self.final_acceptance == "full_success" and self.assurance == "full"
+
+
+@dataclass(frozen=True)
+class IntentResolution:
+    value: str
+    source: str
+
+
+@dataclass(frozen=True)
+class FixRunRecord:
+    set_id: str
+    run_name: str
+    event_run_id: str
+    fix_run_id: str
+    intent: str
+    intent_source: str
+    goal: str
+    family: str
+    executor: str
+    final_acceptance: str
+    verdict: str
+    assurance: str
+    failure_class: str
+    duration_seconds: int | None
+    source: str
+    evidence_dir: Path
+    excluded_reason: str = ""
+
+    @property
+    def is_full(self) -> bool:
+        return (
+            self.final_acceptance == "full_success"
+            and self.verdict == "full"
+            and self.assurance == "full"
+        )
+
+    @property
+    def claims_full(self) -> bool:
+        return (
+            self.final_acceptance == "full_success"
+            or self.verdict == "full"
+            or self.assurance == "full"
+        )
 
 
 def classify_data_family(goal: str) -> str:
@@ -219,6 +280,92 @@ def nested_value(row: dict[str, Any], key: str, nested_key: str) -> str:
     return ""
 
 
+def explicit_intent(*mappings: dict[str, Any] | None) -> tuple[bool, str]:
+    """Return whether metadata declares an intent and its normalized value."""
+    values: list[str] = []
+    declared = False
+    for mapping in mappings:
+        if not isinstance(mapping, dict):
+            continue
+        for key in ("intent_resolved", "intent"):
+            if key not in mapping:
+                continue
+            declared = True
+            raw = mapping[key]
+            if isinstance(raw, dict):
+                raw = raw.get("value")
+            value = str(raw or "").strip().lower()
+            if value:
+                values.append(value)
+    if not declared:
+        return False, ""
+    unique = set(values)
+    if len(unique) == 1 and next(iter(unique)) in KNOWN_INTENTS:
+        return True, next(iter(unique))
+    return True, "unknown"
+
+
+def event_intent(path: Path | None) -> tuple[bool, str]:
+    """Read the single resolved intent from an event stream."""
+    if path is None or not path.exists():
+        return False, ""
+    values: list[str] = []
+    declared = False
+    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(event, dict) or event.get("event") != "intent_resolved":
+            continue
+        declared = True
+        values.append(str(event.get("value") or "").strip().lower())
+    unique = set(values)
+    if declared and len(values) == 1 and unique <= KNOWN_INTENTS:
+        return True, values[0]
+    if declared:
+        return True, "unknown"
+    return False, ""
+
+
+def resolve_intent(
+    *,
+    metadata: dict[str, Any] | None,
+    row: dict[str, Any] | None,
+    events_path: Path | None,
+    legacy_create: bool,
+) -> IntentResolution:
+    """Resolve metadata first, events second, and only known history as create."""
+    measurement = metadata.get("measurement") if isinstance(metadata, dict) else None
+    declared, value = explicit_intent(
+        row,
+        measurement if isinstance(measurement, dict) else None,
+        metadata,
+    )
+    if declared:
+        return IntentResolution(value, "uat-meta")
+    declared, value = event_intent(events_path)
+    if declared:
+        return IntentResolution(value, "events")
+    if legacy_create:
+        return IntentResolution("create", "legacy-default")
+    return IntentResolution("unknown", "unresolved")
+
+
+def events_path_for_run(
+    set_dir: Path,
+    run_name: str,
+    event_run_id: str = "",
+) -> Path | None:
+    run_root = set_dir / "artifacts" / run_name / ".anvil" / "runs"
+    if event_run_id:
+        direct = run_root / event_run_id / "events.jsonl"
+        if direct.exists():
+            return direct
+    matches = sorted(run_root.glob("*/events.jsonl"))
+    return matches[0] if len(matches) == 1 else None
+
+
 def artifact_dirs(set_dir: Path, row: dict[str, Any], run_id: str) -> list[Path]:
     candidates: list[Path] = []
     artifacts = row.get("artifacts")
@@ -324,6 +471,16 @@ def record_from_row(set_dir: Path, row: dict[str, Any]) -> RunRecord:
     false_full_reason = ""
     if final_state == "full_success" and not has_interaction_pass(set_dir, row, run_id):
         false_full_reason = "missing_browser_interaction_pass_evidence"
+    intent = resolve_intent(
+        metadata=None,
+        row=row,
+        events_path=events_path_for_run(
+            set_dir,
+            run_id,
+            str(row.get("event_run_id") or row.get("run_id") or ""),
+        ),
+        legacy_create=True,
+    )
     return RunRecord(
         set_id=set_id,
         run_id=run_id,
@@ -335,6 +492,7 @@ def record_from_row(set_dir: Path, row: dict[str, Any]) -> RunRecord:
         stop_class=stop_class,
         elapsed_seconds=elapsed_seconds,
         source="aggregate",
+        intent=intent.value,
         excluded_reason=excluded_reason,
         false_full_reason=false_full_reason,
         prompt=prompt,
@@ -390,6 +548,7 @@ def parse_report_only(set_dir: Path) -> list[RunRecord]:
             stop_class=stop_class,
             elapsed_seconds=elapsed,
             source="report",
+            intent="create",
             false_full_reason=false_full,
         )
     ]
@@ -634,6 +793,7 @@ def archived_data_records() -> list[DataRunRecord]:
                 failure_class=failure_class,
                 duration_seconds=duration_seconds,
                 source=source,
+                intent="create",
                 excluded_reason=excluded_reason,
             )
         )
@@ -671,6 +831,7 @@ def data_record_from_meta(
     set_id: str,
     planner: str,
     goal: str,
+    metadata: dict[str, Any],
     row: dict[str, Any],
 ) -> DataRunRecord:
     run_name = str(row.get("name") or row.get("run") or row.get("id") or "unknown")
@@ -694,6 +855,16 @@ def data_record_from_meta(
     duration_seconds = (
         round(float(duration)) if isinstance(duration, (int, float)) else None
     )
+    intent = resolve_intent(
+        metadata=metadata,
+        row=row,
+        events_path=events_path_for_run(
+            set_dir,
+            run_name,
+            str(row.get("run_id") or row.get("event_run_id") or ""),
+        ),
+        legacy_create=True,
+    )
     return DataRunRecord(
         set_id=set_id,
         record_dir=set_dir.name,
@@ -708,6 +879,7 @@ def data_record_from_meta(
         failure_class=failure_class or final_acceptance,
         duration_seconds=duration_seconds,
         source=f"{set_dir.name}/uat-meta.json",
+        intent=intent.value,
         evidence_dir=evidence_dir,
     )
 
@@ -737,7 +909,7 @@ def discover_data_records() -> tuple[list[DataRunRecord], int, int, list[str]]:
         for row in runs:
             assert isinstance(row, dict), f"non-object run in {meta_path}"
             meta_records.append(
-                data_record_from_meta(set_dir, set_id, planner, goal, row)
+                data_record_from_meta(set_dir, set_id, planner, goal, data, row)
             )
             meta_row_count += 1
 
@@ -1170,21 +1342,535 @@ def build_data_summary(
     return "\n".join(lines)
 
 
+def classify_fix_family(run_name: str, goal: str) -> str:
+    """Classify fix families from the recorded run name, then its goal."""
+    run_text = re.sub(r"\s+", "", run_name).lower()
+    goal_text = re.sub(r"\s+", "", goal).lower()
+    compile_tokens = ("compile", "build", "コンパイル", "ビルド")
+    hook_tokens = (
+        "hook",
+        "data-anvil-action",
+        "data-anvil-state",
+        "restart",
+        "リスタート",
+        "契約フック",
+    )
+    if any(token in run_text for token in compile_tokens):
+        return "compile_error_fix"
+    if any(token in run_text for token in hook_tokens):
+        return "contract_hook_fix"
+    # Named contract attributes are more specific than a goal's incidental
+    # request to run a build as regression coverage.
+    if any(token in goal_text for token in hook_tokens):
+        return "contract_hook_fix"
+    if any(token in goal_text for token in compile_tokens):
+        return "compile_error_fix"
+    return "unknown"
+
+
+def discover_fix_records() -> tuple[list[FixRunRecord], list[str]]:
+    records: list[FixRunRecord] = []
+    scanned_sets: list[str] = []
+    for set_id in FIX_WINDOW_SETS:
+        set_dir = RUNS_DIR / set_id
+        matrix_path = set_dir / "artifacts" / "analysis" / "run-matrix.json"
+        assert matrix_path.exists(), f"missing fix run matrix: {matrix_path}"
+        matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
+        assert isinstance(matrix, list), f"fix run matrix is not a list: {matrix_path}"
+        metadata = read_json_dict(set_dir / "uat-meta.json")
+        measurement = metadata.get("measurement") if metadata is not None else None
+        campaign_goal = (
+            str(measurement.get("goal") or "") if isinstance(measurement, dict) else ""
+        )
+        scanned_sets.append(set_id)
+        for row in matrix:
+            assert isinstance(row, dict), f"non-object fix row in {matrix_path}"
+            run_name = str(row.get("run") or row.get("name") or "unknown")
+            event_run_id = str(row.get("event_run_id") or "")
+            fix_run_id = str(row.get("fix_run_id") or "")
+            assert event_run_id, f"missing event run id: {set_id}/{run_name}"
+            assert fix_run_id, f"missing fix run id: {set_id}/{run_name}"
+            events_path = events_path_for_run(set_dir, run_name, event_run_id)
+            intent = resolve_intent(
+                metadata=metadata,
+                row=row,
+                events_path=events_path,
+                legacy_create=False,
+            )
+            goal = str(row.get("goal") or campaign_goal)
+            family = classify_fix_family(run_name, goal)
+            assert family in FIX_FAMILIES
+            reported_family = str(row.get("family") or "")
+            expected_reported_family = {
+                "compile_error_fix": "compile",
+                "contract_hook_fix": "hook",
+            }.get(family)
+            if expected_reported_family is not None and reported_family:
+                assert reported_family == expected_reported_family, (
+                    f"fix family mismatch for {set_id}/{run_name}: "
+                    f"classified={family}, reported={reported_family}"
+                )
+            duration = row.get("time_profile_total_ms")
+            duration_seconds = (
+                round(float(duration) / 1000)
+                if isinstance(duration, (int, float))
+                else None
+            )
+            records.append(
+                FixRunRecord(
+                    set_id=set_id,
+                    run_name=run_name,
+                    event_run_id=event_run_id,
+                    fix_run_id=fix_run_id,
+                    intent=intent.value,
+                    intent_source=intent.source,
+                    goal=goal,
+                    family=family,
+                    executor=str(row.get("model") or row.get("executor") or "unknown"),
+                    final_acceptance=str(
+                        row.get("final_acceptance_status")
+                        or row.get("final_acceptance")
+                        or "failed"
+                    ).lower(),
+                    verdict=str(row.get("verdict") or "failed").lower(),
+                    assurance=str(row.get("assurance") or "failed").lower(),
+                    failure_class=str(row.get("failure_class") or ""),
+                    duration_seconds=duration_seconds,
+                    source=f"{set_id}/artifacts/analysis/run-matrix.json",
+                    evidence_dir=set_dir / "artifacts" / run_name / "evidence",
+                    excluded_reason=FIX_ENVIRONMENT_HOLDS.get((set_id, run_name), ""),
+                )
+            )
+    assert len(records) == FIX_EXPECTED_RUNS, (
+        f"fix output rows {len(records)} != expected {FIX_EXPECTED_RUNS}"
+    )
+    keys = [(record.set_id, record.run_name) for record in records]
+    assert len(keys) == len(set(keys)), "duplicate fix set/run rows discovered"
+    return records, scanned_sets
+
+
+def fix_evidence_path(record: FixRunRecord, suffix: str) -> Path:
+    return record.evidence_dir / f"fix-{record.fix_run_id}-{suffix}.json"
+
+
+def require_fix_probe(
+    record: FixRunRecord,
+    probe: dict[str, Any] | None,
+    *,
+    requirement_id: str,
+    stage: str,
+    expected: str,
+    outcome: str,
+) -> tuple[str, int]:
+    label = f"{record.set_id}/{record.run_name}/{requirement_id}"
+    assert probe is not None, f"missing fix evidence object: {label}"
+    assert probe.get("intent") == "fix", f"wrong evidence intent: {label}"
+    assert probe.get("run_id") == record.fix_run_id, f"wrong evidence run id: {label}"
+    assert probe.get("requirement_id") == requirement_id, (
+        f"wrong requirement id: {label}"
+    )
+    assert probe.get("stage") == stage, f"wrong evidence stage: {label}"
+    assert probe.get("expected") == expected, f"wrong expected polarity: {label}"
+    assert probe.get("executed") is True, f"unexecuted fix evidence: {label}"
+    assert probe.get("outcome") == outcome, f"wrong fix evidence outcome: {label}"
+    lineage = str(probe.get("lineage") or "")
+    epoch = probe.get("epoch")
+    assert lineage, f"missing fix evidence lineage: {label}"
+    assert isinstance(epoch, int), f"missing fix evidence epoch: {label}"
+    return lineage, epoch
+
+
+def assert_full_fix_record_evidence(record: FixRunRecord) -> None:
+    label = f"{record.set_id}/{record.run_name}"
+    assert record.intent == "fix", f"full fix row has wrong intent: {label}"
+    adjudication_path = fix_evidence_path(record, "adjudication")
+    before_path = fix_evidence_path(record, "before")
+    after_path = fix_evidence_path(record, "after")
+    adjudication = read_json_dict(adjudication_path)
+    before = read_json_dict(before_path)
+    after = read_json_dict(after_path)
+    assert adjudication is not None, f"missing fix adjudication evidence: {label}"
+    assert before is not None, f"missing F1 before evidence: {label}"
+    assert after is not None, f"missing F2 after evidence: {label}"
+    assert adjudication.get("intent") == "fix", f"wrong adjudication intent: {label}"
+    assert adjudication.get("run_id") == record.fix_run_id, (
+        f"wrong adjudication run id: {label}"
+    )
+    result = adjudication.get("adjudication")
+    assert isinstance(result, dict), f"missing adjudication result: {label}"
+    assert result.get("assurance") == "full", f"non-full adjudication: {label}"
+    statuses = result.get("requirement_statuses")
+    assert statuses == {
+        "after_passes": "passed",
+        "before_fails": "passed",
+        "no_regression": "passed",
+    }, f"fix requirement status mismatch: {label}"
+    evidence = adjudication.get("evidence")
+    assert isinstance(evidence, dict), f"missing adjudicated evidence: {label}"
+    assert evidence.get("before") == before, f"F1 evidence projection mismatch: {label}"
+    assert evidence.get("after") == after, f"F2 evidence projection mismatch: {label}"
+    before_lineage, before_epoch = require_fix_probe(
+        record,
+        before,
+        requirement_id="before_fails",
+        stage="before",
+        expected="failure",
+        outcome="failure",
+    )
+    after_lineage, after_epoch = require_fix_probe(
+        record,
+        after,
+        requirement_id="after_passes",
+        stage="after",
+        expected="success",
+        outcome="success",
+    )
+    assert before_lineage == after_lineage, f"F1/F2 lineage mismatch: {label}"
+    assert after_epoch > before_epoch, f"F2 epoch is not newer than F1: {label}"
+
+    bound_ids = evidence.get("bound_regression_ids")
+    bound_lineages = evidence.get("bound_regression_lineages")
+    regressions = evidence.get("regressions")
+    assert isinstance(bound_ids, list) and bound_ids, (
+        f"missing bound regression set: {label}"
+    )
+    assert isinstance(bound_lineages, dict), f"missing regression lineages: {label}"
+    assert isinstance(regressions, list), f"missing F3 regression evidence: {label}"
+    assert len(regressions) == len(bound_ids), f"shrunk regression evidence: {label}"
+    assert {str(item.get("binding_id") or "") for item in regressions} == set(
+        bound_ids
+    ), f"regression binding set mismatch: {label}"
+    regression_epochs: list[int] = []
+    for regression in regressions:
+        assert isinstance(regression, dict), f"invalid regression evidence: {label}"
+        binding_id = str(regression.get("binding_id") or "")
+        standalone = read_json_dict(
+            fix_evidence_path(record, f"regression-{binding_id}")
+        )
+        assert standalone is not None, (
+            f"missing F3 regression evidence: {label}/{binding_id}"
+        )
+        assert standalone == regression, (
+            f"F3 evidence projection mismatch: {label}/{binding_id}"
+        )
+        lineage, epoch = require_fix_probe(
+            record,
+            regression,
+            requirement_id="no_regression",
+            stage="after",
+            expected="success",
+            outcome="success",
+        )
+        assert bound_lineages.get(binding_id) == lineage, (
+            f"regression lineage mismatch: {label}/{binding_id}"
+        )
+        assert epoch > after_epoch, f"F3 epoch is not newer than F2: {label}"
+        regression_epochs.append(epoch)
+    assert len(regression_epochs) == len(set(regression_epochs)), (
+        f"duplicate F3 epochs: {label}"
+    )
+
+
+def assert_full_fix_evidence(records: list[FixRunRecord]) -> int:
+    verified = 0
+    for record in records:
+        if not record.claims_full:
+            continue
+        assert record.is_full, (
+            f"inconsistent full projection for {record.set_id}/{record.run_name}: "
+            f"final={record.final_acceptance}, verdict={record.verdict}, "
+            f"assurance={record.assurance}"
+        )
+        assert_full_fix_record_evidence(record)
+        verified += 1
+    return verified
+
+
+def fix_rate_rows(records: list[FixRunRecord]) -> list[list[str]]:
+    counts: dict[tuple[str, str, str], Counter[str]] = defaultdict(Counter)
+    for record in records:
+        if record.is_full:
+            state = "full"
+        else:
+            assert record.verdict == "failed" and record.assurance == "failed", (
+                f"unsupported fix band state for {record.set_id}/{record.run_name}: "
+                f"{record.verdict}/{record.assurance}"
+            )
+            state = "failed"
+        counts[(record.intent, record.family, record.executor)][state] += 1
+    rows: list[list[str]] = []
+    for (intent, family, executor), counter in sorted(counts.items()):
+        full = counter["full"]
+        failed = counter["failed"]
+        denominator = full + failed
+        rows.append(
+            [
+                intent,
+                family,
+                executor,
+                str(full),
+                str(failed),
+                str(denominator),
+                pct(full, denominator),
+            ]
+        )
+    return rows
+
+
+def append_fix_window(
+    lines: list[str],
+    title: str,
+    definition: str,
+    records: list[FixRunRecord],
+) -> None:
+    lines.extend(
+        [
+            f"## {title}",
+            "",
+            definition,
+            "",
+            f"- Denominator: `{len(records)}`",
+            f"- Full: `{sum(record.is_full for record in records)}`",
+            f"- Failed: `{sum(not record.is_full for record in records)}`",
+            "",
+        ]
+    )
+    lines.extend(
+        table(
+            [
+                "Intent",
+                "Family",
+                "Executor",
+                "full",
+                "failed",
+                "denominator",
+                "full rate",
+            ],
+            fix_rate_rows(records),
+        )
+    )
+    lines.append("")
+
+
+def fix_full_chain(record: FixRunRecord) -> str:
+    adjudication = read_json_dict(fix_evidence_path(record, "adjudication"))
+    assert adjudication is not None
+    evidence = adjudication["evidence"]
+    before = evidence["before"]
+    after = evidence["after"]
+    regression_epochs = ", ".join(
+        f"{item['binding_id']}@{item['epoch']}" for item in evidence["regressions"]
+    )
+    return (
+        f"F1 `{before['binding_id']}` failure@{before['epoch']} -> same-lineage "
+        f"F2 success@{after['epoch']} -> F3 `{regression_epochs}` success"
+    )
+
+
+def build_fix_summary(
+    records: list[FixRunRecord],
+    scanned_sets: list[str],
+    full_evidence_verified: int,
+) -> str:
+    official = [record for record in records if not record.excluded_reason]
+    excluded = [record for record in records if record.excluded_reason]
+    unknown_intent = [record for record in records if record.intent == "unknown"]
+    unknown_family = [record for record in records if record.family == "unknown"]
+    intent_sources = Counter(record.intent_source for record in records)
+    assert len(records) == FIX_EXPECTED_RUNS
+    assert len(official) == 22, (
+        f"fix official denominator is {len(official)}, expected 22"
+    )
+    assert len(excluded) == 2, f"fix environment holds are {len(excluded)}, expected 2"
+    assert full_evidence_verified == sum(record.claims_full for record in records)
+
+    lines: list[str] = [
+        "# Fix × Next.js Capability Band Summary",
+        "",
+        "<!-- Generated by band_aggregate.py --profile fix. Do not edit by hand. -->",
+        "",
+        f"- Scanned D-1 measurement sets: `{len(scanned_sets)}`",
+        f"- Scanned fix run rows: `{len(records)}`",
+        f"- Intent resolution sources: `{dict(sorted(intent_sources.items()))}`",
+        f"- Window A raw denominator: `{len(records)}`",
+        f"- Window A official denominator: `{len(official)}`",
+        f"- Environment-held exclusions: `{len(excluded)}`",
+        f"- Full rows with F1-F3 evidence verified: `{full_evidence_verified}`",
+        "- False-full evidence gaps: `0` (generation aborts on any gap)",
+        "",
+        "The intent column resolves repository-managed `uat-meta.json` first and "
+        "the run's single `intent_resolved` event second. Only known historical "
+        "create campaigns may use the `create` legacy default; an unresolved or "
+        "conflicting modern record remains `unknown` and is never folded into "
+        "create or fix.",
+        "",
+        "Fix family is classified from the recorded run name and goal. Build or "
+        "compile language maps to `compile_error_fix`; contract attribute, restart, "
+        "or hook language maps to `contract_hook_fix`; unmatched records remain "
+        "`unknown`.",
+        "",
+    ]
+    append_fix_window(
+        lines,
+        "Window A — all D-1 history (raw)",
+        "`uat-test0717-fix-001` through `uat-test0717-fix-004`; all 24 observed "
+        "runs are retained, including the two pre-FIX-1 environment-held rows.",
+        records,
+    )
+    append_fix_window(
+        lines,
+        "Window A — official denominator",
+        "The same four campaigns after excluding exactly two #1 rows whose inherited "
+        "`NODE_ENV=production` skipped devDependencies. FIX-1 removed that host "
+        "contamination mechanism before #2; no model outcome is inferred for the "
+        "excluded rows.",
+        official,
+    )
+    lines.extend(
+        ["## Environment-held rows excluded from the official denominator", ""]
+    )
+    lines.extend(
+        table(
+            ["Set", "Run", "Intent", "Family", "Executor", "Reason"],
+            [
+                [
+                    record.set_id,
+                    record.run_name,
+                    record.intent,
+                    record.family,
+                    record.executor,
+                    record.excluded_reason,
+                ]
+                for record in excluded
+            ],
+        )
+    )
+    lines.extend(
+        [
+            "",
+            "## Window B — post-FIX-5 (reserved)",
+            "",
+            "- Baseline HEAD: `TBD — first post-FIX-5 measurement HEAD`",
+            "- Definition: measurements beginning with the first campaign after FIX-5.",
+            "- Denominator: `0`",
+            "- Full: `0`",
+            "- Failed: `0`",
+            "",
+        ]
+    )
+    lines.extend(
+        table(
+            [
+                "Intent",
+                "Family",
+                "Executor",
+                "full",
+                "failed",
+                "denominator",
+                "full rate",
+            ],
+            [],
+        )
+    )
+    lines.extend(["", "## First full and F-evidence chain", ""])
+    full_records = [record for record in records if record.is_full]
+    for record in full_records:
+        lines.append(
+            f"- `{record.set_id}` / `{record.run_name}`: {fix_full_chain(record)}."
+        )
+    lines.extend(
+        [
+            "",
+            "## Unknown classifications",
+            "",
+            f"- Unknown intent records: `{len(unknown_intent)}`",
+            f"- Unknown family records: `{len(unknown_family)}`",
+            "",
+        ]
+    )
+    if unknown_intent or unknown_family:
+        lines.extend(
+            table(
+                ["Set", "Run", "Intent", "Family", "Source"],
+                [
+                    [
+                        record.set_id,
+                        record.run_name,
+                        record.intent,
+                        record.family,
+                        record.source,
+                    ]
+                    for record in records
+                    if record.intent == "unknown" or record.family == "unknown"
+                ],
+            )
+        )
+        lines.append("")
+    lines.extend(["## Per-run ledger", ""])
+    lines.extend(
+        table(
+            [
+                "Set",
+                "Run",
+                "Intent",
+                "Intent source",
+                "Family",
+                "Executor",
+                "Final acceptance",
+                "Verdict",
+                "Assurance",
+                "Failure class",
+                "Duration",
+                "Window",
+            ],
+            [
+                [
+                    record.set_id,
+                    record.run_name,
+                    record.intent,
+                    record.intent_source,
+                    record.family,
+                    record.executor,
+                    record.final_acceptance,
+                    record.verdict,
+                    record.assurance,
+                    record.failure_class or "completed",
+                    f"{record.duration_seconds}s"
+                    if record.duration_seconds is not None
+                    else "unknown",
+                    "A raw only" if record.excluded_reason else "A raw+official",
+                ]
+                for record in sorted(
+                    records, key=lambda item: (item.set_id, item.run_name)
+                )
+            ],
+        )
+    )
+    lines.extend(["", "## Source sets", ""])
+    lines.extend(f"- `{set_id}`" for set_id in scanned_sets)
+    lines.append("")
+    return "\n".join(lines)
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--profile",
-        choices=("nextjs", "data"),
+        choices=("nextjs", "data", "fix"),
         default="nextjs",
-        help="capability band to aggregate (default: nextjs)",
+        help="capability band to aggregate (nextjs/data create or nextjs fix)",
     )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    if args.profile == "data":
+    if args.profile == "fix":
+        fix_records, scanned_sets = discover_fix_records()
+        full_verified = assert_full_fix_evidence(fix_records)
+        summary = build_fix_summary(fix_records, scanned_sets, full_verified)
+        output = FIX_OUTPUT
+    elif args.profile == "data":
         data_records, scanned_rows, meta_rows, scanned_sets = discover_data_records()
         full_verified = assert_full_data_evidence(data_records)
         summary = build_data_summary(
