@@ -223,6 +223,65 @@ Fix F1 failure diagnostic (runtime-derived):\n\
     }
 
     #[test]
+    fn fix_diagnostic_only_binds_repair_steps_and_preserves_plan_lint() {
+        let dir = tempfile::tempdir().unwrap();
+        write_nextjs_profile_workspace(dir.path(), None, None, None);
+        let diagnostic = crate::planner::fix_diagnostics::FixFailureDiagnostic {
+            target_path: "src/app/page.tsx".to_string(),
+            line: 250,
+            column: 5,
+            error_kind: "Type error".to_string(),
+            message: "Cannot find name 'initGame'.".to_string(),
+            excerpt: "> 250 | initGame();".to_string(),
+            selection_reason:
+                crate::planner::repair_target_selection::RepairTargetSelectionReason::DiagnosisMapped,
+        };
+        let phase = UltraPhase {
+            id: "repair".to_string(),
+            prompt: "Repair the reproduced compile failure.".to_string(),
+        };
+        let mut plan = StepPlan {
+            goal: "Repair the initGame compile failure.".to_string(),
+            steps: vec![
+                PlanStep {
+                    id: "repair-init-game".to_string(),
+                    kind: "repair".to_string(),
+                    expected_result: "pass".to_string(),
+                    instruction: "Repair the missing initGame definition.".to_string(),
+                    expected_paths: vec!["src/app/page.tsx".to_string()],
+                    verify: Vec::new(),
+                },
+                PlanStep {
+                    id: "verify-build".to_string(),
+                    kind: "verify".to_string(),
+                    expected_result: "pass".to_string(),
+                    instruction: "Run the original build oracle.".to_string(),
+                    expected_paths: Vec::new(),
+                    verify: vec!["npm run build".to_string()],
+                },
+            ],
+        };
+
+        crate::planner::fix_diagnostics::bind_step_plan(&phase, Some(&diagnostic), &mut plan);
+
+        assert!(
+            plan.steps[0]
+                .instruction
+                .contains("Fix F1 failure diagnostic")
+        );
+        assert!(plan.steps[0].instruction.contains("src/app/page.tsx:250:5"));
+        assert!(
+            !plan.steps[1]
+                .instruction
+                .contains("Fix F1 failure diagnostic")
+        );
+        assert!(!plan.steps[1].instruction.contains("write-pressure target"));
+        let lint =
+            crate::planner::lint::lint_step_plan_report_with_workspace(&plan, Some(dir.path()));
+        assert!(lint.is_pass(), "{}", lint.primary_message());
+    }
+
+    #[test]
     fn preset_nextjs_implementation_phase_converts_implement_port_step_only() {
         let dir = tempfile::tempdir().unwrap();
         write_nextjs_profile_workspace(dir.path(), None, None, None);

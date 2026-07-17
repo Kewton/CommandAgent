@@ -1,0 +1,22 @@
+F1 raw failure:
+Failed to compile.
+./src/app/page.tsx:250:5
+Type error: Cannot find name 'initGame'.
+> 250 |     initGame();
+
+Post-FIX-4a repair StepPlan:
+
+implement instruction:
+Repair the missing initGame definition.
+
+Fix F1 failure diagnostic (runtime-derived):
+- location: src/app/page.tsx:250:5
+- error kind: Type error
+- message: Type error: Cannot find name 'initGame'.
+- write-pressure target: src/app/page.tsx (selection_reason=diagnosis_mapped)
+- excerpt: > 250 | initGame();
+
+verify instruction:
+Run the original build oracle.
+verify command: npm run build
+planner lint: pass

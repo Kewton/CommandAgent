@@ -1,0 +1,43 @@
+case_id = "test0717_fix4a_diagnostic_scope"
+source = "uat-test0717-fix-003 compile Runs 1/2 Phase 2 planner-lint failure"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["Fix F1 failure diagnostic", "src/app/page.tsx", "planner lint: pass"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/fix4a-diagnostic-scope.txt = [
+  "./src/app/page.tsx:250:5",
+  "Type error: Cannot find name 'initGame'",
+  "implement instruction:",
+  "Fix F1 failure diagnostic (runtime-derived):",
+  "write-pressure target: src/app/page.tsx (selection_reason=diagnosis_mapped)",
+  "verify instruction:",
+  "Run the original build oracle.",
+  "planner lint: pass"
+]
+
+[fixture_ordered]
+fixtures/fix4a-diagnostic-scope.txt = [
+  "F1 raw failure:",
+  "implement instruction:",
+  "Fix F1 failure diagnostic (runtime-derived):",
+  "verify instruction:",
+  "planner lint: pass"
+]

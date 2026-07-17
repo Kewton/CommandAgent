@@ -175,6 +175,9 @@ pub(crate) fn bind_step_plan(
     };
     let guidance = render_guidance(diagnostic);
     for step in &mut plan.steps {
+        if step.step_kind() != StepKind::Implement {
+            continue;
+        }
         if !step.instruction.contains("Fix F1 failure diagnostic") {
             step.instruction.push_str("\n\n");
             step.instruction.push_str(&guidance);
