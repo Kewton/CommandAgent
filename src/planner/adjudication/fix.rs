@@ -5,6 +5,9 @@ use serde::{Deserialize, Serialize};
 pub use super::contract::ProbeOutcome;
 use super::contract::{EvidenceStage, ExpectedOutcome, FIX_CONTRACT_REF, FIX_CONTRACT_VERSION};
 
+mod failure;
+pub use failure::FixFailureClassification;
+
 pub const BEFORE_FAILS_ID: &str = "before_fails";
 pub const AFTER_PASSES_ID: &str = "after_passes";
 pub const NO_REGRESSION_ID: &str = "no_regression";
@@ -26,6 +29,8 @@ pub struct FixEvidenceObservation {
     pub executed: bool,
     pub outcome: ProbeOutcome,
     pub reason: String,
+    #[serde(default, skip_serializing_if = "FixFailureClassification::is_subject")]
+    pub failure_classification: FixFailureClassification,
 }
 
 impl FixEvidenceObservation {
@@ -56,6 +61,7 @@ impl FixEvidenceObservation {
             executed: outcome.was_executed(),
             outcome,
             reason: reason.to_string(),
+            failure_classification: FixFailureClassification::SubjectFailure,
         }
     }
 }

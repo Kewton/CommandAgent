@@ -182,4 +182,5 @@ fn evidence_schema_carries_stage_polarity_lineage_and_epoch() {
     assert_eq!(value["lineage"], "reproducer:parser");
     assert_eq!(value["epoch"], 1);
     assert_eq!(value["executed"], true);
+    assert!(value.get("failure_classification").is_none());
 }

@@ -9,8 +9,6 @@ use crate::eval_events;
 use crate::planner::adjudication::contract::{
     EvidenceStage, ExpectedOutcome, FIX_CONTRACT_REF, FIX_CONTRACT_VERSION, is_fix_intent,
 };
-#[cfg(test)]
-use crate::planner::adjudication::fix::BASELINE_NOT_REPRODUCED;
 use crate::planner::adjudication::fix::{
     AFTER_PASSES_ID, BEFORE_FAILS_ID, FixAdjudication, FixAssurance, FixEvidenceBundle,
     FixEvidenceObservation, NO_REGRESSION_ID, ProbeOutcome, evaluate_fix_evidence,
@@ -22,6 +20,11 @@ use crate::planner::profile::{
 };
 use crate::planner::step_plan::{ExpectedResult, StepKind, StepPlan};
 use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
+
+mod evidence;
+use evidence::*;
+#[cfg(test)]
+mod fix6_tests;
 
 pub(crate) const FIX_CONTRACT_ORIGIN: &str = "fix_intent_v0";
 
@@ -173,7 +176,10 @@ impl FixRuntime {
         plan: &UltraPlan,
         phase: &UltraPhase,
         index: usize,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<crate::planner::fix_reproducer_defect::BeforePhaseOutcome> {
+        if self.before.is_some() || self.reproducer.is_some() {
+            anyhow::bail!("fix reproducer is already bound; F1 lineage cannot change");
+        }
         let binding = match extract_reproducer(step_plan) {
             Ok(binding) => binding,
             Err(error) => {
@@ -204,9 +210,20 @@ impl FixRuntime {
         );
         let observation = run.evidence;
         self.diagnostic = run.diagnostic;
-        let path = before_evidence_path(&self.run_id);
+        let path = if run.reproducer_defect.is_some() {
+            before_attempt_evidence_path(&self.run_id, observation.epoch)
+        } else {
+            before_evidence_path(&self.run_id)
+        };
         persist_json(&config.workspace_root, &path, &observation)?;
         emit_probe_observation(config, &observation, &path);
+        if let Some(error_kind) = run.reproducer_defect {
+            return Ok(
+                crate::planner::fix_reproducer_defect::BeforePhaseOutcome::RebuildRequired {
+                    feedback: crate::planner::fix_reproducer_defect::rebuild_feedback(&error_kind),
+                },
+            );
+        }
         self.reproducer = Some(binding);
         self.before = Some(observation.clone());
 
@@ -234,7 +251,7 @@ impl FixRuntime {
             "phase_transition",
             &config.workspace_root,
         );
-        Ok(())
+        Ok(crate::planner::fix_reproducer_defect::BeforePhaseOutcome::Confirmed)
     }
 
     pub(crate) fn finish(mut self, config: &Config, plan: &UltraPlan) -> anyhow::Result<String> {
@@ -395,101 +412,6 @@ fn extract_reproducer(plan: &StepPlan) -> anyhow::Result<ReproducerBinding> {
         lineage: reproducer_lineage(&command),
         command,
     })
-}
-
-fn persist_adjudication(
-    root: &Path,
-    run_id: &str,
-    adjudication: &FixAdjudication,
-    evidence: &FixEvidenceBundle,
-) -> anyhow::Result<()> {
-    persist_json(
-        root,
-        &adjudication_evidence_path(run_id),
-        &PersistedFixAdjudication {
-            schema_version: "1",
-            intent: "fix",
-            contract_version: FIX_CONTRACT_VERSION,
-            contract_ref: FIX_CONTRACT_REF,
-            run_id,
-            adjudication,
-            evidence,
-        },
-    )
-}
-
-fn persist_json(root: &Path, relative: &str, value: &impl Serialize) -> anyhow::Result<()> {
-    let path = crate::tools::path_guard::resolve_optional_existing(root, relative)?;
-    let parent = path.parent().context("fix evidence parent missing")?;
-    std::fs::create_dir_all(parent)?;
-    let mut bytes = serde_json::to_vec_pretty(value)?;
-    bytes.push(b'\n');
-    std::fs::write(path, bytes)?;
-    Ok(())
-}
-
-fn safe_evidence_name(id: &str) -> String {
-    let value = id
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
-                ch
-            } else {
-                '-'
-            }
-        })
-        .collect::<String>();
-    if value.is_empty() {
-        "unnamed".to_string()
-    } else {
-        value
-    }
-}
-
-fn before_evidence_path(run_id: &str) -> String {
-    format!("evidence/fix-{}-before.json", safe_evidence_name(run_id))
-}
-
-fn after_evidence_path(run_id: &str) -> String {
-    format!("evidence/fix-{}-after.json", safe_evidence_name(run_id))
-}
-
-fn regression_evidence_path(run_id: &str, binding_id: &str) -> String {
-    format!(
-        "evidence/fix-{}-regression-{}.json",
-        safe_evidence_name(run_id),
-        safe_evidence_name(binding_id)
-    )
-}
-
-fn adjudication_evidence_path(run_id: &str) -> String {
-    format!(
-        "evidence/fix-{}-adjudication.json",
-        safe_evidence_name(run_id)
-    )
-}
-
-fn emit_probe_observation(config: &Config, observation: &FixEvidenceObservation, path: &str) {
-    eval_events::emit(
-        config.eval_events_path.as_deref(),
-        json!({
-            "event": "fix_evidence_recorded",
-            "intent": "fix",
-            "contract_version": FIX_CONTRACT_VERSION,
-            "contract_ref": FIX_CONTRACT_REF,
-            "requirement_id": observation.requirement_id,
-            "binding_id": observation.binding_id,
-            "stage": observation.stage,
-            "expected_polarity": observation.expected,
-            "lineage": observation.lineage,
-            "epoch": observation.epoch,
-            "run_id": observation.run_id,
-            "executed": observation.executed,
-            "outcome": observation.outcome,
-            "reason": eval_events::body_snippet(&observation.reason),
-            "evidence_path": path,
-        }),
-    );
 }
 
 fn emit_direct_phase_complete(config: &Config, plan: &UltraPlan, phase: &UltraPhase, index: usize) {
@@ -882,9 +804,9 @@ mod tests {
             )
             .unwrap_err();
 
-        assert!(error.to_string().contains(BASELINE_NOT_REPRODUCED));
+        assert!(error.to_string().contains("baseline_not_reproduced"));
         let events = std::fs::read_to_string(config.eval_events_path.unwrap()).unwrap();
-        assert!(events.contains(BASELINE_NOT_REPRODUCED), "{events}");
+        assert!(events.contains("baseline_not_reproduced"), "{events}");
         assert!(events.contains("\"verdict\":\"failed\""), "{events}");
         assert_eq!(
             events

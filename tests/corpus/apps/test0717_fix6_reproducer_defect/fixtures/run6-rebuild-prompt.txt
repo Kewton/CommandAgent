@@ -1,0 +1,3 @@
+Fix reproducer reconstruction feedback:
+- 再現コマンド自体が壊れている（SyntaxError）。対象を実際に評価するRを再構築せよ。
+- F1 is not yet confirmed. Return one replacement verify step without changing the workspace.

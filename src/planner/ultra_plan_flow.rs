@@ -1,5 +1,9 @@
 use super::*;
 
+mod fix_before;
+mod ultra_plan_storage;
+pub use ultra_plan_storage::{run_ultra_plan_file, run_ultra_plan_file_with_ui, save_ultra_plan};
+
 pub fn generate_ultra_plan(
     client: &mut dyn ChatClient,
     goal: &str,
@@ -177,37 +181,6 @@ pub fn generate_ultra_plan_with_ui(
     anyhow::bail!("invalid generated UltraPlan after corrective retries: {message}")
 }
 
-pub fn save_ultra_plan(root: &Path, plan: &UltraPlan) -> anyhow::Result<PathBuf> {
-    let dir = root.join(".anvil").join("plans");
-    std::fs::create_dir_all(&dir)?;
-    let path = dir.join(format!("ultra-plan-{}.yaml", uuid::Uuid::now_v7()));
-    std::fs::write(&path, render_ultra_plan(plan))?;
-    Ok(path)
-}
-
-pub fn run_ultra_plan_file(
-    planner: &mut dyn ChatClient,
-    execution: &mut dyn ChatClient,
-    path: &Path,
-    config: &Config,
-) -> anyhow::Result<String> {
-    run_ultra_plan_file_with_ui(planner, execution, path, config, &NOOP_UI)
-}
-
-pub fn run_ultra_plan_file_with_ui(
-    planner: &mut dyn ChatClient,
-    execution: &mut dyn ChatClient,
-    path: &Path,
-    config: &Config,
-    ui: &dyn InteractionUi,
-) -> anyhow::Result<String> {
-    let path = resolve_plan_file_path(&config.workspace_root, path)?;
-    let text = std::fs::read_to_string(path)?;
-    let mut plan = parse_ultra_plan(&text)?;
-    config.apply_intent_override(&mut plan.intent);
-    run_ultra_plan_with_ui(planner, execution, &plan, config, ui)
-}
-
 pub fn generate_and_run_ultra_plan(
     planner: &mut dyn ChatClient,
     execution: &mut dyn ChatClient,
@@ -365,7 +338,19 @@ pub fn run_ultra_plan_with_ui(
         if let Some(runtime) = fix_runtime.as_mut()
             && runtime.is_before_phase(index)
         {
-            runtime.run_before_phase(&step_plan, config, plan, phase, index)?;
+            fix_before::run(
+                planner,
+                runtime,
+                &phase_prompt,
+                step_plan,
+                config,
+                plan,
+                phase,
+                index,
+                ui,
+                preset_plan,
+                final_phase,
+            )?;
             continue;
         }
         let step_outcome = match run_step_plan_with_session_with_ui_and_run_authority(

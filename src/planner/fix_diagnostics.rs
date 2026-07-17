@@ -8,7 +8,9 @@ use crate::planner::step_plan::{StepKind, StepPlan};
 use crate::planner::ultra_plan::UltraPhase;
 use crate::tools::bash::BashOutcome;
 
+mod prompt_guidance;
 mod reproducer_execution;
+use prompt_guidance::{diagnostic_phase, render_guidance};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FixFailureDiagnostic {
@@ -24,6 +26,7 @@ pub(crate) struct FixFailureDiagnostic {
 pub(crate) struct ReproducerRun {
     pub(crate) evidence: FixEvidenceObservation,
     pub(crate) diagnostic: Option<FixFailureDiagnostic>,
+    pub(crate) reproducer_defect: Option<String>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -41,8 +44,14 @@ pub(crate) fn run_reproducer(
 ) -> ReproducerRun {
     let mut diagnostic = None;
     let execution = reproducer_execution::run(config, command, profile, goal);
+    let assessment = crate::planner::fix_reproducer_defect::classify(
+        command,
+        execution.outcome,
+        execution.shell_observation.as_ref(),
+    );
     if stage == EvidenceStage::Before
         && execution.outcome == ProbeOutcome::Failure
+        && assessment.classification.is_subject()
         && let Some(observation) = execution.shell_observation.as_ref()
     {
         diagnostic = extract_failure_diagnostic(
@@ -52,19 +61,22 @@ pub(crate) fn run_reproducer(
             config.eval_events_path.as_deref(),
         );
     }
+    let mut evidence = FixEvidenceObservation::new(
+        requirement_id,
+        command,
+        stage,
+        expected,
+        lineage,
+        epoch,
+        run_id,
+        execution.outcome,
+        &execution.reason,
+    );
+    evidence.failure_classification = assessment.classification;
     ReproducerRun {
-        evidence: FixEvidenceObservation::new(
-            requirement_id,
-            command,
-            stage,
-            expected,
-            lineage,
-            epoch,
-            run_id,
-            execution.outcome,
-            &execution.reason,
-        ),
+        evidence,
         diagnostic,
+        reproducer_defect: assessment.error_kind,
     }
 }
 
@@ -182,35 +194,6 @@ pub(crate) fn repair_target_from_prompt(prompt: &str) -> Option<RepairTargetSele
 
 pub(crate) fn prompt_has_diagnostic(prompt: &str) -> bool {
     repair_target_from_prompt(prompt).is_some()
-}
-
-fn diagnostic_phase(phase: &UltraPhase) -> bool {
-    matches!(phase.id.as_str(), "isolate-cause" | "repair")
-}
-
-fn render_guidance(diagnostic: &FixFailureDiagnostic) -> String {
-    let location = if diagnostic.line > 0 && diagnostic.column > 0 {
-        format!(
-            "{}:{}:{}",
-            diagnostic.target_path, diagnostic.line, diagnostic.column
-        )
-    } else if diagnostic.line > 0 {
-        format!("{}:{}", diagnostic.target_path, diagnostic.line)
-    } else {
-        diagnostic.target_path.clone()
-    };
-    let mut guidance = format!(
-        "Fix F1 failure diagnostic (runtime-derived):\n- location: {location}\n- error kind: {}\n- message: {}\n- write-pressure target: {} (selection_reason={})",
-        diagnostic.error_kind,
-        crate::eval_events::body_snippet(&diagnostic.message),
-        diagnostic.target_path,
-        diagnostic.selection_reason.as_str(),
-    );
-    if !diagnostic.excerpt.trim().is_empty() {
-        guidance.push_str("\n- excerpt: ");
-        guidance.push_str(&crate::eval_events::body_snippet(&diagnostic.excerpt));
-    }
-    guidance
 }
 
 #[cfg(test)]

@@ -5,6 +5,7 @@ pub(crate) mod final_acceptance_contract;
 pub(crate) mod fix_contract_predicate;
 pub(crate) mod fix_diagnostics;
 pub(crate) mod fix_reproducer;
+pub(crate) mod fix_reproducer_defect;
 pub(crate) mod fix_runtime;
 pub mod hook_attributes;
 pub mod hook_snapshot;
