@@ -195,6 +195,72 @@ failure-class distributions, exclusions, duration rows, and false-full
 cross-check are in
 [`band_summary_data.md`](../workspace/management/runs/band_summary_data.md).
 
+## Measured capability bands (fix × nextjs)
+
+The initial fix/nextjs band covers D-1 UAT #1 through #4
+(`uat-test0717-fix-001`–`004`) with the fix contract v0 fixed, the planner at
+`qwen3.6:27b-coding-nvfp4`, and the qwen35 and gemma31 executor families.
+Window A retains all 24 observed runs as the raw history. The declared
+denominator is 22: `fix2_hook_qwen35_001` and
+`fix2_hook_qwen35_002` from #1 are held out because inherited
+`NODE_ENV=production` skipped devDependencies before FIX-1 normalized the
+bounded child environment. Their failures remain visible in the raw table;
+no model outcome is inferred in the declared band.
+
+The numbers below are transcribed from the machine-generated summary. Family
+classification is `compile_error_fix` or `contract_hook_fix`; an unclassified
+goal remains a separate `unknown` row rather than being reassigned.
+
+| family | executor | raw full | raw failed | raw n | raw full rate | declared full | declared failed | declared n | declared full rate |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| compile_error_fix | `gemma4:31b` | 1 | 3 | 4 | 25% | 1 | 3 | 4 | 25% |
+| compile_error_fix | `qwen3.6:35b-a3b-coding-nvfp4` | 0 | 5 | 5 | 0% | 0 | 5 | 5 | 0% |
+| contract_hook_fix | `gemma4:31b` | 0 | 7 | 7 | 0% | 0 | 7 | 7 | 0% |
+| contract_hook_fix | `qwen3.6:35b-a3b-coding-nvfp4` | 0 | 8 | 8 | 0% | 0 | 6 | 6 | 0% |
+
+The first fix full is
+[`uat-test0717-fix-001` / `fix1_compile_gemma31_001`](../workspace/management/runs/uat-test0717-fix-001/uat-report.md).
+Its adjudication evidence records F1 `npm run build` failure at epoch 1, the
+same-lineage F2 success at epoch 2, and both frozen F3 regressions succeeding
+at epochs 3 and 4; the complete embedded and standalone chain is anchored by
+[`fix-…-adjudication.json`](../workspace/management/runs/uat-test0717-fix-001/artifacts/fix1_compile_gemma31_001/evidence/fix-019f6bcb-791c-7ab2-b365-ce933c92c8ac-adjudication.json).
+Full makes no design-quality claim beyond the fixed
+[`fix intent contract`](fix-intent-contract.md): the initially failing R passed
+after repair and every bound regression passed.
+
+For the compile family, diagnostic facts reached executed repair-context
+prompts after FIX-4a removed verify-step contamination, improving repair
+reachability without weakening planner lint. For the hook family, the
+route-bound R suggestion and contract-attribute repair target are wired, but
+Phase 2 edit completion remains the current local-tier capability wall. Use a
+cloud executor as the operational follow-up path for these honest non-full
+terminals.
+
+The disclosed open item is FIX-5: in a profile-invariant repair context,
+generic `required_path` selected `package.json` first in 1 of the 22 declared
+runs. It is non-dominant, queued, and remains in the denominator. Window B is
+reserved for the first post-FIX-5 measurement; its baseline HEAD and all cells
+are intentionally empty until that campaign exists.
+
+The fix spoof-resistance gate was exercised in live runs: #2 rejected two
+initially successful or task-irrelevant reproducers as
+`baseline_not_reproduced`, with zero false full. Contract-derived R guidance
+removed the observed relevance deviations from #3 onward (0 recurrence).
+Lineage mismatch, regression-set shrink, and epoch inversion rejection were
+not exercised by these campaigns and are not inferred from the live band.
+
+Re-measure only by running
+`python3 workspace/management/scripts/band_aggregate.py --profile fix`.
+Do not hand-edit generated band values. The complete per-run intent ledger,
+raw and declared windows, exclusions, F1–F3 false-full cross-check, and the
+reserved Window B are in
+[`band_summary_fix.md`](../workspace/management/runs/band_summary_fix.md); the
+immutable source records are
+[`uat-test0717-fix-001`](../workspace/management/runs/uat-test0717-fix-001/),
+[`002`](../workspace/management/runs/uat-test0717-fix-002/),
+[`003`](../workspace/management/runs/uat-test0717-fix-003/), and
+[`004`](../workspace/management/runs/uat-test0717-fix-004/).
+
 ## Recommended Model Tier
 
 Production-quality implementation outcomes require an implementation model in
