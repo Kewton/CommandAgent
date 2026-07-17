@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "requirement_id": "before_fails",
+  "binding_id": "python -c \"import json, sys; d=json.load(open('output/results.json')); assert 'reconciliation' in d and 'values' in d and 'input_rows' in d['reconciliation'] and 'used_rows' in d['reconciliation'] and 'excluded' in d['reconciliation'] and isinstance(d['values'], dict) and d['reconciliation']['input_rows'] == d['reconciliation']['used_rows'] + sum(e['rows'] for e in d['reconciliation']['excluded']), 'Schema mismatch'\"",
+  "stage": "before",
+  "expected": "failure",
+  "lineage": "reproducer:f63b0177f0ffd328",
+  "epoch": 1,
+  "run_id": "019f6fdc-c2af-7d61-8aab-9253e26ed34e",
+  "executed": true,
+  "outcome": "failure",
+  "reason": "outcome: CommandFailed status: exit status: 1 elapsed_ms: 151 summary: AssertionError: Schema mismatch stdout: stderr: Traceback (most recent call last): File \"<string>\", line 1, in <module> AssertionError: Schema mismatch"
+}

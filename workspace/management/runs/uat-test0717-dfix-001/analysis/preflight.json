@@ -1,0 +1,39 @@
+{
+  "campaign": "uat-test0717-dfix-001",
+  "status": "pass",
+  "branch": "develop",
+  "head": "7f15729f69c470d6b9d592c48aedc70239e5235f",
+  "required_ancestor": "7f15729",
+  "required_ancestor_is_present": true,
+  "git": {
+    "tracked_tree_clean": true,
+    "origin_develop_equal_before_measurement": true,
+    "preexisting_untracked_path": "workspace/management/runs/uat-test0715-ff1-001/",
+    "preexisting_untracked_path_temporarily_isolated": true,
+    "preexisting_untracked_content_hashes_preserved": true
+  },
+  "cargo_test": {
+    "status": "pass",
+    "unit": "1413 passed; 15 ignored",
+    "adjudication_byte_compat": "6/6 passed",
+    "fix_intent_conformance": "9/9 passed",
+    "corpus_regression": "passed",
+    "data_profile_conformance": "10/10 passed"
+  },
+  "release": {
+    "status": "pass",
+    "binary_sha256": "9f0ce7a416ee8d19ab1b22773bed1ab18a022628b8b5871c07bb3feabc537e5b",
+    "installed_sha256": "9f0ce7a416ee8d19ab1b22773bed1ab18a022628b8b5871c07bb3feabc537e5b",
+    "version": "commandagent 0.1.0 7f15729 2026-07-17T10:49:21Z",
+    "dirty": false,
+    "note": "An initial release candidate built after restoring the pre-existing untracked UAT path reported +dirty and was rejected before any UAT run. The accepted binary was rebuilt from the isolated clean tree."
+  },
+  "host_node_env": "production",
+  "interaction_probe": "not_applicable_data_only",
+  "models": {
+    "planner": "qwen3.6:27b-coding-nvfp4",
+    "qwen35": "qwen3.6:35b-a3b-coding-nvfp4",
+    "gemma31": "gemma4:31b",
+    "ollama_inventory_verified": true
+  }
+}

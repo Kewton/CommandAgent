@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "requirement_id": "before_fails",
+  "binding_id": "python -c \"import json\\nd=json.load(open('output/results.json'))\\nassert 'reconciliation' in d and 'values' in d and 'input_rows' in d['reconciliation'] and 'used_rows' in d['reconciliation'] and 'excluded' in d['reconciliation']\"",
+  "stage": "before",
+  "expected": "failure",
+  "lineage": "reproducer:db3f7b5f226081c4",
+  "epoch": 1,
+  "run_id": "019f6feb-dff1-7a31-999b-6641694a249d",
+  "executed": true,
+  "outcome": "failure",
+  "reason": "outcome: CommandFailed status: exit status: 1 elapsed_ms: 186 summary: SyntaxError: unexpected character after line continuation character stdout: stderr: File \"<string>\", line 1 import json\\nd=json.load(open('output/results.json'))\\nassert 'reconciliation' in d and 'values' in d and 'input_rows' in d['reconciliation'] and 'used_rows' in d['reconciliation'] and 'excluded' in d['reconciliation'] ^ SyntaxError: unexpected character after line continuation character"
+}

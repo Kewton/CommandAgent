@@ -1,0 +1,5 @@
+  File "<string>", line 1
+    import json\nd=json.load(open('output/results.json'))\nassert 'reconciliation' in d and 'values' in d and 'input_rows' in d['reconciliation'] and 'used_rows' in d['reconciliation'] and 'excluded' in d['reconciliation']
+                ^
+SyntaxError: unexpected character after line continuation character
+
