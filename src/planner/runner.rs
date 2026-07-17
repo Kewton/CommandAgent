@@ -9520,11 +9520,12 @@ fn ultra_phase_prompt(
         fix_runtime.and_then(|runtime| runtime.repair_diagnostic()),
         prompt,
     );
-    crate::planner::fix_contract_predicate::attach_to_phase_prompt(
+    let prompt = crate::planner::fix_contract_predicate::attach_to_phase_prompt(
         phase,
         fix_runtime.and_then(|runtime| runtime.contract_predicate()),
         prompt,
-    )
+    );
+    crate::planner::fix_runtime::attach_phase_policy_prompt(fix_runtime, phase, prompt)
 }
 
 fn ultra_phase_prompt_stable(

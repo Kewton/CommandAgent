@@ -23,6 +23,7 @@ use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
 
 mod evidence;
 use evidence::*;
+mod data_isolate;
 #[cfg(test)]
 mod fix6_tests;
 
@@ -114,6 +115,7 @@ pub(crate) fn bind_step_plan(
     phase: &UltraPhase,
     plan: &mut StepPlan,
 ) {
+    data_isolate::bind_step_plan(runtime, phase, plan);
     crate::planner::fix_diagnostics::bind_step_plan(
         phase,
         runtime.and_then(FixRuntime::repair_diagnostic),
@@ -124,6 +126,14 @@ pub(crate) fn bind_step_plan(
         runtime.and_then(FixRuntime::contract_predicate),
         plan,
     );
+}
+
+pub(crate) fn attach_phase_policy_prompt(
+    runtime: Option<&FixRuntime>,
+    phase: &UltraPhase,
+    prompt: String,
+) -> String {
+    data_isolate::attach_to_phase_prompt(runtime, phase, prompt)
 }
 
 impl FixRuntime {
