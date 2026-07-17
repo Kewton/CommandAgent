@@ -1,0 +1,95 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0717-fix-002",
+  "executed_on": "2026-07-17",
+  "timezone": "Asia/Tokyo",
+  "repository": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop",
+  "branch": "develop",
+  "head": "32e14d0618251c643f686b35640eef963eed269c",
+  "head_subject": "Normalize inherited NODE_ENV for child processes",
+  "origin_develop_equal": true,
+  "fix_1_revision_is_ancestor": true,
+  "commits_after_fix_1_revision": [],
+  "git_clean_after_isolating_preexisting_untracked_path": true,
+  "isolated_preexisting_untracked_path": "workspace/management/runs/uat-test0715-ff1-001/",
+  "isolated_path_content_sha256": "a1d31d87e8c020c4b2f4e2ddec13440d724ddfc58d20d865638f5e2d51d2a7bc",
+  "isolated_path_restored_unchanged": true,
+  "workspace_was_new": true,
+  "report_path_was_new": true,
+  "disk_available_gib_initial": 331,
+  "disk_available_gib_final": 337,
+  "models": {
+    "planner": "qwen3.6:27b-coding-nvfp4",
+    "executors": [
+      "qwen3.6:35b-a3b-coding-nvfp4",
+      "gemma4:31b"
+    ],
+    "available": true,
+    "running_after_measurement": false
+  },
+  "cargo_test": {
+    "status": "passed",
+    "exit_code": 0,
+    "browser_probe_permissions": "enabled",
+    "lib": {
+      "passed": 1384,
+      "failed": 0,
+      "ignored": 15
+    },
+    "adjudication_byte_fixtures": {
+      "passed": 6,
+      "failed": 0
+    },
+    "conformance": {
+      "passed": 18,
+      "failed": 0,
+      "ignored": 1
+    },
+    "corpus_regression": {
+      "passed": 1,
+      "failed": 0
+    },
+    "data_profile_conformance": {
+      "passed": 10,
+      "failed": 0
+    },
+    "fix_intent_conformance": {
+      "passed": 9,
+      "failed": 0
+    },
+    "generality_guardrails": {
+      "passed": 7,
+      "failed": 0
+    },
+    "integration_and_doc_tests": "passed"
+  },
+  "release_build": {
+    "status": "passed_after_clean_rebuild",
+    "exit_code": 0,
+    "target": "target/release/commandagent",
+    "first_attempt_rejected": true,
+    "first_attempt_reason": "the pre-existing untracked historical run directory caused build metadata to contain +dirty",
+    "correction": "isolated the historical path, ran cargo clean -p commandagent, rebuilt release, and restored the path unchanged before any live run"
+  },
+  "install": {
+    "status": "passed",
+    "path": "/Users/maenokota/.local/bin/commandagent",
+    "target_sha256": "212fbe4183269e40b27189e2e657b9588f17f341d33d41f089285f45023b2655",
+    "installed_sha256": "212fbe4183269e40b27189e2e657b9588f17f341d33d41f089285f45023b2655",
+    "sha256_equal": true
+  },
+  "version": {
+    "value": "commandagent 0.1.0 32e14d0 2026-07-17T01:02:09Z",
+    "dirty": false
+  },
+  "interaction_probe": {
+    "status": "ready",
+    "version": "playwright 1.61.1",
+    "source": "managed_interaction_probe"
+  },
+  "port_3011_listener_before_and_after_runs": false,
+  "host_environment": {
+    "NODE_ENV": "production",
+    "preflight_policy": "record only; do not interrupt"
+  }
+}

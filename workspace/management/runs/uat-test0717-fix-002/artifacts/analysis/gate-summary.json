@@ -1,0 +1,90 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0717-fix-002",
+  "declared_gate_result": "PASS",
+  "review_status": "PASS_WITH_REPRODUCER_BINDING_FINDINGS",
+  "runs": 6,
+  "external_invocations": 6,
+  "external_retries": 0,
+  "completed": 0,
+  "failed_with_reason": 6,
+  "full": 0,
+  "partial": 0,
+  "static": 0,
+  "failed_assurance": 6,
+  "total_duration_ms": 931564,
+  "full_rate": "0/6",
+  "distribution_only": true,
+  "gates": {
+    "P0-a": {
+      "status": "PASS",
+      "honest_terminals": "6/6",
+      "run_start": 6,
+      "tui_command_stop": 6,
+      "run_stop": 6,
+      "panic": 0,
+      "unclassified": 0,
+      "unexplained_interrupt": 0
+    },
+    "P0-b": {
+      "status": "PASS",
+      "assurance_contract_consistent": "6/6",
+      "inflation": 0,
+      "deflation": 0,
+      "detail": "four runs kept failed because F2/F3 were not executed; two runs kept failed(baseline_not_reproduced) because the expected-failure R succeeded"
+    },
+    "P0-c": {
+      "status": "PASS",
+      "false_full": 0,
+      "full_runs": [],
+      "detail": "no run claimed full; positive F1-F3 full evidence was therefore not exercised"
+    },
+    "P1-a": {
+      "status": "PASS",
+      "host_env_normalized": "6/6",
+      "normalization_strategy": "unset_inherited",
+      "dev_dependency_setup_failures": 0,
+      "dev_dependency_presence_checks": "6/6 exit 0"
+    }
+  },
+  "intent_audit": {
+    "status": "PASS",
+    "intent_resolved_cli_fix": "6/6",
+    "unexpected_intent_resolution": 0
+  },
+  "fix_1_audit_detail": {
+    "ambient_host_value": "NODE_ENV=production",
+    "host_env_contamination_detector_event": "6/6",
+    "host_env_normalized_event": "6/6",
+    "child_environment_leakage_failure": 0,
+    "dependency_setup_missing_failure": 0,
+    "literal_detector_event_absence_check": "NOT_MET",
+    "explanation": "32e14d0 intentionally emits host_env_contamination followed by host_env_normalized; the corpus fixture fixes this two-event order. The detector remains while inherited NODE_ENV is removed at bounded child boundaries."
+  },
+  "f_evidence": {
+    "before_probe_executed": "6/6",
+    "before_expected_failure_observed": "4/6",
+    "baseline_not_reproduced_rejections": "2/6",
+    "after_probe_executed": "0/6",
+    "regression_set_executed": "0/6",
+    "writes_before_f1": 0
+  },
+  "spoof_resistance_observation": {
+    "baseline_not_reproduced": 2,
+    "lineage_mismatch_rejection": "not_exercised",
+    "regression_shrink_rejection": "not_exercised",
+    "epoch_inversion_rejection": "not_exercised"
+  },
+  "recorded_distribution": {
+    "family_compile": "0/2 full",
+    "family_hook": "0/4 full",
+    "executor_gemma31": "0/3 full",
+    "executor_qwen35": "0/3 full"
+  },
+  "observations": [
+    "FIX-1 removed the uat-test0717-fix-001 dev-dependency stop class: no run stopped for missing tailwindcss, postcss, autoprefixer, or typescript.",
+    "The two qwen35 hook runs exercised honest baseline_not_reproduced rejection, but neither yielded a task-aligned hook repair observation.",
+    "The hook-B gemma31 run mechanically passed F1 using an unrelated pre-existing build defect, then stopped on that same profile invariant.",
+    "No run reached F2 or F3, and no source/config hash changed from the copied baseline."
+  ]
+}

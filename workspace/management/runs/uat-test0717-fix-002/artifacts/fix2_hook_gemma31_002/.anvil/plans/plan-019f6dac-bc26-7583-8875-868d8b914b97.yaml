@@ -1,0 +1,9 @@
+goal: "Bind and run one deterministic failing reproducer R before any workspace change for: このNext."
+steps:
+  - id: "run-reproducer"
+    kind: "verify"
+    expected_result: "fail"
+    instruction: "Run the deterministic reproducer to confirm the existing verification failure caused by the missing data-anvil-action=\"restart\" contract hook."
+    expected_paths:
+    verify:
+      - "npm run build"

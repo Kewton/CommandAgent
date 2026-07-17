@@ -1,0 +1,58 @@
+{
+  "schema_version": "1",
+  "measurements": [
+    "uat-test0717-fix-001",
+    "uat-test0717-fix-002"
+  ],
+  "raw_all_12": {
+    "runs": 12,
+    "full": 1,
+    "failed": 11,
+    "full_rate": "1/12",
+    "by_family_executor": [
+      {"family": "compile", "executor": "qwen35", "full": 0, "failed": 3, "runs": 3},
+      {"family": "compile", "executor": "gemma31", "full": 1, "failed": 1, "runs": 2},
+      {"family": "hook", "executor": "qwen35", "full": 0, "failed": 4, "runs": 4, "environment_held_in_fix_001": 2},
+      {"family": "hook", "executor": "gemma31", "full": 0, "failed": 3, "runs": 3}
+    ],
+    "by_family": [
+      {"family": "compile", "full": 1, "failed": 4, "runs": 5, "full_rate": "1/5"},
+      {"family": "hook", "full": 0, "failed": 7, "runs": 7, "full_rate": "0/7"}
+    ],
+    "by_executor": [
+      {"executor": "qwen35", "full": 0, "failed": 7, "runs": 7, "full_rate": "0/7"},
+      {"executor": "gemma31", "full": 1, "failed": 4, "runs": 5, "full_rate": "1/5"}
+    ]
+  },
+  "admission_view_excluding_fix_001_environment_held_runs": {
+    "excluded_runs": [
+      "uat-test0717-fix-001/fix2_hook_qwen35_001",
+      "uat-test0717-fix-001/fix2_hook_qwen35_002"
+    ],
+    "reason": "both stopped for dev dependencies omitted under inherited NODE_ENV=production; uat-test0717-fix-002 demonstrated that FIX-1 removes this stop class",
+    "runs": 10,
+    "full": 1,
+    "failed": 9,
+    "full_rate": "1/10",
+    "by_family_executor": [
+      {"family": "compile", "executor": "qwen35", "full": 0, "failed": 3, "runs": 3},
+      {"family": "compile", "executor": "gemma31", "full": 1, "failed": 1, "runs": 2},
+      {"family": "hook", "executor": "qwen35", "full": 0, "failed": 2, "runs": 2},
+      {"family": "hook", "executor": "gemma31", "full": 0, "failed": 3, "runs": 3}
+    ],
+    "by_family": [
+      {"family": "compile", "full": 1, "failed": 4, "runs": 5, "full_rate": "1/5"},
+      {"family": "hook", "full": 0, "failed": 5, "runs": 5, "full_rate": "0/5"}
+    ],
+    "by_executor": [
+      {"executor": "qwen35", "full": 0, "failed": 5, "runs": 5, "full_rate": "0/5"},
+      {"executor": "gemma31", "full": 1, "failed": 4, "runs": 5, "full_rate": "1/5"}
+    ]
+  },
+  "proposal": {
+    "historical_reporting": "retain all 12 immutable observations and show 1/12",
+    "admission_denominator": "exclude only the two explicitly environment-held uat-test0717-fix-001 qwen35 hook runs and show 1/10 alongside the raw value",
+    "decision_authority": "reviewer",
+    "caveat": "the replacement qwen35 hook runs did not stop for dependencies, but both ended baseline_not_reproduced, so qwen35 hook repair capability remains unobserved rather than established"
+  }
+}

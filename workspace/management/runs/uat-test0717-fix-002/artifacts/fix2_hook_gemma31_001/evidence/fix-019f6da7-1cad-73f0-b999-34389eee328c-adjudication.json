@@ -1,0 +1,46 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "run_id": "019f6da7-1cad-73f0-b999-34389eee328c",
+  "adjudication": {
+    "assurance": "failed",
+    "reason": "after_not_executed",
+    "requirement_statuses": {
+      "after_passes": "not_executed",
+      "before_fails": "passed",
+      "no_regression": "not_executed"
+    }
+  },
+  "evidence": {
+    "run_id": "019f6da7-1cad-73f0-b999-34389eee328c",
+    "fix_written": false,
+    "bound_regression_ids": [
+      "profile_contract",
+      "profile_verify_1"
+    ],
+    "bound_regression_lineages": {
+      "profile_contract": "regression:5653a54980e5d888",
+      "profile_verify_1": "regression:56446385dfddfe26"
+    },
+    "before": {
+      "schema_version": "1",
+      "intent": "fix",
+      "contract_version": "v0",
+      "contract_ref": "docs/fix-intent-contract.md",
+      "requirement_id": "before_fails",
+      "binding_id": "node -p '(function(s,w,d,q,b){return [new RegExp(\"data-anvil-action\"+w+\"=\"+w+d+\"restart\"+d),new RegExp(\"data-anvil-action\"+w+\"=\"+w+q+\"restart\"+q),new RegExp(\"data-anvil-action\"+w+\"=\"+w+\"[{]\"+w+d+\"restart\"+d+w+\"[}]\"),new RegExp(\"data-anvil-action\"+w+\"=\"+w+\"[{]\"+w+q+\"restart\"+q+w+\"[}]\"),new RegExp(\"data-anvil-action\"+w+\"=\"+w+\"[{]\"+w+b+\"restart\"+b+w+\"[}]\")].some(function(r){return r.test(s)})?true:process.exit(1)})(String(require(\"fs\").readFileSync(\"src/app/page.tsx\")),String.fromCharCode(92)+\"s*\",String.fromCharCode(34),String.fromCharCode(39),String.fromCharCode(96))'",
+      "stage": "before",
+      "expected": "failure",
+      "lineage": "reproducer:215ef92b74567a98",
+      "epoch": 1,
+      "run_id": "019f6da7-1cad-73f0-b999-34389eee328c",
+      "executed": true,
+      "outcome": "failure",
+      "reason": "outcome: CommandFailed status: exit status: 1 elapsed_ms: 50 summary: command did not succeed: node -p '(function(s,w,d,q,b){return [new RegExp(\"data-anvil-action\"+w+\"=\"+w+d+\"restart\"+d),new RegExp(\"data-anvil-action\"+w+\"=\"+w+q+\"restart\"+q),new RegExp(\"data-anvil-action\"+w+\"=\"+w+\"[{]\"+w+d+\"restart\"+d+w+\"[}]\"),new RegExp(\"data-anvil-action\"+w+\"=\"+w+\"[{]\"+w+q+\"restart\"+q+w+\"[}]\"),new RegExp(\"data-anvil-action\"+w+\"=\"+w+\"[{]\"+w+b+\"restart\"+b+w+\"[}]\")].some(function(r){return r.test(s)})?true:process"
+    },
+    "after": null,
+    "regressions": []
+  }
+}
