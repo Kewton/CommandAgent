@@ -1,0 +1,17 @@
+# anvil-recovery-ultra-plan
+recovery_schema_version: "1"
+recovery_original_goal: "このNext.jsプロジェクトは npm run build が失敗します。原因を特定して修正してください。修正後もアプリの既存の検証が通ることを確認してください。"
+recovery_failure_kind: "phase_execute_error"
+recovery_profile: "nextjs"
+recovery_failed_phase: "isolate-cause"
+goal: "このNext.jsプロジェクトは npm run build が失敗します。原因を特定して修正してください。修正後もアプリの既存の検証が通ることを確認してください。"
+profile: "nextjs"
+style: "recovery"
+intent: "recover"
+phases:
+  - id: "inspect-current-state"
+    prompt: "Inspect the current workspace before changing files. Original goal: このNext.jsプロジェクトは npm run build が失敗します。原因を特定して修正してください。修正後もアプリの既存の検証が通ることを確認してください。. Failed acceptance layer or phase: isolate-cause. Failed step: unknown. Failure kind: phase_execute_error. Preserve useful existing artifacts and identify the smallest remaining implementation gap."
+  - id: "repair-isolate-cause"
+    prompt: "Repair the incomplete work for the failed phase without restarting from scratch.\nOriginal goal: このNext.jsプロジェクトは npm run build が失敗します。原因を特定して修正してください。修正後もアプリの既存の検証が通ることを確認してください。\nFailed acceptance layer or phase: isolate-cause\nFailed step: unknown\nMissing capability or artifact signals:\n- repair target: implementation\nFailure evidence:\n- model_stagnation:read_only_loop: write_required exhausted for src/app/components/SpaceInvaders.tsx; objective: Repair step `verify-build-failure`. Verification failed: implementation_compile_error: src/app/components/SpaceInvaders.tsx:305:22 Type error: Argument of type '{ x: number; y: number; }' is not assignable to parameter of type 'Bullet'.. Repair target: implementation. Fix the implementation files that should satisfy the requested behavior. Make the smallest bounded change, then stop. Pa\nRepair targets:\n- implementation\nCreate or update the task-specific implementation artifacts needed to satisfy the original goal. Do not treat scaffold-only, setup-only, style-only, or build-only output as complete."
+  - id: "verify-recovery"
+    prompt: "Verify the recovered output with deterministic checks and repair only targeted failures.\nOriginal goal: このNext.jsプロジェクトは npm run build が失敗します。原因を特定して修正してください。修正後もアプリの既存の検証が通ることを確認してください。\nFailed acceptance layer or phase: isolate-cause\nPreferred verify/browser check:\n- use deterministic file existence, build, route, and capability evidence checks\n- avoid shell control syntax and interactive dev-server-only verification\nVerify preference: use the preferred checks above.\nExpected recovery result: runnable task-specific output, not only a saved plan or diagnostic report."

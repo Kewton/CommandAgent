@@ -1,0 +1,21 @@
+goal: "Isolate the cause of the reproduced failure without modifying the workspace for: このNext."
+steps:
+  - id: "inspect-space-invaders"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read src/app/components/SpaceInvaders.tsx to locate the Bullet type definition and the push call around line 305."
+    expected_paths:
+    verify:
+  - id: "inspect-config"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read tsconfig.json and package.json to verify TypeScript strictness and Next.js configuration."
+    expected_paths:
+    verify:
+  - id: "verify-build-failure"
+    kind: "verify"
+    expected_result: "fail"
+    instruction: "Run npm run build to confirm the exact TypeScript error matches the diagnostic at src/app/components/SpaceInvaders.tsx:305."
+    expected_paths:
+    verify:
+      - "npm run build"

@@ -1,0 +1,33 @@
+goal: "Isolate the cause of the reproduced failure without modifying the workspace for: このNext."
+steps:
+  - id: "inspect-page-source"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read src/app/page.tsx to examine the context around line 250 where 'initGame' is called, check its imports, and determine if it is defined locally, imported from another module, or completely missing."
+    expected_paths:
+    verify:
+  - id: "inspect-scaffold-files"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read src/app/layout.tsx, src/app/globals.css, src/app/global.d.ts, and tailwind.config.ts to verify the Next.js app router scaffold is intact and CSS/module declarations are correct."
+    expected_paths:
+    verify:
+  - id: "inspect-config-files"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read package.json, tsconfig.json, and postcss.config.js to verify Next.js, React, TypeScript, and Tailwind configurations are compatible and correctly set up."
+    expected_paths:
+    verify:
+  - id: "search-init-game-definition"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Search the src directory for any definition or export of 'initGame' to determine if it exists in another file but is missing an import, or if it needs to be implemented from scratch."
+    expected_paths:
+    verify:
+  - id: "verify-inspection-complete"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Confirm that all required source and configuration files exist for analysis."
+    expected_paths:
+    verify:
+      - "test -f src/app/page.tsx"
