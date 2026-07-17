@@ -280,17 +280,11 @@ pub fn run_ultra_plan_with_ui(
             None,
         );
         let profile_snapshot = profile_before_plan(&config.workspace_root, plan)?;
-        emit_ultra_phase_context_attached(
-            config,
-            plan,
-            phase,
-            index,
-            &ultra_context,
-            ultra_session.messages.len(),
-        );
+        ultra_context.emit_attached(config, plan, phase, index, &ultra_session);
         let final_phase = index + 1 == plan.phases.len();
-        let phase_prompt = ultra_phase_prompt(plan, phase, config, &ultra_context);
-        let step_plan = generate_step_plan_with_ui_for_phase(
+        let phase_prompt =
+            ultra_phase_prompt(plan, phase, config, &ultra_context, fix_runtime.as_ref());
+        let mut step_plan = generate_step_plan_with_ui_for_phase(
             planner,
             &phase_prompt,
             config,
@@ -344,6 +338,7 @@ pub fn run_ultra_plan_with_ui(
                 render_failure_stop_reason(format!("phase scaffold failed: {message}"), handoff,)
             )
         })?;
+        crate::planner::fix_runtime::bind_step_plan(fix_runtime.as_ref(), phase, &mut step_plan);
         emit_ultra_phase_event(
             config,
             "ultra_phase_scaffold_complete",

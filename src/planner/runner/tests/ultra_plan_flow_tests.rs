@@ -72,12 +72,14 @@ mod moved {
             &plan.phases[0],
             &config(dir.path().to_path_buf()),
             &context,
+            None,
         );
         let second = ultra_phase_prompt(
             &plan,
             &plan.phases[1],
             &config(dir.path().to_path_buf()),
             &context,
+            None,
         );
 
         let prefix = common_prefix(&first, &second);
@@ -164,6 +166,60 @@ Phase task: Implement game logic, player control, collision, score, and canvas b
         assert!(!event_text.contains("\"event\":\"deterministic_step_plan_used\""));
         assert!(event_text.contains("\"event\":\"planner_raw_output_shape\""));
         assert!(event_text.contains("\"event\":\"preset_step_converted\""));
+    }
+
+    #[test]
+    fn fix_diagnostic_bypasses_build_template_for_cause_phase() {
+        let dir = tempfile::tempdir().unwrap();
+        write_nextjs_profile_workspace(dir.path(), None, None, None);
+        let events = dir.path().join("events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.profile = "nextjs".to_string();
+        cfg.eval_events_path = Some(events.clone());
+        let prompt = "Original ultra goal: npm run build fails\n\
+Profile: nextjs\n\
+Intent: fix\n\
+Phase id: isolate-cause\n\
+Phase task: Narrow the cause without editing.\n\n\
+Fix F1 failure diagnostic (runtime-derived):\n\
+- location: src/app/page.tsx:250:5\n\
+- error kind: Type error\n\
+- message: Cannot find name 'initGame'.\n\
+- write-pressure target: src/app/page.tsx (selection_reason=diagnosis_mapped)";
+        let plan_json = serde_json::to_string(&StepPlan {
+            goal: "isolate initGame failure".to_string(),
+            steps: vec![PlanStep {
+                id: "inspect-init-game".to_string(),
+                kind: "inspect".to_string(),
+                expected_result: "pass".to_string(),
+                instruction: "Inspect src/app/page.tsx around line 250 and identify the missing initGame definition.".to_string(),
+                expected_paths: Vec::new(),
+                verify: Vec::new(),
+            }],
+        })
+        .unwrap();
+        let mut planner = FakeClient::new(vec![
+            AssistantReply::text(plan_json.clone()),
+            AssistantReply::text(plan_json.clone()),
+            AssistantReply::text(plan_json),
+        ]);
+
+        let plan = generate_step_plan_with_ui_for_phase(
+            &mut planner,
+            prompt,
+            &cfg,
+            &NOOP_UI,
+            Some("isolate-cause"),
+            false,
+            false,
+        )
+        .unwrap();
+
+        assert!(!planner.messages().is_empty());
+        assert_eq!(plan.steps[0].kind, "inspect");
+        let events = std::fs::read_to_string(events).unwrap();
+        assert!(!events.contains("\"event\":\"deterministic_step_plan_used\""));
+        assert!(events.contains("\"event\":\"planner_raw_output_shape\""));
     }
 
     #[test]
@@ -543,6 +599,7 @@ Profile runtime contract:\n- Preserve the workspace as a real Next.js app.\n\n{}
             },
             &config(dir.path().to_path_buf()),
             &UltraRunContext::new(vec!["src/app/page.tsx".to_string()]),
+            None,
         );
         assert!(prompt.contains("Original ultra goal: 3011 port app"));
         assert!(prompt.contains("Profile: nextjs"));
@@ -586,6 +643,7 @@ Profile runtime contract:\n- Preserve the workspace as a real Next.js app.\n\n{}
             &plan.phases[0],
             &config(dir.path().to_path_buf()),
             &UltraRunContext::new(Vec::new()),
+            None,
         );
 
         let section = prompt_section_lines(&prompt, "Requested features not yet detected:");
@@ -623,6 +681,7 @@ Profile runtime contract:\n- Preserve the workspace as a real Next.js app.\n\n{}
             &plan.phases[0],
             &config(dir.path().to_path_buf()),
             &context,
+            None,
         );
 
         let unmet = prompt_section_lines(&prompt, "Unmet final requirements from earlier phases:");
@@ -656,6 +715,7 @@ Profile runtime contract:\n- Preserve the workspace as a real Next.js app.\n\n{}
             &plan.phases[0],
             &config(dir.path().to_path_buf()),
             &UltraRunContext::new(vec!["src/app/page.tsx".to_string()]),
+            None,
         );
         assert!(prompt.contains("Required final capabilities:"));
         assert!(prompt.contains("- stateful_interaction"));

@@ -22,7 +22,6 @@ use crate::planner::profile::{
 };
 use crate::planner::step_plan::{ExpectedResult, StepKind, StepPlan};
 use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
-use crate::planner::verify::NormalizedVerifyCommand;
 
 pub(crate) const FIX_CONTRACT_ORIGIN: &str = "fix_intent_v0";
 
@@ -43,6 +42,7 @@ pub(crate) struct FixRuntime {
     before: Option<FixEvidenceObservation>,
     after: Option<FixEvidenceObservation>,
     regressions: Vec<FixEvidenceObservation>,
+    diagnostic: Option<crate::planner::fix_diagnostics::FixFailureDiagnostic>,
     epoch: u64,
     fix_written: bool,
     terminalized: bool,
@@ -105,6 +105,18 @@ pub(crate) fn is_before_prompt(prompt: &str) -> bool {
     }) && prompt.contains("Fix contract phase role: reproducer_before")
 }
 
+pub(crate) fn bind_step_plan(
+    runtime: Option<&FixRuntime>,
+    phase: &UltraPhase,
+    plan: &mut StepPlan,
+) {
+    crate::planner::fix_diagnostics::bind_step_plan(
+        phase,
+        runtime.and_then(FixRuntime::repair_diagnostic),
+        plan,
+    );
+}
+
 impl FixRuntime {
     pub(crate) fn for_plan(plan: &UltraPlan, config: &Config) -> Option<Self> {
         if !applies(plan) {
@@ -124,6 +136,7 @@ impl FixRuntime {
             before: None,
             after: None,
             regressions: Vec::new(),
+            diagnostic: None,
             epoch: 0,
             fix_written: false,
             terminalized: false,
@@ -132,6 +145,12 @@ impl FixRuntime {
 
     pub(crate) const fn is_before_phase(&self, index: usize) -> bool {
         index == 0
+    }
+
+    pub(crate) fn repair_diagnostic(
+        &self,
+    ) -> Option<&crate::planner::fix_diagnostics::FixFailureDiagnostic> {
+        self.diagnostic.as_ref()
     }
 
     pub(crate) fn run_before_phase(
@@ -158,16 +177,19 @@ impl FixRuntime {
             }
         };
         self.epoch += 1;
-        let observation = run_reproducer(
+        let run = crate::planner::fix_diagnostics::run_reproducer(
             config,
             &self.run_id,
             BEFORE_FAILS_ID,
             EvidenceStage::Before,
             ExpectedOutcome::Failure,
             self.epoch,
-            &binding,
+            &binding.command,
+            &binding.lineage,
             &self.profile,
         );
+        let observation = run.evidence;
+        self.diagnostic = run.diagnostic;
         let path = before_evidence_path(&self.run_id);
         persist_json(&config.workspace_root, &path, &observation)?;
         emit_probe_observation(config, &observation, &path);
@@ -200,16 +222,18 @@ impl FixRuntime {
             .clone();
         self.fix_written = true;
         let mut epoch = self.epoch + 1;
-        let after = run_reproducer(
+        let after = crate::planner::fix_diagnostics::run_reproducer(
             config,
             &self.run_id,
             AFTER_PASSES_ID,
             EvidenceStage::After,
             ExpectedOutcome::Success,
             epoch,
-            &binding,
+            &binding.command,
+            &binding.lineage,
             &self.profile,
-        );
+        )
+        .evidence;
         self.after = Some(after.clone());
         let path = after_evidence_path(&self.run_id);
         persist_json(&config.workspace_root, &path, &after)?;
@@ -347,64 +371,6 @@ fn extract_reproducer(plan: &StepPlan) -> anyhow::Result<ReproducerBinding> {
         lineage: reproducer_lineage(&command),
         command,
     })
-}
-
-#[allow(clippy::too_many_arguments)]
-fn run_reproducer(
-    config: &Config,
-    run_id: &str,
-    requirement_id: &str,
-    stage: EvidenceStage,
-    expected: ExpectedOutcome,
-    epoch: u64,
-    binding: &ReproducerBinding,
-    profile: &str,
-) -> FixEvidenceObservation {
-    let normalized: NormalizedVerifyCommand =
-        crate::planner::verify::normalize_verify_command(&binding.command)
-            .expect("stored reproducer is normalized");
-    let (outcome, reason) =
-        match crate::minimal_loop::verifier_env::run_structured_for_verify_with_profile(
-            &normalized,
-            &config.workspace_root,
-            Some(profile),
-            config.offline,
-        ) {
-            Ok(observation) => match observation.kind {
-                crate::tools::bash::BashOutcomeKind::Success => {
-                    (ProbeOutcome::Success, "command_succeeded".to_string())
-                }
-                crate::tools::bash::BashOutcomeKind::CommandFailed => (
-                    ProbeOutcome::Failure,
-                    eval_events::body_snippet(
-                        &crate::minimal_loop::verifier_env::format_verify_outcome(&observation),
-                    ),
-                ),
-                crate::tools::bash::BashOutcomeKind::Blocked
-                | crate::tools::bash::BashOutcomeKind::Timeout
-                | crate::tools::bash::BashOutcomeKind::Cancelled => (
-                    ProbeOutcome::Unavailable,
-                    eval_events::body_snippet(
-                        &crate::minimal_loop::verifier_env::format_verify_outcome(&observation),
-                    ),
-                ),
-            },
-            Err(error) => (
-                ProbeOutcome::Unavailable,
-                format!("reproducer_probe_error:{error}"),
-            ),
-        };
-    FixEvidenceObservation::new(
-        requirement_id,
-        &binding.command,
-        stage,
-        expected,
-        &binding.lineage,
-        epoch,
-        run_id,
-        outcome,
-        &reason,
-    )
 }
 
 fn persist_adjudication(

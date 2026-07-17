@@ -64,6 +64,7 @@ pub(crate) struct WriteRequiredState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum WriteRequiredSelectionReason {
     AnchorFailure,
+    DiagnosisMapped,
     TracebackMapped,
     EvidenceMapped,
     ContractAttribute,
@@ -76,6 +77,7 @@ impl WriteRequiredSelectionReason {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::AnchorFailure => "anchor_failure",
+            Self::DiagnosisMapped => "diagnosis_mapped",
             Self::TracebackMapped => "traceback_mapped",
             Self::EvidenceMapped => "evidence_mapped",
             Self::ContractAttribute => "contract_attribute",
@@ -88,6 +90,7 @@ impl WriteRequiredSelectionReason {
     fn from_str(value: &str) -> Option<Self> {
         match value {
             "anchor_failure" => Some(Self::AnchorFailure),
+            "diagnosis_mapped" => Some(Self::DiagnosisMapped),
             "traceback_mapped" => Some(Self::TracebackMapped),
             "evidence_mapped" => Some(Self::EvidenceMapped),
             "contract_attribute" => Some(Self::ContractAttribute),
@@ -110,6 +113,9 @@ impl From<RepairTargetSelection> for WriteRequiredTargetSelection {
         Self {
             selected_targets: selection.selected_targets,
             selection_reason: match selection.selection_reason {
+                RepairTargetSelectionReason::DiagnosisMapped => {
+                    WriteRequiredSelectionReason::DiagnosisMapped
+                }
                 RepairTargetSelectionReason::TracebackMapped => {
                     WriteRequiredSelectionReason::TracebackMapped
                 }

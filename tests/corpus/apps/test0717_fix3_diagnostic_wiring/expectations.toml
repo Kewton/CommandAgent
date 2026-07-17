@@ -1,0 +1,41 @@
+case_id = "test0717_fix3_diagnostic_wiring"
+source = "uat-test0717-fix-002 Run 1 initGame compile failure"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["Fix F1 failure diagnostic", "src/app/page.tsx", "diagnosis_mapped"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/fix-diagnostic-phase2.txt = [
+  "F1 reproducer: npm run build",
+  "./src/app/page.tsx:250:5",
+  "Type error: Cannot find name 'initGame'",
+  "Fix F1 failure diagnostic (runtime-derived):",
+  "location: src/app/page.tsx:250:5",
+  "error kind: Type error",
+  "write-pressure target: src/app/page.tsx (selection_reason=diagnosis_mapped)"
+]
+
+[fixture_ordered]
+fixtures/fix-diagnostic-phase2.txt = [
+  "F1 reproducer: npm run build",
+  "F1 raw failure:",
+  "Phase 2 injected guidance:",
+  "write-pressure target: src/app/page.tsx"
+]

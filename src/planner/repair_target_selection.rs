@@ -1,5 +1,6 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RepairTargetSelectionReason {
+    DiagnosisMapped,
     TracebackMapped,
     EvidenceMapped,
     ContractAttribute,
@@ -11,6 +12,7 @@ pub(crate) enum RepairTargetSelectionReason {
 impl RepairTargetSelectionReason {
     pub(crate) fn as_str(self) -> &'static str {
         match self {
+            Self::DiagnosisMapped => "diagnosis_mapped",
             Self::TracebackMapped => "traceback_mapped",
             Self::EvidenceMapped => "evidence_mapped",
             Self::ContractAttribute => "contract_attribute",

@@ -47,6 +47,10 @@ pub(crate) fn maybe_read_only_stagnation_feedback(
         let (selection, diagnostic_feedback) =
             if let Some(selection) = decision.write_required_selection() {
                 (selection, decision.diagnostic_feedback())
+            } else if let Some(selection) =
+                crate::planner::fix_diagnostics::repair_target_from_prompt(user_prompt)
+            {
+                (selection.into(), String::new())
             } else {
                 let mut fallback_candidates = changed_paths.to_vec();
                 for path in &options.path_fallback_candidates {
@@ -170,4 +174,47 @@ pub(crate) fn maybe_read_only_stagnation_feedback(
             )
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::minimal_loop::loop_run::RunSessionStepKind;
+    use crate::minimal_loop::stagnation_escalation::WriteRequiredSelectionReason;
+
+    #[test]
+    fn fix_diagnostic_drives_write_pressure_with_diagnosis_reason() {
+        let root = tempfile::tempdir().unwrap();
+        let events = root.path().join("events.jsonl");
+        let prompt = "Repair the F1 failure.\n\
+- write-pressure target: src/app/page.tsx (selection_reason=diagnosis_mapped)";
+        let options = RunSessionOptions::plan_step(RunSessionStepKind::Implement);
+        let mut state = WriteRequiredState::default();
+
+        let feedback = maybe_read_only_stagnation_feedback(
+            Some(&events),
+            root.path(),
+            "nextjs",
+            prompt,
+            7,
+            7,
+            &options,
+            &mut state,
+            &RunSessionErrorContext::default(),
+            &[],
+            &[],
+            &[],
+            None,
+        )
+        .expect("write pressure feedback");
+
+        assert_eq!(state.selected_targets(), ["src/app/page.tsx"]);
+        assert_eq!(
+            state.selection_reason(),
+            Some(WriteRequiredSelectionReason::DiagnosisMapped)
+        );
+        assert!(feedback.contains("src/app/page.tsx"));
+        let event = std::fs::read_to_string(events).unwrap();
+        assert!(event.contains(r#""selection_reason":"diagnosis_mapped""#));
+    }
 }

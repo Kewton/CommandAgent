@@ -768,6 +768,9 @@ fn deterministic_step_plan_for_phase(
     if crate::planner::fix_runtime::is_before_prompt(phase_prompt) {
         return Ok(None);
     }
+    if crate::planner::fix_diagnostics::prompt_has_diagnostic(phase_prompt) {
+        return Ok(None);
+    }
     let Some(template) = profile_deterministic_step_plan(
         &config.workspace_root,
         &config.profile,
@@ -1004,6 +1007,17 @@ impl UltraRunContext {
             pending_final_artifacts,
             ..Self::default()
         }
+    }
+
+    fn emit_attached(
+        &self,
+        config: &Config,
+        plan: &UltraPlan,
+        phase: &UltraPhase,
+        index: usize,
+        session: &SessionSnapshot,
+    ) {
+        emit_ultra_phase_context_attached(config, plan, phase, index, self, session.messages.len());
     }
 
     fn update_after_phase(
@@ -9471,6 +9485,7 @@ fn ultra_phase_prompt(
     phase: &UltraPhase,
     config: &Config,
     context: &UltraRunContext,
+    fix_runtime: Option<&crate::planner::fix_runtime::FixRuntime>,
 ) -> String {
     let prompt = match config.prompt_layout {
         PromptLayout::Stable => ultra_phase_prompt_stable(plan, phase, config, context),
@@ -9482,10 +9497,15 @@ fn ultra_phase_prompt(
         prompt,
         config.intent_override == Some(IntentId::Fix),
     );
-    crate::planner::fix_reproducer::attach_to_phase_prompt(
+    let prompt = crate::planner::fix_reproducer::attach_to_phase_prompt(
         plan,
         phase,
         config.eval_events_path.as_deref(),
+        prompt,
+    );
+    crate::planner::fix_diagnostics::attach_to_phase_prompt(
+        phase,
+        fix_runtime.and_then(|runtime| runtime.repair_diagnostic()),
         prompt,
     )
 }
