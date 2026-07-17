@@ -217,4 +217,42 @@ mod tests {
         let event = std::fs::read_to_string(events).unwrap();
         assert!(event.contains(r#""selection_reason":"diagnosis_mapped""#));
     }
+
+    #[test]
+    fn fix_contract_predicate_preempts_package_required_path() {
+        let root = tempfile::tempdir().unwrap();
+        let events = root.path().join("events.jsonl");
+        let prompt = "Inspect the F1 predicate failure.\n\
+- write-pressure target: src/app/page.tsx (selection_reason=contract_attribute)";
+        let options = RunSessionOptions::plan_step(RunSessionStepKind::Inspect);
+        let mut state = WriteRequiredState::default();
+
+        let feedback = maybe_read_only_stagnation_feedback(
+            Some(&events),
+            root.path(),
+            "nextjs",
+            prompt,
+            7,
+            7,
+            &options,
+            &mut state,
+            &RunSessionErrorContext::default(),
+            &[],
+            &["package.json".to_string(), "src/app/page.tsx".to_string()],
+            &[],
+            None,
+        )
+        .expect("write pressure feedback");
+
+        assert_eq!(state.selected_targets(), ["src/app/page.tsx"]);
+        assert_eq!(
+            state.selection_reason(),
+            Some(WriteRequiredSelectionReason::ContractAttribute)
+        );
+        assert!(feedback.contains("src/app/page.tsx"));
+        assert!(!feedback.contains("package.json"));
+        let event = std::fs::read_to_string(events).unwrap();
+        assert!(event.contains(r#""selection_reason":"contract_attribute""#));
+        assert!(!event.contains(r#""target_path":"package.json""#));
+    }
 }

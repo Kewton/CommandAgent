@@ -9503,9 +9503,14 @@ fn ultra_phase_prompt(
         config.eval_events_path.as_deref(),
         prompt,
     );
-    crate::planner::fix_diagnostics::attach_to_phase_prompt(
+    let prompt = crate::planner::fix_diagnostics::attach_to_phase_prompt(
         phase,
         fix_runtime.and_then(|runtime| runtime.repair_diagnostic()),
+        prompt,
+    );
+    crate::planner::fix_contract_predicate::attach_to_phase_prompt(
+        phase,
+        fix_runtime.and_then(|runtime| runtime.contract_predicate()),
         prompt,
     )
 }

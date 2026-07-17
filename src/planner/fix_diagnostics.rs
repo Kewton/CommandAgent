@@ -199,6 +199,7 @@ pub(crate) fn repair_target_from_prompt(prompt: &str) -> Option<RepairTargetSele
     let reason = reason.strip_suffix(')')?;
     crate::tools::path_guard::validate_workspace_relative(path).ok()?;
     let selection_reason = match reason {
+        "contract_attribute" => RepairTargetSelectionReason::ContractAttribute,
         "diagnosis_mapped" => RepairTargetSelectionReason::DiagnosisMapped,
         "traceback_mapped" => RepairTargetSelectionReason::TracebackMapped,
         _ => return None,

@@ -331,6 +331,12 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
             test_baseline: 269,
         },
         ChokepointBudget {
+            path: "src/planner/fix_contract_predicate.rs",
+            total_baseline: 401,
+            production_baseline: 156,
+            test_baseline: 245,
+        },
+        ChokepointBudget {
             path: "src/planner/fix_reproducer.rs",
             total_baseline: 223,
             production_baseline: 145,

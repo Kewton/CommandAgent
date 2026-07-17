@@ -42,6 +42,7 @@ pub(crate) struct FixRuntime {
     before: Option<FixEvidenceObservation>,
     after: Option<FixEvidenceObservation>,
     regressions: Vec<FixEvidenceObservation>,
+    contract_predicate: Option<crate::planner::fix_contract_predicate::FixContractPredicateContext>,
     diagnostic: Option<crate::planner::fix_diagnostics::FixFailureDiagnostic>,
     epoch: u64,
     fix_written: bool,
@@ -115,6 +116,11 @@ pub(crate) fn bind_step_plan(
         runtime.and_then(FixRuntime::repair_diagnostic),
         plan,
     );
+    crate::planner::fix_contract_predicate::bind_step_plan(
+        phase,
+        runtime.and_then(FixRuntime::contract_predicate),
+        plan,
+    );
 }
 
 impl FixRuntime {
@@ -136,6 +142,7 @@ impl FixRuntime {
             before: None,
             after: None,
             regressions: Vec::new(),
+            contract_predicate: None,
             diagnostic: None,
             epoch: 0,
             fix_written: false,
@@ -151,6 +158,12 @@ impl FixRuntime {
         &self,
     ) -> Option<&crate::planner::fix_diagnostics::FixFailureDiagnostic> {
         self.diagnostic.as_ref()
+    }
+
+    pub(crate) fn contract_predicate(
+        &self,
+    ) -> Option<&crate::planner::fix_contract_predicate::FixContractPredicateContext> {
+        self.contract_predicate.as_ref()
     }
 
     pub(crate) fn run_before_phase(
@@ -204,6 +217,15 @@ impl FixRuntime {
             self.terminalized = true;
             anyhow::bail!("fix baseline gate failed: {}", adjudication.reason);
         }
+
+        self.contract_predicate = self.reproducer.as_ref().and_then(|binding| {
+            crate::planner::fix_contract_predicate::FixContractPredicateContext::from_failed_reproducer(
+                &config.workspace_root,
+                &self.profile,
+                &binding.command,
+                config.eval_events_path.as_deref(),
+            )
+        });
 
         emit_direct_phase_complete(config, plan, phase, index);
         crate::bounded_process::reap_registered_server_children_for_workspace(
