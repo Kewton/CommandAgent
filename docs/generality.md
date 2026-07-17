@@ -236,11 +236,11 @@ Phase 2 edit completion remains the current local-tier capability wall. Use a
 cloud executor as the operational follow-up path for these honest non-full
 terminals.
 
-The disclosed open item is FIX-5: in a profile-invariant repair context,
-generic `required_path` selected `package.json` first in 1 of the 22 declared
-runs. It is non-dominant, queued, and remains in the denominator. Window B is
-reserved for the first post-FIX-5 measurement; its baseline HEAD and all cells
-are intentionally empty until that campaign exists.
+FIX-5 closed the disclosed profile-invariant repair-target gap: generic
+`required_path` had selected `package.json` first in 1 of the 22 declared runs,
+and the unified fix precedence now selects the diagnosed definition source
+first. The historical run remains in the denominator. Window B is based at
+FIX-5 HEAD `6decdce`; its cells remain empty until the first post-FIX-5 campaign.
 
 The fix spoof-resistance gate was exercised in live runs: #2 rejected two
 initially successful or task-irrelevant reproducers as
@@ -253,7 +253,7 @@ Re-measure only by running
 `python3 workspace/management/scripts/band_aggregate.py --profile fix`.
 Do not hand-edit generated band values. The complete per-run intent ledger,
 raw and declared windows, exclusions, F1–F3 false-full cross-check, and the
-reserved Window B are in
+post-FIX-5 Window B are in
 [`band_summary_fix.md`](../workspace/management/runs/band_summary_fix.md); the
 immutable source records are
 [`uat-test0717-fix-001`](../workspace/management/runs/uat-test0717-fix-001/),

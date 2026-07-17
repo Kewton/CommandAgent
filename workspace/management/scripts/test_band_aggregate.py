@@ -246,6 +246,10 @@ class FixBandTests(unittest.TestCase):
         self.assertEqual(sum(record.intent == "fix" for record in records), 24)
         self.assertEqual(sum(bool(record.excluded_reason) for record in records), 2)
         self.assertEqual(band.assert_full_fix_evidence(records), 1)
+        summary = band.build_fix_summary(records, scanned_sets, 1)
+        self.assertIn(
+            f"Baseline HEAD: `{band.FIX_WINDOW_B_BASELINE_HEAD}` (FIX-5)", summary
+        )
 
         official = [record for record in records if not record.excluded_reason]
         self.assertEqual(

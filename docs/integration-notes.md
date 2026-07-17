@@ -172,7 +172,7 @@ the band denominator and use the emitted recovery YAML for cloud follow-up.
 
 ## Phase D pre-D-2 queue (2026-07-17)
 
-### FIX-5 Profile-invariant repair target precedence [QUEUED]
+### FIX-5 Profile-invariant repair target precedence [CLOSED]
 
 `uat-test0717-fix-004`の`fix4_hook_qwen35_002`では、FIX-4bの対象である
 hook predicate文脈は`src/app/page.tsx` / `contract_attribute`へ正しく解決
@@ -186,3 +186,10 @@ bandから除外せずFIX-5として分離する。
 profile-invariant repair文脈でも診断・invariant由来fileをgeneric
 `required_path`より先に解決することを完了条件とし、D-2着手前に消化する。
 fix契約、F1〜F3、既存bandの裁定値を変更するタスクではない。
+
+`6decdce`でfix配下の修復target解決を
+`diagnosis_mapped → contract_attribute → evidence_mapped → required_path`へ
+統一した。missing-export invariantはimport scan既存の`definition_path`を
+`diagnosis_mapped`として再利用し、実測fixtureでは`src/app/game-engine.ts`が
+`package.json`より先に解決される。create byte fixture 6/6と既存event schemaは
+不変である。

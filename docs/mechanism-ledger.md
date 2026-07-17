@@ -466,6 +466,7 @@ UAT #8で観測したDATA-13 / DATA-7bの機械偽陽性は、B-2k後のUAT #9�
 | FIX-3 | F1失敗診断のcause/repair prompt・write圧力配線 | 本コミット | `uat-test0717-fix-002` Run 1/2/5のPhase 2停滞を受け、F1の生出力が短縮evidence化の際に後続promptへ渡らない断線を解消する | build compile診断（T21系）とPython traceback（B-2d系）をF1生出力へ適用し、file/line/error kind/excerptを`isolate-cause`→`repair`へ注入。診断時は汎用build templateを迂回し、Run 1 `initGame` fixtureで`src/app/page.tsx`・`diagnosis_mapped`、Pythonで`traceback_mapped`を固定。新event名なし（基準152据置）、create裁定byte 6/6・fix conformance 9/9・全test・fmt・clippyを検証 | **complete** |
 | FIX-4a | fix診断blockの変更step限定 | 本コミット | `uat-test0717-fix-003` compile 2本で、生成時lint後にverify instructionへ付加された`write-pressure target`が実行直前planner lintに拒否された | runtime-derived診断blockは正規化後のimplement/repair系stepだけへ付加し、verify/inspectへは付加しない。Run 1 `initGame`実測形のrepair＋verify fixtureでimplementへの注入、verifyからのwrite-target語彙消失、plan lint通過を固定。新event名なし（基準152据置） | **complete** |
 | FIX-4b | fix F1契約predicateのroute-bound修復target配線 | 本コミット | `uat-test0717-fix-003` hook 3本が診断なしでgeneric `required_path`の`package.json`筆頭へ落ちた。これはT27と同属の「契約診断済みsourceを汎用required pathへ失う」再発として相互参照する | 実行済みF1 failure commandをnextjs manifestの`hook_attribute_present`へ照合し、既存`contract_attribute_repair_guidance`（欠落属性・位置・例）をPhase 2へ接続。inspect/implementのwrite圧力を`src/app/page.tsx`・`contract_attribute`へ解決し、verifyは不変、`package.json`は最後のfallbackとする。実測commandの空白差、runtime F1→Phase 2、generic required-path優先順位、corpusを固定。新event名なし（基準152据置） | **complete** |
+| FIX-5 | fix修復target優先順位の恒久統一 | `6decdce` | `uat-test0717-fix-004` hook/B・qwen35のmissing-export profile invariantが`package.json` / `required_path`へ落ちた。T27のinteraction診断source喪失、FIX-4bのpredicate診断source喪失と同属4例目として相互参照する | fix全修復文脈を既存resolverの`diagnosis_mapped → contract_attribute → evidence_mapped → required_path`へ集約。実測非export fixtureで`src/app/game-engine.ts`が筆頭かつ`package.json`非選択、create裁定byte 6/6、fix conformance 9/9、corpus、full `cargo test`、fmt、clippy `-D warnings`を検証。新event名なし（基準152据置） | **complete** |
 
 ## D-1 close: fix × nextjs (2026-07-17)
 
@@ -501,4 +502,5 @@ admission機械化は未実装である。fixの本宣言は測定bandの封緘�
 admission gateではない。intent単位の規律の機械化はE-0へ委譲する。
 
 **D-1 closed (2026-07-17): fix契約v0、明示CLI、F1〜F3裁定、4セット24run、
-初full、偽full 0、intent軸の機械生成bandを封緘。FIX-5はD-2前queueとして分離する。**
+初full、偽full 0、intent軸の機械生成bandを封緘。FIX-5はD-2前queueとして分離後、
+`6decdce`で閉鎖した。**

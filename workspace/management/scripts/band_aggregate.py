@@ -41,6 +41,7 @@ DATA_FAMILY_STABLE_WINDOWS = {
 }
 FIX_WINDOW_SETS = tuple(f"uat-test0717-fix-{index:03d}" for index in range(1, 5))
 FIX_EXPECTED_RUNS = 24
+FIX_WINDOW_B_BASELINE_HEAD = "6decdce"
 FIX_FAMILIES = ("compile_error_fix", "contract_hook_fix", "unknown")
 FIX_ENVIRONMENT_HOLDS = {
     (
@@ -1748,9 +1749,9 @@ def build_fix_summary(
     lines.extend(
         [
             "",
-            "## Window B — post-FIX-5 (reserved)",
+            "## Window B — post-FIX-5",
             "",
-            "- Baseline HEAD: `TBD — first post-FIX-5 measurement HEAD`",
+            f"- Baseline HEAD: `{FIX_WINDOW_B_BASELINE_HEAD}` (FIX-5)",
             "- Definition: measurements beginning with the first campaign after FIX-5.",
             "- Denominator: `0`",
             "- Full: `0`",

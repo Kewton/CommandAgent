@@ -52,9 +52,9 @@ The same four campaigns after excluding exactly two #1 rows whose inherited `NOD
 | uat-test0717-fix-001 | fix2_hook_qwen35_001 | fix | contract_hook_fix | qwen3.6:35b-a3b-coding-nvfp4 | host NODE_ENV=production skipped devDependencies before FIX-1 |
 | uat-test0717-fix-001 | fix2_hook_qwen35_002 | fix | contract_hook_fix | qwen3.6:35b-a3b-coding-nvfp4 | host NODE_ENV=production skipped devDependencies before FIX-1 |
 
-## Window B — post-FIX-5 (reserved)
+## Window B — post-FIX-5
 
-- Baseline HEAD: `TBD — first post-FIX-5 measurement HEAD`
+- Baseline HEAD: `6decdce` (FIX-5)
 - Definition: measurements beginning with the first campaign after FIX-5.
 - Denominator: `0`
 - Full: `0`
