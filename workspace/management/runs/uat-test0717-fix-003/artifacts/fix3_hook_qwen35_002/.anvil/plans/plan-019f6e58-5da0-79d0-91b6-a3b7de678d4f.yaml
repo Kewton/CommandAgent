@@ -1,0 +1,9 @@
+goal: "Bind and run one deterministic failing reproducer R before any workspace change for: このNext."
+steps:
+  - id: "reproduce-missing-restart-hook"
+    kind: "verify"
+    expected_result: "fail"
+    instruction: "Run deterministic reproducer to confirm data-anvil-action=\"restart\" is missing in src/app/page.tsx"
+    expected_paths:
+    verify:
+      - "node -p '(function(s,w,d,q,b){return [new RegExp(\"data-anvil-action\"+w+\"=\"+w+d+\"restart\"+d),new RegExp(\"data-anvil-action\"+w+\"=\"+w+q+\"restart\"+q),new RegExp(\"data-anvil-action\"+w+\"=\"+w+\"[{]\"+w+d+\"restart\"+d+w+\"[}]\"),new RegExp(\"data-anvil-action\"+w+\"=\"+w+\"[{]\"+w+q+\"restart\"+q+w+\"[}]\"),new RegExp(\"data-anvil-action\"+w+\"=\"+w+\"[{]\"+w+b+\"restart\"+b+w+\"[}]\")].some(function(r){return r.test(s)})?true:process.exit(1)})(String(require(\"fs\").readFileSync(\"src/app/page.tsx\")),String.fromCharCode(92)+\"s*\",String.fromCharCode(34),String.fromCharCode(39),String.fromCharCode(96))'"

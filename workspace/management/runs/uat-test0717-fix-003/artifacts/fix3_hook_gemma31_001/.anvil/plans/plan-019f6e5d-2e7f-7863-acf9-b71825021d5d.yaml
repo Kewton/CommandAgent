@@ -1,0 +1,20 @@
+goal: "Isolate the cause of the reproduced failure without modifying the workspace for: このNext."
+steps:
+  - id: "inspect-page-and-layout"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read src/app/page.tsx and src/app/layout.tsx to locate the main UI structure, existing data-anvil-action attributes, and any restart/reset button or logic."
+    expected_paths:
+    verify:
+  - id: "inspect-component-tree"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read all component files in src/ imported by the page or layout to check for restart affordances, game-over/victory screens, and in-play reset mechanisms."
+    expected_paths:
+    verify:
+  - id: "assess-missing-hook"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Compare identified restart affordances against the contract requirement that every restart button/overlay must carry data-anvil-action=\"restart\", and pinpoint the exact element or component missing this attribute."
+    expected_paths:
+    verify:

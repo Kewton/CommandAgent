@@ -1,0 +1,106 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0717-fix-003",
+  "fix_2": {
+    "event": "fix_reproducer_suggested",
+    "event_emission": "6/6",
+    "bases": {
+      "goal_failure_kind:build_or_compile": 2,
+      "goal_contract_attribute:data-anvil-action=restart": 4
+    },
+    "suggestions": {
+      "profile_catalog:next_build_verify => npm run build": 2,
+      "profile_catalog:hook_attribute_present(attribute=action,value=restart,path=src/app/page.tsx)": 4
+    },
+    "adoption": {
+      "semantic": "6/6",
+      "exact_bytes": "5/6",
+      "semantic_variant": "Run 5 inserted insignificant JavaScript whitespace but retained the same route-bound catalog predicate"
+    },
+    "relevance": {
+      "uat_test0717_fix_002_relevance_deviations": 3,
+      "uat_test0717_fix_003_relevance_deviations": 0,
+      "uat_test0717_fix_002_literal_baseline_not_reproduced_reason_codes": 2,
+      "uat_test0717_fix_003_literal_baseline_not_reproduced_reason_codes": 0,
+      "result": "effective"
+    }
+  },
+  "fix_3": {
+    "compile_or_traceback_applicable_runs": 2,
+    "diagnostic_injected_applicable": "2/2",
+    "diagnostic_injected_all_f1_failure_runs": "2/6",
+    "runs": [
+      {
+        "run": "fix3_compile_qwen35_001",
+        "phase2_plan": "artifacts/fix3_compile_qwen35_001/.anvil/plans/plan-019f6e4f-9879-78e1-8330-d839e9b3e8d0.yaml",
+        "location": "src/app/page.tsx:250:5",
+        "error_kind": "Type error",
+        "excerpt": "initGame(); | ^",
+        "write_pressure_target": "src/app/page.tsx",
+        "selection_reason": "diagnosis_mapped",
+        "actual_write_pressure_event": false,
+        "terminal_effect": "Phase 2 plan lint rejected the diagnostic-bearing verify instruction before execution"
+      },
+      {
+        "run": "fix3_compile_gemma31_001",
+        "phase2_plan": "artifacts/fix3_compile_gemma31_001/.anvil/plans/plan-019f6e52-c34c-7a91-92e0-38d91dc56726.yaml",
+        "location": "src/app/components/SpaceInvaders.tsx:305:22",
+        "error_kind": "Type error",
+        "excerpt": "s.bullets.push({ x: ..., y: ... }); | ^",
+        "write_pressure_target": "src/app/components/SpaceInvaders.tsx",
+        "selection_reason": "diagnosis_mapped",
+        "actual_write_pressure_event": false,
+        "terminal_effect": "Phase 2 plan lint rejected the diagnostic-bearing verify instruction before execution"
+      },
+      {
+        "run": "fix3_hook_qwen35_001",
+        "diagnostic_present": false,
+        "reason": "the route-bound predicate failed without compile or Python traceback output",
+        "actual_write_pressure_target": "package.json",
+        "actual_selection_reason": "required_path",
+        "read_only_stagnation": true
+      },
+      {
+        "run": "fix3_hook_qwen35_002",
+        "diagnostic_present": false,
+        "reason": "the route-bound predicate failed without compile or Python traceback output",
+        "actual_write_pressure_target": "package.json",
+        "actual_selection_reason": "required_path",
+        "read_only_stagnation": true
+      },
+      {
+        "run": "fix3_hook_gemma31_001",
+        "diagnostic_present": false,
+        "reason": "the route-bound predicate failed without compile or Python traceback output",
+        "actual_write_pressure_target": "package.json",
+        "actual_selection_reason": "required_path",
+        "read_only_stagnation": true
+      },
+      {
+        "run": "fix3_hook_gemma31_002",
+        "diagnostic_present": false,
+        "reason": "the route-bound predicate failed without compile or Python traceback output",
+        "actual_write_pressure_target": null,
+        "actual_selection_reason": null,
+        "read_only_stagnation": false,
+        "terminal_effect": "existing hook-B relative-import invariant stopped the phase"
+      }
+    ],
+    "phase2_read_only_stagnation": {
+      "uat_test0717_fix_002": 3,
+      "uat_test0717_fix_003": 3,
+      "change": 0,
+      "membership_change": "compile Runs 1/2 no longer stagnated, but hook Runs 3/4/5 did"
+    },
+    "new_failure_class": {
+      "count": 2,
+      "class": "planner_lint_error: verify step instruction must not request file changes",
+      "mechanism": "the persisted diagnostic guidance contains a write-pressure target marker and was appended to every Phase 2 step, including verify steps"
+    },
+    "strict_p1_b": {
+      "result": "fail",
+      "reason": "the predeclared wording covers F1-failing runs without an applicability qualifier; only 2/6 Phase 2 plans contained a diagnostic excerpt",
+      "scoped_compile_traceback_result": "2/2 pass"
+    }
+  }
+}

@@ -1,0 +1,27 @@
+goal: "Isolate the cause of the reproduced failure without modifying the workspace for: このNext."
+steps:
+  - id: "inspect-page-source"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read src/app/page.tsx to examine the startGame function around line 250, check for missing initGame definition or incorrect imports, and identify the exact cause of the type error.\n\nFix F1 failure diagnostic (runtime-derived):\n- location: src/app/page.tsx:250:5\n- error kind: Type error\n- message: Type error: Cannot find name 'initGame'.\n- write-pressure target: src/app/page.tsx (selection_reason=diagnosis_mapped)\n- excerpt: 248 | 249 | const startGame = () => { 250 | initGame(); | ^ 251 | setScore(0); 252 | setLives(3); 253 | setGameState('PLAYING');"
+    expected_paths:
+    verify:
+  - id: "inspect-build-config"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read package.json and tsconfig.json to verify scripts.build is set to next build and TypeScript configuration is coherent.\n\nFix F1 failure diagnostic (runtime-derived):\n- location: src/app/page.tsx:250:5\n- error kind: Type error\n- message: Type error: Cannot find name 'initGame'.\n- write-pressure target: src/app/page.tsx (selection_reason=diagnosis_mapped)\n- excerpt: 248 | 249 | const startGame = () => { 250 | initGame(); | ^ 251 | setScore(0); 252 | setLives(3); 253 | setGameState('PLAYING');"
+    expected_paths:
+    verify:
+  - id: "inspect-scaffold-files"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read src/app/layout.tsx, src/app/globals.css, and src/app/global.d.ts to verify the Next.js app router scaffold is complete and correctly configured.\n\nFix F1 failure diagnostic (runtime-derived):\n- location: src/app/page.tsx:250:5\n- error kind: Type error\n- message: Type error: Cannot find name 'initGame'.\n- write-pressure target: src/app/page.tsx (selection_reason=diagnosis_mapped)\n- excerpt: 248 | 249 | const startGame = () => { 250 | initGame(); | ^ 251 | setScore(0); 252 | setLives(3); 253 | setGameState('PLAYING');"
+    expected_paths:
+    verify:
+  - id: "verify-build-failure"
+    kind: "verify"
+    expected_result: "fail"
+    instruction: "Run npm run build to capture the exact failure output and confirm the type error matches the diagnostic.\n\nFix F1 failure diagnostic (runtime-derived):\n- location: src/app/page.tsx:250:5\n- error kind: Type error\n- message: Type error: Cannot find name 'initGame'.\n- write-pressure target: src/app/page.tsx (selection_reason=diagnosis_mapped)\n- excerpt: 248 | 249 | const startGame = () => { 250 | initGame(); | ^ 251 | setScore(0); 252 | setLives(3); 253 | setGameState('PLAYING');"
+    expected_paths:
+    verify:
+      - "npm run build"
