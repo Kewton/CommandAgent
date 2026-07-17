@@ -9,8 +9,8 @@ use crate::minimal_loop::dependency_setup::{
 use crate::minimal_loop::evidence::required_evidence_for_capability;
 use crate::planner::profile::{
     DomainProfile, InteractionRepairContract, ProfileBuildOracle, ProfileDeterministicStepPlan,
-    ProfileHookSnapshotTarget, ProfileQualityExpectations, ProfileSnapshot,
-    generic_dependency_missing_output, merge_unique_strings, requires_next_binary,
+    ProfileFixReproducerSuggestion, ProfileHookSnapshotTarget, ProfileQualityExpectations,
+    ProfileSnapshot, generic_dependency_missing_output, merge_unique_strings, requires_next_binary,
 };
 use crate::planner::profile_manifest::{ManifestStatus, nextjs_manifest};
 use crate::planner::signals;
@@ -81,6 +81,10 @@ impl DomainProfile for NextjsProfile {
 
     fn guidance(&self, goal: &str) -> Option<String> {
         Some(super::guidance(goal))
+    }
+
+    fn fix_reproducer_suggestion(&self, goal: &str) -> Option<ProfileFixReproducerSuggestion> {
+        super::fix_reproducer::suggestion_for(goal)
     }
 
     fn runtime_contract(&self, intent: &str, goal: &str) -> String {

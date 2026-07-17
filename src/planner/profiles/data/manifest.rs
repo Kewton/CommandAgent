@@ -4,6 +4,7 @@ use std::sync::OnceLock;
 use crate::planner::profile_manifest::{ManifestStatus, ManifestV1};
 use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
 
+pub(crate) mod fix_reproducer;
 const DATA_MANIFEST_TOML: &str = include_str!("manifest.toml");
 const REQUIRED_PHASE_IDS: [&str; 5] = [
     "data-inspection",

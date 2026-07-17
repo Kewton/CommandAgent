@@ -1,4 +1,5 @@
 mod domain;
+mod fix_reproducer;
 pub(crate) mod knowledge;
 mod repair_excerpts;
 

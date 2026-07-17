@@ -200,6 +200,7 @@ impl FixRuntime {
             &binding.command,
             &binding.lineage,
             &self.profile,
+            &plan.goal,
         );
         let observation = run.evidence;
         self.diagnostic = run.diagnostic;
@@ -254,6 +255,7 @@ impl FixRuntime {
             &binding.command,
             &binding.lineage,
             &self.profile,
+            &plan.goal,
         )
         .evidence;
         self.after = Some(after.clone());

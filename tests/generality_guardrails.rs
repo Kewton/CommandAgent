@@ -343,10 +343,28 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
             test_baseline: 78,
         },
         ChokepointBudget {
+            path: "src/planner/fix_reproducer/tests.rs",
+            total_baseline: 116,
+            production_baseline: 0,
+            test_baseline: 116,
+        },
+        ChokepointBudget {
+            path: "src/planner/profiles/nextjs/fix_reproducer.rs",
+            total_baseline: 100,
+            production_baseline: 100,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
             path: "src/planner/fix_diagnostics.rs",
             total_baseline: 377,
             production_baseline: 241,
             test_baseline: 136,
+        },
+        ChokepointBudget {
+            path: "src/planner/fix_diagnostics/reproducer_execution.rs",
+            total_baseline: 72,
+            production_baseline: 72,
+            test_baseline: 0,
         },
         ChokepointBudget {
             path: "src/planner/assurance.rs",
@@ -569,6 +587,12 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
             total_baseline: 193,
             production_baseline: 104,
             test_baseline: 89,
+        },
+        ChokepointBudget {
+            path: "src/planner/profiles/data/manifest/fix_reproducer.rs",
+            total_baseline: 394,
+            production_baseline: 136,
+            test_baseline: 258,
         },
         ChokepointBudget {
             path: "src/planner/profiles/data/step_policy.rs",

@@ -1,0 +1,41 @@
+case_id = "test0717_d2a_data_fix_plan_generation"
+source = "D-2a profile-supplied fix reproducer and data fix plan generation"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["pipeline_probe", "before_fails", "no_regression"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/data-fix-plan.txt = [
+  "profile: data",
+  "intent: fix",
+  "phase_ids: reproduce-before -> isolate-cause -> repair -> verify-regressions",
+  "goal_failure_kind:pipeline_execution",
+  "profile_catalog:pipeline_probe(entry=pipeline/main.py) => python3 -B pipeline/main.py",
+  "Fix contract section 8 reproducer suggestion (guidance, not enforcement)",
+  "F1 baseline gate remains authoritative"
+]
+
+[fixture_ordered]
+fixtures/data-fix-plan.txt = [
+  "first_phase_prompt:",
+  "reproducer_basis:",
+  "reproducer_suggestion:",
+  "first_phase_execution_prompt:"
+]

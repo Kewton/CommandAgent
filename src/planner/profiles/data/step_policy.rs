@@ -46,7 +46,7 @@ pub(crate) fn catalog_check_id(command: &str) -> Option<&str> {
     (!id.is_empty() && !id.chars().any(char::is_whitespace) && is_bound_check_id(id)).then_some(id)
 }
 
-fn execute_catalog_check(
+pub(crate) fn execute_catalog_check(
     root: &Path,
     command: &str,
     report: &mut crate::planner::verify::VerificationReport,

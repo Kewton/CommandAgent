@@ -6,8 +6,9 @@ use crate::planner::adjudication::fix::{FixEvidenceObservation, ProbeOutcome};
 use crate::planner::repair_targeting::{RepairTargetSelection, RepairTargetSelectionReason};
 use crate::planner::step_plan::{StepKind, StepPlan};
 use crate::planner::ultra_plan::UltraPhase;
-use crate::planner::verify::NormalizedVerifyCommand;
 use crate::tools::bash::BashOutcome;
+
+mod reproducer_execution;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct FixFailureDiagnostic {
@@ -36,52 +37,21 @@ pub(crate) fn run_reproducer(
     command: &str,
     lineage: &str,
     profile: &str,
+    goal: &str,
 ) -> ReproducerRun {
-    let normalized: NormalizedVerifyCommand =
-        crate::planner::verify::normalize_verify_command(command)
-            .expect("stored reproducer is normalized");
     let mut diagnostic = None;
-    let (outcome, reason) =
-        match crate::minimal_loop::verifier_env::run_structured_for_verify_with_profile(
-            &normalized,
+    let execution = reproducer_execution::run(config, command, profile, goal);
+    if stage == EvidenceStage::Before
+        && execution.outcome == ProbeOutcome::Failure
+        && let Some(observation) = execution.shell_observation.as_ref()
+    {
+        diagnostic = extract_failure_diagnostic(
             &config.workspace_root,
-            Some(profile),
-            config.offline,
-        ) {
-            Ok(observation) => match observation.kind {
-                crate::tools::bash::BashOutcomeKind::Success => {
-                    (ProbeOutcome::Success, "command_succeeded".to_string())
-                }
-                crate::tools::bash::BashOutcomeKind::CommandFailed => {
-                    if stage == EvidenceStage::Before {
-                        diagnostic = extract_failure_diagnostic(
-                            &config.workspace_root,
-                            command,
-                            &observation,
-                            config.eval_events_path.as_deref(),
-                        );
-                    }
-                    (
-                        ProbeOutcome::Failure,
-                        crate::eval_events::body_snippet(
-                            &crate::minimal_loop::verifier_env::format_verify_outcome(&observation),
-                        ),
-                    )
-                }
-                crate::tools::bash::BashOutcomeKind::Blocked
-                | crate::tools::bash::BashOutcomeKind::Timeout
-                | crate::tools::bash::BashOutcomeKind::Cancelled => (
-                    ProbeOutcome::Unavailable,
-                    crate::eval_events::body_snippet(
-                        &crate::minimal_loop::verifier_env::format_verify_outcome(&observation),
-                    ),
-                ),
-            },
-            Err(error) => (
-                ProbeOutcome::Unavailable,
-                format!("reproducer_probe_error:{error}"),
-            ),
-        };
+            command,
+            observation,
+            config.eval_events_path.as_deref(),
+        );
+    }
     ReproducerRun {
         evidence: FixEvidenceObservation::new(
             requirement_id,
@@ -91,8 +61,8 @@ pub(crate) fn run_reproducer(
             lineage,
             epoch,
             run_id,
-            outcome,
-            &reason,
+            execution.outcome,
+            &execution.reason,
         ),
         diagnostic,
     }

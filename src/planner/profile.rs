@@ -90,6 +90,18 @@ pub struct ProfileFixRegressionObservation {
     pub reason: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProfileFixReproducerSuggestion {
+    pub basis: String,
+    pub suggestion: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProfileFixReproducerObservation {
+    pub outcome: ProbeOutcome,
+    pub reason: String,
+}
+
 impl ProfileBehaviorProbeReport {
     pub fn pass() -> Self {
         Self {
@@ -306,6 +318,20 @@ pub trait DomainProfile: Sync {
         _offline: bool,
     ) -> anyhow::Result<ProfileBehaviorProbeReport> {
         Ok(ProfileBehaviorProbeReport::pass())
+    }
+
+    fn fix_reproducer_suggestion(&self, _goal: &str) -> Option<ProfileFixReproducerSuggestion> {
+        None
+    }
+
+    fn run_fix_reproducer_catalog_check(
+        &self,
+        _root: &Path,
+        _goal: &str,
+        _command: &str,
+        _eval_events_path: Option<&Path>,
+    ) -> Option<ProfileFixReproducerObservation> {
+        None
     }
 
     fn fix_regression_bindings(&self, root: &Path, goal: &str) -> Vec<ProfileFixRegressionBinding> {
@@ -613,6 +639,45 @@ impl DomainProfile for DataProfile {
             evidence_path: Some(
                 crate::planner::profiles::data::runtime::DATA_ASSURANCE_EVIDENCE_PATH.to_string(),
             ),
+        })
+    }
+
+    fn fix_reproducer_suggestion(&self, goal: &str) -> Option<ProfileFixReproducerSuggestion> {
+        crate::planner::profiles::data::manifest::fix_reproducer::suggestion_for(goal)
+    }
+
+    fn run_fix_reproducer_catalog_check(
+        &self,
+        root: &Path,
+        goal: &str,
+        command: &str,
+        eval_events_path: Option<&Path>,
+    ) -> Option<ProfileFixReproducerObservation> {
+        let mut report = VerificationReport::pass();
+        let execution = crate::planner::profiles::data::step_policy::execute_catalog_check(
+            root,
+            command,
+            &mut report,
+            eval_events_path,
+            Some(goal),
+        )?;
+        Some(match execution {
+            Ok(observation) if observation.ok => ProfileFixReproducerObservation {
+                outcome: ProbeOutcome::Success,
+                reason: "command_succeeded".to_string(),
+            },
+            Ok(observation) => ProfileFixReproducerObservation {
+                outcome: ProbeOutcome::Failure,
+                reason: if observation.reasons.is_empty() {
+                    format!("{}:check_failed", observation.id)
+                } else {
+                    observation.reasons.join("; ")
+                },
+            },
+            Err(error) => ProfileFixReproducerObservation {
+                outcome: ProbeOutcome::Unavailable,
+                reason: format!("catalog_check_error:{error}"),
+            },
         })
     }
 
