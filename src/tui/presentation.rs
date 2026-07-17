@@ -565,9 +565,12 @@ pub fn activity_projection_status(event: &Value) -> ActivityProjectionStatus {
 pub fn documented_activity_ignore_reason(name: &str) -> Option<&'static str> {
     match name {
         // Process and command lifecycle records are summarized by the terminal card.
-        "run_start" | "intent_resolved" | "run_stop" | "tui_command_start" | "tui_command_stop" => {
-            Some("lifecycle summarized by terminal summary card")
-        }
+        "run_start"
+        | "intent_resolved"
+        | "host_env_normalized"
+        | "run_stop"
+        | "tui_command_start"
+        | "tui_command_stop" => Some("lifecycle summarized by terminal summary card"),
         // Planner bookkeeping is noisy in scrollback; visible plan cards cover the accepted result.
         "ultra_plan_generation_attempt"
         | "ultra_plan_raw_output_shape"

@@ -1538,6 +1538,57 @@ dependencies = ["requests"]
     }
 
     #[test]
+    #[cfg(unix)]
+    fn npm_dependency_setup_unsets_inherited_node_env() {
+        let current_exe = std::env::current_exe().unwrap();
+        let status = std::process::Command::new(current_exe)
+            .args([
+                "--ignored",
+                "--exact",
+                "minimal_loop::dependency_setup::tests::npm_dependency_setup_unsets_inherited_node_env_child",
+                "--nocapture",
+            ])
+            .env("NODE_ENV", "production")
+            .status()
+            .unwrap();
+        assert!(status.success(), "{status}");
+    }
+
+    #[test]
+    #[ignore]
+    #[cfg(unix)]
+    fn npm_dependency_setup_unsets_inherited_node_env_child() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = TempDir::new().unwrap();
+        write_package(dir.path(), r#"{"devDependencies":{"typescript":"^5.5.0"}}"#);
+        let fake_npm = dir.path().join("fake-npm");
+        fs::write(
+            &fake_npm,
+            "#!/bin/sh\nprintf '%s' \"${NODE_ENV-unset}\" > node-env.txt\nmkdir -p node_modules\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&fake_npm).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&fake_npm, permissions).unwrap();
+        let requirement = requirement_for_node_declared_dependencies(
+            dir.path(),
+            Some("nextjs"),
+            "dependency probe",
+            NodeDependencySetupAuthority::PlanSetupStep,
+        );
+
+        let observation =
+            run_node_dependency_setup_with_program(dir.path(), &requirement, &fake_npm);
+
+        assert_eq!(observation.status, NodeDependencySetupStatus::Passed);
+        assert_eq!(
+            fs::read_to_string(dir.path().join("node-env.txt")).unwrap(),
+            "unset"
+        );
+    }
+
+    #[test]
     fn node_test_runner_manifest_setup_is_blocked_without_authority() {
         let dir = TempDir::new().unwrap();
         fs::create_dir_all(dir.path().join("tests")).unwrap();

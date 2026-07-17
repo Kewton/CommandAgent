@@ -530,6 +530,9 @@ fn error_is_interrupted(err: &anyhow::Error) -> bool {
 
 fn emit_run_start(config: &Config) {
     let host_env_contamination = minimal_loop::verifier_env::host_env_contamination();
+    let inherited_node_env_normalized = host_env_contamination
+        .iter()
+        .any(|entry| entry.starts_with("NODE_ENV="));
     eval_events::emit(
         config.eval_events_path.as_deref(),
         json!({
@@ -597,6 +600,18 @@ fn emit_run_start(config: &Config) {
             json!({
                 "event": "host_env_contamination",
                 "contamination": host_env_contamination.clone(),
+                "lifecycle_stage": "process",
+            }),
+        );
+    }
+    if inherited_node_env_normalized {
+        eval_events::emit(
+            config.eval_events_path.as_deref(),
+            json!({
+                "event": "host_env_normalized",
+                "variables": ["NODE_ENV"],
+                "strategy": "unset_inherited",
+                "scope": "bounded_process_children",
                 "lifecycle_stage": "process",
             }),
         );
@@ -1429,7 +1444,25 @@ mod tests {
                 .count(),
             1
         );
+        assert_eq!(
+            event_text
+                .matches("\"event\":\"host_env_normalized\"")
+                .count(),
+            1
+        );
         assert!(event_text.contains("NODE_ENV=production"), "{event_text}");
+        assert!(
+            event_text.contains("\"variables\":[\"NODE_ENV\"]"),
+            "{event_text}"
+        );
+        assert!(
+            event_text.contains("\"strategy\":\"unset_inherited\""),
+            "{event_text}"
+        );
+        assert!(
+            event_text.contains("\"scope\":\"bounded_process_children\""),
+            "{event_text}"
+        );
         let summary = std::fs::read_to_string(events.parent().unwrap().join("summary.md")).unwrap();
         assert!(
             summary.contains(

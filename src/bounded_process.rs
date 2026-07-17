@@ -88,13 +88,14 @@ fn child_env_allowed(key: &std::ffi::OsStr, source: EnvSource) -> bool {
     let Some(key) = key.to_str() else {
         return false;
     };
-    matches!(key, "PATH" | "HOME" | "LANG" | "TERM" | "NODE_ENV")
+    matches!(key, "PATH" | "HOME" | "LANG" | "TERM")
         || key.starts_with("LC_")
         || key.starts_with("npm_config_")
         || (source == EnvSource::Explicit
             && matches!(
                 key,
-                "NODE_OPTIONS"
+                "NODE_ENV"
+                    | "NODE_OPTIONS"
                     | "NODE_PATH"
                     | "NEXT_TELEMETRY_DISABLED"
                     | "PORT"
@@ -489,6 +490,49 @@ mod tests {
         assert!(!env.contains("GEMINI_API_KEY"), "{env}");
         assert!(!env.contains("OPENAI_API_KEY"), "{env}");
         assert!(!env.contains("ANVIL_TEST_UNRELATED_PARENT_SECRET"), "{env}");
+    }
+
+    #[test]
+    fn child_env_unsets_inherited_node_env() {
+        let current_exe = std::env::current_exe().unwrap();
+        let status = Command::new(current_exe)
+            .args([
+                "--ignored",
+                "--exact",
+                "bounded_process::tests::child_env_unsets_inherited_node_env_child",
+                "--nocapture",
+            ])
+            .env("NODE_ENV", "production")
+            .status()
+            .unwrap();
+        assert!(status.success(), "{status}");
+    }
+
+    #[test]
+    #[ignore]
+    fn child_env_unsets_inherited_node_env_child() {
+        let mut inherited = Command::new("sh");
+        inherited
+            .arg("-c")
+            .arg("printf '%s' \"${NODE_ENV-unset}\"")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let inherited_output = run_with_timeout(&mut inherited, Duration::from_secs(2)).unwrap();
+        assert!(inherited_output.success(), "{inherited_output:?}");
+        assert_eq!(inherited_output.stdout, b"unset");
+
+        let mut explicit = Command::new("sh");
+        explicit
+            .arg("-c")
+            .arg("printf '%s' \"${NODE_ENV-unset}\"")
+            .env("NODE_ENV", "test")
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let explicit_output = run_with_timeout(&mut explicit, Duration::from_secs(2)).unwrap();
+        assert!(explicit_output.success(), "{explicit_output:?}");
+        assert_eq!(explicit_output.stdout, b"test");
     }
 
     #[test]

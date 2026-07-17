@@ -1,0 +1,4 @@
+{"event":"run_start","profile":"nextjs","schema_version":"1"}
+{"contamination":["NODE_ENV=production"],"event":"host_env_contamination","lifecycle_stage":"process","schema_version":"1"}
+{"event":"host_env_normalized","lifecycle_stage":"process","scope":"bounded_process_children","strategy":"unset_inherited","variables":["NODE_ENV"],"schema_version":"1"}
+{"event":"run_stop","schema_version":"1","status":"completed"}

@@ -1,0 +1,40 @@
+case_id = "test0717_fix1_node_env_normalization"
+source = "uat-test0717-fix-001 host_env_contamination observations"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["host_env_normalized", "NODE_ENV", "unset_inherited"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/host-env-normalized.jsonl = [
+  "\"event\":\"host_env_contamination\"",
+  "\"contamination\":[\"NODE_ENV=production\"]",
+  "\"event\":\"host_env_normalized\"",
+  "\"variables\":[\"NODE_ENV\"]",
+  "\"strategy\":\"unset_inherited\"",
+  "\"scope\":\"bounded_process_children\""
+]
+
+[fixture_ordered]
+fixtures/host-env-normalized.jsonl = [
+  "\"event\":\"run_start\"",
+  "\"event\":\"host_env_contamination\"",
+  "\"event\":\"host_env_normalized\"",
+  "\"event\":\"run_stop\""
+]
