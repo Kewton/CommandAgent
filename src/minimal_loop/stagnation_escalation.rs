@@ -346,11 +346,13 @@ pub(crate) fn write_required_target_selection(
         push_unique_path(&mut fallback_paths, path);
     }
     select_repair_targets_from_paths(RepairTargetPathBuckets {
+        mapped_selection: None,
         evidence_mapped_paths,
         contract_attribute_paths: &[],
         repair_changed_paths,
         required_paths,
         fallback_paths: &fallback_paths,
+        priority: crate::planner::repair_targeting::RepairTargetPriority::Legacy,
     })
     .map(WriteRequiredTargetSelection::from)
 }

@@ -47,11 +47,9 @@ pub(crate) fn maybe_read_only_stagnation_feedback(
         let (selection, diagnostic_feedback) =
             if let Some(selection) = decision.write_required_selection() {
                 (selection, decision.diagnostic_feedback())
-            } else if let Some(selection) =
-                crate::planner::fix_diagnostics::repair_target_from_prompt(user_prompt)
-            {
-                (selection.into(), String::new())
             } else {
+                let mapped_selection =
+                    crate::planner::fix_diagnostics::repair_target_from_prompt(user_prompt);
                 let mut fallback_candidates = changed_paths.to_vec();
                 for path in &options.path_fallback_candidates {
                     if !fallback_candidates.iter().any(|existing| existing == path) {
@@ -68,17 +66,22 @@ pub(crate) fn maybe_read_only_stagnation_feedback(
                         repair_changed_paths,
                         required_paths,
                         fallback_paths: &fallback_candidates,
+                        mapped_selection: mapped_selection.as_ref(),
+                        priority: options.repair_target_priority,
                     },
                 )?
                 .into();
-                let state_binding_feedback =
+                let state_binding_feedback = if mapped_selection.is_some() {
+                    String::new()
+                } else {
                     crate::planner::state_binding_scan::write_required_feedback(
                         root,
                         profile,
                         &pending_evidence,
                         &pending_error_context.missing_capabilities,
                         eval_events_path,
-                    );
+                    )
+                };
                 (selection, state_binding_feedback)
             };
         write_required_state.activate_with_feedback(selection.clone(), diagnostic_feedback);
@@ -188,7 +191,10 @@ mod tests {
         let events = root.path().join("events.jsonl");
         let prompt = "Repair the F1 failure.\n\
 - write-pressure target: src/app/page.tsx (selection_reason=diagnosis_mapped)";
-        let options = RunSessionOptions::plan_step(RunSessionStepKind::Implement);
+        let options = RunSessionOptions::plan_step(RunSessionStepKind::Implement)
+            .with_repair_target_priority(
+                crate::planner::repair_targeting::RepairTargetPriority::FixIntent,
+            );
         let mut state = WriteRequiredState::default();
 
         let feedback = maybe_read_only_stagnation_feedback(
@@ -224,7 +230,10 @@ mod tests {
         let events = root.path().join("events.jsonl");
         let prompt = "Inspect the F1 predicate failure.\n\
 - write-pressure target: src/app/page.tsx (selection_reason=contract_attribute)";
-        let options = RunSessionOptions::plan_step(RunSessionStepKind::Inspect);
+        let options = RunSessionOptions::plan_step(RunSessionStepKind::Inspect)
+            .with_repair_target_priority(
+                crate::planner::repair_targeting::RepairTargetPriority::FixIntent,
+            );
         let mut state = WriteRequiredState::default();
 
         let feedback = maybe_read_only_stagnation_feedback(

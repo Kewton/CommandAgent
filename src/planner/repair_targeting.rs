@@ -7,6 +7,11 @@ use crate::minimal_loop::import_scan::{
 use crate::planner::profile::{is_nextjs_profile, profile_evidence_repair_target_paths};
 use crate::planner::runner::StepRunOutcome;
 
+mod fix;
+pub(crate) use fix::fix_profile_invariant_target_guidance;
+mod priority;
+pub(crate) use priority::RepairTargetPriority;
+
 pub(crate) use crate::minimal_loop::python_traceback::resolve_repair_target as resolve_traceback_repair_target;
 pub(crate) use crate::planner::repair_target_selection::{
     RepairTargetSelection, RepairTargetSelectionReason,
@@ -21,6 +26,8 @@ pub(crate) struct RepairTargetResolutionInput<'a> {
     pub(crate) repair_changed_paths: &'a [String],
     pub(crate) required_paths: &'a [String],
     pub(crate) fallback_paths: &'a [String],
+    pub(crate) mapped_selection: Option<&'a RepairTargetSelection>,
+    pub(crate) priority: RepairTargetPriority,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -48,12 +55,10 @@ pub(crate) struct FinalAcceptanceRepairTargetInput<'a> {
 pub(crate) fn resolve_final_acceptance_repair_targets(
     input: FinalAcceptanceRepairTargetInput<'_>,
 ) -> FinalAcceptanceRepairTargets {
-    if let Some(path) = input.diagnosis_path.filter(|path| !path.trim().is_empty()) {
-        return FinalAcceptanceRepairTargets {
-            selected_targets: ordered_non_empty_paths(&[path]),
-            selection_reason: "diagnosis_mapped".to_string(),
-        };
-    }
+    let mapped_selection = input.diagnosis_path.map(|path| RepairTargetSelection {
+        selected_targets: vec![path.to_string()],
+        selection_reason: RepairTargetSelectionReason::DiagnosisMapped,
+    });
     resolve_repair_targets(RepairTargetResolutionInput {
         root: input.root,
         profile: input.profile,
@@ -63,6 +68,8 @@ pub(crate) fn resolve_final_acceptance_repair_targets(
         repair_changed_paths: input.repair_changed_paths,
         required_paths: input.required_paths,
         fallback_paths: &[],
+        mapped_selection: mapped_selection.as_ref(),
+        priority: RepairTargetPriority::Legacy,
     })
     .map(|selection| FinalAcceptanceRepairTargets {
         selected_targets: selection.selected_targets,
@@ -91,51 +98,25 @@ pub(crate) fn resolve_repair_targets(
         repair_changed_paths: input.repair_changed_paths,
         required_paths: input.required_paths,
         fallback_paths: &fallback_paths,
+        mapped_selection: input.mapped_selection,
+        priority: input.priority,
     })
 }
 
 pub(crate) struct RepairTargetPathBuckets<'a> {
+    pub(crate) mapped_selection: Option<&'a RepairTargetSelection>,
     pub(crate) evidence_mapped_paths: &'a [String],
     pub(crate) contract_attribute_paths: &'a [String],
     pub(crate) repair_changed_paths: &'a [String],
     pub(crate) required_paths: &'a [String],
     pub(crate) fallback_paths: &'a [String],
+    pub(crate) priority: RepairTargetPriority,
 }
 
 pub(crate) fn select_repair_targets_from_paths(
     buckets: RepairTargetPathBuckets<'_>,
 ) -> Option<RepairTargetSelection> {
-    for (paths, reason) in [
-        (
-            buckets.evidence_mapped_paths,
-            RepairTargetSelectionReason::EvidenceMapped,
-        ),
-        (
-            buckets.contract_attribute_paths,
-            RepairTargetSelectionReason::ContractAttribute,
-        ),
-        (
-            buckets.repair_changed_paths,
-            RepairTargetSelectionReason::RepairChanged,
-        ),
-        (
-            buckets.required_paths,
-            RepairTargetSelectionReason::RequiredPath,
-        ),
-        (
-            buckets.fallback_paths,
-            RepairTargetSelectionReason::Fallback,
-        ),
-    ] {
-        let selected_targets = ordered_non_empty_paths(paths);
-        if !selected_targets.is_empty() {
-            return Some(RepairTargetSelection {
-                selected_targets,
-                selection_reason: reason,
-            });
-        }
-    }
-    None
+    priority::select(buckets)
 }
 
 pub(crate) fn repair_evidence_keys(
@@ -475,6 +456,8 @@ mod tests {
             repair_changed_paths: &[],
             required_paths: &["package.json".to_string(), "src/app/page.tsx".to_string()],
             fallback_paths: &["package.json".to_string()],
+            mapped_selection: None,
+            priority: RepairTargetPriority::Legacy,
         })
         .unwrap();
 
@@ -493,11 +476,13 @@ mod tests {
     #[test]
     fn contract_attribute_beats_repair_changed_and_required_paths() {
         let selection = select_repair_targets_from_paths(RepairTargetPathBuckets {
+            mapped_selection: None,
             evidence_mapped_paths: &[],
             contract_attribute_paths: &["src/app/page.tsx".to_string()],
             repair_changed_paths: &["src/hooks/game.ts".to_string()],
             required_paths: &["package.json".to_string()],
             fallback_paths: &[],
+            priority: RepairTargetPriority::Legacy,
         })
         .unwrap();
 
@@ -522,6 +507,8 @@ mod tests {
             repair_changed_paths: &[],
             required_paths: &[],
             fallback_paths: &[],
+            mapped_selection: None,
+            priority: RepairTargetPriority::Legacy,
         })
         .unwrap();
 

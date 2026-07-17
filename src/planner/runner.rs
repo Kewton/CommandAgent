@@ -2164,6 +2164,9 @@ fn run_step(
         phase_scope,
         contract_setup_authority,
     )
+    .with_repair_target_priority(repair_targeting::RepairTargetPriority::for_intent(
+        config.resolved_intent(&prompt_context.overall_goal),
+    ))
     .with_required_mutation_before_short_circuit(synthesized_precheck);
     let data_pre_satisfied =
         crate::planner::profiles::data::pre_satisfied::profile_applies(&config.profile);
@@ -4642,6 +4645,7 @@ fn repair_intermediate_profile_invariant(
         execution,
         ultra_session,
         &repair_prompt,
+        &plan.intent,
         &expected_paths,
         &repair_config,
         ui,
@@ -5043,6 +5047,12 @@ fn profile_invariant_model_repair_prompt(
     );
     let missing_imports = profile_missing_relative_imports(&config.workspace_root, &plan.profile);
     let import_findings = format_missing_import_findings(&config.workspace_root, &missing_imports);
+    let fix_target_guidance = repair_targeting::fix_profile_invariant_target_guidance(
+        &config.workspace_root,
+        &plan.profile,
+        &plan.intent,
+        &missing_imports,
+    );
     let import_scan_section = if import_findings.is_empty() {
         "Current missing relative imports:\n- none".to_string()
     } else {
@@ -5059,6 +5069,7 @@ fn profile_invariant_model_repair_prompt(
 Original ultra goal:\n{goal}\n\n\
 Profile: {profile}\nIntent: {intent}\nPhase id: {phase_id}\nPhase task:\n{phase_task}\n\n\
 Exact invariant reason:\n\"{exact_reason}\"\n{deterministic_note}\n\
+{fix_target_guidance}\
 Offending file contents:\n{file_excerpts}\n\n\
 {import_scan_section}\n\n\
 Expected profile artifacts:\n{expected}\n\n\
@@ -5075,6 +5086,7 @@ Bounded repair rules:\n\
         phase_task = phase.prompt,
         exact_reason = exact_reason,
         deterministic_note = deterministic_note,
+        fix_target_guidance = fix_target_guidance,
         file_excerpts = file_excerpts,
         import_scan_section = import_scan_section,
         expected = expected,

@@ -2095,6 +2095,7 @@ if __name__ == "__main__":
             &mut fake,
             &mut session,
             "Create repair.txt as a bounded profile repair.",
+            "create",
             &["repair.txt".to_string()],
             &config(dir.path().to_path_buf()),
             &NOOP_UI,

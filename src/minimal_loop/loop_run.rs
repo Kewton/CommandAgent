@@ -230,6 +230,7 @@ pub(crate) struct RunSessionOptions {
     pub dependency_setup_authority: NodeDependencySetupAuthority,
     pub step_wall_clock_cap: Option<Duration>,
     pub path_fallback_candidates: Vec<String>,
+    pub repair_target_priority: crate::planner::repair_targeting::RepairTargetPriority,
     pub require_mutation_before_contract_short_circuit: bool,
     pub escalation_carryover: Option<EscalationCarryoverHandle>,
 }
@@ -248,6 +249,7 @@ impl Default for RunSessionOptions {
             dependency_setup_authority: NodeDependencySetupAuthority::None,
             step_wall_clock_cap: None,
             path_fallback_candidates: Vec::new(),
+            repair_target_priority: Default::default(),
             require_mutation_before_contract_short_circuit: false,
             escalation_carryover: None,
         }
@@ -304,6 +306,14 @@ impl RunSessionOptions {
 
     pub(crate) fn with_path_fallback_candidates(mut self, candidates: Vec<String>) -> Self {
         self.path_fallback_candidates = candidates;
+        self
+    }
+
+    pub(crate) fn with_repair_target_priority(
+        mut self,
+        priority: crate::planner::repair_targeting::RepairTargetPriority,
+    ) -> Self {
+        self.repair_target_priority = priority;
         self
     }
 

@@ -606,6 +606,8 @@ pub(super) fn final_acceptance_evidence_regeneration_target(
             repair_changed_paths: &[],
             required_paths: expected_paths,
             fallback_paths: &[],
+            mapped_selection: None,
+            priority: crate::planner::repair_targeting::RepairTargetPriority::Legacy,
         },
     )
     .and_then(|selection| {
@@ -2152,6 +2154,7 @@ pub(super) fn run_profile_repair_with_ultra_session(
     execution: &mut dyn ChatClient,
     ultra_session: &mut SessionSnapshot,
     repair_prompt: &str,
+    intent: &str,
     expected_paths: &[String],
     config: &Config,
     ui: &dyn InteractionUi,
@@ -2163,7 +2166,9 @@ pub(super) fn run_profile_repair_with_ultra_session(
         expected_paths,
         config,
         ui,
-        RunSessionOptions::plan_step(RunSessionStepKind::Implement),
+        RunSessionOptions::plan_step(RunSessionStepKind::Implement).with_repair_target_priority(
+            crate::planner::repair_targeting::RepairTargetPriority::for_intent(intent),
+        ),
     )
 }
 

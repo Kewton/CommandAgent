@@ -30,7 +30,6 @@ pub(crate) struct RepairTargetSelection {
 }
 
 impl RepairTargetSelection {
-    #[cfg(test)]
     pub(crate) fn primary_target(&self) -> Option<&str> {
         self.selected_targets.first().map(String::as_str)
     }
