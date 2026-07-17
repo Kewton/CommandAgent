@@ -1,10 +1,12 @@
-use crate::planner::capability_catalog::{InternalCapability, ProbeCapability, ResolvedCapability};
+use crate::planner::capability_catalog::{InternalCapability, ResolvedCapability};
 use crate::planner::profile::ProfileFixReproducerSuggestion;
 use crate::planner::profile_manifest::CheckBinding;
 
+mod pipeline;
+
 pub(crate) fn suggestion_for(goal: &str) -> Option<ProfileFixReproducerSuggestion> {
     let lower = goal.to_ascii_lowercase();
-    contract_suggestion(&lower).or_else(|| pipeline_suggestion(&lower))
+    contract_suggestion(&lower).or_else(|| pipeline::suggestion(&lower))
 }
 
 fn contract_suggestion(goal: &str) -> Option<ProfileFixReproducerSuggestion> {
@@ -71,40 +73,6 @@ fn contract_suggestion(goal: &str) -> Option<ProfileFixReproducerSuggestion> {
     Some(ProfileFixReproducerSuggestion {
         basis: format!("goal_profile_contract:{}", ids.join(",")),
         suggestion: suggestions.join(" | "),
-    })
-}
-
-fn pipeline_suggestion(goal: &str) -> Option<ProfileFixReproducerSuggestion> {
-    if !contains_any(
-        goal,
-        &[
-            "pipeline_probe",
-            "pipeline failure",
-            "pipeline error",
-            "execution error",
-            "runtime error",
-            "traceback",
-            "nonzero exit",
-            "non-zero exit",
-            "non zero exit",
-            "exit非ゼロ",
-            "実行エラー",
-            "トレースバック",
-            "非ゼロ終了",
-            "終了コードが非ゼロ",
-        ],
-    ) {
-        return None;
-    }
-    let check = manifest_check("pipeline_probe")?;
-    let ResolvedCapability::Probe(ProbeCapability::Pipeline { entry, .. }) =
-        crate::planner::capability_catalog::resolve(&check.id, &check.params).ok()?
-    else {
-        return None;
-    };
-    Some(ProfileFixReproducerSuggestion {
-        basis: "goal_failure_kind:pipeline_execution".to_string(),
-        suggestion: format!("profile_catalog:pipeline_probe(entry={entry}) => python3 -B {entry}"),
     })
 }
 
