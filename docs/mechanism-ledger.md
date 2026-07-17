@@ -466,3 +466,39 @@ UAT #8で観測したDATA-13 / DATA-7bの機械偽陽性は、B-2k後のUAT #9�
 | FIX-3 | F1失敗診断のcause/repair prompt・write圧力配線 | 本コミット | `uat-test0717-fix-002` Run 1/2/5のPhase 2停滞を受け、F1の生出力が短縮evidence化の際に後続promptへ渡らない断線を解消する | build compile診断（T21系）とPython traceback（B-2d系）をF1生出力へ適用し、file/line/error kind/excerptを`isolate-cause`→`repair`へ注入。診断時は汎用build templateを迂回し、Run 1 `initGame` fixtureで`src/app/page.tsx`・`diagnosis_mapped`、Pythonで`traceback_mapped`を固定。新event名なし（基準152据置）、create裁定byte 6/6・fix conformance 9/9・全test・fmt・clippyを検証 | **complete** |
 | FIX-4a | fix診断blockの変更step限定 | 本コミット | `uat-test0717-fix-003` compile 2本で、生成時lint後にverify instructionへ付加された`write-pressure target`が実行直前planner lintに拒否された | runtime-derived診断blockは正規化後のimplement/repair系stepだけへ付加し、verify/inspectへは付加しない。Run 1 `initGame`実測形のrepair＋verify fixtureでimplementへの注入、verifyからのwrite-target語彙消失、plan lint通過を固定。新event名なし（基準152据置） | **complete** |
 | FIX-4b | fix F1契約predicateのroute-bound修復target配線 | 本コミット | `uat-test0717-fix-003` hook 3本が診断なしでgeneric `required_path`の`package.json`筆頭へ落ちた。これはT27と同属の「契約診断済みsourceを汎用required pathへ失う」再発として相互参照する | 実行済みF1 failure commandをnextjs manifestの`hook_attribute_present`へ照合し、既存`contract_attribute_repair_guidance`（欠落属性・位置・例）をPhase 2へ接続。inspect/implementのwrite圧力を`src/app/page.tsx`・`contract_attribute`へ解決し、verifyは不変、`package.json`は最後のfallbackとする。実測commandの空白差、runtime F1→Phase 2、generic required-path優先順位、corpusを固定。新event名なし（基準152据置） | **complete** |
+
+## D-1 close: fix × nextjs (2026-07-17)
+
+| 行程 | コミット / 計測 | 封緘根拠 |
+|---|---|---|
+| 契約fixed | `74ce3e4` | fix fullをF1 before failure、同一lineageのF2 after success、凍結回帰集合F3全passに固定 |
+| 裁定・runtime実装 | `643e814` | fix adjudication、時系列evidence、baseline/lineage/regression/epoch gateを実装 |
+| CLI明示選択 | `d955032` | `--intent fix`と`intent_resolved`を文書・台帳まで封緘（実装commitは`4342e8c`） |
+| FIX-1 | `32e14d0` | 親由来`NODE_ENV`をbounded child境界で正規化 |
+| FIX-2 / FIX-3 | `e24f542` / `e0f3f67` | 契約由来R誘導とF1診断のPhase 2配線 |
+| FIX-4a / FIX-4b | `63532c6` / `b99b624` | 診断注入を変更stepへ限定し、predicate failureをroute-bound修復targetへ接続 |
+| live計測 | `8754592` / `61ab3f5` / `0fedc86` / `2f45863` | `uat-test0717-fix-001`〜`004`、4 set・24 run・各run再試行なし。raw 24、FIX-1前の環境留保2本を除く宣言分母22 |
+| intent軸集計・band宣言 | `e4aee4a` / `c9d5ae1` | intent列、fix 2族、F1〜F3 false-full abortを機械化し、[`band_summary_fix.md`](../workspace/management/runs/band_summary_fix.md)を生成。既存nextjs/data bandはbyte不変 |
+
+初fullは2026-07-17の`uat-test0717-fix-001` / `fix1_compile_gemma31_001`。
+F1 `npm run build` failure@epoch 1から、同一lineageのF2 success@epoch 2、
+凍結回帰`profile_contract` / `profile_verify_1` success@epoch 3/4までの実物連鎖が
+存在し、full以外の設計品質は主張しない。
+
+偽装耐性のlive実績は、#2の`baseline_not_reproduced`拒否2件、偽full 0件。
+FIX-2後の#3/#4ではR関連性逸脱0を維持した。lineage不一致、回帰集合縮小、
+epoch逆転の拒否はconformanceで固定済みだが、この24 runでは未行使であり、
+live実績として推定しない。
+
+intent軸の学習ループは4計測setで初バンドへ到達した。比較用の履歴値は
+nextjs × createが10 set、data × createが9 setであり、同一精度の能力率比較
+ではなく、intent追加時の較正set数としてのみ記録する。fix × nextjsの正式分布は
+compile_error_fixがgemma31 1/4・qwen35 0/5、contract_hook_fixがgemma31
+0/7・qwen35 0/6である。
+
+B-3のadmission cap / manifest admissionはprofile単位であり、intent単位の
+admission機械化は未実装である。fixの本宣言は測定bandの封緘であって新しい
+admission gateではない。intent単位の規律の機械化はE-0へ委譲する。
+
+**D-1 closed (2026-07-17): fix契約v0、明示CLI、F1〜F3裁定、4セット24run、
+初full、偽full 0、intent軸の機械生成bandを封緘。FIX-5はD-2前queueとして分離する。**

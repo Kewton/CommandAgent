@@ -169,3 +169,20 @@ Literal JSON examples, missing-key feedback, phase scoping, and verified
 short-circuiting have exhausted the machine-side countermeasures; the remaining
 distribution is recorded as model-originated. Keep the local-tier failures in
 the band denominator and use the emitted recovery YAML for cloud follow-up.
+
+## Phase D pre-D-2 queue (2026-07-17)
+
+### FIX-5 Profile-invariant repair target precedence [QUEUED]
+
+`uat-test0717-fix-004`の`fix4_hook_qwen35_002`では、FIX-4bの対象である
+hook predicate文脈は`src/app/page.tsx` / `contract_attribute`へ正しく解決
+された。その後、独立したmissing-relative-import profile invariantのbounded
+repairへ移った際に、診断済みsourceよりgeneric `required_path`が優先され、
+`package.json`が筆頭targetになった。宣言分母22 run中1 runで非支配的だが、
+bandから除外せずFIX-5として分離する。
+
+これはT27のinteraction診断source喪失、FIX-4bのpredicate診断source喪失と
+同属である「具体的な修復sourceを汎用required pathへ落とす」系の文書化4例目。
+profile-invariant repair文脈でも診断・invariant由来fileをgeneric
+`required_path`より先に解決することを完了条件とし、D-2着手前に消化する。
+fix契約、F1〜F3、既存bandの裁定値を変更するタスクではない。
