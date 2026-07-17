@@ -1,0 +1,7 @@
+{
+  "capability_id": "data_results_schema",
+  "status": "failed",
+  "ok": false,
+  "results_path": "output/results.json",
+  "error": "results.json missing required key `reconciliation`"
+}

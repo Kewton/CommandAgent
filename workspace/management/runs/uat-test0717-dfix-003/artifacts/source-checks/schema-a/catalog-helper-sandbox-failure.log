@@ -1,0 +1,4 @@
+The initial sandboxed product helper invocation was not counted as R:
+Error: Operation not permitted (os error 1)
+
+The helper was rerun with read permission for the external baseline; the product check then returned exit 1 with the expected schema failure.

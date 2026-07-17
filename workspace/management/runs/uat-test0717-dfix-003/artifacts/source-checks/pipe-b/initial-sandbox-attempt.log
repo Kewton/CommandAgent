@@ -1,0 +1,4 @@
+The initial qualification command was sandbox-blocked before the baseline could be evaluated:
+PermissionError: Operation not permitted
+
+This did not count as R. The permission-corrected invocation then returned exit 1 with the retained TypeError shown in reproducer.stderr.log.

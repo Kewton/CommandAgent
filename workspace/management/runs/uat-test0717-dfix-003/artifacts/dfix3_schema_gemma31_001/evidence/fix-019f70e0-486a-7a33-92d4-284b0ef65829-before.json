@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "requirement_id": "before_fails",
+  "binding_id": "python -m anvil_catalog_check data_results_schema output/results.json",
+  "stage": "before",
+  "expected": "failure",
+  "lineage": "reproducer:6c5d92c6202ffce6",
+  "epoch": 1,
+  "run_id": "019f70e0-486a-7a33-92d4-284b0ef65829",
+  "executed": true,
+  "outcome": "failure",
+  "reason": "outcome: CommandFailed status: exit status: 1 elapsed_ms: 162 summary: command did not succeed: python -m anvil_catalog_check data_results_schema output/results.json stdout: stderr: /Users/<user>/.pyenv/versions/3.12.3/bin/python: No module named anvil_catalog_check"
+}
