@@ -212,6 +212,19 @@ fn adjudication_dependency_direction_stays_create_to_skeleton() {
             );
         }
     }
+    for path in [
+        "src/planner/adjudication/core.rs",
+        "src/planner/adjudication/requirements.rs",
+        "src/planner/adjudication/terminal.rs",
+    ] {
+        let source = std::fs::read_to_string(path).expect("read adjudication skeleton module");
+        assert!(
+            !production_lines(&source)
+                .join("\n")
+                .contains("investigate::"),
+            "{path} must not reverse-depend on the investigation adapter"
+        );
+    }
 
     let runner = std::fs::read_to_string("src/planner/runner.rs").expect("read runner");
     assert!(
@@ -319,9 +332,15 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/adjudication/contract.rs",
-            total_baseline: 279,
-            production_baseline: 246,
+            total_baseline: 322,
+            production_baseline: 289,
             test_baseline: 33,
+        },
+        ChokepointBudget {
+            path: "src/planner/adjudication/investigate.rs",
+            total_baseline: 177,
+            production_baseline: 177,
+            test_baseline: 0,
         },
         ChokepointBudget {
             path: "src/planner/adjudication/fix.rs",

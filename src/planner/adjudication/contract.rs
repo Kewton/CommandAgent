@@ -8,6 +8,7 @@ pub const FIX_CONTRACT_REF: &str = "docs/fix-intent-contract.md";
 pub enum IntentId {
     Create,
     Fix,
+    Investigate,
 }
 
 impl IntentId {
@@ -15,6 +16,7 @@ impl IntentId {
         match self {
             Self::Create => "create",
             Self::Fix => "fix",
+            Self::Investigate => "investigate",
         }
     }
 }
@@ -25,6 +27,7 @@ pub enum EvidenceStage {
     Unstaged,
     Before,
     After,
+    Diagnosis,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,6 +72,7 @@ pub enum RequirementImpact {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RequirementBinding {
     Reproducer,
+    Diagnosis,
     ProfileRegressionSet,
     ExistingCreateAdapter,
 }
@@ -107,6 +111,7 @@ pub struct PlanSkeleton {
 pub enum AssurancePolicy {
     ExistingCreateAdapter,
     FixV0,
+    InvestigationV0,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -228,10 +233,62 @@ const FIX_CONTRACT: IntentContract = IntentContract {
     required_profile_hooks: &FIX_HOOKS,
 };
 
+const INVESTIGATION_REQUIREMENTS: [EvidenceRequirement; 2] = [
+    EvidenceRequirement {
+        id: "reproducer_fails",
+        binding: RequirementBinding::Reproducer,
+        stage: EvidenceStage::Diagnosis,
+        expected: ExpectedOutcome::Failure,
+        execution: ExecutionRule::MustExecute,
+        impact: RequirementImpact::Blocking,
+        lineage: LineageRule::Required,
+    },
+    EvidenceRequirement {
+        id: "diagnosis_bound",
+        binding: RequirementBinding::Diagnosis,
+        stage: EvidenceStage::Diagnosis,
+        expected: ExpectedOutcome::Observation,
+        execution: ExecutionRule::MustExecute,
+        impact: RequirementImpact::Blocking,
+        lineage: LineageRule::SameAs("reproducer_fails"),
+    },
+];
+
+const INVESTIGATION_PHASES: [PhaseRole; 3] = [
+    PhaseRole {
+        id: "reproduce_candidate",
+        entry_requirement: None,
+        exit_requirement: Some("reproducer_fails"),
+    },
+    PhaseRole {
+        id: "diagnose",
+        entry_requirement: Some("reproducer_fails"),
+        exit_requirement: None,
+    },
+    PhaseRole {
+        id: "bind_verify",
+        entry_requirement: Some("reproducer_fails"),
+        exit_requirement: Some("diagnosis_bound"),
+    },
+];
+
+const INVESTIGATION_CONTRACT: IntentContract = IntentContract {
+    id: IntentId::Investigate,
+    version: "v0",
+    contract_ref: "docs/investigation-intent-contract.md",
+    requirements: &INVESTIGATION_REQUIREMENTS,
+    plan: PlanSkeleton {
+        roles: &INVESTIGATION_PHASES,
+    },
+    assurance: AssurancePolicy::InvestigationV0,
+    required_profile_hooks: &[],
+};
+
 pub fn intent_contract(id: &str) -> Option<&'static IntentContract> {
     match id.trim().to_ascii_lowercase().as_str() {
         "create" => Some(&CREATE_CONTRACT),
         "fix" => Some(&FIX_CONTRACT),
+        "investigate" => Some(&INVESTIGATION_CONTRACT),
         _ => None,
     }
 }
@@ -241,7 +298,7 @@ pub fn is_fix_intent(id: &str) -> bool {
 }
 
 pub fn registered_intents() -> &'static [&'static str] {
-    &["create", "fix"]
+    &["create", "fix", "investigate"]
 }
 
 #[cfg(test)]
@@ -249,10 +306,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_create_and_fix_but_fails_closed_for_unknown() {
-        assert_eq!(registered_intents(), ["create", "fix"]);
+    fn registry_has_three_intents_but_fails_closed_for_unknown() {
+        assert_eq!(registered_intents(), ["create", "fix", "investigate"]);
         assert_eq!(intent_contract("create").unwrap().id, IntentId::Create);
         assert_eq!(intent_contract("fix").unwrap().id, IntentId::Fix);
+        assert_eq!(
+            intent_contract("investigate").unwrap().id,
+            IntentId::Investigate
+        );
         assert!(is_fix_intent(" FIX "));
         assert!(intent_contract("research").is_none());
     }
