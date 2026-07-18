@@ -1,0 +1,10 @@
+goal: "data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。"
+steps:
+  - id: "diagnose"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Read only existing workspace files and the executed reproducer output for data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。; write output/diagnosis.md with exact error quotations, file:line references, and quoted source snippets. This step exclusively owns output/diagnosis.md."
+    expected_paths:
+      - "output/diagnosis.md"
+    verify:
+      - "test -f output/diagnosis.md"

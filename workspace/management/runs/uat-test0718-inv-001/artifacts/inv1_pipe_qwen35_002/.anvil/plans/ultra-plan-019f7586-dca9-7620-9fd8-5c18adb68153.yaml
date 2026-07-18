@@ -1,0 +1,11 @@
+goal: "data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。"
+profile: "data"
+style: "default"
+intent: "investigate"
+phases:
+  - id: "reproduce-candidate"
+    prompt: "Construct and execute deterministic reproducer R for: data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。"
+  - id: "diagnose"
+    prompt: "Investigate existing evidence and write output/diagnosis.md for: data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。"
+  - id: "bind-verify"
+    prompt: "Bind every machine-checkable diagnosis claim to reproducer output and existing files."

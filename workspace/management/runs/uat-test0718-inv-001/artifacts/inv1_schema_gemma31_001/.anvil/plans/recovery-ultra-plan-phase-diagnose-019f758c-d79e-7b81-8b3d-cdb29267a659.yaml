@@ -1,0 +1,17 @@
+# anvil-recovery-ultra-plan
+recovery_schema_version: "1"
+recovery_original_goal: "output/results.json がデータ契約のスキーマ検証に失敗します。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。"
+recovery_failure_kind: "phase_execute_error"
+recovery_profile: "data"
+recovery_failed_phase: "diagnose"
+goal: "output/results.json がデータ契約のスキーマ検証に失敗します。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。"
+profile: "data"
+style: "recovery"
+intent: "recover"
+phases:
+  - id: "inspect-current-state"
+    prompt: "Inspect the current workspace before changing files. Original goal: output/results.json がデータ契約のスキーマ検証に失敗します。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。. Failed acceptance layer or phase: diagnose. Failed step: unknown. Failure kind: phase_execute_error. Preserve useful existing artifacts and identify the smallest remaining implementation gap."
+  - id: "repair-diagnose"
+    prompt: "Repair the incomplete work for the failed phase without restarting from scratch.\nOriginal goal: output/results.json がデータ契約のスキーマ検証に失敗します。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。\nFailed acceptance layer or phase: diagnose\nFailed step: unknown\nMissing capability or artifact signals:\n- missing artifact: output/inspection.json\nFailure evidence:\n- model_stagnation:read_only_loop: write_required exhausted for output/diagnosis.md; objective: Execute exactly one StepPlan step. Overall goal: output/results.json がデータ契約のスキーマ検証に失敗します。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。 Current step id: diagnose Current step kind: implement Current step instruction: Read only existing workspace files and the executed reproducer output for output/results.json Paths: - recovery prompt saved: .anvil/repairs/repair-read-only-stagnation\nRepair targets:\n- none\nCreate or update the task-specific implementation artifacts needed to satisfy the original goal. Do not treat scaffold-only, setup-only, style-only, or build-only output as complete."
+  - id: "verify-recovery"
+    prompt: "Verify the recovered output with deterministic checks and repair only targeted failures.\nOriginal goal: output/results.json がデータ契約のスキーマ検証に失敗します。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。\nFailed acceptance layer or phase: diagnose\nPreferred verify/browser check:\n- use deterministic file existence, build, route, and capability evidence checks\n- avoid shell control syntax and interactive dev-server-only verification\nVerify preference: use the preferred checks above.\nExpected recovery result: runnable task-specific output, not only a saved plan or diagnostic report."

@@ -1,0 +1,49 @@
+{
+  "schema_version": "1",
+  "intent": "investigate",
+  "contract_version": "v0",
+  "contract_ref": "docs/investigation-intent-contract.md",
+  "requirement_id": "diagnosis_bound",
+  "claims": [
+    {
+      "kind": "error_quote",
+      "value": "ValueError",
+      "subject_path": null,
+      "line": null,
+      "matched": false,
+      "nearest": "outcome: CommandFailed status: exit status: 1 elapsed_ms: 30 summary: TypeError: list.append() takes exactly one argument (2 given) stdout: stderr: Traceback (most recent call last): File \"/Users/<user>/share/work/localwork/commandagent_mvp/01/test0718_inv_001/inv1_pipe_gemma31_001/pipeline/main.py\", line 181, in <module> run() File \"/Users/<user>/share/work/localwork/commandagent_mvp/01/test0718_inv_001/inv1_pipe_gemma31_001/pipeline/main.py\", line 164, in run report_lines.append(\"## 月次×地域別売上\","
+    },
+    {
+      "kind": "code_snippet",
+      "value": "python3 pipeline/main.py",
+      "subject_path": null,
+      "line": null,
+      "matched": false,
+      "nearest": "no referenced existing file"
+    },
+    {
+      "kind": "code_snippet",
+      "value": "Traceback (most recent call last):\n  File \"pipeline/main.py\", line 45, in <module>\n    process_sales(\"data/sales.csv\")\n  File \"pipeline/main.py\", line 36, in process_sales\n    total_revenue += float(row['price']) * int(row['quantity'])\nValueError: could not convert string to float: '1,200'",
+      "subject_path": null,
+      "line": null,
+      "matched": false,
+      "nearest": "no referenced existing file"
+    },
+    {
+      "kind": "code_snippet",
+      "value": "total_revenue += float(row['price']) * int(row['quantity'])",
+      "subject_path": null,
+      "line": null,
+      "matched": false,
+      "nearest": "no referenced existing file"
+    },
+    {
+      "kind": "error_quote",
+      "value": "ValueError",
+      "subject_path": null,
+      "line": null,
+      "matched": false,
+      "nearest": "outcome: CommandFailed status: exit status: 1 elapsed_ms: 30 summary: TypeError: list.append() takes exactly one argument (2 given) stdout: stderr: Traceback (most recent call last): File \"/Users/<user>/share/work/localwork/commandagent_mvp/01/test0718_inv_001/inv1_pipe_gemma31_001/pipeline/main.py\", line 181, in <module> run() File \"/Users/<user>/share/work/localwork/commandagent_mvp/01/test0718_inv_001/inv1_pipe_gemma31_001/pipeline/main.py\", line 164, in run report_lines.append(\"## 月次×地域別売上\","
+    }
+  ]
+}
