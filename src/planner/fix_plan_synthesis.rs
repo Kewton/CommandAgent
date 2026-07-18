@@ -330,10 +330,9 @@ fn verify_after(
 }
 
 fn generated(config: &Config, phase: &UltraPhase, plan: StepPlan) -> anyhow::Result<PhasePlan> {
-    let report = crate::planner::lint::lint_step_plan_report_with_workspace(
-        &plan,
-        Some(&config.workspace_root),
-    );
+    let mut plan = plan;
+    let report =
+        crate::planner::step_plan_finalize::finalize_step_plan_for_execution(&mut plan, config);
     if !report.is_pass() {
         anyhow::bail!(
             "synthesized data fix phase `{}` failed lint: {}",

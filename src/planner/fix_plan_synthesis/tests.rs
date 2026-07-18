@@ -80,9 +80,9 @@ mod cases {
             let mut step_plan =
                 unwrap_generated(phase_plan(&config, &plan, phase, Some(&runtime)).unwrap());
             crate::planner::fix_runtime::bind_step_plan(Some(&mut runtime), phase, &mut step_plan);
-            let lint = crate::planner::lint::lint_step_plan_report_with_workspace(
-                &step_plan,
-                Some(root.path()),
+            let lint = crate::planner::step_plan_finalize::finalize_step_plan_for_execution(
+                &mut step_plan,
+                &config,
             );
             assert!(lint.is_pass(), "{}", lint.primary_message());
             plans.push(step_plan);

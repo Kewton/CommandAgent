@@ -29,6 +29,7 @@ pub mod signals;
 pub mod source_assertion;
 pub mod state_binding_scan;
 pub mod step_plan;
+pub(crate) mod step_plan_finalize;
 pub mod ultra_plan;
 pub mod ultra_preset;
 pub mod verify;

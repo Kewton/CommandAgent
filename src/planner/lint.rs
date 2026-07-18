@@ -160,7 +160,7 @@ impl PlanQualityReport {
 }
 
 pub fn lint_step_plan(plan: &StepPlan) -> anyhow::Result<()> {
-    let report = lint_step_plan_report(plan);
+    let report = lint_report_internal(plan, None);
     if report.is_pass() {
         return Ok(());
     }
@@ -168,13 +168,17 @@ pub fn lint_step_plan(plan: &StepPlan) -> anyhow::Result<()> {
 }
 
 pub fn lint_step_plan_report(plan: &StepPlan) -> PlanLintReport {
-    lint_step_plan_report_with_workspace(plan, None)
+    lint_report_internal(plan, None)
 }
 
 pub fn lint_step_plan_report_with_workspace(
     plan: &StepPlan,
     work_root: Option<&Path>,
 ) -> PlanLintReport {
+    lint_report_internal(plan, work_root)
+}
+
+fn lint_report_internal(plan: &StepPlan, work_root: Option<&Path>) -> PlanLintReport {
     let mut report = PlanLintReport::pass();
     if plan.goal.chars().count() > 4000 {
         report.push("contract", "StepPlan goal is too long");
@@ -267,6 +271,10 @@ pub fn lint_step_plan_report_with_workspace(
         );
     }
     report
+}
+
+pub(crate) fn lint_plan_for_execution(plan: &StepPlan, work_root: Option<&Path>) -> PlanLintReport {
+    lint_report_internal(plan, work_root)
 }
 
 fn validate_verify_command_for_lint(command: &str) -> anyhow::Result<()> {
