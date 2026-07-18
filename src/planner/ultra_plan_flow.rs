@@ -1,6 +1,12 @@
 use super::*;
 
+#[path = "ultra_plan_flow/before_phase.rs"]
+mod before_phase;
 mod fix_before;
+#[path = "ultra_plan_flow/investigation_before.rs"]
+mod investigation_before;
+#[path = "ultra_plan_flow/phase_plan_resolution.rs"]
+mod phase_plan_resolution;
 mod ultra_plan_storage;
 pub use ultra_plan_storage::{run_ultra_plan_file, run_ultra_plan_file_with_ui, save_ultra_plan};
 
@@ -233,6 +239,8 @@ pub fn run_ultra_plan_with_ui(
     let mut ultra_context = UltraRunContext::for_run(&config.workspace_root, &final_expected_paths);
     let mut ultra_session = SessionSnapshot::new();
     let mut fix_runtime = crate::planner::fix_runtime::FixRuntime::for_plan(plan, config);
+    let mut investigation_runtime =
+        crate::planner::investigation_runtime::InvestigationRuntime::for_plan(plan, config);
     let mut promotion_state = ProfilePromotionState::for_run(plan, config);
     let mut setup_authority_state = UltraRunSetupAuthorityState::default();
     emit_ultra_context_initialized(config, plan, &ultra_context, ultra_session.messages.len());
@@ -257,29 +265,16 @@ pub fn run_ultra_plan_with_ui(
         let final_phase = index + 1 == plan.phases.len();
         let phase_prompt =
             ultra_phase_prompt(plan, phase, config, &ultra_context, fix_runtime.as_ref());
-        let step_plan_result = crate::planner::investigation_plan_synthesis::resolve_phase_plan(
+        let step_plan_result = phase_plan_resolution::resolve(
+            planner,
+            &phase_prompt,
             config,
-            plan,
+            ui,
             phase,
-            || {
-                crate::planner::fix_plan_synthesis::resolve_phase_plan(
-                    config,
-                    plan,
-                    phase,
-                    fix_runtime.as_ref(),
-                    || {
-                        generate_step_plan_with_ui_for_phase(
-                            planner,
-                            &phase_prompt,
-                            config,
-                            ui,
-                            Some(&phase.id),
-                            preset_plan,
-                            final_phase,
-                        )
-                    },
-                )
-            },
+            plan,
+            fix_runtime.as_ref(),
+            preset_plan,
+            final_phase,
         );
         let mut step_plan = step_plan_result.map_err(|err| {
             let rejected_verify_commands =
@@ -350,24 +345,23 @@ pub fn run_ultra_plan_with_ui(
             Some(step_plan.steps.len()),
         );
         save_step_plan(&config.workspace_root, &step_plan)?;
-        if let Some(runtime) = fix_runtime.as_mut()
-            && runtime.is_before_phase(index)
-        {
-            fix_before::run(
-                planner,
-                runtime,
-                &phase_prompt,
-                step_plan,
-                config,
-                plan,
-                phase,
-                index,
-                ui,
-                preset_plan,
-                final_phase,
-            )?;
+        let Some(step_plan) = before_phase::run(
+            planner,
+            fix_runtime.as_mut(),
+            investigation_runtime.as_mut(),
+            &phase_prompt,
+            step_plan,
+            config,
+            plan,
+            phase,
+            index,
+            ui,
+            preset_plan,
+            final_phase,
+        )?
+        else {
             continue;
-        }
+        };
         let step_outcome = match run_step_plan_with_session_with_ui_and_run_authority(
             execution,
             &mut ultra_session,
@@ -731,6 +725,9 @@ pub fn run_ultra_plan_with_ui(
         }
     }
     if let Some(runtime) = fix_runtime {
+        return runtime.finish(config, plan);
+    }
+    if let Some(runtime) = investigation_runtime {
         return runtime.finish(config, plan);
     }
     let mut final_acceptance_cycle_deltas = Vec::new();

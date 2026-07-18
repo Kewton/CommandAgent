@@ -277,8 +277,6 @@ pub(crate) fn lint_plan_for_execution(plan: &StepPlan, work_root: Option<&Path>)
     lint_report_internal(plan, work_root)
 }
 
-/// Deterministic templates are checked as-authored; generated execution plans
-/// use the finalize chokepoint after mutation.
 pub(crate) fn lint_template_contract(plan: &StepPlan, work_root: Option<&Path>) -> PlanLintReport {
     lint_report_internal(plan, work_root)
 }

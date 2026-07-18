@@ -27,23 +27,22 @@ pub(crate) fn bind_diagnosis(
             fenced = !fenced;
             continue;
         }
-        if trimmed.starts_with(char::from(96)) {
-            if trimmed
+        if trimmed.starts_with(char::from(96))
+            && trimmed
                 .chars()
                 .take_while(|ch| *ch == char::from(96))
                 .count()
                 >= 3
-            {
-                if fenced {
-                    let value = snippet.join("\n").trim().to_string();
-                    if !value.is_empty() {
-                        claims.push(bind_snippet(root, current_file.as_deref(), value));
-                    }
-                    snippet.clear();
+        {
+            if fenced {
+                let value = snippet.join("\n").trim().to_string();
+                if !value.is_empty() {
+                    claims.push(bind_snippet(root, current_file.as_deref(), value));
                 }
-                fenced = !fenced;
-                continue;
+                snippet.clear();
             }
+            fenced = !fenced;
+            continue;
         }
         if fenced {
             snippet.push(line.to_string());

@@ -1,0 +1,32 @@
+case_id = "test0718_d3b_investigation_intent"
+source = "D-3b investigation contract conformance fixtures"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["reproducer_fails", "diagnosis_bound", "investigation_plan_synthesized"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/pipe-plan.txt = ["reproduce-candidate", "diagnose", "bind-verify"]
+fixtures/schema-plan.txt = ["reproduce-candidate", "diagnose", "bind-verify"]
+fixtures/diagnosis-valid.md = ["ValueError: invalid literal", "pipeline/main.py:8"]
+fixtures/diagnosis-invalid.md = ["TypeError: fabricated", "pipeline/missing.py:99"]
+
+[fixture_ordered]
+fixtures/pipe-plan.txt = ["reproduce-candidate", "diagnose", "bind-verify"]
+fixtures/schema-plan.txt = ["reproduce-candidate", "diagnose", "bind-verify"]
