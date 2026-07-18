@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "requirement_id": "before_fails",
+  "binding_id": "python3 -B pipeline/main.py",
+  "stage": "before",
+  "expected": "failure",
+  "lineage": "reproducer:d6587ef46e829187",
+  "epoch": 1,
+  "run_id": "019f73b5-417c-7212-8bf3-8ebd22bac44a",
+  "executed": true,
+  "outcome": "failure",
+  "reason": "outcome: CommandFailed status: exit status: 1 elapsed_ms: 88 summary: TypeError: list.append() takes exactly one argument (2 given) stdout: stderr: Traceback (most recent call last): File \"/Users/<user>/share/work/localwork/commandagent_mvp/01/test0717_dfix_004_v5/dfix4_pipe_gemma31_001/pipeline/main.py\", line 181, in <module> run() File \"/Users/<user>/share/work/localwork/commandagent_mvp/01/test0717_dfix_004_v5/dfix4_pipe_gemma31_001/pipeline/main.py\", line 164, in run report_lines.append(\"## "
+}

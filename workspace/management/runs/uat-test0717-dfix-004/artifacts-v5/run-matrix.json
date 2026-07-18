@@ -1,0 +1,130 @@
+{
+  "campaign": "uat-test0717-dfix-004",
+  "revision": "75b6a10",
+  "version_label": "v5: 予算分離後の正式実行",
+  "formal_runs": 6,
+  "reruns": 0,
+  "runs": [
+    {
+      "index": 1,
+      "name": "dfix4_pipe_qwen35_001",
+      "event_run_id": "019f73a9-c26c-78e0-adc6-d1aa9c1b6943",
+      "fix_run_id": "019f73a9-c270-7282-bcc4-53c3fecbcc51",
+      "family": "pipe",
+      "set": "pipe-a",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "outer_exit_code": 1,
+      "wall_seconds": 718,
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed",
+      "terminal_class": "duplicate_expected_path_ownership",
+      "terminal_reason": "duplicate expected path ownership: pipeline/main.py in inspect-prior-evidence and implement-fix",
+      "attribution": "machine"
+    },
+    {
+      "index": 2,
+      "name": "dfix4_pipe_gemma31_001",
+      "event_run_id": "019f73b5-4179-71f0-92cc-946dd4b6a3d2",
+      "fix_run_id": "019f73b5-417c-7212-8bf3-8ebd22bac44a",
+      "family": "pipe",
+      "set": "pipe-b",
+      "executor": "gemma4:31b",
+      "outer_exit_code": 1,
+      "wall_seconds": 627,
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed",
+      "terminal_class": "duplicate_expected_path_ownership",
+      "terminal_reason": "duplicate expected path ownership: pipeline/main.py in fix-append-error and run-pipeline",
+      "attribution": "machine"
+    },
+    {
+      "index": 3,
+      "name": "dfix4_pipe_qwen35_002",
+      "event_run_id": "019f73bf-7250-73f2-8bda-7cd4057c8725",
+      "fix_run_id": "019f73bf-7252-7930-92d1-2fdb8c66cf98",
+      "family": "pipe",
+      "set": "pipe-b",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "outer_exit_code": 1,
+      "wall_seconds": 248,
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed",
+      "terminal_class": "duplicate_expected_path_ownership",
+      "terminal_reason": "duplicate expected path ownership: pipeline/main.py in synthesize-cause-isolation and implement-fix",
+      "attribution": "machine"
+    },
+    {
+      "index": 4,
+      "name": "dfix4_schema_qwen35_001",
+      "event_run_id": "019f73c4-1371-7c40-b5d4-7554d0ed4fcf",
+      "fix_run_id": "019f73c4-1373-7940-9e77-15035e5301f3",
+      "family": "schema",
+      "set": "schema-a",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "outer_exit_code": 1,
+      "wall_seconds": 909,
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed",
+      "terminal_class": "absent_artifact_requirement",
+      "terminal_reason": "path does not exist: output/inspection.json",
+      "attribution": "machine"
+    },
+    {
+      "index": 5,
+      "name": "dfix4_schema_gemma31_001",
+      "event_run_id": "019f73d2-7ad8-78f1-905b-a26e446fa3b5",
+      "fix_run_id": "019f73d2-7adb-7470-afcf-3a1cf5d7f6b2",
+      "family": "schema",
+      "set": "schema-b",
+      "executor": "gemma4:31b",
+      "outer_exit_code": 1,
+      "wall_seconds": 1125,
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed",
+      "terminal_class": "model_stagnation_no_progress_recorded",
+      "terminal_reason": "model_stagnation:no_progress_recorded at execute-pipeline",
+      "attribution": "model"
+    },
+    {
+      "index": 6,
+      "name": "dfix4_schema_qwen35_002",
+      "event_run_id": "019f73e4-b9fc-7752-bf9f-9cfa1d36ec24",
+      "fix_run_id": "019f73e4-b9fe-7493-8fc0-8873a0e45080",
+      "family": "schema",
+      "set": "schema-a",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "outer_exit_code": 1,
+      "wall_seconds": 733,
+      "verdict": "failed",
+      "assurance": "failed",
+      "assurance_reason": "after_not_executed",
+      "terminal_class": "absent_artifact_requirement",
+      "terminal_reason": "path does not exist: output/uat-console.log",
+      "attribution": "machine_model_mixed"
+    }
+  ],
+  "distribution": {
+    "full": 0,
+    "partial": 0,
+    "static": 0,
+    "failed": 6,
+    "full_rate": 0.0,
+    "family": {
+      "pipe": {"full": 0, "failed": 3},
+      "schema": {"full": 0, "failed": 3}
+    },
+    "executor": {
+      "qwen35": {"full": 0, "failed": 4},
+      "gemma31": {"full": 0, "failed": 2}
+    }
+  },
+  "wall_timing": {
+    "sum_run_seconds": 4360,
+    "campaign_first_start_to_last_end_seconds": 4603
+  }
+}

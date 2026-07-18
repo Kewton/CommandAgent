@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "requirement_id": "before_fails",
+  "binding_id": "python3 -B pipeline/main.py",
+  "stage": "before",
+  "expected": "failure",
+  "lineage": "reproducer:d6587ef46e829187",
+  "epoch": 1,
+  "run_id": "019f73a9-c270-7282-bcc4-53c3fecbcc51",
+  "executed": true,
+  "outcome": "failure",
+  "reason": "outcome: CommandFailed status: exit status: 1 elapsed_ms: 82 summary: ValueError: invalid literal for int() with base 10: '' stdout: stderr: Traceback (most recent call last): File \"/Users/<user>/share/work/localwork/commandagent_mvp/01/test0717_dfix_004_v5/dfix4_pipe_qwen35_001/pipeline/main.py\", line 169, in <module> run() File \"/Users/<user>/share/work/localwork/commandagent_mvp/01/test0717_dfix_004_v5/dfix4_pipe_qwen35_001/pipeline/main.py\", line 89, in run amount = parse_amount(row[\"amount\""
+}

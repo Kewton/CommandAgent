@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "requirement_id": "before_fails",
+  "binding_id": "python -c \"import json,sys; d=json.load(open('output/results.json')); r=d['reconciliation']; assert all(k in r for k in ('input_rows','used_rows','excluded')); assert isinstance(r['excluded'], list); assert r['input_rows'] == r['used_rows'] + sum(e['rows'] for e in r['excluded']); assert all(isinstance(v, (int, float)) for v in d.get('values', {}).values())\"",
+  "stage": "before",
+  "expected": "failure",
+  "lineage": "reproducer:92dd10f5107760cd",
+  "epoch": 1,
+  "run_id": "019f73d2-7adb-7470-afcf-3a1cf5d7f6b2",
+  "executed": true,
+  "outcome": "failure",
+  "reason": "outcome: CommandFailed status: exit status: 1 elapsed_ms: 161 summary: KeyError: 'reconciliation' stdout: stderr: Traceback (most recent call last): File \"<string>\", line 1, in <module> KeyError: 'reconciliation'"
+}

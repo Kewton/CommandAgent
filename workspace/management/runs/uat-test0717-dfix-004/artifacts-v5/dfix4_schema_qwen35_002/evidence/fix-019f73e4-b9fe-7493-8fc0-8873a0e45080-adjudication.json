@@ -1,0 +1,52 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "run_id": "019f73e4-b9fe-7493-8fc0-8873a0e45080",
+  "adjudication": {
+    "assurance": "failed",
+    "reason": "after_not_executed",
+    "requirement_statuses": {
+      "after_passes": "not_executed",
+      "before_fails": "passed",
+      "no_regression": "not_executed"
+    }
+  },
+  "evidence": {
+    "run_id": "019f73e4-b9fe-7493-8fc0-8873a0e45080",
+    "fix_written": false,
+    "bound_regression_ids": [
+      "pipeline_probe",
+      "data_reconciliation",
+      "data_claims_binding",
+      "data_rerun_consistency",
+      "data_results_schema"
+    ],
+    "bound_regression_lineages": {
+      "data_claims_binding": "regression:5ee07e4968be4199",
+      "data_reconciliation": "regression:aad7a27c9f14260b",
+      "data_rerun_consistency": "regression:09f9be875c51316d",
+      "data_results_schema": "regression:292fa5e5cb8065da",
+      "pipeline_probe": "regression:539f12e6adea8590"
+    },
+    "before": {
+      "schema_version": "1",
+      "intent": "fix",
+      "contract_version": "v0",
+      "contract_ref": "docs/fix-intent-contract.md",
+      "requirement_id": "before_fails",
+      "binding_id": "python -c \"import json, sys; d=json.load(open('output/results.json')); assert 'reconciliation' in d and 'values' in d and 'input_rows' in d['reconciliation'] and 'used_rows' in d['reconciliation'] and 'excluded' in d['reconciliation']\"",
+      "stage": "before",
+      "expected": "failure",
+      "lineage": "reproducer:f98d8f7c558485a7",
+      "epoch": 1,
+      "run_id": "019f73e4-b9fe-7493-8fc0-8873a0e45080",
+      "executed": true,
+      "outcome": "failure",
+      "reason": "outcome: CommandFailed status: exit status: 1 elapsed_ms: 173 summary: AssertionError stdout: stderr: Traceback (most recent call last): File \"<string>\", line 1, in <module> AssertionError"
+    },
+    "after": null,
+    "regressions": []
+  }
+}

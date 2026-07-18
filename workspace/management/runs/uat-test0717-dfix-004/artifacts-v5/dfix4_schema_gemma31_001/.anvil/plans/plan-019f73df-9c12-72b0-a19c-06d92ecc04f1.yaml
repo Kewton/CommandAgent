@@ -1,0 +1,32 @@
+goal: "Original ultra goal: output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。\nProfile: data\nStyle: default\nIntent: fix\nPhase id: repair\nPhase task: Apply the focused repair for the reproduced failure in: output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。\n\nWorkspace snapshot:\n- data\n- evidence\n- output\n- pipeline\n- uat-console.log\n\nPrior ultra context:\n- Completed phases:\n  - isolate-cause (4/4)\n- Pending final artifacts:\n  - output/inspection.json\n\nUnmet final requirements from earlier phases:\n- none\n\nRequested features not yet detected:\n- any\n- apply\n- before\n- behavior\n- bind\n- bound\n- … and 21 more\n\nProfile generation rules:\nThe pipeline must be deterministic: use a fixed seed whenever randomness is unavoidable, do not depend on execution time, and keep iteration and output ordering stable. Derive validation rules only from output/inspection.json observations and never invent unobserved value sets. This is class knowledge required by docs/data-profile-contract.md section 8.\nProfile runtime contract:\n- Generate pipeline/main.py, output/inspection.json, output/results.json, and required output/report.md; output/report.html is optional in addition.\n- Write output/results.json exactly as {\"reconciliation\":{\"input_rows\":N,\"used_rows\":N,\"excluded\":[{\"reason\":\"...\",\"rows\":N}]},\"values\":{\"<claim_key>\":number}} and store every numeric report claim under values.\n- input_rows must equal used_rows plus the sum of excluded rows.\n- A rerun must reproduce the complete output/results.json document exactly; time, random state, and unstable iteration order may not change results.Deterministic verification preference:\n- none\n\n\nRequired final artifacts:\n- pipeline/main.py\n- output/inspection.json\n- output/results.json\n- output/report.md\n\nRequired final capabilities:\n- data_reconciliation\n- data_claims_binding\n- data_rerun_consistency\n- data_results_schema\n\nFix contract phase role: repair. Do not use expected_result=\"fail\" after the baseline phase. Repair the observed defect; the runtime will independently rerun the original reproducer and the frozen profile regression set."
+steps:
+  - id: "repair-pipeline"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Update pipeline/main.py to implement deterministic data reconciliation and profiling. It must parse input data, apply rules from output/inspection.json, and generate output/results.json matching the contract: {\"reconciliation\":{\"input_rows\":N,\"used_rows\":N,\"excluded\":[{\"reason\":\"...\",\"rows\":N}]},\"values\":{\"<claim_key>\":number}}. Ensure input_rows equals used_rows plus the sum of excluded rows. Also generate or update output/inspection.json with observed profile rules."
+    expected_paths:
+      - "pipeline/main.py"
+      - "output/inspection.json"
+    verify:
+  - id: "create-verification-script"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Create scripts/verify-results.py that loads output/results.json, validates the exact schema structure, checks that all values are numbers, verifies input_rows == used_rows + sum(excluded rows), and prints success or exits with code 1 on failure."
+    expected_paths:
+      - "scripts/verify-results.py"
+    verify:
+  - id: "execute-pipeline"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Run python pipeline/main.py to deterministically regenerate output/results.json and output/report.md based on the repaired pipeline logic.\n\nProfile contract:\nBuild one reproducible tabular-data pipeline with Python 3 standard-library csv/json/statistics only. Preserve input files. The canonical artifacts are pipeline/main.py, output/inspection.json, output/results.json, and required output/report.md; output/report.html is optional in addition to report.md.\nThe pipeline must be deterministic: use a fixed seed whenever randomness is unavoidable, do not depend on execution time, and keep iteration and output ordering stable. Derive validation rules only from output/inspection.json observations and never invent unobserved value sets. This is class knowledge required by docs/data-profile-contract.md section 8.\nA rerun must reproduce the complete output/results.json document exactly; time, random state, and unstable iteration order may not change results.\nRepair pipeline/main.py and regenerate output/results.json exactly as {\"reconciliation\":{\"input_rows\":N,\"used_rows\":N,\"excluded\":[{\"reason\":\"...\",\"rows\":N}]},\"values\":{\"<claim_key>\":number}}. Every numeric claim printed in output/report.md must be present under values. For a claims-binding nearest_miss, report each violation as: \"Report claim <claim> has no corresponding results.json value. Nearest candidate <key>=<value>; absolute difference=<difference>.\" Then export every report numeric claim under an explicit values key, for example regional_名古屋. Never weaken or replace the manifest-bound evidence checks."
+    expected_paths:
+      - "output/results.json"
+      - "output/report.md"
+    verify:
+  - id: "verify-schema-contract"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Execute the verification script to assert schema compliance and reconciliation math against the regenerated output/results.json."
+    expected_paths:
+    verify:
+      - "python scripts/verify-results.py"
