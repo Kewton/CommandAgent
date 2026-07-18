@@ -403,6 +403,15 @@ impl Config {
                     .and_then(|preset| preset.plan_preset.clone())
             })
             .or_else(|| config_file_plan_preset(&workspace_root))
+            .or_else(|| {
+                let data_profile = cli.profile.as_deref() == Some("data")
+                    || preset
+                        .as_ref()
+                        .and_then(|preset| preset.profile.as_ref())
+                        .is_some_and(|profile| profile.value == "data");
+                (matches!(cli.intent, Some(IntentArg::Fix)) && data_profile)
+                    .then(|| sourced(PlanPreset::Profile, "default_fix_data"))
+            })
             .unwrap_or_else(|| default_plan_preset_for_planner(&planner_model.value));
         let state_dir = cli.state_dir.clone().unwrap_or_else(default_state_dir);
         let action = action_from_cli(&cli)?;
