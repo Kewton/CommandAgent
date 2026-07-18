@@ -1,0 +1,59 @@
+profile: data
+intent: fix
+f1_execution: confirmed
+f1_evidence: evidence/fix-<run-id>-before.json
+
+phase: reproduce-before
+goal: "data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契約の既存検証が通ることを確認してください。"
+steps:
+  - id: "reproduce-before"
+    kind: "verify"
+    expected_result: "fail"
+    instruction: "Run the bound reproducer R to record the required F1 failing baseline before any workspace changes."
+    expected_paths:
+    verify:
+      - "python3 -B pipeline/main.py"
+
+phase: isolate-cause
+goal: "data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契約の既存検証が通ることを確認してください。"
+steps:
+  - id: "isolate-cause"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read only the executed runtime-bound F1 failure evidence and the existing subjects `output/results.json`, `pipeline/main.py`; identify the narrow cause without changing the workspace."
+    expected_paths:
+    verify:
+
+phase: repair
+goal: "data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契約の既存検証が通ることを確認してください。"
+steps:
+  - id: "implement-fix"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Repair the F1-diagnosed defect in `pipeline/main.py` using the isolated cause and the shared target resolver (traceback_mapped); preserve the existing data contract and keep ownership of this path in this step.\n\nFix F1 failure diagnostic (runtime-derived):\n- location: pipeline/main.py:1\n- error kind: ValueError\n- message: bad sales row\n- write-pressure target: pipeline/main.py (selection_reason=traceback_mapped)\n- excerpt: <workspace>/pipeline/main.py:1 in <module>"
+    expected_paths:
+      - "pipeline/main.py"
+    verify:
+      - "python3 -B pipeline/main.py"
+
+phase: verify-regressions
+goal: "data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契約の既存検証が通ることを確認してください。"
+steps:
+  - id: "verify-after"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Run the exact F1 reproducer R after the repair to bind F2 to the same lineage."
+    expected_paths:
+    verify:
+      - "python3 -B pipeline/main.py"
+  - id: "verify-regressions"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Run every frozen data-profile regression check for F3 after F2."
+    expected_paths:
+    verify:
+      - "anvil-catalog-check:pipeline_probe"
+      - "anvil-catalog-check:data_reconciliation"
+      - "anvil-catalog-check:data_claims_binding"
+      - "anvil-catalog-check:data_rerun_consistency"
+      - "anvil-catalog-check:data_results_schema"

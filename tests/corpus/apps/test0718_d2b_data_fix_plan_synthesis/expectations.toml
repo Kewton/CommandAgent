@@ -1,0 +1,52 @@
+case_id = "test0718_d2b_data_fix_plan_synthesis"
+source = "D-2b machine-synthesized data fix plan after executed F1 evidence"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["before_fails", "after_passes", "no_regression", "fix_plan_synthesized"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/pipe-plan.txt = [
+  "f1_execution: confirmed",
+  "python3 -B pipeline/main.py",
+  "traceback_mapped",
+  "phase: verify-regressions",
+  "anvil-catalog-check:data_rerun_consistency"
+]
+fixtures/schema-plan.txt = [
+  "f1_execution: confirmed",
+  "anvil-catalog-check:data_results_schema",
+  "evidence_mapped",
+  "phase: verify-regressions",
+  "anvil-catalog-check:data_claims_binding"
+]
+
+[fixture_ordered]
+fixtures/pipe-plan.txt = [
+  "phase: reproduce-before",
+  "phase: isolate-cause",
+  "phase: repair",
+  "phase: verify-regressions"
+]
+fixtures/schema-plan.txt = [
+  "phase: reproduce-before",
+  "phase: isolate-cause",
+  "phase: repair",
+  "phase: verify-regressions"
+]

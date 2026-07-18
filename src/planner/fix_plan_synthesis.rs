@@ -356,3 +356,6 @@ fn emit_synthesized(config: &Config, plan: &UltraPlan, basis: &str) {
         }),
     );
 }
+
+#[cfg(test)]
+mod tests;
