@@ -1,4 +1,5 @@
 mod data;
+mod intent;
 
 use crate::config::Config;
 use crate::eval_events::{
@@ -22,12 +23,10 @@ pub(crate) fn apply_config_completion_metadata(config: &Config, snapshot: &mut C
     if snapshot.prompt_layout.trim().is_empty() {
         snapshot.prompt_layout = config.prompt_layout.as_str().to_string();
     }
-    if snapshot.contract_origin == crate::planner::fix_runtime::FIX_CONTRACT_ORIGIN {
+    if intent::apply_snapshot(config, snapshot) {
         return;
     }
-    if canonical_profile_name(&snapshot.effective_profile) == "data" {
-        data::apply_snapshot(&config.workspace_root, snapshot);
-    } else if canonical_profile_name(&snapshot.profile) == "generic" {
+    if canonical_profile_name(&snapshot.profile) == "generic" {
         if snapshot.assurance_level == "static" {
             snapshot.assurance_reason = GENERIC_STATIC_ASSURANCE_REASON.to_string();
         } else {
@@ -44,7 +43,7 @@ pub(crate) fn apply_config_completion_projection(
     config: &Config,
     projection: &mut CompletionProjection,
 ) {
-    data::apply_terminal_projection(&config.workspace_root, projection);
+    intent::apply_terminal_projection(config, projection);
     let (level, reason) = (
         &mut projection.assurance_level,
         &mut projection.assurance_reason,

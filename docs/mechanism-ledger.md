@@ -481,6 +481,7 @@ UAT #8で観測したDATA-13 / DATA-7bの機械偽陽性は、B-2k後のUAT #9�
 | D-2c | 計画確定チョークポイントの一本化 | 本コミット | 複数扉一門番病（時間軸版・4例目）の恒久修正。適用範囲は合成経路（fix×data）。planner生成経路は挙動保存のため従来形（repair chain→template lint、変異後再正規化なし）を維持し、第1層の穴は生成経路に残存する。生成経路の恒久解は計画合成の適用拡大であり、もぐら叩き（正規化追加）では行わない | 合成・実行計画のfinalize chokepointと、生成経路3箇所の`lint_template_contract`を字句guardrailで固定。既存fixtureでイベント形・verdict不変を確認。作業時間概算: 約30分 | **complete** |
 | D-3b | investigation intent契約v0 | 本コミット | D-3b開始: investigation intent契約v0をfixed（本コミット）。fix契約の実装済み機構（stage/極性/reproducer_defect/baseline_not_reproduced）を再利用する前提で設計。I2 diagnosis_bound はE2 claims-bindingの診断版であり、虚偽診断をfailedとする（partialではない） | **fixed** |
 | D-3b工程2 | investigation intent実装 | 本コミット | fixed契約I1/I2、diagnosis binding、data profile 3段計画合成、CLI・earned assurance conformanceを実装。create/fix既存経路は差し込み前fixtureで維持 | `investigation_plan_synthesized`・`investigation_adjudicated`追加により全intent source event名基準153→155。作業時間概算: 約120分 | **complete** |
+| INV-1a | investigation完了投影のintent dispatch | 本コミット | `uat-test0718-inv-001`で全6runがdata create由来の`static(data_profile_probe_not_run)`を表示した投影dispatch欠落を修正。T30(B-2c)・B-2jに続く投影層の同属3例目として、profile×intentの両軸dispatchへ移行 | `investigation_adjudicated`を最優先し、I1実行済み未裁定を`failed(investigation_incomplete)`、R未実行を`static(investigation_probe_not_run)`へ固定。inv-001 run 2/run 1/未実行の3形fixtureとcreate/fix既存byte fixtureで非影響を検証 | **complete** |
 
 ## D-1 close: fix × nextjs (2026-07-17)
 
