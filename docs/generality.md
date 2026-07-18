@@ -502,3 +502,12 @@ The declaration does not claim:
 - Linux behavior. Current UAT evidence is macOS/Darwin-only.
 - Output depth beyond the observed model pair. Depth and polish remain
   model-bound even when the contract, probe, and terminal-state mechanisms hold.
+## D-2 close: fix × data
+
+The admitted profile-synthesis arm is recorded separately from the none arm:
+none Window A: 24 runs, full 0; profile synthesis Window A/B: 6 runs, full 0.
+The synthesis arm eliminated the prior mechanical failure classes (0/6); all
+six runs reached F1 and stopped in local-tier repair read-only stagnation.
+Cloud-tier execution is recommended. F1 live evidence exists for 30 runs;
+F2/F3 live evidence exists only for one fix×nextjs run, not for fix×data.
+FIX-6b reproducer_defect remains WATCH.
