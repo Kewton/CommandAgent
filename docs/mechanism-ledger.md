@@ -537,3 +537,47 @@ intent×profileの真のコストはplanner生成計画の脆弱性にあり、�
 コマンド、分節実行、不在主張の検索方法提示を恒久規則とする。
 
 Phase D出口条件「fixが2profile×2族以上で分布計測済み」を達成。残件はD-3（連結run）。
+
+## D-3b close: investigation intent (2026-07-18)
+
+| 行程 | コミット / 計測 | 清算内容 |
+|---|---|---|
+| 契約fixed | `87d432a` | I1 reproducer failureとI2 diagnosis binding、およびfull/partial/static/failedの境界を実装前に固定 |
+| 実装 | `3922668` / `ed8c201` / `badbc81` / `1f50e4f` | adjudication、I2照合、3段計画合成、CLI・conformanceを4コミットで実装 |
+| 初計測 | `df1afdb` / `uat-test0718-inv-001` | 6 runでI1 6/6、I2到達2/6。投影dispatch欠落とdiagnosis形式逸脱を検出 |
+| INV-1 | `3dea4e8` / `3302dd9` | intent別完了投影dispatchと契約由来diagnoseガイダンスを追加 |
+| 第2計測 | `ea00fa7` / `uat-test0718-inv-002` | 6 runでI1 6/6、投影不整合0。I2到達2/6、形式逸脱は減少したが残存 |
+| バンド | `00672c4` / `9485163` | 12 runをI1/I2/adjudication不変条件つきで機械集計し、generalityへ転記 |
+
+### Intent追加コスト2点目の実測
+
+コード量は `git diff --numstat 87d432a..1f50e4f -- src` で実装4コミットを
+測った。production sourceは +1,201/-44（net +1,157）。主要な新規leafは
+`adjudication/investigate.rs` +211、`investigation_plan_synthesis.rs` +208、
+I2照合器 `investigation_binding.rs` +249、investigation runtime +190である。
+INV-1を含む `87d432a..3302dd9 -- src` は +1,580/-49
+（net +1,531）で、投影dispatchの `completion_metadata/intent.rs` +188を
+含む。実装時のsrc+tests総差分は同じ範囲の `git diff --stat` で
++1,418/-49だった。
+
+| 会計項目 | 実数 / 算出方法 |
+|---|---|
+| タスク数 | 6（契約、実装、inv-001、INV-1、inv-002、band/settlement） |
+| コミット数 | 11。`git rev-list --count 87d432a^..9485163`。本settlementコミットは自己参照なので除外 |
+| 計測 | 2 set、12 formal run、非消費0 |
+| 実装時間 | 台帳に記録された工程2概算120分。契約・INV-1・band行には時間概算がないため推測加算しない |
+| UAT純工程時間 | inv-001: 92+437+382=911秒、inv-002: 271+917+485=1,673秒、合計2,584秒（43分04秒） |
+| UAT実行区間wall採用時 | inv-001: 92+640+382=1,114秒、inv-002: 271+1,137+485=1,893秒、合計3,007秒（50分07秒） |
+| 記録済み総時間の下限 | 実装120分＋UAT純工程43分04秒 = 163分04秒。時間未記録の3工程は隠さず未算入 |
+
+D-2で得た見積り基準「配線＋合成器＋計測2〜3セット」は**当たった**。
+合成ファーストによりD-2型のplanner較正ループは発生せず、機械一次死因は
+0/12、計測は予測範囲内の2セットで閉じた。所要の点推定はD-2で固定して
+いなかったため、上表の163分04秒は比較可能な記録済み下限として扱う。
+
+create/fix/investigateの3実例がD-0骨格上に成立し、骨格のrule of twoを
+越えた。`IntentSchema`への宣言化抽出条件は整ったが、着手はPhase D-3a/Cの
+後とし、E-0域で判断する。
+
+Phase Dの分布条件は5セルまで到達した。調査→fixの連結runはD-3a未達であり、
+これを残件とする。
