@@ -5,7 +5,9 @@ use serde_json::json;
 use crate::eval_events;
 use crate::planner::profile::{domain_profile, is_nextjs_profile};
 use crate::planner::profile_manifest::TemplateOwnedArtifacts;
-use crate::planner::profiles::data::step_policy::canonicalize_step_plan;
+use crate::planner::profiles::data::step_policy::{
+    canonicalize_step_plan, verify_default::bind_empty_fix_verify_steps,
+};
 use crate::planner::step_plan::{PlanStep, StepKind, StepPlan};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -121,7 +123,16 @@ pub(crate) fn convert_preset_phase_setup_steps(
 ) -> usize {
     let phase_id = phase_scope.map(|(id, _)| id);
     let mut converted = if is_data_profile(profile) {
-        canonicalize_step_plan(plan, phase_scope, eval_events_path)
+        if phase_scope.is_some_and(|(id, _)| {
+            matches!(
+                id,
+                "reproduce-before" | "isolate-cause" | "repair" | "verify-regressions"
+            )
+        }) {
+            bind_empty_fix_verify_steps(plan, phase_id, eval_events_path)
+        } else {
+            canonicalize_step_plan(plan, phase_scope, eval_events_path)
+        }
     } else {
         0
     };

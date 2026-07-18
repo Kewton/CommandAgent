@@ -596,7 +596,15 @@ fn generate_step_plan_with_ui_for_phase(
                 let sanitizer_report =
                     sanitize_step_plan_against_policy(&mut plan, Some(&config.workspace_root));
                 let preset_converted = if fix_before {
-                    0
+                    if config.profile == "data" {
+                        crate::planner::profiles::data::step_policy::verify_default::bind_empty_fix_verify_steps(
+                            &mut plan,
+                            phase_label,
+                            config.eval_events_path.as_deref(),
+                        )
+                    } else {
+                        0
+                    }
                 } else {
                     setup_step_policy::convert_preset_phase_setup_steps(
                         &mut plan,
