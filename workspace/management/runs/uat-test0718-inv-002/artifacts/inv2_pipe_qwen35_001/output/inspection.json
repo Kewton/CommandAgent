@@ -1,0 +1,12 @@
+{
+  "total_rows": 20,
+  "valid_rows": 18,
+  "excluded": [
+    {"reason": "invalid_date", "rows": 1},
+    {"reason": "missing_date", "rows": 1}
+  ],
+  "regions": ["東京", "大阪", "名古屋"],
+  "months": [1, 2, 3, 4, 5, 6],
+  "amount_range": {"min": 1000, "max": 5000},
+  "amount_type": "integer"
+}

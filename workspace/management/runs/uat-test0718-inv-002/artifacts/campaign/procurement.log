@@ -1,0 +1,5 @@
+1784386304
+Sat Jul 18 23:51:44 JST 2026
+1784386540
+Sat Jul 18 23:55:40 JST 2026
+note=R preflight executed once; zsh reserved variable collision affected only exit-code capture; stderr confirmed Python exception and exit 1 was recorded without rerunning R

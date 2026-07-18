@@ -1,0 +1,9 @@
+goal: "output/results.json がデータ契約のスキーマ検証に失敗します。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。"
+steps:
+  - id: "bind-verify"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Run the listed deterministic verification commands without changing files."
+    expected_paths:
+    verify:
+      - "test -f evidence/investigation-binding.json"

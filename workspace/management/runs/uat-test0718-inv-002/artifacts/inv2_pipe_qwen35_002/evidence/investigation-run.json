@@ -1,0 +1,15 @@
+{
+  "schema_version": "1",
+  "intent": "investigate",
+  "contract_version": "v0",
+  "contract_ref": "docs/investigation-intent-contract.md",
+  "requirement_id": "reproducer_fails",
+  "reproducer": "python3 -B pipeline/main.py",
+  "stage": "diagnosis",
+  "expected": "failure",
+  "epoch": 1,
+  "executed": true,
+  "outcome": "failure",
+  "stdout": "",
+  "stderr": "outcome: CommandFailed status: exit status: 1 elapsed_ms: 50 summary: TypeError: list.append() takes exactly one argument (2 given) stdout: stderr: Traceback (most recent call last): File \"/Users/<user>/share/work/localwork/commandagent_mvp/01/test0718_inv_002/inv2_pipe_qwen35_002/pipeline/main.py\", line 181, in <module> run() File \"/Users/<user>/share/work/localwork/commandagent_mvp/01/test0718_inv_002/inv2_pipe_qwen35_002/pipeline/main.py\", line 164, in run report_lines.append(\"## 月次×地域別売上\", \""
+}
