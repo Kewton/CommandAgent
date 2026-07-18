@@ -107,3 +107,12 @@ The same four campaigns after excluding exactly two #1 rows whose inherited `NOD
 - `uat-test0717-fix-002`
 - `uat-test0717-fix-003`
 - `uat-test0717-fix-004`
+# D-2 fix×data synthesis arm (machine-generated settlement rows)
+
+| intent | profile | arm | family | executor | runs | full |
+|---|---|---|---|---|---:|---:|
+| fix | data | none | all | qwen35/gemma31 | 24 | 0 |
+| fix | data | profile_synthesis | pipe/schema | qwen35/gemma31 | 6 | 0 |
+
+Window B: profile_synthesis, HEAD >= 85f3fb3, dfix-005 v2, 6 runs, full 0.
+dfix-004 v1-v5 and dfix-005 attempt 1 are excluded as non-consuming attempts.
