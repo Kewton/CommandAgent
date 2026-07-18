@@ -60,6 +60,10 @@ pub struct StreamCapture {
     pub captured_bytes: usize,
     pub total_bytes: u64,
     pub truncated: bool,
+    /// Internal telemetry used to surface invalid UTF-8 replacement without
+    /// changing the serialized stream shape.
+    #[serde(skip)]
+    pub invalid_utf8_replaced: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -160,6 +164,12 @@ pub fn run(root: &Path, config: PipelineProbeConfig) -> anyhow::Result<PipelineP
     if stderr.truncated {
         capture_warnings.push("stderr_truncated".to_string());
     }
+    if stdout.invalid_utf8_replaced {
+        capture_warnings.push("stdout_invalid_utf8_replaced".to_string());
+    }
+    if stderr.invalid_utf8_replaced {
+        capture_warnings.push("stderr_invalid_utf8_replaced".to_string());
+    }
     let python_error_extraction = (outcome == PipelineOutcome::Exited && exit_code != Some(0))
         .then(|| super::python_traceback::extract(&stderr.text, root));
     let ok = failure_kinds.is_empty();
@@ -242,11 +252,16 @@ where
             captured.extend_from_slice(&buffer[..read.min(remaining)]);
         }
         let captured_bytes = captured.len();
+        let (text, invalid_utf8_replaced) = match String::from_utf8(captured) {
+            Ok(text) => (text, false),
+            Err(error) => (String::from_utf8_lossy(error.as_bytes()).to_string(), true),
+        };
         Ok(StreamCapture {
-            text: String::from_utf8_lossy(&captured).to_string(),
+            text,
             captured_bytes,
             total_bytes,
             truncated: total_bytes > captured_bytes as u64,
+            invalid_utf8_replaced,
         })
     })
 }
@@ -368,6 +383,17 @@ fn millis_u64(duration: Duration) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn invalid_utf8_is_replaced_and_marked() {
+        let capture = capture_stream(Cursor::new(vec![b'a', 0xff, b'b']), 64)
+            .join()
+            .expect("capture thread")
+            .expect("capture result");
+        assert_eq!(capture.text, "a\u{fffd}b");
+        assert!(capture.invalid_utf8_replaced);
+    }
 
     fn write_pipeline(root: &Path, body: &str) {
         std::fs::create_dir_all(root.join("pipeline")).unwrap();
