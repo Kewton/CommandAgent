@@ -402,6 +402,9 @@ fn node_exists_sync_path(command: &str) -> Option<String> {
 }
 
 fn normalize_duplicate_expected_path_ownership(plan: &mut StepPlan) {
+    // FIX-8: an artifact has one owner. Implement steps retain ownership;
+    // verify/run steps are references only (their expected_paths are removed).
+    // Keeping this normalization before lint also covers FIX-7b step moves.
     use std::collections::BTreeMap;
 
     let mut owners: BTreeMap<String, usize> = BTreeMap::new();
@@ -855,5 +858,20 @@ steps:
         .unwrap();
         assert!(empty.steps[0].expected_paths.is_empty());
         assert!(empty.steps[0].verify.is_empty());
+    }
+
+    #[test]
+    fn fix8_duplicate_pipeline_path_is_owned_by_implement_step() {
+        let mut plan = parse_generated_step_plan_json(
+            r#"{"goal":"repair pipeline","steps":[
+                {"id":"fix-pipeline","kind":"implement","instruction":"Fix pipeline","expected_paths":["pipeline/main.py"]},
+                {"id":"run-pipeline","kind":"verify","instruction":"Run pipeline","expected_paths":["pipeline/main.py"]}
+            ]}"#,
+            "repair pipeline",
+        )
+        .unwrap();
+        repair_generated_step_plan_contract(&mut plan);
+        assert_eq!(plan.steps[0].expected_paths, vec!["pipeline/main.py"]);
+        assert!(plan.steps[1].expected_paths.is_empty());
     }
 }
