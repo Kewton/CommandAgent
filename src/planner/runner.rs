@@ -627,10 +627,10 @@ fn generate_step_plan_with_ui_for_phase(
                     attempt,
                     &sanitizer_report,
                 );
-                let lint_report =
-                    crate::planner::step_plan_finalize::finalize_step_plan_for_execution(
-                        &mut plan, config,
-                    );
+                let lint_report = crate::planner::lint::lint_template_contract(
+                    &plan,
+                    Some(&config.workspace_root),
+                );
                 if lint_report.is_pass() {
                     let quality_context = plan_quality_context(config, goal);
                     let quality_report = step_plan_quality_report(&plan, &quality_context);
@@ -808,7 +808,7 @@ fn deterministic_step_plan_for_phase(
         sanitize_step_plan_against_policy(&mut plan, Some(&config.workspace_root));
     emit_planner_plan_sanitized(config, provider, model, 1, &sanitizer_report);
     let lint_report =
-        crate::planner::step_plan_finalize::finalize_step_plan_for_execution(&mut plan, config);
+        crate::planner::lint::lint_template_contract(&plan, Some(&config.workspace_root));
     if !lint_report.is_pass() {
         emit_planner_error_for_lint(config, provider, model, &lint_report, 1);
         anyhow::bail!(
@@ -1994,9 +1994,7 @@ fn run_step_plan_with_session_with_ui_and_run_authority(
     mut run_setup_authority: Option<&mut UltraRunSetupAuthorityState>,
 ) -> Result<StepPlanRunOutcome, StepPlanRunError> {
     let mut outcome = StepPlanRunOutcome::for_plan(plan);
-    let overall_goal = overall_goal_override
-        .map(str::to_owned)
-        .unwrap_or_else(|| plan.goal.clone());
+    let overall_goal = overall_goal_override.unwrap_or(&plan.goal);
     let report = crate::planner::lint::lint_plan_for_execution(&plan, Some(&config.workspace_root));
     if !report.is_pass() {
         emit_planner_error_for_lint(config, "plan-file", &config.planner_model, &report, 0);
@@ -2007,7 +2005,7 @@ fn run_step_plan_with_session_with_ui_and_run_authority(
             ));
         }
     }
-    let required_final_artifacts = required_final_artifacts(&plan, &config.workspace_root);
+    let required_final_artifacts = required_final_artifacts(plan, &config.workspace_root);
     let mut final_required_capabilities =
         inferred_required_capabilities(&config.profile, &plan.goal);
     let final_required_obligations =
@@ -2051,7 +2049,7 @@ fn run_step_plan_with_session_with_ui_and_run_authority(
             return Err(StepPlanRunError::from_error("interrupted by user", outcome));
         }
         let prompt_context = StepPromptContext {
-            overall_goal: overall_goal.clone(),
+            overall_goal: overall_goal.to_string(),
             required_final_artifacts: required_final_artifacts.clone(),
             prior_expected_paths: prior_expected_paths.clone(),
             final_required_capabilities: final_required_capabilities.clone(),
@@ -2063,7 +2061,7 @@ fn run_step_plan_with_session_with_ui_and_run_authority(
         match run_step(
             client,
             session,
-            &plan,
+            plan,
             step,
             &prompt_context,
             config,
@@ -2083,7 +2081,7 @@ fn run_step_plan_with_session_with_ui_and_run_authority(
             }
         }
         if let Some(state) = run_setup_authority.as_deref_mut()
-            && step_carries_setup_authority(&plan, step, phase_scope)
+            && step_carries_setup_authority(plan, step, phase_scope)
         {
             state.grant("phase_setup_step");
         }
@@ -2091,7 +2089,7 @@ fn run_step_plan_with_session_with_ui_and_run_authority(
     }
     if verify_final_contract
         && let Err(err) = verify_plan_final_contract(
-            &plan,
+            plan,
             &required_final_artifacts,
             config,
             bound_contract.as_ref(),
@@ -8328,7 +8326,7 @@ fn fallback_step_plan_for_setup_phase(goal: &str, config: &Config) -> Option<Ste
         return None;
     }
     let verify = fallback_setup_verify_commands(&expected_paths);
-    let mut plan = StepPlan {
+    let plan = StepPlan {
         goal: goal.to_string(),
         steps: vec![PlanStep {
             id: "fallback-setup".to_string(),
@@ -8340,7 +8338,7 @@ fn fallback_step_plan_for_setup_phase(goal: &str, config: &Config) -> Option<Ste
         }],
     };
     let lint_report =
-        crate::planner::step_plan_finalize::finalize_step_plan_for_execution(&mut plan, config);
+        crate::planner::lint::lint_template_contract(&plan, Some(&config.workspace_root));
     lint_report.is_pass().then_some(plan)
 }
 
