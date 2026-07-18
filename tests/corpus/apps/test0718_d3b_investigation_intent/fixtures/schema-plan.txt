@@ -1,3 +1,12 @@
 reproduce-candidate
 diagnose
+診断の主張は次の形式で書くこと
+エラー引用: `ValueError: could not convert string to float: ''`
+位置: pipeline/main.py:53
+コード引用（実在コードのみ）
+修正案・例示コードはコードブロックにせず
+実在ファイル一覧（決定的な辞書順、最大64件）
+- output/results.json
+- pipeline/main.py
+一覧にないファイルを参照しないこと
 bind-verify

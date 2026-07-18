@@ -22,10 +22,11 @@ contains = []
 expect = "not_checked"
 
 [fixture_contains]
-fixtures/pipe-plan.txt = ["reproduce-candidate", "diagnose", "bind-verify"]
-fixtures/schema-plan.txt = ["reproduce-candidate", "diagnose", "bind-verify"]
+fixtures/pipe-plan.txt = ["reproduce-candidate", "diagnose", "bind-verify", "診断の主張は次の形式で書くこと", "位置: pipeline/main.py:53", "実在ファイル一覧", "一覧にないファイルを参照しないこと"]
+fixtures/schema-plan.txt = ["reproduce-candidate", "diagnose", "bind-verify", "診断の主張は次の形式で書くこと", "位置: pipeline/main.py:53", "実在ファイル一覧", "一覧にないファイルを参照しないこと"]
 fixtures/diagnosis-valid.md = ["ValueError: invalid literal", "pipeline/main.py:8"]
 fixtures/diagnosis-invalid.md = ["TypeError: fabricated", "pipeline/missing.py:99"]
+fixtures/diagnosis-run6-example-blocks.md = ["Current output", "Suggested output shape", "reconciliation"]
 
 [fixture_ordered]
 fixtures/pipe-plan.txt = ["reproduce-candidate", "diagnose", "bind-verify"]

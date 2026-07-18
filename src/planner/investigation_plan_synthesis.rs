@@ -5,6 +5,8 @@ use crate::planner::adjudication::contract::IntentId;
 use crate::planner::step_plan::{PlanStep, StepPlan};
 use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
 
+mod guidance;
+
 const PHASE_IDS: [&str; 3] = ["reproduce-candidate", "diagnose", "bind-verify"];
 
 pub(crate) fn resolve_phase_plan(
@@ -51,10 +53,7 @@ pub(crate) fn resolve_phase_plan(
                 id: "diagnose".into(),
                 kind: "implement".into(),
                 expected_result: "pass".into(),
-                instruction: format!(
-                    "Read only existing workspace files and the executed reproducer output for {}; write output/diagnosis.md with exact error quotations, file:line references, and quoted source snippets. This step exclusively owns output/diagnosis.md.",
-                    plan.goal
-                ),
+                instruction: guidance::diagnose_instruction(config, &plan.goal),
                 expected_paths: vec!["output/diagnosis.md".into()],
                 verify: vec!["test -f output/diagnosis.md".into()],
             }],

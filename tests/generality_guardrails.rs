@@ -344,9 +344,15 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/investigation_binding.rs",
-            total_baseline: 249,
+            total_baseline: 196,
             production_baseline: 194,
-            test_baseline: 55,
+            test_baseline: 2,
+        },
+        ChokepointBudget {
+            path: "src/planner/investigation_binding/tests.rs",
+            total_baseline: 80,
+            production_baseline: 0,
+            test_baseline: 80,
         },
         ChokepointBudget {
             path: "src/planner/adjudication/fix.rs",
@@ -449,6 +455,12 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
             total_baseline: 208,
             production_baseline: 162,
             test_baseline: 46,
+        },
+        ChokepointBudget {
+            path: "src/planner/investigation_plan_synthesis/guidance.rs",
+            total_baseline: 161,
+            production_baseline: 86,
+            test_baseline: 75,
         },
         ChokepointBudget {
             path: "src/planner/investigation_runtime.rs",
