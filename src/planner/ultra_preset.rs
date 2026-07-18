@@ -23,6 +23,21 @@ pub(crate) fn maybe_prebuilt_ultra_plan(
         }
         return Ok(Some(plan));
     }
+    if config.intent_override == Some(IntentId::Investigate) {
+        let plan = crate::planner::intent::explicit_investigation_plan(
+            goal,
+            &config.profile,
+            &config.style,
+        );
+        let report = lint_ultra_plan_report(&plan);
+        if !report.is_pass() {
+            anyhow::bail!(
+                "explicit investigation UltraPlan failed lint: {}",
+                report.primary_message()
+            );
+        }
+        return Ok(Some(plan));
+    }
     if config.plan_preset != PlanPreset::Profile {
         return Ok(None);
     }

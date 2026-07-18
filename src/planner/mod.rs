@@ -14,6 +14,7 @@ pub mod intent;
 pub mod interaction_qualification;
 pub(crate) mod interaction_repair;
 pub(crate) mod investigation_binding;
+pub(crate) mod investigation_plan_synthesis;
 pub mod lint;
 pub(crate) mod lint_rejection;
 pub mod profile;

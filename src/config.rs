@@ -135,6 +135,7 @@ impl From<IntentArg> for IntentId {
         match value {
             IntentArg::Create => Self::Create,
             IntentArg::Fix => Self::Fix,
+            IntentArg::Investigate => Self::Investigate,
         }
     }
 }
@@ -282,6 +283,12 @@ struct ConfigFile {
 
 impl Config {
     pub fn plan_preset_origin(&self) -> &'static str {
+        if self.field_sources.plan_preset == "default_fix_data" {
+            return "default_fix_data";
+        }
+        if self.field_sources.plan_preset == "default_investigate_data" {
+            return "default_investigate_data";
+        }
         config_source_origin(&self.field_sources.plan_preset)
     }
 
@@ -409,8 +416,12 @@ impl Config {
                         .as_ref()
                         .and_then(|preset| preset.profile.as_ref())
                         .is_some_and(|profile| profile.value == "data");
-                (matches!(cli.intent, Some(IntentArg::Fix)) && data_profile)
-                    .then(|| sourced(PlanPreset::Profile, "default_fix_data"))
+                if matches!(cli.intent, Some(IntentArg::Investigate)) && data_profile {
+                    Some(sourced(PlanPreset::Profile, "default_investigate_data"))
+                } else {
+                    (matches!(cli.intent, Some(IntentArg::Fix)) && data_profile)
+                        .then(|| sourced(PlanPreset::Profile, "default_fix_data"))
+                }
             })
             .unwrap_or_else(|| default_plan_preset_for_planner(&planner_model.value));
         let state_dir = cli.state_dir.clone().unwrap_or_else(default_state_dir);
@@ -1638,6 +1649,43 @@ profile = "nextjs"
         assert_eq!(cli_override.plan_preset, PlanPreset::Profile);
         assert_eq!(cli_override.field_sources.plan_preset, "flag");
         assert_eq!(cli_override.plan_preset_origin(), "cli");
+    }
+
+    #[test]
+    fn investigate_data_defaults_to_profile_and_explicit_none_wins() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_string_lossy().to_string();
+        let defaulted = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--intent",
+            "investigate",
+            "--profile",
+            "data",
+        ]))
+        .unwrap();
+        assert_eq!(defaulted.plan_preset, PlanPreset::Profile);
+        assert_eq!(
+            defaulted.field_sources.plan_preset,
+            "default_investigate_data"
+        );
+        assert_eq!(defaulted.plan_preset_origin(), "default_investigate_data");
+
+        let explicit_none = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--intent",
+            "investigate",
+            "--profile",
+            "data",
+            "--plan-preset",
+            "none",
+        ]))
+        .unwrap();
+        assert_eq!(explicit_none.plan_preset, PlanPreset::None);
+        assert_eq!(explicit_none.plan_preset_origin(), "cli");
     }
 
     #[test]

@@ -5,9 +5,32 @@ pub fn detect_intent(goal: &str) -> &'static str {
     if lower.contains("fix") || lower.contains("修正") {
         "fix"
     } else if lower.contains("research") || lower.contains("調査") {
-        "research"
+        "investigate"
     } else {
         "create"
+    }
+}
+
+pub(crate) fn explicit_investigation_plan(goal: &str, profile: &str, style: &str) -> UltraPlan {
+    UltraPlan {
+        goal: goal.to_string(),
+        profile: profile.to_string(),
+        style: style.to_string(),
+        intent: "investigate".to_string(),
+        phases: vec![
+            UltraPhase {
+                id: "reproduce-candidate".to_string(),
+                prompt: format!("Construct and execute deterministic reproducer R for: {goal}"),
+            },
+            UltraPhase {
+                id: "diagnose".to_string(),
+                prompt: format!("Investigate existing evidence and write output/diagnosis.md for: {goal}"),
+            },
+            UltraPhase {
+                id: "bind-verify".to_string(),
+                prompt: "Bind every machine-checkable diagnosis claim to reproducer output and existing files.".to_string(),
+            },
+        ],
     }
 }
 
@@ -49,9 +72,9 @@ mod tests {
     use crate::planner::lint::lint_ultra_plan_report;
 
     #[test]
-    fn create_fix_research_intent() {
+    fn create_fix_investigation_intent() {
         assert_eq!(super::detect_intent("fix parser"), "fix");
-        assert_eq!(super::detect_intent("research topic"), "research");
+        assert_eq!(super::detect_intent("research topic"), "investigate");
         assert_eq!(super::detect_intent("make app"), "create");
     }
 

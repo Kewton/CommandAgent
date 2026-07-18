@@ -31,6 +31,7 @@ pub enum PlanPresetArg {
 pub enum IntentArg {
     Create,
     Fix,
+    Investigate,
 }
 
 #[derive(Debug, Parser)]
@@ -65,8 +66,8 @@ pub struct Cli {
     #[arg(
         long,
         value_enum,
-        value_name = "create|fix",
-        help = "Select create or fix intent explicitly; omitted keeps goal-based resolution"
+        value_name = "create|fix|investigate",
+        help = "Select create, fix, or investigate intent explicitly; omitted keeps goal-based resolution"
     )]
     pub intent: Option<IntentArg>,
     #[arg(long)]
@@ -198,18 +199,20 @@ mod tests {
     fn help_includes_intent() {
         let help = Cli::command().render_long_help().to_string();
         assert!(help.contains("--intent"));
-        assert!(help.contains("create|fix"));
+        assert!(help.contains("create|fix|investigate"));
         assert!(help.contains("omitted keeps goal-based resolution"));
     }
 
     #[test]
-    fn intent_parses_create_fix_and_omission() {
+    fn intent_parses_three_values_and_omission() {
         let create = Cli::try_parse_from(["commandagent", "--intent", "create"]).unwrap();
         let fix = Cli::try_parse_from(["commandagent", "--intent", "fix"]).unwrap();
+        let investigate = Cli::try_parse_from(["commandagent", "--intent", "investigate"]).unwrap();
         let omitted = Cli::try_parse_from(["commandagent"]).unwrap();
 
         assert_eq!(create.intent, Some(IntentArg::Create));
         assert_eq!(fix.intent, Some(IntentArg::Fix));
+        assert_eq!(investigate.intent, Some(IntentArg::Investigate));
         assert_eq!(omitted.intent, None);
     }
 

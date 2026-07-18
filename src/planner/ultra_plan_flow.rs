@@ -257,20 +257,27 @@ pub fn run_ultra_plan_with_ui(
         let final_phase = index + 1 == plan.phases.len();
         let phase_prompt =
             ultra_phase_prompt(plan, phase, config, &ultra_context, fix_runtime.as_ref());
-        let step_plan_result = crate::planner::fix_plan_synthesis::resolve_phase_plan(
+        let step_plan_result = crate::planner::investigation_plan_synthesis::resolve_phase_plan(
             config,
             plan,
             phase,
-            fix_runtime.as_ref(),
             || {
-                generate_step_plan_with_ui_for_phase(
-                    planner,
-                    &phase_prompt,
+                crate::planner::fix_plan_synthesis::resolve_phase_plan(
                     config,
-                    ui,
-                    Some(&phase.id),
-                    preset_plan,
-                    final_phase,
+                    plan,
+                    phase,
+                    fix_runtime.as_ref(),
+                    || {
+                        generate_step_plan_with_ui_for_phase(
+                            planner,
+                            &phase_prompt,
+                            config,
+                            ui,
+                            Some(&phase.id),
+                            preset_plan,
+                            final_phase,
+                        )
+                    },
                 )
             },
         );
