@@ -1,0 +1,29 @@
+{
+  "reconciliation": {
+    "input_rows": 60,
+    "used_rows": 57,
+    "excluded": [
+      {
+        "reason": "invalid_date",
+        "rows": 1
+      },
+      {
+        "reason": "missing_amount",
+        "rows": 1
+      },
+      {
+        "reason": "missing_date",
+        "rows": 1
+      }
+    ]
+  },
+  "values": {
+    "2026-01_東京": 19990.0,
+    "2026-02_大阪": 18657.0,
+    "2026-03_名古屋": 20730.0,
+    "2026-04_東京": 16824.0,
+    "2026-05_大阪": 21470.0,
+    "2026-06_名古屋": 19767.0,
+    "total_sales": 117438.0
+  }
+}

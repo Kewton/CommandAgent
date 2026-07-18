@@ -1,0 +1,47 @@
+{
+  "columns": [
+    "date",
+    "region",
+    "amount"
+  ],
+  "total_rows": 60,
+  "valid_rows": 57,
+  "invalid_rows": 3,
+  "invalid_reasons": {
+    "invalid_date": 1,
+    "missing_date": 1,
+    "missing_amount": 1
+  },
+  "valid_sample": [
+    {
+      "date": "2026-01-01",
+      "month": "2026-01",
+      "region": "東京",
+      "amount": 1000.0
+    },
+    {
+      "date": "2026-02-02",
+      "month": "2026-02",
+      "region": "大阪",
+      "amount": 1037.0
+    },
+    {
+      "date": "2026-03-03",
+      "month": "2026-03",
+      "region": "名古屋",
+      "amount": 1074.0
+    },
+    {
+      "date": "2026-04-04",
+      "month": "2026-04",
+      "region": "東京",
+      "amount": 1111.0
+    },
+    {
+      "date": "2026-05-05",
+      "month": "2026-05",
+      "region": "大阪",
+      "amount": 1148.0
+    }
+  ]
+}
