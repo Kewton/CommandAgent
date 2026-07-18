@@ -4,8 +4,10 @@
 Next.js retains its original aggregate.json/report input path and output bytes.
 Data uses repository-managed uat-meta.json files plus a frozen index for the
 pre-uat-meta campaigns. Fix/nextjs uses the four fixed D-1 measurement sets,
-their event streams, and their F1-F3 evidence. Generated summaries are written
-below workspace/management/runs/ and printed to stdout.
+their event streams, and their F1-F3 evidence. Investigation/data uses the two
+fixed D-3b measurement sets and validates their I1/I2 evidence against
+adjudication events. Generated summaries are written below
+workspace/management/runs/ and printed to stdout.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ RUNS_DIR = ROOT / "workspace" / "management" / "runs"
 OUTPUT = RUNS_DIR / "band_summary.md"
 DATA_OUTPUT = RUNS_DIR / "band_summary_data.md"
 FIX_OUTPUT = RUNS_DIR / "band_summary_fix.md"
+INVESTIGATION_OUTPUT = RUNS_DIR / "band_summary_investigation.md"
 WINDOW_START = "uat-test0711-bs-003"
 DATA_PLANNER = "qwen3.6:27b-coding-nvfp4"
 DATA_FIXTURE_SHA256 = "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
@@ -53,7 +56,15 @@ FIX_ENVIRONMENT_HOLDS = {
         "fix2_hook_qwen35_002",
     ): "host NODE_ENV=production skipped devDependencies before FIX-1",
 }
-KNOWN_INTENTS = {"create", "fix"}
+INVESTIGATION_WINDOW_SETS = (
+    "uat-test0718-inv-001",
+    "uat-test0718-inv-002",
+)
+INVESTIGATION_WINDOW_B_SET = "uat-test0718-inv-002"
+INVESTIGATION_WINDOW_B_BASELINE_HEAD = "3302dd9"
+INVESTIGATION_EXPECTED_RUNS = 12
+INVESTIGATION_FAMILIES = ("pipe", "schema")
+KNOWN_INTENTS = {"create", "fix", "investigate"}
 
 FINAL_STATES = ("full_success", "partial", "incomplete", "failed")
 PROVISIONAL = {"Quiz": 85, "Breakout": 30, "Space": 7}
@@ -142,6 +153,33 @@ class FixRunRecord:
             or self.verdict == "full"
             or self.assurance == "full"
         )
+
+
+@dataclass(frozen=True)
+class InvestigationRunRecord:
+    set_id: str
+    run_name: str
+    event_run_id: str
+    intent: str
+    family: str
+    executor: str
+    build_commit: str
+    assurance: str
+    assurance_reason: str
+    failure_class: str
+    duration_seconds: int | None
+    evidence_dir: Path
+    events_path: Path
+    i1_passed: bool
+    i2_executed: bool
+    claim_count: int
+    matched_claim_count: int
+    violation_count: int
+    claim_kind_counts: Counter[str]
+
+    @property
+    def is_full(self) -> bool:
+        return self.assurance == "full"
 
 
 def classify_data_family(goal: str) -> str:
@@ -1853,20 +1891,418 @@ def build_fix_summary(
     return "\n".join(lines)
 
 
+def read_json_events(path: Path) -> list[dict[str, Any]]:
+    """Read a complete event stream; band inputs may not silently lose rows."""
+    events: list[dict[str, Any]] = []
+    for line_number, line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError as error:
+            raise AssertionError(
+                f"invalid JSON event at {path}:{line_number}: {error}"
+            ) from error
+        assert isinstance(event, dict), f"non-object event at {path}:{line_number}"
+        events.append(event)
+    return events
+
+
+def only_event(
+    events: list[dict[str, Any]], event_name: str, label: str
+) -> dict[str, Any]:
+    matches = [event for event in events if event.get("event") == event_name]
+    assert len(matches) == 1, (
+        f"expected one {event_name} event for {label}, found {len(matches)}"
+    )
+    return matches[0]
+
+
+def classify_investigation_family(run_name: str) -> str:
+    """Classify the two fixed D-3b UAT families from immutable run names."""
+    if "_pipe_" in run_name:
+        return "pipe"
+    if "_schema_" in run_name:
+        return "schema"
+    return "unknown"
+
+
+def investigation_failure_class(stop_reason: str) -> str:
+    lowered = stop_reason.lower()
+    if "diagnosis_unbound" in lowered:
+        return "diagnosis_unbound"
+    if "model_stagnation:read_only_loop" in lowered:
+        return "model_stagnation:read_only_loop"
+    if "artifact recovery exhausted" in lowered:
+        return "artifact_recovery_exhausted"
+    if "path does not exist" in lowered:
+        return "missing_artifact_reference"
+    return "investigation_incomplete"
+
+
+def validate_investigation_evidence(
+    evidence_dir: Path,
+    events: list[dict[str, Any]],
+    label: str,
+) -> tuple[str, str, bool, int, int, int, Counter[str]]:
+    """Validate I1/I2 evidence and return contract-derived assurance fields."""
+    intent = only_event(events, "intent_resolved", label)
+    assert intent.get("value") == "investigate", f"wrong intent event for {label}"
+    synthesized = only_event(events, "investigation_plan_synthesized", label)
+    assert synthesized.get("profile") == "data", (
+        f"wrong investigation synthesis profile for {label}"
+    )
+    assert synthesized.get("phase_count") == 3, (
+        f"wrong investigation synthesis phase count for {label}"
+    )
+
+    i1_path = evidence_dir / "investigation-run.json"
+    i1 = read_json_dict(i1_path)
+    assert i1 is not None, f"missing I1 evidence: {label}"
+    assert i1.get("intent") == "investigate", f"wrong I1 intent: {label}"
+    assert i1.get("requirement_id") == "reproducer_fails", (
+        f"wrong I1 requirement: {label}"
+    )
+    assert i1.get("stage") == "diagnosis", f"wrong I1 stage: {label}"
+    assert i1.get("expected") == "failure", f"wrong I1 polarity: {label}"
+    assert i1.get("executed") is True, f"I1 was not executed: {label}"
+    assert i1.get("outcome") == "failure", f"I1 did not fail: {label}"
+    assert isinstance(i1.get("epoch"), int), f"missing I1 epoch: {label}"
+
+    binding_path = evidence_dir / "investigation-binding.json"
+    binding = read_json_dict(binding_path)
+    adjudications = [
+        event for event in events if event.get("event") == "investigation_adjudicated"
+    ]
+    if binding is None:
+        assert not adjudications, f"adjudication exists without I2 evidence: {label}"
+        return "failed", "investigation_incomplete", False, 0, 0, 0, Counter()
+
+    assert binding.get("intent") == "investigate", f"wrong I2 intent: {label}"
+    assert binding.get("requirement_id") == "diagnosis_bound", (
+        f"wrong I2 requirement: {label}"
+    )
+    claims = binding.get("claims")
+    assert isinstance(claims, list), f"I2 claims are not a list: {label}"
+    matched = 0
+    kinds: Counter[str] = Counter()
+    for index, claim in enumerate(claims):
+        assert isinstance(claim, dict), f"invalid I2 claim {index}: {label}"
+        kind = str(claim.get("kind") or "")
+        assert kind in {"error_quote", "file_line", "code_snippet"}, (
+            f"unknown I2 claim kind {kind!r}: {label}"
+        )
+        kinds[kind] += 1
+        claim_matched = claim.get("matched")
+        assert isinstance(claim_matched, bool), (
+            f"I2 claim lacks match result at {index}: {label}"
+        )
+        matched += int(claim_matched)
+
+    violations = len(claims) - matched
+    if not claims:
+        expected_level = "partial"
+        expected_reason = "diagnosis_claims_absent"
+    elif violations:
+        expected_level = "failed"
+        expected_reason = "diagnosis_unbound"
+    else:
+        expected_level = "full"
+        expected_reason = ""
+    adjudication = only_event(events, "investigation_adjudicated", label)
+    assert adjudication.get("assurance_level") == expected_level, (
+        f"I2 assurance mismatch for {label}"
+    )
+    assert str(adjudication.get("assurance_reason") or "") == expected_reason, (
+        f"I2 assurance reason mismatch for {label}"
+    )
+    paths = adjudication.get("evidence_paths")
+    assert isinstance(paths, list), f"missing adjudicated evidence paths: {label}"
+    assert {
+        "evidence/investigation-run.json",
+        "evidence/investigation-binding.json",
+    } <= set(paths), f"incomplete adjudicated evidence paths: {label}"
+    return (
+        expected_level,
+        expected_reason,
+        True,
+        len(claims),
+        matched,
+        violations,
+        kinds,
+    )
+
+
+def discover_investigation_records() -> tuple[list[InvestigationRunRecord], list[str]]:
+    records: list[InvestigationRunRecord] = []
+    for set_id in INVESTIGATION_WINDOW_SETS:
+        artifacts_dir = RUNS_DIR / set_id / "artifacts"
+        assert artifacts_dir.is_dir(), (
+            f"missing investigation artifacts: {artifacts_dir}"
+        )
+        run_dirs = sorted(path for path in artifacts_dir.glob("inv*") if path.is_dir())
+        assert len(run_dirs) == 6, (
+            f"investigation set {set_id} has {len(run_dirs)} runs, expected 6"
+        )
+        for run_dir in run_dirs:
+            run_name = run_dir.name
+            label = f"{set_id}/{run_name}"
+            event_paths = sorted(run_dir.glob(".anvil/runs/*/events.jsonl"))
+            assert len(event_paths) == 1, (
+                f"expected one investigation event stream for {label}, "
+                f"found {len(event_paths)}"
+            )
+            events_path = event_paths[0]
+            events = read_json_events(events_path)
+            run_start = only_event(events, "run_start", label)
+            run_stop = only_event(events, "run_stop", label)
+            time_profile = only_event(events, "time_profile", label)
+            preset = only_event(events, "plan_preset_resolved", label)
+            assert run_start.get("build_dirty") is False, f"dirty build for {label}"
+            assert run_start.get("profile") == "data", f"wrong profile for {label}"
+            assert run_start.get("plan_preset") == "profile", (
+                f"wrong plan preset for {label}"
+            )
+            assert preset.get("plan_preset") == "profile", (
+                f"wrong resolved preset for {label}"
+            )
+            assert preset.get("origin") == "default_investigate_data", (
+                f"wrong investigation preset origin for {label}"
+            )
+            assert run_stop.get("status") == "failed", (
+                f"unsupported investigation terminal state for {label}"
+            )
+
+            build_commit = str(run_start.get("build_commit") or "")
+            assert build_commit, f"missing build commit for {label}"
+            if set_id == INVESTIGATION_WINDOW_B_SET:
+                assert build_commit == INVESTIGATION_WINDOW_B_BASELINE_HEAD, (
+                    f"Window B build mismatch for {label}: {build_commit}"
+                )
+            evidence_dir = run_dir / "evidence"
+            (
+                assurance,
+                assurance_reason,
+                i2_executed,
+                claim_count,
+                matched_claim_count,
+                violation_count,
+                claim_kind_counts,
+            ) = validate_investigation_evidence(evidence_dir, events, label)
+
+            if set_id == INVESTIGATION_WINDOW_B_SET:
+                assert run_stop.get("assurance_level") == assurance, (
+                    f"post-INV-1 assurance projection mismatch for {label}"
+                )
+                assert (
+                    str(run_stop.get("assurance_reason") or "") == assurance_reason
+                ), f"post-INV-1 assurance reason mismatch for {label}"
+            profile = time_profile.get("profile")
+            assert isinstance(profile, dict), f"missing time profile for {label}"
+            total_ms = profile.get("total_ms")
+            assert isinstance(total_ms, (int, float)), f"missing duration for {label}"
+            family = classify_investigation_family(run_name)
+            assert family in INVESTIGATION_FAMILIES, (
+                f"unknown investigation family for {label}"
+            )
+            records.append(
+                InvestigationRunRecord(
+                    set_id=set_id,
+                    run_name=run_name,
+                    event_run_id=events_path.parent.name,
+                    intent="investigate",
+                    family=family,
+                    executor=str(run_start.get("model") or "unknown"),
+                    build_commit=build_commit,
+                    assurance=assurance,
+                    assurance_reason=assurance_reason,
+                    failure_class=investigation_failure_class(
+                        str(run_stop.get("stop_reason") or "")
+                    ),
+                    duration_seconds=round(float(total_ms) / 1000),
+                    evidence_dir=evidence_dir,
+                    events_path=events_path,
+                    i1_passed=True,
+                    i2_executed=i2_executed,
+                    claim_count=claim_count,
+                    matched_claim_count=matched_claim_count,
+                    violation_count=violation_count,
+                    claim_kind_counts=claim_kind_counts,
+                )
+            )
+    assert len(records) == INVESTIGATION_EXPECTED_RUNS, (
+        f"investigation denominator is {len(records)}, "
+        f"expected {INVESTIGATION_EXPECTED_RUNS}"
+    )
+    assert len({(record.set_id, record.run_name) for record in records}) == len(records)
+    return records, list(INVESTIGATION_WINDOW_SETS)
+
+
+def investigation_rate_rows(records: list[InvestigationRunRecord]) -> list[list[str]]:
+    counts: dict[tuple[str, str], Counter[str]] = defaultdict(Counter)
+    for record in records:
+        state = "full" if record.is_full else "failed"
+        counts[(record.family, record.executor)][state] += 1
+    rows: list[list[str]] = []
+    for (family, executor), counter in sorted(counts.items()):
+        full = counter["full"]
+        failed = counter["failed"]
+        denominator = full + failed
+        rows.append(
+            [
+                family,
+                executor,
+                str(full),
+                str(failed),
+                str(denominator),
+                pct(full, denominator),
+            ]
+        )
+    return rows
+
+
+def append_investigation_window(
+    lines: list[str], title: str, definition: str, records: list[InvestigationRunRecord]
+) -> None:
+    lines.extend(
+        [
+            f"## {title}",
+            "",
+            definition,
+            "",
+            f"- Denominator: `{len(records)}`",
+            f"- Full: `{sum(record.is_full for record in records)}`",
+            f"- Failed: `{sum(not record.is_full for record in records)}`",
+            "",
+        ]
+    )
+    lines.extend(
+        table(
+            ["Family", "Executor", "full", "failed", "denominator", "full rate"],
+            investigation_rate_rows(records),
+        )
+    )
+    lines.append("")
+
+
+def build_investigation_summary(
+    records: list[InvestigationRunRecord], scanned_sets: list[str]
+) -> str:
+    assert len(records) == INVESTIGATION_EXPECTED_RUNS
+    window_b = [
+        record for record in records if record.set_id == INVESTIGATION_WINDOW_B_SET
+    ]
+    assert len(window_b) == 6, f"Window B denominator is {len(window_b)}, expected 6"
+    kind_counts: Counter[str] = Counter()
+    for record in records:
+        kind_counts.update(record.claim_kind_counts)
+    lines = [
+        "# Investigation × Data Capability Band Summary",
+        "",
+        "<!-- Generated by band_aggregate.py --profile investigation. Do not edit by hand. -->",
+        "",
+        f"- Scanned investigation sets: `{len(scanned_sets)}`",
+        f"- Formal consumed runs: `{len(records)}`",
+        "- Exclusions: `0`",
+        "- Arm: `profile_synthesis` (default for investigate × data)",
+        f"- I1 reproducer evidence passed: `{sum(record.i1_passed for record in records)}/{len(records)}`",
+        f"- I2 binding executed: `{sum(record.i2_executed for record in records)}/{len(records)}`",
+        f"- I2 claims: `{sum(record.claim_count for record in records)}`",
+        f"- I2 matched claims: `{sum(record.matched_claim_count for record in records)}`",
+        f"- I2 rejected violations: `{sum(record.violation_count for record in records)}` "
+        f"(`code_snippet={kind_counts['code_snippet']}`, "
+        f"`error_quote={kind_counts['error_quote']}`, `file_line={kind_counts['file_line']}`)",
+        "- False-full evidence gaps: `0` (generation aborts on any I1/I2/adjudication mismatch)",
+        "",
+        "Assurance is recomputed from the fixed investigation contract: I1 must be "
+        "an executed failing diagnosis-stage reproducer; I2 evidence, when present, "
+        "must agree with the single `investigation_adjudicated` event. Pre-INV-1 "
+        "summary projection errors are not used as contract assurance.",
+        "",
+    ]
+    append_investigation_window(
+        lines,
+        "Window A — all investigation history",
+        "`uat-test0718-inv-001` plus `uat-test0718-inv-002`; all 12 runs were "
+        "formally consumed and none is excluded.",
+        records,
+    )
+    append_investigation_window(
+        lines,
+        "Window B — post-INV-1",
+        f"Baseline HEAD `{INVESTIGATION_WINDOW_B_BASELINE_HEAD}`; the six "
+        "`uat-test0718-inv-002` runs measure projection dispatch and diagnosis "
+        "guidance after INV-1.",
+        window_b,
+    )
+    lines.extend(["## Per-run evidence ledger", ""])
+    lines.extend(
+        table(
+            [
+                "Set",
+                "Run",
+                "Family",
+                "Executor",
+                "Assurance",
+                "Reason",
+                "I1",
+                "I2 claims/matched/violations",
+                "Failure class",
+                "Duration",
+                "Window",
+            ],
+            [
+                [
+                    record.set_id,
+                    record.run_name,
+                    record.family,
+                    record.executor,
+                    record.assurance,
+                    record.assurance_reason,
+                    "passed" if record.i1_passed else "failed",
+                    (
+                        f"{record.claim_count}/{record.matched_claim_count}/"
+                        f"{record.violation_count}"
+                        if record.i2_executed
+                        else "not reached"
+                    ),
+                    record.failure_class,
+                    f"{record.duration_seconds}s",
+                    "A+B" if record.set_id == INVESTIGATION_WINDOW_B_SET else "A",
+                ]
+                for record in sorted(
+                    records, key=lambda item: (item.set_id, item.run_name)
+                )
+            ],
+        )
+    )
+    lines.extend(["", "## Source sets", ""])
+    lines.extend(f"- `{set_id}`" for set_id in scanned_sets)
+    lines.append("")
+    return "\n".join(lines)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--profile",
-        choices=("nextjs", "data", "fix"),
+        choices=("nextjs", "data", "fix", "investigation"),
         default="nextjs",
-        help="capability band to aggregate (nextjs/data create or nextjs fix)",
+        help=(
+            "capability band to aggregate (nextjs/data create, nextjs fix, "
+            "or data investigation)"
+        ),
     )
     return parser.parse_args()
 
 
 def main() -> int:
     args = parse_args()
-    if args.profile == "fix":
+    if args.profile == "investigation":
+        investigation_records, scanned_sets = discover_investigation_records()
+        summary = build_investigation_summary(investigation_records, scanned_sets)
+        output = INVESTIGATION_OUTPUT
+    elif args.profile == "fix":
         fix_records, scanned_sets = discover_fix_records()
         full_verified = assert_full_fix_evidence(fix_records)
         summary = build_fix_summary(fix_records, scanned_sets, full_verified)

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -214,6 +215,15 @@ class IntentAxisTests(unittest.TestCase):
             )
             self.assertEqual(band.event_intent(events), (True, "unknown"))
 
+    def test_investigation_event_intent_resolves(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            events = Path(directory) / "events.jsonl"
+            events.write_text(
+                '{"event":"intent_resolved","value":"investigate"}\n',
+                encoding="utf-8",
+            )
+            self.assertEqual(band.event_intent(events), (True, "investigate"))
+
     def test_historical_data_rows_resolve_as_create(self) -> None:
         records, scanned_rows, _meta_rows, _sets = band.discover_data_records()
         self.assertEqual(len(records), scanned_rows)
@@ -316,6 +326,121 @@ class FixBandTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(AssertionError, "missing fix adjudication"):
                 band.assert_full_fix_evidence([record])
+
+
+class InvestigationBandTests(unittest.TestCase):
+    def test_repository_investigation_windows_and_evidence(self) -> None:
+        records, scanned_sets = band.discover_investigation_records()
+        self.assertEqual(scanned_sets, list(band.INVESTIGATION_WINDOW_SETS))
+        self.assertEqual(len(records), 12)
+        self.assertEqual(sum(record.i1_passed for record in records), 12)
+        self.assertEqual(sum(record.i2_executed for record in records), 4)
+        self.assertEqual(sum(record.claim_count for record in records), 17)
+        self.assertEqual(sum(record.matched_claim_count for record in records), 0)
+        self.assertEqual(sum(record.violation_count for record in records), 17)
+        self.assertEqual(
+            sum(record.claim_kind_counts["code_snippet"] for record in records),
+            14,
+        )
+        self.assertEqual(
+            sum(record.claim_kind_counts["error_quote"] for record in records),
+            3,
+        )
+        self.assertTrue(all(record.assurance == "failed" for record in records))
+        self.assertEqual(
+            band.investigation_rate_rows(records),
+            [
+                ["pipe", "gemma4:31b", "0", "2", "2", "0%"],
+                [
+                    "pipe",
+                    "qwen3.6:35b-a3b-coding-nvfp4",
+                    "0",
+                    "4",
+                    "4",
+                    "0%",
+                ],
+                ["schema", "gemma4:31b", "0", "2", "2", "0%"],
+                [
+                    "schema",
+                    "qwen3.6:35b-a3b-coding-nvfp4",
+                    "0",
+                    "4",
+                    "4",
+                    "0%",
+                ],
+            ],
+        )
+
+        window_b = [
+            record
+            for record in records
+            if record.set_id == band.INVESTIGATION_WINDOW_B_SET
+        ]
+        self.assertEqual(
+            band.investigation_rate_rows(window_b),
+            [
+                ["pipe", "gemma4:31b", "0", "1", "1", "0%"],
+                [
+                    "pipe",
+                    "qwen3.6:35b-a3b-coding-nvfp4",
+                    "0",
+                    "2",
+                    "2",
+                    "0%",
+                ],
+                ["schema", "gemma4:31b", "0", "1", "1", "0%"],
+                [
+                    "schema",
+                    "qwen3.6:35b-a3b-coding-nvfp4",
+                    "0",
+                    "2",
+                    "2",
+                    "0%",
+                ],
+            ],
+        )
+        summary = band.build_investigation_summary(records, scanned_sets)
+        self.assertIn(
+            f"Baseline HEAD `{band.INVESTIGATION_WINDOW_B_BASELINE_HEAD}`",
+            summary,
+        )
+        self.assertIn("all 12 runs were formally consumed", summary)
+        self.assertIn("I2 rejected violations: `17`", summary)
+
+    def test_adjudication_without_i2_evidence_aborts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            evidence_dir = Path(directory)
+            (evidence_dir / "investigation-run.json").write_text(
+                json.dumps(
+                    {
+                        "intent": "investigate",
+                        "requirement_id": "reproducer_fails",
+                        "stage": "diagnosis",
+                        "expected": "failure",
+                        "epoch": 1,
+                        "executed": True,
+                        "outcome": "failure",
+                    }
+                ),
+                encoding="utf-8",
+            )
+            events = [
+                {"event": "intent_resolved", "value": "investigate"},
+                {
+                    "event": "investigation_plan_synthesized",
+                    "profile": "data",
+                    "phase_count": 3,
+                },
+                {
+                    "event": "investigation_adjudicated",
+                    "assurance_level": "full",
+                    "assurance_reason": "",
+                },
+            ]
+            with self.assertRaisesRegex(
+                AssertionError, "adjudication exists without I2 evidence"
+            ):
+                band.validate_investigation_evidence(evidence_dir, events, "test/run")
 
 
 if __name__ == "__main__":
