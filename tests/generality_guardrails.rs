@@ -108,6 +108,23 @@ fn planner_lint_calls_have_one_production_chokepoint() {
 }
 
 #[test]
+fn planner_template_lint_calls_have_three_audited_sites() {
+    let mut sites = Vec::new();
+    for path in rust_source_files(Path::new("src/planner")) {
+        let text = std::fs::read_to_string(&path).unwrap();
+        for (line_no, line) in production_lines(&text).into_iter().enumerate() {
+            if line.contains("lint_template_contract(")
+                && !line.contains("fn lint_template_contract")
+            {
+                sites.push((path.display().to_string(), line_no + 1, line));
+            }
+        }
+    }
+    assert_eq!(sites.len(), 3, "template lint sites changed: {sites:?}");
+    assert!(sites.iter().all(|(path, _, _)| path.ends_with("runner.rs")));
+}
+
+#[test]
 fn generic_profile_static_assurance_markers_render() {
     let dir = tempfile::tempdir().unwrap();
     let events_path = dir.path().join(".anvil/runs/generic-static/events.jsonl");

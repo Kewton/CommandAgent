@@ -193,3 +193,5 @@ fix契約、F1〜F3、既存bandの裁定値を変更するタスクではない
 `diagnosis_mapped`として再利用し、実測fixtureでは`src/app/game-engine.ts`が
 `package.json`より先に解決される。create byte fixture 6/6と既存event schemaは
 不変である。
+
+| QUEUED | D-2c生成経路のchokepoint化 or fix計画合成の適用拡大（fix×nextjsが同病を発症した時の処方箋） |
