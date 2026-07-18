@@ -13,7 +13,7 @@ pub(super) fn attach_to_phase_prompt(
     phase: &UltraPhase,
     prompt: String,
 ) -> String {
-    let Some(runtime) = runtime.filter(|runtime| applies(&runtime.profile, phase)) else {
+    let Some(runtime) = runtime.filter(|runtime| applies_prompt(&runtime.profile, phase)) else {
         return prompt;
     };
     attach_for_workspace(
@@ -32,7 +32,7 @@ pub(super) fn attach_for_workspace(
     phase: &UltraPhase,
     mut prompt: String,
 ) -> String {
-    if !applies(profile, phase) {
+    if !applies_prompt(profile, phase) {
         return prompt;
     }
     let (present, absent) = canonical_artifact_presence(root, profile, goal);
@@ -101,6 +101,14 @@ pub(super) fn bind_for_workspace(
 }
 
 fn applies(profile: &str, phase: &UltraPhase) -> bool {
+    // FIX-9b: recovery/replan repair phases can reintroduce read references to
+    // absent canonical artifacts (observed in dfix-003 schema/qwen A). Apply
+    // the same presence filter there; write-capable steps remain untouched so
+    // repair may create the artifact.
+    profile == "data" && (phase.id == "isolate-cause" || phase.id.starts_with("repair"))
+}
+
+fn applies_prompt(profile: &str, phase: &UltraPhase) -> bool {
     profile == "data" && phase.id == "isolate-cause"
 }
 
@@ -223,6 +231,33 @@ mod tests {
                 .iter()
                 .any(|step| step.id == "inspect-inspection-json")
         );
+    }
+
+    #[test]
+    fn absent_inspection_is_filtered_from_repair_replan_inspect_step() {
+        let root = run4_workspace(false);
+        let phase = UltraPhase {
+            id: "repair".to_string(),
+            prompt: "Repair the schema failure.".to_string(),
+        };
+        let mut plan = StepPlan {
+            goal: "Repair results schema".to_string(),
+            steps: vec![PlanStep {
+                id: "inspect-workspace".to_string(),
+                kind: "inspect".to_string(),
+                expected_result: "pass".to_string(),
+                instruction: "Read output/inspection.json and pipeline/main.py.".to_string(),
+                expected_paths: Vec::new(),
+                verify: Vec::new(),
+            }],
+        };
+
+        bind_for_workspace(root.path(), "data", "fix results schema", &phase, &mut plan);
+
+        assert_eq!(plan.steps.len(), 1);
+        assert!(!plan.steps[0].instruction.contains("inspection.json"));
+        let lint = crate::planner::lint::lint_step_plan_report(&plan);
+        assert!(lint.is_pass(), "{}", lint.primary_message());
     }
 
     #[test]
