@@ -66,6 +66,8 @@ pub enum DiagnosisClaimKind {
 pub struct DiagnosisClaim {
     pub kind: DiagnosisClaimKind,
     pub value: String,
+    pub subject_path: Option<String>,
+    pub line: Option<usize>,
     pub matched: bool,
     pub nearest: Option<String>,
 }
