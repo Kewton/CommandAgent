@@ -261,6 +261,49 @@ immutable source records are
 [`003`](../workspace/management/runs/uat-test0717-fix-003/), and
 [`004`](../workspace/management/runs/uat-test0717-fix-004/).
 
+## Measured capability bands (investigate × data)
+
+The investigation/data cell uses the `profile_synthesis` arm by default. Its
+fixed investigation contract was measured over two six-run campaigns with no
+exclusions: Window A is `uat-test0718-inv-001` plus
+`uat-test0718-inv-002` (12 runs), and Window B is the post-INV-1 campaign
+`uat-test0718-inv-002` at baseline HEAD `3302dd9` (6 runs).
+
+| cell | arm | window | full | failed | n | full rate |
+|---|---|---|---:|---:|---:|---:|
+| investigate × data | `profile_synthesis` (default) | A: inv-001 + inv-002 | 0 | 12 | 12 | 0% |
+| investigate × data | `profile_synthesis` (default) | B: post-INV-1 inv-002 | 0 | 6 | 6 | 0% |
+
+Family and executor cells are likewise all 0% full: Window A has pipe
+`gemma4:31b` 0/2, pipe `qwen3.6:35b-a3b-coding-nvfp4` 0/4, schema
+`gemma4:31b` 0/2, and schema `qwen3.6:35b-a3b-coding-nvfp4` 0/4;
+Window B denominators are respectively 1, 2, 1, and 2.
+
+I1, the existence of an executed failing reproducer, was established live in
+12/12 runs. The remaining walls were diagnosis completion (8/12 stopped before
+I2) and diagnosis honesty (the other 4/12 reached I2 but were rejected as
+`diagnosis_unbound` for quoting non-existent errors or code). The local tier
+therefore did not complete a verifiably bound diagnosis; use a cloud executor
+as the operational follow-up tier.
+
+The live spoof-resistance record contains 14 rejected code-snippet violations,
+the requested “14 violations” count. Three rejected error-quote violations
+bring the all-kind total to 17; every affected run was failed and false success
+was 0. This distinction is retained so the evidence is not undercounted.
+
+The run-6-style format deviation remains open. Contract-derived guidance
+reduced proposal/example code blocks from five in inv-001 run 6 to two in
+inv-002 run 6, but did not eliminate them. Distinguishing quoted existing code
+from proposal blocks in the binding extractor remains WATCH. Following the E2
+lesson, do not relax the binder until more violation originals establish a
+recurrent rule rather than a single prompt dialect.
+
+Re-measure only by running
+`python3 workspace/management/scripts/band_aggregate.py --profile investigation`.
+Do not hand-edit generated band values. The complete family × executor tables,
+I1/I2 invariants, per-run ledger, and Window A/B definitions are in
+[`band_summary_investigation.md`](../workspace/management/runs/band_summary_investigation.md).
+
 ## Recommended Model Tier
 
 Production-quality implementation outcomes require an implementation model in
