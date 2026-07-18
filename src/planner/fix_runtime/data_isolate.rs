@@ -311,6 +311,10 @@ mod tests {
             &repair,
             &mut data_repair,
         );
-        assert_eq!(data_repair, original);
+        assert_ne!(data_repair, original);
+        assert!(data_repair.steps.iter().all(|step| !references_any_path(
+            step,
+            &["output/inspection.json".to_string()]
+        )));
     }
 }
