@@ -90,6 +90,24 @@ fn generic_profile_reduced_assurance_markers_still_render() {
 }
 
 #[test]
+fn planner_lint_calls_have_one_production_chokepoint() {
+    let mut calls = Vec::new();
+    for path in rust_source_files(Path::new("src/planner")) {
+        let text = std::fs::read_to_string(&path).unwrap();
+        for line in production_lines(&text) {
+            if line.contains("lint_step_plan_report")
+                && line.contains('(')
+                && !line.contains("fn lint_step_plan_report")
+            {
+                calls.push((path.display().to_string(), line));
+            }
+        }
+    }
+    assert_eq!(calls.len(), 1, "direct planner lint calls: {calls:?}");
+    assert!(calls[0].0.ends_with("step_plan_finalize.rs"));
+}
+
+#[test]
 fn generic_profile_static_assurance_markers_render() {
     let dir = tempfile::tempdir().unwrap();
     let events_path = dir.path().join(".anvil/runs/generic-static/events.jsonl");
@@ -371,6 +389,12 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
             total_baseline: 361,
             production_baseline: 359,
             test_baseline: 2,
+        },
+        ChokepointBudget {
+            path: "src/planner/step_plan_finalize.rs",
+            total_baseline: 13,
+            production_baseline: 13,
+            test_baseline: 0,
         },
         ChokepointBudget {
             path: "src/planner/fix_plan_synthesis/tests.rs",
