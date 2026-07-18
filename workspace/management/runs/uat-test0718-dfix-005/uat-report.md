@@ -28,3 +28,51 @@ audit claim is made. Existing artifacts for the interrupted run were retained.
 Measurement is interrupted due to execution-environment termination during run 1.
 P0-a/P1-a are not evaluated; no D-2 close claim is made.
 
+
+## v2: 正式実行
+
+レビュー裁定に従い、attempt 1（dfix5_pipe_qwen35_001）は環境側セッション終了で
+製品終端なし・run消費なし。v2では新規workspaceで6 runを各1回実行した。
+
+### Preflight
+
+HEAD `b3d730e`、`85f3fb3` ancestor、status clean、権限付き
+`cargo test --quiet` 1452件green、release build/install green。
+version `commandagent 0.1.0 b3d730e`、NODE_ENV=`production`、
+sales.csv hashは指定値と一致。
+
+### Run matrix
+
+| run | result | failure class | cause |
+|---|---|---|---|
+| pipe_qwen35_001 | honest failure | model_stagnation/read_only_loop | model |
+| pipe_gemma31_001 | honest failure | model_stagnation/read_only_loop | model |
+| pipe_qwen35_002 | honest failure | model_stagnation/read_only_loop | model |
+| schema_qwen35_001 | honest failure | model_stagnation/read_only_loop | model |
+| schema_gemma31_001 | honest failure | model_stagnation/read_only_loop | model |
+| schema_qwen35_002 | honest failure | model_stagnation/read_only_loop | model |
+
+全6 runで製品終端を取得し、再試行はない。所要は各
+`uat-console.log` のdate +%s前後記録を正とする。
+
+### 合成監査・イベント
+
+各runの`.anvil/runs/*/events.jsonl`を次で再帰検索した。
+
+```text
+find workspace/management/runs/uat-test0718-dfix-005/artifacts -path '*/events.jsonl' -print | while read f; do rg -o 'fix_plan_synthesized|intent_resolved|host_env_normalized|fix_reproducer_suggested' "$f"; done
+```
+
+6/6で`intent_resolved`、`host_env_normalized`、
+`fix_reproducer_suggested`、`fix_plan_synthesized`各1件を確認。
+各plan原文は合成4段（reproduce-before / isolate-cause / repair /
+verify-regressions）で、合成監査P1-aは成立した。
+
+F1は全runでbefore reproducer失敗を確認。F2/F3はrepair phaseの
+model_stagnationで到達せず、full主張はしない。旧5クラスの再発は、
+所有権重複・空verify・不在参照・UTF-8・役割漏出とも観測なし。
+
+P0-a/P0-bは正直終端として成立、P0-c偽成功なし。P1-a成立、full率0/6。
+attempt 1の中断コストは別記録として保持し、正式6 runの実行・調達・レポート
+コストは各consoleのepochで会計化する。
+

@@ -1,0 +1,10 @@
+goal: "data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契約の既存検証が通ることを確認してください。"
+steps:
+  - id: "implement-fix"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Repair the F1-diagnosed defect in `pipeline/main.py` using the isolated cause and the shared target resolver (traceback_mapped); preserve the existing data contract and keep ownership of this path in this step.\n\nFix F1 failure diagnostic (runtime-derived):\n- location: pipeline/main.py:164\n- error kind: TypeError\n- message: list.append() takes exactly one argument (2 given)\n- write-pressure target: pipeline/main.py (selection_reason=traceback_mapped)\n- excerpt: /Users/<user>/share/work/localwork/commandagent_mvp/01/test0718_dfix_005_v2/dfix5_pipe_gemma31_001/pipeline/main.py:164 in run"
+    expected_paths:
+      - "pipeline/main.py"
+    verify:
+      - "python3 -B pipeline/main.py"
