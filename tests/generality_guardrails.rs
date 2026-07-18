@@ -337,6 +337,12 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
             test_baseline: 130,
         },
         ChokepointBudget {
+            path: "src/planner/fix_runtime/data_isolate/presence_filter.rs",
+            total_baseline: 251,
+            production_baseline: 88,
+            test_baseline: 163,
+        },
+        ChokepointBudget {
             path: "src/planner/fix_runtime/data_role.rs",
             total_baseline: 395,
             production_baseline: 223,
@@ -457,6 +463,12 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
             test_baseline: 93,
         },
         ChokepointBudget {
+            path: "src/minimal_loop/pipeline_probe/stream_capture.rs",
+            total_baseline: 79,
+            production_baseline: 63,
+            test_baseline: 16,
+        },
+        ChokepointBudget {
             path: "src/planner/capability_catalog/data.rs",
             total_baseline: 204,
             production_baseline: 141,
@@ -571,6 +583,12 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
             test_baseline: 493,
         },
         ChokepointBudget {
+            path: "src/planner/setup_step_policy/preset_conversion.rs",
+            total_baseline: 313,
+            production_baseline: 93,
+            test_baseline: 220,
+        },
+        ChokepointBudget {
             path: "src/planner/lint.rs",
             total_baseline: 2_144,
             production_baseline: 1_097,
@@ -629,6 +647,12 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
             total_baseline: 261,
             production_baseline: 101,
             test_baseline: 160,
+        },
+        ChokepointBudget {
+            path: "src/planner/profiles/data/step_policy/verify_default/fix.rs",
+            total_baseline: 106,
+            production_baseline: 70,
+            test_baseline: 36,
         },
         ChokepointBudget {
             path: "src/planner/repair.rs",
