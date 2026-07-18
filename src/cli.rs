@@ -59,7 +59,7 @@ pub struct Cli {
         long,
         value_enum,
         value_name = "profile|none",
-        help = "Override planner-tier UltraPlan preset selection"
+        help = "Override planner-tier UltraPlan preset selection; data/fix synthesizes F1-F3 steps, while nextjs/fix remains none-equivalent"
     )]
     pub plan_preset: Option<PlanPresetArg>,
     #[arg(
@@ -190,6 +190,8 @@ mod tests {
         assert!(help.contains("--plan-preset"));
         assert!(help.contains("profile|none"));
         assert!(help.contains("Override planner-tier UltraPlan preset selection"));
+        assert!(help.contains("data/fix synthesizes F1-F3 steps"));
+        assert!(help.contains("nextjs/fix remains none-equivalent"));
     }
 
     #[test]

@@ -257,16 +257,24 @@ pub fn run_ultra_plan_with_ui(
         let final_phase = index + 1 == plan.phases.len();
         let phase_prompt =
             ultra_phase_prompt(plan, phase, config, &ultra_context, fix_runtime.as_ref());
-        let mut step_plan = generate_step_plan_with_ui_for_phase(
-            planner,
-            &phase_prompt,
+        let step_plan_result = crate::planner::fix_plan_synthesis::resolve_phase_plan(
             config,
-            ui,
-            Some(&phase.id),
-            preset_plan,
-            final_phase,
-        )
-        .map_err(|err| {
+            plan,
+            phase,
+            fix_runtime.as_ref(),
+            || {
+                generate_step_plan_with_ui_for_phase(
+                    planner,
+                    &phase_prompt,
+                    config,
+                    ui,
+                    Some(&phase.id),
+                    preset_plan,
+                    final_phase,
+                )
+            },
+        );
+        let mut step_plan = step_plan_result.map_err(|err| {
             let rejected_verify_commands =
                 crate::planner::lint_rejection::rejected_commands_from_error(&err);
             let message = err.to_string();

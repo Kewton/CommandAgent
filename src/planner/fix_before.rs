@@ -22,7 +22,7 @@ pub(super) fn run(
     };
     let retry_prompt =
         crate::planner::fix_reproducer_defect::rebuild_prompt(phase_prompt, &feedback);
-    let mut retry_plan = generate_step_plan_with_ui_for_phase(
+    let retry_plan = generate_step_plan_with_ui_for_phase(
         planner,
         &retry_prompt,
         config,
@@ -30,6 +30,9 @@ pub(super) fn run(
         Some(&phase.id),
         preset_plan,
         final_phase,
+    )?;
+    let mut retry_plan = crate::planner::fix_plan_synthesis::canonicalize_model_reproducer(
+        config, plan, phase, retry_plan,
     )?;
     crate::planner::fix_runtime::bind_step_plan(Some(runtime), phase, &mut retry_plan);
     save_step_plan(&config.workspace_root, &retry_plan)?;

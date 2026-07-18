@@ -183,6 +183,22 @@ impl FixRuntime {
         self.contract_predicate.as_ref()
     }
 
+    pub(crate) fn reproducer_command(&self) -> Option<&str> {
+        self.reproducer
+            .as_ref()
+            .map(|binding| binding.command.as_str())
+    }
+
+    pub(crate) fn before_evidence_path(&self) -> Option<String> {
+        self.before
+            .as_ref()
+            .map(|_| before_evidence_path(&self.run_id))
+    }
+
+    pub(crate) fn regression_bindings(&self) -> &[ProfileFixRegressionBinding] {
+        &self.regression_bindings
+    }
+
     pub(crate) fn run_before_phase(
         &mut self,
         step_plan: &StepPlan,

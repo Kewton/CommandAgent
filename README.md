@@ -101,6 +101,13 @@ from a direct CLI option, the executor-model fallback, or a named config preset.
 Set `plan_preset = "profile"` in config or pass `--plan-preset profile` to opt in;
 an explicit CLI flag always wins over config and tier defaults.
 
+For `--intent fix --profile data`, the `profile` preset mechanically synthesizes
+the four fixed-contract phases from the existing reproducer, contract checks,
+and frozen regression bindings. `nextjs` fix runs keep the same path as
+`--plan-preset none`; profile-specific synthesis will be generalized only after
+a second profile demonstrates the same need. Create-intent preset behavior is
+unchanged.
+
 Use `--intent create` or `--intent fix` to select the run intent explicitly:
 
 ```bash
