@@ -408,8 +408,8 @@ fn planner_chat_with_request_retry(
     let mut last_error = None;
     for request_attempt in 1..=PLANNER_PROVIDER_REQUEST_ATTEMPTS {
         let result = {
-            let _guard = ui.before_model_call(&format!("planner {} {model}", client.label()));
-            provider_call::chat_with_cancel(
+            let mut guard = ui.before_model_call(&format!("planner {} {model}", client.label()));
+            let mut outcome = provider_call::chat_with_cancel_and_stream(
                 client,
                 config,
                 provider_call::ProviderChatRequest {
@@ -420,8 +420,14 @@ fn planner_chat_with_request_retry(
                     native_tools_enabled: false,
                 },
                 || ui.interrupted(),
-            )
-            .result
+                &mut |chunk| guard.push_assistant_chunk(chunk),
+            );
+            if let Err(err) = guard.finish_assistant_stream()
+                && outcome.result.is_ok()
+            {
+                outcome.result = Err(anyhow::anyhow!("failed to finish provider stream: {err:#}"));
+            }
+            outcome.result
         };
         match result {
             Ok(reply) => return Ok(reply),
@@ -430,6 +436,9 @@ fn planner_chat_with_request_retry(
                 if last_error
                     .as_deref()
                     .is_some_and(provider_call::is_aborted_by_user)
+                    || last_error
+                        .as_deref()
+                        .is_some_and(crate::providers::streaming::is_after_first_chunk_error)
                 {
                     break;
                 }
@@ -18269,6 +18278,7 @@ Type error: Cannot find name 'player'. Did you mean 'PLAYER_W'?\n\n\
             chat_timeout_source: "override:test".to_string(),
             field_sources: crate::config::ConfigFieldSources::default(),
             chat_retries: 1,
+            stream: false,
             resume: None,
             fresh_session: false,
             no_footer: false,

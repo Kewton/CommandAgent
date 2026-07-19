@@ -37,6 +37,7 @@ fn config(root: PathBuf) -> Config {
         chat_timeout_source: "override:test".to_string(),
         field_sources: commandagent::config::ConfigFieldSources::default(),
         chat_retries: 1,
+        stream: false,
         resume: None,
         fresh_session: false,
         no_footer: false,
@@ -691,6 +692,28 @@ fn tui_markdown_raw_session_storage() {
     let rendered = TerminalMarkdownRenderer::new(false, true).render_to_string(raw);
     assert_eq!(rendered, "done");
     assert!(!rendered.contains("secret"));
+}
+
+#[test]
+fn tui_streamed_markdown_matches_batch_and_hides_cross_chunk_think() {
+    let _guard = tui_integration_test_lock();
+    let raw = concat!(
+        "<think>private reasoning</think># Result\n\n",
+        "| Item | Count |\n| --- | ---: |\n| 日本 | 2 |\n\n",
+        "- parent\n  - **child**\n"
+    );
+    let chunks = [
+        "<thi",
+        "nk>private rea",
+        "soning</think># Result\n\n| Item |",
+        " Count |\n| --- | ---: |\n| 日",
+        "本 | 2 |\n\n- parent\n  - **child**\n",
+    ];
+    let renderer = TerminalMarkdownRenderer::new(false, true);
+    let streamed = renderer.render_chunks_to_string(chunks);
+    let batch = renderer.render_to_string(raw);
+    assert_eq!(streamed, batch);
+    assert!(!streamed.contains("private reasoning"));
 }
 
 #[test]

@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use reqwest::blocking::Client;
@@ -11,6 +12,7 @@ use crate::tools::args_recovery::recover_tool_arguments;
 use crate::tools::registry::ToolSpec;
 
 use super::parsing::sanitized_tool_schema;
+use super::streaming::StreamControl;
 use super::{AssistantReply, ChatClient};
 
 const OPENAI_BASE_URL: &str = "https://api.openai.com";
@@ -56,6 +58,156 @@ impl ChatClient for OpenAiClient {
 
     fn allows_xml_fallback(&self) -> bool {
         true
+    }
+
+    fn supports_streaming(&self) -> bool {
+        true
+    }
+
+    fn chat_stream(
+        &mut self,
+        model: &str,
+        messages: &[ConversationMessage],
+        tools: &[ToolSpec],
+        native_tools_enabled: bool,
+        on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
+    ) -> anyhow::Result<AssistantReply> {
+        let mut body = build_response_request(
+            model,
+            messages,
+            tools,
+            native_tools_enabled,
+            self.max_predict,
+        );
+        body["stream"] = Value::Bool(true);
+        eval_events::emit(
+            self.eval_events_path.as_deref(),
+            json!({
+                "event": "provider_request",
+                "provider": "openai",
+                "model": model,
+                "tools": if native_tools_enabled { tools.len() } else { 0 },
+            }),
+        );
+        for attempt in 0..=self.retries {
+            match self
+                .http
+                .post(format!("{OPENAI_BASE_URL}/v1/responses"))
+                .bearer_auth(&self.api_key)
+                .json(&body)
+                .send()
+            {
+                Ok(response) if response.status().is_success() => {
+                    let mut delivered = false;
+                    let parsed = parse_openai_stream(response, &mut |chunk| {
+                        delivered = true;
+                        on_chunk(chunk)
+                    });
+                    match parsed {
+                        Ok(reply) => {
+                            eval_events::emit(
+                                self.eval_events_path.as_deref(),
+                                json!({
+                                    "event": "provider_response",
+                                    "provider": "openai",
+                                    "model": model,
+                                    "attempt": attempt + 1,
+                                    "tool_calls": reply.tool_calls.len(),
+                                }),
+                            );
+                            return Ok(reply);
+                        }
+                        Err(err)
+                            if !super::streaming::retry_allowed(
+                                attempt,
+                                self.retries,
+                                delivered,
+                            ) =>
+                        {
+                            eval_events::emit(
+                                self.eval_events_path.as_deref(),
+                                json!({
+                                    "event": "provider_parse_error",
+                                    "provider": "openai",
+                                    "model": model,
+                                    "error_kind": "provider_stream_error",
+                                    "message": eval_events::body_snippet(&err.to_string()),
+                                }),
+                            );
+                            return Err(if delivered {
+                                super::streaming::after_first_chunk(err)
+                            } else {
+                                err
+                            });
+                        }
+                        Err(err) => {
+                            emit_stream_retry(
+                                self.eval_events_path.as_deref(),
+                                model,
+                                attempt,
+                                &err,
+                            );
+                        }
+                    }
+                }
+                Ok(response)
+                    if attempt == self.retries
+                        || !is_retryable_status(response.status().as_u16()) =>
+                {
+                    let status = response.status();
+                    let body = response.text().unwrap_or_default();
+                    eval_events::emit(
+                        self.eval_events_path.as_deref(),
+                        json!({
+                            "event": "provider_error",
+                            "provider": "openai",
+                            "model": model,
+                            "status": status.as_u16(),
+                            "error_kind": "http_status",
+                            "attempt": attempt + 1,
+                            "retry_exhausted": attempt == self.retries,
+                            "retryable": is_retryable_status(status.as_u16()),
+                            "body_snippet": eval_events::body_snippet(&body),
+                        }),
+                    );
+                    anyhow::bail!("OpenAI Responses API failed: {status}");
+                }
+                Ok(response) => {
+                    let status = response.status();
+                    eval_events::emit(
+                        self.eval_events_path.as_deref(),
+                        json!({
+                            "event": "provider_retry",
+                            "provider": "openai",
+                            "model": model,
+                            "status": status.as_u16(),
+                            "error_kind": "http_status",
+                            "attempt": attempt + 1,
+                            "retryable": true,
+                        }),
+                    );
+                }
+                Err(err) if attempt == self.retries => {
+                    eval_events::emit(
+                        self.eval_events_path.as_deref(),
+                        json!({
+                            "event": "provider_error",
+                            "provider": "openai",
+                            "model": model,
+                            "error_kind": "network",
+                            "attempt": attempt + 1,
+                            "retry_exhausted": true,
+                            "message": eval_events::body_snippet(&err.to_string()),
+                        }),
+                    );
+                    return Err(err.into());
+                }
+                Err(err) => {
+                    emit_stream_retry(self.eval_events_path.as_deref(), model, attempt, &err)
+                }
+            }
+        }
+        unreachable!("retry loop always returns or bails")
     }
 
     fn chat(
@@ -196,6 +348,25 @@ fn is_retryable_status(status: u16) -> bool {
     matches!(status, 429 | 500 | 502 | 503 | 504)
 }
 
+fn emit_stream_retry(
+    events_path: Option<&std::path::Path>,
+    model: &str,
+    attempt: usize,
+    err: &dyn std::fmt::Display,
+) {
+    eval_events::emit(
+        events_path,
+        json!({
+            "event": "provider_retry",
+            "provider": "openai",
+            "model": model,
+            "error_kind": "stream_before_first_token",
+            "attempt": attempt + 1,
+            "message": eval_events::body_snippet(&err.to_string()),
+        }),
+    );
+}
+
 pub fn build_response_request(
     model: &str,
     messages: &[ConversationMessage],
@@ -300,6 +471,164 @@ pub fn parse_openai_response(body: &str) -> anyhow::Result<AssistantReply> {
     })
 }
 
+#[derive(Default)]
+struct OpenAiStreamState {
+    content: String,
+    calls: BTreeMap<usize, OpenAiStreamCall>,
+    completed_reply: Option<AssistantReply>,
+    completed: bool,
+}
+
+#[derive(Default)]
+struct OpenAiStreamCall {
+    name: String,
+    call_id: String,
+    arguments: String,
+}
+
+pub fn parse_openai_stream<R: std::io::Read>(
+    reader: R,
+    on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
+) -> anyhow::Result<AssistantReply> {
+    let mut state = OpenAiStreamState::default();
+    super::streaming::read_sse(reader, |data| {
+        let event: Value = serde_json::from_str(data)
+            .map_err(|err| anyhow::anyhow!("malformed OpenAI SSE data: {err}"))?;
+        let kind = event
+            .get("type")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        match kind {
+            "response.output_text.delta" => {
+                let delta = event
+                    .get("delta")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| anyhow::anyhow!("OpenAI text delta missing delta"))?;
+                if !delta.is_empty() {
+                    on_chunk(delta)?;
+                    state.content.push_str(delta);
+                }
+            }
+            "response.output_item.added" => {
+                let index = output_index(&event);
+                if let Some(item) = event.get("item")
+                    && item.get("type").and_then(Value::as_str) == Some("function_call")
+                {
+                    let call = state.calls.entry(index).or_default();
+                    call.name = item
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    call.call_id = item
+                        .get("call_id")
+                        .or_else(|| item.get("id"))
+                        .and_then(Value::as_str)
+                        .unwrap_or_default()
+                        .to_string();
+                    if let Some(arguments) = item.get("arguments").and_then(Value::as_str) {
+                        call.arguments = arguments.to_string();
+                    }
+                }
+            }
+            "response.function_call_arguments.delta" => {
+                let delta = event.get("delta").and_then(Value::as_str).ok_or_else(|| {
+                    anyhow::anyhow!("OpenAI function arguments delta missing delta")
+                })?;
+                state
+                    .calls
+                    .entry(output_index(&event))
+                    .or_default()
+                    .arguments
+                    .push_str(delta);
+            }
+            "response.function_call_arguments.done" => {
+                if let Some(arguments) = event.get("arguments").and_then(Value::as_str) {
+                    state
+                        .calls
+                        .entry(output_index(&event))
+                        .or_default()
+                        .arguments = arguments.to_string();
+                }
+            }
+            "response.output_item.done" => {
+                if let Some(item) = event.get("item")
+                    && item.get("type").and_then(Value::as_str) == Some("function_call")
+                {
+                    let call = state.calls.entry(output_index(&event)).or_default();
+                    call.name = item
+                        .get("name")
+                        .and_then(Value::as_str)
+                        .unwrap_or(&call.name)
+                        .to_string();
+                    call.call_id = item
+                        .get("call_id")
+                        .or_else(|| item.get("id"))
+                        .and_then(Value::as_str)
+                        .unwrap_or(&call.call_id)
+                        .to_string();
+                    if let Some(arguments) = item.get("arguments").and_then(Value::as_str) {
+                        call.arguments = arguments.to_string();
+                    }
+                }
+            }
+            "response.completed" => {
+                let response = event
+                    .get("response")
+                    .ok_or_else(|| anyhow::anyhow!("OpenAI completed event missing response"))?;
+                state.completed_reply = Some(parse_openai_response(&response.to_string())?);
+                state.completed = true;
+                return Ok(StreamControl::Stop);
+            }
+            "response.failed" | "response.incomplete" | "error" => {
+                anyhow::bail!("OpenAI stream failed: {}", eval_events::body_snippet(data));
+            }
+            _ => {}
+        }
+        Ok(StreamControl::Continue)
+    })?;
+    if !state.completed {
+        anyhow::bail!("OpenAI stream ended before response.completed");
+    }
+    let fallback_calls = state
+        .calls
+        .into_values()
+        .map(|call| {
+            if call.name.is_empty() {
+                anyhow::bail!("OpenAI streamed function_call missing name");
+            }
+            let arguments = normalize_function_arguments(Some(Value::String(call.arguments)))?;
+            Ok(ToolCall {
+                id: if call.call_id.is_empty() {
+                    uuid::Uuid::now_v7().to_string()
+                } else {
+                    call.call_id
+                },
+                name: call.name.clone(),
+                arguments: recover_tool_arguments(&call.name, arguments).arguments,
+            })
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    let mut reply = state
+        .completed_reply
+        .unwrap_or_else(|| AssistantReply::text(String::new()));
+    if reply.content.is_empty() {
+        reply.content = state.content;
+    }
+    if reply.tool_calls.is_empty() {
+        reply.tool_calls = fallback_calls;
+    }
+    Ok(reply)
+}
+
+fn output_index(event: &Value) -> usize {
+    event
+        .get("output_index")
+        .and_then(Value::as_u64)
+        .and_then(|value| usize::try_from(value).ok())
+        .unwrap_or_default()
+}
+
 fn normalize_function_arguments(value: Option<Value>) -> anyhow::Result<Value> {
     match value {
         Some(object @ Value::Object(_)) => Ok(object),
@@ -349,6 +678,42 @@ mod tests {
             100,
         );
         assert_eq!(body["model"], "gpt-5.4-mini");
+    }
+
+    #[test]
+    fn parses_responses_sse_text_tool_and_usage() {
+        let stream = concat!(
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"日\"}\n\n",
+            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"🙂\"}\n\n",
+            "data: {\"type\":\"response.completed\",\"response\":{\"output_text\":\"日🙂\",\"output\":[{\"type\":\"function_call\",\"name\":\"Read\",\"call_id\":\"c1\",\"arguments\":\"{\\\"path\\\":\\\"a\\\"}\"}],\"usage\":{\"input_tokens\":3,\"output_tokens\":2}}}\n\n",
+            "data: [DONE]\n\n"
+        );
+        let mut chunks = Vec::new();
+        let reply = parse_openai_stream(std::io::Cursor::new(stream.as_bytes()), &mut |chunk| {
+            chunks.push(chunk.to_string());
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(chunks.concat(), "日🙂");
+        assert_eq!(reply.content, "日🙂");
+        assert_eq!(reply.tool_calls[0].name, "Read");
+        assert_eq!(reply.tool_calls[0].arguments["path"], "a");
+        assert_eq!(reply.prompt_tokens, Some(3));
+        assert_eq!(reply.completion_tokens, Some(2));
+    }
+
+    #[test]
+    fn malformed_sse_after_delta_keeps_partial_chunk_and_errors() {
+        let stream = "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\ndata: {bad}\n\n";
+        let mut chunks = Vec::new();
+        let err = parse_openai_stream(std::io::Cursor::new(stream), &mut |chunk| {
+            chunks.push(chunk.to_string());
+            Ok(())
+        })
+        .unwrap_err()
+        .to_string();
+        assert_eq!(chunks.concat(), "partial");
+        assert!(err.contains("malformed OpenAI SSE"), "{err}");
     }
 
     #[test]

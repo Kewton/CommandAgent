@@ -82,7 +82,7 @@ pub fn render_startup_banner(config: &Config, style: BannerStyle) -> String {
         sanitize_banner_text(&config.workspace_root.display().to_string())
     ));
     out.push_str(&format!(
-        "context_budget={} ({}) timeout={}s ({}) profile={} ({}) prompt_layout={} ({}) narration={} ({}) footer={} ({}) yes={}\n",
+        "context_budget={} ({}) timeout={}s ({}) profile={} ({}) prompt_layout={} ({}) narration={} ({}) footer={} ({}) stream={} ({}) yes={}\n",
         config.context_budget,
         sanitize_banner_text(&config.field_sources.context_budget),
         config.chat_timeout_secs,
@@ -95,6 +95,8 @@ pub fn render_startup_banner(config: &Config, style: BannerStyle) -> String {
         sanitize_banner_text(&config.field_sources.narration),
         footer_label(config.no_footer),
         sanitize_banner_text(&config.field_sources.footer),
+        stream_label(config.stream),
+        sanitize_banner_text(&config.field_sources.stream),
         config.yes
     ));
     if let Some(path) = &config.eval_events_path {
@@ -131,6 +133,10 @@ fn narration_label(mode: crate::config::NarrationMode) -> &'static str {
 
 fn footer_label(no_footer: bool) -> &'static str {
     if no_footer { "off" } else { "on" }
+}
+
+fn stream_label(enabled: bool) -> &'static str {
+    if enabled { "on" } else { "off" }
 }
 
 fn sanitize_banner_text(input: &str) -> String {
@@ -173,6 +179,7 @@ mod tests {
             chat_timeout_source: "override:test".to_string(),
             field_sources: crate::config::ConfigFieldSources::default(),
             chat_retries: 1,
+            stream: false,
             resume: None,
             fresh_session: false,
             no_footer: false,

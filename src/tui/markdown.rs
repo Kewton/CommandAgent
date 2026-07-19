@@ -72,6 +72,29 @@ pub mod capture {
         }
         true
     }
+
+    pub(super) fn record_stream_chunk(raw_text: &str) -> bool {
+        let mut guard = captured()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let Some(buffer) = guard.as_mut() else {
+            return false;
+        };
+        buffer.push_str(raw_text);
+        true
+    }
+
+    pub(super) fn finish_stream() {
+        let mut guard = captured()
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(buffer) = guard.as_mut()
+            && !buffer.is_empty()
+            && !buffer.ends_with('\n')
+        {
+            buffer.push('\n');
+        }
+    }
 }
 
 const MD_CODE_FENCE_COLOR: &str = "\x1b[32m";
@@ -559,6 +582,7 @@ pub fn sanitize(s: &str) -> String {
 pub struct TerminalMarkdownRenderer {
     color_enabled: bool,
     utf8: bool,
+    markdown_enabled: bool,
 }
 
 impl TerminalMarkdownRenderer {
@@ -566,6 +590,7 @@ impl TerminalMarkdownRenderer {
         Self {
             color_enabled,
             utf8,
+            markdown_enabled: true,
         }
     }
 
@@ -574,17 +599,120 @@ impl TerminalMarkdownRenderer {
         let color_enabled =
             !disabled && !crate::tui::terminal::no_color() && io::stdout().is_terminal();
         let utf8 = crate::tui::terminal::utf8_locale();
-        Self::new(color_enabled, utf8)
+        Self {
+            color_enabled,
+            utf8,
+            markdown_enabled: !disabled,
+        }
     }
 
     pub fn render_to_string(&self, raw_text: &str) -> String {
-        if crate::tui::terminal::env_non_empty("ANVIL_NO_MARKDOWN") {
+        if !self.markdown_enabled || crate::tui::terminal::env_non_empty("ANVIL_NO_MARKDOWN") {
             return raw_text.to_string();
         }
         let mut renderer = MarkdownRenderer::new(self.color_enabled, self.utf8);
         let mut out = renderer.push_chunk(raw_text);
         out.push_str(&renderer.flush());
         out
+    }
+
+    pub fn render_chunks_to_string<'a>(&self, chunks: impl IntoIterator<Item = &'a str>) -> String {
+        if !self.markdown_enabled || crate::tui::terminal::env_non_empty("ANVIL_NO_MARKDOWN") {
+            return chunks.into_iter().collect();
+        }
+        let mut renderer = MarkdownRenderer::new(self.color_enabled, self.utf8);
+        let mut out = String::new();
+        for chunk in chunks {
+            out.push_str(&renderer.push_chunk(chunk));
+        }
+        out.push_str(&renderer.flush());
+        out
+    }
+
+    pub fn begin_stream(&self) -> TerminalMarkdownStream {
+        TerminalMarkdownStream {
+            renderer: self
+                .markdown_enabled
+                .then(|| MarkdownRenderer::new(self.color_enabled, self.utf8)),
+            raw: !self.markdown_enabled,
+            wrote_output: false,
+            output_ends_with_newline: false,
+            captured: false,
+        }
+    }
+}
+
+pub struct TerminalMarkdownStream {
+    renderer: Option<MarkdownRenderer>,
+    raw: bool,
+    wrote_output: bool,
+    output_ends_with_newline: bool,
+    captured: bool,
+}
+
+impl TerminalMarkdownStream {
+    pub fn push_chunk(&mut self, raw_text: &str) -> anyhow::Result<()> {
+        if raw_text.is_empty() {
+            return Ok(());
+        }
+        if capture::record_stream_chunk(raw_text) {
+            self.captured = true;
+            return Ok(());
+        }
+        if self.raw {
+            let mut stdout = io::stdout().lock();
+            stdout.write_all(raw_text.as_bytes())?;
+            stdout.flush()?;
+            self.wrote_output = true;
+            self.output_ends_with_newline = raw_text.ends_with('\n');
+            return Ok(());
+        }
+        let Some(renderer) = self.renderer.as_mut() else {
+            return Ok(());
+        };
+        let rendered = renderer.push_chunk(raw_text);
+        if rendered.is_empty() {
+            return Ok(());
+        }
+        let mut stdout = io::stdout().lock();
+        stdout.write_all(rendered.as_bytes())?;
+        stdout.flush()?;
+        self.wrote_output = true;
+        self.output_ends_with_newline = rendered.ends_with('\n');
+        Ok(())
+    }
+
+    pub fn finish(&mut self) -> anyhow::Result<()> {
+        if self.captured {
+            capture::finish_stream();
+            return Ok(());
+        }
+        let rendered = self
+            .renderer
+            .take()
+            .map(|mut renderer| renderer.flush())
+            .unwrap_or_default();
+        if rendered.is_empty() && !self.wrote_output {
+            return Ok(());
+        }
+        let mut stdout = io::stdout().lock();
+        if !rendered.is_empty() {
+            stdout.write_all(rendered.as_bytes())?;
+            self.output_ends_with_newline = rendered.ends_with('\n');
+        }
+        if !self.output_ends_with_newline {
+            stdout.write_all(b"\n")?;
+            self.output_ends_with_newline = true;
+        }
+        stdout.flush()?;
+        self.wrote_output = true;
+        Ok(())
+    }
+}
+
+impl Drop for TerminalMarkdownStream {
+    fn drop(&mut self) {
+        let _ = self.finish();
     }
 }
 
@@ -670,6 +798,29 @@ mod tests {
         let mut out = r.push_chunk("before <think>s");
         out.push_str(&r.push_chunk("ecret</think>after\n"));
         assert_eq!(out, "before after\n");
+    }
+
+    #[test]
+    fn terminal_stream_matches_batch_for_arbitrary_chunks() {
+        let raw = concat!(
+            "<think>hidden across chunks</think># Heading\n\n",
+            "| Name | Value |\n| --- | ---: |\n| 日本 | **2** |\n\n",
+            "- parent\n  - child with `code`\n"
+        );
+        let renderer = TerminalMarkdownRenderer::new(false, true);
+        let mut chunks = Vec::new();
+        let mut start = 0;
+        for (characters, (index, _)) in raw.char_indices().enumerate() {
+            if characters > 0 && characters % 3 == 0 {
+                chunks.push(&raw[start..index]);
+                start = index;
+            }
+        }
+        chunks.push(&raw[start..]);
+        assert_eq!(
+            renderer.render_chunks_to_string(chunks.iter().copied()),
+            renderer.render_to_string(raw)
+        );
     }
 
     #[test]

@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::cli::{Cli, FooterArg, IntentArg, PlanPresetArg, PromptLayoutArg, ProviderArg};
+use crate::cli::{
+    Cli, FooterArg, IntentArg, PlanPresetArg, PromptLayoutArg, ProviderArg, StreamArg,
+};
 use crate::planner::adjudication::contract::IntentId;
 use crate::planner::intent::detect_intent;
 use crate::planner::profile::{ProfileInference, infer_profile};
@@ -59,6 +61,18 @@ impl From<FooterArg> for FooterMode {
             FooterArg::On => Self::On,
             FooterArg::Off => Self::Off,
         }
+    }
+}
+
+fn stream_arg_enabled(value: StreamArg) -> bool {
+    matches!(value, StreamArg::On)
+}
+
+fn parse_stream_mode(value: &str) -> Option<bool> {
+    match value.trim() {
+        "on" => Some(true),
+        "off" => Some(false),
+        _ => None,
     }
 }
 
@@ -200,6 +214,7 @@ pub struct Config {
     pub chat_timeout_source: String,
     pub field_sources: ConfigFieldSources,
     pub chat_retries: usize,
+    pub stream: bool,
     pub resume: Option<String>,
     pub fresh_session: bool,
     pub no_footer: bool,
@@ -224,6 +239,7 @@ pub struct ConfigFieldSources {
     pub profile: String,
     pub narration: String,
     pub footer: String,
+    pub stream: String,
 }
 
 impl Default for ConfigFieldSources {
@@ -240,6 +256,7 @@ impl Default for ConfigFieldSources {
             profile: "default".to_string(),
             narration: "default".to_string(),
             footer: "default".to_string(),
+            stream: "default".to_string(),
         }
     }
 }
@@ -270,6 +287,7 @@ struct PresetConfig {
     profile: Option<Sourced<String>>,
     narration: Option<Sourced<NarrationMode>>,
     footer: Option<Sourced<FooterMode>>,
+    stream: Option<Sourced<bool>>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -277,11 +295,23 @@ struct ConfigFile {
     presets: HashMap<String, PresetConfig>,
     narration: Option<Sourced<NarrationMode>>,
     footer: Option<Sourced<FooterMode>>,
+    stream: Option<Sourced<bool>>,
     prompt_layout: Option<Sourced<PromptLayout>>,
     plan_preset: Option<Sourced<PlanPreset>>,
 }
 
 impl Config {
+    pub fn streaming_enabled(&self) -> bool {
+        self.streaming_enabled_for_tty(
+            crate::tui::terminal::stdin_is_tty(),
+            crate::tui::terminal::stdout_is_tty(),
+        )
+    }
+
+    pub(crate) fn streaming_enabled_for_tty(&self, stdin_tty: bool, stdout_tty: bool) -> bool {
+        self.stream && matches!(self.action, Action::Repl) && stdin_tty && stdout_tty
+    }
+
     pub fn plan_preset_origin(&self) -> &'static str {
         if self.field_sources.plan_preset == "default_fix_data" {
             return "default_fix_data";
@@ -447,6 +477,18 @@ impl Config {
                 .or_else(|| config_file_footer(&workspace_root))
                 .unwrap_or_else(|| sourced(FooterMode::On, "default"))
         };
+        let stream = cli
+            .stream
+            .map(|value| sourced(stream_arg_enabled(value), "flag"))
+            .or_else(|| preset.as_ref().and_then(|preset| preset.stream.clone()))
+            .or_else(|| config_file_stream(&workspace_root))
+            .unwrap_or_else(|| {
+                if matches!(action, Action::Repl) {
+                    sourced(true, "default:repl")
+                } else {
+                    sourced(false, "default:non_interactive")
+                }
+            });
         let profile_from_preset = preset.as_ref().and_then(|preset| preset.profile.clone());
         let profile_explicit = cli.profile.is_some() || profile_from_preset.is_some();
         let profile_inference = if profile_explicit {
@@ -476,6 +518,7 @@ impl Config {
             profile: profile.source.clone(),
             narration: narration.source.clone(),
             footer: footer.source.clone(),
+            stream: stream.source.clone(),
         };
         Ok(Self {
             workspace_root,
@@ -499,6 +542,7 @@ impl Config {
             chat_timeout_source,
             field_sources,
             chat_retries: cli.chat_retries,
+            stream: stream.value,
             resume: cli.resume,
             fresh_session: cli.fresh_session,
             no_footer: footer.value.is_off(),
@@ -609,6 +653,7 @@ fn load_named_preset(root: &Path, name: Option<&str>) -> anyhow::Result<Option<P
         merge_preset_field(&mut merged.profile, &preset.profile);
         merge_preset_field(&mut merged.narration, &preset.narration);
         merge_preset_field(&mut merged.footer, &preset.footer);
+        merge_preset_field(&mut merged.stream, &preset.stream);
         if preset_complete(&merged) {
             break;
         }
@@ -635,6 +680,7 @@ fn preset_complete(preset: &PresetConfig) -> bool {
         && preset.profile.is_some()
         && preset.narration.is_some()
         && preset.footer.is_some()
+        && preset.stream.is_some()
 }
 
 fn merge_preset_field<T: Clone>(target: &mut Option<Sourced<T>>, source: &Option<Sourced<T>>) {
@@ -665,6 +711,17 @@ fn config_file_footer(root: &Path) -> Option<Sourced<FooterMode>> {
     legacy_config_file_footer(root)
 }
 
+fn config_file_stream(root: &Path) -> Option<Sourced<bool>> {
+    for path in config_paths(root) {
+        if let Ok(Some(file)) = parse_config_file_if_present(&path)
+            && let Some(stream) = file.stream
+        {
+            return Some(stream);
+        }
+    }
+    legacy_config_file_stream(root)
+}
+
 fn config_file_prompt_layout(root: &Path) -> Option<Sourced<PromptLayout>> {
     for path in config_paths(root) {
         if let Ok(Some(file)) = parse_config_file_if_present(&path)
@@ -693,6 +750,10 @@ fn legacy_config_file_narration(root: &Path) -> Option<Sourced<NarrationMode>> {
 
 fn legacy_config_file_footer(root: &Path) -> Option<Sourced<FooterMode>> {
     legacy_config_file_value(root, "footer", FooterMode::from_config_value)
+}
+
+fn legacy_config_file_stream(root: &Path) -> Option<Sourced<bool>> {
+    legacy_config_file_value(root, "stream", parse_stream_mode)
 }
 
 fn legacy_config_file_prompt_layout(root: &Path) -> Option<Sourced<PromptLayout>> {
@@ -824,6 +885,16 @@ fn parse_top_level_key(
             ));
             Ok(())
         }
+        "stream" => {
+            file.stream = Some(sourced(
+                parse_stream_value(path, line_no, key, value)?,
+                format!(
+                    "config:{}",
+                    path.file_name().unwrap_or_default().to_string_lossy()
+                ),
+            ));
+            Ok(())
+        }
         "prompt_layout" => {
             file.prompt_layout = Some(sourced(
                 parse_prompt_layout_value(path, line_no, key, value)?,
@@ -910,6 +981,12 @@ fn parse_preset_key(
         "footer" => {
             preset.footer = Some(sourced(
                 parse_footer_value(path, line_no, &full_key, value)?,
+                source,
+            ))
+        }
+        "stream" => {
+            preset.stream = Some(sourced(
+                parse_stream_value(path, line_no, &full_key, value)?,
                 source,
             ))
         }
@@ -1014,6 +1091,13 @@ fn parse_footer_value(
     let value = parse_string_value(path, line_no, key, value)?;
     FooterMode::from_config_value(&value).ok_or_else(|| {
         anyhow::anyhow!("{}:{} {key} expects footer on|off", path.display(), line_no)
+    })
+}
+
+fn parse_stream_value(path: &Path, line_no: usize, key: &str, value: &str) -> anyhow::Result<bool> {
+    let value = parse_string_value(path, line_no, key, value)?;
+    parse_stream_mode(&value).ok_or_else(|| {
+        anyhow::anyhow!("{}:{} {key} expects stream on|off", path.display(), line_no)
     })
 }
 
@@ -1532,6 +1616,88 @@ profile = "nextjs"
         .unwrap();
         assert_eq!(from_flag.prompt_layout, PromptLayout::Stable);
         assert_eq!(from_flag.field_sources.prompt_layout, "flag");
+    }
+
+    #[test]
+    fn stream_defaults_by_action_and_resolves_flag_preset_config_precedence() {
+        let repl = Config::from_cli(Cli::parse_from(["commandagent"])).unwrap();
+        assert!(repl.stream);
+        assert_eq!(repl.field_sources.stream, "default:repl");
+
+        let prompt =
+            Config::from_cli(Cli::parse_from(["commandagent", "--prompt", "hello"])).unwrap();
+        assert!(!prompt.stream);
+        assert_eq!(prompt.field_sources.stream, "default:non_interactive");
+
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_string_lossy().to_string();
+        std::fs::create_dir_all(dir.path().join(".anvil")).unwrap();
+        std::fs::write(
+            dir.path().join(".anvil/config.toml"),
+            "stream = \"off\"\n[preset.live]\nstream = \"on\"\n",
+        )
+        .unwrap();
+
+        let from_config =
+            Config::from_cli(Cli::parse_from(["commandagent", "--cwd", &cwd])).unwrap();
+        assert!(!from_config.stream);
+        assert_eq!(from_config.field_sources.stream, "config:config.toml");
+
+        let from_preset = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--preset",
+            "live",
+        ]))
+        .unwrap();
+        assert!(from_preset.stream);
+        assert_eq!(from_preset.field_sources.stream, "preset:live");
+
+        let from_flag = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--preset",
+            "live",
+            "--stream",
+            "off",
+        ]))
+        .unwrap();
+        assert!(!from_flag.stream);
+        assert_eq!(from_flag.field_sources.stream, "flag");
+    }
+
+    #[test]
+    fn invalid_stream_value_error_names_file_and_key() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_string_lossy().to_string();
+        std::fs::create_dir_all(dir.path().join(".anvil")).unwrap();
+        std::fs::write(
+            dir.path().join(".anvil/config.toml"),
+            "[preset.bad]\nstream = \"auto\"\n",
+        )
+        .unwrap();
+        let err = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--preset",
+            "bad",
+        ]))
+        .unwrap_err()
+        .to_string();
+        assert!(err.contains("stream on|off"), "{err}");
+    }
+
+    #[test]
+    fn effective_streaming_requires_repl_and_both_ttys() {
+        let mut config = Config::from_cli(Cli::parse_from(["commandagent"])).unwrap();
+        assert!(config.streaming_enabled_for_tty(true, true));
+        assert!(!config.streaming_enabled_for_tty(false, true));
+        assert!(!config.streaming_enabled_for_tty(true, false));
+        config.action = Action::Prompt("hello".to_string());
+        assert!(!config.streaming_enabled_for_tty(true, true));
     }
 
     #[test]

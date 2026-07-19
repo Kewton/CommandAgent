@@ -15,6 +15,7 @@ pub const PROVIDER_WAIT_SLICE: Duration = Duration::from_millis(250);
 const ABORTED_BY_USER_ERROR: &str = "aborted_by_user: interrupted by user";
 const CONTEXT_UNDERCUT_PERCENT: u64 = 70;
 const CONTEXT_UNDERCUT_PERSISTENCE: usize = 2;
+type ProviderChunkCallback<'a> = dyn FnMut(&str) -> anyhow::Result<()> + 'a;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderCallScope {
@@ -117,6 +118,7 @@ struct ProviderWorkerResult {
 }
 
 enum ProviderWorkerMessage {
+    Chunk(String),
     Completed(ProviderWorkerResult),
     Panicked(Box<dyn std::any::Any + Send + 'static>),
 }
@@ -153,12 +155,48 @@ pub fn chat_with_cancel<F>(
 where
     F: Fn() -> bool,
 {
+    chat_with_cancel_inner(client, config, request, is_cancelled, false, None)
+}
+
+pub fn chat_with_cancel_and_stream<F>(
+    client: &mut dyn ChatClient,
+    config: &Config,
+    request: ProviderChatRequest<'_>,
+    is_cancelled: F,
+    on_chunk: &mut ProviderChunkCallback<'_>,
+) -> ProviderCallOutcome
+where
+    F: Fn() -> bool,
+{
+    chat_with_cancel_inner(
+        client,
+        config,
+        request,
+        is_cancelled,
+        config.streaming_enabled(),
+        Some(on_chunk),
+    )
+}
+
+fn chat_with_cancel_inner<F>(
+    client: &mut dyn ChatClient,
+    config: &Config,
+    request: ProviderChatRequest<'_>,
+    is_cancelled: F,
+    stream_allowed: bool,
+    mut on_chunk: Option<&mut ProviderChunkCallback<'_>>,
+) -> ProviderCallOutcome
+where
+    F: Fn() -> bool,
+{
     let scope = request.scope;
     let model = request.model;
     let messages = request.messages;
     let tools = request.tools;
     let native_tools_enabled = request.native_tools_enabled;
     let provider = client.label().to_string();
+    let stream =
+        stream_allowed && on_chunk.is_some() && config.stream && client.supports_streaming();
     let timeout = Duration::from_secs(config.chat_timeout_secs);
     let estimated_prompt_tokens =
         estimate_prompt_tokens_sent(messages, tools, native_tools_enabled);
@@ -207,7 +245,20 @@ where
     let (tx, rx) = mpsc::sync_channel(1);
     std::thread::spawn(move || {
         let worker_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let result = worker_client.chat(&worker_model, &messages, &tools, native_tools_enabled);
+            let result = if stream {
+                worker_client.chat_stream(
+                    &worker_model,
+                    &messages,
+                    &tools,
+                    native_tools_enabled,
+                    &mut |chunk| {
+                        tx.send(ProviderWorkerMessage::Chunk(chunk.to_string()))
+                            .map_err(|_| anyhow!("provider stream receiver disconnected"))
+                    },
+                )
+            } else {
+                worker_client.chat(&worker_model, &messages, &tools, native_tools_enabled)
+            };
             let timing = worker_client.take_response_timing();
             ProviderWorkerResult { result, timing }
         }));
@@ -284,6 +335,40 @@ where
         emit_provider_progress_if_due(started, config.chat_timeout_secs, &mut next_progress_at);
         let slice = PROVIDER_WAIT_SLICE.min(timeout.saturating_sub(elapsed));
         match rx.recv_timeout(slice) {
+            Ok(ProviderWorkerMessage::Chunk(chunk)) => {
+                if let Some(on_chunk) = on_chunk.as_deref_mut()
+                    && let Err(err) = on_chunk(&chunk)
+                {
+                    let elapsed = started.elapsed();
+                    crate::tui::status_bus::publish_provider_finished(elapsed);
+                    let result = Err(anyhow!("failed to render provider stream: {err:#}"));
+                    emit_provider_turn_duration(
+                        config,
+                        provider_turn_telemetry_from_result(
+                            ProviderTurnTelemetryBase {
+                                scope,
+                                provider: &provider,
+                                model: &model,
+                                tool_count,
+                                native_tools_enabled,
+                                estimated_prompt_tokens,
+                                estimated_stable_prefix_chars,
+                                elapsed,
+                                timed_out: false,
+                                aborted_by_user: false,
+                            },
+                            &result,
+                            None,
+                        ),
+                    );
+                    return ProviderCallOutcome {
+                        result,
+                        elapsed,
+                        timed_out: false,
+                        aborted_by_user: false,
+                    };
+                }
+            }
             Ok(ProviderWorkerMessage::Completed(worker_result)) => {
                 let ProviderWorkerResult { result, timing } = worker_result;
                 let elapsed = started.elapsed();
@@ -753,7 +838,7 @@ mod tests {
     use crate::config::{Action, Provider};
     use std::path::PathBuf;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
     #[derive(Clone)]
     struct HangingClient {
@@ -869,6 +954,60 @@ mod tests {
         }
     }
 
+    #[derive(Clone)]
+    struct StreamingClient {
+        chat_calls: Arc<AtomicUsize>,
+        stream_calls: Arc<AtomicUsize>,
+    }
+
+    impl StreamingClient {
+        fn new() -> Self {
+            Self {
+                chat_calls: Arc::new(AtomicUsize::new(0)),
+                stream_calls: Arc::new(AtomicUsize::new(0)),
+            }
+        }
+    }
+
+    impl ChatClient for StreamingClient {
+        fn label(&self) -> &str {
+            "streaming-mock"
+        }
+
+        fn boxed_clone(&self) -> Box<dyn ChatClient> {
+            Box::new(self.clone())
+        }
+
+        fn supports_streaming(&self) -> bool {
+            true
+        }
+
+        fn chat_stream(
+            &mut self,
+            _model: &str,
+            _messages: &[ConversationMessage],
+            _tools: &[ToolSpec],
+            _native_tools_enabled: bool,
+            on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
+        ) -> anyhow::Result<AssistantReply> {
+            self.stream_calls.fetch_add(1, Ordering::SeqCst);
+            on_chunk("hel")?;
+            on_chunk("lo")?;
+            Ok(AssistantReply::text("hello"))
+        }
+
+        fn chat(
+            &mut self,
+            _model: &str,
+            _messages: &[ConversationMessage],
+            _tools: &[ToolSpec],
+            _native_tools_enabled: bool,
+        ) -> anyhow::Result<AssistantReply> {
+            self.chat_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(AssistantReply::text("hello"))
+        }
+    }
+
     #[test]
     fn planner_scope_timeout_kinds_are_stable() {
         assert_eq!(
@@ -902,6 +1041,7 @@ mod tests {
             chat_timeout_source: "override:test".to_string(),
             field_sources: crate::config::ConfigFieldSources::default(),
             chat_retries: 1,
+            stream: false,
             eval_events_path: Some(events_path),
             completion_contract_path: None,
             resume: None,
@@ -1016,6 +1156,120 @@ mod tests {
         assert!(events.contains("\"event\":\"provider_turn_duration\""));
         assert!(events.contains("\"finish_reason\":\"panic\""));
         assert!(events.contains("\"ok\":false"));
+    }
+
+    #[test]
+    fn streaming_worker_delivers_incremental_chunks_and_same_final_reply() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let events_path = tmp.path().join("events.jsonl");
+        let mut config = test_config(tmp.path(), events_path, 30);
+        config.stream = true;
+        let mut client = StreamingClient::new();
+        let mut chunks = Vec::new();
+        let outcome = chat_with_cancel_inner(
+            &mut client,
+            &config,
+            ProviderChatRequest {
+                scope: ProviderCallScope::Executor,
+                model: "m",
+                messages: &[ConversationMessage::user("prompt")],
+                tools: &[],
+                native_tools_enabled: false,
+            },
+            || false,
+            true,
+            Some(&mut |chunk| {
+                chunks.push(chunk.to_string());
+                Ok(())
+            }),
+        );
+        assert_eq!(outcome.result.unwrap().content, "hello");
+        assert_eq!(chunks, ["hel", "lo"]);
+        assert_eq!(client.stream_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(client.chat_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn cancellation_at_stream_chunk_boundary_keeps_delivered_prefix() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let events_path = tmp.path().join("events.jsonl");
+        let mut config = test_config(tmp.path(), events_path, 30);
+        config.stream = true;
+        let mut client = StreamingClient::new();
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let callback_cancelled = Arc::clone(&cancelled);
+        let mut chunks = Vec::new();
+        let outcome = chat_with_cancel_inner(
+            &mut client,
+            &config,
+            ProviderChatRequest {
+                scope: ProviderCallScope::Executor,
+                model: "m",
+                messages: &[ConversationMessage::user("prompt")],
+                tools: &[],
+                native_tools_enabled: false,
+            },
+            || cancelled.load(Ordering::SeqCst),
+            true,
+            Some(&mut |chunk| {
+                chunks.push(chunk.to_string());
+                callback_cancelled.store(true, Ordering::SeqCst);
+                Ok(())
+            }),
+        );
+        assert!(outcome.aborted_by_user);
+        assert_eq!(chunks, ["hel"]);
+        assert!(is_aborted_by_user(&outcome.result.unwrap_err().to_string()));
+    }
+
+    #[test]
+    fn ordinary_provider_call_keeps_stream_capable_client_non_streaming() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let events_path = tmp.path().join("events.jsonl");
+        let mut config = test_config(tmp.path(), events_path, 30);
+        config.stream = true;
+        let mut client = StreamingClient::new();
+        let outcome = chat(
+            &mut client,
+            &config,
+            ProviderCallScope::Executor,
+            "m",
+            &[ConversationMessage::user("prompt")],
+            &[],
+            false,
+        );
+        assert_eq!(outcome.result.unwrap().content, "hello");
+        assert_eq!(client.stream_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(client.chat_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn fake_client_without_stream_support_uses_legacy_chat_path() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let events_path = tmp.path().join("events.jsonl");
+        let mut config = test_config(tmp.path(), events_path, 30);
+        config.stream = true;
+        let mut client = TokenClient;
+        let mut chunks = Vec::new();
+        let outcome = chat_with_cancel_inner(
+            &mut client,
+            &config,
+            ProviderChatRequest {
+                scope: ProviderCallScope::Executor,
+                model: "m",
+                messages: &[ConversationMessage::user("prompt")],
+                tools: &[],
+                native_tools_enabled: false,
+            },
+            || false,
+            true,
+            Some(&mut |chunk| {
+                chunks.push(chunk.to_string());
+                Ok(())
+            }),
+        );
+        assert_eq!(outcome.result.unwrap().content, "ok");
+        assert!(chunks.is_empty());
     }
 
     #[test]

@@ -1268,8 +1268,8 @@ pub(crate) fn run_session_with_outcome_with_options(
         let label = format!("{} {}", client.label(), config.model);
         let call_scope = provider_call_scope_for_options(&options, pending_feedback.as_deref());
         let chat_outcome = {
-            let _guard = ui.before_model_call(&label);
-            provider_call::chat_with_cancel(
+            let mut guard = ui.before_model_call(&label);
+            let mut outcome = provider_call::chat_with_cancel_and_stream(
                 client,
                 config,
                 provider_call::ProviderChatRequest {
@@ -1280,7 +1280,14 @@ pub(crate) fn run_session_with_outcome_with_options(
                     native_tools_enabled,
                 },
                 || ui.interrupted(),
-            )
+                &mut |chunk| guard.push_assistant_chunk(chunk),
+            );
+            if let Err(err) = guard.finish_assistant_stream()
+                && outcome.result.is_ok()
+            {
+                outcome.result = Err(anyhow::anyhow!("failed to finish provider stream: {err:#}"));
+            }
+            outcome
         };
         let provider_turn_elapsed = chat_outcome.elapsed;
         record_time_sink(
@@ -4761,6 +4768,9 @@ fn maybe_artifact_recovery_feedback(
 
 fn provider_error_allows_xml_fallback(err: &anyhow::Error) -> bool {
     let lower = err.to_string().to_ascii_lowercase();
+    if crate::providers::streaming::is_after_first_chunk_error(&lower) {
+        return false;
+    }
     if lower.contains(" api failed:")
         || lower.contains("http")
         || lower.contains("status")
@@ -4778,6 +4788,9 @@ fn provider_error_allows_xml_fallback(err: &anyhow::Error) -> bool {
 
 fn provider_error_allows_native_tool_retry(err: &anyhow::Error) -> bool {
     let lower = err.to_string().to_ascii_lowercase();
+    if crate::providers::streaming::is_after_first_chunk_error(&lower) {
+        return false;
+    }
     if lower.contains(" api failed:")
         || lower.contains("http")
         || lower.contains("status")
@@ -5152,6 +5165,7 @@ mod tests {
             chat_timeout_source: "override:test".to_string(),
             field_sources: crate::config::ConfigFieldSources::default(),
             chat_retries: 1,
+            stream: false,
             eval_events_path: None,
             completion_contract_path: None,
             resume: None,

@@ -317,6 +317,11 @@ pub fn render_status_card(config: &Config) -> String {
             footer_label(config.no_footer),
             config.field_sources.footer
         ),
+        format!(
+            "- Streaming: {} ({})",
+            stream_label(config.stream),
+            config.field_sources.stream
+        ),
     ]
     .join("\n")
 }
@@ -881,6 +886,10 @@ fn footer_label(no_footer: bool) -> &'static str {
     if no_footer { "off" } else { "on" }
 }
 
+fn stream_label(enabled: bool) -> &'static str {
+    if enabled { "on" } else { "off" }
+}
+
 fn tool_start_label(event: &Value) -> String {
     let name = text(event, "name").unwrap_or_else(|| "tool".to_string());
     let Some(summary) = event.get("arguments") else {
@@ -1229,6 +1238,7 @@ mod tests {
             profile: "preset:local".to_string(),
             narration: "preset:local".to_string(),
             footer: "preset:local".to_string(),
+            stream: "default:repl".to_string(),
         };
         let config = Config {
             workspace_root: std::path::PathBuf::from("."),
@@ -1252,6 +1262,7 @@ mod tests {
             chat_timeout_source: "preset:local".to_string(),
             field_sources: sources,
             chat_retries: 1,
+            stream: false,
             resume: None,
             fresh_session: false,
             no_footer: true,
@@ -1276,6 +1287,7 @@ mod tests {
         assert!(card.contains("- Context budget: 999 (flag)"), "{card}");
         assert!(card.contains("- Profile: nextjs (preset:local)"), "{card}");
         assert!(card.contains("- Footer: off (preset:local)"), "{card}");
+        assert!(card.contains("- Streaming: off (default:repl)"), "{card}");
         assert!(card.contains("- Inference: explicit"), "{card}");
         assert!(card.contains("- Port: 4000 (goal)"), "{card}");
         assert!(

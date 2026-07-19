@@ -16,6 +16,12 @@ pub enum FooterArg {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum StreamArg {
+    On,
+    Off,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum PromptLayoutArg {
     Stable,
     Legacy,
@@ -120,6 +126,13 @@ pub struct Cli {
     pub chat_timeout_secs: Option<u64>,
     #[arg(long, default_value_t = 1)]
     pub chat_retries: usize,
+    #[arg(
+        long,
+        value_enum,
+        value_name = "on|off",
+        help = "Stream assistant output in an interactive TTY REPL"
+    )]
+    pub stream: Option<StreamArg>,
     #[arg(long)]
     pub state_dir: Option<PathBuf>,
     #[arg(long)]
@@ -175,6 +188,13 @@ mod tests {
     fn help_includes_footer_mode() {
         let help = Cli::command().render_long_help().to_string();
         assert!(help.contains("--footer"));
+        assert!(help.contains("on|off"));
+    }
+
+    #[test]
+    fn help_includes_stream_mode() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--stream"));
         assert!(help.contains("on|off"));
     }
 

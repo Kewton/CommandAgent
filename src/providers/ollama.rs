@@ -7,6 +7,7 @@ use crate::tools::args_recovery::recover_tool_arguments;
 use crate::tools::registry::ToolSpec;
 
 use super::parsing::tool_names;
+use super::streaming::StreamControl;
 use super::{AssistantReply, ChatClient, ResponseTiming};
 
 #[derive(Debug, Clone)]
@@ -76,6 +77,69 @@ impl ChatClient for OllamaClient {
         self.last_response_timing.take()
     }
 
+    fn supports_streaming(&self) -> bool {
+        true
+    }
+
+    fn chat_stream(
+        &mut self,
+        model: &str,
+        messages: &[ConversationMessage],
+        tools: &[ToolSpec],
+        native_tools_enabled: bool,
+        on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
+    ) -> anyhow::Result<AssistantReply> {
+        let body =
+            self.chat_request_body_with_stream(model, messages, tools, native_tools_enabled, true);
+        for attempt in 0..=self.retries {
+            match self
+                .http
+                .post(format!("{}/api/chat", self.base_url))
+                .json(&body)
+                .send()
+            {
+                Ok(response) if response.status().is_success() => {
+                    let mut delivered = false;
+                    let result = parse_chat_stream(
+                        response,
+                        &tool_names(tools),
+                        !native_tools_enabled,
+                        &mut |chunk| {
+                            delivered = true;
+                            on_chunk(chunk)
+                        },
+                    );
+                    match result {
+                        Ok((reply, timing)) => {
+                            self.last_response_timing = timing;
+                            return Ok(reply);
+                        }
+                        Err(_)
+                            if super::streaming::retry_allowed(
+                                attempt,
+                                self.retries,
+                                delivered,
+                            ) =>
+                        {
+                            continue;
+                        }
+                        Err(err) if delivered => {
+                            return Err(super::streaming::after_first_chunk(err));
+                        }
+                        Err(err) => return Err(err),
+                    }
+                }
+                Ok(response) if attempt == self.retries => {
+                    anyhow::bail!("Ollama /api/chat failed: {}", response.status());
+                }
+                Ok(_) => {}
+                Err(err) if attempt == self.retries => return Err(err.into()),
+                Err(_) => {}
+            }
+        }
+        unreachable!("retry loop always returns or bails")
+    }
+
     fn chat(
         &mut self,
         model: &str,
@@ -121,10 +185,21 @@ impl OllamaClient {
         tools: &[ToolSpec],
         native_tools_enabled: bool,
     ) -> Value {
+        self.chat_request_body_with_stream(model, messages, tools, native_tools_enabled, false)
+    }
+
+    fn chat_request_body_with_stream(
+        &self,
+        model: &str,
+        messages: &[ConversationMessage],
+        tools: &[ToolSpec],
+        native_tools_enabled: bool,
+        stream: bool,
+    ) -> Value {
         let mut body = json!({
             "model": model,
             "messages": ollama_messages(messages),
-            "stream": false,
+            "stream": stream,
             "keep_alive": self.keep_alive,
             "options": self.request_options.clone(),
         });
@@ -172,6 +247,10 @@ pub fn parse_tags_response(body: &str) -> anyhow::Result<Vec<String>> {
 #[derive(Deserialize)]
 struct ChatResponse {
     message: Option<ChatMessage>,
+    #[serde(default)]
+    done: bool,
+    #[serde(default)]
+    error: Option<String>,
     #[serde(default)]
     prompt_eval_count: Option<u64>,
     #[serde(default)]
@@ -262,6 +341,82 @@ fn parse_chat_response_with_timing(
     ))
 }
 
+pub fn parse_chat_stream<R: std::io::Read>(
+    reader: R,
+    allowed_tools: &[String],
+    xml_fallback: bool,
+    on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
+) -> anyhow::Result<(AssistantReply, Option<ResponseTiming>)> {
+    let mut content = String::new();
+    let mut tool_calls = Vec::new();
+    let mut prompt_tokens = None;
+    let mut completion_tokens = None;
+    let mut timing = ResponseTiming::default();
+    let mut done = false;
+    super::streaming::read_ndjson(reader, |line| {
+        let parsed: ChatResponse = serde_json::from_str(line)
+            .map_err(|err| anyhow::anyhow!("malformed Ollama NDJSON: {err}"))?;
+        if let Some(error) = parsed.error {
+            anyhow::bail!("Ollama stream failed: {error}");
+        }
+        if let Some(message) = parsed.message {
+            if !message.content.is_empty() {
+                on_chunk(&message.content)?;
+                content.push_str(&message.content);
+            }
+            tool_calls.extend(message.tool_calls);
+        }
+        prompt_tokens = parsed.prompt_eval_count.or(prompt_tokens);
+        completion_tokens = parsed.eval_count.or(completion_tokens);
+        timing.prompt_eval_duration = parsed.prompt_eval_duration.or(timing.prompt_eval_duration);
+        timing.eval_duration = parsed.eval_duration.or(timing.eval_duration);
+        timing.load_duration = parsed.load_duration.or(timing.load_duration);
+        timing.total_duration = parsed.total_duration.or(timing.total_duration);
+        if parsed.done {
+            done = true;
+            return Ok(StreamControl::Stop);
+        }
+        Ok(StreamControl::Continue)
+    })?;
+    if !done {
+        anyhow::bail!("Ollama stream ended before its terminal record");
+    }
+    let has_timing = timing.prompt_eval_duration.is_some()
+        || timing.eval_duration.is_some()
+        || timing.load_duration.is_some()
+        || timing.total_duration.is_some();
+    if xml_fallback {
+        let (tool_calls, content) =
+            super::xml_fallback::extract_tool_calls(&content, allowed_tools)?;
+        return Ok((
+            AssistantReply {
+                content,
+                tool_calls,
+                prompt_tokens,
+                completion_tokens,
+            },
+            has_timing.then_some(timing),
+        ));
+    }
+    let tool_calls = tool_calls
+        .into_iter()
+        .map(|call| {
+            let arguments =
+                recover_tool_arguments(&call.function.name, call.function.arguments).arguments;
+            ToolCall::new(call.function.name, arguments)
+        })
+        .collect();
+    Ok((
+        AssistantReply {
+            content,
+            tool_calls,
+            prompt_tokens,
+            completion_tokens,
+        },
+        has_timing.then_some(timing),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,6 +449,10 @@ mod tests {
             Some(42)
         );
         assert!(first.get("tools").is_none());
+        assert_eq!(
+            client.chat_request_body_with_stream("m", &messages, &tools, false, true)["stream"],
+            true
+        );
     }
 
     #[test]
@@ -318,5 +477,52 @@ mod tests {
         assert_eq!(timing.eval_duration, Some(2_000_000_000));
         assert_eq!(timing.load_duration, Some(1_000_000_000));
         assert_eq!(timing.total_duration, Some(7_000_000_000));
+    }
+
+    #[test]
+    fn parses_ndjson_stream_and_applies_xml_fallback_after_accumulation() {
+        let input = concat!(
+            r#"{"message":{"content":"<function=Write>{\"path\":\"a\""},"done":false}"#,
+            "\n",
+            r#"{"message":{"content":",\"content\":\"日🙂\"}</function>"},"done":false}"#,
+            "\n",
+            r#"{"done":true,"prompt_eval_count":4,"eval_count":2,"total_duration":9}"#,
+            "\n"
+        );
+        let mut chunks = Vec::new();
+        let (reply, timing) = parse_chat_stream(
+            std::io::Cursor::new(input.as_bytes()),
+            &["Write".to_string()],
+            true,
+            &mut |chunk| {
+                chunks.push(chunk.to_string());
+                Ok(())
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            chunks.concat(),
+            "<function=Write>{\"path\":\"a\",\"content\":\"日🙂\"}</function>"
+        );
+        assert_eq!(reply.content, "");
+        assert_eq!(reply.tool_calls[0].name, "Write");
+        assert_eq!(reply.tool_calls[0].arguments["content"], "日🙂");
+        assert_eq!(reply.prompt_tokens, Some(4));
+        assert_eq!(reply.completion_tokens, Some(2));
+        assert_eq!(timing.unwrap().total_duration, Some(9));
+    }
+
+    #[test]
+    fn incomplete_ndjson_stream_returns_error_after_partial_output() {
+        let input = "{\"message\":{\"content\":\"partial\"},\"done\":false}\n";
+        let mut chunks = Vec::new();
+        let err = parse_chat_stream(std::io::Cursor::new(input), &[], false, &mut |chunk| {
+            chunks.push(chunk.to_string());
+            Ok(())
+        })
+        .unwrap_err()
+        .to_string();
+        assert_eq!(chunks.concat(), "partial");
+        assert!(err.contains("terminal record"), "{err}");
     }
 }

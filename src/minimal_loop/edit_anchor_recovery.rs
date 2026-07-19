@@ -198,6 +198,7 @@ mod tests {
             chat_timeout_source: "override:test".to_string(),
             field_sources: ConfigFieldSources::default(),
             chat_retries: 1,
+            stream: false,
             eval_events_path: Some(root.join(".anvil/runs/edit-anchor/events.jsonl")),
             completion_contract_path: None,
             resume: None,

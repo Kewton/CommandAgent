@@ -81,6 +81,198 @@ fn tui_pty_queues_input_during_command_and_replays_fifo() {
     }
 }
 
+#[test]
+#[ignore]
+fn tui_pty_streams_ollama_with_spinner_and_footer_cleanup() {
+    if std::env::var("ANVIL_PTY_TESTS").ok().as_deref() != Some("1") || cfg!(windows) {
+        return;
+    }
+    let bin = env!("CARGO_BIN_EXE_commandagent");
+    let tmp = tempfile::tempdir().unwrap();
+    let state_dir = tmp.path().join("state");
+    let (host, completed, saw_stream, stop, server) = start_streaming_ollama();
+    let output = run_stream_script(bin, tmp.path(), &state_dir, &host, completed)
+        .expect("script(1) PTY helper and streaming fake Ollama must be available");
+    stop.store(true, Ordering::SeqCst);
+    server.join().unwrap();
+
+    let text = String::from_utf8_lossy(&output.stdout).to_string()
+        + &String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "PTY command failed. output={text:?}"
+    );
+    assert!(
+        saw_stream.load(Ordering::SeqCst),
+        "request did not enable stream"
+    );
+    let first = text
+        .find(r#"{"goal":"test","#)
+        .unwrap_or_else(|| panic!("first stream chunk missing. output={text:?}"));
+    assert!(
+        text[..first].contains("\r\x1b[2K"),
+        "spinner was not cleared before body output. output={text:?}"
+    );
+    assert!(
+        text.contains(r#""expected_result":"pass"}]}"#),
+        "final stream chunk missing. output={text:?}"
+    );
+    assert!(
+        text.contains("\x1b[r") && text.contains("commandagent>"),
+        "footer/raw terminal cleanup did not restore the prompt. output={text:?}"
+    );
+    assert!(!text.contains("stream ended before"), "output={text:?}");
+}
+
+fn run_stream_script(
+    bin: &str,
+    cwd: &std::path::Path,
+    state_dir: &std::path::Path,
+    host: &str,
+    completed: mpsc::Receiver<()>,
+) -> std::io::Result<std::process::Output> {
+    let command_line = queue_command_line(bin, cwd, state_dir, host);
+    let mut command = std::process::Command::new("script");
+    if cfg!(target_os = "macos") {
+        command
+            .arg("-q")
+            .arg("/dev/null")
+            .arg("/bin/sh")
+            .arg("-c")
+            .arg(command_line);
+    } else {
+        command
+            .arg("-q")
+            .arg("-c")
+            .arg(command_line)
+            .arg("/dev/null");
+    }
+    let mut child = command
+        .env("ANVIL_NO_MARKDOWN", "1")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let stdout_reader = thread::spawn(move || read_all(stdout));
+    let stderr_reader = thread::spawn(move || read_all(stderr));
+    let mut stdin = child.stdin.take().unwrap();
+    thread::sleep(Duration::from_secs(2));
+    stdin.write_all(b"/plan-steps test\n")?;
+    stdin.flush()?;
+    if completed.recv_timeout(Duration::from_secs(10)).is_err() {
+        let _ = child.kill();
+    } else {
+        thread::sleep(Duration::from_millis(500));
+        stdin.write_all(b"/exit\n")?;
+        stdin.flush()?;
+    }
+    drop(stdin);
+    finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(20))
+}
+
+fn start_streaming_ollama() -> (
+    String,
+    mpsc::Receiver<()>,
+    Arc<AtomicBool>,
+    Arc<AtomicBool>,
+    thread::JoinHandle<()>,
+) {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let host = format!("http://{}", listener.local_addr().unwrap());
+    let stop = Arc::new(AtomicBool::new(false));
+    let saw_stream = Arc::new(AtomicBool::new(false));
+    let thread_stop = Arc::clone(&stop);
+    let thread_saw_stream = Arc::clone(&saw_stream);
+    let (completed_tx, completed_rx) = mpsc::sync_channel(1);
+    let handle = thread::spawn(move || {
+        while !thread_stop.load(Ordering::SeqCst) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(1)))
+                        .unwrap();
+                    let request = read_http_request(&mut stream);
+                    if request.starts_with("GET /api/tags ") {
+                        let body = r#"{"models":[{"name":"m"}]}"#;
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        );
+                        let _ = stream.write_all(response.as_bytes());
+                        continue;
+                    }
+                    thread_saw_stream.store(request.contains(r#""stream":true"#), Ordering::SeqCst);
+                    let first = serde_json::json!({
+                        "message": {"role": "assistant", "content": "{\"goal\":\"test\","},
+                        "done": false
+                    })
+                    .to_string()
+                        + "\n";
+                    let second = serde_json::json!({
+                        "message": {"role": "assistant", "content": "\"steps\":[{\"id\":\"s1\",\"kind\":\"report\",\"instruction\":\"say done\",\"expected_paths\":[],\"verify\":[],\"expected_result\":\"pass\"}]}"},
+                        "done": false
+                    })
+                    .to_string()
+                        + "\n";
+                    let terminal = "{\"done\":true}\n";
+                    let total = first.len() + second.len() + terminal.len();
+                    let headers = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nContent-Length: {total}\r\nConnection: close\r\n\r\n"
+                    );
+                    let _ = stream.write_all(headers.as_bytes());
+                    let _ = stream.write_all(first.as_bytes());
+                    let _ = stream.flush();
+                    thread::sleep(Duration::from_millis(300));
+                    let _ = stream.write_all(second.as_bytes());
+                    let _ = stream.write_all(terminal.as_bytes());
+                    let _ = stream.flush();
+                    let _ = completed_tx.try_send(());
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+    (host, completed_rx, saw_stream, stop, handle)
+}
+
+fn read_http_request(stream: &mut impl Read) -> String {
+    let mut request = Vec::new();
+    let mut buffer = [0_u8; 1024];
+    let mut expected = None;
+    loop {
+        let Ok(read) = stream.read(&mut buffer) else {
+            break;
+        };
+        if read == 0 {
+            break;
+        }
+        request.extend_from_slice(&buffer[..read]);
+        if expected.is_none()
+            && let Some(header_end) = request.windows(4).position(|part| part == b"\r\n\r\n")
+        {
+            let headers = String::from_utf8_lossy(&request[..header_end]);
+            let content_length = headers.lines().find_map(|line| {
+                line.split_once(':').and_then(|(name, value)| {
+                    name.eq_ignore_ascii_case("content-length")
+                        .then(|| value.trim().parse::<usize>().ok())
+                        .flatten()
+                })
+            });
+            expected = Some(header_end + 4 + content_length.unwrap_or_default());
+        }
+        if expected.is_some_and(|expected| request.len() >= expected) {
+            break;
+        }
+    }
+    String::from_utf8_lossy(&request).into_owned()
+}
+
 fn run_queue_script(
     bin: &str,
     cwd: &std::path::Path,

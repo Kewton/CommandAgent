@@ -1015,6 +1015,7 @@ mod tests {
             chat_timeout_source: "override:test".to_string(),
             field_sources: crate::config::ConfigFieldSources::default(),
             chat_retries: 1,
+            stream: false,
             resume: None,
             fresh_session: false,
             no_footer: false,

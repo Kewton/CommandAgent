@@ -3,6 +3,7 @@ pub mod gemini_function_calling;
 pub mod ollama;
 pub mod openai;
 pub mod parsing;
+pub mod streaming;
 pub mod xml_fallback;
 
 use anyhow::bail;
@@ -53,6 +54,19 @@ pub trait ChatClient: Send {
     }
     fn take_response_timing(&mut self) -> Option<ResponseTiming> {
         None
+    }
+    fn supports_streaming(&self) -> bool {
+        false
+    }
+    fn chat_stream(
+        &mut self,
+        _model: &str,
+        _messages: &[ConversationMessage],
+        _tools: &[ToolSpec],
+        _native_tools_enabled: bool,
+        _on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
+    ) -> anyhow::Result<AssistantReply> {
+        bail!("streaming is not supported by this chat client")
     }
     fn chat(
         &mut self,

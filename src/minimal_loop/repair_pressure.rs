@@ -528,10 +528,6 @@ mod anchor_tests {
                 requests: Arc::new(Mutex::new(Vec::new())),
             }
         }
-
-        fn requests(&self) -> Vec<Vec<ConversationMessage>> {
-            self.requests.lock().unwrap().clone()
-        }
     }
 
     impl ChatClient for RecordingFake {
@@ -585,6 +581,7 @@ mod anchor_tests {
             chat_timeout_source: "override:test".to_string(),
             field_sources: ConfigFieldSources::default(),
             chat_retries: 1,
+            stream: false,
             eval_events_path: None,
             completion_contract_path: None,
             resume: None,
@@ -738,7 +735,7 @@ mod anchor_tests {
             std::fs::read_to_string(dir.path().join("target.txt")).unwrap(),
             "new\n"
         );
-        assert!(fake.requests().iter().any(|request| {
+        assert!(fake.requests.lock().unwrap().iter().any(|request| {
             request.iter().any(|message| {
                 message.content.contains("full-file Write now")
                     && message.content.contains("target.txt")

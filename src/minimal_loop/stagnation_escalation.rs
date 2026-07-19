@@ -805,6 +805,7 @@ mod tests {
             chat_timeout_source: "override:test".to_string(),
             field_sources: ConfigFieldSources::default(),
             chat_retries: 1,
+            stream: false,
             eval_events_path: None,
             completion_contract_path: None,
             resume: None,

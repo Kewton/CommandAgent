@@ -20,6 +20,7 @@ use crate::config::Config;
 use self::footer::{Footer, FreezeGuard};
 use self::input_queue::InputQueue;
 use self::interrupt::{InterruptMonitor, PauseGuard};
+use self::markdown::{TerminalMarkdownRenderer, TerminalMarkdownStream};
 use self::spinner::Spinner;
 use self::status::UiStatus;
 
@@ -40,6 +41,7 @@ pub trait OutputRenderer {
 pub struct UiGuard {
     _footer: Option<FreezeGuard>,
     _spinner: Option<Spinner>,
+    stream: Option<TerminalMarkdownStream>,
 }
 
 impl UiGuard {
@@ -47,14 +49,38 @@ impl UiGuard {
         Self {
             _footer: None,
             _spinner: None,
+            stream: None,
         }
     }
 
-    fn active(footer: Option<FreezeGuard>, spinner: Option<Spinner>) -> Self {
+    fn active(
+        footer: Option<FreezeGuard>,
+        spinner: Option<Spinner>,
+        stream: Option<TerminalMarkdownStream>,
+    ) -> Self {
         Self {
             _footer: footer,
             _spinner: spinner,
+            stream,
         }
+    }
+
+    pub fn push_assistant_chunk(&mut self, chunk: &str) -> anyhow::Result<()> {
+        if chunk.is_empty() {
+            return Ok(());
+        }
+        self._spinner.take();
+        if let Some(stream) = self.stream.as_mut() {
+            stream.push_chunk(chunk)?;
+        }
+        Ok(())
+    }
+
+    pub fn finish_assistant_stream(&mut self) -> anyhow::Result<()> {
+        if let Some(stream) = self.stream.as_mut() {
+            stream.finish()?;
+        }
+        Ok(())
     }
 }
 
@@ -83,6 +109,7 @@ pub struct TerminalUi {
     interrupt: Arc<Mutex<InterruptMonitor>>,
     footer: Footer,
     input_queue: InputQueue,
+    stream: bool,
 }
 
 impl TerminalUi {
@@ -118,6 +145,7 @@ impl TerminalUi {
             interrupt,
             footer,
             input_queue,
+            stream: config.streaming_enabled(),
         };
         ui.publish_status(UiStatus::from_config(config));
         ui
@@ -147,11 +175,14 @@ impl TerminalUi {
 
 impl InteractionUi for TerminalUi {
     fn before_model_call(&self, label: &str) -> UiGuard {
-        UiGuard::active(None, Spinner::start(label))
+        let stream = self
+            .stream
+            .then(|| TerminalMarkdownRenderer::for_stdout().begin_stream());
+        UiGuard::active(None, Spinner::start(label), stream)
     }
 
     fn before_tool_call(&self, name: &str) -> UiGuard {
-        UiGuard::active(None, Spinner::start(format!("tool {name}")))
+        UiGuard::active(None, Spinner::start(format!("tool {name}")), None)
     }
 
     fn publish_status(&self, status: UiStatus) {

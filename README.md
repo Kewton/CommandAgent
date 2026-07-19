@@ -58,6 +58,7 @@ These are examples only; CommandAgent does not auto-create them:
 # profile = "nextjs"
 # narration = "normal"
 # footer = "on"
+# stream = "on"
 #
 # [preset.local]
 # provider = "ollama"
@@ -69,6 +70,7 @@ These are examples only; CommandAgent does not auto-create them:
 # profile = "generic"
 # narration = "normal"
 # footer = "on"
+# stream = "on"
 # plan_preset = "profile" # optional opt-in; omitted defaults to none
 #
 # [preset.hybrid-a3b]
@@ -81,6 +83,7 @@ These are examples only; CommandAgent does not auto-create them:
 # profile = "nextjs"
 # narration = "normal"
 # footer = "on"
+# stream = "on"
 ```
 
 ```bash
@@ -123,7 +126,15 @@ flag value in `source` (empty when omitted).
 
 Interactive TTY mode uses the same `commandagent>` prompt and slash commands, plus
 terminal-only markdown rendering, spinner, Esc/Ctrl-C prompt interrupt, and a fixed
-footer. Disable paths:
+footer. Assistant text streams by default in this interactive mode for Ollama,
+OpenAI, and Gemini. `chat_timeout_secs` is a wall-clock limit for the whole stream,
+including retries before the first text chunk; after output begins, a stream error
+is reported without retry and the partial output remains in scrollback.
+
+Use `--stream on|off` or top-level/preset `stream = "on"|"off"`. The normal
+flag > named preset > config file > default precedence applies. One-shot
+`--prompt`, other non-interactive actions, non-TTY output, and test fake clients
+remain non-streaming even when the stored preference is on. Disable paths:
 
 ```bash
 ANVIL_NO_SPINNER=1 commandagent --yes
@@ -133,6 +144,7 @@ ANVIL_NO_MARKDOWN=1 commandagent --yes
 NO_COLOR=1 commandagent --yes
 commandagent --yes --no-footer
 commandagent --yes --footer off
+commandagent --yes --stream off
 ```
 
 Release/manual TTY smoke:

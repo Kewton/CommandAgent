@@ -498,6 +498,7 @@ mod tests {
             chat_timeout_source: "test".to_string(),
             field_sources: ConfigFieldSources::default(),
             chat_retries: 0,
+            stream: false,
             resume: None,
             fresh_session: true,
             no_footer: true,

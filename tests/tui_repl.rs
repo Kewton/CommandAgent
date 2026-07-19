@@ -30,6 +30,7 @@ fn config(root: PathBuf) -> Config {
         chat_timeout_source: "override:test".to_string(),
         field_sources: commandagent::config::ConfigFieldSources::default(),
         chat_retries: 1,
+        stream: false,
         resume: None,
         fresh_session: false,
         no_footer: false,
