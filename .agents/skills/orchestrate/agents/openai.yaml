@@ -1,6 +1,6 @@
 interface:
   display_name: "CommandAgent Orchestrate"
-  short_description: "Run verified CommandAgent issue orchestration"
-  default_prompt: "Use $orchestrate to plan and advance authorized issue work through verified implementation, draft PR, CI, UAT, and guarded merge."
+  short_description: "Run bounded dependency-aware issue orchestration"
+  default_prompt: "Use $orchestrate to schedule authorized Issue work in bounded dependency batches through verified implementation, draft PR, CI, UAT, and guarded merge."
 policy:
   allow_implicit_invocation: false

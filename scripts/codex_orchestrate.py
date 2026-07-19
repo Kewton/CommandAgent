@@ -97,6 +97,14 @@ class WorkerWaitResult:
 
 
 @dataclass(frozen=True)
+class SchedulerBatchResult:
+    batch_index: int
+    issue_numbers: tuple[int, ...]
+    status: str
+    message: str
+
+
+@dataclass(frozen=True)
 class WorkerVerificationResult:
     issue_number: int
     status: str
@@ -179,11 +187,20 @@ def slugify(value: str, *, max_len: int = 48) -> str:
     return compact[:max_len].strip("-") or "task"
 
 
+def positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return parsed
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("issues", nargs="+", type=int, help="GitHub issue numbers")
-    parser.add_argument("--dry-run", action="store_true", help="Only write planning artifacts")
-    parser.add_argument("--max-parallel", type=int, default=3)
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Only write planning artifacts"
+    )
+    parser.add_argument("--max-parallel", type=positive_int, default=3)
     parser.add_argument(
         "--phase",
         default="plan",
@@ -219,13 +236,17 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="Command to run after each merge. Can be specified multiple times.",
     )
-    parser.add_argument("--merge-method", choices=("merge", "squash", "rebase"), default=None)
+    parser.add_argument(
+        "--merge-method", choices=("merge", "squash", "rebase"), default=None
+    )
     parser.add_argument(
         "--pr-numbers", default="", help="Comma-separated PR numbers for merge phase"
     )
     parser.add_argument("--uat-results-json", type=Path)
     parser.add_argument("--uat-failures-json", type=Path)
-    parser.add_argument("--photon-url", default="", help="Optional PHOTON sidecar base URL")
+    parser.add_argument(
+        "--photon-url", default="", help="Optional PHOTON sidecar base URL"
+    )
     return parser
 
 
@@ -237,7 +258,9 @@ def parse_args_from_list_for_test(values: list[str]) -> argparse.Namespace:
     return build_parser().parse_args(values)
 
 
-def load_issues(numbers: list[int], fixture_path: Path | None, repo: str = "") -> list[Issue]:
+def load_issues(
+    numbers: list[int], fixture_path: Path | None, repo: str = ""
+) -> list[Issue]:
     if fixture_path is not None:
         return load_issues_from_fixture(numbers, fixture_path)
     return [fetch_issue_with_gh(number, repo) for number in numbers]
@@ -247,7 +270,9 @@ def load_issues_from_fixture(numbers: list[int], fixture_path: Path) -> list[Iss
     raw = json.loads(fixture_path.read_text(encoding="utf-8"))
     items = raw["issues"] if isinstance(raw, dict) and "issues" in raw else raw
     if not isinstance(items, list):
-        raise ValueError("--issue-json must contain a list or an object with an 'issues' list")
+        raise ValueError(
+            "--issue-json must contain a list or an object with an 'issues' list"
+        )
 
     by_number: dict[int, Issue] = {}
     for item in items:
@@ -255,7 +280,11 @@ def load_issues_from_fixture(numbers: list[int], fixture_path: Path) -> list[Iss
             continue
         number = int(item["number"])
         labels_raw = item.get("labels", [])
-        labels = tuple(str(label) for label in labels_raw) if isinstance(labels_raw, list) else ()
+        labels = (
+            tuple(str(label) for label in labels_raw)
+            if isinstance(labels_raw, list)
+            else ()
+        )
         by_number[number] = Issue(
             number=number,
             title=str(item.get("title", "")),
@@ -287,7 +316,9 @@ def fetch_issue_with_gh(number: int, repo: str = "") -> Issue:
         text=True,
     )
     raw = json.loads(completed.stdout)
-    labels = tuple(label["name"] for label in raw.get("labels", []) if isinstance(label, dict))
+    labels = tuple(
+        label["name"] for label in raw.get("labels", []) if isinstance(label, dict)
+    )
     return Issue(
         number=int(raw["number"]),
         title=str(raw.get("title", "")),
@@ -366,7 +397,9 @@ def extract_acceptance_criteria(body: str) -> list[str]:
     out: list[str] = []
     section_level: int | None = None
     heading_re = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
-    trigger_re = re.compile(r"(acceptance|受入|受け入れ|完了条件|期待結果)", re.IGNORECASE)
+    trigger_re = re.compile(
+        r"(acceptance|受入|受け入れ|完了条件|期待結果)", re.IGNORECASE
+    )
     list_item_re = re.compile(r"^(?:[-*+]\s+|\d+[.)]\s+)(.+)$")
     checkbox_re = re.compile(r"^\[[ xX]\]\s*")
     for line in lines:
@@ -375,7 +408,9 @@ def extract_acceptance_criteria(body: str) -> list[str]:
         if heading:
             level = len(heading.group(1))
             if trigger_re.search(heading.group(2)):
-                section_level = level if section_level is None else min(section_level, level)
+                section_level = (
+                    level if section_level is None else min(section_level, level)
+                )
             elif section_level is not None and level <= section_level:
                 section_level = None
             continue
@@ -456,7 +491,9 @@ def enrich_file_candidates_with_rg(text: str, existing: list[str]) -> list[str]:
     seen = set(candidates)
     for phrase in extract_search_phrases(text):
         try:
-            completed = run_command(["rg", "-l", "--fixed-strings", phrase], cwd=REPO_ROOT)
+            completed = run_command(
+                ["rg", "-l", "--fixed-strings", phrase], cwd=REPO_ROOT
+            )
         except FileNotFoundError:
             return candidates
         if completed.returncode not in (0, 1):
@@ -529,7 +566,9 @@ def extract_dependency_hints(text: str) -> list[str]:
     lowered = text.lower()
     if any(word in lowered for word in ("schema", "contract", "record")):
         hints.append("contract")
-    if any(word in lowered for word in ("sqlite", "storage", "migration", "local-first")):
+    if any(
+        word in lowered for word in ("sqlite", "storage", "migration", "local-first")
+    ):
         hints.append("storage")
     if any(word in lowered for word in ("sanitizer", "redact", "secret", "token")):
         hints.append("sanitizer")
@@ -557,10 +596,34 @@ def extract_test_expectations(text: str) -> list[str]:
 
 
 def classify_batches(
-    analyses: list[IssueAnalysis], merge_order: str
+    analyses: list[IssueAnalysis], merge_order: str, max_parallel: int = 3
 ) -> tuple[list[list[int]], list[int]]:
+    if max_parallel < 1:
+        raise ValueError("max_parallel must be at least 1")
+
     if merge_order:
         order = [int(part.strip()) for part in merge_order.split(",") if part.strip()]
+        requested = [analysis.issue.number for analysis in analyses]
+        if len(order) != len(set(order)):
+            raise ValueError("merge order contains duplicate issue numbers")
+        if set(order) != set(requested):
+            raise ValueError(
+                "merge order must contain every requested issue exactly once"
+            )
+        completed: set[int] = set()
+        by_issue = {analysis.issue.number: analysis for analysis in analyses}
+        for number in order:
+            dependencies = {
+                dependency.issue.number
+                for dependency in direct_dependencies(by_issue[number], analyses)
+            }
+            missing = dependencies - completed
+            if missing:
+                formatted = ", ".join(f"#{item}" for item in sorted(missing))
+                raise ValueError(
+                    f"merge order places #{number} before dependencies {formatted}"
+                )
+            completed.add(number)
         batches = [[number] for number in order]
         return batches, order
 
@@ -571,13 +634,19 @@ def classify_batches(
         ready = [
             analysis
             for analysis in remaining
-            if all(dep.issue.number in completed for dep in direct_dependencies(analysis, analyses))
+            if all(
+                dep.issue.number in completed
+                for dep in direct_dependencies(analysis, analyses)
+            )
         ]
         if not ready:
-            ready = [remaining[0]]
+            unresolved = ", ".join(f"#{item.issue.number}" for item in remaining)
+            raise ValueError(
+                f"dependency cycle or unresolved dependency among {unresolved}"
+            )
         batch: list[IssueAnalysis] = []
         for analysis in ready:
-            if len(batch) >= 3:
+            if len(batch) >= max_parallel:
                 break
             if any(has_file_overlap(analysis, existing) for existing in batch):
                 continue
@@ -587,7 +656,9 @@ def classify_batches(
         batches.append([item.issue.number for item in batch])
         completed.update(item.issue.number for item in batch)
         batch_numbers = {item.issue.number for item in batch}
-        remaining = [item for item in remaining if item.issue.number not in batch_numbers]
+        remaining = [
+            item for item in remaining if item.issue.number not in batch_numbers
+        ]
     order = [number for batch in batches for number in batch]
     return batches, order
 
@@ -603,7 +674,9 @@ def direct_dependencies(
         other_hints = set(other.dependency_hints)
         storage_needs_sanitizer = "storage" in hints and "sanitizer" in other_hints
         storage_needs_contract = (
-            "storage" in hints and "contract" in other_hints and "api" not in other_hints
+            "storage" in hints
+            and "contract" in other_hints
+            and "api" not in other_hints
         )
         if storage_needs_sanitizer or storage_needs_contract:
             dependencies.append(other)
@@ -616,7 +689,9 @@ def dependency_reason(analysis: IssueAnalysis, analyses: list[IssueAnalysis]) ->
     deps = direct_dependencies(analysis, analyses)
     if deps:
         return "depends on " + ", ".join(f"#{item.issue.number}" for item in deps)
-    if any(has_file_overlap(analysis, other) for other in analyses if other != analysis):
+    if any(
+        has_file_overlap(analysis, other) for other in analyses if other != analysis
+    ):
         return "shared implementation file risk"
     return "no direct dependency detected"
 
@@ -624,7 +699,9 @@ def dependency_reason(analysis: IssueAnalysis, analyses: list[IssueAnalysis]) ->
 def classify_issue(analysis: IssueAnalysis, analyses: list[IssueAnalysis]) -> str:
     if direct_dependencies(analysis, analyses):
         return "strong-dependency"
-    if any(has_file_overlap(analysis, other) for other in analyses if other != analysis):
+    if any(
+        has_file_overlap(analysis, other) for other in analyses if other != analysis
+    ):
         return "weak-conflict"
     return "independent"
 
@@ -656,12 +733,18 @@ def legacy_classify_batches(
 
 
 def has_file_overlap(left: IssueAnalysis, right: IssueAnalysis) -> bool:
-    if {"contract"} & set(left.dependency_hints) and {"sanitizer"} & set(right.dependency_hints):
+    if {"contract"} & set(left.dependency_hints) and {"sanitizer"} & set(
+        right.dependency_hints
+    ):
         return False
-    if {"sanitizer"} & set(left.dependency_hints) and {"contract"} & set(right.dependency_hints):
+    if {"sanitizer"} & set(left.dependency_hints) and {"contract"} & set(
+        right.dependency_hints
+    ):
         return False
     left_files = {path for path in left.suspected_files if is_implementation_path(path)}
-    right_files = {path for path in right.suspected_files if is_implementation_path(path)}
+    right_files = {
+        path for path in right.suspected_files if is_implementation_path(path)
+    }
     return bool(left_files & right_files)
 
 
@@ -712,6 +795,7 @@ def render_manifest(
             "",
             "- `issue-analysis.md`",
             "- `dependency-plan.md`",
+            "- `scheduler-report.md`",
             "",
             "## User Questions",
             "",
@@ -909,11 +993,16 @@ def bullet_or_none(items: tuple[str, ...]) -> list[str]:
 
 def write_artifacts(args: argparse.Namespace, analyses: list[IssueAnalysis]) -> Path:
     created_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-    run_id = args.run_id or f"{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-orchestrate"
+    run_id = (
+        args.run_id
+        or f"{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}-orchestrate"
+    )
     run_dir = args.runs_dir / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
 
-    batches, merge_order = classify_batches(analyses, args.merge_order)
+    batches, merge_order = classify_batches(
+        analyses, args.merge_order, max_parallel=args.max_parallel
+    )
     (run_dir / "manifest.md").write_text(
         render_manifest(
             run_id=run_id,
@@ -926,7 +1015,9 @@ def write_artifacts(args: argparse.Namespace, analyses: list[IssueAnalysis]) -> 
         ),
         encoding="utf-8",
     )
-    (run_dir / "issue-analysis.md").write_text(render_issue_analysis(analyses), encoding="utf-8")
+    (run_dir / "issue-analysis.md").write_text(
+        render_issue_analysis(analyses), encoding="utf-8"
+    )
     (run_dir / "dependency-plan.md").write_text(
         render_dependency_plan(analyses, batches, merge_order),
         encoding="utf-8",
@@ -940,16 +1031,27 @@ def write_artifacts(args: argparse.Namespace, analyses: list[IssueAnalysis]) -> 
     (run_dir / "worker-verification.md").write_text(
         "# Worker Verification\n\nNot started.\n", encoding="utf-8"
     )
-    (run_dir / "merge-report.md").write_text("# Merge Report\n\nNot started.\n", encoding="utf-8")
-    (run_dir / "ci-report.md").write_text("# CI Report\n\nNot started.\n", encoding="utf-8")
-    (run_dir / "uat-report.md").write_text("# UAT Report\n\nNot started.\n", encoding="utf-8")
+    (run_dir / "scheduler-report.md").write_text(
+        "# Scheduler Report\n\nNot started.\n", encoding="utf-8"
+    )
+    (run_dir / "merge-report.md").write_text(
+        "# Merge Report\n\nNot started.\n", encoding="utf-8"
+    )
+    (run_dir / "ci-report.md").write_text(
+        "# CI Report\n\nNot started.\n", encoding="utf-8"
+    )
+    (run_dir / "uat-report.md").write_text(
+        "# UAT Report\n\nNot started.\n", encoding="utf-8"
+    )
     (run_dir / "uat-fix-worktrees.md").write_text(
         "# UAT Fix Worktrees\n\nNot requested.\n", encoding="utf-8"
     )
     (run_dir / "photon-events.md").write_text(
         "# PHOTON Events\n\nNot configured.\n", encoding="utf-8"
     )
-    (run_dir / "final-report.md").write_text("# Final Report\n\nNot completed.\n", encoding="utf-8")
+    (run_dir / "final-report.md").write_text(
+        "# Final Report\n\nNot completed.\n", encoding="utf-8"
+    )
     return run_dir
 
 
@@ -1053,7 +1155,11 @@ def render_worker_sessions(
     lines = ["# Worker Sessions", ""]
     for result in results:
         session = next(
-            (item for item in dispatch_results if item.issue_number == result.issue_number),
+            (
+                item
+                for item in dispatch_results
+                if item.issue_number == result.issue_number
+            ),
             None,
         )
         lines.extend(
@@ -1073,14 +1179,30 @@ def render_worker_sessions(
         )
     commands = [command for result in dispatch_results for command in result.commands]
     if commands:
-        lines.extend(["## CommandMate Dispatch", "", *[f"- `{line}`" for line in commands], ""])
+        lines.extend(
+            ["## CommandMate Dispatch", "", *[f"- `{line}`" for line in commands], ""]
+        )
     return "\n".join(lines)
 
 
-def build_worker_prompt(analysis: IssueAnalysis) -> str:
-    criteria = "\n".join(f"- {item}" for item in analysis.acceptance_criteria) or "- 未整理"
-    suspected = "\n".join(f"- {item}" for item in analysis.suspected_files) or "- 未特定"
+def build_worker_prompt(
+    analysis: IssueAnalysis, dependencies: list[IssueAnalysis] | None = None
+) -> str:
+    criteria = (
+        "\n".join(f"- {item}" for item in analysis.acceptance_criteria) or "- 未整理"
+    )
+    suspected = (
+        "\n".join(f"- {item}" for item in analysis.suspected_files) or "- 未特定"
+    )
     references = "\n".join(f"- {item}" for item in analysis.reference_files) or "- なし"
+    dependency_lines = (
+        "\n".join(
+            f"- Issue #{item.issue.number}: branch `{item.branch_name}`, "
+            f"worktree `{item.worktree_path}`"
+            for item in dependencies or []
+        )
+        or "- None"
+    )
     return "\n".join(
         [
             f"Codex issue worker task for Issue #{analysis.issue.number}",
@@ -1097,9 +1219,9 @@ def build_worker_prompt(analysis: IssueAnalysis) -> str:
             "5. Run focused verification, and broader checks if shared contracts are touched.",
             "6. Write `dev-reports/issue-<number>/design.md`, "
             "`implementation-summary.md`, and `verification.md`.",
-            "7. In `verification.md`, record the exact line \"- Status: `passed`\" only "
+            '7. In `verification.md`, record the exact line "- Status: `passed`" only '
             "when every required check passed, followed by one "
-            "\"- `<command>`: `passed`\" entry per check. Use `blocked` when any "
+            '"- `<command>`: `passed`" entry per check. Use `blocked` when any '
             "required check fails or cannot run.",
             "8. Commit the work with a clear Issue-scoped commit message.",
             "9. Report blockers only if implementation cannot safely proceed.",
@@ -1120,6 +1242,15 @@ def build_worker_prompt(analysis: IssueAnalysis) -> str:
             "## References",
             "",
             references,
+            "",
+            "## Required Predecessors",
+            "",
+            dependency_lines,
+            "",
+            "The scheduler dispatches this Issue only after every listed dependency or "
+            "file-conflict predecessor completed and passed verification. Inspect their "
+            "committed changes before editing; do not assume those branches are already "
+            "merged into this one.",
             "",
             "## Orchestration Notes",
             "",
@@ -1178,6 +1309,8 @@ def dispatch_commandmate(
     duration: str,
     codex_agent_name: str,
     poll: bool = False,
+    dependency_analyses: list[IssueAnalysis] | None = None,
+    dependency_context: dict[int, list[IssueAnalysis]] | None = None,
     runner: Runner = run_command,
 ) -> list[WorkerSessionResult]:
     results: list[WorkerSessionResult] = []
@@ -1187,9 +1320,14 @@ def dispatch_commandmate(
         if result is None or result.status == "blocked":
             continue
         worktree_id = commandmate_worktree_id(result.branch_name)
+        dependencies = (
+            dependency_context.get(analysis.issue.number, [])
+            if dependency_context is not None
+            else direct_dependencies(analysis, dependency_analyses or analyses)
+        )
         task = build_commandmate_send_command(
             worktree_id,
-            build_worker_prompt(analysis),
+            build_worker_prompt(analysis, dependencies),
             duration=duration,
             codex_agent_name=codex_agent_name,
         )
@@ -1244,7 +1382,9 @@ def poll_worker_startup(
     commands: tuple[str, ...],
     runner: Runner = run_command,
 ) -> WorkerSessionResult:
-    state = get_commandmate_state(worktree_id, codex_agent_name=codex_agent_name, runner=runner)
+    state = get_commandmate_state(
+        worktree_id, codex_agent_name=codex_agent_name, runner=runner
+    )
     if state["processing"] is True:
         return WorkerSessionResult(
             issue_number,
@@ -1266,7 +1406,9 @@ def poll_worker_startup(
             commands,
         )
     if state["found"] is False:
-        message = str(state.get("message") or "worktree session not found in CommandMate")
+        message = str(
+            state.get("message") or "worktree session not found in CommandMate"
+        )
     else:
         message = "worker did not enter processing state"
     return WorkerSessionResult(
@@ -1332,7 +1474,8 @@ def get_commandmate_state(
         running = bool(
             item.get("isSessionRunning")
             or item.get("isRunning")
-            or str(item.get("status") or item.get("state") or "").lower() in {"running", "ready"}
+            or str(item.get("status") or item.get("state") or "").lower()
+            in {"running", "ready"}
         )
         processing = item.get("isProcessing")
         if processing is None and isinstance(cli_status, dict):
@@ -1354,7 +1497,9 @@ def get_commandmate_state(
 
 
 def classify_commandmate_failure(completed: subprocess.CompletedProcess[str]) -> str:
-    output = "\n".join(part for part in (completed.stderr, completed.stdout) if part).strip()
+    output = "\n".join(
+        part for part in (completed.stderr, completed.stdout) if part
+    ).strip()
     lowered = output.lower()
     if (
         "server is not running" in lowered
@@ -1382,7 +1527,13 @@ def wait_for_commandmate_workers(
     for result in results:
         if result.status not in {"sent", "processing", "started-but-idle"}:
             continue
-        cmd = ["commandmatedev", "wait", result.worktree_id, "--timeout", str(timeout_seconds)]
+        cmd = [
+            "commandmatedev",
+            "wait",
+            result.worktree_id,
+            "--timeout",
+            str(timeout_seconds),
+        ]
         if codex_agent_name:
             cmd.extend(["--instance", codex_agent_name])
         if stall_timeout_seconds > 0:
@@ -1407,6 +1558,211 @@ def wait_for_commandmate_workers(
                 )
             )
     return wait_results
+
+
+def schedule_commandmate_batches(
+    analyses: list[IssueAnalysis],
+    worktree_results: list[WorktreeResult],
+    batches: list[list[int]],
+    *,
+    max_parallel: int,
+    dry_run: bool,
+    dispatch_enabled: bool,
+    duration: str,
+    codex_agent_name: str,
+    poll: bool,
+    timeout_seconds: int,
+    stall_timeout_seconds: int,
+    runner: Runner = run_command,
+) -> tuple[
+    list[WorkerSessionResult],
+    list[WorkerWaitResult],
+    list[SchedulerBatchResult],
+]:
+    if max_parallel < 1:
+        raise ValueError("max_parallel must be at least 1")
+    requested = [analysis.issue.number for analysis in analyses]
+    scheduled = [number for batch in batches for number in batch]
+    if len(scheduled) != len(set(scheduled)) or set(scheduled) != set(requested):
+        raise ValueError(
+            "scheduler batches must contain every requested issue exactly once"
+        )
+    if any(len(batch) > max_parallel for batch in batches):
+        raise ValueError("scheduler batch exceeds max_parallel")
+
+    by_issue = {analysis.issue.number: analysis for analysis in analyses}
+    dispatch_results: list[WorkerSessionResult] = []
+    wait_results: list[WorkerWaitResult] = []
+    batch_results: list[SchedulerBatchResult] = []
+    blocked_by: str | None = None
+    completed_issues: set[int] = set()
+
+    for batch_index, issue_numbers in enumerate(batches, start=1):
+        batch_analyses = [by_issue[number] for number in issue_numbers]
+        if blocked_by is not None:
+            for analysis in batch_analyses:
+                dispatch_results.append(
+                    WorkerSessionResult(
+                        analysis.issue.number,
+                        commandmate_worktree_id(analysis.branch_name),
+                        "blocked",
+                        None,
+                        None,
+                        f"not dispatched because {blocked_by}",
+                        (),
+                    )
+                )
+            batch_results.append(
+                SchedulerBatchResult(
+                    batch_index,
+                    tuple(issue_numbers),
+                    "blocked",
+                    f"not dispatched because {blocked_by}",
+                )
+            )
+            continue
+
+        dependency_context = {
+            analysis.issue.number: [
+                candidate
+                for candidate in analyses
+                if candidate.issue.number in completed_issues
+                and (
+                    candidate in direct_dependencies(analysis, analyses)
+                    or has_file_overlap(analysis, candidate)
+                )
+            ]
+            for analysis in batch_analyses
+        }
+        batch_dispatch = dispatch_commandmate(
+            batch_analyses,
+            worktree_results,
+            dry_run=dry_run or not dispatch_enabled,
+            duration=duration,
+            codex_agent_name=codex_agent_name,
+            poll=poll,
+            dependency_analyses=analyses,
+            dependency_context=dependency_context,
+            runner=runner,
+        )
+        dispatched_issues = {result.issue_number for result in batch_dispatch}
+        for analysis in batch_analyses:
+            if analysis.issue.number in dispatched_issues:
+                continue
+            batch_dispatch.append(
+                WorkerSessionResult(
+                    analysis.issue.number,
+                    commandmate_worktree_id(analysis.branch_name),
+                    "blocked",
+                    None,
+                    None,
+                    "usable worktree was not available for dispatch",
+                    (),
+                )
+            )
+        dispatch_results.extend(batch_dispatch)
+
+        if dry_run or not dispatch_enabled:
+            status = "planned" if dry_run else "not-dispatched"
+            message = (
+                "dry-run: bounded batch dispatch planned"
+                if dry_run
+                else "CommandMate dispatch was not requested"
+            )
+            batch_results.append(
+                SchedulerBatchResult(batch_index, tuple(issue_numbers), status, message)
+            )
+            completed_issues.update(issue_numbers)
+            continue
+
+        batch_wait = wait_for_commandmate_workers(
+            batch_dispatch,
+            timeout_seconds=timeout_seconds,
+            stall_timeout_seconds=stall_timeout_seconds,
+            codex_agent_name=codex_agent_name,
+            runner=runner,
+        )
+        wait_results.extend(batch_wait)
+        active = [
+            result
+            for result in batch_dispatch
+            if result.status in {"sent", "processing", "started-but-idle"}
+        ]
+        dispatch_passed = len(batch_dispatch) == len(issue_numbers) and all(
+            result.status != "blocked" for result in batch_dispatch
+        )
+        wait_passed = (
+            len(batch_wait) == len(active)
+            and bool(active)
+            and all(result.status == "completed" for result in batch_wait)
+        )
+        if not dispatch_passed or not wait_passed:
+            blocked_by = f"scheduler batch {batch_index} failed dispatch or wait"
+            batch_results.append(
+                SchedulerBatchResult(
+                    batch_index, tuple(issue_numbers), "blocked", blocked_by
+                )
+            )
+            continue
+
+        verification = verify_worker_reports(
+            batch_analyses,
+            worktree_results,
+            dry_run=False,
+            runner=runner,
+        )
+        if len(verification) != len(issue_numbers) or any(
+            result.status != "passed" for result in verification
+        ):
+            blocked_by = f"scheduler batch {batch_index} failed worker verification"
+            batch_results.append(
+                SchedulerBatchResult(
+                    batch_index, tuple(issue_numbers), "blocked", blocked_by
+                )
+            )
+            continue
+
+        batch_results.append(
+            SchedulerBatchResult(
+                batch_index,
+                tuple(issue_numbers),
+                "completed",
+                "all workers completed and passed verification",
+            )
+        )
+        completed_issues.update(issue_numbers)
+
+    return dispatch_results, wait_results, batch_results
+
+
+def render_scheduler_report(
+    batches: list[list[int]],
+    max_parallel: int,
+    results: list[SchedulerBatchResult],
+) -> str:
+    lines = [
+        "# Scheduler Report",
+        "",
+        f"- Enforced max parallel: `{max_parallel}`",
+        f"- Planned batches: `{len(batches)}`",
+        "",
+    ]
+    by_index = {result.batch_index: result for result in results}
+    for batch_index, issue_numbers in enumerate(batches, start=1):
+        result = by_index.get(batch_index)
+        issues = ", ".join(f"#{number}" for number in issue_numbers)
+        lines.extend(
+            [
+                f"## Batch {batch_index}",
+                "",
+                f"- Issues: {issues}",
+                f"- Width: `{len(issue_numbers)}`",
+                f"- Status: `{result.status if result else 'not-started'}`",
+                f"- Message: {result.message if result else 'not started'}",
+                "",
+            ]
+        )
+    return "\n".join(lines)
 
 
 def render_worker_wait_report(results: list[WorkerWaitResult]) -> str:
@@ -1437,9 +1793,7 @@ def verify_worker_reports(
     by_issue = {result.issue_number: result for result in worktree_results}
     results: list[WorkerVerificationResult] = []
     status_re = re.compile(r"(?im)^\s*-\s*Status:\s*`?(passed|blocked|failed)`?\s*$")
-    check_re = re.compile(
-        r"(?im)^\s*-\s*`[^`]+`:\s*`?(passed|blocked|failed)`?\s*$"
-    )
+    check_re = re.compile(r"(?im)^\s*-\s*`[^`]+`:\s*`?(passed|blocked|failed)`?\s*$")
     for analysis in analyses:
         worktree = by_issue.get(analysis.issue.number)
         root = (
@@ -1447,7 +1801,9 @@ def verify_worker_reports(
             if worktree is not None
             else resolve_worktree_path(analysis.worktree_path)
         )
-        report_path = root / "dev-reports" / f"issue-{analysis.issue.number}" / "verification.md"
+        report_path = (
+            root / "dev-reports" / f"issue-{analysis.issue.number}" / "verification.md"
+        )
         if dry_run:
             results.append(
                 WorkerVerificationResult(
@@ -1522,7 +1878,9 @@ def verify_worker_reports(
             status = "passed"
             message = f"{len(check_statuses)} worker verification checks passed"
         results.append(
-            WorkerVerificationResult(analysis.issue.number, status, report_path, message)
+            WorkerVerificationResult(
+                analysis.issue.number, status, report_path, message
+            )
         )
     return results
 
@@ -1547,7 +1905,9 @@ def render_worker_verification_report(results: list[WorkerVerificationResult]) -
 
 def render_pr_body(analysis: IssueAnalysis, run_id: str) -> str:
     files = "\n".join(f"- `{item}`" for item in analysis.suspected_files) or "- 未特定"
-    tests = "\n".join(f"- `{item}`" for item in analysis.test_expectations) or "- 未実行"
+    tests = (
+        "\n".join(f"- `{item}`" for item in analysis.test_expectations) or "- 未実行"
+    )
     return "\n".join(
         [
             f"Closes #{analysis.issue.number}",
@@ -1576,7 +1936,9 @@ def render_pr_body(analysis: IssueAnalysis, run_id: str) -> str:
     )
 
 
-def find_existing_pr(branch_name: str, *, runner: Runner = run_command) -> PullRequestResult | None:
+def find_existing_pr(
+    branch_name: str, *, runner: Runner = run_command
+) -> PullRequestResult | None:
     completed = runner(
         [
             "gh",
@@ -1645,7 +2007,9 @@ def create_pull_requests(
                     )
                 )
                 continue
-        existing = None if dry_run else find_existing_pr(analysis.branch_name, runner=runner)
+        existing = (
+            None if dry_run else find_existing_pr(analysis.branch_name, runner=runner)
+        )
         if existing is not None:
             results.append(
                 PullRequestResult(
@@ -1726,6 +2090,37 @@ def pr_numbers_for_merge(results: list[PullRequestResult]) -> list[int]:
         if parsed is not None:
             numbers.append(parsed)
     return numbers
+
+
+def order_pr_numbers_for_merge(
+    results: list[PullRequestResult],
+    issue_order: list[int],
+    requested_pr_numbers: list[int],
+) -> list[int]:
+    by_issue: dict[int, int] = {}
+    for result in results:
+        if result.status not in {"created", "existing"}:
+            continue
+        pr_number = result.pr_number or parse_pr_number(result.url or "")
+        if pr_number is not None:
+            by_issue[result.issue_number] = pr_number
+
+    if not by_issue:
+        if len(requested_pr_numbers) != len(set(requested_pr_numbers)):
+            raise ValueError("PR number list contains duplicates")
+        return requested_pr_numbers
+
+    missing_issues = [number for number in issue_order if number not in by_issue]
+    if missing_issues:
+        formatted = ", ".join(f"#{number}" for number in missing_issues)
+        raise ValueError(f"missing PR mapping for issues {formatted}")
+    ordered = [by_issue[number] for number in issue_order]
+    if requested_pr_numbers:
+        if len(requested_pr_numbers) != len(set(requested_pr_numbers)):
+            raise ValueError("PR number list contains duplicates")
+        if set(requested_pr_numbers) != set(ordered):
+            raise ValueError("PR number list must match every requested issue")
+    return ordered
 
 
 def branch_has_commits(branch_name: str, *, runner: Runner = run_command) -> bool:
@@ -1837,10 +2232,14 @@ def merge_pull_requests(
         merge = runner(cmd, cwd=REPO_ROOT)
         if merge.returncode != 0:
             results.append(
-                MergeResult(pr_number, "blocked", merge.stderr.strip() or "merge failed")
+                MergeResult(
+                    pr_number, "blocked", merge.stderr.strip() or "merge failed"
+                )
             )
             break
-        runner(["git", "pull", "--ff-only", "origin", "develop"], cwd=REPO_ROOT, check=True)
+        runner(
+            ["git", "pull", "--ff-only", "origin", "develop"], cwd=REPO_ROOT, check=True
+        )
         verification = run_integration_checks(integration_checks, runner=runner)
         if verification.startswith("failed:"):
             results.append(
@@ -1852,7 +2251,9 @@ def merge_pull_requests(
                 )
             )
             break
-        results.append(MergeResult(pr_number, "merged", "merged and develop updated", verification))
+        results.append(
+            MergeResult(pr_number, "merged", "merged and develop updated", verification)
+        )
     return results
 
 
@@ -1864,7 +2265,9 @@ def mark_pr_ready(pr_number: int, *, runner: Runner = run_command) -> MergeResul
             "blocked",
             completed.stderr.strip() or "could not mark draft PR ready for review",
         )
-    return MergeResult(pr_number, "ready", "draft PR marked ready after CI and UAT passed")
+    return MergeResult(
+        pr_number, "ready", "draft PR marked ready after CI and UAT passed"
+    )
 
 
 def wait_for_pr_checks(pr_number: int, *, runner: Runner = run_command) -> MergeResult:
@@ -1909,7 +2312,9 @@ def render_ci_report(results: list[MergeResult]) -> str:
     return "\n".join(lines)
 
 
-def check_pr_mergeability(pr_number: int, *, runner: Runner = run_command) -> MergeResult:
+def check_pr_mergeability(
+    pr_number: int, *, runner: Runner = run_command
+) -> MergeResult:
     completed = runner(
         [
             "gh",
@@ -1966,7 +2371,8 @@ def render_uat_report(
     gate: UatGateResult | None = None,
 ) -> str:
     by_scenario = {
-        (result.issue_number, result.scenario_index): result for result in (results or [])
+        (result.issue_number, result.scenario_index): result
+        for result in (results or [])
     }
     lines = [
         "# UAT Report",
@@ -1986,7 +2392,9 @@ def render_uat_report(
     ]
     for analysis in analyses:
         criteria = analysis.acceptance_criteria or ("Issue の期待動作を満たすこと",)
-        lines.extend([f"### Issue #{analysis.issue.number}: {analysis.issue.title}", ""])
+        lines.extend(
+            [f"### Issue #{analysis.issue.number}: {analysis.issue.title}", ""]
+        )
         for index, criterion in enumerate(criteria, start=1):
             result = by_scenario.get((analysis.issue.number, index))
             lines.extend(
@@ -2026,7 +2434,9 @@ def load_uat_results(path: Path | None) -> list[UatResult]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     items = raw["results"] if isinstance(raw, dict) and "results" in raw else raw
     if not isinstance(items, list):
-        raise ValueError("UAT results JSON must be a list or an object with a 'results' list")
+        raise ValueError(
+            "UAT results JSON must be a list or an object with a 'results' list"
+        )
     results: list[UatResult] = []
     for item in items:
         if not isinstance(item, dict):
@@ -2063,7 +2473,9 @@ def evaluate_uat_gate(
     for result in results:
         key = (result.issue_number, result.scenario_index)
         if key in observed:
-            return UatGateResult("blocked", f"duplicate UAT result for Issue #{key[0]} scenario {key[1]}")
+            return UatGateResult(
+                "blocked", f"duplicate UAT result for Issue #{key[0]} scenario {key[1]}"
+            )
         observed[key] = result
     unexpected = sorted(set(observed) - expected)
     if unexpected:
@@ -2097,7 +2509,9 @@ def evaluate_uat_gate(
                 "blocked",
                 f"UAT evidence is empty for Issue #{key[0]} scenario {key[1]}",
             )
-    return UatGateResult("passed", f"all {len(expected)} UAT scenarios passed with evidence")
+    return UatGateResult(
+        "passed", f"all {len(expected)} UAT scenarios passed with evidence"
+    )
 
 
 def load_uat_failures(path: Path | None) -> list[UatFailure]:
@@ -2106,7 +2520,9 @@ def load_uat_failures(path: Path | None) -> list[UatFailure]:
     raw = json.loads(path.read_text(encoding="utf-8"))
     items = raw["failures"] if isinstance(raw, dict) and "failures" in raw else raw
     if not isinstance(items, list):
-        raise ValueError("UAT failures JSON must be a list or an object with a 'failures' list")
+        raise ValueError(
+            "UAT failures JSON must be a list or an object with a 'failures' list"
+        )
     failures: list[UatFailure] = []
     for item in items:
         if not isinstance(item, dict):
@@ -2123,7 +2539,9 @@ def load_uat_failures(path: Path | None) -> list[UatFailure]:
     return failures
 
 
-def render_uat_fix_prompts(failures: list[UatFailure], analyses: list[IssueAnalysis]) -> str:
+def render_uat_fix_prompts(
+    failures: list[UatFailure], analyses: list[IssueAnalysis]
+) -> str:
     by_issue = {analysis.issue.number: analysis for analysis in analyses}
     lines = ["# UAT Fix Prompts", ""]
     if not failures:
@@ -2133,7 +2551,11 @@ def render_uat_fix_prompts(failures: list[UatFailure], analyses: list[IssueAnaly
     for failure in failures:
         analysis = by_issue.get(failure.issue_number)
         title = analysis.issue.title if analysis else "Unknown issue"
-        branch = analysis.branch_name if analysis else f"fix/issue-{failure.issue_number}-uat"
+        branch = (
+            analysis.branch_name
+            if analysis
+            else f"fix/issue-{failure.issue_number}-uat"
+        )
         lines.extend(
             [
                 f"## Issue #{failure.issue_number}: {title}",
@@ -2177,7 +2599,8 @@ def create_uat_fix_worktrees(
         slug = slugify(failure.scenario or "uat-failure", max_len=32)
         branch = f"fix/issue-{failure.issue_number}-uat-{slug}"
         path = (
-            REPO_ROOT / f"../{REPO_ROOT.name}-fix-issue-{failure.issue_number}-uat-{slug}"
+            REPO_ROOT
+            / f"../{REPO_ROOT.name}-fix-issue-{failure.issue_number}-uat-{slug}"
         ).resolve()
         if dry_run:
             results.append(
@@ -2306,7 +2729,9 @@ def sanitize_event_payload(value: object) -> object:
 
 
 def redact_paths(value: str) -> str:
-    return re.sub(r"/(?:Users|home|tmp|private|var)/[^\s`'\"]+", "[REDACTED_PATH]", value)
+    return re.sub(
+        r"/(?:Users|home|tmp|private|var)/[^\s`'\"]+", "[REDACTED_PATH]", value
+    )
 
 
 def render_photon_events(results: list[PhotonEventResult]) -> str:
@@ -2327,7 +2752,13 @@ def main() -> int:
     args = parse_args()
     repo_name = commandmate_repository_name()
     issues = load_issues(args.issues, args.issue_json, args.repo)
-    analyses = [analyze_issue(issue, repo_name, skip_enhance=args.skip_enhance) for issue in issues]
+    analyses = [
+        analyze_issue(issue, repo_name, skip_enhance=args.skip_enhance)
+        for issue in issues
+    ]
+    batches, issue_merge_order = classify_batches(
+        analyses, args.merge_order, max_parallel=args.max_parallel
+    )
     run_dir = write_artifacts(args, analyses)
     dry_run = bool(args.dry_run)
     photon_results: list[PhotonEventResult] = [
@@ -2364,22 +2795,42 @@ def main() -> int:
     worktree_results: list[WorktreeResult] = []
     dispatch_results: list[WorkerSessionResult] = []
     wait_results: list[WorkerWaitResult] = []
+    scheduler_results: list[SchedulerBatchResult] = []
     publish_requested = (
-        args.create_prs or args.merge_prs or (not dry_run and phase_at_least(args.phase, "pr"))
+        args.create_prs
+        or args.merge_prs
+        or (not dry_run and phase_at_least(args.phase, "pr"))
     )
-    merge_requested = args.merge_prs or (not dry_run and phase_at_least(args.phase, "merge"))
+    merge_requested = args.merge_prs or (
+        not dry_run and phase_at_least(args.phase, "merge")
+    )
     if args.create_worktrees or (not dry_run and phase_at_least(args.phase, "dev")):
         worktree_results = create_or_reuse_worktrees(analyses, dry_run=dry_run)
-        dispatch_results = dispatch_commandmate(
-            analyses,
-            worktree_results,
-            dry_run=dry_run or not args.dispatch_commandmate,
-            duration=args.commandmate_duration,
-            codex_agent_name=args.codex_agent_name,
-            poll=args.poll_commandmate,
+        dispatch_results, wait_results, scheduler_results = (
+            schedule_commandmate_batches(
+                analyses,
+                worktree_results,
+                batches,
+                max_parallel=args.max_parallel,
+                dry_run=dry_run,
+                dispatch_enabled=args.dispatch_commandmate,
+                duration=args.commandmate_duration,
+                codex_agent_name=args.codex_agent_name,
+                poll=args.poll_commandmate,
+                timeout_seconds=args.wait_commandmate_timeout,
+                stall_timeout_seconds=args.wait_commandmate_stall_timeout,
+            )
         )
         (run_dir / "worker-sessions.md").write_text(
             render_worker_sessions(worktree_results, dispatch_results),
+            encoding="utf-8",
+        )
+        (run_dir / "scheduler-report.md").write_text(
+            render_scheduler_report(batches, args.max_parallel, scheduler_results),
+            encoding="utf-8",
+        )
+        (run_dir / "commandmate-wait-report.md").write_text(
+            render_worker_wait_report(wait_results),
             encoding="utf-8",
         )
         for result in dispatch_results:
@@ -2413,21 +2864,11 @@ def main() -> int:
     can_publish = True
     if publish_requested and dispatch_results:
         can_publish = all(result.status != "blocked" for result in dispatch_results)
-    if publish_requested and not dry_run and args.dispatch_commandmate and dispatch_results:
-        wait_results = wait_for_commandmate_workers(
-            dispatch_results,
-            timeout_seconds=args.wait_commandmate_timeout,
-            stall_timeout_seconds=args.wait_commandmate_stall_timeout,
-            codex_agent_name=args.codex_agent_name,
-        )
-        (run_dir / "commandmate-wait-report.md").write_text(
-            render_worker_wait_report(wait_results),
-            encoding="utf-8",
-        )
+    if publish_requested and not dry_run and args.dispatch_commandmate:
         can_publish = (
             can_publish
-            and bool(wait_results)
-            and all(result.status == "completed" for result in wait_results)
+            and len(scheduler_results) == len(batches)
+            and all(result.status == "completed" for result in scheduler_results)
         )
 
     worker_verification_results: list[WorkerVerificationResult] = []
@@ -2453,8 +2894,12 @@ def main() -> int:
 
     pr_results: list[PullRequestResult] = []
     if publish_requested and can_publish:
-        pr_results = create_pull_requests(analyses, run_id=run_dir.name, dry_run=dry_run)
-        (run_dir / "pr-report.md").write_text(render_pr_report(pr_results), encoding="utf-8")
+        pr_results = create_pull_requests(
+            analyses, run_id=run_dir.name, dry_run=dry_run
+        )
+        (run_dir / "pr-report.md").write_text(
+            render_pr_report(pr_results), encoding="utf-8"
+        )
         allowed_pr_statuses = {"planned"} if dry_run else {"created", "existing"}
         can_publish = bool(pr_results) and all(
             result.status in allowed_pr_statuses for result in pr_results
@@ -2465,11 +2910,14 @@ def main() -> int:
             encoding="utf-8",
         )
 
-    pr_numbers = [int(part.strip()) for part in args.pr_numbers.split(",") if part.strip()]
-    if not pr_numbers:
-        pr_numbers = pr_numbers_for_merge(pr_results)
+    requested_pr_numbers = [
+        int(part.strip()) for part in args.pr_numbers.split(",") if part.strip()
+    ]
+    pr_numbers = order_pr_numbers_for_merge(
+        pr_results, issue_merge_order, requested_pr_numbers
+    )
     if dry_run and publish_requested and not pr_numbers:
-        pr_numbers = [analysis.issue.number for analysis in analyses]
+        pr_numbers = issue_merge_order
 
     uat_gate = UatGateResult("not-requested", "UAT phase was not requested")
     uat_requested = (
@@ -2573,7 +3021,9 @@ def main() -> int:
             photon_results.append(
                 emit_photon_event(
                     args.photon_url,
-                    event_kind="pr.merged" if result.status == "merged" else "verification.failed",
+                    event_kind="pr.merged"
+                    if result.status == "merged"
+                    else "verification.failed",
                     run_id=run_dir.name,
                     payload={
                         "pr_number": result.pr_number,

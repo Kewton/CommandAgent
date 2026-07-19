@@ -98,7 +98,9 @@ def test_analyze_issue_skips_markdown_heading_for_objective() -> None:
 
     analysis = module.analyze_issue(issue, "CommandAgent", skip_enhance=False)
 
-    assert analysis.objective.startswith("`workspace/v0.1.0/05_development_preparation_plan.md`")
+    assert analysis.objective.startswith(
+        "`workspace/v0.1.0/05_development_preparation_plan.md`"
+    )
     assert analysis.objective != "概要"
 
 
@@ -109,7 +111,9 @@ def test_extract_file_candidates_ignores_absolute_path_fragments() -> None:
         "対象: `src/memory/sanitizer.py`\n"
     )
 
-    assert "Users/me/repo/external/scripts/export_agent_training_data.py" not in candidates
+    assert (
+        "Users/me/repo/external/scripts/export_agent_training_data.py" not in candidates
+    )
     assert "src/memory/sanitizer.py" in candidates
 
 
@@ -131,16 +135,23 @@ def test_issue_2_to_5_dependency_batches_are_not_fully_serial() -> None:
     module = load_script()
     issues = [
         module.Issue(2, "[P0][M1] Define v1 sidecar schema", "schema EventRecord"),
-        module.Issue(3, "[P0][M3] Implement sanitizer module", "sanitizer redact secret token"),
         module.Issue(
-            4, "[P0][M2] Implement local SQLite event store", "SQLite local-first storage"
+            3, "[P0][M3] Implement sanitizer module", "sanitizer redact secret token"
         ),
         module.Issue(
-            5, "[P0][M2] Implement sidecar health/events/suggest", "FastAPI sidecar endpoint client"
+            4,
+            "[P0][M2] Implement local SQLite event store",
+            "SQLite local-first storage",
+        ),
+        module.Issue(
+            5,
+            "[P0][M2] Implement sidecar health/events/suggest",
+            "FastAPI sidecar endpoint client",
         ),
     ]
     analyses = [
-        module.analyze_issue(issue, "CommandAgent", skip_enhance=True) for issue in issues
+        module.analyze_issue(issue, "CommandAgent", skip_enhance=True)
+        for issue in issues
     ]
 
     batches, merge_order = module.classify_batches(analyses, "")
@@ -148,6 +159,54 @@ def test_issue_2_to_5_dependency_batches_are_not_fully_serial() -> None:
     assert batches[0] == [2, 3]
     assert batches[1:] == [[4], [5]]
     assert merge_order == [2, 3, 4, 5]
+
+
+def test_dependency_batches_enforce_configured_max_parallel() -> None:
+    module = load_script()
+    analyses = [
+        module.analyze_issue(
+            module.Issue(
+                number,
+                f"Independent {number}",
+                f"Implement `src/independent_{number}.rs`",
+            ),
+            "CommandAgent",
+            skip_enhance=True,
+        )
+        for number in range(1, 6)
+    ]
+
+    batches, merge_order = module.classify_batches(analyses, "", max_parallel=2)
+
+    assert batches == [[1, 2], [3, 4], [5]]
+    assert merge_order == [1, 2, 3, 4, 5]
+    assert all(len(batch) <= 2 for batch in batches)
+
+
+def test_explicit_merge_order_cannot_precede_dependency() -> None:
+    module = load_script()
+    analyses = [
+        module.analyze_issue(
+            module.Issue(2, "Define contract", "schema contract"),
+            "CommandAgent",
+            skip_enhance=True,
+        ),
+        module.analyze_issue(
+            module.Issue(4, "Add storage", "SQLite storage"),
+            "CommandAgent",
+            skip_enhance=True,
+        ),
+    ]
+
+    with pytest.raises(ValueError, match="before dependencies #2"):
+        module.classify_batches(analyses, "4,2", max_parallel=2)
+
+
+def test_parser_rejects_non_positive_max_parallel() -> None:
+    module = load_script()
+
+    with pytest.raises(SystemExit):
+        module.parse_args_from_list_for_test(["1", "--max-parallel", "0"])
 
 
 def test_build_issue_body_with_orchestration_notes_is_idempotent() -> None:
@@ -219,6 +278,8 @@ def test_write_artifacts_from_fixture(tmp_path: Path) -> None:
             "test-run",
             "--runs-dir",
             str(tmp_path / "runs"),
+            "--max-parallel",
+            "1",
         ]
     )
     issues = module.load_issues(args.issues, args.issue_json)
@@ -231,10 +292,14 @@ def test_write_artifacts_from_fixture(tmp_path: Path) -> None:
     assert (run_dir / "manifest.md").exists()
     assert (run_dir / "issue-analysis.md").exists()
     assert (run_dir / "dependency-plan.md").exists()
+    assert (run_dir / "scheduler-report.md").exists()
     assert "Issue #1" in (run_dir / "issue-analysis.md").read_text(encoding="utf-8")
     assert "CommandMate Codex agent: `codex`" in (run_dir / "manifest.md").read_text(
         encoding="utf-8"
     )
+    dependency_plan = (run_dir / "dependency-plan.md").read_text(encoding="utf-8")
+    assert "Batch 1: #1" in dependency_plan
+    assert "Batch 2: #2" in dependency_plan
 
 
 def test_worktree_planning_does_not_mutate_in_dry_run() -> None:
@@ -325,7 +390,7 @@ def test_dispatch_commandmate_sends_only_worker_task() -> None:
     ]
     assert calls[0][-5:] == ["--agent", "codex", "--auto-yes", "--duration", "3h"]
     assert "$codex-issue-worker" in calls[0][3]
-    assert '- Status: `passed`' in calls[0][3]
+    assert "- Status: `passed`" in calls[0][3]
     assert calls[0][3] != "hello"
     assert results[0].commands == (" ".join(calls[0]),)
 
@@ -566,7 +631,198 @@ def test_wait_for_commandmate_workers_classifies_unreachable() -> None:
     assert results[0].message.startswith("commandmate-unreachable:")
 
 
-def test_verify_worker_reports_requires_passing_status_and_checks(tmp_path: Path) -> None:
+def test_scheduler_dispatches_dependency_batches_only_after_verification(
+    tmp_path: Path,
+) -> None:
+    module = load_script()
+    issues = [
+        module.Issue(2, "Define contract", "schema contract"),
+        module.Issue(3, "Add sanitizer", "sanitizer redact secret"),
+        module.Issue(4, "Add storage", "SQLite storage"),
+    ]
+    analyses = [
+        module.analyze_issue(issue, "CommandAgent", skip_enhance=True)
+        for issue in issues
+    ]
+    batches, _ = module.classify_batches(analyses, "", max_parallel=2)
+    worktrees = []
+    for analysis in analyses:
+        root = tmp_path / f"issue-{analysis.issue.number}"
+        report = (
+            root / "dev-reports" / f"issue-{analysis.issue.number}" / "verification.md"
+        )
+        report.parent.mkdir(parents=True)
+        report.write_text(
+            "# Verification\n\n- Status: `passed`\n\n- `cargo test`: `passed`\n",
+            encoding="utf-8",
+        )
+        worktrees.append(
+            module.WorktreeResult(
+                analysis.issue.number,
+                analysis.branch_name,
+                root,
+                "created",
+                "created",
+            )
+        )
+    calls: list[list[str]] = []
+
+    def fake_runner(args, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(args)
+        if args[:2] in (["commandmatedev", "send"], ["commandmatedev", "wait"]):
+            return module.subprocess.CompletedProcess(args, 0, "completed\n", "")
+        if args[:3] == ["git", "status", "--porcelain"]:
+            return module.subprocess.CompletedProcess(args, 0, "", "")
+        if args[:3] == ["git", "ls-files", "--error-unmatch"]:
+            return module.subprocess.CompletedProcess(args, 0, "verification.md\n", "")
+        return module.subprocess.CompletedProcess(args, 1, "", "unexpected")
+
+    dispatch, waits, schedule = module.schedule_commandmate_batches(
+        analyses,
+        worktrees,
+        batches,
+        max_parallel=2,
+        dry_run=False,
+        dispatch_enabled=True,
+        duration="3h",
+        codex_agent_name="codex",
+        poll=False,
+        timeout_seconds=600,
+        stall_timeout_seconds=0,
+        runner=fake_runner,
+    )
+
+    assert batches == [[2, 3], [4]]
+    assert [result.status for result in schedule] == ["completed", "completed"]
+    assert len(dispatch) == 3
+    assert len(waits) == 3
+    send_4 = next(
+        index
+        for index, call in enumerate(calls)
+        if call[:2] == ["commandmatedev", "send"] and "issue-4" in call[2]
+    )
+    waits_for_first_batch = [
+        index
+        for index, call in enumerate(calls)
+        if call[:2] == ["commandmatedev", "wait"]
+        and ("issue-2" in call[2] or "issue-3" in call[2])
+    ]
+    assert waits_for_first_batch
+    assert max(waits_for_first_batch) < send_4
+    send_4_prompt = next(
+        call[3]
+        for call in calls
+        if call[:2] == ["commandmatedev", "send"] and "issue-4" in call[2]
+    )
+    assert "Issue #2" in send_4_prompt
+    assert "Issue #3" in send_4_prompt
+    assert "passed verification" in send_4_prompt
+
+
+def test_scheduler_stops_later_batches_after_wait_failure(tmp_path: Path) -> None:
+    module = load_script()
+    analyses = [
+        module.analyze_issue(
+            module.Issue(number, f"Issue {number}", "independent"),
+            "CommandAgent",
+            skip_enhance=True,
+        )
+        for number in (1, 2)
+    ]
+    worktrees = [
+        module.WorktreeResult(
+            analysis.issue.number,
+            analysis.branch_name,
+            tmp_path / f"issue-{analysis.issue.number}",
+            "created",
+            "created",
+        )
+        for analysis in analyses
+    ]
+    calls: list[list[str]] = []
+
+    def fake_runner(args, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(args)
+        if args[:2] == ["commandmatedev", "send"]:
+            return module.subprocess.CompletedProcess(args, 0, "", "")
+        if args[:2] == ["commandmatedev", "wait"]:
+            return module.subprocess.CompletedProcess(args, 1, "", "worker failed")
+        return module.subprocess.CompletedProcess(args, 1, "", "unexpected")
+
+    dispatch, waits, schedule = module.schedule_commandmate_batches(
+        analyses,
+        worktrees,
+        [[1], [2]],
+        max_parallel=1,
+        dry_run=False,
+        dispatch_enabled=True,
+        duration="3h",
+        codex_agent_name="codex",
+        poll=False,
+        timeout_seconds=600,
+        stall_timeout_seconds=0,
+        runner=fake_runner,
+    )
+
+    sends = [call for call in calls if call[:2] == ["commandmatedev", "send"]]
+    assert len(sends) == 1
+    assert "issue-1" in sends[0][2]
+    assert len(waits) == 1
+    assert [result.status for result in schedule] == ["blocked", "blocked"]
+    issue_2 = next(result for result in dispatch if result.issue_number == 2)
+    assert issue_2.status == "blocked"
+    assert "not dispatched because scheduler batch 1 failed" in issue_2.message
+
+
+def test_scheduler_serializes_file_overlap_and_reports_predecessor(
+    tmp_path: Path,
+) -> None:
+    module = load_script()
+    analyses = [
+        module.analyze_issue(
+            module.Issue(number, f"Issue {number}", "Update `src/shared.rs`"),
+            "CommandAgent",
+            skip_enhance=True,
+        )
+        for number in (1, 2)
+    ]
+    batches, _ = module.classify_batches(analyses, "", max_parallel=2)
+    worktrees = [
+        module.WorktreeResult(
+            analysis.issue.number,
+            analysis.branch_name,
+            tmp_path / f"issue-{analysis.issue.number}",
+            "planned",
+            "planned",
+        )
+        for analysis in analyses
+    ]
+
+    dispatch, waits, schedule = module.schedule_commandmate_batches(
+        analyses,
+        worktrees,
+        batches,
+        max_parallel=2,
+        dry_run=True,
+        dispatch_enabled=True,
+        duration="3h",
+        codex_agent_name="codex",
+        poll=False,
+        timeout_seconds=600,
+        stall_timeout_seconds=0,
+    )
+
+    assert batches == [[1], [2]]
+    assert waits == []
+    assert [result.status for result in schedule] == ["planned", "planned"]
+    issue_2 = next(result for result in dispatch if result.issue_number == 2)
+    assert "Issue #1" in issue_2.commands[0]
+    assert "file-conflict predecessor" in issue_2.commands[0]
+
+
+def test_verify_worker_reports_requires_passing_status_and_checks(
+    tmp_path: Path,
+) -> None:
     module = load_script()
     issue = module.Issue(
         number=11,
@@ -581,7 +837,9 @@ def test_verify_worker_reports_requires_passing_status_and_checks(tmp_path: Path
         "## Checks\n\n- `cargo test`: `passed`\n",
         encoding="utf-8",
     )
-    worktree = module.WorktreeResult(11, analysis.branch_name, tmp_path, "created", "created")
+    worktree = module.WorktreeResult(
+        11, analysis.branch_name, tmp_path, "created", "created"
+    )
 
     def clean_git_runner(args, **kwargs):  # type: ignore[no-untyped-def]
         return module.subprocess.CompletedProcess(args, 0, "", "")
@@ -601,7 +859,9 @@ def test_verify_worker_reports_blocks_missing_check_evidence(tmp_path: Path) -> 
     report = tmp_path / "dev-reports" / "issue-11" / "verification.md"
     report.parent.mkdir(parents=True)
     report.write_text("# Verification\n\n- Status: `passed`\n", encoding="utf-8")
-    worktree = module.WorktreeResult(11, analysis.branch_name, tmp_path, "created", "created")
+    worktree = module.WorktreeResult(
+        11, analysis.branch_name, tmp_path, "created", "created"
+    )
 
     def clean_git_runner(args, **kwargs):  # type: ignore[no-untyped-def]
         return module.subprocess.CompletedProcess(args, 0, "", "")
@@ -625,7 +885,9 @@ def test_verify_worker_reports_blocks_dirty_worktree(tmp_path: Path) -> None:
         "## Checks\n\n- `cargo test`: `passed`\n",
         encoding="utf-8",
     )
-    worktree = module.WorktreeResult(11, analysis.branch_name, tmp_path, "created", "created")
+    worktree = module.WorktreeResult(
+        11, analysis.branch_name, tmp_path, "created", "created"
+    )
 
     def dirty_git_runner(args, **kwargs):  # type: ignore[no-untyped-def]
         return module.subprocess.CompletedProcess(args, 0, " M src/lib.rs\n", "")
@@ -684,7 +946,9 @@ def test_evaluate_uat_gate_requires_complete_passing_evidence() -> None:
 
 def test_evaluate_uat_gate_blocks_failed_or_evidence_free_results() -> None:
     module = load_script()
-    issue = module.Issue(4, "GUI check", "## Acceptance Criteria\n- Button is visible\n")
+    issue = module.Issue(
+        4, "GUI check", "## Acceptance Criteria\n- Button is visible\n"
+    )
     analysis = module.analyze_issue(issue, "CommandAgent", skip_enhance=True)
 
     failed = module.evaluate_uat_gate(
@@ -727,7 +991,9 @@ def test_load_uat_results_reads_evidence_contract(tmp_path: Path) -> None:
 
     results = module.load_uat_results(fixture)
 
-    assert results == [module.UatResult(4, 1, "passed", "Button visible", "screenshot.png")]
+    assert results == [
+        module.UatResult(4, 1, "passed", "Button visible", "screenshot.png")
+    ]
 
 
 def test_render_uat_fix_prompts_maps_failure_to_issue() -> None:
@@ -755,7 +1021,9 @@ def test_render_uat_fix_prompts_maps_failure_to_issue() -> None:
 
 def test_create_uat_fix_worktrees_dry_run() -> None:
     module = load_script()
-    failure = module.UatFailure(5, "Open settings", "Settings opens", "Blank", "shot.png")
+    failure = module.UatFailure(
+        5, "Open settings", "Settings opens", "Blank", "shot.png"
+    )
 
     results = module.create_uat_fix_worktrees([failure], dry_run=True)
 
@@ -774,9 +1042,9 @@ def test_photon_event_payload_redacts_paths_without_failing() -> None:
     )
 
     assert result.status == "skipped"
-    assert module.sanitize_event_payload({"path": "/Users/example/project/secret.txt"}) == {
-        "path": "[REDACTED_PATH]"
-    }
+    assert module.sanitize_event_payload(
+        {"path": "/Users/example/project/secret.txt"}
+    ) == {"path": "[REDACTED_PATH]"}
 
 
 def test_render_pr_body_contains_required_sections() -> None:
@@ -838,19 +1106,52 @@ def test_create_pull_requests_pushes_branch_before_develop_pr() -> None:
     create_call_index = next(
         index for index, call in enumerate(calls) if call[:3] == ["gh", "pr", "create"]
     )
-    assert calls.index(["git", "push", "-u", "origin", analysis.branch_name]) < create_call_index
+    assert (
+        calls.index(["git", "push", "-u", "origin", analysis.branch_name])
+        < create_call_index
+    )
     assert "--draft" in calls[create_call_index]
 
 
 def test_pr_numbers_for_merge_uses_created_and_existing_prs() -> None:
     module = load_script()
     results = [
-        module.PullRequestResult(11, "feature/issue-11", "created", None, "https://x/pull/42", ""),
-        module.PullRequestResult(12, "feature/issue-12", "existing", 43, "https://x/pull/43", ""),
-        module.PullRequestResult(13, "feature/issue-13", "blocked", 44, "https://x/pull/44", ""),
+        module.PullRequestResult(
+            11, "feature/issue-11", "created", None, "https://x/pull/42", ""
+        ),
+        module.PullRequestResult(
+            12, "feature/issue-12", "existing", 43, "https://x/pull/43", ""
+        ),
+        module.PullRequestResult(
+            13, "feature/issue-13", "blocked", 44, "https://x/pull/44", ""
+        ),
     ]
 
     assert module.pr_numbers_for_merge(results) == [42, 43]
+
+
+def test_order_pr_numbers_for_merge_enforces_issue_dependency_order() -> None:
+    module = load_script()
+    results = [
+        module.PullRequestResult(2, "feature/issue-2", "existing", 42, None, ""),
+        module.PullRequestResult(3, "feature/issue-3", "existing", 43, None, ""),
+        module.PullRequestResult(4, "feature/issue-4", "existing", 44, None, ""),
+    ]
+
+    ordered = module.order_pr_numbers_for_merge(results, [2, 3, 4], [44, 42, 43])
+
+    assert ordered == [42, 43, 44]
+
+
+def test_order_pr_numbers_for_merge_rejects_incomplete_pr_set() -> None:
+    module = load_script()
+    results = [
+        module.PullRequestResult(2, "feature/issue-2", "existing", 42, None, ""),
+        module.PullRequestResult(3, "feature/issue-3", "existing", 43, None, ""),
+    ]
+
+    with pytest.raises(ValueError, match="must match every requested issue"):
+        module.order_pr_numbers_for_merge(results, [2, 3], [42])
 
 
 def test_merge_pull_requests_waits_for_ci_before_merge() -> None:
@@ -863,7 +1164,9 @@ def test_merge_pull_requests_waits_for_ci_before_merge() -> None:
             return module.subprocess.CompletedProcess(
                 args,
                 0,
-                json.dumps({"isDraft": False, "mergeStateStatus": "CLEAN", "number": 42}),
+                json.dumps(
+                    {"isDraft": False, "mergeStateStatus": "CLEAN", "number": 42}
+                ),
                 "",
             )
         if args[:3] == ["gh", "pr", "checks"]:
@@ -885,7 +1188,9 @@ def test_merge_pull_requests_waits_for_ci_before_merge() -> None:
 
     assert [result.status for result in results] == ["merged", "merged"]
     assert ["gh", "pr", "checks", "42", "--watch", "--interval", "10"] in calls
-    check_indices = [index for index, call in enumerate(calls) if call[:3] == ["gh", "pr", "checks"]]
+    check_indices = [
+        index for index, call in enumerate(calls) if call[:3] == ["gh", "pr", "checks"]
+    ]
     merge_indices = [
         index for index, call in enumerate(calls) if call[:3] == ["gh", "pr", "merge"]
     ]
@@ -933,10 +1238,18 @@ def test_merge_pull_requests_marks_draft_ready_only_after_ci_and_uat() -> None:
     )
 
     ready_index = calls.index(["gh", "pr", "ready", "42"])
-    check_indices = [index for index, call in enumerate(calls) if call[:3] == ["gh", "pr", "checks"]]
+    check_indices = [
+        index for index, call in enumerate(calls) if call[:3] == ["gh", "pr", "checks"]
+    ]
     merge_index = calls.index(["gh", "pr", "merge", "42", "--squash"])
     assert results[0].status == "merged"
-    assert check_indices[0] < ready_index < check_indices[1] < check_indices[2] < merge_index
+    assert (
+        check_indices[0]
+        < ready_index
+        < check_indices[1]
+        < check_indices[2]
+        < merge_index
+    )
 
 
 def test_merge_pull_requests_blocks_after_ci_when_uat_did_not_pass() -> None:
@@ -949,7 +1262,9 @@ def test_merge_pull_requests_blocks_after_ci_when_uat_did_not_pass() -> None:
             return module.subprocess.CompletedProcess(
                 args,
                 0,
-                json.dumps({"isDraft": True, "mergeStateStatus": "CLEAN", "number": 42}),
+                json.dumps(
+                    {"isDraft": True, "mergeStateStatus": "CLEAN", "number": 42}
+                ),
                 "",
             )
         if args[:3] == ["gh", "pr", "checks"]:
