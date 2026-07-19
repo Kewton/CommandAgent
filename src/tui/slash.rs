@@ -575,7 +575,14 @@ fn render_help() -> String {
         "Footer: use --footer off to disable the fixed footer; breadcrumbs remain in scrollback."
             .to_string(),
     );
-    lines.push("Interrupt: Esc/Ctrl-C once = prompt abort; twice = force finalize.".to_string());
+    lines.push(
+        "Running input: type and Backspace edit pending input; Enter queues up to 10 lines (4096 bytes each)."
+            .to_string(),
+    );
+    lines.push(
+        "Interrupt: Ctrl-C always interrupts; Esc clears non-empty pending input, otherwise interrupts; a repeated interrupt force-finalizes."
+            .to_string(),
+    );
     lines.join("\n")
 }
 
@@ -1092,7 +1099,8 @@ mod tests {
             "/setup-interaction-probe - install the interaction readiness probe",
             "/exit or /quit - leave the TUI",
             "Footer: use --footer off to disable the fixed footer; breadcrumbs remain in scrollback.",
-            "Interrupt: Esc/Ctrl-C once = prompt abort; twice = force finalize.",
+            "Running input: type and Backspace edit pending input; Enter queues up to 10 lines (4096 bytes each).",
+            "Interrupt: Ctrl-C always interrupts; Esc clears non-empty pending input, otherwise interrupts; a repeated interrupt force-finalizes.",
         ] {
             assert!(help.contains(expected), "{help}");
         }

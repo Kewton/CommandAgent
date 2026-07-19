@@ -5,12 +5,14 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use crate::config::Config;
+use crate::tui::input_queue::{InputQueue, InputSnapshot};
 use crate::tui::status::UiStatus;
 use crate::tui::status_bus::{
     self, GlobalStatusBusGuard, RuntimeStatus, StatusPublisher, StatusSubscriber, StatusTime,
 };
 
 const TICK: Duration = Duration::from_millis(250);
+const INPUT_TICK: Duration = Duration::from_millis(50);
 const NARROW_FOOTER_COLS: u16 = 100;
 
 pub mod ansi {
@@ -106,10 +108,14 @@ struct FooterGeometry {
 
 impl FooterGeometry {
     fn new(cols: u16, rows: u16) -> Self {
+        Self::with_input_row(cols, rows, false)
+    }
+
+    fn with_input_row(cols: u16, rows: u16, input_enabled: bool) -> Self {
         Self {
             cols,
             rows,
-            footer_rows: footer_rows_for_cols(cols),
+            footer_rows: footer_rows_for_cols(cols) + u16::from(input_enabled),
         }
     }
 
@@ -124,6 +130,14 @@ impl FooterGeometry {
 
 impl Footer {
     pub fn start(config: &Config) -> Self {
+        Self::start_inner(config, None)
+    }
+
+    pub fn start_with_input_queue(config: &Config, input_queue: InputQueue) -> Self {
+        Self::start_inner(config, Some(input_queue))
+    }
+
+    fn start_inner(config: &Config, input_queue: Option<InputQueue>) -> Self {
         let env = FooterEnv::detect(config);
         if !env.enabled {
             return Self { inner: None };
@@ -154,7 +168,7 @@ impl Footer {
         let thread_state = state.clone();
         let handle = thread::Builder::new()
             .name("commandagent-footer".to_string())
-            .spawn(move || render_loop(thread_state, subscriber, geometry, env))
+            .spawn(move || render_loop(thread_state, subscriber, geometry, env, input_queue))
             .ok();
         match handle {
             Some(handle) => Self {
@@ -171,6 +185,10 @@ impl Footer {
                 Self { inner: None }
             }
         }
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.inner.is_some()
     }
 
     pub fn publish(&self, status: UiStatus) {
@@ -384,6 +402,42 @@ pub fn build_live_footer_lines(
         .collect()
 }
 
+pub fn build_input_queue_line(
+    snapshot: &InputSnapshot,
+    cols: u16,
+    use_color: bool,
+) -> Option<String> {
+    if !snapshot.enabled {
+        return None;
+    }
+    let queue_count = format!("{} queued", snapshot.queued_count);
+    let raw = if !snapshot.pending.is_empty() {
+        let pending = format!("pending> {}", snapshot.pending);
+        if snapshot
+            .notice
+            .as_deref()
+            .is_some_and(|notice| notice.starts_with("input rejected:"))
+        {
+            format!(
+                "{} · {pending} · {queue_count} · Esc clears · Ctrl-C interrupts",
+                snapshot.notice.as_deref().unwrap_or_default()
+            )
+        } else {
+            format!("{pending} · {queue_count} · Esc clears · Ctrl-C interrupts")
+        }
+    } else if let Some(notice) = &snapshot.notice {
+        format!("{notice} · {queue_count} · Esc interrupts · Ctrl-C interrupts")
+    } else {
+        format!("type ahead · {queue_count} · Esc interrupts · Ctrl-C interrupts")
+    };
+    let line = fit_to_width(&raw, cols);
+    Some(if use_color {
+        format!("\x1b[36m{line}\x1b[0m")
+    } else {
+        line
+    })
+}
+
 fn format_token_count(value: u64) -> String {
     if value < 1_000 {
         value.to_string()
@@ -399,6 +453,7 @@ fn render_loop(
     subscriber: StatusSubscriber,
     mut geometry: FooterGeometry,
     env: FooterEnv,
+    input_queue: Option<InputQueue>,
 ) -> FooterGeometry {
     let mut generation = 0;
     let mut last_rendered: Option<Vec<String>> = None;
@@ -406,8 +461,13 @@ fn render_loop(
         if state.stop.load(Ordering::SeqCst) {
             break;
         }
+        let input_snapshot = input_queue.as_ref().map(InputQueue::snapshot);
+        let input_enabled = input_snapshot
+            .as_ref()
+            .is_some_and(|snapshot| snapshot.enabled);
         let previous_geometry = geometry;
-        geometry = geometry_after_size(geometry, crossterm::terminal::size());
+        geometry =
+            geometry_after_size_with_input(geometry, crossterm::terminal::size(), input_enabled);
         let resized = geometry != previous_geometry;
         if resized || !state.freeze.load(Ordering::SeqCst) {
             let status = match state.status.lock() {
@@ -416,13 +476,19 @@ fn render_loop(
             };
             let runtime = subscriber.snapshot();
             generation = runtime.generation;
-            let lines = build_live_footer_lines(
+            let mut lines = build_live_footer_lines(
                 &status,
                 &runtime,
                 status_bus::now(),
                 geometry.cols,
                 env.use_color,
             );
+            if let Some(input_line) = input_snapshot
+                .as_ref()
+                .and_then(|snapshot| build_input_queue_line(snapshot, geometry.cols, env.use_color))
+            {
+                lines.insert(0, input_line);
+            }
             let frame = if resized {
                 let frame = resize_footer_region_sequence(previous_geometry, geometry, &lines);
                 last_rendered = geometry.is_renderable().then(|| lines.clone());
@@ -443,7 +509,8 @@ fn render_loop(
                 let _ = stdout.flush();
             }
         }
-        let _ = subscriber.wait_for_change(generation, TICK);
+        let tick = if input_enabled { INPUT_TICK } else { TICK };
+        let _ = subscriber.wait_for_change(generation, tick);
         if let Ok(guard) = state.wake.0.lock() {
             let _ = state.wake.1.wait_timeout(guard, Duration::from_millis(1));
         }
@@ -453,6 +520,15 @@ fn render_loop(
 
 fn geometry_after_size(current: FooterGeometry, size: io::Result<(u16, u16)>) -> FooterGeometry {
     size.map_or(current, |(cols, rows)| FooterGeometry::new(cols, rows))
+}
+
+fn geometry_after_size_with_input(
+    current: FooterGeometry,
+    size: io::Result<(u16, u16)>,
+    input_enabled: bool,
+) -> FooterGeometry {
+    let (cols, rows) = size.unwrap_or((current.cols, current.rows));
+    FooterGeometry::with_input_row(cols, rows, input_enabled)
 }
 
 fn footer_lines_changed(last_rendered: &mut Option<Vec<String>>, lines: &[String]) -> bool {
@@ -839,6 +915,70 @@ mod tests {
             clear_footer_region_sequence(tiny.rows, tiny.footer_rows),
             "\x1b[r"
         );
+    }
+
+    #[test]
+    fn queued_input_adds_one_resize_safe_footer_row() {
+        let base = FooterGeometry::new(120, 24);
+        let with_input = FooterGeometry::with_input_row(120, 24, true);
+        let narrow_with_input = FooterGeometry::with_input_row(80, 24, true);
+
+        assert_eq!(base.footer_rows, 1);
+        assert_eq!(with_input.footer_rows, 2);
+        assert_eq!(narrow_with_input.footer_rows, 3);
+        let sequence = resize_footer_region_sequence(
+            base,
+            with_input,
+            &["type ahead".to_string(), "status".to_string()],
+        );
+        assert!(sequence.contains("\x1b[1;22r"), "{sequence:?}");
+        assert!(sequence.contains("\x1b[23;1H"), "{sequence:?}");
+        assert!(sequence.contains("\x1b[24;1H"), "{sequence:?}");
+    }
+
+    #[test]
+    fn pending_input_footer_echo_explains_esc_and_ctrl_c() {
+        let snapshot = InputSnapshot {
+            enabled: true,
+            pending: "run the 日本語 check".to_string(),
+            queued_count: 2,
+            notice: None,
+        };
+
+        let line = build_input_queue_line(&snapshot, 160, false).unwrap();
+
+        assert!(line.contains("pending> run the 日本語 check"), "{line}");
+        assert!(line.contains("2 queued"), "{line}");
+        assert!(line.contains("Esc clears"), "{line}");
+        assert!(line.contains("Ctrl-C interrupts"), "{line}");
+    }
+
+    #[test]
+    fn empty_pending_footer_shows_confirmation_and_interrupt_semantics() {
+        let snapshot = InputSnapshot {
+            enabled: true,
+            pending: String::new(),
+            queued_count: 1,
+            notice: Some("queued: follow up".to_string()),
+        };
+
+        let line = build_input_queue_line(&snapshot, 160, false).unwrap();
+
+        assert!(line.starts_with("queued: follow up"), "{line}");
+        assert!(line.contains("Esc interrupts"), "{line}");
+        assert!(line.contains("Ctrl-C interrupts"), "{line}");
+    }
+
+    #[test]
+    fn disabled_input_queue_does_not_claim_a_footer_line() {
+        let snapshot = InputSnapshot {
+            enabled: false,
+            pending: String::new(),
+            queued_count: 0,
+            notice: None,
+        };
+
+        assert_eq!(build_input_queue_line(&snapshot, 120, false), None);
     }
 
     #[test]

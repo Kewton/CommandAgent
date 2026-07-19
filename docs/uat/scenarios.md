@@ -144,6 +144,15 @@ and one real local run for zero blinking, readable long-turn breadcrumbs, and a
 stable footer. If a terminal shows cursor-region artifacts, rerun with
 `--footer off`; the fixed footer is disabled and scrollback breadcrumbs remain.
 
+For queued-input changes, use one real local run and type at least two follow-up
+lines while a command is active. Confirm that printable input is echoed above
+the status footer, Backspace edits it, Enter shows `queued:`, and the lines run
+in FIFO order with a `processing queued:` notice and normal history entries.
+Also confirm that Esc clears non-empty pending input without stopping the run,
+Esc with an empty buffer interrupts, and Ctrl+C interrupts regardless of the
+buffer. Repeat with `--footer off` and `ANVIL_NO_INTERRUPT=1`; type-ahead input
+must be ignored in both disabled modes without corrupting terminal output.
+
 ## Scenarios
 
 ### GAME

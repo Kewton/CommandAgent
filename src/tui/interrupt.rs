@@ -3,9 +3,11 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use crossterm::event::{self, Event, KeyCode, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use std::io::Write;
+
+use crate::tui::input_queue::InputQueue;
 
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 const INTERRUPT_NOTICE: &str = "interrupt requested; aborting current operation";
@@ -44,6 +46,7 @@ struct Active {
     flag: Arc<AtomicBool>,
     force_flag: Arc<AtomicBool>,
     state: Arc<(Mutex<MonitorState>, Condvar)>,
+    input_queue: Option<InputQueue>,
     handle: Option<JoinHandle<()>>,
     raw_mode_active: bool,
 }
@@ -56,10 +59,18 @@ pub struct InterruptMonitor {
 
 impl InterruptMonitor {
     pub fn start() -> Self {
-        Self::start_with_env(InterruptEnv::detect())
+        Self::start_with_env_and_input_queue(InterruptEnv::detect(), None)
+    }
+
+    pub fn start_with_input_queue(input_queue: InputQueue) -> Self {
+        Self::start_with_env_and_input_queue(InterruptEnv::detect(), Some(input_queue))
     }
 
     pub fn start_with_env(env: InterruptEnv) -> Self {
+        Self::start_with_env_and_input_queue(env, None)
+    }
+
+    fn start_with_env_and_input_queue(env: InterruptEnv, input_queue: Option<InputQueue>) -> Self {
         let dummy_flag = Arc::new(AtomicBool::new(false));
         let dummy_force_flag = Arc::new(AtomicBool::new(false));
         if !env.enabled || enable_raw_mode().is_err() {
@@ -82,9 +93,17 @@ impl InterruptMonitor {
         let thread_flag = flag.clone();
         let thread_force_flag = force_flag.clone();
         let thread_state = state.clone();
+        let thread_input_queue = input_queue.clone();
         let handle = thread::Builder::new()
             .name("commandagent-interrupt".to_string())
-            .spawn(move || monitor_loop(thread_flag, thread_force_flag, thread_state))
+            .spawn(move || {
+                monitor_loop(
+                    thread_flag,
+                    thread_force_flag,
+                    thread_state,
+                    thread_input_queue,
+                )
+            })
             .ok();
         match handle {
             Some(handle) => Self {
@@ -92,6 +111,7 @@ impl InterruptMonitor {
                     flag,
                     force_flag,
                     state,
+                    input_queue,
                     handle: Some(handle),
                     raw_mode_active: true,
                 }),
@@ -115,6 +135,10 @@ impl InterruptMonitor {
             dummy_flag: Arc::new(AtomicBool::new(value)),
             dummy_force_flag: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    pub fn is_active(&self) -> bool {
+        self.inner.is_some()
     }
 
     pub fn interrupted(&self) -> bool {
@@ -167,7 +191,13 @@ impl InterruptMonitor {
         let Some(active) = self.inner.as_mut() else {
             return;
         };
-        if active.raw_mode_active || enable_raw_mode().is_err() {
+        if active.raw_mode_active {
+            return;
+        }
+        if enable_raw_mode().is_err() {
+            if let Some(input_queue) = &active.input_queue {
+                input_queue.set_enabled(false);
+            }
             return;
         }
         let (lock, cvar) = &*active.state;
@@ -185,6 +215,9 @@ impl Drop for InterruptMonitor {
         let Some(mut active) = self.inner.take() else {
             return;
         };
+        if let Some(input_queue) = &active.input_queue {
+            input_queue.set_enabled(false);
+        }
         {
             let (lock, cvar) = &*active.state;
             if let Ok(mut state) = lock.lock() {
@@ -227,6 +260,7 @@ fn monitor_loop(
     flag: Arc<AtomicBool>,
     force_flag: Arc<AtomicBool>,
     state: Arc<(Mutex<MonitorState>, Condvar)>,
+    input_queue: Option<InputQueue>,
 ) {
     let (lock, cvar) = &*state;
     loop {
@@ -247,15 +281,21 @@ fn monitor_loop(
         }
         match event::poll(POLL_INTERVAL) {
             Ok(true) => match event::read() {
-                Ok(Event::Key(key)) if is_interrupt_key(key.code, key.modifiers) => {
-                    match register_interrupt_press(&flag, &force_flag) {
-                        InterruptPress::First => {
-                            emit_interrupt_feedback(INTERRUPT_NOTICE);
-                            crate::tui::status_bus::publish_interrupt_requested();
-                        }
-                        InterruptPress::Force => {
-                            emit_interrupt_feedback(FORCE_INTERRUPT_NOTICE);
-                            crate::tui::status_bus::publish_force_finalize_requested();
+                Ok(Event::Key(key))
+                    if matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat) =>
+                {
+                    if route_key_event(key.code, key.modifiers, input_queue.as_ref())
+                        == KeyRoute::Interrupt
+                    {
+                        match register_interrupt_press(&flag, &force_flag) {
+                            InterruptPress::First => {
+                                emit_interrupt_feedback(INTERRUPT_NOTICE);
+                                crate::tui::status_bus::publish_interrupt_requested();
+                            }
+                            InterruptPress::Force => {
+                                emit_interrupt_feedback(FORCE_INTERRUPT_NOTICE);
+                                crate::tui::status_bus::publish_force_finalize_requested();
+                            }
                         }
                     }
                 }
@@ -266,6 +306,14 @@ fn monitor_loop(
             Err(_) => break,
         }
     }
+    if let Ok(mut shared) = lock.lock() {
+        shared.stop_requested = true;
+        shared.paused = false;
+        cvar.notify_all();
+    }
+    if let Some(input_queue) = input_queue {
+        input_queue.set_enabled(false);
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -274,9 +322,50 @@ enum InterruptPress {
     Force,
 }
 
-fn is_interrupt_key(code: KeyCode, modifiers: KeyModifiers) -> bool {
-    code == KeyCode::Esc
-        || (code == KeyCode::Char('c') && modifiers.contains(KeyModifiers::CONTROL))
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KeyRoute {
+    Ignored,
+    Input,
+    Interrupt,
+}
+
+fn route_key_event(
+    code: KeyCode,
+    modifiers: KeyModifiers,
+    input_queue: Option<&InputQueue>,
+) -> KeyRoute {
+    if code == KeyCode::Char('c') && modifiers.contains(KeyModifiers::CONTROL) {
+        return KeyRoute::Interrupt;
+    }
+    let Some(input_queue) = input_queue.filter(|queue| queue.is_enabled()) else {
+        return if code == KeyCode::Esc {
+            KeyRoute::Interrupt
+        } else {
+            KeyRoute::Ignored
+        };
+    };
+    match code {
+        KeyCode::Esc => {
+            if input_queue.clear_pending() {
+                KeyRoute::Input
+            } else {
+                KeyRoute::Interrupt
+            }
+        }
+        KeyCode::Backspace => {
+            let _ = input_queue.backspace();
+            KeyRoute::Input
+        }
+        KeyCode::Enter => {
+            let _ = input_queue.submit();
+            KeyRoute::Input
+        }
+        KeyCode::Char(ch) if !modifiers.contains(KeyModifiers::CONTROL) => {
+            let _ = input_queue.push_char(ch);
+            KeyRoute::Input
+        }
+        _ => KeyRoute::Ignored,
+    }
 }
 
 fn register_interrupt_press(flag: &AtomicBool, force_flag: &AtomicBool) -> InterruptPress {
@@ -343,9 +432,65 @@ mod tests {
     }
 
     #[test]
-    fn ctrl_c_key_is_interrupt_key() {
-        assert!(is_interrupt_key(KeyCode::Char('c'), KeyModifiers::CONTROL));
-        assert!(is_interrupt_key(KeyCode::Esc, KeyModifiers::empty()));
-        assert!(!is_interrupt_key(KeyCode::Char('c'), KeyModifiers::empty()));
+    fn ctrl_c_always_interrupts_and_esc_depends_on_pending_input() {
+        let queue = InputQueue::new();
+        queue.set_enabled(true);
+
+        assert_eq!(
+            route_key_event(KeyCode::Char('c'), KeyModifiers::CONTROL, Some(&queue)),
+            KeyRoute::Interrupt
+        );
+        assert_eq!(
+            route_key_event(KeyCode::Esc, KeyModifiers::empty(), Some(&queue)),
+            KeyRoute::Interrupt
+        );
+        assert_eq!(
+            route_key_event(KeyCode::Char('x'), KeyModifiers::empty(), Some(&queue)),
+            KeyRoute::Input
+        );
+        assert_eq!(queue.snapshot().pending, "x");
+        assert_eq!(
+            route_key_event(KeyCode::Esc, KeyModifiers::empty(), Some(&queue)),
+            KeyRoute::Input
+        );
+        assert!(queue.snapshot().pending.is_empty());
+    }
+
+    #[test]
+    fn input_keys_are_ignored_without_an_enabled_queue() {
+        let queue = InputQueue::new();
+        assert_eq!(
+            route_key_event(KeyCode::Char('x'), KeyModifiers::empty(), Some(&queue)),
+            KeyRoute::Ignored
+        );
+        assert_eq!(
+            route_key_event(KeyCode::Esc, KeyModifiers::empty(), Some(&queue)),
+            KeyRoute::Interrupt
+        );
+        assert_eq!(
+            route_key_event(KeyCode::Esc, KeyModifiers::empty(), None),
+            KeyRoute::Interrupt
+        );
+    }
+
+    #[test]
+    fn enter_queues_multiple_lines_and_backspace_edits() {
+        let queue = InputQueue::new();
+        queue.set_enabled(true);
+        for code in [
+            KeyCode::Char('a'),
+            KeyCode::Char('b'),
+            KeyCode::Backspace,
+            KeyCode::Enter,
+            KeyCode::Char('c'),
+            KeyCode::Enter,
+        ] {
+            assert_eq!(
+                route_key_event(code, KeyModifiers::empty(), Some(&queue)),
+                KeyRoute::Input
+            );
+        }
+        assert_eq!(queue.take_queued().as_deref(), Some("a"));
+        assert_eq!(queue.take_queued().as_deref(), Some("c"));
     }
 }

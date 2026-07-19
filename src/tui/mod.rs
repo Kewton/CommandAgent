@@ -1,6 +1,7 @@
 pub mod banner;
 pub mod editor;
 pub mod footer;
+pub mod input_queue;
 pub mod interrupt;
 pub mod markdown;
 pub mod presentation;
@@ -17,6 +18,7 @@ use std::sync::{Arc, Mutex};
 use crate::config::Config;
 
 use self::footer::{Footer, FreezeGuard};
+use self::input_queue::InputQueue;
 use self::interrupt::{InterruptMonitor, PauseGuard};
 use self::spinner::Spinner;
 use self::status::UiStatus;
@@ -78,15 +80,45 @@ impl InteractionUi for NoopUi {
 }
 
 pub struct TerminalUi {
-    footer: Footer,
     interrupt: Arc<Mutex<InterruptMonitor>>,
+    footer: Footer,
+    input_queue: InputQueue,
 }
 
 impl TerminalUi {
     pub fn new(config: &Config) -> Self {
-        let footer = Footer::start(config);
-        let interrupt = Arc::new(Mutex::new(InterruptMonitor::start()));
-        let ui = Self { footer, interrupt };
+        Self::new_inner(config, false)
+    }
+
+    pub fn new_with_input_queue(config: &Config) -> Self {
+        Self::new_inner(config, true)
+    }
+
+    fn new_inner(config: &Config, queue_input: bool) -> Self {
+        let input_queue = InputQueue::new();
+        let footer = if queue_input {
+            Footer::start_with_input_queue(config, input_queue.clone())
+        } else {
+            Footer::start(config)
+        };
+        let monitor = if queue_input {
+            InterruptMonitor::start_with_input_queue(input_queue.clone())
+        } else {
+            InterruptMonitor::start()
+        };
+        let interrupt = Arc::new(Mutex::new(monitor));
+        let input_enabled = queue_input
+            && footer.is_active()
+            && interrupt
+                .lock()
+                .map(|monitor| monitor.is_active())
+                .unwrap_or(false);
+        input_queue.set_enabled(input_enabled);
+        let ui = Self {
+            interrupt,
+            footer,
+            input_queue,
+        };
         ui.publish_status(UiStatus::from_config(config));
         ui
     }
@@ -102,6 +134,14 @@ impl TerminalUi {
         if let Ok(monitor) = self.interrupt.lock() {
             monitor.reset();
         }
+    }
+
+    pub fn take_queued_input(&self) -> Option<String> {
+        self.input_queue.take_queued()
+    }
+
+    pub fn take_pending_input(&self) -> Option<String> {
+        self.input_queue.take_pending()
     }
 }
 

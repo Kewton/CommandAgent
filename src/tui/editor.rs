@@ -64,6 +64,14 @@ impl ReplEditor {
         self.editor.readline(prompt)
     }
 
+    pub fn readline_with_initial(
+        &mut self,
+        prompt: &str,
+        initial: (&str, &str),
+    ) -> Result<String, ReadlineError> {
+        self.editor.readline_with_initial(prompt, initial)
+    }
+
     pub fn load_history(&mut self, path: &Path) -> Result<(), ReadlineError> {
         self.editor.load_history(path)
     }

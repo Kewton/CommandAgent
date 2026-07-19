@@ -14,7 +14,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     }
 
     crate::tui::banner::print_startup_banner(&config)?;
-    let ui = TerminalUi::new(&config);
+    let ui = TerminalUi::new_with_input_queue(&config);
     let renderer = TerminalMarkdownRenderer::for_stdout();
     let mut execution = crate::providers::client_from_config(&config, false)?;
     let mut planner = crate::providers::client_from_config(&config, true)?;
@@ -26,9 +26,16 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     let _ = editor.load_history(&history_path);
 
     loop {
-        let line = {
+        let line = if let Some(line) = ui.take_queued_input() {
+            eprintln!(
+                "processing queued: {}",
+                crate::tui::input_queue::preview(&line)
+            );
+            line
+        } else {
             let _prompt_guard = ui.pause_for_prompt();
-            match editor.readline("commandagent> ") {
+            let pending = ui.take_pending_input().unwrap_or_default();
+            match editor.readline_with_initial("commandagent> ", (&pending, "")) {
                 Ok(line) => line,
                 Err(ReadlineError::Interrupted) => match editor.take_interrupt_action() {
                     PromptInterruptAction::ClearLine => continue,
