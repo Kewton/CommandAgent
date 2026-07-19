@@ -1336,7 +1336,12 @@ mod tests {
     #[test]
     fn bash_keeps_outside_root_cd_rejected_with_relative_retry_guidance() {
         let registry = ToolRegistry::default();
-        let dir = tempfile::tempdir().unwrap();
+        let fixture_parent = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target");
+        std::fs::create_dir_all(&fixture_parent).unwrap();
+        let dir = tempfile::Builder::new()
+            .prefix("registry-outside-root-")
+            .tempdir_in(fixture_parent)
+            .unwrap();
         let root = dir.path().join("workspace");
         let outside = dir.path().join("outside");
         std::fs::create_dir_all(&root).unwrap();

@@ -1776,12 +1776,13 @@ Error:
     #[test]
     fn nextjs_build_with_foreign_next_on_path_is_dependency_missing_and_emits_event() {
         let dir = TempDir::new().unwrap();
+        let foreign_dir = TempDir::new().unwrap();
         std::fs::write(
             dir.path().join("package.json"),
             r#"{"scripts":{"build":"next build"},"dependencies":{"next":"^14.2.0","react":"^18.3.0","react-dom":"^18.3.0"}}"#,
         )
         .unwrap();
-        let foreign_bin = dir.path().join("foreign/node_modules/.bin");
+        let foreign_bin = foreign_dir.path().join("node_modules/.bin");
         std::fs::create_dir_all(&foreign_bin).unwrap();
         write_executable(&foreign_bin.join("next"), "#!/bin/sh\nexit 0\n");
         let events = dir.path().join("events.jsonl");
@@ -1804,6 +1805,7 @@ Error:
             .status()
             .unwrap();
         assert!(status.success(), "{status}");
+        drop(foreign_dir);
 
         let text = std::fs::read_to_string(events).unwrap();
         assert!(text.contains("\"event\":\"foreign_toolchain_detected\""));

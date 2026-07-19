@@ -1,4 +1,5 @@
 pub mod banner;
+pub mod editor;
 pub mod footer;
 pub mod interrupt;
 pub mod markdown;

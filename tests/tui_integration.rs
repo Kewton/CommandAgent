@@ -510,7 +510,7 @@ export default function Page() {
 }
 
 #[cfg(unix)]
-fn write_fake_nextjs_package_manager(root: &std::path::Path, port: u16) {
+fn write_fake_nextjs_package_manager(root: &std::path::Path) {
     use std::os::unix::fs::PermissionsExt;
 
     let bin = root.join("node_modules/.bin");
@@ -526,10 +526,10 @@ if [ \"$1\" = \"run\" ] && [ \"$2\" = \"build\" ]; then\n\
   exit 0\n\
 fi\n\
 if [ \"$1\" = \"run\" ] && [ \"$2\" = \"dev\" ]; then\n\
-  ANVIL_TUI_FAKE_DEV_SERVER_CHILD=1 ANVIL_TUI_FAKE_DEV_SERVER_PORT={port} exec {exe} --ignored --exact tui_fake_dev_server_child --nocapture\n\
+  ANVIL_TUI_FAKE_DEV_SERVER_CHILD=1 exec {exe} --ignored --exact tui_fake_dev_server_child --nocapture\n\
 fi\n\
 if [ \"$1\" = \"run\" ] && [ \"$2\" = \"start\" ]; then\n\
-  ANVIL_TUI_FAKE_DEV_SERVER_CHILD=1 ANVIL_TUI_FAKE_DEV_SERVER_PORT={port} exec {exe} --ignored --exact tui_fake_dev_server_child --nocapture\n\
+  ANVIL_TUI_FAKE_DEV_SERVER_CHILD=1 exec {exe} --ignored --exact tui_fake_dev_server_child --nocapture\n\
 fi\n\
 echo \"unexpected fake npm args: $*\" >&2\n\
 exit 2\n"
@@ -545,6 +545,40 @@ exit 2\n"
     let mut permissions = std::fs::metadata(&next_path).unwrap().permissions();
     permissions.set_mode(0o755);
     std::fs::set_permissions(&next_path, permissions).unwrap();
+
+    let playwright_dir = root.join("node_modules/playwright");
+    std::fs::create_dir_all(&playwright_dir).unwrap();
+    std::fs::write(playwright_dir.join("index.js"), "module.exports = {};\n").unwrap();
+    std::fs::write(playwright_dir.join("package.json"), r#"{"version":"test"}"#).unwrap();
+    let playwright_resolution = sh_quote(
+        &json!({
+            "path": playwright_dir.join("index.js").display().to_string(),
+            "version": "test",
+        })
+        .to_string(),
+    );
+    let interaction_evidence = sh_quote(
+        r#"{"ok":true,"status":"passed","interaction_success":true,"interaction_performed":true,"surface_visible":true,"start_control_found":true,"start_transition":true,"input_state_change":true,"input_state_evaluated_after_start":true,"input_event_observed":true,"state_changed":true,"probe_mode":"contract","contract_hook_status":"usable","action_hooks":["primary"],"state_dimensions_changed":["items","draft"],"primary_start_transition":true,"text_entry":"entered","text_entry_target":"input#memo","typed_token":"anvil-probe","token_echoed":true,"echo_latency_ms":1,"text_input_state_change":true,"stage":"observing","steps":["surface_visible","start_transition","control_input_dispatched","input_state_evaluated_after_start","input_state_change","text_input_state_change"],"before_marker":"items=0,draft=","after_marker":"items=1,draft=anvil-probe","server_http_status":200,"duration_ms":1}"#,
+    );
+    let node = format!(
+        "#!/bin/sh\n\
+if [ \"$1\" = \"-e\" ]; then\n\
+  printf '%s\\n' {playwright_resolution}\n\
+  exit 0\n\
+fi\n\
+if [ \"${{1##*/}}\" = \"browser-interaction-probe.cjs\" ] && [ \"$#\" -ge 3 ]; then\n\
+  mkdir -p \"${{3%/*}}\"\n\
+  printf '%s\\n' {interaction_evidence} > \"$3\"\n\
+  exit 0\n\
+fi\n\
+echo \"unexpected fake node args: $*\" >&2\n\
+exit 2\n"
+    );
+    let node_path = bin.join("node");
+    std::fs::write(&node_path, node).unwrap();
+    let mut permissions = std::fs::metadata(&node_path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&node_path, permissions).unwrap();
 }
 
 #[cfg(unix)]
@@ -573,13 +607,21 @@ fn tui_fake_dev_server_child() {
     {
         return;
     }
-    let port = std::env::var("ANVIL_TUI_FAKE_DEV_SERVER_PORT")
-        .unwrap()
-        .parse::<u16>()
-        .unwrap();
+    let port = std::env::var("PORT").unwrap().parse::<u16>().unwrap();
     let listener = std::net::TcpListener::bind(("127.0.0.1", port)).unwrap();
     for stream in listener.incoming() {
         let mut stream = stream.unwrap();
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+            .unwrap();
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 1024];
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+            let bytes_read = std::io::Read::read(&mut stream, &mut buffer).unwrap();
+            assert_ne!(bytes_read, 0, "request ended before its headers");
+            request.extend_from_slice(&buffer[..bytes_read]);
+            assert!(request.len() <= 16 * 1024, "request headers are too large");
+        }
         let body = r#"<!doctype html><html><head><title>Memo</title></head><body><main data-anvil-state="{&quot;items&quot;:0,&quot;draft&quot;:&quot;&quot;}"><label>Memo <input id="memo" aria-label="Memo" /></label><button id="add" data-anvil-action="primary">Add</button><ul id="items"></ul></main><script>const main=document.querySelector("main");const memo=document.getElementById("memo");const add=document.getElementById("add");const items=document.getElementById("items");let count=0;function sync(){main.setAttribute("data-anvil-state",JSON.stringify({items:count,draft:memo.value}));}memo.addEventListener("input",sync);add.addEventListener("click",()=>{count+=1;const li=document.createElement("li");li.textContent=memo.value||"memo";items.appendChild(li);sync();});</script></body></html>"#;
         let response = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -977,7 +1019,7 @@ fn tui_slash_promoted_profile_reflected_in_terminal_summary() {
     ];
     #[cfg(unix)]
     {
-        write_fake_nextjs_package_manager(dir.path(), port);
+        write_fake_nextjs_package_manager(dir.path());
     }
     let mut cfg = config(dir.path().to_path_buf());
     cfg.eval_events_path = Some(events_path.clone());

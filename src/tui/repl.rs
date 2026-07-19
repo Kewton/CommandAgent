@@ -4,6 +4,7 @@ use anyhow::bail;
 use rustyline::error::ReadlineError;
 
 use crate::config::Config;
+use crate::tui::editor::{PromptInterruptAction, ReplEditor, normalize_multiline_input};
 use crate::tui::markdown::TerminalMarkdownRenderer;
 use crate::tui::{OutputRenderer, TerminalUi};
 
@@ -17,7 +18,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     let renderer = TerminalMarkdownRenderer::for_stdout();
     let mut execution = crate::providers::client_from_config(&config, false)?;
     let mut planner = crate::providers::client_from_config(&config, true)?;
-    let mut editor = rustyline::DefaultEditor::new()?;
+    let mut editor = ReplEditor::new(&config)?;
     let history_path = config.state_dir.join("history.txt");
     if let Some(parent) = history_path.parent() {
         let _ = std::fs::create_dir_all(parent);
@@ -29,16 +30,24 @@ pub fn run(config: Config) -> anyhow::Result<()> {
             let _prompt_guard = ui.pause_for_prompt();
             match editor.readline("anvil> ") {
                 Ok(line) => line,
-                Err(ReadlineError::Interrupted) => continue,
+                Err(ReadlineError::Interrupted) => match editor.take_interrupt_action() {
+                    PromptInterruptAction::ClearLine => continue,
+                    PromptInterruptAction::WarnBeforeExit => {
+                        eprintln!("press Ctrl+C again to exit");
+                        continue;
+                    }
+                    PromptInterruptAction::Exit => break,
+                },
                 Err(ReadlineError::Eof) => break,
                 Err(err) => return Err(err.into()),
             }
         };
+        let line = normalize_multiline_input(&line);
         let line = line.trim();
         if line.is_empty() {
             continue;
         }
-        if matches!(line, "/exit" | "/quit") {
+        if crate::tui::slash::is_exit_command(line) {
             break;
         }
         let _ = editor.add_history_entry(line);
