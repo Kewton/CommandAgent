@@ -545,6 +545,40 @@ exit 2\n"
     let mut permissions = std::fs::metadata(&next_path).unwrap().permissions();
     permissions.set_mode(0o755);
     std::fs::set_permissions(&next_path, permissions).unwrap();
+
+    let playwright_dir = root.join("node_modules/playwright");
+    std::fs::create_dir_all(&playwright_dir).unwrap();
+    std::fs::write(playwright_dir.join("index.js"), "module.exports = {};\n").unwrap();
+    std::fs::write(playwright_dir.join("package.json"), r#"{"version":"test"}"#).unwrap();
+    let playwright_resolution = sh_quote(
+        &json!({
+            "path": playwright_dir.join("index.js").display().to_string(),
+            "version": "test",
+        })
+        .to_string(),
+    );
+    let interaction_evidence = sh_quote(
+        r#"{"ok":true,"status":"passed","interaction_success":true,"interaction_performed":true,"surface_visible":true,"start_control_found":true,"start_transition":true,"input_state_change":true,"input_state_evaluated_after_start":true,"input_event_observed":true,"state_changed":true,"probe_mode":"contract","contract_hook_status":"usable","action_hooks":["primary"],"state_dimensions_changed":["items","draft"],"primary_start_transition":true,"text_entry":"entered","text_entry_target":"input#memo","typed_token":"anvil-probe","token_echoed":true,"echo_latency_ms":1,"text_input_state_change":true,"stage":"observing","steps":["surface_visible","start_transition","control_input_dispatched","input_state_evaluated_after_start","input_state_change","text_input_state_change"],"before_marker":"items=0,draft=","after_marker":"items=1,draft=anvil-probe","server_http_status":200,"duration_ms":1}"#,
+    );
+    let node = format!(
+        "#!/bin/sh\n\
+if [ \"$1\" = \"-e\" ]; then\n\
+  printf '%s\\n' {playwright_resolution}\n\
+  exit 0\n\
+fi\n\
+if [ \"${{1##*/}}\" = \"browser-interaction-probe.cjs\" ] && [ \"$#\" -ge 3 ]; then\n\
+  mkdir -p \"${{3%/*}}\"\n\
+  printf '%s\\n' {interaction_evidence} > \"$3\"\n\
+  exit 0\n\
+fi\n\
+echo \"unexpected fake node args: $*\" >&2\n\
+exit 2\n"
+    );
+    let node_path = bin.join("node");
+    std::fs::write(&node_path, node).unwrap();
+    let mut permissions = std::fs::metadata(&node_path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&node_path, permissions).unwrap();
 }
 
 #[cfg(unix)]
