@@ -93,9 +93,33 @@ struct Active {
     state: Arc<FooterState>,
     _publisher: StatusPublisher,
     _global_guard: GlobalStatusBusGuard,
-    handle: Option<JoinHandle<()>>,
+    handle: Option<JoinHandle<FooterGeometry>>,
+    initial_geometry: FooterGeometry,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct FooterGeometry {
+    cols: u16,
     rows: u16,
     footer_rows: u16,
+}
+
+impl FooterGeometry {
+    fn new(cols: u16, rows: u16) -> Self {
+        Self {
+            cols,
+            rows,
+            footer_rows: footer_rows_for_cols(cols),
+        }
+    }
+
+    fn decstbm(self) -> Option<String> {
+        ansi::build_decstbm(self.rows, self.footer_rows)
+    }
+
+    fn is_renderable(self) -> bool {
+        self.footer_rows > 0 && self.rows > self.footer_rows
+    }
 }
 
 impl Footer {
@@ -107,11 +131,8 @@ impl Footer {
         let Ok((cols, rows)) = crossterm::terminal::size() else {
             return Self { inner: None };
         };
-        let footer_rows = footer_rows_for_cols(cols);
-        if rows <= footer_rows {
-            return Self { inner: None };
-        }
-        let Some(decstbm) = ansi::build_decstbm(rows, footer_rows) else {
+        let geometry = FooterGeometry::new(cols, rows);
+        let Some(decstbm) = geometry.decstbm() else {
             return Self { inner: None };
         };
         {
@@ -133,7 +154,7 @@ impl Footer {
         let thread_state = state.clone();
         let handle = thread::Builder::new()
             .name("commandagent-footer".to_string())
-            .spawn(move || render_loop(thread_state, subscriber, cols, rows, footer_rows, env))
+            .spawn(move || render_loop(thread_state, subscriber, geometry, env))
             .ok();
         match handle {
             Some(handle) => Self {
@@ -142,8 +163,7 @@ impl Footer {
                     _publisher: publisher,
                     _global_guard: global_guard,
                     handle: Some(handle),
-                    rows,
-                    footer_rows,
+                    initial_geometry: geometry,
                 }),
             },
             None => {
@@ -187,12 +207,16 @@ impl Drop for Footer {
         };
         active.state.stop.store(true, Ordering::SeqCst);
         active.state.wake.1.notify_all();
-        if let Some(handle) = active.handle.take() {
-            let _ = handle.join();
+        let mut geometry = active.initial_geometry;
+        if let Some(handle) = active.handle.take()
+            && let Ok(current_geometry) = handle.join()
+        {
+            geometry = current_geometry;
         }
+        let current_geometry = geometry_after_size(geometry, crossterm::terminal::size());
         let mut stdout = io::stdout().lock();
         let _ = stdout
-            .write_all(clear_footer_region_sequence(active.rows, active.footer_rows).as_bytes());
+            .write_all(clear_footer_transition_sequence(geometry, current_geometry).as_bytes());
         let _ = stdout.flush();
     }
 }
@@ -373,28 +397,47 @@ fn format_token_count(value: u64) -> String {
 fn render_loop(
     state: Arc<FooterState>,
     subscriber: StatusSubscriber,
-    cols: u16,
-    rows: u16,
-    footer_rows: u16,
+    mut geometry: FooterGeometry,
     env: FooterEnv,
-) {
+) -> FooterGeometry {
     let mut generation = 0;
     let mut last_rendered: Option<Vec<String>> = None;
     loop {
         if state.stop.load(Ordering::SeqCst) {
             break;
         }
-        if !state.freeze.load(Ordering::SeqCst) {
+        let previous_geometry = geometry;
+        geometry = geometry_after_size(geometry, crossterm::terminal::size());
+        let resized = geometry != previous_geometry;
+        if resized || !state.freeze.load(Ordering::SeqCst) {
             let status = match state.status.lock() {
                 Ok(status) => status.clone(),
                 Err(poisoned) => poisoned.into_inner().clone(),
             };
             let runtime = subscriber.snapshot();
             generation = runtime.generation;
-            let lines =
-                build_live_footer_lines(&status, &runtime, status_bus::now(), cols, env.use_color);
-            if footer_lines_changed(&mut last_rendered, &lines) {
-                let frame = render_footer_frame_sequence(&lines, cols, rows, footer_rows);
+            let lines = build_live_footer_lines(
+                &status,
+                &runtime,
+                status_bus::now(),
+                geometry.cols,
+                env.use_color,
+            );
+            let frame = if resized {
+                let frame = resize_footer_region_sequence(previous_geometry, geometry, &lines);
+                last_rendered = geometry.is_renderable().then(|| lines.clone());
+                Some(frame)
+            } else if geometry.is_renderable() && footer_lines_changed(&mut last_rendered, &lines) {
+                Some(render_footer_frame_sequence(
+                    &lines,
+                    geometry.cols,
+                    geometry.rows,
+                    geometry.footer_rows,
+                ))
+            } else {
+                None
+            };
+            if let Some(frame) = frame {
                 let mut stdout = io::stdout().lock();
                 let _ = stdout.write_all(frame.as_bytes());
                 let _ = stdout.flush();
@@ -405,6 +448,11 @@ fn render_loop(
             let _ = state.wake.1.wait_timeout(guard, Duration::from_millis(1));
         }
     }
+    geometry
+}
+
+fn geometry_after_size(current: FooterGeometry, size: io::Result<(u16, u16)>) -> FooterGeometry {
+    size.map_or(current, |(cols, rows)| FooterGeometry::new(cols, rows))
 }
 
 fn footer_lines_changed(last_rendered: &mut Option<Vec<String>>, lines: &[String]) -> bool {
@@ -434,13 +482,72 @@ fn render_footer_frame_sequence(
     out
 }
 
+fn resize_footer_region_sequence(
+    old: FooterGeometry,
+    new: FooterGeometry,
+    lines: &[String],
+) -> String {
+    let mut out = clear_footer_transition_sequence(old, new);
+    let Some(decstbm) = new.decstbm() else {
+        return out;
+    };
+    out.push_str(&decstbm);
+    out.push_str(&ansi::move_to(new.rows - new.footer_rows, 1));
+    out.push_str(&render_footer_frame_sequence(
+        lines,
+        new.cols,
+        new.rows,
+        new.footer_rows,
+    ));
+    out
+}
+
+fn clear_footer_transition_sequence(old: FooterGeometry, new: FooterGeometry) -> String {
+    let mut out = String::from(ansi::reset_decstbm());
+    for row in stale_footer_rows(old, new) {
+        out.push_str(&ansi::move_to(row, 1));
+        out.push_str(ansi::clear_line());
+    }
+    out
+}
+
+fn stale_footer_rows(old: FooterGeometry, new: FooterGeometry) -> Vec<u16> {
+    let mut rows = Vec::new();
+    let old_first = old.rows.saturating_sub(old.footer_rows).saturating_add(1);
+    for row in old_first..=old.rows {
+        if row <= new.rows {
+            push_unique_row(&mut rows, row);
+        }
+    }
+    push_bottom_rows(&mut rows, new.rows, old.footer_rows);
+    push_bottom_rows(&mut rows, new.rows, new.footer_rows);
+    rows.sort_unstable();
+    rows
+}
+
+fn push_bottom_rows(rows: &mut Vec<u16>, screen_rows: u16, count: u16) {
+    if screen_rows == 0 || count == 0 {
+        return;
+    }
+    let first = screen_rows.saturating_sub(count).saturating_add(1);
+    for row in first..=screen_rows {
+        push_unique_row(rows, row);
+    }
+}
+
+fn push_unique_row(rows: &mut Vec<u16>, row: u16) {
+    if row > 0 && !rows.contains(&row) {
+        rows.push(row);
+    }
+}
+
 fn footer_rows_for_cols(cols: u16) -> u16 {
     if cols < NARROW_FOOTER_COLS { 2 } else { 1 }
 }
 
 pub fn clear_footer_region_sequence(rows: u16, footer_rows: u16) -> String {
     let mut out = String::from(ansi::reset_decstbm());
-    if footer_rows == 0 || rows == 0 {
+    if footer_rows == 0 || rows == 0 || rows <= footer_rows {
         return out;
     }
     let first_footer_row = rows.saturating_sub(footer_rows).saturating_add(1);
@@ -604,6 +711,134 @@ mod tests {
         assert!(sequence.starts_with(ansi::reset_decstbm()));
         assert!(sequence.contains("\x1b[23;1H\r\x1b[2K"));
         assert!(sequence.contains("\x1b[24;1H\r\x1b[2K"));
+    }
+
+    #[test]
+    fn footer_geometry_keeps_last_size_when_terminal_query_fails() {
+        let current = FooterGeometry::new(120, 24);
+        let failed = Err(io::Error::other("terminal unavailable"));
+
+        assert_eq!(geometry_after_size(current, failed), current);
+    }
+
+    #[test]
+    fn footer_resize_grow_clears_old_and_new_bottom_rows_without_scrolling() {
+        let old = FooterGeometry::new(80, 24);
+        let new = FooterGeometry::new(80, 30);
+        let sequence = resize_footer_region_sequence(
+            old,
+            new,
+            &["new top".to_string(), "new bottom".to_string()],
+        );
+
+        assert!(sequence.starts_with(ansi::reset_decstbm()));
+        for row in [23, 24, 29, 30] {
+            assert!(
+                sequence.contains(&format!("{}{}", ansi::move_to(row, 1), ansi::clear_line())),
+                "missing cleanup for row {row}: {sequence:?}"
+            );
+        }
+        assert!(sequence.contains("\x1b[1;28r"), "{sequence:?}");
+        assert!(!sequence.contains('\n'), "{sequence:?}");
+    }
+
+    #[test]
+    fn footer_resize_shrink_uses_only_visible_rows_and_clamps_body_cursor() {
+        let old = FooterGeometry::new(80, 30);
+        let new = FooterGeometry::new(80, 20);
+        let sequence = resize_footer_region_sequence(
+            old,
+            new,
+            &["new top".to_string(), "new bottom".to_string()],
+        );
+
+        assert!(!sequence.contains("\x1b[29;1H"), "{sequence:?}");
+        assert!(!sequence.contains("\x1b[30;1H"), "{sequence:?}");
+        for row in [19, 20] {
+            assert!(
+                sequence.contains(&format!("{}{}", ansi::move_to(row, 1), ansi::clear_line())),
+                "missing cleanup for row {row}: {sequence:?}"
+            );
+        }
+        let region = sequence.find("\x1b[1;18r").unwrap();
+        let body_cursor = sequence[region..].find("\x1b[18;1H").unwrap() + region;
+        let footer_frame = sequence.rfind("\x1b[19;1H").unwrap();
+        assert!(
+            region < body_cursor && body_cursor < footer_frame,
+            "{sequence:?}"
+        );
+    }
+
+    #[test]
+    fn footer_resize_across_width_threshold_switches_one_and_two_rows() {
+        let runtime = RuntimeStatus {
+            phase: Some(status_bus::PhaseStatus {
+                index: 1,
+                total: 3,
+                id: "implementation".to_string(),
+            }),
+            ..RuntimeStatus::default()
+        };
+        let wide = FooterGeometry::new(100, 24);
+        let narrow = FooterGeometry::new(99, 24);
+        let wide_lines =
+            build_live_footer_lines(&status(None), &runtime, StatusTime::ZERO, wide.cols, false);
+        let narrow_lines = build_live_footer_lines(
+            &status(None),
+            &runtime,
+            StatusTime::ZERO,
+            narrow.cols,
+            false,
+        );
+
+        assert_eq!(wide.footer_rows, 1);
+        assert_eq!(wide_lines.len(), 1);
+        assert_eq!(narrow.footer_rows, 2);
+        assert_eq!(narrow_lines.len(), 2);
+        let sequence = resize_footer_region_sequence(wide, narrow, &narrow_lines);
+        assert!(sequence.contains("\x1b[1;22r"), "{sequence:?}");
+        assert!(sequence.contains("\x1b[23;1H"), "{sequence:?}");
+        assert!(sequence.contains("\x1b[24;1H"), "{sequence:?}");
+        assert!(
+            narrow_lines
+                .iter()
+                .all(|line| display_width_ansi(line) <= narrow.cols as usize)
+        );
+        let back_to_wide = resize_footer_region_sequence(narrow, wide, &wide_lines);
+        assert!(
+            back_to_wide.contains("\x1b[23;1H\r\x1b[2K"),
+            "{back_to_wide:?}"
+        );
+        assert!(back_to_wide.contains("\x1b[1;23r"), "{back_to_wide:?}");
+    }
+
+    #[test]
+    fn footer_shutdown_cleanup_uses_resized_geometry() {
+        let rendered = FooterGeometry::new(80, 24);
+        let resized = FooterGeometry::new(80, 30);
+        let sequence = clear_footer_transition_sequence(rendered, resized);
+
+        assert!(sequence.starts_with(ansi::reset_decstbm()));
+        assert!(sequence.contains("\x1b[23;1H\r\x1b[2K"));
+        assert!(sequence.contains("\x1b[24;1H\r\x1b[2K"));
+        assert!(sequence.contains("\x1b[29;1H\r\x1b[2K"));
+        assert!(sequence.contains("\x1b[30;1H\r\x1b[2K"));
+    }
+
+    #[test]
+    fn footer_tiny_resize_releases_region_until_height_recovers() {
+        let old = FooterGeometry::new(80, 24);
+        let tiny = FooterGeometry::new(80, 2);
+        let sequence = resize_footer_region_sequence(old, tiny, &[]);
+
+        assert!(!tiny.is_renderable());
+        assert!(sequence.starts_with(ansi::reset_decstbm()));
+        assert!(sequence.contains("\x1b[1;1H\r\x1b[2K"));
+        assert!(sequence.contains("\x1b[2;1H\r\x1b[2K"));
+        assert_eq!(
+            clear_footer_region_sequence(tiny.rows, tiny.footer_rows),
+            "\x1b[r"
+        );
     }
 
     #[test]
