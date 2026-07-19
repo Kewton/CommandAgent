@@ -510,7 +510,7 @@ export default function Page() {
 }
 
 #[cfg(unix)]
-fn write_fake_nextjs_package_manager(root: &std::path::Path, port: u16) {
+fn write_fake_nextjs_package_manager(root: &std::path::Path) {
     use std::os::unix::fs::PermissionsExt;
 
     let bin = root.join("node_modules/.bin");
@@ -526,10 +526,10 @@ if [ \"$1\" = \"run\" ] && [ \"$2\" = \"build\" ]; then\n\
   exit 0\n\
 fi\n\
 if [ \"$1\" = \"run\" ] && [ \"$2\" = \"dev\" ]; then\n\
-  ANVIL_TUI_FAKE_DEV_SERVER_CHILD=1 ANVIL_TUI_FAKE_DEV_SERVER_PORT={port} exec {exe} --ignored --exact tui_fake_dev_server_child --nocapture\n\
+  ANVIL_TUI_FAKE_DEV_SERVER_CHILD=1 exec {exe} --ignored --exact tui_fake_dev_server_child --nocapture\n\
 fi\n\
 if [ \"$1\" = \"run\" ] && [ \"$2\" = \"start\" ]; then\n\
-  ANVIL_TUI_FAKE_DEV_SERVER_CHILD=1 ANVIL_TUI_FAKE_DEV_SERVER_PORT={port} exec {exe} --ignored --exact tui_fake_dev_server_child --nocapture\n\
+  ANVIL_TUI_FAKE_DEV_SERVER_CHILD=1 exec {exe} --ignored --exact tui_fake_dev_server_child --nocapture\n\
 fi\n\
 echo \"unexpected fake npm args: $*\" >&2\n\
 exit 2\n"
@@ -573,10 +573,7 @@ fn tui_fake_dev_server_child() {
     {
         return;
     }
-    let port = std::env::var("ANVIL_TUI_FAKE_DEV_SERVER_PORT")
-        .unwrap()
-        .parse::<u16>()
-        .unwrap();
+    let port = std::env::var("PORT").unwrap().parse::<u16>().unwrap();
     let listener = std::net::TcpListener::bind(("127.0.0.1", port)).unwrap();
     for stream in listener.incoming() {
         let mut stream = stream.unwrap();
@@ -977,7 +974,7 @@ fn tui_slash_promoted_profile_reflected_in_terminal_summary() {
     ];
     #[cfg(unix)]
     {
-        write_fake_nextjs_package_manager(dir.path(), port);
+        write_fake_nextjs_package_manager(dir.path());
     }
     let mut cfg = config(dir.path().to_path_buf());
     cfg.eval_events_path = Some(events_path.clone());
