@@ -611,6 +611,17 @@ fn tui_fake_dev_server_child() {
     let listener = std::net::TcpListener::bind(("127.0.0.1", port)).unwrap();
     for stream in listener.incoming() {
         let mut stream = stream.unwrap();
+        stream
+            .set_read_timeout(Some(std::time::Duration::from_secs(1)))
+            .unwrap();
+        let mut request = Vec::new();
+        let mut buffer = [0_u8; 1024];
+        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+            let bytes_read = std::io::Read::read(&mut stream, &mut buffer).unwrap();
+            assert_ne!(bytes_read, 0, "request ended before its headers");
+            request.extend_from_slice(&buffer[..bytes_read]);
+            assert!(request.len() <= 16 * 1024, "request headers are too large");
+        }
         let body = r#"<!doctype html><html><head><title>Memo</title></head><body><main data-anvil-state="{&quot;items&quot;:0,&quot;draft&quot;:&quot;&quot;}"><label>Memo <input id="memo" aria-label="Memo" /></label><button id="add" data-anvil-action="primary">Add</button><ul id="items"></ul></main><script>const main=document.querySelector("main");const memo=document.getElementById("memo");const add=document.getElementById("add");const items=document.getElementById("items");let count=0;function sync(){main.setAttribute("data-anvil-state",JSON.stringify({items:count,draft:memo.value}));}memo.addEventListener("input",sync);add.addEventListener("click",()=>{count+=1;const li=document.createElement("li");li.textContent=memo.value||"memo";items.appendChild(li);sync();});</script></body></html>"#;
         let response = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
