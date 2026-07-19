@@ -591,3 +591,26 @@ Phase Dの分布条件は5セルまで到達した。調査→fixの連結runは
 
 本Phaseは環境変数と設定発見だけを移行し、event schema、runtime state、履歴evidence
 には変更を加えない。
+
+## Brand migration Phase 3 decision (2026-07-20)
+
+決定は **Option A（内部プロトコル識別子を維持）** とする。
+
+| 境界 | 維持する識別子・契約 |
+|---|---|
+| 生成成果物の属性 | `data-anvil-*` |
+| LLM tool-call fallback | `<anvil_tool_call>` |
+| 内部app識別子 | `anvil_app` |
+| live runtime state | `.anvil/` |
+| 機械可読データ | JSON keys、event names、schemasをすべて現行どおり維持 |
+
+これらはユーザー向け製品名ではなく、LLMとの動作契約、corpus、既存runtime
+state、および機械消費側との互換境界である。Phase 1の可視名変更やPhase 2の
+外部設定入口移行の対象には含めず、本決定に伴うproduction code・fixture・
+schema変更は行わない。
+
+過適応監査: 本決定は内部の旧綴りを固定し、保守者による一括renameの自由を
+狭める一方、ユーザー向け命名や将来のversioned protocolは制約しない。維持
+コストが実害として観測された場合の再訪経路は、専用migration Issueでversioning
+またはdual-read、fixture/corpus、`.anvil/` state migrationを同時に設計・検証
+することであり、互換境界を暗黙に書き換えてはならない。
