@@ -15,7 +15,7 @@ import re
 import subprocess
 import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
@@ -66,6 +66,8 @@ class IssueAnalysis:
     branch_name: str
     worktree_path: str
     dependency_hints: tuple[str, ...] = ()
+    explicit_dependencies: tuple[int, ...] | None = None
+    approved_decision: str = ""
 
 
 @dataclass(frozen=True)
@@ -202,6 +204,23 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--max-parallel", type=positive_int, default=3)
     parser.add_argument(
+        "--dependency-override",
+        action="append",
+        default=[],
+        metavar="ISSUE:DEP,DEP",
+        help=(
+            "Authoritative dependency entry. When used, specify every requested Issue; "
+            "use ISSUE: for an Issue with no dependencies."
+        ),
+    )
+    parser.add_argument(
+        "--issue-decision",
+        action="append",
+        default=[],
+        metavar="ISSUE:TEXT",
+        help="Approved Issue decision to add to planning and worker instructions.",
+    )
+    parser.add_argument(
         "--phase",
         default="plan",
         choices=("issue", "plan", "dev", "pr", "uat", "merge"),
@@ -256,6 +275,87 @@ def parse_args() -> argparse.Namespace:
 
 def parse_args_from_list_for_test(values: list[str]) -> argparse.Namespace:
     return build_parser().parse_args(values)
+
+
+def split_issue_spec(raw: str, *, option: str) -> tuple[int, str]:
+    issue_text, separator, value = raw.partition(":")
+    if not separator or not issue_text.strip():
+        raise ValueError(f"{option} must use ISSUE:VALUE syntax")
+    try:
+        issue_number = int(issue_text.strip())
+    except ValueError as exc:
+        raise ValueError(f"{option} Issue must be an integer: {issue_text}") from exc
+    return issue_number, value.strip()
+
+
+def parse_dependency_overrides(
+    specs: list[str], requested_issues: list[int]
+) -> dict[int, tuple[int, ...]]:
+    if not specs:
+        return {}
+    requested = set(requested_issues)
+    if len(requested) != len(requested_issues):
+        raise ValueError("requested Issue list contains duplicates")
+    overrides: dict[int, tuple[int, ...]] = {}
+    for spec in specs:
+        issue_number, raw_dependencies = split_issue_spec(
+            spec, option="--dependency-override"
+        )
+        if issue_number in overrides:
+            raise ValueError(f"duplicate dependency override for Issue #{issue_number}")
+        try:
+            dependencies = tuple(
+                int(part.strip())
+                for part in raw_dependencies.split(",")
+                if part.strip()
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"dependency override for Issue #{issue_number} must contain integers"
+            ) from exc
+        if len(dependencies) != len(set(dependencies)):
+            raise ValueError(
+                f"dependency override for Issue #{issue_number} contains duplicates"
+            )
+        if issue_number not in requested:
+            raise ValueError(
+                f"dependency override targets unrequested Issue #{issue_number}"
+            )
+        unknown = set(dependencies) - requested
+        if unknown:
+            formatted = ", ".join(f"#{number}" for number in sorted(unknown))
+            raise ValueError(
+                f"dependency override for Issue #{issue_number} references "
+                f"unrequested Issues {formatted}"
+            )
+        if issue_number in dependencies:
+            raise ValueError(f"Issue #{issue_number} cannot depend on itself")
+        overrides[issue_number] = dependencies
+    missing = requested - set(overrides)
+    if missing:
+        formatted = ", ".join(f"#{number}" for number in sorted(missing))
+        raise ValueError(
+            "dependency overrides are authoritative and must include every requested "
+            f"Issue; missing {formatted}"
+        )
+    return overrides
+
+
+def parse_issue_decisions(
+    specs: list[str], requested_issues: list[int]
+) -> dict[int, str]:
+    requested = set(requested_issues)
+    decisions: dict[int, str] = {}
+    for spec in specs:
+        issue_number, decision = split_issue_spec(spec, option="--issue-decision")
+        if issue_number not in requested:
+            raise ValueError(f"decision targets unrequested Issue #{issue_number}")
+        if issue_number in decisions:
+            raise ValueError(f"duplicate decision for Issue #{issue_number}")
+        if not decision:
+            raise ValueError(f"decision for Issue #{issue_number} must not be empty")
+        decisions[issue_number] = decision
+    return decisions
 
 
 def load_issues(
@@ -382,6 +482,39 @@ def analyze_issue(issue: Issue, repo_name: str, *, skip_enhance: bool) -> IssueA
     )
 
 
+def apply_planning_overrides(
+    analyses: list[IssueAnalysis],
+    dependency_overrides: dict[int, tuple[int, ...]],
+    issue_decisions: dict[int, str],
+) -> list[IssueAnalysis]:
+    updated: list[IssueAnalysis] = []
+    for analysis in analyses:
+        issue_number = analysis.issue.number
+        decision = issue_decisions.get(issue_number, "")
+        acceptance = analysis.acceptance_criteria
+        questions = analysis.questions
+        if decision:
+            acceptance = (*acceptance, f"Apply approved decision: {decision}")
+            questions = tuple(
+                question
+                for question in questions
+                if not question.startswith("受入条件が明確ではありません")
+            )
+        updated.append(
+            replace(
+                analysis,
+                acceptance_criteria=acceptance,
+                enhancement_needed=bool(questions),
+                questions=questions,
+                explicit_dependencies=(
+                    dependency_overrides[issue_number] if dependency_overrides else None
+                ),
+                approved_decision=decision,
+            )
+        )
+    return updated
+
+
 def first_nonempty_line(value: str) -> str:
     for line in value.splitlines():
         if line.lstrip().startswith("#"):
@@ -498,10 +631,16 @@ def enrich_file_candidates_with_rg(text: str, existing: list[str]) -> list[str]:
             return candidates
         if completed.returncode not in (0, 1):
             continue
-        for line in completed.stdout.splitlines()[:5]:
-            path = line.strip()
-            if not path or is_external_reference(path) or is_planning_noise_path(path):
-                continue
+        matched_paths = sorted(
+            {
+                line.strip()
+                for line in completed.stdout.splitlines()
+                if line.strip()
+                and not is_external_reference(line.strip())
+                and not is_planning_noise_path(line.strip())
+            }
+        )
+        for path in matched_paths[:5]:
             if path not in seen:
                 candidates.append(path)
                 seen.add(path)
@@ -666,6 +805,9 @@ def classify_batches(
 def direct_dependencies(
     analysis: IssueAnalysis, analyses: list[IssueAnalysis]
 ) -> list[IssueAnalysis]:
+    if analysis.explicit_dependencies is not None:
+        by_issue = {item.issue.number: item for item in analyses}
+        return [by_issue[number] for number in analysis.explicit_dependencies]
     hints = set(analysis.dependency_hints)
     dependencies: list[IssueAnalysis] = []
     for other in analyses:
@@ -688,7 +830,14 @@ def direct_dependencies(
 def dependency_reason(analysis: IssueAnalysis, analyses: list[IssueAnalysis]) -> str:
     deps = direct_dependencies(analysis, analyses)
     if deps:
-        return "depends on " + ", ".join(f"#{item.issue.number}" for item in deps)
+        prefix = (
+            "explicitly depends on"
+            if analysis.explicit_dependencies is not None
+            else "depends on"
+        )
+        return prefix + " " + ", ".join(f"#{item.issue.number}" for item in deps)
+    if analysis.explicit_dependencies is not None:
+        return "explicitly has no dependencies"
     if any(
         has_file_overlap(analysis, other) for other in analyses if other != analysis
     ):
@@ -774,7 +923,16 @@ def render_manifest(
     max_parallel: int,
     dry_run: bool,
     codex_agent_name: str,
+    dependency_overrides: dict[int, tuple[int, ...]],
+    issue_decisions: dict[int, str],
 ) -> str:
+    dependency_summary = "; ".join(
+        f"#{issue}<-{','.join(f'#{dependency}' for dependency in dependencies) or 'none'}"
+        for issue, dependencies in dependency_overrides.items()
+    )
+    decision_summary = "; ".join(
+        f"#{issue}: {decision}" for issue, decision in issue_decisions.items()
+    )
     return "\n".join(
         [
             "# Orchestration Manifest",
@@ -790,6 +948,9 @@ def render_manifest(
             f"- Dry run: `{str(dry_run).lower()}`",
             f"- Develop base: `{DEFAULT_BASE}`",
             f"- CommandMate Codex agent: `{codex_agent_name}`",
+            f"- Dependency source: `{'explicit' if dependency_overrides else 'inferred'}`",
+            f"- Dependency overrides: {dependency_summary or 'none'}",
+            f"- Approved decisions: {decision_summary or 'none'}",
             "",
             "## Generated Artifacts",
             "",
@@ -820,6 +981,12 @@ def render_issue_analysis(analyses: list[IssueAnalysis]) -> str:
                 "### 受入条件",
                 "",
                 *bullet_or_none(analysis.acceptance_criteria),
+                "",
+                "### 承認済み判断",
+                "",
+                *bullet_or_none(
+                    (analysis.approved_decision,) if analysis.approved_decision else ()
+                ),
                 "",
                 "### 推定影響ファイル",
                 "",
@@ -974,6 +1141,8 @@ def render_dependency_plan(
                 "",
                 f"- Classification: `{classification}`",
                 f"- Dependency reason: {dependency_reason(analysis, analyses)}",
+                f"- Dependency source: `{'explicit' if analysis.explicit_dependencies is not None else 'inferred'}`",
+                f"- Approved decision: {analysis.approved_decision or 'none'}",
                 f"- Branch: `{analysis.branch_name}`",
                 f"- Worktree: `{analysis.worktree_path}`",
                 f"- Suspected files: `{', '.join(analysis.suspected_files) or 'unknown'}`",
@@ -1012,6 +1181,16 @@ def write_artifacts(args: argparse.Namespace, analyses: list[IssueAnalysis]) -> 
             max_parallel=args.max_parallel,
             dry_run=args.dry_run,
             codex_agent_name=args.codex_agent_name,
+            dependency_overrides={
+                analysis.issue.number: analysis.explicit_dependencies or ()
+                for analysis in analyses
+                if analysis.explicit_dependencies is not None
+            },
+            issue_decisions={
+                analysis.issue.number: analysis.approved_decision
+                for analysis in analyses
+                if analysis.approved_decision
+            },
         ),
         encoding="utf-8",
     )
@@ -1203,6 +1382,7 @@ def build_worker_prompt(
         )
         or "- None"
     )
+    approved_decision = analysis.approved_decision or "None"
     return "\n".join(
         [
             f"Codex issue worker task for Issue #{analysis.issue.number}",
@@ -1212,7 +1392,7 @@ def build_worker_prompt(
             "",
             "## Required Workflow",
             "",
-            "1. Read the Issue summary, acceptance criteria, suspected files, and references.",
+            "1. Read the Issue summary, acceptance criteria, approved decision, suspected files, and references.",
             "2. Write a short design note before editing.",
             "3. Implement the smallest coherent change that satisfies the Issue.",
             "4. Add or update focused tests where appropriate.",
@@ -1234,6 +1414,12 @@ def build_worker_prompt(
             "## Acceptance Criteria",
             "",
             criteria,
+            "",
+            "## Approved Decision",
+            "",
+            approved_decision,
+            "The approved decision is authoritative when it narrows or contradicts "
+            "the original Issue narrative or inferred file scope.",
             "",
             "## Suspected Files",
             "",
@@ -2751,11 +2937,16 @@ def render_photon_events(results: list[PhotonEventResult]) -> str:
 def main() -> int:
     args = parse_args()
     repo_name = commandmate_repository_name()
+    dependency_overrides = parse_dependency_overrides(
+        args.dependency_override, args.issues
+    )
+    issue_decisions = parse_issue_decisions(args.issue_decision, args.issues)
     issues = load_issues(args.issues, args.issue_json, args.repo)
     analyses = [
         analyze_issue(issue, repo_name, skip_enhance=args.skip_enhance)
         for issue in issues
     ]
+    analyses = apply_planning_overrides(analyses, dependency_overrides, issue_decisions)
     batches, issue_merge_order = classify_batches(
         analyses, args.merge_order, max_parallel=args.max_parallel
     )

@@ -24,6 +24,9 @@ Plan issue work first, then advance only through the phases the user has authori
 - Treat `--max-parallel` as a hard positive concurrency limit. Never dispatch a batch wider than this value.
 - Execute dependency batches in order. Dispatch a later batch only after every worker in the preceding batch completes and its committed verification report passes.
 - Never place Issues with detected implementation-file overlap in the same batch. Reject cyclic dependencies, incomplete explicit merge orders, and explicit orders that place an Issue before its dependencies.
+- When the user confirms dependencies that differ from inference, pass one `--dependency-override ISSUE:DEP,...` entry for every requested Issue. Use `ISSUE:` for a root Issue. Treat this complete graph as authoritative; never mix a partial override with inferred edges.
+- Pass each resolved decision Issue as `--issue-decision ISSUE:TEXT`. State the exact approved scope and exclusions so the decision becomes an acceptance criterion and worker instruction.
+- Reuse the exact dependency override and decision flags in every later phase of the same work. Never fall back to inference after an explicit plan is accepted.
 - Include manual UAT steps when CLI/TTY behavior, release flow, GUI behavior, or a real device must be confirmed.
 
 ## Authorized Flow
@@ -47,13 +50,23 @@ Run the non-mutating planner before any other phase:
 python3 scripts/codex_orchestrate.py <issue...> --dry-run
 ```
 
+For an approved dependency graph or decision, include the explicit inputs in the dry-run. For example:
+
+```bash
+python3 scripts/codex_orchestrate.py 15 16 17 --dry-run --max-parallel 2 \
+  --dependency-override 15: \
+  --dependency-override 16:15 \
+  --dependency-override 17:16 \
+  --issue-decision "17:Adopt Option A; preserve internal identifiers and update only docs/mechanism-ledger.md."
+```
+
 Review:
 
 - `workspace/management/runs/<run_id>/manifest.md`
 - `workspace/management/runs/<run_id>/issue-analysis.md`
 - `workspace/management/runs/<run_id>/dependency-plan.md`
 
-Confirm that the issue scope, dependency batches, configured maximum width, suspected files, and blocking questions are coherent. The planner defaults to the `codex` CommandMate agent; override `--codex-agent-name` only when the user requests another registered instance.
+Confirm that the issue scope, dependency source, approved decisions, dependency batches, configured maximum width, suspected files, and blocking questions are coherent. Reject a plan that omits or contradicts a user-approved dependency or decision. The planner defaults to the `codex` CommandMate agent; override `--codex-agent-name` only when the user requests another registered instance.
 
 ## Advancing The Run
 

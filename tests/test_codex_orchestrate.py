@@ -131,6 +131,36 @@ def test_classify_file_candidates_splits_external_references() -> None:
     assert references == ["photon-mlx-develop/scripts/export_agent_training_data.py"]
 
 
+def test_enrich_file_candidates_uses_deterministic_filtered_order(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module = load_script()
+    paths = [
+        "src/zeta.rs",
+        "workspace/management/runs/noise.md",
+        "src/echo.rs",
+        "src/alpha.rs",
+        "src/delta.rs",
+        "src/charlie.rs",
+        "src/bravo.rs",
+    ]
+
+    def fake_runner(args, **kwargs):  # type: ignore[no-untyped-def]
+        return module.subprocess.CompletedProcess(args, 0, "\n".join(paths), "")
+
+    monkeypatch.setattr(module, "run_command", fake_runner)
+
+    enriched = module.enrich_file_candidates_with_rg("UniqueSearchTerm", [])
+
+    assert enriched == [
+        "src/alpha.rs",
+        "src/bravo.rs",
+        "src/charlie.rs",
+        "src/delta.rs",
+        "src/echo.rs",
+    ]
+
+
 def test_issue_2_to_5_dependency_batches_are_not_fully_serial() -> None:
     module = load_script()
     issues = [
@@ -207,6 +237,93 @@ def test_parser_rejects_non_positive_max_parallel() -> None:
 
     with pytest.raises(SystemExit):
         module.parse_args_from_list_for_test(["1", "--max-parallel", "0"])
+
+
+def test_dependency_overrides_replace_inference_with_complete_explicit_graph() -> None:
+    module = load_script()
+    issues = [
+        module.Issue(number, f"Issue {number}", f"Update `src/issue_{number}.rs`")
+        for number in range(11, 18)
+    ]
+    analyses = [
+        module.replace(
+            module.analyze_issue(issue, "CommandAgent", skip_enhance=True),
+            suspected_files=(f"src/issue_{issue.number}.rs",),
+        )
+        for issue in issues
+    ]
+    overrides = module.parse_dependency_overrides(
+        [
+            "11:",
+            "12:11,13,14",
+            "13:11",
+            "14:15",
+            "15:",
+            "16:15",
+            "17:16",
+        ],
+        list(range(11, 18)),
+    )
+
+    analyses = module.apply_planning_overrides(analyses, overrides, {})
+    batches, merge_order = module.classify_batches(analyses, "", max_parallel=2)
+
+    assert batches == [[11, 15], [13, 14], [12, 16], [17]]
+    assert merge_order == [11, 15, 13, 14, 12, 16, 17]
+    issue_15 = next(item for item in analyses if item.issue.number == 15)
+    assert module.direct_dependencies(issue_15, analyses) == []
+    assert module.dependency_reason(issue_15, analyses) == (
+        "explicitly has no dependencies"
+    )
+
+
+def test_dependency_overrides_require_every_requested_issue() -> None:
+    module = load_script()
+
+    with pytest.raises(ValueError, match="missing #12"):
+        module.parse_dependency_overrides(["11:"], [11, 12])
+
+
+def test_dependency_overrides_reject_cycles() -> None:
+    module = load_script()
+    analyses = [
+        module.analyze_issue(
+            module.Issue(number, f"Issue {number}", f"Update `src/{number}.rs`"),
+            "CommandAgent",
+            skip_enhance=True,
+        )
+        for number in (11, 12)
+    ]
+    overrides = module.parse_dependency_overrides(["11:12", "12:11"], [11, 12])
+    analyses = module.apply_planning_overrides(analyses, overrides, {})
+
+    with pytest.raises(ValueError, match="dependency cycle"):
+        module.classify_batches(analyses, "", max_parallel=2)
+
+
+def test_issue_decision_becomes_acceptance_and_worker_instruction() -> None:
+    module = load_script()
+    analysis = module.analyze_issue(
+        module.Issue(17, "Choose protocol naming", "Record the selected option."),
+        "CommandAgent",
+        skip_enhance=False,
+    )
+    decisions = module.parse_issue_decisions(
+        ["17:Adopt Option A and update only docs/mechanism-ledger.md."], [17]
+    )
+
+    updated = module.apply_planning_overrides([analysis], {17: ()}, decisions)[0]
+    prompt = module.build_worker_prompt(updated)
+
+    assert updated.approved_decision.startswith("Adopt Option A")
+    assert updated.enhancement_needed is False
+    assert updated.questions == ()
+    assert updated.acceptance_criteria == (
+        "Apply approved decision: Adopt Option A and update only "
+        "docs/mechanism-ledger.md.",
+    )
+    assert "## Approved Decision" in prompt
+    assert "Adopt Option A and update only docs/mechanism-ledger.md." in prompt
 
 
 def test_build_issue_body_with_orchestration_notes_is_idempotent() -> None:
