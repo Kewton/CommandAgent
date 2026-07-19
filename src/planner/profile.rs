@@ -448,6 +448,12 @@ static DATA_PROFILE: DataProfile = DataProfile;
 static PYTHON_CLI_PROFILE: crate::planner::profiles::python_cli::PythonCliProfile =
     crate::planner::profiles::python_cli::PythonCliProfile;
 static GENERIC_PROFILE: GenericProfile = GenericProfile;
+static DOMAIN_PROFILES: [&'static dyn DomainProfile; 4] = [
+    &NEXTJS_PROFILE,
+    &PYTHON_CLI_PROFILE,
+    &DATA_PROFILE,
+    &GENERIC_PROFILE,
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProfileInferenceSource {
@@ -930,15 +936,19 @@ fn generic_app_intent_excluded_by_internal_or_artifact_context(lower: &str) -> b
 }
 
 pub fn domain_profile(profile: &str) -> &'static dyn DomainProfile {
-    if NEXTJS_PROFILE.matches(profile) {
-        &NEXTJS_PROFILE
-    } else if PYTHON_CLI_PROFILE.matches(profile) {
-        &PYTHON_CLI_PROFILE
-    } else if DATA_PROFILE.matches(profile) {
-        &DATA_PROFILE
-    } else {
-        &GENERIC_PROFILE
-    }
+    DOMAIN_PROFILES
+        .iter()
+        .copied()
+        .find(|candidate| candidate.matches(profile))
+        .unwrap_or(&GENERIC_PROFILE)
+}
+
+/// Canonical profile identifiers accepted by the planner.
+///
+/// Keep editor-facing profile discovery tied to the same implementations used
+/// by runtime dispatch instead of maintaining a second list in the TUI.
+pub fn profile_names() -> Vec<&'static str> {
+    DOMAIN_PROFILES.iter().map(|profile| profile.id()).collect()
 }
 
 pub fn build_oracle_for_command(

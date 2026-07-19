@@ -181,6 +181,144 @@ pub struct ParsedSlash {
     pub goal: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlashCommandKind {
+    Help,
+    Status,
+    Runs,
+    Resume,
+    Plan,
+    PlanSteps,
+    PlanRun,
+    RunPlan,
+    UltraPlan,
+    UltraPlanRun,
+    RunUltraPlan,
+    SetupInteractionProbe,
+    ModelProbe,
+    Exit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SlashCommandSpec {
+    pub name: &'static str,
+    pub aliases: &'static [&'static str],
+    pub help_usage: &'static str,
+    pub description: &'static str,
+    pub kind: SlashCommandKind,
+}
+
+pub const SLASH_COMMANDS: &[SlashCommandSpec] = &[
+    SlashCommandSpec {
+        name: "/help",
+        aliases: &[],
+        help_usage: "/help",
+        description: "show this command list",
+        kind: SlashCommandKind::Help,
+    },
+    SlashCommandSpec {
+        name: "/status",
+        aliases: &[],
+        help_usage: "/status",
+        description: "show effective configuration and readiness",
+        kind: SlashCommandKind::Status,
+    },
+    SlashCommandSpec {
+        name: "/runs",
+        aliases: &[],
+        help_usage: "/runs",
+        description: "list recent runs and recovery availability",
+        kind: SlashCommandKind::Runs,
+    },
+    SlashCommandSpec {
+        name: "/resume",
+        aliases: &[],
+        help_usage: "/resume [run-id|yaml-path]",
+        description: "resume from a recovery UltraPlan",
+        kind: SlashCommandKind::Resume,
+    },
+    SlashCommandSpec {
+        name: "/plan",
+        aliases: &[],
+        help_usage: "/plan",
+        description: "show the active plan and current activity",
+        kind: SlashCommandKind::Plan,
+    },
+    SlashCommandSpec {
+        name: "/plan-steps",
+        aliases: &[],
+        help_usage: "/plan-steps <goal>",
+        description: "write a step plan",
+        kind: SlashCommandKind::PlanSteps,
+    },
+    SlashCommandSpec {
+        name: "/plan-run",
+        aliases: &[],
+        help_usage: "/plan-run <goal>",
+        description: "generate and run a step plan",
+        kind: SlashCommandKind::PlanRun,
+    },
+    SlashCommandSpec {
+        name: "/run-plan",
+        aliases: &[],
+        help_usage: "/run-plan <path>",
+        description: "run an existing step plan",
+        kind: SlashCommandKind::RunPlan,
+    },
+    SlashCommandSpec {
+        name: "/ultra-plan",
+        aliases: &[],
+        help_usage: "/ultra-plan <goal>",
+        description: "write an UltraPlan",
+        kind: SlashCommandKind::UltraPlan,
+    },
+    SlashCommandSpec {
+        name: "/ultra-plan-run",
+        aliases: &[],
+        help_usage: "/ultra-plan-run <goal>",
+        description: "generate and run an UltraPlan",
+        kind: SlashCommandKind::UltraPlanRun,
+    },
+    SlashCommandSpec {
+        name: "/run-ultra-plan",
+        aliases: &[],
+        help_usage: "/run-ultra-plan <path>",
+        description: "run an existing UltraPlan",
+        kind: SlashCommandKind::RunUltraPlan,
+    },
+    SlashCommandSpec {
+        name: "/setup-interaction-probe",
+        aliases: &[],
+        help_usage: "/setup-interaction-probe",
+        description: "install the interaction readiness probe",
+        kind: SlashCommandKind::SetupInteractionProbe,
+    },
+    SlashCommandSpec {
+        name: "/model-probe",
+        aliases: &[],
+        help_usage: "/model-probe",
+        description: "run the bounded model behavior probe battery",
+        kind: SlashCommandKind::ModelProbe,
+    },
+    SlashCommandSpec {
+        name: "/exit",
+        aliases: &["/quit"],
+        help_usage: "/exit or /quit",
+        description: "leave the TUI",
+        kind: SlashCommandKind::Exit,
+    },
+];
+
+pub fn slash_command_spec(name: &str) -> Option<&'static SlashCommandSpec> {
+    SLASH_COMMANDS
+        .iter()
+        .find(|spec| spec.name == name || spec.aliases.contains(&name))
+}
+
+pub fn is_exit_command(name: &str) -> bool {
+    slash_command_spec(name).is_some_and(|spec| spec.kind == SlashCommandKind::Exit)
+}
+
 pub fn parse_slash(line: &str, config: &Config) -> anyhow::Result<ParsedSlash> {
     let args = parse_words(line);
     let Some(command) = args.first() else {
@@ -216,17 +354,28 @@ pub fn handle_command(
     ui: &dyn crate::tui::InteractionUi,
 ) -> anyhow::Result<String> {
     let parsed = parse_slash(line, config)?;
-    if parsed.command == "/help" {
-        return Ok(render_help());
-    }
-    if parsed.command == "/status" {
-        return Ok(crate::tui::presentation::render_status_card(config));
-    }
-    if parsed.command == "/plan" {
-        return Ok(crate::tui::presentation::render_current_plan());
-    }
-    if parsed.command == "/runs" {
-        return Ok(crate::runs::render_runs_table(&config.workspace_root));
+    let command = slash_command_spec(&parsed.command);
+    if let Some(command) = command {
+        match command.kind {
+            SlashCommandKind::Help => return Ok(render_help()),
+            SlashCommandKind::Status => {
+                return Ok(crate::tui::presentation::render_status_card(config));
+            }
+            SlashCommandKind::Plan => return Ok(crate::tui::presentation::render_current_plan()),
+            SlashCommandKind::Runs => {
+                return Ok(crate::runs::render_runs_table(&config.workspace_root));
+            }
+            SlashCommandKind::Exit => return Ok(String::new()),
+            SlashCommandKind::Resume
+            | SlashCommandKind::PlanSteps
+            | SlashCommandKind::PlanRun
+            | SlashCommandKind::RunPlan
+            | SlashCommandKind::UltraPlan
+            | SlashCommandKind::UltraPlanRun
+            | SlashCommandKind::RunUltraPlan
+            | SlashCommandKind::SetupInteractionProbe
+            | SlashCommandKind::ModelProbe => {}
+        }
     }
     let mut config = config.clone();
     config.profile = parsed.profile;
@@ -272,27 +421,33 @@ pub fn handle_command(
     let panic_hook_guard = PanicHookGuard::install(Arc::clone(&panic_diagnostic));
     let command_result = std::panic::catch_unwind(AssertUnwindSafe(|| {
         crate::preflight::run_for_slash_command(&config, &parsed.command, &parsed.goal)?;
-        match parsed.command.as_str() {
-            "/plan-steps" => {
+        let Some(command) = command else {
+            bail!(
+                "unknown slash command: {}; type /help for commands",
+                parsed.command
+            );
+        };
+        match command.kind {
+            SlashCommandKind::PlanSteps => {
                 let plan =
                     crate::planner::generate_step_plan_with_ui(planner, &parsed.goal, &config, ui)?;
                 let path = crate::planner::save_step_plan(&config.workspace_root, &plan)?;
                 Ok(path.display().to_string())
             }
-            "/plan-run" => crate::planner::generate_and_run_step_plan_with_ui(
+            SlashCommandKind::PlanRun => crate::planner::generate_and_run_step_plan_with_ui(
                 planner,
                 execution,
                 &parsed.goal,
                 &config,
                 ui,
             ),
-            "/run-plan" => crate::planner::run_plan_file_with_ui(
+            SlashCommandKind::RunPlan => crate::planner::run_plan_file_with_ui(
                 execution,
                 Path::new(&parsed.goal),
                 &config,
                 ui,
             ),
-            "/ultra-plan" => {
+            SlashCommandKind::UltraPlan => {
                 let plan = crate::planner::generate_ultra_plan_with_ui(
                     planner,
                     &parsed.goal,
@@ -302,21 +457,21 @@ pub fn handle_command(
                 let path = crate::planner::save_ultra_plan(&config.workspace_root, &plan)?;
                 Ok(path.display().to_string())
             }
-            "/ultra-plan-run" => crate::planner::generate_and_run_ultra_plan_with_ui(
+            SlashCommandKind::UltraPlanRun => crate::planner::generate_and_run_ultra_plan_with_ui(
                 planner,
                 execution,
                 &parsed.goal,
                 &config,
                 ui,
             ),
-            "/run-ultra-plan" => crate::planner::run_ultra_plan_file_with_ui(
+            SlashCommandKind::RunUltraPlan => crate::planner::run_ultra_plan_file_with_ui(
                 planner,
                 execution,
                 Path::new(&parsed.goal),
                 &config,
                 ui,
             ),
-            "/resume" => {
+            SlashCommandKind::Resume => {
                 let resume = crate::runs::prepare_resume(&config.workspace_root, &parsed.goal)?;
                 if let Some(error) = resume.workspace_drift_error() {
                     bail!("{error}");
@@ -345,16 +500,20 @@ pub fn handle_command(
                     output
                 ))
             }
-            "/setup-interaction-probe" => {
+            SlashCommandKind::SetupInteractionProbe => {
                 let report =
                 crate::minimal_loop::interaction_probe::setup_interaction_probe_with_stdout_progress()?;
                 Ok(report.summary_lines().join("\n"))
             }
-            "/model-probe" => {
+            SlashCommandKind::ModelProbe => {
                 let output = crate::model_probe::run_configured(&config, planner, execution)?;
                 Ok(output.card)
             }
-            other => bail!("unknown slash command: {other}; type /help for commands"),
+            SlashCommandKind::Help
+            | SlashCommandKind::Status
+            | SlashCommandKind::Runs
+            | SlashCommandKind::Plan
+            | SlashCommandKind::Exit => unreachable!("handled before command execution"),
         }
     }));
     drop(panic_hook_guard);
@@ -406,26 +565,18 @@ pub fn handle_command(
 }
 
 fn render_help() -> String {
-    [
-        "Commands:",
-        "/help - show this command list",
-        "/status - show effective configuration and readiness",
-        "/runs - list recent runs and recovery availability",
-        "/resume [run-id|yaml-path] - resume from a recovery UltraPlan",
-        "/plan - show the active plan and current activity",
-        "/plan-steps <goal> - write a step plan",
-        "/plan-run <goal> - generate and run a step plan",
-        "/run-plan <path> - run an existing step plan",
-        "/ultra-plan <goal> - write an UltraPlan",
-        "/ultra-plan-run <goal> - generate and run an UltraPlan",
-        "/run-ultra-plan <path> - run an existing UltraPlan",
-        "/setup-interaction-probe - install the interaction readiness probe",
-        "/model-probe - run the bounded model behavior probe battery",
-        "/exit or /quit - leave the TUI",
-        "Footer: use --footer off to disable the fixed footer; breadcrumbs remain in scrollback.",
-        "Interrupt: Esc/Ctrl-C once = prompt abort; twice = force finalize.",
-    ]
-    .join("\n")
+    let mut lines = vec!["Commands:".to_string()];
+    lines.extend(
+        SLASH_COMMANDS
+            .iter()
+            .map(|spec| format!("{} - {}", spec.help_usage, spec.description)),
+    );
+    lines.push(
+        "Footer: use --footer off to disable the fixed footer; breadcrumbs remain in scrollback."
+            .to_string(),
+    );
+    lines.push("Interrupt: Esc/Ctrl-C once = prompt abort; twice = force finalize.".to_string());
+    lines.join("\n")
 }
 
 fn confirm_resume(config: &Config, resume: &crate::runs::ResumePlan) -> anyhow::Result<()> {
@@ -945,6 +1096,23 @@ mod tests {
         ] {
             assert!(help.contains(expected), "{help}");
         }
+    }
+
+    #[test]
+    fn slash_registry_is_the_help_and_alias_source() {
+        assert_eq!(SLASH_COMMANDS.len(), 14);
+        let help = render_help();
+        for command in SLASH_COMMANDS {
+            assert!(
+                help.contains(&format!("{} - {}", command.help_usage, command.description)),
+                "{help}"
+            );
+            assert_eq!(slash_command_spec(command.name), Some(command));
+        }
+        assert_eq!(
+            slash_command_spec("/quit").map(|command| command.name),
+            Some("/exit")
+        );
     }
 
     #[test]
