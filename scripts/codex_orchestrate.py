@@ -340,19 +340,28 @@ def first_nonempty_line(value: str) -> str:
 def extract_acceptance_criteria(body: str) -> list[str]:
     lines = body.splitlines()
     out: list[str] = []
-    in_section = False
-    heading_re = re.compile(r"^#{1,6}\s+")
+    section_level: int | None = None
+    heading_re = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
     trigger_re = re.compile(r"(acceptance|受入|受け入れ|完了条件|期待結果)", re.IGNORECASE)
+    list_item_re = re.compile(r"^(?:[-*+]\s+|\d+[.)]\s+)(.+)$")
+    checkbox_re = re.compile(r"^\[[ xX]\]\s*")
     for line in lines:
         stripped = line.strip()
-        if heading_re.match(stripped):
-            in_section = bool(trigger_re.search(stripped))
+        heading = heading_re.match(stripped)
+        if heading:
+            level = len(heading.group(1))
+            if trigger_re.search(heading.group(2)):
+                section_level = level if section_level is None else min(section_level, level)
+            elif section_level is not None and level <= section_level:
+                section_level = None
             continue
-        if in_section:
-            if not stripped:
-                continue
-            if stripped.startswith(("-", "*", "1.", "2.", "3.", "4.", "5.")):
-                out.append(stripped.lstrip("-* 0123456789."))
+        if section_level is None or not stripped:
+            continue
+        item_match = list_item_re.match(stripped)
+        if item_match:
+            item = checkbox_re.sub("", item_match.group(1)).strip()
+            if item:
+                out.append(item)
     return [item for item in out if item]
 
 

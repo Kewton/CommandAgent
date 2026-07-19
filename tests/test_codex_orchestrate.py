@@ -51,6 +51,37 @@ def test_analyze_issue_extracts_acceptance_files_and_tests() -> None:
     assert analysis.acceptance_criteria
 
 
+def test_analyze_issue_extracts_nested_japanese_acceptance_checklists() -> None:
+    module = load_script()
+    issue = module.Issue(
+        number=10,
+        title="Modernize REPL input",
+        body=(
+            "# 背景 / 目的\n"
+            "`src/tui/repl.rs` の入力体験を改善する。\n\n"
+            "# 要求仕様(受け入れ基準)\n\n"
+            "## 1. Tab補完\n"
+            "- [ ] スラッシュコマンドを前方一致で補完する。\n\n"
+            "## 2. Ctrl+C 作法\n"
+            "- [x] 空行で連続2回押すと正常終了する。\n"
+            "### 状態リセット\n"
+            "1. 間に他のキー入力があればカウントをリセットする。\n\n"
+            "# 実装ガイド\n"
+            "- 新規モジュールに実装する。\n"
+        ),
+    )
+
+    analysis = module.analyze_issue(issue, "CommandAgent", skip_enhance=False)
+
+    assert analysis.acceptance_criteria == (
+        "スラッシュコマンドを前方一致で補完する。",
+        "空行で連続2回押すと正常終了する。",
+        "間に他のキー入力があればカウントをリセットする。",
+    )
+    assert analysis.enhancement_needed is False
+    assert analysis.questions == ()
+
+
 def test_analyze_issue_skips_markdown_heading_for_objective() -> None:
     module = load_script()
     issue = module.Issue(
