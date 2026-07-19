@@ -4,11 +4,11 @@ use crate::config::{Config, Provider};
 
 const MIN_BANNER_WIDTH: u16 = 50;
 const NEON_GRADIENT_256: [u8; 5] = [51, 39, 93, 201, 21];
-const ANVIL_ASCII_ART: [&str; 5] = [
+const COMMANDAGENT_ASCII_ART: [&str; 5] = [
     "                                          ",
-    "  ╔═╗ ╔╗╔ ╦  ╦ ╦ ╦                        ",
-    "  ╠═╣ ║║║ ╚╗╔╝ ║ ║     local-first agent  ",
-    "  ╩ ╩ ╝╚╝  ╚╝  ╩ ╩═╝                      ",
+    "  ╭──────────────────────────────────────╮",
+    "  │   COMMANDAGENT · local-first agent   │",
+    "  ╰──────────────────────────────────────╯",
     "                                          ",
 ];
 
@@ -47,13 +47,13 @@ pub fn render_startup_banner(config: &Config, style: BannerStyle) -> String {
     let mut out = String::new();
     match style {
         BannerStyle::Neon => {
-            for (index, line) in ANVIL_ASCII_ART.iter().enumerate() {
+            for (index, line) in COMMANDAGENT_ASCII_ART.iter().enumerate() {
                 let color = NEON_GRADIENT_256[index];
                 out.push_str(&format!("\x1b[38;5;{color}m{line}\x1b[0m\n"));
             }
         }
         BannerStyle::MonoArt => {
-            for line in ANVIL_ASCII_ART {
+            for line in COMMANDAGENT_ASCII_ART {
                 out.push_str(line);
                 out.push('\n');
             }
@@ -212,7 +212,7 @@ mod tests {
     #[test]
     fn banner_mono_includes_ascii_art_lines() {
         let out = render_startup_banner(&config(), BannerStyle::MonoArt);
-        for line in ANVIL_ASCII_ART {
+        for line in COMMANDAGENT_ASCII_ART {
             assert!(out.contains(line));
         }
         assert!(!out.contains("\x1b[31m"));

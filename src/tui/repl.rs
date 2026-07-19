@@ -28,7 +28,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     loop {
         let line = {
             let _prompt_guard = ui.pause_for_prompt();
-            match editor.readline("anvil> ") {
+            match editor.readline("commandagent> ") {
                 Ok(line) => line,
                 Err(ReadlineError::Interrupted) => match editor.take_interrupt_action() {
                     PromptInterruptAction::ClearLine => continue,

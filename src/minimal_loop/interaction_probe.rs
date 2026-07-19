@@ -497,7 +497,7 @@ fn ensure_managed_package_json(tool_dir: &Path) -> anyhow::Result<()> {
     }
     std::fs::write(
         &path,
-        "{\n  \"private\": true,\n  \"description\": \"Anvil managed interaction probe tools\"\n}\n",
+        "{\n  \"private\": true,\n  \"description\": \"CommandAgent managed interaction probe tools\"\n}\n",
     )
     .with_context(|| format!("failed to write {}", path.display()))
 }

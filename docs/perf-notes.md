@@ -10,10 +10,10 @@ invalidated.
 For the current corpus fixture `tests/corpus/apps/test0708_012/fixtures/events-final-acceptance-pending.jsonl`,
 the implementation rewrite happened at the `implement-visual-polish-tsx` turn
 (`src/app/page.tsx` write). That turn replaced the page implementation, but the
-final artifact still retained the `data-anvil-*` hooks, so the failure read as a
+final artifact still retained the instrumentation hooks, so the failure read as a
 behavioral miss rather than a literal hook-drop regression. The cheapest
 surviving measure is guidance: keep extending the instrumented skeleton and
-preserve `data-anvil-*` attributes instead of treating the scaffold as disposable
+preserve the instrumentation attributes instead of treating the scaffold as disposable
 output.
 
 The summary renderer now surfaces a `Generation profile` block alongside the

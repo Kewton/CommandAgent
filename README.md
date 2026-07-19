@@ -45,7 +45,7 @@ commandagent --provider ollama --model qwen3.6:27b-coding-nvfp4 \
 ```
 
 Named presets can live in `.anvil/config.toml` or `~/.anvil/config.toml`.
-These are examples only; Anvil does not auto-create them:
+These are examples only; CommandAgent does not auto-create them:
 
 ```toml
 # [preset.gemini-tier]
@@ -121,7 +121,7 @@ flag value in `source` (empty when omitted).
 
 ## TUI
 
-Interactive TTY mode uses the same `anvil>` prompt and slash commands, plus
+Interactive TTY mode uses the same `commandagent>` prompt and slash commands, plus
 terminal-only markdown rendering, spinner, Esc/Ctrl-C prompt interrupt, and a fixed
 footer. Disable paths:
 
