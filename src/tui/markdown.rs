@@ -595,7 +595,7 @@ impl TerminalMarkdownRenderer {
     }
 
     pub fn for_stdout() -> Self {
-        let disabled = crate::tui::terminal::env_non_empty("ANVIL_NO_MARKDOWN");
+        let disabled = crate::tui::terminal::env_non_empty("COMMANDAGENT_NO_MARKDOWN");
         let color_enabled =
             !disabled && !crate::tui::terminal::no_color() && io::stdout().is_terminal();
         let utf8 = crate::tui::terminal::utf8_locale();
@@ -607,7 +607,8 @@ impl TerminalMarkdownRenderer {
     }
 
     pub fn render_to_string(&self, raw_text: &str) -> String {
-        if !self.markdown_enabled || crate::tui::terminal::env_non_empty("ANVIL_NO_MARKDOWN") {
+        if !self.markdown_enabled || crate::tui::terminal::env_non_empty("COMMANDAGENT_NO_MARKDOWN")
+        {
             return raw_text.to_string();
         }
         let mut renderer = MarkdownRenderer::new(self.color_enabled, self.utf8);
@@ -617,7 +618,8 @@ impl TerminalMarkdownRenderer {
     }
 
     pub fn render_chunks_to_string<'a>(&self, chunks: impl IntoIterator<Item = &'a str>) -> String {
-        if !self.markdown_enabled || crate::tui::terminal::env_non_empty("ANVIL_NO_MARKDOWN") {
+        if !self.markdown_enabled || crate::tui::terminal::env_non_empty("COMMANDAGENT_NO_MARKDOWN")
+        {
             return chunks.into_iter().collect();
         }
         let mut renderer = MarkdownRenderer::new(self.color_enabled, self.utf8);

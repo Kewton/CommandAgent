@@ -56,7 +56,7 @@ pub fn run(config: &Config) -> anyhow::Result<()> {
         "repair_target": "browser evidence",
     }));
 
-    let fast = std::env::var_os("ANVIL_UX_DEMO_FAST").is_some();
+    let fast = crate::env_compat::var_os("COMMANDAGENT_UX_DEMO_FAST").is_some();
     let total_secs = if fast { 2 } else { 20 };
     let interrupt_at = if fast { 1 } else { 10 };
     status_bus::publish_provider_started("planner_step", 600);

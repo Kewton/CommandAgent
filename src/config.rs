@@ -769,29 +769,43 @@ fn legacy_config_file_value<T>(
     key: &str,
     parse: impl Fn(&str) -> Option<T>,
 ) -> Option<Sourced<T>> {
-    let path = root.join(".anvil").join("config");
-    let text = std::fs::read_to_string(&path).ok()?;
-    text.lines().find_map(|line| {
-        let line = line.split('#').next().unwrap_or("").trim();
-        let value = line.strip_prefix(key)?.trim();
-        let value = value.strip_prefix('=')?.trim();
-        let value = value.trim_matches('"').trim_matches('\'');
-        parse(value).map(|mode| {
-            sourced(
-                mode,
-                format!(
-                    "config:{}",
-                    path.file_name().unwrap_or_default().to_string_lossy()
-                ),
-            )
-        })
-    })
+    for path in [
+        root.join(".commandagent").join("config"),
+        root.join(".anvil").join("config"),
+    ] {
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        if let Some(value) = text.lines().find_map(|line| {
+            let line = line.split('#').next().unwrap_or("").trim();
+            let value = line.strip_prefix(key)?.trim();
+            let value = value.strip_prefix('=')?.trim();
+            let value = value.trim_matches('"').trim_matches('\'');
+            parse(value).map(|mode| {
+                sourced(
+                    mode,
+                    format!(
+                        "config:{}",
+                        path.file_name().unwrap_or_default().to_string_lossy()
+                    ),
+                )
+            })
+        }) {
+            return Some(value);
+        }
+    }
+    None
 }
 
 fn config_paths(root: &Path) -> Vec<PathBuf> {
-    let mut paths = vec![root.join(".anvil").join("config.toml")];
+    let mut paths = vec![
+        root.join(".commandagent").join("config.toml"),
+        root.join(".anvil").join("config.toml"),
+    ];
     if let Some(home) = std::env::var_os("HOME") {
-        paths.push(PathBuf::from(home).join(".anvil").join("config.toml"));
+        let home = PathBuf::from(home);
+        paths.push(home.join(".commandagent").join("config.toml"));
+        paths.push(home.join(".anvil").join("config.toml"));
     }
     paths
 }
@@ -1379,6 +1393,65 @@ mod tests {
         let config =
             Config::from_cli(Cli::parse_from(["commandagent", "--cwd", &cwd, "--quiet"])).unwrap();
         assert_eq!(config.narration, NarrationMode::Quiet);
+    }
+
+    #[test]
+    fn config_path_precedence_covers_new_old_and_both() {
+        let new_only = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(new_only.path().join(".commandagent")).unwrap();
+        std::fs::write(
+            new_only.path().join(".commandagent/config.toml"),
+            "footer = \"off\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            config_file_footer(new_only.path()).map(|value| value.value),
+            Some(FooterMode::Off)
+        );
+
+        let old_only = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(old_only.path().join(".anvil")).unwrap();
+        std::fs::write(
+            old_only.path().join(".anvil/config.toml"),
+            "footer = \"off\"\n",
+        )
+        .unwrap();
+        assert_eq!(
+            config_file_footer(old_only.path()).map(|value| value.value),
+            Some(FooterMode::Off)
+        );
+
+        let both = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(both.path().join(".commandagent")).unwrap();
+        std::fs::create_dir_all(both.path().join(".anvil")).unwrap();
+        std::fs::write(
+            both.path().join(".commandagent/config.toml"),
+            "footer = \"on\"\n",
+        )
+        .unwrap();
+        std::fs::write(both.path().join(".anvil/config.toml"), "footer = \"off\"\n").unwrap();
+        assert_eq!(
+            config_file_footer(both.path()).map(|value| value.value),
+            Some(FooterMode::On)
+        );
+    }
+
+    #[test]
+    fn extensionless_commandagent_config_precedes_legacy_config() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".commandagent")).unwrap();
+        std::fs::create_dir_all(dir.path().join(".anvil")).unwrap();
+        std::fs::write(
+            dir.path().join(".commandagent/config"),
+            "narration = \"normal\"\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join(".anvil/config"), "narration = \"quiet\"\n").unwrap();
+
+        assert_eq!(
+            legacy_config_file_narration(dir.path()).map(|value| value.value),
+            Some(NarrationMode::Normal)
+        );
     }
 
     #[test]

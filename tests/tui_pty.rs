@@ -8,7 +8,11 @@ use std::time::Duration;
 #[test]
 #[ignore]
 fn tui_pty_smoke() {
-    if std::env::var("ANVIL_PTY_TESTS").ok().as_deref() != Some("1") {
+    if commandagent::env_compat::var("COMMANDAGENT_PTY_TESTS")
+        .ok()
+        .as_deref()
+        != Some("1")
+    {
         return;
     }
     if cfg!(windows) {
@@ -33,7 +37,11 @@ fn tui_pty_smoke() {
 #[test]
 #[ignore]
 fn tui_pty_queues_input_during_command_and_replays_fifo() {
-    if std::env::var("ANVIL_PTY_TESTS").ok().as_deref() != Some("1") {
+    if commandagent::env_compat::var("COMMANDAGENT_PTY_TESTS")
+        .ok()
+        .as_deref()
+        != Some("1")
+    {
         return;
     }
     if cfg!(windows) {
@@ -84,7 +92,12 @@ fn tui_pty_queues_input_during_command_and_replays_fifo() {
 #[test]
 #[ignore]
 fn tui_pty_streams_ollama_with_spinner_and_footer_cleanup() {
-    if std::env::var("ANVIL_PTY_TESTS").ok().as_deref() != Some("1") || cfg!(windows) {
+    if commandagent::env_compat::var("COMMANDAGENT_PTY_TESTS")
+        .ok()
+        .as_deref()
+        != Some("1")
+        || cfg!(windows)
+    {
         return;
     }
     let bin = env!("CARGO_BIN_EXE_commandagent");
@@ -148,7 +161,7 @@ fn run_stream_script(
             .arg("/dev/null");
     }
     let mut child = command
-        .env("ANVIL_NO_MARKDOWN", "1")
+        .env("COMMANDAGENT_NO_MARKDOWN", "1")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -365,8 +378,8 @@ fn run_queue_child(
     chat_started: mpsc::Receiver<()>,
 ) -> std::io::Result<std::process::Output> {
     let mut child = command
-        .env("ANVIL_NO_SPINNER", "1")
-        .env("ANVIL_NO_MARKDOWN", "1")
+        .env("COMMANDAGENT_NO_SPINNER", "1")
+        .env("COMMANDAGENT_NO_MARKDOWN", "1")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -506,9 +519,9 @@ fn run_script_bsd(bin: &str, cwd: &std::path::Path) -> std::io::Result<std::proc
         .arg("--cwd")
         .arg(cwd)
         .arg("--no-footer")
-        .env("ANVIL_NO_SPINNER", "1")
-        .env("ANVIL_NO_INTERRUPT", "1")
-        .env("ANVIL_NO_MARKDOWN", "1")
+        .env("COMMANDAGENT_NO_SPINNER", "1")
+        .env("COMMANDAGENT_NO_INTERRUPT", "1")
+        .env("COMMANDAGENT_NO_MARKDOWN", "1")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -524,9 +537,9 @@ fn run_script_linux(bin: &str, cwd: &std::path::Path) -> std::io::Result<std::pr
         .arg("-c")
         .arg(command)
         .arg("/dev/null")
-        .env("ANVIL_NO_SPINNER", "1")
-        .env("ANVIL_NO_INTERRUPT", "1")
-        .env("ANVIL_NO_MARKDOWN", "1")
+        .env("COMMANDAGENT_NO_SPINNER", "1")
+        .env("COMMANDAGENT_NO_INTERRUPT", "1")
+        .env("COMMANDAGENT_NO_MARKDOWN", "1")
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

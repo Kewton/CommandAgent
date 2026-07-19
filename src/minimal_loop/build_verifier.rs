@@ -1799,8 +1799,8 @@ Error:
                 "minimal_loop::build_verifier::tests::nextjs_build_with_foreign_next_on_path_child",
                 "--nocapture",
             ])
-            .env("ANVIL_FOREIGN_TOOLCHAIN_ROOT", dir.path())
-            .env("ANVIL_FOREIGN_TOOLCHAIN_EVENTS", &events)
+            .env("COMMANDAGENT_FOREIGN_TOOLCHAIN_ROOT", dir.path())
+            .env("COMMANDAGENT_FOREIGN_TOOLCHAIN_EVENTS", &events)
             .env("PATH", child_path)
             .status()
             .unwrap();
@@ -1816,10 +1816,10 @@ Error:
     #[test]
     #[ignore]
     fn nextjs_build_with_foreign_next_on_path_child() {
-        let root = std::env::var_os("ANVIL_FOREIGN_TOOLCHAIN_ROOT")
+        let root = crate::env_compat::var_os("COMMANDAGENT_FOREIGN_TOOLCHAIN_ROOT")
             .map(std::path::PathBuf::from)
             .unwrap();
-        let events = std::env::var_os("ANVIL_FOREIGN_TOOLCHAIN_EVENTS")
+        let events = crate::env_compat::var_os("COMMANDAGENT_FOREIGN_TOOLCHAIN_EVENTS")
             .map(std::path::PathBuf::from)
             .unwrap();
         let requirement = requirement_from_deferred(

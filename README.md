@@ -44,7 +44,9 @@ commandagent --provider ollama --model qwen3.6:27b-coding-nvfp4 \
   "あなたが考える最高に面白くかっこいいスペースインベーダーゲームを3011ポートで起動可能なnext.jsアプリとして開発してください。"
 ```
 
-Named presets can live in `.anvil/config.toml` or `~/.anvil/config.toml`.
+Named presets can live in `.commandagent/config.toml` or
+`~/.commandagent/config.toml`. The matching `.anvil` paths remain supported as
+legacy fallbacks.
 These are examples only; CommandAgent does not auto-create them:
 
 ```toml
@@ -137,20 +139,24 @@ flag > named preset > config file > default precedence applies. One-shot
 remain non-streaming even when the stored preference is on. Disable paths:
 
 ```bash
-ANVIL_NO_SPINNER=1 commandagent --yes
-ANVIL_NO_FOOTER=1 commandagent --yes
-ANVIL_NO_INTERRUPT=1 commandagent --yes
-ANVIL_NO_MARKDOWN=1 commandagent --yes
+COMMANDAGENT_NO_SPINNER=1 commandagent --yes
+COMMANDAGENT_NO_FOOTER=1 commandagent --yes
+COMMANDAGENT_NO_INTERRUPT=1 commandagent --yes
+COMMANDAGENT_NO_MARKDOWN=1 commandagent --yes
 NO_COLOR=1 commandagent --yes
 commandagent --yes --no-footer
 commandagent --yes --footer off
 commandagent --yes --stream off
 ```
 
+Pre-rename environment-variable names remain supported as deprecated
+fallbacks. When one is consumed without its canonical replacement,
+CommandAgent emits one migration warning per variable for that process.
+
 Release/manual TTY smoke:
 
 ```bash
-ANVIL_PTY_TESTS=1 cargo test tui_pty_smoke -- --ignored
+COMMANDAGENT_PTY_TESTS=1 cargo test tui_pty_smoke -- --ignored
 commandagent --ux-demo
 commandagent --help
 commandagent --yes --context-budget 65536 --model qwen3.6:27b-coding-nvfp4 --planner-model gemini-3.5-flash --planner-provider gemini --provider ollama
@@ -183,11 +189,11 @@ from `.env` in the active workspace. Values are redacted from logs.
 Live provider tests are gated:
 
 ```bash
-ANVIL_LIVE_PROVIDER_TESTS=1 cargo test live_ -- --ignored
+COMMANDAGENT_LIVE_PROVIDER_TESTS=1 cargo test live_ -- --ignored
 ```
 
-Smoke model IDs can be overridden with `ANVIL_OPENAI_SMOKE_MODEL` and
-`ANVIL_GEMINI_SMOKE_MODEL`.
+Smoke model IDs can be overridden with `COMMANDAGENT_OPENAI_SMOKE_MODEL` and
+`COMMANDAGENT_GEMINI_SMOKE_MODEL`.
 
 ## Local Symlink
 

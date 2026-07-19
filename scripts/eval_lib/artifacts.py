@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from env_compat import getenv
+
 
 def default_eval_root(cwd: Path | None = None) -> Path:
     cwd = cwd or Path.cwd()
-    env = os.environ.get("ANVIL_EVAL_ROOT")
+    env = getenv("COMMANDAGENT_EVAL_ROOT")
     if env:
         return Path(env)
     return (cwd / "../../workspace/eval-artifacts/commandagent-mvp").resolve()

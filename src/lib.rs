@@ -6,6 +6,7 @@ pub mod cli;
 mod cli_panic_boundary;
 mod completion_metadata;
 pub mod config;
+pub mod env_compat;
 pub mod eval_events;
 pub mod minimal_loop;
 pub mod mode;

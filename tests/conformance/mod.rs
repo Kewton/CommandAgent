@@ -2146,10 +2146,10 @@ if [ "$1" = "run" ] && [ "$2" = "build" ]; then
   exit 0
 fi
 if [ "$1" = "run" ] && [ "$2" = "dev" ]; then
-  ANVIL_CONFORMANCE_FAKE_DEV_SERVER_CHILD=1 ANVIL_CONFORMANCE_FAKE_DEV_SERVER_PORT=3011 exec __CONFORMANCE_TEST_EXE__ --ignored --exact suite::conformance_fake_dev_server_child --nocapture
+  COMMANDAGENT_CONFORMANCE_FAKE_DEV_SERVER_CHILD=1 COMMANDAGENT_CONFORMANCE_FAKE_DEV_SERVER_PORT=3011 exec __CONFORMANCE_TEST_EXE__ --ignored --exact suite::conformance_fake_dev_server_child --nocapture
 fi
 if [ "$1" = "run" ] && [ "$2" = "start" ]; then
-  ANVIL_CONFORMANCE_FAKE_DEV_SERVER_CHILD=1 ANVIL_CONFORMANCE_FAKE_DEV_SERVER_PORT=3011 exec __CONFORMANCE_TEST_EXE__ --ignored --exact suite::conformance_fake_dev_server_child --nocapture
+  COMMANDAGENT_CONFORMANCE_FAKE_DEV_SERVER_CHILD=1 COMMANDAGENT_CONFORMANCE_FAKE_DEV_SERVER_PORT=3011 exec __CONFORMANCE_TEST_EXE__ --ignored --exact suite::conformance_fake_dev_server_child --nocapture
 fi
 echo "unexpected fake npm args: $*" >&2
 exit 2
@@ -2200,14 +2200,14 @@ fn shell_quote(value: &str) -> String {
 #[test]
 #[ignore]
 fn conformance_fake_dev_server_child() {
-    if std::env::var("ANVIL_CONFORMANCE_FAKE_DEV_SERVER_CHILD")
+    if commandagent::env_compat::var("COMMANDAGENT_CONFORMANCE_FAKE_DEV_SERVER_CHILD")
         .ok()
         .as_deref()
         != Some("1")
     {
         return;
     }
-    let port = std::env::var("ANVIL_CONFORMANCE_FAKE_DEV_SERVER_PORT")
+    let port = commandagent::env_compat::var("COMMANDAGENT_CONFORMANCE_FAKE_DEV_SERVER_PORT")
         .unwrap()
         .parse::<u16>()
         .unwrap();

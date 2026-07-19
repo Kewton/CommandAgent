@@ -249,7 +249,7 @@ fn playwright_availability_from_command(root: &Path) -> ProbeAvailability {
         root,
         OsStr::new("node"),
         OsStr::new("npm"),
-        std::env::var_os("ANVIL_PLAYWRIGHT_DIR").map(PathBuf::from),
+        crate::env_compat::var_os("COMMANDAGENT_PLAYWRIGHT_DIR").map(PathBuf::from),
         Some(&home_dir()),
     )
 }
@@ -298,8 +298,12 @@ fn playwright_availability_from_programs_with_home(
         return ProbeAvailability::Available(resolution);
     }
     if let Some(tool_dir) = configured_tool_dir
-        && let Some(resolution) =
-            resolve_playwright_module(root, node_program, Some(&tool_dir), "ANVIL_PLAYWRIGHT_DIR")
+        && let Some(resolution) = resolve_playwright_module(
+            root,
+            node_program,
+            Some(&tool_dir),
+            "COMMANDAGENT_PLAYWRIGHT_DIR",
+        )
     {
         return ProbeAvailability::Available(resolution);
     }

@@ -108,7 +108,7 @@ fn redact_stop_reason_detail(value: &str) -> String {
 }
 
 pub fn path_from_env() -> Option<PathBuf> {
-    std::env::var_os("ANVIL_EVAL_EVENTS")
+    crate::env_compat::var_os("COMMANDAGENT_EVAL_EVENTS")
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)
 }
@@ -143,7 +143,7 @@ pub fn emit(path: Option<&Path>, mut event: Value) {
             .or_insert_with(|| Value::String("1".to_string()));
     }
     if let Err(err) = append(path, &event) {
-        eprintln!("warning: failed to write ANVIL_EVAL_EVENTS: {err}");
+        eprintln!("warning: failed to write COMMANDAGENT_EVAL_EVENTS: {err}");
     }
 }
 

@@ -24,7 +24,7 @@ impl SpinnerEnv {
     }
 
     pub fn detect_with(get_env: impl Fn(&str) -> Option<String>, stderr_is_tty: bool) -> Self {
-        if crate::tui::terminal::env_non_empty_with(&get_env, "ANVIL_NO_SPINNER") {
+        if crate::tui::terminal::env_non_empty_with(&get_env, "COMMANDAGENT_NO_SPINNER") {
             return Self {
                 enabled: false,
                 use_color: false,
@@ -180,7 +180,7 @@ mod tests {
     #[test]
     fn spinner_detects_disable_env() {
         let env = SpinnerEnv::detect_with(
-            |key| (key == "ANVIL_NO_SPINNER").then(|| "1".to_string()),
+            |key| (key == "COMMANDAGENT_NO_SPINNER").then(|| "1".to_string()),
             true,
         );
         assert!(!env.enabled);

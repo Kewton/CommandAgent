@@ -382,7 +382,7 @@ fn step_wall_clock_cap(options: &RunSessionOptions) -> Duration {
 }
 
 fn step_wall_clock_cap_from_env() -> Option<Duration> {
-    let value = std::env::var("ANVIL_STEP_WALL_CLOCK_CAP_MS").ok()?;
+    let value = crate::env_compat::var("COMMANDAGENT_STEP_WALL_CLOCK_CAP_MS").ok()?;
     let millis = value.trim().parse::<u64>().ok()?;
     Some(Duration::from_millis(millis))
 }

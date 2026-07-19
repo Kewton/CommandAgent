@@ -3552,10 +3552,9 @@ fn required_final_artifacts(plan: &StepPlan, root: &Path) -> Vec<String> {
 }
 
 fn explicit_completion_contract_path(config: &Config) -> Option<PathBuf> {
-    config
-        .completion_contract_path
-        .clone()
-        .or_else(|| std::env::var_os("ANVIL_COMPLETION_CONTRACT").map(PathBuf::from))
+    config.completion_contract_path.clone().or_else(|| {
+        crate::env_compat::var_os("COMMANDAGENT_COMPLETION_CONTRACT").map(PathBuf::from)
+    })
 }
 
 fn generated_completion_contract_path(config: &Config, scope: &str) -> PathBuf {
@@ -6106,11 +6105,11 @@ fn run_nextjs_dev_route_probe_with_runtime(
 }
 
 fn dev_server_probe_runtime_enabled(config: &Config) -> bool {
-    if env_flag_is_false("ANVIL_DEV_SERVER_PROBE") {
+    if env_flag_is_false("COMMANDAGENT_DEV_SERVER_PROBE") {
         return false;
     }
     if cfg!(test)
-        && !env_flag_is_true("ANVIL_TEST_DEV_SERVER_PROBE")
+        && !env_flag_is_true("COMMANDAGENT_TEST_DEV_SERVER_PROBE")
         && !config
             .workspace_root
             .join(".anvil")
@@ -6123,7 +6122,7 @@ fn dev_server_probe_runtime_enabled(config: &Config) -> bool {
 }
 
 fn env_flag_is_false(name: &str) -> bool {
-    std::env::var(name)
+    crate::env_compat::var(name)
         .map(|value| {
             matches!(
                 value.trim().to_ascii_lowercase().as_str(),
@@ -6134,7 +6133,7 @@ fn env_flag_is_false(name: &str) -> bool {
 }
 
 fn env_flag_is_true(name: &str) -> bool {
-    std::env::var(name)
+    crate::env_compat::var(name)
         .map(|value| {
             matches!(
                 value.trim().to_ascii_lowercase().as_str(),
@@ -6762,8 +6761,8 @@ fn dev_server_probe_environment(port: u16) -> Value {
         "NEXT_TELEMETRY_DISABLED": "1",
         "PORT": port.to_string(),
         "host_env_contamination": verifier_env::host_env_contamination(),
-        "ANVIL_DEV_SERVER_PROBE": std::env::var("ANVIL_DEV_SERVER_PROBE").unwrap_or_default(),
-        "ANVIL_TEST_DEV_SERVER_PROBE": std::env::var("ANVIL_TEST_DEV_SERVER_PROBE").unwrap_or_default(),
+        "COMMANDAGENT_DEV_SERVER_PROBE": crate::env_compat::var("COMMANDAGENT_DEV_SERVER_PROBE").unwrap_or_default(),
+        "COMMANDAGENT_TEST_DEV_SERVER_PROBE": crate::env_compat::var("COMMANDAGENT_TEST_DEV_SERVER_PROBE").unwrap_or_default(),
     })
 }
 
@@ -12813,10 +12812,14 @@ export default function Page() {
     #[cfg(unix)]
     #[allow(clippy::zombie_processes)]
     fn fake_dev_server_package_manager_child() {
-        if std::env::var("ANVIL_FAKE_DEV_SERVER_CHILD").ok().as_deref() != Some("1") {
+        if crate::env_compat::var("COMMANDAGENT_FAKE_DEV_SERVER_CHILD")
+            .ok()
+            .as_deref()
+            != Some("1")
+        {
             return;
         }
-        if std::env::var("ANVIL_FAKE_DEV_SERVER_GRANDCHILD")
+        if crate::env_compat::var("COMMANDAGENT_FAKE_DEV_SERVER_GRANDCHILD")
             .ok()
             .as_deref()
             == Some("1")
@@ -15661,10 +15664,10 @@ export default function Page(){
                 "--nocapture"
             ],
             "env": {
-                "ANVIL_BROWSER_PROBE_MOCK_CHILD": "1",
-                "ANVIL_BROWSER_PROBE_MOCK_PORT": port.to_string(),
-                "ANVIL_BROWSER_PROBE_MOCK_STATUS": status,
-                "ANVIL_BROWSER_PROBE_MOCK_DELAY_MS": "0"
+                "COMMANDAGENT_BROWSER_PROBE_MOCK_CHILD": "1",
+                "COMMANDAGENT_BROWSER_PROBE_MOCK_PORT": port.to_string(),
+                "COMMANDAGENT_BROWSER_PROBE_MOCK_STATUS": status,
+                "COMMANDAGENT_BROWSER_PROBE_MOCK_DELAY_MS": "0"
             },
             "port": port,
             "require_build": false,
@@ -15738,7 +15741,7 @@ if [ \"$1\" = \"run\" ] && [ \"$2\" = \"build\" ]; then\n\
   exit 0\n\
 fi\n\
 if [ \"$1\" = \"run\" ] && [ \"$2\" = \"dev\" ]; then\n\
-  ANVIL_FAKE_DEV_SERVER_CHILD=1 ANVIL_FAKE_DEV_SERVER_GRANDCHILD={grandchild} exec {exe} --ignored --exact planner::runner::tests::fake_dev_server_package_manager_child --nocapture\n\
+  COMMANDAGENT_FAKE_DEV_SERVER_CHILD=1 COMMANDAGENT_FAKE_DEV_SERVER_GRANDCHILD={grandchild} exec {exe} --ignored --exact planner::runner::tests::fake_dev_server_package_manager_child --nocapture\n\
 fi\n\
 echo \"unexpected fake npm args: $*\" >&2\n\
 exit 2\n"
@@ -16326,7 +16329,7 @@ if [ \"$1\" = \"run\" ] && [ \"$2\" = \"build\" ]; then\n\
   exit 0\n\
 fi\n\
 if [ \"$1\" = \"run\" ] && {{ [ \"$2\" = \"dev\" ] || [ \"$2\" = \"start\" ]; }}; then\n\
-  ANVIL_FAKE_DEV_SERVER_CHILD=1 ANVIL_FAKE_DEV_SERVER_GRANDCHILD=0 exec {exe} --ignored --exact planner::runner::tests::fake_dev_server_package_manager_child --nocapture\n\
+  COMMANDAGENT_FAKE_DEV_SERVER_CHILD=1 COMMANDAGENT_FAKE_DEV_SERVER_GRANDCHILD=0 exec {exe} --ignored --exact planner::runner::tests::fake_dev_server_package_manager_child --nocapture\n\
 fi\n\
 echo \"unexpected fake npm args: $*\" >&2\n\
 exit 2\n"

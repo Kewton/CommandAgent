@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+source "$(dirname "${BASH_SOURCE[0]}")/env_compat.sh"
+
 benchmark="${1:-minimal-loop-expanded}"
 shift || true
 
@@ -42,7 +44,7 @@ if [[ -n "$recheck_root" ]]; then
   exit 0
 fi
 
-bench_root="${ANVIL_BENCH_ROOT:-.anvil/benchmarks/$(date +%Y%m%dT%H%M%S)}"
+commandagent_env_get bench_root COMMANDAGENT_BENCH_ROOT ".anvil/benchmarks/$(date +%Y%m%dT%H%M%S)"
 mkdir -p "$bench_root/workdirs"
 printf '%s\n' "$header" > "$bench_root/summary.tsv"
 

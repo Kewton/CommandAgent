@@ -92,28 +92,28 @@ fn child_env_allowed(key: &std::ffi::OsStr, source: EnvSource) -> bool {
         || key.starts_with("LC_")
         || key.starts_with("npm_config_")
         || (source == EnvSource::Explicit
-            && matches!(
+            && (matches!(
                 key,
-                "NODE_ENV"
-                    | "NODE_OPTIONS"
-                    | "NODE_PATH"
-                    | "NEXT_TELEMETRY_DISABLED"
-                    | "PORT"
-                    | "ANVIL_FOREIGN_TOOLCHAIN_ROOT"
-                    | "ANVIL_FOREIGN_TOOLCHAIN_EVENTS"
-            ))
+                "NODE_ENV" | "NODE_OPTIONS" | "NODE_PATH" | "NEXT_TELEMETRY_DISABLED" | "PORT"
+            ) || [
+                "COMMANDAGENT_FOREIGN_TOOLCHAIN_ROOT",
+                "COMMANDAGENT_FOREIGN_TOOLCHAIN_EVENTS",
+            ]
+            .iter()
+            .any(|current| crate::env_compat::matches_current_or_legacy(key, current))))
         || (source == EnvSource::Explicit && test_control_env_allowed(key))
 }
 
 #[cfg(test)]
 fn test_control_env_allowed(key: &str) -> bool {
-    matches!(
-        key,
-        "ANVIL_BROWSER_PROBE_MOCK_CHILD"
-            | "ANVIL_BROWSER_PROBE_MOCK_PORT"
-            | "ANVIL_BROWSER_PROBE_MOCK_STATUS"
-            | "ANVIL_BROWSER_PROBE_MOCK_DELAY_MS"
-    )
+    [
+        "COMMANDAGENT_BROWSER_PROBE_MOCK_CHILD",
+        "COMMANDAGENT_BROWSER_PROBE_MOCK_PORT",
+        "COMMANDAGENT_BROWSER_PROBE_MOCK_STATUS",
+        "COMMANDAGENT_BROWSER_PROBE_MOCK_DELAY_MS",
+    ]
+    .iter()
+    .any(|current| crate::env_compat::matches_current_or_legacy(key, current))
 }
 
 #[cfg(not(test))]
@@ -465,7 +465,7 @@ mod tests {
             ("OLLAMA_API_KEY", "ollama-secret"),
             ("GEMINI_API_KEY", "gemini-secret"),
             ("OPENAI_API_KEY", "openai-secret"),
-            ("ANVIL_TEST_UNRELATED_PARENT_SECRET", "parent-secret"),
+            ("COMMANDAGENT_TEST_UNRELATED_PARENT_SECRET", "parent-secret"),
         ]);
         let cache_dir = tempfile::tempdir().unwrap();
         let mut command = Command::new("sh");
@@ -489,7 +489,10 @@ mod tests {
         assert!(!env.contains("OLLAMA_API_KEY"), "{env}");
         assert!(!env.contains("GEMINI_API_KEY"), "{env}");
         assert!(!env.contains("OPENAI_API_KEY"), "{env}");
-        assert!(!env.contains("ANVIL_TEST_UNRELATED_PARENT_SECRET"), "{env}");
+        assert!(
+            !env.contains("COMMANDAGENT_TEST_UNRELATED_PARENT_SECRET"),
+            "{env}"
+        );
     }
 
     #[test]

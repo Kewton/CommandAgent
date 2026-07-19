@@ -2,9 +2,18 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[allow(dead_code)]
+#[path = "src/env_compat.rs"]
+mod env_compat;
+
+const FORCE_BUILD_INFO_ENV: &str = "COMMANDAGENT_FORCE_BUILD_INFO";
+
 fn main() {
     println!("cargo:rerun-if-env-changed=SOURCE_DATE_EPOCH");
-    println!("cargo:rerun-if-env-changed=ANVIL_FORCE_BUILD_INFO");
+    println!("cargo:rerun-if-env-changed={FORCE_BUILD_INFO_ENV}");
+    if let Some(legacy_name) = env_compat::legacy_name(FORCE_BUILD_INFO_ENV) {
+        println!("cargo:rerun-if-env-changed={legacy_name}");
+    }
     emit_git_rerun_paths();
 
     let commit =
@@ -20,10 +29,10 @@ fn main() {
         timestamp
     );
 
-    println!("cargo:rustc-env=ANVIL_BUILD_COMMIT={commit}");
-    println!("cargo:rustc-env=ANVIL_BUILD_DIRTY={dirty}");
-    println!("cargo:rustc-env=ANVIL_BUILD_TIMESTAMP={timestamp}");
-    println!("cargo:rustc-env=ANVIL_VERSION={version}");
+    println!("cargo:rustc-env=COMMANDAGENT_BUILD_COMMIT={commit}");
+    println!("cargo:rustc-env=COMMANDAGENT_BUILD_DIRTY={dirty}");
+    println!("cargo:rustc-env=COMMANDAGENT_BUILD_TIMESTAMP={timestamp}");
+    println!("cargo:rustc-env=COMMANDAGENT_VERSION={version}");
 }
 
 fn git_output(args: &[&str]) -> Option<String> {

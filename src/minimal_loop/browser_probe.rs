@@ -1086,19 +1086,19 @@ mod tests {
     #[test]
     #[ignore]
     fn browser_probe_mock_server_child() {
-        if std::env::var("ANVIL_BROWSER_PROBE_MOCK_CHILD")
+        if crate::env_compat::var("COMMANDAGENT_BROWSER_PROBE_MOCK_CHILD")
             .ok()
             .as_deref()
             != Some("1")
         {
             return;
         }
-        let port = std::env::var("ANVIL_BROWSER_PROBE_MOCK_PORT")
+        let port = crate::env_compat::var("COMMANDAGENT_BROWSER_PROBE_MOCK_PORT")
             .unwrap()
             .parse::<u16>()
             .unwrap();
-        let status = std::env::var("ANVIL_BROWSER_PROBE_MOCK_STATUS").unwrap();
-        let startup_delay = std::env::var("ANVIL_BROWSER_PROBE_MOCK_DELAY_MS")
+        let status = crate::env_compat::var("COMMANDAGENT_BROWSER_PROBE_MOCK_STATUS").unwrap();
+        let startup_delay = crate::env_compat::var("COMMANDAGENT_BROWSER_PROBE_MOCK_DELAY_MS")
             .ok()
             .and_then(|value| value.parse::<u64>().ok())
             .unwrap_or(0);
@@ -1163,19 +1163,19 @@ mod tests {
         let exe = std::env::current_exe().unwrap();
         let mut env = vec![
             (
-                "ANVIL_BROWSER_PROBE_MOCK_CHILD".to_string(),
+                "COMMANDAGENT_BROWSER_PROBE_MOCK_CHILD".to_string(),
                 "1".to_string(),
             ),
             (
-                "ANVIL_BROWSER_PROBE_MOCK_PORT".to_string(),
+                "COMMANDAGENT_BROWSER_PROBE_MOCK_PORT".to_string(),
                 port.to_string(),
             ),
             (
-                "ANVIL_BROWSER_PROBE_MOCK_STATUS".to_string(),
+                "COMMANDAGENT_BROWSER_PROBE_MOCK_STATUS".to_string(),
                 status.to_string(),
             ),
             (
-                "ANVIL_BROWSER_PROBE_MOCK_DELAY_MS".to_string(),
+                "COMMANDAGENT_BROWSER_PROBE_MOCK_DELAY_MS".to_string(),
                 startup_delay_ms.to_string(),
             ),
         ];

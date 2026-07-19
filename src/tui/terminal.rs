@@ -13,7 +13,7 @@ pub fn stderr_is_tty() -> bool {
 }
 
 pub fn env_non_empty(name: &str) -> bool {
-    std::env::var_os(name).is_some_and(|value| !value.is_empty())
+    crate::env_compat::var_os(name).is_some_and(|value| !value.is_empty())
 }
 
 pub fn no_color() -> bool {
@@ -30,5 +30,5 @@ pub fn utf8_locale() -> bool {
 }
 
 pub fn env_non_empty_with(get_env: impl Fn(&str) -> Option<String>, name: &str) -> bool {
-    get_env(name).is_some_and(|value| !value.is_empty())
+    crate::env_compat::var_with(name, get_env).is_some_and(|value| !value.is_empty())
 }

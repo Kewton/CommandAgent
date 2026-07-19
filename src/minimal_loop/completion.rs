@@ -64,10 +64,9 @@ pub struct DeferredVerifyRequirement {
 
 impl CompletionContract {
     pub fn load_for_config(config: &Config) -> anyhow::Result<Option<Self>> {
-        let path = config
-            .completion_contract_path
-            .clone()
-            .or_else(|| std::env::var_os("ANVIL_COMPLETION_CONTRACT").map(PathBuf::from));
+        let path = config.completion_contract_path.clone().or_else(|| {
+            crate::env_compat::var_os("COMMANDAGENT_COMPLETION_CONTRACT").map(PathBuf::from)
+        });
         let Some(path) = path else {
             return Ok(None);
         };

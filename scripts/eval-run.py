@@ -12,6 +12,7 @@ import threading
 import time
 from pathlib import Path
 
+from env_compat import getenv
 from eval_lib.acceptance_outcome import evaluate_acceptance_outcome
 from eval_lib.acceptance_contract import contract_from_scenario
 from eval_lib.artifacts import create_run_root, write_json, write_jsonl
@@ -25,7 +26,7 @@ from eval_lib.failure_classification import (
     read_jsonl,
 )
 from eval_lib.matrix import expand_matrix, parse_modes
-from eval_lib.models import ModelRef, load_model_profiles
+from eval_lib.models import load_model_profiles
 from eval_lib.plan_readiness import (
     READINESS_FIELDS,
     aggregate_ultra_phase_readiness,
@@ -79,7 +80,7 @@ def main() -> int:
         "--provider-probe-results",
         action="append",
         default=[],
-        help="JSONL result file from ANVIL_PROVIDER_PROBE_OUT to attach to this eval summary.",
+        help="JSONL result file from COMMANDAGENT_PROVIDER_PROBE_OUT to attach to this eval summary.",
     )
     parser.add_argument(
         "--allow-provider-smoke-failure",
@@ -197,7 +198,7 @@ def main() -> int:
         subject=trace_subject(matrix, args.binary_kind),
         binary_kind=trace_binary_kind(matrix, args.binary_kind),
         binary_path=args.binary,
-        commit_sha=os.environ.get("ANVIL_EVAL_COMMIT_SHA", ""),
+        commit_sha=getenv("COMMANDAGENT_EVAL_COMMIT_SHA", "") or "",
     )
     print(f"[write] {trace['report_path']}")
     print(f"[write] {trace['manifest_path']}")
@@ -692,7 +693,7 @@ def run_one(spec: dict, command: list[str], run_dir: Path, workdir: Path, timeou
         return row, events
 
     env = merge_dotenv_into_env(os.environ.copy())
-    env["ANVIL_EVAL_EVENTS"] = str(run_dir / "anvil-events.jsonl")
+    env["COMMANDAGENT_EVAL_EVENTS"] = str(run_dir / "anvil-events.jsonl")
     scenario_timeout = timeout_sec or int(spec["scenario"].get("timeouts", {}).get("total_sec", 1800))
     start = time.monotonic()
     result = run_capture(
@@ -870,7 +871,8 @@ def run_one(spec: dict, command: list[str], run_dir: Path, workdir: Path, timeou
         workdir,
         run_dir=run_dir,
         postcheck=post,
-        enabled=str(os.environ.get("ANVIL_EVAL_BROWSER_ORACLE", "")).lower() in {"1", "true", "yes"},
+        enabled=str(getenv("COMMANDAGENT_EVAL_BROWSER_ORACLE", "")).lower()
+        in {"1", "true", "yes"},
     )
     events.append({"event": "browser_oracle_summary", "run_id": spec["run_id"], **browser_result})
     acceptance = evaluate_acceptance_outcome(

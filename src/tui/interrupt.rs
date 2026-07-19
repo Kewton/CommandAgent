@@ -27,7 +27,7 @@ impl InterruptEnv {
     }
 
     pub fn detect_with(get_env: impl Fn(&str) -> Option<String>, stdin_is_tty: bool) -> Self {
-        if crate::tui::terminal::env_non_empty_with(get_env, "ANVIL_NO_INTERRUPT") {
+        if crate::tui::terminal::env_non_empty_with(get_env, "COMMANDAGENT_NO_INTERRUPT") {
             return Self { enabled: false };
         }
         Self {
@@ -392,7 +392,7 @@ mod tests {
     #[test]
     fn interrupt_env_disable() {
         let env = InterruptEnv::detect_with(
-            |key| (key == "ANVIL_NO_INTERRUPT").then(|| "1".to_string()),
+            |key| (key == "COMMANDAGENT_NO_INTERRUPT").then(|| "1".to_string()),
             true,
         );
         assert!(!env.enabled);

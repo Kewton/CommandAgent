@@ -6,7 +6,7 @@ parity_gate:
   require_same_condition_summary_for_comparative: false
 provider_probe:
   required_for_prompt_sensitive_fix: true
-  command: ANVIL_PROVIDER_PROBE=1 ANVIL_PROVIDER_PROBE_OUT=/tmp/anvil-provider-probe.jsonl cargo test --manifest-path Cargo.toml --test live_provider provider_probe -- --nocapture
+  command: COMMANDAGENT_PROVIDER_PROBE=1 COMMANDAGENT_PROVIDER_PROBE_OUT=/tmp/anvil-provider-probe.jsonl cargo test --manifest-path Cargo.toml --test live_provider provider_probe -- --nocapture
   probes:
     - provider: openai
       observes: [tool_args_shape, tool_args_recovery_classification]
@@ -45,12 +45,12 @@ scenarios:
     size: small
     category: provider-smoke
     profile: generic
-    prompt: Create notes.txt with two lines. One line must contain the exact token ANVIL_PROVIDER_SMOKE.
+    prompt: Create notes.txt with two lines. One line must contain the exact token COMMANDAGENT_PROVIDER_SMOKE.
     expected_artifacts:
       - notes.txt
     postcheck:
       commands:
-        - grep -q ANVIL_PROVIDER_SMOKE notes.txt
+        - grep -q COMMANDAGENT_PROVIDER_SMOKE notes.txt
     timeouts:
       total_sec: 300
       model_call_sec: 120

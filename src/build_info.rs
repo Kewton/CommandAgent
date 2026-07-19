@@ -1,7 +1,7 @@
-pub const COMMIT: &str = env!("ANVIL_BUILD_COMMIT");
-pub const DIRTY_RAW: &str = env!("ANVIL_BUILD_DIRTY");
-pub const TIMESTAMP: &str = env!("ANVIL_BUILD_TIMESTAMP");
-pub const VERSION: &str = env!("ANVIL_VERSION");
+pub const COMMIT: &str = env!("COMMANDAGENT_BUILD_COMMIT");
+pub const DIRTY_RAW: &str = env!("COMMANDAGENT_BUILD_DIRTY");
+pub const TIMESTAMP: &str = env!("COMMANDAGENT_BUILD_TIMESTAMP");
+pub const VERSION: &str = env!("COMMANDAGENT_VERSION");
 
 pub fn dirty() -> bool {
     DIRTY_RAW == "true"

@@ -581,3 +581,13 @@ create/fix/investigateの3実例がD-0骨格上に成立し、骨格のrule of t
 
 Phase Dの分布条件は5セルまで到達した。調査→fixの連結runはD-3a未達であり、
 これを残件とする。
+
+## Brand migration Phase 2 (2026-07-20)
+
+| 対象 | 導入内容 | 互換境界 | 検証 |
+|---|---|---|---|
+| 環境変数 | 外部名を `COMMANDAGENT_*` へ統一 | canonical優先・旧名fallback・旧名単独時は変数ごとにprocess内1回だけ警告 | 新のみ／旧のみ／両方／なしのmatrixとwarn-once test |
+| 設定 | workspace/homeの `.commandagent/config.toml` とworkspaceの `.commandagent/config` をprimary化 | 各scopeで旧namespaceをread-only fallbackとして維持。live `.anvil/` runtime stateは非変更 | 新のみ／旧のみ／両方の優先順位test |
+
+本Phaseは環境変数と設定発見だけを移行し、event schema、runtime state、履歴evidence
+には変更を加えない。

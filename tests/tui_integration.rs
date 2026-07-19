@@ -527,10 +527,10 @@ if [ \"$1\" = \"run\" ] && [ \"$2\" = \"build\" ]; then\n\
   exit 0\n\
 fi\n\
 if [ \"$1\" = \"run\" ] && [ \"$2\" = \"dev\" ]; then\n\
-  ANVIL_TUI_FAKE_DEV_SERVER_CHILD=1 exec {exe} --ignored --exact tui_fake_dev_server_child --nocapture\n\
+  COMMANDAGENT_TUI_FAKE_DEV_SERVER_CHILD=1 exec {exe} --ignored --exact tui_fake_dev_server_child --nocapture\n\
 fi\n\
 if [ \"$1\" = \"run\" ] && [ \"$2\" = \"start\" ]; then\n\
-  ANVIL_TUI_FAKE_DEV_SERVER_CHILD=1 exec {exe} --ignored --exact tui_fake_dev_server_child --nocapture\n\
+  COMMANDAGENT_TUI_FAKE_DEV_SERVER_CHILD=1 exec {exe} --ignored --exact tui_fake_dev_server_child --nocapture\n\
 fi\n\
 echo \"unexpected fake npm args: $*\" >&2\n\
 exit 2\n"
@@ -601,7 +601,7 @@ fn tui_integration_test_lock() -> MutexGuard<'static, ()> {
 #[test]
 #[ignore]
 fn tui_fake_dev_server_child() {
-    if std::env::var("ANVIL_TUI_FAKE_DEV_SERVER_CHILD")
+    if commandagent::env_compat::var("COMMANDAGENT_TUI_FAKE_DEV_SERVER_CHILD")
         .ok()
         .as_deref()
         != Some("1")

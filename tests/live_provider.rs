@@ -25,7 +25,11 @@ static PROVIDER_PROBE_EVENT_LOCK: Mutex<()> = Mutex::new(());
 
 #[test]
 fn planner_live_provider_smoke_skips_without_keys() {
-    if std::env::var("ANVIL_LIVE_PROVIDER_TESTS").ok().as_deref() == Some("1") {
+    if commandagent::env_compat::var("COMMANDAGENT_LIVE_PROVIDER_TESTS")
+        .ok()
+        .as_deref()
+        == Some("1")
+    {
         let _ = find_workspace_with_key("OPENAI_API_KEY");
         let _ = find_workspace_with_key("GEMINI_API_KEY");
     }
@@ -33,7 +37,11 @@ fn planner_live_provider_smoke_skips_without_keys() {
 
 #[test]
 fn planner_live_openai_gemini_json_contract() {
-    if std::env::var("ANVIL_LIVE_PROVIDER_TESTS").ok().as_deref() != Some("1") {
+    if commandagent::env_compat::var("COMMANDAGENT_LIVE_PROVIDER_TESTS")
+        .ok()
+        .as_deref()
+        != Some("1")
+    {
         return;
     }
     let Some(openai_root) = find_workspace_with_key("OPENAI_API_KEY") else {
@@ -45,8 +53,8 @@ fn planner_live_openai_gemini_json_contract() {
     let goal = "Build a Python markdown heading linter with unit tests.";
     let tmp = tempfile::tempdir().expect("tempdir");
     let mut openai_config = smoke_config(tmp.path(), openai_root, Provider::Openai);
-    openai_config.planner_model =
-        std::env::var("ANVIL_OPENAI_SMOKE_MODEL").unwrap_or_else(|_| "gpt-5.4-mini".to_string());
+    openai_config.planner_model = commandagent::env_compat::var("COMMANDAGENT_OPENAI_SMOKE_MODEL")
+        .unwrap_or_else(|_| "gpt-5.4-mini".to_string());
     openai_config.planner_provider = Provider::Openai;
     let mut openai = OpenAiClient::from_env(&openai_config).expect("openai client");
     let openai_plan = commandagent::planner::generate_step_plan(&mut openai, goal, &openai_config)
@@ -55,7 +63,7 @@ fn planner_live_openai_gemini_json_contract() {
 
     let tmp = tempfile::tempdir().expect("tempdir");
     let mut gemini_config = smoke_config(tmp.path(), gemini_root, Provider::Gemini);
-    gemini_config.planner_model = std::env::var("ANVIL_GEMINI_SMOKE_MODEL")
+    gemini_config.planner_model = commandagent::env_compat::var("COMMANDAGENT_GEMINI_SMOKE_MODEL")
         .unwrap_or_else(|_| "gemini-3.5-flash".to_string());
     gemini_config.planner_provider = Provider::Gemini;
     let mut gemini = GeminiClient::from_env(&gemini_config).expect("gemini client");
@@ -80,8 +88,8 @@ fn provider_probe_openai_tool_args_shape_skips_without_key() {
     };
     let tmp = tempfile::tempdir().expect("tempdir");
     let mut config = smoke_config(tmp.path(), openai_root, Provider::Openai);
-    config.model =
-        std::env::var("ANVIL_OPENAI_SMOKE_MODEL").unwrap_or_else(|_| "gpt-5.4-mini".to_string());
+    config.model = commandagent::env_compat::var("COMMANDAGENT_OPENAI_SMOKE_MODEL")
+        .unwrap_or_else(|_| "gpt-5.4-mini".to_string());
     let mut client = OpenAiClient::from_env(&config).expect("openai client");
     let result = client.chat(
         &config.model,
@@ -148,7 +156,7 @@ fn provider_probe_gemini_function_calling_schema_skips_without_key() {
     };
     let tmp = tempfile::tempdir().expect("tempdir");
     let mut config = smoke_config(tmp.path(), gemini_root, Provider::Gemini);
-    config.planner_model = std::env::var("ANVIL_GEMINI_SMOKE_MODEL")
+    config.planner_model = commandagent::env_compat::var("COMMANDAGENT_GEMINI_SMOKE_MODEL")
         .unwrap_or_else(|_| "gemini-3.5-flash".to_string());
     let mut client = GeminiClient::from_env(&config).expect("gemini client");
     let result = client.chat(
@@ -335,14 +343,18 @@ fn provider_probe_tool_args_recovery_classification_by_provider() {
 #[test]
 #[ignore]
 fn live_openai_request_shape_uses_smoke_model() {
-    if std::env::var("ANVIL_LIVE_PROVIDER_TESTS").ok().as_deref() != Some("1") {
+    if commandagent::env_compat::var("COMMANDAGENT_LIVE_PROVIDER_TESTS")
+        .ok()
+        .as_deref()
+        != Some("1")
+    {
         return;
     }
     if find_workspace_with_key("OPENAI_API_KEY").is_none() {
         return;
     }
-    let model =
-        std::env::var("ANVIL_OPENAI_SMOKE_MODEL").unwrap_or_else(|_| "gpt-5.4-mini".to_string());
+    let model = commandagent::env_compat::var("COMMANDAGENT_OPENAI_SMOKE_MODEL")
+        .unwrap_or_else(|_| "gpt-5.4-mini".to_string());
     let body = build_response_request(&model, &[], ToolRegistry::default().specs(), true, 64);
     assert_eq!(body["model"], model);
 }
@@ -350,7 +362,11 @@ fn live_openai_request_shape_uses_smoke_model() {
 #[test]
 #[ignore]
 fn live_openai_responses_no_tool_http_smoke() {
-    if std::env::var("ANVIL_LIVE_PROVIDER_TESTS").ok().as_deref() != Some("1") {
+    if commandagent::env_compat::var("COMMANDAGENT_LIVE_PROVIDER_TESTS")
+        .ok()
+        .as_deref()
+        != Some("1")
+    {
         return;
     }
     let Some(workspace_root) = find_workspace_with_key("OPENAI_API_KEY") else {
@@ -365,7 +381,7 @@ fn live_openai_responses_no_tool_http_smoke() {
         yes: true,
         offline: false,
         context_budget: 4096,
-        model: std::env::var("ANVIL_OPENAI_SMOKE_MODEL")
+        model: commandagent::env_compat::var("COMMANDAGENT_OPENAI_SMOKE_MODEL")
             .unwrap_or_else(|_| "gpt-5.4-mini".to_string()),
         provider: Provider::Openai,
         prompt_layout: commandagent::config::PromptLayout::Stable,
@@ -405,13 +421,17 @@ fn live_openai_responses_no_tool_http_smoke() {
 #[test]
 #[ignore]
 fn live_gemini_request_shape_uses_smoke_model() {
-    if std::env::var("ANVIL_LIVE_PROVIDER_TESTS").ok().as_deref() != Some("1") {
+    if commandagent::env_compat::var("COMMANDAGENT_LIVE_PROVIDER_TESTS")
+        .ok()
+        .as_deref()
+        != Some("1")
+    {
         return;
     }
     if find_workspace_with_key("GEMINI_API_KEY").is_none() {
         return;
     }
-    let model = std::env::var("ANVIL_GEMINI_SMOKE_MODEL")
+    let model = commandagent::env_compat::var("COMMANDAGENT_GEMINI_SMOKE_MODEL")
         .unwrap_or_else(|_| "gemini-3.1-flash-lite".to_string());
     let body = build_interactions_request(&model, &[], ToolRegistry::default().specs(), 64);
     assert_eq!(body["model"], model);
@@ -420,7 +440,11 @@ fn live_gemini_request_shape_uses_smoke_model() {
 #[test]
 #[ignore]
 fn live_gemini_interactions_no_tool_http_smoke() {
-    if std::env::var("ANVIL_LIVE_PROVIDER_TESTS").ok().as_deref() != Some("1") {
+    if commandagent::env_compat::var("COMMANDAGENT_LIVE_PROVIDER_TESTS")
+        .ok()
+        .as_deref()
+        != Some("1")
+    {
         return;
     }
     let Some(workspace_root) = find_workspace_with_key("GEMINI_API_KEY") else {
@@ -441,7 +465,7 @@ fn live_gemini_interactions_no_tool_http_smoke() {
         prompt_layout: commandagent::config::PromptLayout::Stable,
         plan_preset: commandagent::config::PlanPreset::None,
         intent_override: None,
-        planner_model: std::env::var("ANVIL_GEMINI_SMOKE_MODEL")
+        planner_model: commandagent::env_compat::var("COMMANDAGENT_GEMINI_SMOKE_MODEL")
             .unwrap_or_else(|_| "gemini-3.5-flash".to_string()),
         planner_provider: Provider::Gemini,
         ollama_host: "http://127.0.0.1:11434".to_string(),
@@ -476,11 +500,15 @@ fn live_gemini_interactions_no_tool_http_smoke() {
 #[test]
 #[ignore]
 fn live_ollama_tags_http_smoke() {
-    if std::env::var("ANVIL_LIVE_PROVIDER_TESTS").ok().as_deref() != Some("1") {
+    if commandagent::env_compat::var("COMMANDAGENT_LIVE_PROVIDER_TESTS")
+        .ok()
+        .as_deref()
+        != Some("1")
+    {
         return;
     }
-    let host =
-        std::env::var("ANVIL_OLLAMA_HOST").unwrap_or_else(|_| "http://127.0.0.1:11434".to_string());
+    let host = commandagent::env_compat::var("COMMANDAGENT_OLLAMA_HOST")
+        .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string());
     let client = OllamaClient::new(host, 10, 64, 0).expect("ollama client");
     let models = client.list_models().expect("Ollama /api/tags smoke");
     assert!(!models.is_empty());
@@ -489,12 +517,16 @@ fn live_ollama_tags_http_smoke() {
 #[test]
 #[ignore]
 fn live_ollama_chat_no_tool_http_smoke() {
-    if std::env::var("ANVIL_LIVE_PROVIDER_TESTS").ok().as_deref() != Some("1") {
+    if commandagent::env_compat::var("COMMANDAGENT_LIVE_PROVIDER_TESTS")
+        .ok()
+        .as_deref()
+        != Some("1")
+    {
         return;
     }
-    let host =
-        std::env::var("ANVIL_OLLAMA_HOST").unwrap_or_else(|_| "http://127.0.0.1:11434".to_string());
-    let model = std::env::var("ANVIL_OLLAMA_SMOKE_MODEL")
+    let host = commandagent::env_compat::var("COMMANDAGENT_OLLAMA_HOST")
+        .unwrap_or_else(|_| "http://127.0.0.1:11434".to_string());
+    let model = commandagent::env_compat::var("COMMANDAGENT_OLLAMA_SMOKE_MODEL")
         .unwrap_or_else(|_| "qwen3.6:27b-coding-nvfp4".to_string());
     let mut client = OllamaClient::new(host, 30, 64, 0).expect("ollama client");
     client
@@ -522,12 +554,20 @@ fn find_workspace_with_key(name: &str) -> Option<PathBuf> {
 }
 
 fn provider_probe_enabled() -> bool {
-    std::env::var("ANVIL_PROVIDER_PROBE").ok().as_deref() == Some("1")
-        || std::env::var("ANVIL_LIVE_PROVIDER_TESTS").ok().as_deref() == Some("1")
+    commandagent::env_compat::var("COMMANDAGENT_PROVIDER_PROBE")
+        .ok()
+        .as_deref()
+        == Some("1")
+        || commandagent::env_compat::var("COMMANDAGENT_LIVE_PROVIDER_TESTS")
+            .ok()
+            .as_deref()
+            == Some("1")
 }
 
 fn record_provider_probe(mut value: Value) {
-    let Some(path) = std::env::var_os("ANVIL_PROVIDER_PROBE_OUT").map(PathBuf::from) else {
+    let Some(path) =
+        commandagent::env_compat::var_os("COMMANDAGENT_PROVIDER_PROBE_OUT").map(PathBuf::from)
+    else {
         return;
     };
     let _guard = PROVIDER_PROBE_EVENT_LOCK

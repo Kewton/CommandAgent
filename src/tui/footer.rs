@@ -65,7 +65,8 @@ impl FooterEnv {
         stdout_is_tty: bool,
         no_footer: bool,
     ) -> Self {
-        if no_footer || crate::tui::terminal::env_non_empty_with(&get_env, "ANVIL_NO_FOOTER") {
+        if no_footer || crate::tui::terminal::env_non_empty_with(&get_env, "COMMANDAGENT_NO_FOOTER")
+        {
             return Self {
                 enabled: false,
                 use_color: false,
@@ -761,7 +762,7 @@ mod tests {
     #[test]
     fn footer_env_disable_by_env() {
         let env = FooterEnv::detect_with(
-            |key| (key == "ANVIL_NO_FOOTER").then(|| "1".to_string()),
+            |key| (key == "COMMANDAGENT_NO_FOOTER").then(|| "1".to_string()),
             true,
             false,
         );

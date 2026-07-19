@@ -28,7 +28,8 @@ commandagent --yes --context-budget 65536 \
 
 Speed-recommended local preset: for local-only measurement campaigns, prefer a
 single Ollama model for both executor and planner so the server does not swap
-model weights between phases. Example `.anvil/config.toml` preset:
+model weights between phases. Example `.commandagent/config.toml` preset (the
+matching `.anvil` path remains a legacy fallback):
 
 ```toml
 [preset.local-single-speed]
@@ -150,7 +151,7 @@ the status footer, Backspace edits it, Enter shows `queued:`, and the lines run
 in FIFO order with a `processing queued:` notice and normal history entries.
 Also confirm that Esc clears non-empty pending input without stopping the run,
 Esc with an empty buffer interrupts, and Ctrl+C interrupts regardless of the
-buffer. Repeat with `--footer off` and `ANVIL_NO_INTERRUPT=1`; type-ahead input
+buffer. Repeat with `--footer off` and `COMMANDAGENT_NO_INTERRUPT=1`; type-ahead input
 must be ignored in both disabled modes without corrupting terminal output.
 
 ## Scenarios
