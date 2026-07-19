@@ -1,6 +1,6 @@
 interface:
   display_name: "CommandAgent Orchestrate"
-  short_description: "Plan and run CommandAgent issue orchestration"
-  default_prompt: "Use $orchestrate to plan CommandAgent issue work before dispatch."
+  short_description: "Run verified CommandAgent issue orchestration"
+  default_prompt: "Use $orchestrate to plan and advance authorized issue work through verified implementation, draft PR, CI, UAT, and guarded merge."
 policy:
   allow_implicit_invocation: false

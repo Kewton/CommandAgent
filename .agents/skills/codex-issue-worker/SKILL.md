@@ -17,7 +17,7 @@ Implement one issue inside its dedicated worktree. Read [worker-prompt.md](refer
 6. Run focused verification first.
 7. Run broader verification when shared behavior, CI-sensitive code, release code, or harness code is touched.
 8. Write `dev-reports/issue-<number>/implementation-summary.md`.
-9. Write `dev-reports/issue-<number>/verification.md`.
+9. Write `dev-reports/issue-<number>/verification.md` using the verification contract below.
 10. Commit with a clear issue-scoped message when the task explicitly includes a commit.
 
 ## Verification Guidance
@@ -28,5 +28,19 @@ Implement one issue inside its dedicated worktree. Read [worker-prompt.md](refer
 - CLI/help surface: update and run the relevant snapshot or check.
 - Harness Python: run the focused pytest module and Ruff checks.
 - Event output: preserve schema and compatibility unless the issue explicitly authorizes a schema change.
+
+## Verification Contract
+
+Use this shape only when every required check succeeded:
+
+```markdown
+- Status: `passed`
+
+## Checks
+
+- `<command>`: `passed`
+```
+
+If a required check fails or cannot run, use `blocked` for the overall status and record the failed or blocked check honestly. Never mark the report passed with missing, failed, or ambiguous checks.
 
 Keep review lightweight and ask only blocking questions. Do not create a pull request, merge, or modify external issue state unless explicitly authorized.

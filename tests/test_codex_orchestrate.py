@@ -258,6 +258,9 @@ def test_parser_defaults_to_codex_agent() -> None:
     args = module.parse_args_from_list_for_test(["1", "--dry-run"])
 
     assert args.codex_agent_name == "codex"
+    assert args.phase == "plan"
+    assert module.PHASE_ORDER["pr"] < module.PHASE_ORDER["uat"]
+    assert module.PHASE_ORDER["uat"] < module.PHASE_ORDER["merge"]
 
 
 def test_commandmate_send_command_selects_codex_agent() -> None:
@@ -322,6 +325,7 @@ def test_dispatch_commandmate_sends_only_worker_task() -> None:
     ]
     assert calls[0][-5:] == ["--agent", "codex", "--auto-yes", "--duration", "3h"]
     assert "$codex-issue-worker" in calls[0][3]
+    assert '- Status: `passed`' in calls[0][3]
     assert calls[0][3] != "hello"
     assert results[0].commands == (" ".join(calls[0]),)
 
@@ -562,6 +566,78 @@ def test_wait_for_commandmate_workers_classifies_unreachable() -> None:
     assert results[0].message.startswith("commandmate-unreachable:")
 
 
+def test_verify_worker_reports_requires_passing_status_and_checks(tmp_path: Path) -> None:
+    module = load_script()
+    issue = module.Issue(
+        number=11,
+        title="Verify worker output",
+        body="## Acceptance Criteria\n- verification passes\n",
+    )
+    analysis = module.analyze_issue(issue, "CommandAgent", skip_enhance=True)
+    report = tmp_path / "dev-reports" / "issue-11" / "verification.md"
+    report.parent.mkdir(parents=True)
+    report.write_text(
+        "# Verification\n\n- Status: `passed`\n\n"
+        "## Checks\n\n- `cargo test`: `passed`\n",
+        encoding="utf-8",
+    )
+    worktree = module.WorktreeResult(11, analysis.branch_name, tmp_path, "created", "created")
+
+    def clean_git_runner(args, **kwargs):  # type: ignore[no-untyped-def]
+        return module.subprocess.CompletedProcess(args, 0, "", "")
+
+    results = module.verify_worker_reports(
+        [analysis], [worktree], dry_run=False, runner=clean_git_runner
+    )
+
+    assert results[0].status == "passed"
+    assert "1 worker verification checks passed" in results[0].message
+
+
+def test_verify_worker_reports_blocks_missing_check_evidence(tmp_path: Path) -> None:
+    module = load_script()
+    issue = module.Issue(11, "Verify worker output", "## Acceptance Criteria\n- done\n")
+    analysis = module.analyze_issue(issue, "CommandAgent", skip_enhance=True)
+    report = tmp_path / "dev-reports" / "issue-11" / "verification.md"
+    report.parent.mkdir(parents=True)
+    report.write_text("# Verification\n\n- Status: `passed`\n", encoding="utf-8")
+    worktree = module.WorktreeResult(11, analysis.branch_name, tmp_path, "created", "created")
+
+    def clean_git_runner(args, **kwargs):  # type: ignore[no-untyped-def]
+        return module.subprocess.CompletedProcess(args, 0, "", "")
+
+    results = module.verify_worker_reports(
+        [analysis], [worktree], dry_run=False, runner=clean_git_runner
+    )
+
+    assert results[0].status == "blocked"
+    assert results[0].message == "verification report contains no check results"
+
+
+def test_verify_worker_reports_blocks_dirty_worktree(tmp_path: Path) -> None:
+    module = load_script()
+    issue = module.Issue(11, "Verify worker output", "## Acceptance Criteria\n- done\n")
+    analysis = module.analyze_issue(issue, "CommandAgent", skip_enhance=True)
+    report = tmp_path / "dev-reports" / "issue-11" / "verification.md"
+    report.parent.mkdir(parents=True)
+    report.write_text(
+        "# Verification\n\n- Status: `passed`\n\n"
+        "## Checks\n\n- `cargo test`: `passed`\n",
+        encoding="utf-8",
+    )
+    worktree = module.WorktreeResult(11, analysis.branch_name, tmp_path, "created", "created")
+
+    def dirty_git_runner(args, **kwargs):  # type: ignore[no-untyped-def]
+        return module.subprocess.CompletedProcess(args, 0, " M src/lib.rs\n", "")
+
+    results = module.verify_worker_reports(
+        [analysis], [worktree], dry_run=False, runner=dirty_git_runner
+    )
+
+    assert results[0].status == "blocked"
+    assert "uncommitted changes" in results[0].message
+
+
 def test_render_uat_report_includes_manual_evidence() -> None:
     module = load_script()
     issue = module.Issue(
@@ -573,8 +649,85 @@ def test_render_uat_report_includes_manual_evidence() -> None:
 
     report = module.render_uat_report([analysis])
 
-    assert "Manual GUI / Real-device Checks" in report
+    assert "Manual CLI / TTY / GUI / Real-device Checks" in report
     assert "screenshot" in report
+
+
+def test_evaluate_uat_gate_requires_complete_passing_evidence() -> None:
+    module = load_script()
+    issue = module.Issue(
+        number=4,
+        title="GUI check",
+        body="## Acceptance Criteria\n- Button is visible\n- Button opens settings\n",
+    )
+    analysis = module.analyze_issue(issue, "CommandAgent", skip_enhance=True)
+    partial = [module.UatResult(4, 1, "passed", "Visible", "screenshot-1.png")]
+
+    incomplete = module.evaluate_uat_gate(
+        [analysis], partial, require_complete=True, dry_run=False
+    )
+    passed = module.evaluate_uat_gate(
+        [analysis],
+        [
+            *partial,
+            module.UatResult(4, 2, "passed", "Settings opened", "tty-session.txt"),
+        ],
+        require_complete=True,
+        dry_run=False,
+    )
+
+    assert incomplete.status == "blocked"
+    assert "scenario 2" in incomplete.message
+    assert passed.status == "passed"
+    assert passed.message == "all 2 UAT scenarios passed with evidence"
+
+
+def test_evaluate_uat_gate_blocks_failed_or_evidence_free_results() -> None:
+    module = load_script()
+    issue = module.Issue(4, "GUI check", "## Acceptance Criteria\n- Button is visible\n")
+    analysis = module.analyze_issue(issue, "CommandAgent", skip_enhance=True)
+
+    failed = module.evaluate_uat_gate(
+        [analysis],
+        [module.UatResult(4, 1, "failed", "Missing", "screenshot.png")],
+        require_complete=True,
+        dry_run=False,
+    )
+    no_evidence = module.evaluate_uat_gate(
+        [analysis],
+        [module.UatResult(4, 1, "passed", "Visible", "")],
+        require_complete=True,
+        dry_run=False,
+    )
+
+    assert failed.status == "blocked"
+    assert no_evidence.status == "blocked"
+    assert "evidence is empty" in no_evidence.message
+
+
+def test_load_uat_results_reads_evidence_contract(tmp_path: Path) -> None:
+    module = load_script()
+    fixture = tmp_path / "uat-results.json"
+    fixture.write_text(
+        json.dumps(
+            {
+                "results": [
+                    {
+                        "issue_number": 4,
+                        "scenario_index": 1,
+                        "status": "PASSED",
+                        "actual": "Button visible",
+                        "evidence": "screenshot.png",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    results = module.load_uat_results(fixture)
+
+    assert results == [module.UatResult(4, 1, "passed", "Button visible", "screenshot.png")]
 
 
 def test_render_uat_fix_prompts_maps_failure_to_issue() -> None:
@@ -682,9 +835,11 @@ def test_create_pull_requests_pushes_branch_before_develop_pr() -> None:
     assert results[0].status == "created"
     assert results[0].pr_number == 42
     assert ["git", "push", "-u", "origin", analysis.branch_name] in calls
-    assert calls.index(["git", "push", "-u", "origin", analysis.branch_name]) < next(
+    create_call_index = next(
         index for index, call in enumerate(calls) if call[:3] == ["gh", "pr", "create"]
     )
+    assert calls.index(["git", "push", "-u", "origin", analysis.branch_name]) < create_call_index
+    assert "--draft" in calls[create_call_index]
 
 
 def test_pr_numbers_for_merge_uses_created_and_existing_prs() -> None:
@@ -720,15 +875,97 @@ def test_merge_pull_requests_waits_for_ci_before_merge() -> None:
         return module.subprocess.CompletedProcess(args, 1, "", "unexpected")
 
     results = module.merge_pull_requests(
+        [42, 43],
+        dry_run=False,
+        merge_method="squash",
+        integration_checks=[],
+        uat_gate=module.UatGateResult("passed", "all scenarios passed"),
+        runner=fake_runner,
+    )
+
+    assert [result.status for result in results] == ["merged", "merged"]
+    assert ["gh", "pr", "checks", "42", "--watch", "--interval", "10"] in calls
+    check_indices = [index for index, call in enumerate(calls) if call[:3] == ["gh", "pr", "checks"]]
+    merge_indices = [
+        index for index, call in enumerate(calls) if call[:3] == ["gh", "pr", "merge"]
+    ]
+    assert len(check_indices) == 6
+    assert max(check_indices[:4]) < merge_indices[0]
+    assert check_indices[4] < merge_indices[0]
+    assert check_indices[5] < merge_indices[1]
+
+
+def test_merge_pull_requests_marks_draft_ready_only_after_ci_and_uat() -> None:
+    module = load_script()
+    calls: list[list[str]] = []
+    ready = False
+
+    def fake_runner(args, **kwargs):  # type: ignore[no-untyped-def]
+        nonlocal ready
+        calls.append(args)
+        if args[:3] == ["gh", "pr", "view"]:
+            return module.subprocess.CompletedProcess(
+                args,
+                0,
+                json.dumps(
+                    {"isDraft": not ready, "mergeStateStatus": "CLEAN", "number": 42}
+                ),
+                "",
+            )
+        if args[:3] == ["gh", "pr", "checks"]:
+            return module.subprocess.CompletedProcess(args, 0, "checks passed\n", "")
+        if args[:3] == ["gh", "pr", "ready"]:
+            ready = True
+            return module.subprocess.CompletedProcess(args, 0, "", "")
+        if args[:3] == ["gh", "pr", "merge"]:
+            return module.subprocess.CompletedProcess(args, 0, "", "")
+        if args[:3] == ["git", "pull", "--ff-only"]:
+            return module.subprocess.CompletedProcess(args, 0, "", "")
+        return module.subprocess.CompletedProcess(args, 1, "", "unexpected")
+
+    results = module.merge_pull_requests(
         [42],
         dry_run=False,
         merge_method="squash",
         integration_checks=[],
+        uat_gate=module.UatGateResult("passed", "all scenarios passed"),
         runner=fake_runner,
     )
 
+    ready_index = calls.index(["gh", "pr", "ready", "42"])
+    check_indices = [index for index, call in enumerate(calls) if call[:3] == ["gh", "pr", "checks"]]
+    merge_index = calls.index(["gh", "pr", "merge", "42", "--squash"])
     assert results[0].status == "merged"
-    assert ["gh", "pr", "checks", "42", "--watch", "--interval", "10"] in calls
-    assert calls.index(["gh", "pr", "checks", "42", "--watch", "--interval", "10"]) < calls.index(
-        ["gh", "pr", "merge", "42", "--squash"]
+    assert check_indices[0] < ready_index < check_indices[1] < check_indices[2] < merge_index
+
+
+def test_merge_pull_requests_blocks_after_ci_when_uat_did_not_pass() -> None:
+    module = load_script()
+    calls: list[list[str]] = []
+
+    def fake_runner(args, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(args)
+        if args[:3] == ["gh", "pr", "view"]:
+            return module.subprocess.CompletedProcess(
+                args,
+                0,
+                json.dumps({"isDraft": True, "mergeStateStatus": "CLEAN", "number": 42}),
+                "",
+            )
+        if args[:3] == ["gh", "pr", "checks"]:
+            return module.subprocess.CompletedProcess(args, 0, "checks passed\n", "")
+        return module.subprocess.CompletedProcess(args, 1, "", "unexpected")
+
+    results = module.merge_pull_requests(
+        [42],
+        dry_run=False,
+        merge_method="squash",
+        integration_checks=[],
+        uat_gate=module.UatGateResult("blocked", "scenario 1 failed"),
+        runner=fake_runner,
     )
+
+    assert results[0].status == "blocked"
+    assert "UAT gate is blocked" in results[0].message
+    assert not any(call[:3] == ["gh", "pr", "ready"] for call in calls)
+    assert not any(call[:3] == ["gh", "pr", "merge"] for call in calls)

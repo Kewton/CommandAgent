@@ -28,8 +28,8 @@ PHASE_ORDER = {
     "plan": 2,
     "dev": 3,
     "pr": 4,
-    "merge": 5,
-    "uat": 6,
+    "uat": 5,
+    "merge": 6,
 }
 
 
@@ -97,6 +97,14 @@ class WorkerWaitResult:
 
 
 @dataclass(frozen=True)
+class WorkerVerificationResult:
+    issue_number: int
+    status: str
+    report_path: Path
+    message: str
+
+
+@dataclass(frozen=True)
 class PullRequestResult:
     issue_number: int
     branch_name: str
@@ -147,6 +155,21 @@ class UatFailure:
     evidence: str
 
 
+@dataclass(frozen=True)
+class UatResult:
+    issue_number: int
+    scenario_index: int
+    status: str
+    actual: str
+    evidence: str
+
+
+@dataclass(frozen=True)
+class UatGateResult:
+    status: str
+    message: str
+
+
 def slugify(value: str, *, max_len: int = 48) -> str:
     lowered = value.lower()
     normalized = re.sub(r"[^a-z0-9]+", "-", lowered).strip("-")
@@ -163,8 +186,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-parallel", type=int, default=3)
     parser.add_argument(
         "--phase",
-        default="merge",
-        choices=("issue", "plan", "dev", "pr", "merge", "uat"),
+        default="plan",
+        choices=("issue", "plan", "dev", "pr", "uat", "merge"),
     )
     parser.add_argument("--merge-order", default="")
     parser.add_argument("--skip-enhance", action="store_true")
@@ -200,6 +223,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--pr-numbers", default="", help="Comma-separated PR numbers for merge phase"
     )
+    parser.add_argument("--uat-results-json", type=Path)
     parser.add_argument("--uat-failures-json", type=Path)
     parser.add_argument("--photon-url", default="", help="Optional PHOTON sidecar base URL")
     return parser
@@ -913,7 +937,11 @@ def write_artifacts(args: argparse.Namespace, analyses: list[IssueAnalysis]) -> 
     (run_dir / "worker-sessions.md").write_text(
         "# Worker Sessions\n\nNot started.\n", encoding="utf-8"
     )
+    (run_dir / "worker-verification.md").write_text(
+        "# Worker Verification\n\nNot started.\n", encoding="utf-8"
+    )
     (run_dir / "merge-report.md").write_text("# Merge Report\n\nNot started.\n", encoding="utf-8")
+    (run_dir / "ci-report.md").write_text("# CI Report\n\nNot started.\n", encoding="utf-8")
     (run_dir / "uat-report.md").write_text("# UAT Report\n\nNot started.\n", encoding="utf-8")
     (run_dir / "uat-fix-worktrees.md").write_text(
         "# UAT Fix Worktrees\n\nNot requested.\n", encoding="utf-8"
@@ -1069,8 +1097,12 @@ def build_worker_prompt(analysis: IssueAnalysis) -> str:
             "5. Run focused verification, and broader checks if shared contracts are touched.",
             "6. Write `dev-reports/issue-<number>/design.md`, "
             "`implementation-summary.md`, and `verification.md`.",
-            "7. Commit the work with a clear Issue-scoped commit message.",
-            "8. Report blockers only if implementation cannot safely proceed.",
+            "7. In `verification.md`, record the exact line \"- Status: `passed`\" only "
+            "when every required check passed, followed by one "
+            "\"- `<command>`: `passed`\" entry per check. Use `blocked` when any "
+            "required check fails or cannot run.",
+            "8. Commit the work with a clear Issue-scoped commit message.",
+            "9. Report blockers only if implementation cannot safely proceed.",
             "",
             "## Issue Summary",
             "",
@@ -1395,6 +1427,124 @@ def render_worker_wait_report(results: list[WorkerWaitResult]) -> str:
     return "\n".join(lines)
 
 
+def verify_worker_reports(
+    analyses: list[IssueAnalysis],
+    worktree_results: list[WorktreeResult],
+    *,
+    dry_run: bool,
+    runner: Runner = run_command,
+) -> list[WorkerVerificationResult]:
+    by_issue = {result.issue_number: result for result in worktree_results}
+    results: list[WorkerVerificationResult] = []
+    status_re = re.compile(r"(?im)^\s*-\s*Status:\s*`?(passed|blocked|failed)`?\s*$")
+    check_re = re.compile(
+        r"(?im)^\s*-\s*`[^`]+`:\s*`?(passed|blocked|failed)`?\s*$"
+    )
+    for analysis in analyses:
+        worktree = by_issue.get(analysis.issue.number)
+        root = (
+            worktree.worktree_path
+            if worktree is not None
+            else resolve_worktree_path(analysis.worktree_path)
+        )
+        report_path = root / "dev-reports" / f"issue-{analysis.issue.number}" / "verification.md"
+        if dry_run:
+            results.append(
+                WorkerVerificationResult(
+                    analysis.issue.number,
+                    "planned",
+                    report_path,
+                    "dry-run: worker verification report not inspected",
+                )
+            )
+            continue
+        if worktree is None or worktree.status == "blocked":
+            results.append(
+                WorkerVerificationResult(
+                    analysis.issue.number,
+                    "blocked",
+                    report_path,
+                    "usable worktree not available",
+                )
+            )
+            continue
+        if not report_path.is_file():
+            results.append(
+                WorkerVerificationResult(
+                    analysis.issue.number,
+                    "blocked",
+                    report_path,
+                    "verification report is missing",
+                )
+            )
+            continue
+        dirty = runner(["git", "status", "--porcelain"], cwd=root)
+        if dirty.returncode != 0 or dirty.stdout.strip():
+            results.append(
+                WorkerVerificationResult(
+                    analysis.issue.number,
+                    "blocked",
+                    report_path,
+                    "worktree contains uncommitted changes after worker completion",
+                )
+            )
+            continue
+        relative_report = report_path.relative_to(root)
+        tracked = runner(
+            ["git", "ls-files", "--error-unmatch", str(relative_report)], cwd=root
+        )
+        if tracked.returncode != 0:
+            results.append(
+                WorkerVerificationResult(
+                    analysis.issue.number,
+                    "blocked",
+                    report_path,
+                    "verification report is not committed on the issue branch",
+                )
+            )
+            continue
+        report = report_path.read_text(encoding="utf-8")
+        status_match = status_re.search(report)
+        check_statuses = check_re.findall(report)
+        if status_match is None:
+            status = "blocked"
+            message = "verification report has no machine-readable status"
+        elif status_match.group(1).lower() != "passed":
+            status = "blocked"
+            message = f"worker verification status is {status_match.group(1).lower()}"
+        elif not check_statuses:
+            status = "blocked"
+            message = "verification report contains no check results"
+        elif any(item.lower() != "passed" for item in check_statuses):
+            status = "blocked"
+            message = "one or more worker verification checks did not pass"
+        else:
+            status = "passed"
+            message = f"{len(check_statuses)} worker verification checks passed"
+        results.append(
+            WorkerVerificationResult(analysis.issue.number, status, report_path, message)
+        )
+    return results
+
+
+def render_worker_verification_report(results: list[WorkerVerificationResult]) -> str:
+    lines = ["# Worker Verification", ""]
+    if not results:
+        return "# Worker Verification\n\nNo verification reports inspected.\n"
+    for result in results:
+        lines.extend(
+            [
+                f"## Issue #{result.issue_number}",
+                "",
+                f"- Status: `{result.status}`",
+                f"- Report: `{result.report_path}`",
+                f"- Message: {result.message}",
+                "",
+            ]
+        )
+    return "\n".join(lines)
+
+
 def render_pr_body(analysis: IssueAnalysis, run_id: str) -> str:
     files = "\n".join(f"- `{item}`" for item in analysis.suspected_files) or "- 未特定"
     tests = "\n".join(f"- `{item}`" for item in analysis.test_expectations) or "- 未実行"
@@ -1437,7 +1587,7 @@ def find_existing_pr(branch_name: str, *, runner: Runner = run_command) -> PullR
             "--base",
             "develop",
             "--json",
-            "number,url,state",
+            "number,url,state,isDraft",
         ],
         cwd=REPO_ROOT,
     )
@@ -1453,7 +1603,10 @@ def find_existing_pr(branch_name: str, *, runner: Runner = run_command) -> PullR
         status="existing",
         pr_number=int(first["number"]),
         url=str(first.get("url") or ""),
-        message=f"existing PR state: {first.get('state', 'unknown')}",
+        message=(
+            f"existing PR state: {first.get('state', 'unknown')}; "
+            f"draft={bool(first.get('isDraft'))}"
+        ),
     )
 
 
@@ -1519,6 +1672,7 @@ def create_pull_requests(
             title,
             "--body",
             body,
+            "--draft",
         ]
         if dry_run:
             results.append(
@@ -1541,7 +1695,7 @@ def create_pull_requests(
                 status="created",
                 pr_number=parse_pr_number(url or ""),
                 url=url,
-                message="branch pushed and PR created",
+                message="branch pushed and draft PR created",
             )
         )
     return results
@@ -1610,20 +1764,72 @@ def merge_pull_requests(
     dry_run: bool,
     merge_method: str | None,
     integration_checks: list[str],
+    uat_gate: UatGateResult,
     runner: Runner = run_command,
 ) -> list[MergeResult]:
+    if dry_run:
+        return [
+            MergeResult(pr_number, "planned", "dry-run: merge skipped")
+            for pr_number in pr_numbers
+        ]
+
+    mergeability: dict[int, MergeResult] = {}
+    for pr_number in pr_numbers:
+        mergeable = check_pr_mergeability(pr_number, runner=runner)
+        if mergeable.status not in {"mergeable", "draft"}:
+            return [mergeable]
+        mergeability[pr_number] = mergeable
+
+    for pr_number in pr_numbers:
+        checks = wait_for_pr_checks(pr_number, runner=runner)
+        if checks.status != "passed":
+            return [MergeResult(pr_number, "blocked", checks.message)]
+
+    if uat_gate.status != "passed":
+        return [
+            MergeResult(
+                pr_numbers[0],
+                "blocked",
+                f"UAT gate is {uat_gate.status}: {uat_gate.message}",
+            )
+        ]
+
+    for pr_number in pr_numbers:
+        if mergeability[pr_number].status != "draft":
+            continue
+        ready = mark_pr_ready(pr_number, runner=runner)
+        if ready.status != "ready":
+            return [ready]
+
+    for pr_number in pr_numbers:
+        checks = wait_for_pr_checks(pr_number, runner=runner)
+        if checks.status != "passed":
+            return [
+                MergeResult(
+                    pr_number,
+                    "blocked",
+                    f"post-UAT CI verification failed: {checks.message}",
+                )
+            ]
+        mergeable = check_pr_mergeability(pr_number, runner=runner)
+        if mergeable.status != "mergeable":
+            return [mergeable]
+
     results: list[MergeResult] = []
     for pr_number in pr_numbers:
-        if dry_run:
-            results.append(MergeResult(pr_number, "planned", "dry-run: merge skipped"))
-            continue
+        checks = wait_for_pr_checks(pr_number, runner=runner)
+        if checks.status != "passed":
+            results.append(
+                MergeResult(
+                    pr_number,
+                    "blocked",
+                    f"pre-merge CI verification failed: {checks.message}",
+                )
+            )
+            break
         mergeable = check_pr_mergeability(pr_number, runner=runner)
         if mergeable.status != "mergeable":
             results.append(mergeable)
-            break
-        checks = wait_for_pr_checks(pr_number, runner=runner)
-        if checks.status != "passed":
-            results.append(MergeResult(pr_number, "blocked", checks.message))
             break
         cmd = ["gh", "pr", "merge", str(pr_number)]
         if merge_method is not None:
@@ -1650,6 +1856,17 @@ def merge_pull_requests(
     return results
 
 
+def mark_pr_ready(pr_number: int, *, runner: Runner = run_command) -> MergeResult:
+    completed = runner(["gh", "pr", "ready", str(pr_number)], cwd=REPO_ROOT)
+    if completed.returncode != 0:
+        return MergeResult(
+            pr_number,
+            "blocked",
+            completed.stderr.strip() or "could not mark draft PR ready for review",
+        )
+    return MergeResult(pr_number, "ready", "draft PR marked ready after CI and UAT passed")
+
+
 def wait_for_pr_checks(pr_number: int, *, runner: Runner = run_command) -> MergeResult:
     checks = runner(
         ["gh", "pr", "checks", str(pr_number), "--watch", "--interval", "10"],
@@ -1662,6 +1879,34 @@ def wait_for_pr_checks(pr_number: int, *, runner: Runner = run_command) -> Merge
             checks.stderr.strip() or "CI checks failed or unavailable",
         )
     return MergeResult(pr_number, "passed", "CI checks passed")
+
+
+def wait_for_all_pr_checks(
+    pr_numbers: list[int], *, dry_run: bool, runner: Runner = run_command
+) -> list[MergeResult]:
+    if dry_run:
+        return [
+            MergeResult(pr_number, "planned", "dry-run: CI checks not watched")
+            for pr_number in pr_numbers
+        ]
+    return [wait_for_pr_checks(pr_number, runner=runner) for pr_number in pr_numbers]
+
+
+def render_ci_report(results: list[MergeResult]) -> str:
+    lines = ["# CI Report", ""]
+    if not results:
+        return "# CI Report\n\nNo PR checks evaluated.\n"
+    for result in results:
+        lines.extend(
+            [
+                f"## PR #{result.pr_number}",
+                "",
+                f"- Status: `{result.status}`",
+                f"- Message: {result.message}",
+                "",
+            ]
+        )
+    return "\n".join(lines)
 
 
 def check_pr_mergeability(pr_number: int, *, runner: Runner = run_command) -> MergeResult:
@@ -1680,7 +1925,7 @@ def check_pr_mergeability(pr_number: int, *, runner: Runner = run_command) -> Me
         return MergeResult(pr_number, "blocked", "could not read PR mergeability")
     raw = json.loads(completed.stdout)
     if raw.get("isDraft"):
-        return MergeResult(pr_number, "blocked", "PR is draft")
+        return MergeResult(pr_number, "draft", "PR is draft")
     merge_state = str(raw.get("mergeStateStatus") or "UNKNOWN")
     if merge_state not in {"CLEAN", "HAS_HOOKS", "UNSTABLE", "UNKNOWN"}:
         return MergeResult(pr_number, "blocked", f"mergeStateStatus={merge_state}")
@@ -1715,30 +1960,50 @@ def render_merge_report(results: list[MergeResult]) -> str:
     return "\n".join(lines)
 
 
-def render_uat_report(analyses: list[IssueAnalysis]) -> str:
+def render_uat_report(
+    analyses: list[IssueAnalysis],
+    results: list[UatResult] | None = None,
+    gate: UatGateResult | None = None,
+) -> str:
+    by_scenario = {
+        (result.issue_number, result.scenario_index): result for result in (results or [])
+    }
     lines = [
         "# UAT Report",
         "",
+        "## Merge Gate",
+        "",
+        f"- Status: `{gate.status if gate else 'pending'}`",
+        f"- Message: {gate.message if gate else 'UAT results have not been evaluated.'}",
+        "",
         "## Automated Checks",
         "",
-        "- Not run by planner. Fill this section after develop verification.",
+        "- Worker command evidence: see `worker-verification.md`.",
+        "- Pull-request checks: see `ci-report.md`.",
         "",
-        "## Manual GUI / Real-device Checks",
+        "## Manual CLI / TTY / GUI / Real-device Checks",
         "",
     ]
     for analysis in analyses:
         criteria = analysis.acceptance_criteria or ("Issue の期待動作を満たすこと",)
         lines.extend([f"### Issue #{analysis.issue.number}: {analysis.issue.title}", ""])
         for index, criterion in enumerate(criteria, start=1):
+            result = by_scenario.get((analysis.issue.number, index))
             lines.extend(
                 [
                     f"#### Scenario {index}",
                     "",
-                    "- 前提: develop 反映後の最新版を使用する。",
+                    "- 前提: 対象ドラフトPRの最新コミットまたは候補ビルドを使用する。",
                     f"- 操作: `{criterion}` を確認できる画面または実機操作を行う。",
                     f"- 期待結果: {criterion}",
-                    "- Evidence: screenshot / relevant logs / 操作メモ / device or browser version",
-                    "- Result: unchecked",
+                    f"- Actual: {result.actual if result else 'unchecked'}",
+                    "- Evidence: "
+                    + (
+                        result.evidence
+                        if result
+                        else "screenshot / relevant logs / 操作メモ / device or browser version"
+                    ),
+                    f"- Result: {result.status if result else 'unchecked'}",
                     "",
                 ]
             )
@@ -1753,6 +2018,86 @@ def render_uat_report(analyses: list[IssueAnalysis]) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+def load_uat_results(path: Path | None) -> list[UatResult]:
+    if path is None:
+        return []
+    raw = json.loads(path.read_text(encoding="utf-8"))
+    items = raw["results"] if isinstance(raw, dict) and "results" in raw else raw
+    if not isinstance(items, list):
+        raise ValueError("UAT results JSON must be a list or an object with a 'results' list")
+    results: list[UatResult] = []
+    for item in items:
+        if not isinstance(item, dict):
+            raise ValueError("each UAT result must be an object")
+        results.append(
+            UatResult(
+                issue_number=int(item["issue_number"]),
+                scenario_index=int(item["scenario_index"]),
+                status=str(item.get("status") or "").strip().lower(),
+                actual=str(item.get("actual") or "").strip(),
+                evidence=str(item.get("evidence") or "").strip(),
+            )
+        )
+    return results
+
+
+def evaluate_uat_gate(
+    analyses: list[IssueAnalysis],
+    results: list[UatResult],
+    *,
+    require_complete: bool,
+    dry_run: bool,
+) -> UatGateResult:
+    if dry_run:
+        return UatGateResult("planned", "dry-run: UAT evidence not evaluated")
+    expected = {
+        (analysis.issue.number, index)
+        for analysis in analyses
+        for index, _criterion in enumerate(
+            analysis.acceptance_criteria or ("Issue の期待動作を満たすこと",), start=1
+        )
+    }
+    observed: dict[tuple[int, int], UatResult] = {}
+    for result in results:
+        key = (result.issue_number, result.scenario_index)
+        if key in observed:
+            return UatGateResult("blocked", f"duplicate UAT result for Issue #{key[0]} scenario {key[1]}")
+        observed[key] = result
+    unexpected = sorted(set(observed) - expected)
+    if unexpected:
+        issue_number, scenario_index = unexpected[0]
+        return UatGateResult(
+            "blocked",
+            f"unexpected UAT result for Issue #{issue_number} scenario {scenario_index}",
+        )
+    missing = sorted(expected - set(observed))
+    if missing:
+        status = "blocked" if require_complete else "pending"
+        issue_number, scenario_index = missing[0]
+        return UatGateResult(
+            status,
+            f"missing UAT evidence for Issue #{issue_number} scenario {scenario_index}",
+        )
+    for key in sorted(expected):
+        result = observed[key]
+        if result.status != "passed":
+            return UatGateResult(
+                "blocked",
+                f"UAT did not pass for Issue #{key[0]} scenario {key[1]}: {result.status or 'unset'}",
+            )
+        if not result.actual:
+            return UatGateResult(
+                "blocked",
+                f"UAT actual result is empty for Issue #{key[0]} scenario {key[1]}",
+            )
+        if not result.evidence:
+            return UatGateResult(
+                "blocked",
+                f"UAT evidence is empty for Issue #{key[0]} scenario {key[1]}",
+            )
+    return UatGateResult("passed", f"all {len(expected)} UAT scenarios passed with evidence")
 
 
 def load_uat_failures(path: Path | None) -> list[UatFailure]:
@@ -2022,6 +2367,7 @@ def main() -> int:
     publish_requested = (
         args.create_prs or args.merge_prs or (not dry_run and phase_at_least(args.phase, "pr"))
     )
+    merge_requested = args.merge_prs or (not dry_run and phase_at_least(args.phase, "merge"))
     if args.create_worktrees or (not dry_run and phase_at_least(args.phase, "dev")):
         worktree_results = create_or_reuse_worktrees(analyses, dry_run=dry_run)
         dispatch_results = dispatch_commandmate(
@@ -2084,60 +2430,87 @@ def main() -> int:
             and all(result.status == "completed" for result in wait_results)
         )
 
+    worker_verification_results: list[WorkerVerificationResult] = []
+    if publish_requested:
+        worker_verification_results = verify_worker_reports(
+            analyses,
+            worktree_results,
+            dry_run=dry_run,
+        )
+        (run_dir / "worker-verification.md").write_text(
+            render_worker_verification_report(worker_verification_results),
+            encoding="utf-8",
+        )
+        allowed_verification_statuses = {"planned"} if dry_run else {"passed"}
+        can_publish = (
+            can_publish
+            and bool(worker_verification_results)
+            and all(
+                result.status in allowed_verification_statuses
+                for result in worker_verification_results
+            )
+        )
+
     pr_results: list[PullRequestResult] = []
     if publish_requested and can_publish:
         pr_results = create_pull_requests(analyses, run_id=run_dir.name, dry_run=dry_run)
         (run_dir / "pr-report.md").write_text(render_pr_report(pr_results), encoding="utf-8")
+        allowed_pr_statuses = {"planned"} if dry_run else {"created", "existing"}
+        can_publish = bool(pr_results) and all(
+            result.status in allowed_pr_statuses for result in pr_results
+        )
     elif publish_requested:
         (run_dir / "pr-report.md").write_text(
-            "# PR Report\n\nSkipped because one or more CommandMate workers did not complete.\n",
+            "# PR Report\n\nSkipped because worker completion or verification did not pass.\n",
             encoding="utf-8",
         )
 
-    merge_requested = args.merge_prs or (not dry_run and phase_at_least(args.phase, "merge"))
-    if merge_requested and can_publish:
-        pr_numbers = [int(part.strip()) for part in args.pr_numbers.split(",") if part.strip()]
-        if not pr_numbers:
-            pr_numbers = (
-                [analysis.issue.number for analysis in analyses]
-                if dry_run
-                else pr_numbers_for_merge(pr_results)
-            )
-        if not pr_numbers:
-            raise ValueError("merge phase requires created/existing PR numbers")
-        merge_results = merge_pull_requests(
-            pr_numbers,
-            dry_run=dry_run,
-            merge_method=args.merge_method,
-            integration_checks=args.integration_check,
-        )
-        (run_dir / "merge-report.md").write_text(
-            render_merge_report(merge_results), encoding="utf-8"
-        )
-        for result in merge_results:
-            if result.status not in {"merged", "blocked"}:
-                continue
-            photon_results.append(
-                emit_photon_event(
-                    args.photon_url,
-                    event_kind="pr.merged" if result.status == "merged" else "verification.failed",
-                    run_id=run_dir.name,
-                    payload={
-                        "pr_number": result.pr_number,
-                        "status": result.status,
-                        "message": result.message,
-                    },
-                )
-            )
-    elif merge_requested:
-        (run_dir / "merge-report.md").write_text(
-            "# Merge Report\n\nSkipped because one or more CommandMate workers did not complete.\n",
-            encoding="utf-8",
-        )
+    pr_numbers = [int(part.strip()) for part in args.pr_numbers.split(",") if part.strip()]
+    if not pr_numbers:
+        pr_numbers = pr_numbers_for_merge(pr_results)
+    if dry_run and publish_requested and not pr_numbers:
+        pr_numbers = [analysis.issue.number for analysis in analyses]
 
-    if args.write_uat or phase_at_least(args.phase, "uat"):
-        (run_dir / "uat-report.md").write_text(render_uat_report(analyses), encoding="utf-8")
+    uat_gate = UatGateResult("not-requested", "UAT phase was not requested")
+    uat_requested = (
+        args.write_uat
+        or merge_requested
+        or (not dry_run and phase_at_least(args.phase, "uat"))
+    )
+    if uat_requested:
+        uat_results = load_uat_results(args.uat_results_json)
         failures = load_uat_failures(args.uat_failures_json)
+        ci_results = (
+            wait_for_all_pr_checks(pr_numbers, dry_run=dry_run)
+            if can_publish and pr_numbers
+            else []
+        )
+        (run_dir / "ci-report.md").write_text(
+            render_ci_report(ci_results), encoding="utf-8"
+        )
+        allowed_ci_statuses = {"planned"} if dry_run else {"passed"}
+        ci_passed = bool(ci_results) and all(
+            result.status in allowed_ci_statuses for result in ci_results
+        )
+        if ci_passed:
+            uat_gate = evaluate_uat_gate(
+                analyses,
+                uat_results,
+                require_complete=merge_requested,
+                dry_run=dry_run,
+            )
+        else:
+            uat_gate = UatGateResult(
+                "planned" if dry_run else "blocked",
+                "UAT cannot proceed until every PR passes CI",
+            )
+        if failures and not dry_run:
+            uat_gate = UatGateResult(
+                "blocked", f"{len(failures)} explicit UAT failures recorded"
+            )
+        (run_dir / "uat-report.md").write_text(
+            render_uat_report(analyses, uat_results, uat_gate), encoding="utf-8"
+        )
         (run_dir / "uat-fix-prompts.md").write_text(
             render_uat_fix_prompts(failures, analyses),
             encoding="utf-8",
@@ -2162,15 +2535,58 @@ def main() -> int:
                     },
                 )
             )
-        if not failures:
+        if uat_gate.status == "passed":
             photon_results.append(
                 emit_photon_event(
                     args.photon_url,
                     event_kind="uat.passed",
                     run_id=run_dir.name,
-                    payload={"issues": args.issues, "status": "no failures recorded"},
+                    payload={"issues": args.issues, "status": uat_gate.message},
                 )
             )
+        elif uat_gate.status == "blocked" and not failures:
+            photon_results.append(
+                emit_photon_event(
+                    args.photon_url,
+                    event_kind="uat.failed",
+                    run_id=run_dir.name,
+                    payload={"issues": args.issues, "reason": uat_gate.message},
+                )
+            )
+
+    if merge_requested and can_publish:
+        if not pr_numbers:
+            raise ValueError("merge phase requires created/existing PR numbers")
+        merge_results = merge_pull_requests(
+            pr_numbers,
+            dry_run=dry_run,
+            merge_method=args.merge_method,
+            integration_checks=args.integration_check,
+            uat_gate=uat_gate,
+        )
+        (run_dir / "merge-report.md").write_text(
+            render_merge_report(merge_results), encoding="utf-8"
+        )
+        for result in merge_results:
+            if result.status not in {"merged", "blocked"}:
+                continue
+            photon_results.append(
+                emit_photon_event(
+                    args.photon_url,
+                    event_kind="pr.merged" if result.status == "merged" else "verification.failed",
+                    run_id=run_dir.name,
+                    payload={
+                        "pr_number": result.pr_number,
+                        "status": result.status,
+                        "message": result.message,
+                    },
+                )
+            )
+    elif merge_requested:
+        (run_dir / "merge-report.md").write_text(
+            "# Merge Report\n\nSkipped because worker completion or verification did not pass.\n",
+            encoding="utf-8",
+        )
 
     write_final_report(run_dir, analyses)
     photon_results.append(

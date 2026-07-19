@@ -13,7 +13,7 @@ Implement the assigned issue according to its body, acceptance criteria, and orc
 3. Make the smallest coherent implementation.
 4. Add or update focused tests where needed.
 5. Run focused verification first, then broader verification if shared behavior changed.
-6. Write `implementation-summary.md` and `verification.md` in the same issue report directory.
+6. Write `implementation-summary.md` and `verification.md` in the same issue report directory. Use the exact overall line `- Status: passed` and one `<command>: passed` line per check, with each status formatted as inline code in the report. Use `blocked` honestly for failed or unavailable checks.
 7. Commit only when authorized, using a clear issue-scoped message.
 8. Report changed files, tests and results, readiness, and blockers.
 
