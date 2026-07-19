@@ -8913,7 +8913,7 @@ fn ultra_plan_generation_system_prompt(profile: &str, style: &str, intent: &str)
         ""
     };
     format!(
-        "You are Anvil's ultra planner. You do not execute tools or emit tool calls. Produce a top-level phase plan whose phases will each be executed by /plan-run.\n\
+        "You are CommandAgent's ultra planner. You do not execute tools or emit tool calls. Produce a top-level phase plan whose phases will each be executed by /plan-run.\n\
 Output YAML only, with this exact shape:\n\
 goal: \"...\"\n\
 profile: \"{profile}\"\n\

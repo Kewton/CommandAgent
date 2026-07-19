@@ -385,8 +385,8 @@ python3 scripts/eval-run.py \
 
 `--binary anvildev` is auto-detected as the source CLI dialect. You can also
 pass `--binary-kind anvildev` explicitly. The harness adds `--engine minimal`
-and renders `--plan-run <PROMPT>` / `--ultra-plan-run <PROMPT>` as source
-Anvil expects. MVP-only `--completion-contract-json` is not inserted for
+and renders `--plan-run <PROMPT>` / `--ultra-plan-run <PROMPT>` as that source
+CLI expects. MVP-only `--completion-contract-json` is not inserted for
 `anvildev`; postchecks still run from the same suite after the child process
 returns.
 

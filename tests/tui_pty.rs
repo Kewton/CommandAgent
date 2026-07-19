@@ -14,7 +14,7 @@ fn tui_pty_smoke() {
     let text = String::from_utf8_lossy(&output.stdout).to_string()
         + &String::from_utf8_lossy(&output.stderr);
     assert!(
-        text.contains("anvil>"),
+        text.contains("commandagent>"),
         "PTY output did not contain prompt. output={text:?}"
     );
     assert!(

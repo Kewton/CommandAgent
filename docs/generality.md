@@ -432,7 +432,7 @@ Q1-final matrix (`test0704-999-Q1-62_001`, implementation/planner model
 | CONTENT a | `019f31a9-7700-7c12-b947-9597eca40d16` | full | none | browser readiness performed/passed, interaction performed/passed, state dimension `currentContent`, token echoed, assurance full |
 | CONTENT b | `019f31af-8988-7042-bea6-19f7aae0fccf` | full | none | browser readiness performed/passed, interaction performed/passed, state dimension `contentLength`, token echoed, assurance full |
 | GAME a | `019f31b4-632c-7413-b322-34f0f8db8e91` | full | none | browser readiness performed/passed, interaction performed/passed, state dimension `bulletsCount`, primary/restart hooks, assurance full |
-| GAME b | `019f31c0-14f5-7c53-898f-4612c883da3f` | behavioral failed | `missing_required_evidence:interactive_ui_source_evidence`; `browser_interaction_failed:probe_script_error` | browser readiness HTTP 200, interaction performed_failed at `surface_wait`, recovery prompt/YAML recorded; served-DOM inspection showed visible canvas and primary action after a hidden first `data-anvil-state`, so this is a harvested probe-calibration limit, not a false full |
+| GAME b | `019f31c0-14f5-7c53-898f-4612c883da3f` | behavioral failed | `missing_required_evidence:interactive_ui_source_evidence`; `browser_interaction_failed:probe_script_error` | browser readiness HTTP 200, interaction performed_failed at `surface_wait`, recovery prompt/YAML recorded; served-DOM inspection showed visible canvas and primary action after a hidden first state instrumentation hook, so this is a harvested probe-calibration limit, not a false full |
 
 Result: Q1-final concludes the quality track for the current scoped host/model
 pair with 8/8 honest termination and a 6 full / 1 reasoned partial / 1
@@ -523,7 +523,7 @@ Optional backlog after Q1:
 |---|---|
 | `tsconfig` paths alias deterministic invariant repair | Start on recurrence of a route-bound `@/*` import gap or `tsconfig baseUrl/paths missing @/* alias` terminal reason, using [local-q1-final-tool-b-tsconfig-alias-gap](../tests/corpus/apps/local-q1-final-tool-b-tsconfig-alias-gap/expectations.toml) as the fixture. |
 | Dangerous-command rejection feedback categories | Start after recurrence analysis shows repeated local-model failures at the same policy category instead of isolated blocked-command attempts. |
-| CONTENT a dependency lifecycle variance | Start on recurrence of dependency setup lifecycle failure; first check offline/network/package-registry state before treating it as an Anvil behavior defect. |
+| CONTENT a dependency lifecycle variance | Start on recurrence of dependency setup lifecycle failure; first check offline/network/package-registry state before treating it as a CommandAgent behavior defect. |
 | `fits_viewport` responsive guidance | Start on recurrence across scenarios. The `test0707_009` GAME pass records bottom canvas overflow as informational presentation quality, not a gate. Repeated overflow should become responsive guidance and visual QA, not a hidden release blocker. |
 | UX track resumption | Start when instruction 80 is resumed with a visual acceptance protocol. Keep it separate from invisible observability contracts so visible design preferences remain reviewable trades. |
 | Data-profile/workflow track | Start when a non-web workflow needs first-class contracts beyond `python-cli`, including fixture/data lifecycle and acceptance probes. |
