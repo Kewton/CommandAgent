@@ -8,13 +8,14 @@ source of truth for the installed binary.
 
 ## Command reference
 
-The registry contains 14 primary entries. `/quit` is a separately accepted
-command name and an alias of `/exit`, giving 15 accepted names in total.
+The registry contains 15 primary entries. `/quit` is a separately accepted
+command name and an alias of `/exit`, giving 16 accepted names in total.
 
 | Command name | Usage shown by `/help` | Behavior |
 | --- | --- | --- |
 | `/help` | `/help` | Show the command list, footer hint, queued-input limits, and interrupt behavior. |
 | `/status` | `/status` | Show effective configuration and provider readiness. |
+| `/doctor` | `/doctor` | Diagnose configuration files, provider readiness, interaction probes, and the local environment without making network requests. |
 | `/runs` | `/runs` | List recent workspace runs and recovery availability. |
 | `/resume` | `/resume [run-id\|yaml-path]` | Prepare and, after confirmation, resume a recovery UltraPlan. An empty argument selects the latest recoverable run when available. |
 | `/plan` | `/plan` | Show the active plan and current activity. |

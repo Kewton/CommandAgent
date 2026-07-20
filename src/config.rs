@@ -15,6 +15,27 @@ pub const LOCAL_PROVIDER_CHAT_TIMEOUT_SECS: u64 = 600;
 pub const REMOTE_PROVIDER_CHAT_TIMEOUT_SECS: u64 = 180;
 pub const DEFAULT_CONTEXT_BUDGET: usize = 65_536;
 pub const DEFAULT_MODEL: &str = "qwen3.6:27b-coding-nvfp4";
+pub const SUPPORTED_PRESET_KEYS: &[&str] = &[
+    "model",
+    "provider",
+    "planner_model",
+    "planner_provider",
+    "context_budget",
+    "chat_timeout_secs",
+    "profile",
+    "narration",
+    "footer",
+    "stream",
+    "prompt_layout",
+    "plan_preset",
+];
+pub const SUPPORTED_TOP_LEVEL_KEYS: &[&str] = &[
+    "narration",
+    "footer",
+    "stream",
+    "prompt_layout",
+    "plan_preset",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -957,6 +978,9 @@ fn parse_top_level_key(
     value: &str,
     file: &mut ConfigFile,
 ) -> anyhow::Result<()> {
+    if !SUPPORTED_TOP_LEVEL_KEYS.contains(&key) {
+        bail!("{}:{} unknown config key '{key}'", path.display(), line_no);
+    }
     match key {
         "narration" => {
             file.narration = Some(sourced(
@@ -1008,7 +1032,7 @@ fn parse_top_level_key(
             ));
             Ok(())
         }
-        _ => bail!("{}:{} unknown config key '{key}'", path.display(), line_no),
+        _ => unreachable!("SUPPORTED_TOP_LEVEL_KEYS contains unhandled key '{key}'"),
     }
 }
 
@@ -1022,6 +1046,13 @@ fn parse_preset_key(
     preset: &mut PresetConfig,
 ) -> anyhow::Result<()> {
     let full_key = format!("preset.{name}.{key}");
+    if !SUPPORTED_PRESET_KEYS.contains(&key) {
+        bail!(
+            "{}:{} unknown config key '{full_key}'",
+            path.display(),
+            line_no
+        );
+    }
     match key {
         "model" => {
             preset.model = Some(sourced(
@@ -1095,11 +1126,7 @@ fn parse_preset_key(
                 source,
             ))
         }
-        _ => bail!(
-            "{}:{} unknown config key '{full_key}'",
-            path.display(),
-            line_no
-        ),
+        _ => unreachable!("SUPPORTED_PRESET_KEYS contains unhandled key '{key}'"),
     }
     Ok(())
 }
