@@ -266,18 +266,27 @@ fn release_workflow_preserves_the_distribution_contract() {
         "cargo test --locked",
         "aarch64-apple-darwin",
         "x86_64-apple-darwin",
+        "runner: macos-15-intel",
         "x86_64-unknown-linux-gnu",
         "x86_64-unknown-linux-musl",
         "cargo build --release --locked --target",
         "commandagent-${version}-${{ matrix.target }}.tar.gz",
-        "shasum -a 256",
+        "shasum -a 256 -c",
+        "sha256sum \"$archive\"",
         "sha256sum -c",
-        "--generate-notes",
-        "--prerelease",
+        "generate_release_notes: true",
+        "prerelease: ${{ contains(github.ref_name, '-') }}",
     ] {
         assert!(
             workflow.contains(required),
             "missing workflow contract: {required}"
+        );
+    }
+
+    for obsolete in ["runner: macos-13", "generate-notes:"] {
+        assert!(
+            !workflow.contains(obsolete),
+            "obsolete workflow configuration remains: {obsolete}"
         );
     }
 }
