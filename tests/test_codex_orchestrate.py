@@ -1253,6 +1253,69 @@ def test_wait_for_verified_workers_handles_premature_commandmate_completion(
     assert results[0].status == "passed"
 
 
+def test_wait_for_verified_workers_ignores_transient_idle_state(tmp_path: Path) -> None:
+    module = load_script()
+    analysis = module.analyze_issue(
+        module.Issue(19, "Issue 19", "Update `README.md`"),
+        "CommandAgent",
+        skip_enhance=True,
+    )
+    root = tmp_path / "issue-19"
+    root.mkdir()
+    worktree = module.WorktreeResult(
+        19, analysis.branch_name, root, "created", "created"
+    )
+    states = iter((False, True))
+    sleep_count = 0
+
+    def advance_worker(_seconds: float) -> None:
+        nonlocal sleep_count
+        sleep_count += 1
+        if sleep_count != 2:
+            return
+        report = root / "dev-reports/issue-19/verification.md"
+        report.parent.mkdir(parents=True)
+        report.write_text(
+            "# Verification\n\n- Status: `passed`\n\n- `cargo test`: `passed`\n",
+            encoding="utf-8",
+        )
+
+    def fake_runner(args, **kwargs):  # type: ignore[no-untyped-def]
+        if args == ["commandmatedev", "ls", "--json"]:
+            payload = [
+                {
+                    "id": module.commandmate_worktree_id(analysis.branch_name),
+                    "sessionStatusByCli": {
+                        "codex": {
+                            "isRunning": True,
+                            "isProcessing": next(states),
+                        }
+                    },
+                }
+            ]
+            return module.subprocess.CompletedProcess(
+                args, 0, module.json.dumps(payload), ""
+            )
+        if args[:3] == ["git", "status", "--porcelain"]:
+            return module.subprocess.CompletedProcess(args, 0, "", "")
+        if args[:3] == ["git", "ls-files", "--error-unmatch"]:
+            return module.subprocess.CompletedProcess(args, 0, "verification.md\n", "")
+        return module.subprocess.CompletedProcess(args, 1, "", "unexpected")
+
+    results = module.wait_for_verified_workers(
+        [analysis],
+        [worktree],
+        timeout_seconds=30,
+        codex_agent_name="codex",
+        runner=fake_runner,
+        sleep_fn=advance_worker,
+        monotonic_fn=lambda: 0.0,
+    )
+
+    assert results[0].status == "passed"
+    assert sleep_count == 2
+
+
 def test_render_uat_report_includes_manual_evidence() -> None:
     module = load_script()
     issue = module.Issue(

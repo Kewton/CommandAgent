@@ -2187,6 +2187,7 @@ def wait_for_verified_workers(
     runner: Runner = run_command,
     sleep_fn=time.sleep,
     monotonic_fn=time.monotonic,
+    idle_confirmations: int = 3,
 ) -> list[WorkerVerificationResult]:
     """Wait through premature CommandMate completion until workers stop processing.
 
@@ -2200,6 +2201,7 @@ def wait_for_verified_workers(
     )
     deadline = monotonic_fn() + max(timeout_seconds, 0)
     by_issue = {analysis.issue.number: analysis for analysis in analyses}
+    consecutive_idle = 0
     while any(result.status != "passed" for result in verification):
         pending = [
             by_issue[result.issue_number]
@@ -2216,7 +2218,8 @@ def wait_for_verified_workers(
             )["processing"]
             is True
         ]
-        if not processing:
+        consecutive_idle = 0 if processing else consecutive_idle + 1
+        if consecutive_idle >= max(idle_confirmations, 1):
             break
         remaining = deadline - monotonic_fn()
         if remaining <= 0:
