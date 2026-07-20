@@ -302,6 +302,14 @@ fn tui_pty_screen_state_preserves_long_accepted_goal_across_footer_modes() {
             footer,
             "footer scroll region mode mismatch. output={text:?}"
         );
+        assert!(
+            text.contains("\x1b]2;CommandAgent — Phase 1/2: game-engine\x07"),
+            "phase title OSC 2 was missing (footer={footer}). output={text:?}"
+        );
+        assert!(
+            text.contains("\x1b]2;\x07"),
+            "empty title OSC 2 cleanup was missing (footer={footer}). output={text:?}"
+        );
         if no_color {
             assert!(
                 !text.contains("\x1b[2m"),

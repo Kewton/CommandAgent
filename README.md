@@ -42,7 +42,8 @@ separate recording of a real provider-backed REPL `/ultra-plan-run`.
 - **Verification and repair** — check claimed results, collect evidence, and
   feed failures into bounded repair loops.
 - **Interactive TUI** — get a fixed status footer, activity spinner, streaming
-  output, queued input, and Esc/Ctrl-C interruption.
+  output, queued input, Esc/Ctrl-C interruption, terminal-title phase progress,
+  and a completion bell for long-running commands.
 
 ## Quickstart
 

@@ -13,6 +13,7 @@ pub mod spinner;
 pub mod status;
 pub mod status_bus;
 pub mod terminal;
+pub mod terminal_notifications;
 pub mod terminal_summary;
 pub mod ux_demo;
 
