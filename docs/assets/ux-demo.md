@@ -39,5 +39,7 @@ For quick terminal-only iteration without recording the real pacing:
 COMMANDAGENT_UX_DEMO_FAST=1 commandagent --ux-demo
 ```
 
-When the presentation output changes, update the SVG excerpt and regenerate the
-full GIF from the tape in the same change.
+The Issue #50 text-only consistency update is covered by the scripted demo and
+presentation snapshots. Regenerating the SVG excerpt and full GIF is deferred
+to Issue #43 item D (recorded demo capture), so those assets stay synchronized
+with the provider-backed walkthrough rather than being recaptured twice.

@@ -1150,11 +1150,12 @@ fn emit_markdown(text: &str) {
         return;
     }
     drop(state);
+    let text = crate::tui::glyphs::for_current_locale(text);
     if std::io::stdout().is_terminal() {
         let renderer = crate::tui::markdown::TerminalMarkdownRenderer::for_stdout();
-        let _ = renderer.render_assistant(text);
+        let _ = renderer.render_assistant(&text);
     } else {
-        let _ = crate::tui::markdown::PlainRenderer.render_assistant(text);
+        let _ = crate::tui::markdown::PlainRenderer.render_assistant(&text);
     }
 }
 
@@ -1341,6 +1342,24 @@ mod tests {
                 "↻ plan quality retry 1: missing verification",
             ]
         );
+        assert_eq!(
+            lines
+                .iter()
+                .map(|line| crate::tui::glyphs::for_locale(line, false))
+                .collect::<Vec<_>>(),
+            vec![
+                "-> step write-page [implement]",
+                "-> Write src/app/page.tsx",
+                "ok Write ok",
+                "x verify missing path package.json",
+                "~ repair 1/2: missing_artifact",
+                "ok probe: HTTP 200",
+                "ok verify implement (final_acceptance)",
+                "~ empty response; retry 2 (fresh_session)",
+                "ok empty response recovered after 2 retries",
+                "~ plan quality retry 1: missing verification",
+            ]
+        );
     }
 
     #[test]
@@ -1411,6 +1430,21 @@ mod tests {
         assert_eq!(
             render_provider_turn_completed("planner_step", 98),
             "✓ step plan ready (98s)"
+        );
+
+        let ascii = [
+            render_provider_turn_started("planner_step", "qwen3.6", 600, &context),
+            render_provider_turn_progress(120, 600),
+            render_provider_turn_completed("planner_step", 98),
+        ]
+        .map(|line| crate::tui::glyphs::for_locale(&line, false));
+        assert_eq!(
+            ascii,
+            [
+                "-> planning steps for phase 2/5 todo-logic-storage (qwen3.6, up to 600s)",
+                "... still waiting (120s/600s)",
+                "ok step plan ready (98s)",
+            ]
         );
     }
 

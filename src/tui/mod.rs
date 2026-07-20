@@ -1,7 +1,9 @@
 pub mod banner;
 pub mod command_receipt;
 pub mod editor;
+pub mod elapsed;
 pub mod footer;
+pub mod glyphs;
 pub mod input_queue;
 pub mod interrupt;
 pub mod markdown;

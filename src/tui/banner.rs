@@ -4,11 +4,18 @@ use crate::config::{Config, Provider};
 
 const MIN_BANNER_WIDTH: u16 = 50;
 const NEON_GRADIENT_256: [u8; 5] = [51, 39, 93, 201, 21];
-const COMMANDAGENT_ASCII_ART: [&str; 5] = [
+const COMMANDAGENT_ART_UTF8: [&str; 5] = [
     "                                          ",
     "  ╭──────────────────────────────────────╮",
     "  │   COMMANDAGENT · local-first agent   │",
     "  ╰──────────────────────────────────────╯",
+    "                                          ",
+];
+const COMMANDAGENT_ART_ASCII: [&str; 5] = [
+    "                                          ",
+    "  +--------------------------------------+",
+    "  |   COMMANDAGENT - local-first agent   |",
+    "  +--------------------------------------+",
     "                                          ",
 ];
 
@@ -44,16 +51,29 @@ pub fn decide_banner_style(tty: bool, no_color: bool, width: Option<u16>) -> Ban
 }
 
 pub fn render_startup_banner(config: &Config, style: BannerStyle) -> String {
+    render_startup_banner_for_locale(config, style, crate::tui::terminal::utf8_locale())
+}
+
+pub(crate) fn render_startup_banner_for_locale(
+    config: &Config,
+    style: BannerStyle,
+    use_utf8: bool,
+) -> String {
     let mut out = String::new();
+    let art = if use_utf8 {
+        &COMMANDAGENT_ART_UTF8
+    } else {
+        &COMMANDAGENT_ART_ASCII
+    };
     match style {
         BannerStyle::Neon => {
-            for (index, line) in COMMANDAGENT_ASCII_ART.iter().enumerate() {
+            for (index, line) in art.iter().enumerate() {
                 let color = NEON_GRADIENT_256[index];
                 out.push_str(&format!("\x1b[38;5;{color}m{line}\x1b[0m\n"));
             }
         }
         BannerStyle::MonoArt => {
-            for line in COMMANDAGENT_ASCII_ART {
+            for line in art {
                 out.push_str(line);
                 out.push('\n');
             }
@@ -114,7 +134,7 @@ pub fn render_startup_banner(config: &Config, style: BannerStyle) -> String {
         out.push_str("warning: build stamp is dirty; rebuild cleanly before measurement runs\n");
     }
     out.push_str("help: /help for commands | /doctor for setup diagnostics\n");
-    out
+    crate::tui::glyphs::for_locale(&out, use_utf8)
 }
 
 fn provider_label(provider: Provider) -> &'static str {
@@ -219,16 +239,26 @@ mod tests {
 
     #[test]
     fn banner_mono_includes_ascii_art_lines() {
-        let out = render_startup_banner(&config(), BannerStyle::MonoArt);
-        for line in COMMANDAGENT_ASCII_ART {
+        let out = render_startup_banner_for_locale(&config(), BannerStyle::MonoArt, true);
+        for line in COMMANDAGENT_ART_UTF8 {
             assert!(out.contains(line));
         }
         assert!(!out.contains("\x1b[31m"));
     }
 
     #[test]
+    fn banner_non_utf8_locale_uses_ascii_art() {
+        let out = render_startup_banner_for_locale(&config(), BannerStyle::MonoArt, false);
+
+        for line in COMMANDAGENT_ART_ASCII {
+            assert!(out.contains(line), "{out}");
+        }
+        assert!(out.is_ascii(), "{out}");
+    }
+
+    #[test]
     fn banner_legacy_has_dynamic_lines_without_art() {
-        let out = render_startup_banner(&config(), BannerStyle::Legacy4Line);
+        let out = render_startup_banner_for_locale(&config(), BannerStyle::Legacy4Line, true);
         assert!(out.contains("commandagent"));
         assert!(out.contains(&crate::build_info::commit_with_dirty()));
         assert!(out.contains("context_budget=65536 (default)"));

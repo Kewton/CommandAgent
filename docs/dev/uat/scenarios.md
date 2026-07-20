@@ -144,6 +144,9 @@ For footer-specific changes, the reviewer also checks `commandagent --ux-demo`
 and one real local run for zero blinking, readable long-turn breadcrumbs, and a
 stable footer. If a terminal shows cursor-region artifacts, rerun with
 `--footer off`; the fixed footer is disabled and scrollback breadcrumbs remain.
+Repeat the demo with `LC_ALL=C`: banner art, breadcrumbs, and footer separators
+must use ASCII glyphs. In a color-enabled terminal, the active footer's primary
+row remains fully emphasized while its settings or secondary-detail row is dim.
 
 For queued-input changes, use one real local run and type at least two follow-up
 lines while a command is active. Confirm that printable input is echoed above

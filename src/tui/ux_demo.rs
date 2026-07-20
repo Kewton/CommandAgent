@@ -9,7 +9,7 @@ use crate::eval_events::{CompletionSnapshot, project_completion, render_terminal
 use crate::planner::step_plan::{PlanStep, StepPlan};
 use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
 use crate::tui::OutputRenderer;
-use crate::tui::footer::{Footer, build_live_footer_lines};
+use crate::tui::footer::Footer;
 use crate::tui::status::UiStatus;
 use crate::tui::status_bus::{self, ProviderTurnStatus, RuntimeStatus, StatusTime};
 
@@ -95,11 +95,16 @@ pub fn run(config: &Config) -> anyhow::Result<()> {
 }
 
 pub fn render_scripted_demo_text(config: &Config) -> String {
+    render_scripted_demo_text_for_locale(config, crate::tui::terminal::utf8_locale())
+}
+
+fn render_scripted_demo_text_for_locale(config: &Config, use_utf8: bool) -> String {
     let plan = demo_plan(config);
     let step_plan = demo_step_plan();
-    let mut out = crate::tui::banner::render_startup_banner(
+    let mut out = crate::tui::banner::render_startup_banner_for_locale(
         config,
         crate::tui::banner::BannerStyle::Legacy4Line,
+        use_utf8,
     );
     out.push_str(&crate::tui::presentation::render_ultra_plan_card(
         &plan,
@@ -146,12 +151,12 @@ pub fn render_scripted_demo_text(config: &Config) -> String {
         60, 600,
     ));
     out.push('\n');
-    out.push_str(&footer_snapshot(config, 2, false));
+    out.push_str(&footer_snapshot_for_locale(config, 2, false, use_utf8));
     out.push('\n');
-    out.push_str(&footer_snapshot(config, 10, true));
+    out.push_str(&footer_snapshot_for_locale(config, 10, true, use_utf8));
     out.push('\n');
     out.push_str(&demo_summary_card());
-    out
+    crate::tui::glyphs::for_locale(&out, use_utf8)
 }
 
 fn demo_plan(config: &Config) -> UltraPlan {
@@ -192,6 +197,20 @@ fn emit_demo_event(event: serde_json::Value) {
 }
 
 fn footer_snapshot(config: &Config, elapsed_secs: u64, interrupted: bool) -> String {
+    footer_snapshot_for_locale(
+        config,
+        elapsed_secs,
+        interrupted,
+        crate::tui::terminal::utf8_locale(),
+    )
+}
+
+fn footer_snapshot_for_locale(
+    config: &Config,
+    elapsed_secs: u64,
+    interrupted: bool,
+    use_utf8: bool,
+) -> String {
     let runtime = RuntimeStatus {
         provider: Some(ProviderTurnStatus {
             scope: "planner_step".to_string(),
@@ -201,12 +220,13 @@ fn footer_snapshot(config: &Config, elapsed_secs: u64, interrupted: bool) -> Str
         interrupt_requested: interrupted,
         ..RuntimeStatus::default()
     };
-    build_live_footer_lines(
+    crate::tui::footer::build_live_footer_lines_for_locale(
         &UiStatus::from_config(config),
         &runtime,
         StatusTime::from_secs(elapsed_secs),
         120,
         false,
+        use_utf8,
     )
     .join("\n")
 }
@@ -237,11 +257,12 @@ fn demo_summary_card() -> String {
 }
 
 fn render_demo_markdown(text: &str) -> anyhow::Result<()> {
+    let text = crate::tui::glyphs::for_current_locale(text);
     if io::stdout().is_terminal() {
         let renderer = crate::tui::markdown::TerminalMarkdownRenderer::for_stdout();
-        renderer.render_assistant(text)
+        renderer.render_assistant(&text)
     } else {
-        crate::tui::markdown::PlainRenderer.render_assistant(text)
+        crate::tui::markdown::PlainRenderer.render_assistant(&text)
     }
 }
 
@@ -288,7 +309,7 @@ mod tests {
 
     #[test]
     fn scripted_demo_contains_full_visual_journey() {
-        let text = render_scripted_demo_text(&config());
+        let text = render_scripted_demo_text_for_locale(&config(), true);
 
         for needle in [
             "commandagent",
@@ -302,12 +323,32 @@ mod tests {
             "↻ repair 1/2: browser evidence",
             "→ planning steps for phase 1/2 scaffold (pm, up to 600s)",
             "… still waiting (60s/600s)",
-            "planning steps 2s/600s",
+            "planning steps 2s/10m00s",
             "[stopping: aborting current operation…]",
             "### Terminal summary",
             "- Status: interrupted",
         ] {
             assert!(text.contains(needle), "missing {needle:?} in:\n{text}");
         }
+    }
+
+    #[test]
+    fn scripted_demo_uses_ascii_presentation_in_non_utf8_locale() {
+        let text = render_scripted_demo_text_for_locale(&config(), false);
+
+        for needle in [
+            "-- Phase 1/2: scaffold --",
+            "-> Write src/app/page.tsx",
+            "ok Write ok",
+            "x verify missing path browser-readiness.json",
+            "~ repair 1/2: browser evidence",
+            "-> planning steps for phase 1/2 scaffold (pm, up to 600s)",
+            "... still waiting (60s/600s)",
+            "planning steps 2s/10m00s",
+            "[stopping: aborting current operation...]",
+        ] {
+            assert!(text.contains(needle), "missing {needle:?} in:\n{text}");
+        }
+        assert!(text.is_ascii(), "non-ASCII demo output:\n{text}");
     }
 }
