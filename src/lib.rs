@@ -64,6 +64,7 @@ fn run_config(config: Config) -> anyhow::Result<()> {
         println!("{}", runs::render_runs_table(&config.workspace_root));
         return Ok(());
     }
+    let _terminal_notification_guard = tui::terminal_notifications::install();
     let _presentation_guard = tui::presentation::install(&config);
     emit_run_start(&config);
     let direct_command_guard = DirectCommandCompletionGuard::start(&config);
@@ -283,6 +284,7 @@ struct DirectCommandCompletionGuard {
 impl DirectCommandCompletionGuard {
     fn start(config: &Config) -> Option<Self> {
         let command = direct_command_for_action(&config.action)?.to_string();
+        tui::terminal_notifications::command_started();
         let finalized = Arc::new(AtomicBool::new(false));
         let mut signal_handle = None;
         let mut signal_thread = None;
@@ -309,6 +311,7 @@ impl DirectCommandCompletionGuard {
                                 &result,
                                 DirectCommandStatus::Interrupted,
                             );
+                            tui::terminal_notifications::finish_process();
                         }
                         std::process::exit(130);
                     }

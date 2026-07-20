@@ -161,6 +161,8 @@ variables also affect normal user-visible behavior:
 | `COMMANDAGENT_NO_SPINNER` / `ANVIL_NO_SPINNER` | A non-empty value disables the progress spinner. |
 | `COMMANDAGENT_NO_MARKDOWN` / `ANVIL_NO_MARKDOWN` | A non-empty value disables terminal Markdown rendering. |
 | `COMMANDAGENT_NO_INTERRUPT` / `ANVIL_NO_INTERRUPT` | A non-empty value disables the raw-mode interrupt monitor. |
+| `COMMANDAGENT_NO_TERMINAL_TITLE` / `ANVIL_NO_TERMINAL_TITLE` | A non-empty value disables Ultra phase progress in the terminal title. |
+| `COMMANDAGENT_NO_BELL` / `ANVIL_NO_BELL` | A non-empty value disables the completion bell for commands lasting at least 10 seconds. |
 | `COMMANDAGENT_EVAL_EVENTS` / `ANVIL_EVAL_EVENTS` | Overrides the event JSONL path. |
 | `COMMANDAGENT_PLAYWRIGHT_DIR` / `ANVIL_PLAYWRIGHT_DIR` | Adds an explicit Playwright module search directory for the interaction probe. |
 | `COMMANDAGENT_COMPLETION_CONTRACT` / `ANVIL_COMPLETION_CONTRACT` | Supplies an external completion-contract path. |

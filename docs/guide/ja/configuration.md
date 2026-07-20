@@ -152,6 +152,8 @@ preset はサポートしません。値はクォートあり／なしの両方�
 | `COMMANDAGENT_NO_SPINNER` / `ANVIL_NO_SPINNER` | 空でない値で進捗 spinner を無効にします。 |
 | `COMMANDAGENT_NO_MARKDOWN` / `ANVIL_NO_MARKDOWN` | 空でない値で端末 Markdown 描画を無効にします。 |
 | `COMMANDAGENT_NO_INTERRUPT` / `ANVIL_NO_INTERRUPT` | 空でない値で raw mode の interrupt monitor を無効にします。 |
+| `COMMANDAGENT_NO_TERMINAL_TITLE` / `ANVIL_NO_TERMINAL_TITLE` | 空でない値で Ultra phase の端末タイトル進捗を無効にします。 |
+| `COMMANDAGENT_NO_BELL` / `ANVIL_NO_BELL` | 空でない値で 10 秒以上かかったコマンドの完了ベルを無効にします。 |
 | `COMMANDAGENT_EVAL_EVENTS` / `ANVIL_EVAL_EVENTS` | event JSONL パスを上書きします。 |
 | `COMMANDAGENT_PLAYWRIGHT_DIR` / `ANVIL_PLAYWRIGHT_DIR` | interaction probe 用 Playwright module の明示的探索ディレクトリを追加します。 |
 | `COMMANDAGENT_COMPLETION_CONTRACT` / `ANVIL_COMPLETION_CONTRACT` | 外部 completion-contract パスを指定します。 |

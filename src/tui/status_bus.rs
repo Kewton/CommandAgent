@@ -419,6 +419,7 @@ pub fn publish_force_finalize_requested() -> bool {
 }
 
 pub fn publish_eval_projection(event: &Value) -> bool {
+    crate::tui::terminal_notifications::project_event(event);
     let Some(name) = event.get("event").and_then(Value::as_str) else {
         return false;
     };
