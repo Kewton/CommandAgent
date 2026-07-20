@@ -11,6 +11,7 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - Add the repository's MIT License, contribution guide, and changelog.
+- Add documented `just` development tasks and a reproducible Dev Container.
 
 ## Historical note
 
