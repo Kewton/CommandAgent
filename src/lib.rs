@@ -3,6 +3,7 @@
 pub mod bounded_process;
 pub mod build_info;
 pub mod cli;
+mod cli_artifacts;
 mod cli_panic_boundary;
 mod completion_metadata;
 pub mod config;
@@ -38,6 +39,15 @@ use tui::TerminalUi;
 use tui::markdown::{PlainRenderer, TerminalMarkdownRenderer};
 
 pub fn run(cli: Cli) -> anyhow::Result<()> {
+    if let Some(shell) = cli.completions {
+        let stdout = std::io::stdout();
+        return cli_artifacts::write_completions(shell, &mut stdout.lock());
+    }
+    if cli.generate_man {
+        let stdout = std::io::stdout();
+        return cli_artifacts::write_man_page(&mut stdout.lock())
+            .context("failed to write commandagent man page");
+    }
     if cli.doctor {
         return doctor::run_cli(cli);
     }

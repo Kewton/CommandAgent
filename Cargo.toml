@@ -24,6 +24,8 @@ include = [
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
+clap_mangen = "0.2"
 crossterm = { version = "0.28", default-features = false, features = ["events"] }
 globset = "0.4"
 ignore = "0.4"

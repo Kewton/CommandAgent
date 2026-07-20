@@ -17,7 +17,7 @@ for the TUI. The action selectors are `--prompt`, `--plan-steps`, `--plan-run`,
 selector.
 
 Clap also generates `-h`/`--help` and `-V`/`--version`. They are not part of the
-39 application flags below. The hidden `--completion-contract-json <PATH>` is an
+41 application flags below. The hidden `--completion-contract-json <PATH>` is an
 internal integration surface and is intentionally not a public user flag.
 
 ## Flag reference
@@ -47,6 +47,8 @@ internal integration surface and is intentionally not a public user flag.
 | `--model-probe` | none | off | Run the bounded model behavior probe battery. | [Model probe](../../model-probe.md) |
 | `--doctor` | none | off | Diagnose configuration files, provider readiness, interaction probes, and the local environment without making network requests. | [Slash `/doctor`](slash-commands.md#command-reference) |
 | `--json` | none | off | Render `--doctor` output as stable machine-readable JSON. Requires `--doctor`. | [Slash `/doctor`](slash-commands.md#command-reference) |
+| `--completions` | `<SHELL>`: `bash`, `elvish`, `fish`, `powershell`, `zsh` | none | Generate a completion script from the current Clap definition and write it to stdout. | [Shell completions and man page](#shell-completions-and-man-page) |
+| `--generate-man` | none | off | Generate the `commandagent(1)` man page from the current Clap definition and write it to stdout. | [Shell completions and man page](#shell-completions-and-man-page) |
 | `--profile` | `<PROFILE>` | inferred, then `generic` | Set a domain profile explicitly, for example `nextjs`, `python-cli`, `data`, or `generic`. | [Profile inference](slash-commands.md#profile-inference) |
 | `--style` | `<STYLE>` | `default` | Pass the plan presentation/generation style. | [Inline flags](slash-commands.md#inline-flags) |
 | `--resume` | `<RESUME>` | none | Load the named saved minimal-loop session for a direct `--prompt` run. | [Session options](#conflicts-and-combinations) |
@@ -93,6 +95,66 @@ See [Configuration](configuration.md) for the exact per-field layers.
   `planner_model`; otherwise startup fails.
 - For direct minimal-loop prompts, `--fresh-session` takes precedence over
   `--resume`. These session switches are not used by slash-command plan resume.
+
+## Shell completions and man page
+
+Both interfaces generate from the current Clap command definition, so newly
+added flags are included automatically. They write only to stdout; redirect the
+output to a user-owned installation path. Regenerate the files after updating
+CommandAgent.
+
+`scripts/setup.sh` offers to install a completion for the detected Bash, Zsh,
+or Fish shell. For manual installation, use the appropriate command below.
+
+For Bash with the standard per-user `bash-completion` directory:
+
+```bash
+completion_dir="${BASH_COMPLETION_USER_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion}/completions"
+mkdir -p "$completion_dir"
+commandagent --completions bash > "$completion_dir/commandagent"
+```
+
+For Zsh, place the `_commandagent` function in a directory on `fpath`, then
+initialize completion:
+
+```zsh
+completion_dir="${XDG_DATA_HOME:-$HOME/.local/share}/zsh/site-functions"
+mkdir -p "$completion_dir"
+commandagent --completions zsh > "$completion_dir/_commandagent"
+fpath=("$completion_dir" $fpath)
+autoload -Uz compinit && compinit
+```
+
+Persist the last two lines in `.zshrc`. For Fish:
+
+```fish
+set completion_dir (string join / (set -q XDG_CONFIG_HOME; and echo $XDG_CONFIG_HOME; or echo $HOME/.config) fish completions)
+mkdir -p $completion_dir
+commandagent --completions fish > $completion_dir/commandagent.fish
+```
+
+Fish loads that path automatically. For PowerShell, save the generated script
+and dot-source it from the current session or from `$PROFILE`:
+
+```powershell
+commandagent --completions powershell > "$HOME/.commandagent-completion.ps1"
+. "$HOME/.commandagent-completion.ps1"
+```
+
+Elvish generation is also available through `commandagent --completions
+elvish`; load or store that output according to your Elvish configuration.
+
+To install the generated man page in the common per-user location:
+
+```bash
+man_dir="${XDG_DATA_HOME:-$HOME/.local/share}/man/man1"
+mkdir -p "$man_dir"
+commandagent --generate-man > "$man_dir/commandagent.1"
+man -l "$man_dir/commandagent.1"
+```
+
+Add the parent `man` directory to `MANPATH` if you want `man commandagent` to
+discover it without an explicit path.
 
 ## Examples
 
