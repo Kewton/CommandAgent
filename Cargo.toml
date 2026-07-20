@@ -3,8 +3,21 @@ name = "commandagent"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
-description = "Copyable minimal loop + YAML plan runner MVP"
+description = "Local-first coding agent with verified minimal-loop and structured-plan workflows"
 license = "MIT"
+repository = "https://github.com/Kewton/CommandAgent"
+homepage = "https://github.com/Kewton/CommandAgent"
+readme = "README.md"
+keywords = ["ai", "coding-agent", "cli", "automation", "developer-tools"]
+categories = ["command-line-utilities", "development-tools"]
+include = [
+    "/Cargo.toml",
+    "/Cargo.lock",
+    "/LICENSE",
+    "/README.md",
+    "/build.rs",
+    "/src/**",
+]
 
 [workspace]
 
