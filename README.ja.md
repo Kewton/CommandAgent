@@ -22,8 +22,11 @@ CommandAgent は信頼できるローカルワークスペース内で動作し�
   <img src="docs/assets/ux-demo.svg" alt="CommandAgent のターミナルデモアニメーション" width="900">
 </p>
 
-このデモは完全にオフラインです。`commandagent --ux-demo` で実行できます。
-再現方法は[録画メモ](docs/assets/ux-demo.md)を参照してください。
+`commandagent --ux-demo` は完全オフラインの scripted walkthrough であり、通常の
+provider-backed run ではありません。上の画像はそのスクリプトを手作業で抜粋した
+SVG で、ターミナル実録ではありません。[録画メモ](docs/assets/ux-demo.md)では、この
+scripted asset と、実際の provider-backed REPL `/ultra-plan-run` の録画を区別して
+案内しています。
 
 ## 機能
 

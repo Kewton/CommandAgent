@@ -247,3 +247,52 @@ fn pty_test_recipe_matches_contributing_command_and_includes_ignored_tests() {
         "CONTRIBUTING.md must document the test-pty command exactly; command={recipe_command:?}"
     );
 }
+
+#[test]
+fn demo_docs_distinguish_scripted_assets_from_provider_backed_recording() {
+    let english = read_repo_file("README.md");
+    let japanese = read_repo_file("README.ja.md");
+    let notes = read_repo_file("docs/assets/ux-demo.md");
+    let recording = repo_path("docs/assets/repl-ultra-plan-run.rec");
+
+    for (path, readme, offline_marker) in [
+        ("README.md", english, "offline"),
+        ("README.ja.md", japanese, "オフライン"),
+    ] {
+        assert!(
+            readme.contains("--ux-demo")
+                && readme.contains(offline_marker)
+                && readme.contains("provider-backed")
+                && readme.contains("SVG"),
+            "{path} must identify --ux-demo and the SVG as scripted rather than provider-backed"
+        );
+    }
+    assert!(
+        notes.contains("repl-ultra-plan-run.rec")
+            && notes.contains("provider-backed")
+            && notes.contains("script -p"),
+        "recording notes must identify and explain replay of the provider-backed capture"
+    );
+    let capture = fs::read(&recording)
+        .unwrap_or_else(|err| panic!("failed to read {}: {err}", recording.display()));
+    assert!(capture.len() > 1_024, "recording should be non-trivial");
+    for marker in [
+        b"Accepted command".as_slice(),
+        b"- Requested port: 3011 (goal)",
+        b"UltraPlan accepted:",
+        b"planning the overall plan",
+        b"planning steps",
+        b"interrupt requested; aborting current operation",
+        b"Recovery UltraPlan",
+        b"Active command: /ultra-plan-run",
+        b"Current scope: interrupt requested",
+        b"\x1b[1;22r",
+        b"\x1b[s\x1b[r",
+    ] {
+        assert!(
+            capture.windows(marker.len()).any(|window| window == marker),
+            "provider-backed recording is missing marker {:?}",
+            String::from_utf8_lossy(marker)
+        );
+    }
+}

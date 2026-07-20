@@ -50,6 +50,17 @@ struct StepPlanProjection {
     steps: Vec<StepProjection>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ActiveCommandProjection {
+    command: String,
+    goal: String,
+    profile: String,
+    style: String,
+    prompt_layout: String,
+    requested_port: Option<u16>,
+    run_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct PresentationState {
     enabled: bool,
@@ -58,6 +69,7 @@ struct PresentationState {
     current_step_plan: Option<StepPlanProjection>,
     progress: PlanProgress,
     current_activity: Option<String>,
+    active_command: Option<ActiveCommandProjection>,
 }
 
 static PRESENTATION: OnceLock<Mutex<PresentationState>> = OnceLock::new();
@@ -257,7 +269,9 @@ pub fn render_status_card(config: &Config) -> String {
             )
         }
     };
-    let live_time = crate::tui::status_bus::snapshot_global()
+    let runtime = crate::tui::status_bus::snapshot_global();
+    let live_time = runtime
+        .as_ref()
         .map(|status| {
             let totals = status.time_totals;
             if totals.total_secs() == 0 {
@@ -274,8 +288,38 @@ pub fn render_status_card(config: &Config) -> String {
             }
         })
         .unwrap_or_else(|| "not running".to_string());
-    [
-        "### Status".to_string(),
+    let state = lock_state().clone();
+    let mut lines = vec!["### Status".to_string()];
+    if let Some(active) = state.active_command {
+        lines.extend([
+            format!("- Active command: {}", active.command),
+            format!("- Active Goal: {}", active.goal),
+            format!("- Active profile: {}", active.profile),
+            format!("- Active style: {}", active.style),
+            format!("- Active prompt layout: {}", active.prompt_layout),
+            format!(
+                "- Active requested port: {}",
+                active
+                    .requested_port
+                    .map(|port| format!("{port} (goal)"))
+                    .unwrap_or_else(|| "not specified".to_string())
+            ),
+            format!(
+                "- Active Run ID: {}",
+                active.run_id.as_deref().unwrap_or("unavailable")
+            ),
+            format!(
+                "- Current phase: {}",
+                status_phase(runtime.as_ref(), &state.progress, state.ultra_plan.as_ref())
+            ),
+            format!(
+                "- Current step: {}",
+                status_step(runtime.as_ref(), &state.progress)
+            ),
+            format!("- Current scope: {}", status_scope(runtime.as_ref())),
+        ]);
+    }
+    lines.extend([
         format!("- Model: {} ({})", config.model, config.field_sources.model),
         format!(
             "- Provider: {} ({})",
@@ -322,26 +366,30 @@ pub fn render_status_card(config: &Config) -> String {
             stream_label(config.stream),
             config.field_sources.stream
         ),
-    ]
-    .join("\n")
+    ]);
+    lines.join("\n")
 }
 
 pub fn render_ultra_plan_card(plan: &UltraPlan, progress: &PlanProgress) -> String {
     let port = crate::planner::signals::requested_port_from_text(&plan.goal)
         .map(|port| port.to_string())
         .unwrap_or_else(|| "not specified".to_string());
-    let assurance = if plan.profile == "generic" {
-        "earned after final acceptance; static until gates run"
-    } else {
-        "earned after final acceptance re-verifies all gates"
-    };
+    let first_phase = plan
+        .phases
+        .first()
+        .map(|phase| phase.id.as_str())
+        .unwrap_or("none");
     let mut lines = vec![
         "### Plan".to_string(),
         format!("- Goal: {}", fit(&plan.goal, GOAL_WIDTH)),
         format!("- Profile: {}", plan.profile),
         format!("- Port: {port}"),
-        format!("- Assurance expectation: {assurance}"),
-        "- Phases:".to_string(),
+        format!(
+            "- UltraPlan accepted: {} phases; first: {}",
+            plan.phases.len(),
+            fit(first_phase, 72)
+        ),
+        "- Phase list:".to_string(),
     ];
     for (index, phase) in plan.phases.iter().enumerate() {
         let mark = phase_mark(&phase.id, progress);
@@ -537,6 +585,42 @@ pub fn render_activity_line(event: &Value) -> Option<String> {
                 Some(format!("✗ planner {kind}: {}", fit(&message, 96)))
             }
         }
+        "empty_response_escalation" => {
+            let attempt = event.get("attempt").and_then(Value::as_u64).unwrap_or(1);
+            let stage = text(event, "stage").unwrap_or_else(|| "retry".to_string());
+            Some(format!(
+                "↻ empty response; retry {attempt} ({})",
+                fit(&stage, 48)
+            ))
+        }
+        "empty_response_recovered" => {
+            let count = event
+                .get("after_empty_responses")
+                .and_then(Value::as_u64)
+                .unwrap_or(1);
+            Some(format!("✓ empty response recovered after {count} retries"))
+        }
+        "planner_quality_retry"
+        | "planner_quality_retry_degraded"
+        | "planner_quality_retry_exhausted"
+        | "ultra_plan_generation_retry" => {
+            let attempt = event
+                .get("repair_attempt")
+                .or_else(|| event.get("attempt"))
+                .and_then(Value::as_u64)
+                .unwrap_or(1);
+            let message = text(event, "planner_error_message")
+                .or_else(|| text(event, "message"))
+                .or_else(|| text(event, "reason"))
+                .unwrap_or_else(|| "quality check requested another plan".to_string());
+            Some(format!(
+                "↻ plan quality retry {attempt}: {}",
+                fit(&message, 96)
+            ))
+        }
+        "provider_turn_timeout_recovered" => {
+            Some("✓ provider timeout recovered; retrying".to_string())
+        }
         "provider_turn_aborted_by_user" => Some("✗ provider aborted by user".to_string()),
         "dependency_build_lifecycle" => {
             let status = text(event, "status").unwrap_or_else(|| "dependency".to_string());
@@ -580,7 +664,6 @@ pub fn documented_activity_ignore_reason(name: &str) -> Option<&'static str> {
         "ultra_plan_generation_attempt"
         | "ultra_plan_raw_output_shape"
         | "ultra_plan_generation_succeeded"
-        | "ultra_plan_generation_retry"
         | "ultra_plan_generation_metadata_normalized"
         | "planner_quality_warning"
         | "planner_quality_issue" => Some("planner bookkeeping covered by plan cards"),
@@ -595,12 +678,9 @@ pub fn documented_activity_ignore_reason(name: &str) -> Option<&'static str> {
         | "profile_reinferred"
         | "generic_contract_bound" => Some("projection state update"),
         // Provider and loop metrics are better inspected in events.jsonl than narrated line by line.
-        "provider_turn_duration"
-        | "loop_stop"
-        | "runtime_bash_policy"
-        | "tool_args_recovered"
-        | "empty_response_recovered"
-        | "provider_turn_timeout_recovered" => Some("low-value runtime metric"),
+        "provider_turn_duration" | "loop_stop" | "runtime_bash_policy" | "tool_args_recovered" => {
+            Some("low-value runtime metric")
+        }
         // Recovery artifacts are surfaced by the summary card and resume hints.
         "recovery_prompt_saved" | "recovery_ultra_plan_saved" | "summary_written" => {
             Some("recovery artifact summarized")
@@ -623,6 +703,26 @@ pub fn set_plan_for_test(plan: &UltraPlan, progress: PlanProgress, activity: Opt
     update_ultra_plan(plan);
     update_progress(&progress);
     lock_state().current_activity = activity;
+}
+
+pub fn accept_command(parsed: &crate::tui::slash::ParsedSlash, config: &Config) {
+    if parsed.goal.trim().is_empty() {
+        return;
+    }
+    let mut state = lock_state();
+    state.active_command = Some(ActiveCommandProjection {
+        command: crate::tui::command_receipt::sanitize_terminal_text(&parsed.command),
+        goal: crate::tui::command_receipt::sanitize_terminal_text(&parsed.goal),
+        profile: crate::tui::command_receipt::sanitize_terminal_text(&parsed.profile),
+        style: crate::tui::command_receipt::sanitize_terminal_text(&parsed.style),
+        prompt_layout: parsed.prompt_layout.as_str().to_string(),
+        requested_port: crate::planner::signals::requested_port_from_text(&parsed.goal),
+        run_id: crate::tui::command_receipt::run_id(config.eval_events_path.as_deref()),
+    });
+    state.ultra_plan = None;
+    state.current_step_plan = None;
+    state.progress = PlanProgress::default();
+    state.current_activity = Some("accepted; preparing command".to_string());
 }
 
 fn update_ultra_plan(plan: &UltraPlan) {
@@ -867,6 +967,85 @@ fn status_port(config: &Config) -> String {
     }
 }
 
+fn status_phase(
+    runtime: Option<&crate::tui::status_bus::RuntimeStatus>,
+    progress: &PlanProgress,
+    plan: Option<&UltraPlanProjection>,
+) -> String {
+    if let Some(phase) = runtime.and_then(|runtime| runtime.phase.as_ref()) {
+        let progress = if phase.total == 0 {
+            format!("{}", phase.index)
+        } else {
+            format!("{}/{}", phase.index, phase.total)
+        };
+        return if phase.id.is_empty() {
+            progress
+        } else {
+            format!("{progress} {}", phase.id)
+        };
+    }
+    let Some(current) = progress.current_phase.as_deref() else {
+        return "not started".to_string();
+    };
+    if let Some(plan) = plan
+        && let Some(index) = plan
+            .phases
+            .iter()
+            .position(|phase| phase.id == current)
+            .map(|index| index + 1)
+    {
+        return format!("{index}/{} {current}", plan.phases.len());
+    }
+    current.to_string()
+}
+
+fn status_step(
+    runtime: Option<&crate::tui::status_bus::RuntimeStatus>,
+    progress: &PlanProgress,
+) -> String {
+    if let Some(step) = runtime.and_then(|runtime| runtime.step.as_ref()) {
+        return match (step.id.is_empty(), step.kind.is_empty()) {
+            (false, false) => format!("{} [{}]", step.id, step.kind),
+            (false, true) => step.id.clone(),
+            (true, false) => step.kind.clone(),
+            (true, true) => "not started".to_string(),
+        };
+    }
+    progress
+        .current_step
+        .clone()
+        .unwrap_or_else(|| "not started".to_string())
+}
+
+fn status_scope(runtime: Option<&crate::tui::status_bus::RuntimeStatus>) -> String {
+    let Some(runtime) = runtime else {
+        return "idle".to_string();
+    };
+    if runtime.force_finalize_requested {
+        return "force finalize requested".to_string();
+    }
+    if runtime.interrupt_requested {
+        return "interrupt requested".to_string();
+    }
+    if let Some(provider) = &runtime.provider {
+        return format!(
+            "{} ({}/{}s)",
+            crate::tui::status_bus::provider_scope_label(&provider.scope),
+            crate::tui::status_bus::now().elapsed_secs_since(provider.started_at),
+            provider.deadline_secs
+        );
+    }
+    if let Some(command) = &runtime.command {
+        return format!(
+            "command {} ({}/{}s)",
+            command.excerpt,
+            crate::tui::status_bus::now().elapsed_secs_since(command.started_at),
+            command.cap_secs
+        );
+    }
+    runtime.stage.clone().unwrap_or_else(|| "idle".to_string())
+}
+
 fn provider_label(provider: crate::config::Provider) -> &'static str {
     match provider {
         crate::config::Provider::Ollama => "ollama",
@@ -979,6 +1158,8 @@ mod tests {
     use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
     use serde_json::json;
 
+    static PRESENTATION_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn plan_card_and_step_block_snapshot_handle_japanese_goal() {
         let plan = UltraPlan {
@@ -1007,6 +1188,11 @@ mod tests {
         assert!(card.contains("- Goal: 日本語のメモアプリ"), "{card}");
         assert!(card.contains("- Profile: nextjs"), "{card}");
         assert!(card.contains("- Port: 4000"), "{card}");
+        assert!(
+            card.contains("- UltraPlan accepted: 2 phases; first: setup"),
+            "{card}"
+        );
+        assert!(!card.contains("Assurance"), "{card}");
         assert!(card.contains("1. ✓ setup"), "{card}");
         assert!(card.contains("2. ▶ implement"), "{card}");
 
@@ -1076,6 +1262,9 @@ mod tests {
             json!({"event": "step_verify_repair", "repair_attempt": 1, "max_repair_turns": 2, "repair_target": "missing_artifact"}),
             json!({"event": "browser_probe", "ok": true, "http_status": 200, "status": "pass"}),
             json!({"event": "phase_verification_result", "phase_id": "implement", "phase_verification_mode": "final_acceptance", "ok": true}),
+            json!({"event": "empty_response_escalation", "attempt": 2, "stage": "fresh_session"}),
+            json!({"event": "empty_response_recovered", "after_empty_responses": 2}),
+            json!({"event": "planner_quality_retry", "repair_attempt": 1, "planner_error_message": "missing verification"}),
         ];
         let lines = events
             .iter()
@@ -1092,6 +1281,9 @@ mod tests {
                 "↻ repair 1/2: missing_artifact",
                 "✓ probe: HTTP 200",
                 "✓ verify implement (final_acceptance)",
+                "↻ empty response; retry 2 (fresh_session)",
+                "✓ empty response recovered after 2 retries",
+                "↻ plan quality retry 1: missing verification",
             ]
         );
     }
@@ -1169,6 +1361,7 @@ mod tests {
 
     #[test]
     fn current_plan_projection_marks_mid_run_and_post_run() {
+        let _test_guard = PRESENTATION_TEST_LOCK.lock().unwrap();
         reset_for_test();
         let plan = UltraPlan {
             goal: "Build app".to_string(),
@@ -1226,6 +1419,9 @@ mod tests {
 
     #[test]
     fn status_card_snapshot_includes_sources_port_and_probe() {
+        let _test_guard = PRESENTATION_TEST_LOCK.lock().unwrap();
+        let _status_test_guard = crate::tui::status_bus::lock_global_for_test();
+        reset_for_test();
         let sources = ConfigFieldSources {
             model: "flag".to_string(),
             provider: "preset:local".to_string(),
@@ -1243,7 +1439,9 @@ mod tests {
         let config = Config {
             workspace_root: std::path::PathBuf::from("."),
             state_dir: std::path::PathBuf::from("state"),
-            eval_events_path: None,
+            eval_events_path: Some(std::path::PathBuf::from(
+                "/tmp/work/.anvil/runs/019f7fca-dc14-7241-bd51-36f0eba856ef/events.jsonl",
+            )),
             completion_contract_path: None,
             yes: true,
             offline: false,
@@ -1274,9 +1472,59 @@ mod tests {
             action: Action::UltraPlanRun("4000番ポートで Web アプリ".to_string()),
         };
 
+        accept_command(
+            &crate::tui::slash::ParsedSlash {
+                command: "/ultra-plan-run".to_string(),
+                profile: "nextjs".to_string(),
+                profile_explicit: true,
+                profile_inference: None,
+                prompt_layout: crate::config::PromptLayout::Stable,
+                prompt_layout_explicit: true,
+                style: "compact".to_string(),
+                style_explicit: true,
+                goal: "4000番ポートで Web アプリ".to_string(),
+            },
+            &config,
+        );
+        let (publisher, _subscriber) = crate::tui::status_bus::channel();
+        let _status_guard = crate::tui::status_bus::install_global(publisher.clone());
+        publisher.publish(crate::tui::status_bus::StatusEvent::PhaseStart {
+            index: 2,
+            total: 5,
+            id: "implement".to_string(),
+        });
+        publisher.publish(crate::tui::status_bus::StatusEvent::StepStart {
+            id: "write-page".to_string(),
+            kind: "implement".to_string(),
+        });
+        publisher.publish(crate::tui::status_bus::StatusEvent::ProviderStarted {
+            scope: "executor".to_string(),
+            deadline_secs: 600,
+            started_at: crate::tui::status_bus::StatusTime::ZERO,
+        });
+
         let card = render_status_card(&config);
 
         assert!(card.contains("### Status"), "{card}");
+        assert!(card.contains("- Active command: /ultra-plan-run"), "{card}");
+        assert!(
+            card.contains("- Active Goal: 4000番ポートで Web アプリ"),
+            "{card}"
+        );
+        assert!(
+            card.contains("- Active Run ID: 019f7fca-dc14-7241-bd51-36f0eba856ef"),
+            "{card}"
+        );
+        assert!(
+            card.contains("- Active requested port: 4000 (goal)"),
+            "{card}"
+        );
+        assert!(card.contains("- Current phase: 2/5 implement"), "{card}");
+        assert!(
+            card.contains("- Current step: write-page [implement]"),
+            "{card}"
+        );
+        assert!(card.contains("- Current scope: implementing ("), "{card}");
         assert!(card.contains("- Model: flag-model (flag)"), "{card}");
         assert!(card.contains("- Provider: ollama (preset:local)"), "{card}");
         assert!(

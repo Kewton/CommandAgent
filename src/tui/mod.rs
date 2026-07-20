@@ -1,4 +1,5 @@
 pub mod banner;
+pub mod command_receipt;
 pub mod editor;
 pub mod footer;
 pub mod input_queue;
@@ -11,6 +12,7 @@ pub mod spinner;
 pub mod status;
 pub mod status_bus;
 pub mod terminal;
+pub mod terminal_summary;
 pub mod ux_demo;
 
 use std::sync::{Arc, Mutex};
@@ -28,6 +30,9 @@ pub trait InteractionUi {
     fn before_model_call(&self, label: &str) -> UiGuard;
     fn before_tool_call(&self, name: &str) -> UiGuard;
     fn publish_status(&self, status: UiStatus);
+    fn render_command_receipt(&self, _receipt: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
     fn interrupted(&self) -> bool;
     fn force_interrupted(&self) -> bool {
         false
@@ -187,6 +192,10 @@ impl InteractionUi for TerminalUi {
 
     fn publish_status(&self, status: UiStatus) {
         self.footer.publish(status);
+    }
+
+    fn render_command_receipt(&self, receipt: &str) -> anyhow::Result<()> {
+        self.footer.write_scrollback(receipt)
     }
 
     fn interrupted(&self) -> bool {

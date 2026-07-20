@@ -234,12 +234,24 @@ pub fn channel() -> (StatusPublisher, StatusSubscriber) {
 
 fn apply_event(status: &mut RuntimeStatus, event: StatusEvent) {
     match event {
-        StatusEvent::PhaseStart { index, total, id }
-        | StatusEvent::PhaseEnd { index, total, id } => {
+        StatusEvent::PhaseStart { index, total, id } => {
+            status.stage = Some(format!("phase {index}/{total} {id}"));
+            status.phase = Some(PhaseStatus { index, total, id });
+            status.step = None;
+            status.repair = None;
+        }
+        StatusEvent::PhaseEnd { index, total, id } => {
+            status.stage = Some(format!("phase {index}/{total} {id} complete"));
             status.phase = Some(PhaseStatus { index, total, id });
         }
         StatusEvent::StepStart { id, kind } => {
+            status.stage = Some(if kind.is_empty() {
+                format!("step {id}")
+            } else {
+                format!("{kind} step {id}")
+            });
             status.step = Some(StepStatus { id, kind });
+            status.repair = None;
         }
         StatusEvent::ProviderStarted {
             scope,
@@ -283,6 +295,7 @@ fn apply_event(status: &mut RuntimeStatus, event: StatusEvent) {
             status.command = None;
         }
         StatusEvent::Repair { attempt, max, kind } => {
+            status.stage = Some(format!("repairing {kind} ({attempt}/{max})"));
             status.repair = Some(RepairStatus { attempt, max, kind });
         }
         StatusEvent::Stage { label } => {
@@ -303,6 +316,15 @@ fn apply_event(status: &mut RuntimeStatus, event: StatusEvent) {
 
 static GLOBAL_STATUS_BUS: OnceLock<Mutex<StatusPublisher>> = OnceLock::new();
 static STARTED_AT: OnceLock<Instant> = OnceLock::new();
+#[cfg(test)]
+static GLOBAL_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+#[cfg(test)]
+pub fn lock_global_for_test() -> std::sync::MutexGuard<'static, ()> {
+    GLOBAL_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 fn global_publisher() -> &'static Mutex<StatusPublisher> {
     GLOBAL_STATUS_BUS.get_or_init(|| Mutex::new(StatusPublisher::disabled()))
@@ -424,6 +446,13 @@ pub fn publish_eval_projection(event: &Value) -> bool {
         "browser_interaction_probe" | "profile_behavior_probe" => {
             publish_stage("interaction probe")
         }
+        "empty_response_escalation" => publish_stage("retrying empty provider response"),
+        "empty_response_recovered" => publish_stage("empty provider response recovered"),
+        "planner_quality_retry"
+        | "planner_quality_retry_degraded"
+        | "planner_quality_retry_exhausted"
+        | "ultra_plan_generation_retry" => publish_stage("planning quality retry"),
+        "provider_turn_timeout_recovered" => publish_stage("provider timeout recovered"),
         "tool_args_path_normalized"
         | "tool_args_path_salvaged"
         | "verify_command_substituted"
@@ -570,8 +599,9 @@ mod tests {
 
     #[test]
     fn eval_event_projection_tracks_notable_normalization() {
+        let _test_guard = lock_global_for_test();
         let (publisher, subscriber) = channel();
-        let _guard = install_global(publisher);
+        let _guard = install_global(publisher.clone());
 
         assert!(publish_eval_projection(&json!({
             "event": "tool_args_path_normalized",
@@ -581,6 +611,50 @@ mod tests {
         assert_eq!(
             subscriber.snapshot().last_event.as_deref(),
             Some("tool_args_path_normalized")
+        );
+    }
+
+    #[test]
+    fn eval_event_projection_promotes_user_visible_retries() {
+        let _test_guard = lock_global_for_test();
+        let (publisher, subscriber) = channel();
+        let _guard = install_global(publisher.clone());
+
+        assert!(publish_eval_projection(&json!({
+            "event": "empty_response_escalation",
+            "attempt": 1,
+        })));
+        assert_eq!(
+            subscriber.snapshot().stage.as_deref(),
+            Some("retrying empty provider response")
+        );
+
+        assert!(publish_eval_projection(&json!({
+            "event": "planner_quality_retry",
+            "repair_attempt": 1,
+        })));
+        assert_eq!(
+            subscriber.snapshot().stage.as_deref(),
+            Some("planning quality retry")
+        );
+
+        assert!(publisher.publish(StatusEvent::PhaseStart {
+            index: 1,
+            total: 3,
+            id: "setup".to_string(),
+        }));
+        assert_eq!(
+            subscriber.snapshot().stage.as_deref(),
+            Some("phase 1/3 setup")
+        );
+
+        assert!(publisher.publish(StatusEvent::StepStart {
+            id: "install".to_string(),
+            kind: "setup".to_string(),
+        }));
+        assert_eq!(
+            subscriber.snapshot().stage.as_deref(),
+            Some("setup step install")
         );
     }
 }
