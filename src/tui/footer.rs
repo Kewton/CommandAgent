@@ -10,6 +10,7 @@ use crate::tui::status::UiStatus;
 use crate::tui::status_bus::{
     self, GlobalStatusBusGuard, RuntimeStatus, StatusPublisher, StatusSubscriber, StatusTime,
 };
+use crate::util::{display_width, display_width_ansi, fit_display_width};
 
 const TICK: Duration = Duration::from_millis(250);
 const INPUT_TICK: Duration = Duration::from_millis(50);
@@ -706,34 +707,23 @@ pub fn fit_to_width(value: &str, cols: u16) -> String {
     if max_width == 0 {
         return String::new();
     }
-    if display_width(value) <= max_width {
+    if display_width_ansi(value) <= max_width {
         return value.to_string();
     }
     let marker = "...";
     let marker_width = display_width(marker);
     if max_width <= marker_width {
-        return crate::util::truncate_at_char_boundary(value, max_width).to_string();
+        return fit_display_width(value, max_width, "");
     }
     let target = max_width - marker_width;
-    let mut width = 0usize;
-    let mut end = 0usize;
-    for (index, ch) in value.char_indices() {
-        let next = width + char_display_width(ch);
-        if next > target {
-            break;
-        }
-        width = next;
-        end = index + ch.len_utf8();
-    }
-    let mut out = crate::util::truncate_at_char_boundary(value, end)
+    let fitted = fit_display_width(value, target, marker);
+    let mut out = fitted
+        .strip_suffix(marker)
+        .unwrap_or(&fitted)
         .trim_end()
         .to_string();
     out.push_str(marker);
     out
-}
-
-fn display_width(value: &str) -> usize {
-    value.chars().map(char_display_width).sum()
 }
 
 fn pad_to_width(value: &str, cols: u16) -> String {
@@ -743,46 +733,6 @@ fn pad_to_width(value: &str, cols: u16) -> String {
         out.push_str(&" ".repeat(cols as usize - width));
     }
     out
-}
-
-fn display_width_ansi(value: &str) -> usize {
-    let mut width = 0usize;
-    let mut chars = value.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '\x1b' && chars.peek() == Some(&'[') {
-            let _ = chars.next();
-            for next in chars.by_ref() {
-                if ('@'..='~').contains(&next) {
-                    break;
-                }
-            }
-            continue;
-        }
-        width += char_display_width(ch);
-    }
-    width
-}
-
-fn char_display_width(ch: char) -> usize {
-    let cp = ch as u32;
-    if cp < 0x20 || (0x7f..=0x9f).contains(&cp) {
-        0
-    } else if matches!(
-        cp,
-        0x1100..=0x115f
-            | 0x2329..=0x232a
-            | 0x2e80..=0xa4cf
-            | 0xac00..=0xd7a3
-            | 0xf900..=0xfaff
-            | 0xfe10..=0xfe19
-            | 0xfe30..=0xfe6f
-            | 0xff00..=0xff60
-            | 0xffe0..=0xffe6
-    ) {
-        2
-    } else {
-        1
-    }
 }
 
 #[cfg(test)]

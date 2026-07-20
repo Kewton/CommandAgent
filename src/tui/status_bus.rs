@@ -517,7 +517,7 @@ fn event_text(event: &Value, key: &str) -> Option<String> {
 
 fn sanitize_command_excerpt(value: &str) -> String {
     let clean = value.replace(['\n', '\r'], " ");
-    crate::util::excerpt_with_marker(&clean, 120, "...")
+    crate::util::fit_display_width(&clean, 120, "...")
 }
 
 #[cfg(test)]
@@ -595,6 +595,21 @@ mod tests {
         assert_eq!(snapshot.time_totals.provider_secs, 12);
         assert_eq!(snapshot.time_totals.command_secs, 9);
         assert_eq!(snapshot.time_totals.total_secs(), 21);
+    }
+
+    #[test]
+    fn command_excerpt_uses_display_columns() {
+        let japanese = "日".repeat(61);
+        assert_eq!(
+            sanitize_command_excerpt(&japanese),
+            format!("{}...", "日".repeat(60))
+        );
+
+        let ascii = "a".repeat(121);
+        assert_eq!(
+            sanitize_command_excerpt(&ascii),
+            format!("{}...", "a".repeat(120))
+        );
     }
 
     #[test]
