@@ -91,9 +91,9 @@ cargo install --path .
 commandagent --help
 ```
 
-A prerequisite helper at `scripts/setup.sh` is planned in a separate issue.
-This section will link to that script when it is available; the script is not
-present yet.
+For guided prerequisite checks, installation, and optional provider/probe
+setup, run `./scripts/setup.sh`. Use `--yes` for non-interactive safe defaults
+or `--check-only` to inspect prerequisites without changing anything.
 
 For remote providers, set the corresponding key in the process environment or
 in `.env` at the active workspace root. CommandAgent redacts these values from

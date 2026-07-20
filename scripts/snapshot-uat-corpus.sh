@@ -25,8 +25,8 @@ case "$case_id" in
     ;;
 esac
 
-script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-crate_root=$(CDPATH= cd -- "$script_dir/.." && pwd)
+script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+crate_root=$(CDPATH='' cd -- "$script_dir/.." && pwd)
 dest="$crate_root/tests/corpus/apps/$case_id"
 
 mkdir -p "$dest"

@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=scripts/env_compat.sh
 source "$(dirname "${BASH_SOURCE[0]}")/env_compat.sh"
 
 benchmark="${1:-minimal-loop-expanded}"
@@ -11,6 +12,7 @@ runs=1
 max_iterations=12
 recheck_root=""
 bench_no_debug=0
+bench_root=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
