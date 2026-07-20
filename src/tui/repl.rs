@@ -58,13 +58,46 @@ pub fn run(config: Config) -> anyhow::Result<()> {
             break;
         }
         let _ = editor.add_history_entry(line);
-        match crate::tui::slash::handle_command(line, &config, &mut *planner, &mut *execution, &ui)
-        {
-            Ok(output) => renderer.render_assistant(&output)?,
-            Err(err) => eprintln!("error: {err:#}"),
-        }
+        render_command_result(
+            &renderer,
+            crate::tui::slash::handle_command(line, &config, &mut *planner, &mut *execution, &ui),
+        )?;
         ui.reset_interrupt();
     }
     let _ = editor.save_history(&history_path);
     Ok(())
+}
+
+fn render_command_result(
+    renderer: &dyn OutputRenderer,
+    result: anyhow::Result<String>,
+) -> anyhow::Result<()> {
+    match result {
+        Ok(output) => renderer.render_assistant(&output),
+        Err(err) => renderer.render_assistant(&err.to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn command_error_is_sent_through_markdown_renderer_once_without_error_prefix() {
+        let capture = crate::tui::markdown::capture::start();
+        let renderer = TerminalMarkdownRenderer::for_stdout();
+
+        render_command_result(
+            &renderer,
+            Err(crate::tui::repl_output::RenderedCommandError::new(
+                "================ TASK FAILED ================".to_string(),
+            )
+            .into()),
+        )
+        .unwrap();
+
+        let output = capture.output();
+        assert_eq!(output.matches("TASK FAILED").count(), 1, "{output}");
+        assert!(!output.contains("error:"), "{output}");
+    }
 }

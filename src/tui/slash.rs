@@ -365,8 +365,26 @@ pub fn handle_command(
     execution: &mut dyn ChatClient,
     ui: &dyn crate::tui::InteractionUi,
 ) -> anyhow::Result<String> {
+    let words = parse_words(line);
+    let Some(command_name) = words.first() else {
+        bail!("empty command");
+    };
+    if !command_name.starts_with('/') {
+        return Ok(crate::tui::repl_output::render_plain_text_guidance(line));
+    }
+    if slash_command_spec(command_name).is_none() {
+        let candidates = SLASH_COMMANDS
+            .iter()
+            .flat_map(|spec| std::iter::once(spec.name).chain(spec.aliases.iter().copied()))
+            .collect::<Vec<_>>();
+        return Ok(crate::tui::repl_output::render_unknown_command(
+            command_name,
+            &candidates,
+        ));
+    }
     let parsed = parse_slash(line, config)?;
-    let command = slash_command_spec(&parsed.command);
+    let command =
+        slash_command_spec(&parsed.command).expect("command was validated before slash parsing");
     let mut config = config.clone();
     config.profile = parsed.profile.clone();
     config.profile_explicit = parsed.profile_explicit;
@@ -385,30 +403,28 @@ pub fn handle_command(
             .unwrap_or(80),
     );
     ui.render_command_receipt(&receipt)?;
-    if let Some(command) = command {
-        match command.kind {
-            SlashCommandKind::Help => return Ok(render_help()),
-            SlashCommandKind::Status => {
-                return Ok(crate::tui::presentation::render_status_card(&config));
-            }
-            SlashCommandKind::Doctor => {
-                return Ok(crate::doctor::diagnose(&config).render_human());
-            }
-            SlashCommandKind::Plan => return Ok(crate::tui::presentation::render_current_plan()),
-            SlashCommandKind::Runs => {
-                return Ok(crate::runs::render_runs_table(&config.workspace_root));
-            }
-            SlashCommandKind::Exit => return Ok(String::new()),
-            SlashCommandKind::Resume
-            | SlashCommandKind::PlanSteps
-            | SlashCommandKind::PlanRun
-            | SlashCommandKind::RunPlan
-            | SlashCommandKind::UltraPlan
-            | SlashCommandKind::UltraPlanRun
-            | SlashCommandKind::RunUltraPlan
-            | SlashCommandKind::SetupInteractionProbe
-            | SlashCommandKind::ModelProbe => {}
+    match command.kind {
+        SlashCommandKind::Help => return Ok(render_help()),
+        SlashCommandKind::Status => {
+            return Ok(crate::tui::presentation::render_status_card(&config));
         }
+        SlashCommandKind::Doctor => {
+            return Ok(crate::doctor::diagnose(&config).render_human());
+        }
+        SlashCommandKind::Plan => return Ok(crate::tui::presentation::render_current_plan()),
+        SlashCommandKind::Runs => {
+            return Ok(crate::runs::render_runs_table(&config.workspace_root));
+        }
+        SlashCommandKind::Exit => return Ok(String::new()),
+        SlashCommandKind::Resume
+        | SlashCommandKind::PlanSteps
+        | SlashCommandKind::PlanRun
+        | SlashCommandKind::RunPlan
+        | SlashCommandKind::UltraPlan
+        | SlashCommandKind::UltraPlanRun
+        | SlashCommandKind::RunUltraPlan
+        | SlashCommandKind::SetupInteractionProbe
+        | SlashCommandKind::ModelProbe => {}
     }
     crate::tui::presentation::accept_command(&parsed, &config);
     if let Some(inference) = config.profile_inference {
@@ -448,12 +464,6 @@ pub fn handle_command(
     let panic_hook_guard = PanicHookGuard::install(Arc::clone(&panic_diagnostic));
     let command_result = std::panic::catch_unwind(AssertUnwindSafe(|| {
         crate::preflight::run_for_slash_command(&config, &parsed.command, &parsed.goal)?;
-        let Some(command) = command else {
-            bail!(
-                "unknown slash command: {}; type /help for commands",
-                parsed.command
-            );
-        };
         match command.kind {
             SlashCommandKind::PlanSteps => {
                 let plan =
@@ -562,38 +572,39 @@ pub fn handle_command(
     let terminal_status = terminal_status_for_result(&result, ui);
     let stop_reason = stop_reason_for_result(&result, terminal_status);
     let completion = completion_guard.finalize(&result, terminal_status);
-    let show_terminal_summary = crate::tui::terminal_summary::applies_to(&parsed.command);
-    if let Err(err) = &result {
-        eprintln!(
-            "{}",
-            crate::eval_events::render_tui_command_failure_block(
-                config.eval_events_path.as_deref(),
-                &err.to_string(),
-                &completion,
-            )
-        );
-        if show_terminal_summary {
-            render_terminal_summary_card_to_stdout(&config, &stop_reason, &completion);
+    match result {
+        Err(err) => {
+            let markdown = if terminal_status == TuiTerminalStatus::Interrupted {
+                crate::tui::repl_output::render_interrupted(line, &stop_reason, &completion)
+            } else {
+                crate::eval_events::render_tui_command_failure_block(
+                    config.eval_events_path.as_deref(),
+                    &err.to_string(),
+                    &completion,
+                )
+            };
+            Err(crate::tui::repl_output::RenderedCommandError::new(markdown).into())
         }
-    } else if let Some(notice) = crate::eval_events::render_tui_command_incomplete_notice(
-        config.eval_events_path.as_deref(),
-        &completion,
-    ) {
-        eprintln!("{notice}");
+        Ok(output) => {
+            if let Some(notice) = crate::eval_events::render_tui_command_incomplete_notice(
+                config.eval_events_path.as_deref(),
+                &completion,
+            ) {
+                eprintln!("{notice}");
+            }
+            let output = crate::eval_events::render_tui_completion_output(&output, &completion);
+            if crate::tui::terminal_summary::applies_to(&parsed.command) {
+                let card = crate::eval_events::render_terminal_summary_card(
+                    config.eval_events_path.as_deref(),
+                    &stop_reason,
+                    &completion,
+                );
+                Ok(format!("{output}\n\n{card}"))
+            } else {
+                Ok(output)
+            }
+        }
     }
-    result.map(|output| {
-        let output = crate::eval_events::render_tui_completion_output(&output, &completion);
-        if show_terminal_summary {
-            let card = crate::eval_events::render_terminal_summary_card(
-                config.eval_events_path.as_deref(),
-                &stop_reason,
-                &completion,
-            );
-            format!("{output}\n\n{card}")
-        } else {
-            output
-        }
-    })
 }
 
 pub fn render_help() -> String {
@@ -884,23 +895,6 @@ fn event_projection_for_terminal_status(
         TuiTerminalStatus::Completed | TuiTerminalStatus::Partial => projection.next_action,
     };
     projection
-}
-
-fn render_terminal_summary_card_to_stdout(
-    config: &Config,
-    stop_reason: &str,
-    projection: &crate::eval_events::CompletionProjection,
-) {
-    if !crate::tui::terminal::stdout_is_tty() && !crate::tui::markdown::capture::is_active() {
-        return;
-    }
-    let card = crate::eval_events::render_terminal_summary_card(
-        config.eval_events_path.as_deref(),
-        stop_reason,
-        projection,
-    );
-    let renderer = crate::tui::markdown::TerminalMarkdownRenderer::for_stdout();
-    let _ = crate::tui::OutputRenderer::render_assistant(&renderer, &card);
 }
 
 pub fn parse_profile_style(args: &[String], config: &Config) -> (String, String, Vec<String>) {
@@ -1196,18 +1190,18 @@ mod tests {
     fn unknown_slash_command_suggests_help() {
         let mut planner = DummyClient;
         let mut execution = DummyClient;
-        let err = handle_command(
-            "/bogus",
+        let output = handle_command(
+            "/hepl",
             &config(),
             &mut planner,
             &mut execution,
             &crate::tui::NOOP_UI,
         )
-        .unwrap_err()
-        .to_string();
+        .unwrap();
 
-        assert!(err.contains("unknown slash command: /bogus"), "{err}");
-        assert!(err.contains("/help"), "{err}");
+        assert_eq!(output.lines().count(), 2, "{output}");
+        assert!(output.contains("Unknown command: /hepl"), "{output}");
+        assert!(output.contains("Did you mean /help?"), "{output}");
     }
 
     #[test]

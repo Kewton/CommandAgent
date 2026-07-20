@@ -108,6 +108,52 @@ impl ChatClient for FakeClient {
     }
 }
 
+#[derive(Clone)]
+struct FailingClient {
+    label: &'static str,
+    message: &'static str,
+    calls: Arc<AtomicUsize>,
+}
+
+impl FailingClient {
+    fn new(label: &'static str, message: &'static str) -> Self {
+        Self {
+            label,
+            message,
+            calls: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    fn calls(&self) -> usize {
+        self.calls.load(Ordering::SeqCst)
+    }
+}
+
+impl ChatClient for FailingClient {
+    fn label(&self) -> &str {
+        self.label
+    }
+
+    fn supports_native_tools(&self, _model: &str) -> bool {
+        true
+    }
+
+    fn boxed_clone(&self) -> Box<dyn ChatClient> {
+        Box::new(self.clone())
+    }
+
+    fn chat(
+        &mut self,
+        _model: &str,
+        _messages: &[ConversationMessage],
+        _tools: &[ToolSpec],
+        _native_tools_enabled: bool,
+    ) -> anyhow::Result<AssistantReply> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        anyhow::bail!(self.message)
+    }
+}
+
 struct PanicClient {
     label: &'static str,
     message: &'static str,
@@ -1415,17 +1461,58 @@ phases:
 }
 
 #[test]
-fn tui_slash_failure_records_run_events_and_failure_stage() {
+fn tui_input_errors_do_not_start_commands_or_generate_summaries() {
     let _guard = tui_integration_test_lock();
     let dir = tempfile::tempdir().unwrap();
     let events_path = dir.path().join(".anvil/runs/test/events.jsonl");
     let mut cfg = config(dir.path().to_path_buf());
     cfg.eval_events_path = Some(events_path.clone());
-    let mut planner = FakeClient::new("planner", Vec::new());
+    let mut planner = FailingClient::new("planner", "must not be called");
+    let mut execution = FailingClient::new("execution", "must not be called");
+    let ui = FakeUi::default();
+
+    let typo =
+        commandagent::tui::slash::handle_command("/hepl", &cfg, &mut planner, &mut execution, &ui)
+            .unwrap();
+    assert_eq!(typo.lines().count(), 2, "{typo}");
+    assert!(typo.contains("Did you mean /help?"), "{typo}");
+    assert!(!typo.contains("TASK FAILED"), "{typo}");
+    assert!(!typo.contains("Terminal summary"), "{typo}");
+    assert!(!typo.contains("error:"), "{typo}");
+
+    let plain = commandagent::tui::slash::handle_command(
+        "日本語の自由文\u{1b}[31m\u{202e}",
+        &cfg,
+        &mut planner,
+        &mut execution,
+        &ui,
+    )
+    .unwrap();
+    assert_eq!(plain.lines().count(), 2, "{plain:?}");
+    assert!(plain.contains("日本語の自由文?[31m?"), "{plain:?}");
+    assert!(plain.contains("/ultra-plan-run <goal>"), "{plain}");
+    assert!(plain.contains("/plan-run <goal>"), "{plain}");
+    assert_eq!(planner.calls(), 0);
+    assert_eq!(execution.calls(), 0);
+    assert!(!events_path.exists(), "input errors must not create events");
+    assert!(
+        !events_path.parent().unwrap().join("summary.md").exists(),
+        "input errors must not create a summary"
+    );
+}
+
+#[test]
+fn tui_provider_failure_records_run_events_and_renders_one_failure_block() {
+    let _guard = tui_integration_test_lock();
+    let dir = tempfile::tempdir().unwrap();
+    let events_path = dir.path().join(".anvil/runs/test/events.jsonl");
+    let mut cfg = config(dir.path().to_path_buf());
+    cfg.eval_events_path = Some(events_path.clone());
+    let mut planner = FailingClient::new("planner", "provider connection unavailable");
     let mut execution = FakeClient::new("exec", Vec::new());
     let ui = FakeUi::default();
     let err = commandagent::tui::slash::handle_command(
-        "/unknown-command test",
+        "/plan-steps test",
         &cfg,
         &mut planner,
         &mut execution,
@@ -1433,7 +1520,10 @@ fn tui_slash_failure_records_run_events_and_failure_stage() {
     )
     .unwrap_err()
     .to_string();
-    assert!(err.contains("unknown slash command"));
+    assert!(err.contains("provider connection unavailable"), "{err}");
+    assert_eq!(err.matches("TASK FAILED").count(), 1, "{err}");
+    assert!(!err.contains("Terminal summary"), "{err}");
+    assert!(!err.contains("error:"), "{err}");
     let events = std::fs::read_to_string(&events_path).unwrap();
     assert!(events.contains("\"event\":\"tui_command_start\""));
     assert_exactly_one_tui_stop(&events, "failed");
@@ -1468,11 +1558,11 @@ fn tui_slash_failure_rewrites_existing_partial_summary_with_phase_breakdown() {
         cfg.eval_events_path.as_deref(),
         "Status: incomplete\nCompleted phases:\n- scaffold\nFailed phase:\n- final\nPending phases:\n- none\nRecovery next action:\n- /run-ultra-plan .anvil/plans/recovery-ultra-plan-final.yaml",
     );
-    let mut planner = FakeClient::new("planner", Vec::new());
+    let mut planner = FailingClient::new("planner", "provider connection unavailable");
     let mut execution = FakeClient::new("exec", Vec::new());
     let ui = FakeUi::default();
     let err = commandagent::tui::slash::handle_command(
-        "/unknown-command test",
+        "/plan-steps test",
         &cfg,
         &mut planner,
         &mut execution,
@@ -1480,7 +1570,7 @@ fn tui_slash_failure_rewrites_existing_partial_summary_with_phase_breakdown() {
     )
     .unwrap_err()
     .to_string();
-    assert!(err.contains("unknown slash command"));
+    assert!(err.contains("provider connection unavailable"), "{err}");
     let summary =
         std::fs::read_to_string(events_path.parent().unwrap().join("summary.md")).unwrap();
     assert_terminal_summary(&summary, "failed");
@@ -1679,6 +1769,9 @@ fn tui_slash_completion_guard_records_interrupted_mid_phase() {
     .unwrap_err()
     .to_string();
     assert!(err.contains("interrupted by user"), "{err}");
+    assert_eq!(err.matches("INTERRUPTED").count(), 1, "{err}");
+    assert!(!err.contains("TASK FAILED"), "{err}");
+    assert!(err.contains("- Rerun: /run-ultra-plan"), "{err}");
 
     let events = std::fs::read_to_string(&events_path).unwrap();
     assert!(events.contains("\"event\":\"ultra_phase_start\""));

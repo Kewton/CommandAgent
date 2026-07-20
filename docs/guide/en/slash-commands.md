@@ -30,8 +30,11 @@ command name and an alias of `/exit`, giving 16 accepted names in total.
 | `/exit` | `/exit or /quit` | Leave the TUI. |
 | `/quit` | `/exit or /quit` | Alias of `/exit`; leave the TUI. |
 
-Unknown commands fail with `unknown slash command: <name>; type /help for
-commands`. Planning command failures are reported without leaving the REPL.
+Unknown slash commands are treated as input errors: the REPL suggests the
+nearest command when useful and does not start a task or create a run summary.
+Plain text is not executed; the REPL points to `/ultra-plan-run <goal>` and
+`/plan-run <goal>`. Planning command failures are reported without leaving the
+REPL.
 
 ## Inline flags
 

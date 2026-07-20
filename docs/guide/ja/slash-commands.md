@@ -29,8 +29,10 @@
 | `/exit` | `/exit or /quit` | TUI を終了します。 |
 | `/quit` | `/exit or /quit` | `/exit` の別名として TUI を終了します。 |
 
-未知のコマンドは `unknown slash command: <name>; type /help for commands` で失敗します。
-plan コマンドの失敗は REPL を終了せずに報告されます。
+未知のスラッシュコマンドは入力エラーとして扱われ、候補がある場合は最も近いコマンドを案内します。
+タスクの開始や run summary の生成は行いません。スラッシュなしの平文も実行せず、
+`/ultra-plan-run <goal>` と `/plan-run <goal>` を案内します。plan コマンドの失敗は REPL を
+終了せずに報告されます。
 
 ## インラインフラグ
 

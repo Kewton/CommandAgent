@@ -77,7 +77,7 @@ pub fn run_id(events_path: Option<&Path>) -> Option<String> {
 }
 
 pub fn sanitize_terminal_text(value: &str) -> String {
-    crate::tui::spinner::sanitize_label(&value.replace(['\n', '\r'], " "))
+    crate::tui::markdown::sanitize(&value.replace(['\n', '\r'], " "))
 }
 
 fn display_or_none(value: &str) -> String {
