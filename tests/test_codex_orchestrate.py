@@ -314,7 +314,7 @@ def test_issue_decision_becomes_acceptance_and_worker_instruction() -> None:
         skip_enhance=False,
     )
     decisions = module.parse_issue_decisions(
-        ["17:Adopt Option A and update only docs/mechanism-ledger.md."], [17]
+        ["17:Adopt Option A and update only docs/dev/mechanism-ledger.md."], [17]
     )
 
     updated = module.apply_planning_overrides([analysis], {17: ()}, decisions)[0]
@@ -323,13 +323,13 @@ def test_issue_decision_becomes_acceptance_and_worker_instruction() -> None:
     assert updated.approved_decision.startswith("Adopt Option A")
     assert updated.enhancement_needed is False
     assert updated.questions == ()
-    assert updated.suspected_files == ("docs/mechanism-ledger.md",)
+    assert updated.suspected_files == ("docs/dev/mechanism-ledger.md",)
     assert updated.acceptance_criteria == (
         "Apply approved decision: Adopt Option A and update only "
-        "docs/mechanism-ledger.md.",
+        "docs/dev/mechanism-ledger.md.",
     )
     assert "## Approved Decision" in prompt
-    assert "Adopt Option A and update only docs/mechanism-ledger.md." in prompt
+    assert "Adopt Option A and update only docs/dev/mechanism-ledger.md." in prompt
 
 
 def test_issue_decision_without_scope_keeps_scope_question() -> None:

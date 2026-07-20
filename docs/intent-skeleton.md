@@ -317,7 +317,7 @@ struct EvidenceRequirement {
 | IntentContract スロット | 現行実装 | D-0b adapter |
 |---|---|---|
 | intent identity | `src/planner/intent.rs` 1–10 が create / fix / research を検出し、`src/planner/ultra_plan.rs` 3–16 が保持する。ただし final acceptance は現在 `plan.intent` で契約を選ばない。 | `create@v1` を registry に登録し、現行 acceptance をその実装として束ねる。 |
-| `full` の契約参照 | `docs/generality.md` の earned assurance、profile 契約、data では `docs/data-profile-contract.md` の E1–E4。browser interaction / build の意味はコードと ledger に分散。 | create full の規範参照を一箇所から列挙する。D-0 では既存意味を変更しない。 |
+| `full` の契約参照 | `docs/dev/generality.md` の earned assurance、profile 契約、data では `docs/dev/data-profile-contract.md` の E1–E4。browser interaction / build の意味はコードと ledger に分散。 | create full の規範参照を一箇所から列挙する。D-0 では既存意味を変更しない。 |
 | evidence requirements | `final_acceptance.rs` 594–646、runner 5521–5571、`CompletionContract`、`DomainProfile::infer_required_*`。 | 現行 paths / commands / capabilities / oracles / evidence / obligations を `EvidenceRequirement` へ lossless に包む。 |
 | requirement satisfaction | `minimal_loop/evidence.rs` 979–1314、`behavior_evidence.rs` 117–438、interaction qualification 14–123、data runtime 56–181。 | 共通集合判定と create scanner を分けるが、status、reason、実行順序は同じ adapter で保存する。 |
 | plan skeleton | `UltraPlan`、`deterministic_default_plan` 18–40、profile manifest plan、profile preset。 | `inspect/prepare -> implement -> verify -> adjudicate` の role に現行 profile phase を写像する。role 名は外部 event を変えない内部値。 |
