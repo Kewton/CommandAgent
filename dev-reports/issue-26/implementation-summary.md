@@ -10,6 +10,7 @@
 - Kept the existing installer contract and made its PATH guidance ShellCheck
   clean.
 
-No external tag, GitHub prerelease, or Homebrew repository was created from this
-worker because those are external release-state mutations; the workflow is ready
-for maintainers to perform the approved UAT action.
+The approved release UAT created and retained prerelease tags and GitHub
+prereleases. The final evidence tag is `v0.1.0-rc.20260720.2`; its four archives,
+four checksums, prerelease metadata, and installer path were verified. No crates.io
+publish or external Homebrew repository was created.
