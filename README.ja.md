@@ -93,6 +93,22 @@ cargo install --path .
 commandagent --help
 ```
 
+### リリース済みバイナリ
+
+Rust ツールチェーンなしで macOS または Linux x86_64 に導入できます。
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Kewton/CommandAgent/main/scripts/install.sh | sh
+# より安全な方法: ダウンロードして確認後 `sh install.sh` を実行
+```
+
+SHA-256 検証後 `~/.local/bin` に配置します（`--version`、`--prefix` で指定可能）。
+リモートスクリプトのパイプ実行にはリスクがあります。`scripts/setup.sh` はバイナリ
+取得ではなく、ソースビルドと開発環境の準備を行います。crates.io メタデータを整備し
+`cargo publish --dry-run` を確認しますが、公開は行いません。公開前にパッケージ名、
+同梱ファイル、yank 不可の方針を確認してください。将来 `Kewton/homebrew-tap` に
+formula を追加する案がありますが、外部リポジトリは作成しません。
+
 前提条件の確認、インストール、任意のプロバイダー／プローブ設定を対話形式で
 進めるには、`./scripts/setup.sh` を実行します。非対話の安全な既定値には
 `--yes`、何も変更せず前提条件だけ確認するには `--check-only` を使います。

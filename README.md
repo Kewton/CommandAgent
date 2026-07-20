@@ -91,6 +91,24 @@ cargo install --path .
 commandagent --help
 ```
 
+### Prebuilt release binary
+
+Install a verified macOS or Linux x86_64 binary without a Rust toolchain:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Kewton/CommandAgent/main/scripts/install.sh | sh
+# safer: download scripts/install.sh, inspect it, then run `sh install.sh`
+```
+
+The installer verifies SHA-256 and installs to `~/.local/bin`; use `--version`
+or `--prefix` to customize it. Piping a remote script has supply-chain risks.
+Unlike this binary download, `scripts/setup.sh` builds from source and prepares
+the development environment. crates.io metadata is prepared and checked with
+`cargo publish --dry-run`, but nothing is published; confirm the package name,
+included files, and irreversible yank policy before publishing. A future
+`Kewton/homebrew-tap` formula is proposed after releases stabilize; no external
+tap repository is created here.
+
 For guided prerequisite checks, installation, and optional provider/probe
 setup, run `./scripts/setup.sh`. Use `--yes` for non-interactive safe defaults
 or `--check-only` to inspect prerequisites without changing anything.
