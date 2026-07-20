@@ -188,5 +188,4 @@ CommandAgent は信頼できるワークスペースとゴールでの利用を�
 
 ## ライセンス
 
-CommandAgent は [Cargo.toml](Cargo.toml) に記載された MIT License で
-ライセンスされています。
+CommandAgent は [MIT License](LICENSE) でライセンスされています。
