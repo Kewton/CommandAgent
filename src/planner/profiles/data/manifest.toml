@@ -98,7 +98,7 @@ triggers = [{ condition = "always" }]
 
 [guidance.variants.generic.messages]
 generic_interaction = "Build one reproducible tabular-data pipeline with Python 3 standard-library csv/json/statistics only. Preserve input files. The canonical artifacts are pipeline/main.py, output/inspection.json, output/results.json, and required output/report.md; output/report.html is optional in addition to report.md."
-start_interaction = "The pipeline must be deterministic: use a fixed seed whenever randomness is unavoidable, do not depend on execution time, and keep iteration and output ordering stable. Derive validation rules only from output/inspection.json observations and never invent unobserved value sets. This is class knowledge required by docs/data-profile-contract.md section 8."
+start_interaction = "The pipeline must be deterministic: use a fixed seed whenever randomness is unavoidable, do not depend on execution time, and keep iteration and output ordering stable. Derive validation rules only from output/inspection.json observations and never invent unobserved value sets. This is class knowledge required by docs/dev/data-profile-contract.md section 8."
 
 [guidance.variants.results_contract]
 triggers = [{ condition = "check_failure", values = ["data_results_schema", "data_reconciliation", "data_claims_binding"] }]

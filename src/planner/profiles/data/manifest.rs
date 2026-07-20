@@ -256,6 +256,10 @@ mod tests {
         assert_eq!(plan.phases.len(), 5);
         assert!(plan.phases[0].prompt.contains("Summarize sales"));
         assert!(guidance().contains("fixed seed"));
+        assert!(
+            generation_rules().contains("docs/dev/data-profile-contract.md"),
+            "data guidance must point to the relocated canonical contract"
+        );
         assert_eq!(
             required_capability_ids(),
             [

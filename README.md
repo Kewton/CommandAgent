@@ -153,6 +153,8 @@ Inside the REPL, start with these slash commands:
 | `/exit` or `/quit` | Leave the TUI |
 
 See the [user guide](docs/guide/README.md) for the full CLI and REPL reference.
+Browse the [documentation index](docs/README.md) for contributor contracts,
+validation procedures, and historical records.
 The executable remains the source of truth: use `commandagent --help` and
 `/help` to inspect the installed version.
 
