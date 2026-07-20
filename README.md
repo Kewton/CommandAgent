@@ -1,230 +1,189 @@
-# commandagent
+<!-- Translation pair: README.md and README.ja.md must always be updated together. -->
 
-Copyable MVP for a minimal local-first coding loop, YAML step plans, plan run,
-ultra plan run, and deterministic verification.
+[English](README.md) | [日本語](README.ja.md)
 
-See [SECURITY.md](SECURITY.md) for the trusted-workspace threat model,
-`--yes` guidance, environment allowlist, and symlink policy.
-See [docs/dev-guardrails.md](docs/dev-guardrails.md) for the runner growth
-tripwire and module-boundary guardrails.
+# CommandAgent
 
-## Build
+[![CI](https://github.com/Kewton/CommandAgent/actions/workflows/ci.yml/badge.svg)](https://github.com/Kewton/CommandAgent/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/license/mit)
 
-```bash
-cargo build
-cargo test
-cargo run -- --help
-```
+**A local-first coding agent that turns a goal into verified code through a
+minimal loop or structured plans.**
 
-## Codex Harness
+CommandAgent works inside a trusted local workspace, uses Ollama, Gemini, or
+OpenAI as its model provider, and keeps implementation tied to verification.
+Start with a single prompt, generate a reusable YAML plan, or let an UltraPlan
+break a larger goal into phases and repair failures along the way.
 
-Repository-local Codex skills live under `.agents/skills/` and are invoked as
-`$skill-name`. See [docs/codex-harness.md](docs/codex-harness.md) for the
-migrated command map, orchestration entry point, safety boundaries, and
-validation commands.
+## Demo
 
-## Run
+<p align="center">
+  <img src="docs/assets/ux-demo.svg" alt="Animated CommandAgent terminal demo" width="900">
+</p>
 
-```bash
-commandagent --yes --context-budget 65536 --model qwen3.6:27b-coding-nvfp4 --planner-model gemini-3.5-flash --planner-provider gemini --provider ollama
-```
+The demo is completely offline: run `commandagent --ux-demo`. See the
+[recording notes](docs/assets/ux-demo.md) to reproduce it.
 
-From the REPL:
+## Features
 
-```text
-/ultra-plan-run --profile nextjs あなたが考える最高に面白くかっこいいスペースインベーダーゲームを3011ポートで起動可能なnext.jsアプリとして開発してください。
-```
+- **Minimal loop** — inspect, edit, run tools, and verify in a direct iterative
+  coding loop.
+- **Step plans** — create or execute YAML step plans with `--plan-steps`,
+  `--plan-run`, and `--run-plan`.
+- **UltraPlan runs** — split larger goals into phases with `--ultra-plan`,
+  `--ultra-plan-run`, and `--run-ultra-plan`.
+- **Task profiles** — use `generic`, `nextjs`, `python-cli`, or `data` guidance
+  and verification contracts.
+- **Multiple providers** — run locally with Ollama or connect to Gemini and
+  OpenAI.
+- **Verification and repair** — check claimed results, collect evidence, and
+  feed failures into bounded repair loops.
+- **Interactive TUI** — get a fixed status footer, activity spinner, streaming
+  output, queued input, and Esc/Ctrl-C interruption.
 
-CLI equivalent:
+## Quickstart
 
-```bash
-commandagent --provider ollama --model qwen3.6:27b-coding-nvfp4 \
-  --planner-provider gemini --planner-model gemini-3.5-flash \
-  --ultra-plan-run --profile nextjs \
-  "あなたが考える最高に面白くかっこいいスペースインベーダーゲームを3011ポートで起動可能なnext.jsアプリとして開発してください。"
-```
+This is the shortest local-only path. It sends nothing to a remote model
+provider.
 
-Named presets can live in `.commandagent/config.toml` or
-`~/.commandagent/config.toml`. The matching `.anvil` paths remain supported as
-legacy fallbacks.
-These are examples only; CommandAgent does not auto-create them:
+1. [Install Ollama](https://ollama.com/download) and make sure it is running.
+2. Pull a model that fits your machine:
 
-```toml
-# [preset.gemini-tier]
-# provider = "gemini"
-# model = "gemini-3.5-flash"
-# planner_provider = "gemini"
-# planner_model = "gemini-3.5-flash"
-# context_budget = 65536
-# chat_timeout_secs = 180
-# profile = "nextjs"
-# narration = "normal"
-# footer = "on"
-# stream = "on"
-#
-# [preset.local]
-# provider = "ollama"
-# model = "qwen3.6:27b-coding-nvfp4"
-# planner_provider = "ollama"
-# planner_model = "qwen3.6:27b-coding-nvfp4"
-# context_budget = 65536
-# chat_timeout_secs = 600
-# profile = "generic"
-# narration = "normal"
-# footer = "on"
-# stream = "on"
-# plan_preset = "profile" # optional opt-in; omitted defaults to none
-#
-# [preset.hybrid-a3b]
-# provider = "ollama"
-# model = "qwen3.6:35b-a3b-coding-nvfp4"
-# planner_provider = "gemini"
-# planner_model = "gemini-3.5-flash"
-# context_budget = 65536
-# chat_timeout_secs = 600
-# profile = "nextjs"
-# narration = "normal"
-# footer = "on"
-# stream = "on"
-```
+   ```bash
+   ollama pull "<your-model>"
+   ```
+
+3. From the CommandAgent source directory, install the binary:
+
+   ```bash
+   cargo install --path .
+   ```
+
+4. Move to a trusted project and run one prompt:
+
+   ```bash
+   cd /path/to/your/project
+   commandagent --provider ollama --model "<your-model>" \
+     --prompt "Inspect this project and suggest one useful improvement."
+   ```
+
+`<your-model>` is a placeholder, not a literal model ID. Replace it with a
+model that actually exists in your local `ollama list` output.
+
+## Install
+
+### Prerequisites
+
+| Requirement | Needed for |
+| --- | --- |
+| Rust 1.88 or newer | Building and installing CommandAgent |
+| Ollama (optional) | Local model execution |
+| `GEMINI_API_KEY` or `OPENAI_API_KEY` (optional) | Gemini or OpenAI execution |
+| Node.js and npm (optional) | Installing and running the interaction probe |
+| Python 3 (optional) | Evaluation tooling and Python-oriented checks |
+
+### From source
 
 ```bash
-commandagent --preset local --ultra-plan-run "Build a small CLI tool"
-```
-
-Hybrid presets use the planner provider/model only for planning calls and the
-main provider/model for execution calls. With a local a3b executor, budget RAM
-for the Ollama model residency separately from any remote planner; Ollama
-requests keep `keep_alive=10m` for the executor model between turns.
-
-Plan presets are explicit opt-ins, not globally enabled. Although
-test0711_bs_001 showed a strong qwen27 sample, test0711_bs_004 exposed duplicate
-setup-step stagnation in preset implementation phases, so qwen27, gemma-family,
-and unmatched planner models currently default to `none`. Planner-tier
-resolution remains observable and is independent of whether the model came
-from a direct CLI option, the executor-model fallback, or a named config preset.
-Set `plan_preset = "profile"` in config or pass `--plan-preset profile` to opt in;
-an explicit CLI flag always wins over config and tier defaults.
-
-For `--intent fix --profile data`, the `profile` preset mechanically synthesizes
-the four fixed-contract phases from the existing reproducer, contract checks,
-and frozen regression bindings. `nextjs` fix runs keep the same path as
-`--plan-preset none`; profile-specific synthesis will be generalized only after
-a second profile demonstrates the same need. Create-intent preset behavior is
-unchanged.
-
-Use `--intent create` or `--intent fix` to select the run intent explicitly:
-
-```bash
-commandagent --intent fix --ultra-plan-run "Fix the parser; reproducer: cargo test parser"
-```
-
-When `--intent` is omitted, the existing goal-based resolution remains unchanged.
-Invalid values are rejected by the CLI before a run starts. Every run records one
-`intent_resolved` event with the resolved `value`, its `origin`, and the explicit
-flag value in `source` (empty when omitted).
-
-## TUI
-
-Interactive TTY mode uses the same `commandagent>` prompt and slash commands, plus
-terminal-only markdown rendering, spinner, Esc/Ctrl-C prompt interrupt, and a fixed
-footer. Assistant text streams by default in this interactive mode for Ollama,
-OpenAI, and Gemini. `chat_timeout_secs` is a wall-clock limit for the whole stream,
-including retries before the first text chunk; after output begins, a stream error
-is reported without retry and the partial output remains in scrollback.
-
-Use `--stream on|off` or top-level/preset `stream = "on"|"off"`. The normal
-flag > named preset > config file > default precedence applies. One-shot
-`--prompt`, other non-interactive actions, non-TTY output, and test fake clients
-remain non-streaming even when the stored preference is on. Disable paths:
-
-```bash
-COMMANDAGENT_NO_SPINNER=1 commandagent --yes
-COMMANDAGENT_NO_FOOTER=1 commandagent --yes
-COMMANDAGENT_NO_INTERRUPT=1 commandagent --yes
-COMMANDAGENT_NO_MARKDOWN=1 commandagent --yes
-NO_COLOR=1 commandagent --yes
-commandagent --yes --no-footer
-commandagent --yes --footer off
-commandagent --yes --stream off
-```
-
-Pre-rename environment-variable names remain supported as deprecated
-fallbacks. When one is consumed without its canonical replacement,
-CommandAgent emits one migration warning per variable for that process.
-
-Release/manual TTY smoke:
-
-```bash
-COMMANDAGENT_PTY_TESTS=1 cargo test tui_pty_smoke -- --ignored
-commandagent --ux-demo
-commandagent --help
-commandagent --yes --context-budget 65536 --model qwen3.6:27b-coding-nvfp4 --planner-model gemini-3.5-flash --planner-provider gemini --provider ollama
-```
-
-`commandagent --ux-demo` is an offline presentation walkthrough for human
-review. It exercises the banner, plan card, phase header, activity narration,
-live footer interrupt hint, and terminal summary card without contacting a
-provider. If a terminal still shows cursor-region artifacts, rerun with
-`--footer off`; scrollback breadcrumbs stay enabled without the DECSTBM footer.
-
-## UAT
-
-Before a UAT run, verify the binary provenance:
-
-```bash
-commandagent --version
-command -v commandagent
-```
-
-`commandagent --version` should show the intended commit, dirty marker, and
-build timestamp. `command -v commandagent` should resolve to the expected
-`target/` binary or install path for the run.
-
-## API Keys
-
-`OPENAI_API_KEY` and `GEMINI_API_KEY` are read from process env first, then
-from `.env` in the active workspace. Values are redacted from logs.
-
-Live provider tests are gated:
-
-```bash
-COMMANDAGENT_LIVE_PROVIDER_TESTS=1 cargo test live_ -- --ignored
-```
-
-Smoke model IDs can be overridden with `COMMANDAGENT_OPENAI_SMOKE_MODEL` and
-`COMMANDAGENT_GEMINI_SMOKE_MODEL`.
-
-## Clean Release Build
-
-```bash
-./scripts/build-release.sh
-target/release/commandagent --version
-ln -sfn "$(pwd)/target/release/commandagent" "$HOME/.local/bin/commandagent"
+git clone https://github.com/Kewton/CommandAgent.git
+cd CommandAgent
+cargo install --path .
 commandagent --help
 ```
 
-The repository release command builds with Cargo's optimized release profile in
-an isolated temporary target directory, verifies the staged executable's
-package version and Git commit provenance, and then publishes it at
-`target/release/commandagent`. On success, that executable is the only entry
-left under `target/release`; on a build or provenance-verification failure, any
-previously published executable is preserved. Temporary release-build artifacts
-are removed on both paths. Ordinary `cargo build` and `cargo test` commands
-continue to use Cargo's normal cache.
+A prerequisite helper at `scripts/setup.sh` is planned in a separate issue.
+This section will link to that script when it is available; the script is not
+present yet.
 
-An existing `commandagentdev` symlink to `target/release/commandagent` continues
-to use the newly published executable and can be checked with
-`commandagentdev --version`.
+For remote providers, set the corresponding key in the process environment or
+in `.env` at the active workspace root. CommandAgent redacts these values from
+logs.
 
-The symlink is a local convenience and is not part of the copy artifact.
+## Usage
 
-## Copy Validation
+Start the interactive REPL with a local model:
 
 ```bash
-tmp=$(mktemp -d)
-git archive --format=tar HEAD | tar -x -C "$tmp"
-cd "$tmp"
-cargo test
-cargo run -- --help
+commandagent --provider ollama --model "<your-model>"
 ```
+
+Run the minimal loop once without entering the REPL:
+
+```bash
+commandagent --provider ollama --model "<your-model>" \
+  --prompt "Add a focused test for the parser edge case."
+```
+
+Generate and run a step plan:
+
+```bash
+commandagent --provider ollama --model "<your-model>" \
+  --plan-run --profile python-cli "Build a small JSON formatting CLI."
+```
+
+Generate and run a phased UltraPlan:
+
+```bash
+commandagent --provider ollama --model "<your-model>" \
+  --ultra-plan-run --profile nextjs "Build a small task board."
+```
+
+Use a remote provider after setting its API key:
+
+```bash
+export GEMINI_API_KEY="<your-api-key>"
+commandagent --provider gemini --model "<gemini-model>" \
+  --prompt "Review the current diff."
+
+export OPENAI_API_KEY="<your-api-key>"
+commandagent --provider openai --model "<openai-model>" \
+  --prompt "Review the current diff."
+```
+
+Inside the REPL, start with these slash commands:
+
+| Command | Purpose |
+| --- | --- |
+| `/help` | Show every available slash command |
+| `/status` | Show effective configuration and readiness |
+| `/plan-run <goal>` | Generate and run a step plan |
+| `/ultra-plan-run <goal>` | Generate and run an UltraPlan |
+| `/runs` | List recent runs and recovery availability |
+| `/resume [run-id\|yaml-path]` | Resume from a recovery UltraPlan |
+| `/exit` or `/quit` | Leave the TUI |
+
+See the [user guide](docs/guide/README.md) for the full CLI and REPL reference.
+The executable remains the source of truth: use `commandagent --help` and
+`/help` to inspect the installed version.
+
+## Configuration
+
+Named presets can be stored in either of these canonical files:
+
+- `.commandagent/config.toml` in the active workspace
+- `~/.commandagent/config.toml` in the user's home directory
+
+The matching `.anvil/config.toml` files remain supported as legacy fallbacks.
+CommandAgent reads these files but does **not** create them or populate presets
+automatically. Live run, plan, and repair artifacts continue to use their
+existing `.anvil/` paths.
+
+A preset is selected with `commandagent --preset <name>`. See the
+[configuration guide](docs/guide/README.md#configuration) for the supported
+fields and precedence rules.
+
+## Development and security
+
+Repository maintainers can find UAT, release-build, symlink, live-provider, and
+copy-validation procedures in
+[docs/dev/repository-validation.md](docs/dev/repository-validation.md). Codex
+harness details live in [docs/codex-harness.md](docs/codex-harness.md).
+
+CommandAgent is intended for trusted workspaces and trusted goals. Read
+[SECURITY.md](SECURITY.md) before using `--yes` or running unfamiliar project
+code.
+
+## License
+
+CommandAgent is licensed under the MIT License, as declared in
+[Cargo.toml](Cargo.toml).
