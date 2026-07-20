@@ -195,13 +195,27 @@ COMMANDAGENT_LIVE_PROVIDER_TESTS=1 cargo test live_ -- --ignored
 Smoke model IDs can be overridden with `COMMANDAGENT_OPENAI_SMOKE_MODEL` and
 `COMMANDAGENT_GEMINI_SMOKE_MODEL`.
 
-## Local Symlink
+## Clean Release Build
 
 ```bash
-cargo build --release
+./scripts/build-release.sh
+target/release/commandagent --version
 ln -sfn "$(pwd)/target/release/commandagent" "$HOME/.local/bin/commandagent"
 commandagent --help
 ```
+
+The repository release command builds with Cargo's optimized release profile in
+an isolated temporary target directory, verifies the staged executable's
+package version and Git commit provenance, and then publishes it at
+`target/release/commandagent`. On success, that executable is the only entry
+left under `target/release`; on a build or provenance-verification failure, any
+previously published executable is preserved. Temporary release-build artifacts
+are removed on both paths. Ordinary `cargo build` and `cargo test` commands
+continue to use Cargo's normal cache.
+
+An existing `commandagentdev` symlink to `target/release/commandagent` continues
+to use the newly published executable and can be checked with
+`commandagentdev --version`.
 
 The symlink is a local convenience and is not part of the copy artifact.
 
