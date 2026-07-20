@@ -248,6 +248,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--commandmate-duration", default="3h")
     parser.add_argument("--wait-commandmate-timeout", type=int, default=10800)
     parser.add_argument("--wait-commandmate-stall-timeout", type=int, default=0)
+    parser.add_argument(
+        "--resume-completed-workers",
+        action="store_true",
+        help=(
+            "reuse clean issue worktrees whose committed worker verification "
+            "reports already pass"
+        ),
+    )
     parser.add_argument("--repo", default="")
     parser.add_argument(
         "--integration-check",
@@ -1775,6 +1783,7 @@ def schedule_commandmate_batches(
     poll: bool,
     timeout_seconds: int,
     stall_timeout_seconds: int,
+    resume_completed: bool = False,
     runner: Runner = run_command,
 ) -> tuple[
     list[WorkerSessionResult],
@@ -1824,6 +1833,52 @@ def schedule_commandmate_batches(
             )
             continue
 
+        verified_analyses: list[IssueAnalysis] = []
+        if resume_completed and not dry_run:
+            existing_verification = verify_worker_reports(
+                batch_analyses,
+                worktree_results,
+                dry_run=False,
+                runner=runner,
+            )
+            verified_numbers = {
+                result.issue_number
+                for result in existing_verification
+                if result.status == "passed"
+            }
+            verified_analyses = [
+                analysis
+                for analysis in batch_analyses
+                if analysis.issue.number in verified_numbers
+            ]
+        pending_analyses = [
+            analysis for analysis in batch_analyses if analysis not in verified_analyses
+        ]
+        verified_dispatch = [
+            WorkerSessionResult(
+                analysis.issue.number,
+                commandmate_worktree_id(analysis.branch_name),
+                "verified-complete",
+                False,
+                None,
+                "clean committed worker verification already passed",
+                (),
+            )
+            for analysis in verified_analyses
+        ]
+        if not pending_analyses:
+            dispatch_results.extend(verified_dispatch)
+            batch_results.append(
+                SchedulerBatchResult(
+                    batch_index,
+                    tuple(issue_numbers),
+                    "completed",
+                    "existing committed worker reports passed verification",
+                )
+            )
+            completed_issues.update(issue_numbers)
+            continue
+
         dependency_context = {
             analysis.issue.number: [
                 candidate
@@ -1834,10 +1889,10 @@ def schedule_commandmate_batches(
                     or has_file_overlap(analysis, candidate)
                 )
             ]
-            for analysis in batch_analyses
+            for analysis in pending_analyses
         }
         batch_dispatch = dispatch_commandmate(
-            batch_analyses,
+            pending_analyses,
             worktree_results,
             dry_run=dry_run or not dispatch_enabled,
             duration=duration,
@@ -1848,7 +1903,7 @@ def schedule_commandmate_batches(
             runner=runner,
         )
         dispatched_issues = {result.issue_number for result in batch_dispatch}
-        for analysis in batch_analyses:
+        for analysis in pending_analyses:
             if analysis.issue.number in dispatched_issues:
                 continue
             batch_dispatch.append(
@@ -1862,6 +1917,7 @@ def schedule_commandmate_batches(
                     (),
                 )
             )
+        batch_dispatch = verified_dispatch + batch_dispatch
         dispatch_results.extend(batch_dispatch)
 
         if dry_run or not dispatch_enabled:
@@ -3026,6 +3082,7 @@ def main() -> int:
                 poll=args.poll_commandmate,
                 timeout_seconds=args.wait_commandmate_timeout,
                 stall_timeout_seconds=args.wait_commandmate_stall_timeout,
+                resume_completed=args.resume_completed_workers,
             )
         )
         (run_dir / "worker-sessions.md").write_text(

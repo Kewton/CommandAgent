@@ -920,6 +920,78 @@ def test_scheduler_stops_later_batches_after_wait_failure(tmp_path: Path) -> Non
     assert "not dispatched because scheduler batch 1 failed" in issue_2.message
 
 
+def test_scheduler_resume_skips_only_committed_passing_workers(tmp_path: Path) -> None:
+    module = load_script()
+    analyses = [
+        module.analyze_issue(
+            module.Issue(number, f"Issue {number}", "independent"),
+            "CommandAgent",
+            skip_enhance=True,
+        )
+        for number in (1, 2)
+    ]
+    worktrees = []
+    for analysis in analyses:
+        root = tmp_path / f"issue-{analysis.issue.number}"
+        root.mkdir()
+        worktrees.append(
+            module.WorktreeResult(
+                analysis.issue.number,
+                analysis.branch_name,
+                root,
+                "created",
+                "created",
+            )
+        )
+    report = tmp_path / "issue-1/dev-reports/issue-1/verification.md"
+    report.parent.mkdir(parents=True)
+    report.write_text(
+        "# Verification\n\n- Status: `passed`\n\n- `cargo test`: `passed`\n",
+        encoding="utf-8",
+    )
+    calls: list[list[str]] = []
+
+    def fake_runner(args, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(args)
+        cwd = kwargs.get("cwd")
+        if args[:3] == ["git", "status", "--porcelain"]:
+            return module.subprocess.CompletedProcess(args, 0, "", "")
+        if args[:3] == ["git", "ls-files", "--error-unmatch"]:
+            return module.subprocess.CompletedProcess(
+                args,
+                0 if cwd == tmp_path / "issue-1" else 1,
+                "verification.md\n" if cwd == tmp_path / "issue-1" else "",
+                "",
+            )
+        if args[:2] in (["commandmatedev", "send"], ["commandmatedev", "wait"]):
+            return module.subprocess.CompletedProcess(args, 0, "completed\n", "")
+        return module.subprocess.CompletedProcess(args, 1, "", "unexpected")
+
+    dispatch, waits, schedule = module.schedule_commandmate_batches(
+        analyses,
+        worktrees,
+        [[1], [2]],
+        max_parallel=1,
+        dry_run=False,
+        dispatch_enabled=True,
+        duration="3h",
+        codex_agent_name="codex",
+        poll=False,
+        timeout_seconds=600,
+        stall_timeout_seconds=0,
+        resume_completed=True,
+        runner=fake_runner,
+    )
+
+    sends = [call for call in calls if call[:2] == ["commandmatedev", "send"]]
+    assert len(sends) == 1
+    assert "issue-2" in sends[0][2]
+    issue_1 = next(result for result in dispatch if result.issue_number == 1)
+    assert issue_1.status == "verified-complete"
+    assert len(waits) == 1
+    assert [result.status for result in schedule] == ["completed", "blocked"]
+
+
 def test_scheduler_serializes_file_overlap_and_reports_predecessor(
     tmp_path: Path,
 ) -> None:
