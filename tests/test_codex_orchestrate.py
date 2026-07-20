@@ -993,6 +993,79 @@ def test_scheduler_resume_skips_only_committed_passing_workers(tmp_path: Path) -
     assert [result.status for result in schedule] == ["completed", "blocked"]
 
 
+def test_scheduler_resume_waits_for_processing_worker_without_redispatch(
+    tmp_path: Path,
+) -> None:
+    module = load_script()
+    analysis = module.analyze_issue(
+        module.Issue(19, "Issue 19", "Update `README.md`"),
+        "CommandAgent",
+        skip_enhance=True,
+    )
+    root = tmp_path / "issue-19"
+    root.mkdir()
+    worktree = module.WorktreeResult(
+        19, analysis.branch_name, root, "created", "created"
+    )
+    processing = True
+    calls: list[list[str]] = []
+
+    def fake_runner(args, **kwargs):  # type: ignore[no-untyped-def]
+        nonlocal processing
+        calls.append(args)
+        if args == ["commandmatedev", "ls", "--json"]:
+            payload = [
+                {
+                    "id": module.commandmate_worktree_id(analysis.branch_name),
+                    "sessionStatusByCli": {
+                        "codex": {
+                            "isRunning": True,
+                            "isProcessing": processing,
+                        }
+                    },
+                }
+            ]
+            return module.subprocess.CompletedProcess(
+                args, 0, module.json.dumps(payload), ""
+            )
+        if args[:2] == ["commandmatedev", "wait"]:
+            report = root / "dev-reports/issue-19/verification.md"
+            report.parent.mkdir(parents=True)
+            report.write_text(
+                "# Verification\n\n- Status: `passed`\n\n"
+                "- `cargo test`: `passed`\n",
+                encoding="utf-8",
+            )
+            processing = False
+            return module.subprocess.CompletedProcess(args, 0, "completed\n", "")
+        if args[:3] == ["git", "status", "--porcelain"]:
+            return module.subprocess.CompletedProcess(args, 0, "", "")
+        if args[:3] == ["git", "ls-files", "--error-unmatch"]:
+            return module.subprocess.CompletedProcess(args, 0, "verification.md\n", "")
+        return module.subprocess.CompletedProcess(args, 1, "", "unexpected")
+
+    dispatch, waits, schedule = module.schedule_commandmate_batches(
+        [analysis],
+        [worktree],
+        [[19]],
+        max_parallel=1,
+        dry_run=False,
+        dispatch_enabled=True,
+        duration="3h",
+        codex_agent_name="codex",
+        poll=False,
+        timeout_seconds=600,
+        stall_timeout_seconds=0,
+        resume_completed=True,
+        runner=fake_runner,
+    )
+
+    assert not any(call[:2] == ["commandmatedev", "send"] for call in calls)
+    assert dispatch[0].status == "processing"
+    assert waits[0].status == "completed"
+    assert schedule[0].status == "completed"
+
+
 def test_scheduler_serializes_file_overlap_and_reports_predecessor(
     tmp_path: Path,
 ) -> None:

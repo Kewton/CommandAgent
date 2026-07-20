@@ -1859,6 +1859,23 @@ def schedule_commandmate_batches(
         pending_analyses = [
             analysis for analysis in batch_analyses if analysis not in verified_analyses
         ]
+        processing_analyses: list[IssueAnalysis] = []
+        if resume_completed and not dry_run:
+            processing_analyses = [
+                analysis
+                for analysis in pending_analyses
+                if get_commandmate_state(
+                    commandmate_worktree_id(analysis.branch_name),
+                    codex_agent_name=codex_agent_name,
+                    runner=runner,
+                )["processing"]
+                is True
+            ]
+            pending_analyses = [
+                analysis
+                for analysis in pending_analyses
+                if analysis not in processing_analyses
+            ]
         verified_dispatch = [
             WorkerSessionResult(
                 analysis.issue.number,
@@ -1871,7 +1888,19 @@ def schedule_commandmate_batches(
             )
             for analysis in verified_analyses
         ]
-        if not pending_analyses:
+        processing_dispatch = [
+            WorkerSessionResult(
+                analysis.issue.number,
+                commandmate_worktree_id(analysis.branch_name),
+                "processing",
+                True,
+                True,
+                "resumed existing Codex worker without redispatch",
+                (),
+            )
+            for analysis in processing_analyses
+        ]
+        if not pending_analyses and not processing_analyses:
             dispatch_results.extend(verified_dispatch)
             batch_results.append(
                 SchedulerBatchResult(
@@ -1922,7 +1951,7 @@ def schedule_commandmate_batches(
                     (),
                 )
             )
-        batch_dispatch = verified_dispatch + batch_dispatch
+        batch_dispatch = verified_dispatch + processing_dispatch + batch_dispatch
         dispatch_results.extend(batch_dispatch)
 
         if dry_run or not dispatch_enabled:
