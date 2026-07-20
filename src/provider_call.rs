@@ -54,6 +54,10 @@ impl ProviderCallScope {
         matches!(self, Self::PlannerUltra | Self::PlannerStep)
     }
 
+    fn renders_stream_chunks(self) -> bool {
+        !self.is_planner()
+    }
+
     pub fn screen_label(self) -> &'static str {
         crate::tui::status_bus::provider_scope_label(self.as_str())
     }
@@ -197,6 +201,7 @@ where
     let provider = client.label().to_string();
     let stream =
         stream_allowed && on_chunk.is_some() && config.stream && client.supports_streaming();
+    let render_stream_chunks = stream && scope.renders_stream_chunks();
     let timeout = Duration::from_secs(config.chat_timeout_secs);
     let estimated_prompt_tokens =
         estimate_prompt_tokens_sent(messages, tools, native_tools_enabled);
@@ -336,7 +341,8 @@ where
         let slice = PROVIDER_WAIT_SLICE.min(timeout.saturating_sub(elapsed));
         match rx.recv_timeout(slice) {
             Ok(ProviderWorkerMessage::Chunk(chunk)) => {
-                if let Some(on_chunk) = on_chunk.as_deref_mut()
+                if render_stream_chunks
+                    && let Some(on_chunk) = on_chunk.as_deref_mut()
                     && let Err(err) = on_chunk(&chunk)
                 {
                     let elapsed = started.elapsed();
@@ -1186,6 +1192,43 @@ mod tests {
         assert_eq!(outcome.result.unwrap().content, "hello");
         assert_eq!(chunks, ["hel", "lo"]);
         assert_eq!(client.stream_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(client.chat_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn planner_scopes_stream_transport_without_forwarding_machine_chunks() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let mut config = test_config(tmp.path(), tmp.path().join("events.jsonl"), 30);
+        config.stream = true;
+        let mut client = StreamingClient::new();
+
+        for scope in [
+            ProviderCallScope::PlannerStep,
+            ProviderCallScope::PlannerUltra,
+        ] {
+            let mut chunks = Vec::new();
+            let outcome = chat_with_cancel_inner(
+                &mut client,
+                &config,
+                ProviderChatRequest {
+                    scope,
+                    model: "m",
+                    messages: &[ConversationMessage::user("plan")],
+                    tools: &[],
+                    native_tools_enabled: false,
+                },
+                || false,
+                true,
+                Some(&mut |chunk| {
+                    chunks.push(chunk.to_string());
+                    Ok(())
+                }),
+            );
+
+            assert_eq!(outcome.result.unwrap().content, "hello");
+            assert!(chunks.is_empty(), "scope={}", scope.as_str());
+        }
+        assert_eq!(client.stream_calls.load(Ordering::SeqCst), 2);
         assert_eq!(client.chat_calls.load(Ordering::SeqCst), 0);
     }
 

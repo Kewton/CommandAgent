@@ -59,7 +59,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--max-iterations` | `<MAX_ITERATIONS>` integer | `12` | Set the minimal-loop iteration budget. | [Resolved defaults](#important-resolved-defaults) |
 | `--chat-timeout-secs` | `<CHAT_TIMEOUT_SECS>` integer | `600` if either role uses Ollama; otherwise `180` | Set connect and whole-request timeouts for provider calls. | [Resolved defaults](#important-resolved-defaults) |
 | `--chat-retries` | `<CHAT_RETRIES>` integer | `1` | Set retries after the initial provider attempt. | [Provider failures](troubleshooting.md#model-id-does-not-exist) |
-| `--stream` | `<on\|off>` | on for the TUI, off for direct actions | Control assistant streaming. Streaming still requires an interactive stdin and stdout TTY. | [Top-level keys](configuration.md#top-level-keys) |
+| `--stream` | `<on\|off>` | on for the TUI, off for direct actions | Control visible executor and repair streaming; planner machine output stays hidden. Streaming still requires an interactive stdin and stdout TTY. | [Top-level keys](configuration.md#top-level-keys) |
 | `--state-dir` | `<STATE_DIR>` path | `$XDG_STATE_HOME/anvilminimal`, otherwise `~/.local/state/anvilminimal` | Override saved session and REPL history storage. | [Paths](configuration.md#configuration-search-paths) |
 | `--cwd` | `<CWD>` path | current directory | Set and canonicalize the active workspace before config discovery and execution. | [Paths](configuration.md#configuration-search-paths) |
 | `--fresh-session` | none | off | Ignore `--resume` and create a session for a direct `--prompt` run. | [Session options](#conflicts-and-combinations) |

@@ -176,7 +176,85 @@ fn tui_pty_queues_input_during_command_and_replays_fifo() {
 
 #[test]
 #[ignore]
-fn tui_pty_streams_ollama_with_spinner_and_footer_cleanup() {
+fn tui_pty_suppresses_planner_stream_with_spinner_and_footer_cleanup() {
+    if commandagent::env_compat::var("COMMANDAGENT_PTY_TESTS")
+        .ok()
+        .as_deref()
+        != Some("1")
+        || cfg!(windows)
+    {
+        return;
+    }
+    let bin = env!("CARGO_BIN_EXE_commandagent");
+    for (command, started, completed, response_count) in [
+        ("/plan-steps test", "planning steps", "step plan ready", 1),
+        (
+            "/ultra-plan-run test",
+            "planning the overall plan",
+            "overall plan ready",
+            3,
+        ),
+    ] {
+        let tmp = tempfile::tempdir().unwrap();
+        let state_dir = tmp.path().join("state");
+        let StreamingOllama {
+            host,
+            started: _started,
+            completed: response_completed,
+            saw_stream,
+            stop,
+            server,
+        } = start_streaming_ollama(response_count);
+        let output = run_stream_script(
+            bin,
+            tmp.path(),
+            &state_dir,
+            &host,
+            response_completed,
+            command,
+            false,
+        )
+        .expect("script(1) PTY helper and streaming fake Ollama must be available");
+        stop.store(true, Ordering::SeqCst);
+        server.join().unwrap();
+
+        let text = String::from_utf8_lossy(&output.stdout).to_string()
+            + &String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "PTY command failed for {command}. output={text:?}"
+        );
+        assert!(
+            saw_stream.load(Ordering::SeqCst),
+            "request did not enable stream for {command}"
+        );
+        assert!(
+            !text.contains(r#"{"goal":"test","#),
+            "planner stream JSON reached the terminal for {command}. output={text:?}"
+        );
+        assert!(
+            !text.contains(r#""expected_result":"pass"}]}"#),
+            "planner stream tail reached the terminal for {command}. output={text:?}"
+        );
+        assert!(
+            text.contains(started) && text.contains(completed),
+            "planner breadcrumbs were not preserved for {command}. output={text:?}"
+        );
+        assert!(
+            text.contains("\r\x1b[2K"),
+            "spinner was not cleared after {command}. output={text:?}"
+        );
+        assert!(
+            text.contains("\x1b[r") && text.contains("commandagent>"),
+            "footer/raw terminal cleanup did not restore the prompt after {command}. output={text:?}"
+        );
+        assert!(!text.contains("stream ended before"), "output={text:?}");
+    }
+}
+
+#[test]
+#[ignore]
+fn tui_pty_planner_stream_interrupt_cleans_spinner_and_footer() {
     if commandagent::env_compat::var("COMMANDAGENT_PTY_TESTS")
         .ok()
         .as_deref()
@@ -188,9 +266,24 @@ fn tui_pty_streams_ollama_with_spinner_and_footer_cleanup() {
     let bin = env!("CARGO_BIN_EXE_commandagent");
     let tmp = tempfile::tempdir().unwrap();
     let state_dir = tmp.path().join("state");
-    let (host, completed, saw_stream, stop, server) = start_streaming_ollama();
-    let output = run_stream_script(bin, tmp.path(), &state_dir, &host, completed)
-        .expect("script(1) PTY helper and streaming fake Ollama must be available");
+    let StreamingOllama {
+        host,
+        started,
+        completed: _completed,
+        saw_stream,
+        stop,
+        server,
+    } = start_streaming_ollama(1);
+    let output = run_stream_script(
+        bin,
+        tmp.path(),
+        &state_dir,
+        &host,
+        started,
+        "/plan-steps interrupt-test",
+        true,
+    )
+    .expect("script(1) PTY helper and streaming fake Ollama must be available");
     stop.store(true, Ordering::SeqCst);
     server.join().unwrap();
 
@@ -204,22 +297,23 @@ fn tui_pty_streams_ollama_with_spinner_and_footer_cleanup() {
         saw_stream.load(Ordering::SeqCst),
         "request did not enable stream"
     );
-    let first = text
-        .find(r#"{"goal":"test","#)
-        .unwrap_or_else(|| panic!("first stream chunk missing. output={text:?}"));
     assert!(
-        text[..first].contains("\r\x1b[2K"),
-        "spinner was not cleared before body output. output={text:?}"
+        !text.contains(r#"{"goal":"test","#) && !text.contains(r#""expected_result":"pass"}]}"#),
+        "interrupted planner stream reached the terminal. output={text:?}"
+    );
+    assert!(text.contains("planning steps"), "output={text:?}");
+    assert!(
+        text.contains("INTERRUPTED") && !text.contains("step plan ready"),
+        "Esc did not interrupt the in-flight planner turn. output={text:?}"
     );
     assert!(
-        text.contains(r#""expected_result":"pass"}]}"#),
-        "final stream chunk missing. output={text:?}"
+        text.contains("\r\x1b[2K"),
+        "spinner was not cleared after Esc. output={text:?}"
     );
     assert!(
         text.contains("\x1b[r") && text.contains("commandagent>"),
-        "footer/raw terminal cleanup did not restore the prompt. output={text:?}"
+        "footer/raw terminal cleanup did not restore the prompt after Esc. output={text:?}"
     );
-    assert!(!text.contains("stream ended before"), "output={text:?}");
 }
 
 #[test]
@@ -493,7 +587,9 @@ fn run_stream_script(
     cwd: &std::path::Path,
     state_dir: &std::path::Path,
     host: &str,
-    completed: mpsc::Receiver<()>,
+    signal: mpsc::Receiver<()>,
+    planner_command: &str,
+    interrupt: bool,
 ) -> std::io::Result<std::process::Output> {
     let command_line = queue_command_line(bin, cwd, state_dir, host);
     let mut command = std::process::Command::new("script");
@@ -523,11 +619,15 @@ fn run_stream_script(
     let stderr_reader = thread::spawn(move || read_all(stderr));
     let mut stdin = child.stdin.take().unwrap();
     thread::sleep(Duration::from_secs(2));
-    stdin.write_all(b"/plan-steps test\n")?;
+    stdin.write_all(format!("{planner_command}\n").as_bytes())?;
     stdin.flush()?;
-    if completed.recv_timeout(Duration::from_secs(10)).is_err() {
+    if signal.recv_timeout(Duration::from_secs(10)).is_err() {
         let _ = child.kill();
     } else {
+        if interrupt {
+            stdin.write_all(b"\x1b")?;
+            stdin.flush()?;
+        }
         thread::sleep(Duration::from_millis(500));
         stdin.write_all(b"/exit\n")?;
         stdin.flush()?;
@@ -536,13 +636,16 @@ fn run_stream_script(
     finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(20))
 }
 
-fn start_streaming_ollama() -> (
-    String,
-    mpsc::Receiver<()>,
-    Arc<AtomicBool>,
-    Arc<AtomicBool>,
-    thread::JoinHandle<()>,
-) {
+struct StreamingOllama {
+    host: String,
+    started: mpsc::Receiver<()>,
+    completed: mpsc::Receiver<()>,
+    saw_stream: Arc<AtomicBool>,
+    stop: Arc<AtomicBool>,
+    server: thread::JoinHandle<()>,
+}
+
+fn start_streaming_ollama(completion_after: usize) -> StreamingOllama {
     let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
     listener.set_nonblocking(true).unwrap();
     let host = format!("http://{}", listener.local_addr().unwrap());
@@ -550,8 +653,10 @@ fn start_streaming_ollama() -> (
     let saw_stream = Arc::new(AtomicBool::new(false));
     let thread_stop = Arc::clone(&stop);
     let thread_saw_stream = Arc::clone(&saw_stream);
+    let (started_tx, started_rx) = mpsc::sync_channel(1);
     let (completed_tx, completed_rx) = mpsc::sync_channel(1);
     let handle = thread::spawn(move || {
+        let mut chat_count = 0usize;
         while !thread_stop.load(Ordering::SeqCst) {
             match listener.accept() {
                 Ok((mut stream, _)) => {
@@ -568,6 +673,7 @@ fn start_streaming_ollama() -> (
                         let _ = stream.write_all(response.as_bytes());
                         continue;
                     }
+                    chat_count += 1;
                     thread_saw_stream.store(request.contains(r#""stream":true"#), Ordering::SeqCst);
                     let first = serde_json::json!({
                         "message": {"role": "assistant", "content": "{\"goal\":\"test\","},
@@ -589,11 +695,14 @@ fn start_streaming_ollama() -> (
                     let _ = stream.write_all(headers.as_bytes());
                     let _ = stream.write_all(first.as_bytes());
                     let _ = stream.flush();
-                    thread::sleep(Duration::from_millis(300));
+                    let _ = started_tx.try_send(());
+                    thread::sleep(Duration::from_millis(800));
                     let _ = stream.write_all(second.as_bytes());
                     let _ = stream.write_all(terminal.as_bytes());
                     let _ = stream.flush();
-                    let _ = completed_tx.try_send(());
+                    if chat_count == completion_after {
+                        let _ = completed_tx.try_send(());
+                    }
                 }
                 Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
                     thread::sleep(Duration::from_millis(10));
@@ -602,7 +711,14 @@ fn start_streaming_ollama() -> (
             }
         }
     });
-    (host, completed_rx, saw_stream, stop, handle)
+    StreamingOllama {
+        host,
+        started: started_rx,
+        completed: completed_rx,
+        saw_stream,
+        stop,
+        server: handle,
+    }
 }
 
 fn read_http_request(stream: &mut impl Read) -> String {
