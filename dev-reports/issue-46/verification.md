@@ -26,3 +26,18 @@
   succeeded once in a serialized run. Each exact test passed in isolation, and
   the final complete serialized suite passed with 1,553 library tests passed and
   15 ignored, followed by all integration and documentation test binaries.
+
+## Cumulative integration
+
+After integrating the verified Issue #44 stack and Issue #49 display-width
+changes, the cumulative branch passed:
+
+- `cargo test --test provider_onboarding`: `passed`
+- `cargo test --test doc_drift`: `passed`
+- `COMMANDAGENT_PTY_TESTS=1 cargo test --test tui_pty -- --include-ignored`: `passed` (6 tests)
+- `cargo fmt --all -- --check`: `passed`
+- `cargo clippy --all-targets -- -D warnings`: `passed`
+- `cargo test`: `passed`
+
+The only merge conflict was the ordering of the two existing
+`tests/doc_drift.rs` guards; both assertions remain present and passed.
