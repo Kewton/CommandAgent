@@ -23,6 +23,7 @@ from typing import Protocol
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RUNS_DIR = REPO_ROOT / "workspace" / "management" / "runs"
 DEFAULT_BASE = "origin/develop"
+DEFAULT_MERGE_METHOD = "merge"
 PHASE_ORDER = {
     "issue": 1,
     "plan": 2,
@@ -264,7 +265,10 @@ def build_parser() -> argparse.ArgumentParser:
         help="Command to run after each merge. Can be specified multiple times.",
     )
     parser.add_argument(
-        "--merge-method", choices=("merge", "squash", "rebase"), default=None
+        "--merge-method",
+        choices=("merge", "squash", "rebase"),
+        default=DEFAULT_MERGE_METHOD,
+        help=f"GitHub pull-request merge strategy (default: {DEFAULT_MERGE_METHOD})",
     )
     parser.add_argument(
         "--pr-numbers", default="", help="Comma-separated PR numbers for merge phase"
@@ -2484,9 +2488,14 @@ def merge_pull_requests(
         if mergeable.status != "mergeable":
             results.append(mergeable)
             break
-        cmd = ["gh", "pr", "merge", str(pr_number)]
-        if merge_method is not None:
-            cmd.append(f"--{merge_method}")
+        resolved_merge_method = merge_method or DEFAULT_MERGE_METHOD
+        cmd = [
+            "gh",
+            "pr",
+            "merge",
+            str(pr_number),
+            f"--{resolved_merge_method}",
+        ]
         merge = runner(cmd, cwd=REPO_ROOT)
         if merge.returncode != 0:
             results.append(

@@ -41,6 +41,8 @@ Unless the user narrows the scope, advance through every phase below without req
 5. CI and UAT: wait for all PR checks, then execute or collect every generated UAT scenario with evidence. Read [UAT result input](references/uat-results.md) before this phase.
 6. Merge: only after all PRs pass CI and every UAT scenario passes with evidence, mark drafts ready, recheck CI and mergeability, then map Issue dependency order to PR numbers and merge in that enforced order.
 
+`--merge-method` defaults to `merge`. Always pass an explicit merge strategy to the non-interactive GitHub CLI; use `squash` or `rebase` only when the user requests it.
+
 `--phase uat` must not merge. `--phase merge` must require `--uat-results-json`; missing or incomplete evidence blocks merging. The default authorization includes pull-request creation and merging, but it does not authorize starting or stopping CommandMate or killing processes. If CommandMate is unavailable, report that blocker and request the specific external action needed.
 
 ## First Action

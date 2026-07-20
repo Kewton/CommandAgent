@@ -469,6 +469,7 @@ def test_parser_defaults_to_codex_agent() -> None:
     args = module.parse_args_from_list_for_test(["1", "--dry-run"])
 
     assert args.codex_agent_name == "codex"
+    assert args.merge_method == "merge"
     assert args.phase == "plan"
     assert module.PHASE_ORDER["pr"] < module.PHASE_ORDER["uat"]
     assert module.PHASE_ORDER["uat"] < module.PHASE_ORDER["merge"]
@@ -1416,6 +1417,42 @@ def test_merge_pull_requests_waits_for_ci_before_merge() -> None:
     assert max(check_indices[:4]) < merge_indices[0]
     assert check_indices[4] < merge_indices[0]
     assert check_indices[5] < merge_indices[1]
+
+
+def test_merge_pull_requests_resolves_missing_strategy_to_merge() -> None:
+    module = load_script()
+    calls: list[list[str]] = []
+
+    def fake_runner(args, **kwargs):  # type: ignore[no-untyped-def]
+        calls.append(args)
+        if args[:3] == ["gh", "pr", "view"]:
+            return module.subprocess.CompletedProcess(
+                args,
+                0,
+                json.dumps(
+                    {"isDraft": False, "mergeStateStatus": "CLEAN", "number": 42}
+                ),
+                "",
+            )
+        if args[:3] == ["gh", "pr", "checks"]:
+            return module.subprocess.CompletedProcess(args, 0, "checks passed\n", "")
+        if args[:3] == ["gh", "pr", "merge"]:
+            return module.subprocess.CompletedProcess(args, 0, "", "")
+        if args[:3] == ["git", "pull", "--ff-only"]:
+            return module.subprocess.CompletedProcess(args, 0, "", "")
+        return module.subprocess.CompletedProcess(args, 1, "", "unexpected")
+
+    results = module.merge_pull_requests(
+        [42],
+        dry_run=False,
+        merge_method=None,
+        integration_checks=[],
+        uat_gate=module.UatGateResult("passed", "all scenarios passed"),
+        runner=fake_runner,
+    )
+
+    assert results[0].status == "merged"
+    assert ["gh", "pr", "merge", "42", "--merge"] in calls
 
 
 def test_merge_pull_requests_marks_draft_ready_only_after_ci_and_uat() -> None:
