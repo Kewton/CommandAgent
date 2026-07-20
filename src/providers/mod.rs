@@ -1,8 +1,10 @@
 pub mod gemini;
 pub mod gemini_function_calling;
+pub(crate) mod guidance;
 pub mod ollama;
 pub mod openai;
 pub mod parsing;
+pub(crate) mod startup;
 pub mod streaming;
 pub mod xml_fallback;
 

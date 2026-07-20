@@ -1390,7 +1390,11 @@ pub fn load_api_key(workspace_root: &std::path::Path, name: &str) -> anyhow::Res
     env.get(name)
         .filter(|value| !value.trim().is_empty())
         .cloned()
-        .ok_or_else(|| anyhow::anyhow!("{name} is not set"))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "{name} is not set. Set {name} in the environment or workspace .env, then run `commandagent --doctor`."
+            )
+        })
 }
 
 pub fn read_dotenv(workspace_root: &std::path::Path) -> HashMap<String, String> {
@@ -1428,6 +1432,21 @@ pub fn redact(value: &str) -> String {
 mod tests {
     use super::*;
     use clap::Parser;
+
+    #[test]
+    fn missing_api_key_error_includes_setup_and_doctor_remediation() {
+        let dir = tempfile::tempdir().unwrap();
+        let key = "COMMANDAGENT_TEST_MISSING_PROVIDER_KEY_ISSUE_46";
+
+        let error = load_api_key(dir.path(), key).unwrap_err().to_string();
+
+        assert_eq!(
+            error,
+            format!(
+                "{key} is not set. Set {key} in the environment or workspace .env, then run `commandagent --doctor`."
+            )
+        );
+    }
 
     #[test]
     fn explicit_create_overrides_fix_wording_while_omission_keeps_detection() {
