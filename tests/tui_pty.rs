@@ -137,6 +137,242 @@ fn tui_pty_streams_ollama_with_spinner_and_footer_cleanup() {
     assert!(!text.contains("stream ended before"), "output={text:?}");
 }
 
+#[test]
+#[ignore]
+fn tui_pty_screen_state_preserves_long_accepted_goal_across_footer_modes() {
+    if commandagent::env_compat::var("COMMANDAGENT_PTY_TESTS")
+        .ok()
+        .as_deref()
+        != Some("1")
+        || cfg!(windows)
+    {
+        return;
+    }
+    let bin = env!("CARGO_BIN_EXE_commandagent");
+    for (footer, no_color) in [(true, false), (true, true), (false, false), (false, true)] {
+        let tmp = tempfile::tempdir().unwrap();
+        let state_dir = tmp.path().join("state");
+        let (host, completed, stop, server) = start_ultra_plan_ollama();
+        let output = run_receipt_screen_script(
+            bin,
+            tmp.path(),
+            &state_dir,
+            &host,
+            completed,
+            footer,
+            no_color,
+        )
+        .expect("script(1) PTY helper and fake Ollama must be available");
+        stop.store(true, Ordering::SeqCst);
+        server.join().unwrap();
+
+        let text = String::from_utf8_lossy(&output.stdout).to_string()
+            + &String::from_utf8_lossy(&output.stderr);
+        let visible = normalize_screen_text(&text);
+        assert!(
+            output.status.success(),
+            "PTY command failed (footer={footer}, no_color={no_color}). output={text:?}"
+        );
+        for expected in [
+            "Accepted command",
+            "- Command: /ultra-plan-run",
+            "- Profile: nextjs (explicit)",
+            "- Style: compact (explicit)",
+            "- Prompt layout: stable (explicit)",
+            "- Requested port: 3011 (goal)",
+            "Active command: /ultra-plan-run",
+            "── Phase 1/2: game-engine ──",
+            "Current phase:",
+            "Terminal summary",
+            "Primary stop reason:",
+        ] {
+            assert!(
+                visible.contains(expected),
+                "missing {expected:?} (footer={footer}, no_color={no_color}). visible={visible:?} raw={text:?}"
+            );
+        }
+        assert!(
+            visible.contains("あなたが考える最高に面白くかっこいいスペースインベーダーゲームを")
+                && visible.contains("3011番ポートで作ってください"),
+            "long CJK Goal was not preserved (footer={footer}, no_color={no_color}). visible={visible:?}"
+        );
+        assert_eq!(
+            text.contains("\x1b[1;"),
+            footer,
+            "footer scroll region mode mismatch. output={text:?}"
+        );
+        if no_color {
+            assert!(
+                !text.contains("\x1b[2m"),
+                "NO_COLOR emitted dim SGR: {text:?}"
+            );
+        }
+    }
+}
+
+fn run_receipt_screen_script(
+    bin: &str,
+    cwd: &std::path::Path,
+    state_dir: &std::path::Path,
+    host: &str,
+    completed: mpsc::Receiver<()>,
+    footer: bool,
+    no_color: bool,
+) -> std::io::Result<std::process::Output> {
+    let mut args = queue_cli_args(cwd, state_dir, host);
+    args.extend(["--stream".to_string(), "off".to_string()]);
+    if !footer {
+        args.push("--no-footer".to_string());
+    }
+    let args = args
+        .into_iter()
+        .map(|arg| shell_quote(&arg))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let command_line = format!(
+        "stty rows 18 cols 48; (sleep 2.2; stty rows 22 cols 72 </dev/tty) & exec {} {args}",
+        shell_quote(bin)
+    );
+    let mut command = std::process::Command::new("script");
+    if cfg!(target_os = "macos") {
+        command
+            .arg("-q")
+            .arg("/dev/null")
+            .arg("/bin/sh")
+            .arg("-c")
+            .arg(command_line);
+    } else {
+        command
+            .arg("-q")
+            .arg("-c")
+            .arg(command_line)
+            .arg("/dev/null");
+    }
+    if no_color {
+        command.env("NO_COLOR", "1");
+    }
+    let mut child = command
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    let stdout = child.stdout.take().unwrap();
+    let stderr = child.stderr.take().unwrap();
+    let stdout_reader = thread::spawn(move || read_all(stdout));
+    let stderr_reader = thread::spawn(move || read_all(stderr));
+    let mut stdin = child.stdin.take().unwrap();
+    thread::sleep(Duration::from_secs(2));
+    stdin.write_all(
+        "/ultra-plan-run --profile nextjs --style compact --prompt-layout stable \"あなたが考える最高に面白くかっこいいスペースインベーダーゲームを、CJKの長い説明を保ったまま3011番ポートで作ってください\"\n"
+            .as_bytes(),
+    )?;
+    stdin.flush()?;
+    if completed.recv_timeout(Duration::from_secs(10)).is_err() {
+        let _ = child.kill();
+    } else {
+        thread::sleep(Duration::from_secs(1));
+        stdin.write_all(b"/status\r")?;
+        stdin.flush()?;
+        thread::sleep(Duration::from_millis(200));
+        stdin.write_all(b"/exit\r")?;
+        stdin.flush()?;
+    }
+    drop(stdin);
+    finish_queue_child(child, stdout_reader, stderr_reader, Duration::from_secs(20))
+}
+
+fn start_ultra_plan_ollama() -> (
+    String,
+    mpsc::Receiver<()>,
+    Arc<AtomicBool>,
+    thread::JoinHandle<()>,
+) {
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let host = format!("http://{}", listener.local_addr().unwrap());
+    let stop = Arc::new(AtomicBool::new(false));
+    let thread_stop = Arc::clone(&stop);
+    let (completed_tx, completed_rx) = mpsc::sync_channel(1);
+    let handle = thread::spawn(move || {
+        let mut chat_count = 0usize;
+        while !thread_stop.load(Ordering::SeqCst) {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(1)))
+                        .unwrap();
+                    let request = read_http_request(&mut stream);
+                    if request.starts_with("GET /api/tags ") {
+                        let body = r#"{"models":[{"name":"m"}]}"#;
+                        let response = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        );
+                        let _ = stream.write_all(response.as_bytes());
+                        continue;
+                    }
+                    chat_count += 1;
+                    thread::sleep(Duration::from_millis(700));
+                    let content = concat!(
+                        "goal: \"あなたが考える最高に面白くかっこいいスペースインベーダーゲームを、CJKの長い説明を保ったまま3011番ポートで作ってください\"\n",
+                        "profile: \"nextjs\"\n",
+                        "style: \"compact\"\n",
+                        "intent: \"create\"\n",
+                        "phases:\n",
+                        "  - id: \"game-engine\"\n",
+                        "    prompt: \"Implement the game engine\"\n",
+                        "  - id: \"verify\"\n",
+                        "    prompt: \"Verify the game\"\n"
+                    );
+                    let body = serde_json::json!({
+                        "message": {"role": "assistant", "content": content},
+                        "done": true
+                    })
+                    .to_string();
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = stream.write_all(response.as_bytes());
+                    let _ = stream.flush();
+                    if chat_count == 4 {
+                        let _ = completed_tx.try_send(());
+                    }
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+    (host, completed_rx, stop, handle)
+}
+
+fn normalize_screen_text(value: &str) -> String {
+    let mut plain = String::new();
+    let mut chars = value.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\x1b' {
+            if chars.peek() == Some(&'[') {
+                let _ = chars.next();
+                for next in chars.by_ref() {
+                    if ('@'..='~').contains(&next) {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        if ch == '\r' {
+            plain.push('\n');
+        } else if ch == '\n' || !ch.is_control() {
+            plain.push(ch);
+        }
+    }
+    plain.lines().map(str::trim_start).collect::<String>()
+}
+
 fn run_stream_script(
     bin: &str,
     cwd: &std::path::Path,

@@ -83,7 +83,9 @@ impl FooterEnv {
 #[derive(Debug)]
 struct FooterState {
     status: Mutex<UiStatus>,
+    geometry: Mutex<FooterGeometry>,
     freeze: AtomicBool,
+    repaint: AtomicBool,
     stop: AtomicBool,
     wake: (Mutex<()>, Condvar),
 }
@@ -160,7 +162,9 @@ impl Footer {
         }
         let state = Arc::new(FooterState {
             status: Mutex::new(UiStatus::from_config(config)),
+            geometry: Mutex::new(geometry),
             freeze: AtomicBool::new(false),
+            repaint: AtomicBool::new(false),
             stop: AtomicBool::new(false),
             wake: (Mutex::new(()), Condvar::new()),
         });
@@ -216,6 +220,27 @@ impl Footer {
         state.freeze.store(true, Ordering::SeqCst);
         state.wake.1.notify_all();
         Some(FreezeGuard { state })
+    }
+
+    pub fn write_scrollback(&self, text: &str) -> anyhow::Result<()> {
+        let Some(active) = &self.inner else {
+            write_text(io::stdout().lock(), text)?;
+            return Ok(());
+        };
+        let _freeze = self.freeze();
+        let geometry = active
+            .state
+            .geometry
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .to_owned();
+        let mut stdout = io::stdout().lock();
+        stdout.write_all(scrollback_open_sequence(geometry).as_bytes())?;
+        write_text(&mut stdout, text)?;
+        stdout.write_all(scrollback_close_sequence(geometry).as_bytes())?;
+        stdout.flush()?;
+        active.state.repaint.store(true, Ordering::SeqCst);
+        Ok(())
     }
 }
 
@@ -469,8 +494,15 @@ fn render_loop(
         let previous_geometry = geometry;
         geometry =
             geometry_after_size_with_input(geometry, crossterm::terminal::size(), input_enabled);
+        *state
+            .geometry
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = geometry;
         let resized = geometry != previous_geometry;
         if resized || !state.freeze.load(Ordering::SeqCst) {
+            if state.repaint.swap(false, Ordering::SeqCst) {
+                last_rendered = None;
+            }
             let status = match state.status.lock() {
                 Ok(status) => status.clone(),
                 Err(poisoned) => poisoned.into_inner().clone(),
@@ -517,6 +549,40 @@ fn render_loop(
         }
     }
     geometry
+}
+
+fn write_text(mut writer: impl Write, text: &str) -> io::Result<()> {
+    writer.write_all(text.as_bytes())?;
+    if !text.ends_with('\n') {
+        writer.write_all(b"\n")?;
+    }
+    writer.flush()
+}
+
+fn scrollback_open_sequence(geometry: FooterGeometry) -> String {
+    let mut out = String::new();
+    out.push_str(ansi::save_cursor());
+    out.push_str(ansi::reset_decstbm());
+    let first_footer_row = geometry
+        .rows
+        .saturating_sub(geometry.footer_rows)
+        .saturating_add(1);
+    for row in first_footer_row..=geometry.rows {
+        out.push_str(&ansi::move_to(row, 1));
+        out.push_str(ansi::clear_line());
+    }
+    out.push_str(ansi::restore_cursor());
+    out
+}
+
+fn scrollback_close_sequence(geometry: FooterGeometry) -> String {
+    let Some(decstbm) = geometry.decstbm() else {
+        return String::new();
+    };
+    format!(
+        "{decstbm}{}",
+        ansi::move_to(geometry.rows - geometry.footer_rows, 1)
+    )
 }
 
 fn geometry_after_size(current: FooterGeometry, size: io::Result<(u16, u16)>) -> FooterGeometry {
@@ -1200,6 +1266,20 @@ mod tests {
 
         assert!(frame.contains("\x1b[23;1Hp1        "), "{frame:?}");
         assert!(frame.contains("\x1b[24;1H          "), "{frame:?}");
+    }
+
+    #[test]
+    fn scrollback_transition_resets_region_and_restores_resized_footer() {
+        let geometry = FooterGeometry::with_input_row(48, 22, true);
+
+        let open = scrollback_open_sequence(geometry);
+        let close = scrollback_close_sequence(geometry);
+
+        assert!(open.starts_with("\x1b[s\x1b[r"), "{open:?}");
+        assert!(open.contains("\x1b[20;1H\r\x1b[2K"), "{open:?}");
+        assert!(open.contains("\x1b[22;1H\r\x1b[2K"), "{open:?}");
+        assert!(open.ends_with("\x1b[u"), "{open:?}");
+        assert_eq!(close, "\x1b[1;19r\x1b[19;1H");
     }
 
     #[test]

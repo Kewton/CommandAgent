@@ -484,11 +484,13 @@ fn emit_direct_command_stop_with_status(
         terminal_status.as_str(),
         &completion,
     );
-    render_terminal_summary_card_to_stdout(
-        config.eval_events_path.as_deref(),
-        &stop_reason,
-        &event_projection,
-    );
+    if tui::terminal_summary::applies_to(command) {
+        render_terminal_summary_card_to_stdout(
+            config.eval_events_path.as_deref(),
+            &stop_reason,
+            &event_projection,
+        );
+    }
     event_projection
 }
 
@@ -1233,6 +1235,43 @@ mod tests {
         assert!(summary.contains("Status: interrupted"), "{summary}");
         assert!(summary.contains("Command status: interrupted"), "{summary}");
         assert!(!summary.contains("Status: running"), "{summary}");
+    }
+
+    #[test]
+    fn direct_non_execution_actions_skip_generic_terminal_gate_card() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.eval_events_path = Some(
+            dir.path()
+                .join(".anvil/runs/direct-summary-audit/events.jsonl"),
+        );
+        let result: anyhow::Result<()> = Ok(());
+
+        for command in [
+            "--setup-interaction-probe",
+            "--model-probe",
+            "--plan-steps",
+            "--ultra-plan",
+        ] {
+            let capture = tui::markdown::capture::start();
+            emit_direct_command_stop_with_status(
+                &cfg,
+                command,
+                &result,
+                DirectCommandStatus::Completed,
+            );
+            assert_eq!(capture.output(), "", "{command}");
+        }
+
+        let capture = tui::markdown::capture::start();
+        emit_direct_command_stop_with_status(
+            &cfg,
+            "--ultra-plan-run",
+            &result,
+            DirectCommandStatus::Completed,
+        );
+        let output = capture.output();
+        assert!(output.contains("### Terminal summary"), "{output}");
     }
 
     #[test]

@@ -177,7 +177,9 @@ pub struct ParsedSlash {
     pub profile_explicit: bool,
     pub profile_inference: Option<crate::planner::profile::ProfileInference>,
     pub prompt_layout: crate::config::PromptLayout,
+    pub prompt_layout_explicit: bool,
     pub style: String,
+    pub style_explicit: bool,
     pub goal: String,
 }
 
@@ -349,7 +351,9 @@ pub fn parse_slash(line: &str, config: &Config) -> anyhow::Result<ParsedSlash> {
         profile_explicit: parsed_profile.profile_explicit,
         profile_inference,
         prompt_layout: parsed_profile.prompt_layout,
+        prompt_layout_explicit: parsed_profile.prompt_layout_explicit,
         style: parsed_profile.style,
+        style_explicit: parsed_profile.style_explicit,
         goal,
     })
 }
@@ -363,14 +367,32 @@ pub fn handle_command(
 ) -> anyhow::Result<String> {
     let parsed = parse_slash(line, config)?;
     let command = slash_command_spec(&parsed.command);
+    let mut config = config.clone();
+    config.profile = parsed.profile.clone();
+    config.profile_explicit = parsed.profile_explicit;
+    config.profile_inference = parsed.profile_inference;
+    config.prompt_layout = parsed.prompt_layout;
+    if parsed.prompt_layout_explicit {
+        config.field_sources.prompt_layout = "slash".to_string();
+    }
+    config.style = parsed.style.clone();
+    let receipt = crate::tui::command_receipt::render(
+        line,
+        &parsed,
+        config.eval_events_path.as_deref(),
+        crossterm::terminal::size()
+            .map(|(cols, _)| cols)
+            .unwrap_or(80),
+    );
+    ui.render_command_receipt(&receipt)?;
     if let Some(command) = command {
         match command.kind {
             SlashCommandKind::Help => return Ok(render_help()),
             SlashCommandKind::Status => {
-                return Ok(crate::tui::presentation::render_status_card(config));
+                return Ok(crate::tui::presentation::render_status_card(&config));
             }
             SlashCommandKind::Doctor => {
-                return Ok(crate::doctor::diagnose(config).render_human());
+                return Ok(crate::doctor::diagnose(&config).render_human());
             }
             SlashCommandKind::Plan => return Ok(crate::tui::presentation::render_current_plan()),
             SlashCommandKind::Runs => {
@@ -388,13 +410,7 @@ pub fn handle_command(
             | SlashCommandKind::ModelProbe => {}
         }
     }
-    let mut config = config.clone();
-    config.profile = parsed.profile;
-    config.profile_explicit = parsed.profile_explicit;
-    config.profile_inference = parsed.profile_inference;
-    config.prompt_layout = parsed.prompt_layout;
-    config.field_sources.prompt_layout = "slash".to_string();
-    config.style = parsed.style;
+    crate::tui::presentation::accept_command(&parsed, &config);
     if let Some(inference) = config.profile_inference {
         crate::eval_events::emit(
             config.eval_events_path.as_deref(),
@@ -546,6 +562,7 @@ pub fn handle_command(
     let terminal_status = terminal_status_for_result(&result, ui);
     let stop_reason = stop_reason_for_result(&result, terminal_status);
     let completion = completion_guard.finalize(&result, terminal_status);
+    let show_terminal_summary = crate::tui::terminal_summary::applies_to(&parsed.command);
     if let Err(err) = &result {
         eprintln!(
             "{}",
@@ -555,24 +572,27 @@ pub fn handle_command(
                 &completion,
             )
         );
-        render_terminal_summary_card_to_stdout(&config, &stop_reason, &completion);
+        if show_terminal_summary {
+            render_terminal_summary_card_to_stdout(&config, &stop_reason, &completion);
+        }
     } else if let Some(notice) = crate::eval_events::render_tui_command_incomplete_notice(
         config.eval_events_path.as_deref(),
         &completion,
     ) {
         eprintln!("{notice}");
     }
-    let card = crate::eval_events::render_terminal_summary_card(
-        config.eval_events_path.as_deref(),
-        &stop_reason,
-        &completion,
-    );
     result.map(|output| {
-        format!(
-            "{}\n\n{}",
-            crate::eval_events::render_tui_completion_output(&output, &completion),
-            card
-        )
+        let output = crate::eval_events::render_tui_completion_output(&output, &completion);
+        if show_terminal_summary {
+            let card = crate::eval_events::render_terminal_summary_card(
+                config.eval_events_path.as_deref(),
+                &stop_reason,
+                &completion,
+            );
+            format!("{output}\n\n{card}")
+        } else {
+            output
+        }
     })
 }
 
@@ -893,7 +913,9 @@ struct ParsedProfileStyle {
     profile: String,
     profile_explicit: bool,
     prompt_layout: crate::config::PromptLayout,
+    prompt_layout_explicit: bool,
     style: String,
+    style_explicit: bool,
     rest: Vec<String>,
 }
 
@@ -901,7 +923,9 @@ fn parse_profile_style_details(args: &[String], config: &Config) -> ParsedProfil
     let mut profile = config.profile.clone();
     let mut profile_explicit = config.profile_explicit;
     let mut prompt_layout = config.prompt_layout;
+    let mut prompt_layout_explicit = false;
     let mut style = config.style.clone();
+    let mut style_explicit = false;
     let mut rest = Vec::new();
     let mut i = 0;
     while i < args.len() {
@@ -913,6 +937,7 @@ fn parse_profile_style_details(args: &[String], config: &Config) -> ParsedProfil
             }
             "--style" if i + 1 < args.len() => {
                 style = args[i + 1].clone();
+                style_explicit = true;
                 i += 2;
             }
             "--prompt-layout" if i + 1 < args.len() => {
@@ -921,6 +946,7 @@ fn parse_profile_style_details(args: &[String], config: &Config) -> ParsedProfil
                     "legacy" => crate::config::PromptLayout::Legacy,
                     _ => prompt_layout,
                 };
+                prompt_layout_explicit = true;
                 i += 2;
             }
             _ => {
@@ -933,7 +959,9 @@ fn parse_profile_style_details(args: &[String], config: &Config) -> ParsedProfil
         profile,
         profile_explicit,
         prompt_layout,
+        prompt_layout_explicit,
         style,
+        style_explicit,
         rest,
     }
 }
