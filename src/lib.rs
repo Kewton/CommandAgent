@@ -6,6 +6,7 @@ pub mod cli;
 mod cli_panic_boundary;
 mod completion_metadata;
 pub mod config;
+pub mod doctor;
 pub mod env_compat;
 pub mod eval_events;
 pub mod minimal_loop;
@@ -37,6 +38,9 @@ use tui::TerminalUi;
 use tui::markdown::{PlainRenderer, TerminalMarkdownRenderer};
 
 pub fn run(cli: Cli) -> anyhow::Result<()> {
+    if cli.doctor {
+        return doctor::run_cli(cli);
+    }
     let config = Config::from_cli(cli)?;
     run_resolved_config(config)
 }
@@ -184,6 +188,14 @@ fn run_config(config: Config) -> anyhow::Result<()> {
                 let output =
                     model_probe::run_configured(&config, &mut *planner_client, &mut *execution)?;
                 println!("{}", output.card);
+                Ok(())
+            }
+            Action::Doctor => {
+                let report = doctor::diagnose(&config);
+                println!("{}", report.render_human());
+                if report.failed() {
+                    anyhow::bail!("doctor found failed checks");
+                }
                 Ok(())
             }
             Action::UxDemo => tui::ux_demo::run(&config),
@@ -367,6 +379,7 @@ fn direct_command_for_action(action: &Action) -> Option<&'static str> {
         Action::RunUltraPlan(_) => Some("--run-ultra-plan"),
         Action::SetupInteractionProbe => Some("--setup-interaction-probe"),
         Action::ModelProbe => Some("--model-probe"),
+        Action::Doctor => Some("--doctor"),
     }
 }
 

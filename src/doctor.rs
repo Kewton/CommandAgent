@@ -1,0 +1,922 @@
+use std::collections::HashMap;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::Path;
+use std::time::Duration;
+
+use anyhow::Context;
+use serde::Serialize;
+use serde_json::{Value, json};
+
+use crate::cli::Cli;
+use crate::config::{Config, Provider};
+use crate::minimal_loop::interaction_probe::{
+    INTERACTION_PROBE_SETUP_REMEDIATION, ProbeAvailability,
+};
+
+const SCHEMA_VERSION: &str = "1";
+const OLLAMA_TIMEOUT: Duration = Duration::from_secs(2);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CheckStatus {
+    Pass,
+    Warn,
+    Fail,
+}
+
+impl CheckStatus {
+    fn symbol(self) -> &'static str {
+        match self {
+            Self::Pass => "✓",
+            Self::Warn => "!",
+            Self::Fail => "✗",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DoctorCheck {
+    pub id: String,
+    pub category: String,
+    pub label: String,
+    pub status: CheckStatus,
+    pub message: String,
+    pub remediation: Option<String>,
+    pub details: Value,
+}
+
+impl DoctorCheck {
+    fn new(
+        id: impl Into<String>,
+        category: impl Into<String>,
+        label: impl Into<String>,
+        status: CheckStatus,
+        message: impl Into<String>,
+        remediation: Option<String>,
+        details: Value,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            category: category.into(),
+            label: label.into(),
+            status,
+            message: single_line(message.into()),
+            remediation: remediation.map(single_line),
+            details,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DoctorReport {
+    pub schema_version: &'static str,
+    pub status: CheckStatus,
+    pub checks: Vec<DoctorCheck>,
+}
+
+impl DoctorReport {
+    fn from_checks(checks: Vec<DoctorCheck>) -> Self {
+        let status = if checks.iter().any(|check| check.status == CheckStatus::Fail) {
+            CheckStatus::Fail
+        } else if checks.iter().any(|check| check.status == CheckStatus::Warn) {
+            CheckStatus::Warn
+        } else {
+            CheckStatus::Pass
+        };
+        Self {
+            schema_version: SCHEMA_VERSION,
+            status,
+            checks,
+        }
+    }
+
+    pub fn failed(&self) -> bool {
+        self.status == CheckStatus::Fail
+    }
+
+    pub fn render_human(&self) -> String {
+        let width = self
+            .checks
+            .iter()
+            .map(|check| check.label.chars().count())
+            .max()
+            .unwrap_or(0);
+        let mut lines = vec![format!(
+            "CommandAgent doctor: {}",
+            status_label(self.status)
+        )];
+        for check in &self.checks {
+            lines.push(format!(
+                "{} {:width$}  {}",
+                check.status.symbol(),
+                check.label,
+                check.message,
+                width = width
+            ));
+            if check.status != CheckStatus::Pass
+                && let Some(remediation) = &check.remediation
+            {
+                lines.push(format!("  Remediation: {remediation}"));
+            }
+        }
+        lines.join("\n")
+    }
+
+    pub fn render_json(&self) -> anyhow::Result<String> {
+        serde_json::to_string_pretty(self).context("failed to serialize doctor report")
+    }
+}
+
+pub fn run_cli(cli: Cli) -> anyhow::Result<()> {
+    let render_json = cli.json;
+    let report = diagnose_cli(&cli)?;
+    if render_json {
+        println!("{}", report.render_json()?);
+    } else {
+        println!("{}", report.render_human());
+    }
+    if report.failed() {
+        anyhow::bail!("doctor found failed checks");
+    }
+    Ok(())
+}
+
+pub fn diagnose_cli(cli: &Cli) -> anyhow::Result<DoctorReport> {
+    let requested_root = cli
+        .cwd
+        .clone()
+        .unwrap_or(std::env::current_dir().context("failed to read current directory")?);
+    let root = requested_root
+        .canonicalize()
+        .unwrap_or_else(|_| requested_root.clone());
+    let resolved = Config::from_cli(cli.clone());
+    let fallback_state_dir = cli
+        .state_dir
+        .clone()
+        .unwrap_or_else(crate::config::default_state_dir);
+    let resolution_error = resolved.as_ref().err().map(|error| format!("{error:#}"));
+    Ok(collect_report(
+        &root,
+        resolved.as_ref().ok(),
+        resolution_error.as_deref(),
+        cli.preset.as_deref(),
+        &fallback_state_dir,
+    ))
+}
+
+pub fn diagnose(config: &Config) -> DoctorReport {
+    let preset = selected_preset(config);
+    collect_report(
+        &config.workspace_root,
+        Some(config),
+        None,
+        preset.as_deref(),
+        &config.state_dir,
+    )
+}
+
+fn collect_report(
+    root: &Path,
+    resolved: Option<&Config>,
+    resolution_error: Option<&str>,
+    preset_name: Option<&str>,
+    fallback_state_dir: &Path,
+) -> DoctorReport {
+    let mut checks = Vec::new();
+    match resolved {
+        Some(config) => add_resolved_configuration_checks(&mut checks, config),
+        None => checks.push(DoctorCheck::new(
+            "config.resolution",
+            "configuration",
+            "Configuration",
+            CheckStatus::Fail,
+            resolution_error.unwrap_or("configuration could not be resolved"),
+            Some("fix the reported config or preset problem, then rerun --doctor".to_string()),
+            json!({ "error": resolution_error.unwrap_or("unknown") }),
+        )),
+    }
+    add_config_file_checks(&mut checks, root, preset_name, resolution_error.is_some());
+    if let Some(config) = resolved {
+        add_provider_checks(&mut checks, config);
+    }
+    add_interaction_probe_check(&mut checks, root);
+    let state_dir = resolved
+        .map(|config| config.state_dir.as_path())
+        .unwrap_or(fallback_state_dir);
+    checks.push(writable_directory_check(
+        "state.directory_writable",
+        "state",
+        "State directory",
+        state_dir,
+        "create the state directory and grant the current user write access",
+    ));
+    add_terminal_checks(&mut checks, resolved);
+    checks.push(writable_directory_check(
+        "workspace.root_writable",
+        "workspace",
+        "Workspace",
+        root,
+        "grant the current user write access or select a writable --cwd",
+    ));
+    checks.push(dotenv_check(root));
+    DoctorReport::from_checks(checks)
+}
+
+fn add_resolved_configuration_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {
+    add_setting_check(
+        checks,
+        "config.model",
+        "Model",
+        &config.model,
+        &config.field_sources.model,
+    );
+    add_setting_check(
+        checks,
+        "config.provider",
+        "Provider",
+        provider_label(config.provider),
+        &config.field_sources.provider,
+    );
+    add_setting_check(
+        checks,
+        "config.planner_model",
+        "Planner model",
+        &config.planner_model,
+        &config.field_sources.planner_model,
+    );
+    add_setting_check(
+        checks,
+        "config.planner_provider",
+        "Planner provider",
+        provider_label(config.planner_provider),
+        &config.field_sources.planner_provider,
+    );
+    add_setting_check(
+        checks,
+        "config.profile",
+        "Profile",
+        &config.profile,
+        &config.field_sources.profile,
+    );
+}
+
+fn add_setting_check(
+    checks: &mut Vec<DoctorCheck>,
+    id: &str,
+    label: &str,
+    value: &str,
+    source_detail: &str,
+) {
+    let source = source_class(source_detail);
+    checks.push(DoctorCheck::new(
+        id,
+        "configuration",
+        label,
+        CheckStatus::Pass,
+        format!("{value} (source={source}; detail={source_detail})"),
+        None,
+        json!({
+            "value": value,
+            "source": source.to_ascii_lowercase(),
+            "source_detail": source_detail,
+        }),
+    ));
+}
+
+fn add_config_file_checks(
+    checks: &mut Vec<DoctorCheck>,
+    root: &Path,
+    preset_name: Option<&str>,
+    resolution_failed: bool,
+) {
+    let inspection = crate::config::inspect_config_files(root, preset_name);
+    const IDS: [&str; 4] = [
+        "config.file.workspace_commandagent",
+        "config.file.workspace_anvil",
+        "config.file.home_commandagent",
+        "config.file.home_anvil",
+    ];
+    for (index, file) in inspection.paths.into_iter().enumerate() {
+        let id = IDS.get(index).copied().unwrap_or("config.file.additional");
+        let path = file.path.display().to_string();
+        if let Some(error) = file.parse_error {
+            checks.push(DoctorCheck::new(
+                id,
+                "config_file",
+                "Config file",
+                CheckStatus::Fail,
+                format!("{path}: invalid ({error})"),
+                Some(format!(
+                    "fix the syntax or unsupported key in {path}, then rerun --doctor"
+                )),
+                json!({ "path": path, "exists": true, "parseable": false, "error": error }),
+            ));
+        } else {
+            checks.push(DoctorCheck::new(
+                id,
+                "config_file",
+                "Config file",
+                CheckStatus::Pass,
+                if file.exists {
+                    format!("{path}: present and parseable")
+                } else {
+                    format!("{path}: not found (optional)")
+                },
+                None,
+                json!({ "path": path, "exists": file.exists, "parseable": file.exists }),
+            ));
+        }
+    }
+    if let Some(preset) = inspection.preset {
+        let missing_keys = preset.missing_keys.join(", ");
+        let (status, message, remediation) = if !preset.found {
+            (
+                CheckStatus::Fail,
+                format!("preset '{}' was not found", preset.name),
+                Some(format!(
+                    "define [preset.{}] in a searched config file or select an existing preset",
+                    preset.name
+                )),
+            )
+        } else if !preset.complete && resolution_failed {
+            (
+                CheckStatus::Fail,
+                format!(
+                    "preset '{}' is incomplete and resolution failed; missing keys: {missing_keys}",
+                    preset.name
+                ),
+                Some(format!(
+                    "define the missing preset keys for '{}' or supply equivalent CLI values",
+                    preset.name
+                )),
+            )
+        } else if !preset.complete {
+            (
+                CheckStatus::Pass,
+                format!(
+                    "preset '{}' resolved with fallbacks; keys not defined by the preset: {missing_keys}",
+                    preset.name
+                ),
+                None,
+            )
+        } else {
+            (
+                CheckStatus::Pass,
+                format!("preset '{}' is complete", preset.name),
+                None,
+            )
+        };
+        checks.push(DoctorCheck::new(
+            "config.preset",
+            "configuration",
+            "Preset",
+            status,
+            message,
+            remediation,
+            json!({
+                "name": preset.name,
+                "found": preset.found,
+                "complete": preset.complete,
+                "missing_keys": preset.missing_keys,
+            }),
+        ));
+    }
+}
+
+fn add_provider_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {
+    let ollama_roles = [
+        ("executor", config.provider, config.model.as_str()),
+        (
+            "planner",
+            config.planner_provider,
+            config.planner_model.as_str(),
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(role, provider, model)| (provider == Provider::Ollama).then_some((role, model)))
+    .collect::<Vec<_>>();
+    if !ollama_roles.is_empty() {
+        checks.extend(ollama_checks(&config.ollama_host, &ollama_roles));
+    }
+
+    let dotenv = crate::config::read_dotenv(&config.workspace_root);
+    for (provider, key, id, label) in [
+        (
+            Provider::Openai,
+            "OPENAI_API_KEY",
+            "provider.openai.api_key",
+            "OpenAI key",
+        ),
+        (
+            Provider::Gemini,
+            "GEMINI_API_KEY",
+            "provider.gemini.api_key",
+            "Gemini key",
+        ),
+    ] {
+        if config.provider == provider || config.planner_provider == provider {
+            checks.push(credential_check_with(key, id, label, &dotenv, |name| {
+                std::env::var(name).ok()
+            }));
+        }
+    }
+}
+
+fn ollama_checks(host: &str, roles: &[(&str, &str)]) -> Vec<DoctorCheck> {
+    let client = crate::providers::ollama::OllamaClient::new(
+        host.to_string(),
+        OLLAMA_TIMEOUT.as_secs(),
+        1,
+        0,
+    );
+    let models = client.and_then(|client| client.list_models());
+    match models {
+        Ok(models) => {
+            let mut checks = vec![DoctorCheck::new(
+                "provider.ollama.reachable",
+                "provider",
+                "Ollama",
+                CheckStatus::Pass,
+                format!("{host}/api/tags reachable; {} model tag(s)", models.len()),
+                None,
+                json!({ "host": host, "reachable": true, "tag_count": models.len() }),
+            )];
+            for (role, model) in roles {
+                let present = models.iter().any(|candidate| candidate == model);
+                checks.push(DoctorCheck::new(
+                    format!("provider.ollama.{role}_model"),
+                    "provider",
+                    format!("Ollama {role} model"),
+                    if present {
+                        CheckStatus::Pass
+                    } else {
+                        CheckStatus::Fail
+                    },
+                    if present {
+                        format!("{model} is present in /api/tags")
+                    } else {
+                        format!("{model} is absent from /api/tags")
+                    },
+                    (!present).then(|| {
+                        format!(
+                            "pull '{model}' on the configured Ollama host or choose an installed model"
+                        )
+                    }),
+                    json!({ "role": role, "model": model, "present": present }),
+                ));
+            }
+            checks
+        }
+        Err(error) => vec![DoctorCheck::new(
+            "provider.ollama.reachable",
+            "provider",
+            "Ollama",
+            CheckStatus::Fail,
+            format!("{host}/api/tags unreachable ({error:#})"),
+            Some(
+                "start Ollama and verify --ollama-host, networking, and firewall settings"
+                    .to_string(),
+            ),
+            json!({ "host": host, "reachable": false, "error": format!("{error:#}") }),
+        )],
+    }
+}
+
+fn credential_check_with(
+    key: &str,
+    id: &str,
+    label: &str,
+    dotenv: &HashMap<String, String>,
+    get_env: impl Fn(&str) -> Option<String>,
+) -> DoctorCheck {
+    let credential = get_env(key)
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| (value, "environment"))
+        .or_else(|| {
+            dotenv
+                .get(key)
+                .filter(|value| !value.trim().is_empty())
+                .cloned()
+                .map(|value| (value, ".env"))
+        });
+    match credential {
+        Some((value, source)) => {
+            let redacted = crate::config::redact(&value);
+            DoctorCheck::new(
+                id,
+                "provider",
+                label,
+                CheckStatus::Pass,
+                format!("{key} is set (source={source}; value={redacted})"),
+                None,
+                json!({ "key": key, "present": true, "source": source, "value": redacted }),
+            )
+        }
+        None => DoctorCheck::new(
+            id,
+            "provider",
+            label,
+            CheckStatus::Fail,
+            format!("{key} is not set in the environment or workspace .env"),
+            Some(format!(
+                "set {key} in the process environment or workspace .env without printing it"
+            )),
+            json!({ "key": key, "present": false, "source": null, "value": null }),
+        ),
+    }
+}
+
+fn add_interaction_probe_check(checks: &mut Vec<DoctorCheck>, root: &Path) {
+    match crate::minimal_loop::interaction_probe::playwright_availability(root) {
+        ProbeAvailability::Available(resolution) => checks.push(DoctorCheck::new(
+            "interaction.playwright",
+            "interaction_probe",
+            "Playwright probe",
+            CheckStatus::Pass,
+            format!(
+                "playwright {} available ({})",
+                resolution.version, resolution.location
+            ),
+            None,
+            json!({
+                "available": true,
+                "version": resolution.version,
+                "location": resolution.location,
+                "module_path": resolution.module_path,
+            }),
+        )),
+        ProbeAvailability::Unavailable(reason) => checks.push(DoctorCheck::new(
+            "interaction.playwright",
+            "interaction_probe",
+            "Playwright probe",
+            CheckStatus::Warn,
+            format!("unavailable ({reason})"),
+            Some(INTERACTION_PROBE_SETUP_REMEDIATION.to_string()),
+            json!({ "available": false, "reason": reason }),
+        )),
+    }
+}
+
+fn writable_directory_check(
+    id: &str,
+    category: &str,
+    label: &str,
+    path: &Path,
+    remediation: &str,
+) -> DoctorCheck {
+    match probe_directory_write(path) {
+        Ok(()) => DoctorCheck::new(
+            id,
+            category,
+            label,
+            CheckStatus::Pass,
+            format!(
+                "{} is writable (temporary file created and removed)",
+                path.display()
+            ),
+            None,
+            json!({ "path": path, "writable": true, "probe_file_removed": true }),
+        ),
+        Err(error) => DoctorCheck::new(
+            id,
+            category,
+            label,
+            CheckStatus::Fail,
+            format!("{} is not writable ({error:#})", path.display()),
+            Some(remediation.to_string()),
+            json!({ "path": path, "writable": false, "error": format!("{error:#}") }),
+        ),
+    }
+}
+
+fn probe_directory_write(path: &Path) -> anyhow::Result<()> {
+    if !path.is_dir() {
+        anyhow::bail!("directory does not exist");
+    }
+    let probe_path = path.join(format!(".commandagent-doctor-{}.tmp", uuid::Uuid::now_v7()));
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&probe_path)
+        .with_context(|| format!("failed to create {}", probe_path.display()))?;
+    if let Err(error) = file.write_all(b"commandagent doctor write probe\n") {
+        drop(file);
+        let _ = fs::remove_file(&probe_path);
+        return Err(error).context("failed to write temporary probe file");
+    }
+    drop(file);
+    fs::remove_file(&probe_path)
+        .with_context(|| format!("failed to remove {}", probe_path.display()))?;
+    Ok(())
+}
+
+fn add_terminal_checks(checks: &mut Vec<DoctorCheck>, config: Option<&Config>) {
+    let stdin_tty = crate::tui::terminal::stdin_is_tty();
+    let stdout_tty = crate::tui::terminal::stdout_is_tty();
+    let stderr_tty = crate::tui::terminal::stderr_is_tty();
+    let tty_ready = stdin_tty && stdout_tty;
+    checks.push(DoctorCheck::new(
+        "terminal.tty",
+        "terminal",
+        "TTY",
+        if tty_ready {
+            CheckStatus::Pass
+        } else {
+            CheckStatus::Warn
+        },
+        format!("stdin={stdin_tty}, stdout={stdout_tty}, stderr={stderr_tty}"),
+        (!tty_ready)
+            .then(|| "run from an interactive terminal when validating TUI behavior".to_string()),
+        json!({ "stdin": stdin_tty, "stdout": stdout_tty, "stderr": stderr_tty }),
+    ));
+
+    let no_color = crate::tui::terminal::no_color();
+    checks.push(DoctorCheck::new(
+        "terminal.color",
+        "terminal",
+        "Color",
+        CheckStatus::Pass,
+        if no_color {
+            "disabled because NO_COLOR is set"
+        } else {
+            "enabled (NO_COLOR is not set)"
+        },
+        None,
+        json!({ "enabled": !no_color, "no_color": no_color }),
+    ));
+
+    let width = stdout_tty
+        .then(|| crossterm::terminal::size().ok().map(|(width, _)| width))
+        .flatten();
+    checks.push(DoctorCheck::new(
+        "terminal.width",
+        "terminal",
+        "Terminal width",
+        if width.is_some() {
+            CheckStatus::Pass
+        } else {
+            CheckStatus::Warn
+        },
+        width
+            .map(|width| format!("{width} columns"))
+            .unwrap_or_else(|| "unavailable".to_string()),
+        width
+            .is_none()
+            .then(|| "run from a TTY whose terminal size can be queried".to_string()),
+        json!({ "columns": width }),
+    ));
+
+    if let Some(config) = config {
+        let footer = crate::tui::footer::FooterEnv::detect(config);
+        let disabled_by_env = crate::tui::terminal::env_non_empty("COMMANDAGENT_NO_FOOTER");
+        let reason = if footer.enabled {
+            "enabled".to_string()
+        } else if config.no_footer {
+            "disabled by resolved footer configuration".to_string()
+        } else if disabled_by_env {
+            "disabled by COMMANDAGENT_NO_FOOTER (or legacy fallback)".to_string()
+        } else if !stdout_tty {
+            "disabled because stdout is not a TTY".to_string()
+        } else {
+            "disabled by terminal conditions".to_string()
+        };
+        checks.push(DoctorCheck::new(
+            "terminal.footer",
+            "terminal",
+            "Footer",
+            if footer.enabled {
+                CheckStatus::Pass
+            } else {
+                CheckStatus::Warn
+            },
+            reason,
+            (!footer.enabled).then(|| {
+                "use a stdout TTY and remove footer-disable flags or environment settings if the fixed footer is desired"
+                    .to_string()
+            }),
+            json!({ "enabled": footer.enabled, "color_enabled": footer.use_color }),
+        ));
+    } else {
+        checks.push(DoctorCheck::new(
+            "terminal.footer",
+            "terminal",
+            "Footer",
+            CheckStatus::Warn,
+            "cannot resolve footer readiness until configuration is valid",
+            Some("fix configuration resolution, then rerun --doctor".to_string()),
+            json!({ "enabled": null, "color_enabled": null }),
+        ));
+    }
+}
+
+fn dotenv_check(root: &Path) -> DoctorCheck {
+    let path = root.join(".env");
+    match fs::read_to_string(&path) {
+        Ok(_) => {
+            let mut keys = crate::config::read_dotenv(root)
+                .into_keys()
+                .filter(|key| !key.trim().is_empty())
+                .collect::<Vec<_>>();
+            keys.sort();
+            DoctorCheck::new(
+                "workspace.dotenv",
+                "workspace",
+                "Workspace .env",
+                CheckStatus::Pass,
+                if keys.is_empty() {
+                    format!("{} is present; no keys are defined", path.display())
+                } else {
+                    format!("{} is present; keys: {}", path.display(), keys.join(", "))
+                },
+                None,
+                json!({ "path": path, "exists": true, "keys": keys }),
+            )
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => DoctorCheck::new(
+            "workspace.dotenv",
+            "workspace",
+            "Workspace .env",
+            CheckStatus::Pass,
+            format!("{} is not present", path.display()),
+            None,
+            json!({ "path": path, "exists": false, "keys": [] }),
+        ),
+        Err(error) => DoctorCheck::new(
+            "workspace.dotenv",
+            "workspace",
+            "Workspace .env",
+            CheckStatus::Fail,
+            format!("{} cannot be read ({error})", path.display()),
+            Some(
+                "grant the current user read access to .env or remove the unreadable file"
+                    .to_string(),
+            ),
+            json!({ "path": path, "exists": true, "error": error.to_string() }),
+        ),
+    }
+}
+
+fn selected_preset(config: &Config) -> Option<String> {
+    [
+        &config.field_sources.model,
+        &config.field_sources.provider,
+        &config.field_sources.planner_model,
+        &config.field_sources.planner_provider,
+        &config.field_sources.profile,
+    ]
+    .into_iter()
+    .find_map(|source| source.strip_prefix("preset:").map(ToString::to_string))
+}
+
+fn source_class(source: &str) -> &'static str {
+    if source == "flag" {
+        "CLI"
+    } else if source.starts_with("preset:") {
+        "preset"
+    } else if source.starts_with("config:") {
+        "config"
+    } else {
+        "default"
+    }
+}
+
+fn provider_label(provider: Provider) -> &'static str {
+    match provider {
+        Provider::Ollama => "ollama",
+        Provider::Openai => "openai",
+        Provider::Gemini => "gemini",
+    }
+}
+
+fn status_label(status: CheckStatus) -> &'static str {
+    match status {
+        CheckStatus::Pass => "passed",
+        CheckStatus::Warn => "warnings",
+        CheckStatus::Fail => "failed",
+    }
+}
+
+fn single_line(value: String) -> String {
+    value.replace(['\n', '\r'], " ")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
+    use super::*;
+
+    #[test]
+    fn aggregate_status_and_human_rendering_use_symbols_and_failure_remediation() {
+        let report = DoctorReport::from_checks(vec![
+            DoctorCheck::new(
+                "ok",
+                "test",
+                "Short",
+                CheckStatus::Pass,
+                "ready",
+                None,
+                json!({}),
+            ),
+            DoctorCheck::new(
+                "warn",
+                "test",
+                "Long label",
+                CheckStatus::Warn,
+                "degraded",
+                Some("do the safe thing".to_string()),
+                json!({}),
+            ),
+        ]);
+
+        assert_eq!(report.status, CheckStatus::Warn);
+        let text = report.render_human();
+        assert!(text.contains("✓ Short"), "{text}");
+        assert!(text.contains("! Long label"), "{text}");
+        assert!(text.contains("Remediation: do the safe thing"), "{text}");
+    }
+
+    #[test]
+    fn credential_prefers_environment_and_never_exposes_value() {
+        let dotenv = HashMap::from([("OPENAI_API_KEY".to_string(), "dotenv-secret".to_string())]);
+        let check = credential_check_with(
+            "OPENAI_API_KEY",
+            "provider.openai.api_key",
+            "OpenAI key",
+            &dotenv,
+            |_| Some("environment-secret".to_string()),
+        );
+        let serialized = serde_json::to_string(&check).unwrap();
+
+        assert_eq!(check.status, CheckStatus::Pass);
+        assert!(check.message.contains("source=environment"));
+        assert!(check.message.contains("<redacted>"));
+        assert!(!serialized.contains("environment-secret"));
+        assert!(!serialized.contains("dotenv-secret"));
+    }
+
+    #[test]
+    fn credential_falls_back_to_dotenv_and_missing_is_failure() {
+        let dotenv = HashMap::from([("GEMINI_API_KEY".to_string(), "dotenv-secret".to_string())]);
+        let present = credential_check_with(
+            "GEMINI_API_KEY",
+            "provider.gemini.api_key",
+            "Gemini key",
+            &dotenv,
+            |_| None,
+        );
+        let missing = credential_check_with(
+            "OPENAI_API_KEY",
+            "provider.openai.api_key",
+            "OpenAI key",
+            &dotenv,
+            |_| None,
+        );
+
+        assert!(present.message.contains("source=.env"));
+        assert_eq!(missing.status, CheckStatus::Fail);
+    }
+
+    #[test]
+    fn writable_probe_removes_its_temporary_file() {
+        let dir = tempfile::tempdir().unwrap();
+        probe_directory_write(dir.path()).unwrap();
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn ollama_tags_check_covers_reachability_and_each_role_model() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 1024];
+            let read = stream.read(&mut request).unwrap();
+            assert!(String::from_utf8_lossy(&request[..read]).contains("GET /api/tags"));
+            let body = r#"{"models":[{"name":"executor:latest"}]}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+
+        let host = format!("http://{address}");
+        let checks = ollama_checks(
+            &host,
+            &[
+                ("executor", "executor:latest"),
+                ("planner", "missing:latest"),
+            ],
+        );
+        server.join().unwrap();
+
+        assert_eq!(checks[0].status, CheckStatus::Pass);
+        assert_eq!(checks[1].status, CheckStatus::Pass);
+        assert_eq!(checks[2].status, CheckStatus::Fail);
+    }
+}

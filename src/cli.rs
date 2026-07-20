@@ -40,7 +40,7 @@ pub enum IntentArg {
     Investigate,
 }
 
-#[derive(Debug, Parser)]
+#[derive(Debug, Clone, Parser)]
 #[command(name = "commandagent")]
 #[command(about = "Minimal loop + YAML plan runner MVP")]
 #[command(version = crate::build_info::VERSION)]
@@ -106,6 +106,19 @@ pub struct Cli {
         help = "Run the bounded model behavior probe battery"
     )]
     pub model_probe: bool,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help = "Diagnose configuration, providers, probes, and local environment"
+    )]
+    pub doctor: bool,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        requires = "doctor",
+        help = "Render doctor output as stable machine-readable JSON"
+    )]
+    pub json: bool,
     #[arg(long)]
     pub profile: Option<String>,
     #[arg(long, default_value = "default")]
@@ -258,6 +271,24 @@ mod tests {
     fn help_includes_model_probe() {
         let help = Cli::command().render_long_help().to_string();
         assert!(help.contains("--model-probe"));
+    }
+
+    #[test]
+    fn help_includes_doctor_and_json() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--doctor"));
+        assert!(help.contains("--json"));
+        assert!(help.contains("machine-readable JSON"));
+    }
+
+    #[test]
+    fn json_requires_doctor() {
+        let error = Cli::try_parse_from(["commandagent", "--json"]).unwrap_err();
+        assert!(error.to_string().contains("--doctor"));
+
+        let cli = Cli::try_parse_from(["commandagent", "--doctor", "--json"]).unwrap();
+        assert!(cli.doctor);
+        assert!(cli.json);
     }
 
     #[test]

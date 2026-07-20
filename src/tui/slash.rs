@@ -185,6 +185,7 @@ pub struct ParsedSlash {
 pub enum SlashCommandKind {
     Help,
     Status,
+    Doctor,
     Runs,
     Resume,
     Plan,
@@ -222,6 +223,13 @@ pub const SLASH_COMMANDS: &[SlashCommandSpec] = &[
         help_usage: "/status",
         description: "show effective configuration and readiness",
         kind: SlashCommandKind::Status,
+    },
+    SlashCommandSpec {
+        name: "/doctor",
+        aliases: &[],
+        help_usage: "/doctor",
+        description: "diagnose configuration, providers, probes, and environment",
+        kind: SlashCommandKind::Doctor,
     },
     SlashCommandSpec {
         name: "/runs",
@@ -360,6 +368,9 @@ pub fn handle_command(
             SlashCommandKind::Help => return Ok(render_help()),
             SlashCommandKind::Status => {
                 return Ok(crate::tui::presentation::render_status_card(config));
+            }
+            SlashCommandKind::Doctor => {
+                return Ok(crate::doctor::diagnose(config).render_human());
             }
             SlashCommandKind::Plan => return Ok(crate::tui::presentation::render_current_plan()),
             SlashCommandKind::Runs => {
@@ -511,6 +522,7 @@ pub fn handle_command(
             }
             SlashCommandKind::Help
             | SlashCommandKind::Status
+            | SlashCommandKind::Doctor
             | SlashCommandKind::Runs
             | SlashCommandKind::Plan
             | SlashCommandKind::Exit => unreachable!("handled before command execution"),
@@ -1097,6 +1109,7 @@ mod tests {
             "/runs - list recent runs and recovery availability",
             "/resume [run-id|yaml-path] - resume from a recovery UltraPlan",
             "/status - show effective configuration and readiness",
+            "/doctor - diagnose configuration, providers, probes, and environment",
             "/setup-interaction-probe - install the interaction readiness probe",
             "/exit or /quit - leave the TUI",
             "Footer: use --footer off to disable the fixed footer; breadcrumbs remain in scrollback.",
@@ -1109,7 +1122,7 @@ mod tests {
 
     #[test]
     fn slash_registry_is_the_help_and_alias_source() {
-        assert_eq!(SLASH_COMMANDS.len(), 14);
+        assert_eq!(SLASH_COMMANDS.len(), 15);
         let help = render_help();
         for command in SLASH_COMMANDS {
             assert!(
@@ -1122,6 +1135,33 @@ mod tests {
             slash_command_spec("/quit").map(|command| command.name),
             Some("/exit")
         );
+    }
+
+    #[test]
+    fn doctor_slash_command_renders_diagnostics_without_provider_calls() {
+        let dir = tempfile::tempdir().unwrap();
+        let state = dir.path().join("state");
+        std::fs::create_dir_all(&state).unwrap();
+        let mut config = config();
+        config.workspace_root = dir.path().to_path_buf();
+        config.state_dir = state;
+        config.provider = crate::config::Provider::Openai;
+        config.planner_provider = crate::config::Provider::Openai;
+        let mut planner = DummyClient;
+        let mut execution = DummyClient;
+
+        let output = handle_command(
+            "/doctor",
+            &config,
+            &mut planner,
+            &mut execution,
+            &crate::tui::NOOP_UI,
+        )
+        .unwrap();
+
+        assert!(output.starts_with("CommandAgent doctor:"), "{output}");
+        assert!(output.contains("OpenAI key"), "{output}");
+        assert!(output.contains("Playwright probe"), "{output}");
     }
 
     #[test]

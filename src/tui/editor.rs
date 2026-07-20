@@ -483,11 +483,11 @@ mod tests {
     }
 
     #[test]
-    fn command_completion_uses_all_fourteen_canonical_specs() {
+    fn command_completion_uses_all_canonical_specs() {
         let dir = tempfile::tempdir().unwrap();
         let (start, candidates) = completions(dir.path(), "/");
         assert_eq!(start, 0);
-        assert_eq!(candidates.len(), 14);
+        assert_eq!(candidates.len(), SLASH_COMMANDS.len());
         let mut expected = SLASH_COMMANDS
             .iter()
             .map(|command| command.name.to_string())
