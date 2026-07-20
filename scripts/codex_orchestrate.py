@@ -13,6 +13,7 @@ import difflib
 import json
 import re
 import subprocess
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, replace
@@ -1967,10 +1968,11 @@ def schedule_commandmate_batches(
             )
             continue
 
-        verification = verify_worker_reports(
+        verification = wait_for_verified_workers(
             batch_analyses,
             worktree_results,
-            dry_run=False,
+            timeout_seconds=timeout_seconds,
+            codex_agent_name=codex_agent_name,
             runner=runner,
         )
         if len(verification) != len(issue_numbers) or any(
@@ -2145,6 +2147,56 @@ def verify_worker_reports(
             )
         )
     return results
+
+
+def wait_for_verified_workers(
+    analyses: list[IssueAnalysis],
+    worktree_results: list[WorktreeResult],
+    *,
+    timeout_seconds: int,
+    codex_agent_name: str,
+    runner: Runner = run_command,
+    sleep_fn=time.sleep,
+    monotonic_fn=time.monotonic,
+) -> list[WorkerVerificationResult]:
+    """Wait through premature CommandMate completion until workers stop processing.
+
+    CommandMate's wait command can briefly report completion while a newly started
+    Codex instance is still processing. Worker evidence remains authoritative: only
+    retry verification while at least one unverified worker is observably processing.
+    """
+
+    verification = verify_worker_reports(
+        analyses, worktree_results, dry_run=False, runner=runner
+    )
+    deadline = monotonic_fn() + max(timeout_seconds, 0)
+    by_issue = {analysis.issue.number: analysis for analysis in analyses}
+    while any(result.status != "passed" for result in verification):
+        pending = [
+            by_issue[result.issue_number]
+            for result in verification
+            if result.status != "passed"
+        ]
+        processing = [
+            analysis
+            for analysis in pending
+            if get_commandmate_state(
+                commandmate_worktree_id(analysis.branch_name),
+                codex_agent_name=codex_agent_name,
+                runner=runner,
+            )["processing"]
+            is True
+        ]
+        if not processing:
+            break
+        remaining = deadline - monotonic_fn()
+        if remaining <= 0:
+            break
+        sleep_fn(min(2.0, remaining))
+        verification = verify_worker_reports(
+            analyses, worktree_results, dry_run=False, runner=runner
+        )
+    return verification
 
 
 def render_worker_verification_report(results: list[WorkerVerificationResult]) -> str:
