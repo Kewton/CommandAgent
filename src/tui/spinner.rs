@@ -32,14 +32,10 @@ impl SpinnerEnv {
             };
         }
         let no_color = crate::tui::terminal::env_non_empty_with(&get_env, "NO_COLOR");
-        let lang = get_env("LC_ALL")
-            .or_else(|| get_env("LANG"))
-            .unwrap_or_default()
-            .to_ascii_uppercase();
         Self {
             enabled: stderr_is_tty,
             use_color: !no_color,
-            use_utf8: lang.contains("UTF-8") || lang.contains("UTF8"),
+            use_utf8: crate::tui::terminal::utf8_locale_with(get_env),
         }
     }
 }
@@ -154,9 +150,12 @@ fn render_loop(
     let (lock, cvar) = &*wake;
     while !stop.load(Ordering::SeqCst) {
         let frame = frames[i % frames.len()];
-        let line = format!(
-            "\r\x1b[2K{color_on}{frame}{color_off} {label} {}s",
-            start.elapsed().as_secs()
+        let line = format_spinner_line(
+            frame,
+            &label,
+            start.elapsed().as_secs(),
+            color_on,
+            color_off,
         );
         {
             let mut err = io::stderr().lock();
@@ -171,6 +170,19 @@ fn render_loop(
             let _ = cvar.wait_timeout(guard, Duration::from_millis(TICK_MS));
         }
     }
+}
+
+fn format_spinner_line(
+    frame: &str,
+    label: &str,
+    elapsed_secs: u64,
+    color_on: &str,
+    color_off: &str,
+) -> String {
+    format!(
+        "\r\x1b[2K{color_on}{frame}{color_off} {label} {}",
+        crate::tui::elapsed::format_elapsed(elapsed_secs)
+    )
 }
 
 #[cfg(test)]
@@ -190,6 +202,14 @@ mod tests {
     fn spinner_detects_non_tty() {
         let env = SpinnerEnv::detect_with(|_| None, false);
         assert!(!env.enabled);
+    }
+
+    #[test]
+    fn spinner_elapsed_uses_shared_minute_format() {
+        assert_eq!(
+            format_spinner_line("|", "planning", 61, "", ""),
+            "\r\x1b[2K| planning 1m01s"
+        );
     }
 
     #[test]

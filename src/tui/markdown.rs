@@ -10,13 +10,18 @@ pub mod capture {
     use super::*;
 
     static CAPTURE_SERIAL: OnceLock<Mutex<()>> = OnceLock::new();
-    static CAPTURED: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+    static CAPTURED: OnceLock<Mutex<Option<CaptureBuffer>>> = OnceLock::new();
+
+    struct CaptureBuffer {
+        owner: std::thread::ThreadId,
+        output: String,
+    }
 
     fn serial() -> &'static Mutex<()> {
         CAPTURE_SERIAL.get_or_init(|| Mutex::new(()))
     }
 
-    fn captured() -> &'static Mutex<Option<String>> {
+    fn captured() -> &'static Mutex<Option<CaptureBuffer>> {
         CAPTURED.get_or_init(|| Mutex::new(None))
     }
 
@@ -29,7 +34,9 @@ pub mod capture {
             captured()
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .clone()
+                .as_ref()
+                .filter(|buffer| buffer.owner == std::thread::current().id())
+                .map(|buffer| buffer.output.clone())
                 .unwrap_or_default()
         }
     }
@@ -46,9 +53,13 @@ pub mod capture {
         let serial = serial()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let buffer = CaptureBuffer {
+            owner: std::thread::current().id(),
+            output: String::new(),
+        };
         *captured()
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(String::new());
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(buffer);
         Guard { _serial: serial }
     }
 
@@ -56,19 +67,23 @@ pub mod capture {
         captured()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .is_some()
+            .as_ref()
+            .is_some_and(|buffer| buffer.owner == std::thread::current().id())
     }
 
     pub(super) fn record(raw_text: &str) -> bool {
         let mut guard = captured()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let Some(buffer) = guard.as_mut() else {
+        let Some(buffer) = guard
+            .as_mut()
+            .filter(|buffer| buffer.owner == std::thread::current().id())
+        else {
             return false;
         };
-        buffer.push_str(raw_text);
+        buffer.output.push_str(raw_text);
         if !raw_text.ends_with('\n') {
-            buffer.push('\n');
+            buffer.output.push('\n');
         }
         true
     }
@@ -77,10 +92,13 @@ pub mod capture {
         let mut guard = captured()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let Some(buffer) = guard.as_mut() else {
+        let Some(buffer) = guard
+            .as_mut()
+            .filter(|buffer| buffer.owner == std::thread::current().id())
+        else {
             return false;
         };
-        buffer.push_str(raw_text);
+        buffer.output.push_str(raw_text);
         true
     }
 
@@ -88,11 +106,33 @@ pub mod capture {
         let mut guard = captured()
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        if let Some(buffer) = guard.as_mut()
-            && !buffer.is_empty()
-            && !buffer.ends_with('\n')
+        if let Some(buffer) = guard
+            .as_mut()
+            .filter(|buffer| buffer.owner == std::thread::current().id())
+            && !buffer.output.is_empty()
+            && !buffer.output.ends_with('\n')
         {
-            buffer.push('\n');
+            buffer.output.push('\n');
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn capture_ignores_output_from_other_test_threads() {
+            let capture = start();
+            assert!(record("owner"));
+
+            std::thread::spawn(|| {
+                assert!(!is_active());
+                assert!(!record("other"));
+            })
+            .join()
+            .unwrap();
+
+            assert_eq!(capture.output(), "owner\n");
         }
     }
 }

@@ -50,6 +50,7 @@ pub mod ansi {
 pub struct FooterEnv {
     pub enabled: bool,
     pub use_color: bool,
+    pub use_utf8: bool,
 }
 
 impl FooterEnv {
@@ -71,12 +72,14 @@ impl FooterEnv {
             return Self {
                 enabled: false,
                 use_color: false,
+                use_utf8: false,
             };
         }
-        let no_color = crate::tui::terminal::env_non_empty_with(get_env, "NO_COLOR");
+        let no_color = crate::tui::terminal::env_non_empty_with(&get_env, "NO_COLOR");
         Self {
             enabled: stdout_is_tty,
             use_color: !no_color,
+            use_utf8: crate::tui::terminal::utf8_locale_with(get_env),
         }
     }
 }
@@ -284,16 +287,6 @@ fn add_known(current: Option<u64>, delta: Option<u64>) -> Option<u64> {
     }
 }
 
-fn format_secs(secs: u64) -> String {
-    let minutes = secs / 60;
-    let seconds = secs % 60;
-    if minutes == 0 {
-        format!("{seconds}s")
-    } else {
-        format!("{minutes}m{seconds:02}s")
-    }
-}
-
 pub fn build_footer_line(status: &UiStatus, use_color: bool) -> String {
     let tokens = match status.token_total() {
         Some(value) => format_token_count(value),
@@ -317,6 +310,17 @@ pub fn build_live_footer_lines(
     now: StatusTime,
     cols: u16,
     use_color: bool,
+) -> Vec<String> {
+    build_live_footer_lines_for_locale(status, runtime, now, cols, use_color, true)
+}
+
+pub(crate) fn build_live_footer_lines_for_locale(
+    status: &UiStatus,
+    runtime: &RuntimeStatus,
+    now: StatusTime,
+    cols: u16,
+    use_color: bool,
+    use_utf8: bool,
 ) -> Vec<String> {
     if runtime.phase.is_none()
         && runtime.step.is_none()
@@ -363,16 +367,18 @@ pub fn build_live_footer_lines(
     if let Some(command) = &runtime.command {
         let elapsed = now.elapsed_secs_since(command.started_at);
         secondary.push(format!(
-            "cmd {} {}s/{}s",
-            command.excerpt, elapsed, command.cap_secs
+            "cmd {} {}/{}",
+            command.excerpt,
+            crate::tui::elapsed::format_elapsed(elapsed),
+            crate::tui::elapsed::format_elapsed(command.cap_secs)
         ));
     } else if let Some(provider) = &runtime.provider {
         let elapsed = now.elapsed_secs_since(provider.started_at);
         secondary.push(format!(
-            "{} {}s/{}s",
+            "{} {}/{}",
             status_bus::provider_scope_label(&provider.scope),
-            elapsed,
-            provider.deadline_secs
+            crate::tui::elapsed::format_elapsed(elapsed),
+            crate::tui::elapsed::format_elapsed(provider.deadline_secs)
         ));
     } else if let Some(stage) = &runtime.stage {
         secondary.push(stage.clone());
@@ -392,9 +398,9 @@ pub fn build_live_footer_lines(
     if runtime.time_totals.total_secs() > 0 {
         secondary.push(format!(
             "time total:{} provider:{} cmd:{}",
-            format_secs(runtime.time_totals.total_secs()),
-            format_secs(runtime.time_totals.provider_secs),
-            format_secs(runtime.time_totals.command_secs),
+            crate::tui::elapsed::format_elapsed(runtime.time_totals.total_secs()),
+            crate::tui::elapsed::format_elapsed(runtime.time_totals.provider_secs),
+            crate::tui::elapsed::format_elapsed(runtime.time_totals.command_secs),
         ));
     }
     let prefix = if runtime.force_finalize_requested {
@@ -407,20 +413,24 @@ pub fn build_live_footer_lines(
     let joined_primary = primary.join(" · ");
     let joined_secondary = secondary.join(" · ");
     let raw_lines = if cols < NARROW_FOOTER_COLS && !joined_primary.is_empty() {
-        vec![format!("{prefix}{joined_primary}"), joined_secondary]
+        vec![
+            (format!("{prefix}{joined_primary}"), false),
+            (joined_secondary, true),
+        ]
     } else {
         let body = [joined_primary, joined_secondary]
             .into_iter()
             .filter(|part| !part.is_empty())
             .collect::<Vec<_>>()
             .join(" · ");
-        vec![format!("{prefix}{body}")]
+        vec![(format!("{prefix}{body}"), false)]
     };
     raw_lines
         .into_iter()
-        .map(|line| {
+        .map(|(line, dim)| {
+            let line = crate::tui::glyphs::for_locale(&line, use_utf8);
             let line = fit_to_width(&line, cols);
-            if use_color {
+            if use_color && dim {
                 format!("\x1b[2m{line}\x1b[0m")
             } else {
                 line
@@ -433,6 +443,15 @@ pub fn build_input_queue_line(
     snapshot: &InputSnapshot,
     cols: u16,
     use_color: bool,
+) -> Option<String> {
+    build_input_queue_line_for_locale(snapshot, cols, use_color, true)
+}
+
+fn build_input_queue_line_for_locale(
+    snapshot: &InputSnapshot,
+    cols: u16,
+    use_color: bool,
+    use_utf8: bool,
 ) -> Option<String> {
     if !snapshot.enabled {
         return None;
@@ -457,6 +476,7 @@ pub fn build_input_queue_line(
     } else {
         format!("type ahead · {queue_count} · Esc interrupts · Ctrl-C interrupts")
     };
+    let raw = crate::tui::glyphs::for_locale(&raw, use_utf8);
     let line = fit_to_width(&raw, cols);
     Some(if use_color {
         format!("\x1b[36m{line}\x1b[0m")
@@ -510,17 +530,22 @@ fn render_loop(
             };
             let runtime = subscriber.snapshot();
             generation = runtime.generation;
-            let mut lines = build_live_footer_lines(
+            let mut lines = build_live_footer_lines_for_locale(
                 &status,
                 &runtime,
                 status_bus::now(),
                 geometry.cols,
                 env.use_color,
+                env.use_utf8,
             );
-            if let Some(input_line) = input_snapshot
-                .as_ref()
-                .and_then(|snapshot| build_input_queue_line(snapshot, geometry.cols, env.use_color))
-            {
+            if let Some(input_line) = input_snapshot.as_ref().and_then(|snapshot| {
+                build_input_queue_line_for_locale(
+                    snapshot,
+                    geometry.cols,
+                    env.use_color,
+                    env.use_utf8,
+                )
+            }) {
                 lines.insert(0, input_line);
             }
             let frame = if resized {
@@ -791,6 +816,23 @@ mod tests {
     }
 
     #[test]
+    fn footer_env_uses_locale_without_changing_no_color_behavior() {
+        let env = FooterEnv::detect_with(
+            |key| match key {
+                "LC_ALL" => Some("C".to_string()),
+                "NO_COLOR" => Some("1".to_string()),
+                _ => None,
+            },
+            true,
+            false,
+        );
+
+        assert!(env.enabled);
+        assert!(!env.use_color);
+        assert!(!env.use_utf8);
+    }
+
+    #[test]
     fn footer_decstbm_rows_under_two_self_disable() {
         assert_eq!(ansi::build_decstbm(1, 1), None);
         assert_eq!(ansi::build_decstbm(2, 1).as_deref(), Some("\x1b[1;1r"));
@@ -1011,6 +1053,42 @@ mod tests {
     }
 
     #[test]
+    fn footer_settings_are_dim_but_active_primary_status_is_not() {
+        let settings = build_footer_line(&status(None), true);
+        let idle = build_live_footer_lines(
+            &status(None),
+            &RuntimeStatus::default(),
+            StatusTime::ZERO,
+            120,
+            true,
+        );
+        let active = RuntimeStatus {
+            phase: Some(status_bus::PhaseStatus {
+                index: 1,
+                total: 2,
+                id: "build".to_string(),
+            }),
+            provider: Some(status_bus::ProviderTurnStatus {
+                scope: "executor".to_string(),
+                deadline_secs: 600,
+                started_at: StatusTime::ZERO,
+            }),
+            ..RuntimeStatus::default()
+        };
+        let wide =
+            build_live_footer_lines(&status(None), &active, StatusTime::from_secs(61), 120, true);
+        let narrow =
+            build_live_footer_lines(&status(None), &active, StatusTime::from_secs(61), 80, true);
+
+        assert!(settings.starts_with("\x1b[2m"), "{settings:?}");
+        assert!(idle[0].starts_with("\x1b[2m"), "{idle:?}");
+        assert!(!wide[0].contains("\x1b[2m"), "{wide:?}");
+        assert!(!narrow[0].contains("\x1b[2m"), "{narrow:?}");
+        assert!(narrow[1].starts_with("\x1b[2m"), "{narrow:?}");
+        assert!(wide[0].contains("1m01s/10m00s"), "{wide:?}");
+    }
+
+    #[test]
     fn live_footer_long_planner_turn_snapshot() {
         let runtime = RuntimeStatus {
             phase: Some(status_bus::PhaseStatus {
@@ -1040,7 +1118,7 @@ mod tests {
 
         assert_eq!(
             lines,
-            vec!["Phase 2/5 core-logic · implement · planning steps 47s/600s".to_string()]
+            vec!["Phase 2/5 core-logic · implement · planning steps 47s/10m00s".to_string()]
         );
     }
 
@@ -1147,8 +1225,53 @@ mod tests {
 
         assert_eq!(
             lines,
-            vec!["[stopping: force-finalizing…] cmd sleep 600 2s/600s"]
+            vec!["[stopping: force-finalizing…] cmd sleep 600 2s/10m00s"]
         );
+    }
+
+    #[test]
+    fn non_utf8_footer_replaces_decorative_glyphs() {
+        let runtime = RuntimeStatus {
+            phase: Some(status_bus::PhaseStatus {
+                index: 1,
+                total: 2,
+                id: "build".to_string(),
+            }),
+            provider: Some(status_bus::ProviderTurnStatus {
+                scope: "planner_step".to_string(),
+                deadline_secs: 600,
+                started_at: StatusTime::ZERO,
+            }),
+            interrupt_requested: true,
+            ..RuntimeStatus::default()
+        };
+
+        let lines = build_live_footer_lines_for_locale(
+            &status(None),
+            &runtime,
+            StatusTime::from_secs(61),
+            120,
+            false,
+            false,
+        );
+        let input = build_input_queue_line_for_locale(
+            &InputSnapshot {
+                enabled: true,
+                pending: "next".to_string(),
+                queued_count: 1,
+                notice: None,
+            },
+            120,
+            false,
+            false,
+        )
+        .unwrap();
+
+        assert!(lines.join("\n").is_ascii(), "{lines:?}");
+        assert!(lines[0].contains("operation...]"), "{lines:?}");
+        assert!(lines[0].contains(" | "), "{lines:?}");
+        assert!(input.is_ascii(), "{input:?}");
+        assert!(input.contains(" | "), "{input:?}");
     }
 
     #[test]
