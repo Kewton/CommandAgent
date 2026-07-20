@@ -230,6 +230,7 @@ dependencies = [
  "tempfile",
  "thiserror",
  "toml",
+ "unicode-width",
  "uuid",
 ]
 

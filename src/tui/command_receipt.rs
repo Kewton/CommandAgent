@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use crate::tui::slash::ParsedSlash;
+use crate::util::{char_display_width, display_width};
 
 const MIN_WRAP_COLS: usize = 24;
 
@@ -107,7 +108,7 @@ fn push_wrapped(lines: &mut Vec<String>, prefix: &str, value: &str, cols: u16) {
     let mut width = display_width(prefix);
     let mut has_value = false;
     for ch in value.chars() {
-        let ch_width = display_char_width(ch);
+        let ch_width = char_display_width(ch);
         if has_value && width.saturating_add(ch_width) > max_width {
             lines.push(line);
             line = continuation.clone();
@@ -118,32 +119,6 @@ fn push_wrapped(lines: &mut Vec<String>, prefix: &str, value: &str, cols: u16) {
         has_value = true;
     }
     lines.push(line);
-}
-
-fn display_width(value: &str) -> usize {
-    value.chars().map(display_char_width).sum()
-}
-
-fn display_char_width(ch: char) -> usize {
-    let cp = ch as u32;
-    if cp < 0x20 || (0x7f..=0x9f).contains(&cp) {
-        0
-    } else if matches!(
-        cp,
-        0x1100..=0x115f
-            | 0x2329..=0x232a
-            | 0x2e80..=0xa4cf
-            | 0xac00..=0xd7a3
-            | 0xf900..=0xfaff
-            | 0xfe10..=0xfe19
-            | 0xfe30..=0xfe6f
-            | 0xff00..=0xff60
-            | 0xffe0..=0xffe6
-    ) {
-        2
-    } else {
-        1
-    }
 }
 
 #[cfg(test)]

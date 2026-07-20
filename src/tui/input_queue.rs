@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 pub const MAX_QUEUED_LINES: usize = 10;
 pub const MAX_LINE_BYTES: usize = 4 * 1024;
-pub const PREVIEW_CHARS: usize = 40;
+pub const PREVIEW_WIDTH: usize = 40;
 
 const LINE_LIMIT_NOTICE: &str = "input rejected: pending line limit is 4096 bytes";
 const QUEUE_LIMIT_NOTICE: &str = "input rejected: queue limit is 10 lines";
@@ -151,11 +151,7 @@ impl InputQueue {
 }
 
 pub fn preview(value: &str) -> String {
-    let mut out = value.chars().take(PREVIEW_CHARS).collect::<String>();
-    if value.chars().count() > PREVIEW_CHARS {
-        out.push('…');
-    }
-    out
+    crate::util::fit_display_width(value, PREVIEW_WIDTH, "…")
 }
 
 fn is_printable(ch: char) -> bool {
@@ -272,11 +268,17 @@ mod tests {
     }
 
     #[test]
-    fn preview_is_unicode_safe_and_bounded_to_forty_characters() {
-        let exact = "日".repeat(PREVIEW_CHARS);
+    fn preview_is_unicode_safe_and_bounded_to_forty_columns() {
+        let exact = "a".repeat(PREVIEW_WIDTH);
         assert_eq!(preview(&exact), exact);
         let long = format!("{exact}本");
         assert_eq!(preview(&long), format!("{exact}…"));
+
+        let japanese = "日".repeat(PREVIEW_WIDTH / 2 + 1);
+        assert_eq!(
+            preview(&japanese),
+            format!("{}…", "日".repeat(PREVIEW_WIDTH / 2))
+        );
     }
 
     #[test]

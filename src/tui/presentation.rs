@@ -10,6 +10,7 @@ use crate::planner::sanitizer::SanitizerReport;
 use crate::planner::step_plan::StepPlan;
 use crate::planner::ultra_plan::UltraPlan;
 use crate::tui::OutputRenderer;
+use crate::util::fit_display_width;
 
 const GOAL_WIDTH: usize = 120;
 const PHASE_WIDTH: usize = 96;
@@ -175,7 +176,7 @@ pub fn render_provider_turn_started(
                     "→ planning steps for phase {}/{} {} ({model}, up to {deadline_secs}s)",
                     phase.index,
                     phase.total,
-                    fit(&phase.id, 72)
+                    fit_display_line(&phase.id, 72)
                 )
             } else {
                 format!("→ planning steps ({model}, up to {deadline_secs}s)")
@@ -189,7 +190,7 @@ pub fn render_provider_turn_started(
             if let Some(target) = &context.repair_target {
                 format!(
                     "→ repairing: {} ({model}, up to {deadline_secs}s)",
-                    fit(target, 96)
+                    fit_display_line(target, 96)
                 )
             } else {
                 format!("→ repairing ({model}, up to {deadline_secs}s)")
@@ -240,7 +241,7 @@ pub fn render_current_plan() -> String {
     if let Some(activity) = state.current_activity {
         out.push_str("\n\n");
         out.push_str("Current activity: ");
-        out.push_str(&fit(&activity, ACTIVITY_WIDTH));
+        out.push_str(&fit_display_line(&activity, ACTIVITY_WIDTH));
     }
     out
 }
@@ -381,13 +382,13 @@ pub fn render_ultra_plan_card(plan: &UltraPlan, progress: &PlanProgress) -> Stri
         .unwrap_or("none");
     let mut lines = vec![
         "### Plan".to_string(),
-        format!("- Goal: {}", fit(&plan.goal, GOAL_WIDTH)),
+        format!("- Goal: {}", fit_display_line(&plan.goal, GOAL_WIDTH)),
         format!("- Profile: {}", plan.profile),
         format!("- Port: {port}"),
         format!(
             "- UltraPlan accepted: {} phases; first: {}",
             plan.phases.len(),
-            fit(first_phase, 72)
+            fit_display_line(first_phase, 72)
         ),
         "- Phase list:".to_string(),
     ];
@@ -398,7 +399,7 @@ pub fn render_ultra_plan_card(plan: &UltraPlan, progress: &PlanProgress) -> Stri
             index + 1,
             mark,
             phase.id,
-            fit(&phase.prompt, PHASE_WIDTH)
+            fit_display_line(&phase.prompt, PHASE_WIDTH)
         ));
     }
     let skipped = progress
@@ -444,21 +445,28 @@ pub fn render_activity_line(event: &Value) -> Option<String> {
                 .and_then(Value::as_u64)
                 .unwrap_or(0);
             let phase = text(event, "phase_id").unwrap_or_else(|| "unknown".to_string());
-            Some(format!("── Phase {index}/{total}: {} ──", fit(&phase, 72)))
+            Some(format!(
+                "── Phase {index}/{total}: {} ──",
+                fit_display_line(&phase, 72)
+            ))
         }
         "ultra_phase_complete" => Some(phase_status_label(event, "✓ Phase")),
         "ultra_phase_failed" => {
             let mut line = phase_status_label(event, "✗ Phase");
             if let Some(reason) = text(event, "reason") {
                 line.push(' ');
-                line.push_str(&fit(&reason, 80));
+                line.push_str(&fit_display_line(&reason, 80));
             }
             Some(line)
         }
         "step_prompt_contract" => {
             let id = text(event, "step_id").unwrap_or_else(|| "step".to_string());
             let kind = text(event, "step_kind").unwrap_or_else(|| "step".to_string());
-            Some(format!("→ step {} [{}]", fit(&id, 72), fit(&kind, 24)))
+            Some(format!(
+                "→ step {} [{}]",
+                fit_display_line(&id, 72),
+                fit_display_line(&kind, 24)
+            ))
         }
         "tool_call_raw" => Some(format!("→ {}", tool_start_label(event))),
         "tool_execute" => {
@@ -481,7 +489,7 @@ pub fn render_activity_line(event: &Value) -> Option<String> {
         "step_verify_failure" => {
             let reason =
                 text(event, "primary_reason").unwrap_or_else(|| "verify failed".to_string());
-            Some(format!("✗ verify {}", fit(&reason, 100)))
+            Some(format!("✗ verify {}", fit_display_line(&reason, 100)))
         }
         "step_verify_repair" | "verify_repair_turn" | "verify_repair_progress" => {
             let attempt = event
@@ -497,7 +505,10 @@ pub fn render_activity_line(event: &Value) -> Option<String> {
             let target = text(event, "repair_target")
                 .or_else(|| text(event, "target"))
                 .unwrap_or_else(|| "repair".to_string());
-            Some(format!("↻ repair {attempt}/{max}: {}", fit(&target, 96)))
+            Some(format!(
+                "↻ repair {attempt}/{max}: {}",
+                fit_display_line(&target, 96)
+            ))
         }
         "final_acceptance_repair_start" => {
             let attempt = event
@@ -513,7 +524,10 @@ pub fn render_activity_line(event: &Value) -> Option<String> {
             let target = text(event, "repair_target")
                 .or_else(|| text(event, "target"))
                 .unwrap_or_else(|| "final acceptance".to_string());
-            Some(format!("↻ repair {attempt}/{max}: {}", fit(&target, 96)))
+            Some(format!(
+                "↻ repair {attempt}/{max}: {}",
+                fit_display_line(&target, 96)
+            ))
         }
         "browser_probe" => {
             let status = text(event, "status").unwrap_or_default();
@@ -528,7 +542,7 @@ pub fn render_activity_line(event: &Value) -> Option<String> {
                 Some("→ probe: navigating".to_string())
             } else {
                 let kind = text(event, "failure_kind").unwrap_or(status);
-                Some(format!("✗ probe: {}", fit(&kind, 96)))
+                Some(format!("✗ probe: {}", fit_display_line(&kind, 96)))
             }
         }
         "browser_interaction_probe" => {
@@ -538,7 +552,7 @@ pub fn render_activity_line(event: &Value) -> Option<String> {
                 let kind = text(event, "failure_kind")
                     .or_else(|| text(event, "status"))
                     .unwrap_or_else(|| "interaction failed".to_string());
-                Some(format!("✗ probe: {}", fit(&kind, 96)))
+                Some(format!("✗ probe: {}", fit_display_line(&kind, 96)))
             }
         }
         "phase_verification_result" => {
@@ -546,13 +560,16 @@ pub fn render_activity_line(event: &Value) -> Option<String> {
             let mode = text(event, "phase_verification_mode")
                 .unwrap_or_else(|| "verification".to_string());
             if event.get("ok").and_then(Value::as_bool).unwrap_or(false) {
-                Some(format!("✓ verify {} ({mode})", fit(&phase, 72)))
+                Some(format!(
+                    "✓ verify {} ({mode})",
+                    fit_display_line(&phase, 72)
+                ))
             } else {
                 let reason = text(event, "reason").unwrap_or_else(|| "failed".to_string());
                 Some(format!(
                     "✗ verify {} ({mode}): {}",
-                    fit(&phase, 56),
-                    fit(&reason, 72)
+                    fit_display_line(&phase, 56),
+                    fit_display_line(&reason, 72)
                 ))
             }
         }
@@ -562,7 +579,10 @@ pub fn render_activity_line(event: &Value) -> Option<String> {
             if status == "pass" {
                 Some("✓ final acceptance pass".to_string())
             } else {
-                Some(format!("✗ final acceptance {}", fit(&status, 72)))
+                Some(format!(
+                    "✗ final acceptance {}",
+                    fit_display_line(&status, 72)
+                ))
             }
         }
         "ultra_plan_complete" => {
@@ -582,7 +602,10 @@ pub fn render_activity_line(event: &Value) -> Option<String> {
             if message.is_empty() {
                 Some(format!("✗ planner {kind}"))
             } else {
-                Some(format!("✗ planner {kind}: {}", fit(&message, 96)))
+                Some(format!(
+                    "✗ planner {kind}: {}",
+                    fit_display_line(&message, 96)
+                ))
             }
         }
         "empty_response_escalation" => {
@@ -590,7 +613,7 @@ pub fn render_activity_line(event: &Value) -> Option<String> {
             let stage = text(event, "stage").unwrap_or_else(|| "retry".to_string());
             Some(format!(
                 "↻ empty response; retry {attempt} ({})",
-                fit(&stage, 48)
+                fit_display_line(&stage, 48)
             ))
         }
         "empty_response_recovered" => {
@@ -615,7 +638,7 @@ pub fn render_activity_line(event: &Value) -> Option<String> {
                 .unwrap_or_else(|| "quality check requested another plan".to_string());
             Some(format!(
                 "↻ plan quality retry {attempt}: {}",
-                fit(&message, 96)
+                fit_display_line(&message, 96)
             ))
         }
         "provider_turn_timeout_recovered" => {
@@ -831,7 +854,10 @@ fn provider_model_label(model: &str) -> String {
 }
 
 fn render_step_projection_block(plan: &StepPlanProjection, progress: &PlanProgress) -> String {
-    let mut lines = vec![format!("#### Phase: {}", fit(&plan.phase, PHASE_WIDTH))];
+    let mut lines = vec![format!(
+        "#### Phase: {}",
+        fit_display_line(&plan.phase, PHASE_WIDTH)
+    )];
     for (index, step) in plan.steps.iter().enumerate() {
         let mark = if progress.current_step.as_deref() == Some(step.id.as_str()) {
             "▶"
@@ -848,7 +874,7 @@ fn render_step_projection_block(plan: &StepPlanProjection, progress: &PlanProgre
             index + 1,
             mark,
             step.kind,
-            fit(&step.instruction, STEP_WIDTH)
+            fit_display_line(&step.instruction, STEP_WIDTH)
         ));
     }
     lines.join("\n")
@@ -1078,7 +1104,7 @@ fn tool_start_label(event: &Value) -> String {
         .or_else(|| argument_preview(summary, "command"))
         .or_else(|| argument_preview(summary, "pattern"));
     match preview {
-        Some(preview) => format!("{name} {}", fit(&preview, 96)),
+        Some(preview) => format!("{name} {}", fit_display_line(&preview, 96)),
         None => name,
     }
 }
@@ -1094,9 +1120,9 @@ fn phase_status_label(event: &Value, prefix: &str) -> String {
         .unwrap_or(0);
     let phase = text(event, "phase_id").unwrap_or_else(|| "unknown".to_string());
     if index == 0 && total == 0 {
-        format!("{prefix}: {}", fit(&phase, 72))
+        format!("{prefix}: {}", fit_display_line(&phase, 72))
     } else {
-        format!("{prefix} {index}/{total}: {}", fit(&phase, 72))
+        format!("{prefix} {index}/{total}: {}", fit_display_line(&phase, 72))
     }
 }
 
@@ -1132,8 +1158,8 @@ fn emit_markdown(text: &str) {
     }
 }
 
-fn fit(value: &str, max: usize) -> String {
-    crate::util::excerpt_with_marker(&value.replace(['\n', '\r'], " "), max, "...")
+fn fit_display_line(value: &str, max: usize) -> String {
+    fit_display_width(&value.replace(['\n', '\r'], " "), max, "...")
 }
 
 fn lock_state() -> MutexGuard<'static, PresentationState> {
@@ -1241,6 +1267,35 @@ mod tests {
         assert!(
             block.contains("plan normalized: goal_truncated, shell_control_split x2"),
             "{block}"
+        );
+    }
+
+    #[test]
+    fn plan_goal_budget_uses_display_columns_and_preserves_ascii_length() {
+        let render_goal = |goal: String| {
+            render_ultra_plan_card(
+                &UltraPlan {
+                    goal,
+                    profile: "generic".to_string(),
+                    style: "default".to_string(),
+                    intent: "create".to_string(),
+                    phases: Vec::new(),
+                },
+                &PlanProgress::default(),
+            )
+        };
+
+        let japanese = render_goal("日".repeat(61));
+        assert!(
+            japanese.contains(&format!("- Goal: {}...", "日".repeat(60))),
+            "{japanese}"
+        );
+        assert!(!japanese.contains(&"日".repeat(61)), "{japanese}");
+
+        let ascii = render_goal("a".repeat(121));
+        assert!(
+            ascii.contains(&format!("- Goal: {}...", "a".repeat(120))),
+            "{ascii}"
         );
     }
 
