@@ -872,14 +872,12 @@ def test_scheduler_dispatches_dependency_batches_only_after_verification(
         for index, call in enumerate(calls)
         if call[:2] == ["commandmatedev", "send"] and "issue-4" in call[2]
     )
-    waits_for_first_batch = [
+    verification_for_first_batch = [
         index
         for index, call in enumerate(calls)
-        if call[:2] == ["commandmatedev", "wait"]
-        and ("issue-2" in call[2] or "issue-3" in call[2])
+        if call[:3] == ["git", "status", "--porcelain"] and index < send_4
     ]
-    assert waits_for_first_batch
-    assert max(waits_for_first_batch) < send_4
+    assert verification_for_first_batch
     send_4_prompt = next(
         call[3]
         for call in calls
@@ -1032,12 +1030,23 @@ def test_scheduler_resume_waits_for_processing_worker_without_redispatch(
         19, analysis.branch_name, root, "created", "created"
     )
     processing = True
+    state_calls = 0
     calls: list[list[str]] = []
 
     def fake_runner(args, **kwargs):  # type: ignore[no-untyped-def]
-        nonlocal processing
+        nonlocal processing, state_calls
         calls.append(args)
         if args == ["commandmatedev", "ls", "--json"]:
+            state_calls += 1
+            if state_calls == 2:
+                report = root / "dev-reports/issue-19/verification.md"
+                report.parent.mkdir(parents=True)
+                report.write_text(
+                    "# Verification\n\n- Status: `passed`\n\n"
+                    "- `cargo test`: `passed`\n",
+                    encoding="utf-8",
+                )
+                processing = False
             payload = [
                 {
                     "id": module.commandmate_worktree_id(analysis.branch_name),
@@ -1052,16 +1061,6 @@ def test_scheduler_resume_waits_for_processing_worker_without_redispatch(
             return module.subprocess.CompletedProcess(
                 args, 0, module.json.dumps(payload), ""
             )
-        if args[:2] == ["commandmatedev", "wait"]:
-            report = root / "dev-reports/issue-19/verification.md"
-            report.parent.mkdir(parents=True)
-            report.write_text(
-                "# Verification\n\n- Status: `passed`\n\n"
-                "- `cargo test`: `passed`\n",
-                encoding="utf-8",
-            )
-            processing = False
-            return module.subprocess.CompletedProcess(args, 0, "completed\n", "")
         if args[:3] == ["git", "status", "--porcelain"]:
             return module.subprocess.CompletedProcess(args, 0, "", "")
         if args[:3] == ["git", "ls-files", "--error-unmatch"]:

@@ -1974,47 +1974,69 @@ def schedule_commandmate_batches(
             completed_issues.update(issue_numbers)
             continue
 
-        batch_wait = wait_for_commandmate_workers(
-            batch_dispatch,
-            timeout_seconds=timeout_seconds,
-            stall_timeout_seconds=stall_timeout_seconds,
-            codex_agent_name=codex_agent_name,
-            runner=runner,
-        )
-        wait_results.extend(batch_wait)
         active = [
             result
             for result in batch_dispatch
             if result.status in {"sent", "processing", "started-but-idle"}
         ]
-        dispatch_passed = len(batch_dispatch) == len(issue_numbers) and all(
-            result.status != "blocked" for result in batch_dispatch
-        )
-        wait_passed = (
-            len(batch_wait) == len(active)
-            and bool(active)
-            and all(result.status == "completed" for result in batch_wait)
-        )
-        if not dispatch_passed or not wait_passed:
-            blocked_by = f"scheduler batch {batch_index} failed dispatch or wait"
-            batch_results.append(
-                SchedulerBatchResult(
-                    batch_index, tuple(issue_numbers), "blocked", blocked_by
-                )
-            )
-            continue
-
         verification = wait_for_verified_workers(
             batch_analyses,
             worktree_results,
             timeout_seconds=timeout_seconds,
             codex_agent_name=codex_agent_name,
             runner=runner,
+            idle_grace_seconds=(
+                float(stall_timeout_seconds)
+                if stall_timeout_seconds > 0
+                else 120.0
+            ),
         )
-        if len(verification) != len(issue_numbers) or any(
-            result.status != "passed" for result in verification
-        ):
-            blocked_by = f"scheduler batch {batch_index} failed worker verification"
+        verification_by_issue = {
+            result.issue_number: result for result in verification
+        }
+        batch_wait = []
+        for result in active:
+            evidence = verification_by_issue.get(result.issue_number)
+            if evidence is not None and evidence.status == "passed":
+                batch_wait.append(
+                    WorkerWaitResult(
+                        result.issue_number,
+                        result.worktree_id,
+                        "completed",
+                        "worker completed with committed passing evidence",
+                    )
+                )
+            else:
+                message = (
+                    evidence.message
+                    if evidence is not None
+                    else "worker verification result is missing"
+                )
+                batch_wait.append(
+                    WorkerWaitResult(
+                        result.issue_number,
+                        result.worktree_id,
+                        "blocked",
+                        message,
+                    )
+                )
+        wait_results.extend(batch_wait)
+        dispatch_passed = len(batch_dispatch) == len(issue_numbers) and all(
+            result.status != "blocked" for result in batch_dispatch
+        )
+        verification_passed = len(verification) == len(issue_numbers) and all(
+            result.status == "passed" for result in verification
+        )
+        if not dispatch_passed or not verification_passed:
+            failures = "; ".join(
+                f"#{result.issue_number}: {result.message}"
+                for result in verification
+                if result.status != "passed"
+            )
+            reason = "dispatch" if not dispatch_passed else "worker verification"
+            blocked_by = f"scheduler batch {batch_index} failed {reason}"
+            if failures:
+                blocked_by = f"{blocked_by} ({failures})"
             batch_results.append(
                 SchedulerBatchResult(
                     batch_index, tuple(issue_numbers), "blocked", blocked_by
