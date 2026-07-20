@@ -58,7 +58,7 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--max-iterations` | `<MAX_ITERATIONS>` 整数 | `12` | minimal loop の反復予算を設定します。 | [重要な解決後の既定値](#重要な解決後の既定値) |
 | `--chat-timeout-secs` | `<CHAT_TIMEOUT_SECS>` 整数 | いずれかの役割が Ollama なら `600`、それ以外は `180` | プロバイダ呼び出しの接続およびリクエスト全体のタイムアウトを設定します。 | [重要な解決後の既定値](#重要な解決後の既定値) |
 | `--chat-retries` | `<CHAT_RETRIES>` 整数 | `1` | 最初のプロバイダ試行後の再試行回数を設定します。 | [プロバイダ失敗](troubleshooting.md#model-id-does-not-exist) |
-| `--stream` | `<on\|off>` | TUI ではオン、直接アクションではオフ | アシスタント出力のストリーミングを制御します。ストリーミングには stdin と stdout の両方が対話型 TTY であることも必要です。 | [トップレベルキー](configuration.md#トップレベルキー) |
+| `--stream` | `<on\|off>` | TUI ではオン、直接アクションではオフ | executor と repair の表示ストリーミングを制御します。planner の機械形式出力は表示しません。ストリーミングには stdin と stdout の両方が対話型 TTY であることも必要です。 | [トップレベルキー](configuration.md#トップレベルキー) |
 | `--state-dir` | `<STATE_DIR>` パス | `$XDG_STATE_HOME/anvilminimal`、なければ `~/.local/state/anvilminimal` | 保存セッションと REPL 履歴の格納先を上書きします。 | [パス](configuration.md#設定ファイルの探索パス) |
 | `--cwd` | `<CWD>` パス | 現在のディレクトリ | 設定探索と実行の前に、アクティブなワークスペースを設定して正規化します。 | [パス](configuration.md#設定ファイルの探索パス) |
 | `--fresh-session` | なし | オフ | 直接 `--prompt` 実行で `--resume` を無視し、新しいセッションを作ります。 | [セッションオプション](#排他関係と組み合わせ) |
