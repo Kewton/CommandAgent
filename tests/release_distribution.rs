@@ -263,6 +263,10 @@ fn release_workflow_preserves_the_distribution_contract() {
 
     for required in [
         "tags:\n      - \"v*\"",
+        "actions/checkout@v7",
+        "actions/upload-artifact@v7",
+        "actions/download-artifact@v8",
+        "softprops/action-gh-release@v3",
         "cargo test --locked",
         "aarch64-apple-darwin",
         "x86_64-apple-darwin",
@@ -283,7 +287,14 @@ fn release_workflow_preserves_the_distribution_contract() {
         );
     }
 
-    for obsolete in ["runner: macos-13", "generate-notes:"] {
+    for obsolete in [
+        "runner: macos-13",
+        "generate-notes:",
+        "actions/checkout@v4",
+        "actions/upload-artifact@v4",
+        "actions/download-artifact@v4",
+        "softprops/action-gh-release@v2",
+    ] {
         assert!(
             !workflow.contains(obsolete),
             "obsolete workflow configuration remains: {obsolete}"
