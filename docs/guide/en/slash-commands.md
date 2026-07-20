@@ -13,7 +13,7 @@ command name and an alias of `/exit`, giving 16 accepted names in total.
 
 | Command name | Usage shown by `/help` | Behavior |
 | --- | --- | --- |
-| `/help` | `/help` | Show the command list, footer hint, queued-input limits, and interrupt behavior. |
+| `/help` | `/help` | Show the command list, footer hint, queued-input limits, multi-line continuation, and interrupt behavior. |
 | `/status` | `/status` | Show effective configuration and provider readiness. |
 | `/doctor` | `/doctor` | Diagnose configuration files, provider readiness, interaction probes, and the local environment without making network requests. |
 | `/runs` | `/runs` | List recent workspace runs and recovery availability. |
@@ -64,6 +64,25 @@ For action commands, put inline flags before or among goal words. A flag token
 without a following value is left in the goal rather than treated as an
 override. Quote a phrase when preserving its internal grouping makes the input
 clearer.
+
+## Multi-line input
+
+At an idle `commandagent>` prompt, end a line with `\` or leave a double quote
+open, then press Enter. The editor displays the `... ` continuation prompt and
+waits for another line. It submits the command when all double quotes are
+closed and the current line does not end in `\`.
+
+```text
+commandagent> /ultra-plan-run Build a dashboard \
+... with accessible navigation
+commandagent> /plan-run "Create a CLI that
+... validates configuration"
+```
+
+Before the existing word parser runs, the editor removes each trailing
+continuation `\` and joins the lines with single spaces. The continuation
+backslash and line breaks are therefore not part of the submitted command.
+This is editor input continuation, not shell escaping.
 
 ## `$(cat <path>)` expansion
 

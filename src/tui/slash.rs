@@ -592,6 +592,10 @@ pub fn render_help() -> String {
             .to_string(),
     );
     lines.push(
+        "Multi-line input: end a line with \\ or leave a double quote open; Enter continues at the ... prompt. Submit with quotes closed and no trailing \\."
+            .to_string(),
+    );
+    lines.push(
         "Interrupt: Ctrl-C always interrupts; Esc clears non-empty pending input, otherwise interrupts; a repeated interrupt force-finalizes."
             .to_string(),
     );
@@ -1114,6 +1118,7 @@ mod tests {
             "/exit or /quit - leave the TUI",
             "Footer: use --footer off to disable the fixed footer; breadcrumbs remain in scrollback.",
             "Running input: type and Backspace edit pending input; Enter queues up to 10 lines (4096 bytes each).",
+            "Multi-line input: end a line with \\ or leave a double quote open; Enter continues at the ... prompt. Submit with quotes closed and no trailing \\.",
             "Interrupt: Ctrl-C always interrupts; Esc clears non-empty pending input, otherwise interrupts; a repeated interrupt force-finalizes.",
         ] {
             assert!(help.contains(expected), "{help}");
