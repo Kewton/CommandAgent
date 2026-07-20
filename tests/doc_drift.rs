@@ -9,6 +9,7 @@ use commandagent::tui::slash::{SLASH_COMMANDS, render_help};
 
 const CLI_DOC: &str = "docs/guide/en/cli-reference.md";
 const SLASH_DOC: &str = "docs/guide/en/slash-commands.md";
+const JA_SLASH_DOC: &str = "docs/guide/ja/slash-commands.md";
 const CONFIG_DOC: &str = "docs/guide/en/configuration.md";
 
 fn repo_path(relative: &str) -> PathBuf {
@@ -128,6 +129,49 @@ fn slash_commands_match_rendered_help_dispatch_and_english_reference() {
         "src/tui/slash.rs (render_help)",
         SLASH_DOC,
     );
+}
+
+#[test]
+fn repl_multiline_continuation_is_documented_in_help_and_bilingual_guides() {
+    const HELP_LINE: &str = "Multi-line input: end a line with \\ or leave a double quote open; Enter continues at the ... prompt. Submit with quotes closed and no trailing \\.";
+
+    let help = render_help();
+    assert!(
+        help.lines().any(|line| line == HELP_LINE),
+        "render_help must describe both continuation triggers and how to submit:\n{help}"
+    );
+
+    let english = read_repo_file(SLASH_DOC);
+    let english = markdown_section(&english, "## Multi-line input", SLASH_DOC);
+    for marker in [
+        "end a line with `\\`",
+        "leave a double quote",
+        "`... `",
+        "does not end in `\\`",
+        "removes each trailing\ncontinuation `\\`",
+        "joins the lines with single spaces",
+    ] {
+        assert!(
+            english.contains(marker),
+            "{SLASH_DOC} multi-line section is missing '{marker}'"
+        );
+    }
+
+    let japanese = read_repo_file(JA_SLASH_DOC);
+    let japanese = markdown_section(&japanese, "## 複数行入力", JA_SLASH_DOC);
+    for marker in [
+        "行末を `\\`",
+        "ダブルクォートを閉じず",
+        "`... `",
+        "末尾が `\\` でない",
+        "継続用の末尾 `\\` を削除",
+        "各行を 1 個の空白で\n結合",
+    ] {
+        assert!(
+            japanese.contains(marker),
+            "{JA_SLASH_DOC} multi-line section is missing '{marker}'"
+        );
+    }
 }
 
 fn string_set(values: &[&str]) -> BTreeSet<String> {
