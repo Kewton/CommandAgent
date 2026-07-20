@@ -29,10 +29,12 @@ Run the complete Rust test suite from the repository root:
 cargo test --all-targets
 ```
 
-The terminal PTY suite is opt-in because it needs a real pseudo-terminal:
+The terminal PTY suite is opt-in because it needs a real pseudo-terminal. Its
+tests remain `#[ignore]` so ordinary `cargo test` runs stay portable; use both
+the environment gate and libtest's ignored-test flag:
 
 ```bash
-ANVIL_PTY_TESTS=1 cargo test --test tui_pty
+ANVIL_PTY_TESTS=1 cargo test --test tui_pty -- --include-ignored
 ```
 
 Python 3.10 runs the evaluation golden tests used in CI:
