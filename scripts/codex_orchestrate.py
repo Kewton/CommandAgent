@@ -1674,9 +1674,12 @@ def get_commandmate_state(
         item_id = str(item.get("id") or item.get("name") or "")
         if item_id != worktree_id:
             continue
+        instance_status = item.get("sessionStatusByInstance", {})
         session_status = item.get("sessionStatusByCli", {})
         cli_status = {}
-        if isinstance(session_status, dict):
+        if isinstance(instance_status, dict) and codex_agent_name:
+            cli_status = instance_status.get(codex_agent_name) or {}
+        if not cli_status and isinstance(session_status, dict):
             cli_status = (
                 (
                     session_status.get(codex_agent_name)
@@ -1686,18 +1689,22 @@ def get_commandmate_state(
                 or session_status.get("default")
                 or next(iter(session_status.values()), {})
             )
-        running = bool(
-            item.get("isSessionRunning")
-            or item.get("isRunning")
-            or str(item.get("status") or item.get("state") or "").lower()
-            in {"running", "ready"}
+        running = cli_status.get("isRunning") if isinstance(cli_status, dict) else None
+        if running is None:
+            running = bool(
+                item.get("isSessionRunning")
+                or item.get("isRunning")
+                or str(item.get("status") or item.get("state") or "").lower()
+                in {"running", "ready"}
+            )
+        processing = (
+            cli_status.get("isProcessing") if isinstance(cli_status, dict) else None
         )
-        processing = item.get("isProcessing")
-        if processing is None and isinstance(cli_status, dict):
-            processing = cli_status.get("isProcessing")
+        if processing is None:
+            processing = item.get("isProcessing")
         return {
             "found": True,
-            "running": running,
+            "running": bool(running),
             "processing": bool(processing) if processing is not None else None,
             "status": "found",
             "message": "worktree session found",
@@ -2187,7 +2194,7 @@ def wait_for_verified_workers(
     runner: Runner = run_command,
     sleep_fn=time.sleep,
     monotonic_fn=time.monotonic,
-    idle_confirmations: int = 3,
+    idle_grace_seconds: float = 120.0,
 ) -> list[WorkerVerificationResult]:
     """Wait through premature CommandMate completion until workers stop processing.
 
@@ -2201,27 +2208,32 @@ def wait_for_verified_workers(
     )
     deadline = monotonic_fn() + max(timeout_seconds, 0)
     by_issue = {analysis.issue.number: analysis for analysis in analyses}
-    consecutive_idle = 0
+    idle_since: float | None = None
     while any(result.status != "passed" for result in verification):
         pending = [
             by_issue[result.issue_number]
             for result in verification
             if result.status != "passed"
         ]
-        processing = [
-            analysis
-            for analysis in pending
-            if get_commandmate_state(
+        states = [
+            get_commandmate_state(
                 commandmate_worktree_id(analysis.branch_name),
                 codex_agent_name=codex_agent_name,
                 runner=runner,
-            )["processing"]
-            is True
+            )
+            for analysis in pending
         ]
-        consecutive_idle = 0 if processing else consecutive_idle + 1
-        if consecutive_idle >= max(idle_confirmations, 1):
+        now = monotonic_fn()
+        if any(state["processing"] is True for state in states):
+            idle_since = None
+        elif any(state["found"] is True and state["running"] is True for state in states):
+            if idle_since is None:
+                idle_since = now
+            if now - idle_since >= max(idle_grace_seconds, 0.0):
+                break
+        else:
             break
-        remaining = deadline - monotonic_fn()
+        remaining = deadline - now
         if remaining <= 0:
             break
         sleep_fn(min(2.0, remaining))

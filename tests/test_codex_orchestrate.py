@@ -701,6 +701,30 @@ def test_poll_worker_startup_reports_commandmate_unreachable() -> None:
     assert calls == [["commandmatedev", "ls", "--json"]]
 
 
+def test_commandmate_state_prefers_codex_instance_over_global_state() -> None:
+    module = load_script()
+
+    def fake_runner(args, **kwargs):  # type: ignore[no-untyped-def]
+        payload = [
+            {
+                "id": "repo-issue-1",
+                "isSessionRunning": False,
+                "isProcessing": False,
+                "sessionStatusByInstance": {
+                    "codex": {"isRunning": True, "isProcessing": True}
+                },
+            }
+        ]
+        return module.subprocess.CompletedProcess(args, 0, json.dumps(payload), "")
+
+    state = module.get_commandmate_state(
+        "repo-issue-1", codex_agent_name="codex", runner=fake_runner
+    )
+
+    assert state["running"] is True
+    assert state["processing"] is True
+
+
 def test_wait_for_commandmate_workers_uses_wait_without_starting_server() -> None:
     module = load_script()
     calls: list[list[str]] = []
@@ -1314,6 +1338,47 @@ def test_wait_for_verified_workers_ignores_transient_idle_state(tmp_path: Path) 
 
     assert results[0].status == "passed"
     assert sleep_count == 2
+
+
+def test_wait_for_verified_workers_blocks_after_idle_grace(tmp_path: Path) -> None:
+    module = load_script()
+    analysis = module.analyze_issue(
+        module.Issue(19, "Issue 19", "Update `README.md`"),
+        "CommandAgent",
+        skip_enhance=True,
+    )
+    root = tmp_path / "issue-19"
+    root.mkdir()
+    worktree = module.WorktreeResult(
+        19, analysis.branch_name, root, "created", "created"
+    )
+    times = iter((0.0, 0.0, 121.0))
+    sleeps: list[float] = []
+
+    def fake_runner(args, **kwargs):  # type: ignore[no-untyped-def]
+        payload = [
+            {
+                "id": module.commandmate_worktree_id(analysis.branch_name),
+                "sessionStatusByCli": {
+                    "codex": {"isRunning": True, "isProcessing": False}
+                },
+            }
+        ]
+        return module.subprocess.CompletedProcess(args, 0, module.json.dumps(payload), "")
+
+    results = module.wait_for_verified_workers(
+        [analysis],
+        [worktree],
+        timeout_seconds=300,
+        codex_agent_name="codex",
+        runner=fake_runner,
+        sleep_fn=sleeps.append,
+        monotonic_fn=lambda: next(times),
+        idle_grace_seconds=120,
+    )
+
+    assert results[0].status == "blocked"
+    assert sleeps == [2.0]
 
 
 def test_render_uat_report_includes_manual_evidence() -> None:
