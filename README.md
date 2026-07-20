@@ -185,5 +185,4 @@ code.
 
 ## License
 
-CommandAgent is licensed under the MIT License, as declared in
-[Cargo.toml](Cargo.toml).
+CommandAgent is licensed under the [MIT License](LICENSE).
