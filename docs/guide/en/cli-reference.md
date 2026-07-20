@@ -12,11 +12,12 @@ authority: use `commandagent --help` when its version differs from this checkout
 Use one of the action-selector flags for a direct command, or omit all of them
 for the TUI. The action selectors are `--prompt`, `--plan-steps`, `--plan-run`,
 `--run-plan`, `--ultra-plan`, `--ultra-plan-run`, `--run-ultra-plan`,
-`--setup-interaction-probe`, `--runs`, `--ux-demo`, and `--model-probe`.
-CommandAgent rejects a call that combines more than one action selector.
+`--setup-interaction-probe`, `--runs`, `--ux-demo`, `--model-probe`, and
+`--doctor`. CommandAgent rejects a call that combines more than one action
+selector.
 
 Clap also generates `-h`/`--help` and `-V`/`--version`. They are not part of the
-37 application flags below. The hidden `--completion-contract-json <PATH>` is an
+39 application flags below. The hidden `--completion-contract-json <PATH>` is an
 internal integration surface and is intentionally not a public user flag.
 
 ## Flag reference
@@ -44,6 +45,8 @@ internal integration surface and is intentionally not a public user flag.
 | `--runs` | none | off | List recent runs for the current workspace without creating provider clients. | [Slash `/runs`](slash-commands.md#command-reference) |
 | `--ux-demo` | none | off | Run the offline presentation UX demo. | [Action exclusivity](#conflicts-and-combinations) |
 | `--model-probe` | none | off | Run the bounded model behavior probe battery. | [Model probe](../../model-probe.md) |
+| `--doctor` | none | off | Diagnose configuration files, provider readiness, interaction probes, and the local environment without making network requests. | [Slash `/doctor`](slash-commands.md#command-reference) |
+| `--json` | none | off | Render `--doctor` output as stable machine-readable JSON. Requires `--doctor`. | [Slash `/doctor`](slash-commands.md#command-reference) |
 | `--profile` | `<PROFILE>` | inferred, then `generic` | Set a domain profile explicitly, for example `nextjs`, `python-cli`, `data`, or `generic`. | [Profile inference](slash-commands.md#profile-inference) |
 | `--style` | `<STYLE>` | `default` | Pass the plan presentation/generation style. | [Inline flags](slash-commands.md#inline-flags) |
 | `--resume` | `<RESUME>` | none | Load the named saved minimal-loop session for a direct `--prompt` run. | [Session options](#conflicts-and-combinations) |

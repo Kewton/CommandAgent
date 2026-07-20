@@ -576,7 +576,7 @@ pub fn handle_command(
     })
 }
 
-fn render_help() -> String {
+pub fn render_help() -> String {
     let mut lines = vec!["Commands:".to_string()];
     lines.extend(
         SLASH_COMMANDS
