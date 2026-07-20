@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use clap::{ArgAction, Parser, ValueEnum};
+use clap_complete::Shell;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum ProviderArg {
@@ -119,6 +120,21 @@ pub struct Cli {
         help = "Render doctor output as stable machine-readable JSON"
     )]
     pub json: bool,
+    #[arg(
+        long,
+        value_enum,
+        value_name = "SHELL",
+        conflicts_with = "generate_man",
+        help = "Generate shell completions to stdout"
+    )]
+    pub completions: Option<Shell>,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        conflicts_with = "completions",
+        help = "Generate a commandagent(1) man page to stdout"
+    )]
+    pub generate_man: bool,
     #[arg(long)]
     pub profile: Option<String>,
     #[arg(long, default_value = "default")]
@@ -279,6 +295,25 @@ mod tests {
         assert!(help.contains("--doctor"));
         assert!(help.contains("--json"));
         assert!(help.contains("machine-readable JSON"));
+    }
+
+    #[test]
+    fn help_includes_generated_cli_artifacts() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--completions <SHELL>"));
+        assert!(help.contains("bash"));
+        assert!(help.contains("zsh"));
+        assert!(help.contains("fish"));
+        assert!(help.contains("powershell"));
+        assert!(help.contains("--generate-man"));
+    }
+
+    #[test]
+    fn generated_cli_artifacts_are_mutually_exclusive() {
+        let error =
+            Cli::try_parse_from(["commandagent", "--completions", "bash", "--generate-man"])
+                .unwrap_err();
+        assert!(error.to_string().contains("cannot be used with"));
     }
 
     #[test]

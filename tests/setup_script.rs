@@ -120,6 +120,15 @@ case "${1-}" in
     printf 'commandagent|--setup-interaction-probe\n' >> "$SETUP_TEST_LOG"
     printf 'interaction probe setup: existing playwright 1.0 resolved from fixture\n'
     ;;
+  --completions)
+    printf 'commandagent|--completions|%s\n' "${2-}" >> "$SETUP_TEST_LOG"
+    case "${2-}" in
+      bash) printf '_commandagent() {}\n' ;;
+      fish) printf 'complete -c commandagent\n' ;;
+      zsh) printf '#compdef commandagent\n' ;;
+      *) exit 2 ;;
+    esac
+    ;;
   --model-probe)
     printf 'commandagent|--model-probe\n' >> "$SETUP_TEST_LOG"
     printf 'model probe fixture passed\n'
@@ -144,6 +153,10 @@ esac
     }
 
     fn run(&self, args: &[&str], input: &str) -> Output {
+        self.run_with_shell(args, input, "/bin/zsh")
+    }
+
+    fn run_with_shell(&self, args: &[&str], input: &str, shell: &str) -> Output {
         let path = format!("{}:/usr/bin:/bin", self.fake_bin.display());
         let commandagent = self.fake_bin.join("commandagent");
         let mut child = Command::new("/bin/bash")
@@ -152,10 +165,14 @@ esac
             .current_dir(&self.root)
             .env("PATH", path)
             .env("HOME", &self.home)
+            .env("SHELL", shell)
             .env("CARGO_HOME", self.home.join(".cargo"))
             .env("SETUP_TEST_STATE", &self.state)
             .env("SETUP_TEST_LOG", &self.log)
             .env("SETUP_TEST_COMMANDAGENT", commandagent)
+            .env_remove("BASH_COMPLETION_USER_DIR")
+            .env_remove("XDG_CONFIG_HOME")
+            .env_remove("XDG_DATA_HOME")
             .env_remove("GEMINI_API_KEY")
             .env_remove("OPENAI_API_KEY")
             .stdin(Stdio::piped())
@@ -193,6 +210,35 @@ fn combined(output: &Output) -> String {
 }
 
 #[test]
+fn yes_mode_installs_bash_and_fish_completions_in_user_paths() {
+    let cases = [
+        (
+            "/bin/bash",
+            ".local/share/bash-completion/completions/commandagent",
+            "_commandagent() {}\n",
+        ),
+        (
+            "/usr/local/bin/fish",
+            ".config/fish/completions/commandagent.fish",
+            "complete -c commandagent\n",
+        ),
+    ];
+
+    for (shell, relative_path, expected) in cases {
+        let fixture = SetupFixture::new("1.94.0");
+        fixture.mark_current_binary();
+        let output = fixture.run_with_shell(&["--yes"], "", shell);
+        let text = combined(&output);
+
+        assert!(output.status.success(), "{shell}: {text}");
+        assert_eq!(
+            fs::read_to_string(fixture.home.join(relative_path)).unwrap(),
+            expected
+        );
+    }
+}
+
+#[test]
 fn check_only_reports_prerequisites_without_mutation() {
     let fixture = SetupFixture::new("1.88.0");
     let output = fixture.run(&["--check-only"], "");
@@ -208,6 +254,12 @@ fn check_only_reports_prerequisites_without_mutation() {
         "{text}"
     );
     assert!(!fixture.root.join(".env").exists());
+    assert!(
+        !fixture
+            .home
+            .join(".local/share/zsh/site-functions/_commandagent")
+            .is_file()
+    );
     assert!(!fixture.state.join("installed").exists());
     assert!(fixture.log_text().is_empty());
 }
@@ -253,6 +305,13 @@ fn yes_mode_installs_once_and_runs_safe_probe_defaults() {
         "{first_text}"
     );
     assert!(!fixture.root.join(".env").exists());
+    let completion = fixture
+        .home
+        .join(".local/share/zsh/site-functions/_commandagent");
+    assert_eq!(
+        fs::read_to_string(completion).unwrap(),
+        "#compdef commandagent\n"
+    );
 
     let second = fixture.run(&["--yes"], "");
     let second_text = combined(&second);
@@ -279,12 +338,17 @@ fn yes_mode_installs_once_and_runs_safe_probe_defaults() {
         2,
         "{log}"
     );
+    assert_eq!(
+        log.matches("commandagent|--completions|zsh").count(),
+        2,
+        "{log}"
+    );
 }
 
 #[test]
 fn declined_install_uses_release_build_fallback() {
     let fixture = SetupFixture::new("1.94.0");
-    let output = fixture.run(&[], "n\nn\nn\nn\nn\n");
+    let output = fixture.run(&[], "n\nn\nn\nn\nn\nn\n");
     let text = combined(&output);
 
     assert!(output.status.success(), "{text}");
@@ -302,7 +366,7 @@ fn empty_ollama_list_uses_only_the_model_name_entered_by_the_user() {
     let fixture = SetupFixture::new("1.94.0");
     fixture.mark_current_binary();
     fs::write(fixture.state.join("no-models"), "").unwrap();
-    let output = fixture.run(&[], "n\nn\ny\nchosen-model:latest\nn\nn\n");
+    let output = fixture.run(&[], "n\nn\nn\ny\nchosen-model:latest\nn\nn\n");
     let text = combined(&output);
 
     assert!(output.status.success(), "{text}");
@@ -318,7 +382,7 @@ fn interactive_secret_input_creates_private_env_and_is_idempotent() {
     let fixture = SetupFixture::new("1.94.0");
     fixture.mark_current_binary();
     let secret = "fixture-secret-must-not-be-printed";
-    let first = fixture.run(&[], &format!("y\n{secret}\nn\nn\nn\n"));
+    let first = fixture.run(&[], &format!("n\ny\n{secret}\nn\nn\nn\n"));
     let first_text = combined(&first);
 
     assert!(first.status.success(), "{first_text}");
@@ -331,7 +395,7 @@ fn interactive_secret_input_creates_private_env_and_is_idempotent() {
         0o600
     );
 
-    let second = fixture.run(&[], "n\nn\nn\n");
+    let second = fixture.run(&[], "n\nn\nn\nn\n");
     let second_text = combined(&second);
     assert!(second.status.success(), "{second_text}");
     assert!(

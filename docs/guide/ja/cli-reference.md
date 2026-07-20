@@ -16,7 +16,7 @@
 複数のアクション選択フラグを組み合わせると拒否されます。
 
 Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリケーション固有の
-39 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
+41 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
 公開ユーザーフラグではありません。
 
 ## フラグ一覧
@@ -46,6 +46,8 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--model-probe` | なし | オフ | 限定的なモデル動作プローブ一式を実行します。 | [モデルプローブ](../../model-probe.md) |
 | `--doctor` | なし | オフ | ネットワーク要求を行わず、設定ファイル、プロバイダ readiness、interaction probe、ローカル環境を診断します。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
 | `--json` | なし | オフ | `--doctor` の出力を安定した機械可読 JSON として表示します。`--doctor` が必要です。 | [スラッシュ `/doctor`](slash-commands.md#コマンド一覧) |
+| `--completions` | `<SHELL>`: `bash`、`elvish`、`fish`、`powershell`、`zsh` | なし | 現在の Clap 定義から補完スクリプトを生成し、stdout に出力します。 | [シェル補完と man ページ](#シェル補完と-man-ページ) |
+| `--generate-man` | なし | オフ | 現在の Clap 定義から `commandagent(1)` man ページを生成し、stdout に出力します。 | [シェル補完と man ページ](#シェル補完と-man-ページ) |
 | `--profile` | `<PROFILE>` | 推論後に `generic` | ドメインプロファイルを明示します。例: `nextjs`、`python-cli`、`data`、`generic`。 | [プロファイル推論](slash-commands.md#プロファイル推論) |
 | `--style` | `<STYLE>` | `default` | plan の表示／生成スタイルを渡します。 | [インラインフラグ](slash-commands.md#インラインフラグ) |
 | `--resume` | `<RESUME>` | なし | 直接 `--prompt` 実行で、指定した保存済み minimal-loop セッションを読み込みます。 | [セッションオプション](#排他関係と組み合わせ) |
@@ -89,6 +91,64 @@ context budget、timeout、profile、footer、stream などは `Config::from_cli
   `planner_model` が必要です。なければ起動に失敗します。
 - 直接 minimal-loop prompt では `--fresh-session` が `--resume` より優先されます。
   これらのセッションスイッチはスラッシュコマンドによる plan 再開には使われません。
+
+## シェル補完と man ページ
+
+どちらの機能も現在の Clap コマンド定義から生成するため、新しいフラグは自動的に反映されます。
+出力先は stdout だけです。ユーザー所有の導入先へリダイレクトし、CommandAgent の更新後には
+再生成してください。
+
+`scripts/setup.sh` は検出した Bash、Zsh、Fish 用の補完を導入するか確認します。
+手動で導入する場合は、利用するシェルに対応するコマンドを実行します。
+
+Bash の標準的なユーザー別 `bash-completion` ディレクトリ:
+
+```bash
+completion_dir="${BASH_COMPLETION_USER_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion}/completions"
+mkdir -p "$completion_dir"
+commandagent --completions bash > "$completion_dir/commandagent"
+```
+
+Zsh では `_commandagent` 関数を `fpath` 上のディレクトリへ置き、補完を初期化します。
+
+```zsh
+completion_dir="${XDG_DATA_HOME:-$HOME/.local/share}/zsh/site-functions"
+mkdir -p "$completion_dir"
+commandagent --completions zsh > "$completion_dir/_commandagent"
+fpath=("$completion_dir" $fpath)
+autoload -Uz compinit && compinit
+```
+
+最後の 2 行は `.zshrc` に保存してください。Fish の場合:
+
+```fish
+set completion_dir (string join / (set -q XDG_CONFIG_HOME; and echo $XDG_CONFIG_HOME; or echo $HOME/.config) fish completions)
+mkdir -p $completion_dir
+commandagent --completions fish > $completion_dir/commandagent.fish
+```
+
+Fish はこのパスを自動的に読み込みます。PowerShell では生成したスクリプトを保存し、
+現在のセッションまたは `$PROFILE` からドットソースします。
+
+```powershell
+commandagent --completions powershell > "$HOME/.commandagent-completion.ps1"
+. "$HOME/.commandagent-completion.ps1"
+```
+
+Elvish も `commandagent --completions elvish` で生成できます。出力は利用中の
+Elvish 設定に合わせて読み込むか保存してください。
+
+生成した man ページを一般的なユーザー別パスへ導入する場合:
+
+```bash
+man_dir="${XDG_DATA_HOME:-$HOME/.local/share}/man/man1"
+mkdir -p "$man_dir"
+commandagent --generate-man > "$man_dir/commandagent.1"
+man -l "$man_dir/commandagent.1"
+```
+
+明示パスなしの `man commandagent` で検索させるには、親の `man` ディレクトリを
+`MANPATH` に追加してください。
 
 ## 例
 

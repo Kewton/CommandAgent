@@ -387,6 +387,70 @@ install_or_build() {
     fi
 }
 
+setup_shell_completion() {
+    local shell_name="${SHELL##*/}"
+    local completion_dir=""
+    local completion_file=""
+    local temporary_file=""
+    local activation=""
+    current_step="shell completion setup"
+
+    case "$shell_name" in
+        bash)
+            completion_dir="${BASH_COMPLETION_USER_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/bash-completion}/completions"
+            completion_file="$completion_dir/commandagent"
+            activation="Restart Bash or source the generated file."
+            ;;
+        zsh)
+            completion_dir="${XDG_DATA_HOME:-$HOME/.local/share}/zsh/site-functions"
+            completion_file="$completion_dir/_commandagent"
+            activation="Add 'fpath=(\"$completion_dir\" \$fpath)' before 'autoload -Uz compinit && compinit' in .zshrc."
+            ;;
+        fish)
+            completion_dir="${XDG_CONFIG_HOME:-$HOME/.config}/fish/completions"
+            completion_file="$completion_dir/commandagent.fish"
+            activation="Restart Fish; it loads files in the completions directory automatically."
+            ;;
+        *)
+            printf 'skipped: shell completion auto-install supports Bash, Zsh, and Fish; see docs/guide/en/cli-reference.md for manual commands\n'
+            add_summary "Shell completion" "skipped" "unsupported or unknown SHELL=${SHELL:-unset}; manual guide available"
+            return
+            ;;
+    esac
+
+    if ! confirm "Install commandagent completion for $shell_name at $completion_file?"; then
+        printf 'Manual completion: %s --completions %s > %s\n' \
+            "$commandagent_bin" "$shell_name" "$completion_file"
+        add_summary "Shell completion" "skipped" "installation declined; manual command shown"
+        return
+    fi
+
+    if ! mkdir -p -- "$completion_dir"; then
+        printf 'warning: could not create %s; install the %s completion manually\n' \
+            "$completion_dir" "$shell_name" >&2
+        add_summary "Shell completion" "warn" "completion directory could not be created"
+        return
+    fi
+    temporary_file="${completion_file}.tmp.$$"
+    if ! "$commandagent_bin" --completions "$shell_name" >"$temporary_file"; then
+        rm -f -- "$temporary_file"
+        printf 'warning: completion generation failed; run commandagent --completions %s manually\n' \
+            "$shell_name" >&2
+        add_summary "Shell completion" "warn" "generation failed; manual command required"
+        return
+    fi
+    if ! mv -- "$temporary_file" "$completion_file"; then
+        rm -f -- "$temporary_file"
+        printf 'warning: could not install %s; generate it manually\n' "$completion_file" >&2
+        add_summary "Shell completion" "warn" "generated file could not be installed"
+        return
+    fi
+
+    printf 'ok: installed %s completion at %s\n' "$shell_name" "$completion_file"
+    printf '%s\n' "$activation"
+    add_summary "Shell completion" "ok" "$shell_name completion installed; activation advice shown"
+}
+
 append_api_key() {
     local key=$1
     local provider=$2
@@ -602,6 +666,7 @@ if [[ "$check_only" == true ]]; then
 fi
 
 install_or_build
+setup_shell_completion
 configure_api_keys
 setup_ollama_model
 setup_interaction_probe
