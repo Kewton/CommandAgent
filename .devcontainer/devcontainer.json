@@ -1,0 +1,25 @@
+{
+  "name": "CommandAgent Development",
+  "image": "mcr.microsoft.com/devcontainers/python:3.12-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/rust:1": {
+      "version": "1.94.1",
+      "profile": "minimal",
+      "components": "rustfmt,clippy"
+    },
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "lts",
+      "nodeGypDependencies": false
+    },
+    "ghcr.io/guiyomh/features/just:0": {
+      "version": "1.40.0"
+    },
+    "ghcr.io/devcontainers-extra/features/shellcheck:1": {
+      "version": "0.10.0"
+    }
+  },
+  "postCreateCommand": "python3 -m pip install --user --no-cache-dir PyYAML==6.0.3 pytest==8.4.2 ruff==0.14.9",
+  "runArgs": [
+    "--add-host=host.docker.internal:host-gateway"
+  ]
+}

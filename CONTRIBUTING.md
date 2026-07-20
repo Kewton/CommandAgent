@@ -13,6 +13,16 @@ Install these tools before working on the repository:
   `.github/workflows/ci.yml`
 - A Unix-like pseudo-terminal environment for the opt-in PTY tests
 
+Optionally install `just` to use the repository's task shortcuts:
+
+```bash
+cargo install just --locked
+```
+
+Run `just --list` to see the available tasks and `just ci` for the complete
+local CI sequence. `just` is optional; without it, use the raw commands in
+`.github/workflows/ci.yml`, which remains the authoritative CI definition.
+
 Run the complete Rust test suite from the repository root:
 
 ```bash
