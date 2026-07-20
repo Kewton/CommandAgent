@@ -13,6 +13,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Add the repository's MIT License, contribution guide, and changelog.
 - Add documented `just` development tasks and a reproducible Dev Container.
 
+### Fixed
+
+- Make the documented PTY commands execute the ignored integration suite.
+
 ## Historical note
 
 This changelog was introduced while the project was at version 0.1.0

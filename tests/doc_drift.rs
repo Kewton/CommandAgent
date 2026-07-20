@@ -271,3 +271,28 @@ fn demo_docs_distinguish_scripted_assets_from_provider_backed_recording() {
         );
     }
 }
+
+#[test]
+fn pty_test_recipe_matches_contributing_command_and_includes_ignored_tests() {
+    let justfile = read_repo_file("justfile");
+    let contributing = read_repo_file("CONTRIBUTING.md");
+    let (_, recipe_body) = justfile
+        .split_once("test-pty:\n")
+        .expect("justfile must define the test-pty recipe");
+    let recipe_command = recipe_body
+        .lines()
+        .find_map(|line| line.strip_prefix("    "))
+        .map(str::trim)
+        .expect("test-pty recipe must contain a command");
+
+    assert!(
+        recipe_command.contains(" -- --include-ignored"),
+        "test-pty must pass --include-ignored to libtest; command={recipe_command:?}"
+    );
+    assert!(
+        contributing
+            .lines()
+            .any(|line| line.trim() == recipe_command),
+        "CONTRIBUTING.md must document the test-pty command exactly; command={recipe_command:?}"
+    );
+}
