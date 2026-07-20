@@ -292,6 +292,7 @@ mod tests {
 
         for needle in [
             "commandagent",
+            "help: /help for commands | /doctor for setup diagnostics",
             "### Plan",
             "── Phase 1/2: scaffold ──",
             "#### Phase: scaffold",

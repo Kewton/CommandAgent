@@ -36,6 +36,91 @@ fn tui_pty_smoke() {
 
 #[test]
 #[ignore]
+fn tui_pty_warns_when_ollama_is_stopped_and_keeps_prompt_usable() {
+    if commandagent::env_compat::var("COMMANDAGENT_PTY_TESTS")
+        .ok()
+        .as_deref()
+        != Some("1")
+        || cfg!(windows)
+    {
+        return;
+    }
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let host = format!("http://{}", listener.local_addr().unwrap());
+    drop(listener);
+    let tmp = tempfile::tempdir().unwrap();
+
+    let output = run_startup_diagnostic_script(
+        env!("CARGO_BIN_EXE_commandagent"),
+        tmp.path(),
+        &tmp.path().join("state"),
+        &host,
+        "missing:latest",
+    )
+    .expect("script(1) PTY helper must be available");
+    let text = String::from_utf8_lossy(&output.stdout).to_string()
+        + &String::from_utf8_lossy(&output.stderr);
+
+    assert!(output.status.success(), "output={text:?}");
+    for expected in [
+        "warning: Ollama is unreachable",
+        host.as_str(),
+        "ollama serve",
+        "--ollama-host",
+        "commandagent --doctor",
+        "continuing.",
+        "commandagent>",
+    ] {
+        assert!(
+            text.contains(expected),
+            "missing {expected:?}. output={text:?}"
+        );
+    }
+}
+
+#[test]
+#[ignore]
+fn tui_pty_warns_when_ollama_model_is_missing_and_keeps_prompt_usable() {
+    if commandagent::env_compat::var("COMMANDAGENT_PTY_TESTS")
+        .ok()
+        .as_deref()
+        != Some("1")
+        || cfg!(windows)
+    {
+        return;
+    }
+    let (host, server) = start_tags_only_ollama();
+    let tmp = tempfile::tempdir().unwrap();
+
+    let output = run_startup_diagnostic_script(
+        env!("CARGO_BIN_EXE_commandagent"),
+        tmp.path(),
+        &tmp.path().join("state"),
+        &host,
+        "missing:latest",
+    )
+    .expect("script(1) PTY helper and fake Ollama must be available");
+    server.join().unwrap();
+    let text = String::from_utf8_lossy(&output.stdout).to_string()
+        + &String::from_utf8_lossy(&output.stderr);
+
+    assert!(output.status.success(), "output={text:?}");
+    for expected in [
+        "warning: Ollama model `missing:latest` is not installed",
+        host.as_str(),
+        "ollama pull missing:latest",
+        "commandagent --doctor",
+        "commandagent>",
+    ] {
+        assert!(
+            text.contains(expected),
+            "missing {expected:?}. output={text:?}"
+        );
+    }
+}
+
+#[test]
+#[ignore]
 fn tui_pty_queues_input_during_command_and_replays_fifo() {
     if commandagent::env_compat::var("COMMANDAGENT_PTY_TESTS")
         .ok()
@@ -295,7 +380,7 @@ fn run_receipt_screen_script(
         thread::sleep(Duration::from_secs(1));
         stdin.write_all(b"/status\r")?;
         stdin.flush()?;
-        thread::sleep(Duration::from_millis(200));
+        thread::sleep(Duration::from_secs(1));
         stdin.write_all(b"/exit\r")?;
         stdin.flush()?;
     }
@@ -762,6 +847,95 @@ fn start_delayed_ollama() -> (
         }
     });
     (host, started_rx, stop, handle)
+}
+
+fn run_startup_diagnostic_script(
+    bin: &str,
+    cwd: &std::path::Path,
+    state_dir: &std::path::Path,
+    host: &str,
+    model: &str,
+) -> std::io::Result<std::process::Output> {
+    let args = [
+        "--yes".to_string(),
+        "--cwd".to_string(),
+        cwd.to_string_lossy().into_owned(),
+        "--state-dir".to_string(),
+        state_dir.to_string_lossy().into_owned(),
+        "--provider".to_string(),
+        "ollama".to_string(),
+        "--model".to_string(),
+        model.to_string(),
+        "--planner-provider".to_string(),
+        "ollama".to_string(),
+        "--planner-model".to_string(),
+        model.to_string(),
+        "--ollama-host".to_string(),
+        host.to_string(),
+        "--no-footer".to_string(),
+    ]
+    .into_iter()
+    .map(|arg| shell_quote(&arg))
+    .collect::<Vec<_>>()
+    .join(" ");
+    let command_line = format!("exec {} {args}", shell_quote(bin));
+    let mut command = std::process::Command::new("script");
+    if cfg!(target_os = "macos") {
+        command
+            .arg("-q")
+            .arg("/dev/null")
+            .arg("/bin/sh")
+            .arg("-c")
+            .arg(command_line);
+    } else {
+        command
+            .arg("-q")
+            .arg("-c")
+            .arg(command_line)
+            .arg("/dev/null");
+    }
+    let mut child = command
+        .env("COMMANDAGENT_NO_SPINNER", "1")
+        .env("COMMANDAGENT_NO_INTERRUPT", "1")
+        .env("COMMANDAGENT_NO_MARKDOWN", "1")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()?;
+    child.stdin.as_mut().unwrap().write_all(b"/exit\n")?;
+    child.wait_with_output()
+}
+
+fn start_tags_only_ollama() -> (String, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let host = format!("http://{}", listener.local_addr().unwrap());
+    let server = thread::spawn(move || {
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let (mut stream, _) = loop {
+            match listener.accept() {
+                Ok(connection) => break connection,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "startup probe did not reach fake Ollama"
+                    );
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("fake Ollama accept failed: {error}"),
+            }
+        };
+        let request = read_http_request(&mut stream);
+        assert!(request.starts_with("GET /api/tags "), "request={request:?}");
+        let body = r#"{"models":[{"name":"installed:latest"}]}"#;
+        write!(
+            stream,
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+        .unwrap();
+    });
+    (host, server)
 }
 
 fn shell_quote(value: &str) -> String {

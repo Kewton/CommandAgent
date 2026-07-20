@@ -5,7 +5,7 @@ use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::config::{Config, load_api_key};
+use crate::config::{Config, Provider, load_api_key};
 use crate::eval_events;
 use crate::state::{ConversationMessage, ToolCall};
 use crate::tools::args_recovery::recover_tool_arguments;
@@ -170,7 +170,11 @@ impl ChatClient for OpenAiClient {
                             "body_snippet": eval_events::body_snippet(&body),
                         }),
                     );
-                    anyhow::bail!("OpenAI Responses API failed: {status}");
+                    return Err(super::guidance::http_status_error(
+                        Provider::Openai,
+                        model,
+                        status,
+                    ));
                 }
                 Ok(response) => {
                     let status = response.status();
@@ -200,7 +204,11 @@ impl ChatClient for OpenAiClient {
                             "message": eval_events::body_snippet(&err.to_string()),
                         }),
                     );
-                    return Err(err.into());
+                    return Err(super::guidance::connection_error(
+                        Provider::Openai,
+                        OPENAI_BASE_URL,
+                        err,
+                    ));
                 }
                 Err(err) => {
                     emit_stream_retry(self.eval_events_path.as_deref(), model, attempt, &err)
@@ -293,7 +301,11 @@ impl ChatClient for OpenAiClient {
                             "body_snippet": eval_events::body_snippet(&body),
                         }),
                     );
-                    anyhow::bail!("OpenAI Responses API failed: {}", status);
+                    return Err(super::guidance::http_status_error(
+                        Provider::Openai,
+                        model,
+                        status,
+                    ));
                 }
                 Ok(response) => {
                     let status = response.status();
@@ -323,7 +335,11 @@ impl ChatClient for OpenAiClient {
                             "message": eval_events::body_snippet(&err.to_string()),
                         }),
                     );
-                    return Err(err.into());
+                    return Err(super::guidance::connection_error(
+                        Provider::Openai,
+                        OPENAI_BASE_URL,
+                        err,
+                    ));
                 }
                 Err(err) => {
                     eval_events::emit(

@@ -2,6 +2,7 @@ use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use crate::config::Provider;
 use crate::state::{ConversationMessage, ToolCall};
 use crate::tools::args_recovery::recover_tool_arguments;
 use crate::tools::registry::ToolSpec;
@@ -130,10 +131,20 @@ impl ChatClient for OllamaClient {
                     }
                 }
                 Ok(response) if attempt == self.retries => {
-                    anyhow::bail!("Ollama /api/chat failed: {}", response.status());
+                    return Err(super::guidance::http_status_error(
+                        Provider::Ollama,
+                        model,
+                        response.status(),
+                    ));
                 }
                 Ok(_) => {}
-                Err(err) if attempt == self.retries => return Err(err.into()),
+                Err(err) if attempt == self.retries => {
+                    return Err(super::guidance::connection_error(
+                        Provider::Ollama,
+                        &self.base_url,
+                        err,
+                    ));
+                }
                 Err(_) => {}
             }
         }
@@ -166,10 +177,20 @@ impl ChatClient for OllamaClient {
                     return Ok(reply);
                 }
                 Ok(response) if attempt == self.retries => {
-                    anyhow::bail!("Ollama /api/chat failed: {}", response.status());
+                    return Err(super::guidance::http_status_error(
+                        Provider::Ollama,
+                        model,
+                        response.status(),
+                    ));
                 }
                 Ok(_) => {}
-                Err(err) if attempt == self.retries => return Err(err.into()),
+                Err(err) if attempt == self.retries => {
+                    return Err(super::guidance::connection_error(
+                        Provider::Ollama,
+                        &self.base_url,
+                        err,
+                    ));
+                }
                 Err(_) => {}
             }
         }
@@ -419,6 +440,9 @@ pub fn parse_chat_stream<R: std::io::Read>(
 
 #[cfg(test)]
 mod tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+
     use super::*;
     use crate::state::ConversationMessage;
 
@@ -524,5 +548,65 @@ mod tests {
         .to_string();
         assert_eq!(chunks.concat(), "partial");
         assert!(err.contains("terminal record"), "{err}");
+    }
+
+    #[test]
+    fn runtime_connection_failure_appends_actionable_hint() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let host = format!("http://{}", listener.local_addr().unwrap());
+        drop(listener);
+        let mut client = OllamaClient::new(host.clone(), 1, 1, 0).unwrap();
+
+        let error = ChatClient::chat(
+            &mut client,
+            "missing:latest",
+            &[ConversationMessage::user("hello")],
+            &[],
+            false,
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.starts_with("Ollama request failed:"), "{error}");
+        assert!(
+            error.ends_with(&format!(
+                "Hint: Start Ollama with `ollama serve`, verify `--ollama-host {host}`, then run `commandagent --doctor`."
+            )),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn runtime_not_found_failure_appends_pull_hint() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let host = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 1024];
+            let read = stream.read(&mut request).unwrap();
+            assert!(String::from_utf8_lossy(&request[..read]).starts_with("POST /api/chat "));
+            write!(
+                stream,
+                "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .unwrap();
+        });
+        let mut client = OllamaClient::new(host, 1, 1, 0).unwrap();
+
+        let error = ChatClient::chat(
+            &mut client,
+            "missing:latest",
+            &[ConversationMessage::user("hello")],
+            &[],
+            false,
+        )
+        .unwrap_err()
+        .to_string();
+        server.join().unwrap();
+
+        assert_eq!(
+            error,
+            "Ollama request failed: HTTP 404 Not Found\nHint: Model `missing:latest` was not found. Run `ollama pull missing:latest`, then run `commandagent --doctor`."
+        );
     }
 }

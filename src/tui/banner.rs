@@ -113,6 +113,7 @@ pub fn render_startup_banner(config: &Config, style: BannerStyle) -> String {
     if crate::build_info::dirty() {
         out.push_str("warning: build stamp is dirty; rebuild cleanly before measurement runs\n");
     }
+    out.push_str("help: /help for commands | /doctor for setup diagnostics\n");
     out
 }
 
@@ -235,6 +236,7 @@ mod tests {
         assert!(out.contains("footer=on (default)"));
         assert!(out.contains("yes=true"));
         assert!(out.contains("--yes skips mutating-tool approval"));
+        assert!(out.contains("help: /help for commands | /doctor for setup diagnostics"));
         assert!(!out.contains("╔═╗"));
     }
 }

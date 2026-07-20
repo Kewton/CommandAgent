@@ -9,11 +9,15 @@ use crate::tui::markdown::TerminalMarkdownRenderer;
 use crate::tui::{OutputRenderer, TerminalUi};
 
 pub fn run(config: Config) -> anyhow::Result<()> {
-    if !io::stdin().is_terminal() {
+    let stdin_is_terminal = io::stdin().is_terminal();
+    if !stdin_is_terminal {
         bail!("stdin is not a TTY; pass --prompt or an action flag");
     }
 
     crate::tui::banner::print_startup_banner(&config)?;
+    for warning in crate::providers::startup::warnings(&config, stdin_is_terminal) {
+        eprintln!("{warning}");
+    }
     let ui = TerminalUi::new_with_input_queue(&config);
     let renderer = TerminalMarkdownRenderer::for_stdout();
     let mut execution = crate::providers::client_from_config(&config, false)?;

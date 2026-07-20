@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use reqwest::blocking::Client;
 use serde_json::{Value, json};
 
-use crate::config::{Config, load_api_key};
+use crate::config::{Config, Provider, load_api_key};
 use crate::eval_events;
 use crate::state::{ConversationMessage, ToolCall};
 use crate::tools::args_recovery::recover_tool_arguments;
@@ -168,7 +168,11 @@ impl ChatClient for GeminiClient {
                             "body_snippet": eval_events::body_snippet(&response_body),
                         }),
                     );
-                    anyhow::bail!("Gemini streamGenerateContent API failed: {status}");
+                    return Err(super::guidance::http_status_error(
+                        Provider::Gemini,
+                        model,
+                        status,
+                    ));
                 }
                 Ok(response) => {
                     let status = response.status();
@@ -198,7 +202,11 @@ impl ChatClient for GeminiClient {
                             "message": eval_events::body_snippet(&err.to_string()),
                         }),
                     );
-                    return Err(err.into());
+                    return Err(super::guidance::connection_error(
+                        Provider::Gemini,
+                        GEMINI_BASE_URL,
+                        err,
+                    ));
                 }
                 Err(err) => {
                     emit_stream_retry(self.eval_events_path.as_deref(), model, attempt, &err)
@@ -311,7 +319,11 @@ impl ChatClient for GeminiClient {
                             "body_snippet": eval_events::body_snippet(&body),
                         }),
                     );
-                    anyhow::bail!("Gemini interactions API failed: {}", status);
+                    return Err(super::guidance::http_status_error(
+                        Provider::Gemini,
+                        model,
+                        status,
+                    ));
                 }
                 Ok(response) => {
                     let status = response.status();
@@ -341,7 +353,11 @@ impl ChatClient for GeminiClient {
                             "message": eval_events::body_snippet(&err.to_string()),
                         }),
                     );
-                    return Err(err.into());
+                    return Err(super::guidance::connection_error(
+                        Provider::Gemini,
+                        GEMINI_BASE_URL,
+                        err,
+                    ));
                 }
                 Err(err) => {
                     eval_events::emit(
