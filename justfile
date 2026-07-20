@@ -31,7 +31,7 @@ test-conformance:
 
 # Run the opt-in pseudo-terminal integration suite.
 test-pty:
-    ANVIL_PTY_TESTS=1 cargo test --test tui_pty
+    ANVIL_PTY_TESTS=1 cargo test --test tui_pty -- --include-ignored
 
 # Run the three Python evaluation golden-test modules from CI.
 test-eval:
