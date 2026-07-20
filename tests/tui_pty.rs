@@ -174,6 +174,10 @@ fn tui_pty_screen_state_preserves_long_accepted_goal_across_footer_modes() {
             "PTY command failed (footer={footer}, no_color={no_color}). output={text:?}"
         );
         for expected in [
+            "Unknown command: /hepl",
+            "Did you mean /help?",
+            "Input was not run: 日本語の自由文",
+            "Use /ultra-plan-run <goal> or /plan-run <goal>.",
             "Accepted command",
             "- Command: /ultra-plan-run",
             "- Profile: nextjs (explicit)",
@@ -183,7 +187,7 @@ fn tui_pty_screen_state_preserves_long_accepted_goal_across_footer_modes() {
             "Active command: /ultra-plan-run",
             "── Phase 1/2: game-engine ──",
             "Current phase:",
-            "Terminal summary",
+            "TASK FAILED",
             "Primary stop reason:",
         ] {
             assert!(
@@ -191,6 +195,18 @@ fn tui_pty_screen_state_preserves_long_accepted_goal_across_footer_modes() {
                 "missing {expected:?} (footer={footer}, no_color={no_color}). visible={visible:?} raw={text:?}"
             );
         }
+        assert_eq!(
+            visible.matches("Unknown command: /hepl").count(),
+            1,
+            "typo guidance was duplicated (footer={footer}, no_color={no_color}). visible={visible:?}"
+        );
+        assert_eq!(
+            visible.matches("TASK FAILED").count(),
+            1,
+            "real failure was duplicated (footer={footer}, no_color={no_color}). visible={visible:?}"
+        );
+        assert!(!visible.contains("Terminal summary"), "visible={visible:?}");
+        assert!(!visible.contains("error:"), "visible={visible:?}");
         assert!(
             visible.contains("あなたが考える最高に面白くかっこいいスペースインベーダーゲームを")
                 && visible.contains("3011番ポートで作ってください"),
@@ -262,6 +278,12 @@ fn run_receipt_screen_script(
     let stderr_reader = thread::spawn(move || read_all(stderr));
     let mut stdin = child.stdin.take().unwrap();
     thread::sleep(Duration::from_secs(2));
+    stdin.write_all(b"/hepl\r")?;
+    stdin.flush()?;
+    thread::sleep(Duration::from_millis(250));
+    stdin.write_all("日本語の自由文\r".as_bytes())?;
+    stdin.flush()?;
+    thread::sleep(Duration::from_millis(250));
     stdin.write_all(
         "/ultra-plan-run --profile nextjs --style compact --prompt-layout stable \"あなたが考える最高に面白くかっこいいスペースインベーダーゲームを、CJKの長い説明を保ったまま3011番ポートで作ってください\"\n"
             .as_bytes(),

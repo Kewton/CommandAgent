@@ -1,0 +1,32 @@
+case_id = "issue45_repl_input_errors"
+source = "Issue 45 pre-execution REPL input contract"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/pre-execution-input-errors.jsonl = [
+  "\"input\":\"/hepl\"",
+  "\"suggestion\":\"/help\"",
+  "\"input\":\"日本語の自由文\"",
+  "\"guidance\":[\"/ultra-plan-run <goal>\",\"/plan-run <goal>\"]",
+  "\"emitted_events\":[]",
+  "\"summary_generated\":false"
+]

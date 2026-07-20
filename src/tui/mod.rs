@@ -7,6 +7,7 @@ pub mod interrupt;
 pub mod markdown;
 pub mod presentation;
 pub mod repl;
+pub mod repl_output;
 pub mod slash;
 pub mod spinner;
 pub mod status;
