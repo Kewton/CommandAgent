@@ -303,6 +303,11 @@ def test_dependency_overrides_reject_cycles() -> None:
 
 def test_issue_decision_becomes_acceptance_and_worker_instruction() -> None:
     module = load_script()
+
+    def no_rg(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise FileNotFoundError
+
+    module.run_command = no_rg
     analysis = module.analyze_issue(
         module.Issue(17, "Choose protocol naming", "Record the selected option."),
         "CommandAgent",
@@ -318,12 +323,36 @@ def test_issue_decision_becomes_acceptance_and_worker_instruction() -> None:
     assert updated.approved_decision.startswith("Adopt Option A")
     assert updated.enhancement_needed is False
     assert updated.questions == ()
+    assert updated.suspected_files == ("docs/mechanism-ledger.md",)
     assert updated.acceptance_criteria == (
         "Apply approved decision: Adopt Option A and update only "
         "docs/mechanism-ledger.md.",
     )
     assert "## Approved Decision" in prompt
     assert "Adopt Option A and update only docs/mechanism-ledger.md." in prompt
+
+
+def test_issue_decision_without_scope_keeps_scope_question() -> None:
+    module = load_script()
+
+    def no_rg(*args, **kwargs):  # type: ignore[no-untyped-def]
+        raise FileNotFoundError
+
+    module.run_command = no_rg
+    analysis = module.analyze_issue(
+        module.Issue(17, "Choose protocol naming", "Record the selected option."),
+        "CommandAgent",
+        skip_enhance=False,
+    )
+    decisions = module.parse_issue_decisions(["17:Adopt Option A."], [17])
+
+    updated = module.apply_planning_overrides([analysis], {17: ()}, decisions)[0]
+
+    assert updated.enhancement_needed is True
+    assert updated.questions == (
+        "影響範囲を特定できません。想定している機能領域やファイルがあれば教えてください。",
+    )
+    assert updated.suspected_files == ()
 
 
 def test_build_issue_body_with_orchestration_notes_is_idempotent() -> None:

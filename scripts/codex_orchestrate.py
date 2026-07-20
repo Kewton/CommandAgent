@@ -492,18 +492,34 @@ def apply_planning_overrides(
         issue_number = analysis.issue.number
         decision = issue_decisions.get(issue_number, "")
         acceptance = analysis.acceptance_criteria
+        suspected_files = list(analysis.suspected_files)
+        reference_files = list(analysis.reference_files)
         questions = analysis.questions
         if decision:
             acceptance = (*acceptance, f"Apply approved decision: {decision}")
+            decision_suspected, decision_references = classify_file_candidates(
+                extract_file_candidates(decision)
+            )
+            suspected_files.extend(
+                path for path in decision_suspected if path not in suspected_files
+            )
+            reference_files.extend(
+                path for path in decision_references if path not in reference_files
+            )
             questions = tuple(
                 question
                 for question in questions
                 if not question.startswith("受入条件が明確ではありません")
+                and not (
+                    suspected_files and question.startswith("影響範囲を特定できません")
+                )
             )
         updated.append(
             replace(
                 analysis,
                 acceptance_criteria=acceptance,
+                suspected_files=tuple(suspected_files),
+                reference_files=tuple(reference_files),
                 enhancement_needed=bool(questions),
                 questions=questions,
                 explicit_dependencies=(
