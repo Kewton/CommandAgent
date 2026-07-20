@@ -30,6 +30,8 @@ jobs:
           python3 scripts/validate_codex_skills.py
           ruff check scripts/codex_orchestrate.py scripts/validate_codex_skills.py tests/test_codex_orchestrate.py
           python3 -m pytest tests/test_codex_orchestrate.py -q
+      - name: ShellCheck repository scripts
+        run: shellcheck scripts/*.sh
       - name: cargo test all targets
         run: cargo test --all-targets
       - name: corpus harness

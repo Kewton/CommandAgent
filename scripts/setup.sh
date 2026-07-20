@@ -1,0 +1,610 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+script_dir="$(CDPATH='' cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+repo_root="$(CDPATH='' cd -- "$script_dir/.." && pwd -P)"
+quickstart_link="README.md#quickstart"
+ollama_url="http://localhost:11434"
+
+mode="interactive"
+check_only=false
+current_step="initialization"
+commandagent_bin=""
+package_version=""
+source_commit=""
+expected_build_commit=""
+node_ready=false
+ollama_installed=false
+ollama_reachable=false
+
+summary_steps=()
+summary_states=()
+summary_details=()
+
+usage() {
+    cat <<'EOF'
+Usage: ./scripts/setup.sh [--yes | --check-only]
+
+  no arguments   Interactive setup with confirmation at each optional step
+  --yes          Non-interactive setup using safe defaults
+  --check-only   Check prerequisites without changing anything
+EOF
+}
+
+add_summary() {
+    local index=${#summary_steps[@]}
+    summary_steps[index]="$1"
+    summary_states[index]="$2"
+    summary_details[index]="$3"
+}
+
+print_summary() {
+    local index
+    printf '\nSetup summary\n'
+    for ((index = 0; index < ${#summary_steps[@]}; index += 1)); do
+        printf -- '- %-24s %-7s %s\n' \
+            "${summary_steps[$index]}" \
+            "${summary_states[$index]}" \
+            "${summary_details[$index]}"
+    done
+    printf '\nNext: follow the README Quickstart at %s\n' "$quickstart_link"
+}
+
+fail() {
+    trap - ERR
+    printf 'error: %s\n' "$1" >&2
+    exit 1
+}
+
+unexpected_failure() {
+    local status=$?
+    local line=$1
+    trap - ERR
+    printf 'error: %s failed near line %s; complete that step manually, then rerun ./scripts/setup.sh\n' \
+        "$current_step" "$line" >&2
+    exit "$status"
+}
+
+interrupted() {
+    trap - HUP INT TERM
+    printf 'error: %s was interrupted; finish it manually if needed, then rerun ./scripts/setup.sh\n' \
+        "$current_step" >&2
+    exit 130
+}
+
+trap 'unexpected_failure "$LINENO"' ERR
+trap interrupted HUP INT TERM
+
+if [[ $# -gt 1 ]]; then
+    usage >&2
+    fail "invalid arguments; rerun ./scripts/setup.sh with no argument, --yes, or --check-only"
+fi
+
+case "${1-}" in
+    "") mode="interactive" ;;
+    --yes) mode="yes" ;;
+    --check-only)
+        mode="check-only"
+        check_only=true
+        ;;
+    --help|-h)
+        usage
+        exit 0
+        ;;
+    *)
+        usage >&2
+        fail "unknown option '$1'; rerun ./scripts/setup.sh with no argument, --yes, or --check-only"
+        ;;
+esac
+
+confirm() {
+    local prompt=$1
+    local answer=""
+    if [[ "$mode" == "yes" ]]; then
+        return 0
+    fi
+    printf '%s [y/N] ' "$prompt"
+    if ! IFS= read -r answer; then
+        answer=""
+    fi
+    case "$answer" in
+        y|Y|yes|YES|Yes) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+version_at_least() {
+    local current=${1%%-*}
+    local required=${2%%-*}
+    local current_major=""
+    local current_minor=""
+    local current_patch=""
+    local required_major=""
+    local required_minor=""
+    local required_patch=""
+
+    IFS=. read -r current_major current_minor current_patch <<<"$current"
+    IFS=. read -r required_major required_minor required_patch <<<"$required"
+    current_patch=${current_patch:-0}
+    required_patch=${required_patch:-0}
+
+    case "$current_major$current_minor$current_patch$required_major$required_minor$required_patch" in
+        *[!0-9]*) return 1 ;;
+    esac
+
+    if ((current_major != required_major)); then
+        ((current_major > required_major))
+    elif ((current_minor != required_minor)); then
+        ((current_minor > required_minor))
+    else
+        ((current_patch >= required_patch))
+    fi
+}
+
+manifest_value() {
+    local key=$1
+    local line=""
+    line="$(grep -E -m 1 "^[[:space:]]*${key}[[:space:]]*=" "$repo_root/Cargo.toml" || true)"
+    printf '%s\n' "$line" | sed -E 's/^[^"]*"([^"]+)".*$/\1/'
+}
+
+key_is_configured() {
+    local key=$1
+    case "$key" in
+        GEMINI_API_KEY)
+            [[ -n "${GEMINI_API_KEY:-}" ]] && return 0
+            ;;
+        OPENAI_API_KEY)
+            [[ -n "${OPENAI_API_KEY:-}" ]] && return 0
+            ;;
+    esac
+    [[ -f "$repo_root/.env" ]] && grep -q -E "^[[:space:]]*${key}=" "$repo_root/.env"
+}
+
+check_prerequisites() {
+    local required_rust=""
+    local rust_output=""
+    local rust_version=""
+    local required_failures=0
+    local required_detail="cargo, rustc, and git available"
+    local node_detail=""
+    local ollama_detail=""
+    local python_detail=""
+    local api_detail=""
+
+    current_step="prerequisite checks"
+    printf 'Checking prerequisites (no changes are made)...\n'
+
+    if [[ ! -f "$repo_root/Cargo.toml" ]]; then
+        fail "Cargo.toml is missing; run this script from a complete CommandAgent checkout"
+    fi
+    required_rust="$(manifest_value rust-version)"
+    if [[ -z "$required_rust" || "$required_rust" == *'='* ]]; then
+        fail "could not read rust-version from Cargo.toml; inspect the manifest and retry"
+    fi
+
+    if ! command -v cargo >/dev/null 2>&1; then
+        printf 'required: cargo is missing; install Rust and Cargo from https://www.rust-lang.org/tools/install\n' >&2
+        required_failures=$((required_failures + 1))
+    elif ! cargo --version >/dev/null 2>&1; then
+        printf 'required: cargo could not run; repair it using https://www.rust-lang.org/tools/install\n' >&2
+        required_failures=$((required_failures + 1))
+    fi
+
+    if ! command -v rustc >/dev/null 2>&1; then
+        printf 'required: rustc is missing; install Rust %s or newer from https://www.rust-lang.org/tools/install\n' \
+            "$required_rust" >&2
+        required_failures=$((required_failures + 1))
+    else
+        rust_output="$(rustc --version 2>/dev/null || true)"
+        rust_version=${rust_output#rustc }
+        rust_version=${rust_version%% *}
+        if [[ -z "$rust_output" ]] || ! version_at_least "$rust_version" "$required_rust"; then
+            printf 'required: rustc %s is older than Cargo.toml rust-version %s; update via https://www.rust-lang.org/tools/install\n' \
+                "${rust_version:-unknown}" "$required_rust" >&2
+            required_failures=$((required_failures + 1))
+        else
+            printf 'ok: rustc %s satisfies rust-version %s\n' "$rust_version" "$required_rust"
+        fi
+    fi
+
+    if ! command -v git >/dev/null 2>&1; then
+        printf 'required: git is missing; install it from https://git-scm.com/downloads\n' >&2
+        required_failures=$((required_failures + 1))
+    elif ! git --version >/dev/null 2>&1; then
+        printf 'required: git could not run; repair it using https://git-scm.com/downloads\n' >&2
+        required_failures=$((required_failures + 1))
+    fi
+
+    if ((required_failures == 0)); then
+        add_summary "Required tools" "ok" "$required_detail"
+    else
+        add_summary "Required tools" "warn" "$required_failures required check(s) failed"
+    fi
+
+    if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
+        node_ready=true
+        node_detail="node and npm available"
+        printf 'ok: node and npm are available for the interaction probe\n'
+        add_summary "Node/npm (optional)" "ok" "$node_detail"
+    else
+        node_detail="node and/or npm missing; install from https://nodejs.org/ to enable the interaction probe"
+        printf 'warning: %s\n' "$node_detail" >&2
+        add_summary "Node/npm (optional)" "warn" "$node_detail"
+    fi
+
+    if command -v ollama >/dev/null 2>&1; then
+        ollama_installed=true
+    fi
+    if command -v curl >/dev/null 2>&1 \
+        && curl --silent --fail --max-time 2 "$ollama_url/api/tags" >/dev/null 2>&1; then
+        ollama_reachable=true
+    fi
+    if [[ "$ollama_installed" == true && "$ollama_reachable" == true ]]; then
+        ollama_detail="ollama installed and $ollama_url reachable"
+        add_summary "Ollama (optional)" "ok" "$ollama_detail"
+    elif [[ "$ollama_installed" == true ]]; then
+        ollama_detail="ollama installed; start it to make $ollama_url reachable"
+        printf 'warning: %s\n' "$ollama_detail" >&2
+        add_summary "Ollama (optional)" "warn" "$ollama_detail"
+    elif [[ "$ollama_reachable" == true ]]; then
+        ollama_detail="$ollama_url reachable without the ollama CLI"
+        add_summary "Ollama (optional)" "ok" "$ollama_detail"
+    else
+        ollama_detail="ollama unavailable; install from https://ollama.com/download or start $ollama_url"
+        printf 'warning: %s\n' "$ollama_detail" >&2
+        add_summary "Ollama (optional)" "warn" "$ollama_detail"
+    fi
+
+    if command -v python3 >/dev/null 2>&1; then
+        python_detail="python3 available for evaluation tooling"
+        add_summary "Python (optional)" "ok" "$python_detail"
+    else
+        python_detail="python3 missing; install from https://www.python.org/downloads/ for evaluation tooling"
+        printf 'warning: %s\n' "$python_detail" >&2
+        add_summary "Python (optional)" "warn" "$python_detail"
+    fi
+
+    if key_is_configured GEMINI_API_KEY || key_is_configured OPENAI_API_KEY; then
+        api_detail="at least one remote-provider key is configured"
+        add_summary "API keys (optional)" "ok" "$api_detail"
+    else
+        api_detail="no remote-provider key configured; local Ollama use is unaffected"
+        printf 'warning: %s\n' "$api_detail" >&2
+        add_summary "API keys (optional)" "warn" "$api_detail"
+    fi
+
+    if ((required_failures > 0)); then
+        printf 'error: prerequisite checks failed; install or repair the required tools above, then rerun ./scripts/setup.sh\n' >&2
+        print_summary
+        exit 1
+    fi
+}
+
+resolve_source_provenance() {
+    local git_status=""
+    current_step="source provenance detection"
+    package_version="$(manifest_value version)"
+    if [[ -z "$package_version" || "$package_version" == *'='* ]]; then
+        fail "could not read the package version from Cargo.toml; inspect the manifest and retry"
+    fi
+    source_commit="$(git -C "$repo_root" rev-parse --short HEAD 2>/dev/null || true)"
+    if [[ -z "$source_commit" ]]; then
+        fail "Git could not identify this checkout; run cargo install --path . --locked manually from a valid clone"
+    fi
+    git_status="$(git -C "$repo_root" status --porcelain 2>/dev/null || true)"
+    expected_build_commit="$source_commit"
+    if [[ -n "$git_status" ]]; then
+        expected_build_commit="${source_commit}+dirty"
+    fi
+}
+
+binary_matches_source() {
+    local candidate=$1
+    local output=""
+    local binary_name=""
+    local binary_version=""
+    local binary_commit=""
+    local binary_timestamp=""
+    local extra=""
+    [[ -x "$candidate" ]] || return 1
+    output="$("$candidate" --version 2>/dev/null || true)"
+    read -r binary_name binary_version binary_commit binary_timestamp extra <<<"$output"
+    [[ "$binary_name" == "commandagent" \
+        && "$binary_version" == "$package_version" \
+        && "$binary_commit" == "$expected_build_commit" \
+        && -n "$binary_timestamp" \
+        && -z "$extra" ]]
+}
+
+find_commandagent() {
+    local candidate=""
+    candidate="$(command -v commandagent 2>/dev/null || true)"
+    if [[ -n "$candidate" && -x "$candidate" ]]; then
+        commandagent_bin="$candidate"
+        return 0
+    fi
+    candidate="${CARGO_HOME:-$HOME/.cargo}/bin/commandagent"
+    if [[ -x "$candidate" ]]; then
+        commandagent_bin="$candidate"
+        return 0
+    fi
+    return 1
+}
+
+install_or_build() {
+    local existing=""
+    local cargo_bin="${CARGO_HOME:-$HOME/.cargo}/bin/commandagent"
+    current_step="CommandAgent install"
+    resolve_source_provenance
+
+    if find_commandagent; then
+        existing="$commandagent_bin"
+        if binary_matches_source "$existing"; then
+            printf 'skipped: matching CommandAgent build is already installed at %s\n' "$existing"
+            add_summary "Build/install" "skipped" "matching source build already available"
+            return
+        fi
+    fi
+    if [[ "$cargo_bin" != "$existing" ]] && binary_matches_source "$cargo_bin"; then
+        commandagent_bin="$cargo_bin"
+        printf 'skipped: matching CommandAgent build is already installed at %s\n' "$cargo_bin"
+        printf 'PATH suggestion: add %s to PATH to invoke commandagent by name\n' "${CARGO_HOME:-$HOME/.cargo}/bin"
+        add_summary "Build/install" "skipped" "matching Cargo binary already available; PATH advice shown"
+        return
+    fi
+
+    if confirm "Install CommandAgent with 'cargo install --path . --locked'?"; then
+        if ! (cd -- "$repo_root" && cargo install --path . --locked); then
+            fail "cargo install failed; run 'cargo install --path . --locked' manually from $repo_root"
+        fi
+        if [[ -x "$cargo_bin" ]]; then
+            commandagent_bin="$cargo_bin"
+        else
+            commandagent_bin=""
+            find_commandagent || true
+        fi
+        if [[ -z "$commandagent_bin" ]]; then
+            fail "cargo install completed but commandagent was not found; add ${CARGO_HOME:-$HOME/.cargo}/bin to PATH and run 'commandagent --version'"
+        fi
+        if ! binary_matches_source "$commandagent_bin"; then
+            fail "cargo install completed but the installed binary does not match this source; rerun 'cargo install --path . --locked --force' manually"
+        fi
+        add_summary "Build/install" "ok" "installed with cargo install --path . --locked"
+    else
+        current_step="CommandAgent release build fallback"
+        printf 'Install declined; building target/release/commandagent instead.\n'
+        if ! (cd -- "$repo_root" && cargo build --release); then
+            fail "release build failed; run 'cargo build --release' manually from $repo_root"
+        fi
+        commandagent_bin="$repo_root/target/release/commandagent"
+        if [[ ! -x "$commandagent_bin" ]]; then
+            fail "release build produced no executable; rerun 'cargo build --release' and inspect Cargo output"
+        fi
+        printf 'PATH suggestion: export PATH="%s/target/release:%s"\n' "$repo_root" "\$PATH"
+        add_summary "Build/install" "ok" "release build created; PATH addition shown above"
+    fi
+}
+
+append_api_key() {
+    local key=$1
+    local provider=$2
+    local env_file="$repo_root/.env"
+    local secret_value=""
+    local created=false
+
+    if key_is_configured "$key"; then
+        printf 'skipped: %s is already configured; its value was not read or changed\n' "$key"
+        return 2
+    fi
+    if ! confirm "Configure $provider with $key in .env?"; then
+        return 2
+    fi
+
+    printf 'Enter %s (input hidden): ' "$key"
+    if ! IFS= read -r -s secret_value; then
+        secret_value=""
+    fi
+    printf '\n'
+    if [[ -z "$secret_value" ]]; then
+        printf 'warning: %s was left empty; set it manually in .env or the process environment\n' "$key" >&2
+        unset secret_value
+        return 3
+    fi
+
+    if [[ -L "$env_file" ]]; then
+        printf 'warning: .env is a symbolic link; set %s manually rather than following the link\n' "$key" >&2
+        unset secret_value
+        return 3
+    fi
+    if [[ ! -e "$env_file" ]]; then
+        if ! (umask 177 && : >"$env_file"); then
+            unset secret_value
+            printf 'warning: .env creation failed; set %s in the process environment manually\n' "$key" >&2
+            return 3
+        fi
+        created=true
+    elif [[ ! -f "$env_file" ]]; then
+        unset secret_value
+        printf 'warning: .env is not a regular file; set %s in the process environment manually\n' "$key" >&2
+        return 3
+    fi
+
+    if [[ -s "$env_file" ]]; then
+        if ! printf '\n%s=%s\n' "$key" "$secret_value" >>"$env_file"; then
+            unset secret_value
+            printf 'warning: writing %s failed; set it in .env or the process environment manually\n' "$key" >&2
+            return 3
+        fi
+    elif ! printf '%s=%s\n' "$key" "$secret_value" >>"$env_file"; then
+        unset secret_value
+        printf 'warning: writing %s failed; set it in .env or the process environment manually\n' "$key" >&2
+        return 3
+    fi
+    unset secret_value
+    if [[ "$created" == true ]]; then
+        chmod 600 "$env_file"
+    fi
+    printf 'ok: added %s to .env without changing existing entries\n' "$key"
+    return 0
+}
+
+configure_api_keys() {
+    local configured=0
+    local skipped=0
+    local warned=0
+    local result=0
+    current_step="API key setup"
+
+    if [[ "$mode" == "yes" ]]; then
+        printf 'skipped: --yes never prompts for or writes API keys; set GEMINI_API_KEY or OPENAI_API_KEY manually if needed\n'
+        add_summary "API key setup" "skipped" "non-interactive mode never writes secrets"
+        return
+    fi
+
+    append_api_key GEMINI_API_KEY Gemini || result=$?
+    case "$result" in
+        0) configured=$((configured + 1)) ;;
+        2) skipped=$((skipped + 1)) ;;
+        *) warned=$((warned + 1)) ;;
+    esac
+    result=0
+    append_api_key OPENAI_API_KEY OpenAI || result=$?
+    case "$result" in
+        0) configured=$((configured + 1)) ;;
+        2) skipped=$((skipped + 1)) ;;
+        *) warned=$((warned + 1)) ;;
+    esac
+
+    if ((warned > 0)); then
+        add_summary "API key setup" "warn" "$configured added, $skipped skipped, $warned need manual setup"
+    elif ((configured > 0)); then
+        add_summary "API key setup" "ok" "$configured key entry or entries added; existing content preserved"
+    else
+        add_summary "API key setup" "skipped" "no absent key entries were added"
+    fi
+}
+
+setup_ollama_model() {
+    local list_output=""
+    local model_count=0
+    local model_name=""
+    current_step="Ollama model setup"
+
+    if [[ "$ollama_installed" != true ]]; then
+        add_summary "Ollama model" "skipped" "ollama CLI unavailable"
+        return
+    fi
+
+    if ! list_output="$(ollama list 2>&1)"; then
+        printf '%s\n' "$list_output"
+        printf 'warning: ollama list failed; start Ollama and run it manually\n' >&2
+        add_summary "Ollama model" "warn" "ollama list failed; run it manually after starting Ollama"
+        return
+    fi
+    printf '\nInstalled Ollama models:\n%s\n' "$list_output"
+    ollama_reachable=true
+    model_count="$(printf '%s\n' "$list_output" | awk 'NR > 1 && NF { count += 1 } END { print count + 0 }')"
+    if ((model_count > 0)); then
+        add_summary "Ollama model" "skipped" "$model_count model(s) already installed"
+        return
+    fi
+
+    if [[ "$mode" == "yes" ]]; then
+        printf 'skipped: no Ollama model is installed and --yes will not choose one; run ollama pull "<your-model>"\n'
+        add_summary "Ollama model" "skipped" "no model selected; run ollama pull <your-model>"
+        return
+    fi
+    if ! confirm "No Ollama models were found. Pull one now?"; then
+        add_summary "Ollama model" "skipped" "no model selected"
+        return
+    fi
+    printf 'Model name (no default): '
+    if ! IFS= read -r model_name; then
+        model_name=""
+    fi
+    if [[ -z "$model_name" ]]; then
+        printf 'warning: no model name entered; run ollama pull "<your-model>" manually\n' >&2
+        add_summary "Ollama model" "warn" "model name was empty; manual pull required"
+        return
+    fi
+    if ! ollama pull "$model_name"; then
+        printf 'warning: Ollama pull failed; run ollama pull "%s" manually\n' "$model_name" >&2
+        add_summary "Ollama model" "warn" "pull failed; retry manually"
+        return
+    fi
+    add_summary "Ollama model" "ok" "requested model pulled"
+}
+
+setup_interaction_probe() {
+    local probe_output=""
+    current_step="interaction probe setup"
+    if [[ "$node_ready" != true ]]; then
+        add_summary "Interaction probe" "skipped" "node and npm are required"
+        return
+    fi
+    if ! confirm "Run 'commandagent --setup-interaction-probe'?"; then
+        add_summary "Interaction probe" "skipped" "user declined probe setup"
+        return
+    fi
+    if ! probe_output="$("$commandagent_bin" --setup-interaction-probe 2>&1)"; then
+        printf '%s\n' "$probe_output"
+        printf 'warning: interaction probe setup failed; run commandagent --setup-interaction-probe manually\n' >&2
+        add_summary "Interaction probe" "warn" "setup failed; retry manually"
+        return
+    fi
+    printf '%s\n' "$probe_output"
+    if [[ "$probe_output" == *"existing playwright"* ]]; then
+        add_summary "Interaction probe" "skipped" "existing managed Playwright installation reused"
+    else
+        add_summary "Interaction probe" "ok" "managed Playwright probe prepared"
+    fi
+}
+
+smoke_version() {
+    local version_output=""
+    current_step="CommandAgent version smoke test"
+    if ! version_output="$("$commandagent_bin" --version 2>&1)"; then
+        fail "commandagent --version failed; run '$commandagent_bin --version' manually and inspect the error"
+    fi
+    printf '\nCommandAgent version:\n%s\n' "$version_output"
+    add_summary "Version smoke test" "ok" "$version_output"
+}
+
+smoke_model_probe() {
+    local probe_output=""
+    current_step="model probe smoke test"
+    if [[ "$ollama_reachable" != true ]]; then
+        add_summary "Model probe" "skipped" "$ollama_url was not reachable"
+        return
+    fi
+    printf '\nThe model probe can take several minutes and sends test prompts to the configured model.\n'
+    if ! confirm "Run 'commandagent --model-probe' now?"; then
+        add_summary "Model probe" "skipped" "long-running smoke test declined"
+        return
+    fi
+    if ! probe_output="$("$commandagent_bin" --model-probe 2>&1)"; then
+        printf '%s\n' "$probe_output"
+        printf 'warning: model probe failed; verify model configuration and run commandagent --model-probe manually\n' >&2
+        add_summary "Model probe" "warn" "probe failed; retry manually after checking model configuration"
+        return
+    fi
+    printf '%s\n' "$probe_output"
+    add_summary "Model probe" "ok" "model smoke test completed"
+}
+
+check_prerequisites
+if [[ "$check_only" == true ]]; then
+    add_summary "Changes" "skipped" "--check-only made no changes"
+    print_summary
+    exit 0
+fi
+
+install_or_build
+configure_api_keys
+setup_ollama_model
+setup_interaction_probe
+smoke_version
+smoke_model_probe
+print_summary

@@ -223,7 +223,7 @@ pub(crate) fn transition(inputs: PressureInputs) -> PressureState {
     };
 
     // NOTE: T26b2 closes the former no-progress non-promotion entry; see
-    // docs/integration-notes.md for the bounded scope and regression evidence.
+    // docs/dev/integration-notes.md for the bounded scope and regression evidence.
     PressureState {
         level,
         feedback_level,

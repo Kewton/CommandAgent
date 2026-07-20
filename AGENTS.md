@@ -2,7 +2,7 @@
 
 All paths in these instructions are relative to the repository root. The Rust
 crate and the `commandagent` binary both live at the repository root. Read
-`docs/dev-guardrails.md` before changing production code.
+`docs/dev/dev-guardrails.md` before changing production code.
 
 ## Engineering guardrails
 

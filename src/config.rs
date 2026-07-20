@@ -15,6 +15,27 @@ pub const LOCAL_PROVIDER_CHAT_TIMEOUT_SECS: u64 = 600;
 pub const REMOTE_PROVIDER_CHAT_TIMEOUT_SECS: u64 = 180;
 pub const DEFAULT_CONTEXT_BUDGET: usize = 65_536;
 pub const DEFAULT_MODEL: &str = "qwen3.6:27b-coding-nvfp4";
+pub const SUPPORTED_PRESET_KEYS: &[&str] = &[
+    "model",
+    "provider",
+    "planner_model",
+    "planner_provider",
+    "context_budget",
+    "chat_timeout_secs",
+    "profile",
+    "narration",
+    "footer",
+    "stream",
+    "prompt_layout",
+    "plan_preset",
+];
+pub const SUPPORTED_TOP_LEVEL_KEYS: &[&str] = &[
+    "narration",
+    "footer",
+    "stream",
+    "prompt_layout",
+    "plan_preset",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -168,6 +189,7 @@ pub enum Action {
     Runs,
     UxDemo,
     ModelProbe,
+    Doctor,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -298,6 +320,27 @@ struct ConfigFile {
     stream: Option<Sourced<bool>>,
     prompt_layout: Option<Sourced<PromptLayout>>,
     plan_preset: Option<Sourced<PlanPreset>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ConfigPathInspection {
+    pub path: PathBuf,
+    pub exists: bool,
+    pub parse_error: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PresetInspection {
+    pub name: String,
+    pub found: bool,
+    pub complete: bool,
+    pub missing_keys: Vec<&'static str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ConfigInspection {
+    pub paths: Vec<ConfigPathInspection>,
+    pub preset: Option<PresetInspection>,
 }
 
 impl Config {
@@ -642,18 +685,7 @@ fn load_named_preset(root: &Path, name: Option<&str>) -> anyhow::Result<Option<P
             continue;
         };
         found = true;
-        merge_preset_field(&mut merged.model, &preset.model);
-        merge_preset_field(&mut merged.provider, &preset.provider);
-        merge_preset_field(&mut merged.planner_model, &preset.planner_model);
-        merge_preset_field(&mut merged.planner_provider, &preset.planner_provider);
-        merge_preset_field(&mut merged.context_budget, &preset.context_budget);
-        merge_preset_field(&mut merged.chat_timeout_secs, &preset.chat_timeout_secs);
-        merge_preset_field(&mut merged.prompt_layout, &preset.prompt_layout);
-        merge_preset_field(&mut merged.plan_preset, &preset.plan_preset);
-        merge_preset_field(&mut merged.profile, &preset.profile);
-        merge_preset_field(&mut merged.narration, &preset.narration);
-        merge_preset_field(&mut merged.footer, &preset.footer);
-        merge_preset_field(&mut merged.stream, &preset.stream);
+        merge_preset(&mut merged, preset);
         if preset_complete(&merged) {
             break;
         }
@@ -670,17 +702,41 @@ fn load_named_preset(root: &Path, name: Option<&str>) -> anyhow::Result<Option<P
 }
 
 fn preset_complete(preset: &PresetConfig) -> bool {
-    preset.model.is_some()
-        && preset.provider.is_some()
-        && preset.planner_model.is_some()
-        && preset.planner_provider.is_some()
-        && preset.context_budget.is_some()
-        && preset.chat_timeout_secs.is_some()
-        && preset.plan_preset.is_some()
-        && preset.profile.is_some()
-        && preset.narration.is_some()
-        && preset.footer.is_some()
-        && preset.stream.is_some()
+    preset_missing_keys(preset).is_empty()
+}
+
+fn preset_missing_keys(preset: &PresetConfig) -> Vec<&'static str> {
+    [
+        ("model", preset.model.is_some()),
+        ("provider", preset.provider.is_some()),
+        ("planner_model", preset.planner_model.is_some()),
+        ("planner_provider", preset.planner_provider.is_some()),
+        ("context_budget", preset.context_budget.is_some()),
+        ("chat_timeout_secs", preset.chat_timeout_secs.is_some()),
+        ("plan_preset", preset.plan_preset.is_some()),
+        ("profile", preset.profile.is_some()),
+        ("narration", preset.narration.is_some()),
+        ("footer", preset.footer.is_some()),
+        ("stream", preset.stream.is_some()),
+    ]
+    .into_iter()
+    .filter_map(|(key, present)| (!present).then_some(key))
+    .collect()
+}
+
+fn merge_preset(target: &mut PresetConfig, source: &PresetConfig) {
+    merge_preset_field(&mut target.model, &source.model);
+    merge_preset_field(&mut target.provider, &source.provider);
+    merge_preset_field(&mut target.planner_model, &source.planner_model);
+    merge_preset_field(&mut target.planner_provider, &source.planner_provider);
+    merge_preset_field(&mut target.context_budget, &source.context_budget);
+    merge_preset_field(&mut target.chat_timeout_secs, &source.chat_timeout_secs);
+    merge_preset_field(&mut target.prompt_layout, &source.prompt_layout);
+    merge_preset_field(&mut target.plan_preset, &source.plan_preset);
+    merge_preset_field(&mut target.profile, &source.profile);
+    merge_preset_field(&mut target.narration, &source.narration);
+    merge_preset_field(&mut target.footer, &source.footer);
+    merge_preset_field(&mut target.stream, &source.stream);
 }
 
 fn merge_preset_field<T: Clone>(target: &mut Option<Sourced<T>>, source: &Option<Sourced<T>>) {
@@ -810,6 +866,50 @@ fn config_paths(root: &Path) -> Vec<PathBuf> {
     paths
 }
 
+pub(crate) fn inspect_config_files(root: &Path, preset_name: Option<&str>) -> ConfigInspection {
+    let preset_name = preset_name.map(str::trim).filter(|name| !name.is_empty());
+    let mut merged = PresetConfig::default();
+    let mut preset_found = false;
+    let paths = config_paths(root)
+        .into_iter()
+        .map(|path| match parse_config_file_if_present(&path) {
+            Ok(Some(file)) => {
+                if let Some(name) = preset_name
+                    && let Some(preset) = file.presets.get(name)
+                {
+                    preset_found = true;
+                    merge_preset(&mut merged, preset);
+                }
+                ConfigPathInspection {
+                    path,
+                    exists: true,
+                    parse_error: None,
+                }
+            }
+            Ok(None) => ConfigPathInspection {
+                path,
+                exists: false,
+                parse_error: None,
+            },
+            Err(error) => ConfigPathInspection {
+                path,
+                exists: true,
+                parse_error: Some(format!("{error:#}")),
+            },
+        })
+        .collect();
+    let preset = preset_name.map(|name| {
+        let missing_keys = preset_missing_keys(&merged);
+        PresetInspection {
+            name: name.to_string(),
+            found: preset_found,
+            complete: preset_found && missing_keys.is_empty(),
+            missing_keys,
+        }
+    });
+    ConfigInspection { paths, preset }
+}
+
 fn parse_config_file_if_present(path: &Path) -> anyhow::Result<Option<ConfigFile>> {
     match std::fs::read_to_string(path) {
         Ok(text) => parse_config_file(path, &text).map(Some),
@@ -878,6 +978,9 @@ fn parse_top_level_key(
     value: &str,
     file: &mut ConfigFile,
 ) -> anyhow::Result<()> {
+    if !SUPPORTED_TOP_LEVEL_KEYS.contains(&key) {
+        bail!("{}:{} unknown config key '{key}'", path.display(), line_no);
+    }
     match key {
         "narration" => {
             file.narration = Some(sourced(
@@ -929,7 +1032,7 @@ fn parse_top_level_key(
             ));
             Ok(())
         }
-        _ => bail!("{}:{} unknown config key '{key}'", path.display(), line_no),
+        _ => unreachable!("SUPPORTED_TOP_LEVEL_KEYS contains unhandled key '{key}'"),
     }
 }
 
@@ -943,6 +1046,13 @@ fn parse_preset_key(
     preset: &mut PresetConfig,
 ) -> anyhow::Result<()> {
     let full_key = format!("preset.{name}.{key}");
+    if !SUPPORTED_PRESET_KEYS.contains(&key) {
+        bail!(
+            "{}:{} unknown config key '{full_key}'",
+            path.display(),
+            line_no
+        );
+    }
     match key {
         "model" => {
             preset.model = Some(sourced(
@@ -1016,11 +1126,7 @@ fn parse_preset_key(
                 source,
             ))
         }
-        _ => bail!(
-            "{}:{} unknown config key '{full_key}'",
-            path.display(),
-            line_no
-        ),
+        _ => unreachable!("SUPPORTED_PRESET_KEYS contains unhandled key '{key}'"),
     }
     Ok(())
 }
@@ -1193,7 +1299,8 @@ pub fn action_goal(action: &Action) -> Option<&str> {
         | Action::SetupInteractionProbe
         | Action::Runs
         | Action::UxDemo
-        | Action::ModelProbe => None,
+        | Action::ModelProbe
+        | Action::Doctor => None,
     }
 }
 
@@ -1210,6 +1317,7 @@ fn action_from_cli(cli: &Cli) -> anyhow::Result<Action> {
     count += cli.runs as usize;
     count += cli.ux_demo as usize;
     count += cli.model_probe as usize;
+    count += cli.doctor as usize;
     if count > 1 {
         bail!("only one action selector can be used at a time");
     }
@@ -1249,6 +1357,9 @@ fn action_from_cli(cli: &Cli) -> anyhow::Result<Action> {
     }
     if cli.model_probe {
         return Ok(Action::ModelProbe);
+    }
+    if cli.doctor {
+        return Ok(Action::Doctor);
     }
     Ok(Action::Repl)
 }
@@ -1378,6 +1489,52 @@ mod tests {
 
         assert!(matches!(config.action, Action::Runs));
         assert!(action_goal(&config.action).is_none());
+    }
+
+    #[test]
+    fn doctor_is_an_exclusive_action_selector() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            dir.path().to_str().unwrap(),
+            "--doctor",
+        ]))
+        .unwrap();
+        assert!(matches!(config.action, Action::Doctor));
+
+        let error = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            dir.path().to_str().unwrap(),
+            "--doctor",
+            "--runs",
+        ]))
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("only one action selector"), "{error}");
+    }
+
+    #[test]
+    fn config_inspection_reuses_parser_and_preset_completeness_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".anvil")).unwrap();
+        std::fs::write(
+            dir.path().join(".anvil/config.toml"),
+            "[preset.partial]\nprovider = \"gemini\"\n",
+        )
+        .unwrap();
+
+        let inspection = inspect_config_files(dir.path(), Some("partial"));
+        assert!(!inspection.paths[0].exists);
+        assert!(inspection.paths[1].exists);
+        assert!(inspection.paths[1].parse_error.is_none());
+        let preset = inspection.preset.unwrap();
+        assert!(preset.found);
+        assert!(!preset.complete);
+        assert!(preset.missing_keys.contains(&"model"));
+        assert!(preset.missing_keys.contains(&"planner_model"));
+        assert!(!preset.missing_keys.contains(&"prompt_layout"));
     }
 
     #[test]

@@ -7,7 +7,7 @@ Date: 2026-07-09
 Task type: UAT execution only. No code changes and no commits were made to repository-root sources.
 
 Fixed variables:
-- Scenario: GAME prompt from `docs/uat/scenarios.md`
+- Scenario: GAME prompt from `docs/dev/uat/scenarios.md`
 - Prompt: `/ultra-plan-run --profile nextjs あなたが考える最高に面白くかっこいいスペースインベーダーゲームを3011ポートで起動可能なnext.jsアプリとして開発してください。`
 - Model/provider:
   - `--model qwen3.6:27b-coding-nvfp4 --provider ollama`
@@ -51,7 +51,7 @@ Notes:
 
 ## Decision Rule Applied
 
-From `docs/perf-notes.md`:
+From `docs/dev/perf-notes.md`:
 
 > Pre-committed discrimination rule: if setup-phase `no_tool_missing_artifacts` stagnation occurs in one layout and not the other, prompt layout is the cause. If both layouts stagnate, treat it as model behavior and rely on deterministic scaffold rescue. If neither stagnates, keep the speed decision based on the prefill and wall-clock telemetry.
 
