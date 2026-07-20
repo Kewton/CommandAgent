@@ -21,8 +21,11 @@ break a larger goal into phases and repair failures along the way.
   <img src="docs/assets/ux-demo.svg" alt="Animated CommandAgent terminal demo" width="900">
 </p>
 
-The demo is completely offline: run `commandagent --ux-demo`. See the
-[recording notes](docs/assets/ux-demo.md) to reproduce it.
+`commandagent --ux-demo` is a completely offline, scripted walkthrough; it is
+not a normal provider-backed run. The embedded image is a hand-authored SVG
+excerpt of that script, not a terminal recording. See the
+[recording notes](docs/assets/ux-demo.md) for both the scripted asset and the
+separate recording of a real provider-backed REPL `/ultra-plan-run`.
 
 ## Features
 

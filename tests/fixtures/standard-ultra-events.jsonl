@@ -3,6 +3,10 @@
 {"event":"tui_command_start","command":"/ultra-plan-run","profile":"generic"}
 {"event":"ultra_plan_generation_attempt","attempt":1,"profile":"generic"}
 {"event":"provider_turn_duration","scope":"planner_ultra","duration_secs":2}
+{"event":"empty_response_escalation","attempt":1,"stage":"nudge_1"}
+{"event":"empty_response_recovered","after_empty_responses":1}
+{"event":"planner_quality_retry","repair_attempt":1,"planner_error_message":"missing verification"}
+{"event":"provider_turn_timeout_recovered","scope":"planner_ultra"}
 {"event":"ultra_plan_generation_succeeded","attempt":1,"phase_count":2}
 {"event":"ultra_context_initialized","total_phases":2,"shared_execution_session":true}
 {"event":"ultra_phase_start","phase_id":"scaffold","phase_index":1,"total_phases":2,"stage":"start"}
