@@ -1,0 +1,4 @@
+{"entry":"create","event":"workflow_started","origin":"/Users/maenokota/share/work/localwork/commandagent_mvp/01/d3a2_smoke5_origin2"}
+{"checks":["E-A","E-B","E-C","E-D"],"edge":"create->investigate","event":"workflow_edge_fired"}
+{"event":"workflow_node_started","intent":"investigate","node":"investigate"}
+{"event":"workflow_node_run_created","node":"investigate","run_dir":"/Users/maenokota/share/work/localwork/commandagent_mvp/01/d3a2_smoke5_origin2/.anvil/runs/019f84bb-b94f-7380-817e-ad80a23a219e","run_id":"019f84bb-b94f-7380-817e-ad80a23a219e"}
