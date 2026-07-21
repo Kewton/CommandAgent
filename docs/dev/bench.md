@@ -22,6 +22,20 @@ Each campaign contains `uat-meta.json`, `report-skeleton.md`, per-run copied
 inputs, precheck logs, the unwrapped product command, console tails, and
 archived `.anvil/` evidence.
 
+## Scrub check
+
+`bench.py scrub --path <directory>` scans evidence before it is considered for
+publication. The same scan runs after every run is archived; a failure is
+recorded as `scrub_failed` in `uat-meta.json` and warned about without stopping
+evidence retention. Findings are reported masked as the first two characters
+and total length. Name mentions without a value are allowed: the target is
+secret existence, not vocabulary. This is an E2-style precision refinement,
+not a relaxation; unconditional provider-key, JWT, and private-key patterns
+remain failures. Dangerous `.env`/key files, derived directories, oversized
+files, and long environment dumps also fail. Optional suite `scrub_allow`
+entries require both a regular expression and a reason and are transferred to
+metadata and the skeleton for review.
+
 ## Rules made mechanical
 
 | Protocol lesson | Harness guarantee |
