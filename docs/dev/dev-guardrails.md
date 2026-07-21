@@ -53,3 +53,7 @@ Profile manifests may reference only capabilities registered in
 `src/planner/capability_catalog.rs`; free-form shell or logic-bearing templates
 must not be registered. New capabilities require implementation, schema, golden
 update, and tests in the same change.
+
+CI is an acceptance necessary condition, not a substitute for the authorized
+full-suite green run. The local acceptance conditions, including privileged
+full verification where required, remain in force.
