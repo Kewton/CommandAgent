@@ -703,7 +703,7 @@ impl TerminalMarkdownStream {
         }
         if self.raw {
             let mut stdout = io::stdout().lock();
-            stdout.write_all(raw_text.as_bytes())?;
+            crate::tui::terminal::write_stdout_text(&mut stdout, raw_text)?;
             stdout.flush()?;
             self.wrote_output = true;
             self.output_ends_with_newline = raw_text.ends_with('\n');
@@ -717,7 +717,7 @@ impl TerminalMarkdownStream {
             return Ok(());
         }
         let mut stdout = io::stdout().lock();
-        stdout.write_all(rendered.as_bytes())?;
+        crate::tui::terminal::write_stdout_text(&mut stdout, &rendered)?;
         stdout.flush()?;
         self.wrote_output = true;
         self.output_ends_with_newline = rendered.ends_with('\n');
@@ -739,11 +739,11 @@ impl TerminalMarkdownStream {
         }
         let mut stdout = io::stdout().lock();
         if !rendered.is_empty() {
-            stdout.write_all(rendered.as_bytes())?;
+            crate::tui::terminal::write_stdout_text(&mut stdout, &rendered)?;
             self.output_ends_with_newline = rendered.ends_with('\n');
         }
         if !self.output_ends_with_newline {
-            stdout.write_all(b"\n")?;
+            crate::tui::terminal::write_stdout_text(&mut stdout, "\n")?;
             self.output_ends_with_newline = true;
         }
         stdout.flush()?;
@@ -765,9 +765,9 @@ impl OutputRenderer for TerminalMarkdownRenderer {
         }
         let rendered = self.render_to_string(raw_text);
         let mut stdout = io::stdout().lock();
-        stdout.write_all(rendered.as_bytes())?;
+        crate::tui::terminal::write_stdout_text(&mut stdout, &rendered)?;
         if !rendered.ends_with('\n') {
-            stdout.write_all(b"\n")?;
+            crate::tui::terminal::write_stdout_text(&mut stdout, "\n")?;
         }
         stdout.flush()?;
         Ok(())

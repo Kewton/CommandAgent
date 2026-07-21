@@ -391,6 +391,7 @@ fn tui_pty_screen_state_preserves_long_accepted_goal_across_footer_modes() {
                 && visible.contains("3011番ポートで作ってください"),
             "long CJK Goal was not preserved (footer={footer}, no_color={no_color}). visible={visible:?}"
         );
+        assert_receipt_cursor_columns(&text, 72, footer, no_color);
         assert_eq!(
             text.contains("\x1b[1;"),
             footer,
@@ -580,6 +581,190 @@ fn normalize_screen_text(value: &str) -> String {
         }
     }
     plain.lines().map(str::trim_start).collect::<String>()
+}
+
+fn assert_receipt_cursor_columns(
+    transcript: &str,
+    terminal_cols: usize,
+    footer: bool,
+    no_color: bool,
+) {
+    const FIELDS: [&str; 8] = [
+        "- Input: ",
+        "- Command: ",
+        "- Goal: ",
+        "- Profile: ",
+        "- Style: ",
+        "- Prompt layout: ",
+        "- Requested port: ",
+        "- Run ID: ",
+    ];
+
+    let receipt_start = transcript
+        .find("Accepted command")
+        .unwrap_or_else(|| panic!("accepted receipt missing. output={transcript:?}"));
+    let run_id_start = receipt_start
+        + transcript[receipt_start..]
+            .find("- Run ID: ")
+            .unwrap_or_else(|| panic!("receipt run ID missing. output={transcript:?}"));
+    let receipt_end = transcript[run_id_start..]
+        .find('\n')
+        .map_or(transcript.len(), |offset| run_id_start + offset + 1);
+    let receipt = &transcript[receipt_start..receipt_end];
+    let mut field_seen = [false; FIELDS.len()];
+    let mut continuation_seen = [false; FIELDS.len()];
+    let mut continuation_indent = None;
+    let mut current_field = None;
+    let mut line_offset = 0;
+
+    for raw_line in receipt.split_inclusive('\n') {
+        let line = raw_line
+            .strip_suffix('\n')
+            .unwrap_or(raw_line)
+            .strip_suffix('\r')
+            .unwrap_or(raw_line.strip_suffix('\n').unwrap_or(raw_line));
+        let leading_spaces = line.bytes().take_while(|byte| *byte == b' ').count();
+        let content = &line[leading_spaces..];
+        assert!(!content.is_empty(), "empty receipt line in {receipt:?}");
+
+        let content_index = receipt_start + line_offset + leading_spaces;
+        let actual_column = cursor_column_at(transcript, content_index, terminal_cols);
+        assert_eq!(
+            actual_column, leading_spaces,
+            "receipt line started in the wrong terminal column (footer={footer}, no_color={no_color}, line={line:?}, expected_column={leading_spaces}, actual_column={actual_column}). output={transcript:?}"
+        );
+
+        if content == "Accepted command" {
+            assert_eq!(leading_spaces, 0, "receipt heading was indented: {line:?}");
+        } else if let Some((index, prefix)) = FIELDS
+            .iter()
+            .enumerate()
+            .find(|(_, prefix)| content.starts_with(*prefix))
+        {
+            assert_eq!(
+                leading_spaces, 0,
+                "top-level receipt field was indented: {line:?}"
+            );
+            field_seen[index] = true;
+            current_field = Some(index);
+            continuation_indent = Some(commandagent::util::display_width(prefix));
+        } else {
+            let expected_indent = continuation_indent
+                .unwrap_or_else(|| panic!("orphaned receipt continuation: {line:?}"));
+            assert_eq!(
+                leading_spaces, expected_indent,
+                "receipt continuation had the wrong intentional indentation: {line:?}"
+            );
+            continuation_seen[current_field.expect("continuation field is set")] = true;
+        }
+        line_offset += raw_line.len();
+    }
+
+    for (index, field) in FIELDS.iter().enumerate() {
+        assert!(
+            field_seen[index],
+            "missing top-level receipt field {field:?} (footer={footer}, no_color={no_color}). receipt={receipt:?}"
+        );
+    }
+    for index in [0, 2] {
+        assert!(
+            continuation_seen[index],
+            "long CJK receipt field did not exercise continuation indentation for {:?} (footer={footer}, no_color={no_color}). receipt={receipt:?}",
+            FIELDS[index]
+        );
+    }
+}
+
+fn cursor_column_at(transcript: &str, target: usize, terminal_cols: usize) -> usize {
+    assert!(transcript.is_char_boundary(target));
+    assert!(terminal_cols > 0);
+    let bytes = transcript.as_bytes();
+    let mut index = 0;
+    let mut column = 0;
+    let mut saved_column = 0;
+
+    while index < target {
+        if bytes[index] == b'\x1b' {
+            if bytes.get(index + 1) == Some(&b'[') {
+                let Some(final_offset) = bytes[index + 2..]
+                    .iter()
+                    .position(|byte| (b'@'..=b'~').contains(byte))
+                else {
+                    break;
+                };
+                let final_index = index + 2 + final_offset;
+                let parameters = &transcript[index + 2..final_index];
+                match bytes[final_index] {
+                    b'H' | b'f' => {
+                        column = csi_parameter(parameters, 1, 1).saturating_sub(1);
+                    }
+                    b'G' | b'`' => {
+                        column = csi_parameter(parameters, 0, 1).saturating_sub(1);
+                    }
+                    b'C' | b'a' => {
+                        column = column.saturating_add(csi_parameter(parameters, 0, 1));
+                    }
+                    b'D' => {
+                        column = column.saturating_sub(csi_parameter(parameters, 0, 1));
+                    }
+                    b'E' | b'F' => column = 0,
+                    b's' => saved_column = column,
+                    b'u' => column = saved_column,
+                    _ => {}
+                }
+                index = final_index + 1;
+                continue;
+            }
+            if bytes.get(index + 1) == Some(&b']') {
+                index += 2;
+                while index < target {
+                    if bytes[index] == b'\x07' {
+                        index += 1;
+                        break;
+                    }
+                    if bytes[index] == b'\x1b' && bytes.get(index + 1) == Some(&b'\\') {
+                        index += 2;
+                        break;
+                    }
+                    index += 1;
+                }
+                continue;
+            }
+            index = (index + 2).min(bytes.len());
+            continue;
+        }
+
+        let ch = transcript[index..]
+            .chars()
+            .next()
+            .expect("index remains on a UTF-8 boundary");
+        match ch {
+            '\r' => column = 0,
+            '\n' => {}
+            '\u{8}' => column = column.saturating_sub(1),
+            '\t' => column = ((column / 8) + 1) * 8,
+            ch if !ch.is_control() => {
+                column = (column + commandagent::util::char_display_width(ch)) % terminal_cols;
+            }
+            _ => {}
+        }
+        index += ch.len_utf8();
+    }
+    column
+}
+
+fn csi_parameter(parameters: &str, index: usize, default: usize) -> usize {
+    parameters
+        .split(';')
+        .nth(index)
+        .and_then(|value| {
+            value
+                .trim_start_matches(|ch: char| !ch.is_ascii_digit())
+                .parse()
+                .ok()
+        })
+        .filter(|value| *value > 0)
+        .unwrap_or(default)
 }
 
 fn run_stream_script(

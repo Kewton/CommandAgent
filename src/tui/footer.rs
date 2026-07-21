@@ -228,7 +228,7 @@ impl Footer {
 
     pub fn write_scrollback(&self, text: &str) -> anyhow::Result<()> {
         let Some(active) = &self.inner else {
-            write_text(io::stdout().lock(), text)?;
+            write_scrollback_text(io::stdout().lock(), text)?;
             return Ok(());
         };
         let _freeze = self.freeze();
@@ -240,7 +240,7 @@ impl Footer {
             .to_owned();
         let mut stdout = io::stdout().lock();
         stdout.write_all(scrollback_open_sequence(geometry).as_bytes())?;
-        write_text(&mut stdout, text)?;
+        write_scrollback_text(&mut stdout, text)?;
         stdout.write_all(scrollback_close_sequence(geometry).as_bytes())?;
         stdout.flush()?;
         active.state.repaint.store(true, Ordering::SeqCst);
@@ -577,10 +577,10 @@ fn render_loop(
     geometry
 }
 
-fn write_text(mut writer: impl Write, text: &str) -> io::Result<()> {
-    writer.write_all(text.as_bytes())?;
+fn write_scrollback_text(mut writer: impl Write, text: &str) -> io::Result<()> {
+    crate::tui::terminal::write_stdout_text(&mut writer, text)?;
     if !text.ends_with('\n') {
-        writer.write_all(b"\n")?;
+        crate::tui::terminal::write_stdout_text(&mut writer, "\n")?;
     }
     writer.flush()
 }
