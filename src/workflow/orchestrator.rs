@@ -47,10 +47,7 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
     };
     let origin_goal = "起点run";
     let mut current = workflow.entry.clone();
-    loop {
-        let Some(route) = workflow.routes.iter().find(|r| r.from == current) else {
-            break;
-        };
+    while let Some(route) = workflow.routes.iter().find(|r| r.from == current) {
         let edge = format!("{}->{}", route.from, route.to);
         let evidence_ok = current == workflow.entry
             || origin
