@@ -34,8 +34,10 @@ Goal preservation, footer control sequences, event names or schemas, or the
   UTF-8/CJK text.
 - Keep the focused receipt wrapping test for narrow CJK continuation indents
   and add a wide-width assertion where useful.
-- Strengthen the existing PTY receipt matrix to require CRLF-delimited receipt
-  fields across footer/color combinations while it exercises terminal resize,
-  long CJK Goal preservation, failure output, status output, and cleanup.
+- Strengthen the existing PTY receipt matrix with an ANSI-aware cursor model
+  that verifies the real start column of every receipt line across footer/color
+  combinations while it exercises terminal resize, long CJK Goal preservation,
+  intentional continuation indentation, failure output, status output, and
+  cleanup. Content-only normalization remains separate from layout assertions.
 - Run focused TUI tests, formatting, Clippy, and the full Rust test suite because
   the shared terminal output boundary changes.

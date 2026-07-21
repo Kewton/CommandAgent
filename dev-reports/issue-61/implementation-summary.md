@@ -21,9 +21,11 @@ depend on the terminal driver's cooked-mode LF expansion.
 - Strengthened receipt tests for exact CJK continuation indentation and
   column-zero field prefixes, including the optional requested-port and run-ID
   fields.
-- Strengthened the macOS PTY matrix to require CRLF before receipt fields across
-  footer/color combinations while retaining its resize, failure/status, Goal
-  preservation, and cleanup coverage.
+- Strengthened the PTY matrix with an ANSI-aware cursor model that verifies the
+  rendered column of the receipt heading, every top-level field, and every CJK
+  continuation line across footer/color combinations. Layout checks no longer
+  rely on the content-only normalization that trims indentation; resize,
+  failure/status, Goal preservation, and cleanup coverage remain intact.
 
 ## Contract Impact
 
