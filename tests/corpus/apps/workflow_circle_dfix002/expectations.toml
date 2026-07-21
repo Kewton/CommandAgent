@@ -1,0 +1,19 @@
+case_id = "workflow_circle_dfix002"
+source = "dfix-002 source-checks workflow origin fixture"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["recovery.yaml"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []

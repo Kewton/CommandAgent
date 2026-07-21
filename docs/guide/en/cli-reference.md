@@ -32,6 +32,8 @@ internal integration surface and is intentionally not a public user flag.
 | `--prompt-layout` | `<stable\|legacy>` | `legacy` | Choose prompt section order for A/B measurement. | [Precedence](configuration.md#resolution-precedence) |
 | `--plan-preset` | `<profile\|none>` | normally `none`; `profile` is selected for explicit `data` fix/investigate cases | Override planner-tier UltraPlan preset selection. `data/fix` can synthesize F1–F3 steps; `nextjs/fix` remains none-equivalent. | [Precedence](configuration.md#resolution-precedence) |
 | `--intent` | `<create\|fix\|investigate>` | inferred from the goal | Force intent instead of goal-based resolution. | [Examples](#examples) |
+| `--workflow` | `<PATH>` | none | Run a declarative workflow-circle definition. Mutually exclusive with `--intent`. | [Examples](#examples) |
+| `--origin` | `<PATH>` | none | Supply the existing failed origin run workspace for `--workflow`. | [Examples](#examples) |
 | `--planner-model` | `<PLANNER_MODEL>` | executor model when providers match | Set the planner model ID. Required when planner and executor providers differ. | [Provider roles](providers.md#provider-matrix) |
 | `--planner-provider` | `<PLANNER_PROVIDER>`: `ollama`, `openai`, or `gemini` | executor provider | Select the planner provider. | [Provider roles](providers.md#provider-matrix) |
 | `--prompt` | `<PROMPT>` | none | Run one minimal-loop prompt instead of entering the TUI. | [Examples](#examples) |
