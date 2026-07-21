@@ -158,6 +158,58 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
     write_circle(origin, "circle_failed", "edge_not_earned:no_route")
 }
 
+// Workflow child Config provenance audit (D-3a-3c, audited at e977ce6).
+// This table is intentionally exhaustive: every top-level Config field and
+// every ConfigFieldSources member has one owner. `wrong` records the pre-fix
+// state found by circle-001; later commits must satisfy the stated invariant.
+//
+// Config field                       source/invariant                         audit
+// workspace_root                     origin-derived                           correct
+// state_dir                          origin-derived, inside node run           wrong
+// eval_events_path                   origin-derived, exact node events path    wrong
+// completion_contract_path           global inheritance                       correct
+// yes                                fixed true                               correct
+// offline                            global inheritance                       correct
+// context_budget                     global inheritance                       correct
+// model                              node declaration or global inheritance   correct
+// provider                           node declaration or global inheritance   correct
+// prompt_layout                      global inheritance                       correct
+// plan_preset                        node intent/profile default; explicit     wrong
+//                                    global override is preserved
+// intent_override                    node declaration                         correct
+// planner_model                      global inheritance                       correct
+// planner_provider                   global inheritance                       correct
+// ollama_host                        global inheritance                       correct
+// num_predict                        global inheritance                       correct
+// max_iterations                     global inheritance                       correct
+// chat_timeout_secs                  global inheritance                       correct
+// chat_timeout_source                global inheritance                       correct
+// field_sources                      fixed from the member rules below        wrong
+// chat_retries                       global inheritance                       correct
+// stream                             global inheritance                       correct
+// resume                             fixed None                               wrong
+// fresh_session                      fixed true                               wrong
+// no_footer                          global inheritance                       correct
+// narration                          global inheritance                       correct
+// profile                            node declaration                         wrong
+// profile_explicit                   fixed true (node declaration)            wrong
+// profile_inference                  fixed None (node declaration)            wrong
+// style                              global inheritance                       correct
+// action                             origin-derived goal + node intent Prompt wrong
+// field_sources.model                node declaration or global inheritance   correct
+// field_sources.provider             node declaration or global inheritance   correct
+// field_sources.planner_model        global inheritance                       correct
+// field_sources.planner_provider     global inheritance                       correct
+// field_sources.context_budget       global inheritance                       correct
+// field_sources.chat_timeout_secs    global inheritance                       correct
+// field_sources.prompt_layout        global inheritance                       correct
+// field_sources.plan_preset          node default or explicit global source   wrong
+// field_sources.profile              fixed workflow_node                      wrong
+// field_sources.narration            global inheritance                       correct
+// field_sources.footer               global inheritance                       correct
+// field_sources.stream               global inheritance                       correct
+//
+// Audit total: 43 leaf/container rows; 31 correct, 0 missing, 12 wrong.
 fn node_config(
     config: &Config,
     node: &Node,
