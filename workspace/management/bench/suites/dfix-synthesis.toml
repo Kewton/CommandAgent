@@ -1,0 +1,86 @@
+[suite]
+id = "dfix-synthesis"
+profile = "data"
+intent = "fix"
+plan_preset = "default"
+context_budget = 65536
+planner_model = "qwen3.6:27b-coding-nvfp4"
+planner_provider = "ollama"
+provider = "ollama"
+min_head = "56d247f"
+
+[goals]
+pipe = "data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契約の既存検証が通ることを確認してください。"
+schema = "output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。"
+
+[[sources]]
+set = "pipe-a"
+path = "workspace/management/runs/uat-test0717-dfix-002/artifacts/source-checks/pipe-a"
+copy = ["pipeline", "output", "data"]
+input_sha256 = { "pipeline/main.py" = "4944322105b422f71338513405e3de57d2c698aab565f313fac794e4163ad1d3", "output/inspection.json" = "0e76d134335ffd290fb457321c2b0cd94412bd844f1f4732b9a089116aa5a6a7", "data/sales.csv" = "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873" }
+precheck_cmd = "python3 -B pipeline/main.py"
+precheck_expect = "nonzero_exit"
+precheck_pattern = "ValueError"
+
+[[sources]]
+set = "pipe-b"
+path = "workspace/management/runs/uat-test0717-dfix-002/artifacts/source-checks/pipe-b"
+copy = ["pipeline", "output", "data"]
+input_sha256 = { "pipeline/main.py" = "b27e8aaffef74dac171ff19dffb89eb891c97ee2038045887dae8d43719a511b", "output/results.json" = "af452a62d26b5e377453bbd1daddc27282bd61c806aeff30d6616dd02afbf6f2", "output/inspection.json" = "6bd2ec134cbbc6fda43c8f256e941779849e63152cee8f36d4c4df2f6d1b4558", "data/sales.csv" = "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873" }
+precheck_cmd = "python3 -B pipeline/main.py"
+precheck_expect = "nonzero_exit"
+precheck_pattern = "TypeError"
+
+[[sources]]
+set = "schema-a"
+path = "workspace/management/runs/uat-test0717-dfix-002/artifacts/source-checks/schema-a"
+copy = ["pipeline", "output", "data"]
+input_sha256 = { "pipeline/main.py" = "5e2d7efe794c78a20dded6ca1b0b4e449293fe2609c8274c302b102ddb0c7c96", "output/results.json" = "a0e3a1dfd4a2378598efead1da29673d2d91e09c6fdebecb1f9b1db5e7dd07ca", "output/report.md" = "17af1dd02de623845341e4a427c0c7ec5b26254de6524030bc5842d295165f97", "data/sales.csv" = "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873" }
+precheck_cmd = "python3 -c \"import json; d=json.load(open('output/results.json')); assert set(d.keys()) == {'reconciliation', 'values'} and set(d['reconciliation'].keys()) == {'input_rows', 'used_rows', 'excluded'}\""
+precheck_expect = "nonzero_exit"
+precheck_pattern = "AssertionError"
+
+[[sources]]
+set = "schema-b"
+path = "workspace/management/runs/uat-test0717-dfix-002/artifacts/source-checks/schema-b"
+copy = ["pipeline", "output", "data"]
+input_sha256 = { "pipeline/main.py" = "5e2d7efe794c78a20dded6ca1b0b4e449293fe2609c8274c302b102ddb0c7c96", "output/results.json" = "a0e3a1dfd4a2378598efead1da29673d2d91e09c6fdebecb1f9b1db5e7dd07ca", "output/report.md" = "17af1dd02de623845341e4a427c0c7ec5b26254de6524030bc5842d295165f97", "data/sales.csv" = "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873" }
+precheck_cmd = "python3 -c \"import json, sys; d=json.load(open('output/results.json')); assert 'reconciliation' in d and 'values' in d and 'input_rows' in d['reconciliation'] and 'used_rows' in d['reconciliation'] and 'excluded' in d['reconciliation']\""
+precheck_expect = "nonzero_exit"
+precheck_pattern = "AssertionError"
+
+[[runs]]
+name = "pipe_qwen35_001"
+set = "pipe-a"
+goal = "pipe"
+executor = "qwen3.6:35b-a3b-coding-nvfp4"
+
+[[runs]]
+name = "pipe_gemma31_001"
+set = "pipe-b"
+goal = "pipe"
+executor = "gemma4:31b"
+
+[[runs]]
+name = "pipe_qwen35_002"
+set = "pipe-b"
+goal = "pipe"
+executor = "qwen3.6:35b-a3b-coding-nvfp4"
+
+[[runs]]
+name = "schema_qwen35_001"
+set = "schema-a"
+goal = "schema"
+executor = "qwen3.6:35b-a3b-coding-nvfp4"
+
+[[runs]]
+name = "schema_gemma31_001"
+set = "schema-b"
+goal = "schema"
+executor = "gemma4:31b"
+
+[[runs]]
+name = "schema_qwen35_002"
+set = "schema-a"
+goal = "schema"
+executor = "qwen3.6:35b-a3b-coding-nvfp4"
