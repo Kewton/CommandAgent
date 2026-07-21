@@ -190,10 +190,7 @@ pub enum Action {
     UxDemo,
     ModelProbe,
     Doctor,
-    Workflow {
-        definition: PathBuf,
-        origin: PathBuf,
-    },
+    Workflow(PathBuf, PathBuf),
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -1305,7 +1302,7 @@ pub fn action_goal(action: &Action) -> Option<&str> {
         | Action::UxDemo
         | Action::ModelProbe
         | Action::Doctor
-        | Action::Workflow { .. } => None,
+        | Action::Workflow(..) => None,
     }
 }
 
@@ -1335,7 +1332,7 @@ fn action_from_cli(cli: &Cli) -> anyhow::Result<Action> {
         if cli.intent.is_some() {
             bail!("--workflow cannot be combined with --intent");
         }
-        return Ok(Action::Workflow { definition, origin });
+        return Ok(Action::Workflow(definition, origin));
     }
     if let Some(prompt) = cli.prompt.clone() {
         return Ok(Action::Prompt(prompt));

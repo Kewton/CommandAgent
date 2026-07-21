@@ -65,7 +65,7 @@ pub(crate) fn run_resolved_config_for_workflow(config: Config) -> anyhow::Result
 }
 
 fn run_config(config: Config) -> anyhow::Result<()> {
-    if let Action::Workflow { definition, origin } = &config.action {
+    if let Action::Workflow(definition, origin) = &config.action {
         return workflow::orchestrator::run_workflow(&config, definition, origin);
     }
     if matches!(config.action, Action::Runs) {
@@ -217,7 +217,7 @@ fn run_config(config: Config) -> anyhow::Result<()> {
                 }
                 Ok(())
             }
-            Action::Workflow { .. } => unreachable!("workflow action dispatched before match"),
+            Action::Workflow(..) => unreachable!("workflow action dispatched before match"),
             Action::UxDemo => tui::ux_demo::run(&config),
             Action::Runs => Ok(()),
         }
@@ -402,7 +402,7 @@ fn direct_command_for_action(action: &Action) -> Option<&'static str> {
         Action::SetupInteractionProbe => Some("--setup-interaction-probe"),
         Action::ModelProbe => Some("--model-probe"),
         Action::Doctor => Some("--doctor"),
-        Action::Workflow { .. } => Some("--workflow"),
+        Action::Workflow(..) => Some("--workflow"),
     }
 }
 
