@@ -24,6 +24,7 @@ pub mod time_profile;
 pub mod tools;
 pub mod tui;
 pub mod util;
+pub mod workflow;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
