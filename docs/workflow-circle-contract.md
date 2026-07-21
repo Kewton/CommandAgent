@@ -50,13 +50,18 @@ partial に相当する中間階層は設けない。部分的な進捗は各ノ
 evidence がそのまま記録として残る（洗浄の禁止: fix full は
 circle_full を意味しない）。
 
-## 7. workflow schema v0（構成のみ・振る舞いの記述を禁止）
+## 7. workflow schema v0.1（構成のみ・振る舞いの記述を禁止）
+
+改訂記録（2026-07-22）: v0→v0.1。改訂対象は本§7のノードexecutor構成
+のみであり、§1〜§6の裁定意味論は不変。既存v0定義は引き続き有効。
+
 ```yaml
 workflow: <id>
-version: 0
+version: 0.1
 entry: <node-id>
 nodes:
-  <node-id>: { intent: create|fix|investigate, profile: <profile-id> }
+  <node-id>: { intent: create|fix|investigate, profile: <profile-id>,
+               model: <executor-id>?, provider: ollama|openai|gemini? }
 routes:
   - { from: <node-id>, on: <verdict>, when: <condition-id>?,
       to: <node-id>, carry: [<carry-id>...] }
@@ -68,7 +73,12 @@ terminal:
 （workspace / recovery_yaml / reproducer_lineage）。
 式・スクリプト・任意述語の記述は禁止し、パーサは未知語彙を
 エラーとして拒否する。ノードのintent/profileは実在かつ
-admission済みであること。
+admission済みであること。model/providerはexecutorだけをノード単位で
+指定する任意の組であり、片方だけの指定を拒否する。両方省略時は
+workflow起動時のグローバルmodel/providerをそのまま継承する。
+planner_model/planner_providerのノード指定はv0.1のスコープ外であり、
+未知キーとして拒否する。v0定義にmodel/providerを追加することも拒否し、
+当該構成はversion 0.1への明示改訂を要求する。
 
 ## 8. 偽装耐性（conformance ネガティブテストの要求）
 - evidence を欠く verdict ラベルのみでの辺発火の拒否（E-B）

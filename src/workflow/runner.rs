@@ -1,5 +1,6 @@
 //! Deterministic earned-edge checks for workflow circles.
 use super::schema::{Route, Verdict};
+use crate::config::Provider;
 use serde::Serialize;
 use std::fs;
 use std::path::Path;
@@ -182,6 +183,8 @@ pub struct NodeRunRequest {
     pub goal: String,
     pub origin: std::path::PathBuf,
     pub reproducer_lineage: Option<String>,
+    pub model: String,
+    pub provider: Provider,
 }
 
 /// Integration seam for the existing single-intent executor. The callback is
@@ -197,7 +200,13 @@ where
     if let Some(parent) = events.parent() {
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
-    let started = serde_json::json!({"event":"intent_resolved","intent":request.intent,"workflow_node":request.node});
+    let started = serde_json::json!({
+        "event":"intent_resolved",
+        "intent":request.intent,
+        "workflow_node":request.node,
+        "model":request.model,
+        "provider":format!("{:?}", request.provider).to_ascii_lowercase(),
+    });
     fs::write(events, format!("{}\n", started)).map_err(|e| e.to_string())?;
     execute(request)?;
     Ok(())

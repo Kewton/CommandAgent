@@ -5,9 +5,9 @@ use std::path::Path;
 
 use super::{
     runner,
-    schema::{Intent, Workflow},
+    schema::{Intent, Node, Workflow},
 };
-use crate::config::{Action, Config};
+use crate::config::{Action, Config, IntentId, Provider};
 
 /// Runs a declarative workflow around the existing single-intent entry.
 pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow::Result<()> {
@@ -88,12 +88,16 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
             Intent::Create => "create",
         };
         let goal = runner::derive_goal(intent, origin_goal).unwrap_or_default();
+        let model = node.model.clone().unwrap_or_else(|| config.model.clone());
+        let provider = node.provider.unwrap_or(config.provider);
         let request = runner::NodeRunRequest {
             node: node_id.clone(),
             intent: intent.into(),
             goal,
             origin: origin.to_path_buf(),
             reproducer_lineage: None,
+            model,
+            provider,
         };
         let node_events = origin.join(format!("evidence/{node_id}-events.jsonl"));
         emit(
@@ -106,27 +110,27 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
         let run_events = run_dir.join("events.jsonl");
         emit(
             &run_events,
-            json!({"event":"workflow_node_run_created","node":node_id,"run_id":run_id}),
+            json!({
+                "event":"workflow_node_run_created",
+                "node":node_id,
+                "run_id":run_id,
+                "model":request.model,
+                "provider":provider_name(request.provider),
+            }),
         )?;
         emit(
             &events_path,
-            json!({"event":"workflow_node_run_created","node":node_id,"run_id":run_id,"run_dir":run_dir}),
+            json!({
+                "event":"workflow_node_run_created",
+                "node":node_id,
+                "run_id":run_id,
+                "run_dir":run_dir,
+                "model":request.model,
+                "provider":provider_name(request.provider),
+            }),
         )?;
         let execution = runner::execute_node(&request, &node_events, |req| {
-            let mut child = config.clone();
-            child.yes = true;
-            child.workspace_root = req.origin.clone();
-            if child.workspace_root.canonicalize().ok().as_deref()
-                != req.origin.canonicalize().ok().as_deref()
-            {
-                return Err("workspace_confinement_violation".into());
-            }
-            child.action = Action::Prompt(req.goal.clone());
-            child.intent_override = Some(match req.intent.as_str() {
-                "investigate" => crate::config::IntentId::Investigate,
-                "fix" => crate::config::IntentId::Fix,
-                _ => crate::config::IntentId::Create,
-            });
+            let child = node_config(config, node, req)?;
             crate::run_resolved_config_for_workflow(child).map_err(|e| e.to_string())
         });
         if let Err(err) = execution {
@@ -154,6 +158,42 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
     write_circle(origin, "circle_failed", "edge_not_earned:no_route")
 }
 
+fn node_config(
+    config: &Config,
+    node: &Node,
+    request: &runner::NodeRunRequest,
+) -> Result<Config, String> {
+    let mut child = config.clone();
+    child.yes = true;
+    child.workspace_root = request.origin.clone();
+    if child.workspace_root.canonicalize().ok().as_deref()
+        != request.origin.canonicalize().ok().as_deref()
+    {
+        return Err("workspace_confinement_violation".into());
+    }
+    child.action = Action::Prompt(request.goal.clone());
+    child.intent_override = Some(match request.intent.as_str() {
+        "investigate" => IntentId::Investigate,
+        "fix" => IntentId::Fix,
+        _ => IntentId::Create,
+    });
+    if let (Some(model), Some(provider)) = (&node.model, node.provider) {
+        child.model = model.clone();
+        child.provider = provider;
+        child.field_sources.model = "workflow_node".into();
+        child.field_sources.provider = "workflow_node".into();
+    }
+    Ok(child)
+}
+
+fn provider_name(provider: Provider) -> &'static str {
+    match provider {
+        Provider::Ollama => "ollama",
+        Provider::Openai => "openai",
+        Provider::Gemini => "gemini",
+    }
+}
+
 fn emit(path: &Path, value: serde_json::Value) -> anyhow::Result<()> {
     use std::io::Write;
     let mut f = fs::OpenOptions::new()
@@ -173,4 +213,83 @@ fn write_circle(origin: &Path, verdict: &str, reason: &str) -> anyhow::Result<()
         serde_json::to_vec_pretty(&json!({"verdict":verdict,"reason":reason}))?,
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    fn config(root: &Path) -> Config {
+        let root = root.to_string_lossy();
+        Config::from_cli(crate::cli::Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            root.as_ref(),
+            "--model",
+            "global-model",
+            "--provider",
+            "ollama",
+            "--ultra-plan-run",
+            "goal",
+        ]))
+        .unwrap()
+    }
+
+    fn request(root: &Path, model: &str, provider: Provider) -> runner::NodeRunRequest {
+        runner::NodeRunRequest {
+            node: "investigate".into(),
+            intent: "investigate".into(),
+            goal: "goal".into(),
+            origin: root.to_path_buf(),
+            reproducer_lineage: None,
+            model: model.into(),
+            provider,
+        }
+    }
+
+    fn node(model: Option<&str>, provider: Option<Provider>) -> Node {
+        Node {
+            intent: Intent::Investigate,
+            profile: "data".into(),
+            model: model.map(str::to_string),
+            provider,
+        }
+    }
+
+    #[test]
+    fn node_executor_override_propagates_to_config_and_existing_events() {
+        let root = tempfile::tempdir().unwrap();
+        let global = config(root.path());
+        let node = node(Some("elevated-model"), Some(Provider::Gemini));
+        let request = request(root.path(), "elevated-model", Provider::Gemini);
+
+        let child = node_config(&global, &node, &request).unwrap();
+        assert_eq!(child.model, "elevated-model");
+        assert_eq!(child.provider, Provider::Gemini);
+        assert_eq!(child.field_sources.model, "workflow_node");
+        assert_eq!(child.field_sources.provider, "workflow_node");
+
+        let events = root.path().join("evidence/investigate-events.jsonl");
+        runner::execute_node(&request, &events, |_| Ok(())).unwrap();
+        let event: serde_json::Value =
+            serde_json::from_str(std::fs::read_to_string(events).unwrap().trim()).unwrap();
+        assert_eq!(event["event"], "intent_resolved");
+        assert_eq!(event["model"], "elevated-model");
+        assert_eq!(event["provider"], "gemini");
+    }
+
+    #[test]
+    fn omitted_node_executor_preserves_global_config() {
+        let root = tempfile::tempdir().unwrap();
+        let global = config(root.path());
+        let node = node(None, None);
+        let request = request(root.path(), &global.model, global.provider);
+
+        let child = node_config(&global, &node, &request).unwrap();
+        assert_eq!(child.model, global.model);
+        assert_eq!(child.provider, global.provider);
+        assert_eq!(child.field_sources.model, global.field_sources.model);
+        assert_eq!(child.field_sources.provider, global.field_sources.provider);
+    }
 }
