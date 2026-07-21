@@ -614,3 +614,7 @@ schema変更は行わない。
 コストが実害として観測された場合の再訪経路は、専用migration Issueでversioning
 またはdual-read、fixture/corpus、`.anvil/` state migrationを同時に設計・検証
 することであり、互換境界を暗黙に書き換えてはならない。
+
+## bench v0 (2026-07-21)
+
+bench v0——dfix-004型プロトコル事故クラス（参照解決不能/採取元不在/wrapper/preflight飛ばし）の構造的排除。判断の自動化はしない線を文書化。
