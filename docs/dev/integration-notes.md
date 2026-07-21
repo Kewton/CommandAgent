@@ -195,3 +195,18 @@ fix契約、F1〜F3、既存bandの裁定値を変更するタスクではない
 不変である。
 
 | QUEUED | D-2c生成経路のchokepoint化 or fix計画合成の適用拡大（fix×nextjsが同病を発症した時の処方箋） |
+# bench v0.2 queued requirements (2026-07-21)
+
+The following are queued from the dfix-006 live measurement; this section is
+only a requirements record and does not change the v0 harness:
+
+- `--report-root` separation: default to repository `workspace/management/runs/`
+  so audit assets become Git-tracked automatically.
+- Bench-native exceptional rerun support for `interrupted(environment)`, with
+  both the interrupted and one-time new-directory records saved automatically.
+- Long-run handling: two consecutive session-lifetime × gemma long-run
+  interruptions were observed; add an execution-order option or an explicit
+  human terminal procedure.
+- Skeleton improvements confirmed by dfix-006: show scrub status in the run
+  matrix, transfer self-output allowance counts/prefixes, and list resume
+  interruption text and final state.
