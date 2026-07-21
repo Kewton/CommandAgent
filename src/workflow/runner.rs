@@ -139,6 +139,14 @@ where
     }
 }
 
+pub fn verify_origin_from_events<F>(events: &Path, verify: F) -> Result<(), String>
+where
+    F: FnMut(&OriginBinding) -> bool,
+{
+    let bindings = derive_origin_bindings(events)?;
+    verify_origin(&bindings, verify)
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NodeRunRequest {
     pub node: String,
@@ -215,6 +223,24 @@ mod tests {
             derive_origin_bindings(&path)
                 .unwrap_err()
                 .contains("underivable")
+        );
+    }
+
+    #[test]
+    fn origin_verification_rejects_a_failed_member_without_shrinking() {
+        let bindings = vec![
+            OriginBinding {
+                check_id: "a".into(),
+                lineage: None,
+            },
+            OriginBinding {
+                check_id: "b".into(),
+                lineage: None,
+            },
+        ];
+        assert_eq!(
+            verify_origin(&bindings, |b| b.check_id == "a").unwrap_err(),
+            "origin_verify_failed"
         );
     }
 }
