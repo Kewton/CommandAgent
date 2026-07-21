@@ -1,0 +1,4 @@
+{
+  "verdict": "circle_interrupted",
+  "reason": "environment_session_ended_before_investigate"
+}
