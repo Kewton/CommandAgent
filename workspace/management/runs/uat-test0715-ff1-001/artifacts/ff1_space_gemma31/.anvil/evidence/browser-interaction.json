@@ -1,0 +1,150 @@
+{
+  "action_hooks": [
+    "primary"
+  ],
+  "after_marker": "{\"states\":[{\"index\":0,\"state\":{\"alienPositions\":[{\"x\":50,\"y\":50},{\"x\":105,\"y\":50},{\"x\":160,\"y\":50},{\"x\":215,\"y\":50},{\"x\":270,\"y\":50},{\"x\":325,\"y\":50},{\"x\":380,\"y\":50},{\"x\":435,\"y\":50},{\"x\":490,\"y\":50},{\"x\":545,\"y\":50},{\"x\":600,\"y\":50},{\"x\":50,\"y\":95},{\"x\":105,\"y\":95},{\"x\":160,\"y\":95},{\"x\":215,\"y\":95},{\"x\":270,\"y\":95},{\"x\":325,\"y\":95},{\"x\":380,\"y\":95},{\"x\":435,\"y\":95},{\"x\":490,\"y\":95},{\"x\":545,\"y\":95},{\"x\":600,\"y\":95},{\"x\":50,\"y\":140},{\"x\":105,\"y\":140},{\"x\":160,\"y\":140},{\"x\":215,\"y\":140},{\"x\":270,\"y\":140},{\"x\":325,\"y\":140},{\"x\":380,\"y\":140},{\"x\":435,\"y\":140},{\"x\":490,\"y\":140},{\"x\":545,\"y\":140},{\"x\":600,\"y\":140},{\"x\":50,\"y\":185},{\"x\":105,\"y\":185},{\"x\":160,\"y\":185},{\"x\":215,\"y\":185},{\"x\":270,\"y\":185},{\"x\":325,\"y\":185},{\"x\":380,\"y\":185},{\"x\":435,\"y\":185},{\"x\":490,\"y\":185},{\"x\":545,\"y\":185},{\"x\":600,\"y\":185},{\"x\":50,\"y\":230},{\"x\":105,\"y\":230},{\"x\":160,\"y\":230},{\"x\":215,\"y\":230},{\"x\":270,\"y\":230},{\"x\":325,\"y\":230},{\"x\":380,\"y\":230},{\"x\":435,\"y\":230},{\"x\":490,\"y\":230},{\"x\":545,\"y\":230},{\"x\":600,\"y\":230}],\"gameState\":\"PLAYING\",\"level\":1,\"lives\":3,\"playerX\":350,\"score\":0}}]}",
+  "before_marker": "{\"states\":[{\"index\":0,\"state\":{\"alienPositions\":[],\"gameState\":\"START\",\"level\":1,\"lives\":3,\"playerX\":375,\"score\":0}}]}",
+  "candidate_table": [],
+  "canvas_blank_after_inputs": false,
+  "canvas_blank_after_start": false,
+  "canvas_blank_before_start": false,
+  "canvas_snapshots": [
+    {
+      "blank_canvas_count": 0,
+      "canvas_blank": false,
+      "canvas_count": 1,
+      "name": "before_start",
+      "pixel_hashes": [
+        "54d31a45"
+      ]
+    },
+    {
+      "blank_canvas_count": 0,
+      "canvas_blank": false,
+      "canvas_count": 1,
+      "name": "after_start",
+      "pixel_hashes": [
+        "54d31a45"
+      ]
+    },
+    {
+      "blank_canvas_count": 0,
+      "canvas_blank": false,
+      "canvas_count": 1,
+      "name": "after_inputs",
+      "pixel_hashes": [
+        "bc56ac7d"
+      ]
+    }
+  ],
+  "cold_start_ms": 18,
+  "contract_hook_status": "usable",
+  "duration_ms": 483,
+  "echo_latency_ms": null,
+  "failure_category": "",
+  "has_canvas": true,
+  "informational_failure_kinds": [],
+  "input_after_marker": "{\"states\":[{\"index\":0,\"state\":{\"alienPositions\":[{\"x\":60.5,\"y\":50},{\"x\":115.5,\"y\":50},{\"x\":170.5,\"y\":50},{\"x\":225.5,\"y\":50},{\"x\":280.5,\"y\":50},{\"x\":335.5,\"y\":50},{\"x\":390.5,\"y\":50},{\"x\":445.5,\"y\":50},{\"x\":500.5,\"y\":50},{\"x\":555.5,\"y\":50},{\"x\":610.5,\"y\":50},{\"x\":60.5,\"y\":95},{\"x\":115.5,\"y\":95},{\"x\":170.5,\"y\":95},{\"x\":225.5,\"y\":95},{\"x\":280.5,\"y\":95},{\"x\":335.5,\"y\":95},{\"x\":390.5,\"y\":95},{\"x\":445.5,\"y\":95},{\"x\":500.5,\"y\":95},{\"x\":555.5,\"y\":95},{\"x\":610.5,\"y\":95},{\"x\":60.5,\"y\":140},{\"x\":115.5,\"y\":140},{\"x\":170.5,\"y\":140},{\"x\":225.5,\"y\":140},{\"x\":280.5,\"y\":140},{\"x\":335.5,\"y\":140},{\"x\":390.5,\"y\":140},{\"x\":445.5,\"y\":140},{\"x\":500.5,\"y\":140},{\"x\":555.5,\"y\":140},{\"x\":610.5,\"y\":140},{\"x\":60.5,\"y\":185},{\"x\":115.5,\"y\":185},{\"x\":170.5,\"y\":185},{\"x\":225.5,\"y\":185},{\"x\":280.5,\"y\":185},{\"x\":335.5,\"y\":185},{\"x\":390.5,\"y\":185},{\"x\":445.5,\"y\":185},{\"x\":500.5,\"y\":185},{\"x\":555.5,\"y\":185},{\"x\":610.5,\"y\":185},{\"x\":60.5,\"y\":230},{\"x\":115.5,\"y\":230},{\"x\":170.5,\"y\":230},{\"x\":225.5,\"y\":230},{\"x\":280.5,\"y\":230},{\"x\":335.5,\"y\":230},{\"x\":390.5,\"y\":230},{\"x\":445.5,\"y\":230},{\"x\":500.5,\"y\":230},{\"x\":555.5,\"y\":230},{\"x\":610.5,\"y\":230}],\"gameState\":\"PLAYING\",\"level\":1,\"lives\":3,\"playerX\":350,\"score\":0}}]}",
+  "input_before_marker": "{\"states\":[{\"index\":0,\"state\":{\"alienPositions\":[{\"x\":50,\"y\":50},{\"x\":105,\"y\":50},{\"x\":160,\"y\":50},{\"x\":215,\"y\":50},{\"x\":270,\"y\":50},{\"x\":325,\"y\":50},{\"x\":380,\"y\":50},{\"x\":435,\"y\":50},{\"x\":490,\"y\":50},{\"x\":545,\"y\":50},{\"x\":600,\"y\":50},{\"x\":50,\"y\":95},{\"x\":105,\"y\":95},{\"x\":160,\"y\":95},{\"x\":215,\"y\":95},{\"x\":270,\"y\":95},{\"x\":325,\"y\":95},{\"x\":380,\"y\":95},{\"x\":435,\"y\":95},{\"x\":490,\"y\":95},{\"x\":545,\"y\":95},{\"x\":600,\"y\":95},{\"x\":50,\"y\":140},{\"x\":105,\"y\":140},{\"x\":160,\"y\":140},{\"x\":215,\"y\":140},{\"x\":270,\"y\":140},{\"x\":325,\"y\":140},{\"x\":380,\"y\":140},{\"x\":435,\"y\":140},{\"x\":490,\"y\":140},{\"x\":545,\"y\":140},{\"x\":600,\"y\":140},{\"x\":50,\"y\":185},{\"x\":105,\"y\":185},{\"x\":160,\"y\":185},{\"x\":215,\"y\":185},{\"x\":270,\"y\":185},{\"x\":325,\"y\":185},{\"x\":380,\"y\":185},{\"x\":435,\"y\":185},{\"x\":490,\"y\":185},{\"x\":545,\"y\":185},{\"x\":600,\"y\":185},{\"x\":50,\"y\":230},{\"x\":105,\"y\":230},{\"x\":160,\"y\":230},{\"x\":215,\"y\":230},{\"x\":270,\"y\":230},{\"x\":325,\"y\":230},{\"x\":380,\"y\":230},{\"x\":435,\"y\":230},{\"x\":490,\"y\":230},{\"x\":545,\"y\":230},{\"x\":600,\"y\":230}],\"gameState\":\"PLAYING\",\"level\":1,\"lives\":3,\"playerX\":350,\"score\":0}}]}",
+  "input_dispatches": [
+    "canvas/center click",
+    "ArrowLeft keydown",
+    "ArrowRight keydown",
+    "Space keydown"
+  ],
+  "input_event_observed": true,
+  "input_state_change": true,
+  "input_state_evaluated_after_start": true,
+  "interaction_performed": true,
+  "interaction_success": true,
+  "interactive_control_count": 1,
+  "measured_navigation_ms": 11,
+  "ok": true,
+  "output_excerpt": "{\"stage\":\"resolving\"} {\"stage\":\"launching\"} {\"stage\":\"server_check\"} {\"stage\":\"warmup_navigation\",\"attempt\":1,\"timeout_ms\":45000} {\"stage\":\"measured_navigation\",\"timeout_ms\":12000} {\"stage\":\"surface_wait\"} {\"stage\":\"observing\"}",
+  "persistence_after_reload": "not_evaluated",
+  "persistence_after_reload_marker": "",
+  "persistence_after_reload_reason": "no_text_entry_surface",
+  "persistence_before_reload_marker": "",
+  "persistence_changed_dimensions": [],
+  "playwright_resolution": {
+    "location": "managed_interaction_probe",
+    "module_dir": "/Users/maenokota/.anvil/tools/interaction-probe/node_modules/playwright",
+    "module_path": "/Users/maenokota/.anvil/tools/interaction-probe/node_modules/playwright/index.js",
+    "node_path": "/Users/maenokota/.anvil/tools/interaction-probe/node_modules",
+    "version": "1.61.1"
+  },
+  "playwright_resolution_location": "managed_interaction_probe",
+  "playwright_version": "1.61.1",
+  "post_js_has_canvas": true,
+  "post_js_interactive_control_count": 1,
+  "primary_start_transition": true,
+  "primary_start_transition_missing": false,
+  "probe": {
+    "child_reaped": true,
+    "child_spawned": true,
+    "cold_start_ms": 18,
+    "measured_navigation_ms": 11,
+    "output_excerpt": "{\"stage\":\"resolving\"} {\"stage\":\"launching\"} {\"stage\":\"server_check\"} {\"stage\":\"warmup_navigation\",\"attempt\":1,\"timeout_ms\":45000} {\"stage\":\"measured_navigation\",\"timeout_ms\":12000} {\"stage\":\"surface_wait\"} {\"stage\":\"observing\"}",
+    "playwright_resolution_location": "managed_interaction_probe",
+    "script_path": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0715_ff1_001/ff1_space_gemma31/.anvil/evidence/browser-interaction-probe.cjs",
+    "stage": "observing",
+    "stderr_excerpt": "{\"stage\":\"resolving\"} {\"stage\":\"launching\"} {\"stage\":\"server_check\"} {\"stage\":\"warmup_navigation\",\"attempt\":1,\"timeout_ms\":45000} {\"stage\":\"measured_navigation\",\"timeout_ms\":12000} {\"stage\":\"surface_wait\"} {\"stage\":\"observing\"}"
+  },
+  "probe_mode": "contract",
+  "recovery_after_marker": "{\"states\":[{\"index\":0,\"state\":{\"alienPositions\":[{\"x\":50,\"y\":50},{\"x\":105,\"y\":50},{\"x\":160,\"y\":50},{\"x\":215,\"y\":50},{\"x\":270,\"y\":50},{\"x\":325,\"y\":50},{\"x\":380,\"y\":50},{\"x\":435,\"y\":50},{\"x\":490,\"y\":50},{\"x\":545,\"y\":50},{\"x\":600,\"y\":50},{\"x\":50,\"y\":95},{\"x\":105,\"y\":95},{\"x\":160,\"y\":95},{\"x\":215,\"y\":95},{\"x\":270,\"y\":95},{\"x\":325,\"y\":95},{\"x\":380,\"y\":95},{\"x\":435,\"y\":95},{\"x\":490,\"y\":95},{\"x\":545,\"y\":95},{\"x\":600,\"y\":95},{\"x\":50,\"y\":140},{\"x\":105,\"y\":140},{\"x\":160,\"y\":140},{\"x\":215,\"y\":140},{\"x\":270,\"y\":140},{\"x\":325,\"y\":140},{\"x\":380,\"y\":140},{\"x\":435,\"y\":140},{\"x\":490,\"y\":140},{\"x\":545,\"y\":140},{\"x\":600,\"y\":140},{\"x\":50,\"y\":185},{\"x\":105,\"y\":185},{\"x\":160,\"y\":185},{\"x\":215,\"y\":185},{\"x\":270,\"y\":185},{\"x\":325,\"y\":185},{\"x\":380,\"y\":185},{\"x\":435,\"y\":185},{\"x\":490,\"y\":185},{\"x\":545,\"y\":185},{\"x\":600,\"y\":185},{\"x\":50,\"y\":230},{\"x\":105,\"y\":230},{\"x\":160,\"y\":230},{\"x\":215,\"y\":230},{\"x\":270,\"y\":230},{\"x\":325,\"y\":230},{\"x\":380,\"y\":230},{\"x\":435,\"y\":230},{\"x\":490,\"y\":230},{\"x\":545,\"y\":230},{\"x\":600,\"y\":230}],\"gameState\":\"PLAYING\",\"level\":1,\"lives\":3,\"playerX\":350,\"score\":0}}]}",
+  "recovery_before_marker": "{\"states\":[{\"index\":0,\"state\":{\"alienPositions\":[{\"x\":60.5,\"y\":50},{\"x\":115.5,\"y\":50},{\"x\":170.5,\"y\":50},{\"x\":225.5,\"y\":50},{\"x\":280.5,\"y\":50},{\"x\":335.5,\"y\":50},{\"x\":390.5,\"y\":50},{\"x\":445.5,\"y\":50},{\"x\":500.5,\"y\":50},{\"x\":555.5,\"y\":50},{\"x\":610.5,\"y\":50},{\"x\":60.5,\"y\":95},{\"x\":115.5,\"y\":95},{\"x\":170.5,\"y\":95},{\"x\":225.5,\"y\":95},{\"x\":280.5,\"y\":95},{\"x\":335.5,\"y\":95},{\"x\":390.5,\"y\":95},{\"x\":445.5,\"y\":95},{\"x\":500.5,\"y\":95},{\"x\":555.5,\"y\":95},{\"x\":610.5,\"y\":95},{\"x\":60.5,\"y\":140},{\"x\":115.5,\"y\":140},{\"x\":170.5,\"y\":140},{\"x\":225.5,\"y\":140},{\"x\":280.5,\"y\":140},{\"x\":335.5,\"y\":140},{\"x\":390.5,\"y\":140},{\"x\":445.5,\"y\":140},{\"x\":500.5,\"y\":140},{\"x\":555.5,\"y\":140},{\"x\":610.5,\"y\":140},{\"x\":60.5,\"y\":185},{\"x\":115.5,\"y\":185},{\"x\":170.5,\"y\":185},{\"x\":225.5,\"y\":185},{\"x\":280.5,\"y\":185},{\"x\":335.5,\"y\":185},{\"x\":390.5,\"y\":185},{\"x\":445.5,\"y\":185},{\"x\":500.5,\"y\":185},{\"x\":555.5,\"y\":185},{\"x\":610.5,\"y\":185},{\"x\":60.5,\"y\":230},{\"x\":115.5,\"y\":230},{\"x\":170.5,\"y\":230},{\"x\":225.5,\"y\":230},{\"x\":280.5,\"y\":230},{\"x\":335.5,\"y\":230},{\"x\":390.5,\"y\":230},{\"x\":445.5,\"y\":230},{\"x\":500.5,\"y\":230},{\"x\":555.5,\"y\":230},{\"x\":610.5,\"y\":230}],\"gameState\":\"PLAYING\",\"level\":1,\"lives\":3,\"playerX\":350,\"score\":0}}]}",
+  "recovery_transition": true,
+  "recovery_transition_status": "observed",
+  "remediation": "",
+  "restart_hook_count_after_start": 1,
+  "restart_hook_reachable_after_start": true,
+  "route_rendered_quality": "rendered",
+  "server_check": {
+    "error": "",
+    "ok": true,
+    "status": 200
+  },
+  "server_http_status": 200,
+  "stage": "observing",
+  "start_control_found": true,
+  "start_transition": true,
+  "state_changed": true,
+  "state_dimensions_changed": [
+    "alienPositions"
+  ],
+  "status": "passed",
+  "stderr_excerpt": "{\"stage\":\"resolving\"} {\"stage\":\"launching\"} {\"stage\":\"server_check\"} {\"stage\":\"warmup_navigation\",\"attempt\":1,\"timeout_ms\":45000} {\"stage\":\"measured_navigation\",\"timeout_ms\":12000} {\"stage\":\"surface_wait\"} {\"stage\":\"observing\"}",
+  "steps": [
+    "warmup_navigation",
+    "measured_navigation",
+    "surface_visible",
+    "start_transition",
+    "restart_hook_reachable_after_start",
+    "text_entry:not_applicable",
+    "control_input_dispatched",
+    "input_state_evaluated_after_start",
+    "input_state_change",
+    "recovery_transition"
+  ],
+  "surface_fit": {
+    "fits_viewport": true,
+    "overflow_bottom_px": 0,
+    "overflow_left_px": 0,
+    "overflow_right_px": 0,
+    "overflow_top_px": 0,
+    "rect_height_px": 608,
+    "rect_width_px": 758,
+    "surface": "canvas",
+    "viewport_height_px": 720,
+    "viewport_width_px": 1280
+  },
+  "text_entry": "not_applicable",
+  "text_entry_target": "",
+  "text_input_state_change": false,
+  "token_echo_after_reload_latency_ms": null,
+  "token_echoed": false,
+  "token_echoed_after_reload": false,
+  "typed_token": "anvil-3ufuhb",
+  "url": "http://127.0.0.1:3011/",
+  "visible_state_changed": true
+}
