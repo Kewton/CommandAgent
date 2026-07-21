@@ -1,0 +1,2 @@
+{"entry":"create","event":"workflow_started","origin":"workspace/management/runs/d3a2-smoke"}
+{"event":"workflow_adjudicated","reason":"edge_not_earned:create_to_investigate:run_stop","verdict":"circle_failed"}
