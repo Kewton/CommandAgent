@@ -30,6 +30,8 @@ DATA_OUTPUT = RUNS_DIR / "band_summary_data.md"
 FIX_OUTPUT = RUNS_DIR / "band_summary_fix.md"
 INVESTIGATION_OUTPUT = RUNS_DIR / "band_summary_investigation.md"
 WINDOW_START = "uat-test0711-bs-003"
+NEXTJS_ARCHIVED_INPUT_SET_COUNT = 12
+NEXTJS_PROVENANCE_ANALYSIS = "band-f821-diff/analysis.md"
 DATA_PLANNER = "qwen3.6:27b-coding-nvfp4"
 DATA_FIXTURE_SHA256 = "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
 # The frozen pre-uat-meta rows all use this goal, quoted in their immutable UAT
@@ -777,6 +779,12 @@ def build_summary(records: list[RunRecord], aggregate_row_total: int, scanned_se
     planner_counts = Counter(rec.planner or "unknown" for rec in included)
     lines: list[str] = []
     lines.append("# Next.js Create Capability Band Summary")
+    lines.append("")
+    lines.append(
+        f"> 出自注記: 本バンドの入力{NEXTJS_ARCHIVED_INPUT_SET_COUNT}セットは"
+        "移行前計測に由来し、現リポジトリからの再生成は現在未対応"
+        f"（[analysis.md]({NEXTJS_PROVENANCE_ANALYSIS})参照）。"
+    )
     lines.append("")
     lines.append(f"- Window start: `{WINDOW_START}`")
     lines.append(f"- Scanned UAT sets: `{len(scanned_sets)}`")

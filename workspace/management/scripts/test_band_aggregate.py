@@ -289,6 +289,18 @@ class EmptyAggregationTests(unittest.TestCase):
             self.assertEqual(frozen_output.read_text(encoding="utf-8"), "frozen\n")
 
 
+class NextjsProvenanceTests(unittest.TestCase):
+    def test_generated_header_records_pre_migration_input_origin(self) -> None:
+        summary = band.build_summary([], 0, [])
+
+        self.assertIn(
+            "> 出自注記: 本バンドの入力12セットは移行前計測に由来し、"
+            "現リポジトリからの再生成は現在未対応"
+            "（[analysis.md](band-f821-diff/analysis.md)参照）。",
+            summary,
+        )
+
+
 class FixBandTests(unittest.TestCase):
     def test_fix_family_classification(self) -> None:
         self.assertEqual(

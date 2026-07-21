@@ -82,6 +82,8 @@ The verified `nextjs` profile scenario matrix is Space Invaders / Breakout / Qui
 
 ## Measured capability bands (nextjs × create)
 
+出自注記: 本バンドの入力12セットは移行前計測に由来し、現リポジトリからの再生成は現在未対応（[`analysis.md`](../../workspace/management/runs/band-f821-diff/analysis.md)参照）。
+
 The Phase A band measurement covers the post-hardening window from
 `uat-test0711-bs-003` through `uat-test0713-g-001`, including
 `uat-test0713-28-001`. The target planner is

@@ -210,3 +210,11 @@ only a requirements record and does not change the v0 harness:
 - Skeleton improvements confirmed by dfix-006: show scrub status in the run
   matrix, transfer self-output allowance counts/prefixes, and list resume
   interruption text and final state.
+
+## Next.js band input restoration (2026-07-22) [QUEUED]
+
+Restore the 12 pre-migration Next.js measurement sets as auditable inputs by
+analyzing their archive format and adapting it to the current profile-aware
+scanner. Until that separate task is complete, keep the tracked Next.js band
+frozen and treat regeneration from the current repository as unsupported; see
+[`analysis.md`](../../workspace/management/runs/band-f821-diff/analysis.md).
