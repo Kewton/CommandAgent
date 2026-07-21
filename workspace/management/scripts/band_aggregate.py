@@ -2224,6 +2224,7 @@ def build_investigation_summary(
     window_b = [
         record for record in records if record.set_id == INVESTIGATION_WINDOW_B_SET
     ]
+    window_a_records = records
     assert len(window_b) == 6, f"Window B denominator is {len(window_b)}, expected 6"
     kind_counts: Counter[str] = Counter()
     for record in records:

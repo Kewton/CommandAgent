@@ -108,6 +108,12 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
         runner::execute_node(&request, &node_events, |req| {
             let mut child = config.clone();
             child.yes = true;
+            child.workspace_root = req.origin.clone();
+            if child.workspace_root.canonicalize().ok().as_deref()
+                != req.origin.canonicalize().ok().as_deref()
+            {
+                return Err("workspace_confinement_violation".into());
+            }
             child.action = Action::Prompt(req.goal.clone());
             child.intent_override = Some(match req.intent.as_str() {
                 "investigate" => crate::config::IntentId::Investigate,
