@@ -252,9 +252,13 @@ class FixBandTests(unittest.TestCase):
     def test_repository_fix_window_and_full_evidence(self) -> None:
         records, scanned_sets = band.discover_fix_records()
         self.assertEqual(scanned_sets, list(band.FIX_WINDOW_SETS))
-        self.assertEqual(len(records), 24)
-        self.assertEqual(sum(record.intent == "fix" for record in records), 24)
-        self.assertEqual(sum(bool(record.excluded_reason) for record in records), 2)
+        window_a = [record for record in records if record.set_id in band.FIX_WINDOW_SETS]
+        window_b = [record for record in records if record.set_id == band.FIX_BENCH_SET]
+        self.assertEqual(len(records), band.FIX_EXPECTED_RUNS)
+        self.assertEqual(len(window_a), 24)
+        self.assertEqual(len(window_b), 6)
+        self.assertEqual(sum(record.intent == "fix" for record in records), 30)
+        self.assertEqual(sum(bool(record.excluded_reason) for record in records), 3)
         self.assertEqual(band.assert_full_fix_evidence(records), 1)
         summary = band.build_fix_summary(records, scanned_sets, 1)
         self.assertIn(
@@ -270,17 +274,17 @@ class FixBandTests(unittest.TestCase):
                     "compile_error_fix",
                     "gemma4:31b",
                     "1",
-                    "3",
                     "4",
-                    "25%",
+                    "5",
+                    "20%",
                 ],
                 [
                     "fix",
                     "compile_error_fix",
                     "qwen3.6:35b-a3b-coding-nvfp4",
                     "0",
-                    "5",
-                    "5",
+                    "7",
+                    "7",
                     "0%",
                 ],
                 [
@@ -297,8 +301,8 @@ class FixBandTests(unittest.TestCase):
                     "contract_hook_fix",
                     "qwen3.6:35b-a3b-coding-nvfp4",
                     "0",
-                    "6",
-                    "6",
+                    "8",
+                    "8",
                     "0%",
                 ],
             ],
