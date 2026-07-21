@@ -36,6 +36,15 @@ files, and long environment dumps also fail. Optional suite `scrub_allow`
 entries require both a regular expression and a reason and are transferred to
 metadata and the skeleton for review.
 
+## Retention policy
+
+Reports, metadata, evidence, source-checks, and `events.jsonl` remain tracked
+audit assets. Large derived trees (`node_modules/`, `.next/`, and `target/`)
+are ignored under run artifacts and must be regenerated from recorded inputs.
+A future two-tier external archive is acceptable only when its verification
+and reproducibility are demonstrably equivalent; it must not silently weaken
+the in-repository audit trail.
+
 ## Rules made mechanical
 
 | Protocol lesson | Harness guarantee |

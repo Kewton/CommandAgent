@@ -2,6 +2,9 @@
 /.anvil/
 .env
 /workspace/temp/
+workspace/management/runs/*/artifacts/**/node_modules/
+workspace/management/runs/*/artifacts/**/.next/
+workspace/management/runs/*/artifacts/**/target/
 __pycache__/
 *.pyc
 .pytest_cache/
