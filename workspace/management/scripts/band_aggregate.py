@@ -16,6 +16,7 @@ import argparse
 import json
 import re
 import statistics
+import sys
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -117,6 +118,17 @@ class DataRunRecord:
 class IntentResolution:
     value: str
     source: str
+
+
+@dataclass(frozen=True)
+class SetFilterDiagnostic:
+    set_id: str
+    accepted_rows: int
+    reason: str
+
+
+class EmptyAggregationError(RuntimeError):
+    """Raised when a selected band has no honest input denominator."""
 
 
 @dataclass(frozen=True)
@@ -599,11 +611,18 @@ def find_markdown_value(text: str, label: str) -> str:
     return match.group(1).strip() if match else ""
 
 
-def discover_records() -> tuple[list[RunRecord], int, int, list[str]]:
+def discover_records() -> tuple[
+    list[RunRecord],
+    int,
+    int,
+    list[str],
+    list[SetFilterDiagnostic],
+]:
     records: list[RunRecord] = []
     aggregate_row_total = 0
     aggregate_record_total = 0
     scanned_sets: list[str] = []
+    diagnostics: list[SetFilterDiagnostic] = []
     for set_dir in sorted(RUNS_DIR.glob("uat-*")):
         if set_dir.name < WINDOW_START:
             continue
@@ -617,13 +636,94 @@ def discover_records() -> tuple[list[RunRecord], int, int, list[str]]:
             for row in rows:
                 records.append(record_from_row(set_dir, row))
                 aggregate_record_total += 1
+            diagnostics.append(
+                SetFilterDiagnostic(
+                    set_id=set_dir.name,
+                    accepted_rows=len(rows),
+                    reason=(
+                        f"aggregate.json: adopted {len(rows)} row(s)"
+                        if rows
+                        else "aggregate.json: no usable result rows"
+                    ),
+                )
+            )
         else:
-            records.extend(parse_report_only(set_dir))
+            report_records = parse_report_only(set_dir)
+            records.extend(report_records)
+            report = set_dir / "uat-report.md"
+            if report_records:
+                reason = f"uat-report.md smoke fallback: adopted {len(report_records)} row(s)"
+            elif not report.exists():
+                reason = "aggregate.json missing; uat-report.md missing"
+            else:
+                reason = (
+                    "aggregate.json missing; uat-report.md lacks required "
+                    "'## Smoke Result' heading"
+                )
+            diagnostics.append(
+                SetFilterDiagnostic(
+                    set_id=set_dir.name,
+                    accepted_rows=len(report_records),
+                    reason=reason,
+                )
+            )
     assert aggregate_record_total == aggregate_row_total, (
         f"aggregate-derived record count {aggregate_record_total} != "
         f"aggregate.json row count {aggregate_row_total}"
     )
-    return records, aggregate_row_total, aggregate_record_total, scanned_sets
+    return (
+        records,
+        aggregate_row_total,
+        aggregate_record_total,
+        scanned_sets,
+        diagnostics,
+    )
+
+
+def profile_set_diagnostics(
+    records: list[Any], scanned_sets: list[str]
+) -> list[SetFilterDiagnostic]:
+    row_counts = Counter(record.set_id for record in records)
+    return [
+        SetFilterDiagnostic(
+            set_id=set_id,
+            accepted_rows=row_counts[set_id],
+            reason=(
+                f"selected profile: adopted {row_counts[set_id]} row(s)"
+                if row_counts[set_id]
+                else "selected profile: no rows adopted"
+            ),
+        )
+        for set_id in scanned_sets
+    ]
+
+
+def require_nonempty_aggregation(
+    profile: str,
+    records: list[Any],
+    diagnostics: list[SetFilterDiagnostic],
+) -> None:
+    adopted_sets = sum(diagnostic.accepted_rows > 0 for diagnostic in diagnostics)
+    failures: list[str] = []
+    if not records:
+        failures.append("aggregation result has 0 rows")
+    if adopted_sets == 0:
+        failures.append(f"profile {profile!r} adopted 0 sets")
+    if not failures:
+        return
+
+    lines = [
+        f"band generation aborted for profile {profile!r}: {'; '.join(failures)}",
+        "Detected sets and filter reasons:",
+    ]
+    if diagnostics:
+        lines.extend(
+            f"- {diagnostic.set_id}: {diagnostic.reason}"
+            for diagnostic in diagnostics
+        )
+    else:
+        lines.append("- <none>: no candidate sets were detected")
+    raise EmptyAggregationError("\n".join(lines))
 
 
 def pct(num: int, den: int) -> str:
@@ -2331,32 +2431,56 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    if args.profile == "investigation":
-        investigation_records, scanned_sets = discover_investigation_records()
-        summary = build_investigation_summary(investigation_records, scanned_sets)
-        output = INVESTIGATION_OUTPUT
-    elif args.profile == "fix":
-        fix_records, scanned_sets = discover_fix_records()
-        full_verified = assert_full_fix_evidence(fix_records)
-        summary = build_fix_summary(fix_records, scanned_sets, full_verified)
-        output = FIX_OUTPUT
-    elif args.profile == "data":
-        data_records, scanned_rows, meta_rows, scanned_sets = discover_data_records()
-        full_verified = assert_full_data_evidence(data_records)
-        summary = build_data_summary(
-            data_records,
-            scanned_rows,
-            meta_rows,
-            scanned_sets,
-            full_verified,
-        )
-        output = DATA_OUTPUT
-    else:
-        records, aggregate_row_total, _aggregate_record_total, scanned_sets = (
-            discover_records()
-        )
-        summary = build_summary(records, aggregate_row_total, scanned_sets)
-        output = OUTPUT
+    try:
+        if args.profile == "investigation":
+            investigation_records, scanned_sets = discover_investigation_records()
+            require_nonempty_aggregation(
+                args.profile,
+                investigation_records,
+                profile_set_diagnostics(investigation_records, scanned_sets),
+            )
+            summary = build_investigation_summary(investigation_records, scanned_sets)
+            output = INVESTIGATION_OUTPUT
+        elif args.profile == "fix":
+            fix_records, scanned_sets = discover_fix_records()
+            require_nonempty_aggregation(
+                args.profile,
+                fix_records,
+                profile_set_diagnostics(fix_records, scanned_sets),
+            )
+            full_verified = assert_full_fix_evidence(fix_records)
+            summary = build_fix_summary(fix_records, scanned_sets, full_verified)
+            output = FIX_OUTPUT
+        elif args.profile == "data":
+            data_records, scanned_rows, meta_rows, scanned_sets = discover_data_records()
+            require_nonempty_aggregation(
+                args.profile,
+                data_records,
+                profile_set_diagnostics(data_records, scanned_sets),
+            )
+            full_verified = assert_full_data_evidence(data_records)
+            summary = build_data_summary(
+                data_records,
+                scanned_rows,
+                meta_rows,
+                scanned_sets,
+                full_verified,
+            )
+            output = DATA_OUTPUT
+        else:
+            (
+                records,
+                aggregate_row_total,
+                _aggregate_record_total,
+                scanned_sets,
+                diagnostics,
+            ) = discover_records()
+            require_nonempty_aggregation(args.profile, records, diagnostics)
+            summary = build_summary(records, aggregate_row_total, scanned_sets)
+            output = OUTPUT
+    except EmptyAggregationError as error:
+        print(f"error: {error}", file=sys.stderr)
+        return 1
     output.write_text(summary, encoding="utf-8")
     print(summary)
     return 0

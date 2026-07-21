@@ -3,10 +3,14 @@
 
 from __future__ import annotations
 
+import io
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
+from types import SimpleNamespace
+from unittest import mock
 
 import band_aggregate as band
 
@@ -229,6 +233,60 @@ class IntentAxisTests(unittest.TestCase):
         self.assertEqual(len(records), scanned_rows)
         self.assertTrue(records)
         self.assertEqual({record.intent for record in records}, {"create"})
+
+
+class EmptyAggregationTests(unittest.TestCase):
+    def test_zero_rows_abort_with_every_set_filter_reason(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            missing_report = root / "uat-test9000-nextjs-001"
+            wrong_report = root / "uat-test9000-nextjs-002"
+            empty_aggregate = root / "uat-test9000-nextjs-003"
+            missing_report.mkdir()
+            wrong_report.mkdir()
+            empty_aggregate.mkdir()
+            (wrong_report / "uat-report.md").write_text(
+                "# UAT report\n\nNo smoke table here.\n",
+                encoding="utf-8",
+            )
+            (empty_aggregate / "aggregate.json").write_text(
+                '{"results": []}\n',
+                encoding="utf-8",
+            )
+            frozen_output = root / "band_summary.md"
+            frozen_output.write_text("frozen\n", encoding="utf-8")
+            stderr = io.StringIO()
+
+            with (
+                mock.patch.object(band, "RUNS_DIR", root),
+                mock.patch.object(band, "OUTPUT", frozen_output),
+                mock.patch.object(
+                    band,
+                    "parse_args",
+                    return_value=SimpleNamespace(profile="nextjs"),
+                ),
+                redirect_stderr(stderr),
+            ):
+                self.assertEqual(band.main(), 1)
+
+            error = stderr.getvalue()
+            self.assertIn("aggregation result has 0 rows", error)
+            self.assertIn("profile 'nextjs' adopted 0 sets", error)
+            self.assertIn(
+                "uat-test9000-nextjs-001: aggregate.json missing; "
+                "uat-report.md missing",
+                error,
+            )
+            self.assertIn(
+                "uat-test9000-nextjs-002: aggregate.json missing; "
+                "uat-report.md lacks required '## Smoke Result' heading",
+                error,
+            )
+            self.assertIn(
+                "uat-test9000-nextjs-003: aggregate.json: no usable result rows",
+                error,
+            )
+            self.assertEqual(frozen_output.read_text(encoding="utf-8"), "frozen\n")
 
 
 class FixBandTests(unittest.TestCase):
