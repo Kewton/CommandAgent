@@ -1,4 +1,4 @@
-use std::io::{self, IsTerminal};
+use std::io::{self, IsTerminal, Write};
 
 pub fn stdin_is_tty() -> bool {
     io::stdin().is_terminal()
@@ -10,6 +10,28 @@ pub fn stdout_is_tty() -> bool {
 
 pub fn stderr_is_tty() -> bool {
     io::stderr().is_terminal()
+}
+
+/// Writes LF-based logical text without relying on cooked-mode newline expansion.
+pub(crate) fn write_stdout_text(mut writer: impl Write, text: &str) -> io::Result<()> {
+    let raw_tty = stdout_is_tty() && crossterm::terminal::is_raw_mode_enabled().unwrap_or(false);
+    write_text_for_mode(&mut writer, text, raw_tty)
+}
+
+fn write_text_for_mode(mut writer: impl Write, text: &str, raw_mode: bool) -> io::Result<()> {
+    if !raw_mode {
+        return writer.write_all(text.as_bytes());
+    }
+    let bytes = text.as_bytes();
+    let mut start = 0;
+    for (index, byte) in bytes.iter().copied().enumerate() {
+        if byte == b'\n' && (index == 0 || bytes[index - 1] != b'\r') {
+            writer.write_all(&bytes[start..index])?;
+            writer.write_all(b"\r\n")?;
+            start = index + 1;
+        }
+    }
+    writer.write_all(&bytes[start..])
 }
 
 pub fn env_non_empty(name: &str) -> bool {
@@ -39,6 +61,24 @@ pub fn env_non_empty_with(get_env: impl Fn(&str) -> Option<String>, name: &str) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn raw_mode_text_uses_crlf_without_changing_existing_crlf_or_utf8() {
+        let mut output = Vec::new();
+
+        write_text_for_mode(&mut output, "first\nsecond\r\n日本語\n", true).unwrap();
+
+        assert_eq!(output, "first\r\nsecond\r\n日本語\r\n".as_bytes());
+    }
+
+    #[test]
+    fn cooked_mode_text_preserves_lf_bytes() {
+        let mut output = Vec::new();
+
+        write_text_for_mode(&mut output, "first\n日本語\n", false).unwrap();
+
+        assert_eq!(output, "first\n日本語\n".as_bytes());
+    }
 
     #[test]
     fn utf8_locale_prefers_lc_all_and_recognizes_common_spellings() {

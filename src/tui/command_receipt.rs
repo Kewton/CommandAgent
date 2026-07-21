@@ -173,6 +173,31 @@ mod tests {
         );
         assert!(joined.contains(goal), "{receipt}");
         assert!(receipt.lines().all(|line| display_width(line) <= 32));
+        for line in receipt
+            .lines()
+            .skip_while(|line| !line.starts_with("- Goal: "))
+            .skip(1)
+            .take_while(|line| !line.starts_with("- Profile: "))
+        {
+            assert!(line.starts_with("        "), "{line:?}\n{receipt}");
+            assert!(!line.starts_with("         "), "{line:?}\n{receipt}");
+        }
+        for prefix in [
+            "Accepted command",
+            "- Input: ",
+            "- Command: ",
+            "- Goal: ",
+            "- Profile: ",
+            "- Style: ",
+            "- Prompt layout: ",
+            "- Requested port: ",
+            "- Run ID: ",
+        ] {
+            assert!(
+                receipt.lines().any(|line| line.starts_with(prefix)),
+                "{receipt}"
+            );
+        }
     }
 
     #[test]

@@ -391,6 +391,20 @@ fn tui_pty_screen_state_preserves_long_accepted_goal_across_footer_modes() {
                 && visible.contains("3011番ポートで作ってください"),
             "long CJK Goal was not preserved (footer={footer}, no_color={no_color}). visible={visible:?}"
         );
+        for expected in [
+            "- Input: ",
+            "- Command: ",
+            "- Goal: ",
+            "- Profile: ",
+            "- Style: ",
+            "- Prompt layout: ",
+            "- Requested port: ",
+        ] {
+            assert!(
+                text.contains(&format!("\r\n{expected}")),
+                "receipt field did not return to column one before {expected:?} (footer={footer}, no_color={no_color}). output={text:?}"
+            );
+        }
         assert_eq!(
             text.contains("\x1b[1;"),
             footer,
