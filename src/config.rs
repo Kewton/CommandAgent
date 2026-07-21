@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::cli::{
     Cli, FooterArg, IntentArg, PlanPresetArg, PromptLayoutArg, ProviderArg, StreamArg,
 };
-use crate::planner::adjudication::contract::IntentId;
+pub use crate::planner::adjudication::contract::IntentId;
 use crate::planner::intent::detect_intent;
 use crate::planner::profile::{ProfileInference, infer_profile};
 
@@ -190,6 +190,10 @@ pub enum Action {
     UxDemo,
     ModelProbe,
     Doctor,
+    Workflow {
+        definition: PathBuf,
+        origin: PathBuf,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -1300,7 +1304,8 @@ pub fn action_goal(action: &Action) -> Option<&str> {
         | Action::Runs
         | Action::UxDemo
         | Action::ModelProbe
-        | Action::Doctor => None,
+        | Action::Doctor
+        | Action::Workflow { .. } => None,
     }
 }
 
@@ -1318,8 +1323,19 @@ fn action_from_cli(cli: &Cli) -> anyhow::Result<Action> {
     count += cli.ux_demo as usize;
     count += cli.model_probe as usize;
     count += cli.doctor as usize;
+    count += cli.workflow.is_some() as usize;
     if count > 1 {
         bail!("only one action selector can be used at a time");
+    }
+    if let Some(definition) = cli.workflow.clone() {
+        let origin = cli
+            .origin
+            .clone()
+            .ok_or_else(|| anyhow::anyhow!("--workflow requires --origin"))?;
+        if cli.intent.is_some() {
+            bail!("--workflow cannot be combined with --intent");
+        }
+        return Ok(Action::Workflow { definition, origin });
     }
     if let Some(prompt) = cli.prompt.clone() {
         return Ok(Action::Prompt(prompt));
