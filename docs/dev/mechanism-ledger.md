@@ -639,3 +639,4 @@ D-3a開始: workflow円環契約＋schema v0をfixed（本コミット）。YAML
 D-3a-2: workflow円環層の実装コスト実測（9コミット相当: schema strict parse、earned edge、node実行シーム、verify_origin導出・終端、CLI→orchestrator→executor配線、conformance corpus）。2度の部分着地（conformance骨格→シーム→閉線）を経て完成。D-3a-2cスモークはcreate→investigate辺のrun_stop証拠不足でcircle_failed終端。
 D-3a-2d: 実測fixture主義違反を是正し、起点E-Bを実レイアウト（.anvil/runs/*/events.jsonl＋.anvil/plans/recovery-*.yaml）へ統一。ノード観測イベント基準を追加。
 D-3a-2e: D-2c同型の教訓を円環へ適用。ノード集合走査をrouteグラフ駆動へ置換し、E-A〜E-D辺ゲート後のみ起動、実UUID run_idを配管する。
+D-3a-2収穫#5: workflow子実行の再入デッドロック。スモーク4回の無音ハングの根因。6時間ハング実プロセスのsample採取（`__psynch_mutexwait`）で確定。修正=子実行は`run_config`直呼び・panic捕捉は外側バウンダリに一元化。検証: 採取スタックは`run_resolved_config_for_workflow → run_resolved_config → catch_cli_run → PanicHookGuard::install → Mutex::lock → __psynch_mutexwait`、構造回帰テストは子経路のpanic hook導入0回を固定。C2の停滞しきい値緩和は却下し不変。

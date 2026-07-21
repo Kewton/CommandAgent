@@ -47,6 +47,8 @@ struct PanicHookGuard {
 
 impl PanicHookGuard {
     fn install(diagnostics: Arc<Mutex<Vec<PanicDiagnostic>>>) -> Self {
+        #[cfg(test)]
+        TEST_PANIC_HOOK_INSTALL_COUNT.with(|count| count.set(count.get() + 1));
         let lock = PANIC_HOOK_LOCK
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -450,6 +452,17 @@ pub(crate) fn report_secondary_panic(label: &str, payload: Box<dyn Any + Send>) 
 thread_local! {
     static TEST_FAULT_REQUESTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
     static TEST_FINALIZER_FAULT_REQUESTED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    static TEST_PANIC_HOOK_INSTALL_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(crate) fn reset_test_panic_hook_install_count() {
+    TEST_PANIC_HOOK_INSTALL_COUNT.with(|count| count.set(0));
+}
+
+#[cfg(test)]
+pub(crate) fn test_panic_hook_install_count() -> usize {
+    TEST_PANIC_HOOK_INSTALL_COUNT.with(std::cell::Cell::get)
 }
 
 #[cfg(test)]

@@ -845,6 +845,18 @@ mod tests {
     }
 
     #[test]
+    fn workflow_child_execution_does_not_install_nested_panic_hook() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.action = Action::Runs;
+        cli_panic_boundary::reset_test_panic_hook_install_count();
+
+        run_resolved_config_for_workflow(cfg).unwrap();
+
+        assert_eq!(cli_panic_boundary::test_panic_hook_install_count(), 0);
+    }
+
+    #[test]
     fn run_lifecycle_writes_events_and_summary_for_tui_exit() {
         let dir = tempfile::tempdir().unwrap();
         let events = dir.path().join(".anvil/runs/test-run/events.jsonl");

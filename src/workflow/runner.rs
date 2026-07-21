@@ -78,7 +78,7 @@ pub fn latest_failed_run_events(origin: &Path) -> Option<std::path::PathBuf> {
 pub fn derive_goal(intent: &str, origin_goal: &str) -> Option<String> {
     match intent {
         "investigate" => Some(format!(
-            "『{origin_goal}』の実行が失敗しました。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。"
+            "『{origin_goal}』の実行が失敗しました。まず output/diagnosis.md を作成し、調査の進展に応じて更新すること。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。"
         )),
         "fix" => Some(format!(
             "『{origin_goal}』の実行が失敗し、原因調査が完了しています。診断（output/diagnosis.md）と再現手順に基づき修正してください。修正後も既存の検証が通ることを確認してください。"
@@ -206,6 +206,17 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn investigate_goal_requires_early_diagnosis_materialization() {
+        assert_eq!(
+            derive_goal("investigate", "起点goal").as_deref(),
+            Some(
+                "『起点goal』の実行が失敗しました。まず output/diagnosis.md を作成し、調査の進展に応じて更新すること。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。"
+            )
+        );
+    }
+
     #[test]
     fn requires_all_edge_conditions() {
         let route = Route {
