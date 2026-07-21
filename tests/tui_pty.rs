@@ -910,10 +910,7 @@ fn read_http_request(stream: &mut impl Read) -> String {
     let mut request = Vec::new();
     let mut buffer = [0_u8; 1024];
     let mut expected = None;
-    loop {
-        let Ok(read) = stream.read(&mut buffer) else {
-            break;
-        };
+    while let Ok(read) = stream.read(&mut buffer) {
         if read == 0 {
             break;
         }
