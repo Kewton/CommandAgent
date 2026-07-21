@@ -61,7 +61,13 @@ fn run_resolved_config(config: Config) -> anyhow::Result<()> {
 }
 
 pub(crate) fn run_resolved_config_for_workflow(config: Config) -> anyhow::Result<()> {
-    run_resolved_config(config)
+    // This runs *inside* the outer CLI panic boundary: run_resolved_config already
+    // wrapped the workflow invocation in catch_cli_run, which holds the process-wide,
+    // non-reentrant PANIC_HOOK_LOCK for the whole run. Re-entering catch_cli_run here
+    // (as run_resolved_config would) makes the same thread re-lock that mutex and
+    // self-deadlock. Run the resolved config directly; the outer boundary still
+    // catches any panic raised by this child node run.
+    run_config(config)
 }
 
 fn run_config(config: Config) -> anyhow::Result<()> {
