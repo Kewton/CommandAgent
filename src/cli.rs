@@ -77,6 +77,10 @@ pub struct Cli {
         help = "Select create, fix, or investigate intent explicitly; omitted keeps goal-based resolution"
     )]
     pub intent: Option<IntentArg>,
+    #[arg(long, conflicts_with = "intent")]
+    pub workflow: Option<PathBuf>,
+    #[arg(long, requires = "workflow")]
+    pub origin: Option<PathBuf>,
     #[arg(long)]
     pub planner_model: Option<String>,
     #[arg(long, value_enum)]

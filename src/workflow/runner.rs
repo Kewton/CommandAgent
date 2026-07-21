@@ -1,22 +1,46 @@
 //! Deterministic earned-edge checks for workflow circles.
 use super::schema::{Route, Verdict};
+use serde::Serialize;
 use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EdgeFailure { pub edge: String, pub reason: String }
+pub struct EdgeFailure {
+    pub edge: String,
+    pub reason: String,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EdgeEvidence { pub verdict: Verdict, pub evidence: bool, pub adjudicated: bool, pub epoch: u64, pub previous_epoch: u64, pub carry_present: bool }
+pub struct EdgeEvidence {
+    pub verdict: Verdict,
+    pub evidence: bool,
+    pub adjudicated: bool,
+    pub epoch: u64,
+    pub previous_epoch: u64,
+    pub carry_present: bool,
+}
 
 pub fn edge_earned(route: &Route, edge: &str, evidence: &EdgeEvidence) -> Result<(), EdgeFailure> {
-    if evidence.verdict != route.on { return Err(fail(edge, "verdict")); }
-    if !evidence.evidence || !evidence.adjudicated { return Err(fail(edge, "evidence")); }
-    if evidence.epoch <= evidence.previous_epoch { return Err(fail(edge, "epoch")); }
-    if !evidence.carry_present { return Err(fail(edge, "carry")); }
+    if evidence.verdict != route.on {
+        return Err(fail(edge, "verdict"));
+    }
+    if !evidence.evidence || !evidence.adjudicated {
+        return Err(fail(edge, "evidence"));
+    }
+    if evidence.epoch <= evidence.previous_epoch {
+        return Err(fail(edge, "epoch"));
+    }
+    if !evidence.carry_present {
+        return Err(fail(edge, "carry"));
+    }
     Ok(())
 }
 
-fn fail(edge: &str, reason: &str) -> EdgeFailure { EdgeFailure { edge: edge.into(), reason: format!("edge_not_earned:{edge}:{reason}") } }
+fn fail(edge: &str, reason: &str) -> EdgeFailure {
+    EdgeFailure {
+        edge: edge.into(),
+        reason: format!("edge_not_earned:{edge}:{reason}"),
+    }
+}
 
 pub fn origin_recovery_yaml_present(origin: &Path) -> bool {
     origin.join("recovery.yaml").is_file() || origin.join("recovery.yml").is_file()
@@ -24,18 +48,66 @@ pub fn origin_recovery_yaml_present(origin: &Path) -> bool {
 
 pub fn derive_goal(intent: &str, origin_goal: &str) -> Option<String> {
     match intent {
-        "investigate" => Some(format!("『{origin_goal}』の実行が失敗しました。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。")),
-        "fix" => Some(format!("『{origin_goal}』の実行が失敗し、原因調査が完了しています。診断（output/diagnosis.md）と再現手順に基づき修正してください。修正後も既存の検証が通ることを確認してください。")),
+        "investigate" => Some(format!(
+            "『{origin_goal}』の実行が失敗しました。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。"
+        )),
+        "fix" => Some(format!(
+            "『{origin_goal}』の実行が失敗し、原因調査が完了しています。診断（output/diagnosis.md）と再現手順に基づき修正してください。修正後も既存の検証が通ることを確認してください。"
+        )),
         _ => None,
+    }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(tag = "event")]
+pub enum WorkflowEvent {
+    #[serde(rename = "workflow_started")]
+    Started,
+    #[serde(rename = "workflow_edge_fired")]
+    EdgeFired { edge: String, checks: Vec<String> },
+    #[serde(rename = "workflow_node_completed")]
+    NodeCompleted { node: String },
+    #[serde(rename = "workflow_adjudicated")]
+    Adjudicated {
+        verdict: String,
+        reason: Option<String>,
+    },
+}
+
+pub fn circle_adjudication(
+    verify_origin_passed: bool,
+    reason: Option<String>,
+) -> (&'static str, Option<String>) {
+    if verify_origin_passed {
+        ("circle_full", None)
+    } else {
+        (
+            "circle_failed",
+            reason.or_else(|| Some("origin_verify_failed".into())),
+        )
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test] fn requires_all_edge_conditions() {
-        let route = Route { from: "a".into(), on: Verdict::Full, when: None, to: "b".into(), carry: vec![] };
-        let e = EdgeEvidence { verdict: Verdict::Full, evidence: true, adjudicated: true, epoch: 2, previous_epoch: 1, carry_present: true };
+    #[test]
+    fn requires_all_edge_conditions() {
+        let route = Route {
+            from: "a".into(),
+            on: Verdict::Full,
+            when: None,
+            to: "b".into(),
+            carry: vec![],
+        };
+        let e = EdgeEvidence {
+            verdict: Verdict::Full,
+            evidence: true,
+            adjudicated: true,
+            epoch: 2,
+            previous_epoch: 1,
+            carry_present: true,
+        };
         assert!(edge_earned(&route, "a_to_b", &e).is_ok());
         assert!(edge_earned(&route, "a_to_b", &EdgeEvidence { epoch: 1, ..e }).is_err());
     }
