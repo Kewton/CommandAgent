@@ -101,11 +101,18 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
             json!({"event":"workflow_node_started","node":node_id,"intent":intent}),
         )?;
         let run_id = uuid::Uuid::now_v7().to_string();
+        let run_dir = origin.join(format!(".anvil/runs/{run_id}"));
+        fs::create_dir_all(&run_dir)?;
+        let run_events = run_dir.join("events.jsonl");
+        emit(
+            &run_events,
+            json!({"event":"workflow_node_run_created","node":node_id,"run_id":run_id}),
+        )?;
         emit(
             &events_path,
-            json!({"event":"workflow_node_run_created","node":node_id,"run_id":run_id,"run_dir":origin.join(format!(".anvil/runs/{run_id}"))}),
+            json!({"event":"workflow_node_run_created","node":node_id,"run_id":run_id,"run_dir":run_dir}),
         )?;
-        runner::execute_node(&request, &node_events, |req| {
+        let execution = runner::execute_node(&request, &node_events, |req| {
             let mut child = config.clone();
             child.yes = true;
             child.workspace_root = req.origin.clone();
@@ -121,8 +128,19 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
                 _ => crate::config::IntentId::Create,
             });
             crate::run_resolved_config_for_workflow(child).map_err(|e| e.to_string())
-        })
-        .map_err(|e| anyhow::anyhow!(e))?;
+        });
+        if let Err(err) = execution {
+            emit(
+                &run_events,
+                json!({"event":"run_stop","verdict":"failed","reason":err}),
+            )?;
+            emit(
+                &events_path,
+                json!({"event":"workflow_adjudicated","verdict":"circle_failed","reason":format!("node_failed:{node_id}")}),
+            )?;
+            return write_circle(origin, "circle_failed", &format!("node_failed:{node_id}"));
+        }
+        emit(&run_events, json!({"event":"run_stop","verdict":"full"}))?;
         emit(
             &events_path,
             json!({"event":"intent_resolved","intent":intent,"node":node_id}),
