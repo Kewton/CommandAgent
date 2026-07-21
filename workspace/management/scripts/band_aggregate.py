@@ -43,7 +43,8 @@ DATA_FAMILY_STABLE_WINDOWS = {
     "timeseries": ("uat-test0716-data-009", "2028eb4"),
 }
 FIX_WINDOW_SETS = tuple(f"uat-test0717-fix-{index:03d}" for index in range(1, 5))
-FIX_EXPECTED_RUNS = 24
+FIX_BENCH_SET = "uat-test0719-dfix-006"
+FIX_EXPECTED_RUNS = 30
 FIX_WINDOW_B_BASELINE_HEAD = "6decdce"
 FIX_FAMILIES = ("compile_error_fix", "contract_hook_fix", "unknown")
 FIX_ENVIRONMENT_HOLDS = {
@@ -1480,6 +1481,28 @@ def discover_fix_records() -> tuple[list[FixRunRecord], list[str]]:
                     excluded_reason=FIX_ENVIRONMENT_HOLDS.get((set_id, run_name), ""),
                 )
             )
+    bench_meta = read_json_dict(RUNS_DIR / FIX_BENCH_SET / "uat-meta.json")
+    assert bench_meta is not None, f"missing bench metadata: {FIX_BENCH_SET}"
+    bench_runs = bench_meta.get("runs")
+    assert isinstance(bench_runs, list), f"bench runs is not a list: {FIX_BENCH_SET}"
+    for row in bench_runs:
+        assert isinstance(row, dict)
+        run_name = str(row.get("name") or "")
+        interrupted = str(row.get("status") or "") == "interrupted(environment)"
+        artifact = RUNS_DIR / FIX_BENCH_SET / "artifacts" / run_name
+        records.append(FixRunRecord(
+            set_id=FIX_BENCH_SET, run_name=run_name, event_run_id=run_name,
+            fix_run_id=run_name, intent="fix", intent_source="uat-meta",
+            goal=str(row.get("goal") or ""),
+            family="compile_error_fix" if row.get("goal") == "pipe" else "contract_hook_fix",
+            executor=str(row.get("executor") or "unknown"), final_acceptance="failed",
+            verdict="interrupted" if interrupted else "failed",
+            assurance="static" if interrupted else "failed",
+            failure_class="environment_interrupted" if interrupted else "bench_product_exit",
+            duration_seconds=row.get("duration_seconds"),
+            source=f"{FIX_BENCH_SET}/uat-meta.json", evidence_dir=artifact / ".anvil" / "evidence",
+            excluded_reason="interrupted(environment): run non-consuming; two attempts were environment-interrupted" if interrupted else "",
+        ))
     assert len(records) == FIX_EXPECTED_RUNS, (
         f"fix output rows {len(records)} != expected {FIX_EXPECTED_RUNS}"
     )
@@ -1711,16 +1734,20 @@ def build_fix_summary(
     scanned_sets: list[str],
     full_evidence_verified: int,
 ) -> str:
-    official = [record for record in records if not record.excluded_reason]
+    window_a_records = [record for record in records if record.set_id in FIX_WINDOW_SETS]
+    window_b_records = [record for record in records if record.set_id == FIX_BENCH_SET]
+    official = [record for record in window_a_records if not record.excluded_reason]
     excluded = [record for record in records if record.excluded_reason]
+    historical_excluded = [record for record in window_a_records if record.excluded_reason]
     unknown_intent = [record for record in records if record.intent == "unknown"]
     unknown_family = [record for record in records if record.family == "unknown"]
     intent_sources = Counter(record.intent_source for record in records)
     assert len(records) == FIX_EXPECTED_RUNS
+    assert len(window_a_records) == 24
     assert len(official) == 22, (
         f"fix official denominator is {len(official)}, expected 22"
     )
-    assert len(excluded) == 2, f"fix environment holds are {len(excluded)}, expected 2"
+    assert len(excluded) == 3, f"fix exclusions are {len(excluded)}, expected 3"
     assert full_evidence_verified == sum(record.claims_full for record in records)
 
     lines: list[str] = [
@@ -1731,7 +1758,7 @@ def build_fix_summary(
         f"- Scanned D-1 measurement sets: `{len(scanned_sets)}`",
         f"- Scanned fix run rows: `{len(records)}`",
         f"- Intent resolution sources: `{dict(sorted(intent_sources.items()))}`",
-        f"- Window A raw denominator: `{len(records)}`",
+        f"- Window A raw denominator: `{len(window_a_records)}`",
         f"- Window A official denominator: `{len(official)}`",
         f"- Environment-held exclusions: `{len(excluded)}`",
         f"- Full rows with F1-F3 evidence verified: `{full_evidence_verified}`",
@@ -1754,7 +1781,7 @@ def build_fix_summary(
         "Window A — all D-1 history (raw)",
         "`uat-test0717-fix-001` through `uat-test0717-fix-004`; all 24 observed "
         "runs are retained, including the two pre-FIX-1 environment-held rows.",
-        records,
+        window_a_records,
     )
     append_fix_window(
         lines,
@@ -1780,7 +1807,7 @@ def build_fix_summary(
                     record.executor,
                     record.excluded_reason,
                 ]
-                for record in excluded
+                for record in historical_excluded
             ],
         )
     )
@@ -1791,9 +1818,9 @@ def build_fix_summary(
             "",
             f"- Baseline HEAD: `{FIX_WINDOW_B_BASELINE_HEAD}` (FIX-5)",
             "- Definition: measurements beginning with the first campaign after FIX-5.",
-            "- Denominator: `0`",
-            "- Full: `0`",
-            "- Failed: `0`",
+            f"- Denominator: `{len([r for r in window_b_records if not r.excluded_reason])}`",
+            f"- Full: `{sum(r.is_full for r in window_b_records if not r.excluded_reason)}`",
+            f"- Failed: `{sum(not r.is_full for r in window_b_records if not r.excluded_reason)}`",
             "",
         ]
     )
@@ -1808,9 +1835,14 @@ def build_fix_summary(
                 "denominator",
                 "full rate",
             ],
-            [],
+            fix_rate_rows([r for r in window_b_records if not r.excluded_reason]),
         )
     )
+    lines.extend(["", "## Window B rows excluded from consumption", ""])
+    lines.extend(table(
+        ["Set", "Run", "Reason"],
+        [[r.set_id, r.run_name, r.excluded_reason] for r in window_b_records if r.excluded_reason],
+    ))
     lines.extend(["", "## First full and F-evidence chain", ""])
     full_records = [record for record in records if record.is_full]
     for record in full_records:
@@ -2225,7 +2257,7 @@ def build_investigation_summary(
         "Window A — all investigation history",
         "`uat-test0718-inv-001` plus `uat-test0718-inv-002`; all 12 runs were "
         "formally consumed and none is excluded.",
-        records,
+        window_a_records,
     )
     append_investigation_window(
         lines,
