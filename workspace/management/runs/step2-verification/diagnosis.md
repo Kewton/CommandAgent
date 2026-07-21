@@ -47,3 +47,23 @@ report-like files found references to these patterns in 26 reports, including
 `workspace/management/runs/uat-test0715-ff1-001/uat-report.md`, and the prior
 cleanup report. These are textual references, not evidence that the derived
 trees are tracked.
+
+## v2: clippy cleanup and acceptance rerun
+
+The first CI run reported seven warnings: `while_let_loop` (five occurrences),
+`sort_by_key` (one), and `manual_checked_div` (one). Equivalent rewrites were
+applied in the UX-wave implementation paths; the CI toolchain then exposed one
+additional `while_let_loop` in `tests/tui_pty.rs`, which was equivalently
+rewritten. No crate-wide lint suppression or adjudication code was changed.
+Local `cargo fmt --check` and `cargo clippy --all-targets -- -D warnings` are
+green. Local full `cargo test` completed green: 1,576 passed, 15 ignored.
+
+The final CI run after the remaining test-target rewrite is run
+`29810891791`; its observed state at report generation was `cargo test` still
+in progress after `fmt` and `clippy` passed. The workflow's explicit exclusion
+declaration remains `browser_probe=0`, count `0`; the final log must be checked
+after completion to confirm downstream Python and scrub steps.
+
+The earlier “1,300 derived” figure counted `.anvil` paths as well as the three
+requested patterns. The requested `git ls-files` pattern count is instead:
+`node_modules=0`, `.next=1` (100 bytes, outside `runs/`), `target=0`; total 1.
