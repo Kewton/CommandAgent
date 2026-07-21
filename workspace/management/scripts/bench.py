@@ -19,8 +19,9 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Sequence
 
 
-HARNESS_VERSION = "0"
+HARNESS_VERSION = "0.1"
 TAIL_BYTES = 64 * 1024
+MAX_SCRUB_FILE_BYTES = 10 * 1024 * 1024
 TERMINAL_RUN_STATUSES = {
     "blocked",
     "completed",
@@ -35,6 +36,21 @@ EVENT_SEARCH_PATTERNS = {
     "*_plan_synthesized": re.compile(r"^[a-z0-9_]+_plan_synthesized$"),
     "*_adjudicated": re.compile(r"^[a-z0-9_]+_adjudicated$"),
 }
+SECRET_VALUE_PATTERNS = (
+    re.compile(r"sk-[A-Za-z0-9]{16,}"),
+    re.compile(r"AIza[0-9A-Za-z_-]{35}"),
+    re.compile(r"ghp_[A-Za-z0-9]{36,}"),
+    re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"),
+    re.compile(r"AKIA[0-9A-Z]{16}"),
+    re.compile(r"eyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{10,}"),
+    re.compile(r"BEGIN [A-Z ]*PRIVATE KEY"),
+)
+NAME_VALUE_PATTERN = re.compile(
+    r"(?i)(api[_-]?key|secret|token|authorization)\s*[:=]\s*[\"']?"
+    r"([A-Za-z0-9+/_\-.]{16,})[\"']?"
+)
+ENV_DUMP_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]*=.+$")
+ENV_DUMP_ALLOW = {"NODE_ENV", "PATH", "HOME", "PWD", "OLDPWD", "SHELL", "USER"}
 
 
 class BenchError(RuntimeError):
@@ -75,6 +91,7 @@ class SuiteDefinition:
     goals: dict[str, str]
     sources: tuple[SourceSpec, ...]
     runs: tuple[RunSpec, ...]
+    scrub_allow: tuple[dict[str, str], ...]
 
     def source_for(self, set_id: str) -> SourceSpec:
         for source in self.sources:
@@ -89,6 +106,13 @@ class ProcurementResult:
     reason: str | None
     observed_sha256: dict[str, str | None]
     precheck: dict[str, Any] | None
+
+
+@dataclass(frozen=True)
+class ScrubResult:
+    ok: bool
+    findings: tuple[dict[str, Any], ...]
+    allows: tuple[dict[str, str], ...]
 
 
 @dataclass(frozen=True)
@@ -116,6 +140,70 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _masked(value: str) -> str:
+    return f"{value[:2]}…({len(value)} chars)"
+
+
+def scrub_path(path: Path, scrub_allow: Sequence[dict[str, str]] = ()) -> ScrubResult:
+    """Detect secrets, dangerous files, dumps, and bulky derivatives.
+
+    The target is secret existence, not vocabulary: name mentions without a
+    value are allowed. This is an E2-style precision refinement, not a
+    relaxation; unconditional real-value patterns remain failures.
+    """
+    findings: list[dict[str, Any]] = []
+    allow_records = tuple(scrub_allow)
+    allow_patterns = [(re.compile(item["pattern"]), item["reason"]) for item in allow_records]
+
+    def add(kind: str, file_path: Path, detail: str, line: int | None = None) -> None:
+        relative = str(file_path.relative_to(path)) if file_path != path else file_path.name
+        if any(pattern.search(detail) for pattern, _ in allow_patterns):
+            return
+        record: dict[str, Any] = {"kind": kind, "path": relative, "detail": detail}
+        if line is not None:
+            record["line"] = line
+        findings.append(record)
+
+    files = [path] if path.is_file() else [item for item in path.rglob("*") if item.is_file()]
+    for file_path in files:
+        relative = file_path.relative_to(path) if file_path != path else Path(file_path.name)
+        parts = set(relative.parts)
+        if any(part in {"node_modules", ".next", "target"} for part in parts):
+            add("derived", file_path, str(relative))
+        if file_path.stat().st_size > MAX_SCRUB_FILE_BYTES:
+            add("oversize", file_path, f"{file_path.stat().st_size} bytes")
+        if file_path.name == ".env" or file_path.name.startswith(".env.") or file_path.suffix == ".pem" or file_path.name.startswith("id_rsa"):
+            add("dangerous_file", file_path, str(relative))
+        try:
+            text = file_path.read_text(encoding="utf-8", errors="replace")
+        except OSError as error:
+            add("unreadable", file_path, str(error))
+            continue
+        text_lines = text.splitlines()
+        dump_streak = 0
+        for number, line in enumerate(text_lines, start=1):
+            real_match = next((pattern.search(line) for pattern in SECRET_VALUE_PATTERNS if pattern.search(line)), None)
+            if real_match:
+                if not any(pattern.search(real_match.group(0)) for pattern, _ in allow_patterns):
+                    add("secret_value", file_path, _masked(real_match.group(0)), number)
+            name_match = NAME_VALUE_PATTERN.search(line)
+            if name_match:
+                if not any(pattern.search(name_match.group(2)) for pattern, _ in allow_patterns):
+                    add("named_value", file_path, _masked(name_match.group(2)), number)
+            elif number < len(text_lines):
+                next_match = NAME_VALUE_PATTERN.search(line + "\n" + text_lines[number])
+                if next_match and next_match.group(2):
+                    add("named_adjacent_value", file_path, _masked(next_match.group(2)), number)
+            if ENV_DUMP_PATTERN.match(line) and line.split("=", 1)[0] not in ENV_DUMP_ALLOW:
+                dump_streak += 1
+            else:
+                dump_streak = 0
+            if dump_streak >= 20:
+                add("environment_dump", file_path, "20 consecutive uppercase assignments", number - 19)
+                dump_streak = 0
+    return ScrubResult(not findings, tuple(findings), allow_records)
 
 
 def _require_table(parent: dict[str, Any], key: str) -> dict[str, Any]:
@@ -170,6 +258,7 @@ def load_suite(path: Path) -> SuiteDefinition:
             "planner_provider",
             "provider",
             "min_head",
+            "scrub_allow",
         },
         "suite",
     )
@@ -191,6 +280,20 @@ def load_suite(path: Path) -> SuiteDefinition:
         not isinstance(min_head_value, str) or not min_head_value.strip()
     ):
         raise BenchError("suite.min_head must be a non-empty string when present")
+    raw_allow = suite_table.get("scrub_allow", [])
+    if not isinstance(raw_allow, list):
+        raise BenchError("suite.scrub_allow must be an array of tables")
+    scrub_allow: list[dict[str, str]] = []
+    for index, item in enumerate(raw_allow):
+        if not isinstance(item, dict) or set(item) != {"pattern", "reason"}:
+            raise BenchError(f"suite.scrub_allow[{index}] requires pattern and reason")
+        pattern = _required_str(item, "pattern", f"suite.scrub_allow[{index}]")
+        reason = _required_str(item, "reason", f"suite.scrub_allow[{index}]")
+        try:
+            re.compile(pattern)
+        except re.error as error:
+            raise BenchError(f"invalid suite.scrub_allow pattern: {error}") from error
+        scrub_allow.append({"pattern": pattern, "reason": reason})
 
     goals: dict[str, str] = {}
     for goal_id, goal in goals_table.items():
@@ -323,6 +426,7 @@ def load_suite(path: Path) -> SuiteDefinition:
         goals=goals,
         sources=tuple(sources),
         runs=tuple(runs),
+        scrub_allow=tuple(scrub_allow),
     )
 
 
@@ -426,8 +530,31 @@ def _require_success(record: dict[str, Any], label: str) -> None:
         raise BenchError(f"preflight {label} failed: {detail.strip()}")
 
 
+def _check_git_clean(record: dict[str, Any], repo_root: Path, allowed_prefix: Path | None) -> int:
+    status_text = record["stdout_tail"]
+    dirty = [line for line in status_text.splitlines() if line.strip()]
+    allowed = 0
+    unexpected: list[str] = []
+    for line in dirty:
+        relative = line[3:] if len(line) >= 3 else ""
+        if allowed_prefix is not None and relative.startswith(str(allowed_prefix).rstrip("/") + "/"):
+            allowed += 1
+        else:
+            unexpected.append(line)
+    record["dirty_entries"] = len(dirty)
+    record["self_output_entries_allowed"] = allowed
+    record["unexpected_dirty_entries"] = unexpected
+    if unexpected:
+        raise BenchError(
+            "preflight git status failed: repository has unexpected changes:\n"
+            + "\n".join(unexpected)
+        )
+    return allowed
+
+
 def perform_preflight(
-    repo_root: Path, min_head: str | None, skip_suite_tests: bool
+    repo_root: Path, min_head: str | None, skip_suite_tests: bool,
+    allowed_output_dir: Path | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, str]]]:
     records: dict[str, Any] = {"started_epoch": int(time.time())}
     deviations: list[dict[str, str]] = []
@@ -437,12 +564,14 @@ def perform_preflight(
     )
     records["git_status"] = git_status
     _require_success(git_status, "git status")
-    if git_status["stdout_tail"]:
-        raise BenchError(
-            "preflight git status failed: repository is not clean:\n"
-            f"{git_status['stdout_tail'].rstrip()}"
-        )
-    print("preflight: git status clean")
+    allowed_prefix = None
+    if allowed_output_dir is not None:
+        try:
+            allowed_prefix = allowed_output_dir.resolve().relative_to(repo_root.resolve())
+        except ValueError:
+            allowed_prefix = None
+    allowed_count = _check_git_clean(git_status, repo_root, allowed_prefix)
+    print(f"preflight: git status clean (self-output entries allowed: {allowed_count})")
 
     head = _run_capture(["git", "rev-parse", "HEAD"], repo_root)
     records["head"] = head
@@ -823,6 +952,7 @@ def _suite_metadata(suite: SuiteDefinition) -> dict[str, Any]:
         "planner_provider": suite.planner_provider,
         "provider": suite.provider,
         "min_head": suite.min_head,
+        "scrub_allow": list(suite.scrub_allow),
     }
 
 
@@ -877,12 +1007,22 @@ def _record_procurement(
 
 
 def _finish_run_record(
-    record: dict[str, Any], run_dir: Path, source: SourceSpec, artifact_dir: Path
+    record: dict[str, Any], run_dir: Path, source: SourceSpec, artifact_dir: Path,
+    scrub_allow: Sequence[dict[str, str]] = (),
 ) -> None:
     record["final_sha256"] = _hash_relative_paths(
         run_dir, list(source.input_sha256)
     )
     archive_run(source, run_dir, artifact_dir)
+    scrub = scrub_path(artifact_dir, scrub_allow)
+    record["scrub"] = {
+        "ok": scrub.ok,
+        "findings": list(scrub.findings),
+        "allow": list(scrub.allows),
+    }
+    if not scrub.ok:
+        record["scrub_failed"] = True
+        print(f"warning: scrub findings for {record['name']}: {len(scrub.findings)}")
     record.update(collect_observations(artifact_dir))
 
 
@@ -906,7 +1046,7 @@ def normalize_interrupted_runs(
         artifact_dir = campaign_dir / "artifacts" / run.name
         if run_dir.exists():
             _finish_run_record(
-                record, run_dir, suite.source_for(run.set_id), artifact_dir
+                record, run_dir, suite.source_for(run.set_id), artifact_dir, suite.scrub_allow
             )
         changed = True
     if changed:
@@ -944,7 +1084,7 @@ def process_runs(
             record["status"] = "blocked"
             if run_dir.exists():
                 _finish_run_record(
-                    record, run_dir, suite.source_for(run.set_id), artifact_dir
+                    record, run_dir, suite.source_for(run.set_id), artifact_dir, suite.scrub_allow
                 )
             write_metadata(metadata_path, metadata)
             print(f"blocked: {run.name}: {procurement.reason}")
@@ -952,7 +1092,7 @@ def process_runs(
         if dry_run:
             record["status"] = "dry-run-ready"
             _finish_run_record(
-                record, run_dir, suite.source_for(run.set_id), artifact_dir
+                record, run_dir, suite.source_for(run.set_id), artifact_dir, suite.scrub_allow
             )
             write_metadata(metadata_path, metadata)
             print(f"dry-run: ready {run.name}")
@@ -974,7 +1114,7 @@ def process_runs(
             record["duration_seconds"] = product.end_epoch - product.start_epoch
             record["product_exit"] = product.exit_code
             _finish_run_record(
-                record, run_dir, suite.source_for(run.set_id), artifact_dir
+                record, run_dir, suite.source_for(run.set_id), artifact_dir, suite.scrub_allow
             )
             metadata.setdefault("resume_notes", []).append(
                 f"{run.name} was interrupted(environment) and must not be rerun. "
@@ -987,7 +1127,7 @@ def process_runs(
             record["end_epoch"] = int(time.time())
             record["protocol_reason"] = f"product start failed: {error}"
             _finish_run_record(
-                record, run_dir, suite.source_for(run.set_id), artifact_dir
+                record, run_dir, suite.source_for(run.set_id), artifact_dir, suite.scrub_allow
             )
             write_metadata(metadata_path, metadata)
             print(f"blocked: {run.name}: product start failed: {error}")
@@ -998,7 +1138,7 @@ def process_runs(
         record["product_exit"] = product.exit_code
         record["stdout_tail"] = product.stdout_tail
         record["stderr_tail"] = product.stderr_tail
-        _finish_run_record(record, run_dir, suite.source_for(run.set_id), artifact_dir)
+        _finish_run_record(record, run_dir, suite.source_for(run.set_id), artifact_dir, suite.scrub_allow)
         write_metadata(metadata_path, metadata)
         print(
             f"completed: {run.name}: product_exit={product.exit_code} "
@@ -1040,13 +1180,17 @@ def generate_report(campaign_dir: Path, metadata: dict[str, Any]) -> Path:
     lines.extend(
         [
             "",
-            "## Run matrix (mechanical transfer)",
+        "## Run matrix (mechanical transfer)",
             "",
             "| run | harness status | product exit | seconds | verdict transfer | "
             "assurance transfer |",
             "|---|---|---:|---:|---|---|",
         ]
     )
+    if metadata["suite"].get("scrub_allow"):
+        lines.extend(["", "## Scrub allow-list", ""])
+        for item in metadata["suite"]["scrub_allow"]:
+            lines.append(f"- `{item['pattern']}` — {item['reason']}")
     for record in metadata["runs"]:
         lines.append(
             "| "
@@ -1063,6 +1207,8 @@ def generate_report(campaign_dir: Path, metadata: dict[str, Any]) -> Path:
             )
             + " |"
         )
+        if record.get("scrub_failed"):
+            lines.append("  - scrub: FAIL (findings are recorded in uat-meta.json)")
     lines.extend(
         [
             "",
@@ -1202,12 +1348,18 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--resume", action="store_true")
     run_parser.add_argument("--min-head")
     run_parser.add_argument("--skip-suite-tests", action="store_true")
+    scrub_parser = subparsers.add_parser("scrub", help="scan a report or artifact tree")
+    scrub_parser.add_argument("--path", required=True, type=Path)
     return parser
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if args.subcommand == "scrub":
+        result = scrub_path(args.path.expanduser().resolve())
+        print(json.dumps({"ok": result.ok, "findings": list(result.findings)}, ensure_ascii=False, indent=2))
+        return 0 if result.ok else 3
     if args.dry_run and args.resume:
         parser.error("--dry-run and --resume cannot be combined")
     repo_root = repository_root()
@@ -1217,17 +1369,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         workspace_root = args.workspace_root.expanduser().resolve()
         _validate_workspace_root(workspace_root, repo_root)
         min_head = args.min_head or suite.min_head
-        preflight, deviations = perform_preflight(
-            repo_root, min_head, args.skip_suite_tests
-        )
         if args.resume:
             campaign_dir = find_resume_campaign(workspace_root, suite)
+            preflight, deviations = perform_preflight(
+                repo_root, min_head, args.skip_suite_tests, campaign_dir
+            )
             metadata = load_resume_metadata(campaign_dir, suite)
             metadata["preflight"] = preflight
             metadata["deviations"] = deviations
             metadata.setdefault("resume_epochs", []).append(int(time.time()))
         else:
             campaign_dir = create_campaign(workspace_root, suite.suite_id, args.dry_run)
+            preflight, deviations = perform_preflight(
+                repo_root, min_head, args.skip_suite_tests, campaign_dir
+            )
             metadata = new_metadata(
                 suite,
                 campaign_dir.name,

@@ -206,5 +206,37 @@ class ExecutionPolicyTests(unittest.TestCase):
             )
 
 
+class ScrubTests(unittest.TestCase):
+    def test_name_only_is_allowed_and_value_is_masked(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "issue-analysis.md").write_text(
+                "GEMINI_API_KEY is not set\napi_key: Ab1234567890abcdef\n",
+                encoding="utf-8",
+            )
+            result = bench.scrub_path(root)
+            self.assertFalse(result.ok)
+            self.assertEqual(result.findings[0]["detail"], "Ab…(18 chars)")
+            self.assertNotIn("Ab1234567890abcdef", str(result.findings))
+
+    def test_real_value_patterns_and_dangerous_paths_fail(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / ".env").write_text("x=1", encoding="utf-8")
+            (root / "token.txt").write_text("sk-abcdefghijklmnopq\n", encoding="utf-8")
+            result = bench.scrub_path(root)
+            self.assertFalse(result.ok)
+            self.assertTrue(any(item["kind"] == "dangerous_file" for item in result.findings))
+            self.assertTrue(any(item["kind"] == "secret_value" for item in result.findings))
+
+    def test_scrub_allow_is_transferred_and_suppresses_matching_finding(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "note.txt").write_text("sk-abcdefghijklmnopq\n", encoding="utf-8")
+            result = bench.scrub_path(root, ({"pattern": "sk-", "reason": "fixture"},))
+            self.assertTrue(result.ok)
+            self.assertEqual(result.allows[0]["reason"], "fixture")
+
+
 if __name__ == "__main__":
     unittest.main()
