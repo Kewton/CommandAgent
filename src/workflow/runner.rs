@@ -1,6 +1,7 @@
 //! Deterministic earned-edge checks for workflow circles.
 use super::schema::{Route, Verdict};
 use serde::Serialize;
+use std::fs;
 use std::path::Path;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,6 +89,84 @@ pub fn circle_adjudication(
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OriginBinding {
+    pub check_id: String,
+    pub lineage: Option<String>,
+}
+
+/// Derives the origin contract set exclusively from persisted binding events.
+/// An empty or malformed set is an honest underivable result; callers must not
+/// substitute a smaller verification set.
+pub fn derive_origin_bindings(events: &Path) -> Result<Vec<OriginBinding>, String> {
+    let text = fs::read_to_string(events).map_err(|e| format!("origin_verify_underivable:{e}"))?;
+    let mut out = Vec::new();
+    for line in text.lines() {
+        let value: serde_json::Value =
+            serde_json::from_str(line).map_err(|e| format!("origin_verify_underivable:{e}"))?;
+        if value["event"] == "verify_default_bound" {
+            let Some(checks) = value["bound_checks"].as_array() else {
+                return Err("origin_verify_underivable:bound_checks".into());
+            };
+            for check in checks {
+                let Some(id) = check.as_str() else {
+                    return Err("origin_verify_underivable:check_id".into());
+                };
+                out.push(OriginBinding {
+                    check_id: id.to_string(),
+                    lineage: value["lineage"].as_str().map(str::to_string),
+                });
+            }
+        }
+    }
+    if out.is_empty() {
+        return Err("origin_verify_underivable:no verify_default_bound events".into());
+    }
+    Ok(out)
+}
+
+pub fn verify_origin<F>(bindings: &[OriginBinding], mut verify: F) -> Result<(), String>
+where
+    F: FnMut(&OriginBinding) -> bool,
+{
+    if bindings.is_empty() {
+        return Err("origin_verify_underivable:empty set".into());
+    }
+    if bindings.iter().all(&mut verify) {
+        Ok(())
+    } else {
+        Err("origin_verify_failed".into())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NodeRunRequest {
+    pub node: String,
+    pub intent: String,
+    pub goal: String,
+    pub origin: std::path::PathBuf,
+    pub reproducer_lineage: Option<String>,
+}
+
+/// Integration seam for the existing single-intent executor. The callback is
+/// the existing pipeline entry; this layer only supplies the derived request
+/// and records the workflow-facing events.
+pub fn execute_node<F>(request: &NodeRunRequest, events: &Path, execute: F) -> Result<(), String>
+where
+    F: FnOnce(&NodeRunRequest) -> Result<(), String>,
+{
+    if !request.origin.is_dir() {
+        return Err("origin workspace is missing".into());
+    }
+    if let Some(parent) = events.parent() {
+        fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    let started = serde_json::json!({"event":"intent_resolved","intent":request.intent,"workflow_node":request.node});
+    fs::write(events, format!("{}\n", started)).map_err(|e| e.to_string())?;
+    execute(request)?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -110,5 +189,32 @@ mod tests {
         };
         assert!(edge_earned(&route, "a_to_b", &e).is_ok());
         assert!(edge_earned(&route, "a_to_b", &EdgeEvidence { epoch: 1, ..e }).is_err());
+    }
+
+    #[test]
+    fn origin_bindings_are_derived_from_events() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        std::fs::write(
+            &path,
+            r#"{"event":"verify_default_bound","bound_checks":["check-a"]}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            derive_origin_bindings(&path).unwrap()[0].check_id,
+            "check-a"
+        );
+    }
+
+    #[test]
+    fn missing_origin_bindings_fail_honestly() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        std::fs::write(&path, "{}").unwrap();
+        assert!(
+            derive_origin_bindings(&path)
+                .unwrap_err()
+                .contains("underivable")
+        );
     }
 }
