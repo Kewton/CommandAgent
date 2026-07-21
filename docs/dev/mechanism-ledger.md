@@ -637,3 +637,4 @@ bench v0.1実弾受理（H-1〜H-5）。合成アーム機械ゼロが計11run�
 
 D-3a開始: workflow円環契約＋schema v0をfixed（本コミット）。YAMLは構成のみ（固定語彙・未知語彙拒否）、辺発火はearned（evidence実在＋lineage連続＋epoch順序）、洗浄禁止（fix full≠circle_full、閉門=起点束縛の再検証）。workflow宣言駆動（時間軸①）の初実装対象
 D-3a-2: workflow円環層の実装コスト実測（9コミット相当: schema strict parse、earned edge、node実行シーム、verify_origin導出・終端、CLI→orchestrator→executor配線、conformance corpus）。2度の部分着地（conformance骨格→シーム→閉線）を経て完成。D-3a-2cスモークはcreate→investigate辺のrun_stop証拠不足でcircle_failed終端。
+D-3a-2d: 実測fixture主義違反を是正し、起点E-Bを実レイアウト（.anvil/runs/*/events.jsonl＋.anvil/plans/recovery-*.yaml）へ統一。ノード観測イベント基準を追加。

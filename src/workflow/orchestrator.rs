@@ -16,7 +16,7 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
     let events_path = origin.join("evidence/workflow-events.jsonl");
     if let Some(parent) = events_path.parent() {
         fs::create_dir_all(parent)?;
-    }
+    };
     emit(
         &events_path,
         json!({"event":"workflow_started","entry":workflow.entry,"origin":origin}),
@@ -33,8 +33,7 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
         )?;
         bail!("workflow origin lacks recovery YAML");
     }
-    let origin_events = origin.join("events.jsonl");
-    if !origin_events.is_file() {
+    let Some(origin_events) = runner::latest_failed_run_events(origin) else {
         emit(
             &events_path,
             json!({"event":"workflow_adjudicated","verdict":"circle_failed","reason":"edge_not_earned:create_to_investigate:run_stop"}),
@@ -45,7 +44,7 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
             "edge_not_earned:create_to_investigate:run_stop",
         )?;
         bail!("workflow origin lacks run events");
-    }
+    };
     let origin_goal = "起点run";
     for (node_id, node) in &workflow.nodes {
         if node_id == &workflow.entry || *node_id == "verify_origin" {
@@ -65,8 +64,17 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
             reproducer_lineage: None,
         };
         let node_events = origin.join(format!("evidence/{node_id}-events.jsonl"));
+        emit(
+            &events_path,
+            json!({"event":"workflow_node_started","node":node_id,"intent":intent}),
+        )?;
+        emit(
+            &events_path,
+            json!({"event":"workflow_node_run_created","node":node_id,"run_id":node_id,"run_dir":node_events}),
+        )?;
         runner::execute_node(&request, &node_events, |req| {
             let mut child = config.clone();
+            child.yes = true;
             child.action = Action::Prompt(req.goal.clone());
             child.intent_override = Some(match req.intent.as_str() {
                 "investigate" => crate::config::IntentId::Investigate,

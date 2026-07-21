@@ -44,7 +44,35 @@ fn fail(edge: &str, reason: &str) -> EdgeFailure {
 }
 
 pub fn origin_recovery_yaml_present(origin: &Path) -> bool {
-    origin.join("recovery.yaml").is_file() || origin.join("recovery.yml").is_file()
+    fs::read_dir(origin.join(".anvil/plans"))
+        .map(|entries| {
+            entries.flatten().any(|e| {
+                e.file_name().to_string_lossy().starts_with("recovery-")
+                    && e.path().extension().is_some_and(|x| x == "yaml")
+            })
+        })
+        .unwrap_or(false)
+}
+
+pub fn latest_failed_run_events(origin: &Path) -> Option<std::path::PathBuf> {
+    let mut candidates = Vec::new();
+    let runs = origin.join(".anvil/runs");
+    for entry in fs::read_dir(runs).ok()?.flatten() {
+        let path = entry.path().join("events.jsonl");
+        if path.is_file() {
+            candidates.push(path);
+        }
+    }
+    candidates.sort_by_key(|p| fs::metadata(p).and_then(|m| m.modified()).ok());
+    candidates.into_iter().rev().find(|p| {
+        fs::read_to_string(p)
+            .map(|s| {
+                s.lines().any(|l| {
+                    l.contains("\"event\":\"run_stop\"") && l.contains("\"status\":\"failed\"")
+                })
+            })
+            .unwrap_or(false)
+    })
 }
 
 pub fn derive_goal(intent: &str, origin_goal: &str) -> Option<String> {
