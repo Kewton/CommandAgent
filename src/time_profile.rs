@@ -680,14 +680,8 @@ fn phase_entry<'a>(
 }
 
 fn percent(part: u64, total: u64) -> String {
-    if total == 0 {
-        "0%".to_string()
-    } else {
-        format!(
-            "{}%",
-            (part.saturating_mul(100).saturating_add(total / 2)) / total
-        )
-    }
+    let rounded = part.saturating_mul(100).saturating_add(total / 2);
+    format!("{}%", rounded.checked_div(total).unwrap_or(0))
 }
 
 #[cfg(test)]

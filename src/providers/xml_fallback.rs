@@ -5,10 +5,7 @@ use crate::tools::args_recovery::recover_tool_arguments;
 
 pub fn strip_think_tags(input: &str) -> String {
     let mut out = input.to_string();
-    loop {
-        let Some(start) = out.find("<think>") else {
-            break;
-        };
+    while let Some(start) = out.find("<think>") {
         let Some(end_rel) = out[start..].find("</think>") else {
             break;
         };
@@ -73,10 +70,7 @@ fn extract_named_tag_calls(
 ) -> anyhow::Result<()> {
     let open_prefix = format!("<{tag} name=\"");
     let close = format!("</{tag}>");
-    loop {
-        let Some(start) = remaining.find(&open_prefix) else {
-            break;
-        };
+    while let Some(start) = remaining.find(&open_prefix) {
         let name_start = start + open_prefix.len();
         let Some(name_end_rel) = remaining[name_start..].find('"') else {
             return Err(anyhow::anyhow!("malformed XML tool call"));
@@ -107,10 +101,7 @@ fn extract_function_equals_calls(
 ) -> anyhow::Result<()> {
     let open = "<function=";
     let close = "</function>";
-    loop {
-        let Some(start) = remaining.find(open) else {
-            break;
-        };
+    while let Some(start) = remaining.find(open) {
         let name_start = start + open.len();
         let Some(gt_rel) = remaining[name_start..].find('>') else {
             return Err(anyhow::anyhow!("malformed XML tool call"));

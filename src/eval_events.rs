@@ -3104,10 +3104,7 @@ fn redact_home_paths(value: &str) -> String {
     let mut out = value.to_string();
     for prefix in ["/Users/", "/home/"] {
         let mut search_from = 0usize;
-        loop {
-            let Some(relative_start) = out[search_from..].find(prefix) else {
-                break;
-            };
+        while let Some(relative_start) = out[search_from..].find(prefix) {
             let start = search_from + relative_start;
             let name_start = start + prefix.len();
             let Some(rest_end) = out[name_start..].find('/') else {

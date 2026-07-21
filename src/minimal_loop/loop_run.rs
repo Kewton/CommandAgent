@@ -392,7 +392,7 @@ fn record_time_sink(sinks: &mut Vec<TimeSink>, sink: TimeSink) {
         return;
     }
     sinks.push(sink);
-    sinks.sort_by(|a, b| b.duration_ms.cmp(&a.duration_ms));
+    sinks.sort_by_key(|b| std::cmp::Reverse(b.duration_ms));
     sinks.truncate(5);
 }
 
