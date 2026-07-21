@@ -1,0 +1,5 @@
+{
+  "verdict": "circle_interrupted",
+  "reason": "executor_workspace_root_not_propagated_to_origin",
+  "source": "d3a2_smoke5_origin2"
+}
