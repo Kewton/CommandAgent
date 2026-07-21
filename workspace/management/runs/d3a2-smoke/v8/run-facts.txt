@@ -1,0 +1,10 @@
+start_epoch=1784647739
+end_epoch=1784648085
+elapsed_seconds=346
+exit_code=0
+node=investigate
+run_id=019f854b-69ad-7852-86a0-c0d46c064ccf
+run_dir=/Users/maenokota/share/work/localwork/commandagent_mvp/01/d3a2_smoke8_origin/.anvil/runs/019f854b-69ad-7852-86a0-c0d46c064ccf
+workspace_confinement=pass
+workflow_verdict=circle_failed
+workflow_reason=node_failed:investigate

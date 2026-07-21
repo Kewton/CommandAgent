@@ -1,0 +1,2 @@
+{"event":"workflow_node_run_created","node":"investigate","run_id":"019f854b-69ad-7852-86a0-c0d46c064ccf"}
+{"event":"run_stop","reason":"model_stagnation:no_progress_recorded: objective: 『起点run』の実行が失敗しました。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。","verdict":"failed"}
