@@ -636,3 +636,4 @@ bench実弾試験の収穫#1——自己出力によるpreflight自己封鎖の�
 bench v0.1実弾受理（H-1〜H-5）。合成アーム機械ゼロが計11runに。missing_arg反復＝モデル起因tool call不正形として分類。
 
 D-3a開始: workflow円環契約＋schema v0をfixed（本コミット）。YAMLは構成のみ（固定語彙・未知語彙拒否）、辺発火はearned（evidence実在＋lineage連続＋epoch順序）、洗浄禁止（fix full≠circle_full、閉門=起点束縛の再検証）。workflow宣言駆動（時間軸①）の初実装対象
+D-3a-2: workflow円環層の実装コスト初値（schema strict parse、earned edge、verify_origin終端、conformance corpus）を記録。
