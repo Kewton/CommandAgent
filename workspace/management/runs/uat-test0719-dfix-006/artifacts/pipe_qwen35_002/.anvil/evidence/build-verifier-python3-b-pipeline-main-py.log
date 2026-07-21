@@ -1,0 +1,7 @@
+Traceback (most recent call last):
+  File "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0719_dfix_006/dfix-synthesis-20260721-074830/workspaces/pipe_qwen35_002/pipeline/main.py", line 181, in <module>
+    run()
+  File "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0719_dfix_006/dfix-synthesis-20260721-074830/workspaces/pipe_qwen35_002/pipeline/main.py", line 164, in run
+    report_lines.append("## 月次×地域別売上", "")
+TypeError: list.append() takes exactly one argument (2 given)
+

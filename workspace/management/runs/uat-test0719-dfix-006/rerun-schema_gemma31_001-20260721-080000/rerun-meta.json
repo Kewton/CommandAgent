@@ -1,0 +1,64 @@
+{
+  "name": "schema_gemma31_001",
+  "set": "schema-b",
+  "goal": "schema",
+  "executor": "gemma4:31b",
+  "status": "interrupted(environment)",
+  "procurement": {
+    "ok": true,
+    "reason": null,
+    "observed_sha256": {
+      "pipeline/main.py": "5e2d7efe794c78a20dded6ca1b0b4e449293fe2609c8274c302b102ddb0c7c96",
+      "output/results.json": "a0e3a1dfd4a2378598efead1da29673d2d91e09c6fdebecb1f9b1db5e7dd07ca",
+      "output/report.md": "17af1dd02de623845341e4a427c0c7ec5b26254de6524030bc5842d295165f97",
+      "data/sales.csv": "2f6c04e42b0ebdff85a7eb6b52a342610155be6796bd89e5729075d87c78d873"
+    },
+    "precheck": {
+      "command_argv": [
+        "python3",
+        "-c",
+        "import json, sys; d=json.load(open('output/results.json')); assert 'reconciliation' in d and 'values' in d and 'input_rows' in d['reconciliation'] and 'used_rows' in d['reconciliation'] and 'excluded' in d['reconciliation']"
+      ],
+      "command": "python3 -c 'import json, sys; d=json.load(open('\"'\"'output/results.json'\"'\"')); assert '\"'\"'reconciliation'\"'\"' in d and '\"'\"'values'\"'\"' in d and '\"'\"'input_rows'\"'\"' in d['\"'\"'reconciliation'\"'\"'] and '\"'\"'used_rows'\"'\"' in d['\"'\"'reconciliation'\"'\"'] and '\"'\"'excluded'\"'\"' in d['\"'\"'reconciliation'\"'\"']'",
+      "start_epoch": 1784621260,
+      "end_epoch": 1784621260,
+      "exit_code": 1,
+      "stdout_tail": "",
+      "stderr_tail": "Traceback (most recent call last):\n  File \"<string>\", line 1, in <module>\nAssertionError\n",
+      "expectation": "nonzero_exit",
+      "pattern": "AssertionError",
+      "exit_matches": true,
+      "pattern_matches": true
+    }
+  },
+  "command_argv": [
+    "commandagent",
+    "--yes",
+    "--intent",
+    "fix",
+    "--context-budget",
+    "65536",
+    "--model",
+    "gemma4:31b",
+    "--provider",
+    "ollama",
+    "--planner-model",
+    "qwen3.6:27b-coding-nvfp4",
+    "--planner-provider",
+    "ollama",
+    "--ultra-plan-run",
+    "--profile",
+    "data",
+    "output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。"
+  ],
+  "command": "commandagent --yes --intent fix --context-budget 65536 --model gemma4:31b --provider ollama --planner-model qwen3.6:27b-coding-nvfp4 --planner-provider ollama --ultra-plan-run --profile data 'output/results.json がデータ契約のスキーマ検証に失敗します。パイプラインを修正して正しい results.json を再生成し、既存検証が通ることを確認してください。'",
+  "start_epoch": 1784621260,
+  "end_epoch": 1784621367,
+  "duration_seconds": 107,
+  "product_exit": null,
+  "scrub": {
+    "ok": true,
+    "findings": [],
+    "allows": []
+  }
+}

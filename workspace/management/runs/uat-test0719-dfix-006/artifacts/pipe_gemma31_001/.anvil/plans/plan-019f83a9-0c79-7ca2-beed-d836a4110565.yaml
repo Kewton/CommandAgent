@@ -1,0 +1,9 @@
+goal: "data/sales.csv を処理する pipeline/main.py の実行がエラーで失敗します。原因を特定して修正してください。修正後もデータ契約の既存検証が通ることを確認してください。"
+steps:
+  - id: "reproduce-before"
+    kind: "verify"
+    expected_result: "fail"
+    instruction: "Run the bound reproducer R to record the required F1 failing baseline before any workspace changes."
+    expected_paths:
+    verify:
+      - "python3 -B pipeline/main.py"
