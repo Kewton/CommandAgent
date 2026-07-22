@@ -6,6 +6,7 @@ use crate::planner::step_plan::{PlanStep, StepPlan};
 use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
 
 mod guidance;
+mod observed_failure;
 
 const PHASE_IDS: [&str; 3] = ["reproduce-candidate", "diagnose", "bind-verify"];
 

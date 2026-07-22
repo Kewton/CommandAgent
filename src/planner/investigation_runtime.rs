@@ -61,7 +61,7 @@ impl InvestigationRuntime {
         if crate::planner::external_reproducer::is_workflow_node(config) {
             run.reproducer_lineage = lineage;
         }
-        run.stderr = execution.evidence.reason.clone();
+        crate::planner::investigation_output::attach(&mut run, &execution);
         run.failure_classification = execution.evidence.failure_classification;
         let evidence_dir = config.workspace_root.join("evidence");
         std::fs::create_dir_all(&evidence_dir)?;

@@ -1,0 +1,37 @@
+Read only existing workspace files and the executed reproducer output for origin failure; write output/diagnosis.md and do not modify the subject. This step exclusively owns output/diagnosis.md.
+
+実行済みRの失敗観測（機械注入・各stream最大500文字のtail）:
+- reproducer: test -f pipeline/main.py
+- failure summary:
+~~~text
+outcome: CommandFailed status: exit status: 1 elapsed_ms: 25 summary: command did not succeed: test -f pipeline/main.py stdout: stderr:
+~~~
+- deterministic excerpt（診断へ正確に引用する候補）:
+~~~text
+outcome: CommandFailed status: exit status: 1 elapsed_ms: 25 summary: command did not succeed: test -f pipeline/main.py stdout: stderr:
+~~~
+- stdout tail:
+~~~text
+(empty)
+~~~
+- stderr tail:
+~~~text
+outcome: CommandFailed status: exit status: 1 elapsed_ms: 25 summary: command did not succeed: test -f pipeline/main.py stdout: stderr:
+~~~
+- traceback mapping: unavailable
+
+診断には最低1件のエラー引用（上記R出力からの正確な引用）と、可能な場合はfile:line参照を含めること。機械照合可能な主張が0件の診断はfullにならない（契約§4）。
+
+診断の主張は次の形式で書くこと（以下の値は形式例であり、必ず再現Rの実出力と実在ファイルから得た実観測値で置き換える）:
+エラー引用: `ValueError: could not convert string to float: ''`
+位置: pipeline/main.py:53
+コード引用（実在コードのみ）:
+```python
+amount = float(row["amount"])
+```
+修正案・例示コードはコードブロックにせず、
+『修正方針:』以下に文章で書くこと（照合対象外となる）。
+
+実在ファイル一覧（決定的な辞書順、最大64件。読み取り参照はこの一覧に限定）:
+- evidence/investigation-run.json
+一覧にないファイルを参照しないこと。

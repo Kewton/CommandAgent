@@ -687,3 +687,7 @@ D-2b合成と同じ構造判断）。これによりR構築のplanner依存が�
 D-3a-3g / E-A過投影の修正——`run_stop.status=completed`とノード裁定の
 `assurance_level=full`を混同していた参照を裁定eventへ統一。elev-002では
 E-Bが契約違反遷移を阻止しており、E-A/E-B二重防壁の実効を確認した。
+
+D-3a-3g / `claims_absent`の構造手当——reproduce-candidate段のR失敗出力を
+redact済み有界tail・決定的抜粋・既存B-2d traceback mappingとしてdiagnose段へ
+機械注入するFIX-3/T21系を再利用。I2照合器とfull閾値は不変。

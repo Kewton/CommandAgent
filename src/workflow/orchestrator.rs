@@ -943,6 +943,7 @@ mod tests {
         assert_eq!(run.reproducer, "python3 -B pipeline/main.py");
         assert_eq!(run.reproducer_lineage, request.reproducer.unwrap().lineage);
         assert_eq!(run.outcome, ProbeOutcome::Failure);
+        assert!(run.stderr.contains("ValueError: origin failure"));
     }
 
     #[test]

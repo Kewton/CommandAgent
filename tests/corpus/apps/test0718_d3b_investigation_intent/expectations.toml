@@ -28,6 +28,8 @@ fixtures/diagnosis-valid.md = ["ValueError: invalid literal", "pipeline/main.py:
 fixtures/diagnosis-invalid.md = ["TypeError: fabricated", "pipeline/missing.py:99"]
 fixtures/diagnosis-run6-example-blocks.md = ["Current output", "Suggested output shape", "reconciliation"]
 fixtures/elev002-run1-partial-events.jsonl = ["\"event\":\"investigation_adjudicated\"", "\"assurance_level\":\"partial\"", "\"assurance_reason\":\"diagnosis_claims_absent\"", "\"event\":\"run_stop\"", "\"status\":\"completed\""]
+fixtures/elev002-run1-investigation-run.json = ["\"reproducer\": \"test -f pipeline/main.py\"", "outcome: CommandFailed status: exit status: 1"]
+fixtures/elev002-run1-diagnose-plan.txt = ["実行済みRの失敗観測", "test -f pipeline/main.py", "outcome: CommandFailed status: exit status: 1", "診断には最低1件のエラー引用", "機械照合可能な主張が0件の診断はfullにならない", "traceback mapping: unavailable"]
 
 [fixture_ordered]
 fixtures/pipe-plan.txt = ["reproduce-candidate", "diagnose", "bind-verify"]

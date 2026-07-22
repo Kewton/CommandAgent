@@ -2982,6 +2982,23 @@ pub fn body_snippet(body: &str) -> String {
     clean.chars().take(SNIPPET_LIMIT).collect()
 }
 
+/// Returns the redacted tail of command output without flattening line breaks.
+/// Reproducer output is injected into a later model prompt, so bounding and the
+/// same secret/home-path redaction used by event snippets are mandatory.
+pub(crate) fn body_tail_snippet(body: &str) -> String {
+    let mut clean = body
+        .split('\n')
+        .map(redact_secret_like)
+        .collect::<Vec<_>>()
+        .join("\n");
+    clean = redact_home_paths(&clean);
+    let count = clean.chars().count();
+    clean
+        .chars()
+        .skip(count.saturating_sub(SNIPPET_LIMIT))
+        .collect()
+}
+
 pub fn body_snippet_whole_tokens(body: &str) -> String {
     let mut clean = body.replace('\n', " ");
     clean = clean.replace('\r', " ");
@@ -3149,6 +3166,16 @@ mod tests {
         ));
         assert!(snippet.contains("<redacted>"));
         assert!(snippet.contains("/Users/<user>/project"));
+        assert!(snippet.chars().count() <= SNIPPET_LIMIT);
+    }
+
+    #[test]
+    fn body_tail_snippet_preserves_bounded_tail_and_redacts() {
+        let prefix = "x".repeat(SNIPPET_LIMIT);
+        let tail = format!("\nTraceback\nValueError: bad row\nsk-{}", "a".repeat(24));
+        let snippet = body_tail_snippet(&format!("{prefix}{tail}"));
+        assert!(snippet.contains("Traceback\nValueError: bad row"));
+        assert!(!snippet.contains("sk-"));
         assert!(snippet.chars().count() <= SNIPPET_LIMIT);
     }
 

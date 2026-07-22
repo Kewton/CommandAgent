@@ -27,6 +27,8 @@ pub(crate) struct ReproducerRun {
     pub(crate) evidence: FixEvidenceObservation,
     pub(crate) diagnostic: Option<FixFailureDiagnostic>,
     pub(crate) reproducer_defect: Option<String>,
+    pub(crate) stdout_tail: String,
+    pub(crate) stderr_tail: String,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -73,10 +75,22 @@ pub(crate) fn run_reproducer(
         &execution.reason,
     );
     evidence.failure_classification = assessment.classification;
+    let (stdout_tail, stderr_tail) = execution
+        .shell_observation
+        .as_ref()
+        .map(|observation| {
+            (
+                crate::eval_events::body_tail_snippet(&observation.stdout),
+                crate::eval_events::body_tail_snippet(&observation.stderr),
+            )
+        })
+        .unwrap_or_default();
     ReproducerRun {
         evidence,
         diagnostic,
         reproducer_defect: assessment.error_kind,
+        stdout_tail,
+        stderr_tail,
     }
 }
 
