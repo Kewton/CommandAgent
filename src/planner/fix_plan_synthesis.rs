@@ -209,8 +209,7 @@ fn implement_fix(
     let command = runtime
         .reproducer_command()
         .context("data fix repair phase requires the bound F1 reproducer")?;
-    let selection = repair_target(config, plan, runtime)
-        .context("data fix synthesis could not resolve an existing repair target")?;
+    let selection = repair_target(config, plan, runtime).context("repair_target_unresolved")?;
     let target = selection
         .primary_target()
         .context("data fix repair target selection was empty")?;
