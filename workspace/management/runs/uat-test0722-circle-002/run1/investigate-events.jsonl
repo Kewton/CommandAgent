@@ -1,0 +1,1 @@
+{"event":"intent_resolved","intent":"investigate","model":"qwen3.6:27b-coding-nvfp4","profile":"data","provider":"ollama","workflow_node":"investigate"}
