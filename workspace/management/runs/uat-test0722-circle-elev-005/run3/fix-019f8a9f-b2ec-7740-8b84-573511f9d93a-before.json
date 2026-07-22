@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "requirement_id": "before_fails",
+  "binding_id": "anvil-catalog-check:data_inspection_schema",
+  "stage": "before",
+  "expected": "failure",
+  "lineage": "reproducer:33eefa99a5d98b68",
+  "epoch": 1,
+  "run_id": "019f8a9f-b2ec-7740-8b84-573511f9d93a",
+  "executed": true,
+  "outcome": "failure",
+  "reason": "inspection_schema_violation:missing_keys:column_names,input_row_count,type_summaries,distinct_values"
+}
