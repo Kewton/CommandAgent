@@ -27,6 +27,7 @@ fixtures/schema-plan.txt = ["reproduce-candidate", "diagnose", "bind-verify", "è
 fixtures/diagnosis-valid.md = ["ValueError: invalid literal", "pipeline/main.py:8"]
 fixtures/diagnosis-invalid.md = ["TypeError: fabricated", "pipeline/missing.py:99"]
 fixtures/diagnosis-run6-example-blocks.md = ["Current output", "Suggested output shape", "reconciliation"]
+fixtures/elev002-run1-partial-events.jsonl = ["\"event\":\"investigation_adjudicated\"", "\"assurance_level\":\"partial\"", "\"assurance_reason\":\"diagnosis_claims_absent\"", "\"event\":\"run_stop\"", "\"status\":\"completed\""]
 
 [fixture_ordered]
 fixtures/pipe-plan.txt = ["reproduce-candidate", "diagnose", "bind-verify"]

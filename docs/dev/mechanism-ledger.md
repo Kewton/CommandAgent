@@ -683,3 +683,7 @@ D-2b合成と同じ構造判断）。これによりR構築のplanner依存が�
 §7改訂であり、§1〜§6の裁定意味論は不変。
 `workflow_reproducer_prevalidated`と`workflow_reproducer_bound`を追加し、
 単intentの全intent source event名基準155は不変。
+
+D-3a-3g / E-A過投影の修正——`run_stop.status=completed`とノード裁定の
+`assurance_level=full`を混同していた参照を裁定eventへ統一。elev-002では
+E-Bが契約違反遷移を阻止しており、E-A/E-B二重防壁の実効を確認した。

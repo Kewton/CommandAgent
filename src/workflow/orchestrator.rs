@@ -230,16 +230,13 @@ fn evaluate_edge(
             "origin selector verified failed run_stop in {}",
             origin_events.display()
         ))
-    } else if terminal_status_matches(&source_evidence, route) {
-        EdgeCheck::passed(format!(
-            "source run terminal verdict matches route in {}",
-            source_evidence.display()
-        ))
     } else {
-        EdgeCheck::failed(format!(
-            "source run terminal verdict does not match route in {}",
-            source_evidence.display()
-        ))
+        let source_intent = circle
+            .nodes
+            .get(current)
+            .map(|node| node.intent.as_str())
+            .unwrap_or(current);
+        adjudicated_assurance_check(&source_evidence, source_intent, route)
     };
     let evidence_complete = if current == entry {
         source_evidence.is_file()
@@ -299,23 +296,45 @@ fn evaluate_edge(
     }
 }
 
-fn terminal_status_matches(events_path: &Path, route: &Route) -> bool {
+fn adjudicated_assurance_check(events_path: &Path, node: &str, route: &Route) -> EdgeCheck {
+    let required = match route.on {
+        super::schema::Verdict::Full => "full",
+        super::schema::Verdict::Failed => "failed",
+    };
+    let Some(actual) = adjudicated_assurance(events_path, node) else {
+        return EdgeCheck::failed(format!(
+            "source adjudicated assurance is unavailable; required={required} in {}",
+            events_path.display()
+        ));
+    };
+    if actual == required {
+        EdgeCheck::passed(format!(
+            "source adjudicated assurance={actual} matches required={required} in {}",
+            events_path.display()
+        ))
+    } else {
+        EdgeCheck::failed(format!(
+            "source adjudicated assurance={actual} is below required={required} in {}",
+            events_path.display()
+        ))
+    }
+}
+
+fn adjudicated_assurance(events_path: &Path, node: &str) -> Option<String> {
     let Ok(events) = fs::read_to_string(events_path) else {
-        return false;
+        return None;
     };
     events.lines().rev().find_map(|line| {
         let value: serde_json::Value = serde_json::from_str(line).ok()?;
-        (value["event"] == "run_stop").then(|| {
-            let status = value["status"]
-                .as_str()
-                .or_else(|| value["verdict"].as_str())
-                .unwrap_or_default();
-            match route.on {
-                super::schema::Verdict::Full => matches!(status, "full" | "completed"),
-                super::schema::Verdict::Failed => status == "failed",
-            }
-        })
-    }) == Some(true)
+        let is_adjudication = match node {
+            "investigate" => value["event"] == "investigation_adjudicated",
+            "fix" => value["event"] == "ultra_final_acceptance" && value["intent"] == "fix",
+            _ => false,
+        };
+        is_adjudication
+            .then(|| value["assurance_level"].as_str().map(str::to_string))
+            .flatten()
+    })
 }
 
 fn source_adjudication_and_evidence_exist(node: &str, origin: &Path, events_path: &Path) -> bool {
@@ -378,7 +397,7 @@ fn carry_present(carry: &Carry, origin: &Path, circle: &WorkflowCircleEvidence) 
 
 fn first_failed_check(checks: &EdgeChecks) -> &'static str {
     if !checks.verdict.passed {
-        "verdict"
+        "assurance_below_required"
     } else if !checks.evidence.passed {
         "evidence"
     } else if !checks.epoch.passed {
@@ -767,6 +786,91 @@ mod tests {
         assert_eq!(child.provider, global.provider);
         assert_eq!(child.field_sources.model, global.field_sources.model);
         assert_eq!(child.field_sources.provider, global.field_sources.provider);
+    }
+
+    #[test]
+    fn elev002_partial_completion_is_not_projected_to_full_by_e_a() {
+        let root = tempfile::tempdir().unwrap();
+        let origin = root.path();
+        let origin_events = origin.join(".anvil/runs/origin/events.jsonl");
+        let recovery = origin.join(".anvil/plans/recovery-origin.yaml");
+        let node_run = origin.join(".anvil/runs/investigate-node");
+        let node_events = node_run.join("events.jsonl");
+        for parent in [
+            origin_events.parent().unwrap(),
+            recovery.parent().unwrap(),
+            node_events.parent().unwrap(),
+            origin.join("evidence").as_path(),
+        ] {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(
+            &origin_events,
+            "{\"event\":\"run_stop\",\"status\":\"failed\"}\n",
+        )
+        .unwrap();
+        std::fs::write(&recovery, "version: 1\n").unwrap();
+        std::fs::write(
+            &node_events,
+            include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/corpus/apps/test0718_d3b_investigation_intent/fixtures/elev002-run1-partial-events.jsonl"
+            )),
+        )
+        .unwrap();
+        std::fs::write(origin.join("evidence/investigation-run.json"), "{}\n").unwrap();
+        std::fs::write(origin.join("evidence/investigation-binding.json"), "{}\n").unwrap();
+
+        let mut circle = WorkflowCircleEvidence::new(
+            "fixture",
+            OriginReference {
+                workspace_root: origin.to_path_buf(),
+                run_id: "origin".into(),
+                events_path: origin_events.clone(),
+                recovery_yaml_paths: vec![recovery],
+                goal: Some("origin goal".into()),
+            },
+        );
+        circle
+            .record_node(
+                "investigate",
+                NodeRunReference {
+                    intent: "investigate".into(),
+                    run_id: "investigate-node".into(),
+                    run_dir: node_run,
+                    events_path: node_events,
+                },
+            )
+            .unwrap();
+        let route = Route {
+            from: "investigate".into(),
+            on: super::super::schema::Verdict::Full,
+            when: None,
+            to: "fix".into(),
+            carry: Vec::new(),
+        };
+
+        let edge = evaluate_edge(
+            &route,
+            "investigate->fix",
+            "investigate",
+            "create",
+            origin,
+            &origin_events,
+            &circle,
+        );
+
+        assert!(!edge.fired);
+        assert!(!edge.checks.verdict.passed);
+        assert!(
+            edge.checks
+                .verdict
+                .detail
+                .contains("assurance=partial is below required=full")
+        );
+        assert_eq!(first_failed_check(&edge.checks), "assurance_below_required");
+        // E-B remains an independent full-evidence defense even when E-A is precise.
+        assert!(!edge.checks.evidence.passed);
     }
 
     #[test]
