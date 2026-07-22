@@ -159,8 +159,9 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
             }),
         )?;
         let execution = runner::execute_node(&request, &node_events, |req| {
-            let child = node_config(config, node, req, &identity)?;
-            crate::run_resolved_config_for_workflow(child).map_err(|e| e.to_string())
+            execute_configured_node(config, node, req, &identity, |child| {
+                crate::run_resolved_config_for_workflow(child).map_err(|e| e.to_string())
+            })
         });
         if let Err(err) = execution {
             emit_node_run_stop_if_absent(&identity.events_path, "failed", Some(&err))?;
@@ -505,6 +506,21 @@ fn emit_node_run_stop_if_absent(
 // field_sources.stream               global inheritance                       correct
 //
 // Audit total: 43 leaf/container rows; 31 correct, 0 missing, 12 wrong.
+//
+// Invocation surface outside Config (D-3a-3d, audited after circle-002):
+// surface/parameter                 source/invariant                         audit
+// action selector / ultra_plan_run fixed Action::UltraPlanRun               correct
+// single-intent execution entry    run_resolved_config_for_workflow          correct
+// panic boundary                   outer workflow CLI boundary only          correct
+// node request                     route-derived goal/intent/carry/config    correct
+// node identity                    origin-confined allocated UUID/run paths  correct
+// interaction mode                 fixed non-interactive via Config.yes      correct
+// workflow timeout                 none; node budget remains sole bound      correct
+// extra scalar invocation args     none; the production entry takes Config  correct
+//
+// This section is part of the permanent exhaustive audit boundary. Any change
+// that adds or changes a parameter outside Config at the workflow child call
+// surface must update this table in the same change.
 fn node_config(
     config: &Config,
     node: &Node,
@@ -539,7 +555,7 @@ fn node_config(
     if !event_parent.starts_with(&canonical_origin) || !state_dir.starts_with(&canonical_origin) {
         return Err("workspace_confinement_violation".into());
     }
-    child.action = Action::Prompt(request.goal.clone());
+    child.action = Action::UltraPlanRun(request.goal.clone());
     child.intent_override = Some(match request.intent.as_str() {
         "investigate" => IntentId::Investigate,
         "fix" => IntentId::Fix,
@@ -571,6 +587,19 @@ fn node_config(
     Ok(child)
 }
 
+fn execute_configured_node<F>(
+    config: &Config,
+    node: &Node,
+    request: &runner::NodeRunRequest,
+    identity: &NodeRunIdentity,
+    execute: F,
+) -> Result<(), String>
+where
+    F: FnOnce(Config) -> Result<(), String>,
+{
+    execute(node_config(config, node, request, identity)?)
+}
+
 fn provider_name(provider: Provider) -> &'static str {
     match provider {
         Provider::Ollama => "ollama",
@@ -596,7 +625,33 @@ fn write_circle(origin: &Path, evidence: &WorkflowCircleEvidence) -> anyhow::Res
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::providers::{AssistantReply, ChatClient};
+    use crate::state::ConversationMessage;
+    use crate::tools::registry::ToolSpec;
     use clap::Parser;
+
+    #[derive(Clone)]
+    struct FailingClient;
+
+    impl ChatClient for FailingClient {
+        fn label(&self) -> &str {
+            "workflow-mode-test"
+        }
+
+        fn boxed_clone(&self) -> Box<dyn ChatClient> {
+            Box::new(self.clone())
+        }
+
+        fn chat(
+            &mut self,
+            _model: &str,
+            _messages: &[ConversationMessage],
+            _tools: &[ToolSpec],
+            _native_tools_enabled: bool,
+        ) -> anyhow::Result<AssistantReply> {
+            anyhow::bail!("stop after reaching the UltraPlan phase seam")
+        }
+    }
 
     fn config(root: &Path) -> Config {
         let root = root.to_string_lossy();
@@ -686,28 +741,49 @@ mod tests {
     }
 
     #[test]
-    fn investigate_data_node_uses_profile_synthesis_default() {
+    fn workflow_node_execution_seam_uses_ultra_plan_run_and_reaches_investigation_synthesis() {
         let root = tempfile::tempdir().unwrap();
         let global = config(root.path());
         let node = node(None, None);
         let request = request(root.path(), &global.model, global.provider);
         let identity = identity(root.path());
-        let child = node_config(&global, &node, &request, &identity).unwrap();
-        let plan = crate::planner::intent::explicit_investigation_plan(
-            "pipeline/main.py execution fails for data/sales.csv",
-            "data",
-            "default",
-        );
 
-        crate::planner::investigation_plan_synthesis::resolve_phase_plan(
-            &child,
-            &plan,
-            &plan.phases[0],
-            || panic!("profile synthesis must not fall back"),
+        runner::execute_node(
+            &request,
+            &root.path().join("evidence/investigate-events.jsonl"),
+            |req| {
+                execute_configured_node(&global, &node, req, &identity, |child| {
+                    assert!(matches!(
+                        &child.action,
+                        Action::UltraPlanRun(goal) if goal == &request.goal
+                    ));
+                    let plan = crate::planner::intent::explicit_investigation_plan(
+                        "pipeline/main.py execution fails for data/sales.csv",
+                        "data",
+                        "default",
+                    );
+                    let mut planner = FailingClient;
+                    let mut execution = FailingClient;
+                    let error = crate::planner::runner::run_ultra_plan(
+                        &mut planner,
+                        &mut execution,
+                        &plan,
+                        &child,
+                    )
+                    .unwrap_err();
+                    assert!(
+                        error
+                            .to_string()
+                            .contains("stop after reaching the UltraPlan phase seam")
+                    );
+                    Ok(())
+                })
+            },
         )
         .unwrap();
 
-        let events = std::fs::read_to_string(child.eval_events_path.unwrap()).unwrap();
+        let events = std::fs::read_to_string(identity.events_path).unwrap();
+        assert!(events.contains("\"event\":\"ultra_phase_start\""));
         assert!(events.contains("\"event\":\"investigation_plan_synthesized\""));
         assert!(events.contains("\"profile\":\"data\""));
     }
