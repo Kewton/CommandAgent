@@ -306,6 +306,37 @@ Do not hand-edit generated band values. The complete family × executor tables,
 I1/I2 invariants, per-run ledger, and Window A/B definitions are in
 [`band_summary_investigation.md`](../workspace/management/runs/band_summary_investigation.md).
 
+## Measured capability bands (workflow circle)
+
+The workflow-circle local arm is declared from `uat-test0722-circle-003` only.
+Its three runs used the complete node configuration and the same UltraPlan
+execution mode as the historical intent bands. `circle-001` is retained as an
+excluded measurement because profile propagation was missing (P1-a failed),
+and `circle-002` is retained as an excluded measurement because the node
+execution mode was missing. Neither invalid campaign contributes a model
+outcome to the denominator.
+
+| arm | circle_full | circle_failed | n | full rate |
+|---|---:|---:|---:|---:|
+| local | 0 | 3 | 3 | 0% |
+
+円環の機械は完全動作（伝播・封じ込め・earned辺・正直終端）。壁は
+investigateノードのモデル能力（契約形R構築不能）。elevatedアーム
+（ノード別上位モデル、schema v0.1）が `circle_full` 挑戦の設計済み
+経路である。ノードモデル構成が異なるworkflowは同じ分母へ混ぜず、
+elevatedアームを別計測列として宣言する。
+
+This 0/3 is an honest local-tier capability price, not a workflow-layer
+failure rate: all three runs reached `workflow_adjudicated`, fired only earned
+edges, remained confined to their origin workspace, and terminated
+`circle_failed(node_failed:investigate)` when the investigate contract was not
+earned. The machine-generated denominator, exclusions, and evidence paths are
+in
+[`band_summary_circle.md`](../../workspace/management/runs/band_summary_circle.md).
+The verdict meaning remains fixed by the
+[`workflow circle contract`](../workflow-circle-contract.md); a fix-node full
+cannot be projected to `circle_full` without `verify_origin`.
+
 ## Recommended Model Tier
 
 Production-quality implementation outcomes require an implementation model in

@@ -644,3 +644,34 @@ D-3a-2収穫#5: workflow子実行の再入デッドロック。スモーク4回�
 D-3a-3a: workflow schema v0→v0.1。nodesにexecutor用model/providerの任意ペアを追加し、省略時はグローバル構成を継承。改訂対象は§7のみで§1〜§6の裁定意味論は不変。バンドはモデル構成に付く原則により、ノード構成の異なるworkflowは別計測列とする。
 circle-001の収穫——伝播欠落の系（workspace→model→profile/goal/イベント先）を全数監査で恒久終了。監査表を実装コメントに常設。計測3runはP0成立・モデル分布としては無効（profile不適用）と記帳。
 circle-002の収穫——全数監査の境界はConfig構造体ではなく呼び出し面。ultra_plan_run欠落により合成不発・prompt経路縮退。監査表に呼び出し面の節を常設。
+
+## D-3a settlement（中間、2026-07-22）
+
+| 行程 | 確定点 | settlement上の意味 |
+|---|---|---|
+| 契約 v0 | `18d9668` | §1〜§6の裁定意味論、earned edge、lineage、verify_origin、洗浄禁止を実装前にfixed化 |
+| 初期実装 | `f73dd18`〜`308efff` | strict schema、辺検査、node実行シーム、verify_origin、CLI→orchestrator→executorを閉線 |
+| スモーク v1〜v8 | `8b530b1`〜`863c8e3` | 合成fixtureから実レイアウトへ移し、route駆動・封じ込め・実executorを順次実在確認。v8で初の完全一周と正直終端 |
+| schema v0.1 | `5fffda9` | node単位model/providerを追加。§1〜§6不変、異なるnodeモデル構成は別計測列 |
+| D-3a-3c 全数監査 | `972107a`〜`ec768ec` | Config全フィールドの由来を固定し、profile/goal/event出力/run_idを一元化 |
+| D-3a-3d 呼び出し面監査 | `a983725` | Config外の`ultra_plan_run`を固定し、合成計画経路への縮退を解消 |
+| circle-001〜003 | `e977ce6` / `5e03899` / `1aec3a2` | 001・002を機械欠陥により除外し、003をlocalアームの正式値札0/3として確定 |
+
+剥がした欠陥の総目録は、発明レイアウト、workflow子実行の再入
+デッドロック、辺ゲート不在、workspace伝播欠落、Config誤12行＋潜在3、
+呼び出し面の`ultra_plan_run`欠落、PATH旧バイナリ×2である。いずれも
+モデル分布へ洗浄せず、fixture・配線・監査境界または実行手順の欠陥として
+切り離した。
+
+実装コスト実測（git履歴）: 契約封緘`18d9668`からcircle-003確定
+`1aec3a2`まで17時間28分41秒、連続43コミット。このうちD-3a本線は
+40コミットで、同区間に挟まったband整合性専用3コミットを除く。
+`src/`・`tests/`・`workflows/`のいずれかに接触した実装・conformanceは
+24コミット、run証跡を含むコミットは16、docsを含むコミットは11
+（複数カテゴリの重複あり）。初期見積り9コミット相当に対し、実測fixtureと
+live smokeが配線・伝播境界の欠陥を段階的に露出させた差分をこの実数に残す。
+
+D-3a settlementは中間であり、D-3aクローズはelevatedアームの完了時と
+する。Phase D出口条件は、schema v0.1のnode別上位モデル経路で
+調査→fix連結を実測1本成立させることである。local 0/3は正式値札だが、
+この出口条件の代替にはしない。
