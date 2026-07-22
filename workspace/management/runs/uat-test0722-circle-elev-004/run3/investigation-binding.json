@@ -1,0 +1,89 @@
+{
+  "schema_version": "1",
+  "intent": "investigate",
+  "contract_version": "v0",
+  "contract_ref": "docs/investigation-intent-contract.md",
+  "requirement_id": "diagnosis_bound",
+  "claims": [
+    {
+      "kind": "error_quote",
+      "value": "inspection_schema_violation:missing_keys:column_names,input_row_count,type_summaries,distinct_values",
+      "subject_path": null,
+      "line": null,
+      "matched": true,
+      "nearest": null
+    },
+    {
+      "kind": "error_quote",
+      "value": "column_names",
+      "subject_path": null,
+      "line": null,
+      "matched": true,
+      "nearest": null
+    },
+    {
+      "kind": "error_quote",
+      "value": "input_row_count",
+      "subject_path": null,
+      "line": null,
+      "matched": true,
+      "nearest": null
+    },
+    {
+      "kind": "error_quote",
+      "value": "type_summaries",
+      "subject_path": null,
+      "line": null,
+      "matched": true,
+      "nearest": null
+    },
+    {
+      "kind": "error_quote",
+      "value": "distinct_values",
+      "subject_path": null,
+      "line": null,
+      "matched": true,
+      "nearest": null
+    },
+    {
+      "kind": "error_quote",
+      "value": "missing_keys",
+      "subject_path": null,
+      "line": null,
+      "matched": true,
+      "nearest": null
+    },
+    {
+      "kind": "error_quote",
+      "value": "column_names",
+      "subject_path": null,
+      "line": null,
+      "matched": true,
+      "nearest": null
+    },
+    {
+      "kind": "error_quote",
+      "value": "input_row_count",
+      "subject_path": null,
+      "line": null,
+      "matched": true,
+      "nearest": null
+    },
+    {
+      "kind": "error_quote",
+      "value": "type_summaries",
+      "subject_path": null,
+      "line": null,
+      "matched": true,
+      "nearest": null
+    },
+    {
+      "kind": "error_quote",
+      "value": "distinct_values",
+      "subject_path": null,
+      "line": null,
+      "matched": true,
+      "nearest": null
+    }
+  ]
+}
