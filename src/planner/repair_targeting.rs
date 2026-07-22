@@ -142,7 +142,7 @@ pub(crate) fn verified_diagnosis_target(
             || command.contains("inspection_schema_violation")
             || command.contains("CommandFailed")
     });
-    (catalog && root.join("pipeline/main.py").is_file()).then(|| RepairTargetSelection {
+    (catalog && root.join("pipeline").is_dir()).then(|| RepairTargetSelection {
         selected_targets: vec!["pipeline/main.py".to_string()],
         selection_reason: RepairTargetSelectionReason::VerifiedDiagnosisMapped,
     })
@@ -154,7 +154,10 @@ pub(crate) fn r_command_target(root: &Path, command: &str) -> Option<RepairTarge
     });
     for token in tokens {
         let path = token.strip_prefix("./").unwrap_or(token);
-        if path.contains('/') && root.join(path).is_file() {
+        if path.contains('/')
+            && crate::tools::path_guard::validate_workspace_relative(path).is_ok()
+            && root.join(path).parent().is_some_and(Path::is_dir)
+        {
             return Some(RepairTargetSelection {
                 selected_targets: vec![path.to_string()],
                 selection_reason: RepairTargetSelectionReason::RCommandMapped,
