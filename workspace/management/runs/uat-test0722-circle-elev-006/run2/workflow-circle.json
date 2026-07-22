@@ -1,0 +1,93 @@
+{
+  "schema_version": 1,
+  "workflow": "recovery-circle-data-elevated",
+  "origin": {
+    "workspace_root": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev006_origin_2",
+    "run_id": "019f6961-6c4e-7020-a97b-5af570d660db",
+    "events_path": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev006_origin_2/.anvil/runs/019f6961-6c4e-7020-a97b-5af570d660db/events.jsonl",
+    "recovery_yaml_paths": [
+      "/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev006_origin_2/.anvil/plans/recovery-ultra-plan-phase-load-and-validate-data-019f6969-8372-7593-a21d-f8516e810352.yaml"
+    ],
+    "goal": "data/sales.csv を読み込み、月次の売上合計・前月比（%）・3ヶ月移動平均を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。"
+  },
+  "reproducer_suggestion": {
+    "status": "bound",
+    "attempts": [
+      {
+        "basis": "origin_verify_binding:anvil-catalog-check:data_inspection_schema",
+        "command": "anvil-catalog-check:data_inspection_schema",
+        "lineage": "reproducer:33eefa99a5d98b68",
+        "outcome": "failure",
+        "subject_failure": true,
+        "reason": "inspection_schema_violation:inspection_path:path does not exist: output/inspection.json"
+      }
+    ],
+    "bound": {
+      "basis": "origin_verify_binding:anvil-catalog-check:data_inspection_schema",
+      "command": "anvil-catalog-check:data_inspection_schema",
+      "lineage": "reproducer:33eefa99a5d98b68"
+    }
+  },
+  "edges": [
+    {
+      "edge": "create->investigate",
+      "fired": true,
+      "checks": {
+        "E-A": {
+          "passed": true,
+          "detail": "origin selector verified failed run_stop in /Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev006_origin_2/.anvil/runs/019f6961-6c4e-7020-a97b-5af570d660db/events.jsonl"
+        },
+        "E-B": {
+          "passed": true,
+          "detail": "source evidence and adjudication are complete: /Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev006_origin_2/.anvil/runs/019f6961-6c4e-7020-a97b-5af570d660db/events.jsonl"
+        },
+        "E-C": {
+          "passed": true,
+          "detail": "source is in the sequential route history; target run is allocated only after firing"
+        },
+        "E-D": {
+          "passed": true,
+          "detail": "declared carries present: [Workspace, RecoveryYaml, ReproducerSuggestion]"
+        }
+      }
+    },
+    {
+      "edge": "investigate->fix",
+      "fired": true,
+      "checks": {
+        "E-A": {
+          "passed": true,
+          "detail": "source adjudicated assurance=full matches required=full in /Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev006_origin_2/.anvil/runs/019f8aad-047b-7570-8f7c-64a20ef276b9/events.jsonl"
+        },
+        "E-B": {
+          "passed": true,
+          "detail": "source evidence and adjudication are complete: /Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev006_origin_2/.anvil/runs/019f8aad-047b-7570-8f7c-64a20ef276b9/events.jsonl"
+        },
+        "E-C": {
+          "passed": true,
+          "detail": "source is in the sequential route history; target run is allocated only after firing"
+        },
+        "E-D": {
+          "passed": true,
+          "detail": "declared carries present: [Workspace, RecoveryYaml, ReproducerLineage, Diagnosis]"
+        }
+      }
+    }
+  ],
+  "nodes": {
+    "fix": {
+      "intent": "fix",
+      "run_id": "019f8aad-4d38-76f3-87aa-025e8fd61c57",
+      "run_dir": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev006_origin_2/.anvil/runs/019f8aad-4d38-76f3-87aa-025e8fd61c57",
+      "events_path": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev006_origin_2/.anvil/runs/019f8aad-4d38-76f3-87aa-025e8fd61c57/events.jsonl"
+    },
+    "investigate": {
+      "intent": "investigate",
+      "run_id": "019f8aad-047b-7570-8f7c-64a20ef276b9",
+      "run_dir": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev006_origin_2/.anvil/runs/019f8aad-047b-7570-8f7c-64a20ef276b9",
+      "events_path": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev006_origin_2/.anvil/runs/019f8aad-047b-7570-8f7c-64a20ef276b9/events.jsonl"
+    }
+  },
+  "verdict": "circle_failed",
+  "reason": "node_failed:fix"
+}
