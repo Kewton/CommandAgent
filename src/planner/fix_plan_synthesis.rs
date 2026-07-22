@@ -235,6 +235,15 @@ fn repair_target(
     plan: &UltraPlan,
     runtime: &FixRuntime,
 ) -> Option<RepairTargetSelection> {
+    if let Some(selection) = crate::planner::repair_targeting::verified_diagnosis_target(
+        &config.workspace_root,
+        &config
+            .workspace_root
+            .join("evidence/investigation-binding.json"),
+        runtime.reproducer_command(),
+    ) {
+        return Some(selection);
+    }
     let mapped = runtime
         .repair_diagnostic()
         .map(|diagnostic| RepairTargetSelection {

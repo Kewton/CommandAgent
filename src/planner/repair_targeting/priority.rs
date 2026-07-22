@@ -72,7 +72,8 @@ pub(super) fn select(buckets: RepairTargetPathBuckets<'_>) -> Option<RepairTarge
 
 fn fix_priority_rank(reason: RepairTargetSelectionReason) -> u8 {
     match reason {
-        RepairTargetSelectionReason::DiagnosisMapped
+        RepairTargetSelectionReason::VerifiedDiagnosisMapped
+        | RepairTargetSelectionReason::DiagnosisMapped
         | RepairTargetSelectionReason::TracebackMapped => 0,
         RepairTargetSelectionReason::ContractAttribute => 1,
         RepairTargetSelectionReason::EvidenceMapped

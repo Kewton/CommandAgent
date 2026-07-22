@@ -104,6 +104,8 @@ pub enum Carry {
     RecoveryYaml,
     ReproducerSuggestion,
     ReproducerLineage,
+    /// Verified diagnosis report and its I2 binding, transported to fix.
+    Diagnosis,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, PartialEq, Eq)]
@@ -166,10 +168,13 @@ impl Workflow {
                 return Err(SchemaError("route references an unknown node".into()));
             }
             if self.version == WorkflowVersion::V0
-                && route.carry.contains(&Carry::ReproducerSuggestion)
+                && route
+                    .carry
+                    .iter()
+                    .any(|carry| matches!(carry, Carry::ReproducerSuggestion | Carry::Diagnosis))
             {
                 return Err(SchemaError(
-                    "reproducer_suggestion carry requires workflow version 0.1".into(),
+                    "extended diagnosis/reproducer carry requires workflow version 0.1".into(),
                 ));
             }
         }

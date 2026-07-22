@@ -138,6 +138,15 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
             ),
             _ => None,
         };
+        let diagnosis = if intent == "fix"
+            && route.carry.contains(&Carry::Diagnosis)
+            && origin.join("output/diagnosis.md").is_file()
+            && origin.join("evidence/investigation-binding.json").is_file()
+        {
+            Some(fs::read_to_string(origin.join("output/diagnosis.md"))?)
+        } else {
+            None
+        };
         let request = runner::NodeRunRequest {
             node: node_id.clone(),
             intent: intent.into(),
@@ -147,6 +156,7 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
             reproducer,
             model,
             provider,
+            diagnosis,
         };
         let node_events = origin.join(format!("evidence/{node_id}-events.jsonl"));
         emit(
@@ -392,6 +402,10 @@ fn carry_present(carry: &Carry, origin: &Path, circle: &WorkflowCircleEvidence) 
         Carry::ReproducerLineage => {
             super::origin_reproducer::binding_from_investigation(origin).is_ok()
         }
+        Carry::Diagnosis => {
+            origin.join("output/diagnosis.md").is_file()
+                && origin.join("evidence/investigation-binding.json").is_file()
+        }
     }
 }
 
@@ -587,7 +601,21 @@ fn node_config(
     if !event_parent.starts_with(&canonical_origin) || !state_dir.starts_with(&canonical_origin) {
         return Err("workspace_confinement_violation".into());
     }
-    child.action = Action::UltraPlanRun(request.goal.clone());
+    let action_goal = if request.intent == "fix" {
+        request
+            .diagnosis
+            .as_ref()
+            .map(|diagnosis| {
+                format!(
+                    "{}\n\nVerified diagnosis (I2-matched; use as repair targeting material):\n{}",
+                    request.goal, diagnosis
+                )
+            })
+            .unwrap_or_else(|| request.goal.clone())
+    } else {
+        request.goal.clone()
+    };
+    child.action = Action::UltraPlanRun(action_goal);
     child.intent_override = Some(match request.intent.as_str() {
         "investigate" => IntentId::Investigate,
         "fix" => IntentId::Fix,
@@ -727,6 +755,7 @@ mod tests {
             reproducer: None,
             model: model.into(),
             provider,
+            diagnosis: None,
         }
     }
 

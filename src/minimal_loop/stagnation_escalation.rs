@@ -113,6 +113,9 @@ impl From<RepairTargetSelection> for WriteRequiredTargetSelection {
         Self {
             selected_targets: selection.selected_targets,
             selection_reason: match selection.selection_reason {
+                RepairTargetSelectionReason::VerifiedDiagnosisMapped => {
+                    WriteRequiredSelectionReason::DiagnosisMapped
+                }
                 RepairTargetSelectionReason::DiagnosisMapped => {
                     WriteRequiredSelectionReason::DiagnosisMapped
                 }

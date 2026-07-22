@@ -245,6 +245,7 @@ pub(crate) struct NodeRunRequest {
     pub reproducer: Option<crate::planner::external_reproducer::ExternalReproducerBinding>,
     pub model: String,
     pub provider: Provider,
+    pub diagnosis: Option<String>,
 }
 
 /// Integration seam for the existing single-intent executor. The callback is
