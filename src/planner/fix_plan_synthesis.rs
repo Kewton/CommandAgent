@@ -243,6 +243,12 @@ fn repair_target(
     ) {
         return Some(selection);
     }
+    if let Some(selection) = crate::planner::repair_targeting::r_command_target(
+        &config.workspace_root,
+        runtime.reproducer_command()?,
+    ) {
+        return Some(selection);
+    }
     let mapped = runtime
         .repair_diagnostic()
         .map(|diagnostic| RepairTargetSelection {

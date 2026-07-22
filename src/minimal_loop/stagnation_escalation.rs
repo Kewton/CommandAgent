@@ -116,6 +116,9 @@ impl From<RepairTargetSelection> for WriteRequiredTargetSelection {
                 RepairTargetSelectionReason::VerifiedDiagnosisMapped => {
                     WriteRequiredSelectionReason::DiagnosisMapped
                 }
+                RepairTargetSelectionReason::RCommandMapped => {
+                    WriteRequiredSelectionReason::DiagnosisMapped
+                }
                 RepairTargetSelectionReason::DiagnosisMapped => {
                     WriteRequiredSelectionReason::DiagnosisMapped
                 }

@@ -178,4 +178,21 @@ mod tests {
             RepairTargetSelectionReason::VerifiedDiagnosisMapped
         );
     }
+
+    #[test]
+    fn r_command_maps_test_file_path_from_elev005_shape() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pipeline")).unwrap();
+        std::fs::write(dir.path().join("pipeline/main.py"), "x").unwrap();
+        let selection = crate::planner::repair_targeting::r_command_target(
+            dir.path(),
+            "test -f pipeline/main.py",
+        )
+        .unwrap();
+        assert_eq!(selection.primary_target(), Some("pipeline/main.py"));
+        assert_eq!(
+            selection.selection_reason,
+            RepairTargetSelectionReason::RCommandMapped
+        );
+    }
 }
