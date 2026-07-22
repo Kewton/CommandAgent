@@ -642,3 +642,4 @@ D-3a-2e: D-2c同型の教訓を円環へ適用。ノード集合走査をroute�
 D-3a-2収穫#5: workflow子実行の再入デッドロック。スモーク4回の無音ハングの根因。6時間ハング実プロセスのsample採取（`__psynch_mutexwait`）で確定。修正=子実行は`run_config`直呼び・panic捕捉は外側バウンダリに一元化。検証: 採取スタックは`run_resolved_config_for_workflow → run_resolved_config → catch_cli_run → PanicHookGuard::install → Mutex::lock → __psynch_mutexwait`、構造回帰テストは子経路のpanic hook導入0回を固定。C2の停滞しきい値緩和は却下し不変。
 バンド再生成可能性の破れをCI→調査で検出。集計器の静かな0化を禁止。nextjs入力セットの復元はQUEUED（アーカイブ形式の解析→現行走査への適合、別タスク）。
 D-3a-3a: workflow schema v0→v0.1。nodesにexecutor用model/providerの任意ペアを追加し、省略時はグローバル構成を継承。改訂対象は§7のみで§1〜§6の裁定意味論は不変。バンドはモデル構成に付く原則により、ノード構成の異なるworkflowは別計測列とする。
+circle-001の収穫——伝播欠落の系（workspace→model→profile/goal/イベント先）を全数監査で恒久終了。監査表を実装コメントに常設。計測3runはP0成立・モデル分布としては無効（profile不適用）と記帳。
