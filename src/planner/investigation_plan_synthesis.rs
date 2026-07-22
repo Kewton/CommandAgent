@@ -19,20 +19,21 @@ pub(crate) fn resolve_phase_plan(
         return fallback();
     }
     ensure_shape(plan)?;
-    let suggestion = investigation_reproducer_suggestion(plan);
+    let suggestion = crate::planner::external_reproducer::resolve_candidate(
+        config,
+        investigation_reproducer_suggestion(plan),
+    )
+    .map_err(anyhow::Error::msg)?;
     let basis = suggestion
         .as_ref()
-        .map(|suggestion| suggestion.basis.as_str())
+        .map(|suggestion| suggestion.0.as_str())
         .unwrap_or("model_required");
     if phase.id == "reproduce-candidate" {
         emit_synthesized(config, plan, basis);
     }
     let mut step_plan = match phase.id.as_str() {
         "reproduce-candidate" => {
-            let Some(command) = suggestion
-                .as_ref()
-                .and_then(|suggestion| primary_command(&suggestion.suggestion))
-            else {
+            let Some((_, command)) = suggestion else {
                 return fallback();
             };
             StepPlan {
@@ -138,13 +139,6 @@ fn investigation_reproducer_suggestion(
     let mut proxy = plan.clone();
     proxy.intent = "fix".into();
     crate::planner::fix_reproducer::suggestion_for(&proxy)
-}
-
-fn primary_command(suggestion: &str) -> Option<String> {
-    let candidate = suggestion.split(" | ").next()?.trim();
-    let (_, command) = candidate.split_once(" => ")?;
-    let command = command.trim();
-    (!command.is_empty() && command.lines().count() == 1).then(|| command.to_string())
 }
 
 fn emit_synthesized(config: &Config, plan: &UltraPlan, basis: &str) {

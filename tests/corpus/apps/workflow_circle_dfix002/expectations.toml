@@ -17,3 +17,6 @@ contains = []
 
 [diagnostics]
 contains = []
+
+[fixture_contains]
+fixtures/origin-reproducer-prevalidation.json = ["origin_workspace:pipeline_probe", "python3 -B pipeline/main.py", "reproducer:d6587ef46e829187", "subject_failure"]

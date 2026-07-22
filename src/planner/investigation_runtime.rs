@@ -43,6 +43,8 @@ impl InvestigationRuntime {
         index: usize,
     ) -> anyhow::Result<InvestigationBeforeOutcome> {
         let command = extract_reproducer(step_plan)?;
+        let lineage = crate::planner::external_reproducer::lineage_for_execution(config, &command)
+            .map_err(anyhow::Error::msg)?;
         let execution = crate::planner::fix_diagnostics::run_reproducer(
             config,
             &self.run_id,
@@ -51,14 +53,14 @@ impl InvestigationRuntime {
             ExpectedOutcome::Failure,
             1,
             &command,
-            &format!(
-                "investigation:{}",
-                crate::planner::adjudication::fix::reproducer_lineage(&command)
-            ),
+            &lineage,
             &plan.profile,
             &plan.goal,
         );
         let mut run = InvestigationRunEvidence::new(&command, 1, execution.evidence.outcome);
+        if crate::planner::external_reproducer::is_workflow_node(config) {
+            run.reproducer_lineage = lineage;
+        }
         run.stderr = execution.evidence.reason.clone();
         run.failure_classification = execution.evidence.failure_classification;
         let evidence_dir = config.workspace_root.join("evidence");

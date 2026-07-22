@@ -675,3 +675,11 @@ D-3a settlementは中間であり、D-3aクローズはelevatedアームの完�
 する。Phase D出口条件は、schema v0.1のnode別上位モデル経路で
 調査→fix連結を実測1本成立させることである。local 0/3は正式値札だが、
 この出口条件の代替にはしない。
+
+D-3a-3f / elev-001の収穫——R解決の語彙依存が円環導出goalで不発。
+起点実態からの機械導出＋事前検証済み供給へ（語彙もぐら叩きの回避・
+D-2b合成と同じ構造判断）。これによりR構築のplanner依存が円環経路から
+消える。schema v0.1の固定carry語彙に`reproducer_suggestion`を追加する
+§7改訂であり、§1〜§6の裁定意味論は不変。
+`workflow_reproducer_prevalidated`と`workflow_reproducer_bound`を追加し、
+単intentの全intent source event名基準155は不変。

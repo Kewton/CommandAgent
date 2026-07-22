@@ -10,6 +10,8 @@ use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use super::origin_reproducer::OriginReproducerRecord;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct OriginReference {
     pub workspace_root: PathBuf,
@@ -73,6 +75,8 @@ pub struct WorkflowCircleEvidence {
     pub schema_version: u8,
     pub workflow: String,
     pub origin: OriginReference,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) reproducer_suggestion: Option<OriginReproducerRecord>,
     pub edges: Vec<EdgeRecord>,
     pub nodes: BTreeMap<String, NodeRunReference>,
     pub verdict: Option<String>,
@@ -85,6 +89,7 @@ impl WorkflowCircleEvidence {
             schema_version: 1,
             workflow: workflow.into(),
             origin,
+            reproducer_suggestion: None,
             edges: Vec::new(),
             nodes: BTreeMap::new(),
             verdict: None,
@@ -94,6 +99,10 @@ impl WorkflowCircleEvidence {
 
     pub fn record_edge(&mut self, record: EdgeRecord) {
         self.edges.push(record);
+    }
+
+    pub(crate) fn record_reproducer_suggestion(&mut self, record: OriginReproducerRecord) {
+        self.reproducer_suggestion = Some(record);
     }
 
     pub fn record_node(
@@ -164,6 +173,33 @@ impl WorkflowCircleEvidence {
         }
         if self.edges.is_empty() && self.reason.as_deref() != Some("origin_goal_underivable") {
             return Err("missing workflow edge evidence".into());
+        }
+        if let Some(record) = &self.reproducer_suggestion {
+            if !matches!(record.status.as_str(), "bound" | "not_derived")
+                || (record.status == "bound" && record.bound.is_none())
+                || (record.status == "not_derived" && record.bound.is_some())
+                || record.attempts.iter().any(|attempt| {
+                    attempt.basis.trim().is_empty()
+                        || attempt.command.trim().is_empty()
+                        || attempt.lineage.trim().is_empty()
+                        || attempt.outcome.trim().is_empty()
+                        || attempt.reason.trim().is_empty()
+                })
+            {
+                return Err("incomplete origin reproducer prevalidation".into());
+            }
+            if let Some(bound) = &record.bound {
+                bound.validate()?;
+                if !record.attempts.iter().any(|attempt| {
+                    attempt.basis == bound.basis
+                        && attempt.command == bound.command
+                        && attempt.lineage == bound.lineage
+                        && attempt.outcome == "failure"
+                        && attempt.subject_failure
+                }) {
+                    return Err("bound origin reproducer lacks a failed prevalidation".into());
+                }
+            }
         }
         for edge in &self.edges {
             if edge.edge.trim().is_empty()

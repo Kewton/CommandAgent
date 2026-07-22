@@ -102,6 +102,7 @@ pub enum Condition {
 pub enum Carry {
     Workspace,
     RecoveryYaml,
+    ReproducerSuggestion,
     ReproducerLineage,
 }
 
@@ -164,6 +165,13 @@ impl Workflow {
             if !self.nodes.contains_key(&route.from) || !self.nodes.contains_key(&route.to) {
                 return Err(SchemaError("route references an unknown node".into()));
             }
+            if self.version == WorkflowVersion::V0
+                && route.carry.contains(&Carry::ReproducerSuggestion)
+            {
+                return Err(SchemaError(
+                    "reproducer_suggestion carry requires workflow version 0.1".into(),
+                ));
+            }
         }
         for (id, terminal) in &self.terminal {
             if !self.nodes.contains_key(id) {
@@ -225,6 +233,24 @@ mod tests {
                 .contains("requires workflow version 0.1")
         );
         assert!(Workflow::parse(&VALID_V0_1.replace("gemini", "unknown-provider")).is_err());
+    }
+
+    #[test]
+    fn reproducer_suggestion_is_a_strict_v0_1_carry_keyword() {
+        let v0_1 = VALID_V0_1.replace(
+            "carry: [workspace, recovery_yaml]",
+            "carry: [workspace, recovery_yaml, reproducer_suggestion]",
+        );
+        assert!(Workflow::parse(&v0_1).is_ok());
+        assert!(
+            Workflow::parse(&v0_1.replace("version: 0.1", "version: 0"))
+                .unwrap_err()
+                .to_string()
+                .contains("requires workflow version 0.1")
+        );
+        assert!(
+            Workflow::parse(&v0_1.replace("reproducer_suggestion", "reproducer_hint")).is_err()
+        );
     }
 
     #[test]

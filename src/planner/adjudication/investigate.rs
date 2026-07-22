@@ -22,6 +22,8 @@ pub struct InvestigationRunEvidence {
     pub contract_ref: String,
     pub requirement_id: String,
     pub reproducer: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub reproducer_lineage: String,
     pub stage: EvidenceStage,
     pub expected: ExpectedOutcome,
     pub epoch: u64,
@@ -42,6 +44,7 @@ impl InvestigationRunEvidence {
             contract_ref: INVESTIGATION_CONTRACT_REF.into(),
             requirement_id: REPRODUCER_FAILS_ID.into(),
             reproducer: reproducer.into(),
+            reproducer_lineage: String::new(),
             stage: EvidenceStage::Diagnosis,
             expected: ExpectedOutcome::Failure,
             epoch,

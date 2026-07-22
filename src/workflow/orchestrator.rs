@@ -68,6 +68,14 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
         }
     };
     circle.origin.goal = Some(origin_goal.clone());
+    let reproducer_record = super::origin_reproducer::derive_from_origin(
+        config,
+        origin,
+        &origin_events,
+        &origin_goal,
+        &events_path,
+    );
+    circle.record_reproducer_suggestion(reproducer_record);
     let mut current = workflow.entry.clone();
     while let Some(route) = workflow.routes.iter().find(|r| r.from == current) {
         let edge = format!("{}->{}", route.from, route.to);
@@ -119,13 +127,24 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
         let goal = runner::derive_goal(intent, &origin_goal).unwrap_or_default();
         let model = node.model.clone().unwrap_or_else(|| config.model.clone());
         let provider = node.provider.unwrap_or(config.provider);
+        let reproducer = match intent {
+            "investigate" => circle
+                .reproducer_suggestion
+                .as_ref()
+                .and_then(|record| record.bound.clone()),
+            "fix" => Some(
+                super::origin_reproducer::binding_from_investigation(origin)
+                    .map_err(anyhow::Error::msg)?,
+            ),
+            _ => None,
+        };
         let request = runner::NodeRunRequest {
             node: node_id.clone(),
             intent: intent.into(),
             profile: node.profile.clone(),
             goal,
             origin: origin.to_path_buf(),
-            reproducer_lineage: None,
+            reproducer,
             model,
             provider,
         };
@@ -350,17 +369,9 @@ fn carry_present(carry: &Carry, origin: &Path, circle: &WorkflowCircleEvidence) 
             .recovery_yaml_paths
             .iter()
             .all(|path| path.is_file()),
+        Carry::ReproducerSuggestion => circle.reproducer_suggestion.is_some(),
         Carry::ReproducerLineage => {
-            origin.join("evidence/investigation-run.json").is_file()
-                || circle.nodes.values().any(|node| {
-                    fs::read_to_string(&node.events_path)
-                        .map(|events| {
-                            events.contains("\"reproducer_lineage\"")
-                                || (events.contains("\"lineage\"")
-                                    && events.contains("fix_reproducer"))
-                        })
-                        .unwrap_or(false)
-                })
+            super::origin_reproducer::binding_from_investigation(origin).is_ok()
         }
     }
 }
@@ -513,6 +524,8 @@ fn emit_node_run_stop_if_absent(
 // single-intent execution entry    run_resolved_config_for_workflow          correct
 // panic boundary                   outer workflow CLI boundary only          correct
 // node request                     route-derived goal/intent/carry/config    correct
+// external reproducer binding      route carry -> origin-confined state file correct
+// workflow child marker            fixed origin-confined state file          correct
 // node identity                    origin-confined allocated UUID/run paths  correct
 // interaction mode                 fixed non-interactive via Config.yes      correct
 // workflow timeout                 none; node budget remains sole bound      correct
@@ -597,7 +610,21 @@ fn execute_configured_node<F>(
 where
     F: FnOnce(Config) -> Result<(), String>,
 {
-    execute(node_config(config, node, request, identity)?)
+    let child = node_config(config, node, request, identity)?;
+    crate::planner::external_reproducer::mark_workflow_node(&child)?;
+    if let Some(binding) = &request.reproducer {
+        crate::planner::external_reproducer::write(&child, binding)?;
+        crate::eval_events::emit(
+            child.eval_events_path.as_deref(),
+            json!({
+                "event":"workflow_reproducer_bound",
+                "basis":binding.basis,
+                "command":binding.command,
+                "lineage":binding.lineage,
+            }),
+        );
+    }
+    execute(child)
 }
 
 fn provider_name(provider: Provider) -> &'static str {
@@ -625,6 +652,8 @@ fn write_circle(origin: &Path, evidence: &WorkflowCircleEvidence) -> anyhow::Res
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::planner::adjudication::contract::ProbeOutcome;
+    use crate::planner::external_reproducer::ExternalReproducerBinding;
     use crate::providers::{AssistantReply, ChatClient};
     use crate::state::ConversationMessage;
     use crate::tools::registry::ToolSpec;
@@ -676,7 +705,7 @@ mod tests {
             profile: "data".into(),
             goal: "goal".into(),
             origin: root.to_path_buf(),
-            reproducer_lineage: None,
+            reproducer: None,
             model: model.into(),
             provider,
         }
@@ -743,9 +772,23 @@ mod tests {
     #[test]
     fn workflow_node_execution_seam_uses_ultra_plan_run_and_reaches_investigation_synthesis() {
         let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("pipeline")).unwrap();
+        std::fs::write(
+            root.path().join("pipeline/main.py"),
+            "raise ValueError('origin failure')\n",
+        )
+        .unwrap();
         let global = config(root.path());
         let node = node(None, None);
-        let request = request(root.path(), &global.model, global.provider);
+        let mut request = request(root.path(), &global.model, global.provider);
+        request.goal = "derived workflow goal without reproducer vocabulary".into();
+        request.reproducer = Some(
+            ExternalReproducerBinding::new(
+                "origin_workspace:pipeline_probe",
+                "python3 -B pipeline/main.py",
+            )
+            .unwrap(),
+        );
         let identity = identity(root.path());
 
         runner::execute_node(
@@ -758,7 +801,7 @@ mod tests {
                         Action::UltraPlanRun(goal) if goal == &request.goal
                     ));
                     let plan = crate::planner::intent::explicit_investigation_plan(
-                        "pipeline/main.py execution fails for data/sales.csv",
+                        &request.goal,
                         "data",
                         "default",
                     );
@@ -783,9 +826,19 @@ mod tests {
         .unwrap();
 
         let events = std::fs::read_to_string(identity.events_path).unwrap();
+        assert!(events.contains("\"event\":\"workflow_reproducer_bound\""));
         assert!(events.contains("\"event\":\"ultra_phase_start\""));
         assert!(events.contains("\"event\":\"investigation_plan_synthesized\""));
+        assert!(events.contains("\"r_basis\":\"origin_workspace:pipeline_probe\""));
         assert!(events.contains("\"profile\":\"data\""));
+        let run: crate::planner::adjudication::investigate::InvestigationRunEvidence =
+            serde_json::from_slice(
+                &std::fs::read(root.path().join("evidence/investigation-run.json")).unwrap(),
+            )
+            .unwrap();
+        assert_eq!(run.reproducer, "python3 -B pipeline/main.py");
+        assert_eq!(run.reproducer_lineage, request.reproducer.unwrap().lineage);
+        assert_eq!(run.outcome, ProbeOutcome::Failure);
     }
 
     #[test]

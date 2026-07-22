@@ -55,6 +55,12 @@ circle_full を意味しない）。
 改訂記録（2026-07-22）: v0→v0.1。改訂対象は本§7のノードexecutor構成
 のみであり、§1〜§6の裁定意味論は不変。既存v0定義は引き続き有効。
 
+改訂記録（2026-07-22、D-3a-3f）: v0.1の固定carry語彙に
+reproducer_suggestionを追加する。workflowは依頼者として起点workspace
+から機械導出・事前失敗確認したRをinvestigateへ束縛できる。導出不能時は
+Rを発明せず、investigate契約§8どおりノード冒頭での構築に委ねる。
+改訂対象は本§7のcarry構成のみであり、§1〜§6の裁定意味論は不変。
+
 ```yaml
 workflow: <id>
 version: 0.1
@@ -70,7 +76,8 @@ terminal:
 ```
 制約: on は固定語彙（full / failed）。when は固定condition語彙
 （v0: recovery_yaml_present のみ）。carry は固定語彙
-（workspace / recovery_yaml / reproducer_lineage）。
+（workspace / recovery_yaml / reproducer_suggestion /
+reproducer_lineage）。reproducer_suggestionはv0.1だけで使用できる。
 式・スクリプト・任意述語の記述は禁止し、パーサは未知語彙を
 エラーとして拒否する。ノードのintent/profileは実在かつ
 admission済みであること。model/providerはexecutorだけをノード単位で

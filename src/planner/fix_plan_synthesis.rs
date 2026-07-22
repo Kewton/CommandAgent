@@ -122,29 +122,20 @@ fn reproduce_before(
     plan: &UltraPlan,
     phase: &UltraPhase,
 ) -> anyhow::Result<PhasePlan> {
-    let suggestion = crate::planner::fix_reproducer::suggestion_for(plan);
+    let suggestion = crate::planner::external_reproducer::resolve_candidate(
+        config,
+        crate::planner::fix_reproducer::suggestion_for(plan),
+    )
+    .map_err(anyhow::Error::msg)?;
     let basis = suggestion
         .as_ref()
-        .map(|suggestion| suggestion.basis.as_str())
+        .map(|suggestion| suggestion.0.as_str())
         .unwrap_or(MODEL_REPRODUCER_BASIS);
     emit_synthesized(config, plan, basis);
-    let Some(command) = suggestion
-        .as_ref()
-        .and_then(|suggestion| primary_reproducer_command(&suggestion.suggestion))
-    else {
+    let Some((_, command)) = suggestion else {
         return Ok(PhasePlan::ModelReproducer);
     };
     generated(config, phase, reproducer_plan(&plan.goal, command))
-}
-
-fn primary_reproducer_command(suggestion: &str) -> Option<String> {
-    let candidate = suggestion.split(" | ").next()?.trim();
-    let (_, command) = candidate.split_once(" => ")?;
-    let command = command.trim();
-    if command.is_empty() || command.lines().count() != 1 {
-        return None;
-    }
-    Some(command.to_string())
 }
 
 fn reproducer_plan(goal: &str, command: String) -> StepPlan {

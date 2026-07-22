@@ -13,6 +13,13 @@ fn failed_run() -> InvestigationRunEvidence {
     run
 }
 
+#[test]
+fn ordinary_investigation_bytes_omit_workflow_only_lineage() {
+    let evidence = InvestigationRunEvidence::new("false", 1, ProbeOutcome::Failure);
+    let value = serde_json::to_value(evidence).unwrap();
+    assert!(value.get("reproducer_lineage").is_none());
+}
+
 fn claim(kind: DiagnosisClaimKind, matched: bool) -> DiagnosisClaim {
     DiagnosisClaim {
         kind,

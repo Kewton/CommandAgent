@@ -236,13 +236,13 @@ where
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NodeRunRequest {
+pub(crate) struct NodeRunRequest {
     pub node: String,
     pub intent: String,
     pub profile: String,
     pub goal: String,
     pub origin: std::path::PathBuf,
-    pub reproducer_lineage: Option<String>,
+    pub reproducer: Option<crate::planner::external_reproducer::ExternalReproducerBinding>,
     pub model: String,
     pub provider: Provider,
 }
@@ -250,7 +250,11 @@ pub struct NodeRunRequest {
 /// Integration seam for the existing single-intent executor. The callback is
 /// the existing pipeline entry; this layer only supplies the derived request
 /// and records the workflow-facing events.
-pub fn execute_node<F>(request: &NodeRunRequest, events: &Path, execute: F) -> Result<(), String>
+pub(crate) fn execute_node<F>(
+    request: &NodeRunRequest,
+    events: &Path,
+    execute: F,
+) -> Result<(), String>
 where
     F: FnOnce(&NodeRunRequest) -> Result<(), String>,
 {

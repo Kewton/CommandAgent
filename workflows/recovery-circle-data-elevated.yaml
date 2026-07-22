@@ -9,7 +9,7 @@ nodes:
   fix: { intent: fix, profile: data, model: gemma4:31b-cloud, provider: ollama }
   verify_origin: { intent: investigate, profile: data }
 routes:
-  - { from: create, on: failed, when: recovery_yaml_present, to: investigate, carry: [workspace, recovery_yaml] }
+  - { from: create, on: failed, when: recovery_yaml_present, to: investigate, carry: [workspace, recovery_yaml, reproducer_suggestion] }
   - { from: investigate, on: full, to: fix, carry: [workspace, recovery_yaml, reproducer_lineage] }
   - { from: fix, on: full, to: verify_origin, carry: [workspace, recovery_yaml, reproducer_lineage] }
 terminal:
