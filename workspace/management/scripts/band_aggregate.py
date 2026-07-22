@@ -6,7 +6,9 @@ Data uses repository-managed uat-meta.json files plus a frozen index for the
 pre-uat-meta campaigns. Fix/nextjs uses the four fixed D-1 measurement sets,
 their event streams, and their F1-F3 evidence. Investigation/data uses the two
 fixed D-3b measurement sets and validates their I1/I2 evidence against
-adjudication events. Generated summaries are written below
+adjudication events. Workflow circle uses the three fixed D-3a local-arm
+campaigns and admits only the post-propagation, post-execution-mode campaign
+to its formal denominator. Generated summaries are written below
 workspace/management/runs/ and printed to stdout.
 """
 
@@ -29,6 +31,7 @@ OUTPUT = RUNS_DIR / "band_summary.md"
 DATA_OUTPUT = RUNS_DIR / "band_summary_data.md"
 FIX_OUTPUT = RUNS_DIR / "band_summary_fix.md"
 INVESTIGATION_OUTPUT = RUNS_DIR / "band_summary_investigation.md"
+CIRCLE_OUTPUT = RUNS_DIR / "band_summary_circle.md"
 WINDOW_START = "uat-test0711-bs-003"
 NEXTJS_ARCHIVED_INPUT_SET_COUNT = 12
 NEXTJS_PROVENANCE_ANALYSIS = "band-f821-diff/analysis.md"
@@ -68,6 +71,13 @@ INVESTIGATION_WINDOW_B_SET = "uat-test0718-inv-002"
 INVESTIGATION_WINDOW_B_BASELINE_HEAD = "3302dd9"
 INVESTIGATION_EXPECTED_RUNS = 12
 INVESTIGATION_FAMILIES = ("pipe", "schema")
+CIRCLE_WINDOW_SETS = tuple(f"uat-test0722-circle-{index:03d}" for index in range(1, 4))
+CIRCLE_OFFICIAL_SET = "uat-test0722-circle-003"
+CIRCLE_EXPECTED_RUNS = 9
+CIRCLE_EXCLUSION_REASONS = {
+    "uat-test0722-circle-001": "profile不伝播により無効（P1-a FAIL）",
+    "uat-test0722-circle-002": "実行モード欠落により無効",
+}
 KNOWN_INTENTS = {"create", "fix", "investigate"}
 
 FINAL_STATES = ("full_success", "partial", "incomplete", "failed")
@@ -195,6 +205,22 @@ class InvestigationRunRecord:
     @property
     def is_full(self) -> bool:
         return self.assurance == "full"
+
+
+@dataclass(frozen=True)
+class CircleRunRecord:
+    set_id: str
+    run_name: str
+    arm: str
+    verdict: str
+    reason: str
+    circle_path: Path
+    events_path: Path
+    excluded_reason: str = ""
+
+    @property
+    def is_full(self) -> bool:
+        return self.verdict == "circle_full"
 
 
 def classify_data_family(goal: str) -> str:
@@ -2423,15 +2449,160 @@ def build_investigation_summary(
     return "\n".join(lines)
 
 
+def discover_circle_records() -> tuple[list[CircleRunRecord], list[str]]:
+    """Load the fixed local circle campaigns without inferring missing verdicts."""
+    records: list[CircleRunRecord] = []
+    for set_id in CIRCLE_WINDOW_SETS:
+        set_dir = RUNS_DIR / set_id
+        assert set_dir.is_dir(), f"missing circle set: {set_dir}"
+        run_dirs = sorted(path for path in set_dir.glob("run[1-3]") if path.is_dir())
+        assert len(run_dirs) == 3, (
+            f"circle set {set_id} has {len(run_dirs)} run directories, expected 3"
+        )
+        for run_dir in run_dirs:
+            label = f"{set_id}/{run_dir.name}"
+            circle_path = run_dir / "workflow-circle.json"
+            events_path = run_dir / "workflow-events.jsonl"
+            assert circle_path.is_file(), f"missing workflow-circle.json for {label}"
+            assert events_path.is_file(), f"missing workflow events for {label}"
+            circle = json.loads(circle_path.read_text(encoding="utf-8"))
+            assert isinstance(circle, dict), f"non-object workflow circle for {label}"
+            adjudication = only_event(
+                read_json_events(events_path), "workflow_adjudicated", label
+            )
+            verdict = str(circle.get("verdict") or "")
+            reason = str(circle.get("reason") or "")
+            assert verdict in {"circle_full", "circle_failed"}, (
+                f"unsupported workflow verdict {verdict!r} for {label}"
+            )
+            assert adjudication.get("verdict") == verdict, (
+                f"workflow verdict mismatch for {label}"
+            )
+            assert str(adjudication.get("reason") or "") == reason, (
+                f"workflow reason mismatch for {label}"
+            )
+            records.append(
+                CircleRunRecord(
+                    set_id=set_id,
+                    run_name=run_dir.name,
+                    arm="local",
+                    verdict=verdict,
+                    reason=reason,
+                    circle_path=circle_path,
+                    events_path=events_path,
+                    excluded_reason=CIRCLE_EXCLUSION_REASONS.get(set_id, ""),
+                )
+            )
+    assert len(records) == CIRCLE_EXPECTED_RUNS, (
+        f"circle observed run count is {len(records)}, expected {CIRCLE_EXPECTED_RUNS}"
+    )
+    assert len({(record.set_id, record.run_name) for record in records}) == len(records)
+    return records, list(CIRCLE_WINDOW_SETS)
+
+
+def circle_rate_rows(records: list[CircleRunRecord]) -> list[list[str]]:
+    counts: dict[str, Counter[str]] = defaultdict(Counter)
+    for record in records:
+        if record.excluded_reason:
+            continue
+        counts[record.arm][record.verdict] += 1
+    rows: list[list[str]] = []
+    for arm, counter in sorted(counts.items()):
+        full = counter["circle_full"]
+        failed = counter["circle_failed"]
+        denominator = full + failed
+        rows.append([arm, str(full), str(failed), str(denominator), pct(full, denominator)])
+    return rows
+
+
+def build_circle_summary(
+    records: list[CircleRunRecord], scanned_sets: list[str]
+) -> str:
+    assert len(records) == CIRCLE_EXPECTED_RUNS
+    included = [record for record in records if not record.excluded_reason]
+    excluded = [record for record in records if record.excluded_reason]
+    assert {record.set_id for record in included} == {CIRCLE_OFFICIAL_SET}, (
+        "circle formal denominator contains a non-official set"
+    )
+    assert len(included) == 3, (
+        f"circle formal denominator is {len(included)}, expected 3"
+    )
+    assert len(excluded) == 6, f"circle exclusion count is {len(excluded)}, expected 6"
+    lines = [
+        "# Workflow Circle Capability Band Summary",
+        "",
+        "<!-- Generated by band_aggregate.py --profile circle. Do not edit by hand. -->",
+        "",
+        f"- Scanned circle sets: `{len(scanned_sets)}`",
+        f"- Observed runs: `{len(records)}`",
+        f"- Formal denominator: `{len(included)}` (`{CIRCLE_OFFICIAL_SET}` only)",
+        f"- Exclusions: `{len(excluded)}`",
+        f"- workflow-circle.json verified: `{len(records)}/{len(records)}`",
+        f"- workflow_adjudicated verified and verdict-aligned: `{len(records)}/{len(records)}`",
+        "- Zero-row policy: generation aborts before replacing the tracked output.",
+        "",
+        "## Formal local arm",
+        "",
+    ]
+    lines.extend(
+        table(
+            ["Arm", "circle_full", "circle_failed", "denominator", "full rate"],
+            circle_rate_rows(records),
+        )
+    )
+    lines.extend(["", "## Excluded runs", ""])
+    lines.extend(
+        table(
+            ["Set", "Run", "Recorded verdict", "Reason"],
+            [
+                [record.set_id, record.run_name, record.verdict, record.excluded_reason]
+                for record in excluded
+            ],
+        )
+    )
+    lines.extend(["", "## Per-run evidence ledger", ""])
+    lines.extend(
+        table(
+            [
+                "Set",
+                "Run",
+                "Arm",
+                "Verdict",
+                "Terminal reason",
+                "Band status",
+                "workflow-circle.json",
+                "workflow_adjudicated stream",
+            ],
+            [
+                [
+                    record.set_id,
+                    record.run_name,
+                    record.arm,
+                    record.verdict,
+                    record.reason,
+                    record.excluded_reason or "formal denominator",
+                    record.circle_path.relative_to(RUNS_DIR).as_posix(),
+                    record.events_path.relative_to(RUNS_DIR).as_posix(),
+                ]
+                for record in records
+            ],
+        )
+    )
+    lines.extend(["", "## Source sets", ""])
+    lines.extend(f"- `{set_id}`" for set_id in scanned_sets)
+    lines.append("")
+    return "\n".join(lines)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--profile",
-        choices=("nextjs", "data", "fix", "investigation"),
+        choices=("nextjs", "data", "fix", "investigation", "circle"),
         default="nextjs",
         help=(
             "capability band to aggregate (nextjs/data create, nextjs fix, "
-            "or data investigation)"
+            "data investigation, or workflow circle)"
         ),
     )
     return parser.parse_args()
@@ -2440,7 +2611,19 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     try:
-        if args.profile == "investigation":
+        if args.profile == "circle":
+            circle_records, scanned_sets = discover_circle_records()
+            official_records = [
+                record for record in circle_records if not record.excluded_reason
+            ]
+            require_nonempty_aggregation(
+                args.profile,
+                official_records,
+                profile_set_diagnostics(official_records, [CIRCLE_OFFICIAL_SET]),
+            )
+            summary = build_circle_summary(circle_records, scanned_sets)
+            output = CIRCLE_OUTPUT
+        elif args.profile == "investigation":
             investigation_records, scanned_sets = discover_investigation_records()
             require_nonempty_aggregation(
                 args.profile,

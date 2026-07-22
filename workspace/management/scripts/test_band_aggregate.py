@@ -517,5 +517,107 @@ class InvestigationBandTests(unittest.TestCase):
                 band.validate_investigation_evidence(evidence_dir, events, "test/run")
 
 
+class CircleBandTests(unittest.TestCase):
+    def test_repository_circle_denominator_and_exclusions(self) -> None:
+        records, scanned_sets = band.discover_circle_records()
+
+        self.assertEqual(scanned_sets, list(band.CIRCLE_WINDOW_SETS))
+        self.assertEqual(len(records), 9)
+        self.assertEqual(sum(bool(record.excluded_reason) for record in records), 6)
+        official = [record for record in records if not record.excluded_reason]
+        self.assertEqual({record.set_id for record in official}, {band.CIRCLE_OFFICIAL_SET})
+        self.assertEqual(
+            band.circle_rate_rows(records), [["local", "0", "3", "3", "0%"]]
+        )
+        self.assertEqual({record.verdict for record in official}, {"circle_failed"})
+        self.assertEqual({record.reason for record in official}, {"node_failed:investigate"})
+        summary = band.build_circle_summary(records, scanned_sets)
+        self.assertIn("| local | 0 | 3 | 3 | 0% |", summary)
+        self.assertIn("profile不伝播により無効（P1-a FAIL）", summary)
+        self.assertIn("実行モード欠落により無効", summary)
+
+    def test_missing_workflow_circle_aborts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for set_id in band.CIRCLE_WINDOW_SETS:
+                for run_number in range(1, 4):
+                    run_dir = root / set_id / f"run{run_number}"
+                    run_dir.mkdir(parents=True)
+                    (run_dir / "workflow-events.jsonl").write_text(
+                        '{"event":"workflow_adjudicated","verdict":"circle_failed",'
+                        '"reason":"node_failed:investigate"}\n',
+                        encoding="utf-8",
+                    )
+                    if not (set_id == band.CIRCLE_OFFICIAL_SET and run_number == 1):
+                        (run_dir / "workflow-circle.json").write_text(
+                            '{"verdict":"circle_failed",'
+                            '"reason":"node_failed:investigate"}\n',
+                            encoding="utf-8",
+                        )
+            with (
+                mock.patch.object(band, "RUNS_DIR", root),
+                self.assertRaisesRegex(AssertionError, "missing workflow-circle.json"),
+            ):
+                band.discover_circle_records()
+
+    def test_missing_workflow_adjudication_aborts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for set_id in band.CIRCLE_WINDOW_SETS:
+                for run_number in range(1, 4):
+                    run_dir = root / set_id / f"run{run_number}"
+                    run_dir.mkdir(parents=True)
+                    (run_dir / "workflow-circle.json").write_text(
+                        '{"verdict":"circle_failed",'
+                        '"reason":"node_failed:investigate"}\n',
+                        encoding="utf-8",
+                    )
+                    events = (
+                        ""
+                        if (set_id == band.CIRCLE_WINDOW_SETS[0] and run_number == 1)
+                        else '{"event":"workflow_adjudicated",'
+                        '"verdict":"circle_failed",'
+                        '"reason":"node_failed:investigate"}\n'
+                    )
+                    (run_dir / "workflow-events.jsonl").write_text(
+                        events, encoding="utf-8"
+                    )
+            with (
+                mock.patch.object(band, "RUNS_DIR", root),
+                self.assertRaisesRegex(AssertionError, "workflow_adjudicated"),
+            ):
+                band.discover_circle_records()
+
+    def test_zero_official_rows_abort_without_replacing_output(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "band_summary_circle.md"
+            output.write_text("frozen\n", encoding="utf-8")
+            excluded = band.CircleRunRecord(
+                set_id="uat-test0722-circle-001",
+                run_name="run1",
+                arm="local",
+                verdict="circle_failed",
+                reason="node_failed:investigate",
+                circle_path=Path("workflow-circle.json"),
+                events_path=Path("workflow-events.jsonl"),
+                excluded_reason="invalid",
+            )
+            stderr = io.StringIO()
+            with (
+                mock.patch.object(
+                    band, "discover_circle_records", return_value=([excluded], [excluded.set_id])
+                ),
+                mock.patch.object(band, "CIRCLE_OUTPUT", output),
+                mock.patch.object(
+                    band, "parse_args", return_value=SimpleNamespace(profile="circle")
+                ),
+                redirect_stderr(stderr),
+            ):
+                self.assertEqual(band.main(), 1)
+
+            self.assertIn("aggregation result has 0 rows", stderr.getvalue())
+            self.assertEqual(output.read_text(encoding="utf-8"), "frozen\n")
+
+
 if __name__ == "__main__":
     unittest.main()
