@@ -30,7 +30,7 @@ steps:
   - id: "implement-fix"
     kind: "implement"
     expected_result: "pass"
-    instruction: "Repair the F1-diagnosed defect in `pipeline/main.py` using the isolated cause and the shared target resolver (traceback_mapped); preserve the existing data contract and keep ownership of this path in this step.\n\nFix F1 failure diagnostic (runtime-derived):\n- location: pipeline/main.py:1\n- error kind: ValueError\n- message: bad sales row\n- write-pressure target: pipeline/main.py (selection_reason=traceback_mapped)\n- excerpt: <workspace>/pipeline/main.py:1 in <module>"
+    instruction: "Repair the F1-diagnosed defect in `pipeline/main.py` using the isolated cause and the shared target resolver (r_command_mapped); preserve the existing data contract and keep ownership of this path in this step.\n\nFix F1 failure diagnostic (runtime-derived):\n- location: pipeline/main.py:1\n- error kind: ValueError\n- message: bad sales row\n- write-pressure target: pipeline/main.py (selection_reason=traceback_mapped)\n- excerpt: <workspace>/pipeline/main.py:1 in <module>"
     expected_paths:
       - "pipeline/main.py"
     verify:

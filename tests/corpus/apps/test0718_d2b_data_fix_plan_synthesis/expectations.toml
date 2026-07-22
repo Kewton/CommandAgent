@@ -25,7 +25,7 @@ expect = "not_checked"
 fixtures/pipe-plan.txt = [
   "f1_execution: confirmed",
   "python3 -B pipeline/main.py",
-  "traceback_mapped",
+  "r_command_mapped",
   "phase: verify-regressions",
   "anvil-catalog-check:data_rerun_consistency"
 ]
