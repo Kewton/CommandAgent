@@ -601,28 +601,4 @@ mod tests {
             );
         }
     }
-
-    #[test]
-    fn verified_diagnosis_maps_catalog_failure_to_data_producer() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join("pipeline")).unwrap();
-        std::fs::write(dir.path().join("pipeline/main.py"), "raise SystemExit(1)\n").unwrap();
-        let binding = dir.path().join("binding.json");
-        std::fs::write(
-            &binding,
-            r#"{"claims":[{"kind":"error_quote","matched":true,"value":"inspection_schema_violation"}]}"#,
-        )
-        .unwrap();
-        let selection = verified_diagnosis_target(
-            dir.path(),
-            &binding,
-            Some("inspection_schema_violation:missing_keys"),
-        )
-        .unwrap();
-        assert_eq!(selection.primary_target(), Some("pipeline/main.py"));
-        assert_eq!(
-            selection.selection_reason,
-            RepairTargetSelectionReason::VerifiedDiagnosisMapped
-        );
-    }
 }

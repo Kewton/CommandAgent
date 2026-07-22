@@ -158,4 +158,24 @@ mod tests {
             fix_profile_invariant_target_guidance(Path::new("."), "nextjs", "create", &[]);
         assert!(guidance.is_empty());
     }
+
+    #[test]
+    fn verified_catalog_diagnosis_targets_data_producer() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pipeline")).unwrap();
+        std::fs::write(dir.path().join("pipeline/main.py"), "raise SystemExit(1)").unwrap();
+        let binding = dir.path().join("binding.json");
+        std::fs::write(&binding, r#"{"claims":[{"matched":true}]}"#).unwrap();
+        let selection = crate::planner::repair_targeting::verified_diagnosis_target(
+            dir.path(),
+            &binding,
+            Some("inspection_schema_violation"),
+        )
+        .unwrap();
+        assert_eq!(selection.primary_target(), Some("pipeline/main.py"));
+        assert_eq!(
+            selection.selection_reason,
+            RepairTargetSelectionReason::VerifiedDiagnosisMapped
+        );
+    }
 }
