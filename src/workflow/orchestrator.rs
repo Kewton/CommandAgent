@@ -45,7 +45,16 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
         )?;
         bail!("workflow origin lacks run events");
     };
-    let origin_goal = "起点run";
+    let origin_goal = match runner::derive_origin_goal(&origin_events) {
+        Ok(goal) => goal,
+        Err(_) => {
+            emit(
+                &events_path,
+                json!({"event":"workflow_adjudicated","verdict":"circle_failed","reason":"origin_goal_underivable"}),
+            )?;
+            return write_circle(origin, "circle_failed", "origin_goal_underivable");
+        }
+    };
     let mut current = workflow.entry.clone();
     while let Some(route) = workflow.routes.iter().find(|r| r.from == current) {
         let edge = format!("{}->{}", route.from, route.to);
@@ -87,7 +96,7 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
             Intent::Fix => "fix",
             Intent::Create => "create",
         };
-        let goal = runner::derive_goal(intent, origin_goal).unwrap_or_default();
+        let goal = runner::derive_goal(intent, &origin_goal).unwrap_or_default();
         let model = node.model.clone().unwrap_or_else(|| config.model.clone());
         let provider = node.provider.unwrap_or(config.provider);
         let request = runner::NodeRunRequest {
@@ -604,6 +613,47 @@ mod tests {
         assert_eq!(
             node_config(&global, &node, &request, &outside).unwrap_err(),
             "workspace_confinement_violation"
+        );
+    }
+
+    #[test]
+    fn underivable_origin_goal_adjudicates_without_starting_a_node() {
+        let root = tempfile::tempdir().unwrap();
+        let origin = root.path().join("origin");
+        let run_dir = origin.join(".anvil/runs/origin-run");
+        std::fs::create_dir_all(&run_dir).unwrap();
+        std::fs::create_dir_all(origin.join(".anvil/plans")).unwrap();
+        std::fs::write(
+            run_dir.join("events.jsonl"),
+            r#"{"event":"run_start","action":"Repl"}
+{"event":"run_stop","status":"failed"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            origin.join(".anvil/plans/recovery-origin.yaml"),
+            "version: 1\n",
+        )
+        .unwrap();
+        let definition =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("workflows/recovery-circle-data.yaml");
+
+        run_workflow(&config(&origin), &definition, &origin).unwrap();
+
+        let circle: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(origin.join("evidence/workflow-circle.json")).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(circle["verdict"], "circle_failed");
+        assert_eq!(circle["reason"], "origin_goal_underivable");
+        let workflow_events =
+            std::fs::read_to_string(origin.join("evidence/workflow-events.jsonl")).unwrap();
+        assert!(workflow_events.contains("\"reason\":\"origin_goal_underivable\""));
+        assert!(!workflow_events.contains("workflow_node_started"));
+        assert_eq!(
+            std::fs::read_dir(origin.join(".anvil/runs"))
+                .unwrap()
+                .count(),
+            1
         );
     }
 }

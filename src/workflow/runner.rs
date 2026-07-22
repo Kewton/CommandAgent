@@ -76,6 +76,52 @@ pub fn latest_failed_run_events(origin: &Path) -> Option<std::path::PathBuf> {
     })
 }
 
+/// Extracts the original, user-supplied goal from the persisted `run_start`
+/// action. Workflow routing must never replace an unavailable goal with a
+/// plausible placeholder: doing so would make the child run diagnose a task
+/// that the origin did not bind.
+pub fn derive_origin_goal(events: &Path) -> Result<String, String> {
+    let text = fs::read_to_string(events).map_err(|e| format!("origin_goal_underivable:{e}"))?;
+    for line in text.lines() {
+        let value: serde_json::Value =
+            serde_json::from_str(line).map_err(|e| format!("origin_goal_underivable:{e}"))?;
+        if value["event"] != "run_start" {
+            continue;
+        }
+        let action = value["action"]
+            .as_str()
+            .ok_or_else(|| "origin_goal_underivable:run_start action missing".to_string())?;
+        return goal_from_debug_action(action);
+    }
+    Err("origin_goal_underivable:no run_start event".into())
+}
+
+fn goal_from_debug_action(action: &str) -> Result<String, String> {
+    const GOAL_ACTIONS: [&str; 5] = [
+        "Prompt",
+        "PlanSteps",
+        "PlanRun",
+        "UltraPlan",
+        "UltraPlanRun",
+    ];
+    for variant in GOAL_ACTIONS {
+        let Some(payload) = action
+            .strip_prefix(variant)
+            .and_then(|rest| rest.strip_prefix('('))
+            .and_then(|rest| rest.strip_suffix(')'))
+        else {
+            continue;
+        };
+        let goal: String = serde_json::from_str(payload)
+            .map_err(|e| format!("origin_goal_underivable:invalid action goal: {e}"))?;
+        if goal.trim().is_empty() {
+            return Err("origin_goal_underivable:empty action goal".into());
+        }
+        return Ok(goal);
+    }
+    Err("origin_goal_underivable:run_start action has no goal".into())
+}
+
 pub fn derive_goal(intent: &str, origin_goal: &str) -> Option<String> {
     match intent {
         "investigate" => Some(format!(
@@ -225,6 +271,35 @@ mod tests {
             Some(
                 "『起点goal』の実行が失敗しました。まず output/diagnosis.md を作成し、調査の進展に応じて更新すること。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。"
             )
+        );
+    }
+
+    #[test]
+    fn origin_goal_is_derived_from_the_archived_real_layout() {
+        let events = Path::new(env!("CARGO_MANIFEST_DIR")).join(
+            "workspace/management/runs/uat-test0716-data-009/artifacts/\
+             data9_ts_qwen35_profile_002/.anvil/runs/\
+             019f6951-e16e-7fc0-84a9-86f7657258ba/events.jsonl",
+        );
+        assert_eq!(
+            derive_origin_goal(&events).unwrap(),
+            "data/sales.csv を読み込み、月次の売上合計・前月比（%）・3ヶ月移動平均を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。"
+        );
+    }
+
+    #[test]
+    fn origin_goal_does_not_fall_back_for_a_non_goal_action() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("events.jsonl");
+        std::fs::write(
+            &path,
+            r#"{"event":"run_start","action":"Repl"}
+{"event":"run_stop","status":"failed"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            derive_origin_goal(&path).unwrap_err(),
+            "origin_goal_underivable:run_start action has no goal"
         );
     }
 
