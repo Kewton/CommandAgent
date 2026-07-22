@@ -180,6 +180,7 @@ where
 pub struct NodeRunRequest {
     pub node: String,
     pub intent: String,
+    pub profile: String,
     pub goal: String,
     pub origin: std::path::PathBuf,
     pub reproducer_lineage: Option<String>,
@@ -204,6 +205,7 @@ where
         "event":"intent_resolved",
         "intent":request.intent,
         "workflow_node":request.node,
+        "profile":request.profile,
         "model":request.model,
         "provider":format!("{:?}", request.provider).to_ascii_lowercase(),
     });

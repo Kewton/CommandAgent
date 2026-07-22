@@ -7,7 +7,7 @@ use super::{
     runner,
     schema::{Intent, Node, Workflow},
 };
-use crate::config::{Action, Config, IntentId, Provider};
+use crate::config::{Action, Config, IntentId, PlanPreset, Provider};
 
 /// Runs a declarative workflow around the existing single-intent entry.
 pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow::Result<()> {
@@ -93,6 +93,7 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
         let request = runner::NodeRunRequest {
             node: node_id.clone(),
             intent: intent.into(),
+            profile: node.profile.clone(),
             goal,
             origin: origin.to_path_buf(),
             reproducer_lineage: None,
@@ -229,6 +230,23 @@ fn node_config(
         "fix" => IntentId::Fix,
         _ => IntentId::Create,
     });
+    child.profile = node.profile.clone();
+    child.profile_explicit = true;
+    child.profile_inference = None;
+    child.field_sources.profile = "workflow_node".into();
+    if child.field_sources.plan_preset.starts_with("default") {
+        match (node.intent, node.profile.as_str()) {
+            (Intent::Investigate, "data") => {
+                child.plan_preset = PlanPreset::Profile;
+                child.field_sources.plan_preset = "default_investigate_data".into();
+            }
+            (Intent::Fix, "data") => {
+                child.plan_preset = PlanPreset::Profile;
+                child.field_sources.plan_preset = "default_fix_data".into();
+            }
+            _ => {}
+        }
+    }
     if let (Some(model), Some(provider)) = (&node.model, node.provider) {
         child.model = model.clone();
         child.provider = provider;
@@ -292,6 +310,7 @@ mod tests {
         runner::NodeRunRequest {
             node: "investigate".into(),
             intent: "investigate".into(),
+            profile: "data".into(),
             goal: "goal".into(),
             origin: root.to_path_buf(),
             reproducer_lineage: None,
@@ -321,6 +340,12 @@ mod tests {
         assert_eq!(child.provider, Provider::Gemini);
         assert_eq!(child.field_sources.model, "workflow_node");
         assert_eq!(child.field_sources.provider, "workflow_node");
+        assert_eq!(child.profile, "data");
+        assert!(child.profile_explicit);
+        assert!(child.profile_inference.is_none());
+        assert_eq!(child.field_sources.profile, "workflow_node");
+        assert_eq!(child.plan_preset, PlanPreset::Profile);
+        assert_eq!(child.field_sources.plan_preset, "default_investigate_data");
 
         let events = root.path().join("evidence/investigate-events.jsonl");
         runner::execute_node(&request, &events, |_| Ok(())).unwrap();
@@ -329,6 +354,7 @@ mod tests {
         assert_eq!(event["event"], "intent_resolved");
         assert_eq!(event["model"], "elevated-model");
         assert_eq!(event["provider"], "gemini");
+        assert_eq!(event["profile"], "data");
     }
 
     #[test]
@@ -343,5 +369,31 @@ mod tests {
         assert_eq!(child.provider, global.provider);
         assert_eq!(child.field_sources.model, global.field_sources.model);
         assert_eq!(child.field_sources.provider, global.field_sources.provider);
+    }
+
+    #[test]
+    fn investigate_data_node_uses_profile_synthesis_default() {
+        let root = tempfile::tempdir().unwrap();
+        let global = config(root.path());
+        let node = node(None, None);
+        let request = request(root.path(), &global.model, global.provider);
+        let child = node_config(&global, &node, &request).unwrap();
+        let plan = crate::planner::intent::explicit_investigation_plan(
+            "pipeline/main.py execution fails for data/sales.csv",
+            "data",
+            "default",
+        );
+
+        crate::planner::investigation_plan_synthesis::resolve_phase_plan(
+            &child,
+            &plan,
+            &plan.phases[0],
+            || panic!("profile synthesis must not fall back"),
+        )
+        .unwrap();
+
+        let events = std::fs::read_to_string(child.eval_events_path.unwrap()).unwrap();
+        assert!(events.contains("\"event\":\"investigation_plan_synthesized\""));
+        assert!(events.contains("\"profile\":\"data\""));
     }
 }
