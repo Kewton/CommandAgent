@@ -1,13 +1,12 @@
-# Template only: replace every angle-bracketed executor/provider ID with a
-# measurement-approved value before execution. The strict parser rejects
-# unresolved provider placeholders by design.
+# Elevated local-planner arm. Executor IDs are fixed by the measurement
+# directive; Ollama credentials remain outside YAML and command arguments.
 workflow: recovery-circle-data-elevated
 version: 0.1
 entry: create
 nodes:
   create: { intent: create, profile: data }
-  investigate: { intent: investigate, profile: data, model: <investigate-executor-id>, provider: <investigate-provider-id> }
-  fix: { intent: fix, profile: data, model: <fix-executor-id>, provider: <fix-provider-id> }
+  investigate: { intent: investigate, profile: data, model: gemma4:31b-cloud, provider: ollama }
+  fix: { intent: fix, profile: data, model: gemma4:31b-cloud, provider: ollama }
   verify_origin: { intent: investigate, profile: data }
 routes:
   - { from: create, on: failed, when: recovery_yaml_present, to: investigate, carry: [workspace, recovery_yaml] }
