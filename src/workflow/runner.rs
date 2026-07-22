@@ -44,15 +44,28 @@ fn fail(edge: &str, reason: &str) -> EdgeFailure {
     }
 }
 
-pub fn origin_recovery_yaml_present(origin: &Path) -> bool {
-    fs::read_dir(origin.join(".anvil/plans"))
+pub fn origin_recovery_yamls(origin: &Path) -> Vec<std::path::PathBuf> {
+    let mut paths = fs::read_dir(origin.join(".anvil/plans"))
         .map(|entries| {
-            entries.flatten().any(|e| {
-                e.file_name().to_string_lossy().starts_with("recovery-")
-                    && e.path().extension().is_some_and(|x| x == "yaml")
-            })
+            entries
+                .flatten()
+                .filter_map(|entry| {
+                    let path = entry.path();
+                    (entry.file_name().to_string_lossy().starts_with("recovery-")
+                        && path
+                            .extension()
+                            .is_some_and(|extension| extension == "yaml"))
+                    .then_some(path)
+                })
+                .collect::<Vec<_>>()
         })
-        .unwrap_or(false)
+        .unwrap_or_default();
+    paths.sort();
+    paths
+}
+
+pub fn origin_recovery_yaml_present(origin: &Path) -> bool {
+    !origin_recovery_yamls(origin).is_empty()
 }
 
 pub fn latest_failed_run_events(origin: &Path) -> Option<std::path::PathBuf> {

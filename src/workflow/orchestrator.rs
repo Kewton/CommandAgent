@@ -4,8 +4,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::{
+    evidence::{
+        EdgeCheck, EdgeChecks, EdgeRecord, NodeRunReference, OriginReference,
+        WorkflowCircleEvidence,
+    },
     runner,
-    schema::{Intent, Node, Workflow},
+    schema::{Carry, Intent, Node, Route, Workflow},
 };
 use crate::config::{Action, Config, IntentId, PlanPreset, Provider};
 
@@ -21,15 +25,11 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
         &events_path,
         json!({"event":"workflow_started","entry":workflow.entry,"origin":origin}),
     )?;
-    if !runner::origin_recovery_yaml_present(origin) {
+    let recovery_yaml_paths = runner::origin_recovery_yamls(origin);
+    if recovery_yaml_paths.is_empty() {
         emit(
             &events_path,
             json!({"event":"workflow_adjudicated","verdict":"circle_failed","reason":"edge_not_earned:create_to_investigate:recovery_yaml_present"}),
-        )?;
-        write_circle(
-            origin,
-            "circle_failed",
-            "edge_not_earned:create_to_investigate:recovery_yaml_present",
         )?;
         bail!("workflow origin lacks recovery YAML");
     }
@@ -38,13 +38,24 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
             &events_path,
             json!({"event":"workflow_adjudicated","verdict":"circle_failed","reason":"edge_not_earned:create_to_investigate:run_stop"}),
         )?;
-        write_circle(
-            origin,
-            "circle_failed",
-            "edge_not_earned:create_to_investigate:run_stop",
-        )?;
         bail!("workflow origin lacks run events");
     };
+    let origin_run_id = origin_events
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| anyhow::anyhow!("workflow origin run id is underivable"))?
+        .to_string();
+    let mut circle = WorkflowCircleEvidence::new(
+        workflow.workflow.clone(),
+        OriginReference {
+            workspace_root: origin.to_path_buf(),
+            run_id: origin_run_id,
+            events_path: origin_events.clone(),
+            recovery_yaml_paths,
+            goal: None,
+        },
+    );
     let origin_goal = match runner::derive_origin_goal(&origin_events) {
         Ok(goal) => goal,
         Err(_) => {
@@ -52,26 +63,34 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
                 &events_path,
                 json!({"event":"workflow_adjudicated","verdict":"circle_failed","reason":"origin_goal_underivable"}),
             )?;
-            return write_circle(origin, "circle_failed", "origin_goal_underivable");
+            circle.adjudicate("circle_failed", Some("origin_goal_underivable"));
+            return write_circle(origin, &circle);
         }
     };
+    circle.origin.goal = Some(origin_goal.clone());
     let mut current = workflow.entry.clone();
     while let Some(route) = workflow.routes.iter().find(|r| r.from == current) {
         let edge = format!("{}->{}", route.from, route.to);
-        let evidence_ok = current == workflow.entry
-            || origin
-                .join(format!("evidence/{current}-events.jsonl"))
-                .is_file();
-        if !evidence_ok {
+        let edge_record = evaluate_edge(
+            route,
+            &edge,
+            &current,
+            &workflow.entry,
+            origin,
+            &origin_events,
+            &circle,
+        );
+        let fired = edge_record.fired;
+        let failed_check = first_failed_check(&edge_record.checks);
+        circle.record_edge(edge_record);
+        if !fired {
+            let reason = format!("edge_not_earned:{edge}:{failed_check}");
             emit(
                 &events_path,
-                json!({"event":"workflow_adjudicated","verdict":"circle_failed","reason":format!("edge_not_earned:{edge}:evidence")}),
+                json!({"event":"workflow_adjudicated","verdict":"circle_failed","reason":reason}),
             )?;
-            return write_circle(
-                origin,
-                "circle_failed",
-                &format!("edge_not_earned:{edge}:evidence"),
-            );
+            circle.adjudicate("circle_failed", Some(&reason));
+            return write_circle(origin, &circle);
         }
         emit(
             &events_path,
@@ -89,7 +108,8 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
                 &events_path,
                 json!({"event":"workflow_adjudicated","verdict":"circle_full"}),
             )?;
-            return write_circle(origin, "circle_full", "verify_origin");
+            circle.adjudicate("circle_full", Some("verify_origin"));
+            return write_circle(origin, &circle);
         }
         let intent = match node.intent {
             Intent::Investigate => "investigate",
@@ -116,6 +136,17 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
         )?;
         let identity = NodeRunIdentity::allocate(origin)?;
         emit_node_run_created(&identity, &node_id, &request)?;
+        circle
+            .record_node(
+                node_id.clone(),
+                NodeRunReference {
+                    intent: intent.to_string(),
+                    run_id: identity.run_id.clone(),
+                    run_dir: identity.run_dir.clone(),
+                    events_path: identity.events_path.clone(),
+                },
+            )
+            .map_err(anyhow::Error::msg)?;
         emit(
             &events_path,
             json!({
@@ -137,7 +168,9 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
                 &events_path,
                 json!({"event":"workflow_adjudicated","verdict":"circle_failed","reason":format!("node_failed:{node_id}")}),
             )?;
-            return write_circle(origin, "circle_failed", &format!("node_failed:{node_id}"));
+            let reason = format!("node_failed:{node_id}");
+            circle.adjudicate("circle_failed", Some(&reason));
+            return write_circle(origin, &circle);
         }
         emit_node_run_stop_if_absent(&identity.events_path, "full", None)?;
         emit(
@@ -150,7 +183,197 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
         &events_path,
         json!({"event":"workflow_adjudicated","verdict":"circle_failed","reason":"edge_not_earned:no_route"}),
     )?;
-    write_circle(origin, "circle_failed", "edge_not_earned:no_route")
+    circle.adjudicate("circle_failed", Some("edge_not_earned:no_route"));
+    write_circle(origin, &circle)
+}
+
+fn evaluate_edge(
+    route: &Route,
+    edge: &str,
+    current: &str,
+    entry: &str,
+    origin: &Path,
+    origin_events: &Path,
+    circle: &WorkflowCircleEvidence,
+) -> EdgeRecord {
+    let source_evidence = if current == entry {
+        origin_events.to_path_buf()
+    } else {
+        circle
+            .nodes
+            .get(current)
+            .map(|node| node.events_path.clone())
+            .unwrap_or_else(|| origin.join(format!("evidence/{current}-events.jsonl")))
+    };
+    let verdict = if current == entry {
+        EdgeCheck::passed(format!(
+            "origin selector verified failed run_stop in {}",
+            origin_events.display()
+        ))
+    } else if terminal_status_matches(&source_evidence, route) {
+        EdgeCheck::passed(format!(
+            "source run terminal verdict matches route in {}",
+            source_evidence.display()
+        ))
+    } else {
+        EdgeCheck::failed(format!(
+            "source run terminal verdict does not match route in {}",
+            source_evidence.display()
+        ))
+    };
+    let evidence_complete = if current == entry {
+        source_evidence.is_file()
+            && circle
+                .origin
+                .recovery_yaml_paths
+                .iter()
+                .all(|path| path.is_file())
+    } else {
+        circle.nodes.get(current).is_some_and(|node| {
+            source_adjudication_and_evidence_exist(&node.intent, origin, &source_evidence)
+        })
+    };
+    let evidence = if evidence_complete {
+        EdgeCheck::passed(format!(
+            "source evidence and adjudication are complete: {}",
+            source_evidence.display()
+        ))
+    } else {
+        EdgeCheck::failed(format!(
+            "source evidence or adjudication is missing: {}",
+            source_evidence.display()
+        ))
+    };
+    let epoch = if current == entry || circle.nodes.contains_key(current) {
+        EdgeCheck::passed(
+            "source is in the sequential route history; target run is allocated only after firing",
+        )
+    } else {
+        EdgeCheck::failed("source node has no recorded predecessor run")
+    };
+    let missing_carries = route
+        .carry
+        .iter()
+        .filter(|carry| !carry_present(carry, origin, circle))
+        .map(|carry| format!("{carry:?}").to_ascii_lowercase())
+        .collect::<Vec<_>>();
+    let carry = if missing_carries.is_empty() {
+        EdgeCheck::passed(format!("declared carries present: {:?}", route.carry))
+    } else {
+        EdgeCheck::failed(format!("missing carries: {}", missing_carries.join(",")))
+    };
+    let checks = EdgeChecks {
+        verdict,
+        evidence,
+        epoch,
+        carry,
+    };
+    let fired = checks.verdict.passed
+        && checks.evidence.passed
+        && checks.epoch.passed
+        && checks.carry.passed;
+    EdgeRecord {
+        edge: edge.to_string(),
+        fired,
+        checks,
+    }
+}
+
+fn terminal_status_matches(events_path: &Path, route: &Route) -> bool {
+    let Ok(events) = fs::read_to_string(events_path) else {
+        return false;
+    };
+    events.lines().rev().find_map(|line| {
+        let value: serde_json::Value = serde_json::from_str(line).ok()?;
+        (value["event"] == "run_stop").then(|| {
+            let status = value["status"]
+                .as_str()
+                .or_else(|| value["verdict"].as_str())
+                .unwrap_or_default();
+            match route.on {
+                super::schema::Verdict::Full => matches!(status, "full" | "completed"),
+                super::schema::Verdict::Failed => status == "failed",
+            }
+        })
+    }) == Some(true)
+}
+
+fn source_adjudication_and_evidence_exist(node: &str, origin: &Path, events_path: &Path) -> bool {
+    let Ok(events) = fs::read_to_string(events_path) else {
+        return false;
+    };
+    match node {
+        "investigate" => {
+            let adjudicated = events.lines().any(|line| {
+                serde_json::from_str::<serde_json::Value>(line)
+                    .map(|value| {
+                        value["event"] == "investigation_adjudicated"
+                            && value["assurance_level"] == "full"
+                    })
+                    .unwrap_or(false)
+            });
+            adjudicated
+                && origin.join("evidence/investigation-run.json").is_file()
+                && origin.join("evidence/investigation-binding.json").is_file()
+        }
+        "fix" => {
+            let adjudicated = events.lines().any(|line| {
+                serde_json::from_str::<serde_json::Value>(line)
+                    .map(|value| {
+                        value["event"] == "ultra_final_acceptance"
+                            && value["intent"] == "fix"
+                            && value["verdict"] == "full"
+                    })
+                    .unwrap_or(false)
+            });
+            adjudicated
+                && fs::read_dir(origin.join("evidence"))
+                    .map(|entries| {
+                        entries.flatten().any(|entry| {
+                            let name = entry.file_name();
+                            let name = name.to_string_lossy();
+                            name.starts_with("fix-") && name.ends_with("-adjudication.json")
+                        })
+                    })
+                    .unwrap_or(false)
+        }
+        _ => false,
+    }
+}
+
+fn carry_present(carry: &Carry, origin: &Path, circle: &WorkflowCircleEvidence) -> bool {
+    match carry {
+        Carry::Workspace => origin.is_dir(),
+        Carry::RecoveryYaml => circle
+            .origin
+            .recovery_yaml_paths
+            .iter()
+            .all(|path| path.is_file()),
+        Carry::ReproducerLineage => {
+            origin.join("evidence/investigation-run.json").is_file()
+                || circle.nodes.values().any(|node| {
+                    fs::read_to_string(&node.events_path)
+                        .map(|events| {
+                            events.contains("\"reproducer_lineage\"")
+                                || (events.contains("\"lineage\"")
+                                    && events.contains("fix_reproducer"))
+                        })
+                        .unwrap_or(false)
+                })
+        }
+    }
+}
+
+fn first_failed_check(checks: &EdgeChecks) -> &'static str {
+    if !checks.verdict.passed {
+        "verdict"
+    } else if !checks.evidence.passed {
+        "evidence"
+    } else if !checks.epoch.passed {
+        "epoch"
+    } else {
+        "carry"
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -365,16 +588,9 @@ fn emit(path: &Path, value: serde_json::Value) -> anyhow::Result<()> {
     writeln!(f, "{}", value)?;
     Ok(())
 }
-fn write_circle(origin: &Path, verdict: &str, reason: &str) -> anyhow::Result<()> {
+fn write_circle(origin: &Path, evidence: &WorkflowCircleEvidence) -> anyhow::Result<()> {
     let p = origin.join("evidence/workflow-circle.json");
-    if let Some(parent) = p.parent() {
-        fs::create_dir_all(parent)?;
-    }
-    fs::write(
-        p,
-        serde_json::to_vec_pretty(&json!({"verdict":verdict,"reason":reason}))?,
-    )?;
-    Ok(())
+    evidence.write_to(&p).map_err(anyhow::Error::msg)
 }
 
 #[cfg(test)]
