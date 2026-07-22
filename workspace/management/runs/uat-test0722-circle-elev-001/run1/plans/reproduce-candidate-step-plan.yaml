@@ -1,0 +1,45 @@
+goal: "Original ultra goal: 『data/sales.csv を読み込み、月次の売上合計・前月比（%）・3ヶ月移動平均を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。』の実行が失敗しました。まず output/diagnosis.md を作成し、調査の進展に応じて更新すること。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。\nProfile: data\nStyle: default\nIntent: investigate\nPhase id: reproduce-candidate\nPhase task: Construct and execute deterministic reproducer R for: 『data/sales.csv を読み込み、月次の売上合計・前月比（%）・3ヶ月移動平均を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。』の実行が失敗しました。まず output/diagnosis.md を作成し、調査の進展に応じて更新すること。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。\n\nWorkspace snapshot:\n- data\n- evidence\n- output\n- pipeline\n- sales.csv.sha256\n- scripts\n\nPrior ultra context:\n- Pending final artifacts:\n  - output/results.json\n  - output/report.md\n\nUnmet final requirements from earlier phases:\n- none\n\nRequested features not yet detected:\n- bind\n- checkable\n- claim\n- construct\n- deterministic\n- diagnosis\n- … and 8 more\n\nProfile generation rules:\nThe pipeline must be deterministic: use a fixed seed whenever randomness is unavoidable, do not depend on execution time, and keep iteration and output ordering stable. Derive validation rules only from output/inspection.json observations and never invent unobserved value sets. This is class knowledge required by docs/dev/data-profile-contract.md section 8.\nProfile runtime contract:\n- Generate pipeline/main.py, output/inspection.json, output/results.json, and required output/report.md; output/report.html is optional in addition.\n- Write output/results.json exactly as {\"reconciliation\":{\"input_rows\":N,\"used_rows\":N,\"excluded\":[{\"reason\":\"...\",\"rows\":N}]},\"values\":{\"<claim_key>\":number}} and store every numeric report claim under values.\n- input_rows must equal used_rows plus the sum of excluded rows.\n- A rerun must reproduce the complete output/results.json document exactly; time, random state, and unstable iteration order may not change results.Deterministic verification preference:\n- none\n\n\nRequired final artifacts:\n- pipeline/main.py\n- output/inspection.json\n- output/results.json\n- output/report.md\n\nRequired final capabilities:\n- data_reconciliation\n- data_claims_binding\n- data_rerun_consistency\n- data_results_schema"
+steps:
+  - id: "inspect-workspace"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read pipeline/main.py, data/sales.csv, sales.csv.sha256, and existing output/ files to understand the current pipeline state and failure context."
+    expected_paths:
+    verify:
+  - id: "inspect-data-schema"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Examine the first 20 lines of data/sales.csv to identify columns, data formats, and potential invalid rows. Note any structural anomalies or encoding issues."
+    expected_paths:
+    verify:
+  - id: "create-reproducer"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Create scripts/reproduce.py that deterministically executes pipeline/main.py, captures stdout/stderr and exceptions, and writes a structured log to output/reproduction_log.txt. Include fixed seed logic to ensure determinism."
+    expected_paths:
+      - "scripts/reproduce.py"
+    verify:
+      - "test -f scripts/reproduce.py"
+  - id: "run-reproducer"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Execute python scripts/reproduce.py to run the pipeline in a controlled environment, capture the exact failure traceback, and generate output/reproduction_log.txt and any partial output artifacts."
+    expected_paths:
+      - "output/reproduction_log.txt"
+    verify:
+      - "test -f output/reproduction_log.txt"
+  - id: "draft-diagnosis"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Create output/diagnosis.md containing: 1) Deterministic reproduction steps, 2) Observed failure symptoms and traceback, 3) Root cause analysis linking pipeline logic to data schema issues, 4) Evidence mapping to required output/inspection.json and output/results.json schemas.\n\nProfile contract:\nBuild one reproducible tabular-data pipeline with Python 3 standard-library csv/json/statistics only. Preserve input files. The canonical artifacts are pipeline/main.py, output/inspection.json, output/results.json, and required output/report.md; output/report.html is optional in addition to report.md.\nThe pipeline must be deterministic: use a fixed seed whenever randomness is unavoidable, do not depend on execution time, and keep iteration and output ordering stable. Derive validation rules only from output/inspection.json observations and never invent unobserved value sets. This is class knowledge required by docs/dev/data-profile-contract.md section 8.\nA rerun must reproduce the complete output/results.json document exactly; time, random state, and unstable iteration order may not change results.\nRepair pipeline/main.py and regenerate output/results.json exactly as {\"reconciliation\":{\"input_rows\":N,\"used_rows\":N,\"excluded\":[{\"reason\":\"...\",\"rows\":N}]},\"values\":{\"<claim_key>\":number}}. Every numeric claim printed in output/report.md must be present under values. For a claims-binding nearest_miss, report each violation as: \"Report claim <claim> has no corresponding results.json value. Nearest candidate <key>=<value>; absolute difference=<difference>.\" Then export every report numeric claim under an explicit values key, for example regional_名古屋. Never weaken or replace the manifest-bound evidence checks."
+    expected_paths:
+      - "output/diagnosis.md"
+    verify:
+      - "test -f output/diagnosis.md"
+  - id: "verify-diagnosis"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Confirm output/diagnosis.md exists and contains required sections for reproduction, failure analysis, and root cause. Ensure it references pipeline/main.py and data/sales.csv correctly."
+    expected_paths:
+    verify:
+      - "test -f output/diagnosis.md"
