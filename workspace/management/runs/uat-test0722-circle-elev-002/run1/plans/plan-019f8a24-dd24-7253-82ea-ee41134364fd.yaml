@@ -1,0 +1,10 @@
+goal: "『data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。』の実行が失敗しました。まず output/diagnosis.md を作成し、調査の進展に応じて更新すること。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。"
+steps:
+  - id: "diagnose"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Read only existing workspace files and the executed reproducer output for 『data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。』の実行が失敗しました。まず output/diagnosis.md を作成し、調査の進展に応じて更新すること。原因を調査し、検証可能な再現手順と診断レポート（output/diagnosis.md）を作成してください。修正は行わないでください。; write output/diagnosis.md and do not modify the subject. This step exclusively owns output/diagnosis.md.\n\n診断の主張は次の形式で書くこと（以下の値は形式例であり、必ず再現Rの実出力と実在ファイルから得た実観測値で置き換える）:\nエラー引用: `ValueError: could not convert string to float: ''`\n位置: pipeline/main.py:53\nコード引用（実在コードのみ）:\n```python\namount = float(row[\"amount\"])\n```\n修正案・例示コードはコードブロックにせず、\n『修正方針:』以下に文章で書くこと（照合対象外となる）。\n\n実在ファイル一覧（決定的な辞書順、最大64件。読み取り参照はこの一覧に限定）:\n- data/sales.csv\n- data/sales.csv.sha256\n- evidence/investigate-events.jsonl\n- evidence/investigation-run.json\n- evidence/workflow-events.jsonl\n一覧にないファイルを参照しないこと。"
+    expected_paths:
+      - "output/diagnosis.md"
+    verify:
+      - "test -f output/diagnosis.md"
