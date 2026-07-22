@@ -1,7 +1,7 @@
 use anyhow::{Context, bail};
 use serde_json::json;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::{
     runner,
@@ -105,47 +105,32 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
             &events_path,
             json!({"event":"workflow_node_started","node":node_id,"intent":intent}),
         )?;
-        let run_id = uuid::Uuid::now_v7().to_string();
-        let run_dir = origin.join(format!(".anvil/runs/{run_id}"));
-        fs::create_dir_all(&run_dir)?;
-        let run_events = run_dir.join("events.jsonl");
-        emit(
-            &run_events,
-            json!({
-                "event":"workflow_node_run_created",
-                "node":node_id,
-                "run_id":run_id,
-                "model":request.model,
-                "provider":provider_name(request.provider),
-            }),
-        )?;
+        let identity = NodeRunIdentity::allocate(origin)?;
+        emit_node_run_created(&identity, &node_id, &request)?;
         emit(
             &events_path,
             json!({
                 "event":"workflow_node_run_created",
                 "node":node_id,
-                "run_id":run_id,
-                "run_dir":run_dir,
+                "run_id":identity.run_id,
+                "run_dir":identity.run_dir,
                 "model":request.model,
                 "provider":provider_name(request.provider),
             }),
         )?;
         let execution = runner::execute_node(&request, &node_events, |req| {
-            let child = node_config(config, node, req)?;
+            let child = node_config(config, node, req, &identity)?;
             crate::run_resolved_config_for_workflow(child).map_err(|e| e.to_string())
         });
         if let Err(err) = execution {
-            emit(
-                &run_events,
-                json!({"event":"run_stop","verdict":"failed","reason":err}),
-            )?;
+            emit_node_run_stop_if_absent(&identity.events_path, "failed", Some(&err))?;
             emit(
                 &events_path,
                 json!({"event":"workflow_adjudicated","verdict":"circle_failed","reason":format!("node_failed:{node_id}")}),
             )?;
             return write_circle(origin, "circle_failed", &format!("node_failed:{node_id}"));
         }
-        emit(&run_events, json!({"event":"run_stop","verdict":"full"}))?;
+        emit_node_run_stop_if_absent(&identity.events_path, "full", None)?;
         emit(
             &events_path,
             json!({"event":"intent_resolved","intent":intent,"node":node_id}),
@@ -157,6 +142,83 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
         json!({"event":"workflow_adjudicated","verdict":"circle_failed","reason":"edge_not_earned:no_route"}),
     )?;
     write_circle(origin, "circle_failed", "edge_not_earned:no_route")
+}
+
+#[derive(Debug, Clone)]
+struct NodeRunIdentity {
+    run_id: String,
+    run_dir: PathBuf,
+    events_path: PathBuf,
+    state_dir: PathBuf,
+}
+
+impl NodeRunIdentity {
+    fn allocate(origin: &Path) -> anyhow::Result<Self> {
+        let origin = origin
+            .canonicalize()
+            .context("canonicalize workflow origin")?;
+        let runs_dir = origin.join(".anvil/runs");
+        fs::create_dir_all(&runs_dir)?;
+        let runs_dir = runs_dir.canonicalize()?;
+        if !runs_dir.starts_with(&origin) {
+            bail!("workspace_confinement_violation");
+        }
+        let run_id = uuid::Uuid::now_v7().to_string();
+        let run_dir = runs_dir.join(&run_id);
+        let state_dir = run_dir.join("state");
+        fs::create_dir_all(&state_dir)?;
+        let run_dir = run_dir.canonicalize()?;
+        let state_dir = state_dir.canonicalize()?;
+        if !run_dir.starts_with(&origin) || !state_dir.starts_with(&origin) {
+            bail!("workspace_confinement_violation");
+        }
+        let events_path = run_dir.join("events.jsonl");
+        Ok(Self {
+            run_id,
+            run_dir,
+            events_path,
+            state_dir,
+        })
+    }
+}
+
+fn emit_node_run_created(
+    identity: &NodeRunIdentity,
+    node_id: &str,
+    request: &runner::NodeRunRequest,
+) -> anyhow::Result<()> {
+    emit(
+        &identity.events_path,
+        json!({
+            "event":"workflow_node_run_created",
+            "node":node_id,
+            "run_id":identity.run_id,
+            "run_dir":identity.run_dir,
+            "model":request.model,
+            "provider":provider_name(request.provider),
+        }),
+    )
+}
+
+fn emit_node_run_stop_if_absent(
+    events_path: &Path,
+    verdict: &str,
+    reason: Option<&str>,
+) -> anyhow::Result<()> {
+    let has_terminal = fs::read_to_string(events_path)
+        .map(|events| {
+            events
+                .lines()
+                .any(|line| line.contains("\"event\":\"run_stop\""))
+        })
+        .unwrap_or(false);
+    if !has_terminal {
+        emit(
+            events_path,
+            json!({"event":"run_stop","verdict":verdict,"reason":reason}),
+        )?;
+    }
+    Ok(())
 }
 
 // Workflow child Config provenance audit (D-3a-3c, audited at e977ce6).
@@ -215,6 +277,7 @@ fn node_config(
     config: &Config,
     node: &Node,
     request: &runner::NodeRunRequest,
+    identity: &NodeRunIdentity,
 ) -> Result<Config, String> {
     let mut child = config.clone();
     child.yes = true;
@@ -222,6 +285,26 @@ fn node_config(
     if child.workspace_root.canonicalize().ok().as_deref()
         != request.origin.canonicalize().ok().as_deref()
     {
+        return Err("workspace_confinement_violation".into());
+    }
+    child.eval_events_path = Some(identity.events_path.clone());
+    child.state_dir = identity.state_dir.clone();
+    child.resume = None;
+    child.fresh_session = true;
+    let canonical_origin = request
+        .origin
+        .canonicalize()
+        .map_err(|_| "workspace_confinement_violation".to_string())?;
+    let event_parent = identity
+        .events_path
+        .parent()
+        .and_then(|path| path.canonicalize().ok())
+        .ok_or_else(|| "workspace_confinement_violation".to_string())?;
+    let state_dir = child
+        .state_dir
+        .canonicalize()
+        .map_err(|_| "workspace_confinement_violation".to_string())?;
+    if !event_parent.starts_with(&canonical_origin) || !state_dir.starts_with(&canonical_origin) {
         return Err("workspace_confinement_violation".into());
     }
     child.action = Action::Prompt(request.goal.clone());
@@ -328,14 +411,19 @@ mod tests {
         }
     }
 
+    fn identity(root: &Path) -> NodeRunIdentity {
+        NodeRunIdentity::allocate(root).unwrap()
+    }
+
     #[test]
     fn node_executor_override_propagates_to_config_and_existing_events() {
         let root = tempfile::tempdir().unwrap();
         let global = config(root.path());
         let node = node(Some("elevated-model"), Some(Provider::Gemini));
         let request = request(root.path(), "elevated-model", Provider::Gemini);
+        let identity = identity(root.path());
 
-        let child = node_config(&global, &node, &request).unwrap();
+        let child = node_config(&global, &node, &request, &identity).unwrap();
         assert_eq!(child.model, "elevated-model");
         assert_eq!(child.provider, Provider::Gemini);
         assert_eq!(child.field_sources.model, "workflow_node");
@@ -363,8 +451,9 @@ mod tests {
         let global = config(root.path());
         let node = node(None, None);
         let request = request(root.path(), &global.model, global.provider);
+        let identity = identity(root.path());
 
-        let child = node_config(&global, &node, &request).unwrap();
+        let child = node_config(&global, &node, &request, &identity).unwrap();
         assert_eq!(child.model, global.model);
         assert_eq!(child.provider, global.provider);
         assert_eq!(child.field_sources.model, global.field_sources.model);
@@ -377,7 +466,8 @@ mod tests {
         let global = config(root.path());
         let node = node(None, None);
         let request = request(root.path(), &global.model, global.provider);
-        let child = node_config(&global, &node, &request).unwrap();
+        let identity = identity(root.path());
+        let child = node_config(&global, &node, &request, &identity).unwrap();
         let plan = crate::planner::intent::explicit_investigation_plan(
             "pipeline/main.py execution fails for data/sales.csv",
             "data",
@@ -395,5 +485,125 @@ mod tests {
         let events = std::fs::read_to_string(child.eval_events_path.unwrap()).unwrap();
         assert!(events.contains("\"event\":\"investigation_plan_synthesized\""));
         assert!(events.contains("\"profile\":\"data\""));
+    }
+
+    #[test]
+    fn node_run_identity_is_the_actual_origin_event_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path().join("repo");
+        let origin = temp.path().join("origin");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::create_dir_all(&origin).unwrap();
+        let global = config(&repo);
+        let node = node(None, None);
+        let request = request(&origin, &global.model, global.provider);
+        let identity = identity(&origin);
+
+        emit_node_run_created(&identity, "investigate", &request).unwrap();
+        let child = node_config(&global, &node, &request, &identity).unwrap();
+
+        assert_eq!(
+            child.eval_events_path.as_deref(),
+            Some(identity.events_path.as_path())
+        );
+        assert_eq!(child.state_dir, identity.state_dir);
+        assert!(child.fresh_session);
+        assert!(child.resume.is_none());
+        assert_eq!(
+            identity.run_dir.file_name().unwrap().to_string_lossy(),
+            identity.run_id
+        );
+        assert!(uuid::Uuid::parse_str(&identity.run_id).is_ok());
+        let created: serde_json::Value = serde_json::from_str(
+            std::fs::read_to_string(&identity.events_path)
+                .unwrap()
+                .lines()
+                .next()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(created["run_id"], identity.run_id);
+        assert_eq!(
+            created["run_dir"],
+            identity.run_dir.to_string_lossy().as_ref()
+        );
+    }
+
+    #[test]
+    fn node_output_roots_are_confined_and_repo_tree_stays_unchanged() {
+        fn files_under(root: &Path) -> Vec<PathBuf> {
+            fn visit(path: &Path, out: &mut Vec<PathBuf>) {
+                let Ok(entries) = std::fs::read_dir(path) else {
+                    return;
+                };
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        visit(&path, out);
+                    } else {
+                        out.push(path);
+                    }
+                }
+            }
+            let mut files = Vec::new();
+            visit(root, &mut files);
+            files.sort();
+            files
+        }
+
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path().join("repo");
+        let origin = temp.path().join("origin");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::create_dir_all(&origin).unwrap();
+        let global = config(&repo);
+        let node = node(None, None);
+        let request = request(&origin, &global.model, global.provider);
+        let identity = identity(&origin);
+        let child = node_config(&global, &node, &request, &identity).unwrap();
+        let repo_before = files_under(&repo);
+
+        runner::execute_node(
+            &request,
+            &origin.join("evidence/investigate-events.jsonl"),
+            |_| {
+                crate::eval_events::emit(
+                    child.eval_events_path.as_deref(),
+                    json!({"event":"test_node_event"}),
+                );
+                std::fs::write(child.state_dir.join("session.json"), "{}").unwrap();
+                let plan_dir = child.workspace_root.join(".anvil/plans");
+                std::fs::create_dir_all(&plan_dir).unwrap();
+                std::fs::write(plan_dir.join("node-plan.yaml"), "version: 1\n").unwrap();
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(files_under(&repo), repo_before);
+        for path in files_under(&origin) {
+            assert!(path.starts_with(&origin));
+        }
+        assert!(identity.events_path.is_file());
+        assert!(child.state_dir.join("session.json").is_file());
+        assert!(origin.join(".anvil/plans/node-plan.yaml").is_file());
+    }
+
+    #[test]
+    fn node_config_rejects_event_or_state_roots_outside_origin() {
+        let temp = tempfile::tempdir().unwrap();
+        let repo = temp.path().join("repo");
+        let origin = temp.path().join("origin");
+        std::fs::create_dir_all(&repo).unwrap();
+        std::fs::create_dir_all(&origin).unwrap();
+        let global = config(&repo);
+        let node = node(None, None);
+        let request = request(&origin, &global.model, global.provider);
+        let outside = identity(&repo);
+
+        assert_eq!(
+            node_config(&global, &node, &request, &outside).unwrap_err(),
+            "workspace_confinement_violation"
+        );
     }
 }
