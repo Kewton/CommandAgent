@@ -1,0 +1,7 @@
+{"entry":"create","event":"workflow_started","origin":"/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev003_origin_2"}
+{"basis":"origin_verify_binding:anvil-catalog-check:data_inspection_schema","command":"anvil-catalog-check:data_inspection_schema","event":"workflow_reproducer_prevalidated","lineage":"reproducer:33eefa99a5d98b68","outcome":"failure","reason":"inspection_schema_violation:inspection_path:path does not exist: output/inspection.json","schema_version":"1","subject_failure":true}
+{"checks":["E-A","E-B","E-C","E-D"],"edge":"create->investigate","event":"workflow_edge_fired"}
+{"event":"workflow_node_started","intent":"investigate","node":"investigate"}
+{"event":"workflow_node_run_created","model":"gemma4:31b-cloud","node":"investigate","provider":"ollama","run_dir":"/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev003_origin_2/.anvil/runs/019f8a55-7b60-7c22-ac8e-6c24c1b8f1cb","run_id":"019f8a55-7b60-7c22-ac8e-6c24c1b8f1cb"}
+{"event":"intent_resolved","intent":"investigate","node":"investigate"}
+{"event":"workflow_adjudicated","reason":"edge_not_earned:investigate->fix:assurance_below_required","verdict":"circle_failed"}
