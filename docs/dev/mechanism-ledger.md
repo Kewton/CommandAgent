@@ -691,3 +691,7 @@ E-Bが契約違反遷移を阻止しており、E-A/E-B二重防壁の実効を�
 D-3a-3g / `claims_absent`の構造手当——reproduce-candidate段のR失敗出力を
 redact済み有界tail・決定的抜粋・既存B-2d traceback mappingとしてdiagnose段へ
 機械注入するFIX-3/T21系を再利用。I2照合器とfull閾値は不変。
+
+D-3a-3h / I2較正#1——認識錨をキーワードから出力実在へ。E2較正
+（date_label）と同型の検証器精密化。D-3bクローズ時のWATCH
+（違反原文の蓄積待ち）の履行。circle-elev-003の実測3runが較正コーパス。

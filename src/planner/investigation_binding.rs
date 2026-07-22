@@ -4,6 +4,8 @@ use crate::planner::adjudication::investigate::{
     DiagnosisClaim, DiagnosisClaimKind, InvestigationBindingEvidence, InvestigationRunEvidence,
 };
 
+mod error_quotes;
+
 pub(crate) fn bind_diagnosis(
     root: &Path,
     diagnosis: &str,
@@ -20,7 +22,10 @@ pub(crate) fn bind_diagnosis(
             if fenced {
                 let value = snippet.join("\n").trim().to_string();
                 if !value.is_empty() {
-                    claims.push(bind_snippet(root, current_file.as_deref(), value));
+                    claims.push(
+                        error_quotes::fenced_claim(&output, value.clone())
+                            .unwrap_or_else(|| bind_snippet(root, current_file.as_deref(), value)),
+                    );
                 }
                 snippet.clear();
             }
@@ -37,7 +42,10 @@ pub(crate) fn bind_diagnosis(
             if fenced {
                 let value = snippet.join("\n").trim().to_string();
                 if !value.is_empty() {
-                    claims.push(bind_snippet(root, current_file.as_deref(), value));
+                    claims.push(
+                        error_quotes::fenced_claim(&output, value.clone())
+                            .unwrap_or_else(|| bind_snippet(root, current_file.as_deref(), value)),
+                    );
                 }
                 snippet.clear();
             }
@@ -48,19 +56,7 @@ pub(crate) fn bind_diagnosis(
             snippet.push(line.to_string());
             continue;
         }
-        for quoted in inline_code_values(line) {
-            if looks_like_error_quote(&quoted) {
-                let matched = output.contains(&quoted);
-                claims.push(DiagnosisClaim {
-                    kind: DiagnosisClaimKind::ErrorQuote,
-                    value: quoted.clone(),
-                    subject_path: None,
-                    line: None,
-                    matched,
-                    nearest: (!matched).then(|| nearest_output_line(&output, &quoted)),
-                });
-            }
-        }
+        claims.extend(error_quotes::line_claims(line, &output));
         for token in line.split_whitespace() {
             if let Some((path, number)) = file_line_reference(token) {
                 current_file = Some(path.clone());
@@ -109,27 +105,6 @@ fn bind_snippet(root: &Path, path: Option<&str>, value: String) -> DiagnosisClai
     }
 }
 
-fn inline_code_values(line: &str) -> Vec<String> {
-    let marker = char::from(96);
-    let mut values = Vec::new();
-    let mut rest = line;
-    while let Some((_, tail)) = rest.split_once(marker) {
-        let Some((value, after)) = tail.split_once(marker) else {
-            break;
-        };
-        let value = value.trim();
-        if !value.is_empty() {
-            values.push(value.to_string());
-        }
-        rest = after;
-    }
-    values
-}
-
-fn looks_like_error_quote(value: &str) -> bool {
-    value.contains("Error") || value.contains("Exception") || value.contains("Traceback")
-}
-
 fn file_line_reference(token: &str) -> Option<(String, usize)> {
     let token = token.trim_matches(|ch: char| {
         matches!(ch, '\'' | '"' | '(' | ')' | '[' | ']' | ',' | '.') || ch == char::from(96)
@@ -140,16 +115,6 @@ fn file_line_reference(token: &str) -> Option<(String, usize)> {
         return None;
     }
     Some((path.to_string(), line))
-}
-
-fn nearest_output_line(output: &str, claim: &str) -> String {
-    let needle = claim.split(':').next().unwrap_or(claim);
-    output
-        .lines()
-        .find(|line| line.contains(needle))
-        .or_else(|| output.lines().find(|line| !line.trim().is_empty()))
-        .unwrap_or("no reproducer output")
-        .to_string()
 }
 
 fn nearest_existing_path(root: &Path, path: &str) -> String {

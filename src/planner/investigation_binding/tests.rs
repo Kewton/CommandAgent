@@ -54,13 +54,6 @@ mod cases {
     }
 
     #[test]
-    fn prose_only_has_no_machine_checkable_claims() {
-        let root = tempfile::tempdir().unwrap();
-        let evidence = bind_diagnosis(root.path(), "The parser appears inconsistent.", &run());
-        assert!(evidence.claims.is_empty());
-    }
-
-    #[test]
     fn run6_style_example_blocks_remain_unbound_while_guided_claims_bind() {
         let root = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(root.path().join("pipeline")).unwrap();
@@ -77,4 +70,6 @@ mod cases {
         assert_eq!(guided.claims.len(), 3);
         assert!(guided.claims.iter().all(|claim| claim.matched));
     }
+
+    include!("output_anchor_tests.rs");
 }

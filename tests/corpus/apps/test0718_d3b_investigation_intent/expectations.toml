@@ -30,6 +30,12 @@ fixtures/diagnosis-run6-example-blocks.md = ["Current output", "Suggested output
 fixtures/elev002-run1-partial-events.jsonl = ["\"event\":\"investigation_adjudicated\"", "\"assurance_level\":\"partial\"", "\"assurance_reason\":\"diagnosis_claims_absent\"", "\"event\":\"run_stop\"", "\"status\":\"completed\""]
 fixtures/elev002-run1-investigation-run.json = ["\"reproducer\": \"test -f pipeline/main.py\"", "outcome: CommandFailed status: exit status: 1"]
 fixtures/elev002-run1-diagnose-plan.txt = ["実行済みRの失敗観測", "test -f pipeline/main.py", "outcome: CommandFailed status: exit status: 1", "診断には最低1件のエラー引用", "機械照合可能な主張が0件の診断はfullにならない", "traceback mapping: unavailable"]
+fixtures/elev003-run1-diagnosis.md = ["エラー引用: `outcome: CommandFailed status: exit status: 1", "test -f pipeline/main.py"]
+fixtures/elev003-run1-investigation-run.json = ["\"reproducer\": \"test -f pipeline/main.py\"", "outcome: CommandFailed status: exit status: 1"]
+fixtures/elev003-run2-diagnosis.md = ["エラー引用: `inspection_schema_violation:inspection_path:path does not exist: output/inspection.json`"]
+fixtures/elev003-run2-investigation-run.json = ["\"reproducer\": \"anvil-catalog-check:data_inspection_schema\"", "inspection_schema_violation:inspection_path:path does not exist"]
+fixtures/elev003-run3-diagnosis.md = ["エラー引用: `inspection_schema_violation:missing_keys:column_names,input_row_count,type_summaries,distinct_values`"]
+fixtures/elev003-run3-investigation-run.json = ["\"reproducer\": \"anvil-catalog-check:data_inspection_schema\"", "inspection_schema_violation:missing_keys:column_names,input_row_count,type_summaries,distinct_values"]
 
 [fixture_ordered]
 fixtures/pipe-plan.txt = ["reproduce-candidate", "diagnose", "bind-verify"]
