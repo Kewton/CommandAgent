@@ -68,20 +68,20 @@
 
 ## 円環時系列
 
-- origin: {'workspace_root': '/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev008_origin_1', 'run_id': '019f65d3-ae61-7b81-b96d-9d5f871768b1', 'events_path': '/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev008_origin_1/.anvil/runs/019f65d3-ae61-7b81-b96d-9d5f871768b1/events.jsonl', 'recovery_yaml_paths': ['/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev008_origin_1/.anvil/plans/recovery-ultra-plan-phase-validate-and-clean-data-019f65d7-4121-7541-8333-d36a4d73f8f6.yaml'], 'goal': 'data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。'}
+- origin: {'workspace_root': 'origin/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev008_origin_1', 'run_id': '019f65d3-ae61-7b81-b96d-9d5f871768b1', 'events_path': 'origin/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev008_origin_1/.anvil/runs/019f65d3-ae61-7b81-b96d-9d5f871768b1/events.jsonl', 'recovery_yaml_paths': ['origin/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev008_origin_1/.anvil/plans/recovery-ultra-plan-phase-validate-and-clean-data-019f65d7-4121-7541-8333-d36a4d73f8f6.yaml'], 'goal': 'data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。'}
 - edge create->investigate: E-A/E-B/E-C/E-D
-  - E-A: pass — origin selector verified failed run_stop in /Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev008_origin_1/.anvil/runs/019f65d3-ae61-7b81-b96d-9d5f871768b1/events.jsonl
-  - E-B: pass — source evidence and adjudication are complete: /Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev008_origin_1/.anvil/runs/019f65d3-ae61-7b81-b96d-9d5f871768b1/events.jsonl
+  - E-A: pass — origin selector verified failed run_stop in origin/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev008_origin_1/.anvil/runs/019f65d3-ae61-7b81-b96d-9d5f871768b1/events.jsonl
+  - E-B: pass — source evidence and adjudication are complete: origin/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev008_origin_1/.anvil/runs/019f65d3-ae61-7b81-b96d-9d5f871768b1/events.jsonl
   - E-C: pass — source is in the sequential route history; target run is allocated only after firing
   - E-D: pass — declared carries present: [Workspace, RecoveryYaml, ReproducerSuggestion]
 - edge investigate->fix: E-A/E-B/E-C/E-D
-  - E-A: pass — source adjudicated assurance=full matches required=full in /Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev008_origin_1/.anvil/runs/019f8c8c-c8a1-7c62-b1ee-e1fb01785b18/events.jsonl
-  - E-B: pass — source evidence and adjudication are complete: /Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev008_origin_1/.anvil/runs/019f8c8c-c8a1-7c62-b1ee-e1fb01785b18/events.jsonl
+  - E-A: pass — source adjudicated assurance=full matches required=full in origin/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev008_origin_1/.anvil/runs/019f8c8c-c8a1-7c62-b1ee-e1fb01785b18/events.jsonl
+  - E-B: pass — source evidence and adjudication are complete: origin/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev008_origin_1/.anvil/runs/019f8c8c-c8a1-7c62-b1ee-e1fb01785b18/events.jsonl
   - E-C: pass — source is in the sequential route history; target run is allocated only after firing
   - E-D: pass — declared carries present: [Workspace, RecoveryYaml, ReproducerLineage, Diagnosis]
 - edge fix->verify_origin: E-A/E-B/E-C/E-D
-  - E-A: pass — source adjudicated assurance=full matches required=full in /Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev008_origin_1/.anvil/runs/019f8c8c-e18b-7811-9b94-a6f743b38632/events.jsonl
-  - E-B: pass — source evidence and adjudication are complete: /Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev008_origin_1/.anvil/runs/019f8c8c-e18b-7811-9b94-a6f743b38632/events.jsonl
+  - E-A: pass — source adjudicated assurance=full matches required=full in origin/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev008_origin_1/.anvil/runs/019f8c8c-e18b-7811-9b94-a6f743b38632/events.jsonl
+  - E-B: pass — source evidence and adjudication are complete: origin/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev008_origin_1/.anvil/runs/019f8c8c-e18b-7811-9b94-a6f743b38632/events.jsonl
   - E-C: pass — source is in the sequential route history; target run is allocated only after firing
   - E-D: pass — declared carries present: [Workspace, RecoveryYaml, ReproducerLineage]
 - node fix: run_id=019f8c8c-e18b-7811-9b94-a6f743b38632 run_dir=origin/019f8c8c-e18b-7811-9b94-a6f743b38632 model=gemma4:31b-cloud

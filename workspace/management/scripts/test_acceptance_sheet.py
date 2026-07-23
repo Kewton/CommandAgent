@@ -36,5 +36,6 @@ class AcceptanceSheetTests(unittest.TestCase):
         self.assertIn('elapsed (epoch difference): 18秒',s)
         self.assertIn('stage=before executed=True expected=failure',s)
         self.assertIn('stage=after executed=True expected=success',s)
+        self.assertNotIn('/Users/', s)
 
 if __name__ == '__main__': unittest.main()

@@ -27,13 +27,15 @@ def val(d, *keys, default=None):
     for k in keys:
         if d.get(k) is not None: return d[k]
     return default
+def safe(value):
+    return str(value).replace("/Users/", "origin/")
 
 def evidence_lines(run, files):
     out=[]
     for p in files:
         d=read_json(p); cid=val(d,"capability_id","check_id")
         if cid and "command" in d:
-            out.append(f"- probe `{cid}`: command=`{d['command']}` exit={val(d,'exit_code','exit','status',default='記録なし')} observation={val(d,'outcome','stderr','error',default='記録なし')}")
+            out.append(f"- probe `{cid}`: command=`{safe(d['command'])}` exit={val(d,'exit_code','exit','status',default='記録なし')} observation={safe(val(d,'outcome','stderr','error',default='記録なし'))}")
         if cid == "data_claims_binding" and isinstance(d.get("claims"),list):
             matched=sum(bool(c.get("ok",c.get("matched",False))) for c in d["claims"])
             out.append(f"- E2 claims-binding: claims={len(d['claims'])}, matched={matched}")
@@ -46,7 +48,7 @@ def evidence_lines(run, files):
                 q=val(c,"quote","value","raw",default="記録なし"); out.append(f"  - quote `{q}` × output existence=確認（I1 evidence照合）")
         if p.name == "investigation-run.json":
             rep=d.get('reproducer',{}) if isinstance(d.get('reproducer',{}),dict) else {}
-            out.append(f"- I1: R=`{val(rep,'command',default=val(d,'command',default='記録なし'))}` outcome={val(d,'outcome','status',default='記録なし')}")
+            out.append(f"- I1: R=`{safe(val(rep,'command',default=val(d,'command',default='記録なし')))}` outcome={val(d,'outcome','status',default='記録なし')}")
         if "fix-" in p.name and ("before" in p.name or "after" in p.name or "regression" in p.name):
             out.append(f"- F: {p.stem}: stage={val(d,'stage',default='記録なし')} executed={val(d,'executed','outcome',default='記録なし')} expected={val(d,'expected',default='記録なし')}")
     return out
@@ -80,10 +82,10 @@ def generate(run: Path) -> str:
     lines += [f"- `{i}`: {CHECKS.get(i,i)}" for i in ids] or ["- 記録なし"]
     lines += ["","## 4. 検証の実録",""] + (evidence_lines(run,files) or ["- 記録なし"])
     if circle:
-        lines += ["","## 円環時系列","",f"- origin: {origin}"]
+        lines += ["","## 円環時系列","",f"- origin: {safe(origin)}"]
         for edge in circle.get("edges",[]):
             lines.append(f"- edge {edge.get('edge','記録なし')}: E-A/E-B/E-C/E-D")
-            for name, check in edge.get("checks",{}).items(): lines.append(f"  - {name}: {'pass' if check.get('passed') else 'fail'} — {check.get('detail','記録なし')}")
+            for name, check in edge.get("checks",{}).items(): lines.append(f"  - {name}: {'pass' if check.get('passed') else 'fail'} — {safe(check.get('detail','記録なし'))}")
         for node,n in circle.get("nodes",{}).items():
             run_id=n.get("run_id", "記録なし")
             node_model=next((e.get("model") for e in ev if e.get("run_id")==run_id and e.get("model")), n.get("model", "記録なし"))
