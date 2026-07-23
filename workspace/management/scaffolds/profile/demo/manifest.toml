@@ -1,0 +1,6 @@
+[manifest]
+id = "demo"
+kind = "profile"
+admission = "off"
+profile = ""
+intent = ""
