@@ -1,0 +1,16 @@
+{
+  "schema_version": "1",
+  "intent": "fix",
+  "contract_version": "v0",
+  "contract_ref": "docs/fix-intent-contract.md",
+  "requirement_id": "no_regression",
+  "binding_id": "pipeline_probe",
+  "stage": "after",
+  "expected": "success",
+  "lineage": "regression:539f12e6adea8590",
+  "epoch": 3,
+  "run_id": "019f8c8c-e18e-7821-b9ca-d3474938b33f",
+  "executed": true,
+  "outcome": "success",
+  "reason": ""
+}
