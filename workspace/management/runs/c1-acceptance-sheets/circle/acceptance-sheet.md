@@ -7,7 +7,7 @@
 - intent (intent_resolved): investigate
 - effective model/provider: gemma4:31b-cloud / ollama
 - planner model: qwen3.6:27b-coding-nvfp4
-- elapsed (epoch difference): 6秒
+- elapsed (epoch difference): 18秒
 
 ## 2. 判定
 

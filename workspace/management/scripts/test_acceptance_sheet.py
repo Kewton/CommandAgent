@@ -33,6 +33,7 @@ class AcceptanceSheetTests(unittest.TestCase):
         s=generate(p)
         for token in ('gemma4:31b-cloud','qwen3.6:27b-coding-nvfp4','I2: claims=5, matched=5','CommandFailed','data_results_schema','verify_origin','E-A','E-B','E-C','E-D'):
             self.assertIn(token,s)
+        self.assertIn('elapsed (epoch difference): 18秒',s)
         self.assertIn('stage=before executed=True expected=failure',s)
         self.assertIn('stage=after executed=True expected=success',s)
 

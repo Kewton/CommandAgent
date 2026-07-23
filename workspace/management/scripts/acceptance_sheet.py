@@ -63,7 +63,18 @@ def generate(run: Path) -> str:
     if isinstance(goal,str) and goal.startswith("UltraPlanRun("): goal=goal.split("\"",2)[1] if '"' in goal else goal
     verdict=val(circle,"verdict",default=next((e.get("verdict") for e in root_events if e.get("event")=="workflow_adjudicated"),None)) or val(next((e for e in ev if e.get("event")=="run_stop"),{}),"status",default="記録なし")
     reason=val(circle,"reason",default=next((e.get("reason") for e in ev if e.get("reason")),"記録なし"))
-    epochs=[e.get("epoch") for e in ev if isinstance(e.get("epoch"),(int,float))]; elapsed=(max(epochs)-min(epochs)) if len(epochs)>1 else circle.get("elapsed_seconds")
+    epochs=[e.get("epoch") for e in ev if isinstance(e.get("epoch"),(int,float))]
+    elapsed=(max(epochs)-min(epochs)) if len(epochs)>1 else circle.get("elapsed_seconds")
+    if elapsed is None:
+        log=run.parent/(run.name+".log")
+        if log.is_file():
+            stamps=[int(x) for x in log.read_text(errors="replace").splitlines() if x.strip().isdigit()]
+            if len(stamps)>1: elapsed=max(stamps)-min(stamps)
+    elif circle:
+        log=run.parent/(run.name+".log")
+        if log.is_file():
+            stamps=[int(x) for x in log.read_text(errors="replace").splitlines() if x.strip().isdigit()]
+            if len(stamps)>1: elapsed=max(stamps)-min(stamps)
     files=json_files(run); ids=sorted({val(read_json(p),"capability_id","check_id") for p in files if val(read_json(p),"capability_id","check_id")})
     lines=["# Acceptance Sheet","","## 1. 依頼","",f"- goal (run_start.action): {goal}",f"- profile: {next((e.get('profile') for e in ev if e.get('profile')), '記録なし')}",f"- intent (intent_resolved): {intent or '記録なし'}",f"- effective model/provider: {model or '記録なし'} / {provider or '記録なし'}",f"- planner model: {planner or '記録なし'}",f"- elapsed (epoch difference): {elapsed if elapsed is not None else '記録なし'}秒","","## 2. 判定","",f"- verdict: **{verdict or '記録なし'}**",f"- assurance: {'定義された検証を全て実行し成立' if verdict in ('full','full_success','circle_full') else REASONS.get(reason, '未完了。回収情報あり' if verdict != '記録なし' else '記録なし')}","","## 3. 完成の定義",""]
     lines += [f"- `{i}`: {CHECKS.get(i,i)}" for i in ids] or ["- 記録なし"]
