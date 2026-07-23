@@ -197,6 +197,13 @@ fix契約、F1〜F3、既存bandの裁定値を変更するタスクではない
 | QUEUED | D-2c生成経路のchokepoint化 or fix計画合成の適用拡大（fix×nextjsが同病を発症した時の処方箋） |
 # bench v0.2 queued requirements (2026-07-21)
 
+## D-3c transfer and elevated single-intent arm [QUEUED] (2026-07-23)
+
+D-3c (PM router plus boundary dialogue shell) is transferred behind Phase C
+completion. An elevated single-intent investigate measurement outside the
+workflow circle is queued as a separate arm and does not alter the circle
+denominator.
+
 The following are queued from the dfix-006 live measurement; this section is
 only a requirements record and does not change the v0 harness:
 

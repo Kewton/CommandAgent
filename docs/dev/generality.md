@@ -308,7 +308,8 @@ I1/I2 invariants, per-run ledger, and Window A/B definitions are in
 
 ## Measured capability bands (workflow circle)
 
-The workflow-circle local arm is declared from `uat-test0722-circle-003` only.
+The workflow-circle local arm is declared from `uat-test0722-circle-003`; the
+elevated arm is declared from `uat-test0722-circle-elev-008` only.
 Its three runs used the complete node configuration and the same UltraPlan
 execution mode as the historical intent bands. `circle-001` is retained as an
 excluded measurement because profile propagation was missing (P1-a failed),
@@ -319,11 +320,15 @@ outcome to the denominator.
 | arm | circle_full | circle_failed | n | full rate |
 |---|---:|---:|---:|---:|
 | local | 0 | 3 | 3 | 0% |
+| elevated | 1 | 2 | 3 | 33% |
 
 円環の機械は完全動作（伝播・封じ込め・earned辺・正直終端）。壁は
 investigateノードのモデル能力（契約形R構築不能）。elevatedアーム
-（ノード別上位モデル、schema v0.1）が `circle_full` 挑戦の設計済み
-経路である。ノードモデル構成が異なるworkflowは同じ分母へ混ぜず、
+（ノード別上位モデル、schema v0.1）は1/3の `circle_full` を実測した。
+円環の全区間（earned辺・lineage連続・検証済み診断の照準化・verify_origin
+閉門）が実測で機能し、現在の壁はfixノードのモデル修復力である。初circle_fullは
+2026-07-22、18秒、全証拠連鎖つき（uat-test0722-circle-elev-008 run1）。
+ノードモデル構成が異なるworkflowは同じ分母へ混ぜず、
 elevatedアームを別計測列として宣言する。
 
 This 0/3 is an honest local-tier capability price, not a workflow-layer
