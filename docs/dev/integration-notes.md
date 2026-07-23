@@ -218,6 +218,10 @@ only a requirements record and does not change the v0 harness:
   matrix, transfer self-output allowance counts/prefixes, and list resume
   interruption text and final state.
 
+## Acceptance sheet integration [QUEUED]
+
+Benchフェーズ(e)へ`acceptance_sheet`生成を統合し、シート自給率を手動生成0%から改善する。既存のevidence・判定・分類の裁定は変更しない。
+
 ## Next.js band input restoration (2026-07-22) [QUEUED]
 
 Restore the 12 pre-migration Next.js measurement sets as auditable inputs by
