@@ -21,4 +21,19 @@ class AcceptanceSheetTests(unittest.TestCase):
         s=generate(self.make('{"event":"run_stop","status":"full"}\n','{"check_id":"new_check"}'))
         self.assertIn('`new_check`',s)
 
+    def test_evidence_values_are_transcribed(self):
+        d=self.make('{"event":"run_start","action":"goal text","profile":"data","model":"m","provider":"ollama","planner_model":"p"}\n{"event":"intent_resolved","value":"create"}\n{"event":"run_stop","status":"full"}\n', '{"capability_id":"pipeline_probe","command":"python3 pipeline/main.py","exit_code":1,"outcome":"CommandFailed"}')
+        (d/'evidence'/'claims-binding.json').write_text('{"capability_id":"data_claims_binding","claims":[{"raw":"7","matched_result_value":7,"ok":true}]}')
+        s=generate(d)
+        self.assertIn('goal text',s); self.assertIn('exit=1',s); self.assertIn('claims=1, matched=1',s); self.assertIn('7 × 7 × pass',s)
+
+    def test_circle_acceptance_observations(self):
+        p=Path(__file__).parents[3]/'workspace/management/runs/uat-test0722-circle-elev-008/run1'
+        if not p.is_dir(): self.skipTest('measurement fixture unavailable')
+        s=generate(p)
+        for token in ('gemma4:31b-cloud','qwen3.6:27b-coding-nvfp4','I2: claims=5, matched=5','CommandFailed','data_results_schema','verify_origin','E-A','E-B','E-C','E-D'):
+            self.assertIn(token,s)
+        self.assertIn('stage=before executed=True expected=failure',s)
+        self.assertIn('stage=after executed=True expected=success',s)
+
 if __name__ == '__main__': unittest.main()

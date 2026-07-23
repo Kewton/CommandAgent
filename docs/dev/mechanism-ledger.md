@@ -704,3 +704,4 @@ D-3a settlement（最終、2026-07-23）: 契約v0→schema v0.1→スモークv
 Phase D complete (2026-07-22): 出口条件①fix intentの2profile×2族以上の分布計測（D-2、2026-07-18）②調査→fix連結runのend-to-end成立（D-3a、2026-07-22、circle_full実測1本・全証拠連鎖）。両達成し、行列は2profile×3intent＋workflow層。「検収済みAI労働のワークフロー基盤」が実測つきで成立。D-3c（PMルーター＋境界対話シェル）はPhase C依存としてC完遂後のキューへ移管。
 D-3a-3k: 存在前提の3周を全数監査で終了。修復ターゲットは指定であり事実ではない。存在分岐はwrite段の責務。
 C-1a開始: evidenceの人間翻訳層。acceptance_sheet.pyは転記主義・発明禁止で開始。
+C-1a完遂: 差し戻しを受け、実evidenceの観測値（I2/F/E2/verify_origin）を転記するテストと3枚の実演を追加。テストgreenと翻訳の実在は別であることをPhase C版として記録。

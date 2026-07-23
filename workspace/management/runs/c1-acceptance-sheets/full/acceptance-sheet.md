@@ -2,15 +2,17 @@
 
 ## 1. 依頼
 
-- goal: 記録なし
-- profile: 記録なし
-- intent: 記録なし
-- model/provider: 記録なし / 記録なし
+- goal (run_start.action): data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。
+- profile: data
+- intent (intent_resolved): 記録なし
+- effective model/provider: gemma4:31b / ollama
+- planner model: qwen3.6:27b-coding-nvfp4
+- elapsed (epoch difference): 記録なし秒
 
 ## 2. 判定
 
-- verdict: **記録なし**
-- assurance: 記録なし
+- verdict: **failed**
+- assurance: 未完了。回収情報あり
 
 ## 3. 完成の定義
 
@@ -20,15 +22,13 @@
 
 ## 4. 検証の実録
 
-- evidence/claims-binding.json: 実在ファイルを参照（観測値は原文のまま）
-- evidence/reconciliation.json: 実在ファイルを参照（観測値は原文のまま）
-- evidence/results-schema.json: 実在ファイルを参照（観測値は原文のまま）
-- output/inspection.json: 実在ファイルを参照（観測値は原文のまま）
+- E2 claims-binding: claims=0, matched=0
 
 ## 5. 失敗・次の一手
 
-- 記録なし
-- recovery/repair prompt: 記録なし（実在パスのみ転記）
+- runtime Bash is not deterministic verifier evidence
+- recovery YAML: .anvil/plans/recovery-ultra-plan-phase-inspect-and-define-schema-019f640b-bc98-7520-ae05-5f90a226dfe5.yaml
+- repair prompt: .anvil/repairs/repair-phase-inspect-and-define-schema-019f640b-bc98-7520-ae05-5f868419db26.md
 
 ## 6. 証拠台帳
 
