@@ -1014,6 +1014,16 @@ def _finish_run_record(
         run_dir, list(source.input_sha256)
     )
     archive_run(source, run_dir, artifact_dir)
+    try:
+        from acceptance_sheet import generate as generate_acceptance_sheet
+        (artifact_dir / "acceptance-sheet.md").write_text(
+            generate_acceptance_sheet(artifact_dir), encoding="utf-8"
+        )
+        record["sheet_generated"] = True
+    except (ImportError, OSError, ValueError) as error:
+        record["sheet_generated"] = False
+        record["sheet_generation_failed"] = str(error)
+        print(f"warning: acceptance sheet failed for {record['name']}: {error}")
     scrub = scrub_path(artifact_dir, scrub_allow)
     record["scrub"] = {
         "ok": scrub.ok,
@@ -1220,6 +1230,11 @@ def generate_report(campaign_dir: Path, metadata: dict[str, Any]) -> Path:
         )
         if record.get("scrub_failed"):
             lines.append("  - scrub: FAIL (findings are recorded in uat-meta.json)")
+    links = [
+        f"- `{r['name']}`: `artifacts/{r['name']}/acceptance-sheet.md`"
+        for r in metadata["runs"] if r.get("sheet_generated")
+    ]
+    lines.extend(["", "## Acceptance sheets", ""] + (links or ["- 記録なし（生成失敗はuat-meta.json参照）"]))
     lines.extend(
         [
             "",

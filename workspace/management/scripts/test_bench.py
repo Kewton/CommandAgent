@@ -204,6 +204,9 @@ class ExecutionPolicyTests(unittest.TestCase):
             self.assertTrue(
                 (campaign / "artifacts" / "pipe_qwen_001" / "input.txt").is_file()
             )
+            self.assertTrue(
+                (campaign / "artifacts" / "pipe_qwen_001" / "acceptance-sheet.md").is_file()
+            )
 
 
 class ScrubTests(unittest.TestCase):
