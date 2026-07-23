@@ -1,0 +1,87 @@
+[[class]]
+id = "model_stagnation_read_only"
+attribution = "model"
+match_stop_class = "model_stagnation:read_only_loop"
+first_seen = "uat-test0717-dfix-001"
+ledger_ref = "D-3a"
+note = "モデルが書込み要求に対して読取りを反復した"
+
+[[class]]
+id = "repair_target_unresolved"
+attribution = "machine"
+match_reason = "repair_target_unresolved"
+first_seen = "uat-test0722-circle-elev-004"
+ledger_ref = "D-3a-3i"
+note = "修復対象を解決できず正直に停止した"
+
+[[class]]
+id = "diagnosis_unbound"
+attribution = "machine"
+match_reason = "diagnosis_unbound"
+first_seen = "uat-test0722-circle-elev-001"
+ledger_ref = "D-3a-3f"
+note = "診断主張が実証拠へ束縛されない"
+
+[[class]]
+id = "claims_absent"
+attribution = "machine"
+match_reason = "claims_absent"
+first_seen = "uat-test0722-circle-elev-003"
+ledger_ref = "D-3a-3g"
+note = "診断に機械照合可能な主張がない"
+
+[[class]]
+id = "edge_not_earned"
+attribution = "machine"
+match_stop_class = "edge_not_earned"
+first_seen = "d3a2-smoke-v5"
+ledger_ref = "D-3a-2e"
+note = "辺の成立条件不足で遷移しない"
+
+[[class]]
+id = "interrupted_environment"
+attribution = "environment"
+match_stop_class = "interrupted(environment)"
+first_seen = "uat-test0719-dfix-006"
+ledger_ref = "bench v0"
+note = "環境中断でrun非消費となった"
+
+[[class]]
+id = "ollama_http_500"
+attribution = "environment"
+match_reason = "HTTP 500 Internal Server Error"
+first_seen = "uat-test0722-circle-elev-006"
+ledger_ref = "D-3a-3j"
+note = "Ollamaクラウド応答の一過性HTTP 500"
+
+[[class]]
+id = "origin_goal_underivable"
+attribution = "machine"
+match_reason = "origin_goal_underivable"
+first_seen = "d3a2-smoke-v5"
+ledger_ref = "D-3a-2"
+note = "起点goalの導出不能"
+
+[[class]]
+id = "origin_verify_underivable"
+attribution = "machine"
+match_reason = "origin_verify_underivable"
+first_seen = "d3a2-smoke-v5"
+ledger_ref = "D-3a-2"
+note = "起点検証集合の導出不能"
+
+[[class]]
+id = "workspace_confinement_violation"
+attribution = "machine"
+match_reason = "workspace_confinement_violation"
+first_seen = "d3a2-smoke-v7"
+ledger_ref = "D-3a-2f"
+note = "origin外workspaceへの書込みを拒否"
+
+[[class]]
+id = "data_schema_contract_failure"
+attribution = "machine"
+match_reason = "inspection_schema_violation"
+first_seen = "uat-test0718-dfix-005"
+ledger_ref = "DATA-"
+note = "データ契約スキーマ検証が失敗した"
