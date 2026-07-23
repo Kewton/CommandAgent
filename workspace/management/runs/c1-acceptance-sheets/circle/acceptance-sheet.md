@@ -84,8 +84,8 @@
   - E-B: pass — source evidence and adjudication are complete: /Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev008_origin_1/.anvil/runs/019f8c8c-e18b-7811-9b94-a6f743b38632/events.jsonl
   - E-C: pass — source is in the sequential route history; target run is allocated only after firing
   - E-D: pass — declared carries present: [Workspace, RecoveryYaml, ReproducerLineage]
-- node fix: run_id=019f8c8c-e18b-7811-9b94-a6f743b38632 run_dir=/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev008_origin_1/.anvil/runs/019f8c8c-e18b-7811-9b94-a6f743b38632 model=記録なし
-- node investigate: run_id=019f8c8c-c8a1-7c62-b1ee-e1fb01785b18 run_dir=/Users/maenokota/share/work/localwork/commandagent_mvp/01/circle_elev008_origin_1/.anvil/runs/019f8c8c-c8a1-7c62-b1ee-e1fb01785b18 model=記録なし
+- node fix: run_id=019f8c8c-e18b-7811-9b94-a6f743b38632 run_dir=origin/019f8c8c-e18b-7811-9b94-a6f743b38632 model=gemma4:31b-cloud
+- node investigate: run_id=019f8c8c-c8a1-7c62-b1ee-e1fb01785b18 run_dir=origin/019f8c8c-c8a1-7c62-b1ee-e1fb01785b18 model=gemma4:31b-cloud
 - circle verdict=circle_full reason=verify_origin
 
 ## 6. 証拠台帳

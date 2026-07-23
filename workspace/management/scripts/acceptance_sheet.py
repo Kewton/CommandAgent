@@ -84,7 +84,14 @@ def generate(run: Path) -> str:
         for edge in circle.get("edges",[]):
             lines.append(f"- edge {edge.get('edge','記録なし')}: E-A/E-B/E-C/E-D")
             for name, check in edge.get("checks",{}).items(): lines.append(f"  - {name}: {'pass' if check.get('passed') else 'fail'} — {check.get('detail','記録なし')}")
-        for node,n in circle.get("nodes",{}).items(): lines.append(f"- node {node}: run_id={n.get('run_id','記録なし')} run_dir={n.get('run_dir','記録なし')} model={n.get('model','記録なし')}")
+        for node,n in circle.get("nodes",{}).items():
+            run_id=n.get("run_id", "記録なし")
+            node_model=next((e.get("model") for e in ev if e.get("run_id")==run_id and e.get("model")), n.get("model", "記録なし"))
+            run_dir=n.get("run_dir", "記録なし")
+            try: run_dir=str(Path(run_dir).relative_to(run))
+            except ValueError:
+                if run_dir != "記録なし": run_dir=f"origin/{Path(run_dir).name}"
+            lines.append(f"- node {node}: run_id={run_id} run_dir={run_dir} model={node_model}")
         lines.append(f"- circle verdict={circle.get('verdict','記録なし')} reason={circle.get('reason','記録なし')}")
     if verdict not in ('full','full_success','circle_full'):
         rec=[p.relative_to(run) for p in run.rglob('recovery-*.yaml')]; repair=[p.relative_to(run) for p in run.rglob('*repair*') if p.is_file()]
