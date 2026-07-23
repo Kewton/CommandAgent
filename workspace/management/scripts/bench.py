@@ -1155,6 +1155,11 @@ def _markdown_cell(value: Any) -> str:
 
 
 def generate_report(campaign_dir: Path, metadata: dict[str, Any]) -> Path:
+    try:
+        from calibration_corpus import append
+        append([campaign_dir])
+    except (ImportError, OSError, ValueError):
+        pass
     lines = [
         f"# bench report skeleton: {metadata['campaign_id']}",
         "",
