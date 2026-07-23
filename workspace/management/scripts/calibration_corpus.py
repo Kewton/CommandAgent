@@ -12,9 +12,11 @@ def records(campaign):
     for p in campaign.rglob("*.json"):
         try: d=json.loads(p.read_text())
         except (OSError,ValueError,UnicodeDecodeError): continue
+        if not isinstance(d, dict):
+            continue
         if isinstance(d.get("claims"),list):
             for c in d["claims"]:
-                yield {"source_run":str(p.parent),"claim":c.get("raw",c.get("quote","")),"kind":"e2" if "matched_result_value" in c else "i2","judgement":"matched" if c.get("ok",c.get("matched",False)) else "violation","nearest_miss":c.get("nearest_miss"),"observation":c.get("matched_result_value",c.get("value"))}
+                yield {"source_run":str(p),"claim":c.get("raw",c.get("quote","")),"kind":"e2" if "matched_result_value" in c else "i2","judgement":"matched" if c.get("ok",c.get("matched",False)) else "violation","nearest_miss":c.get("nearest_miss"),"observation":c.get("matched_result_value",c.get("value"))}
 def append(campaigns):
     buckets={"e2":[],"i2":[]}
     for campaign in campaigns:
