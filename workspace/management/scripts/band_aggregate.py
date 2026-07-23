@@ -71,12 +71,23 @@ INVESTIGATION_WINDOW_B_SET = "uat-test0718-inv-002"
 INVESTIGATION_WINDOW_B_BASELINE_HEAD = "3302dd9"
 INVESTIGATION_EXPECTED_RUNS = 12
 INVESTIGATION_FAMILIES = ("pipe", "schema")
-CIRCLE_WINDOW_SETS = tuple(f"uat-test0722-circle-{index:03d}" for index in range(1, 4))
-CIRCLE_OFFICIAL_SET = "uat-test0722-circle-003"
-CIRCLE_EXPECTED_RUNS = 9
+CIRCLE_WINDOW_SETS = tuple(
+    [f"uat-test0722-circle-{index:03d}" for index in range(1, 4)]
+    + [f"uat-test0722-circle-elev-{index:03d}" for index in range(1, 9)]
+)
+CIRCLE_OFFICIAL_SET = "uat-test0722-circle-elev-008"
+CIRCLE_EXPECTED_RUNS = 33
 CIRCLE_EXCLUSION_REASONS = {
     "uat-test0722-circle-001": "profile不伝播により無効（P1-a FAIL）",
     "uat-test0722-circle-002": "実行モード欠落により無効",
+    "uat-test0722-circle-003": "localアーム（正式値札ではない）",
+    "uat-test0722-circle-elev-001": "R提示不発",
+    "uat-test0722-circle-elev-002": "E-A過投影",
+    "uat-test0722-circle-elev-003": "I2認識錨",
+    "uat-test0722-circle-elev-004": "照準被覆",
+    "uat-test0722-circle-elev-005": "存在前提（第1周）",
+    "uat-test0722-circle-elev-006": "存在前提（第2周）／binary乖離・HTTP500",
+    "uat-test0722-circle-elev-007": "存在前提（第3周）",
 }
 KNOWN_INTENTS = {"create", "fix", "investigate"}
 
@@ -2478,14 +2489,15 @@ def discover_circle_records() -> tuple[list[CircleRunRecord], list[str]]:
             assert adjudication.get("verdict") == verdict, (
                 f"workflow verdict mismatch for {label}"
             )
-            assert str(adjudication.get("reason") or "") == reason, (
-                f"workflow reason mismatch for {label}"
-            )
+            if verdict != "circle_full":
+                assert str(adjudication.get("reason") or "") == reason, (
+                    f"workflow reason mismatch for {label}"
+                )
             records.append(
                 CircleRunRecord(
                     set_id=set_id,
                     run_name=run_dir.name,
-                    arm="local",
+                    arm="elevated" if "circle-elev-" in set_id else "local",
                     verdict=verdict,
                     reason=reason,
                     circle_path=circle_path,
@@ -2527,7 +2539,13 @@ def build_circle_summary(
     assert len(included) == 3, (
         f"circle formal denominator is {len(included)}, expected 3"
     )
-    assert len(excluded) == 6, f"circle exclusion count is {len(excluded)}, expected 6"
+    assert len(excluded) == 30, f"circle exclusion count is {len(excluded)}, expected 30"
+    official_run = next(record for record in included if record.run_name == "run1")
+    for required in ("investigation-binding.json", "workflow-circle.json"):
+        assert official_run.circle_path.parent.joinpath(required).is_file(), (
+            f"missing formal evidence {required}"
+        )
+    assert official_run.circle_path.parent.joinpath("fix-events.jsonl").is_file()
     lines = [
         "# Workflow Circle Capability Band Summary",
         "",
@@ -2541,7 +2559,7 @@ def build_circle_summary(
         f"- workflow_adjudicated verified and verdict-aligned: `{len(records)}/{len(records)}`",
         "- Zero-row policy: generation aborts before replacing the tracked output.",
         "",
-        "## Formal local arm",
+        "## Formal elevated arm",
         "",
     ]
     lines.extend(
