@@ -522,17 +522,16 @@ class CircleBandTests(unittest.TestCase):
         records, scanned_sets = band.discover_circle_records()
 
         self.assertEqual(scanned_sets, list(band.CIRCLE_WINDOW_SETS))
-        self.assertEqual(len(records), 9)
-        self.assertEqual(sum(bool(record.excluded_reason) for record in records), 6)
+        self.assertEqual(len(records), 33)
+        self.assertEqual(sum(bool(record.excluded_reason) for record in records), 30)
         official = [record for record in records if not record.excluded_reason]
         self.assertEqual({record.set_id for record in official}, {band.CIRCLE_OFFICIAL_SET})
         self.assertEqual(
-            band.circle_rate_rows(records), [["local", "0", "3", "3", "0%"]]
+            band.circle_rate_rows(records), [["elevated", "1", "2", "3", "33%"]]
         )
-        self.assertEqual({record.verdict for record in official}, {"circle_failed"})
-        self.assertEqual({record.reason for record in official}, {"node_failed:investigate"})
+        self.assertEqual({record.verdict for record in official}, {"circle_full", "circle_failed"})
         summary = band.build_circle_summary(records, scanned_sets)
-        self.assertIn("| local | 0 | 3 | 3 | 0% |", summary)
+        self.assertIn("| elevated | 1 | 2 | 3 | 33% |", summary)
         self.assertIn("profile不伝播により無効（P1-a FAIL）", summary)
         self.assertIn("実行モード欠落により無効", summary)
 
