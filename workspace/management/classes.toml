@@ -85,3 +85,11 @@ match_reason = "inspection_schema_violation"
 first_seen = "uat-test0718-dfix-005"
 ledger_ref = "DATA-"
 note = "データ契約スキーマ検証が失敗した"
+
+[[class]]
+id = "process_failure"
+attribution = "machine"
+match_stop_class = "failure_kind:process_failure"
+first_seen = "uat-test0718-dfix-005"
+ledger_ref = "DATA-"
+note = "プロセス終端として記録された失敗"

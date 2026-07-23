@@ -3,6 +3,7 @@
 # ruff: noqa: E701,E702
 from __future__ import annotations
 import argparse
+import json
 from pathlib import Path
 import tomllib
 
@@ -19,8 +20,22 @@ def text_for(run):
             except OSError: pass
     return "\n".join(chunks)
 
+def terminal_text(run):
+    """Return only terminal fields; paths and incidental prose do not classify."""
+    values=[]
+    for p in run.rglob("events.jsonl"):
+        for line in p.read_text(errors="replace").splitlines():
+            try:
+                event=json.loads(line)
+            except ValueError:
+                continue
+            if event.get("event") in {"run_stop", "tui_command_stop", "ultra_final_acceptance"}:
+                for key in ("failure_kind", "stop_class", "reason", "stop_reason", "final_acceptance_status"):
+                    if event.get(key): values.append(f"{key}:{event[key]}")
+    return "\n".join(values)
+
 def classify(run, registry=None):
-    registry=registry or classes(); hay=text_for(run)
+    registry=registry or classes(); hay=terminal_text(run) or text_for(run)
     hits=[]
     for item in registry:
         terms=[item.get("match_stop_class"),item.get("match_reason"),item.get("match_phase"),item.get("match_event")]
