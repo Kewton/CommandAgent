@@ -62,3 +62,10 @@ The harness does not decide pass/fail, classify an incident, consume retries,
 or write settlement comments. It transfers verdict, assurance, and terminal
 reason text when present and leaves the corresponding fields blank in the
 report skeleton for human review.
+# Acceptance sheets
+
+退避フェーズ後、各`artifacts/<run>/`へ`acceptance-sheet.md`を自動生成する。生成失敗は`sheet_generation_failed`として`uat-meta.json`へ記録し、計測は継続する。円環workspaceは、次のように単独実行した人手計測のworkspaceを`--run`へ渡して生成する。
+
+```bash
+python3 workspace/management/scripts/acceptance_sheet.py --run <workflow-circle workspace> --out <report>/acceptance-sheet.md
+```
