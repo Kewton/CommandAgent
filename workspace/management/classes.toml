@@ -1,3 +1,6 @@
+# `failure_kind`/stop fields describe terminal shape; `attribution` is the
+# adjudicated cause (model, machine, mixed, or environment), and is not
+# inferred from the terminal vocabulary.
 [[class]]
 id = "model_stagnation_read_only"
 attribution = "model"
@@ -88,7 +91,7 @@ note = "データ契約スキーマ検証が失敗した"
 
 [[class]]
 id = "process_failure"
-attribution = "machine"
+attribution = "model"
 match_stop_class = "failure_kind:process_failure"
 first_seen = "uat-test0718-dfix-005"
 ledger_ref = "DATA-"

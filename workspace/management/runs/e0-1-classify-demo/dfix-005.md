@@ -13,3 +13,7 @@
 ## UNKNOWN runs
 
 - なし
+
+## 終端形と死因帰属の検算
+
+dfix-005 v2レポートの「6/6 read_only停滞」は死因（モデル）を示し、一次資料の`run_stop.failure_kind=process_failure`はプロセス終端の形を示す。各schema runの`stop_reason`にも`model_stagnation`が含まれ、停滞→フェーズ失敗→process_failure終端という層の重なりである。したがってレポートの6/6記述は死因としては精密であり、終端形を表す語ではない。訂正は不要だが、今後は両フィールドを併記する。
