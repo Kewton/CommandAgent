@@ -699,3 +699,6 @@ D-3a-3i: 円環の設計完成——検証済み診断が修正の照準にな�
 D-3a-3i: カタログR形の contract 写像は未観測ギャップとして単発fixにも適用。
 D-3a-3j: elev-005の収穫——照準被覆を完成（R字義パス規則＋manifest駆動producer写像）。列挙でなく規則化（FIX-6a/D-2b型）。
 D-3a-3k: 存在前提の3周を全数監査で終了。修復ターゲットは指定であり事実ではない。存在分岐はwrite段の責務。
+D-3a settlement（最終、2026-07-23）: 契約v0→schema v0.1→スモークv1〜v8→circle-001〜003→elev-001〜008。計測21run、スモーク8本。剥がした機械欠陥14項目（発明レイアウト／再入デッドロック／辺ゲート不在／workspace伝播／Config誤12行／潜在Config3行／呼び出し面ultra_plan_run欠落／PATH旧バイナリ／R提示不発／E-A過投影／I2認識錨／照準被覆／存在前提3周／HTTP500環境中断）。存在前提は全廃し、前提追加は監査表で検問、binary乖離はversion hash確認で防止。
+
+Phase D complete (2026-07-22): 出口条件①fix intentの2profile×2族以上の分布計測（D-2、2026-07-18）②調査→fix連結runのend-to-end成立（D-3a、2026-07-22、circle_full実測1本・全証拠連鎖）。両達成し、行列は2profile×3intent＋workflow層。「検収済みAI労働のワークフロー基盤」が実測つきで成立。D-3c（PMルーター＋境界対話シェル）はPhase C依存としてC完遂後のキューへ移管。
