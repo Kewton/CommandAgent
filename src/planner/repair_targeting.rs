@@ -11,6 +11,8 @@ mod fix;
 pub(crate) use fix::fix_profile_invariant_target_guidance;
 mod priority;
 pub(crate) use priority::RepairTargetPriority;
+mod verified;
+pub(crate) use verified::{r_command_target, verified_diagnosis_target};
 
 pub(crate) use crate::minimal_loop::python_traceback::resolve_repair_target as resolve_traceback_repair_target;
 pub(crate) use crate::planner::repair_target_selection::{
@@ -101,70 +103,6 @@ pub(crate) fn resolve_repair_targets(
         mapped_selection: input.mapped_selection,
         priority: input.priority,
     })
-}
-
-/// Selects the first I2-matched file claim from the carried binding.  For
-/// catalog checks whose binding has no file claim, the data manifest's
-/// producer is the deterministic target rather than a planner guess.
-pub(crate) fn verified_diagnosis_target(
-    root: &Path,
-    binding_path: &Path,
-    reproducer_command: Option<&str>,
-) -> Option<RepairTargetSelection> {
-    let value: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(binding_path).ok()?).ok()?;
-    let claims = value.get("claims")?.as_array()?;
-    for claim in claims {
-        if claim.get("matched").and_then(serde_json::Value::as_bool) != Some(true) {
-            continue;
-        }
-        for key in ["subject_path", "file", "path"] {
-            if let Some(path) = claim.get(key).and_then(serde_json::Value::as_str) {
-                let path = path.trim_start_matches("./");
-                if !path.is_empty() && root.join(path).is_file() {
-                    return Some(RepairTargetSelection {
-                        selected_targets: vec![path.to_string()],
-                        selection_reason: RepairTargetSelectionReason::VerifiedDiagnosisMapped,
-                    });
-                }
-            }
-        }
-    }
-    let catalog = reproducer_command.is_some_and(|command| {
-        [
-            "data_results_schema",
-            "data_inspection_schema",
-            "data_reconciliation",
-            "data_claims_binding",
-        ]
-        .iter()
-        .any(|id| command.contains(id))
-            || command.contains("inspection_schema_violation")
-            || command.contains("CommandFailed")
-    });
-    (catalog && root.join("pipeline").is_dir()).then(|| RepairTargetSelection {
-        selected_targets: vec!["pipeline/main.py".to_string()],
-        selection_reason: RepairTargetSelectionReason::VerifiedDiagnosisMapped,
-    })
-}
-
-pub(crate) fn r_command_target(root: &Path, command: &str) -> Option<RepairTargetSelection> {
-    let tokens = command.split_whitespace().map(|token| {
-        token.trim_matches(|ch: char| matches!(ch, '\'' | '"' | '`' | ')' | '(' | ','))
-    });
-    for token in tokens {
-        let path = token.strip_prefix("./").unwrap_or(token);
-        if path.contains('/')
-            && crate::tools::path_guard::validate_workspace_relative(path).is_ok()
-            && root.join(path).parent().is_some_and(Path::is_dir)
-        {
-            return Some(RepairTargetSelection {
-                selected_targets: vec![path.to_string()],
-                selection_reason: RepairTargetSelectionReason::RCommandMapped,
-            });
-        }
-    }
-    None
 }
 
 pub(crate) struct RepairTargetPathBuckets<'a> {
