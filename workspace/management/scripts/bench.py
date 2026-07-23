@@ -1175,6 +1175,12 @@ def generate_report(campaign_dir: Path, metadata: dict[str, Any]) -> Path:
         "these regular-expression patterns:",
         "",
     ]
+    try:
+        from classify_runs import classify_campaign, render
+        classification = render(classify_campaign(campaign_dir)).splitlines()
+    except (ImportError, OSError, ValueError):
+        classification = ["分類器を読み込めませんでした。UNKNOWNとして人手確認が必要です。"]
+    lines.extend(["", "## Failure class display (non-adjudicating)", ""] + classification)
     for label, pattern in EVENT_SEARCH_PATTERNS.items():
         lines.append(f"- `{label}`: `{pattern.pattern}`")
     lines.extend(
