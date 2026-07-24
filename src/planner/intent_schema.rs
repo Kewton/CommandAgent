@@ -54,7 +54,7 @@ fn load_raw(raw: &str, expected: &str, expected_ids: &[&str]) -> anyhow::Result<
     {
         anyhow::bail!("invalid investigate IntentSchema phase contract");
     }
-    let roles = ["reproduce", "implement", "bind"];
+    let roles = ["reproduce", "isolate", "implement", "verify", "bind"];
     for p in &schema.phases {
         if !roles.contains(&p.role.as_str()) {
             anyhow::bail!("unknown IntentSchema role: {}", p.role);
@@ -75,7 +75,7 @@ fn load_raw(raw: &str, expected: &str, expected_ids: &[&str]) -> anyhow::Result<
 }
 #[cfg(test)]
 mod tests {
-    use super::load;
+    use super::{load, load_fix};
     #[test]
     fn investigate_schema_is_strict_and_complete() {
         let s = load().expect("embedded schema");
@@ -84,8 +84,8 @@ mod tests {
     }
     #[test]
     fn fix_schema_is_strict_and_complete() {
-        let s=load_fix().expect("embedded schema");
-        assert_eq!(s.phases.len(),4);
+        let s = load_fix().expect("embedded schema");
+        assert_eq!(s.phases.len(), 4);
         assert!(s.evidence.contains(&"F1".to_string()));
     }
 }
