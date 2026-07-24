@@ -24,7 +24,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-
 ROOT = Path(__file__).resolve().parents[3]
 RUNS_DIR = ROOT / "workspace" / "management" / "runs"
 OUTPUT = RUNS_DIR / "band_summary.md"
@@ -483,7 +482,7 @@ def artifact_dirs(set_dir: Path, row: dict[str, Any], run_id: str) -> list[Path]
 def json_file_has_interaction_pass(path: Path) -> bool:
     try:
         data = json.loads(path.read_text())
-    except Exception:
+    except (OSError, ValueError, json.JSONDecodeError):
         return False
     if not isinstance(data, dict):
         return False
@@ -1344,20 +1343,26 @@ def build_data_summary(
         f"- Full rows with E1–E4 and data-assurance verified: `{full_evidence_verified}`",
         "- False-full evidence gaps: `0` (generation aborts on any gap)",
         "",
-        "Assurance truth follows B-2j: final acceptance and "
-        "`evidence/data-assurance.json` are authoritative for full; historical "
-        "terminal projection fields are not read. Non-full levels come from the "
-        "campaign's evidence-audited `uat-meta.json` or frozen pre-uat-meta audit row.",
+        (
+            "Assurance truth follows B-2j: final acceptance and "
+            "`evidence/data-assurance.json` are authoritative for full; historical "
+            "terminal projection fields are not read. Non-full levels come from the "
+            "campaign's evidence-audited `uat-meta.json` or frozen pre-uat-meta audit row."
+        ),
         "",
-        "Family is classified only from the recorded goal: `前月比` or `移動平均` "
-        "selects `timeseries`; a monthly-by-region aggregation goal selects "
-        "`aggregation`; anything else remains included in Window A as `unknown`.",
+        (
+            "Family is classified only from the recorded goal: `前月比` or `移動平均` "
+            "selects `timeseries`; a monthly-by-region aggregation goal selects "
+            "`aggregation`; anything else remains included in Window A as `unknown`."
+        ),
         "",
-        "The frozen pre-uat-meta index is code-owned input for UAT #1 and M-4; "
-        "it preserves rows whose original aggregate files predate repository-managed "
-        "`uat-meta.json` and carries the aggregation goal recorded by those campaigns. "
-        "New and mixed campaigns are discovered from every "
-        "`workspace/management/runs/uat-*/uat-meta.json` whose measurement profile is data.",
+        (
+            "The frozen pre-uat-meta index is code-owned input for UAT #1 and M-4; "
+            "it preserves rows whose original aggregate files predate repository-managed "
+            "`uat-meta.json` and carries the aggregation goal recorded by those campaigns. "
+            "New and mixed campaigns are discovered from every "
+            "`workspace/management/runs/uat-*/uat-meta.json` whose measurement profile is data."
+        ),
         "",
     ]
     append_data_window(
@@ -1410,8 +1415,10 @@ def build_data_summary(
         lines.extend(
             [
                 "",
-                f"- n=`{len(duration_values)}`; min=`{min(duration_values)}s`; "
-                f"median=`{median(duration_values)}s`; max=`{max(duration_values)}s`.",
+                (
+                    f"- n=`{len(duration_values)}`; min=`{min(duration_values)}s`; "
+                    f"median=`{median(duration_values)}s`; max=`{max(duration_values)}s`."
+                ),
             ]
         )
     family_duration_rows: list[list[str]] = []
@@ -1458,10 +1465,12 @@ def build_data_summary(
     lines.extend(
         [
             "",
-            "`uat-test0714-m4-002` is discarded for operator model-ID substitution. "
-            "`uat-test0714-m4-004` is outside the denominator because cargo-test "
-            "preflight was not green and the campaign was interrupted before four of "
-            "its five data rows completed; no interrupted result is inferred.",
+            (
+                "`uat-test0714-m4-002` is discarded for operator model-ID substitution. "
+                "`uat-test0714-m4-004` is outside the denominator because cargo-test "
+                "preflight was not green and the campaign was interrupted before four of "
+                "its five data rows completed; no interrupted result is inferred."
+            ),
             "",
             "## Unknown family records",
             "",
@@ -1480,8 +1489,10 @@ def build_data_summary(
         lines.extend(
             [
                 "",
-                "These records remain in the Window A denominator and per-run ledger; "
-                "they are not assigned to a Window B baseline.",
+                (
+                    "These records remain in the Window A denominator and per-run ledger; "
+                    "they are not assigned to a Window B baseline."
+                ),
             ]
         )
     else:
@@ -1955,16 +1966,20 @@ def build_fix_summary(
         f"- Full rows with F1-F3 evidence verified: `{full_evidence_verified}`",
         "- False-full evidence gaps: `0` (generation aborts on any gap)",
         "",
-        "The intent column resolves repository-managed `uat-meta.json` first and "
-        "the run's single `intent_resolved` event second. Only known historical "
-        "create campaigns may use the `create` legacy default; an unresolved or "
-        "conflicting modern record remains `unknown` and is never folded into "
-        "create or fix.",
+        (
+            "The intent column resolves repository-managed `uat-meta.json` first and "
+            "the run's single `intent_resolved` event second. Only known historical "
+            "create campaigns may use the `create` legacy default; an unresolved or "
+            "conflicting modern record remains `unknown` and is never folded into "
+            "create or fix."
+        ),
         "",
-        "Fix family is classified from the recorded run name and goal. Build or "
-        "compile language maps to `compile_error_fix`; contract attribute, restart, "
-        "or hook language maps to `contract_hook_fix`; unmatched records remain "
-        "`unknown`.",
+        (
+            "Fix family is classified from the recorded run name and goal. Build or "
+            "compile language maps to `compile_error_fix`; contract attribute, restart, "
+            "or hook language maps to `contract_hook_fix`; unmatched records remain "
+            "`unknown`."
+        ),
         "",
     ]
     append_fix_window(
@@ -2439,15 +2454,19 @@ def build_investigation_summary(
         f"- I2 binding executed: `{sum(record.i2_executed for record in records)}/{len(records)}`",
         f"- I2 claims: `{sum(record.claim_count for record in records)}`",
         f"- I2 matched claims: `{sum(record.matched_claim_count for record in records)}`",
-        f"- I2 rejected violations: `{sum(record.violation_count for record in records)}` "
-        f"(`code_snippet={kind_counts['code_snippet']}`, "
-        f"`error_quote={kind_counts['error_quote']}`, `file_line={kind_counts['file_line']}`)",
+        (
+            f"- I2 rejected violations: `{sum(record.violation_count for record in records)}` "
+            f"(`code_snippet={kind_counts['code_snippet']}`, "
+            f"`error_quote={kind_counts['error_quote']}`, `file_line={kind_counts['file_line']}`)"
+        ),
         "- False-full evidence gaps: `0` (generation aborts on any I1/I2/adjudication mismatch)",
         "",
-        "Assurance is recomputed from the fixed investigation contract: I1 must be "
-        "an executed failing diagnosis-stage reproducer; I2 evidence, when present, "
-        "must agree with the single `investigation_adjudicated` event. Pre-INV-1 "
-        "summary projection errors are not used as contract assurance.",
+        (
+            "Assurance is recomputed from the fixed investigation contract: I1 must be "
+            "an executed failing diagnosis-stage reproducer; I2 evidence, when present, "
+            "must agree with the single `investigation_adjudicated` event. Pre-INV-1 "
+            "summary projection errors are not used as contract assurance."
+        ),
         "",
     ]
     append_investigation_window(

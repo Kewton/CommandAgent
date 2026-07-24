@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """Display-only failure class matching from persisted campaign evidence."""
 
-# ruff: noqa: E701,E702
 from __future__ import annotations
+
 import argparse
 import json
 from pathlib import Path
+
 import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]

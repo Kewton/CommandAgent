@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Translate persisted evidence into an acceptance sheet; never invent data."""
 
-# ruff: noqa: E701,E702
 from __future__ import annotations
+
 import argparse
 import hashlib
 import json
@@ -164,17 +164,7 @@ def generate(run: Path) -> str:
         if len(epochs) > 1
         else circle.get("elapsed_seconds")
     )
-    if elapsed is None:
-        log = run.parent / (run.name + ".log")
-        if log.is_file():
-            stamps = [
-                int(x)
-                for x in log.read_text(errors="replace").splitlines()
-                if x.strip().isdigit()
-            ]
-            if len(stamps) > 1:
-                elapsed = max(stamps) - min(stamps)
-    elif circle:
+    if elapsed is None or circle:
         log = run.parent / (run.name + ".log")
         if log.is_file():
             stamps = [

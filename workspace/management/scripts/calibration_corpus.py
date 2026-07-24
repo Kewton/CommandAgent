@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Idempotently collect evidence matching material for E2/I2 calibration."""
 
-# ruff: noqa: E701,E702
 from __future__ import annotations
+
 import argparse
 import json
 from pathlib import Path

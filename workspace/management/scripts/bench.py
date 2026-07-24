@@ -13,11 +13,12 @@ import shutil
 import subprocess
 import sys
 import time
-import tomllib
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
-from typing import Any, Sequence
+from typing import Any
 
+import tomllib
 
 HARNESS_VERSION = "0.1"
 TAIL_BYTES = 64 * 1024
@@ -207,11 +208,10 @@ def scrub_path(path: Path, scrub_allow: Sequence[dict[str, str]] = ()) -> ScrubR
                 ),
                 None,
             )
-            if real_match:
-                if not any(
-                    pattern.search(real_match.group(0)) for pattern, _ in allow_patterns
-                ):
-                    add("secret_value", file_path, _masked(real_match.group(0)), number)
+            if real_match and not any(
+                pattern.search(real_match.group(0)) for pattern, _ in allow_patterns
+            ):
+                add("secret_value", file_path, _masked(real_match.group(0)), number)
             name_match = NAME_VALUE_PATTERN.search(line)
             if name_match:
                 if not any(
@@ -1264,8 +1264,10 @@ def generate_report(campaign_dir: Path, metadata: dict[str, Any]) -> Path:
     lines = [
         f"# bench report skeleton: {metadata['campaign_id']}",
         "",
-        "This skeleton transfers mechanical observations only. A human reviewer must "
-        "decide UAT pass/fail, failure class, retry consumption, and settlement.",
+        (
+            "This skeleton transfers mechanical observations only. A human reviewer must "
+            "decide UAT pass/fail, failure class, retry consumption, and settlement."
+        ),
         "",
         "## Preflight record",
         "",
@@ -1276,9 +1278,11 @@ def generate_report(campaign_dir: Path, metadata: dict[str, Any]) -> Path:
         "",
         "## Event search method",
         "",
-        "The harness recursively parses JSON lines from each run artifact using file "
-        "glob `.anvil/runs/**/events.jsonl`, reads the exact `event` field, and applies "
-        "these regular-expression patterns:",
+        (
+            "The harness recursively parses JSON lines from each run artifact using file "
+            "glob `.anvil/runs/**/events.jsonl`, reads the exact `event` field, and applies "
+            "these regular-expression patterns:"
+        ),
         "",
     ]
     try:
@@ -1299,8 +1303,10 @@ def generate_report(campaign_dir: Path, metadata: dict[str, Any]) -> Path:
             "",
             "## Run matrix (mechanical transfer)",
             "",
-            "| run | harness status | product exit | seconds | verdict transfer | "
-            "assurance transfer |",
+            (
+                "| run | harness status | product exit | seconds | verdict transfer | "
+                "assurance transfer |"
+            ),
             "|---|---|---:|---:|---|---|",
         ]
     )
@@ -1340,8 +1346,10 @@ def generate_report(campaign_dir: Path, metadata: dict[str, Any]) -> Path:
             "",
             "## Event firing counts",
             "",
-            "| run | intent_resolved | host_env_normalized | "
-            "fix_reproducer_suggested | *_plan_synthesized | *_adjudicated |",
+            (
+                "| run | intent_resolved | host_env_normalized | "
+                "fix_reproducer_suggested | *_plan_synthesized | *_adjudicated |"
+            ),
             "|---|---:|---:|---:|---:|---:|",
         ]
     )
@@ -1375,8 +1383,10 @@ def generate_report(campaign_dir: Path, metadata: dict[str, Any]) -> Path:
                 "## Interrupted runs requiring review",
                 "",
                 "The following runs were not rerun: " + ", ".join(interrupted) + ".",
-                "A one-time rerun must use a new directory and requires review "
-                "adjudication.",
+                (
+                    "A one-time rerun must use a new directory and requires review "
+                    "adjudication."
+                ),
                 "",
             ]
         )

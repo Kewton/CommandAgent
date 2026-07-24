@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Create deliberately incomplete profile/intent admission scaffolds."""
 
-# ruff: noqa: E701,E702,E703
 from __future__ import annotations
+
 import argparse
 from pathlib import Path
 

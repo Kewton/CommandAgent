@@ -1,7 +1,8 @@
-# ruff: noqa: E702
+#!/usr/bin/env python3
 import tempfile
 import unittest
 from pathlib import Path
+
 from classify_runs import classify
 
 

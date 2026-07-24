@@ -74,6 +74,7 @@ python3 workspace/management/scripts/acceptance_sheet.py --run <workflow-circle 
 CIのPython checksと同一内容を、コミット前にリポジトリルートで実行する。
 
 ```bash
+python -m pip install --disable-pip-version-check ruff==0.16.0
 ruff check workspace/management/scripts
 python -m unittest discover -s workspace/management/scripts -p 'test_*.py'
 ```

@@ -1,4 +1,4 @@
-# ruff: noqa: E701,E702
+#!/usr/bin/env python3
 import sys
 import tempfile
 import unittest
