@@ -16,7 +16,7 @@ pub struct StreamCapture {
     pub invalid_utf8_replaced: bool,
 }
 
-pub(super) fn capture_stream<R>(
+pub(crate) fn capture_stream<R>(
     mut reader: R,
     max_bytes: usize,
 ) -> JoinHandle<std::io::Result<StreamCapture>>
@@ -51,7 +51,7 @@ where
     })
 }
 
-pub(super) fn join_capture(
+pub(crate) fn join_capture(
     handle: JoinHandle<std::io::Result<StreamCapture>>,
     stream: &str,
 ) -> anyhow::Result<StreamCapture> {

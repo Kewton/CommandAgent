@@ -11,7 +11,7 @@ use crate::minimal_loop::verifier_env;
 
 mod stream_capture;
 pub use stream_capture::StreamCapture;
-use stream_capture::{capture_stream, join_capture};
+pub(crate) use stream_capture::{capture_stream, join_capture};
 
 pub const PIPELINE_RUN_EVIDENCE_PATH: &str = "evidence/pipeline-run.json";
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);

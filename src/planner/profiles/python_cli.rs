@@ -22,6 +22,8 @@ use crate::planner::verify::{
     NormalizedVerifyCommand, VerificationReport, normalize_verify_command,
 };
 
+pub mod argv_probe;
+
 const DEFAULT_PACKAGE: &str = "anvil_app";
 const COMPILE_COMMAND: &str = "python -m compileall -q src";
 const PROBE_TIMEOUT: Duration = Duration::from_secs(5);
