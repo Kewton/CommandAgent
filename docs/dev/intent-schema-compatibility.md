@@ -15,6 +15,12 @@ investigateの構成を`intents/investigate.yaml`から読み、合成実体は�
 - investigation conformance 7本: 実行対象は既存`tests/investigation_intent_conformance.rs`群、変更なし
 - full suite: **非green**。環境／外部probe系を中心に22 failed、その他はpassed、ignoredは個別テスト出力の環境依存。失敗名は`/tmp/e2b-cargo.txt`の原文に保存（browser_probe、Ollama接続、dev-server、interaction probe等）。
 
-受理条件の「権限付きfull green」は未達のため、互換証明済みとは宣言しない。schema以外の実体差分は確認しておらず、修正せず停止・報告する。
+### 環境非依存3点（再実行）
+
+1. schema／investigate構成: `planner::intent_schema::tests::investigate_schema_is_strict_and_complete`（1/1 green）。investigate合成snapshot相当の`planner::investigation_plan_synthesis`は5/5 green: `elev002_run1_failure_output_is_injected_into_diagnose_snapshot`, `python_reproducer_output_reuses_b2d_traceback_mapping`, `guidance_contains_literal_claim_form_and_only_existing_sorted_files`, `pipe_and_schema_goals_use_fixed_three_phase_synthesis`, `workspace_inventory_is_bounded`。
+2. conformance: `tests/investigation_intent_conformance.rs` 8/8 green（要求7本を含む）。
+3. イベント互換: `investigation_plan_synthesis`の既存emitフィールド（event、phase、basis、profile、intent）と`investigation_runtime`の`investigation_adjudicated`フィールドをソースおよび既存fixtureで照合。移行による変更なし。専用イベントsnapshotテストは既存fixtureに追加されていないため、ここは「既存fixture照合」として記録する。
+
+full suiteは前回同様、browser/Ollama等の環境依存失敗が残り、権限付きgreenを復元できなかった。基線コミット383952eの同一環境行列も実行権限・Ollama/browser条件が未復元のため未実施であり、互換証明済みとは宣言しない。schema以外の実体差分は確認しておらず、修正せず停止・報告する。
 
 今回の変更は構成の読み込みと固定語彙検証だけで、合成計画・材料注入・照合・裁定のRust実体は変更していない。
