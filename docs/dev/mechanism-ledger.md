@@ -728,3 +728,4 @@ E-2b段階3証明: create schema配線（profile manifestが形、intent schema�
 E-2 complete: IntentSchema——3 intentのbyte互換移行完了。検証器と証明値（段階1: snapshot5/5+conformance8/8+反復行列6/6、段階2: snapshot5/5+conformance9/9+A-B-A交絡解消+full 1,758、段階3: 互換6/6+full 1,759）。盲点3件（予算枯渇flake・環境残留交絡・ローカル/CI検査乖離）を記録。「profileが形を、intentが意味を宣言する」境界を確立。scaffold(E-1)へのintents/*.yamlテンプレ追加をQUEUED。残るはE-3（第3profile判定戦）。
 E-3開始: 第3profile(cli)のscaffold実測・draft契約・カタログ束縛計画。判定戦の主メトリクスは新規Rust行数（現時点0）。
 cli契約v0 fixed（2026-07-24）: 実行観測主義・ケース束縛凍結・6負例。E-3判定戦の裁定基準を確定。
+受理CI乖離の根治: 真因はRuffバージョン差（ローカル0.14.9／CI0.16.0）。0.16.0へピン固定し、ツールチェーン固定を受理信頼性の教訓として記録。
