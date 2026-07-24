@@ -35,3 +35,10 @@ the circle end-to-end duration, while 6s is the observed node-event span.
 The fixture expectation must not be changed until review chooses and labels
 the contract definition; this report records the ambiguity without changing
 the fixture.
+
+## Adjudication
+
+Both measurements are valid. The root cause was an ambiguous label, not an
+incorrect recorded duration; no historical record correction is required.
+Acceptance sheets now label the two scopes explicitly and derive both values
+from primary timestamps.

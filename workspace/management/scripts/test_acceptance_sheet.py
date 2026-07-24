@@ -79,7 +79,9 @@ class AcceptanceSheetTests(unittest.TestCase):
             "E-D",
         ):
             self.assertIn(token, s)
-        self.assertIn("elapsed (epoch difference): 18秒", s)
+        # 精密化であり期待値の書換えではない: 全体18秒とノード6秒を併記する。
+        self.assertIn("円環全体の所要: 18秒", s)
+        self.assertIn("ノード実行の所要: 6秒", s)
         self.assertIn("stage=before executed=True expected=failure", s)
         self.assertIn("stage=after executed=True expected=success", s)
         self.assertNotIn("/Users/", s)

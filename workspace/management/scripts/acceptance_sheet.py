@@ -65,6 +65,44 @@ def safe(value):
     return str(value).replace("/Users/", "origin/")
 
 
+def elapsed_labels(run, circle, ev):
+    """Return labelled durations derived from persisted timestamps only."""
+    log = run.parent / (run.name + ".log")
+    outer = None
+    if log.is_file():
+        stamps = [
+            int(x)
+            for x in log.read_text(errors="replace").splitlines()
+            if x.strip().isdigit()
+        ]
+        if len(stamps) > 1:
+            outer = max(stamps) - min(stamps)
+    epochs = [e.get("epoch") for e in ev if isinstance(e.get("epoch"), (int, float))]
+    node_ranges = []
+    for path in sorted(run.rglob("events.jsonl")):
+        values = [
+            e.get("epoch")
+            for e in events(path)
+            if isinstance(e.get("epoch"), (int, float))
+        ]
+        if len(values) > 1:
+            node_ranges.append(max(values) - min(values))
+    node_elapsed = (
+        sum(node_ranges)
+        if node_ranges
+        else (max(epochs) - min(epochs) if len(epochs) > 1 else None)
+    )
+    if circle:
+        return [
+            f"- 円環全体の所要: {outer if outer is not None else '記録なし'}秒(workflow_started→workflow_adjudicated)",
+            f"- ノード実行の所要: {node_elapsed if node_elapsed is not None else '記録なし'}秒(ノードイベント範囲の合算)",
+        ]
+    elapsed = node_elapsed if node_elapsed is not None else outer
+    return [
+        f"- 所要: {elapsed if elapsed is not None else '記録なし'}秒(run_start→run_stop)"
+    ]
+
+
 def evidence_lines(run, files):
     out = []
     for p in files:
@@ -158,22 +196,6 @@ def generate(run: Path) -> str:
         "reason",
         default=next((e.get("reason") for e in ev if e.get("reason")), "記録なし"),
     )
-    epochs = [e.get("epoch") for e in ev if isinstance(e.get("epoch"), (int, float))]
-    elapsed = (
-        (max(epochs) - min(epochs))
-        if len(epochs) > 1
-        else circle.get("elapsed_seconds")
-    )
-    if elapsed is None or circle:
-        log = run.parent / (run.name + ".log")
-        if log.is_file():
-            stamps = [
-                int(x)
-                for x in log.read_text(errors="replace").splitlines()
-                if x.strip().isdigit()
-            ]
-            if len(stamps) > 1:
-                elapsed = max(stamps) - min(stamps)
     files = json_files(run)
     ids = sorted(
         {
@@ -192,7 +214,7 @@ def generate(run: Path) -> str:
         f"- intent (intent_resolved): {intent or '記録なし'}",
         f"- effective model/provider: {model or '記録なし'} / {provider or '記録なし'}",
         f"- planner model: {planner or '記録なし'}",
-        f"- elapsed (epoch difference): {elapsed if elapsed is not None else '記録なし'}秒",
+        *elapsed_labels(run, circle, ev),
         "",
         "## 2. 判定",
         "",
