@@ -35,3 +35,24 @@ schema proof is claimed.
 
 Raw outputs: `/tmp/e2b-583-1.txt`..`3.txt`, `/tmp/e2b-head-1.txt`..`3.txt`,
 and `/tmp/e2b-base-1.txt`..`3.txt`.
+
+## A-B-A port-probed matrix
+
+The test allocates ports dynamically from `TEST_DEV_SERVER_PORT`, starting at
+34011 (`runner.rs:18048`); the package fixture itself uses Next's 3011 only
+for its generated scripts. Port 34011 was probed immediately before each
+run. Sandbox bind probes reported permission denied for the first HEAD pair;
+the escalated probes then reported `EADDRINUSE` for the remaining runs,
+showing that the port was not free at probe time.
+
+| position | runs | probe | result |
+|---|---:|---|---|
+| HEAD `227da6e` (initial) | 2 | sandbox probe denied | fail, `browser_readiness_failed:start_exited` |
+| baseline `22512a9` | 1 | free | pass |
+| baseline `22512a9` | 1 | `EADDRINUSE` | pass |
+| HEAD `227da6e` (return) | 2 | `EADDRINUSE` | pass, 1 test each |
+
+Because HEAD passed after the environment changed, the earlier 3/3 failure
+was environmentally confounded rather than a stable schema regression. The
+stage-2 proof may proceed to the full-suite run; no proof claim is made until
+that run completes.

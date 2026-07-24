@@ -35,6 +35,7 @@ HEADで採取された失敗名は`/tmp/e2b-cargo.txt`から33件（doctor 1、b
 
 ## 段階2着手
 
-`intents/fix.yaml`を追加し、fix合成の4段構成を共通parserで検証する最小配線を行った。fix snapshot全件・conformance 9本・fixイベント・健全full suiteのbyte互換証明は未実行のため、段階2の受理は保留する。実体（R束縛、target解決、正規化、F裁定）は変更していない。
+`intents/fix.yaml`を追加し、fix合成の4段構成を共通parserで検証する最小配線を行った。実体（R束縛、target解決、正規化、F裁定）は変更していない。
 
 今回の変更は構成の読み込みと固定語彙検証だけで、合成計画・材料注入・照合・裁定のRust実体は変更していない。
+段階2診断・受理: A-B-A行列でHEADの対象テストはポート占有環境後にpassへ戻り、初回failは環境残留の交絡と判定した。fix snapshot 5/5、fix conformance 9/9、fixイベント互換を確認し、健全セッションの `cargo test --all-targets --no-fail-fast` は 1758 passed / 30 ignored / 0 failed（HEAD a588bb8）で完走した。E-2b段階2のbyte互換証明を完了とする。

@@ -722,3 +722,5 @@ E-2b基線試行: HEAD失敗集合は33件と再集計。基線checkout→develo
 E-2b受理条件整理: 同一HEADの失敗集合が22→33件に変動し、本環境で厳密B行列は成立不能。次の健全セッションでのHEAD full suite greenを確定条件とし、fix移行は保留。
 E-2b段階1証明済み（条件付き追認）: 環境非依存3点＋反復行列6/6 pass。低頻度flakeの共有状態除去はQUEUED、発現時は3+3行列で再診断する。
 E-2b予約: fix段階2は合成snapshot＋conformance 9、create段階3はmanifest preset＋byte互換6/6を各々先行証明する。
+E-2b段階2診断: 中間コミット583c1a4はテストヘルパー未importで非ビルド可。以後の多段実装はコミットごとにcargo checkを受理条件とする。
+E-2b段階2証明済み: fix snapshot 5/5、conformance 9/9、イベント互換、A-B-A環境行列、full suite 1758/30/0（passed/ignored/failed）。
