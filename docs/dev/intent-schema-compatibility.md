@@ -33,4 +33,8 @@ HEADで採取された失敗名は`/tmp/e2b-cargo.txt`から33件（doctor 1、b
 
 段階1証明構成は、環境非依存3点（snapshot 5/5、conformance 8/8、イベントfixture差分なし）＋反復行列6/6 passで成立した。full suiteは既知flakeの条件付き追認であり、段階1の証明完了を記録する。
 
+## 段階2着手
+
+`intents/fix.yaml`を追加し、fix合成の4段構成を共通parserで検証する最小配線を行った。fix snapshot全件・conformance 9本・fixイベント・健全full suiteのbyte互換証明は未実行のため、段階2の受理は保留する。実体（R束縛、target解決、正規化、F裁定）は変更していない。
+
 今回の変更は構成の読み込みと固定語彙検証だけで、合成計画・材料注入・照合・裁定のRust実体は変更していない。
