@@ -123,6 +123,10 @@ fn applies(config: &Config, plan: &UltraPlan) -> bool {
 }
 
 fn ensure_shape(plan: &UltraPlan) -> anyhow::Result<()> {
+    let schema = crate::planner::intent_schema::load()?;
+    // Schema supplies phase structure only; synthesis, normalization, checkpoints,
+    // material injection, and adjudication intentionally remain Rust implementation.
+    let _ = schema;
     let actual = plan
         .phases
         .iter()

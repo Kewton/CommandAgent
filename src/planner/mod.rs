@@ -12,6 +12,7 @@ pub(crate) mod fix_runtime;
 pub mod hook_attributes;
 pub mod hook_snapshot;
 pub mod intent;
+pub(crate) mod intent_schema;
 pub mod interaction_qualification;
 pub(crate) mod interaction_repair;
 pub(crate) mod investigation_binding;
