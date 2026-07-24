@@ -322,7 +322,9 @@ class FixBandTests(unittest.TestCase):
     def test_repository_fix_window_and_full_evidence(self) -> None:
         records, scanned_sets = band.discover_fix_records()
         self.assertEqual(scanned_sets, list(band.FIX_WINDOW_SETS))
-        window_a = [record for record in records if record.set_id in band.FIX_WINDOW_SETS]
+        window_a = [
+            record for record in records if record.set_id in band.FIX_WINDOW_SETS
+        ]
         window_b = [record for record in records if record.set_id == band.FIX_BENCH_SET]
         self.assertEqual(len(records), band.FIX_EXPECTED_RUNS)
         self.assertEqual(len(window_a), 24)
@@ -525,11 +527,15 @@ class CircleBandTests(unittest.TestCase):
         self.assertEqual(len(records), 33)
         self.assertEqual(sum(bool(record.excluded_reason) for record in records), 30)
         official = [record for record in records if not record.excluded_reason]
-        self.assertEqual({record.set_id for record in official}, {band.CIRCLE_OFFICIAL_SET})
+        self.assertEqual(
+            {record.set_id for record in official}, {band.CIRCLE_OFFICIAL_SET}
+        )
         self.assertEqual(
             band.circle_rate_rows(records), [["elevated", "1", "2", "3", "33%"]]
         )
-        self.assertEqual({record.verdict for record in official}, {"circle_full", "circle_failed"})
+        self.assertEqual(
+            {record.verdict for record in official}, {"circle_full", "circle_failed"}
+        )
         summary = band.build_circle_summary(records, scanned_sets)
         self.assertIn("| elevated | 1 | 2 | 3 | 33% |", summary)
         self.assertIn("profile不伝播により無効（P1-a FAIL）", summary)
@@ -604,7 +610,9 @@ class CircleBandTests(unittest.TestCase):
             stderr = io.StringIO()
             with (
                 mock.patch.object(
-                    band, "discover_circle_records", return_value=([excluded], [excluded.set_id])
+                    band,
+                    "discover_circle_records",
+                    return_value=([excluded], [excluded.set_id]),
                 ),
                 mock.patch.object(band, "CIRCLE_OUTPUT", output),
                 mock.patch.object(

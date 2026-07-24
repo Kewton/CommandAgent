@@ -291,7 +291,6 @@ uat-test0714-m4-004|data_agg_qwen27_plan_qwen35_exec_preset_profile_002|qwen3.6:
 """
 
 
-
 def normalize_scenario(*parts: Any) -> str:
     text = " ".join(str(p or "") for p in parts).lower()
     if "space" in text or "invader" in text or "インベーダ" in text:
@@ -540,7 +539,12 @@ def record_from_row(set_dir: Path, row: dict[str, Any]) -> RunRecord:
     planner = str(row.get("planner") or row.get("planner_model") or "")
     executor = str(row.get("executor") or row.get("model") or "")
     plan_preset = (
-        str(row.get("plan_preset") or row.get("plan_preset_arg") or row.get("preset") or "")
+        str(
+            row.get("plan_preset")
+            or row.get("plan_preset_arg")
+            or row.get("preset")
+            or ""
+        )
         or nested_value(row, "plan_preset_resolved", "value")
         or nested_value(row, "preset_resolved", "value")
         or "unknown"
@@ -618,12 +622,16 @@ def parse_report_only(set_dir: Path) -> list[RunRecord]:
     release_gate = find_markdown_value(text, "Release gate")
     final_state = normalize_final(final, "", release_gate)
     stop_class = "full" if final_state == "full_success" else final_state
-    elapsed = elapsed_from_summary(set_dir / "artifacts" / "attempt-2-pass" / "summary.md")
+    elapsed = elapsed_from_summary(
+        set_dir / "artifacts" / "attempt-2-pass" / "summary.md"
+    )
     full_has_pass = "Interaction evidence: passed" in text
     false_full = ""
     if final_state == "full_success" and not full_has_pass:
         summary = set_dir / "artifacts" / "attempt-2-pass" / "summary.md"
-        if summary.exists() and "Interaction evidence: passed" in summary.read_text(errors="ignore"):
+        if summary.exists() and "Interaction evidence: passed" in summary.read_text(
+            errors="ignore"
+        ):
             full_has_pass = True
     if final_state == "full_success" and not full_has_pass:
         false_full = "missing_browser_interaction_pass_evidence"
@@ -757,8 +765,7 @@ def require_nonempty_aggregation(
     ]
     if diagnostics:
         lines.extend(
-            f"- {diagnostic.set_id}: {diagnostic.reason}"
-            for diagnostic in diagnostics
+            f"- {diagnostic.set_id}: {diagnostic.reason}" for diagnostic in diagnostics
         )
     else:
         lines.append("- <none>: no candidate sets were detected")
@@ -785,7 +792,7 @@ def executor_counts(records: list[RunRecord]) -> dict[tuple[str, str], Counter[s
     for rec in records:
         if rec.excluded_reason:
             continue
-        counts[(rec.scenario, rec.executor or "unknown")] [rec.final_state] += 1
+        counts[(rec.scenario, rec.executor or "unknown")][rec.final_state] += 1
     return counts
 
 
@@ -807,7 +814,9 @@ def table(headers: list[str], rows: list[list[str]]) -> list[str]:
     return lines
 
 
-def build_summary(records: list[RunRecord], aggregate_row_total: int, scanned_sets: list[str]) -> str:
+def build_summary(
+    records: list[RunRecord], aggregate_row_total: int, scanned_sets: list[str]
+) -> str:
     included = [rec for rec in records if not rec.excluded_reason]
     excluded = [rec for rec in records if rec.excluded_reason]
     unknowns = [rec for rec in included if rec.scenario == "unknown"]
@@ -843,16 +852,23 @@ def build_summary(records: list[RunRecord], aggregate_row_total: int, scanned_se
         den = sum(counter.values())
         full = counter["full_success"]
         note = " n<10" if den < 10 else ""
-        rows.append([
-            scenario,
-            str(counter["full_success"]),
-            str(counter["partial"]),
-            str(counter["incomplete"]),
-            str(counter["failed"]),
-            str(den),
-            f"{pct(full, den)}{note}",
-        ])
-    lines.extend(table(["Scenario", "full", "partial", "incomplete", "failed", "n", "full rate"], rows))
+        rows.append(
+            [
+                scenario,
+                str(counter["full_success"]),
+                str(counter["partial"]),
+                str(counter["incomplete"]),
+                str(counter["failed"]),
+                str(den),
+                f"{pct(full, den)}{note}",
+            ]
+        )
+    lines.extend(
+        table(
+            ["Scenario", "full", "partial", "incomplete", "failed", "n", "full rate"],
+            rows,
+        )
+    )
     lines.append("")
     lines.append("## Scenario x Executor")
     rows = []
@@ -860,7 +876,9 @@ def build_summary(records: list[RunRecord], aggregate_row_total: int, scanned_se
         den = sum(counter.values())
         full = counter["full_success"]
         note = " n<10" if den < 10 else ""
-        rows.append([scenario, executor, str(full), str(den), f"{pct(full, den)}{note}"])
+        rows.append(
+            [scenario, executor, str(full), str(den), f"{pct(full, den)}{note}"]
+        )
     lines.extend(table(["Scenario", "Executor", "full", "n", "full rate"], rows))
     lines.append("")
     lines.append("## Full Run Durations")
@@ -872,27 +890,34 @@ def build_summary(records: list[RunRecord], aggregate_row_total: int, scanned_se
             full_by_scenario[rec.scenario].append(rec.elapsed_seconds)
             all_full.append(rec.elapsed_seconds)
     if all_full:
-        rows.append([
-            "all",
-            str(len(all_full)),
-            time_label(min(all_full)),
-            time_label(median(all_full)),
-            time_label(max(all_full)),
-        ])
+        rows.append(
+            [
+                "all",
+                str(len(all_full)),
+                time_label(min(all_full)),
+                time_label(median(all_full)),
+                time_label(max(all_full)),
+            ]
+        )
     for scenario in sorted(full_by_scenario):
         values = full_by_scenario[scenario]
-        rows.append([
-            scenario,
-            str(len(values)),
-            time_label(min(values)),
-            time_label(median(values)),
-            time_label(max(values)),
-        ])
+        rows.append(
+            [
+                scenario,
+                str(len(values)),
+                time_label(min(values)),
+                time_label(median(values)),
+                time_label(max(values)),
+            ]
+        )
     lines.extend(table(["Scope", "full runs", "min", "median", "max"], rows))
     lines.append("")
     lines.append("## Excluded and Unknown Runs")
     if excluded:
-        rows = [[rec.set_id, rec.run_id, rec.scenario, rec.excluded_reason] for rec in excluded]
+        rows = [
+            [rec.set_id, rec.run_id, rec.scenario, rec.excluded_reason]
+            for rec in excluded
+        ]
         lines.extend(table(["Set", "Run", "Scenario", "Reason"], rows))
     else:
         lines.append("- Excluded infrastructure runs: none")
@@ -906,7 +931,10 @@ def build_summary(records: list[RunRecord], aggregate_row_total: int, scanned_se
     lines.append("")
     lines.append("## False-Full Check")
     if false_full:
-        rows = [[rec.set_id, rec.run_id, rec.scenario, rec.false_full_reason] for rec in false_full]
+        rows = [
+            [rec.set_id, rec.run_id, rec.scenario, rec.false_full_reason]
+            for rec in false_full
+        ]
         lines.extend(table(["Set", "Run", "Scenario", "Reason"], rows))
     else:
         lines.append("- False-full suspects: 0")
@@ -1635,19 +1663,33 @@ def discover_fix_records() -> tuple[list[FixRunRecord], list[str]]:
         run_name = str(row.get("name") or "")
         interrupted = str(row.get("status") or "") == "interrupted(environment)"
         artifact = RUNS_DIR / FIX_BENCH_SET / "artifacts" / run_name
-        records.append(FixRunRecord(
-            set_id=FIX_BENCH_SET, run_name=run_name, event_run_id=run_name,
-            fix_run_id=run_name, intent="fix", intent_source="uat-meta",
-            goal=str(row.get("goal") or ""),
-            family="compile_error_fix" if row.get("goal") == "pipe" else "contract_hook_fix",
-            executor=str(row.get("executor") or "unknown"), final_acceptance="failed",
-            verdict="interrupted" if interrupted else "failed",
-            assurance="static" if interrupted else "failed",
-            failure_class="environment_interrupted" if interrupted else "bench_product_exit",
-            duration_seconds=row.get("duration_seconds"),
-            source=f"{FIX_BENCH_SET}/uat-meta.json", evidence_dir=artifact / ".anvil" / "evidence",
-            excluded_reason="interrupted(environment): run non-consuming; two attempts were environment-interrupted" if interrupted else "",
-        ))
+        records.append(
+            FixRunRecord(
+                set_id=FIX_BENCH_SET,
+                run_name=run_name,
+                event_run_id=run_name,
+                fix_run_id=run_name,
+                intent="fix",
+                intent_source="uat-meta",
+                goal=str(row.get("goal") or ""),
+                family="compile_error_fix"
+                if row.get("goal") == "pipe"
+                else "contract_hook_fix",
+                executor=str(row.get("executor") or "unknown"),
+                final_acceptance="failed",
+                verdict="interrupted" if interrupted else "failed",
+                assurance="static" if interrupted else "failed",
+                failure_class="environment_interrupted"
+                if interrupted
+                else "bench_product_exit",
+                duration_seconds=row.get("duration_seconds"),
+                source=f"{FIX_BENCH_SET}/uat-meta.json",
+                evidence_dir=artifact / ".anvil" / "evidence",
+                excluded_reason="interrupted(environment): run non-consuming; two attempts were environment-interrupted"
+                if interrupted
+                else "",
+            )
+        )
     assert len(records) == FIX_EXPECTED_RUNS, (
         f"fix output rows {len(records)} != expected {FIX_EXPECTED_RUNS}"
     )
@@ -1879,11 +1921,15 @@ def build_fix_summary(
     scanned_sets: list[str],
     full_evidence_verified: int,
 ) -> str:
-    window_a_records = [record for record in records if record.set_id in FIX_WINDOW_SETS]
+    window_a_records = [
+        record for record in records if record.set_id in FIX_WINDOW_SETS
+    ]
     window_b_records = [record for record in records if record.set_id == FIX_BENCH_SET]
     official = [record for record in window_a_records if not record.excluded_reason]
     excluded = [record for record in records if record.excluded_reason]
-    historical_excluded = [record for record in window_a_records if record.excluded_reason]
+    historical_excluded = [
+        record for record in window_a_records if record.excluded_reason
+    ]
     unknown_intent = [record for record in records if record.intent == "unknown"]
     unknown_family = [record for record in records if record.family == "unknown"]
     intent_sources = Counter(record.intent_source for record in records)
@@ -1984,10 +2030,16 @@ def build_fix_summary(
         )
     )
     lines.extend(["", "## Window B rows excluded from consumption", ""])
-    lines.extend(table(
-        ["Set", "Run", "Reason"],
-        [[r.set_id, r.run_name, r.excluded_reason] for r in window_b_records if r.excluded_reason],
-    ))
+    lines.extend(
+        table(
+            ["Set", "Run", "Reason"],
+            [
+                [r.set_id, r.run_name, r.excluded_reason]
+                for r in window_b_records
+                if r.excluded_reason
+            ],
+        )
+    )
     lines.extend(["", "## First full and F-evidence chain", ""])
     full_records = [record for record in records if record.is_full]
     for record in full_records:
@@ -2523,7 +2575,9 @@ def circle_rate_rows(records: list[CircleRunRecord]) -> list[list[str]]:
         full = counter["circle_full"]
         failed = counter["circle_failed"]
         denominator = full + failed
-        rows.append([arm, str(full), str(failed), str(denominator), pct(full, denominator)])
+        rows.append(
+            [arm, str(full), str(failed), str(denominator), pct(full, denominator)]
+        )
     return rows
 
 
@@ -2539,7 +2593,9 @@ def build_circle_summary(
     assert len(included) == 3, (
         f"circle formal denominator is {len(included)}, expected 3"
     )
-    assert len(excluded) == 30, f"circle exclusion count is {len(excluded)}, expected 30"
+    assert len(excluded) == 30, (
+        f"circle exclusion count is {len(excluded)}, expected 30"
+    )
     official_run = next(record for record in included if record.run_name == "run1")
     for required in ("investigation-binding.json", "workflow-circle.json"):
         assert official_run.circle_path.parent.joinpath(required).is_file(), (
@@ -2661,7 +2717,9 @@ def main() -> int:
             summary = build_fix_summary(fix_records, scanned_sets, full_verified)
             output = FIX_OUTPUT
         elif args.profile == "data":
-            data_records, scanned_rows, meta_rows, scanned_sets = discover_data_records()
+            data_records, scanned_rows, meta_rows, scanned_sets = (
+                discover_data_records()
+            )
             require_nonempty_aggregation(
                 args.profile,
                 data_records,

@@ -205,7 +205,9 @@ class ExecutionPolicyTests(unittest.TestCase):
                 (campaign / "artifacts" / "pipe_qwen_001" / "input.txt").is_file()
             )
             self.assertTrue(
-                (campaign / "artifacts" / "pipe_qwen_001" / "acceptance-sheet.md").is_file()
+                (
+                    campaign / "artifacts" / "pipe_qwen_001" / "acceptance-sheet.md"
+                ).is_file()
             )
 
 
@@ -229,8 +231,12 @@ class ScrubTests(unittest.TestCase):
             (root / "token.txt").write_text("sk-abcdefghijklmnopq\n", encoding="utf-8")
             result = bench.scrub_path(root)
             self.assertFalse(result.ok)
-            self.assertTrue(any(item["kind"] == "dangerous_file" for item in result.findings))
-            self.assertTrue(any(item["kind"] == "secret_value" for item in result.findings))
+            self.assertTrue(
+                any(item["kind"] == "dangerous_file" for item in result.findings)
+            )
+            self.assertTrue(
+                any(item["kind"] == "secret_value" for item in result.findings)
+            )
 
     def test_scrub_allow_is_transferred_and_suppresses_matching_finding(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

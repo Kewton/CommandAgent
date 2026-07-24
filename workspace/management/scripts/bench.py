@@ -155,10 +155,14 @@ def scrub_path(path: Path, scrub_allow: Sequence[dict[str, str]] = ()) -> ScrubR
     """
     findings: list[dict[str, Any]] = []
     allow_records = tuple(scrub_allow)
-    allow_patterns = [(re.compile(item["pattern"]), item["reason"]) for item in allow_records]
+    allow_patterns = [
+        (re.compile(item["pattern"]), item["reason"]) for item in allow_records
+    ]
 
     def add(kind: str, file_path: Path, detail: str, line: int | None = None) -> None:
-        relative = str(file_path.relative_to(path)) if file_path != path else file_path.name
+        relative = (
+            str(file_path.relative_to(path)) if file_path != path else file_path.name
+        )
         if any(pattern.search(detail) for pattern, _ in allow_patterns):
             return
         record: dict[str, Any] = {"kind": kind, "path": relative, "detail": detail}
@@ -166,15 +170,26 @@ def scrub_path(path: Path, scrub_allow: Sequence[dict[str, str]] = ()) -> ScrubR
             record["line"] = line
         findings.append(record)
 
-    files = [path] if path.is_file() else [item for item in path.rglob("*") if item.is_file()]
+    files = (
+        [path]
+        if path.is_file()
+        else [item for item in path.rglob("*") if item.is_file()]
+    )
     for file_path in files:
-        relative = file_path.relative_to(path) if file_path != path else Path(file_path.name)
+        relative = (
+            file_path.relative_to(path) if file_path != path else Path(file_path.name)
+        )
         parts = set(relative.parts)
         if any(part in {"node_modules", ".next", "target"} for part in parts):
             add("derived", file_path, str(relative))
         if file_path.stat().st_size > MAX_SCRUB_FILE_BYTES:
             add("oversize", file_path, f"{file_path.stat().st_size} bytes")
-        if file_path.name == ".env" or file_path.name.startswith(".env.") or file_path.suffix == ".pem" or file_path.name.startswith("id_rsa"):
+        if (
+            file_path.name == ".env"
+            or file_path.name.startswith(".env.")
+            or file_path.suffix == ".pem"
+            or file_path.name.startswith("id_rsa")
+        ):
             add("dangerous_file", file_path, str(relative))
         try:
             text = file_path.read_text(encoding="utf-8", errors="replace")
@@ -184,24 +199,48 @@ def scrub_path(path: Path, scrub_allow: Sequence[dict[str, str]] = ()) -> ScrubR
         text_lines = text.splitlines()
         dump_streak = 0
         for number, line in enumerate(text_lines, start=1):
-            real_match = next((pattern.search(line) for pattern in SECRET_VALUE_PATTERNS if pattern.search(line)), None)
+            real_match = next(
+                (
+                    pattern.search(line)
+                    for pattern in SECRET_VALUE_PATTERNS
+                    if pattern.search(line)
+                ),
+                None,
+            )
             if real_match:
-                if not any(pattern.search(real_match.group(0)) for pattern, _ in allow_patterns):
+                if not any(
+                    pattern.search(real_match.group(0)) for pattern, _ in allow_patterns
+                ):
                     add("secret_value", file_path, _masked(real_match.group(0)), number)
             name_match = NAME_VALUE_PATTERN.search(line)
             if name_match:
-                if not any(pattern.search(name_match.group(2)) for pattern, _ in allow_patterns):
+                if not any(
+                    pattern.search(name_match.group(2)) for pattern, _ in allow_patterns
+                ):
                     add("named_value", file_path, _masked(name_match.group(2)), number)
             elif number < len(text_lines):
                 next_match = NAME_VALUE_PATTERN.search(line + "\n" + text_lines[number])
                 if next_match and next_match.group(2):
-                    add("named_adjacent_value", file_path, _masked(next_match.group(2)), number)
-            if ENV_DUMP_PATTERN.match(line) and line.split("=", 1)[0] not in ENV_DUMP_ALLOW:
+                    add(
+                        "named_adjacent_value",
+                        file_path,
+                        _masked(next_match.group(2)),
+                        number,
+                    )
+            if (
+                ENV_DUMP_PATTERN.match(line)
+                and line.split("=", 1)[0] not in ENV_DUMP_ALLOW
+            ):
                 dump_streak += 1
             else:
                 dump_streak = 0
             if dump_streak >= 20:
-                add("environment_dump", file_path, "20 consecutive uppercase assignments", number - 19)
+                add(
+                    "environment_dump",
+                    file_path,
+                    "20 consecutive uppercase assignments",
+                    number - 19,
+                )
                 dump_streak = 0
     return ScrubResult(not findings, tuple(findings), allow_records)
 
@@ -222,7 +261,11 @@ def _required_str(table: dict[str, Any], key: str, context: str) -> str:
 
 def _safe_relative_path(value: str, context: str) -> PurePosixPath:
     path = PurePosixPath(value)
-    if path.is_absolute() or not path.parts or any(part in {"", ".", ".."} for part in path.parts):
+    if (
+        path.is_absolute()
+        or not path.parts
+        or any(part in {"", ".", ".."} for part in path.parts)
+    ):
         raise BenchError(f"{context} must be a normalized relative path: {value!r}")
     if ".git" in path.parts:
         raise BenchError(f"{context} may not contain .git: {value!r}")
@@ -530,14 +573,18 @@ def _require_success(record: dict[str, Any], label: str) -> None:
         raise BenchError(f"preflight {label} failed: {detail.strip()}")
 
 
-def _check_git_clean(record: dict[str, Any], repo_root: Path, allowed_prefix: Path | None) -> int:
+def _check_git_clean(
+    record: dict[str, Any], repo_root: Path, allowed_prefix: Path | None
+) -> int:
     status_text = record["stdout_tail"]
     dirty = [line for line in status_text.splitlines() if line.strip()]
     allowed = 0
     unexpected: list[str] = []
     for line in dirty:
         relative = line[3:] if len(line) >= 3 else ""
-        if allowed_prefix is not None and relative.startswith(str(allowed_prefix).rstrip("/") + "/"):
+        if allowed_prefix is not None and relative.startswith(
+            str(allowed_prefix).rstrip("/") + "/"
+        ):
             allowed += 1
         else:
             unexpected.append(line)
@@ -553,7 +600,9 @@ def _check_git_clean(record: dict[str, Any], repo_root: Path, allowed_prefix: Pa
 
 
 def perform_preflight(
-    repo_root: Path, min_head: str | None, skip_suite_tests: bool,
+    repo_root: Path,
+    min_head: str | None,
+    skip_suite_tests: bool,
     allowed_output_dir: Path | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, str]]]:
     records: dict[str, Any] = {"started_epoch": int(time.time())}
@@ -567,7 +616,9 @@ def perform_preflight(
     allowed_prefix = None
     if allowed_output_dir is not None:
         try:
-            allowed_prefix = allowed_output_dir.resolve().relative_to(repo_root.resolve())
+            allowed_prefix = allowed_output_dir.resolve().relative_to(
+                repo_root.resolve()
+            )
         except ValueError:
             allowed_prefix = None
     allowed_count = _check_git_clean(git_status, repo_root, allowed_prefix)
@@ -634,11 +685,16 @@ def perform_preflight(
         "installed": sha256_file(installed_binary),
     }
     if records["binary_sha256"]["built"] != records["binary_sha256"]["installed"]:
-        raise BenchError("preflight installed binary SHA-256 differs from release build")
+        raise BenchError(
+            "preflight installed binary SHA-256 differs from release build"
+        )
 
     resolved_binary = shutil.which("commandagent")
     records["path_commandagent"] = resolved_binary
-    if resolved_binary is None or Path(resolved_binary).resolve() != installed_binary.resolve():
+    if (
+        resolved_binary is None
+        or Path(resolved_binary).resolve() != installed_binary.resolve()
+    ):
         raise BenchError(
             "preflight PATH commandagent does not resolve to ~/.local/bin/commandagent"
         )
@@ -726,7 +782,9 @@ def procure_run(
                 f"observed {observed.get(relative)}"
                 for relative in mismatches
             )
-            return ProcurementResult(False, f"SHA-256 mismatch: {detail}", observed, None)
+            return ProcurementResult(
+                False, f"SHA-256 mismatch: {detail}", observed, None
+            )
 
         precheck_argv = shlex.split(source.precheck_cmd)
         if not precheck_argv:
@@ -779,7 +837,10 @@ def run_product(
         with console_path.open("w", encoding="utf-8") as console:
             console.write(f"start_epoch: {start_epoch}\n")
             console.write(f"command: {format_command(command)}\n")
-        with stdout_path.open("wb") as stdout_handle, stderr_path.open("wb") as stderr_handle:
+        with (
+            stdout_path.open("wb") as stdout_handle,
+            stderr_path.open("wb") as stderr_handle,
+        ):
             process = subprocess.Popen(
                 list(command),
                 cwd=run_dir,
@@ -894,7 +955,9 @@ def collect_observations(artifact_dir: Path) -> dict[str, Any]:
         if ".anvil" in path.relative_to(artifact_dir).parts
         and "runs" in path.relative_to(artifact_dir).parts
     ]
-    summary_path = max(summaries, key=lambda path: path.stat().st_mtime) if summaries else None
+    summary_path = (
+        max(summaries, key=lambda path: path.stat().st_mtime) if summaries else None
+    )
     verdict = assurance = terminal_reason = None
     verdict_source = assurance_source = terminal_reason_source = None
     if summary_path is not None:
@@ -911,7 +974,8 @@ def collect_observations(artifact_dir: Path) -> dict[str, Any]:
             "file_glob": ".anvil/runs/**/events.jsonl",
             "field": "event",
             "patterns": {
-                label: pattern.pattern for label, pattern in EVENT_SEARCH_PATTERNS.items()
+                label: pattern.pattern
+                for label, pattern in EVENT_SEARCH_PATTERNS.items()
             },
             "files": event_files,
             "parse_errors": parse_errors,
@@ -997,9 +1061,7 @@ def _metadata_run(metadata: dict[str, Any], name: str) -> dict[str, Any]:
     raise BenchError(f"metadata is missing run: {name}")
 
 
-def _record_procurement(
-    record: dict[str, Any], result: ProcurementResult
-) -> None:
+def _record_procurement(record: dict[str, Any], result: ProcurementResult) -> None:
     record["input_sha256_observed"] = result.observed_sha256
     record["precheck"] = result.precheck
     if result.reason:
@@ -1007,15 +1069,17 @@ def _record_procurement(
 
 
 def _finish_run_record(
-    record: dict[str, Any], run_dir: Path, source: SourceSpec, artifact_dir: Path,
+    record: dict[str, Any],
+    run_dir: Path,
+    source: SourceSpec,
+    artifact_dir: Path,
     scrub_allow: Sequence[dict[str, str]] = (),
 ) -> None:
-    record["final_sha256"] = _hash_relative_paths(
-        run_dir, list(source.input_sha256)
-    )
+    record["final_sha256"] = _hash_relative_paths(run_dir, list(source.input_sha256))
     archive_run(source, run_dir, artifact_dir)
     try:
         from acceptance_sheet import generate as generate_acceptance_sheet
+
         (artifact_dir / "acceptance-sheet.md").write_text(
             generate_acceptance_sheet(artifact_dir), encoding="utf-8"
         )
@@ -1056,7 +1120,11 @@ def normalize_interrupted_runs(
         artifact_dir = campaign_dir / "artifacts" / run.name
         if run_dir.exists():
             _finish_run_record(
-                record, run_dir, suite.source_for(run.set_id), artifact_dir, suite.scrub_allow
+                record,
+                run_dir,
+                suite.source_for(run.set_id),
+                artifact_dir,
+                suite.scrub_allow,
             )
         changed = True
     if changed:
@@ -1094,7 +1162,11 @@ def process_runs(
             record["status"] = "blocked"
             if run_dir.exists():
                 _finish_run_record(
-                    record, run_dir, suite.source_for(run.set_id), artifact_dir, suite.scrub_allow
+                    record,
+                    run_dir,
+                    suite.source_for(run.set_id),
+                    artifact_dir,
+                    suite.scrub_allow,
                 )
             write_metadata(metadata_path, metadata)
             print(f"blocked: {run.name}: {procurement.reason}")
@@ -1102,7 +1174,11 @@ def process_runs(
         if dry_run:
             record["status"] = "dry-run-ready"
             _finish_run_record(
-                record, run_dir, suite.source_for(run.set_id), artifact_dir, suite.scrub_allow
+                record,
+                run_dir,
+                suite.source_for(run.set_id),
+                artifact_dir,
+                suite.scrub_allow,
             )
             write_metadata(metadata_path, metadata)
             print(f"dry-run: ready {run.name}")
@@ -1124,7 +1200,11 @@ def process_runs(
             record["duration_seconds"] = product.end_epoch - product.start_epoch
             record["product_exit"] = product.exit_code
             _finish_run_record(
-                record, run_dir, suite.source_for(run.set_id), artifact_dir, suite.scrub_allow
+                record,
+                run_dir,
+                suite.source_for(run.set_id),
+                artifact_dir,
+                suite.scrub_allow,
             )
             metadata.setdefault("resume_notes", []).append(
                 f"{run.name} was interrupted(environment) and must not be rerun. "
@@ -1137,7 +1217,11 @@ def process_runs(
             record["end_epoch"] = int(time.time())
             record["protocol_reason"] = f"product start failed: {error}"
             _finish_run_record(
-                record, run_dir, suite.source_for(run.set_id), artifact_dir, suite.scrub_allow
+                record,
+                run_dir,
+                suite.source_for(run.set_id),
+                artifact_dir,
+                suite.scrub_allow,
             )
             write_metadata(metadata_path, metadata)
             print(f"blocked: {run.name}: product start failed: {error}")
@@ -1148,7 +1232,13 @@ def process_runs(
         record["product_exit"] = product.exit_code
         record["stdout_tail"] = product.stdout_tail
         record["stderr_tail"] = product.stderr_tail
-        _finish_run_record(record, run_dir, suite.source_for(run.set_id), artifact_dir, suite.scrub_allow)
+        _finish_run_record(
+            record,
+            run_dir,
+            suite.source_for(run.set_id),
+            artifact_dir,
+            suite.scrub_allow,
+        )
         write_metadata(metadata_path, metadata)
         print(
             f"completed: {run.name}: product_exit={product.exit_code} "
@@ -1167,6 +1257,7 @@ def _markdown_cell(value: Any) -> str:
 def generate_report(campaign_dir: Path, metadata: dict[str, Any]) -> Path:
     try:
         from calibration_corpus import append
+
         append([campaign_dir])
     except (ImportError, OSError, ValueError):
         pass
@@ -1192,16 +1283,21 @@ def generate_report(campaign_dir: Path, metadata: dict[str, Any]) -> Path:
     ]
     try:
         from classify_runs import classify_campaign, render
+
         classification = render(classify_campaign(campaign_dir)).splitlines()
     except (ImportError, OSError, ValueError):
-        classification = ["分類器を読み込めませんでした。UNKNOWNとして人手確認が必要です。"]
-    lines.extend(["", "## Failure class display (non-adjudicating)", ""] + classification)
+        classification = [
+            "分類器を読み込めませんでした。UNKNOWNとして人手確認が必要です。"
+        ]
+    lines.extend(
+        ["", "## Failure class display (non-adjudicating)", ""] + classification
+    )
     for label, pattern in EVENT_SEARCH_PATTERNS.items():
         lines.append(f"- `{label}`: `{pattern.pattern}`")
     lines.extend(
         [
             "",
-        "## Run matrix (mechanical transfer)",
+            "## Run matrix (mechanical transfer)",
             "",
             "| run | harness status | product exit | seconds | verdict transfer | "
             "assurance transfer |",
@@ -1232,9 +1328,13 @@ def generate_report(campaign_dir: Path, metadata: dict[str, Any]) -> Path:
             lines.append("  - scrub: FAIL (findings are recorded in uat-meta.json)")
     links = [
         f"- `{r['name']}`: `artifacts/{r['name']}/acceptance-sheet.md`"
-        for r in metadata["runs"] if r.get("sheet_generated")
+        for r in metadata["runs"]
+        if r.get("sheet_generated")
     ]
-    lines.extend(["", "## Acceptance sheets", ""] + (links or ["- 記録なし（生成失敗はuat-meta.json参照）"]))
+    lines.extend(
+        ["", "## Acceptance sheets", ""]
+        + (links or ["- 記録なし（生成失敗はuat-meta.json参照）"])
+    )
     lines.extend(
         [
             "",
@@ -1301,7 +1401,14 @@ def resolve_suite_path(repo_root: Path, value: str) -> Path:
     if candidate.suffix == ".toml" or candidate.parent != Path("."):
         path = candidate if candidate.is_absolute() else repo_root / candidate
     else:
-        path = repo_root / "workspace" / "management" / "bench" / "suites" / f"{value}.toml"
+        path = (
+            repo_root
+            / "workspace"
+            / "management"
+            / "bench"
+            / "suites"
+            / f"{value}.toml"
+        )
     if not path.is_file():
         raise BenchError(f"suite not found: {path}")
     return path.resolve()
@@ -1334,7 +1441,10 @@ def find_resume_campaign(workspace_root: Path, suite: SuiteDefinition) -> Path:
             metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        if metadata.get("mode") == "run" and metadata.get("suite", {}).get("id") == suite.suite_id:
+        if (
+            metadata.get("mode") == "run"
+            and metadata.get("suite", {}).get("id") == suite.suite_id
+        ):
             candidates.append(candidate)
     if not candidates:
         raise BenchError(f"no resumable campaign found for suite {suite.suite_id}")
@@ -1384,7 +1494,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.subcommand == "scrub":
         result = scrub_path(args.path.expanduser().resolve())
-        print(json.dumps({"ok": result.ok, "findings": list(result.findings)}, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                {"ok": result.ok, "findings": list(result.findings)},
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
         return 0 if result.ok else 3
     if args.dry_run and args.resume:
         parser.error("--dry-run and --resume cannot be combined")
@@ -1434,7 +1550,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 3
         return 0
     except ProductInterrupted:
-        print("bench: interrupted(environment); the run will not be retried", file=sys.stderr)
+        print(
+            "bench: interrupted(environment); the run will not be retried",
+            file=sys.stderr,
+        )
         return 130
     except BenchError as error:
         print(f"bench: {error}", file=sys.stderr)

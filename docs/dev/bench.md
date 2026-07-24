@@ -69,3 +69,13 @@ report skeleton for human review.
 ```bash
 python3 workspace/management/scripts/acceptance_sheet.py --run <workflow-circle workspace> --out <report>/acceptance-sheet.md
 ```
+# ローカル受理前の必須検査
+
+CIのPython checksと同一内容を、コミット前にリポジトリルートで実行する。
+
+```bash
+ruff check workspace/management/scripts
+python -m unittest discover -s workspace/management/scripts -p 'test_*.py'
+```
+
+CIとの差異を防ぐため、対象ディレクトリを省略したRuff実行や別のunittest探索範囲を受理判定に使わない。Ruffのimport順・format違反は機械的整形で解消し、ロジック変更を伴う警告は別途レビューへ回す。
