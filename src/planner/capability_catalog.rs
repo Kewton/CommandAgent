@@ -6,7 +6,9 @@ use toml::value::Table;
 use crate::planner::verify;
 use crate::tools::path_guard::validate_workspace_relative;
 
+mod cli;
 mod data;
+pub use cli::{CliCapability, CliCheckKind};
 pub use data::{DataInternalCheck, ProbeCapability};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -227,7 +229,7 @@ static BASE_REGISTRY: [CapabilitySpec; 7] = [
 ];
 
 pub fn registry() -> &'static [CapabilitySpec] {
-    data::combined_registry(&BASE_REGISTRY)
+    cli::combined_registry(data::combined_registry(&BASE_REGISTRY))
 }
 
 pub fn resolve(id: &str, params: &Table) -> Result<ResolvedCapability, CatalogError> {
@@ -276,6 +278,7 @@ pub fn resolve(id: &str, params: &Table) -> Result<ResolvedCapability, CatalogEr
         "browser_readiness" | "browser_interaction" => {
             Err(CatalogError::ProbeBindingUnimplemented { id: id.to_string() })
         }
+        _ if cli::is_id(spec.id) => cli::resolve(spec, params),
         _ => data::resolve(spec, params),
     }
 }

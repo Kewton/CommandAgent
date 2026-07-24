@@ -19,6 +19,7 @@ pub enum DataInternalCheck {
 pub enum ProbeCapability {
     Pipeline { entry: String, timeout_seconds: u16 },
     DataRerunConsistency { entry: String, timeout_seconds: u16 },
+    Cli(super::cli::CliCapability),
 }
 
 static PIPELINE_PARAMS: [ParamSpec; 2] = [

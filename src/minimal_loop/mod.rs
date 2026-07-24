@@ -22,6 +22,7 @@ pub mod read_only_stagnation_feedback;
 pub mod repair_pressure;
 pub mod repair_progress;
 pub mod repair_target;
+pub(crate) mod rerun_consistency;
 pub mod route_unbound_recovery;
 pub mod stagnation_carryover;
 pub mod stagnation_escalation;

@@ -21,3 +21,19 @@ pipeline_probe | Probe
 data_rerun_consistency | Probe
   - entry: path required default=-
   - timeout_seconds: u16 required default=-
+cli_probe | Probe
+  - entry: path required default=-
+  - usage_paths: [path] required default=-
+  - timeout_seconds: u16 required default=-
+help_binding | Probe
+  - entry: path required default=-
+  - usage_paths: [path] required default=-
+  - timeout_seconds: u16 required default=-
+cli_output_claims | Probe
+  - entry: path required default=-
+  - usage_paths: [path] required default=-
+  - timeout_seconds: u16 required default=-
+cli_rerun_consistency | Probe
+  - entry: path required default=-
+  - usage_paths: [path] required default=-
+  - timeout_seconds: u16 required default=-

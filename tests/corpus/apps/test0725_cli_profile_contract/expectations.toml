@@ -1,0 +1,34 @@
+case_id = "test0725_cli_profile_contract"
+source = "fixed CLI profile contract synthetic conformance evidence"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["cli_probe", "help_binding", "cli_output_claims", "cli_rerun_consistency"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/conformance.jsonl = [
+  "\"case\":\"full\"",
+  "\"case\":\"help_listed_unimplemented\"",
+  "\"case\":\"invalid_exit_zero\"",
+  "\"case\":\"output_example_absent\"",
+  "\"case\":\"probe_unexecuted\"",
+  "\"case\":\"rerun_mismatch\"",
+  "\"case\":\"bound_cases_replaced\"",
+  "\"expected_assurance\":\"static\""
+]

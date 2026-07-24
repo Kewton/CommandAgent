@@ -175,7 +175,7 @@ pub fn check_rerun_consistency(
         }
     }
     if let (Some(baseline), Some(rerun)) = (&evidence.baseline_results, &evidence.rerun_results)
-        && baseline != rerun
+        && !crate::minimal_loop::rerun_consistency::reproduced(baseline, rerun)
     {
         evidence
             .failure_kinds

@@ -263,6 +263,10 @@ fn manifest_execution_sections_exclude_measured_fixture_vocabulary() {
             "nextjs",
             include_str!("../src/planner/profiles/nextjs/manifest.toml"),
         ),
+        (
+            "python-cli",
+            include_str!("../src/planner/profiles/python_cli/manifest.toml"),
+        ),
     ] {
         let manifest = source.parse::<toml::Value>().unwrap();
         for section in ["plan", "step_templates", "checks"] {

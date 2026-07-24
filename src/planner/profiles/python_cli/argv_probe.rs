@@ -61,6 +61,13 @@ pub struct Observation {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutputClaimBinding {
+    pub claim: String,
+    pub matched: bool,
+    pub nearest_miss: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Report {
     pub capability_id: String,
     pub status: String,
@@ -70,6 +77,7 @@ pub struct Report {
     pub c4_ok: bool,
     pub binding: CaseBinding,
     pub observations: Vec<Observation>,
+    pub output_claims: Vec<OutputClaimBinding>,
     pub failure_kinds: Vec<String>,
 }
 
@@ -105,6 +113,22 @@ pub fn run(root: &Path, config: Config) -> anyhow::Result<Report> {
         && observations[0].exit_code == Some(0)
         && observations[1].exit_code.is_some_and(|code| code != 0);
     let c4_ok = observations.len() == 3 && equivalent(&observations[0], &observations[2]);
+    let output_claims = binding.cases[0]
+        .expected_stdout
+        .iter()
+        .map(|claim| {
+            let matched = observations.first().is_some_and(|observation| {
+                observation.stdout.text.lines().any(|line| line == claim)
+            });
+            OutputClaimBinding {
+                claim: claim.clone(),
+                matched,
+                nearest_miss: (!matched)
+                    .then(|| observations.first().map(|item| item.stdout.text.clone()))
+                    .flatten(),
+            }
+        })
+        .collect();
     let mut failure_kinds = Vec::new();
     if !binding_intact {
         failure_kinds.push("cli_case_binding_changed".to_string());
@@ -125,6 +149,7 @@ pub fn run(root: &Path, config: Config) -> anyhow::Result<Report> {
         c4_ok,
         binding,
         observations,
+        output_claims,
         failure_kinds,
     };
     write_json(root, EVIDENCE_PATH, &report)?;
@@ -254,10 +279,20 @@ pub(super) fn observe(
 }
 
 fn equivalent(first: &Observation, second: &Observation) -> bool {
-    first.outcome == second.outcome
-        && first.exit_code == second.exit_code
-        && first.stdout == second.stdout
-        && first.stderr == second.stderr
+    crate::minimal_loop::rerun_consistency::reproduced(
+        &(
+            &first.outcome,
+            first.exit_code,
+            &first.stdout,
+            &first.stderr,
+        ),
+        &(
+            &second.outcome,
+            second.exit_code,
+            &second.stdout,
+            &second.stderr,
+        ),
+    )
 }
 
 pub(super) fn write_json<T: Serialize>(

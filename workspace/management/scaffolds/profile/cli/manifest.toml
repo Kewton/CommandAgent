@@ -2,5 +2,19 @@
 id = "cli"
 kind = "profile"
 admission = "off"
-profile = ""
-intent = ""
+profile = "python-cli"
+intent = "create"
+contract = "docs/cli-profile-contract.md"
+runtime_manifest = "src/planner/profiles/python_cli/manifest.toml"
+phases = ["cli-scaffold", "cli-implementation", "cli-validation"]
+
+[checks]
+c1 = "cli_probe"
+c2 = "help_binding"
+c3 = "cli_output_claims"
+c4 = "cli_rerun_consistency"
+
+[guidance]
+determinism = "no time, randomness, or network dependence"
+parser = "derive help from argparse or an equivalent standard parser"
+case_binding = "freeze the first mechanically extracted README/usage invocation before execution"
