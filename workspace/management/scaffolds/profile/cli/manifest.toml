@@ -1,0 +1,6 @@
+[manifest]
+id = "cli"
+kind = "profile"
+admission = "off"
+profile = ""
+intent = ""
