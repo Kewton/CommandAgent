@@ -715,4 +715,5 @@ E本体開始: E-0で規律を機械に写した。E本体は増殖性の実証�
 E-1: scaffoldジェネレータを追加。契約・manifest・conformance・corpus・admissionをoff状態で先行生成し、判断を空欄のままレビューへ渡す。
 E-2a: IntentSchema草案を既存create/fix/investigateのrule of two実例から抽出。設計先行で、実装判断はレビュー後。
 E-2b段階1: investigate IntentSchemaを構成専用として導入。合成実体・照合・裁定はRustに残し、byte互換証明を受理基準とする。
+E-2b段階1検証: schema unit 1件はgreen。full suiteは外部probe/Ollama等22件失敗のため互換証明宣言を保留し、実体修正なしで停止報告。
 E-2b予約: fix段階2は合成snapshot＋conformance 9、create段階3はmanifest preset＋byte互換6/6を各々先行証明する。
