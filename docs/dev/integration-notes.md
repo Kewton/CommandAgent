@@ -227,6 +227,10 @@ Benchフェーズ(e)へ`acceptance_sheet`生成を統合し、シート自給率
 - fix（段階2）：合成計画snapshot＋conformance 9本でbyte互換を証明してから移行。
 - create（段階3）：manifest preset snapshot＋byte互換6/6を証明してから移行。
 
+## Known flaky test determinization [QUEUED]
+
+`final_acceptance_budget_exhaustion_uses_last_cycle_reason`の低頻度・並列干渉候補を、dev-server flakyと同じ棚で共有状態除去として決定化する。発現時は単独3回反復で再診断する。
+
 ## Next.js band input restoration (2026-07-22) [QUEUED]
 
 Restore the 12 pre-migration Next.js measurement sets as auditable inputs by
