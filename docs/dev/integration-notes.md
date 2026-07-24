@@ -202,6 +202,7 @@ fix契約、F1〜F3、既存bandの裁定値を変更するタスクではない
 D-3c (PM router plus boundary dialogue shell) is transferred behind Phase C
 completion. An elevated single-intent investigate measurement outside the
 workflow circle is queued as a separate arm and does not alter the circle
+Queued: add `epoch` fields to `workflow_started` and `workflow_adjudicated` from the next circle measurement. Update the event baseline and verify that new sheets derive circle-wide duration from the tracked audit body.
 denominator.
 
 The following are queued from the dfix-006 live measurement; this section is

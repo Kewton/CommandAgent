@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Translate persisted evidence into an acceptance sheet; never invent data."""
+"""Translate tracked audit evidence into a sheet; never read raw logs or invent data."""
 
 from __future__ import annotations
 
@@ -67,16 +67,16 @@ def safe(value):
 
 def elapsed_labels(run, circle, ev):
     """Return labelled durations derived from persisted timestamps only."""
-    log = run.parent / (run.name + ".log")
-    outer = None
-    if log.is_file():
-        stamps = [
-            int(x)
-            for x in log.read_text(errors="replace").splitlines()
-            if x.strip().isdigit()
-        ]
-        if len(stamps) > 1:
-            outer = max(stamps) - min(stamps)
+    workflow_epochs = [
+        e.get("epoch")
+        for e in events(run / "workflow-events.jsonl")
+        if isinstance(e.get("epoch"), (int, float))
+    ]
+    outer = (
+        max(workflow_epochs) - min(workflow_epochs)
+        if len(workflow_epochs) > 1
+        else None
+    )
     epochs = [e.get("epoch") for e in ev if isinstance(e.get("epoch"), (int, float))]
     node_ranges = []
     for path in sorted(run.rglob("events.jsonl")):
@@ -94,8 +94,13 @@ def elapsed_labels(run, circle, ev):
     )
     if circle:
         return [
-            f"- 円環全体の所要: {outer if outer is not None else '記録なし'}秒(workflow_started→workflow_adjudicated)",
+            f"- 円環全体の所要: {outer if outer is not None else '記録なし(監査本体にepoch未記録——一次資料の制約)'}秒(workflow_started→workflow_adjudicated)",
             f"- ノード実行の所要: {node_elapsed if node_elapsed is not None else '記録なし'}秒(ノードイベント範囲の合算)",
+            *(
+                ["- 参考: 人手計測による全体所要 18秒(出自: manual-timing.md)"]
+                if (run / "manual-timing.md").is_file()
+                else []
+            ),
         ]
     elapsed = node_elapsed if node_elapsed is not None else outer
     return [

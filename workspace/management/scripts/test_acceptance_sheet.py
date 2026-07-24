@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import shutil
 import sys
 import tempfile
 import unittest
@@ -65,7 +66,9 @@ class AcceptanceSheetTests(unittest.TestCase):
         )
         if not p.is_dir():
             self.skipTest("measurement fixture unavailable")
-        s = generate(p)
+        d = Path(tempfile.mkdtemp()) / "run1"
+        shutil.copytree(p, d)
+        s = generate(d)
         for token in (
             "gemma4:31b-cloud",
             "qwen3.6:27b-coding-nvfp4",
@@ -79,9 +82,12 @@ class AcceptanceSheetTests(unittest.TestCase):
             "E-D",
         ):
             self.assertIn(token, s)
-        # 精密化であり期待値の書換えではない: 全体18秒とノード6秒を併記する。
-        self.assertIn("円環全体の所要: 18秒", s)
+        # 検証の精密化: epoch不在は記録なし、人手計測は出自付き別枠。
+        self.assertIn("円環全体の所要: 記録なし", s)
         self.assertIn("ノード実行の所要: 6秒", s)
+        (d / "manual-timing.md").write_text("18秒（人手計測）")
+        s = generate(d)
+        self.assertIn("参考: 人手計測による全体所要 18秒", s)
         self.assertIn("stage=before executed=True expected=failure", s)
         self.assertIn("stage=after executed=True expected=success", s)
         self.assertNotIn("/Users/", s)

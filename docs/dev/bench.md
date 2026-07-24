@@ -80,3 +80,5 @@ python -m unittest discover -s workspace/management/scripts -p 'test_*.py'
 ```
 
 CIとの差異を防ぐため、対象ディレクトリを省略したRuff実行や別のunittest探索範囲を受理判定に使わない。Ruffのimport順・format違反は機械的整形で解消し、ロジック変更を伴う警告は別途レビューへ回す。
+
+検収シートはgit追跡された監査本体（events/evidence/meta）のみを導出元とする。raw log・未追跡ファイルを参照してはならず、第三者がリポジトリだけから同一シートを再生成できることを不変条件とする。人手計測は`manual-timing.md`が存在する場合のみ、機械evidenceと分離した参考行として表示する。
