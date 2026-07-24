@@ -23,4 +23,8 @@ investigateの構成を`intents/investigate.yaml`から読み、合成実体は�
 
 full suiteは前回同様、browser/Ollama等の環境依存失敗が残り、権限付きgreenを復元できなかった。基線コミット383952eの同一環境行列も実行権限・Ollama/browser条件が未復元のため未実施であり、互換証明済みとは宣言しない。schema以外の実体差分は確認しておらず、修正せず停止・報告する。
 
+## 最終確定確認（経路C/B）
+
+GitHub Actions API（`gh run list`）を実行したが、現セッションでは`api.github.com`へ接続できず、3481ab2／bd260e9／56fba0f／aba40d0および本push後のCI・acceptance確定値を取得できなかった。したがって経路Cのgreen確認は未成立。基線行列は同一環境条件を再現できないため実行せず、互換証明は保留する。
+
 今回の変更は構成の読み込みと固定語彙検証だけで、合成計画・材料注入・照合・裁定のRust実体は変更していない。

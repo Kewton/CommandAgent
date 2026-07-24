@@ -717,4 +717,5 @@ E-2a: IntentSchema草案を既存create/fix/investigateのrule of two実例か�
 E-2b段階1: investigate IntentSchemaを構成専用として導入。合成実体・照合・裁定はRustに残し、byte互換証明を受理基準とする。
 E-2b段階1検証: schema unit 1件はgreen。full suiteは外部probe/Ollama等22件失敗のため互換証明宣言を保留し、実体修正なしで停止報告。
 E-2b段階1再検証: schema 1/1、investigation synthesis 5/5、conformance 8/8 green。イベントは既存fixture照合で差分なし。権限付きfull greenと基線行列は環境未復元のため証明保留。
+E-2b最終確認: CI API接続不能で経路Cの確定値を取得できず、経路Bも同一環境条件未復元のため互換証明を保留。
 E-2b予約: fix段階2は合成snapshot＋conformance 9、create段階3はmanifest preset＋byte互換6/6を各々先行証明する。
