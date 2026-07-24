@@ -23,15 +23,34 @@ pub struct Assurance {
     pub failed: String,
 }
 pub fn load() -> anyhow::Result<IntentSchema> {
-    let raw = include_str!("../../intents/investigate.yaml");
+    load_raw(
+        include_str!("../../intents/investigate.yaml"),
+        "investigate",
+        &["reproduce-candidate", "diagnose", "bind-verify"],
+    )
+}
+pub fn load_fix() -> anyhow::Result<IntentSchema> {
+    load_raw(
+        include_str!("../../intents/fix.yaml"),
+        "fix",
+        &[
+            "reproduce-before",
+            "isolate-cause",
+            "implement-fix",
+            "verify-after",
+        ],
+    )
+}
+fn load_raw(raw: &str, expected: &str, expected_ids: &[&str]) -> anyhow::Result<IntentSchema> {
     let schema: IntentSchema = serde_yaml::from_str(raw)?;
-    if schema.intent != "investigate"
+    if schema.intent != expected
         || schema
             .phases
             .iter()
             .map(|p| p.id.as_str())
             .collect::<Vec<_>>()
-            != ["reproduce-candidate", "diagnose", "bind-verify"]
+            .as_slice()
+            != expected_ids
     {
         anyhow::bail!("invalid investigate IntentSchema phase contract");
     }
@@ -62,5 +81,11 @@ mod tests {
         let s = load().expect("embedded schema");
         assert_eq!(s.phases.len(), 3);
         assert!(s.evidence.contains(&"I2".to_string()));
+    }
+    #[test]
+    fn fix_schema_is_strict_and_complete() {
+        let s=load_fix().expect("embedded schema");
+        assert_eq!(s.phases.len(),4);
+        assert!(s.evidence.contains(&"F1".to_string()));
     }
 }

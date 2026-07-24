@@ -104,6 +104,7 @@ fn applies(config: &Config, plan: &UltraPlan) -> bool {
 }
 
 fn ensure_contract_shape(plan: &UltraPlan) -> anyhow::Result<()> {
+    crate::planner::intent_schema::load_fix()?;
     let phase_ids = plan
         .phases
         .iter()
