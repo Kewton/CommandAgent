@@ -713,3 +713,4 @@ E-0-2是正: 終端形（failure_kind）と帰属（死因）の混同を訂正�
 E-0-3: 計測すれば必ず検収シートが付いてくる体制。E-0三部作完了（分類自動化・較正自動蓄積・翻訳自動生成）。
 E本体開始: E-0で規律を機械に写した。E本体は増殖性の実証（scaffold→IntentSchema→第3profile判定戦）。
 E-1: scaffoldジェネレータを追加。契約・manifest・conformance・corpus・admissionをoff状態で先行生成し、判断を空欄のままレビューへ渡す。
+E-2a: IntentSchema草案を既存create/fix/investigateのrule of two実例から抽出。設計先行で、実装判断はレビュー後。
