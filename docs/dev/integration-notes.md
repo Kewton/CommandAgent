@@ -222,6 +222,11 @@ only a requirements record and does not change the v0 harness:
 
 Benchフェーズ(e)へ`acceptance_sheet`生成を統合し、シート自給率を手動生成0%から改善する。既存のevidence・判定・分類の裁定は変更しない。
 
+## IntentSchema migration [QUEUED]
+
+- fix（段階2）：合成計画snapshot＋conformance 9本でbyte互換を証明してから移行。
+- create（段階3）：manifest preset snapshot＋byte互換6/6を証明してから移行。
+
 ## Next.js band input restoration (2026-07-22) [QUEUED]
 
 Restore the 12 pre-migration Next.js measurement sets as auditable inputs by

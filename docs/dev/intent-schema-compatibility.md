@@ -27,4 +27,6 @@ full suiteは前回同様、browser/Ollama等の環境依存失敗が残り、�
 
 GitHub Actions API（`gh run list`）を実行したが、現セッションでは`api.github.com`へ接続できず、3481ab2／bd260e9／56fba0f／aba40d0および本push後のCI・acceptance確定値を取得できなかった。したがって経路Cのgreen確認は未成立。基線行列は同一環境条件を再現できないため実行せず、互換証明は保留する。
 
+HEADで採取された失敗名は`/tmp/e2b-cargo.txt`から33件（doctor 1、browser_probe 9、planner/runner 13、providers 6、その他4）であり、当初報告の「22件」とは集計単位の差である。基線383952eへのcheckoutとdevelop復帰は確認したが、33本の逐次`--exact`実行は本セッションの時間・環境制約内で完遂できず、同一集合B判定は成立していない。
+
 今回の変更は構成の読み込みと固定語彙検証だけで、合成計画・材料注入・照合・裁定のRust実体は変更していない。
