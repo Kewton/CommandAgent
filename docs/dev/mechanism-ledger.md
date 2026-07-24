@@ -725,3 +725,4 @@ E-2b予約: fix段階2は合成snapshot＋conformance 9、create段階3はmanife
 E-2b段階2診断: 中間コミット583c1a4はテストヘルパー未importで非ビルド可。以後の多段実装はコミットごとにcargo checkを受理条件とする。
 E-2b段階2証明済み: fix snapshot 5/5、conformance 9/9、イベント互換、A-B-A環境行列、full suite 1758/30/0（passed/ignored/failed）。
 E-2b段階3証明: create schema配線（profile manifestが形、intent schemaが意味）、manifest/create 6/6、fix snapshot 2/2、corpus 1/1、guardrail 9/9、full suite 1759/30/0。E-2b全段完了（クローズ宣言はレビュー確認後）。
+E-2 complete: IntentSchema——3 intentのbyte互換移行完了。検証器と証明値（段階1: snapshot5/5+conformance8/8+反復行列6/6、段階2: snapshot5/5+conformance9/9+A-B-A交絡解消+full 1,758、段階3: 互換6/6+full 1,759）。盲点3件（予算枯渇flake・環境残留交絡・ローカル/CI検査乖離）を記録。「profileが形を、intentが意味を宣言する」境界を確立。scaffold(E-1)へのintents/*.yamlテンプレ追加をQUEUED。残るはE-3（第3profile判定戦）。
