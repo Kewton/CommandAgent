@@ -23,6 +23,7 @@ use crate::planner::verify::{
 };
 
 pub mod argv_probe;
+pub mod help_binding;
 
 const DEFAULT_PACKAGE: &str = "anvil_app";
 const COMPILE_COMMAND: &str = "python -m compileall -q src";

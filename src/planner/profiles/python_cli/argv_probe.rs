@@ -11,7 +11,7 @@ use crate::minimal_loop::verifier_env;
 
 pub const CASE_BINDING_PATH: &str = "evidence/cli-case-binding.json";
 pub const EVIDENCE_PATH: &str = "evidence/cli-probe.json";
-const INVALID_OPTION: &str = "--anvil-invalid-probe";
+pub(super) const INVALID_OPTION: &str = "--anvil-invalid-probe";
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -79,9 +79,27 @@ pub fn run(root: &Path, config: Config) -> anyhow::Result<Report> {
     let (binding, binding_intact) = freeze_binding(root, &candidate)?;
     let mut observations = Vec::new();
     if binding_intact {
-        observations.push(execute(root, &config, &binding.cases[0], "normal")?);
-        observations.push(execute(root, &config, &binding.cases[1], "invalid")?);
-        observations.push(execute(root, &config, &binding.cases[0], "normal-rerun")?);
+        observations.push(observe(
+            root,
+            &config.entry,
+            &binding.cases[0].args,
+            config.timeout,
+            "normal",
+        )?);
+        observations.push(observe(
+            root,
+            &config.entry,
+            &binding.cases[1].args,
+            config.timeout,
+            "invalid",
+        )?);
+        observations.push(observe(
+            root,
+            &config.entry,
+            &binding.cases[0].args,
+            config.timeout,
+            "normal-rerun",
+        )?);
     }
     let c1_ok = observations.len() == 3
         && observations[0].exit_code == Some(0)
@@ -194,17 +212,18 @@ fn freeze_binding(root: &Path, candidate: &CaseBinding) -> anyhow::Result<(CaseB
     Ok((candidate.clone(), true))
 }
 
-fn execute(
+pub(super) fn observe(
     root: &Path,
-    config: &Config,
-    case: &BoundCase,
+    entry: &Path,
+    args: &[String],
+    timeout: Duration,
     case_id: &str,
 ) -> anyhow::Result<Observation> {
     let mut command = verifier_env::normalized_command_at_root("python3", root);
     command
         .arg("-B")
-        .arg(&config.entry)
-        .args(&case.args)
+        .arg(entry)
+        .args(args)
         .current_dir(root)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
@@ -218,10 +237,10 @@ fn execute(
         child.stderr.take().context("CLI stderr pipe missing")?,
         24_000,
     );
-    let outcome = bounded_process::wait_with_timeout(child, config.timeout)?;
+    let outcome = bounded_process::wait_with_timeout(child, timeout)?;
     Ok(Observation {
         case_id: case_id.to_string(),
-        args: case.args.clone(),
+        args: args.to_vec(),
         outcome: match outcome.kind {
             BoundedProcessOutcomeKind::Exited => "exited",
             _ => "timed_out",
@@ -241,7 +260,11 @@ fn equivalent(first: &Observation, second: &Observation) -> bool {
         && first.stderr == second.stderr
 }
 
-fn write_json<T: Serialize>(root: &Path, relative: &str, value: &T) -> anyhow::Result<()> {
+pub(super) fn write_json<T: Serialize>(
+    root: &Path,
+    relative: &str,
+    value: &T,
+) -> anyhow::Result<()> {
     let path = root.join(relative);
     std::fs::create_dir_all(path.parent().context("CLI evidence parent missing")?)?;
     let mut bytes = serde_json::to_vec_pretty(value)?;
