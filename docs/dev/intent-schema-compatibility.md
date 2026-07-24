@@ -50,3 +50,9 @@ HEADで採取された失敗名は`/tmp/e2b-cargo.txt`から33件（doctor 1、b
 
 原則は「profileが形を、intentが意味を宣言する」であり、create schemaはmanifest presetの5段を置換しない。
 段階2診断・受理: A-B-A行列でHEADの対象テストはポート占有環境後にpassへ戻り、初回failは環境残留の交絡と判定した。fix snapshot 5/5、fix conformance 9/9、fixイベント互換を確認し、健全セッションの `cargo test --all-targets --no-fail-fast` は 1758 passed / 30 ignored / 0 failed（HEAD a588bb8）で完走した。E-2b段階2のbyte互換証明を完了とする。
+
+## 段階3証明
+
+`intents/create.yaml` は create の evidence/assurance 意味だけを宣言し、profile manifest preset が5段の形を引き続き所有する。実消費箇所は `src/planner/ultra_preset.rs:47-51` の `load_create()` 呼出しである。create preset/manifest snapshot 6/6、fix snapshot 2/2、corpus 1/1、generality guardrails 9/9、cargo check --all-targets、full suite 1759 passed / 30 ignored / 0 failed（HEAD d10dc2a）を確認した。段階3のbyte互換証明を完了とする。
+
+E-2全段総括: 段階1 investigate（snapshot 5/5、conformance 8/8、イベント差分なし）、段階2 fix（snapshot 5/5、conformance 9/9、イベント互換）、段階3 create（manifest/create 6/6、fix/corpus/guardrail追認）を各schema配線後に検証した。盲点は予算枯渇flakeと環境残留交絡であり、前者は反復行列、後者はポート探針付きA-B-Aで記録・分離した。
