@@ -41,6 +41,15 @@ pub fn load_fix() -> anyhow::Result<IntentSchema> {
         ],
     )
 }
+/// Create schema declares intent semantics only; profile manifests own the
+/// concrete phase shape ("profile gives the shape, intent gives the meaning").
+pub fn load_create() -> anyhow::Result<IntentSchema> {
+    load_raw(
+        include_str!("../../intents/create.yaml"),
+        "create",
+        &["manifest", "verify"],
+    )
+}
 fn load_raw(raw: &str, expected: &str, expected_ids: &[&str]) -> anyhow::Result<IntentSchema> {
     let schema: IntentSchema = serde_yaml::from_str(raw)?;
     if schema.intent != expected
@@ -75,7 +84,7 @@ fn load_raw(raw: &str, expected: &str, expected_ids: &[&str]) -> anyhow::Result<
 }
 #[cfg(test)]
 mod tests {
-    use super::{load, load_fix};
+    use super::{load, load_create, load_fix};
     #[test]
     fn investigate_schema_is_strict_and_complete() {
         let s = load().expect("embedded schema");
@@ -87,5 +96,11 @@ mod tests {
         let s = load_fix().expect("embedded schema");
         assert_eq!(s.phases.len(), 4);
         assert!(s.evidence.contains(&"F1".to_string()));
+    }
+    #[test]
+    fn create_schema_is_strict_and_complete() {
+        let s = load_create().expect("embedded schema");
+        assert_eq!(s.phases.len(), 2);
+        assert!(s.evidence.contains(&"claims_binding".to_string()));
     }
 }

@@ -1,0 +1,8 @@
+intent: create
+phases:
+  - { id: manifest, role: implement, owns_outputs: true, verify_binding: contract_checks }
+  - { id: verify, role: verify, owns_outputs: false, verify_binding: contract_checks }
+evidence: [probe, schema, claims_binding]
+assurance:
+  full: all_required_evidence_pass
+  failed: any_required_evidence_failed

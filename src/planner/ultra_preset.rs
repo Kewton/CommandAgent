@@ -44,6 +44,11 @@ pub(crate) fn maybe_prebuilt_ultra_plan(
     let Some(plan) = profile_preset_ultra_plan(&config.profile, goal, &config.style, intent) else {
         return Ok(None);
     };
+    if intent == "create" {
+        // Manifest supplies the phase shape; this schema supplies create's
+        // semantic evidence/assurance declaration only.
+        crate::planner::intent_schema::load_create()?;
+    }
     let report = lint_ultra_plan_report(&plan);
     if !report.is_pass() {
         anyhow::bail!("preset UltraPlan failed lint: {}", report.primary_message());
