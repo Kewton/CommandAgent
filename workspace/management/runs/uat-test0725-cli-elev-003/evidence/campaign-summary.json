@@ -1,0 +1,231 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0725-cli-elev-003",
+  "campaign_id": "cli-create-elevated-20260725-155514",
+  "revision": "917acef305102a8ea3ae77a19c330cca38285cd6",
+  "contract": "docs/cli-profile-contract.md (fixed 2026-07-24)",
+  "suite": {
+    "id": "cli-create-elevated",
+    "profile": "cli",
+    "intent": "create",
+    "workspace_mode": "empty",
+    "admission": "admitted",
+    "planner": "qwen3.6:27b-coding-nvfp4",
+    "executor": "gemma4:31b-cloud",
+    "provider": "ollama"
+  },
+  "source_hashes": {
+    "uat_meta_sha256": "fca3a90cf2d0ea3ac7d7c32a7d85efb59f7923d2e97de350b1d53b0a700d088f",
+    "report_skeleton_sha256": "22b6620b2339782c81c5d62d3fb5b925d9ce7fcc6b776b7de21e1bdff7d84f3c",
+    "failure_classes_sha256": "d82db3dab0024739b4fb3043e31883a45a834a340249072d54c74de87a60af48",
+    "cli_case_binding_sha256": "8c129b10c91d2ca162e41a175a284aed78fc521523a714fc55aae4b4d1030795",
+    "cli_probe_sha256": "a78684a49d6e601c9a646c82d328fe19eb14818c48612dd17966a95188dc11b8",
+    "help_binding_sha256": "0d2132503ddc6c9da261b0478a2f4d50ef26f8febec08df346137bec0b63cc99",
+    "cli_assurance_sha256": "da1f5d588f553008e321980662d354319ba67125af57080307079fa0e4bd1437"
+  },
+  "epochs": {
+    "preflight_start": 1784994914,
+    "run_start": 1784995084,
+    "run_end": 1784998260,
+    "audit_end": 1784998600
+  },
+  "cost_seconds": {
+    "preflight_start_to_run_end": 3346,
+    "run_sum": 3176,
+    "preflight_start_to_audit_end": 3686
+  },
+  "preflight": {
+    "cargo_test": {
+      "exit_code": 0,
+      "passed": 1793,
+      "failed": 0,
+      "ignored": 30
+    },
+    "cargo_fmt_exit_code": 0,
+    "cargo_clippy_exit_code": 0,
+    "release_build_exit_code": 0,
+    "version": "commandagent 0.1.0 917acef 2026-07-25T15:57:46Z"
+  },
+  "activation_tests": {
+    "passed": 2,
+    "failed": 0,
+    "production_final_acceptance_path": true,
+    "persists_failure_evidence": true
+  },
+  "runs": [
+    {
+      "name": "stats_cloud_001",
+      "family": "stats",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "model_stagnation_read_only",
+      "attribution": "model",
+      "duration_seconds": 374
+    },
+    {
+      "name": "stats_cloud_002",
+      "family": "stats",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 400
+    },
+    {
+      "name": "stats_cloud_003",
+      "family": "stats",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 490
+    },
+    {
+      "name": "filter_cloud_001",
+      "family": "filter",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 246
+    },
+    {
+      "name": "filter_cloud_002",
+      "family": "filter",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "failed (cli_assurance_failed)",
+      "final_acceptance_reached": true,
+      "c1": "failed",
+      "c2": "failed",
+      "c3": "claims_absent",
+      "c4": "passed",
+      "class_id": "cli_final_repair:nextjs_artifact_fallback_after_c_failure",
+      "attribution": "machine",
+      "duration_seconds": 1197
+    },
+    {
+      "name": "filter_cloud_003",
+      "family": "filter",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 469
+    }
+  ],
+  "effective_model_audit": {
+    "expected": "gemma4:31b-cloud",
+    "observed": 6,
+    "expected_runs": 6,
+    "planner_expected": "qwen3.6:27b-coding-nvfp4",
+    "planner_observed": 6
+  },
+  "e0": {
+    "logical_runs": {
+      "known": 6,
+      "unknown": 0
+    },
+    "physical_classification_rows": {
+      "known": 12,
+      "unknown": 0,
+      "note": "classifier scanned both workspace originals and artifact copies"
+    },
+    "acceptance_sheets_generated": 6,
+    "acceptance_sheets_expected": 6,
+    "nearest_miss_records": 1,
+    "calibration_records_added": 0,
+    "calibration_gap": "bench_calibration_corpus:cli_evidence_shape_unsupported"
+  },
+  "c_evidence": {
+    "runs_reaching_final_acceptance": 1,
+    "runs_executing_c1_through_c4": 1,
+    "case_freeze_records": 1,
+    "polarity_pairs": 1,
+    "normal_exit": 2,
+    "invalid_exit": 2,
+    "normal_rerun_exit": 2,
+    "c1_pass": 0,
+    "c1_fail": 1,
+    "help_binding_records": 1,
+    "help_to_implementation_pass": 4,
+    "help_to_implementation_fail": 0,
+    "implementation_to_help_pass": 0,
+    "implementation_to_help_fail": 1,
+    "claims_binding_status": "claims_absent",
+    "claims_rows": 0,
+    "rerun_consistency_pass": 1,
+    "nearest_miss_records": 1
+  },
+  "new_machine_class_candidates": [
+    "cli_case_binding:first_usage_placeholder_masks_concrete_examples",
+    "cli_help_binding:required_args_mask_unknown_option_rejection",
+    "cli_claims_binding:concrete_examples_unbound_after_template",
+    "cli_final_repair:nextjs_artifact_fallback_after_c_failure",
+    "bench_calibration_corpus:cli_evidence_shape_unsupported"
+  ],
+  "rates": {
+    "honest_terminal": "6/6",
+    "failed": "6/6",
+    "full": "0/6",
+    "false_full": "0/6",
+    "c_runtime_at_reached_run": "1/1",
+    "sheet_self_supply": "6/6",
+    "admission_cap_removed": "6/6"
+  },
+  "acceptance": {
+    "p0_a_honest_terminal": "pass",
+    "p0_b_contract_section_4": "pass",
+    "p0_c_false_success_zero": "pass",
+    "p1_a_c1_through_c4_at_reached_run": "pass",
+    "p1_b_sheet_generation": "pass"
+  },
+  "scrub": {
+    "campaign_ok": true,
+    "runs_ok": 6,
+    "report_bundle_ok": true,
+    "findings": []
+  }
+}
