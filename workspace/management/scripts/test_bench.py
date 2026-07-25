@@ -69,17 +69,121 @@ def write_test_suite(
     return bench.load_suite(suite_path)
 
 
+def write_source_less_suite(
+    root: Path,
+    *,
+    workspace_mode: str | None = "empty",
+    with_sources: bool = False,
+    with_run_set: bool = False,
+) -> Path:
+    mode_line = (
+        f'workspace_mode = "{workspace_mode}"' if workspace_mode is not None else ""
+    )
+    sources = (
+        """
+        [[sources]]
+        set = "unexpected"
+        """
+        if with_sources
+        else ""
+    )
+    run_set = 'set = "unexpected"' if with_run_set else ""
+    suite_path = root / "source-less-suite.toml"
+    suite_path.write_text(
+        textwrap.dedent(
+            f"""
+            [suite]
+            id = "source-less-suite"
+            profile = "cli"
+            intent = "create"
+            plan_preset = "default"
+            context_budget = 65536
+            planner_model = "planner"
+            planner_provider = "ollama"
+            provider = "ollama"
+            {mode_line}
+
+            [goals]
+            cli = "create a cli"
+
+            {sources}
+            [[runs]]
+            name = "cli_qwen_001"
+            {run_set}
+            goal = "cli"
+            executor = "executor"
+            """
+        ).lstrip(),
+        encoding="utf-8",
+    )
+    return suite_path
+
+
 class SuiteAndCommandTests(unittest.TestCase):
     def test_parse_bundled_suites(self) -> None:
         dfix = bench.load_suite(SUITES_DIR / "dfix-synthesis.toml")
         investigation = bench.load_suite(SUITES_DIR / "investigation-data.toml")
+        cli_create = bench.load_suite(SUITES_DIR / "cli-create.toml")
 
         self.assertEqual(dfix.suite_id, "dfix-synthesis")
+        self.assertEqual(dfix.workspace_mode, "sourced")
         self.assertEqual(dfix.plan_preset, "default")
         self.assertEqual(len(dfix.sources), 4)
         self.assertEqual(len(dfix.runs), 6)
         self.assertEqual(investigation.intent, "investigate")
         self.assertEqual(len(investigation.runs), 6)
+        self.assertEqual(cli_create.workspace_mode, "empty")
+        self.assertEqual(cli_create.sources, ())
+        self.assertTrue(all(run.set_id is None for run in cli_create.runs))
+
+    def test_empty_workspace_rejects_sources(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            suite_path = write_source_less_suite(
+                Path(directory), with_sources=True
+            )
+            with self.assertRaisesRegex(
+                bench.BenchError,
+                r"workspace_mode empty may not define \[\[sources\]\] tables",
+            ):
+                bench.load_suite(suite_path)
+
+    def test_empty_workspace_rejects_run_set(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            suite_path = write_source_less_suite(
+                Path(directory), with_run_set=True
+            )
+            with self.assertRaisesRegex(
+                bench.BenchError,
+                r"runs\[0\]\.set may not be defined for workspace_mode empty",
+            ):
+                bench.load_suite(suite_path)
+
+    def test_sourced_workspace_still_requires_sources_with_original_error(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            suite_path = write_source_less_suite(
+                Path(directory), workspace_mode=None
+            )
+            with self.assertRaisesRegex(
+                bench.BenchError,
+                r"^suite must define at least one \[\[sources\]\] table$",
+            ):
+                bench.load_suite(suite_path)
+
+    def test_sourced_default_keeps_legacy_metadata_shape(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            suite = write_test_suite(root)
+            metadata = bench.new_metadata(
+                suite, "test-suite-campaign", "dry-run", root, {}, []
+            )
+
+            self.assertEqual(suite.workspace_mode, "sourced")
+            self.assertNotIn("workspace_mode", metadata["suite"])
+            self.assertEqual(metadata["runs"][0]["set"], "pipe-a")
+            self.assertEqual(
+                metadata["runs"][0]["input_sha256_expected"],
+                suite.sources[0].input_sha256,
+            )
 
     def test_command_matches_required_argv_without_wrapper(self) -> None:
         suite = bench.load_suite(SUITES_DIR / "dfix-synthesis.toml")
@@ -121,6 +225,46 @@ class SuiteAndCommandTests(unittest.TestCase):
 
 
 class ProcurementTests(unittest.TestCase):
+    def test_empty_procurement_creates_and_records_virgin_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            suite = bench.load_suite(write_source_less_suite(root))
+            run_dir = root / "work" / "run"
+            result = bench.procure_run(suite, suite.runs[0], root, run_dir)
+            record: dict[str, object] = {}
+            bench._record_procurement(record, result)
+
+            self.assertTrue(result.ok)
+            self.assertTrue(run_dir.is_dir())
+            self.assertEqual(list(run_dir.iterdir()), [])
+            self.assertEqual(
+                record["workspace_integrity"],
+                {
+                    "workspace_mode": "empty",
+                    "created": True,
+                    "checked": True,
+                    "empty": True,
+                    "entry_count": 0,
+                    "entries": [],
+                },
+            )
+
+    def test_empty_procurement_rejects_contamination(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            suite = bench.load_suite(write_source_less_suite(root))
+            with mock.patch.object(
+                bench, "_empty_workspace_entries", return_value=("foreign.txt",)
+            ):
+                result = bench.procure_run(
+                    suite, suite.runs[0], root, root / "work" / "run"
+                )
+
+            self.assertFalse(result.ok)
+            self.assertIn("empty workspace integrity check failed", result.reason or "")
+            self.assertEqual(result.workspace_integrity["entry_count"], 1)
+            self.assertFalse(result.workspace_integrity["empty"])
+
     def test_sha_mismatch_blocks_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

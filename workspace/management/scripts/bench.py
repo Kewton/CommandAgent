@@ -72,7 +72,7 @@ class SourceSpec:
 @dataclass(frozen=True)
 class RunSpec:
     name: str
-    set_id: str
+    set_id: str | None
     goal_id: str
     executor: str
 
@@ -89,16 +89,22 @@ class SuiteDefinition:
     planner_provider: str
     provider: str
     min_head: str | None
+    workspace_mode: str
     goals: dict[str, str]
     sources: tuple[SourceSpec, ...]
     runs: tuple[RunSpec, ...]
     scrub_allow: tuple[dict[str, str], ...]
 
-    def source_for(self, set_id: str) -> SourceSpec:
+    def source_for(self, set_id: str | None) -> SourceSpec:
         for source in self.sources:
             if source.set_id == set_id:
                 return source
         raise BenchError(f"unknown source set: {set_id}")
+
+    def source_for_run(self, run: RunSpec) -> SourceSpec | None:
+        if self.workspace_mode == "empty":
+            return None
+        return self.source_for(run.set_id)
 
 
 @dataclass(frozen=True)
@@ -107,6 +113,7 @@ class ProcurementResult:
     reason: str | None
     observed_sha256: dict[str, str | None]
     precheck: dict[str, Any] | None
+    workspace_integrity: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -301,6 +308,7 @@ def load_suite(path: Path) -> SuiteDefinition:
             "planner_provider",
             "provider",
             "min_head",
+            "workspace_mode",
             "scrub_allow",
         },
         "suite",
@@ -318,6 +326,12 @@ def load_suite(path: Path) -> SuiteDefinition:
     context_budget = suite_table.get("context_budget")
     if not isinstance(context_budget, int) or context_budget <= 0:
         raise BenchError("suite.context_budget must be a positive integer")
+    workspace_mode = suite_table.get("workspace_mode", "sourced")
+    if not isinstance(workspace_mode, str) or workspace_mode not in {
+        "empty",
+        "sourced",
+    }:
+        raise BenchError("suite.workspace_mode must be empty or sourced")
     min_head_value = suite_table.get("min_head")
     if min_head_value is not None and (
         not isinstance(min_head_value, str) or not min_head_value.strip()
@@ -349,8 +363,16 @@ def load_suite(path: Path) -> SuiteDefinition:
         raise BenchError("suite must define at least one goal")
 
     raw_sources = document.get("sources")
-    if not isinstance(raw_sources, list) or not raw_sources:
+    if workspace_mode == "empty" and raw_sources is not None:
+        raise BenchError(
+            "suite.workspace_mode empty may not define [[sources]] tables"
+        )
+    if workspace_mode == "sourced" and (
+        not isinstance(raw_sources, list) or not raw_sources
+    ):
         raise BenchError("suite must define at least one [[sources]] table")
+    if raw_sources is None:
+        raw_sources = []
     sources: list[SourceSpec] = []
     source_ids: set[str] = set()
     for index, raw_source in enumerate(raw_sources):
@@ -440,9 +462,16 @@ def load_suite(path: Path) -> SuiteDefinition:
         if name in run_names:
             raise BenchError(f"duplicate run name: {name}")
         run_names.add(name)
-        set_id = _required_str(raw_run, "set", context)
+        if workspace_mode == "empty":
+            if "set" in raw_run:
+                raise BenchError(
+                    f"{context}.set may not be defined for workspace_mode empty"
+                )
+            set_id = None
+        else:
+            set_id = _required_str(raw_run, "set", context)
         goal_id = _required_str(raw_run, "goal", context)
-        if set_id not in source_ids:
+        if workspace_mode == "sourced" and set_id not in source_ids:
             raise BenchError(f"{context} references unknown source set: {set_id}")
         if goal_id not in goals:
             raise BenchError(f"{context} references unknown goal: {goal_id}")
@@ -466,6 +495,7 @@ def load_suite(path: Path) -> SuiteDefinition:
         planner_provider=_required_str(suite_table, "planner_provider", "suite"),
         provider=_required_str(suite_table, "provider", "suite"),
         min_head=min_head_value,
+        workspace_mode=workspace_mode,
         goals=goals,
         sources=tuple(sources),
         runs=tuple(runs),
@@ -749,9 +779,55 @@ def _hash_relative_paths(
     return hashes
 
 
+def _empty_workspace_entries(run_dir: Path) -> tuple[str, ...]:
+    return tuple(sorted(item.name for item in run_dir.iterdir()))
+
+
+def _procure_empty_run(run_dir: Path) -> ProcurementResult:
+    integrity: dict[str, Any] = {
+        "workspace_mode": "empty",
+        "created": False,
+        "checked": False,
+        "empty": False,
+        "entry_count": None,
+        "entries": [],
+    }
+    try:
+        run_dir.mkdir(parents=True, exist_ok=False)
+        integrity["created"] = True
+        entries = _empty_workspace_entries(run_dir)
+        integrity.update(
+            {
+                "checked": True,
+                "empty": not entries,
+                "entry_count": len(entries),
+                "entries": list(entries),
+            }
+        )
+        if entries:
+            return ProcurementResult(
+                False,
+                f"empty workspace integrity check failed: entries={list(entries)}",
+                {},
+                None,
+                integrity,
+            )
+        return ProcurementResult(True, None, {}, None, integrity)
+    except OSError as error:
+        return ProcurementResult(
+            False,
+            f"empty workspace creation failed: {error}",
+            {},
+            None,
+            integrity,
+        )
+
+
 def procure_run(
     suite: SuiteDefinition, run: RunSpec, repo_root: Path, run_dir: Path
 ) -> ProcurementResult:
+    if suite.workspace_mode == "empty":
+        return _procure_empty_run(run_dir)
     source = suite.source_for(run.set_id)
     observed: dict[str, str | None] = {}
     try:
@@ -900,8 +976,14 @@ def _copy_to_artifact(source: Path, destination: Path) -> None:
         shutil.copy2(source, destination, follow_symlinks=False)
 
 
-def archive_run(source: SourceSpec, run_dir: Path, artifact_dir: Path) -> None:
+def archive_run(
+    source: SourceSpec | None, run_dir: Path, artifact_dir: Path
+) -> None:
     artifact_dir.mkdir(parents=True, exist_ok=True)
+    if source is None:
+        for item in sorted(run_dir.iterdir(), key=lambda path: path.name):
+            _copy_to_artifact(item, artifact_dir / item.name)
+        return
     _copy_to_artifact(run_dir / ".anvil", artifact_dir / ".anvil")
     for relative in source.copy:
         _copy_to_artifact(run_dir / relative, artifact_dir / relative)
@@ -1004,7 +1086,7 @@ def write_metadata(path: Path, metadata: dict[str, Any]) -> None:
 
 
 def _suite_metadata(suite: SuiteDefinition) -> dict[str, Any]:
-    return {
+    metadata = {
         "id": suite.suite_id,
         "path": str(suite.path),
         "sha256": sha256_file(suite.path),
@@ -1018,6 +1100,27 @@ def _suite_metadata(suite: SuiteDefinition) -> dict[str, Any]:
         "min_head": suite.min_head,
         "scrub_allow": list(suite.scrub_allow),
     }
+    if suite.workspace_mode != "sourced":
+        metadata["workspace_mode"] = suite.workspace_mode
+    return metadata
+
+
+def _new_run_metadata(suite: SuiteDefinition, run: RunSpec) -> dict[str, Any]:
+    source = suite.source_for_run(run)
+    record = {"name": run.name}
+    if run.set_id is not None:
+        record["set"] = run.set_id
+    record.update(
+        {
+            "goal": run.goal_id,
+            "executor": run.executor,
+            "status": "pending",
+            "command_argv": build_command(suite, run),
+            "command": format_command(build_command(suite, run)),
+            "input_sha256_expected": source.input_sha256 if source else {},
+        }
+    )
+    return record
 
 
 def new_metadata(
@@ -1038,19 +1141,7 @@ def new_metadata(
         "preflight": preflight,
         "deviations": deviations,
         "created_epoch": int(time.time()),
-        "runs": [
-            {
-                "name": run.name,
-                "set": run.set_id,
-                "goal": run.goal_id,
-                "executor": run.executor,
-                "status": "pending",
-                "command_argv": build_command(suite, run),
-                "command": format_command(build_command(suite, run)),
-                "input_sha256_expected": suite.source_for(run.set_id).input_sha256,
-            }
-            for run in suite.runs
-        ],
+        "runs": [_new_run_metadata(suite, run) for run in suite.runs],
     }
 
 
@@ -1064,6 +1155,8 @@ def _metadata_run(metadata: dict[str, Any], name: str) -> dict[str, Any]:
 def _record_procurement(record: dict[str, Any], result: ProcurementResult) -> None:
     record["input_sha256_observed"] = result.observed_sha256
     record["precheck"] = result.precheck
+    if result.workspace_integrity is not None:
+        record["workspace_integrity"] = result.workspace_integrity
     if result.reason:
         record["protocol_reason"] = result.reason
 
@@ -1071,11 +1164,12 @@ def _record_procurement(record: dict[str, Any], result: ProcurementResult) -> No
 def _finish_run_record(
     record: dict[str, Any],
     run_dir: Path,
-    source: SourceSpec,
+    source: SourceSpec | None,
     artifact_dir: Path,
     scrub_allow: Sequence[dict[str, str]] = (),
 ) -> None:
-    record["final_sha256"] = _hash_relative_paths(run_dir, list(source.input_sha256))
+    expected_hashes = source.input_sha256 if source else {}
+    record["final_sha256"] = _hash_relative_paths(run_dir, list(expected_hashes))
     archive_run(source, run_dir, artifact_dir)
     try:
         from acceptance_sheet import generate as generate_acceptance_sheet
@@ -1122,7 +1216,7 @@ def normalize_interrupted_runs(
             _finish_run_record(
                 record,
                 run_dir,
-                suite.source_for(run.set_id),
+                suite.source_for_run(run),
                 artifact_dir,
                 suite.scrub_allow,
             )
@@ -1156,6 +1250,7 @@ def process_runs(
         print(f"plan: {run.name}: {format_command(command)}")
         run_dir = campaign_dir / "workspaces" / run.name
         artifact_dir = campaign_dir / "artifacts" / run.name
+        source = suite.source_for_run(run)
         procurement = procure_run(suite, run, repo_root, run_dir)
         _record_procurement(record, procurement)
         if not procurement.ok:
@@ -1164,7 +1259,7 @@ def process_runs(
                 _finish_run_record(
                     record,
                     run_dir,
-                    suite.source_for(run.set_id),
+                    source,
                     artifact_dir,
                     suite.scrub_allow,
                 )
@@ -1176,7 +1271,7 @@ def process_runs(
             _finish_run_record(
                 record,
                 run_dir,
-                suite.source_for(run.set_id),
+                source,
                 artifact_dir,
                 suite.scrub_allow,
             )
@@ -1202,7 +1297,7 @@ def process_runs(
             _finish_run_record(
                 record,
                 run_dir,
-                suite.source_for(run.set_id),
+                source,
                 artifact_dir,
                 suite.scrub_allow,
             )
@@ -1219,7 +1314,7 @@ def process_runs(
             _finish_run_record(
                 record,
                 run_dir,
-                suite.source_for(run.set_id),
+                source,
                 artifact_dir,
                 suite.scrub_allow,
             )
@@ -1235,7 +1330,7 @@ def process_runs(
         _finish_run_record(
             record,
             run_dir,
-            suite.source_for(run.set_id),
+            source,
             artifact_dir,
             suite.scrub_allow,
         )

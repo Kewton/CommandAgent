@@ -3,6 +3,7 @@ id = "cli-create"
 profile = "cli"
 intent = "create"
 plan_preset = "default"
+workspace_mode = "empty"
 context_budget = 65536
 planner_model = "qwen3.6:27b-coding-nvfp4"
 planner_provider = "ollama"

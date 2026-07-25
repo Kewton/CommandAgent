@@ -96,3 +96,11 @@ match_stop_class = "failure_kind:process_failure"
 first_seen = "uat-test0718-dfix-005"
 ledger_ref = "DATA-"
 note = "プロセス終端として記録された失敗"
+
+[[class]]
+id = "bench_suite_schema:create_empty_sources_unsupported"
+attribution = "machine"
+match_reason = "suite must define at least one [[sources]] table"
+first_seen = "uat-test0724-cli-001"
+ledger_ref = "bench v0.3"
+note = "bench v0.3でworkspace_mode=emptyを追加して解消済み"
