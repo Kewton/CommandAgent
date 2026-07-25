@@ -709,7 +709,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_full_verdict_requires_failed_before_and_newer_passing_after() {
+    fn admitted_cli_runtime_preserves_full_after_failed_before_and_newer_passing_after() {
         let dir = tempfile::tempdir().unwrap();
         let mut config = config(dir.path());
         let mut plan = fix_plan();
@@ -732,11 +732,8 @@ mod tests {
             eval_events::latest_completion_snapshot(config.eval_events_path.as_deref());
         crate::completion_metadata::apply_config_completion_metadata(&config, &mut snapshot);
         assert_eq!(snapshot.contract_origin, FIX_CONTRACT_ORIGIN);
-        assert_eq!(snapshot.assurance_level, "static");
-        assert_eq!(
-            snapshot.assurance_reason,
-            crate::planner::adjudication::PROFILE_NOT_ADMITTED_REASON
-        );
+        assert_eq!(snapshot.assurance_level, "full");
+        assert_eq!(snapshot.assurance_reason, "");
         assert_eq!(snapshot.final_acceptance_status, "full_success");
         let events = std::fs::read_to_string(config.eval_events_path.unwrap()).unwrap();
         assert!(events.contains("\"stage\":\"before\""), "{events}");

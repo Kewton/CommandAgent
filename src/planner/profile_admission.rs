@@ -1,5 +1,6 @@
 use crate::planner::profile::canonical_profile_name;
 use crate::planner::profile_manifest::ManifestStatus;
+use crate::planner::profiles::{data, python_cli};
 
 #[cfg(test)]
 pub(crate) use crate::planner::adjudication::PROFILE_NOT_ADMITTED_REASON;
@@ -9,11 +10,8 @@ pub(crate) fn status(profile: &str) -> ManifestStatus {
     let canonical = canonical_profile_name(profile);
     match canonical.as_str() {
         "generic" => ManifestStatus::Admitted,
-        "data" => {
-            crate::planner::profiles::data::manifest::get()
-                .metadata
-                .status
-        }
+        "data" => data::manifest::get().metadata.status,
+        "python-cli" | "cli" => python_cli::manifest::get().metadata.status,
         _ => crate::planner::profiles::nextjs::manifest_status(&canonical)
             .unwrap_or(ManifestStatus::Draft),
     }
@@ -46,8 +44,8 @@ mod tests {
     );
 
     #[test]
-    fn generic_is_admitted_and_unregistered_profiles_fail_closed() {
-        assert_eq!(status("generic"), ManifestStatus::Admitted);
+    fn cli_alias_is_admitted_and_unregistered_profiles_fail_closed() {
+        assert_eq!(status("cli"), ManifestStatus::Admitted);
         assert_eq!(status("external-profile"), ManifestStatus::Draft);
     }
 

@@ -14,4 +14,4 @@ Synthetic evidence cases:
 
 Executable fixture:
 `tests/corpus/apps/test0725_cli_profile_contract/fixtures/conformance.jsonl`.
-The profile remains `admission = "off"`.
+The profile is `admission = "admitted"` from the measured local-arm band.

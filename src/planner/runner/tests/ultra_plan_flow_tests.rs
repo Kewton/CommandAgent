@@ -852,11 +852,8 @@ Profile runtime contract:\n- Preserve the workspace as a real Next.js app.\n\n{}
         let final_event = latest_event(&events, "ultra_final_acceptance");
         assert_eq!(final_event["intent"], "fix");
         assert_eq!(final_event["verdict"], "full");
-        assert_eq!(final_event["assurance_level"], "static");
-        assert_eq!(
-            final_event["assurance_reason"],
-            crate::planner::adjudication::PROFILE_NOT_ADMITTED_REASON
-        );
+        assert_eq!(final_event["assurance_level"], "full");
+        assert_eq!(final_event["assurance_reason"], "");
         assert_eq!(final_event["before_epoch"], 1);
         assert_eq!(final_event["after_epoch"], 2);
         assert_eq!(
@@ -1084,13 +1081,13 @@ if __name__ == "__main__":
             final_acceptance
                 .get("assurance_level")
                 .and_then(Value::as_str),
-            Some("static")
+            Some("full")
         );
         assert_eq!(
             final_acceptance
                 .get("assurance_reason")
                 .and_then(Value::as_str),
-            Some(crate::planner::profile_admission::PROFILE_NOT_ADMITTED_REASON)
+            Some("")
         );
         assert_eq!(
             final_acceptance

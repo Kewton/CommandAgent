@@ -519,6 +519,99 @@ class InvestigationBandTests(unittest.TestCase):
                 band.validate_investigation_evidence(evidence_dir, events, "test/run")
 
 
+class CliBandTests(unittest.TestCase):
+    def test_repository_local_arm_and_zero_reached_invariant(self) -> None:
+        records, scanned_sets = band.discover_cli_records()
+
+        self.assertEqual(scanned_sets, [band.CLI_LOCAL_SET])
+        self.assertEqual(len(records), 6)
+        self.assertEqual(band.assert_cli_invariants(records), 0)
+        self.assertEqual(
+            band.cli_rate_rows(records),
+            [
+                ["filter", "gemma4:31b", "0", "1", "1", "0%"],
+                [
+                    "filter",
+                    "qwen3.6:35b-a3b-coding-nvfp4",
+                    "0",
+                    "2",
+                    "2",
+                    "0%",
+                ],
+                ["stats", "gemma4:31b", "0", "1", "1", "0%"],
+                [
+                    "stats",
+                    "qwen3.6:35b-a3b-coding-nvfp4",
+                    "0",
+                    "2",
+                    "2",
+                    "0%",
+                ],
+            ],
+        )
+        summary = band.build_cli_summary(records, scanned_sets, 0)
+        self.assertIn("- Full: `0/6` (0%)", summary)
+        self.assertIn("- Runs reaching C checks: `0/6`", summary)
+        self.assertIn("static (profile_not_admitted)", summary)
+
+    def test_reached_run_requires_all_cli_evidence_files(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            evidence_dir = Path(directory)
+            records, _ = band.discover_cli_records()
+            source = records[0]
+            reached = band.CliRunRecord(
+                set_id=source.set_id,
+                run_name=source.run_name,
+                family=source.family,
+                executor=source.executor,
+                harness_status="completed",
+                product_exit=0,
+                verdict="full",
+                assurance="full",
+                c1="pass",
+                c2="pass",
+                c3="pass",
+                c4="pass",
+                failure_class="full",
+                attribution="model",
+                duration_seconds=1,
+                evidence_dir=evidence_dir,
+            )
+            remaining = records[1:]
+            with self.assertRaisesRegex(
+                AssertionError, "reached C checks without evidence"
+            ):
+                band.assert_cli_invariants([reached, *remaining])
+
+            for name in band.CLI_EVIDENCE_FILES:
+                evidence_dir.joinpath(name).write_text("{}\n", encoding="utf-8")
+            self.assertEqual(band.assert_cli_invariants([reached, *remaining]), 1)
+
+    def test_unreached_run_cannot_claim_non_static_assurance(self) -> None:
+        records, _ = band.discover_cli_records()
+        source = records[0]
+        inconsistent = band.CliRunRecord(
+            set_id=source.set_id,
+            run_name=source.run_name,
+            family=source.family,
+            executor=source.executor,
+            harness_status=source.harness_status,
+            product_exit=source.product_exit,
+            verdict=source.verdict,
+            assurance="full",
+            c1=source.c1,
+            c2=source.c2,
+            c3=source.c3,
+            c4=source.c4,
+            failure_class=source.failure_class,
+            attribution=source.attribution,
+            duration_seconds=source.duration_seconds,
+            evidence_dir=source.evidence_dir,
+        )
+        with self.assertRaisesRegex(AssertionError, "no C checks but assurance=full"):
+            band.assert_cli_invariants([inconsistent, *records[1:]])
+
+
 class CircleBandTests(unittest.TestCase):
     def test_repository_circle_denominator_and_exclusions(self) -> None:
         records, scanned_sets = band.discover_circle_records()

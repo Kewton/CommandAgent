@@ -2,7 +2,7 @@
 id = "python-cli"
 display_name = "Python CLI"
 schema_version = "v1"
-status = "draft"
+status = "admitted"
 
 [plan]
 profile = "python-cli"

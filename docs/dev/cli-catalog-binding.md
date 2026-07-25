@@ -48,4 +48,13 @@ classification, and the manifest adapter.
 - E2-style claim records: bound claim, observed value, verdict, and
   `nearest_miss` calibration receptacle.
 
-No guardrail baseline was raised, and admission remains off.
+No guardrail baseline was raised, and admission remained off for E-3b.
+
+## E-3c admission update
+
+On 2026-07-25 the profile was promoted to `admitted` from the measured
+`uat-test0724-cli-001-v3` local arm: machine-attributed classes 0/6, honest
+terminals 6/6, and full 0/6 (0%) with the price tag retained. The conformance
+six negatives and executable positive fixture remained green. This update
+changes the admission projection only; it does not rewrite the E-3b line
+measurement or its draft-era observations above.

@@ -58,9 +58,9 @@ pub fn guidance() -> String {
 fn validate(manifest: &ManifestV1) -> Result<(), String> {
     if manifest.metadata.id != "python-cli"
         || manifest.plan.profile != "python-cli"
-        || manifest.metadata.status != ManifestStatus::Draft
+        || manifest.metadata.status != ManifestStatus::Admitted
     {
-        return Err("CLI identity must be python-cli with draft admission".to_string());
+        return Err("CLI identity must be python-cli with admitted status".to_string());
     }
     let phases = manifest
         .plan

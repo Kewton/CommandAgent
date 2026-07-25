@@ -31,6 +31,7 @@ DATA_OUTPUT = RUNS_DIR / "band_summary_data.md"
 FIX_OUTPUT = RUNS_DIR / "band_summary_fix.md"
 INVESTIGATION_OUTPUT = RUNS_DIR / "band_summary_investigation.md"
 CIRCLE_OUTPUT = RUNS_DIR / "band_summary_circle.md"
+CLI_OUTPUT = RUNS_DIR / "band_summary_cli.md"
 WINDOW_START = "uat-test0711-bs-003"
 NEXTJS_ARCHIVED_INPUT_SET_COUNT = 12
 NEXTJS_PROVENANCE_ANALYSIS = "band-f821-diff/analysis.md"
@@ -76,6 +77,23 @@ CIRCLE_WINDOW_SETS = tuple(
 )
 CIRCLE_OFFICIAL_SET = "uat-test0722-circle-elev-008"
 CIRCLE_EXPECTED_RUNS = 33
+CLI_LOCAL_SET = "uat-test0724-cli-001-v3"
+CLI_LOCAL_SUMMARY = (
+    RUNS_DIR / CLI_LOCAL_SET / "evidence" / "campaign-summary.json"
+)
+CLI_EXPECTED_RUNS = 6
+CLI_EXPECTED_MATRIX = {
+    ("filter", "gemma4:31b"): 1,
+    ("filter", "qwen3.6:35b-a3b-coding-nvfp4"): 2,
+    ("stats", "gemma4:31b"): 1,
+    ("stats", "qwen3.6:35b-a3b-coding-nvfp4"): 2,
+}
+CLI_EVIDENCE_FILES = (
+    "cli-case-binding.json",
+    "cli-probe.json",
+    "help-binding.json",
+    "cli-assurance.json",
+)
 CIRCLE_EXCLUSION_REASONS = {
     "uat-test0722-circle-001": "profile不伝播により無効（P1-a FAIL）",
     "uat-test0722-circle-002": "実行モード欠落により無効",
@@ -231,6 +249,37 @@ class CircleRunRecord:
     @property
     def is_full(self) -> bool:
         return self.verdict == "circle_full"
+
+
+@dataclass(frozen=True)
+class CliRunRecord:
+    set_id: str
+    run_name: str
+    family: str
+    executor: str
+    harness_status: str
+    product_exit: int
+    verdict: str
+    assurance: str
+    c1: str
+    c2: str
+    c3: str
+    c4: str
+    failure_class: str
+    attribution: str
+    duration_seconds: int
+    evidence_dir: Path
+
+    @property
+    def is_full(self) -> bool:
+        return self.verdict in {"full", "full_success"} and self.assurance == "full"
+
+    @property
+    def reached_checks(self) -> bool:
+        return any(
+            status != "not_executed"
+            for status in (self.c1, self.c2, self.c3, self.c4)
+        )
 
 
 def classify_data_family(goal: str) -> str:
@@ -2687,15 +2736,189 @@ def build_circle_summary(
     return "\n".join(lines)
 
 
+def discover_cli_records() -> tuple[list[CliRunRecord], list[str]]:
+    data = read_json_dict(CLI_LOCAL_SUMMARY)
+    assert data is not None, f"missing CLI local-arm summary: {CLI_LOCAL_SUMMARY}"
+    assert data.get("uat_id") == CLI_LOCAL_SET
+    suite = data.get("suite")
+    assert isinstance(suite, dict)
+    assert suite.get("profile") == "cli"
+    assert suite.get("intent") == "create"
+    rows = data.get("runs")
+    assert isinstance(rows, list)
+    records: list[CliRunRecord] = []
+    evidence_root = CLI_LOCAL_SUMMARY.parent.parent / "artifacts"
+    for row in rows:
+        assert isinstance(row, dict)
+        run_name = str(row.get("name") or "")
+        records.append(
+            CliRunRecord(
+                set_id=CLI_LOCAL_SET,
+                run_name=run_name,
+                family=str(row.get("family") or "unknown"),
+                executor=str(row.get("executor") or "unknown"),
+                harness_status=str(row.get("harness_status") or ""),
+                product_exit=int(row.get("product_exit")),
+                verdict=str(row.get("verdict") or ""),
+                assurance=str(row.get("assurance") or ""),
+                c1=str(row.get("c1") or "not_executed"),
+                c2=str(row.get("c2") or "not_executed"),
+                c3=str(row.get("c3") or "not_executed"),
+                c4=str(row.get("c4") or "not_executed"),
+                failure_class=str(row.get("class_id") or ""),
+                attribution=str(row.get("attribution") or ""),
+                duration_seconds=int(row.get("duration_seconds")),
+                evidence_dir=evidence_root / run_name / "evidence",
+            )
+        )
+    return records, [CLI_LOCAL_SET]
+
+
+def assert_cli_invariants(records: list[CliRunRecord]) -> int:
+    assert len(records) == CLI_EXPECTED_RUNS, (
+        f"CLI local arm has {len(records)} runs, expected {CLI_EXPECTED_RUNS}"
+    )
+    assert Counter((record.family, record.executor) for record in records) == Counter(
+        CLI_EXPECTED_MATRIX
+    ), "CLI family/executor matrix drifted"
+    evidence_verified = 0
+    for record in records:
+        assert record.harness_status == "completed", (
+            f"{record.run_name}: dishonest harness terminal"
+        )
+        assert record.verdict in {"failed", "full", "full_success"}, (
+            f"{record.run_name}: unsupported verdict {record.verdict}"
+        )
+        if record.reached_checks:
+            missing = [
+                name
+                for name in CLI_EVIDENCE_FILES
+                if not record.evidence_dir.joinpath(name).is_file()
+            ]
+            assert not missing, (
+                f"{record.run_name}: reached C checks without evidence {missing}"
+            )
+            evidence_verified += 1
+            if record.is_full:
+                assert {record.c1, record.c2, record.c3, record.c4} == {"pass"}, (
+                    f"{record.run_name}: false full without C1-C4 pass"
+                )
+        else:
+            assert record.verdict == "failed", (
+                f"{record.run_name}: no C checks but verdict={record.verdict}"
+            )
+            assert record.assurance == "static (profile_not_admitted)", (
+                f"{record.run_name}: no C checks but assurance={record.assurance}"
+            )
+    return evidence_verified
+
+
+def cli_rate_rows(records: list[CliRunRecord]) -> list[list[str]]:
+    counts: dict[tuple[str, str], Counter[str]] = defaultdict(Counter)
+    for record in records:
+        counts[(record.family, record.executor)][
+            "full" if record.is_full else "non_full"
+        ] += 1
+    rows = []
+    for family, executor in sorted(counts):
+        full = counts[(family, executor)]["full"]
+        non_full = counts[(family, executor)]["non_full"]
+        denominator = full + non_full
+        rows.append(
+            [
+                family,
+                executor,
+                str(full),
+                str(non_full),
+                str(denominator),
+                pct(full, denominator),
+            ]
+        )
+    return rows
+
+
+def build_cli_summary(
+    records: list[CliRunRecord],
+    scanned_sets: list[str],
+    evidence_verified: int,
+) -> str:
+    full = sum(record.is_full for record in records)
+    reached = sum(record.reached_checks for record in records)
+    lines = [
+        "# CLI Create Capability Band Summary",
+        "",
+        "<!-- Generated by band_aggregate.py --profile cli. Do not edit by hand. -->",
+        "",
+        f"- Source sets: `{len(scanned_sets)}` (`{CLI_LOCAL_SET}` local arm)",
+        f"- Observed runs: `{len(records)}`",
+        f"- Honest terminals: `{sum(record.harness_status == 'completed' for record in records)}/{len(records)}`",
+        f"- Full: `{full}/{len(records)}` ({pct(full, len(records))})",
+        f"- Runs reaching C checks: `{reached}/{len(records)}`",
+        f"- Reached-run C evidence sets verified: `{evidence_verified}/{reached}`",
+        "- Invariant: C evidence files are mandatory only after a run reaches the CLI checks.",
+        "- Invariant: a non-reaching run must remain failed with static (profile_not_admitted) assurance.",
+        "- Zero-row policy: generation aborts before replacing the tracked output.",
+        "",
+        "## Local arm by family and executor",
+        "",
+    ]
+    lines.extend(
+        table(
+            ["Family", "Executor", "full", "non-full", "denominator", "full rate"],
+            cli_rate_rows(records),
+        )
+    )
+    lines.extend(["", "## Per-run ledger", ""])
+    lines.extend(
+        table(
+            [
+                "Set",
+                "Run",
+                "Family",
+                "Executor",
+                "Verdict",
+                "Assurance",
+                "C1",
+                "C2",
+                "C3",
+                "C4",
+                "Failure class",
+                "Seconds",
+            ],
+            [
+                [
+                    record.set_id,
+                    record.run_name,
+                    record.family,
+                    record.executor,
+                    record.verdict,
+                    record.assurance,
+                    record.c1,
+                    record.c2,
+                    record.c3,
+                    record.c4,
+                    record.failure_class,
+                    str(record.duration_seconds),
+                ]
+                for record in records
+            ],
+        )
+    )
+    lines.extend(["", "## Source sets", ""])
+    lines.extend(f"- `{set_id}`" for set_id in scanned_sets)
+    lines.append("")
+    return "\n".join(lines)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--profile",
-        choices=("nextjs", "data", "fix", "investigation", "circle"),
+        choices=("nextjs", "data", "fix", "investigation", "circle", "cli"),
         default="nextjs",
         help=(
             "capability band to aggregate (nextjs/data create, nextjs fix, "
-            "data investigation, or workflow circle)"
+            "data investigation, workflow circle, or CLI create)"
         ),
     )
     return parser.parse_args()
@@ -2704,7 +2927,21 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     try:
-        if args.profile == "circle":
+        if args.profile == "cli":
+            cli_records, scanned_sets = discover_cli_records()
+            require_nonempty_aggregation(
+                args.profile,
+                cli_records,
+                profile_set_diagnostics(cli_records, scanned_sets),
+            )
+            evidence_verified = assert_cli_invariants(cli_records)
+            summary = build_cli_summary(
+                cli_records,
+                scanned_sets,
+                evidence_verified,
+            )
+            output = CLI_OUTPUT
+        elif args.profile == "circle":
             circle_records, scanned_sets = discover_circle_records()
             official_records = [
                 record for record in circle_records if not record.excluded_reason

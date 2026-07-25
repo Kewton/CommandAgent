@@ -1,35 +1,7 @@
-# Profile Contract Scaffold: cli (draft — off until admitted)
+# Profile Contract Binding: cli (admitted)
 
-状態: **off until admitted**。空欄は埋めるべき判断である。
+状態: **admitted**。
 
-## 1. スコープ
-
-<!-- TODO: 既存契約から転記し、固有判断を記入する。 -->
-
-## 2. full の意味（最重要・不変条件）
-
-<!-- TODO: 既存契約から転記し、固有判断を記入する。 -->
-
-## 3. 要求 evidence（full の必須ゲート）
-
-<!-- TODO: 既存契約から転記し、固有判断を記入する。 -->
-
-## 4. assurance 階層
-
-<!-- TODO: 既存契約から転記し、固有判断を記入する。 -->
-
-## 5. 実行プローブ
-
-<!-- TODO: 既存契約から転記し、固有判断を記入する。 -->
-
-## 6. 偽装耐性（conformance ネガティブテストの要求）
-
-<!-- TODO: 既存契約から転記し、固有判断を記入する。 -->
-
-## 7. スコープ外（明示）
-
-<!-- TODO: 既存契約から転記し、固有判断を記入する。 -->
-
-## 8. 生成側への制約
-
-<!-- TODO: 既存契約から転記し、固有判断を記入する。 -->
+裁定の正は `docs/cli-profile-contract.md` (fixed 2026-07-24) とする。
+fullの意味、C1〜C4、assurance階層、6負例、スコープ外、生成制約は
+同契約を参照し、このbindingでは複製しない。

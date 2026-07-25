@@ -46,9 +46,9 @@ fn conformance_rejects_six_negatives_and_accepts_full_evidence() {
 }
 
 #[test]
-fn manifest_is_draft_and_binds_create_phases_and_c1_through_c4() {
+fn manifest_is_admitted_and_binds_create_phases_and_c1_through_c4() {
     let cli = manifest::get();
-    assert_eq!(cli.metadata.status, ManifestStatus::Draft);
+    assert_eq!(cli.metadata.status, ManifestStatus::Admitted);
     assert_eq!(
         cli.plan
             .phases

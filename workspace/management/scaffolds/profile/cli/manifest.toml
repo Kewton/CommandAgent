@@ -1,7 +1,7 @@
 [manifest]
 id = "cli"
 kind = "profile"
-admission = "off"
+admission = "admitted"
 profile = "python-cli"
 intent = "create"
 contract = "docs/cli-profile-contract.md"

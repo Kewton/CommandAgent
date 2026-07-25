@@ -733,3 +733,4 @@ cli契約v0 fixed（2026-07-24）: 実行観測主義・ケース束縛凍結・
 所要是正: シートは監査本体の転記装置。本体に無い数字は「記録なし」が正しい出力、人手計測は出自明示の別枠でのみ表示可。
 E-3b実測: cli argv probe／help binding／draft manifest／C1〜C4 runtimeを組上げ、合成conformanceはfull 1/1・負例6/6、実CLI full 1/1。新規production Rustはコミット累計257→474→936行（見込み180行の5.20倍）、test Rustは71→127→304行。bounded process・pipeline stream capture・data E3等価判定・Manifest v1/catalog・E2型nearest_miss受け皿を流用したが、型付きevidence／freeze／assurance／adapter費を見込みから欠落していた。admissionはoffのまま。
 bench v0.3: benchの計測可能領域がfix/investigate世界に閉じていた欠落を、create用empty workspaceの新規作成・無垢性検証で閉鎖し、全intentセルをbench圏内にした。
+E-3c admission（2026-07-25）: cli×create localアームは機械クラス0/6（`uat-test0724-cli-001-v3`）、conformance 6負例＋実fixture、正直終端6/6であり、`off until admitted`の昇格条件が成立した。full 0/6（0%）の値札を隠さず`admitted`へ昇格する。timeseries 0/12を受容済みバンドとして宣言したPhase B封緘と同型であり、到達runだけにC系evidence実在を要求する。
