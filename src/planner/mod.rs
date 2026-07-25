@@ -23,6 +23,7 @@ pub mod lint;
 pub(crate) mod lint_rejection;
 pub mod profile;
 pub(crate) mod profile_admission;
+pub(crate) mod profile_behavior;
 pub mod profile_manifest;
 pub mod repair;
 mod repair_target_selection;

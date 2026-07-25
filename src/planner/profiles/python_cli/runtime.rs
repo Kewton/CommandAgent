@@ -43,6 +43,15 @@ impl CliAssurance {
             Self::Failed => "failed",
         }
     }
+
+    pub const fn behavior_status(self) -> &'static str {
+        match self {
+            Self::Full => "pass",
+            Self::Partial => "partial",
+            Self::Static => "static",
+            Self::Failed => "failed",
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

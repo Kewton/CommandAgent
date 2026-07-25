@@ -5468,8 +5468,9 @@ fn run_profile_behavior_probe(
     if !profile_report.is_pass() {
         return ProfileBehaviorProbeReport::pass();
     }
-    match domain_profile(profile).behavior_probe(
+    match crate::planner::profile_behavior::run(
         &config.workspace_root,
+        profile,
         goal,
         required_capabilities,
         config.offline,
@@ -9844,6 +9845,9 @@ mod tests {
 
     #[path = "assurance_tests.rs"]
     mod assurance_tests;
+
+    #[path = "cli_runtime_dispatch_tests.rs"]
+    mod cli_runtime_dispatch_tests;
 
     fn common_prefix(left: &str, right: &str) -> String {
         left.chars()

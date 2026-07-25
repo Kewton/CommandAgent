@@ -21,6 +21,10 @@ class ScaffoldTests(unittest.TestCase):
                 scaffold.PROJECTION_CHECKLIST_ITEM,
                 (out / "ADMISSION.md").read_text(),
             )
+            self.assertIn(
+                scaffold.PRODUCTION_ACTIVATION_CHECKLIST_ITEM,
+                (out / "ADMISSION.md").read_text(),
+            )
             self.assertEqual(
                 (out / "manifest.toml")
                 .read_text()
@@ -36,6 +40,7 @@ class ScaffoldTests(unittest.TestCase):
                 scaffold.ROOT / "scaffolds" / kind / ident / "ADMISSION.md"
             ).read_text()
             self.assertIn(scaffold.PROJECTION_CHECKLIST_ITEM, checklist)
+            self.assertIn(scaffold.PRODUCTION_ACTIVATION_CHECKLIST_ITEM, checklist)
 
     def test_intent_same_shape(self):
         old = scaffold.ROOT

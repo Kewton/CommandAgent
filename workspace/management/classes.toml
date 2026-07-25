@@ -98,6 +98,14 @@ ledger_ref = "DATA-"
 note = "形状既定=modelは仮置きであり本クラスは解剖必須。本件ではmachine裁定へ覆った実例あり（workspace/management/runs/uat-test0725-cli-elev-001/death-anatomy.md参照）"
 
 [[class]]
+id = "cli_runtime_dispatch:c_checks_not_run_after_final_acceptance"
+attribution = "machine"
+match_reason = "cli_probe_not_run"
+first_seen = "uat-test0725-cli-elev-002"
+ledger_ref = "CLI-3"
+note = "profile=cliのfinal acceptanceがE-3b C1〜C4 runtimeを起動しなかった。CLI-3でproduction経路へ配線済み"
+
+[[class]]
 id = "bench_suite_schema:create_empty_sources_unsupported"
 attribution = "machine"
 match_reason = "suite must define at least one [[sources]] table"
