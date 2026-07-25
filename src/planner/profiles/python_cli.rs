@@ -25,6 +25,7 @@ use crate::planner::verify::{
 pub mod argv_probe;
 pub mod help_binding;
 pub mod manifest;
+pub(crate) mod readme_verify;
 pub mod runtime;
 
 const DEFAULT_PACKAGE: &str = "anvil_app";

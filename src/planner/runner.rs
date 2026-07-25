@@ -602,6 +602,13 @@ fn generate_step_plan_with_ui_for_phase(
                 );
                 strengthen_step_plan_for_profile(&mut plan, config);
                 repair_generated_step_plan_contract(&mut plan);
+                let cli_readme_converted =
+                    crate::planner::profiles::python_cli::readme_verify::canonicalize_step_plan(
+                        &mut plan,
+                        &config.profile,
+                        config.resolved_run_intent() == IntentId::Create,
+                        config.eval_events_path.as_deref(),
+                    );
                 let sanitizer_report =
                     sanitize_step_plan_against_policy(&mut plan, Some(&config.workspace_root));
                 let preset_converted = if fix_before {
@@ -628,6 +635,7 @@ fn generate_step_plan_with_ui_for_phase(
                 let plan_was_sanitized = verify_was_normalized
                     || !generated_sanitization.is_empty()
                     || !sanitizer_report.is_empty()
+                    || cli_readme_converted > 0
                     || preset_converted > 0;
                 emit_planner_plan_sanitized(
                     config,
@@ -813,6 +821,12 @@ fn deterministic_step_plan_for_phase(
     );
     strengthen_step_plan_for_profile(&mut plan, config);
     repair_generated_step_plan_contract(&mut plan);
+    let _ = crate::planner::profiles::python_cli::readme_verify::canonicalize_step_plan(
+        &mut plan,
+        &config.profile,
+        config.resolved_run_intent() == IntentId::Create,
+        config.eval_events_path.as_deref(),
+    );
     let sanitizer_report =
         sanitize_step_plan_against_policy(&mut plan, Some(&config.workspace_root));
     emit_planner_plan_sanitized(config, provider, model, 1, &sanitizer_report);
