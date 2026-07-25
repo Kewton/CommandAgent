@@ -95,7 +95,7 @@ attribution = "model"
 match_stop_class = "failure_kind:process_failure"
 first_seen = "uat-test0718-dfix-005"
 ledger_ref = "DATA-"
-note = "プロセス終端として記録された失敗"
+note = "形状既定=modelは仮置きであり本クラスは解剖必須。本件ではmachine裁定へ覆った実例あり（workspace/management/runs/uat-test0725-cli-elev-001/death-anatomy.md参照）"
 
 [[class]]
 id = "bench_suite_schema:create_empty_sources_unsupported"

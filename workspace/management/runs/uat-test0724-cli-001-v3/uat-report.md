@@ -213,3 +213,15 @@ Follow-up: admission=offを維持したまま、今回採取した
 `model_stagnation_read_only` 2件と`process_failure` 4件を入力に
 create完遂率を改善し、新規campaignで再計測する。その際はclassifierの
 workspace/artifact二重表示と、未完了sheetの内容充足度も別KPIとして扱う。
+
+## 9. CLI-2レビュー裁定追補（2026-07-25）
+
+[`death-anatomy.md`](../uat-test0725-cli-elev-001/death-anatomy.md)の一次資料に
+基づき、`process_failure`群4件の帰属を**modelからmachine
+（README verify過制約）へ訂正**する。成果物生成後に、固定CLI契約が要求
+しないgoal由来の自然言語字義assertで停止したことをレビュー裁定した。
+
+`model_stagnation_read_only` 2件はこのverify過制約へ到達する前の
+write-required停滞であり、**model帰属を維持**する。従って本campaignの
+訂正後内訳はmachine 4 / model 2である。既存本文は当時の登録簿による
+初期分類として保存し、本節を最終裁定とする。

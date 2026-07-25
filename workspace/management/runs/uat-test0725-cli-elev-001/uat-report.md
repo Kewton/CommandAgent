@@ -263,3 +263,15 @@ after bounded repair: Smoke test failed
 Follow-up: admitted CLIのearly terminal projectionへCLI契約§4を適用し、
 C1未実行をstaticへ保つ。その修正後campaignでC1到達率を上げ、C2/C3の
 実戦成績とnearest_miss較正を初採取する。
+
+## 12. CLI-2レビュー裁定追補（2026-07-25）
+
+本directoryの[`death-anatomy.md`](death-anatomy.md)に基づき、
+`process_failure`群6件の帰属を**modelからmachine（README verify過制約）
+へ訂正**する。代表runで成果物生成と先行phase完了を確認し、固定CLI契約が
+要求しないgoal由来の自然言語字義assertが直接停止要因だったことを
+レビュー裁定した。
+
+本campaignには`model_stagnation_read_only`はない。local armに存在する
+read-only停滞2件は別形であり、model帰属を維持する。既存本文は計測時点の
+初期分類として保存し、本節を最終裁定とする。
