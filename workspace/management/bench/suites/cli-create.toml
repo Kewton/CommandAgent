@@ -1,0 +1,44 @@
+[suite]
+id = "cli-create"
+profile = "cli"
+intent = "create"
+plan_preset = "default"
+context_budget = 65536
+planner_model = "qwen3.6:27b-coding-nvfp4"
+planner_provider = "ollama"
+provider = "ollama"
+min_head = "27d787b"
+
+[goals]
+stats = "数値CSVを集計するCLIツール cli/main.py を作成してください。--column で対象列名を指定し、件数・合計・平均を表示します。--help で使い方を表示します。サンプル入力 data/sample.csv を同梱し、実行例と出力例を README.md に記載してください。"
+filter = "テキストファイルから指定パターンを含む行を抽出するCLIツール cli/main.py を作成してください。--pattern で検索文字列、--count で件数のみ表示を指定できます。--help で使い方を表示します。サンプル入力 data/sample.txt を同梱し、実行例と出力例を README.md に記載してください。"
+
+[[runs]]
+name = "stats_qwen35_001"
+goal = "stats"
+executor = "qwen3.6:35b-a3b-coding-nvfp4"
+
+[[runs]]
+name = "stats_gemma31_001"
+goal = "stats"
+executor = "gemma4:31b"
+
+[[runs]]
+name = "stats_qwen35_002"
+goal = "stats"
+executor = "qwen3.6:35b-a3b-coding-nvfp4"
+
+[[runs]]
+name = "filter_qwen35_001"
+goal = "filter"
+executor = "qwen3.6:35b-a3b-coding-nvfp4"
+
+[[runs]]
+name = "filter_gemma31_001"
+goal = "filter"
+executor = "gemma4:31b"
+
+[[runs]]
+name = "filter_qwen35_002"
+goal = "filter"
+executor = "qwen3.6:35b-a3b-coding-nvfp4"

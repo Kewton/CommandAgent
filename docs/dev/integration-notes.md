@@ -232,6 +232,8 @@ Benchフェーズ(e)へ`acceptance_sheet`生成を統合し、シート自給率
 
 `final_acceptance_budget_exhaustion_uses_last_cycle_reason`の低頻度・並列干渉候補を、dev-server flakyと同じ棚で共有状態除去として決定化する。発現時は単独3回反復で再診断する。
 
+80msキャンセル猶予テストのタイミングflake 1回発現 (E-3b full初回・単独1/1 pass+full再走green)—— budget-exhaustion系と同棚・決定化候補
+
 ## Next.js band input restoration (2026-07-22) [QUEUED]
 
 Restore the 12 pre-migration Next.js measurement sets as auditable inputs by

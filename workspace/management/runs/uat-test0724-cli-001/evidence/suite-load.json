@@ -1,0 +1,12 @@
+{
+  "schema_version": "1",
+  "task": "uat-test0724-cli-001",
+  "command": "python3 workspace/management/scripts/bench.py run --suite cli-create --workspace-root /Users/maenokota/share/work/localwork/commandagent_mvp/01/test0724_cli_001",
+  "started_epoch": 1784954624,
+  "ended_epoch": 1784954624,
+  "exit_code": 2,
+  "stderr": "bench: suite must define at least one [[sources]] table",
+  "stage": "suite_load",
+  "campaign_created": false,
+  "product_runs_started": 0
+}
