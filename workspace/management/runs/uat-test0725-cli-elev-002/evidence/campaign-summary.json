@@ -1,0 +1,211 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0725-cli-elev-002",
+  "campaign_id": "cli-create-elevated-20260725-131601",
+  "revision": "fca064bcc574bf031f54ae206d49a14f09a56e6d",
+  "contract": "docs/cli-profile-contract.md (fixed 2026-07-24)",
+  "suite": {
+    "id": "cli-create-elevated",
+    "profile": "cli",
+    "intent": "create",
+    "workspace_mode": "empty",
+    "admission": "admitted",
+    "planner": "qwen3.6:27b-coding-nvfp4",
+    "executor": "gemma4:31b-cloud",
+    "provider": "ollama"
+  },
+  "source_hashes": {
+    "uat_meta_sha256": "83f81a9effa5ce47b5dbcc753e97224dbe251fbb4f8fe345eae44cd96b43ca11",
+    "report_skeleton_sha256": "cc2bc2ec349ec143d07c24f25aea387e688b30625d4c1a0744119365a3b8dcaa",
+    "failure_classes_sha256": "8714a4beb7c7ef2154d594789e3e9fcc9a7c4f5615e2780f8ba34ac97c7d1d3a"
+  },
+  "epochs": {
+    "preflight_start": 1784985361,
+    "run_start": 1784985463,
+    "run_end": 1784989648,
+    "audit_end": 1784992656
+  },
+  "cost_seconds": {
+    "preflight_start_to_run_end": 4287,
+    "run_sum": 4185,
+    "preflight_start_to_audit_end": 7295
+  },
+  "preflight": {
+    "cargo_test": {
+      "exit_code": 0,
+      "passed": 1791,
+      "failed": 0,
+      "ignored": 30
+    },
+    "cargo_fmt_exit_code": 0,
+    "cargo_clippy_exit_code": 0,
+    "release_build_exit_code": 0,
+    "version": "commandagent 0.1.0 fca064b 2026-07-25T13:17:27Z"
+  },
+  "runs": [
+    {
+      "name": "stats_cloud_001",
+      "family": "stats",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 573
+    },
+    {
+      "name": "stats_cloud_002",
+      "family": "stats",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 607
+    },
+    {
+      "name": "stats_cloud_003",
+      "family": "stats",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 557
+    },
+    {
+      "name": "filter_cloud_001",
+      "family": "filter",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 0,
+      "verdict": "completed (static assurance)",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": true,
+      "c1": "not_executed",
+      "c2": "not_executed",
+      "c3": "not_executed",
+      "c4": "not_executed",
+      "class_id": "cli_runtime_dispatch:c_checks_not_run_after_final_acceptance",
+      "attribution": "machine",
+      "duration_seconds": 1198
+    },
+    {
+      "name": "filter_cloud_002",
+      "family": "filter",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 420
+    },
+    {
+      "name": "filter_cloud_003",
+      "family": "filter",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 0,
+      "verdict": "completed (static assurance)",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": true,
+      "c1": "not_executed",
+      "c2": "not_executed",
+      "c3": "not_executed",
+      "c4": "not_executed",
+      "class_id": "cli_runtime_dispatch:c_checks_not_run_after_final_acceptance",
+      "attribution": "machine",
+      "duration_seconds": 830
+    }
+  ],
+  "effective_model_audit": {
+    "expected": "gemma4:31b-cloud",
+    "observed": 6,
+    "expected_runs": 6,
+    "planner_expected": "qwen3.6:27b-coding-nvfp4",
+    "planner_observed": 6
+  },
+  "readme_structural_verify": {
+    "runs_with_canonicalization": 5,
+    "canonicalization_events": 8,
+    "goal_literal_readme_failures": 0,
+    "english_stats_readme_without_japanese_total_phase_passed": true
+  },
+  "e0": {
+    "logical_runs": {
+      "known": 4,
+      "unknown": 2
+    },
+    "physical_classification_rows": {
+      "known": 8,
+      "unknown": 4,
+      "note": "classifier scanned both workspace originals and artifact copies; completed runs have no registered failure stop pattern"
+    },
+    "new_terminal_death_classes": 0,
+    "new_machine_class_candidates": [
+      "cli_runtime_dispatch:c_checks_not_run_after_final_acceptance"
+    ],
+    "acceptance_sheets_generated": 6,
+    "acceptance_sheets_expected": 6,
+    "calibration_records_added": 0
+  },
+  "c_evidence": {
+    "runs_reaching_final_acceptance": 2,
+    "runs_executing_c1": 0,
+    "case_freeze_records": 0,
+    "polarity_pairs": 0,
+    "help_binding_records": 0,
+    "claims_binding_records": 0,
+    "rerun_consistency_records": 0,
+    "nearest_miss_records": 0
+  },
+  "rates": {
+    "honest_terminal": "6/6",
+    "completed_static": "2/6",
+    "full": "0/6",
+    "false_full": "0/6",
+    "sheet_self_supply": "6/6",
+    "admission_cap_removed": "6/6"
+  },
+  "acceptance": {
+    "p0_a_honest_terminal": "pass",
+    "p0_b_contract_section_4": "pass",
+    "p0_c_false_success_zero": "pass",
+    "p1_a_c1_at_reached_run": "fail",
+    "p1_b_sheet_generation": "pass",
+    "p1_a_reason": "two runs reached final acceptance but neither executed the manifest-bound CLI C1-C4 runtime"
+  },
+  "scrub": {
+    "campaign_ok": true,
+    "runs_ok": 6,
+    "findings": []
+  }
+}
