@@ -25,7 +25,7 @@ pub(super) fn apply_snapshot(config: &Config, snapshot: &mut CompletionSnapshot)
         super::data::apply_snapshot(&config.workspace_root, snapshot);
         return true;
     }
-    false
+    super::cli::apply_snapshot(&config.workspace_root, snapshot)
 }
 
 pub(super) fn apply_terminal_projection(config: &Config, projection: &mut CompletionProjection) {
@@ -34,6 +34,7 @@ pub(super) fn apply_terminal_projection(config: &Config, projection: &mut Comple
         projection.assurance_level = level;
         projection.assurance_reason = reason;
     } else {
+        super::cli::apply_terminal_projection(&config.workspace_root, projection);
         super::data::apply_terminal_projection(&config.workspace_root, projection);
     }
 }

@@ -17,6 +17,9 @@ CHAPTERS = [
     "7. スコープ外（明示）",
     "8. 生成側への制約",
 ]
+PROJECTION_CHECKLIST_ITEM = (
+    "completion assurance projection mapping and a measured fixture are implemented"
+)
 
 
 def generate(kind, ident):
@@ -47,7 +50,14 @@ def generate(kind, ident):
     )
     (base / "corpus").mkdir(exist_ok=True)
     (base / "ADMISSION.md").write_text(
-        "# Admission checklist\n\n- [ ] contract chapters filled and reviewed\n- [ ] manifest fields and profile/intent are real\n- [ ] required evidence mapped to implementation\n- [ ] conformance negative tests green\n- [ ] corpus fixture is an archived real run\n- [ ] reviewer explicitly changes `off` to `admitted`\n",
+        "# Admission checklist\n\n"
+        "- [ ] contract chapters filled and reviewed\n"
+        "- [ ] manifest fields and profile/intent are real\n"
+        "- [ ] required evidence mapped to implementation\n"
+        f"- [ ] {PROJECTION_CHECKLIST_ITEM}\n"
+        "- [ ] conformance negative tests green\n"
+        "- [ ] corpus fixture is an archived real run\n"
+        "- [ ] reviewer explicitly changes `off` to `admitted`\n",
         encoding="utf-8",
     )
     return base
