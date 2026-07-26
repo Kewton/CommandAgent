@@ -1,10 +1,11 @@
 use std::path::Path;
 
 use commandagent::planner::profile_manifest::ManifestStatus;
-use commandagent::planner::profiles::python_cli::{manifest, runtime};
+use commandagent::planner::profiles::python_cli::{argv_probe, manifest, runtime};
 use serde::Deserialize;
 
 const FIXTURE: &str = "tests/corpus/apps/test0725_cli_profile_contract/fixtures/conformance.jsonl";
+const MEASURED_ELEV_003: &str = "tests/corpus/apps/test0725_cli_elev_003/fixtures";
 
 #[derive(Debug, Deserialize)]
 struct Case {
@@ -113,4 +114,39 @@ fn full_fixture_executes_two_components_and_emits_four_checks() {
         assert!(dir.path().join(evidence).is_file(), "{evidence}");
     }
     assert!(Path::new(FIXTURE).is_file());
+}
+
+#[test]
+fn measured_elev_003_executes_c1_c2_c4_and_rejects_two_c3_claims() {
+    let dir = tempfile::tempdir().unwrap();
+    for relative in ["README.md", "cli/main.py", "data/sample.txt"] {
+        let target = dir.path().join(relative);
+        std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+        std::fs::copy(Path::new(MEASURED_ELEV_003).join(relative), target).unwrap();
+    }
+
+    let summary = runtime::run_manifest_checks(dir.path()).unwrap();
+    let probe: argv_probe::Report =
+        serde_json::from_slice(&std::fs::read(dir.path().join(argv_probe::EVIDENCE_PATH)).unwrap())
+            .unwrap();
+
+    assert_eq!(
+        summary.evidence.checks[runtime::C1],
+        runtime::CheckStatus::Pass
+    );
+    assert_eq!(
+        summary.evidence.checks[runtime::C2],
+        runtime::CheckStatus::Pass
+    );
+    assert_eq!(
+        summary.evidence.checks[runtime::C3],
+        runtime::CheckStatus::Failed
+    );
+    assert_eq!(
+        summary.evidence.checks[runtime::C4],
+        runtime::CheckStatus::Pass
+    );
+    assert_eq!(summary.assurance, runtime::CliAssurance::Failed);
+    assert_eq!(probe.output_claims.len(), 2);
+    assert!(probe.output_claims.iter().all(|claim| !claim.matched));
 }

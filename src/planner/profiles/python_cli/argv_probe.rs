@@ -65,6 +65,8 @@ pub struct OutputClaimBinding {
     pub claim: String,
     pub matched: bool,
     pub nearest_miss: Option<String>,
+    pub source: Option<String>,
+    pub observation: Option<Observation>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -113,22 +115,28 @@ pub fn run(root: &Path, config: Config) -> anyhow::Result<Report> {
         && observations[0].exit_code == Some(0)
         && observations[1].exit_code.is_some_and(|code| code != 0);
     let c4_ok = observations.len() == 3 && equivalent(&observations[0], &observations[2]);
-    let output_claims = binding.cases[0]
-        .expected_stdout
-        .iter()
-        .map(|claim| {
-            let matched = observations.first().is_some_and(|observation| {
-                observation.stdout.text.lines().any(|line| line == claim)
-            });
-            OutputClaimBinding {
-                claim: claim.clone(),
-                matched,
-                nearest_miss: (!matched)
-                    .then(|| observations.first().map(|item| item.stdout.text.clone()))
-                    .flatten(),
-            }
-        })
-        .collect();
+    let output_examples = extract_output_examples(root, &config.usage_paths, &binding.entry)?;
+    let mut output_claims = Vec::new();
+    for (index, example) in output_examples.into_iter().enumerate() {
+        let observation = observe(
+            root,
+            &config.entry,
+            &example.args,
+            config.timeout,
+            &format!("output-claim-{}", index + 1),
+        )?;
+        let matched = example
+            .expected_stdout
+            .iter()
+            .all(|claim| observation.stdout.text.lines().any(|line| line == claim));
+        output_claims.push(OutputClaimBinding {
+            claim: example.expected_stdout.join("\n"),
+            matched,
+            nearest_miss: (!matched).then(|| observation.stdout.text.clone()),
+            source: Some(example.source),
+            observation: Some(observation),
+        });
+    }
     let mut failure_kinds = Vec::new();
     if !binding_intact {
         failure_kinds.push("cli_case_binding_changed".to_string());
@@ -371,6 +379,139 @@ fn sample_for_placeholder<'a>(samples: &'a [String], name: &str) -> Option<&'a S
         .or_else(|| samples.first())
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OutputExample {
+    args: Vec<String>,
+    expected_stdout: Vec<String>,
+    source: String,
+}
+
+fn extract_output_examples(
+    root: &Path,
+    usage_paths: &[PathBuf],
+    entry: &str,
+) -> anyhow::Result<Vec<OutputExample>> {
+    let mut examples = Vec::new();
+    for relative in usage_paths {
+        let Some(path) =
+            crate::tools::path_guard::resolve_existing(root, &relative.to_string_lossy()).ok()
+        else {
+            continue;
+        };
+        let text = std::fs::read_to_string(path)?;
+        let lines = text.lines().collect::<Vec<_>>();
+        let mut index = 0;
+        while index < lines.len() {
+            let Some(marker) = fence_marker(lines[index]) else {
+                index += 1;
+                continue;
+            };
+            let Some(end) = closing_fence(&lines, index + 1, marker) else {
+                break;
+            };
+            for command_index in index + 1..end {
+                let Some(words) = cli_invocation_words(lines[command_index], entry) else {
+                    continue;
+                };
+                let args = normalize_usage_args(root, &words[2..]).with_context(|| {
+                    format!(
+                        "cli_output_claim_extraction_failed: {}:{}",
+                        relative.to_string_lossy(),
+                        command_index + 1
+                    )
+                })?;
+                let inline = lines[command_index + 1..end]
+                    .iter()
+                    .take_while(|line| cli_invocation_words(line, entry).is_none())
+                    .map(|line| line.trim_end().to_string())
+                    .filter(|line| !line.is_empty() && !line.starts_with("$ "))
+                    .collect::<Vec<_>>();
+                let (expected_stdout, output_line) = if inline.is_empty() {
+                    labeled_output_block(&lines, end + 1)
+                        .unwrap_or_else(|| (Vec::new(), command_index + 1))
+                } else {
+                    (inline, command_index + 2)
+                };
+                if !expected_stdout.is_empty() {
+                    examples.push(OutputExample {
+                        args,
+                        expected_stdout,
+                        source: format!(
+                            "{}:{}->{}",
+                            relative.to_string_lossy(),
+                            command_index + 1,
+                            output_line
+                        ),
+                    });
+                }
+            }
+            index = end + 1;
+        }
+    }
+    Ok(examples)
+}
+
+fn cli_invocation_words<'a>(line: &'a str, entry: &str) -> Option<Vec<&'a str>> {
+    let command = line.trim().strip_prefix("$ ").unwrap_or(line.trim());
+    let words = command.split_whitespace().collect::<Vec<_>>();
+    (words.len() >= 2
+        && matches!(words[0], "python" | "python3")
+        && words[1].trim_start_matches("./") == entry)
+        .then_some(words)
+}
+
+fn fence_marker(line: &str) -> Option<&'static str> {
+    let trimmed = line.trim_start();
+    if trimmed.starts_with("```") {
+        Some("```")
+    } else if trimmed.starts_with("~~~") {
+        Some("~~~")
+    } else {
+        None
+    }
+}
+
+fn closing_fence(lines: &[&str], start: usize, marker: &str) -> Option<usize> {
+    (start..lines.len()).find(|index| lines[*index].trim_start().starts_with(marker))
+}
+
+fn labeled_output_block(lines: &[&str], start: usize) -> Option<(Vec<String>, usize)> {
+    let mut index = start;
+    while index < lines.len() && lines[index].trim().is_empty() {
+        index += 1;
+    }
+    if index >= lines.len()
+        || lines[index].trim_start().starts_with('#')
+        || !is_output_label(lines[index])
+    {
+        return None;
+    }
+    index += 1;
+    while index < lines.len() && lines[index].trim().is_empty() {
+        index += 1;
+    }
+    let marker = fence_marker(*lines.get(index)?)?;
+    let end = closing_fence(lines, index + 1, marker)?;
+    let output = lines[index + 1..end]
+        .iter()
+        .map(|line| line.trim_end().to_string())
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    Some((output, index + 2))
+}
+
+fn is_output_label(line: &str) -> bool {
+    let normalized = line
+        .trim()
+        .trim_matches(|ch: char| matches!(ch, '*' | '_' | '`' | ':' | '：'))
+        .trim()
+        .to_ascii_lowercase();
+    matches!(
+        normalized.as_str(),
+        "output" | "expected output" | "output example" | "出力" | "出力例" | "実行結果"
+    )
+}
+
 fn freeze_binding(root: &Path, candidate: &CaseBinding) -> anyhow::Result<(CaseBinding, bool)> {
     let path = root.join(CASE_BINDING_PATH);
     if path.exists() {
@@ -572,5 +713,37 @@ mod tests {
             "{error:#}"
         );
         assert!(!dir.path().join(CASE_BINDING_PATH).exists());
+    }
+
+    #[test]
+    fn measured_readme_extracts_two_output_examples_and_rejects_both() {
+        let dir = measured_fixture(true);
+
+        let report = run(dir.path(), Config::new("cli/main.py", &["README.md"])).unwrap();
+
+        assert!(report.c1_ok);
+        assert!(report.c4_ok);
+        assert_eq!(report.output_claims.len(), 2);
+        assert!(
+            report.output_claims.iter().all(|claim| !claim.matched),
+            "{:?}",
+            report.output_claims
+        );
+        assert_eq!(
+            report.output_claims[0].claim,
+            "I like apple.\nApple is red.\nAn apple a day keeps the doctor away."
+        );
+        assert_eq!(
+            report.output_claims[0].nearest_miss.as_deref(),
+            Some("I like apple pie.\n")
+        );
+        assert_eq!(report.output_claims[1].claim, "2");
+        assert_eq!(report.output_claims[1].nearest_miss.as_deref(), Some("0\n"));
+        assert!(
+            report
+                .output_claims
+                .iter()
+                .all(|claim| claim.observation.is_some())
+        );
     }
 }
