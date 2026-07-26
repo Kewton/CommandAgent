@@ -1,8 +1,7 @@
 # Ingest Profile Contract
 
-Status: **draft for review (2026-07-26)**. This document is not fixed and does
-not authorize implementation or admission. The profile remains
-`admission = "off"`.
+Status: **fixed (2026-07-25)**. This contract governs E-4a stage 1. Fixing the
+contract does not admit the profile; `admission = "off"` remains in force.
 
 ## 1. スコープ
 
@@ -41,10 +40,14 @@ N2 `source_binding`:
 ごとにスナップショット相対パス、候補識別子、ソース断片、位置、
 比較結果、許可された正準化過程、`nearest_miss`を記録する。許可する
 正準化はHTML entityの復号、改行・空白の決定的な正準化など値を変えない
-処理に限り、日付ずらし、名称の言い換え、複数候補からの値の継ぎ合わせ
-を認めない。存在しないイベントの捏造またはフィールド値の改変は
-`source_binding_violation`としてfailする。出力レコードが0件なら
-N2は`claims_absent`であり、passまたはfullとして扱わない。
+処理を認める。加えて、値を保存する形式変換（和暦・日本語日付表記から
+ISO日付、数値の桁区切り・全角数字の正規化、時刻表記の24時間化等）は、
+変換規則が決定的に宣言され、フィールドごとの変換過程がevidenceに
+記録される場合に限り許可する。値の変更（日付のずれ・数量の改変）は
+形式変換と区別し、名称の言い換えや複数候補からの値の継ぎ合わせと
+ともに認めない。存在しないイベントの捏造またはフィールド値の改変は
+従来どおり`source_binding_violation`としてfailする。出力レコードが
+0件ならN2は`claims_absent`であり、passまたはfullとして扱わない。
 
 N3 `accounting`:
 inspectionで宣言された決定的セレクタにより、入力スナップショットから
