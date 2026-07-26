@@ -520,14 +520,18 @@ class InvestigationBandTests(unittest.TestCase):
 
 
 class CliBandTests(unittest.TestCase):
-    def test_repository_local_arm_and_zero_reached_invariant(self) -> None:
+    def test_repository_cli_settlement_windows_and_evidence_invariant(self) -> None:
         records, scanned_sets = band.discover_cli_records()
 
-        self.assertEqual(scanned_sets, [band.CLI_LOCAL_SET])
-        self.assertEqual(len(records), 6)
-        self.assertEqual(band.assert_cli_invariants(records), 0)
         self.assertEqual(
-            band.cli_rate_rows(records),
+            scanned_sets,
+            [band.CLI_LOCAL_SET, *band.CLI_ELEVATED_SETS],
+        )
+        self.assertEqual(len(records), 30)
+        self.assertEqual(band.assert_cli_invariants(records), 3)
+        local = [record for record in records if record.set_id == band.CLI_LOCAL_SET]
+        self.assertEqual(
+            band.cli_rate_rows(local),
             [
                 ["filter", "gemma4:31b", "0", "1", "1", "0%"],
                 [
@@ -549,10 +553,26 @@ class CliBandTests(unittest.TestCase):
                 ],
             ],
         )
-        summary = band.build_cli_summary(records, scanned_sets, 0)
-        self.assertIn("- Full: `0/6` (0%)", summary)
-        self.assertIn("- Runs reaching C checks: `0/6`", summary)
+        window_b = [
+            record for record in records if record.set_id == band.CLI_WINDOW_B_SET
+        ]
+        self.assertEqual(
+            band.cli_rate_rows(window_b),
+            [
+                ["filter", "gemma4:31b-cloud", "0", "3", "3", "0%"],
+                ["stats", "gemma4:31b-cloud", "0", "3", "3", "0%"],
+            ],
+        )
+        self.assertEqual(sum(record.reached_checks for record in window_b), 2)
+        summary = band.build_cli_summary(records, scanned_sets, 3)
+        self.assertIn("- Window B full: `0/6` (0%)", summary)
+        self.assertIn("- Window B runs reaching C checks: `2/6`", summary)
+        self.assertIn("- All-history runs reaching C checks: `3/30`", summary)
+        self.assertIn("- Reached-run C evidence sets verified: `3/3`", summary)
         self.assertIn("static (profile_not_admitted)", summary)
+        self.assertIn("completion写像欠落", summary)
+        self.assertIn("C1〜C4 runtimeが未配線", summary)
+        self.assertIn("calibration predecessor — 配線後・較正前", summary)
 
     def test_reached_run_requires_all_cli_evidence_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -577,15 +597,14 @@ class CliBandTests(unittest.TestCase):
                 duration_seconds=1,
                 evidence_dir=evidence_dir,
             )
-            remaining = records[1:]
             with self.assertRaisesRegex(
-                AssertionError, "reached C checks without evidence"
+                AssertionError, "without all four evidence attestations"
             ):
-                band.assert_cli_invariants([reached, *remaining])
+                band.verify_cli_reached_evidence([reached])
 
             for name in band.CLI_EVIDENCE_FILES:
                 evidence_dir.joinpath(name).write_text("{}\n", encoding="utf-8")
-            self.assertEqual(band.assert_cli_invariants([reached, *remaining]), 1)
+            self.assertEqual(band.verify_cli_reached_evidence([reached]), 1)
 
     def test_unreached_run_cannot_claim_non_static_assurance(self) -> None:
         records, _ = band.discover_cli_records()
@@ -610,6 +629,23 @@ class CliBandTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(AssertionError, "no C checks but assurance=full"):
             band.assert_cli_invariants([inconsistent, *records[1:]])
+
+    def test_window_b_markdown_is_mechanically_bound(self) -> None:
+        records = band.discover_cli_window_b_records()
+
+        self.assertEqual(len(records), 6)
+        reached = [record for record in records if record.reached_checks]
+        self.assertEqual(
+            [record.run_name for record in reached],
+            [
+                "filter_cloud_001",
+                "filter_cloud_003",
+            ],
+        )
+        self.assertTrue(all(record.c1 == "pass" for record in reached))
+        self.assertTrue(all(record.c2 == "pass" for record in reached))
+        self.assertTrue(all(record.c3 == "fail" for record in reached))
+        self.assertTrue(all(record.c4 == "pass" for record in reached))
 
 
 class CircleBandTests(unittest.TestCase):

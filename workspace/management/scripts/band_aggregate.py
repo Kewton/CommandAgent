@@ -78,10 +78,12 @@ CIRCLE_WINDOW_SETS = tuple(
 CIRCLE_OFFICIAL_SET = "uat-test0722-circle-elev-008"
 CIRCLE_EXPECTED_RUNS = 33
 CLI_LOCAL_SET = "uat-test0724-cli-001-v3"
-CLI_LOCAL_SUMMARY = (
-    RUNS_DIR / CLI_LOCAL_SET / "evidence" / "campaign-summary.json"
-)
-CLI_EXPECTED_RUNS = 6
+CLI_LOCAL_SUMMARY = RUNS_DIR / CLI_LOCAL_SET / "evidence" / "campaign-summary.json"
+CLI_ELEVATED_SETS = tuple(f"uat-test0725-cli-elev-{index:03d}" for index in range(1, 5))
+CLI_WINDOW_B_SET = "uat-test0725-cli-elev-004"
+CLI_CALIBRATION_SET = "uat-test0725-cli-elev-003"
+CLI_EXPECTED_RUNS_PER_SET = 6
+CLI_EXPECTED_RUNS = CLI_EXPECTED_RUNS_PER_SET * (1 + len(CLI_ELEVATED_SETS))
 CLI_EXPECTED_MATRIX = {
     ("filter", "gemma4:31b"): 1,
     ("filter", "qwen3.6:35b-a3b-coding-nvfp4"): 2,
@@ -94,6 +96,14 @@ CLI_EVIDENCE_FILES = (
     "help-binding.json",
     "cli-assurance.json",
 )
+CLI_EXCLUSION_REASONS = {
+    "uat-test0725-cli-elev-001": (
+        "機械欠陥期: C1未実行をpartialへ投影したcompletion写像欠落"
+    ),
+    "uat-test0725-cli-elev-002": (
+        "機械欠陥期: final acceptance到達後もC1〜C4 runtimeが未配線"
+    ),
+}
 CIRCLE_EXCLUSION_REASONS = {
     "uat-test0722-circle-001": "profile不伝播により無効（P1-a FAIL）",
     "uat-test0722-circle-002": "実行モード欠落により無効",
@@ -269,6 +279,7 @@ class CliRunRecord:
     attribution: str
     duration_seconds: int
     evidence_dir: Path
+    evidence_report: Path | None = None
 
     @property
     def is_full(self) -> bool:
@@ -277,7 +288,7 @@ class CliRunRecord:
     @property
     def reached_checks(self) -> bool:
         return any(
-            status != "not_executed"
+            status not in {"not_executed", "not_reached"}
             for status in (self.c1, self.c2, self.c3, self.c4)
         )
 
@@ -2736,6 +2747,92 @@ def build_circle_summary(
     return "\n".join(lines)
 
 
+def cli_record_from_summary(
+    set_id: str,
+    summary: Path,
+    row: dict[str, Any],
+) -> CliRunRecord:
+    run_name = str(row.get("name") or "")
+    return CliRunRecord(
+        set_id=set_id,
+        run_name=run_name,
+        family=str(row.get("family") or "unknown"),
+        executor=str(row.get("executor") or "unknown"),
+        harness_status=str(row.get("harness_status") or ""),
+        product_exit=int(row.get("product_exit")),
+        verdict=str(row.get("verdict") or ""),
+        assurance=str(row.get("assurance") or ""),
+        c1=str(row.get("c1") or "not_executed"),
+        c2=str(row.get("c2") or "not_executed"),
+        c3=str(row.get("c3") or "not_executed"),
+        c4=str(row.get("c4") or "not_executed"),
+        failure_class=str(row.get("class_id") or ""),
+        attribution=str(row.get("attribution") or ""),
+        duration_seconds=int(row.get("duration_seconds")),
+        evidence_dir=summary.parent.parent / "artifacts" / run_name / "evidence",
+        evidence_report=summary.parent.parent / "uat-report.md",
+    )
+
+
+def normalize_cli_markdown_cell(value: str) -> str:
+    return value.strip().replace("`", "").replace("**", "")
+
+
+def normalize_cli_check(value: str) -> str:
+    normalized = normalize_cli_markdown_cell(value).lower()
+    if normalized == "—":
+        return "not_reached"
+    if normalized.startswith("pass"):
+        return "pass"
+    if normalized.startswith("fail"):
+        return "fail"
+    return normalized.replace(" ", "_")
+
+
+def discover_cli_window_b_records() -> list[CliRunRecord]:
+    report = RUNS_DIR / CLI_WINDOW_B_SET / "uat-report.md"
+    text = report.read_text(encoding="utf-8")
+    assert "product exit 1を6件保持" in text
+    section = text.split("## 4. Run行列", 1)[1].split("\n## ", 1)[0]
+    executor_match = re.search(r"^- executor: `([^`]+)`", text, re.MULTILINE)
+    assert executor_match is not None, f"missing executor in {report}"
+    executor = executor_match.group(1)
+    records: list[CliRunRecord] = []
+    for line in section.splitlines():
+        if not line.startswith("| `"):
+            continue
+        cells = [
+            normalize_cli_markdown_cell(cell) for cell in line.strip("|").split("|")
+        ]
+        assert len(cells) == 10, f"unexpected CLI Window B row: {line}"
+        failure_class, attribution = cells[8].rsplit(" / ", 1)
+        records.append(
+            CliRunRecord(
+                set_id=CLI_WINDOW_B_SET,
+                run_name=cells[0],
+                family=cells[1],
+                executor=executor,
+                harness_status="completed",
+                product_exit=1,
+                verdict=cells[2],
+                assurance=cells[3],
+                c1=normalize_cli_check(cells[4]),
+                c2=normalize_cli_check(cells[5]),
+                c3=normalize_cli_check(cells[6]),
+                c4=normalize_cli_check(cells[7]),
+                failure_class=failure_class,
+                attribution=attribution,
+                duration_seconds=int(cells[9]),
+                evidence_dir=report.parent / "artifacts" / cells[0] / "evidence",
+                evidence_report=report,
+            )
+        )
+    assert len(records) == CLI_EXPECTED_RUNS_PER_SET, (
+        f"CLI Window B has {len(records)} runs, expected {CLI_EXPECTED_RUNS_PER_SET}"
+    )
+    return records
+
+
 def discover_cli_records() -> tuple[list[CliRunRecord], list[str]]:
     data = read_json_dict(CLI_LOCAL_SUMMARY)
     assert data is not None, f"missing CLI local-arm summary: {CLI_LOCAL_SUMMARY}"
@@ -2747,70 +2844,103 @@ def discover_cli_records() -> tuple[list[CliRunRecord], list[str]]:
     rows = data.get("runs")
     assert isinstance(rows, list)
     records: list[CliRunRecord] = []
-    evidence_root = CLI_LOCAL_SUMMARY.parent.parent / "artifacts"
     for row in rows:
         assert isinstance(row, dict)
-        run_name = str(row.get("name") or "")
-        records.append(
-            CliRunRecord(
-                set_id=CLI_LOCAL_SET,
-                run_name=run_name,
-                family=str(row.get("family") or "unknown"),
-                executor=str(row.get("executor") or "unknown"),
-                harness_status=str(row.get("harness_status") or ""),
-                product_exit=int(row.get("product_exit")),
-                verdict=str(row.get("verdict") or ""),
-                assurance=str(row.get("assurance") or ""),
-                c1=str(row.get("c1") or "not_executed"),
-                c2=str(row.get("c2") or "not_executed"),
-                c3=str(row.get("c3") or "not_executed"),
-                c4=str(row.get("c4") or "not_executed"),
-                failure_class=str(row.get("class_id") or ""),
-                attribution=str(row.get("attribution") or ""),
-                duration_seconds=int(row.get("duration_seconds")),
-                evidence_dir=evidence_root / run_name / "evidence",
+        records.append(cli_record_from_summary(CLI_LOCAL_SET, CLI_LOCAL_SUMMARY, row))
+    for set_id in CLI_ELEVATED_SETS[:-1]:
+        summary = RUNS_DIR / set_id / "evidence" / "campaign-summary.json"
+        elevated = read_json_dict(summary)
+        assert elevated is not None, f"missing CLI elevated summary: {summary}"
+        assert elevated.get("uat_id") == set_id
+        suite = elevated.get("suite")
+        assert isinstance(suite, dict)
+        assert suite.get("profile") == "cli"
+        assert suite.get("intent") == "create"
+        elevated_rows = elevated.get("runs")
+        assert isinstance(elevated_rows, list)
+        for row in elevated_rows:
+            assert isinstance(row, dict)
+            records.append(cli_record_from_summary(set_id, summary, row))
+    records.extend(discover_cli_window_b_records())
+    return records, [CLI_LOCAL_SET, *CLI_ELEVATED_SETS]
+
+
+def cli_evidence_attested(record: CliRunRecord, reached_in_set: int) -> bool:
+    if all(record.evidence_dir.joinpath(name).is_file() for name in CLI_EVIDENCE_FILES):
+        return True
+    if record.evidence_report is None:
+        return False
+    text = record.evidence_report.read_text(encoding="utf-8")
+    sha_section = text.rsplit("一次資料SHA-256", 1)[-1]
+    for name in CLI_EVIDENCE_FILES:
+        labels = [f"{record.run_name}/{name}"]
+        if reached_in_set == 1:
+            labels.append(name)
+        if not any(
+            re.search(
+                rf"- `{re.escape(label)}`:\s*\n\s+`[0-9a-f]{{64}}`",
+                sha_section,
             )
+            for label in labels
+        ):
+            return False
+    return True
+
+
+def verify_cli_reached_evidence(records: list[CliRunRecord]) -> int:
+    reached_counts = Counter(
+        record.set_id for record in records if record.reached_checks
+    )
+    verified = 0
+    for record in records:
+        if not record.reached_checks:
+            continue
+        assert cli_evidence_attested(record, reached_counts[record.set_id]), (
+            f"{record.run_name}: reached C checks without all four evidence attestations"
         )
-    return records, [CLI_LOCAL_SET]
+        verified += 1
+    return verified
 
 
 def assert_cli_invariants(records: list[CliRunRecord]) -> int:
     assert len(records) == CLI_EXPECTED_RUNS, (
-        f"CLI local arm has {len(records)} runs, expected {CLI_EXPECTED_RUNS}"
+        f"CLI settlement has {len(records)} runs, expected {CLI_EXPECTED_RUNS}"
     )
-    assert Counter((record.family, record.executor) for record in records) == Counter(
+    assert Counter(record.set_id for record in records) == Counter(
+        {
+            set_id: CLI_EXPECTED_RUNS_PER_SET
+            for set_id in [CLI_LOCAL_SET, *CLI_ELEVATED_SETS]
+        }
+    ), "CLI source-set denominators drifted"
+    local = [record for record in records if record.set_id == CLI_LOCAL_SET]
+    assert Counter((record.family, record.executor) for record in local) == Counter(
         CLI_EXPECTED_MATRIX
     ), "CLI family/executor matrix drifted"
-    evidence_verified = 0
     for record in records:
         assert record.harness_status == "completed", (
             f"{record.run_name}: dishonest harness terminal"
         )
-        assert record.verdict in {"failed", "full", "full_success"}, (
-            f"{record.run_name}: unsupported verdict {record.verdict}"
-        )
         if record.reached_checks:
-            missing = [
-                name
-                for name in CLI_EVIDENCE_FILES
-                if not record.evidence_dir.joinpath(name).is_file()
-            ]
-            assert not missing, (
-                f"{record.run_name}: reached C checks without evidence {missing}"
-            )
-            evidence_verified += 1
             if record.is_full:
                 assert {record.c1, record.c2, record.c3, record.c4} == {"pass"}, (
                     f"{record.run_name}: false full without C1-C4 pass"
                 )
-        else:
+        elif record.set_id not in CLI_EXCLUSION_REASONS:
             assert record.verdict == "failed", (
                 f"{record.run_name}: no C checks but verdict={record.verdict}"
             )
-            assert record.assurance == "static (profile_not_admitted)", (
+            expected_assurance = (
+                "static (profile_not_admitted)"
+                if record.set_id == CLI_LOCAL_SET
+                else "static (cli_probe_not_run)"
+            )
+            assert record.assurance == expected_assurance, (
                 f"{record.run_name}: no C checks but assurance={record.assurance}"
             )
-    return evidence_verified
+    window_b = [record for record in records if record.set_id == CLI_WINDOW_B_SET]
+    assert len(window_b) == CLI_EXPECTED_RUNS_PER_SET
+    assert all(record.verdict == "failed" for record in window_b)
+    return verify_cli_reached_evidence(records)
 
 
 def cli_rate_rows(records: list[CliRunRecord]) -> list[list[str]]:
@@ -2837,35 +2967,76 @@ def cli_rate_rows(records: list[CliRunRecord]) -> list[list[str]]:
     return rows
 
 
+def cli_band_status(set_id: str) -> str:
+    if set_id in CLI_EXCLUSION_REASONS:
+        return f"excluded — {CLI_EXCLUSION_REASONS[set_id]}"
+    if set_id == CLI_CALIBRATION_SET:
+        return "calibration predecessor — 配線後・較正前"
+    if set_id == CLI_WINDOW_B_SET:
+        return "formal Window B"
+    return "local reference arm"
+
+
 def build_cli_summary(
     records: list[CliRunRecord],
     scanned_sets: list[str],
     evidence_verified: int,
 ) -> str:
-    full = sum(record.is_full for record in records)
-    reached = sum(record.reached_checks for record in records)
+    local = [record for record in records if record.set_id == CLI_LOCAL_SET]
+    window_b = [record for record in records if record.set_id == CLI_WINDOW_B_SET]
+    reached = [record for record in records if record.reached_checks]
+    window_b_reached = [record for record in window_b if record.reached_checks]
+    dispositions = []
+    for set_id in scanned_sets:
+        set_records = [record for record in records if record.set_id == set_id]
+        dispositions.append(
+            [
+                set_id,
+                str(len(set_records)),
+                str(sum(record.reached_checks for record in set_records)),
+                str(sum(record.is_full for record in set_records)),
+                cli_band_status(set_id),
+            ]
+        )
     lines = [
         "# CLI Create Capability Band Summary",
         "",
         "<!-- Generated by band_aggregate.py --profile cli. Do not edit by hand. -->",
         "",
-        f"- Source sets: `{len(scanned_sets)}` (`{CLI_LOCAL_SET}` local arm)",
+        f"- Source sets: `{len(scanned_sets)}` (local 1 + elevated 4)",
         f"- Observed runs: `{len(records)}`",
         f"- Honest terminals: `{sum(record.harness_status == 'completed' for record in records)}/{len(records)}`",
-        f"- Full: `{full}/{len(records)}` ({pct(full, len(records))})",
-        f"- Runs reaching C checks: `{reached}/{len(records)}`",
-        f"- Reached-run C evidence sets verified: `{evidence_verified}/{reached}`",
+        f"- Formal Window B: `{CLI_WINDOW_B_SET}` only",
+        f"- Window B full: `{sum(record.is_full for record in window_b)}/{len(window_b)}` ({pct(sum(record.is_full for record in window_b), len(window_b))})",
+        f"- Window B runs reaching C checks: `{len(window_b_reached)}/{len(window_b)}`",
+        f"- All-history runs reaching C checks: `{len(reached)}/{len(records)}`",
+        f"- Reached-run C evidence sets verified: `{evidence_verified}/{len(reached)}`",
         "- Invariant: C evidence files are mandatory only after a run reaches the CLI checks.",
-        "- Invariant: a non-reaching run must remain failed with static (profile_not_admitted) assurance.",
+        "- Invariant: every reached run must attest cli-case-binding.json, cli-probe.json, help-binding.json, and cli-assurance.json by file or recorded SHA-256.",
+        "- Invariant: non-reaching admitted runs outside defect-era exclusions remain failed with static (cli_probe_not_run) assurance.",
         "- Zero-row policy: generation aborts before replacing the tracked output.",
         "",
-        "## Local arm by family and executor",
+        "## Formal Window B by family and executor",
         "",
     ]
     lines.extend(
         table(
             ["Family", "Executor", "full", "non-full", "denominator", "full rate"],
-            cli_rate_rows(records),
+            cli_rate_rows(window_b),
+        )
+    )
+    lines.extend(["", "## Local reference arm by family and executor", ""])
+    lines.extend(
+        table(
+            ["Family", "Executor", "full", "non-full", "denominator", "full rate"],
+            cli_rate_rows(local),
+        )
+    )
+    lines.extend(["", "## Campaign disposition", ""])
+    lines.extend(
+        table(
+            ["Set", "Runs", "C reached", "Full", "Band status"],
+            dispositions,
         )
     )
     lines.extend(["", "## Per-run ledger", ""])
@@ -2883,6 +3054,8 @@ def build_cli_summary(
                 "C3",
                 "C4",
                 "Failure class",
+                "Attribution",
+                "Band status",
                 "Seconds",
             ],
             [
@@ -2898,6 +3071,8 @@ def build_cli_summary(
                     record.c3,
                     record.c4,
                     record.failure_class,
+                    record.attribution,
+                    cli_band_status(record.set_id),
                     str(record.duration_seconds),
                 ]
                 for record in records
