@@ -1,0 +1,8 @@
+case_id = "test0725_cli_elev_003"
+source_campaign = "cli-create-elevated-20260725-155514"
+source_run = "filter_cloud_002"
+source_revision = "917acef305102a8ea3ae77a19c330cca38285cd6"
+readme_sha256 = "fe1cf42db04bacc087c9d2069f320f2769f098ff199e46a00633a6006e2656a3"
+cli_sha256 = "c1d7b97cf6807a50737fdb759b0deae65ef0d57c9f42081f6b70acb6a77174ac"
+sample_content_sha256 = "c5d47572069f8a90fa8156f500de5523e436b3c890b6bcae5f486ccc4f0dbda2"
+purpose = "CLI-4 measured calibration fixture copied from the reached elev-003 run; the text sample has one repository-final newline"

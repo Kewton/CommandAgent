@@ -2,7 +2,7 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
-use anyhow::{Context, bail};
+use anyhow::{Context, anyhow, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::bounded_process::{self, BoundedProcessOutcomeKind};
@@ -169,11 +169,15 @@ fn validate_config(root: &Path, config: &Config) -> anyhow::Result<()> {
 
 fn bind_cases(root: &Path, config: &Config) -> anyhow::Result<CaseBinding> {
     let entry = config.entry.to_string_lossy().replace('\\', "/");
-    let normal = config
-        .usage_paths
-        .iter()
-        .find_map(|path| extract_usage_case(root, path, &entry))
-        .context("no executable CLI usage example found")?;
+    let mut normal = None;
+    for path in &config.usage_paths {
+        if let Some(candidate) = extract_usage_case(root, path, &entry)? {
+            normal = Some(candidate);
+            break;
+        }
+    }
+    let normal =
+        normal.ok_or_else(|| anyhow!("case_extraction_failed: no CLI usage example found"))?;
     Ok(CaseBinding {
         entry,
         cases: vec![
@@ -188,11 +192,17 @@ fn bind_cases(root: &Path, config: &Config) -> anyhow::Result<CaseBinding> {
     })
 }
 
-fn extract_usage_case(root: &Path, relative: &Path, entry: &str) -> Option<BoundCase> {
-    let text = std::fs::read_to_string(
-        crate::tools::path_guard::resolve_existing(root, &relative.to_string_lossy()).ok()?,
-    )
-    .ok()?;
+fn extract_usage_case(
+    root: &Path,
+    relative: &Path,
+    entry: &str,
+) -> anyhow::Result<Option<BoundCase>> {
+    let Some(path) =
+        crate::tools::path_guard::resolve_existing(root, &relative.to_string_lossy()).ok()
+    else {
+        return Ok(None);
+    };
+    let text = std::fs::read_to_string(path)?;
     let mut fenced = false;
     let mut lines = text.lines().enumerate().peekable();
     while let Some((index, line)) = lines.next() {
@@ -216,14 +226,149 @@ fn extract_usage_case(root: &Path, relative: &Path, entry: &str) -> Option<Bound
             .map(|(_, output)| output.trim_end().to_string())
             .filter(|output| !output.is_empty() && !output.starts_with("$ "))
             .collect();
-        return Some(BoundCase {
+        let args = normalize_usage_args(root, &words[2..]).with_context(|| {
+            format!(
+                "case_extraction_failed: {}:{}",
+                relative.to_string_lossy(),
+                index + 1
+            )
+        })?;
+        return Ok(Some(BoundCase {
             id: "normal".to_string(),
-            args: words[2..].iter().map(|word| (*word).to_string()).collect(),
+            args,
             expected_stdout,
             source: format!("{}:{}", relative.to_string_lossy(), index + 1),
-        });
+        }));
     }
-    None
+    Ok(None)
+}
+
+fn normalize_usage_args(root: &Path, words: &[&str]) -> anyhow::Result<Vec<String>> {
+    let mut normalized = Vec::new();
+    let mut optional_group = false;
+    for word in words {
+        let opens = word.matches('[').count();
+        let closes = word.matches(']').count();
+        if optional_group || opens > 0 {
+            if opens > 1 || closes > 1 || (optional_group && opens > 0) {
+                bail!("nested or ambiguous optional CLI notation");
+            }
+            optional_group = closes == 0;
+            continue;
+        }
+        if closes > 0 {
+            bail!("unmatched optional CLI notation");
+        }
+        let argument = normalize_usage_arg(root, word)?;
+        if argument.contains(['[', ']', '<', '>']) {
+            bail!("unresolved CLI usage notation remains in argv");
+        }
+        normalized.push(argument);
+    }
+    if optional_group {
+        bail!("unterminated optional CLI notation");
+    }
+    Ok(normalized)
+}
+
+fn normalize_usage_arg(root: &Path, word: &str) -> anyhow::Result<String> {
+    if let Some((flag, value)) = word.split_once('=')
+        && placeholder_name(value).is_some()
+    {
+        return Ok(format!(
+            "{flag}={}",
+            resolve_placeholder(root, placeholder_name(value).unwrap())?
+        ));
+    }
+    if let Some(name) = placeholder_name(word) {
+        return resolve_placeholder(root, name);
+    }
+    if word.contains(['<', '>']) {
+        bail!("unsupported embedded CLI placeholder: {word}");
+    }
+    Ok(word.to_string())
+}
+
+fn placeholder_name(word: &str) -> Option<&str> {
+    word.strip_prefix('<')?.strip_suffix('>')
+}
+
+fn resolve_placeholder(root: &Path, name: &str) -> anyhow::Result<String> {
+    let lower = name.trim().to_ascii_lowercase();
+    let samples = sample_files(root);
+    let sample = sample_for_placeholder(&samples, &lower)
+        .ok_or_else(|| anyhow!("no sample artifact binds <{name}>"))?;
+    if lower.contains("column") {
+        let sample_text = std::fs::read_to_string(root.join(sample))?;
+        let header = sample_text
+            .lines()
+            .next()
+            .and_then(|line| {
+                line.split(',')
+                    .map(str::trim)
+                    .find(|value| !value.is_empty())
+            })
+            .ok_or_else(|| anyhow!("sample CSV has no column binding for <{name}>"))?;
+        return Ok(header.to_string());
+    }
+    if ["pattern", "search", "query", "string"]
+        .iter()
+        .any(|token| lower.contains(token))
+    {
+        let sample_text = std::fs::read_to_string(root.join(sample))?;
+        let value = sample_text
+            .split(|ch: char| !(ch.is_alphanumeric() || matches!(ch, '_' | '-')))
+            .find(|value| !value.is_empty())
+            .ok_or_else(|| anyhow!("sample text has no value binding for <{name}>"))?;
+        return Ok(value.to_string());
+    }
+    if ["file", "path", "input", "csv", "text", "txt"]
+        .iter()
+        .any(|token| lower.contains(token))
+    {
+        return Ok(sample.clone());
+    }
+    bail!("unsupported CLI placeholder <{name}>")
+}
+
+fn sample_files(root: &Path) -> Vec<String> {
+    let data = root.join("data");
+    let Ok(entries) = std::fs::read_dir(&data) else {
+        return Vec::new();
+    };
+    let mut samples = entries
+        .flatten()
+        .filter_map(|entry| {
+            entry
+                .file_type()
+                .ok()
+                .filter(|kind| kind.is_file())
+                .and_then(|_| entry.path().strip_prefix(root).ok().map(Path::to_path_buf))
+                .map(|path| path.to_string_lossy().replace('\\', "/"))
+        })
+        .collect::<Vec<_>>();
+    samples.sort();
+    samples
+}
+
+fn sample_for_placeholder<'a>(samples: &'a [String], name: &str) -> Option<&'a String> {
+    let expected_extension = if name.contains("csv") || name.contains("column") {
+        Some("csv")
+    } else if ["text", "txt", "pattern", "search", "query", "string"]
+        .iter()
+        .any(|token| name.contains(token))
+    {
+        Some("txt")
+    } else {
+        None
+    };
+    expected_extension
+        .and_then(|extension| {
+            samples.iter().find(|sample| {
+                Path::new(sample).extension().and_then(|ext| ext.to_str()) == Some(extension)
+            })
+        })
+        .or_else(|| samples.first())
 }
 
 fn freeze_binding(root: &Path, candidate: &CaseBinding) -> anyhow::Result<(CaseBinding, bool)> {
@@ -312,6 +457,8 @@ pub(super) fn write_json<T: Serialize>(
 mod tests {
     use super::*;
 
+    const MEASURED_FIXTURE: &str = "tests/corpus/apps/test0725_cli_elev_003/fixtures";
+
     fn fixture(script: &str) -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("cli")).unwrap();
@@ -321,6 +468,21 @@ mod tests {
             "## Usage\n\n```console\n$ python3 cli/main.py sample.csv\nvalue=7\n```\n",
         )
         .unwrap();
+        dir
+    }
+
+    fn measured_fixture(include_sample: bool) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        for relative in ["README.md", "cli/main.py"] {
+            let target = dir.path().join(relative);
+            std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+            std::fs::copy(Path::new(MEASURED_FIXTURE).join(relative), target).unwrap();
+        }
+        if include_sample {
+            let target = dir.path().join("data/sample.txt");
+            std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+            std::fs::copy(Path::new(MEASURED_FIXTURE).join("data/sample.txt"), target).unwrap();
+        }
         dir
     }
 
@@ -377,5 +539,38 @@ mod tests {
             frozen
         );
         assert_eq!(report.binding.cases[0].args, ["sample.csv"]);
+    }
+
+    #[test]
+    fn measured_optional_and_placeholder_usage_normalizes_to_sample_values() {
+        let dir = measured_fixture(true);
+
+        let report = run(dir.path(), Config::new("cli/main.py", &["README.md"])).unwrap();
+
+        assert_eq!(
+            report.binding.cases[0].args,
+            ["data/sample.txt", "--pattern", "Apple"]
+        );
+        assert_eq!(report.binding.cases[0].source, "README.md:8");
+        assert!(
+            report.binding.cases[0]
+                .args
+                .iter()
+                .all(|arg| !arg.contains(['[', ']', '<', '>']))
+        );
+        assert_eq!(report.observations[0].exit_code, Some(0));
+    }
+
+    #[test]
+    fn measured_usage_without_sample_binding_fails_honestly() {
+        let dir = measured_fixture(false);
+
+        let error = run(dir.path(), Config::new("cli/main.py", &["README.md"])).unwrap_err();
+
+        assert!(
+            error.to_string().contains("case_extraction_failed"),
+            "{error:#}"
+        );
+        assert!(!dir.path().join(CASE_BINDING_PATH).exists());
     }
 }
