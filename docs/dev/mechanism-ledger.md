@@ -738,3 +738,111 @@ CLI-1: 投影dispatch病の3例目（T30/B-2c→INV-1→CLI-1）。admitted CLI�
 CLI-2: DATA-1族第3属——goal語彙のverify字義束縛。CLI createではモデル生成UltraPlanのREADME phaseに元goalが入り、そこから汎用plannerが生成したStepPlan verifyを正準化する防壁がなかった。README実在・見出し配下の`cli/main.py`起動例という言語中立の構造検証へ置換し、内容忠実性をC3管轄へ分離して根治した。同属監査ではdataは`step_policy::canonicalize_step_plan`のcatalog-checkチョークポイント、nextjsはmanifest由来のdeterministic StepPlan templateで生成verifyを固定しており、goal語彙字義が実行assertへ直通する経路は現存しない。CLIだけが`profile=cli`の汎用planner経路に留まり、両防壁を通らなかったことが固有機序だった。
 CLI-3: 配線の実在病の反復（D-3a-2円環→CLI-3）。conformanceはC1〜C4部品の単体成立を証明したが、`profile=cli`のfinal acceptanceはgeneric behavior probeへ落ち、productionから部品を起動しなかった。共通final acceptance境界からCLI manifest runtimeへ配線し、実subprocessと4 evidenceを確認するproduction経路テストで起動実在を固定した。scaffold admission checklistにも「各検証部品のproduction acceptance経路からの起動テスト」を必須化し、conformanceは部品を、経路テストは起動を検証する二層を定形装備にした。
 CLI-4: C部品初陣の較正一括——E2（49偽陽性）/I2（認識錨）と同じ通過儀礼。elev-003実測原文だけをfixtureに、C1 optional/placeholder記法をsample実在値へ正規化、C2方向2を凍結正常argvへの未知option追加投与へ精密化、C3のlabel付き隣接出力blockを実行照合した。C4とC2方向1は初陣成立のまま厳格性不変。併せてCLI final repairからNext.js fallbackを遮断し、C2/C3 nearest_miss形を較正collectorへ接続した。
+
+## E-3 settlement（最終、2026-07-26）
+
+### 判定戦の主文
+
+問い「カタログ部品だけで新profileが立つか」への答えは、
+**部分的に否・ただし方法論は成立**である。
+
+共通機構の流用自体は成立した。新規実装なしで使えた実測リストは次の
+とおり。
+
+- `bounded_process`の環境allowlist、process group終了、timeout outcome。
+- `verifier_env::normalized_command_at_root`のworkspace境界interpreter解決。
+- pipeline probeの有界stdout/stderr capture、truncation metadata。
+- data E3の再実行等価判定leaf。
+- Manifest v1のclosed schema、phase scope、catalog解決、admission cap。
+- E2型のclaim / observation / verdict / `nearest_miss`受け皿。
+- E-1 scaffoldの契約・manifest・conformance・corpus・admission先行生成。
+- E-0のrun自動分類、検収シート自給、較正corpus、scrub、bench preflight。
+
+しかし新しい検証面そのものはカタログから無料では出なかった。CLI C1〜C4
+では照合器本体に加え、当初見積りから漏れた配管5点、すなわち
+①型付きevidence schema、②実行前case freeze、③4 check→2 componentの
+catalog dispatch、④honest assurance classification、⑤manifest adapterが
+必要だった。新規production Rustは257→474→936行、test Rustは
+71→127→304行。production見込み180行に対し実測936行、756行超過、
+5.20倍である。
+
+さらにproduction化には構造的な通過儀礼が付随した。
+
+1. 投影配線欠落（CLI-1）: C1未実行をpartialへ漏らした。
+2. 起動配線欠落（CLI-3）: conformanceで部品が存在してもfinal acceptance
+   がC runtimeを呼ばなかった。
+3. repair境界欠落（CLI-4）: CLI failure後にNext.js artifactへfallbackした。
+4. 初陣較正1周（CLI-4）: C1 optional/placeholder、C2方向2の必須引数遮蔽、
+   C3具体出力block未抽出という3欠口を実測原文から精密化した。
+
+これは新種の失敗ではない。投影はT30/B-2c→INV-1、起動はD-3a-2円環、
+較正はE2/I2、repair境界は既存profile境界の反復である。方法論が成立した
+根拠は、欠陥をモデル分布へ混ぜず、実測fixtureで切り分け、E-1 scaffold
+checklistへ「completion assurance投影写像」と「production acceptance
+経路からの部品起動テスト」を恒久化できた点にある。
+
+### 行程とコミット
+
+E-3 scoped commitは25。途中のRuff parity 2件と円環所要裁定3件は同じ
+ancestryにあるがE-3件数から除外した。E-3開始
+`e122d25`（2026-07-24 23:41:16 JST）からelev-004確定
+`4fc9c6d`（2026-07-26 18:24:05 JST）までのwallは42時間42分49秒。
+fixed契約`0b1b5d5`からは41時間53分14秒である。
+
+| 行程 | 全commit | 確定点 |
+|---|---|---|
+| scaffold・契約・賭け | `e122d25`, `309ae54`, `a0fe5bf`, `0b1b5d5` | scaffold実測、draft、catalog見込み180行、契約v0 fixed |
+| E-3b C部品 | `227e9ce`, `46e4f1a`, `27d787b` | C1/C4、C2、manifest/C3/runtime/conformance。production Rust 936行 |
+| bench create対応・local計測 | `e1916a1`, `23ce002`, `0bc35fb`, `7087bab` | sources無しblockerを収穫、empty無垢性、dry-run、local 0/6 |
+| admission・elev-001 | `704d7f9`, `afcb919` | admittedへ昇格、cloud初値札0/6、投影欠落を採取 |
+| CLI-1 | `723af96`, `e3b191b` | §4投影配線、local/elevated死因解剖 |
+| CLI-2 | `8d4691a`, `fca064b`, `3c063fd` | README構造verify、帰属訂正、elev-002でC未配線を採取 |
+| CLI-3 | `917acef`, `9d89c50` | production C runtime起動、elev-003で1run初陣 |
+| CLI-4 | `4305cd6`, `4133078`, `52f9a97`, `d854c05`, `4fc9c6d` | C1/C2/C3較正、repair境界、collector、formal elev-004 |
+
+### 計測と時間
+
+時間は各immutable UAT reportの`date +%s`基準。campaign間のレビュー待ちを
+run costへ混ぜず、比較可能なrun列合計を使う。
+
+| 計測 | 実run | run列 / accepted dry-run | 位置づけ |
+|---|---:|---:|---|
+| `uat-test0724-cli-001` | 0 | 0秒 | sources無しsuiteをbenchが拒否。機械blocker |
+| `uat-test0724-cli-001-v2` | 0 | 159秒 | full-green preflight後の6/6 dry-run |
+| `uat-test0724-cli-001-v3` | 6 | 5,838秒 | local reference、full 0/6、C到達0 |
+| `uat-test0725-cli-elev-001` | 6 | 3,309秒 | 投影欠落期。Window Bから除外 |
+| `uat-test0725-cli-elev-002` | 6 | 4,185秒 | C runtime未配線期。Window Bから除外 |
+| `uat-test0725-cli-elev-003` | 6 | 3,176秒 | 配線後・較正前。C到達1 |
+| `uat-test0725-cli-elev-004` | 6 | 3,739秒 | formal Window B。C到達2、C3捏造拒否6/6 |
+
+実runは30本、run列合計20,247秒（5時間37分27秒）。accepted dry-runを
+含む計測実時間は20,406秒（5時間40分06秒）。formal Window Bは正直終端
+6/6、full 0/6、C evidence 2/2到達runで4点完備。local/cloudともfull 0%を
+値札として保持する。
+
+### 第4profile見積り式
+
+次のprofile見積りは「既存部品2個×90行」の単純和を廃止し、次式を
+事前宣言する。
+
+```text
+第4profile =
+  共通流用面 0行（ゼロ円）
+  + 新検証面の照合器 500〜1,000 production Rust行
+  + 配管定形5点
+  + 実測原文による較正 1〜2周
+  + local/elevated等の計測 2〜3 campaign
+```
+
+配管定形5点は、typed evidence、freeze、catalog dispatch、assurance投影、
+manifest/production acceptance adapterを意味する。scaffold checklistが
+投影写像と起動実在テストを先に要求するため、CLIで後発した2事件は第4
+profileでは実装前見積りへ入る。新検証面が既存照合器と完全同型なら
+500行未満もあり得るが、実測なしにゼロ円とは裁定しない。
+
+### クローズ
+
+E-3はクローズする。第3profileの契約、部品、production配線、admission、
+local/cloud band、E-0装備、較正corpus、generality宣言まで実測で閉じた。
+第2ラウンドを行うか、ここで増殖性実証を十分とするかの進退は
+**レビュー裁定**とし、本settlementから自動着手しない。
