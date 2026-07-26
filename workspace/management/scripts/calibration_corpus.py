@@ -32,29 +32,84 @@ def records(campaign):
                     "nearest_miss": c.get("nearest_miss"),
                     "observation": c.get("matched_result_value", c.get("value")),
                 }
+        if d.get("capability_id") == "help_binding" and isinstance(
+            d.get("bindings"), list
+        ):
+            for index, binding in enumerate(d["bindings"]):
+                if not isinstance(binding, dict) or binding.get("nearest_miss") is None:
+                    continue
+                observation = binding.get("observation", {})
+                stderr = (
+                    observation.get("stderr", {})
+                    if isinstance(observation, dict)
+                    else {}
+                )
+                stdout = (
+                    observation.get("stdout", {})
+                    if isinstance(observation, dict)
+                    else {}
+                )
+                yield {
+                    "record_id": f"{p}#c2:{index}",
+                    "source_run": str(p),
+                    "claim": binding.get("option", ""),
+                    "kind": "c2",
+                    "judgement": "matched" if binding.get("ok", False) else "violation",
+                    "nearest_miss": binding.get("nearest_miss"),
+                    "observation": stderr.get("text") or stdout.get("text"),
+                    "direction": binding.get("direction"),
+                }
+        if d.get("capability_id") == "cli_probe" and isinstance(
+            d.get("output_claims"), list
+        ):
+            for index, claim in enumerate(d["output_claims"]):
+                if not isinstance(claim, dict) or claim.get("nearest_miss") is None:
+                    continue
+                observation = claim.get("observation", {})
+                stdout = (
+                    observation.get("stdout", {})
+                    if isinstance(observation, dict)
+                    else {}
+                )
+                yield {
+                    "record_id": f"{p}#c3:{index}",
+                    "source_run": str(p),
+                    "claim": claim.get("claim", ""),
+                    "kind": "c3",
+                    "judgement": "matched"
+                    if claim.get("matched", False)
+                    else "violation",
+                    "nearest_miss": claim.get("nearest_miss"),
+                    "observation": stdout.get("text", claim.get("nearest_miss")),
+                    "source": claim.get("source"),
+                }
 
 
-def append(campaigns):
+def append(campaigns, store=STORE):
     buckets = {"e2": [], "i2": []}
     for campaign in campaigns:
         for r in records(campaign):
-            buckets[r["kind"]].append(r)
-    STORE.mkdir(parents=True, exist_ok=True)
+            buckets.setdefault(r["kind"], []).append(r)
+    store.mkdir(parents=True, exist_ok=True)
     total = 0
     for kind, rows in buckets.items():
-        out = STORE / kind / "records.jsonl"
+        out = store / kind / "records.jsonl"
         out.parent.mkdir(parents=True, exist_ok=True)
         existing = (
-            {json.loads(x).get("source_run") for x in out.read_text().splitlines()}
+            {
+                record.get("record_id", record.get("source_run"))
+                for record in map(json.loads, out.read_text().splitlines())
+            }
             if out.exists()
             else set()
         )
         with out.open("a", encoding="utf-8") as f:
             for r in rows:
-                if r["source_run"] in existing:
+                key = r.get("record_id", r["source_run"])
+                if key in existing:
                     continue
                 f.write(json.dumps(r, ensure_ascii=False) + "\n")
-                existing.add(r["source_run"])
+                existing.add(key)
                 total += 1
     return total
 

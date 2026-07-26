@@ -490,7 +490,7 @@ fn labeled_output_block(lines: &[&str], start: usize) -> Option<(Vec<String>, us
     while index < lines.len() && lines[index].trim().is_empty() {
         index += 1;
     }
-    let marker = fence_marker(*lines.get(index)?)?;
+    let marker = fence_marker(lines.get(index)?)?;
     let end = closing_fence(lines, index + 1, marker)?;
     let output = lines[index + 1..end]
         .iter()

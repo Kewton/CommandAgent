@@ -106,6 +106,46 @@ ledger_ref = "CLI-3"
 note = "profile=cliのfinal acceptanceがE-3b C1〜C4 runtimeを起動しなかった。CLI-3でproduction経路へ配線済み"
 
 [[class]]
+id = "cli_case_binding:first_usage_placeholder_masks_concrete_examples"
+attribution = "machine"
+match_reason = "unrecognized arguments: [--count]"
+first_seen = "uat-test0725-cli-elev-003"
+ledger_ref = "CLI-4"
+note = "先頭usageのoptional/placeholder記法を字義argv化した。CLI-4で実sampleへの決定的正規化とcase_extraction_failedを実装済み"
+
+[[class]]
+id = "cli_help_binding:required_args_mask_unknown_option_rejection"
+attribution = "machine"
+match_reason = "help_binding:implementation_to_help:option=--anvil-invalid-probe"
+first_seen = "uat-test0725-cli-elev-003"
+ledger_ref = "CLI-4"
+note = "未知option単独probeがargparse必須引数エラーに遮られた。CLI-4で凍結正常argvへの追加投与へ是正済み"
+
+[[class]]
+id = "cli_claims_binding:concrete_examples_unbound_after_template"
+attribution = "machine"
+match_reason = "cli_output_claims:observed_stdout_mismatch"
+first_seen = "uat-test0725-cli-elev-003"
+ledger_ref = "CLI-4"
+note = "先頭template後の具体的README出力blockをC3が未抽出だった。CLI-4でlabel付き隣接blockを実行照合済み"
+
+[[class]]
+id = "cli_final_repair:nextjs_artifact_fallback_after_c_failure"
+attribution = "machine"
+match_reason = "artifact_follow_through_exhausted: missing expected paths: src/app/page.ts"
+first_seen = "uat-test0725-cli-elev-003"
+ledger_ref = "CLI-4"
+note = "CLI C失敗後のrepairが全profile共通Next.js fallbackを選んだ。CLI-4でCLI実在artifact境界へ遮断済み"
+
+[[class]]
+id = "bench_calibration_corpus:cli_evidence_shape_unsupported"
+attribution = "machine"
+match_reason = "bench_calibration_corpus:cli_evidence_shape_unsupported"
+first_seen = "uat-test0725-cli-elev-003"
+ledger_ref = "CLI-4"
+note = "collectorがCLI bindings/output_claims形を収集しなかった。CLI-4でC2/C3 nearest_missを追加しelev-003流出1件を遡及取込み済み"
+
+[[class]]
 id = "bench_suite_schema:create_empty_sources_unsupported"
 attribution = "machine"
 match_reason = "suite must define at least one [[sources]] table"

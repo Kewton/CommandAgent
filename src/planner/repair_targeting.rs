@@ -9,6 +9,7 @@ use crate::planner::runner::StepRunOutcome;
 
 mod fix;
 pub(crate) use fix::fix_profile_invariant_target_guidance;
+mod cli;
 mod priority;
 pub(crate) use priority::RepairTargetPriority;
 mod verified;
@@ -205,6 +206,9 @@ fn canonical_evidence_token(token: &str) -> bool {
 }
 
 pub(crate) fn default_repair_target_candidates(root: &Path, profile: &str) -> Vec<String> {
+    if let Some(candidates) = cli::manifest_cli_candidates(root, profile) {
+        return candidates;
+    }
     let mut out = Vec::new();
     for path in route_bound_source_candidates(root, profile) {
         push_unique_trimmed(&mut out, &path);
@@ -243,6 +247,9 @@ pub(crate) fn default_repair_target_candidates(root: &Path, profile: &str) -> Ve
 
 pub(crate) fn final_acceptance_snapshot_candidates(root: &Path, profile: &str) -> Vec<String> {
     let mut out = default_repair_target_candidates(root, profile);
+    if cli::is_manifest_cli_profile(profile) {
+        return out;
+    }
     for candidate in [
         "next.config.js",
         "next.config.mjs",
