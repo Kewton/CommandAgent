@@ -146,6 +146,22 @@ ledger_ref = "CLI-4"
 note = "collectorがCLI bindings/output_claims形を収集しなかった。CLI-4でC2/C3 nearest_missを追加しelev-003流出1件を遡及取込み済み"
 
 [[class]]
+id = "cli_claims_binding:readme_output_claim_fabricated"
+attribution = "model"
+match_reason = "Final acceptance failure: - primary reason: cli_output_claims:observed_stdout_mismatch"
+first_seen = "uat-test0725-cli-elev-004"
+ledger_ref = "CLI-4"
+note = "CLI-4較正後のC3がREADME出力主張と実出力の不一致をlive拒否した。抽出器欠落ではなくモデル生成内容の不一致"
+
+[[class]]
+id = "cli_verify:canonical_command_dropped_positional_input"
+attribution = "machine"
+match_reason = "verify_command_false_negative: the verify command is malformed; the artifact may already satisfy the requirement"
+first_seen = "uat-test0725-cli-elev-004"
+ledger_ref = "CLI-4"
+note = "stats_cloud_003で成功した実CLI commandからCSV位置引数を落としたverifyへ正準化され停止。修正は本計測の範囲外"
+
+[[class]]
 id = "bench_suite_schema:create_empty_sources_unsupported"
 attribution = "machine"
 match_reason = "suite must define at least one [[sources]] table"

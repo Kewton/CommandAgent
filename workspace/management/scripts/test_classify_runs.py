@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from classify_runs import classify
+from classify_runs import classify, classify_campaign
 
 
 class ClassifyTests(unittest.TestCase):
@@ -35,3 +35,25 @@ class ClassifyTests(unittest.TestCase):
             set(classify(self.make("read_only_loop"), reg)["classes"]),
             {"long", "other"},
         )
+
+    def test_campaign_prefers_artifact_copy_of_same_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign = Path(tmp)
+            for root in ("artifacts", "workspaces"):
+                run = campaign / root / "run-001/.anvil/runs/id"
+                run.mkdir(parents=True)
+                (run / "events.jsonl").write_text(
+                    '{"event":"run_stop","reason":"read_only_loop"}\n'
+                )
+            registry = [
+                {
+                    "id": "known",
+                    "attribution": "model",
+                    "match_reason": "read_only_loop",
+                }
+            ]
+
+            rows = classify_campaign(campaign, registry)
+
+            self.assertEqual(len(rows), 1)
+            self.assertIn("/artifacts/", rows[0]["run"])

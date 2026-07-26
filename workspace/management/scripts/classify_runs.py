@@ -88,11 +88,22 @@ def classify(run, registry=None):
 def classify_campaign(campaign, registry=None):
     campaign = Path(campaign)
     registry = registry or classes()
-    runs = sorted(
+    candidates = sorted(
         {p.parent for p in campaign.rglob("workflow-events.jsonl")}
         | {p.parent for p in campaign.rglob("events.jsonl")}
     )
-    return [classify(p, registry) for p in runs]
+    runs = {}
+    for run in candidates:
+        relative = run.relative_to(campaign)
+        identity = (
+            Path(*relative.parts[1:])
+            if relative.parts and relative.parts[0] in {"artifacts", "workspaces"}
+            else relative
+        )
+        current = runs.get(identity)
+        if current is None or relative.parts[0] == "artifacts":
+            runs[identity] = run
+    return [classify(runs[key], registry) for key in sorted(runs)]
 
 
 def render(rows):

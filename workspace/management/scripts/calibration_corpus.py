@@ -11,6 +11,19 @@ ROOT = Path(__file__).resolve().parents[1]
 STORE = ROOT / "calibration"
 
 
+def evidence_record_id(campaign, evidence, kind, index):
+    """Identify one logical run evidence file across workspace/artifact copies."""
+    campaign = Path(campaign)
+    evidence = Path(evidence)
+    try:
+        relative = evidence.relative_to(campaign)
+    except ValueError:
+        relative = evidence
+    if relative.parts and relative.parts[0] in {"artifacts", "workspaces"}:
+        relative = Path(*relative.parts[1:])
+    return f"{campaign.name}/{relative.as_posix()}#{kind}:{index}"
+
+
 def records(campaign):
     campaign = Path(campaign)
     for p in campaign.rglob("*.json"):
@@ -50,7 +63,7 @@ def records(campaign):
                     else {}
                 )
                 yield {
-                    "record_id": f"{p}#c2:{index}",
+                    "record_id": evidence_record_id(campaign, p, "c2", index),
                     "source_run": str(p),
                     "claim": binding.get("option", ""),
                     "kind": "c2",
@@ -72,7 +85,7 @@ def records(campaign):
                     else {}
                 )
                 yield {
-                    "record_id": f"{p}#c3:{index}",
+                    "record_id": evidence_record_id(campaign, p, "c3", index),
                     "source_run": str(p),
                     "claim": claim.get("claim", ""),
                     "kind": "c3",
