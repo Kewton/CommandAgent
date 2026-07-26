@@ -342,6 +342,61 @@ The verdict meaning remains fixed by the
 [`workflow circle contract`](../workflow-circle-contract.md); a fix-node full
 cannot be projected to `circle_full` without `verify_origin`.
 
+## Measured capability bands (cli × create)
+
+The CLI/create band fixes the planner at
+`qwen3.6:27b-coding-nvfp4`. The local reference arm combines
+`qwen3.6:35b-a3b-coding-nvfp4` and `gemma4:31b`; the formal elevated Window B
+uses `gemma4:31b-cloud`. The local and cloud prices remain separate because
+they are different executor tiers.
+
+| cell | arm / window | executor | C checks reached | C2 | C3 | C4 | full | n | full rate | measured characteristic |
+|---|---|---|---:|---|---|---|---:|---:|---:|---|
+| cli × create | local reference | qwen35 + gemma31 | 0 | not measured | not measured | not measured | 0 | 6 | 0% | 6/6 honest static terminals under the admission-off cap |
+| stats | elevated Window B | `gemma4:31b-cloud` | 0/3 | not reached | not reached | not reached | 0 | 3 | 0% | Three honest pre-C failures; one machine-owned verify canonicalization loss is disclosed below |
+| filter | elevated Window B | `gemma4:31b-cloud` | 2/3 | 2/2 pass | 6/6 false claims rejected | 2/2 pass | 0 | 3 | 0% | Both reached runs built executable CLIs, then failed on README output honesty |
+
+モデルはCLI本体を作れる（formal Window Bの到達2runでC1正常実行
+exit 0）が、ドキュメントの誠実性で落ちる（C3がREADME捏造6/6を拒否）。
+C2のhelp双方向照合とC4の再実行一致は到達2/2で実戦成立した。現在の
+能力壁はモデルのドキュメント忠実性であり、値札はlocal 0/6、cloud
+Window B 0/6、いずれもfull 0%である。この主張はCへ到達した2runの
+観測に限定し、未到達runへ外挿しない。
+
+The elevated history preserves the defect-era campaigns without charging them
+to Window B. `uat-test0725-cli-elev-001` is excluded because C1-not-run was
+projected as partial instead of static; `elev-002` is excluded because final
+acceptance did not dispatch the C runtime. `elev-003` is retained as the
+post-wiring, pre-calibration predecessor with one reached run. Formal Window B
+is `elev-004` only: six honest failed terminals, two reached C runs, and four
+recorded C evidence files for each reached run.
+
+Window B contains one machine-attributed terminal,
+`stats_cloud_003`: verify canonicalization dropped the positional CSV input
+from a command that had already succeeded and reported
+`verify_command_false_negative`. It remains visible in the six-run observed
+price; it is not evidence for the documentation-fidelity model wall. The
+wall statement comes from the two reached filter runs, both of which passed
+C1, C2, and C4 before C3 rejected the generated README claims.
+
+CLI C3 extends the standing spoof-rejection lineage rather than introducing a
+weaker, profile-specific truth rule:
+
+| gate family | claim under test | observed rejection record |
+|---|---|---|
+| E2 | data/output numeric claim | claim must bind to executed pipeline output; unsupported normalization is calibrated from originals |
+| I2 | diagnosis error/code quotation | 17 fabricated or unbound claims rejected in the investigation band |
+| F1–F3 | failing baseline, repaired result, frozen regressions | successful or irrelevant reproducers rejected; lineage and regression set remain frozen |
+| C3 | README execution-output claim | 6/6 fabricated CLI output claims rejected against live stdout in `elev-004` |
+
+Re-measure only by running
+`python3 workspace/management/scripts/band_aggregate.py --profile cli`.
+Do not hand-edit the generated numbers. The campaign dispositions, per-run
+ledger, reached-run evidence invariant, and Window B denominator are in
+[`band_summary_cli.md`](../../workspace/management/runs/band_summary_cli.md).
+The fixed verdict meaning remains
+[`docs/cli-profile-contract.md` §4](../cli-profile-contract.md#4-assurance-投影).
+
 ## Recommended Model Tier
 
 Production-quality implementation outcomes require an implementation model in
