@@ -846,3 +846,5 @@ E-3はクローズする。第3profileの契約、部品、production配線、ad
 local/cloud band、E-0装備、較正corpus、generality宣言まで実測で閉じた。
 第2ラウンドを行うか、ここで増殖性実証を十分とするかの進退は
 **レビュー裁定**とし、本settlementから自動着手しない。
+
+E-4開始（2026-07-26）: 第4profile `ingest` の第1段（取得済みsnapshot→抽出・整形）をscaffold駆動・draft/offで開始し、E-3見積り式（N2/N3照合器＋配管500〜1,000 production Rust行、較正1〜2周、計測2〜3campaign）を初適用する。自治体イベント整形を実ユースケースのドッグフーディング枠とし、ネットワーク取得・鮮度のfetch probeは第2段QUEUEDに残す。
