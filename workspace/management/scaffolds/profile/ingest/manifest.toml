@@ -1,0 +1,6 @@
+[manifest]
+id = "ingest"
+kind = "profile"
+admission = "off"
+profile = ""
+intent = ""
