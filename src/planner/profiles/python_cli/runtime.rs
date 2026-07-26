@@ -83,7 +83,12 @@ pub fn run_manifest_checks(root: &Path) -> anyhow::Result<CliCheckSummary> {
         root,
         argv_probe::Config::new(&probe_adapter.entry, &usage).with_timeout(timeout),
     )?;
-    let help = help_binding::run(root, Path::new(&probe_adapter.entry), timeout)?;
+    let help = help_binding::run(
+        root,
+        Path::new(&probe_adapter.entry),
+        &probe.binding.cases[0].args,
+        timeout,
+    )?;
     let claims = if probe.output_claims.is_empty() {
         CheckStatus::ClaimsAbsent
     } else if probe.output_claims.iter().all(|claim| claim.matched) {

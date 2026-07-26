@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use super::argv_probe::{self, Observation};
 
 pub const EVIDENCE_PATH: &str = "evidence/help-binding.json";
-pub const IMPLEMENTATION_TO_HELP_SCOPE: &str = "unknown_option_rejection_only_v0";
+pub const IMPLEMENTATION_TO_HELP_SCOPE: &str = "unknown_option_rejection_with_bound_normal_argv_v1";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct NearestMiss {
@@ -36,7 +36,12 @@ pub struct Report {
     pub failure_kinds: Vec<String>,
 }
 
-pub fn run(root: &Path, entry: &Path, timeout: Duration) -> anyhow::Result<Report> {
+pub fn run(
+    root: &Path,
+    entry: &Path,
+    normal_args: &[String],
+    timeout: Duration,
+) -> anyhow::Result<Report> {
     let help = argv_probe::observe(root, entry, &["--help".to_string()], timeout, "help")?;
     let help_text = format!("{}\n{}", help.stdout.text, help.stderr.text);
     let help_options = extract_options(&help_text);
@@ -44,10 +49,12 @@ pub fn run(root: &Path, entry: &Path, timeout: Duration) -> anyhow::Result<Repor
         .iter()
         .map(|option| observe_help_option(root, entry, option, timeout))
         .collect::<anyhow::Result<Vec<_>>>()?;
+    let mut unknown_args = normal_args.to_vec();
+    unknown_args.push(argv_probe::INVALID_OPTION.to_string());
     let unknown = argv_probe::observe(
         root,
         entry,
-        &[argv_probe::INVALID_OPTION.to_string()],
+        &unknown_args,
         timeout,
         "implementation-to-help",
     )?;
@@ -183,6 +190,11 @@ fn edit_distance(left: &str, right: &str) -> usize {
 mod tests {
     use super::*;
 
+    const MEASURED_FIXTURE: &str = "tests/corpus/apps/test0725_cli_elev_003/fixtures";
+    const MEASURED_HELP_BINDING: &str = include_str!(
+        "../../../../tests/corpus/apps/test0725_cli_elev_003/fixtures/evidence/help-binding.json"
+    );
+
     fn fixture(script: &str) -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join("cli")).unwrap();
@@ -195,7 +207,13 @@ mod tests {
         let dir = fixture(
             "import argparse, sys\nif '--help' in sys.argv:\n print('usage: tool [--ghost]')\n raise SystemExit(0)\nargparse.ArgumentParser(add_help=False).parse_args()\n",
         );
-        let report = run(dir.path(), Path::new("cli/main.py"), Duration::from_secs(2)).unwrap();
+        let report = run(
+            dir.path(),
+            Path::new("cli/main.py"),
+            &[],
+            Duration::from_secs(2),
+        )
+        .unwrap();
         assert!(!report.ok);
         let ghost = report
             .bindings
@@ -211,7 +229,13 @@ mod tests {
         let dir = fixture(
             "import argparse\np=argparse.ArgumentParser()\np.add_argument('--hidden', help=argparse.SUPPRESS)\np.parse_args()\n",
         );
-        let report = run(dir.path(), Path::new("cli/main.py"), Duration::from_secs(2)).unwrap();
+        let report = run(
+            dir.path(),
+            Path::new("cli/main.py"),
+            &[],
+            Duration::from_secs(2),
+        )
+        .unwrap();
         assert!(report.ok, "{report:?}");
         assert!(!report.help_options.contains(&"--hidden".to_string()));
         assert_eq!(
@@ -225,7 +249,13 @@ mod tests {
         let dir = fixture(
             "import argparse\np=argparse.ArgumentParser()\np.add_argument('--name')\np.parse_args()\n",
         );
-        let report = run(dir.path(), Path::new("cli/main.py"), Duration::from_secs(2)).unwrap();
+        let report = run(
+            dir.path(),
+            Path::new("cli/main.py"),
+            &[],
+            Duration::from_secs(2),
+        )
+        .unwrap();
         assert!(report.ok, "{report:?}");
         assert!(report.help_options.contains(&"--name".to_string()));
         assert!(
@@ -233,5 +263,68 @@ mod tests {
             "{report:?}"
         );
         assert!(dir.path().join(EVIDENCE_PATH).is_file());
+    }
+
+    #[test]
+    fn measured_required_args_masked_the_v0_unknown_option_probe() {
+        let measured: Report = serde_json::from_str(MEASURED_HELP_BINDING).unwrap();
+        let binding = measured
+            .bindings
+            .iter()
+            .find(|binding| binding.direction == "implementation_to_help")
+            .unwrap();
+
+        assert_eq!(binding.observation.args, ["--anvil-invalid-probe"]);
+        assert_eq!(binding.observation.exit_code, Some(2));
+        assert!(
+            binding
+                .observation
+                .stderr
+                .text
+                .contains("the following arguments are required: file, --pattern")
+        );
+        assert!(!binding.ok);
+    }
+
+    #[test]
+    fn measured_cli_rejects_unknown_option_after_bound_normal_argv() {
+        let dir = tempfile::tempdir().unwrap();
+        for relative in ["cli/main.py", "data/sample.txt"] {
+            let target = dir.path().join(relative);
+            std::fs::create_dir_all(target.parent().unwrap()).unwrap();
+            std::fs::copy(Path::new(MEASURED_FIXTURE).join(relative), target).unwrap();
+        }
+        let normal_args = [
+            "data/sample.txt".to_string(),
+            "--pattern".to_string(),
+            "Apple".to_string(),
+        ];
+
+        let report = run(
+            dir.path(),
+            Path::new("cli/main.py"),
+            &normal_args,
+            Duration::from_secs(2),
+        )
+        .unwrap();
+
+        let binding = report
+            .bindings
+            .iter()
+            .find(|binding| binding.direction == "implementation_to_help")
+            .unwrap();
+        assert_eq!(
+            binding.observation.args,
+            [
+                "data/sample.txt",
+                "--pattern",
+                "Apple",
+                "--anvil-invalid-probe"
+            ]
+        );
+        assert_eq!(binding.observation.exit_code, Some(2));
+        assert!(is_unrecognized(&binding.observation.stderr.text));
+        assert!(binding.ok, "{binding:?}");
+        assert!(report.ok, "{report:?}");
     }
 }
