@@ -890,3 +890,10 @@ ingest初計測では4/6 runを直接停止させた。manifest/presetは検証s
 再束縛しなかったmachine側にある。ingest createのphase gateを
 `pipeline/main.py`、JSON出力、正準selector宣言、reportの構造だけへ固定し、
 意味検証はN1〜N5 acceptanceへ一元化した。
+
+INGEST-2進捗意味論（2026-07-27）: 「書く=進捗」の一義が実行型phaseで
+過制約化し、成功実行を差分なしとして4/6 runで停滞誤殺した。相異なる
+exit 0 commandを実行型進捗へ加える精密化を行い、同一command反復、
+非零終了、純読取りtool（Read/Glob/Grep）は非進捗のまま維持した。
+investigate read-onlyからC2較正を経た停滞検知系譜の精密化であり、
+検知閾値やread-only loop終端は変更していない。

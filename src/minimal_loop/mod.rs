@@ -8,6 +8,7 @@ pub mod dependency_setup;
 pub mod edit_anchor_recovery;
 pub mod evidence;
 pub mod evidence_knowledge;
+pub(crate) mod execution_progress;
 pub mod feedback;
 pub mod hidden_path_feedback;
 pub mod import_scan;

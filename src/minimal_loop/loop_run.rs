@@ -40,6 +40,7 @@ use super::edit_anchor_recovery::{
     EDIT_ANCHOR_FULL_FILE_WRITE_THRESHOLD, EditAnchorRecoveryState, emit_recovery_event,
 };
 use super::evidence::{RuntimeAcceptanceReport, verify_runtime_acceptance};
+use super::execution_progress::{ExecutionProgress, ExecutionProgressTracker};
 use super::import_scan::{format_missing_import_feedback, scan_relative_imports};
 use super::prompt::{ToolPromptMode, build_request_messages};
 use super::reachability::{
@@ -1092,6 +1093,7 @@ pub(crate) fn run_session_with_outcome_with_options(
     let mut verify_repair_state = VerifyRepairState::default();
     let mut write_required_state = WriteRequiredState::default();
     let mut recoverable_tool_error_state = RecoverableToolErrorState::default();
+    let mut execution_progress_tracker = ExecutionProgressTracker::default();
     let mut edit_anchor_recovery_state = EditAnchorRecoveryState::default();
     let mut route_unbound_recovery_state =
         super::route_unbound_recovery::RouteUnboundRecoveryState::default();
@@ -1806,10 +1808,12 @@ pub(crate) fn run_session_with_outcome_with_options(
         let mut batch_all_read_only_tools = !tool_calls.is_empty();
         let mut batch_had_recoverable_tool_error = false;
         let mut batch_had_hidden_path_feedback = false;
+        let mut batch_had_execution_progress = false;
         let mut write_required_rejection: Option<(String, bool, usize, Vec<String>, String)> = None;
         let missing_before_batch = missing_paths(&config.workspace_root, &required_paths);
         for mut call in tool_calls {
             let mut split_bash_segments = Vec::new();
+            let mut bash_policy_substituted = false;
             if ui.interrupted() {
                 bail!("interrupted by user");
             }
@@ -1941,6 +1945,7 @@ pub(crate) fn run_session_with_outcome_with_options(
                             }),
                         );
                         set_bash_command(&mut call.arguments, substitute);
+                        bash_policy_substituted = true;
                         recoverable_tool_error_state.reset();
                     } else {
                         eval_events::emit(
@@ -2211,6 +2216,24 @@ pub(crate) fn run_session_with_outcome_with_options(
                     },
                 );
             }
+            if call.name == "Bash"
+                && !bash_policy_substituted
+                && execution_progress_tracker.observe_bash(
+                    recovered_bash_command(&call.name, &call.arguments).as_deref(),
+                    &result,
+                ) == ExecutionProgress::New
+            {
+                batch_had_execution_progress = true;
+                pressure_inputs.read_only_streak = 0;
+                pressure_inputs.no_progress_streak = 0;
+                pressure_inputs.anchor_failures = 0;
+                pressure_inputs.anchor_target = None;
+                pressure_state = transition(pressure_inputs.clone());
+                stagnation_carryover::record_streak(
+                    escalation_carryover,
+                    pressure_state.read_only_streak(),
+                );
+            }
             session.messages.push(ConversationMessage::tool_result(
                 call.name,
                 Some(call.id),
@@ -2252,7 +2275,7 @@ pub(crate) fn run_session_with_outcome_with_options(
         }
         let missing_after_batch = missing_paths(&config.workspace_root, &required_paths);
         let batch_reduced_missing_paths = missing_after_batch.len() < missing_before_batch.len();
-        if batch_reduced_missing_paths {
+        if batch_reduced_missing_paths || batch_had_execution_progress {
             artifact_non_edit_streak = 0;
             pressure_inputs.read_only_streak = 0;
             pressure_inputs.no_progress_streak = 0;
@@ -2263,7 +2286,11 @@ pub(crate) fn run_session_with_outcome_with_options(
                 escalation_carryover,
                 pressure_state.read_only_streak(),
             );
-            artifact_recovery_state.record_action("required_artifact_progress");
+            artifact_recovery_state.record_action(if batch_reduced_missing_paths {
+                "required_artifact_progress"
+            } else {
+                "successful_distinct_command"
+            });
         } else {
             artifact_non_edit_streak += if batch_non_edit_tools > 0 {
                 batch_non_edit_tools
@@ -2281,6 +2308,7 @@ pub(crate) fn run_session_with_outcome_with_options(
         if options.scope == RunSessionScope::PlanRunStep
             && !implement_step(&options)
             && !batch_had_edit
+            && !batch_had_execution_progress
             && !batch_had_recoverable_tool_error
         {
             pressure_inputs.no_progress_streak =
@@ -2374,7 +2402,7 @@ pub(crate) fn run_session_with_outcome_with_options(
             &config.workspace_root,
             &required_paths,
             &initially_missing_paths,
-            write_or_edit_seen,
+            write_or_edit_seen || batch_had_execution_progress,
         ) {
             let mut import_scan_paths = changed_paths.clone();
             import_scan_paths.extend(required_paths.iter().cloned());
@@ -4865,12 +4893,12 @@ fn required_paths_satisfied_after_tool(
     root: &Path,
     required_paths: &[String],
     initially_missing_paths: &[String],
-    write_or_edit_seen: bool,
+    progress_seen: bool,
 ) -> bool {
     if required_paths.is_empty() || !missing_paths(root, required_paths).is_empty() {
         return false;
     }
-    write_or_edit_seen
+    progress_seen
         || initially_missing_paths
             .iter()
             .any(|path| resolve_existing(root, path).is_ok())

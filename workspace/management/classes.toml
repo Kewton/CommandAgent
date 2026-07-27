@@ -176,3 +176,11 @@ match_reason = "dependency_setup_authority_required: python3 verify_pipeline.py"
 first_seen = "uat-test0726-ingest-001"
 ledger_ref = "INGEST-1"
 note = "実在するworkspace内Python scriptの成果物not foundを依存欠落へ誤分類した。INGEST-1でlocal script実行とpip install等の依存導入を分離して解消済み"
+
+[[class]]
+id = "phase_execution:successful_command_no_diff_stagnation"
+attribution = "machine"
+match_reason = "model_stagnation:no_progress_recorded"
+first_seen = "uat-test0726-ingest-elev-001"
+ledger_ref = "INGEST-2"
+note = "成功した実行専用commandを差分なしとして停滞誤殺した。INGEST-2で相異なるexit 0 commandを実行型進捗へ追加し、同一反復・非零終了・Read/Glob/Grepは非進捗のまま維持"

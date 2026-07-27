@@ -407,6 +407,113 @@ mod moved {
     }
 
     #[test]
+    fn ingest_successful_pipeline_execution_without_diff_completes_step() {
+        // uat-test0726-ingest-elev-001/list_cloud_002 events 138-161:
+        // `python3 pipeline/main.py` exited successfully, produced no new diff, and was
+        // repeated until the runtime emitted model_stagnation:no_progress_recorded.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("pipeline")).unwrap();
+        std::fs::create_dir_all(dir.path().join("output")).unwrap();
+        std::fs::write(
+            dir.path().join("pipeline/main.py"),
+            "from pathlib import Path\nPath('output/records.json').write_text('[]\\n')\nPath('output/report.md').write_text('# Report\\n')\n",
+        )
+        .unwrap();
+        std::fs::write(dir.path().join("output/records.json"), "[]\n").unwrap();
+        std::fs::write(dir.path().join("output/report.md"), "# Report\n").unwrap();
+        let events = dir.path().join("events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.profile = "ingest".to_string();
+        cfg.eval_events_path = Some(events.clone());
+        cfg.max_iterations = 1;
+        let mut fake = Fake::new(vec![Ok(AssistantReply {
+            content: String::new(),
+            tool_calls: vec![ToolCall::new(
+                "Bash",
+                json!({"command":"python3 pipeline/main.py"}),
+            )],
+            prompt_tokens: None,
+            completion_tokens: None,
+        })]);
+        let mut session = SessionSnapshot::new();
+
+        let outcome = run_session_with_outcome_with_options(
+            &mut fake,
+            &mut session,
+            "Execute python pipeline/main.py to generate the outputs deterministically.",
+            &[
+                "output/records.json".to_string(),
+                "output/report.md".to_string(),
+            ],
+            &cfg,
+            &NOOP_UI,
+            RunSessionOptions::plan_step(RunSessionStepKind::Implement)
+                .with_required_mutation_before_short_circuit(true),
+        )
+        .unwrap();
+
+        assert_eq!(
+            outcome.stop_reason,
+            RunStopReason::RequiredArtifactsSatisfiedAfterTool
+        );
+        assert_eq!(outcome.tool_calls, 1);
+        let events = event_values(&events);
+        assert!(!events.iter().any(|event| {
+            event["reason"] == "model_stagnation:no_progress_recorded"
+        }));
+    }
+
+    #[test]
+    fn repeated_successful_command_still_exhausts_as_no_progress() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.eval_events_path = Some(events.clone());
+        cfg.max_iterations = 2;
+        let replies = (0..8)
+            .map(|_| {
+                Ok(AssistantReply {
+                    content: String::new(),
+                    tool_calls: vec![ToolCall::new("Bash", json!({"command":"true"}))],
+                    prompt_tokens: None,
+                    completion_tokens: None,
+                })
+            })
+            .collect();
+        let mut fake = Fake::new(replies);
+        let mut session = SessionSnapshot::new();
+
+        let err = run_session_with_outcome_with_options(
+            &mut fake,
+            &mut session,
+            "Execute the implementation step.",
+            &[],
+            &cfg,
+            &NOOP_UI,
+            RunSessionOptions::plan_step(RunSessionStepKind::Implement),
+        )
+        .unwrap_err()
+        .to_string();
+
+        assert!(err.contains("model_stagnation:no_progress_recorded"), "{err}");
+        let events = event_values(&events);
+        assert!(
+            events
+                .iter()
+                .filter(|event| {
+                    event["event"] == "tool_execute"
+                        && event["name"] == "Bash"
+                        && event["status"] == "ok"
+                })
+                .count()
+                >= 2
+        );
+        assert!(events.iter().any(|event| {
+            event["reason"] == "model_stagnation:no_progress_recorded"
+        }));
+    }
+
+    #[test]
     fn artifact_recovery_exhausts_after_repeated_non_edit_tools() {
         let dir = tempfile::tempdir().unwrap();
         let contract = dir.path().join("contract.json");
