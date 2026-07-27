@@ -184,3 +184,11 @@ match_reason = "model_stagnation:no_progress_recorded"
 first_seen = "uat-test0726-ingest-elev-001"
 ledger_ref = "INGEST-2"
 note = "成功した実行専用commandを差分なしとして停滞誤殺した。INGEST-2で相異なるexit 0 commandを実行型進捗へ追加し、同一反復・非零終了・Read/Glob/Grepは非進捗のまま維持"
+
+[[class]]
+id = "ingest_phase_structure:selector_not_kind_value"
+attribution = "machine"
+match_reason = "ingest_phase_structure:selector_not_kind_value"
+first_seen = "uat-test0726-ingest-elev-002"
+ledger_ref = "INGEST-3"
+note = "近因はmodelの文字列selector生成、設計根因は正準kind/value字義例を事前配布しないknowledge欠落。6/6同形逸脱を根拠にmachine(knowledge)へ裁定し、INGEST-3でgate全要求形の字義例・実測値置換定型・fixtureを合成/presetへ注入して解消"

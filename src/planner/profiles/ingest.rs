@@ -1,4 +1,5 @@
 pub mod accounting;
+pub(crate) mod guidance;
 pub mod manifest;
 pub(crate) mod phase_verify;
 pub mod runtime;
@@ -64,9 +65,7 @@ impl DomainProfile for IngestProfile {
     }
 
     fn generation_rules(&self, _intent: &str) -> Option<&'static str> {
-        Some(
-            "- Profile ingest: implement an offline deterministic pipeline/main.py over data/snapshots. Declare candidate_selector, candidate_accounting, and record_format in output/inspection.json. Do not invent source values, splice candidate blocks, silently drop candidates, or fetch network data.\n",
-        )
+        Some(guidance::GENERATION_RULES)
     }
 
     fn quality_expectations(&self, _root: &Path, _goal: &str) -> ProfileQualityExpectations {

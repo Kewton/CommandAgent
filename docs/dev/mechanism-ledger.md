@@ -897,3 +897,14 @@ exit 0 commandを実行型進捗へ加える精密化を行い、同一command�
 非零終了、純読取りtool（Read/Glob/Grep）は非進捗のまま維持した。
 investigate read-onlyからC2較正を経た停滞検知系譜の精密化であり、
 検知閾値やread-only loop終端は変更していない。
+
+INGEST-3正準形字義例（2026-07-28）: DATA-1処方の第4適用
+（data字義例→INV-1診断形→cli主張形→ingest正準形）。elev-002では
+`candidate_selector`の`kind/value`正準形を散文だけで要求し、6/6のモデルが
+同じ文字列形へ逸脱したため、近因model／設計根因machine（knowledge）へ
+帰属を精密化した。structure gateの全要求形、許容selector語彙、
+inspection/accounting/record format、records配列の字義例と
+「値は例・実snapshot観測で全置換」のDATA-1定型を合成/preset/repair
+ガイダンスへ先行配布し、実測負例→正準正例の対fixtureで固定した。
+E-1 scaffold checklistには「構造gate要求形の字義例ガイダンス＋fixture」を
+投影写像・production起動実在に続く第3の定形装備として必須化した。

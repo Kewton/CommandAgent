@@ -98,6 +98,36 @@ fn validate(manifest: &ManifestV1) -> Result<(), String> {
     if checks != BTreeSet::from(CHECK_IDS) {
         return Err(format!("ingest N1-N5 bindings are incomplete: {checks:?}"));
     }
+    let inspection_prompt = &manifest.plan.phases[0].prompt;
+    let guidance_text = manifest
+        .guidance
+        .variants
+        .values()
+        .flat_map(|variant| variant.messages.values())
+        .cloned()
+        .collect::<Vec<_>>()
+        .join("\n");
+    for marker in [
+        crate::planner::profiles::ingest::guidance::SELECTOR_LITERAL,
+        crate::planner::profiles::ingest::guidance::INSPECTION_LITERAL,
+        crate::planner::profiles::ingest::guidance::RECORDS_LITERAL,
+        "examples only",
+        "actual snapshots",
+        "never copy example values as fixed data",
+    ] {
+        if !inspection_prompt.contains(marker) {
+            return Err(format!(
+                "ingest inspection prompt lacks canonical literal guidance: {marker}"
+            ));
+        }
+    }
+    for kind in crate::planner::profiles::ingest::guidance::SELECTOR_KINDS {
+        if !inspection_prompt.contains(kind) || !guidance_text.contains(kind) {
+            return Err(format!(
+                "ingest selector vocabulary is not published before validation: {kind}"
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -107,6 +137,7 @@ mod tests {
     use crate::planner::capability_catalog::{
         InternalCapability, ProbeCapability, ResolvedCapability, ingest::IngestInternalCheck,
     };
+    use crate::planner::profiles::ingest::{accounting::CandidateSelector, guidance};
 
     #[test]
     fn manifest_is_draft_and_binds_all_five_checks() {
@@ -135,5 +166,59 @@ mod tests {
             capability,
             ResolvedCapability::Probe(ProbeCapability::DataRerunConsistency { .. })
         )));
+    }
+
+    #[test]
+    fn preset_and_repair_guidance_publish_every_canonical_literal_before_the_gate() {
+        let preset = preset_ultra_plan("Extract actual events.", "default", "create").unwrap();
+        let inspection = &preset.phases[0].prompt;
+        let repair_guidance = guidance();
+        for marker in [
+            guidance::SELECTOR_LITERAL,
+            guidance::INSPECTION_LITERAL,
+            guidance::RECORDS_LITERAL,
+            "css, html_tag, and line_prefix",
+            "pipeline/main.py",
+            "output/report.md",
+            "examples only",
+            "actual snapshots",
+            "never copy example values as fixed data",
+        ] {
+            assert!(inspection.contains(marker), "preset lacks {marker}");
+            assert!(
+                guidance::GENERATION_RULES.contains(marker),
+                "synthesis guidance lacks {marker}"
+            );
+        }
+        for marker in [
+            guidance::SELECTOR_LITERAL,
+            "candidate_accounting.accepted",
+            "candidate_accounting.excluded",
+            "record_format.fields",
+            "output/records.json",
+            "examples only",
+            "actual observed snapshots",
+        ] {
+            assert!(repair_guidance.contains(marker), "repair lacks {marker}");
+        }
+    }
+
+    #[test]
+    fn published_selector_vocabulary_is_exactly_deserializable() {
+        for kind in guidance::SELECTOR_KINDS {
+            let selector = serde_json::from_value::<CandidateSelector>(serde_json::json!({
+                "kind": kind,
+                "value": if kind == "css" { "ul.events > li" } else { "article" }
+            }))
+            .unwrap();
+            assert!(!selector.value.is_empty());
+        }
+        assert!(
+            serde_json::from_value::<CandidateSelector>(serde_json::json!({
+                "kind": "xpath",
+                "value": "//article"
+            }))
+            .is_err()
+        );
     }
 }

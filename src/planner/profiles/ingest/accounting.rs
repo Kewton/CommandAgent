@@ -7,6 +7,8 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+mod css_selector;
+
 pub const INSPECTION_PATH: &str = "output/inspection.json";
 pub const FREEZE_EVIDENCE_PATH: &str = "evidence/ingest-candidate-freeze.json";
 pub const ACCOUNTING_EVIDENCE_PATH: &str = "evidence/candidate-accounting.json";
@@ -19,6 +21,7 @@ const MAX_TOTAL_BYTES: u64 = 16 * 1024 * 1024;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SelectorKind {
+    Css,
     LinePrefix,
     HtmlTag,
 }
@@ -296,6 +299,7 @@ fn enumerate(
                 .map(|found| (found.start(), found.end(), found.as_str().to_string()))
                 .collect()
         }
+        SelectorKind::Css => css_selector::enumerate(text, &selector.value)?,
     };
     Ok(matches
         .into_iter()
@@ -325,6 +329,9 @@ fn validate_selector(selector: &CandidateSelector) -> anyhow::Result<()> {
                 .all(|(index, ch)| ch.is_ascii_alphanumeric() || (index > 0 && ch == '-')))
     {
         bail!("candidate_set_violation:html_tag_invalid");
+    }
+    if selector.kind == SelectorKind::Css {
+        css_selector::validate(&selector.value)?;
     }
     Ok(())
 }
@@ -501,6 +508,30 @@ mod tests {
 
         assert_eq!(frozen.candidates.len(), 2);
         assert!(frozen.candidates[0].raw.contains("<h2>A</h2>"));
+        assert!(check(dir.path(), &frozen).unwrap().ok);
+    }
+
+    #[test]
+    fn css_literal_example_enumerates_direct_child_candidates() {
+        let dir = fixture(
+            SelectorKind::Css,
+            "ul.events > li",
+            "<ul class=\"events\"><li>A</li><li>B</li></ul><ul><li>C</li></ul>",
+            json!({
+                "accepted": [
+                    {"candidate_id":"data/snapshots/events.txt#0","record_index":0}
+                ],
+                "excluded": [
+                    {"candidate_id":"data/snapshots/events.txt#1","reason":"missing date"}
+                ]
+            }),
+            json!([{"name":"A"}]),
+        );
+
+        let frozen = freeze(dir.path()).unwrap();
+
+        assert_eq!(frozen.candidates.len(), 2);
+        assert_eq!(frozen.candidates[0].raw, "<li>A</li>");
         assert!(check(dir.path(), &frozen).unwrap().ok);
     }
 

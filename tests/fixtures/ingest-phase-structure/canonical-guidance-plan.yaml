@@ -1,0 +1,21 @@
+goal: |-
+  Original goal: Extract observed events from data/snapshots.
+  Profile generation rules:
+  - Allowed candidate_selector kind values are exactly css, html_tag, and line_prefix.
+  - Literal selector shape: {"candidate_selector": {"kind": "css", "value": "ul.events > li"}}.
+  - Literal output/inspection.json shape includes candidate_selector, candidate_accounting.accepted/excluded, and record_format.fields.
+  - Literal output/records.json shape is a JSON array of objects using the declared fields.
+  - The values shown are examples only: inspect actual snapshots and never copy example values as fixed data.
+steps:
+  - id: create-canonical-ingest-artifacts
+    kind: implement
+    expected_result: pass
+    instruction: >-
+      Create pipeline/main.py, output/inspection.json, output/records.json, and
+      output/report.md using the literal canonical shapes and actual snapshot values.
+    expected_paths:
+      - pipeline/main.py
+      - output/inspection.json
+      - output/records.json
+      - output/report.md
+    verify: []

@@ -10,7 +10,10 @@ use crate::planner::verify::VerificationReport;
 pub(crate) const CHECK_COMMAND: &str = "anvil-ingest-check:phase_structure";
 const VERIFY_INSTRUCTION: &str = "Verify the ingest phase structure: pipeline/main.py exists, \
 output/records.json is JSON, output/inspection.json declares candidate_selector as kind/value, \
-and output/report.md exists.";
+and output/report.md exists. Allowed candidate_selector kinds are css, html_tag, and line_prefix; \
+the literal shape is {\"candidate_selector\": {\"kind\": \"css\", \"value\": \
+\"ul.events > li\"}}. Values are examples only and must be replaced with actual snapshot \
+observations.";
 
 pub(crate) fn canonicalize_step_plan(
     plan: &mut StepPlan,
@@ -255,6 +258,15 @@ mod tests {
     const MEASURED_PLAN: &str = include_str!(
         "../../../../tests/fixtures/ingest-phase-structure/table_qwen35_002-plan.yaml"
     );
+    const MEASURED_ELEV_002_INSPECTION: &str = include_str!(
+        "../../../../tests/fixtures/ingest-phase-structure/elev-002-list-cloud-001-inspection.json"
+    );
+    const GUIDED_CANONICAL_INSPECTION: &str = include_str!(
+        "../../../../tests/fixtures/ingest-phase-structure/guided-canonical-inspection.json"
+    );
+    const GUIDED_PLAN: &str = include_str!(
+        "../../../../tests/fixtures/ingest-phase-structure/canonical-guidance-plan.yaml"
+    );
 
     fn write_file(root: &Path, path: &str, content: &str) {
         let target = root.join(path);
@@ -342,6 +354,68 @@ mod tests {
         let mut report = VerificationReport::pass();
         run_step_check(dir.path(), Some("ingest"), &check_step(), &mut report);
         assert!(report.is_pass());
+    }
+
+    #[test]
+    fn measured_string_selector_becomes_gate_positive_with_literal_guidance_shape() {
+        let dir = tempdir().unwrap();
+        write_file(dir.path(), "pipeline/main.py", "raise SystemExit(99)\n");
+        write_file(dir.path(), "output/records.json", "[]\n");
+        write_file(
+            dir.path(),
+            "output/inspection.json",
+            MEASURED_ELEV_002_INSPECTION,
+        );
+        write_file(dir.path(), "output/report.md", "");
+
+        assert_eq!(
+            verify_structure(dir.path()),
+            ["ingest_phase_structure:selector_not_kind_value"]
+        );
+
+        write_file(
+            dir.path(),
+            "output/inspection.json",
+            GUIDED_CANONICAL_INSPECTION,
+        );
+
+        assert!(verify_structure(dir.path()).is_empty());
+    }
+
+    #[test]
+    fn structure_gate_requirements_all_have_prior_literal_guidance() {
+        let guidance = crate::planner::profiles::ingest::guidance::GENERATION_RULES;
+        for (failure, required_guidance) in [
+            ("pipeline_missing", "pipeline/main.py"),
+            ("records_missing", "output/records.json"),
+            ("records_invalid_json", "valid JSON"),
+            (
+                "selector_not_kind_value",
+                crate::planner::profiles::ingest::guidance::SELECTOR_LITERAL,
+            ),
+            ("report_missing", "output/report.md"),
+        ] {
+            assert!(
+                guidance.contains(required_guidance),
+                "{failure} lacks prior guidance: {required_guidance}"
+            );
+        }
+        let plan: StepPlan = serde_yaml::from_str(GUIDED_PLAN).unwrap();
+        for marker in [
+            "css, html_tag, and line_prefix",
+            crate::planner::profiles::ingest::guidance::SELECTOR_LITERAL,
+            "output/inspection.json",
+            "output/records.json",
+            "examples only",
+            "actual snapshots",
+        ] {
+            assert!(plan.goal.contains(marker), "snapshot lacks {marker}");
+            assert!(guidance.contains(marker), "runtime guidance lacks {marker}");
+        }
+        assert!(
+            VERIFY_INSTRUCTION
+                .contains(crate::planner::profiles::ingest::guidance::SELECTOR_LITERAL)
+        );
     }
 
     #[test]

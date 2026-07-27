@@ -1,0 +1,43 @@
+{
+  "candidate_selector": ".event-item",
+  "candidate_accounting": [
+    {
+      "source_file": "data/snapshots/index.html",
+      "candidate_index": 0,
+      "status": "accepted",
+      "reason": ""
+    },
+    {
+      "source_file": "data/snapshots/index.html",
+      "candidate_index": 1,
+      "status": "accepted",
+      "reason": ""
+    },
+    {
+      "source_file": "data/snapshots/index.html",
+      "candidate_index": 2,
+      "status": "excluded",
+      "reason": "Missing required date field"
+    }
+  ],
+  "record_format": {
+    "fields": {
+      "name": {
+        "selector": ".event-name",
+        "normalization": null
+      },
+      "date": {
+        "selector": ".event-date",
+        "normalization": "YYYY-MM-DD"
+      },
+      "location": {
+        "selector": ".event-location",
+        "normalization": null
+      },
+      "source_file": {
+        "selector": null,
+        "normalization": null
+      }
+    }
+  }
+}

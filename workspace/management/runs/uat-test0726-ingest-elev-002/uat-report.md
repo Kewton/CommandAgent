@@ -292,6 +292,24 @@ INGEST-2で解消対象だった
 前campaignのmachine候補4件は再発せず、次の正当なmodel停止面まで
 進んだと判定する。
 
+### 5.1 INGEST-3レビュー裁定（2026-07-28追記）
+
+上記の「精密監査帰属model 6 / machine 0」は近因の記録として維持するが、
+**設計根因の帰属はmachine (knowledge) 6へ訂正する**。
+
+根拠は6/6の全モデルが独立に同じ文字列selector形へ逸脱した一方、
+当時の合成/presetガイダンスが`kind/value`を散文で要求するだけで、
+構造gateが受理する完全な字義JSON例、許容kind語彙、inspection全体形、
+records配列形を先に配っていなかったことにある。従って裁定は
+「近因model / 根因machine (正準形ガイダンス欠落)」であり、
+単独のmodel帰属としての前節裁定をこの追記が置き換える。
+
+class
+`ingest_phase_structure:selector_not_kind_value`はmachine、
+`first_seen=uat-test0726-ingest-elev-002`として登録し、INGEST-3で
+DATA-1型の字義例・実測値置換定型・対fixtureを合成/presetへ注入して
+解消した。
+
 ## 6. 検収シート・較正・assurance
 
 - `sheet_generated=true`: 6/6

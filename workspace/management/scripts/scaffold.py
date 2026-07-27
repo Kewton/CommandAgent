@@ -23,6 +23,9 @@ PROJECTION_CHECKLIST_ITEM = (
 PRODUCTION_ACTIVATION_CHECKLIST_ITEM = (
     "every verification component has a production acceptance-path activation test"
 )
+STRUCTURE_LITERAL_GUIDANCE_CHECKLIST_ITEM = (
+    "every structure-gate required shape has prior literal-example guidance and a fixture"
+)
 
 
 def generate(kind, ident):
@@ -59,6 +62,7 @@ def generate(kind, ident):
         "- [ ] required evidence mapped to implementation\n"
         f"- [ ] {PROJECTION_CHECKLIST_ITEM}\n"
         f"- [ ] {PRODUCTION_ACTIVATION_CHECKLIST_ITEM}\n"
+        f"- [ ] {STRUCTURE_LITERAL_GUIDANCE_CHECKLIST_ITEM}\n"
         "- [ ] conformance negative tests green\n"
         "- [ ] corpus fixture is an archived real run\n"
         "- [ ] reviewer explicitly changes `off` to `admitted`\n",
