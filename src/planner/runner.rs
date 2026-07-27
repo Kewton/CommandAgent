@@ -515,8 +515,14 @@ fn generate_step_plan_with_ui_for_phase(
     let fix_before = crate::planner::fix_runtime::is_before_prompt(goal);
     let model = model_for(config, true);
     if phase_label.is_some()
-        && let Some(plan) =
-            deterministic_step_plan_for_phase(client.label(), model, goal, config, phase_label)?
+        && let Some(plan) = deterministic_step_plan_for_phase(
+            client.label(),
+            model,
+            goal,
+            config,
+            phase_label,
+            final_phase,
+        )?
     {
         return Ok(plan);
     }
@@ -602,11 +608,12 @@ fn generate_step_plan_with_ui_for_phase(
                 );
                 strengthen_step_plan_for_profile(&mut plan, config);
                 repair_generated_step_plan_contract(&mut plan);
-                let cli_readme_converted =
-                    crate::planner::profiles::python_cli::readme_verify::canonicalize_step_plan(
+                let step_checks_converted =
+                    crate::planner::profiles::step_checks::canonicalize_create_plan(
                         &mut plan,
                         &config.profile,
                         config.resolved_run_intent() == IntentId::Create,
+                        phase_label.is_none() || final_phase,
                         config.eval_events_path.as_deref(),
                     );
                 let sanitizer_report =
@@ -635,7 +642,7 @@ fn generate_step_plan_with_ui_for_phase(
                 let plan_was_sanitized = verify_was_normalized
                     || !generated_sanitization.is_empty()
                     || !sanitizer_report.is_empty()
-                    || cli_readme_converted > 0
+                    || step_checks_converted > 0
                     || preset_converted > 0;
                 emit_planner_plan_sanitized(
                     config,
@@ -791,6 +798,7 @@ fn deterministic_step_plan_for_phase(
     phase_prompt: &str,
     config: &Config,
     phase_label: Option<&str>,
+    final_phase: bool,
 ) -> anyhow::Result<Option<StepPlan>> {
     if crate::planner::fix_runtime::is_before_prompt(phase_prompt) {
         return Ok(None);
@@ -821,10 +829,11 @@ fn deterministic_step_plan_for_phase(
     );
     strengthen_step_plan_for_profile(&mut plan, config);
     repair_generated_step_plan_contract(&mut plan);
-    let _ = crate::planner::profiles::python_cli::readme_verify::canonicalize_step_plan(
+    let _ = crate::planner::profiles::step_checks::canonicalize_create_plan(
         &mut plan,
         &config.profile,
         config.resolved_run_intent() == IntentId::Create,
+        phase_label.is_none() || final_phase,
         config.eval_events_path.as_deref(),
     );
     let sanitizer_report =

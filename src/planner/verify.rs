@@ -7,7 +7,7 @@ use crate::minimal_loop::dependency_setup::{
     self, NodeDependencySetupAuthority, NodeDependencySetupObservation, NodeDependencySetupStatus,
 };
 use crate::minimal_loop::verifier_env;
-use crate::planner::profiles::python_cli::readme_verify;
+use crate::planner::profiles::step_checks;
 use crate::planner::step_plan::{ExpectedResult, PlanStep};
 use crate::tools::path_guard::{resolve_existing, validate_workspace_relative};
 use crate::{
@@ -646,7 +646,7 @@ fn verify_step_with_setup_observed_with_options(
             report.push_missing_path(path.clone());
         }
     }
-    readme_verify::run_step_checks(root, profile, goal, step, eval_events_path, &mut report);
+    step_checks::run(root, profile, goal, step, eval_events_path, &mut report);
     let prepared_verify = prepare_verify_commands_with_install_substitution(
         root,
         step,
@@ -813,7 +813,7 @@ fn prepare_verify_commands_with_install_substitution(
 ) -> Vec<NormalizedVerifyCommand> {
     let mut out = Vec::new();
     for raw_command in &step.verify {
-        if readme_verify::is_internal_check_command(raw_command) {
+        if step_checks::is_internal_command(raw_command) {
             continue;
         }
         match normalize_verify_command(raw_command) {

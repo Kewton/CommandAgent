@@ -29,30 +29,6 @@ pub(crate) fn is_check_command(command: &str) -> bool {
     command.trim() == CHECK_COMMAND
 }
 
-pub(crate) fn is_internal_check_command(command: &str) -> bool {
-    crate::planner::profiles::data::step_policy::catalog_check_id(command).is_some()
-        || is_check_command(command)
-}
-
-pub(crate) fn run_step_checks(
-    root: &Path,
-    profile: Option<&str>,
-    goal: Option<&str>,
-    step: &PlanStep,
-    eval_events_path: Option<&Path>,
-    report: &mut VerificationReport,
-) {
-    crate::planner::profiles::data::step_policy::run_step_catalog_checks(
-        root,
-        profile,
-        goal,
-        step,
-        eval_events_path,
-        report,
-    );
-    run_step_check(root, profile, step, report);
-}
-
 pub(crate) fn run_step_check(
     root: &Path,
     profile: Option<&str>,

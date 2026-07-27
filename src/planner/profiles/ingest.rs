@@ -1,5 +1,6 @@
 pub mod accounting;
 pub mod manifest;
+pub(crate) mod phase_verify;
 pub mod runtime;
 pub mod source_binding;
 

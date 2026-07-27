@@ -882,3 +882,11 @@ admissionは未完了なので`admission=off`/production manifest `draft`を維�
 する。合成fixtureは部品conformanceを閉じるが、初陣較正を代替しない。
 pre-push受理はconformance負例6/6・full正例1/1、production起動実在1/1、
 権限付き`cargo test --all-targets` 1,814 passed / 0 failed / 30 ignored。
+
+INGEST-1フェーズ正準化（2026-07-27）: D-2b教訓の第2変奏として、
+検証成果物をモデルに書かせる生成StepPlan設計が「壊れた検問所」を量産し、
+ingest初計測では4/6 runを直接停止させた。manifest/presetは検証scriptを
+要求しておらず、近因はmodel生成物、設計根因は生成計画をprofile境界で
+再束縛しなかったmachine側にある。ingest createのphase gateを
+`pipeline/main.py`、JSON出力、正準selector宣言、reportの構造だけへ固定し、
+意味検証はN1〜N5 acceptanceへ一元化した。

@@ -45,6 +45,7 @@ pub mod profiles {
     pub mod ingest;
     pub mod nextjs;
     pub mod python_cli;
+    pub(crate) mod step_checks;
 }
 
 pub use runner::{
