@@ -15,6 +15,7 @@ use crate::{
     tools::bash::{BashOutcome, BashOutcomeKind},
 };
 
+mod dependency_classification;
 mod shell_control;
 mod shell_rewrite;
 
@@ -740,7 +741,9 @@ fn verify_step_with_setup_observed_with_options(
                 if let Some(traceback) = traceback {
                     report.push_python_traceback(traceback);
                 }
-                if build_verifier::is_dependency_missing_output(&reason) {
+                if dependency_classification::is_dependency_missing_for_command(
+                    root, command, &reason,
+                ) {
                     if setup_authority.allows_setup() {
                         let requirement =
                             build_verifier::requirement_from_dependency_missing_output(

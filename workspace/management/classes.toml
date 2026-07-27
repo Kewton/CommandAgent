@@ -168,3 +168,11 @@ match_reason = "suite must define at least one [[sources]] table"
 first_seen = "uat-test0724-cli-001"
 ledger_ref = "bench v0.3"
 note = "bench v0.3でworkspace_mode=emptyを追加して解消済み"
+
+[[class]]
+id = "verify_dependency_classifier:python_script_misclassified_as_setup"
+attribution = "machine"
+match_reason = "dependency_setup_authority_required: python3 verify_pipeline.py"
+first_seen = "uat-test0726-ingest-001"
+ledger_ref = "INGEST-1"
+note = "実在するworkspace内Python scriptの成果物not foundを依存欠落へ誤分類した。INGEST-1でlocal script実行とpip install等の依存導入を分離して解消済み"
