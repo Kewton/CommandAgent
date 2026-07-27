@@ -37,3 +37,9 @@ cli_rerun_consistency | Probe
   - entry: path required default=-
   - usage_paths: [path] required default=-
   - timeout_seconds: u16 required default=-
+ingest_source_binding | InternalCheck
+ingest_candidate_accounting | InternalCheck
+ingest_format_schema | InternalCheck
+ingest_rerun_consistency | Probe
+  - entry: path required default=-
+  - timeout_seconds: u16 required default=-

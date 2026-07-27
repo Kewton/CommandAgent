@@ -1,9 +1,9 @@
 # Ingest catalog binding plan (E-4a)
 
-Status: **draft planning only (2026-07-26)**. The contract under review is
-[`docs/ingest-profile-contract.md`](../ingest-profile-contract.md). No runtime
-component, manifest binding, projection, admission, or fetch probe is
-implemented by this plan. Admission remains `off`.
+Status: **forecast sealed 2026-07-26; E-4b implementation measured
+2026-07-27**. The fixed contract is
+[`docs/ingest-profile-contract.md`](../ingest-profile-contract.md). Admission
+remains `off`; the stage-2 fetch probe remains unimplemented and QUEUED.
 
 E-4a covers stage 1 only: acquired local HTML/text snapshots are transformed
 into declared records. Network acquisition and freshness evidence belong to
@@ -69,3 +69,63 @@ snapshots and outputs; synthetic fixtures cannot settle comparator precision.
 Candidate-selector misses may improve the declared selector only through an
 explicit contract or fixture review and may never be hidden by shrinking the
 frozen candidate set.
+
+## E-4b implementation measurement
+
+The primary metric is added production Rust lines per commit. Lines under
+`#[cfg(test)]` and integration-test Rust are reported separately. As in E-3,
+the count is commit additions, so later replacement does not lower an earlier
+wager.
+
+| Commit | Component | Production | Test | Cumulative production |
+|---|---|---:|---:|---:|
+| 1 | N3 selector freeze and candidate accounting | 391 | 140 | 391 |
+| 2 | N2 same-candidate source binding and declared normalization | 478 | 90 | 869 |
+| 3 | catalog/manifest/runtime/N4/N1+N5 reuse/projection/production activation/conformance | 929 | 434 | 1,798 |
+
+Commit 3 production breaks down as catalog+manifest 242, N1/N4/N5 runtime and
+assurance 463, domain/final-acceptance and frozen-lineage wiring 150, and
+completion projection 74 lines. Its 434 test lines break down as
+leaf/projection unit tests 238, production activation 103, conformance 83,
+source-binding lineage assertions 6, and guardrail coverage 4.
+
+The result is **1,798 production Rust lines**, 798 above the 1,000-line upper
+forecast (1.798× the upper bound; 3.596× the 500-line lower bound). Test Rust is
+664 lines, for 2,462 total Rust additions. N2/N3 alone consumed 869 production
+lines; typed runtime state, the declared-format adapter, catalog/manifest
+binding, projection, admission dispatch, and production activation plumbing
+added the remaining 929. The fourth-profile estimate therefore captured the
+order of magnitude better than E-3's 180-line estimate, but still omitted most
+profile-plumbing cost from its numeric band.
+
+### Reused mechanisms
+
+- N1 binds the existing isolated/bounded `pipeline_probe`, including normalized
+  child environment, timeout, stdout/stderr capture, and artifact observation.
+- N5 binds the existing data rerun adapter and shared
+  `rerun_consistency::reproduced` equality leaf.
+- N4 reuses the data E4 closed-key/type assertion boundary and evidence
+  discipline; the ingest-specific declared-field adapter is new because the
+  data E4 schema is fixed rather than goal-declared.
+- Manifest v1 closed parsing/resolution, catalog typing, draft admission cap,
+  completion projection boundary, and final acceptance arbitration are reused.
+- N2 reuses the E2/I2 binding/observation/verdict/`nearest_miss` evidence shape.
+- N3 reuses the E1 detected=accepted+reasoned-excluded equation and reason
+  buckets.
+
+### Scaffold checklist self-evaluation
+
+- Contract fixed and bound: **complete**.
+- Real profile/intent and N1–N5 manifest mapping: **complete**.
+- Assurance projection plus runtime-shaped fixtures: **complete**.
+- Production final-acceptance activation test: **complete**; it executes a real
+  Python subprocess and requires freeze, N1, N2, N3, N4, N5, and summary
+  evidence.
+- Conformance: **complete**, six negative fixtures and one full positive.
+- Archived real-run corpus: **not complete**; synthetic conformance cannot
+  settle comparator calibration.
+- Reviewer admission: **not complete**; `off`/draft is unchanged.
+
+Pre-push acceptance on 2026-07-27: focused conformance negatives **6/6** and
+full positive **1/1**; production final-acceptance activation **1/1**; privileged
+`cargo test --all-targets` **1,814 passed, 0 failed, 30 ignored**.

@@ -1,0 +1,3 @@
+{"fixture":"n1-not-executed","summary":{"status":"static","assurance":"static","evidence":{"checks":{}},"reasons":[]},"expected_earned":"static"}
+{"fixture":"n2-claims-absent","summary":{"status":"partial","assurance":"partial","evidence":{"checks":{"pipeline_probe":"pass","ingest_source_binding":"claims_absent","ingest_candidate_accounting":"pass","ingest_format_schema":"pass","ingest_rerun_consistency":"pass"}},"reasons":[]},"expected_earned":"partial"}
+{"fixture":"n1-through-n5-pass","summary":{"status":"full","assurance":"full","evidence":{"checks":{"pipeline_probe":"pass","ingest_source_binding":"pass","ingest_candidate_accounting":"pass","ingest_format_schema":"pass","ingest_rerun_consistency":"pass"}},"reasons":[]},"expected_earned":"full"}

@@ -1015,6 +1015,7 @@ pub fn verify_runtime_acceptance_with_browser_dirs_and_hints(
         let kinds = evidence_kinds_for_capability(capability);
         if kinds.is_empty()
             && !crate::planner::profiles::data::manifest::is_manifest_check_id(capability)
+            && !crate::planner::profiles::ingest::manifest::is_manifest_check_id(capability)
         {
             missing_capabilities.push(format!("unsupported_required_capability:{capability}"));
         }

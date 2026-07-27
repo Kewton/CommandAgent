@@ -267,6 +267,10 @@ fn manifest_execution_sections_exclude_measured_fixture_vocabulary() {
             "python-cli",
             include_str!("../src/planner/profiles/python_cli/manifest.toml"),
         ),
+        (
+            "ingest",
+            include_str!("../src/planner/profiles/ingest/manifest.toml"),
+        ),
     ] {
         let manifest = source.parse::<toml::Value>().unwrap();
         for section in ["plan", "step_templates", "checks"] {

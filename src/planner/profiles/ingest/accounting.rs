@@ -82,6 +82,7 @@ pub struct FrozenCandidate {
 pub struct CandidateFreeze {
     pub capability_id: String,
     pub selector: CandidateSelector,
+    pub record_format: Value,
     pub snapshots: Vec<SnapshotSeal>,
     pub candidates: Vec<FrozenCandidate>,
 }
@@ -200,6 +201,10 @@ pub fn check(root: &Path, frozen: &CandidateFreeze) -> anyhow::Result<CandidateA
     Ok(evidence)
 }
 
+pub fn candidate_lineage_matches(root: &Path, frozen: &CandidateFreeze) -> bool {
+    build_freeze(root).is_ok_and(|current| candidate_seals(&current) == candidate_seals(frozen))
+}
+
 pub fn load_inspection(root: &Path) -> anyhow::Result<InspectionDocument> {
     let path = crate::tools::path_guard::resolve_existing(root, INSPECTION_PATH)
         .context("candidate_set_violation:inspection_path")?;
@@ -258,6 +263,7 @@ fn build_freeze(root: &Path) -> anyhow::Result<CandidateFreeze> {
     Ok(CandidateFreeze {
         capability_id: "ingest_candidate_freeze".to_string(),
         selector: inspection.candidate_selector,
+        record_format: inspection.record_format,
         snapshots,
         candidates,
     })

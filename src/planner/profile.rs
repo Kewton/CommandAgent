@@ -447,11 +447,14 @@ static NEXTJS_PROFILE: crate::planner::profiles::nextjs::NextjsProfile =
 static DATA_PROFILE: DataProfile = DataProfile;
 static PYTHON_CLI_PROFILE: crate::planner::profiles::python_cli::PythonCliProfile =
     crate::planner::profiles::python_cli::PythonCliProfile;
+static INGEST_PROFILE: crate::planner::profiles::ingest::IngestProfile =
+    crate::planner::profiles::ingest::IngestProfile;
 static GENERIC_PROFILE: GenericProfile = GenericProfile;
-static DOMAIN_PROFILES: [&'static dyn DomainProfile; 4] = [
+static DOMAIN_PROFILES: [&'static dyn DomainProfile; 5] = [
     &NEXTJS_PROFILE,
     &PYTHON_CLI_PROFILE,
     &DATA_PROFILE,
+    &INGEST_PROFILE,
     &GENERIC_PROFILE,
 ];
 

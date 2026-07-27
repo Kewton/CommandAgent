@@ -2,5 +2,25 @@
 id = "ingest"
 kind = "profile"
 admission = "off"
-profile = ""
-intent = ""
+profile = "ingest"
+intent = "create"
+contract = "docs/ingest-profile-contract.md"
+runtime_manifest = "src/planner/profiles/ingest/manifest.toml"
+runtime_entry = "src/planner/profiles/ingest/runtime.rs"
+
+[phases]
+ids = ["ingest-inspection", "ingest-implementation", "ingest-validation"]
+
+[checks]
+n1 = "pipeline_probe"
+n2 = "ingest_source_binding"
+n3 = "ingest_candidate_accounting"
+n4 = "ingest_format_schema"
+n5 = "ingest_rerun_consistency"
+
+[assurance]
+projection = "src/completion_metadata/ingest.rs"
+admission_cap = "draft_to_static"
+
+[activation]
+production_test = "planner::runner::tests::cli_runtime_dispatch_tests::moved::ingest_final_acceptance_production_path_executes_n1_through_n5"

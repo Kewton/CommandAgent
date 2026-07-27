@@ -8,9 +8,9 @@ use crate::tools::path_guard::validate_workspace_relative;
 
 mod cli;
 mod data;
+pub mod ingest;
 pub use cli::{CliCapability, CliCheckKind};
 pub use data::{DataInternalCheck, ProbeCapability};
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CapabilityKind {
     ShellCheck,
@@ -76,6 +76,7 @@ pub enum ResolvedCapability {
 pub enum InternalCapability {
     ScaffoldFilesPresent { files: Vec<String> },
     Data(DataInternalCheck),
+    Ingest(ingest::IngestInternalCheck),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -229,7 +230,7 @@ static BASE_REGISTRY: [CapabilitySpec; 7] = [
 ];
 
 pub fn registry() -> &'static [CapabilitySpec] {
-    cli::combined_registry(data::combined_registry(&BASE_REGISTRY))
+    ingest::registry(&BASE_REGISTRY)
 }
 
 pub fn resolve(id: &str, params: &Table) -> Result<ResolvedCapability, CatalogError> {
@@ -279,7 +280,7 @@ pub fn resolve(id: &str, params: &Table) -> Result<ResolvedCapability, CatalogEr
             Err(CatalogError::ProbeBindingUnimplemented { id: id.to_string() })
         }
         _ if cli::is_id(spec.id) => cli::resolve(spec, params),
-        _ => data::resolve(spec, params),
+        _ => ingest::resolve_or_data(spec, params),
     }
 }
 

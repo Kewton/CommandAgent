@@ -1,6 +1,6 @@
 use crate::planner::profile::canonical_profile_name;
 use crate::planner::profile_manifest::ManifestStatus;
-use crate::planner::profiles::{data, python_cli};
+use crate::planner::profiles::{data, ingest, python_cli};
 
 #[cfg(test)]
 pub(crate) use crate::planner::adjudication::PROFILE_NOT_ADMITTED_REASON;
@@ -11,6 +11,7 @@ pub(crate) fn status(profile: &str) -> ManifestStatus {
     match canonical.as_str() {
         "generic" => ManifestStatus::Admitted,
         "data" => data::manifest::get().metadata.status,
+        "ingest" => ingest::manifest::get().metadata.status,
         "python-cli" | "cli" => python_cli::manifest::get().metadata.status,
         _ => crate::planner::profiles::nextjs::manifest_status(&canonical)
             .unwrap_or(ManifestStatus::Draft),

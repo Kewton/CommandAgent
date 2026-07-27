@@ -1,5 +1,6 @@
 mod cli;
 mod data;
+mod ingest;
 mod intent;
 
 use crate::config::Config;

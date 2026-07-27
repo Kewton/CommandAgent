@@ -849,3 +849,36 @@ local/cloud band、E-0装備、較正corpus、generality宣言まで実測で閉
 
 E-4開始（2026-07-26）: 第4profile `ingest` の第1段（取得済みsnapshot→抽出・整形）をscaffold駆動・draft/offで開始し、E-3見積り式（N2/N3照合器＋配管500〜1,000 production Rust行、較正1〜2周、計測2〜3campaign）を初適用する。自治体イベント整形を実ユースケースのドッグフーディング枠とし、ネットワーク取得・鮮度のfetch probeは第2段QUEUEDに残す。
 E-4a契約fixed（2026-07-25）: N2正準化を値保存・決定的な事前宣言・フィールド別evidence記録の三条件で精密化し、宣言フォーマットへの表記変換を許容しつつ値改変の拒否を維持する。E2較正の教訓を実装後の偽陽性洪水より前に契約段階で先取りした。
+
+## E-4b ingest検証部品（2026-07-27）
+
+E-3の第4profile見積り式（production Rust 500〜1,000行）を初めて実測
+した。追加行はコミット単位で、testは`#[cfg(test)]`以下とintegration
+testを別計上する。
+
+| コミット | 部品 | production Rust | test Rust | production累計 |
+|---|---|---:|---:|---:|
+| 1 | N3 selector宣言読取り・実行前freeze・候補列挙・勘定 | 391 | 140 | 391 |
+| 2 | N2同一候補block束縛・三条件正規化・nearest_miss | 478 | 90 | 869 |
+| 3 | manifest/catalog、N1/N4/N5、runtime、投影、起動実在、conformance | 929 | 434 | 1,798 |
+
+production合計は1,798行で、予測上限1,000行を798行超過（上限比
+1.798倍、下限500行比3.596倍）。testは664行、Rust総追加は2,462行。
+部品別にはN3 391、N2 478、commit 3のcatalog+manifest 242、
+N1/N4/N5 runtime+assurance 463、domain/final acceptance・凍結lineage
+配線150、投影74。
+N2/N3だけで869行に達し、予測帯が配管5点を数値へ十分織り込めて
+いなかったことを第4profileでも確認した。
+
+流用実測は、N1=`pipeline_probe`の隔離・有界実行、N5=data rerun adapter
+と共通等価判定leaf、N4=data E4のclosed key/type assertion境界
+（goal宣言field用adapterは新規）、Manifest v1/catalog/draft admission cap、
+E2/I2型`nearest_miss`、E1型候補勘定式である。
+
+scaffold checklist自己評価は、fixed契約束縛・実profile/intent・N1〜N5
+manifest・assurance投影fixture・production final acceptanceからのN1〜N5
+起動実在・conformance 6負例+full正例まで完了。実run archiveとreviewer
+admissionは未完了なので`admission=off`/production manifest `draft`を維持
+する。合成fixtureは部品conformanceを閉じるが、初陣較正を代替しない。
+pre-push受理はconformance負例6/6・full正例1/1、production起動実在1/1、
+権限付き`cargo test --all-targets` 1,814 passed / 0 failed / 30 ignored。

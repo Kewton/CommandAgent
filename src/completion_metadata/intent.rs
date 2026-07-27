@@ -6,7 +6,8 @@ use crate::config::Config;
 use crate::eval_events::{CompletionProjection, CompletionSnapshot};
 use crate::planner::adjudication::contract::{EvidenceStage, ExpectedOutcome, IntentId};
 use crate::planner::adjudication::investigate::InvestigationRunEvidence;
-use crate::planner::profile::canonical_profile_name;
+
+mod profile;
 
 const INVESTIGATION_INCOMPLETE: &str = "investigation_incomplete";
 const INVESTIGATION_PROBE_NOT_RUN: &str = "investigation_probe_not_run";
@@ -21,11 +22,7 @@ pub(super) fn apply_snapshot(config: &Config, snapshot: &mut CompletionSnapshot)
     if snapshot.contract_origin == crate::planner::fix_runtime::FIX_CONTRACT_ORIGIN {
         return true;
     }
-    if canonical_profile_name(&snapshot.effective_profile) == "data" {
-        super::data::apply_snapshot(&config.workspace_root, snapshot);
-        return true;
-    }
-    super::cli::apply_snapshot(&config.workspace_root, snapshot)
+    profile::apply_snapshot(config, snapshot)
 }
 
 pub(super) fn apply_terminal_projection(config: &Config, projection: &mut CompletionProjection) {
@@ -34,8 +31,7 @@ pub(super) fn apply_terminal_projection(config: &Config, projection: &mut Comple
         projection.assurance_level = level;
         projection.assurance_reason = reason;
     } else {
-        super::cli::apply_terminal_projection(&config.workspace_root, projection);
-        super::data::apply_terminal_projection(&config.workspace_root, projection);
+        profile::apply_terminal_projection(config, projection);
     }
 }
 

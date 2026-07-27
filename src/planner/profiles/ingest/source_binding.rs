@@ -8,7 +8,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::accounting::{self, CandidateFreeze};
+use super::accounting::{self, CandidateFreeze, FrozenCandidate};
 
 pub const EVIDENCE_PATH: &str = "evidence/source-binding.json";
 const RECORDS_PATH: &str = "output/records.json";
@@ -58,6 +58,9 @@ pub struct NearestMiss {
 pub struct FieldBinding {
     pub record_index: usize,
     pub candidate_id: String,
+    pub source_path: Option<String>,
+    pub candidate_byte_start: Option<usize>,
+    pub candidate_byte_end: Option<usize>,
     pub field: String,
     pub output_value: String,
     pub declared_normalizations: Vec<NormalizationRule>,
@@ -87,7 +90,7 @@ struct SourceValue {
 
 pub fn check(root: &Path, frozen: &CandidateFreeze) -> anyhow::Result<SourceBindingEvidence> {
     let inspection = accounting::load_inspection(root)?;
-    let format: RecordFormat = serde_json::from_value(inspection.record_format)
+    let format: RecordFormat = serde_json::from_value(frozen.record_format.clone())
         .context("source_binding_violation:record_format_invalid")?;
     validate_format(&format)?;
     let records = load_records(root)?;
@@ -100,17 +103,14 @@ pub fn check(root: &Path, frozen: &CandidateFreeze) -> anyhow::Result<SourceBind
     let candidates = frozen
         .candidates
         .iter()
-        .map(|candidate| (candidate.id.as_str(), candidate.raw.as_str()))
+        .map(|candidate| (candidate.id.as_str(), candidate))
         .collect::<BTreeMap<_, _>>();
     let mut bindings = Vec::new();
     let mut failure_kinds = Vec::new();
 
     for (record_index, record) in records.iter().enumerate() {
         let candidate_id = accepted.get(&record_index).cloned().unwrap_or_default();
-        let raw_candidate = candidates
-            .get(candidate_id.as_str())
-            .copied()
-            .unwrap_or_default();
+        let candidate = candidates.get(candidate_id.as_str()).copied();
         for field in &format.fields {
             let Some(value) = record.get(&field.name).and_then(value_text) else {
                 continue;
@@ -121,7 +121,7 @@ pub fn check(root: &Path, frozen: &CandidateFreeze) -> anyhow::Result<SourceBind
                 &field.name,
                 &value,
                 &field.normalizations,
-                raw_candidate,
+                candidate,
             );
             if !binding.matched {
                 failure_kinds.push(format!(
@@ -154,9 +154,8 @@ pub fn check(root: &Path, frozen: &CandidateFreeze) -> anyhow::Result<SourceBind
     Ok(evidence)
 }
 
-pub fn record_format(root: &Path) -> anyhow::Result<RecordFormat> {
-    let inspection = accounting::load_inspection(root)?;
-    serde_json::from_value(inspection.record_format)
+pub fn record_format(frozen: &CandidateFreeze) -> anyhow::Result<RecordFormat> {
+    serde_json::from_value(frozen.record_format.clone())
         .context("source_binding_violation:record_format_invalid")
 }
 
@@ -210,8 +209,9 @@ fn bind_field(
     field: &str,
     output_value: &str,
     rules: &[NormalizationRule],
-    raw_candidate: &str,
+    candidate: Option<&FrozenCandidate>,
 ) -> FieldBinding {
+    let raw_candidate = candidate.map_or("", |candidate| candidate.raw.as_str());
     let values = source_values(raw_candidate, rules);
     let matched = values.iter().find(|candidate| {
         candidate.normalized == output_value || contains_value(&candidate.normalized, output_value)
@@ -232,6 +232,9 @@ fn bind_field(
     FieldBinding {
         record_index,
         candidate_id: candidate_id.to_string(),
+        source_path: candidate.map(|candidate| candidate.source_path.clone()),
+        candidate_byte_start: candidate.map(|candidate| candidate.byte_start),
+        candidate_byte_end: candidate.map(|candidate| candidate.byte_end),
         field: field.to_string(),
         output_value: output_value.to_string(),
         declared_normalizations: rules.to_vec(),
@@ -500,6 +503,12 @@ mod tests {
         assert_eq!(date.raw_source.as_deref(), Some("令和7年7月25日"));
         assert_eq!(date.normalized_source.as_deref(), Some("2025-07-25"));
         assert_eq!(date.transformations, [NormalizationRule::JapaneseDateToIso]);
+        assert_eq!(
+            date.source_path.as_deref(),
+            Some("data/snapshots/events.html")
+        );
+        assert_eq!(date.candidate_byte_start, Some(0));
+        assert!(date.candidate_byte_end.is_some_and(|end| end > 0));
     }
 
     #[test]

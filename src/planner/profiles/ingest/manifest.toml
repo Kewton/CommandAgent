@@ -1,0 +1,118 @@
+[metadata]
+id = "ingest"
+display_name = "Snapshot Ingest Pipeline"
+schema_version = "v1"
+status = "draft"
+
+[plan]
+profile = "ingest"
+style = "default"
+intent = "create"
+
+[plan.placeholders]
+goal = "{goal}"
+
+[[plan.phases]]
+id = "ingest-inspection"
+prompt = '''Inspect data/snapshots for: {goal}. Before implementation, write output/inspection.json with candidate_selector (kind line_prefix or html_tag, plus value), candidate_accounting with accepted/excluded arrays, and record_format.fields declaring each field name, JSON type, and a closed list of deterministic normalizations. Candidate identifiers and record indices must account for every selector match.'''
+
+[[plan.phases]]
+id = "ingest-implementation"
+prompt = '''Implement deterministic offline extraction in pipeline/main.py for: {goal}. Read only data/snapshots, write output/records.json and output/report.md, and preserve each accepted record's field values from one candidate block. Do not fetch network data or join fragments from different candidates.'''
+
+[[plan.phases]]
+id = "ingest-validation"
+prompt = "Run the manifest-bound N1 pipeline probe, N2 source binding, N3 candidate accounting, N4 format schema, and N5 rerun consistency checks. Do not shrink the frozen candidate set or weaken a failed binding."
+
+[step_templates.scaffold]
+phase = ["ingest inspection", "snapshot inspection", "候補検分"]
+phase_id = ["ingest-inspection"]
+port_phase_markers = []
+port_script_phase = []
+
+[step_templates.build_verify]
+phase = ["ingest validation", "source binding", "candidate accounting", "rerun consistency"]
+
+[step_templates.implementation_kill]
+phase = ["ingest implementation", "extract", "transform", "整形"]
+
+[step_templates.ownership.setup_classifier]
+package_phrases = ["pipeline/main.py"]
+package_tokens = ["pipeline"]
+scaffold_phrases = ["data/snapshots", "output/inspection.json"]
+scaffold_tokens = ["snapshots", "inspection"]
+scaffold_setup_markers = ["inspect", "inspection"]
+scaffold_project_marker = "pipeline"
+scaffold_dependency_exclusion = "pip install"
+
+[step_templates.ownership.template_owned_artifacts]
+package_phrases = ["pipeline/main.py"]
+package_tokens = ["pipeline"]
+scaffold_phrases = ["output/inspection.json", "output/records.json", "output/report.md"]
+scaffold_tokens = ["inspection", "records", "report"]
+package_manifest_names = []
+artifact_path_suffixes = ["pipeline/main.py", "output/inspection.json", "output/records.json", "output/report.md"]
+artifact_path_contains = ["data/snapshots/"]
+package_check_marker = "ingest pipeline entry"
+scaffold_check_marker = "ingest output artifacts"
+
+[step_templates.artifacts]
+package_script_build = ""
+package_script_dev = ""
+package_script_start = ""
+required_hooks = []
+scaffold_files = ["pipeline/main.py", "output/inspection.json", "output/records.json", "output/report.md"]
+tailwind_config_rels = []
+tailwind_config = ""
+tailwind_config_cjs = ""
+package_json = ""
+tsconfig = ""
+postcss_config = ""
+tailwind_css = ""
+global_d_ts = ""
+layout_tsx = ""
+
+[artifacts]
+required = ["pipeline/main.py", "output/inspection.json", "output/records.json", "output/report.md"]
+groups = []
+
+[vocabulary]
+source = "evidence_knowledge"
+sections = ["vocabulary", "goal_hints.translations"]
+
+[guidance.variants.generation]
+triggers = [{ condition = "always" }]
+
+[guidance.variants.generation.messages]
+determinism = "Use fixed local snapshots only: no network, clock, randomness, or unstable iteration. Keep selector, record ordering, and output serialization deterministic."
+binding = "Each output field must bind to one contiguous fragment in the same candidate block. A value-preserving normalization is permitted only when its closed rule is declared for that field and the transformation is recorded in evidence."
+accounting = "Freeze the declared selector and enumerated candidates before execution. Every candidate must be accepted once or excluded once with a non-empty reason."
+
+[guidance.variants.contract]
+triggers = [{ condition = "check_failure", values = ["ingest_source_binding", "ingest_candidate_accounting", "ingest_format_schema", "ingest_rerun_consistency"] }]
+
+[guidance.variants.contract.messages]
+repair = "Repair pipeline/main.py or output/inspection.json and regenerate outputs. Never invent source values, join candidates, shrink the selector, or replace a manifest-bound evidence check."
+
+[[checks.n1]]
+id = "pipeline_probe"
+params = { entry = "pipeline/main.py", timeout_seconds = 30 }
+
+[[checks.n2]]
+id = "ingest_source_binding"
+
+[[checks.n3]]
+id = "ingest_candidate_accounting"
+
+[[checks.n4]]
+id = "ingest_format_schema"
+
+[[checks.n5]]
+id = "ingest_rerun_consistency"
+params = { entry = "pipeline/main.py", timeout_seconds = 30 }
+
+[evidence_targets.mappings]
+source_binding = ["pipeline/main.py", "output/inspection.json"]
+candidate_accounting = ["pipeline/main.py", "output/inspection.json"]
+format_schema = ["pipeline/main.py", "output/inspection.json"]
+rerun_consistency = ["pipeline/main.py"]

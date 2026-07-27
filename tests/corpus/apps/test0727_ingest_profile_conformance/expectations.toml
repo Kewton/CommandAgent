@@ -1,0 +1,33 @@
+case_id = "test0727_ingest_profile_conformance"
+source = "E-4b six negative and one full positive synthetic evidence fixtures"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["source_binding_violation", "candidate_set_violation", "format_schema_violation"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/conformance.jsonl = [
+  "\"fixture\":\"fabricated_record\"",
+  "\"fixture\":\"shifted_field_value\"",
+  "\"fixture\":\"unreported_exclusion\"",
+  "\"fixture\":\"schema_extra_field\"",
+  "\"fixture\":\"probe_not_executed\"",
+  "\"fixture\":\"candidate_set_shrunk\"",
+  "\"fixture\":\"full_positive\""
+]
