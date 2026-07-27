@@ -1,0 +1,222 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0726-ingest-001",
+  "campaign_id": "ingest-create-20260727-065810",
+  "measurement_revision": "ad95e98a4d325e6d17be2d28c810a7036af55279",
+  "contract": "docs/ingest-profile-contract.md (fixed 2026-07-25)",
+  "suite": {
+    "id": "ingest-create",
+    "profile": "ingest",
+    "intent": "create",
+    "workspace_mode": "sourced",
+    "admission": "off",
+    "planner": "qwen3.6:27b-coding-nvfp4",
+    "provider": "ollama"
+  },
+  "source_hashes": {
+    "events_list_html": "dadcc23ffc94494d7d167e2733e05ec0e6ea339b6791a65d91b7e55832eeee07",
+    "events_table_html": "394b03ccd7ac141a2677c55d9a2059034ea2c7a92656b466201ee40b7050cddd",
+    "uat_meta": "bace0244cca837c90d97db758538d0855087fcec63862fe22f974165568eec3e",
+    "report_skeleton": "dc5b690ba64be017e487349b0fc0ba19f241c39738ddc24fe0b1eb9350adffb3"
+  },
+  "epochs": {
+    "preflight_start": 1785135490,
+    "run_start": 1785135664,
+    "run_end": 1785140555,
+    "audit_end": 1785140961
+  },
+  "cost_seconds": {
+    "preflight": 174,
+    "run_sum": 4891,
+    "preflight_start_to_run_end": 5065,
+    "preflight_start_to_audit_end": 5471
+  },
+  "preflight": {
+    "cargo_test": {
+      "exit_code": 0,
+      "passed": 1818,
+      "failed": 0,
+      "ignored": 30
+    },
+    "release_build_exit_code": 0,
+    "version": "commandagent 0.1.0 ad95e98 2026-07-27T07:00:46Z",
+    "node_env": "production"
+  },
+  "runs": [
+    {
+      "name": "list_qwen35_001",
+      "family": "list",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (ingest_probe_not_run)",
+      "final_acceptance_reached": false,
+      "n1": "not_reached",
+      "n2": "not_reached",
+      "n3": "not_reached",
+      "n4": "not_reached",
+      "n5": "not_reached",
+      "automatic_class": "process_failure",
+      "audited_attribution": "model",
+      "stop_shape": "artifact_follow_through_exhausted",
+      "duration_seconds": 559
+    },
+    {
+      "name": "list_gemma31_001",
+      "family": "list",
+      "executor": "gemma4:31b",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (ingest_probe_not_run)",
+      "final_acceptance_reached": false,
+      "n1": "not_reached",
+      "n2": "not_reached",
+      "n3": "not_reached",
+      "n4": "not_reached",
+      "n5": "not_reached",
+      "automatic_class": "process_failure",
+      "audited_attribution": "model",
+      "stop_shape": "model_stagnation_after_smoke_check_type_error",
+      "duration_seconds": 1448
+    },
+    {
+      "name": "list_qwen35_002",
+      "family": "list",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (ingest_probe_not_run)",
+      "final_acceptance_reached": false,
+      "n1": "not_reached",
+      "n2": "not_reached",
+      "n3": "not_reached",
+      "n4": "not_reached",
+      "n5": "not_reached",
+      "automatic_class": "process_failure",
+      "audited_attribution": "model",
+      "stop_shape": "artifact_recovery_exhausted_wrong_verify_filename",
+      "duration_seconds": 984
+    },
+    {
+      "name": "table_qwen35_001",
+      "family": "table",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (ingest_probe_not_run)",
+      "final_acceptance_reached": false,
+      "n1": "not_reached",
+      "n2": "not_reached",
+      "n3": "not_reached",
+      "n4": "not_reached",
+      "n5": "not_reached",
+      "automatic_class": "process_failure",
+      "audited_attribution": "model",
+      "stop_shape": "model_verify_asserted_noncontract_selector_keys",
+      "duration_seconds": 478
+    },
+    {
+      "name": "table_gemma31_001",
+      "family": "table",
+      "executor": "gemma4:31b",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (ingest_probe_not_run)",
+      "final_acceptance_reached": false,
+      "n1": "not_reached",
+      "n2": "not_reached",
+      "n3": "not_reached",
+      "n4": "not_reached",
+      "n5": "not_reached",
+      "automatic_class": "process_failure",
+      "audited_attribution": "model",
+      "stop_shape": "model_verify_required_literal_english_count",
+      "duration_seconds": 830
+    },
+    {
+      "name": "table_qwen35_002",
+      "family": "table",
+      "executor": "qwen3.6:35b-a3b-coding-nvfp4",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (ingest_probe_not_run)",
+      "final_acceptance_reached": false,
+      "n1": "not_reached",
+      "n2": "not_reached",
+      "n3": "not_reached",
+      "n4": "not_reached",
+      "n5": "not_reached",
+      "automatic_class": "process_failure",
+      "audited_attribution": "machine",
+      "stop_shape": "python_verify_script_misclassified_as_dependency_setup",
+      "duration_seconds": 592
+    }
+  ],
+  "effective_model_audit": {
+    "executor_matches": 6,
+    "expected_runs": 6,
+    "planner_expected": "qwen3.6:27b-coding-nvfp4",
+    "planner_matches": 6
+  },
+  "e0": {
+    "logical_runs": {
+      "known": 6,
+      "unknown": 0
+    },
+    "automatic_class": "process_failure",
+    "automatic_attribution": "model",
+    "acceptance_sheets_generated": 6,
+    "acceptance_sheets_expected": 6,
+    "calibration_records_added": 0,
+    "collector_ingest_shape_supported": false,
+    "collector_gap": "bench_calibration_corpus:ingest_evidence_shape_unsupported"
+  },
+  "n_evidence": {
+    "runs_reaching_final_acceptance": 0,
+    "runs_executing_n1_through_n5": 0,
+    "candidate_freeze_records": 0,
+    "ingest_probe_records": 0,
+    "source_binding_records": 0,
+    "candidate_accounting_records": 0,
+    "format_schema_records": 0,
+    "rerun_consistency_records": 0,
+    "assurance_records": 0,
+    "nearest_miss_records": 0
+  },
+  "new_class_candidates_record_only": [
+    "verify_dependency_classifier:python_script_misclassified_as_setup",
+    "bench_calibration_corpus:ingest_evidence_shape_unsupported"
+  ],
+  "rates": {
+    "honest_terminal": "6/6",
+    "failed": "6/6",
+    "full_equivalent": "0/6",
+    "false_success": "0/6",
+    "n_runtime_at_reached_run": "not_measured (0 reached)",
+    "sheet_self_supply": "6/6"
+  },
+  "acceptance": {
+    "p0_a_honest_terminal": "pass",
+    "p0_b_contract_assurance": "pass",
+    "p0_b_admission_cap_on_full_equivalent": "not_measured",
+    "p0_c_false_success_zero": "pass",
+    "p1_a_n1_through_n5_at_reached_run": "not_measured",
+    "p1_b_sheet_generation": "pass"
+  },
+  "scrub": {
+    "campaign_ok": true,
+    "runs_ok": 6,
+    "findings": []
+  },
+  "retry": {
+    "environment_interruptions": 0,
+    "new_run_retries": 0,
+    "manual_terminal_switches": 0
+  }
+}
