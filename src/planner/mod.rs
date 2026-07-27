@@ -42,6 +42,7 @@ pub mod ultra_preset;
 pub mod verify;
 pub mod profiles {
     pub mod data;
+    pub mod ingest;
     pub mod nextjs;
     pub mod python_cli;
 }
