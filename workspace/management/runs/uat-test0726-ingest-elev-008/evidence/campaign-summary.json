@@ -1,0 +1,291 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0726-ingest-elev-008",
+  "campaign_id": "ingest-create-elevated-20260728-153400",
+  "measurement_revision": "c1157e03368f0b25915d71cb883b4822c2b96103",
+  "contract": "docs/ingest-profile-contract.md (fixed v0.1, 2026-07-28)",
+  "starting_workflows": {
+    "revision": "cce04ebf8cf3423673e241169cdb39805a42ded4",
+    "ci": {
+      "run_id": 30346559886,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    "acceptance": {
+      "run_id": 30346559888,
+      "status": "completed",
+      "conclusion": "success"
+    }
+  },
+  "suite": {
+    "id": "ingest-create-elevated",
+    "sha256": "f7e9c448defd833c353b0e4a8f28b8a9adba19595c438b648cc50b6102325146",
+    "profile": "ingest",
+    "intent": "create",
+    "workspace_mode": "sourced",
+    "admission": "off",
+    "planner": "qwen3.6:27b-coding-nvfp4",
+    "executor": "gemma4:31b-cloud",
+    "provider": "ollama"
+  },
+  "source_hashes": {
+    "events_list_html": "dadcc23ffc94494d7d167e2733e05ec0e6ea339b6791a65d91b7e55832eeee07",
+    "events_table_html": "394b03ccd7ac141a2677c55d9a2059034ea2c7a92656b466201ee40b7050cddd",
+    "uat_meta": "75994c8368b8661a27568ff5eaa967c57f5071be626b18dd5c5b14b8508f6096",
+    "report_skeleton": "e0804a25fd40269f1236226d619c4615e9fa307c6be8abccc615b6c098466718",
+    "acceptance_sheets": {
+      "list_cloud_001": "73fb26997f94fde429b13dcf8e89a8e50b8582572a2cf0935120bdf5d5b3609c",
+      "list_cloud_002": "73fb26997f94fde429b13dcf8e89a8e50b8582572a2cf0935120bdf5d5b3609c",
+      "list_cloud_003": "73fb26997f94fde429b13dcf8e89a8e50b8582572a2cf0935120bdf5d5b3609c",
+      "table_cloud_001": "a7dbed364288a2ec7a3b5e50e1592eeb3058b0aa8719f11ea1ba2b9369324b0d",
+      "table_cloud_002": "5ccd1290da99fb3da97862dd304ffe2413f1b2c2711aad6fe64861c7e3b8544f",
+      "table_cloud_003": "73fb26997f94fde429b13dcf8e89a8e50b8582572a2cf0935120bdf5d5b3609c"
+    }
+  },
+  "epochs": {
+    "preflight_start": 1785252840,
+    "preflight_completed": 1785253024,
+    "run_start": 1785253024,
+    "run_end": 1785253216,
+    "audit_and_scrub_end": 1785253275
+  },
+  "cost_seconds": {
+    "preflight": 184,
+    "formal_run_sum": 192,
+    "list_family": 83,
+    "table_family": 109,
+    "preflight_and_formal_runs": 376,
+    "preflight_start_to_audit_and_scrub_end": 435
+  },
+  "preflight": {
+    "git_status": "clean",
+    "cargo_test_exit_code": 0,
+    "release_build_exit_code": 0,
+    "version": "commandagent 0.1.0 c1157e0 2026-07-28T15:36:47Z",
+    "binary_sha256_built": "401de3d0028be5d06b8ef2654e20e82a753378793f2a0b9971e4a3fc458d4db5",
+    "binary_sha256_installed": "401de3d0028be5d06b8ef2654e20e82a753378793f2a0b9971e4a3fc458d4db5",
+    "node_env": "production",
+    "minimum_ancestor": "78b95ce"
+  },
+  "full_verification": {
+    "fmt": "green",
+    "clippy_all_targets_deny_warnings": "green",
+    "cargo_test_all_targets": {
+      "passed": 1859,
+      "failed": 0,
+      "ignored": 30
+    },
+    "python_312_unittest": {
+      "passed": 54,
+      "failed": 0
+    },
+    "ruff": "green"
+  },
+  "runs": [
+    {
+      "name": "list_cloud_001",
+      "family": "list",
+      "harness_status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "earned_assurance": "full",
+      "display_assurance": "static (profile_not_admitted)",
+      "n1": "pass",
+      "n2": "pass",
+      "n3": "pass",
+      "n4": "pass",
+      "n5": "pass",
+      "selector": "article.event",
+      "detected": 10,
+      "accepted": 9,
+      "excluded": 1,
+      "n2_bindings": 36,
+      "n2_matches": 36,
+      "document_context_bindings": 1,
+      "candidate_id_resolution": "exact",
+      "duration_seconds": 23
+    },
+    {
+      "name": "list_cloud_002",
+      "family": "list",
+      "harness_status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "earned_assurance": "full",
+      "display_assurance": "static (profile_not_admitted)",
+      "n1": "pass",
+      "n2": "pass",
+      "n3": "pass",
+      "n4": "pass",
+      "n5": "pass",
+      "selector": "article.event",
+      "detected": 10,
+      "accepted": 9,
+      "excluded": 1,
+      "n2_bindings": 36,
+      "n2_matches": 36,
+      "document_context_bindings": 1,
+      "candidate_id_resolution": "exact",
+      "duration_seconds": 34
+    },
+    {
+      "name": "list_cloud_003",
+      "family": "list",
+      "harness_status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "earned_assurance": "full",
+      "display_assurance": "static (profile_not_admitted)",
+      "n1": "pass",
+      "n2": "pass",
+      "n3": "pass",
+      "n4": "pass",
+      "n5": "pass",
+      "selector": "article.event",
+      "detected": 10,
+      "accepted": 9,
+      "excluded": 1,
+      "n2_bindings": 36,
+      "n2_matches": 36,
+      "document_context_bindings": 1,
+      "candidate_id_resolution": "exact",
+      "duration_seconds": 26
+    },
+    {
+      "name": "table_cloud_001",
+      "family": "table",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "earned_assurance": "failed",
+      "display_assurance": "failed (ingest_assurance_failed)",
+      "n1": "pass",
+      "n2": "failed",
+      "n3": "pass",
+      "n4": "pass",
+      "n5": "pass",
+      "selector": "table tbody tr",
+      "detected": 10,
+      "accepted": 10,
+      "excluded": 0,
+      "n2_bindings": 40,
+      "n2_matches": 39,
+      "n2_violations": 1,
+      "candidate_id_resolution": "exact",
+      "automatic_class": "model_stagnation_read_only",
+      "audited_attribution": "model",
+      "duration_seconds": 29
+    },
+    {
+      "name": "table_cloud_002",
+      "family": "table",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "earned_assurance": "failed",
+      "display_assurance": "failed (ingest_assurance_failed)",
+      "n1": "pass",
+      "n2": "failed",
+      "n3": "pass",
+      "n4": "pass",
+      "n5": "pass",
+      "selector": "table tbody tr",
+      "detected": 10,
+      "accepted": 10,
+      "excluded": 0,
+      "n2_bindings": 40,
+      "n2_matches": 39,
+      "n2_violations": 1,
+      "candidate_id_resolution": "exact",
+      "automatic_class": "model_stagnation_read_only",
+      "audited_attribution": "model",
+      "duration_seconds": 34
+    },
+    {
+      "name": "table_cloud_003",
+      "family": "table",
+      "harness_status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "earned_assurance": "full",
+      "display_assurance": "static (profile_not_admitted)",
+      "n1": "pass",
+      "n2": "pass",
+      "n3": "pass",
+      "n4": "pass",
+      "n5": "pass",
+      "selector": "table tbody tr",
+      "detected": 10,
+      "accepted": 9,
+      "excluded": 1,
+      "n2_bindings": 36,
+      "n2_matches": 36,
+      "document_context_bindings": 0,
+      "candidate_id_resolution": "exact",
+      "duration_seconds": 46
+    }
+  ],
+  "runtime_observation": {
+    "snapshot_structure_injection": "6/6",
+    "candidate_id_injection_before_run": "6/6",
+    "candidate_freeze": "6/6",
+    "n1_to_n5_evidence": "6/6",
+    "candidate_distribution": [10, 10, 10, 10, 10, 10],
+    "candidate_id_prefix_omissions": "0/6",
+    "n2_resolution_counts": {
+      "exact": 224,
+      "unique_suffix": 0,
+      "ambiguous_suffix": 0,
+      "not_found": 0
+    },
+    "n3_resolution_counts": {
+      "exact": 60,
+      "unique_suffix": 0,
+      "ambiguous_suffix": 0,
+      "not_found": 0
+    },
+    "n1_pass": "6/6",
+    "n2_pass": "4/6",
+    "n3_pass": "6/6",
+    "n4_pass": "6/6",
+    "n5_pass": "6/6"
+  },
+  "document_context_observation": {
+    "relevant_runs": 3,
+    "bindings_with_both_positioned_fragments": 3,
+    "live_condition_c_reached_runs": "3/3",
+    "candidate_fragment": "8/3(月)",
+    "document_context_fragment": "2026年",
+    "output_value": "2026-08-03"
+  },
+  "classification": {
+    "known": 2,
+    "unknown": 4,
+    "unknown_completed_runs": 4,
+    "audited_model_failures": 2,
+    "audited_machine_failures": 0,
+    "new_classes": []
+  },
+  "effective_model_audit": {
+    "expected_runs": 6,
+    "executor_run_start_matches": 6,
+    "executor_provider_turn_matches": 54,
+    "expected_executor": "gemma4:31b-cloud",
+    "configured_planner_matches": 6,
+    "expected_planner": "qwen3.6:27b-coding-nvfp4",
+    "planner_provider_turns": 0
+  },
+  "acceptance": {
+    "p0_a_honest_terminal": "pass",
+    "p0_b_contract_assurance": "pass",
+    "p0_c_false_success_zero": "pass",
+    "p1_a_n1_to_n5_at_reached_runs": "pass",
+    "p1_b_sheets_six_of_six": "pass",
+    "full_equivalent": "4/6"
+  },
+  "scrub": {
+    "per_run": "6/6 ok",
+    "campaign": "ok",
+    "findings": []
+  }
+}
