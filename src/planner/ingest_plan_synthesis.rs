@@ -100,13 +100,10 @@ fn implementation_plan(goal: &str) -> StepPlan {
             kind: "implement".to_string(),
             expected_result: "pass".to_string(),
             instruction: format!(
-                "Implement the complete offline ingest delivery for the original goal. \
-Own and create only the model-authored files pipeline/main.py and \
-output/inspection.json in this step. The pipeline implementation must generate \
-output/records.json and output/report.md when the following run phase executes it; \
-do not hand-author those runtime outputs in this step. Inspect the real \
-data/snapshots inputs before choosing the selector or values. Do not create any \
-verification script or verifier artifact.\n\n{}",
+                "Create only the model-authored files pipeline/main.py and \
+output/inspection.json. The following run phase executes the pipeline to generate \
+output/records.json and output/report.md; do not hand-author those runtime outputs. \
+Do not create any verification script.\n\n{}",
                 crate::planner::profiles::ingest::guidance::GENERATION_RULES
             ),
             expected_paths: IMPLEMENT_PATHS.into_iter().map(str::to_string).collect(),

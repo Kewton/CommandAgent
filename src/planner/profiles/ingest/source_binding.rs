@@ -28,6 +28,7 @@ pub enum FieldType {
 pub enum NormalizationRule {
     Identity,
     JapaneseDateToIso,
+    DocumentYearContext,
     NumberCanonical,
     Time24h,
 }
@@ -55,6 +56,14 @@ pub struct NearestMiss {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BoundSourceFragment {
+    pub source_path: String,
+    pub byte_start: usize,
+    pub byte_end: usize,
+    pub raw_source: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FieldBinding {
     pub record_index: usize,
     pub candidate_id: String,
@@ -67,6 +76,10 @@ pub struct FieldBinding {
     pub raw_source: Option<String>,
     pub normalized_source: Option<String>,
     pub transformations: Vec<NormalizationRule>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub candidate_fragment: Option<BoundSourceFragment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_context: Option<BoundSourceFragment>,
     pub matched: bool,
     pub nearest_miss: Option<NearestMiss>,
 }
@@ -86,6 +99,8 @@ struct SourceValue {
     raw: String,
     normalized: String,
     transformations: Vec<NormalizationRule>,
+    candidate_relative_range: Option<(usize, usize)>,
+    document_context: Option<BoundSourceFragment>,
 }
 
 pub fn check(root: &Path, frozen: &CandidateFreeze) -> anyhow::Result<SourceBindingEvidence> {
@@ -116,13 +131,15 @@ pub fn check(root: &Path, frozen: &CandidateFreeze) -> anyhow::Result<SourceBind
                 continue;
             };
             let binding = bind_field(
+                root,
                 record_index,
                 &candidate_id,
                 &field.name,
                 &value,
                 &field.normalizations,
                 candidate,
-            );
+                &frozen.candidates,
+            )?;
             if !binding.matched {
                 failure_kinds.push(format!(
                     "source_binding_violation:record={record_index}:field={}:value={value}",
@@ -172,6 +189,12 @@ fn validate_format(format: &RecordFormat) -> anyhow::Result<()> {
         if field.name.trim().is_empty()
             || !names.insert(field.name.as_str())
             || field.normalizations.is_empty()
+            || (field
+                .normalizations
+                .contains(&NormalizationRule::DocumentYearContext)
+                && !field
+                    .normalizations
+                    .contains(&NormalizationRule::JapaneseDateToIso))
         {
             anyhow::bail!("source_binding_violation:field_declaration");
         }
@@ -204,15 +227,25 @@ fn load_records(root: &Path) -> anyhow::Result<Vec<serde_json::Map<String, Value
 }
 
 fn bind_field(
+    root: &Path,
     record_index: usize,
     candidate_id: &str,
     field: &str,
     output_value: &str,
     rules: &[NormalizationRule],
     candidate: Option<&FrozenCandidate>,
-) -> FieldBinding {
+    frozen_candidates: &[FrozenCandidate],
+) -> anyhow::Result<FieldBinding> {
     let raw_candidate = candidate.map_or("", |candidate| candidate.raw.as_str());
-    let values = source_values(raw_candidate, rules);
+    let mut values = source_values(raw_candidate, rules);
+    if let Some(candidate) = candidate {
+        values.extend(document_context_values(
+            root,
+            candidate,
+            frozen_candidates,
+            rules,
+        )?);
+    }
     let matched = values.iter().find(|candidate| {
         candidate.normalized == output_value || contains_value(&candidate.normalized, output_value)
     });
@@ -229,7 +262,16 @@ fn bind_field(
                 })
         })
         .flatten();
-    FieldBinding {
+    let candidate_fragment = matched
+        .and_then(|value| value.candidate_relative_range)
+        .zip(candidate)
+        .map(|((start, end), candidate)| BoundSourceFragment {
+            source_path: candidate.source_path.clone(),
+            byte_start: candidate.byte_start + start,
+            byte_end: candidate.byte_start + end,
+            raw_source: raw_candidate[start..end].to_string(),
+        });
+    Ok(FieldBinding {
         record_index,
         candidate_id: candidate_id.to_string(),
         source_path: candidate.map(|candidate| candidate.source_path.clone()),
@@ -243,9 +285,11 @@ fn bind_field(
         transformations: matched
             .map(|candidate| candidate.transformations.clone())
             .unwrap_or_default(),
+        candidate_fragment,
+        document_context: matched.and_then(|candidate| candidate.document_context.clone()),
         matched: matched.is_some(),
         nearest_miss,
-    }
+    })
 }
 
 fn source_values(raw_candidate: &str, rules: &[NormalizationRule]) -> Vec<SourceValue> {
@@ -257,6 +301,8 @@ fn source_values(raw_candidate: &str, rules: &[NormalizationRule]) -> Vec<Source
                 raw: raw.clone(),
                 normalized: identity.clone(),
                 transformations: vec![NormalizationRule::Identity],
+                candidate_relative_range: None,
+                document_context: None,
             });
         }
         if rules.contains(&NormalizationRule::JapaneseDateToIso) {
@@ -341,6 +387,8 @@ fn push_date(values: &mut Vec<SourceValue>, raw: &str, year: u32, month: &str, d
             raw: raw.to_string(),
             normalized: format!("{year:04}-{month:02}-{day:02}"),
             transformations: vec![NormalizationRule::JapaneseDateToIso],
+            candidate_relative_range: None,
+            document_context: None,
         });
     }
 }
@@ -375,6 +423,8 @@ fn number_values(raw: &str) -> Vec<SourceValue> {
                 .replace(['，', ','], "")
                 .replace('．', "."),
             transformations: vec![NormalizationRule::NumberCanonical],
+            candidate_relative_range: None,
+            document_context: None,
         })
         .collect()
 }
@@ -400,9 +450,155 @@ fn time_values(raw: &str) -> Vec<SourceValue> {
                 raw: captures.get(0).unwrap().as_str().to_string(),
                 normalized: format!("{hour:02}:{minute:02}"),
                 transformations: vec![NormalizationRule::Time24h],
+                candidate_relative_range: None,
+                document_context: None,
             })
         })
         .collect()
+}
+
+fn document_context_values(
+    root: &Path,
+    candidate: &FrozenCandidate,
+    frozen_candidates: &[FrozenCandidate],
+    rules: &[NormalizationRule],
+) -> anyhow::Result<Vec<SourceValue>> {
+    if !rules.contains(&NormalizationRule::JapaneseDateToIso)
+        || !rules.contains(&NormalizationRule::DocumentYearContext)
+    {
+        return Ok(Vec::new());
+    }
+    let path = crate::tools::path_guard::resolve_existing(root, &candidate.source_path)
+        .context("source_binding_violation:document_context_path")?;
+    let document = std::fs::read_to_string(path)
+        .context("source_binding_violation:document_context_unreadable")?;
+    let years = shared_document_years(&document, &candidate.source_path, frozen_candidates);
+    if years.len() != 1 {
+        return Ok(Vec::new());
+    }
+    let (year, context) = years.into_iter().next().expect("one checked year");
+    Ok(partial_date_regex()
+        .captures_iter(&candidate.raw)
+        .filter_map(|captures| {
+            let whole = captures.get(0)?;
+            if candidate_prefix_has_year(&candidate.raw[..whole.start()]) {
+                return None;
+            }
+            let month = ascii_digits(captures.get(1)?.as_str())
+                .parse::<u32>()
+                .ok()?;
+            let day = ascii_digits(captures.get(2)?.as_str())
+                .parse::<u32>()
+                .ok()?;
+            valid_date(year, month, day).then(|| SourceValue {
+                raw: whole.as_str().to_string(),
+                normalized: format!("{year:04}-{month:02}-{day:02}"),
+                transformations: vec![
+                    NormalizationRule::JapaneseDateToIso,
+                    NormalizationRule::DocumentYearContext,
+                ],
+                candidate_relative_range: Some((whole.start(), whole.end())),
+                document_context: Some(context.clone()),
+            })
+        })
+        .collect())
+}
+
+fn shared_document_years(
+    document: &str,
+    source_path: &str,
+    frozen_candidates: &[FrozenCandidate],
+) -> BTreeMap<u32, BoundSourceFragment> {
+    let candidate_ranges = frozen_candidates
+        .iter()
+        .filter(|candidate| candidate.source_path == source_path)
+        .map(|candidate| (candidate.byte_start, candidate.byte_end))
+        .collect::<Vec<_>>();
+    let mut context_ranges = Vec::new();
+    for regex in [title_context_regex(), heading_context_regex()] {
+        for captures in regex.captures_iter(document) {
+            let Some(whole) = captures.get(0) else {
+                continue;
+            };
+            let Some(content) = captures.get(1) else {
+                continue;
+            };
+            let overlaps_candidate = candidate_ranges
+                .iter()
+                .any(|(start, end)| whole.start() < *end && whole.end() > *start);
+            if !overlaps_candidate {
+                context_ranges.push((content.start(), content.end()));
+            }
+        }
+    }
+    context_ranges.sort();
+
+    let mut years = BTreeMap::new();
+    for (start, end) in context_ranges {
+        let context = &document[start..end];
+        for captures in context_year_regex().captures_iter(context) {
+            let Some(whole) = captures.get(0) else {
+                continue;
+            };
+            let Some(year) = captures
+                .get(1)
+                .and_then(|value| ascii_digits(value.as_str()).parse::<u32>().ok())
+                .filter(|year| (1..=9999).contains(year))
+            else {
+                continue;
+            };
+            let byte_start = start + whole.start();
+            let byte_end = start + whole.end();
+            years.entry(year).or_insert_with(|| BoundSourceFragment {
+                source_path: source_path.to_string(),
+                byte_start,
+                byte_end,
+                raw_source: document[byte_start..byte_end].to_string(),
+            });
+        }
+    }
+    years
+}
+
+fn partial_date_regex() -> &'static Regex {
+    static PARTIAL_DATE: OnceLock<Regex> = OnceLock::new();
+    PARTIAL_DATE.get_or_init(|| {
+        Regex::new(r"([0-9０-９]{1,2})\s*(?:/|月)\s*([0-9０-９]{1,2})(?:日)?(?:\s*\([^)]*\))?")
+            .expect("static partial date regex")
+    })
+}
+
+fn candidate_prefix_has_year(prefix: &str) -> bool {
+    static YEAR_PREFIX: OnceLock<Regex> = OnceLock::new();
+    YEAR_PREFIX
+        .get_or_init(|| {
+            Regex::new(
+                r"(?:(?:[0-9０-９]{4})|(?:(?:令和|平成|昭和)\s*(?:元|[0-9０-９]{1,2})))年\s*$",
+            )
+            .expect("static candidate year-prefix regex")
+        })
+        .is_match(prefix)
+}
+
+fn title_context_regex() -> &'static Regex {
+    static TITLE: OnceLock<Regex> = OnceLock::new();
+    TITLE.get_or_init(|| {
+        Regex::new(r"(?is)<title\b[^>]*>(.*?)</title\s*>").expect("static title context regex")
+    })
+}
+
+fn heading_context_regex() -> &'static Regex {
+    static HEADING: OnceLock<Regex> = OnceLock::new();
+    HEADING.get_or_init(|| {
+        Regex::new(r"(?is)<h[1-6]\b[^>]*>(.*?)</h[1-6]\s*>").expect("static heading context regex")
+    })
+}
+
+fn context_year_regex() -> &'static Regex {
+    static YEAR: OnceLock<Regex> = OnceLock::new();
+    YEAR.get_or_init(|| {
+        Regex::new(r"([0-9０-９]{4})年").expect("static document context year regex")
+    })
 }
 
 fn value_text(value: &Value) -> Option<String> {
@@ -482,7 +678,25 @@ fn write_evidence(root: &Path, evidence: &SourceBindingEvidence) -> anyhow::Resu
 mod tests {
     use super::*;
     use crate::planner::profiles::ingest::accounting::{self, SelectorKind};
+    use serde::Deserialize;
     use serde_json::json;
+
+    const ELEV_006_CONTEXT_FIXTURE: &str = include_str!(
+        "../../../../tests/fixtures/ingest-source-binding/elev-006-document-year-context.json"
+    );
+    const ELEV_006_LIST_SNAPSHOT: &str = include_str!(
+        "../../../../workspace/management/bench/assets/ingest/list/data/snapshots/events-list.html"
+    );
+
+    #[derive(Deserialize)]
+    struct MeasuredContextFixture {
+        selector: String,
+        candidate_id: String,
+        candidate_fragment: String,
+        context_fragment: String,
+        output_value: String,
+        declared_normalizations: Vec<NormalizationRule>,
+    }
 
     #[test]
     fn declared_era_normalization_binds_to_iso_without_changing_the_date() {
@@ -524,6 +738,114 @@ mod tests {
         let miss = evidence.bindings[0].nearest_miss.as_ref().unwrap();
         assert_eq!(miss.normalized_source, "2025-07-25");
         assert!(evidence.failure_kinds[0].contains("source_binding_violation"));
+    }
+
+    #[test]
+    fn elev_006_document_year_completion_records_both_source_fragments() {
+        let (dir, fixture) = measured_document_context_fixture();
+        let frozen = accounting::freeze(dir.path()).unwrap();
+
+        let evidence = check(dir.path(), &frozen).unwrap();
+
+        assert!(evidence.ok, "{evidence:?}");
+        let date = &evidence.bindings[0];
+        assert_eq!(date.raw_source.as_deref(), Some("8/3(月)"));
+        assert_eq!(date.normalized_source.as_deref(), Some("2026-08-03"));
+        assert_eq!(
+            date.transformations,
+            [
+                NormalizationRule::JapaneseDateToIso,
+                NormalizationRule::DocumentYearContext
+            ]
+        );
+        let candidate_fragment = date.candidate_fragment.as_ref().unwrap();
+        let document_context = date.document_context.as_ref().unwrap();
+        assert_eq!(candidate_fragment.raw_source, fixture.candidate_fragment);
+        assert_eq!(document_context.raw_source, fixture.context_fragment);
+        let document =
+            std::fs::read_to_string(dir.path().join(&candidate_fragment.source_path)).unwrap();
+        assert_eq!(
+            &document[candidate_fragment.byte_start..candidate_fragment.byte_end],
+            fixture.candidate_fragment
+        );
+        assert_eq!(
+            &document[document_context.byte_start..document_context.byte_end],
+            fixture.context_fragment
+        );
+    }
+
+    #[test]
+    fn document_context_does_not_turn_a_shifted_date_into_a_match() {
+        let (dir, _) = measured_document_context_fixture();
+        std::fs::write(
+            dir.path().join(RECORDS_PATH),
+            serde_json::to_vec_pretty(&json!([{"date":"2026-08-04"}])).unwrap(),
+        )
+        .unwrap();
+
+        let evidence = check(dir.path(), &accounting::freeze(dir.path()).unwrap()).unwrap();
+
+        assert!(!evidence.ok);
+        let miss = evidence.bindings[0].nearest_miss.as_ref().unwrap();
+        assert_eq!(miss.raw_source, "8/3(月)");
+        assert_eq!(miss.normalized_source, "2026-08-03");
+    }
+
+    #[test]
+    fn document_context_never_joins_a_field_from_another_candidate() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("data/snapshots")).unwrap();
+        std::fs::create_dir_all(dir.path().join("output")).unwrap();
+        std::fs::write(
+            dir.path().join("data/snapshots/events.html"),
+            "<title>2026年行事</title><article><h2>第一行事</h2></article>\
+             <article><h2>第二行事</h2><p>第二会場</p></article>",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join(accounting::INSPECTION_PATH),
+            serde_json::to_vec_pretty(&json!({
+                "candidate_selector": {"kind":"html_tag","value":"article"},
+                "candidate_accounting": {
+                    "accepted":[{"candidate_id":"data/snapshots/events.html#0","record_index":0}],
+                    "excluded":[{"candidate_id":"data/snapshots/events.html#1","reason":"not selected"}]
+                },
+                "record_format": {"fields":[{
+                    "name":"venue","type":"string","normalizations":["identity"]
+                }]}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join(RECORDS_PATH),
+            serde_json::to_vec_pretty(&json!([{"venue":"第二会場"}])).unwrap(),
+        )
+        .unwrap();
+
+        let evidence = check(dir.path(), &accounting::freeze(dir.path()).unwrap()).unwrap();
+
+        assert!(!evidence.ok);
+        assert!(!evidence.bindings[0].matched);
+        assert!(evidence.bindings[0].document_context.is_none());
+    }
+
+    #[test]
+    fn document_year_context_requires_the_declared_date_conversion() {
+        let format = RecordFormat {
+            fields: vec![FieldDeclaration {
+                name: "date".to_string(),
+                field_type: FieldType::String,
+                normalizations: vec![NormalizationRule::DocumentYearContext],
+            }],
+        };
+
+        assert!(
+            validate_format(&format)
+                .unwrap_err()
+                .to_string()
+                .contains("source_binding_violation:field_declaration")
+        );
     }
 
     #[test]
@@ -572,5 +894,41 @@ mod tests {
         )
         .unwrap();
         dir
+    }
+
+    fn measured_document_context_fixture() -> (tempfile::TempDir, MeasuredContextFixture) {
+        let fixture: MeasuredContextFixture =
+            serde_json::from_str(ELEV_006_CONTEXT_FIXTURE).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("data/snapshots")).unwrap();
+        std::fs::create_dir_all(dir.path().join("output")).unwrap();
+        std::fs::write(
+            dir.path().join("data/snapshots/events-list.html"),
+            ELEV_006_LIST_SNAPSHOT,
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join(accounting::INSPECTION_PATH),
+            serde_json::to_vec_pretty(&json!({
+                "candidate_selector": {"kind":"css","value":fixture.selector},
+                "candidate_accounting": {
+                    "accepted":[{"candidate_id":fixture.candidate_id,"record_index":0}],
+                    "excluded":[]
+                },
+                "record_format": {"fields":[{
+                    "name":"date",
+                    "type":"string",
+                    "normalizations":fixture.declared_normalizations
+                }]}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join(RECORDS_PATH),
+            serde_json::to_vec_pretty(&json!([{"date":fixture.output_value}])).unwrap(),
+        )
+        .unwrap();
+        (dir, fixture)
     }
 }

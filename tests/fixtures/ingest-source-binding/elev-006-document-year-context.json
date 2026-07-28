@@ -1,0 +1,16 @@
+{
+  "campaign": "uat-test0726-ingest-elev-006",
+  "run": "list_cloud_001",
+  "source_asset": "workspace/management/bench/assets/ingest/list/data/snapshots/events-list.html",
+  "source_sha256": "dadcc23ffc94494d7d167e2733e05ec0e6ea339b6791a65d91b7e55832eeee07",
+  "selector": "article.event",
+  "candidate_id": "data/snapshots/events-list.html#1",
+  "candidate_fragment": "8/3(月)",
+  "context_fragment": "2026年",
+  "output_value": "2026-08-03",
+  "observed_v0_failure": "source_binding_violation:record=1:field=date:value=2026-08-03",
+  "declared_normalizations": [
+    "japanese_date_to_iso",
+    "document_year_context"
+  ]
+}

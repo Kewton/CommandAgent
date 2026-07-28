@@ -8,7 +8,7 @@ forms, descendant chains such as table tbody tr, and direct-child chains such as
 ul.events > li, with at most 8 compounds; attribute, pseudo, sibling, and comma selectors \
 are not supported";
 
-pub(crate) const INSPECTION_LITERAL: &str = r#"{"candidate_selector":{"kind":"css","value":"ul.events > li"},"candidate_accounting":{"accepted":[{"candidate_id":"data/snapshots/events.html#0","record_index":0}],"excluded":[{"candidate_id":"data/snapshots/events.html#1","reason":"missing required date"}]},"record_format":{"fields":[{"name":"name","type":"string","normalizations":["identity"]},{"name":"date","type":"string","normalizations":["japanese_date_to_iso"]},{"name":"location","type":"string","normalizations":["identity"]},{"name":"source_file","type":"string","normalizations":["identity"]}]}}"#;
+pub(crate) const INSPECTION_LITERAL: &str = r#"{"candidate_selector":{"kind":"css","value":"ul.events > li"},"candidate_accounting":{"accepted":[{"candidate_id":"data/snapshots/events.html#0","record_index":0}],"excluded":[{"candidate_id":"data/snapshots/events.html#1","reason":"missing required date"}]},"record_format":{"fields":[{"name":"name","type":"string","normalizations":["identity"]},{"name":"date","type":"string","normalizations":["japanese_date_to_iso","document_year_context"]},{"name":"location","type":"string","normalizations":["identity"]},{"name":"source_file","type":"string","normalizations":["identity"]}]}}"#;
 
 pub(crate) const RECORDS_LITERAL: &str = r#"[{"name":"observed event name","date":"2026-08-01","location":"observed location","source_file":"events.html"}]"#;
 
@@ -28,8 +28,11 @@ pub(crate) const GENERATION_RULES: &str = concat!(
     "ul.events > li, with at most 8 compounds; attribute, pseudo, sibling, and comma selectors ",
     "are not supported. Unsupported CSS is rejected by the structural gate before acceptance.\n",
     "- Literal output/inspection.json shape: ",
-    r#"{"candidate_selector":{"kind":"css","value":"ul.events > li"},"candidate_accounting":{"accepted":[{"candidate_id":"data/snapshots/events.html#0","record_index":0}],"excluded":[{"candidate_id":"data/snapshots/events.html#1","reason":"missing required date"}]},"record_format":{"fields":[{"name":"name","type":"string","normalizations":["identity"]},{"name":"date","type":"string","normalizations":["japanese_date_to_iso"]},{"name":"location","type":"string","normalizations":["identity"]},{"name":"source_file","type":"string","normalizations":["identity"]}]}}"#,
+    r#"{"candidate_selector":{"kind":"css","value":"ul.events > li"},"candidate_accounting":{"accepted":[{"candidate_id":"data/snapshots/events.html#0","record_index":0}],"excluded":[{"candidate_id":"data/snapshots/events.html#1","reason":"missing required date"}]},"record_format":{"fields":[{"name":"name","type":"string","normalizations":["identity"]},{"name":"date","type":"string","normalizations":["japanese_date_to_iso","document_year_context"]},{"name":"location","type":"string","normalizations":["identity"]},{"name":"source_file","type":"string","normalizations":["identity"]}]}}"#,
     ".\n",
+    "- document_year_context: declare with japanese_date_to_iso only for a partial candidate ",
+    "value plus a unique title or candidate-external heading. Evidence records both source ",
+    "fragments and positions. Never use another candidate.\n",
     "- Literal output/records.json shape: ",
     r#"[{"name":"observed event name","date":"2026-08-01","location":"observed location","source_file":"events.html"}]"#,
     ".\n",
@@ -56,6 +59,9 @@ mod tests {
             "css, html_tag, and line_prefix",
             CSS_SUPPORTED_FORMS,
             "before acceptance",
+            "document_year_context",
+            "both source fragments",
+            "Never use another candidate",
             "examples only",
             "actual snapshots",
             "never copy example values as fixed data",

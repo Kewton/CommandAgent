@@ -1,7 +1,7 @@
 # Profile Contract Binding: ingest (fixed — admission off)
 
 正準契約は [`docs/ingest-profile-contract.md`](../../../../../docs/ingest-profile-contract.md)
-（fixed 2026-07-25）。実装済みだが、実run corpusとreviewer admissionが
+（fixed v0.1 2026-07-28、v0 fixed 2026-07-25）。実装済みだが、実run corpusとreviewer admissionが
 未完了のため `admission = "off"` を維持する。
 
 ## 1. スコープ
@@ -16,7 +16,8 @@ N5再実行一致が全成立すること。
 
 ## 3. 要求 evidence（full の必須ゲート）
 
-N1 `pipeline_probe`、N2 `source_binding`、N3 `accounting`、
+N1 `pipeline_probe`、N2 `source_binding`（同一候補・値保存形式変換・
+三条件つき文書共有文脈補完）、N3 `accounting`、
 N4 `format_schema`、N5 `rerun`。詳細schemaは正準契約に従う。
 
 ## 4. assurance 階層
@@ -43,3 +44,5 @@ source全eventの完全発見、動的rendering、取得・鮮度、network fetc
 
 snapshot固定、network禁止、候補selectorとrecord formatの事前宣言、
 値保存・決定的宣言・field別記録の三条件を満たす正規化のみ許可する。
+文書共有文脈補完では候補内断片と候補外文書文脈断片の両位置を記録し、
+候補間の値の継ぎ合わせは許可しない。
