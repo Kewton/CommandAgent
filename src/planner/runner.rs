@@ -2179,6 +2179,12 @@ fn run_step(
             phase_scope,
             config.eval_events_path.as_deref(),
         );
+    crate::planner::step_material::inject(config, &mut runtime_step).map_err(|err| {
+        StepRunError {
+            message: format!("step source material injection failed: {err}"),
+            outcome: StepRunOutcome::default(),
+        }
+    })?;
     let instruction = build_step_prompt(plan, &runtime_step, prompt_context, config.prompt_layout);
     emit_step_prompt_contract(config, &runtime_step, prompt_context, &instruction);
     if step.step_kind() == StepKind::Report

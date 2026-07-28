@@ -9,8 +9,10 @@ const IMPLEMENT_PATHS: [&str; 2] = ["pipeline/main.py", "output/inspection.json"
 const RUN_OUTPUT_PATHS: [&str; 2] = ["output/records.json", "output/report.md"];
 const RUN_COMMAND: &str = "python3 -B pipeline/main.py";
 
-// INGEST-4 canonical-default machine-floor audit (full table and boundaries:
+// INGEST-4 canonical-default machine-floor audit baseline (table and boundaries:
 // workspace/management/runs/uat-test0726-ingest-elev-003/floor-audit.md).
+// INGEST-6 adds the bounded source-material row below without rewriting that
+// historical campaign record.
 //
 // | floor | canonicality | production binding / state |
 // |---|---|---|
@@ -18,6 +20,7 @@ const RUN_COMMAND: &str = "python3 -B pipeline/main.py";
 // | UltraPlan + phase order | machine-fixed | ingest manifest PHASE_IDS / closed |
 // | phase StepPlan source | machine-fixed | phase_plan_synthesis dispatch / closed |
 // | implement guidance | literal guidance distributed | GENERATION_RULES / closed |
+// | source structure material | machine-fixed, bounded | snapshot_structure injection / closed |
 // | expected_paths ownership | machine-fixed | model-authored IMPLEMENT_PATHS / closed |
 // | phase x expected artifact x producer | machine-fixed | pipeline-produced RUN_OUTPUT_PATHS checked after RUN_COMMAND / closed |
 // | verifier artifact exclusion | machine-fixed | two-path implement closed set / closed |
@@ -182,13 +185,22 @@ mod tests {
         include_str!("../../tests/fixtures/ingest-plan-synthesis/elev-003-gaps.yaml");
     const MEASURED_ELEV_004_GAP: &str =
         include_str!("../../tests/fixtures/ingest-plan-synthesis/elev-004-gaps.yaml");
+    const MEASURED_ELEV_005_GAP: &str =
+        include_str!("../../tests/fixtures/ingest-plan-synthesis/elev-005-gaps.yaml");
     const PRESET_SNAPSHOT: &str =
         include_str!("../../tests/fixtures/ingest-plan-synthesis/canonical-preset.yaml");
+    const LIST_HTML: &str = include_str!(
+        "../../workspace/management/bench/assets/ingest/list/data/snapshots/events-list.html"
+    );
+    const TABLE_HTML: &str = include_str!(
+        "../../workspace/management/bench/assets/ingest/table/data/snapshots/events-table.html"
+    );
 
     #[derive(Debug, Deserialize, PartialEq, Eq)]
     struct Snapshot {
         phase_order: Vec<String>,
         plans: Vec<PlanProjection>,
+        implement_guidance: ImplementGuidanceProjection,
     }
 
     #[derive(Debug, Deserialize, PartialEq, Eq)]
@@ -198,6 +210,13 @@ mod tests {
         kind: String,
         expected_paths: Vec<String>,
         verify: Vec<String>,
+    }
+
+    #[derive(Debug, Deserialize, PartialEq, Eq)]
+    struct ImplementGuidanceProjection {
+        snapshot_files: Vec<String>,
+        candidate_structure_markers: Vec<String>,
+        selector_derivation_rule: bool,
     }
 
     fn config() -> Config {
@@ -217,9 +236,61 @@ mod tests {
         .unwrap()
     }
 
+    fn config_with_snapshot(filename: &str, content: &str) -> (tempfile::TempDir, Config) {
+        let dir = tempfile::tempdir().unwrap();
+        let snapshots = dir.path().join("data/snapshots");
+        std::fs::create_dir_all(&snapshots).unwrap();
+        std::fs::write(snapshots.join(filename), content).unwrap();
+        let cwd = dir.path().to_string_lossy().to_string();
+        let config = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--intent",
+            "create",
+            "--profile",
+            "ingest",
+            "--ultra-plan",
+            MEASURED_GOAL,
+        ]))
+        .unwrap();
+        (dir, config)
+    }
+
+    fn guidance_projection(instruction: &str) -> ImplementGuidanceProjection {
+        let mut candidate_structure_markers = Vec::new();
+        for marker in instruction.lines().filter_map(|line| {
+            line.split_once(" | ")
+                .map(|(_, content)| content.trim())
+                .filter(|content| content.starts_with("<article ") || content.starts_with("<tr "))
+                .map(str::to_string)
+        }) {
+            if !candidate_structure_markers.contains(&marker) {
+                candidate_structure_markers.push(marker);
+            }
+            if candidate_structure_markers.len() == 2 {
+                break;
+            }
+        }
+        ImplementGuidanceProjection {
+            snapshot_files: instruction
+                .lines()
+                .filter_map(|line| {
+                    line.strip_prefix("Snapshot file: ")
+                        .and_then(|rest| rest.split_once(" ("))
+                        .map(|(path, _)| path.to_string())
+                })
+                .collect(),
+            candidate_structure_markers,
+            selector_derivation_rule: instruction.contains(
+                crate::planner::profiles::ingest::snapshot_structure::SELECTOR_DERIVATION_RULE,
+            ),
+        }
+    }
+
     #[test]
     fn default_create_ingest_synthesizes_every_plan_without_model_fallback() {
-        let mut config = config();
+        let (_workspace, mut config) = config_with_snapshot("events-list.html", LIST_HTML);
         let events = config.workspace_root.join("events.jsonl");
         config.eval_events_path = Some(events.clone());
         assert_eq!(config.plan_preset, PlanPreset::Profile);
@@ -231,23 +302,30 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        let generated = plan
+        let mut generated_plans = plan
             .phases
             .iter()
-            .flat_map(|phase| {
-                let step_plan = resolve_phase_plan(&config, &plan, phase, || {
+            .map(|phase| {
+                resolve_phase_plan(&config, &plan, phase, || {
                     panic!("ingest preset must not call the planner fallback")
                 })
-                .unwrap();
+                .unwrap()
+            })
+            .collect::<Vec<_>>();
+        crate::planner::step_material::inject(&config, &mut generated_plans[0].steps[0]).unwrap();
+        let generated = generated_plans
+            .iter()
+            .zip(&plan.phases)
+            .flat_map(|(step_plan, phase)| {
                 step_plan
                     .steps
-                    .into_iter()
+                    .iter()
                     .map(|step| PlanProjection {
                         phase_id: phase.id.clone(),
-                        step_id: step.id,
-                        kind: step.kind,
-                        expected_paths: step.expected_paths,
-                        verify: step.verify,
+                        step_id: step.id.clone(),
+                        kind: step.kind.clone(),
+                        expected_paths: step.expected_paths.clone(),
+                        verify: step.verify.clone(),
                     })
                     .collect::<Vec<_>>()
             })
@@ -258,6 +336,7 @@ mod tests {
             Snapshot {
                 phase_order: plan.phases.iter().map(|phase| phase.id.clone()).collect(),
                 plans: generated,
+                implement_guidance: guidance_projection(&generated_plans[0].steps[0].instruction),
             }
         );
 
@@ -269,21 +348,30 @@ mod tests {
                 .count(),
             3
         );
+        assert_eq!(
+            event_text
+                .matches("\"event\":\"ingest_snapshot_structure_injected\"")
+                .count(),
+            1
+        );
+        assert!(event_text.contains("\"relative_path\":\"data/snapshots/events-list.html\""));
+        assert!(event_text.contains("\"candidate_windows\":2"));
         assert_eq!(event_text.matches("\"planner_skipped\":true").count(), 4);
     }
 
     #[test]
     fn synthesized_implementation_owns_only_model_authored_artifacts_and_literal_guidance() {
-        let config = config();
+        let (_workspace, config) = config_with_snapshot("events-list.html", LIST_HTML);
         let plan = crate::planner::profiles::ingest::manifest::preset_ultra_plan(
             MEASURED_GOAL,
             "default",
             "create",
         )
         .unwrap();
-        let generated =
+        let mut generated =
             resolve_phase_plan(&config, &plan, &plan.phases[0], || panic!("model fallback"))
                 .unwrap();
+        crate::planner::step_material::inject(&config, &mut generated.steps[0]).unwrap();
         let step = &generated.steps[0];
         assert_eq!(
             step.expected_paths,
@@ -302,6 +390,9 @@ mod tests {
             "only the model-authored files",
             "following run phase",
             "Do not create any verification script",
+            "Snapshot file: data/snapshots/events-list.html",
+            "<article class=\"event\" id=\"list-01\">",
+            crate::planner::profiles::ingest::snapshot_structure::SELECTOR_DERIVATION_RULE,
         ] {
             assert!(step.instruction.contains(marker), "missing {marker}");
         }
@@ -311,6 +402,53 @@ mod tests {
                     .expected_paths
                     .iter()
                     .any(|path| path == runtime_output)
+            );
+        }
+    }
+
+    #[test]
+    fn elev_005_unread_selector_shape_receives_measured_snapshot_structure() {
+        for measured in [
+            "uat-test0726-ingest-elev-005",
+            "snapshot_content_reads: 0",
+            "tr.event-row",
+            ".event-item",
+            "div.event-item",
+            "div.event-card",
+            "actual_candidate: tbody > tr",
+            "detected: 0",
+        ] {
+            assert!(
+                MEASURED_ELEV_005_GAP.contains(measured),
+                "fixture lacks {measured}"
+            );
+        }
+
+        let (_workspace, config) = config_with_snapshot("events-table.html", TABLE_HTML);
+        let plan = crate::planner::profiles::ingest::manifest::preset_ultra_plan(
+            MEASURED_GOAL,
+            "default",
+            "create",
+        )
+        .unwrap();
+        let mut generated =
+            resolve_phase_plan(&config, &plan, &plan.phases[0], || panic!("model fallback"))
+                .unwrap();
+        crate::planner::step_material::inject(&config, &mut generated.steps[0]).unwrap();
+        let instruction = &generated.steps[0].instruction;
+        for marker in [
+            "Snapshot file: data/snapshots/events-table.html",
+            "L0018 |       <tbody>",
+            "L0019 |         <tr id=\"table-01\">",
+            "HTML tag=tr occurrences=10",
+            crate::planner::profiles::ingest::snapshot_structure::SELECTOR_DERIVATION_RULE,
+        ] {
+            assert!(instruction.contains(marker), "missing {marker}");
+        }
+        for stale_selector in [".event-item", "div.event-item", "div.event-card"] {
+            assert!(
+                !instruction.contains(stale_selector),
+                "measured stale selector leaked into guidance: {stale_selector}"
             );
         }
     }

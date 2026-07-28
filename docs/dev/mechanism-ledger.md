@@ -931,3 +931,16 @@ run前に6/6を16〜24秒で停止させた。modelが直接書く
 `python3 -B pipeline/main.py`実行後のrecords/report機械postconditionへ
 分離した。検証は削除せず実行後へ移し、欠落をcommand failureとして固定する。
 裁定者の指示もmachine floorの入力として監査対象である。
+
+INGEST-6入力実構造注入（2026-07-28）: DATA-1系の第5適用
+（data字義例→INV-1診断形→cli主張形→ingest正準形→入力実構造）。
+elev-005のfinal acceptance到達4runは、`data/snapshots/*.html`のGlobと
+`ls -R`だけを反復して本文をReadせず、実構造と一致しないselectorを4/4で
+宣言して候補0件となった。近因はmodel、設計根因は読むべきpathだけを指し、
+材料をgeneration promptへ置かなかったmachine knowledge gapと二層裁定する。
+ingest implement presetへ、ファイル名を併記した先頭12行と反復候補要素周辺
+2 windowを、ファイル数・探索entry/depth・bytes・行長の全境界つきで機械注入
+する。「セレクタは実在構造から導出し、構造一致時以外は例示を写さない」を
+明記した。E-1 scaffold checklistには「読むべき入力は目の前に置く」を一般化し、
+bounded machine-injected source material＋実測fixtureを第5の定形装備として
+追加した。

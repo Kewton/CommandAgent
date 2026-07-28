@@ -29,6 +29,9 @@ STRUCTURE_LITERAL_GUIDANCE_CHECKLIST_ITEM = (
 MACHINE_PLAN_PRESET_CHECKLIST_ITEM = (
     "create planning is machine-synthesized/profile-preset and planner free composition is disabled"
 )
+SOURCE_MATERIAL_INJECTION_CHECKLIST_ITEM = (
+    "inputs that generation must read are placed in bounded machine-injected guidance with a measured fixture"
+)
 
 
 def generate(kind, ident):
@@ -67,6 +70,7 @@ def generate(kind, ident):
         f"- [ ] {PRODUCTION_ACTIVATION_CHECKLIST_ITEM}\n"
         f"- [ ] {STRUCTURE_LITERAL_GUIDANCE_CHECKLIST_ITEM}\n"
         f"- [ ] {MACHINE_PLAN_PRESET_CHECKLIST_ITEM}\n"
+        f"- [ ] {SOURCE_MATERIAL_INJECTION_CHECKLIST_ITEM}\n"
         "- [ ] conformance negative tests green\n"
         "- [ ] corpus fixture is an archived real run\n"
         "- [ ] reviewer explicitly changes `off` to `admitted`\n",

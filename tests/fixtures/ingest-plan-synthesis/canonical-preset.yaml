@@ -29,3 +29,10 @@ plans:
     expected_paths: []
     verify:
       - anvil-ingest-check:phase_structure
+implement_guidance:
+  snapshot_files:
+    - data/snapshots/events-list.html
+  candidate_structure_markers:
+    - <article class="event" id="list-01">
+    - <article class="event" id="list-02">
+  selector_derivation_rule: true

@@ -210,3 +210,11 @@ match_stop_class = "missing expected paths: output/inspection.json, output/recor
 first_seen = "uat-test0726-ingest-elev-004"
 ledger_ref = "INGEST-5"
 note = "INGEST-4指示とpresetがpipeline実行で生まれるrecords/reportをimplement段のexpected_pathsへ置き、6/6をrun前に停止させた。INGEST-5でmodel-authored pipeline/inspectionだけをimplementへ残し、run command後の機械postconditionへ移して解消済み"
+
+[[class]]
+id = "ingest_selector:selector_without_snapshot_content_read"
+attribution = "model"
+match_reason = "ingest_selector:selector_without_snapshot_content_read"
+first_seen = "uat-test0726-ingest-elev-005"
+ledger_ref = "INGEST-6"
+note = "近因はmodelがsnapshot本文をReadせず、実在しないselectorを4/4到達runで宣言したこと。設計根因はmachine guidanceが読むべきpathだけを示し、実構造材料をmodelの目前へ置かなかったこと。INGEST-6でファイル名つき・先頭行+反復候補window・上限付きの実構造注入をimplement promptへ追加"

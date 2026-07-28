@@ -3,6 +3,7 @@ pub(crate) mod guidance;
 pub mod manifest;
 pub(crate) mod phase_verify;
 pub mod runtime;
+pub(crate) mod snapshot_structure;
 pub mod source_binding;
 
 use std::path::Path;

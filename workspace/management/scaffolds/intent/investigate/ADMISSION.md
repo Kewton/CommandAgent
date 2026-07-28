@@ -7,6 +7,7 @@
 - [ ] every verification component has a production acceptance-path activation test
 - [ ] every structure-gate required shape has prior literal-example guidance and a fixture
 - [ ] create planning is machine-synthesized/profile-preset and planner free composition is disabled
+- [ ] inputs that generation must read are placed in bounded machine-injected guidance with a measured fixture
 - [ ] conformance negative tests green
 - [ ] corpus fixture is an archived real run
 - [ ] reviewer explicitly changes `off` to `admitted`
