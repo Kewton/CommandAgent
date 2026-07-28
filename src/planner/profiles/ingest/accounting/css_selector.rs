@@ -13,8 +13,14 @@ struct Compound {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Selector {
-    parent: Option<Compound>,
-    target: Compound,
+    compounds: Vec<Compound>,
+    combinators: Vec<Combinator>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Combinator {
+    Child,
+    Descendant,
 }
 
 #[derive(Debug, Clone)]
@@ -48,13 +54,7 @@ pub(super) fn enumerate(text: &str, value: &str) -> anyhow::Result<Vec<(usize, u
                 continue;
             };
             let frame = stack[position].clone();
-            let parent = position.checked_sub(1).and_then(|index| stack.get(index));
-            if selector.target.matches(&frame)
-                && selector
-                    .parent
-                    .as_ref()
-                    .is_none_or(|expected| parent.is_some_and(|actual| expected.matches(actual)))
-            {
+            if selector.matches(&stack, position) {
                 found.push((
                     frame.byte_start,
                     whole.end(),
@@ -82,19 +82,89 @@ pub(super) fn enumerate(text: &str, value: &str) -> anyhow::Result<Vec<(usize, u
 
 impl Selector {
     fn parse(value: &str) -> anyhow::Result<Self> {
-        let parts = value.split('>').map(str::trim).collect::<Vec<_>>();
-        match parts.as_slice() {
-            [target] => Ok(Self {
-                parent: None,
-                target: Compound::parse(target)?,
-            }),
-            [parent, target] => Ok(Self {
-                parent: Some(Compound::parse(parent)?),
-                target: Compound::parse(target)?,
-            }),
-            _ => bail!("candidate_set_violation:css_selector_unsupported"),
+        if value.is_empty() || !value.is_ascii() {
+            bail!("candidate_set_violation:css_selector_compound");
+        }
+        let bytes = value.as_bytes();
+        let mut cursor = 0usize;
+        let mut compounds = Vec::new();
+        let mut combinators = Vec::new();
+        skip_space(bytes, &mut cursor);
+        while cursor < bytes.len() {
+            let start = cursor;
+            while cursor < bytes.len()
+                && !bytes[cursor].is_ascii_whitespace()
+                && bytes[cursor] != b'>'
+            {
+                cursor += 1;
+            }
+            if start == cursor {
+                bail!("candidate_set_violation:css_selector_unsupported");
+            }
+            compounds.push(Compound::parse(&value[start..cursor])?);
+            if compounds.len() > 8 {
+                bail!("candidate_set_violation:css_selector_unsupported");
+            }
+
+            let had_space = skip_space(bytes, &mut cursor);
+            if cursor == bytes.len() {
+                break;
+            }
+            if bytes[cursor] == b'>' {
+                cursor += 1;
+                skip_space(bytes, &mut cursor);
+                if cursor == bytes.len() || bytes[cursor] == b'>' {
+                    bail!("candidate_set_violation:css_selector_unsupported");
+                }
+                combinators.push(Combinator::Child);
+            } else if had_space {
+                combinators.push(Combinator::Descendant);
+            } else {
+                bail!("candidate_set_violation:css_selector_unsupported");
+            }
+        }
+        if compounds.is_empty() || combinators.len() + 1 != compounds.len() {
+            bail!("candidate_set_violation:css_selector_unsupported");
+        }
+        Ok(Self {
+            compounds,
+            combinators,
+        })
+    }
+
+    fn matches(&self, stack: &[Frame], target_position: usize) -> bool {
+        self.matches_prefix(self.compounds.len() - 1, stack, target_position)
+    }
+
+    fn matches_prefix(
+        &self,
+        compound_index: usize,
+        stack: &[Frame],
+        frame_position: usize,
+    ) -> bool {
+        if !self.compounds[compound_index].matches(&stack[frame_position]) {
+            return false;
+        }
+        if compound_index == 0 {
+            return true;
+        }
+        match self.combinators[compound_index - 1] {
+            Combinator::Child => frame_position
+                .checked_sub(1)
+                .is_some_and(|parent| self.matches_prefix(compound_index - 1, stack, parent)),
+            Combinator::Descendant => (0..frame_position)
+                .rev()
+                .any(|ancestor| self.matches_prefix(compound_index - 1, stack, ancestor)),
         }
     }
+}
+
+fn skip_space(bytes: &[u8], cursor: &mut usize) -> bool {
+    let start = *cursor;
+    while *cursor < bytes.len() && bytes[*cursor].is_ascii_whitespace() {
+        *cursor += 1;
+    }
+    start != *cursor
 }
 
 impl Compound {
@@ -237,6 +307,26 @@ fn is_void_tag(tag: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde::Deserialize;
+
+    const ELEV_006_SELECTOR_FIXTURE: &str = include_str!(
+        "../../../../../tests/fixtures/ingest-candidate-accounting/elev-006-compound-selectors.json"
+    );
+    const TABLE_SNAPSHOT: &str = include_str!(
+        "../../../../../workspace/management/bench/assets/ingest/table/data/snapshots/events-table.html"
+    );
+
+    #[derive(Deserialize)]
+    struct MeasuredFixture {
+        cases: Vec<MeasuredCase>,
+    }
+
+    #[derive(Deserialize)]
+    struct MeasuredCase {
+        selector: String,
+        observed_failure: String,
+        expected_detected: usize,
+    }
 
     #[test]
     fn literal_direct_child_example_selects_only_matching_children() {
@@ -263,8 +353,49 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_descendant_or_multi_child_selector_is_rejected() {
-        assert!(validate("ul.events li").is_err());
-        assert!(validate("main > ul > li").is_err());
+    fn elev_006_valid_compound_selectors_enumerate_the_measured_candidates() {
+        let fixture: MeasuredFixture = serde_json::from_str(ELEV_006_SELECTOR_FIXTURE).unwrap();
+
+        for case in fixture.cases {
+            assert_eq!(
+                case.observed_failure,
+                "candidate_set_violation:css_selector_compound"
+            );
+            let found = enumerate(TABLE_SNAPSHOT, &case.selector).unwrap();
+            assert_eq!(
+                found.len(),
+                case.expected_detected,
+                "selector={}",
+                case.selector
+            );
+            assert!(found.iter().all(|(_, _, raw)| raw.starts_with("<tr")));
+        }
+    }
+
+    #[test]
+    fn child_and_descendant_chains_preserve_their_distinct_semantics() {
+        let html = "<main><section><ul class=\"events\"><li>A</li></ul></section></main>";
+
+        assert_eq!(enumerate(html, "main ul.events > li").unwrap().len(), 1);
+        assert!(enumerate(html, "main > ul.events > li").unwrap().is_empty());
+        assert_eq!(
+            enumerate(html, "main > section > ul.events > li")
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn unsupported_css_syntax_is_rejected_deterministically() {
+        for selector in [
+            "tr[data-event]",
+            "tr:first-child",
+            "tr + tr",
+            "tr, article",
+            "main > > tr",
+        ] {
+            assert!(validate(selector).is_err(), "selector={selector}");
+        }
     }
 }

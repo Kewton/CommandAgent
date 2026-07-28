@@ -3,7 +3,8 @@ use std::path::Path;
 use serde_json::json;
 
 use crate::eval_events;
-use crate::planner::profiles::ingest::accounting::CandidateSelector;
+use crate::planner::profiles::ingest::accounting::{self, CandidateSelector};
+use crate::planner::profiles::ingest::guidance::CSS_SUPPORTED_FORMS;
 use crate::planner::step_plan::{PlanStep, StepKind, StepPlan};
 use crate::planner::verify::VerificationReport;
 
@@ -11,6 +12,9 @@ pub(crate) const CHECK_COMMAND: &str = "anvil-ingest-check:phase_structure";
 const VERIFY_INSTRUCTION: &str = "Verify the ingest phase structure: pipeline/main.py exists, \
 output/records.json is JSON, output/inspection.json declares candidate_selector as kind/value, \
 and output/report.md exists. Allowed candidate_selector kinds are css, html_tag, and line_prefix; \
+CSS supports tag, .class, #id, compound forms, descendant chains such as table tbody tr, and \
+direct-child chains such as ul.events > li, with at most 8 compounds; attribute, pseudo, \
+sibling, and comma selectors are unsupported and rejected here before acceptance. \
 the literal shape is {\"candidate_selector\": {\"kind\": \"css\", \"value\": \
 \"ul.events > li\"}}. Values are examples only and must be replaced with actual snapshot \
 observations.";
@@ -203,7 +207,17 @@ fn verify_structure(root: &Path) -> Vec<String> {
         .and_then(|document| document.get("candidate_selector").cloned())
         .and_then(|selector| serde_json::from_value::<CandidateSelector>(selector).ok())
     {
-        Some(selector) if !selector.value.trim().is_empty() => {}
+        Some(selector) if selector.value.trim().is_empty() => {
+            failures.push("ingest_phase_structure:selector_not_kind_value".to_string())
+        }
+        Some(selector) => {
+            if let Err(error) = accounting::validate_selector_declaration(&selector) {
+                failures.push(format!(
+                    "ingest_phase_structure:selector_unsupported:{error}; supported: \
+                     {CSS_SUPPORTED_FORMS}"
+                ));
+            }
+        }
         _ => failures.push("ingest_phase_structure:selector_not_kind_value".to_string()),
     }
 
@@ -401,6 +415,8 @@ mod tests {
         for marker in [
             "css, html_tag, and line_prefix",
             crate::planner::profiles::ingest::guidance::SELECTOR_LITERAL,
+            crate::planner::profiles::ingest::guidance::CSS_SUPPORTED_FORMS,
+            "before acceptance",
             "output/inspection.json",
             "output/records.json",
             "examples only",
@@ -413,6 +429,27 @@ mod tests {
             VERIFY_INSTRUCTION
                 .contains(crate::planner::profiles::ingest::guidance::SELECTOR_LITERAL)
         );
+        assert!(VERIFY_INSTRUCTION.contains("descendant chains such as table tbody tr"));
+        assert!(VERIFY_INSTRUCTION.contains("rejected here before acceptance"));
+    }
+
+    #[test]
+    fn unsupported_css_is_rejected_at_the_structure_gate_with_supported_forms() {
+        let dir = tempdir().unwrap();
+        write_file(dir.path(), "pipeline/main.py", "");
+        write_file(dir.path(), "output/records.json", "[]\n");
+        write_file(
+            dir.path(),
+            "output/inspection.json",
+            r#"{"candidate_selector":{"kind":"css","value":"tr[data-event]"}}"#,
+        );
+        write_file(dir.path(), "output/report.md", "");
+
+        let failures = verify_structure(dir.path());
+
+        assert_eq!(failures.len(), 1);
+        assert!(failures[0].starts_with("ingest_phase_structure:selector_unsupported:"));
+        assert!(failures[0].contains(CSS_SUPPORTED_FORMS));
     }
 
     #[test]

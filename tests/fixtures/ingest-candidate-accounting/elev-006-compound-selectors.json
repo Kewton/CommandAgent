@@ -1,0 +1,19 @@
+{
+  "campaign": "uat-test0726-ingest-elev-006",
+  "source_asset": "workspace/management/bench/assets/ingest/table/data/snapshots/events-table.html",
+  "source_sha256": "394b03ccd7ac141a2677c55d9a2059034ea2c7a92656b466201ee40b7050cddd",
+  "cases": [
+    {
+      "run": "table_cloud_001",
+      "selector": "table tbody tr",
+      "observed_failure": "candidate_set_violation:css_selector_compound",
+      "expected_detected": 10
+    },
+    {
+      "run": "table_cloud_003",
+      "selector": "table tr",
+      "observed_failure": "candidate_set_violation:css_selector_compound",
+      "expected_detected": 10
+    }
+  ]
+}

@@ -218,3 +218,11 @@ match_reason = "ingest_selector:selector_without_snapshot_content_read"
 first_seen = "uat-test0726-ingest-elev-005"
 ledger_ref = "INGEST-6"
 note = "近因はmodelがsnapshot本文をReadせず、実在しないselectorを4/4到達runで宣言したこと。設計根因はmachine guidanceが読むべきpathだけを示し、実構造材料をmodelの目前へ置かなかったこと。INGEST-6でファイル名つき・先頭行+反復候補window・上限付きの実構造注入をimplement promptへ追加"
+
+[[class]]
+id = "ingest_candidate_selector:valid_compound_css_rejected"
+attribution = "machine"
+match_reason = "candidate_set_violation:css_selector_compound"
+first_seen = "uat-test0726-ingest-elev-006"
+ledger_ref = "INGEST-7"
+note = "実HTMLに一致するtable tbody tr / table trをN runtimeがpre-evidence拒否した。INGEST-7で8段までのcompound descendant/direct-child chainを実装し、非対応CSSは構造gateで対応形つき事前拒否へ移した"

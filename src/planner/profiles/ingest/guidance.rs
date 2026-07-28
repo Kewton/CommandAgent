@@ -3,6 +3,11 @@ pub(crate) const SELECTOR_KINDS: [&str; 3] = ["css", "html_tag", "line_prefix"];
 pub(crate) const SELECTOR_LITERAL: &str =
     r#"{"candidate_selector": {"kind": "css", "value": "ul.events > li"}}"#;
 
+pub(crate) const CSS_SUPPORTED_FORMS: &str = "CSS supports tag, .class, #id, their compound \
+forms, descendant chains such as table tbody tr, and direct-child chains such as \
+ul.events > li, with at most 8 compounds; attribute, pseudo, sibling, and comma selectors \
+are not supported";
+
 pub(crate) const INSPECTION_LITERAL: &str = r#"{"candidate_selector":{"kind":"css","value":"ul.events > li"},"candidate_accounting":{"accepted":[{"candidate_id":"data/snapshots/events.html#0","record_index":0}],"excluded":[{"candidate_id":"data/snapshots/events.html#1","reason":"missing required date"}]},"record_format":{"fields":[{"name":"name","type":"string","normalizations":["identity"]},{"name":"date","type":"string","normalizations":["japanese_date_to_iso"]},{"name":"location","type":"string","normalizations":["identity"]},{"name":"source_file","type":"string","normalizations":["identity"]}]}}"#;
 
 pub(crate) const RECORDS_LITERAL: &str = r#"[{"name":"observed event name","date":"2026-08-01","location":"observed location","source_file":"events.html"}]"#;
@@ -18,6 +23,10 @@ pub(crate) const GENERATION_RULES: &str = concat!(
     "line_prefix. Literal selector shape: ",
     r#"{"candidate_selector": {"kind": "css", "value": "ul.events > li"}}"#,
     ".\n",
+    "- CSS selector declaration boundary: CSS supports tag, .class, #id, their compound ",
+    "forms, descendant chains such as table tbody tr, and direct-child chains such as ",
+    "ul.events > li, with at most 8 compounds; attribute, pseudo, sibling, and comma selectors ",
+    "are not supported. Unsupported CSS is rejected by the structural gate before acceptance.\n",
     "- Literal output/inspection.json shape: ",
     r#"{"candidate_selector":{"kind":"css","value":"ul.events > li"},"candidate_accounting":{"accepted":[{"candidate_id":"data/snapshots/events.html#0","record_index":0}],"excluded":[{"candidate_id":"data/snapshots/events.html#1","reason":"missing required date"}]},"record_format":{"fields":[{"name":"name","type":"string","normalizations":["identity"]},{"name":"date","type":"string","normalizations":["japanese_date_to_iso"]},{"name":"location","type":"string","normalizations":["identity"]},{"name":"source_file","type":"string","normalizations":["identity"]}]}}"#,
     ".\n",
@@ -45,6 +54,8 @@ mod tests {
             INSPECTION_LITERAL,
             RECORDS_LITERAL,
             "css, html_tag, and line_prefix",
+            CSS_SUPPORTED_FORMS,
+            "before acceptance",
             "examples only",
             "actual snapshots",
             "never copy example values as fixed data",

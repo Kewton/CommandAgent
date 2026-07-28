@@ -216,6 +216,10 @@ pub fn load_inspection(root: &Path) -> anyhow::Result<InspectionDocument> {
     serde_json::from_str(&text).context("candidate_set_violation:inspection_invalid")
 }
 
+pub(crate) fn validate_selector_declaration(selector: &CandidateSelector) -> anyhow::Result<()> {
+    validate_selector(selector)
+}
+
 fn build_freeze(root: &Path) -> anyhow::Result<CandidateFreeze> {
     let inspection = load_inspection(root)?;
     validate_selector(&inspection.candidate_selector)?;
