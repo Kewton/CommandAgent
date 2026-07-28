@@ -7,7 +7,10 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+mod candidate_id;
 mod css_selector;
+
+pub use candidate_id::{CandidateIdResolution, ResolutionStatus};
 
 pub const INSPECTION_PATH: &str = "output/inspection.json";
 pub const FREEZE_EVIDENCE_PATH: &str = "evidence/ingest-candidate-freeze.json";
@@ -101,6 +104,8 @@ pub struct CandidateAccountingEvidence {
     pub excluded_by_reason: BTreeMap<String, usize>,
     pub equation: String,
     pub candidate_ids: Vec<String>,
+    #[serde(default)]
+    pub candidate_id_resolutions: Vec<CandidateIdResolution>,
     pub failure_kinds: Vec<String>,
 }
 
@@ -133,13 +138,15 @@ pub fn check(root: &Path, frozen: &CandidateFreeze) -> anyhow::Result<CandidateA
         .collect::<BTreeSet<_>>();
     let mut accounted = BTreeSet::new();
     let mut accepted_indices = BTreeSet::new();
+    let mut candidate_id_resolutions = Vec::new();
     for accepted in &inspection.candidate_accounting.accepted {
-        validate_candidate_id(
+        let resolution = validate_candidate_id(
             &accepted.candidate_id,
             &known,
             &mut accounted,
             &mut failure_kinds,
         );
+        candidate_id_resolutions.push(resolution);
         if !accepted_indices.insert(accepted.record_index) {
             failure_kinds.push(format!(
                 "accounting_violation:duplicate_record_index:{}",
@@ -149,12 +156,13 @@ pub fn check(root: &Path, frozen: &CandidateFreeze) -> anyhow::Result<CandidateA
     }
     let mut excluded_by_reason = BTreeMap::new();
     for excluded in &inspection.candidate_accounting.excluded {
-        validate_candidate_id(
+        let resolution = validate_candidate_id(
             &excluded.candidate_id,
             &known,
             &mut accounted,
             &mut failure_kinds,
         );
+        candidate_id_resolutions.push(resolution);
         let reason = excluded.reason.trim();
         if reason.is_empty() {
             failure_kinds.push(format!(
@@ -165,7 +173,10 @@ pub fn check(root: &Path, frozen: &CandidateFreeze) -> anyhow::Result<CandidateA
             *excluded_by_reason.entry(reason.to_string()).or_insert(0) += 1;
         }
     }
-    for candidate_id in known.difference(&accounted) {
+    for candidate_id in known
+        .iter()
+        .filter(|candidate_id| !accounted.contains(**candidate_id))
+    {
         failure_kinds.push(format!(
             "accounting_violation:unaccounted_candidate:{candidate_id}"
         ));
@@ -198,6 +209,7 @@ pub fn check(root: &Path, frozen: &CandidateFreeze) -> anyhow::Result<CandidateA
             .iter()
             .map(|candidate| candidate.id.clone())
             .collect(),
+        candidate_id_resolutions,
         failure_kinds,
     };
     write_json(root, ACCOUNTING_EVIDENCE_PATH, &evidence)?;
@@ -340,22 +352,37 @@ fn validate_selector(selector: &CandidateSelector) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn validate_candidate_id<'a>(
-    candidate_id: &'a str,
-    known: &BTreeSet<&'a str>,
-    accounted: &mut BTreeSet<&'a str>,
+pub fn resolve_candidate_id(candidate_id: &str, frozen: &CandidateFreeze) -> CandidateIdResolution {
+    let known = frozen
+        .candidates
+        .iter()
+        .map(|candidate| candidate.id.as_str())
+        .collect();
+    candidate_id::resolve(candidate_id, &known)
+}
+
+fn validate_candidate_id(
+    candidate_id: &str,
+    known: &BTreeSet<&str>,
+    accounted: &mut BTreeSet<String>,
     failures: &mut Vec<String>,
-) {
-    if !known.contains(candidate_id) {
-        failures.push(format!(
-            "candidate_set_violation:unknown_candidate:{candidate_id}"
-        ));
-    }
-    if !accounted.insert(candidate_id) {
+) -> CandidateIdResolution {
+    let resolution = candidate_id::resolve(candidate_id, known);
+    let Some(resolved) = resolution.resolved() else {
+        let kind = if resolution.status == ResolutionStatus::AmbiguousSuffix {
+            "ambiguous_candidate"
+        } else {
+            "unknown_candidate"
+        };
+        failures.push(format!("candidate_set_violation:{kind}:{candidate_id}"));
+        return resolution;
+    };
+    if !accounted.insert(resolved.to_string()) {
         failures.push(format!(
             "candidate_set_violation:duplicate_candidate:{candidate_id}"
         ));
     }
+    resolution
 }
 
 fn validate_record_indices(root: &Path, indices: &BTreeSet<usize>, failures: &mut Vec<String>) {

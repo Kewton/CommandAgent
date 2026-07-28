@@ -67,6 +67,8 @@ pub struct BoundSourceFragment {
 pub struct FieldBinding {
     pub record_index: usize,
     pub candidate_id: String,
+    #[serde(default)]
+    pub candidate_id_resolution: accounting::CandidateIdResolution,
     pub source_path: Option<String>,
     pub candidate_byte_start: Option<usize>,
     pub candidate_byte_end: Option<usize>,
@@ -106,6 +108,7 @@ struct SourceValue {
 struct FieldBindingInput<'a> {
     record_index: usize,
     candidate_id: &'a str,
+    candidate_id_resolution: &'a accounting::CandidateIdResolution,
     field: &'a str,
     output_value: &'a str,
     rules: &'a [NormalizationRule],
@@ -134,7 +137,11 @@ pub fn check(root: &Path, frozen: &CandidateFreeze) -> anyhow::Result<SourceBind
 
     for (record_index, record) in records.iter().enumerate() {
         let candidate_id = accepted.get(&record_index).cloned().unwrap_or_default();
-        let candidate = candidates.get(candidate_id.as_str()).copied();
+        let candidate_id_resolution = accounting::resolve_candidate_id(&candidate_id, frozen);
+        let candidate = candidate_id_resolution
+            .resolved()
+            .and_then(|resolved| candidates.get(resolved))
+            .copied();
         for field in &format.fields {
             let Some(value) = record.get(&field.name).and_then(value_text) else {
                 continue;
@@ -144,6 +151,7 @@ pub fn check(root: &Path, frozen: &CandidateFreeze) -> anyhow::Result<SourceBind
                 FieldBindingInput {
                     record_index,
                     candidate_id: &candidate_id,
+                    candidate_id_resolution: &candidate_id_resolution,
                     field: &field.name,
                     output_value: &value,
                     rules: &field.normalizations,
@@ -245,6 +253,7 @@ fn bind_field(
     let FieldBindingInput {
         record_index,
         candidate_id,
+        candidate_id_resolution,
         field,
         output_value,
         rules,
@@ -288,6 +297,7 @@ fn bind_field(
     Ok(FieldBinding {
         record_index,
         candidate_id: candidate_id.to_string(),
+        candidate_id_resolution: candidate_id_resolution.clone(),
         source_path: candidate.map(|candidate| candidate.source_path.clone()),
         candidate_byte_start: candidate.map(|candidate| candidate.byte_start),
         candidate_byte_end: candidate.map(|candidate| candidate.byte_end),
@@ -698,6 +708,9 @@ mod tests {
     const ELEV_006_CONTEXT_FIXTURE: &str = include_str!(
         "../../../../tests/fixtures/ingest-source-binding/elev-006-document-year-context.json"
     );
+    const ELEV_007_ID_FIXTURE: &str = include_str!(
+        "../../../../tests/fixtures/ingest-source-binding/elev-007-candidate-id-resolution.json"
+    );
     const ELEV_006_LIST_SNAPSHOT: &str = include_str!(
         "../../../../workspace/management/bench/assets/ingest/list/data/snapshots/events-list.html"
     );
@@ -710,6 +723,31 @@ mod tests {
         context_fragment: String,
         output_value: String,
         declared_normalizations: Vec<NormalizationRule>,
+    }
+
+    #[derive(Deserialize)]
+    struct MeasuredIdFixture {
+        campaign: String,
+        selector: String,
+        observed_runs: usize,
+        observed_n2_date_bindings: usize,
+        observed_n2_field_violations: usize,
+        provided_accepted_id: String,
+        canonical_accepted_id: String,
+        provided_excluded_ids: Vec<String>,
+        output_value: String,
+        candidate_fragment: String,
+        context_fragment: String,
+        declared_normalizations: Vec<NormalizationRule>,
+        expected_resolution: accounting::ResolutionStatus,
+        ambiguous_probe: AmbiguousIdProbe,
+        false_probe: String,
+    }
+
+    #[derive(Deserialize)]
+    struct AmbiguousIdProbe {
+        provided_id: String,
+        frozen_ids: Vec<String>,
     }
 
     #[test]
@@ -786,6 +824,133 @@ mod tests {
             &document[document_context.byte_start..document_context.byte_end],
             fixture.context_fragment
         );
+    }
+
+    #[test]
+    fn elev_007_missing_prefix_resolves_and_records_binding_and_accounting_lineage() {
+        let fixture: MeasuredIdFixture = serde_json::from_str(ELEV_007_ID_FIXTURE).unwrap();
+        assert_eq!(fixture.campaign, "uat-test0726-ingest-elev-007");
+        assert_eq!(fixture.observed_runs, 6);
+        assert_eq!(fixture.observed_n2_date_bindings, 54);
+        assert_eq!(fixture.observed_n2_field_violations, 216);
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("data/snapshots")).unwrap();
+        std::fs::create_dir_all(dir.path().join("output")).unwrap();
+        std::fs::write(
+            dir.path().join("data/snapshots/events-list.html"),
+            ELEV_006_LIST_SNAPSHOT,
+        )
+        .unwrap();
+        let excluded = fixture
+            .provided_excluded_ids
+            .iter()
+            .map(|candidate_id| {
+                json!({"candidate_id":candidate_id,"reason":"not selected in measured fixture"})
+            })
+            .collect::<Vec<_>>();
+        std::fs::write(
+            dir.path().join(accounting::INSPECTION_PATH),
+            serde_json::to_vec_pretty(&json!({
+                "candidate_selector": {"kind":"css","value":fixture.selector},
+                "candidate_accounting": {
+                    "accepted":[{
+                        "candidate_id":fixture.provided_accepted_id,
+                        "record_index":0
+                    }],
+                    "excluded":excluded
+                },
+                "record_format": {"fields":[{
+                    "name":"date",
+                    "type":"string",
+                    "normalizations":fixture.declared_normalizations
+                }]}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join(RECORDS_PATH),
+            serde_json::to_vec_pretty(&json!([{"date":fixture.output_value}])).unwrap(),
+        )
+        .unwrap();
+        let frozen = accounting::freeze(dir.path()).unwrap();
+
+        let source_binding = check(dir.path(), &frozen).unwrap();
+        let candidate_accounting = accounting::check(dir.path(), &frozen).unwrap();
+
+        assert!(source_binding.ok, "{source_binding:?}");
+        assert!(candidate_accounting.ok, "{candidate_accounting:?}");
+        let date = &source_binding.bindings[0];
+        assert_eq!(date.candidate_id, "events-list.html#1");
+        assert_eq!(
+            date.candidate_id_resolution.status,
+            fixture.expected_resolution
+        );
+        assert_eq!(
+            date.candidate_id_resolution.resolved(),
+            Some(fixture.canonical_accepted_id.as_str())
+        );
+        assert_eq!(
+            date.candidate_fragment.as_ref().unwrap().raw_source,
+            fixture.candidate_fragment
+        );
+        assert_eq!(
+            date.document_context.as_ref().unwrap().raw_source,
+            fixture.context_fragment
+        );
+        assert_eq!(candidate_accounting.candidate_id_resolutions.len(), 10);
+        assert!(
+            candidate_accounting
+                .candidate_id_resolutions
+                .iter()
+                .all(|resolution| {
+                    resolution.status == accounting::ResolutionStatus::UniqueSuffix
+                        && resolution.resolved_id.is_some()
+                })
+        );
+    }
+
+    #[test]
+    fn elev_007_fixture_ambiguous_and_false_suffixes_remain_violations() {
+        let fixture: MeasuredIdFixture = serde_json::from_str(ELEV_007_ID_FIXTURE).unwrap();
+        let frozen = CandidateFreeze {
+            capability_id: "ingest_candidate_freeze".to_string(),
+            selector: accounting::CandidateSelector {
+                kind: SelectorKind::Css,
+                value: "article.event".to_string(),
+            },
+            record_format: json!({}),
+            snapshots: Vec::new(),
+            candidates: fixture
+                .ambiguous_probe
+                .frozen_ids
+                .iter()
+                .enumerate()
+                .map(|(ordinal, id)| FrozenCandidate {
+                    id: id.clone(),
+                    source_path: id.split('#').next().unwrap().to_string(),
+                    ordinal,
+                    byte_start: 0,
+                    byte_end: 0,
+                    fnv1a64: format!("{ordinal:016x}"),
+                    raw: String::new(),
+                })
+                .collect(),
+        };
+
+        let ambiguous =
+            accounting::resolve_candidate_id(&fixture.ambiguous_probe.provided_id, &frozen);
+        let false_id = accounting::resolve_candidate_id(&fixture.false_probe, &frozen);
+
+        assert_eq!(
+            ambiguous.status,
+            accounting::ResolutionStatus::AmbiguousSuffix
+        );
+        assert_eq!(ambiguous.matched_ids.len(), 2);
+        assert!(ambiguous.resolved_id.is_none());
+        assert_eq!(false_id.status, accounting::ResolutionStatus::NotFound);
+        assert!(false_id.matched_ids.is_empty());
+        assert!(false_id.resolved_id.is_none());
     }
 
     #[test]

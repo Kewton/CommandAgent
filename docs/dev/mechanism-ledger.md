@@ -960,3 +960,14 @@ ingest implement presetへ、ファイル名を併記した先頭12行と反復�
 明記した。E-1 scaffold checklistには「読むべき入力は目の前に置く」を一般化し、
 bounded machine-injected source material＋実測fixtureを第5の定形装備として
 追加した。
+
+INGEST-8機械語彙配布（2026-07-29）: elev-007では全6runが、machineが
+freeze evidenceで発行した`data/snapshots/events-*.html#N`からprefixを
+落とし、N2 216 fieldとN3 6/6が同じlineage不一致で停止した。近因model、
+設計根因machine（発行語彙をgeneration promptへ返さなかったknowledge
+gap）と二層裁定する。ingest implement phaseを、実構造つき暫定
+selector/record format宣言→candidate freeze→pipeline/final inspection実装へ
+分け、後段implement promptへ凍結ID全件を字義注入する。照合側はexactまたは
+`/`境界の一意suffixだけをcanonical IDへ決定的解決し、provided/matches/
+resolved/statusをN2/N3 evidenceへ残す。曖昧suffixと偽IDは従来どおり
+violationであり、語彙配布と解決責任をmachine側で閉じるDATA-1系の完結形。

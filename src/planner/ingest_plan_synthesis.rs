@@ -5,7 +5,8 @@ use crate::planner::adjudication::contract::IntentId;
 use crate::planner::step_plan::{PlanStep, StepPlan};
 use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
 
-const IMPLEMENT_PATHS: [&str; 2] = ["pipeline/main.py", "output/inspection.json"];
+const INSPECTION_PATH: &str = "output/inspection.json";
+const IMPLEMENT_PATHS: [&str; 1] = ["pipeline/main.py"];
 const RUN_OUTPUT_PATHS: [&str; 2] = ["output/records.json", "output/report.md"];
 const RUN_COMMAND: &str = "python3 -B pipeline/main.py";
 
@@ -21,8 +22,9 @@ const RUN_COMMAND: &str = "python3 -B pipeline/main.py";
 // | phase StepPlan source | machine-fixed | phase_plan_synthesis dispatch / closed |
 // | implement guidance | literal guidance distributed | GENERATION_RULES / closed |
 // | source structure material | machine-fixed, bounded | snapshot_structure injection / closed |
-// | expected_paths ownership | machine-fixed | model-authored IMPLEMENT_PATHS / closed |
-// | phase x expected artifact x producer | machine-fixed | pipeline-produced RUN_OUTPUT_PATHS checked after RUN_COMMAND / closed |
+// | candidate ID vocabulary | machine-frozen + literal guidance | selector declaration -> candidate_guidance injection before delivery implementation / closed |
+// | expected_paths ownership | machine-fixed | provisional inspection first, pipeline second; the second step may finalize its prior inspection / closed |
+// | phase x expected artifact x producer | machine-fixed | provisional inspection -> freeze -> pipeline/final inspection -> pipeline-produced RUN_OUTPUT_PATHS after RUN_COMMAND / closed |
 // | verifier artifact exclusion | machine-fixed | two-path implement closed set / closed |
 // | run + structure commands | machine-fixed | RUN_COMMAND + run output postconditions + phase_verify / closed |
 // | finalizer + lint | machine-fixed | finalize_step_plan_for_execution / closed |
@@ -95,20 +97,42 @@ fn ensure_shape(plan: &UltraPlan) -> anyhow::Result<()> {
 fn implementation_plan(goal: &str) -> StepPlan {
     StepPlan {
         goal: goal.to_string(),
-        steps: vec![PlanStep {
-            id: "implement-ingest-delivery".to_string(),
-            kind: "implement".to_string(),
-            expected_result: "pass".to_string(),
-            instruction: format!(
-                "Create only the model-authored files pipeline/main.py and \
-output/inspection.json. The following run phase executes the pipeline to generate \
-output/records.json and output/report.md; do not hand-author those runtime outputs. \
-Do not create any verification script.\n\n{}",
-                crate::planner::profiles::ingest::guidance::GENERATION_RULES
-            ),
-            expected_paths: IMPLEMENT_PATHS.into_iter().map(str::to_string).collect(),
-            verify: Vec::new(),
-        }],
+        steps: vec![
+            PlanStep {
+                id: "declare-ingest-inspection".to_string(),
+                kind: "implement".to_string(),
+                expected_result: "pass".to_string(),
+                instruction: format!(
+                    "Create only output/inspection.json as a provisional machine input. \
+Declare candidate_selector and record_format from the actual snapshots. Set \
+candidate_accounting.accepted and candidate_accounting.excluded to empty arrays in this \
+provisional declaration; do not guess candidate IDs. The machine freezes the selected \
+candidate set after this step and gives the complete canonical ID list to the next \
+implement step. Do not create pipeline/main.py or any runtime output in this step.\n\n\
+Allowed candidate_selector kinds: {}. {}.\n\
+Literal provisional shape: {}",
+                    crate::planner::profiles::ingest::guidance::SELECTOR_KINDS.join(", "),
+                    crate::planner::profiles::ingest::guidance::CSS_SUPPORTED_FORMS,
+                    crate::planner::profiles::ingest::guidance::PROVISIONAL_INSPECTION_LITERAL,
+                ),
+                expected_paths: vec![INSPECTION_PATH.to_string()],
+                verify: Vec::new(),
+            },
+            PlanStep {
+                id: "implement-ingest-delivery".to_string(),
+                kind: "implement".to_string(),
+                expected_result: "pass".to_string(),
+                instruction: format!(
+                    "Create pipeline/main.py and finalize output/inspection.json using the \
+machine-frozen canonical IDs appended at runtime. Preserve the declared selector and format; \
+replace provisional accounting. The run phase creates records/report. Do not hand-author \
+runtime outputs or verification scripts.\n\n{}",
+                    crate::planner::profiles::ingest::guidance::GENERATION_RULES
+                ),
+                expected_paths: IMPLEMENT_PATHS.into_iter().map(str::to_string).collect(),
+                verify: Vec::new(),
+            },
+        ],
     }
 }
 
@@ -369,33 +393,103 @@ mod tests {
             resolve_phase_plan(&config, &plan, &plan.phases[0], || panic!("model fallback"))
                 .unwrap();
         crate::planner::step_material::inject(&config, &mut generated.steps[0]).unwrap();
-        let step = &generated.steps[0];
+        let declaration = &generated.steps[0];
         assert_eq!(
-            step.expected_paths,
+            declaration.expected_paths,
+            vec![INSPECTION_PATH.to_string()]
+        );
+        assert!(declaration.verify.is_empty());
+        for marker in [
+            crate::planner::profiles::ingest::guidance::PROVISIONAL_INSPECTION_LITERAL,
+            "provisional machine input",
+            "do not guess candidate IDs",
+            "Snapshot file: data/snapshots/events-list.html",
+            "<article class=\"event\" id=\"list-01\">",
+            crate::planner::profiles::ingest::snapshot_structure::SELECTOR_DERIVATION_RULE,
+        ] {
+            assert!(declaration.instruction.contains(marker), "missing {marker}");
+        }
+
+        let delivery = &generated.steps[1];
+        assert_eq!(
+            delivery.expected_paths,
             IMPLEMENT_PATHS
                 .into_iter()
                 .map(str::to_string)
                 .collect::<Vec<_>>()
         );
-        assert!(step.verify.is_empty());
+        assert!(delivery.verify.is_empty());
         for marker in [
             crate::planner::profiles::ingest::guidance::SELECTOR_LITERAL,
             crate::planner::profiles::ingest::guidance::INSPECTION_LITERAL,
             crate::planner::profiles::ingest::guidance::RECORDS_LITERAL,
             "examples only",
             "actual snapshots",
-            "only the model-authored files",
-            "following run phase",
-            "Do not create any verification script",
-            "Snapshot file: data/snapshots/events-list.html",
-            "<article class=\"event\" id=\"list-01\">",
-            crate::planner::profiles::ingest::snapshot_structure::SELECTOR_DERIVATION_RULE,
+            "run phase creates records/report",
+            "verification scripts",
+            "machine-frozen canonical IDs",
         ] {
-            assert!(step.instruction.contains(marker), "missing {marker}");
+            assert!(delivery.instruction.contains(marker), "missing {marker}");
         }
         for runtime_output in RUN_OUTPUT_PATHS {
             assert!(
-                !step
+                !declaration
+                    .expected_paths
+                    .iter()
+                    .chain(&delivery.expected_paths)
+                    .any(|path| path == runtime_output)
+            );
+        }
+    }
+
+    #[test]
+    fn provisional_selector_freezes_ids_before_delivery_prompt() {
+        let (_workspace, config) = config_with_snapshot("events-list.html", LIST_HTML);
+        std::fs::create_dir_all(config.workspace_root.join("output")).unwrap();
+        std::fs::write(
+            config.workspace_root.join(INSPECTION_PATH),
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "candidate_selector": {"kind":"css","value":"article.event"},
+                "candidate_accounting": {"accepted":[],"excluded":[]},
+                "record_format": {"fields":[
+                    {"name":"name","type":"string","normalizations":["identity"]}
+                ]}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        let plan = crate::planner::profiles::ingest::manifest::preset_ultra_plan(
+            MEASURED_GOAL,
+            "default",
+            "create",
+        )
+        .unwrap();
+        let mut generated =
+            resolve_phase_plan(&config, &plan, &plan.phases[0], || panic!("model fallback"))
+                .unwrap();
+
+        crate::planner::step_material::inject(&config, &mut generated.steps[1]).unwrap();
+
+        let instruction = &generated.steps[1].instruction;
+        for marker in [
+            "Machine-frozen canonical candidate IDs.",
+            "before pipeline implementation or execution",
+            "Literal canonical candidate_id example: \"data/snapshots/events-list.html#0\"",
+            "- data/snapshots/events-list.html#0",
+            "- data/snapshots/events-list.html#9",
+            "Do not alter or omit any prefix",
+        ] {
+            assert!(instruction.contains(marker), "missing {marker}");
+        }
+        assert!(
+            config
+                .workspace_root
+                .join(crate::planner::profiles::ingest::accounting::FREEZE_EVIDENCE_PATH)
+                .is_file()
+        );
+        for runtime_output in RUN_OUTPUT_PATHS {
+            assert!(
+                !generated.steps[1]
                     .expected_paths
                     .iter()
                     .any(|path| path == runtime_output)
@@ -529,6 +623,10 @@ mod tests {
             .unwrap();
         assert_eq!(
             implement.steps[0].expected_paths,
+            [INSPECTION_PATH.to_string()]
+        );
+        assert_eq!(
+            implement.steps[1].expected_paths,
             IMPLEMENT_PATHS
                 .into_iter()
                 .map(str::to_string)

@@ -232,8 +232,8 @@ id = "ingest_candidate_accounting:candidate_id_path_prefix_omitted"
 attribution = "model"
 match_reason = "candidate_set_violation:unknown_candidate:events-list.html#0"
 first_seen = "uat-test0726-ingest-elev-006"
-ledger_ref = "INGEST-7"
-note = "list_cloud_003が凍結ID data/snapshots/events-list.html#Nからpath prefixを全件脱落させた。N3のunknown 10+unaccounted 10とN2の派生36件は判定正当であり、照合器は緩和しない"
+ledger_ref = "INGEST-8"
+note = "elev-006 list 003とelev-007 6/6で凍結ID data/snapshots/events-*.html#Nからpath prefixを脱落。近因はmodel、設計根因はmachine発行の凍結語彙をgenerationへ配布しなかったknowledge gap。INGEST-8でselector暫定宣言後・pipeline実装/実行前に全正準IDを注入し、exactまたは一意suffixだけを解決過程つきで受ける。曖昧・偽ID拒否は維持"
 
 [[class]]
 id = "ingest_source_binding:document_year_context_unsupported"

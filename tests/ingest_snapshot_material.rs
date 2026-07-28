@@ -65,7 +65,7 @@ impl ChatClient for CaptureClient {
 }
 
 #[test]
-fn production_step_execution_injects_bounded_real_snapshot_structure() {
+fn production_steps_inject_structure_then_frozen_canonical_candidate_ids() {
     let root = tempfile::tempdir().unwrap();
     let snapshots = root.path().join("data/snapshots");
     std::fs::create_dir_all(&snapshots).unwrap();
@@ -74,6 +74,7 @@ fn production_step_execution_injects_bounded_real_snapshot_structure() {
     let cwd = root.path().to_string_lossy().to_string();
     let mut config = Config::from_cli(Cli::parse_from([
         "commandagent",
+        "--yes",
         "--cwd",
         &cwd,
         "--intent",
@@ -87,19 +88,45 @@ fn production_step_execution_injects_bounded_real_snapshot_structure() {
     config.eval_events_path = Some(events.clone());
     let plan = StepPlan {
         goal: "extract events".to_string(),
-        steps: vec![PlanStep {
-            id: "implement-ingest-delivery".to_string(),
-            kind: "implement".to_string(),
-            expected_result: "pass".to_string(),
-            instruction: "Implement the offline ingest delivery.".to_string(),
-            expected_paths: vec![
-                "pipeline/main.py".to_string(),
-                "output/inspection.json".to_string(),
-            ],
-            verify: Vec::new(),
-        }],
+        steps: vec![
+            PlanStep {
+                id: "declare-ingest-inspection".to_string(),
+                kind: "implement".to_string(),
+                expected_result: "pass".to_string(),
+                instruction: "Declare the provisional ingest inspection.".to_string(),
+                expected_paths: vec!["output/inspection.json".to_string()],
+                verify: Vec::new(),
+            },
+            PlanStep {
+                id: "implement-ingest-delivery".to_string(),
+                kind: "implement".to_string(),
+                expected_result: "pass".to_string(),
+                instruction: "Implement the offline ingest delivery.".to_string(),
+                expected_paths: vec!["pipeline/main.py".to_string()],
+                verify: Vec::new(),
+            },
+        ],
     };
     let mut client = CaptureClient::new(vec![
+        AssistantReply {
+            content: String::new(),
+            tool_calls: vec![ToolCall::new(
+                "Write",
+                serde_json::json!({
+                    "path":"output/inspection.json",
+                    "content":serde_json::json!({
+                        "candidate_selector":{"kind":"css","value":"article.event"},
+                        "candidate_accounting":{"accepted":[],"excluded":[]},
+                        "record_format":{"fields":[
+                            {"name":"name","type":"string","normalizations":["identity"]}
+                        ]}
+                    }).to_string()
+                }),
+            )],
+            prompt_tokens: None,
+            completion_tokens: None,
+        },
+        AssistantReply::text("The provisional inspection is complete."),
         AssistantReply {
             content: String::new(),
             tool_calls: vec![
@@ -111,17 +138,38 @@ fn production_step_execution_injects_bounded_real_snapshot_structure() {
                     "Write",
                     serde_json::json!({
                         "path":"output/inspection.json",
-                        "content":"{\"candidate_selector\":{\"kind\":\"css\",\"value\":\"article.event\"}}"
+                        "content":serde_json::json!({
+                            "candidate_selector":{"kind":"css","value":"article.event"},
+                            "candidate_accounting":{
+                                "accepted":[],
+                                "excluded":[
+                                    {"candidate_id":"data/snapshots/events-list.html#0","reason":"fixture"},
+                                    {"candidate_id":"data/snapshots/events-list.html#1","reason":"fixture"},
+                                    {"candidate_id":"data/snapshots/events-list.html#2","reason":"fixture"},
+                                    {"candidate_id":"data/snapshots/events-list.html#3","reason":"fixture"},
+                                    {"candidate_id":"data/snapshots/events-list.html#4","reason":"fixture"},
+                                    {"candidate_id":"data/snapshots/events-list.html#5","reason":"fixture"},
+                                    {"candidate_id":"data/snapshots/events-list.html#6","reason":"fixture"},
+                                    {"candidate_id":"data/snapshots/events-list.html#7","reason":"fixture"},
+                                    {"candidate_id":"data/snapshots/events-list.html#8","reason":"fixture"},
+                                    {"candidate_id":"data/snapshots/events-list.html#9","reason":"fixture"}
+                                ]
+                            },
+                            "record_format":{"fields":[
+                                {"name":"name","type":"string","normalizations":["identity"]}
+                            ]}
+                        }).to_string()
                     }),
                 ),
             ],
             prompt_tokens: None,
             completion_tokens: None,
         },
-        AssistantReply::text("Implementation artifacts are complete."),
+        AssistantReply::text("The delivery artifacts are complete."),
     ]);
 
-    let _ = commandagent::planner::runner::run_step_plan(&mut client, &plan, &config);
+    let result = commandagent::planner::runner::run_step_plan(&mut client, &plan, &config);
+    assert!(result.is_ok(), "production plan failed: {result:?}");
 
     let prompt = client.prompt_text();
     for marker in [
@@ -130,6 +178,12 @@ fn production_step_execution_injects_bounded_real_snapshot_structure() {
         "L0010 |     <article class=\"event\" id=\"list-01\">",
         "HTML tag=article occurrences=10",
         "セレクタは上記の実在構造から導出すること。",
+        "Machine-frozen canonical candidate IDs.",
+        "before pipeline implementation or execution",
+        "Literal canonical candidate_id example: \"data/snapshots/events-list.html#0\"",
+        "- data/snapshots/events-list.html#0",
+        "- data/snapshots/events-list.html#9",
+        "Do not alter or omit any prefix",
     ] {
         assert!(prompt.contains(marker), "missing prompt marker: {marker}");
     }
@@ -142,4 +196,13 @@ fn production_step_execution_injects_bounded_real_snapshot_structure() {
     );
     assert!(event_text.contains("\"relative_path\":\"data/snapshots/events-list.html\""));
     assert!(event_text.contains("\"candidate_windows\":2"));
+    assert_eq!(
+        event_text
+            .matches("\"event\":\"ingest_candidate_ids_injected\"")
+            .count(),
+        1
+    );
+    assert!(event_text.contains("\"candidate_count\":10"));
+    assert!(event_text.contains("\"frozen_before_run\":true"));
+    assert!(event_text.contains("\"step_id\":\"implement-ingest-delivery\""));
 }

@@ -1,4 +1,5 @@
 pub mod accounting;
+pub(crate) mod candidate_guidance;
 pub(crate) mod guidance;
 pub mod manifest;
 pub(crate) mod phase_verify;

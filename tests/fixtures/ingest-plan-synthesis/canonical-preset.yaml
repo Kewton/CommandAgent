@@ -4,11 +4,16 @@ phase_order:
   - ingest-structural-gate
 plans:
   - phase_id: ingest-implement
+    step_id: declare-ingest-inspection
+    kind: implement
+    expected_paths:
+      - output/inspection.json
+    verify: []
+  - phase_id: ingest-implement
     step_id: implement-ingest-delivery
     kind: implement
     expected_paths:
       - pipeline/main.py
-      - output/inspection.json
     verify: []
   - phase_id: ingest-run
     step_id: run-ingest-pipeline
