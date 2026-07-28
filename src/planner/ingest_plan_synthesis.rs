@@ -13,6 +13,33 @@ const IMPLEMENT_PATHS: [&str; 4] = [
 ];
 const RUN_COMMAND: &str = "python3 -B pipeline/main.py";
 
+// INGEST-4 canonical-default machine-floor audit (full table and boundaries:
+// workspace/management/runs/uat-test0726-ingest-elev-003/floor-audit.md).
+//
+// | floor | canonicality | production binding / state |
+// |---|---|---|
+// | preset selection | machine-fixed | Config default_create_ingest / closed |
+// | UltraPlan + phase order | machine-fixed | ingest manifest PHASE_IDS / closed |
+// | phase StepPlan source | machine-fixed | phase_plan_synthesis dispatch / closed |
+// | implement guidance | literal guidance distributed | GENERATION_RULES / closed |
+// | expected_paths ownership | machine-fixed | IMPLEMENT_PATHS / closed |
+// | verifier artifact exclusion | machine-fixed | four-path closed set / closed |
+// | run + structure commands | machine-fixed | RUN_COMMAND + phase_verify / closed |
+// | finalizer + lint | machine-fixed | finalize_step_plan_for_execution / closed |
+// | expected-path execution | machine-fixed | generic ownership verifier / closed |
+// | command classification | machine-fixed | verify::dependency_classification / closed |
+// | execution progress | machine-fixed | execution_progress tracker / closed |
+// | profile structure check | machine-fixed | IngestProfile::verify_final / closed |
+// | N1-N5 activation | machine-fixed | IngestProfile::behavior_probe / closed |
+// | N adapters + freeze | machine-fixed | ingest manifest + runtime / closed |
+// | N evidence + assurance | machine-fixed | ingest runtime classifier / closed |
+// | repair boundary | machine-fixed | ingest source/evidence target paths / closed |
+// | assurance projection | machine-fixed | completion_metadata::ingest / closed |
+// | admission cap | machine-fixed | profile_admission draft cap / closed |
+//
+// No canonical-default floor is planner-derived. The executor model still owns
+// delivery content, by design; explicit `--plan-preset none` is an operator
+// opt-out and is outside this default production path.
 pub(crate) fn resolve_phase_plan(
     config: &Config,
     plan: &UltraPlan,
