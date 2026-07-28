@@ -118,6 +118,28 @@ fn validate(manifest: &ManifestV1) -> Result<(), String> {
             ));
         }
     }
+    for marker in [
+        "only the model-authored files pipeline/main.py and output/inspection.json",
+        "following run phase executes it",
+        "do not hand-author those runtime outputs",
+    ] {
+        if !implementation_prompt.contains(marker) {
+            return Err(format!(
+                "ingest implementation prompt crosses the run-output ownership boundary: {marker}"
+            ));
+        }
+    }
+    let run_prompt = &manifest.plan.phases[1].prompt;
+    for marker in [
+        "python3 -B pipeline/main.py",
+        "generated output/records.json and output/report.md",
+    ] {
+        if !run_prompt.contains(marker) {
+            return Err(format!(
+                "ingest run prompt lacks ordered execution postcondition: {marker}"
+            ));
+        }
+    }
     for kind in crate::planner::profiles::ingest::guidance::SELECTOR_KINDS {
         if !implementation_prompt.contains(kind) || !guidance_text.contains(kind) {
             return Err(format!(
@@ -169,6 +191,7 @@ mod tests {
     fn preset_and_repair_guidance_publish_every_canonical_literal_before_the_gate() {
         let preset = preset_ultra_plan("Extract actual events.", "default", "create").unwrap();
         let implementation = &preset.phases[0].prompt;
+        let run = &preset.phases[1].prompt;
         let repair_guidance = guidance();
         for marker in [
             guidance::SELECTOR_LITERAL,
@@ -197,6 +220,19 @@ mod tests {
             "actual observed snapshots",
         ] {
             assert!(repair_guidance.contains(marker), "repair lacks {marker}");
+        }
+        for marker in [
+            "only the model-authored files pipeline/main.py and output/inspection.json",
+            "following run phase executes it",
+            "do not hand-author those runtime outputs",
+        ] {
+            assert!(implementation.contains(marker), "implement lacks {marker}");
+        }
+        for marker in [
+            "python3 -B pipeline/main.py",
+            "generated output/records.json and output/report.md",
+        ] {
+            assert!(run.contains(marker), "run lacks {marker}");
         }
     }
 

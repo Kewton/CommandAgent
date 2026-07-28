@@ -1,0 +1,23 @@
+source_campaign: uat-test0726-ingest-elev-004
+source_plan_sha256: 7f9101db36a4172e781125790dd69fd4573769564d32625eccc2e77fdc9df548
+measured_implement_plan:
+  step_id: implement-ingest-delivery
+  expected_paths:
+    - pipeline/main.py
+    - output/inspection.json
+    - output/records.json
+    - output/report.md
+measurement:
+  formal_runs: 6
+  run_phase_reached: 0
+  model_authored_artifacts:
+    pipeline/main.py: 6
+    output/inspection.json: 4
+  pipeline_generated_artifacts:
+    output/records.json: 0
+    output/report.md: 0
+  terminal_reason: artifact_follow_through_exhausted
+adjudication:
+  original: model 6/6
+  corrected: machine
+  machine_cause: runtime outputs were required before the pipeline execution phase

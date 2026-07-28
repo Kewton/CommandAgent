@@ -9,8 +9,6 @@ plans:
     expected_paths:
       - pipeline/main.py
       - output/inspection.json
-      - output/records.json
-      - output/report.md
     verify: []
   - phase_id: ingest-run
     step_id: run-ingest-pipeline
@@ -18,6 +16,13 @@ plans:
     expected_paths: []
     verify:
       - python3 -B pipeline/main.py
+  - phase_id: ingest-run
+    step_id: verify-ingest-run-outputs
+    kind: verify
+    expected_paths: []
+    verify:
+      - test -f output/records.json
+      - test -f output/report.md
   - phase_id: ingest-structural-gate
     step_id: verify-ingest-phase-structure
     kind: verify

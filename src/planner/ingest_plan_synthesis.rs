@@ -5,12 +5,8 @@ use crate::planner::adjudication::contract::IntentId;
 use crate::planner::step_plan::{PlanStep, StepPlan};
 use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
 
-const IMPLEMENT_PATHS: [&str; 4] = [
-    "pipeline/main.py",
-    "output/inspection.json",
-    "output/records.json",
-    "output/report.md",
-];
+const IMPLEMENT_PATHS: [&str; 2] = ["pipeline/main.py", "output/inspection.json"];
+const RUN_OUTPUT_PATHS: [&str; 2] = ["output/records.json", "output/report.md"];
 const RUN_COMMAND: &str = "python3 -B pipeline/main.py";
 
 // INGEST-4 canonical-default machine-floor audit (full table and boundaries:
@@ -22,9 +18,10 @@ const RUN_COMMAND: &str = "python3 -B pipeline/main.py";
 // | UltraPlan + phase order | machine-fixed | ingest manifest PHASE_IDS / closed |
 // | phase StepPlan source | machine-fixed | phase_plan_synthesis dispatch / closed |
 // | implement guidance | literal guidance distributed | GENERATION_RULES / closed |
-// | expected_paths ownership | machine-fixed | IMPLEMENT_PATHS / closed |
-// | verifier artifact exclusion | machine-fixed | four-path closed set / closed |
-// | run + structure commands | machine-fixed | RUN_COMMAND + phase_verify / closed |
+// | expected_paths ownership | machine-fixed | model-authored IMPLEMENT_PATHS / closed |
+// | phase x expected artifact x producer | machine-fixed | pipeline-produced RUN_OUTPUT_PATHS checked after RUN_COMMAND / closed |
+// | verifier artifact exclusion | machine-fixed | two-path implement closed set / closed |
+// | run + structure commands | machine-fixed | RUN_COMMAND + run output postconditions + phase_verify / closed |
 // | finalizer + lint | machine-fixed | finalize_step_plan_for_execution / closed |
 // | expected-path execution | machine-fixed | generic ownership verifier / closed |
 // | command classification | machine-fixed | verify::dependency_classification / closed |
@@ -101,9 +98,12 @@ fn implementation_plan(goal: &str) -> StepPlan {
             expected_result: "pass".to_string(),
             instruction: format!(
                 "Implement the complete offline ingest delivery for the original goal. \
-Own and create pipeline/main.py, output/inspection.json, output/records.json, and \
-output/report.md in this step. Inspect the real data/snapshots inputs before choosing \
-the selector or values. Do not create any verification script or verifier artifact.\n\n{}",
+Own and create only the model-authored files pipeline/main.py and \
+output/inspection.json in this step. The pipeline implementation must generate \
+output/records.json and output/report.md when the following run phase executes it; \
+do not hand-author those runtime outputs in this step. Inspect the real \
+data/snapshots inputs before choosing the selector or values. Do not create any \
+verification script or verifier artifact.\n\n{}",
                 crate::planner::profiles::ingest::guidance::GENERATION_RULES
             ),
             expected_paths: IMPLEMENT_PATHS.into_iter().map(str::to_string).collect(),
@@ -115,17 +115,35 @@ the selector or values. Do not create any verification script or verifier artifa
 fn run_plan(goal: &str) -> StepPlan {
     StepPlan {
         goal: goal.to_string(),
-        steps: vec![PlanStep {
-            id: "run-ingest-pipeline".to_string(),
-            kind: "verify".to_string(),
-            expected_result: "pass".to_string(),
-            instruction:
-                "Run the machine-fixed offline pipeline command without changing files or substituting another command."
+        steps: vec![
+            PlanStep {
+                id: "run-ingest-pipeline".to_string(),
+                kind: "verify".to_string(),
+                expected_result: "pass".to_string(),
+                instruction:
+                    "Run the machine-fixed offline pipeline command without changing files or substituting another command."
+                        .to_string(),
+                expected_paths: Vec::new(),
+                verify: vec![RUN_COMMAND.to_string()],
+            },
+            PlanStep {
+                id: "verify-ingest-run-outputs".to_string(),
+                kind: "verify".to_string(),
+                expected_result: "pass".to_string(),
+                instruction: "After the machine-fixed pipeline command has completed, verify that it generated output/records.json and output/report.md. Do not replace pipeline execution with hand-authored outputs."
                     .to_string(),
-            expected_paths: Vec::new(),
-            verify: vec![RUN_COMMAND.to_string()],
-        }],
+                expected_paths: Vec::new(),
+                verify: run_output_verify_commands(),
+            },
+        ],
     }
+}
+
+fn run_output_verify_commands() -> Vec<String> {
+    RUN_OUTPUT_PATHS
+        .into_iter()
+        .map(|path| format!("test -f {path}"))
+        .collect()
 }
 
 fn structural_gate_plan(goal: &str) -> StepPlan {
@@ -162,6 +180,8 @@ mod tests {
     const MEASURED_GOAL: &str = "data/snapshots/ 配下のHTMLから自治体イベント情報を抽出し、JSON形式（フィールド: name, date (YYYY-MM-DD), location, source_file）で output/records.json に整形してください。候補検出に用いる決定的セレクタを宣言し、抽出できない候補は理由を明記して除外してください。output/report.md に件数と要約を記載してください。";
     const MEASURED_GAPS: &str =
         include_str!("../../tests/fixtures/ingest-plan-synthesis/elev-003-gaps.yaml");
+    const MEASURED_ELEV_004_GAP: &str =
+        include_str!("../../tests/fixtures/ingest-plan-synthesis/elev-004-gaps.yaml");
     const PRESET_SNAPSHOT: &str =
         include_str!("../../tests/fixtures/ingest-plan-synthesis/canonical-preset.yaml");
 
@@ -214,18 +234,22 @@ mod tests {
         let generated = plan
             .phases
             .iter()
-            .map(|phase| {
+            .flat_map(|phase| {
                 let step_plan = resolve_phase_plan(&config, &plan, phase, || {
                     panic!("ingest preset must not call the planner fallback")
                 })
                 .unwrap();
-                PlanProjection {
-                    phase_id: phase.id.clone(),
-                    step_id: step_plan.steps[0].id.clone(),
-                    kind: step_plan.steps[0].kind.clone(),
-                    expected_paths: step_plan.steps[0].expected_paths.clone(),
-                    verify: step_plan.steps[0].verify.clone(),
-                }
+                step_plan
+                    .steps
+                    .into_iter()
+                    .map(|step| PlanProjection {
+                        phase_id: phase.id.clone(),
+                        step_id: step.id,
+                        kind: step.kind,
+                        expected_paths: step.expected_paths,
+                        verify: step.verify,
+                    })
+                    .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
         let expected: Snapshot = serde_yaml::from_str(PRESET_SNAPSHOT).unwrap();
@@ -249,7 +273,7 @@ mod tests {
     }
 
     #[test]
-    fn synthesized_implementation_owns_only_delivery_artifacts_and_literal_guidance() {
+    fn synthesized_implementation_owns_only_model_authored_artifacts_and_literal_guidance() {
         let config = config();
         let plan = crate::planner::profiles::ingest::manifest::preset_ultra_plan(
             MEASURED_GOAL,
@@ -275,9 +299,19 @@ mod tests {
             crate::planner::profiles::ingest::guidance::RECORDS_LITERAL,
             "examples only",
             "actual snapshots",
+            "only the model-authored files",
+            "following run phase",
             "Do not create any verification script",
         ] {
             assert!(step.instruction.contains(marker), "missing {marker}");
+        }
+        for runtime_output in RUN_OUTPUT_PATHS {
+            assert!(
+                !step
+                    .expected_paths
+                    .iter()
+                    .any(|path| path == runtime_output)
+            );
         }
     }
 
@@ -322,10 +356,82 @@ mod tests {
             );
         }
         assert_eq!(generated[1].steps[0].verify, [RUN_COMMAND.to_string()]);
+        assert!(generated[1].steps[1].expected_paths.is_empty());
+        assert_eq!(generated[1].steps[1].verify, run_output_verify_commands());
         assert_eq!(
             generated[2].steps[0].verify,
             [crate::planner::profiles::ingest::phase_verify::CHECK_COMMAND.to_string()]
         );
+    }
+
+    #[test]
+    fn elev_004_runtime_outputs_are_checked_only_after_pipeline_execution() {
+        for measured in [
+            "uat-test0726-ingest-elev-004",
+            "7f9101db36a4172e781125790dd69fd4573769564d32625eccc2e77fdc9df548",
+            "output/records.json",
+            "output/report.md",
+            "formal_runs: 6",
+            "run_phase_reached: 0",
+        ] {
+            assert!(
+                MEASURED_ELEV_004_GAP.contains(measured),
+                "fixture lacks {measured}"
+            );
+        }
+
+        let config = config();
+        let plan = crate::planner::profiles::ingest::manifest::preset_ultra_plan(
+            MEASURED_GOAL,
+            "default",
+            "create",
+        )
+        .unwrap();
+        let implement =
+            resolve_phase_plan(&config, &plan, &plan.phases[0], || panic!("model fallback"))
+                .unwrap();
+        let run = resolve_phase_plan(&config, &plan, &plan.phases[1], || panic!("model fallback"))
+            .unwrap();
+        assert_eq!(
+            implement.steps[0].expected_paths,
+            IMPLEMENT_PATHS
+                .into_iter()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(run.steps.len(), 2);
+        assert_eq!(run.steps[0].verify, [RUN_COMMAND.to_string()]);
+        assert!(run.steps[0].expected_paths.is_empty());
+        assert!(run.steps[1].expected_paths.is_empty());
+        assert_eq!(run.steps[1].verify, run_output_verify_commands());
+
+        let generated = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(generated.path().join("pipeline")).unwrap();
+        std::fs::write(
+            generated.path().join("pipeline/main.py"),
+            "from pathlib import Path\nPath('output').mkdir(exist_ok=True)\nPath('output/records.json').write_text('[]')\nPath('output/report.md').write_text('# report\\n')\n",
+        )
+        .unwrap();
+        assert!(crate::planner::verify::verify_step(generated.path(), &run.steps[0]).is_pass());
+        assert!(crate::planner::verify::verify_step(generated.path(), &run.steps[1]).is_pass());
+
+        let missing = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(missing.path().join("pipeline")).unwrap();
+        std::fs::write(missing.path().join("pipeline/main.py"), "pass\n").unwrap();
+        assert!(crate::planner::verify::verify_step(missing.path(), &run.steps[0]).is_pass());
+        let report = crate::planner::verify::verify_step(missing.path(), &run.steps[1]);
+        assert!(!report.is_pass());
+        assert!(report.missing_paths.is_empty());
+        assert_eq!(report.command_failures.len(), RUN_OUTPUT_PATHS.len());
+        for output in RUN_OUTPUT_PATHS {
+            assert!(
+                report
+                    .command_failures
+                    .iter()
+                    .any(|failure| failure.command.contains(output)),
+                "missing post-run failure for {output}"
+            );
+        }
     }
 
     #[test]

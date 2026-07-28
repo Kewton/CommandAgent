@@ -10,7 +10,7 @@
 
 ingest createの**既定production経路**で、executor modelとN1〜N5 runtimeの
 間に置く床を全数走査した。`planner由来`は0行である。UltraPlanの段構成、
-各phaseのStepPlan、成果物所有権、guidance、verify command、構造gate、
+各phaseのStepPlan、成果物所有権、段×期待成果物×生成主体、guidance、verify command、構造gate、
 N runtime起動までmachineが先に確定する。
 
 executor modelは`ingest-implement`の固定instructionに従って納品物の内容を
@@ -30,12 +30,13 @@ executor modelは`ingest-implement`の固定instructionに従って納品物の�
 | phase順序 | 機械固定 | `src/planner/profiles/ingest/manifest.toml` / `manifest::PHASE_IDS` | `implement → run → structural gate`の3段。manifest検証でclosed |
 | StepPlan dispatch | 機械固定 | `src/planner/phase_plan_synthesis.rs`→`ingest_plan_synthesis.rs` | ingest presetをplanner fallbackより先に解決。fallback panic test 3/3でclosed |
 | implement instruction | 字義例配布済み | `guidance::GENERATION_RULES`を固定instructionへ同梱 | selector、inspection、recordsの全字義形と「実snapshot値へ置換」を先行配布。closed |
-| 納品物所有権 | 機械固定 | `IMPLEMENT_PATHS` | `pipeline/main.py`、`output/inspection.json`、`output/records.json`、`output/report.md`の4件だけをimplementが所有。closed |
-| verifier artifact排除 | 機械固定 | 同じ`IMPLEMENT_PATHS`と計画snapshot | `smoke-check.py` / `verify_pipeline.py` / `smoke-check.js` / `verify-artifacts.js`を表現不能化。elev-003実測fixture両側でclosed |
-| run command | 機械固定 | `RUN_COMMAND` | `python3 -B pipeline/main.py`の1本。planner代替commandなし。closed |
+| 納品物所有権 | 機械固定 | `IMPLEMENT_PATHS` | modelが書く`pipeline/main.py`と`output/inspection.json`の2件だけをimplementが所有。closed |
+| 段×期待成果物×生成主体 | 機械固定 | `IMPLEMENT_PATHS` / `RUN_OUTPUT_PATHS` / `run_output_verify_commands` | implementはmodel-authored 2件、runは`python3 -B pipeline/main.py`実行後にpipeline-produced `records.json` / `report.md`を`test -f`で検証。elev-004実測負例と実行後欠落testでclosed |
+| verifier artifact排除 | 機械固定 | 2件の`IMPLEMENT_PATHS`と計画snapshot | `smoke-check.py` / `verify_pipeline.py` / `smoke-check.js` / `verify-artifacts.js`を表現不能化。elev-003実測fixture両側でclosed |
+| run command | 機械固定 | `RUN_COMMAND` + `run_output_verify_commands` | `python3 -B pipeline/main.py`の後に2出力を検査。planner代替commandなし。closed |
 | StepPlan finalizer | 機械固定 | `step_plan_finalize::finalize_step_plan_for_execution` | 合成した3phaseすべてを既存repair+lint chokepointへ通す。closed |
 | structural gate | 機械固定＋字義例配布済み | `profiles/ingest/phase_verify.rs` | 内部command`anvil-ingest-check:phase_structure`。構造だけを検査し意味検証をNへ委譲。closed |
-| expected-path実行検査 | 機械固定 | generic StepPlan ownership/lint/verification | verify stepはpathを所有せず、implementの4件だけを検査。canonical snapshotでclosed |
+| expected-path実行検査 | 機械固定 | generic StepPlan ownership/lint/verification | verify stepが出力を事前所有しないguardrailを維持。implementの2件はartifact検査、run出力2件はcommand後の機械postcondition。canonical snapshotでclosed |
 | command分類 | 機械固定 | `planner/verify/dependency_classification.rs` | workspace script実行とdependency導入を分離するINGEST-1境界を使用。planner入力なし。closed |
 | 実行型進捗 | 機械固定 | `minimal_loop/execution_progress.rs` | 相異なるexit 0 commandだけを進捗とし、反復・失敗・read-onlyは非進捗。planner入力なし。closed |
 | profile構造確認 | 機械固定 | `IngestProfile::verify_final` | 4納品物と1件以上のsnapshot入力を確認。closed |
@@ -49,7 +50,7 @@ executor modelは`ingest-implement`の固定instructionに従って納品物の�
 
 集計:
 
-- 機械固定（`機械固定＋字義例配布済み`を含む）: 21床
+- 機械固定（`機械固定＋字義例配布済み`を含む）: 22床
 - 字義例配布済みを含む床: 2床
 - planner由来: **0床**
 - open / unknown: **0床**
@@ -61,10 +62,24 @@ executor modelは`ingest-implement`の固定instructionに従って納品物の�
 
 | elev-003実測形 | INGEST-4の構造的遮断 |
 |---|---|
-| `smoke-check.js`がexpected pathへ残存 | implement ownershipを固定4納品物へ閉じた |
+| `smoke-check.js`がexpected pathへ残存 | implement ownershipをmodel-authored 2納品物へ閉じた |
 | `verify-artifacts.js`がexpected pathへ残存 | 同上。拡張子別の事後filterへ依存しない |
 | verify段で`Repair or finalize pipeline/main.py`を要求 | run/structural gateのinstructionとcommandをmachine固定し、変更要求を表現不能化 |
 | plannerのphase名・段数がrunごとに変動 | manifestの3段と各StepPlanをproduction dispatchで固定 |
 
 従ってINGEST-4は、個別の`.js` path filter追加ではなく、plannerが
 expected_paths・verify・段構成を発明しない構造へ転回して解消した。
+
+## INGEST-5 elev-004補正
+
+INGEST-4の初版監査は「4納品物をimplementへ一本化」をclosedとしたが、
+これは段の生成能力を監査軸に含めていなかった。レビュー発行のINGEST-4指示
+自体が`output/records.json` / `output/report.md`をimplement expectedへ置き、
+pipelineを実行するrun段より前に検査した。elev-004の6runは20秒前後で
+run未到達、`pipeline/main.py` 6/6・inspection 4/6に対しruntime output 0/6
+という同じ分布を示した。
+
+INGEST-5は`tests/fixtures/ingest-plan-synthesis/elev-004-gaps.yaml`へ実測plan
+sha256と分布を固定し、監査表へ「段×期待成果物×生成主体」を追加した。
+裁定者の指示もmachine floorの入力として監査対象であり、所有権原則は
+「段が直接生成できる物だけをその段で要求する」と精密化する。

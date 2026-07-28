@@ -920,3 +920,14 @@ acceptanceへ固定し、UltraPlanと各StepPlanのplanner自由作文をproduct
 「1計測1欠陥」を閉じるため、E-1 scaffold checklistには「計画は
 machine synthesis/profile preset、planner自由作文禁止」を投影写像・
 起動実在・構造gate字義例に続く第4の定形装備として必須化した。
+
+INGEST-5 preset段分解（2026-07-28）: elev-004のmodel帰属6/6を
+machineへ訂正した。INGEST-4のレビュー発行指示自体が、pipeline実行で生まれる
+`output/records.json` / `output/report.md`をimplement段のexpectedへ置き、
+run前に6/6を16〜24秒で停止させた。modelが直接書く
+`pipeline/main.py`は6/6、inspectionは4/6、実行成果物は0/6という分布を
+一次根拠とする。fix合成で確立した所有権原則を「段の期待成果物はその段の
+生成能力に限る」へ再確認し、implementはmodel-authored 2件、runは
+`python3 -B pipeline/main.py`実行後のrecords/report機械postconditionへ
+分離した。検証は削除せず実行後へ移し、欠落をcommand failureとして固定する。
+裁定者の指示もmachine floorの入力として監査対象である。

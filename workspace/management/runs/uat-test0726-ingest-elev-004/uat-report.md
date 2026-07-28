@@ -23,10 +23,10 @@ planner provider turnは0件であり、elev-003にあったplanner由来の段�
 `pipeline/main.py`は6/6、`output/inspection.json`は4/6に存在したが、
 `output/records.json`と`output/report.md`は0/6だった。executorは各runで
 11 tool callを消費しながらスナップショット内容をReadせず、Globと
-`ls -R data/snapshots`を反復した。固定床が全run同一でplanner callがなく、
-Write自体は成功していることから、本campaignの近因はmodel
-(`model_artifact_follow_through:ingest_delivery_incomplete_after_fixed_plan`)
-と監査裁定する。自動登録簿の既知classは`process_failure`で6/6一致する。
+`ls -R data/snapshots`を反復した。計測時はこれをmodel 6/6と仮裁定したが、
+INGEST-5レビューで**machine 6/6へ訂正**した。INGEST-4指示とpreset自身が
+pipeline実行で生まれる2出力をimplement expectedへ置き、run前に要求したため
+である。一次資料の納品分布と20秒前後の同形停止はこの段分解gapと整合する。
 
 run phase、structural gate、final acceptanceには到達しなかったため、
 要求されたN1〜N5の実物値は0件である。途中workspaceのinspectionをN evidenceへ
@@ -51,8 +51,8 @@ ingest/createの明示preset未指定時はconfigが
 `PlanPreset::Profile` / origin `default_create_ingest`を選ぶ。profile manifestと
 leaf synthesis dispatcherが次の3段を固定する。
 
-1. `ingest-implement`: executorが4納品物を一括所有し、字義例つき固定guidanceで
-   作成する。
+1. `ingest-implement`: executorへ4納品物を一括所有させた。この所有権配置は
+   INGEST-5レビューでmachine gapと裁定し、model-authored 2件へ是正した。
 2. `ingest-run`: machine command `python3 -B pipeline/main.py`を実行する。
 3. `ingest-structural-gate`: machine-owned structural gateを実行し、成功後の
    final acceptanceがN1〜N5を起動する。
@@ -86,9 +86,10 @@ composition is disabled`を追加した。既存3項目（投影写像、product
 
 常設監査表は
 `workspace/management/runs/uat-test0726-ingest-elev-003/floor-audit.md`。
-executor modelとN runtimeの間の21床を列挙した。
+executor modelとN runtimeの間の22床を列挙した。INGEST-5で
+「段×期待成果物×生成主体」を追加した。
 
-- machine固定（字義例配布済みを含む）: 21床
+- machine固定（字義例配布済みを含む）: 22床
 - planner由来: **0床**
 - open / unknown: **0床**
 
@@ -200,12 +201,12 @@ planner lint終端は0/6だった。全runが第1phaseで停止したため、
 
 | run | family | verdict | assurance | N1 | N2 | N3 | N4 | N5 | 停止形 / 監査帰属 | 秒 |
 |---|---|---|---|---|---|---|---|---|---|---:|
-| `list_cloud_001` | list | failed | static (`ingest_probe_not_run`) | — | — | — | — | — | 固定納品物1/4、follow-through exhausted / model | 16 |
-| `list_cloud_002` | list | failed | static (`ingest_probe_not_run`) | — | — | — | — | — | 固定納品物2/4、follow-through exhausted / model | 18 |
-| `list_cloud_003` | list | failed | static (`ingest_probe_not_run`) | — | — | — | — | — | 固定納品物1/4、follow-through exhausted / model | 23 |
-| `table_cloud_001` | table | failed | static (`ingest_probe_not_run`) | — | — | — | — | — | 固定納品物2/4、follow-through exhausted / model | 21 |
-| `table_cloud_002` | table | failed | static (`ingest_probe_not_run`) | — | — | — | — | — | 固定納品物2/4、follow-through exhausted / model | 18 |
-| `table_cloud_003` | table | failed | static (`ingest_probe_not_run`) | — | — | — | — | — | 固定納品物2/4、follow-through exhausted / model | 24 |
+| `list_cloud_001` | list | failed | static (`ingest_probe_not_run`) | — | — | — | — | — | run出力をimplement要求 / machine | 16 |
+| `list_cloud_002` | list | failed | static (`ingest_probe_not_run`) | — | — | — | — | — | run出力をimplement要求 / machine | 18 |
+| `list_cloud_003` | list | failed | static (`ingest_probe_not_run`) | — | — | — | — | — | run出力をimplement要求 / machine | 23 |
+| `table_cloud_001` | table | failed | static (`ingest_probe_not_run`) | — | — | — | — | — | run出力をimplement要求 / machine | 21 |
+| `table_cloud_002` | table | failed | static (`ingest_probe_not_run`) | — | — | — | — | — | run出力をimplement要求 / machine | 18 |
+| `table_cloud_003` | table | failed | static (`ingest_probe_not_run`) | — | — | — | — | — | run出力をimplement要求 / machine | 24 |
 
 全runのharness statusは`completed`、product exitは1。panic、理由なし終端、
 環境中断、偽成功は0件。
@@ -284,7 +285,7 @@ admission=offのfull相当capは、earned full相当が0件のため未計測で
 
 ## 6. 死因の機械 / モデル帰属
 
-### 6.1 自動分類
+### 6.1 計測コミット時の自動分類（class未登録）
 
 `classify_runs`:
 
@@ -293,9 +294,9 @@ admission=offのfull相当capは、earned full相当が0件のため未計測で
 - class: `process_failure`
 - registry attribution: model
 
-### 6.2 一次資料による裁定
+### 6.2 計測時の初期裁定（INGEST-5で失効）
 
-モデル近因6件とする材料:
+計測時は次の材料からmodel近因6件と仮裁定した:
 
 1. plan preset origin、phase、instruction、4 expected pathsは6runで同一。
 2. `planner_skipped=true` 6/6、planner provider turn 0。開いたplanner生成分布は
@@ -307,14 +308,27 @@ admission=offのfull相当capは、earned full相当が0件のため未計測で
 5. 固定4納品物のうちrecords/reportを1件も作らず、artifact feedback後も
    完遂しなかった。
 
-このため実測subtypeを
+このため当時は実測subtypeを
 `model_artifact_follow_through:ingest_delivery_incomplete_after_fixed_plan`
-（6/6）と記録する。登録簿の既知`process_failure`で分類可能なため、
-本計測コミットではclass追加を行わない。
+（6/6）と記録した。この裁定は次節で上書きする。
 
-これは「モデルが内容を作ったがNが拒否した」形ではなく、
-「モデルが固定implement納品を作り切らずNへ渡せなかった」形である。
-INGEST-4のmachine presetはこの失敗をfailed/staticとして正直終端した。
+### 6.3 INGEST-5レビュー裁定
+
+**帰属をmodel 6/6からmachine 6/6へ訂正する。**
+
+INGEST-4のレビュー発行指示自体が、implement段へ
+`pipeline/main.py`・inspection・records・reportの4件を一括所有させた。
+しかしrecords/reportは`python3 -B pipeline/main.py`の実行成果物である。
+実行前のimplement段で要求したため、runへ進む前にgeneric artifact
+follow-throughが全runを停止した。
+
+一次資料は、modelが直接書ける`pipeline/main.py` 6/6・inspection 4/6に対し、
+実行が生むrecords/report 0/6、run到達0/6、所要16〜24秒という分布である。
+これはmodel能力差より段分解の同一machine floorで説明できる。
+class
+`ingest_preset:runtime_outputs_bound_before_run`
+をmachine / first_seen=`uat-test0726-ingest-elev-004`として登録し、
+INGEST-5で解消する。裁定者の指示も監査対象である。
 
 ## 7. E-0・scrub・コスト
 
@@ -369,7 +383,7 @@ repoへ保存するのはscrub済み集計と人手監査レポートだけで�
 - full相当率: 0/6 (0%)
 - N2/N3 live成績: 未計測
 - family差: list/tableとも到達0、full 0
-- 新しい実測subtype: 固定plan後のmodel納品未完遂 6/6
+- 訂正class: run出力をimplementへ事前束縛したmachine段分解gap 6/6
 - preset production起動: 6/6
 - planner自由作文: 0/6
 

@@ -201,3 +201,12 @@ match_stop_class = "missing expected paths: output/report.md, smoke-check.js"
 first_seen = "uat-test0726-ingest-elev-003"
 ledger_ref = "INGEST-4"
 note = "モデル自作verify commandの機械正準化後もsmoke-check.js / verify-artifacts.jsがexpected pathへ残ったcommand/path非対称。INGEST-4でingest createの計画・所有権・verifyを機械preset化し、検証script path自体を表現不能にして解消済み"
+
+[[class]]
+id = "ingest_preset:runtime_outputs_bound_before_run"
+attribution = "machine"
+match_reason = "missing expected paths: output/records.json, output/report.md"
+match_stop_class = "missing expected paths: output/inspection.json, output/records.json, output/report.md"
+first_seen = "uat-test0726-ingest-elev-004"
+ledger_ref = "INGEST-5"
+note = "INGEST-4指示とpresetがpipeline実行で生まれるrecords/reportをimplement段のexpected_pathsへ置き、6/6をrun前に停止させた。INGEST-5でmodel-authored pipeline/inspectionだけをimplementへ残し、run command後の機械postconditionへ移して解消済み"

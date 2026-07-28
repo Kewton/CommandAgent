@@ -11,8 +11,9 @@ runtime_entry = "src/planner/profiles/ingest/runtime.rs"
 [phases]
 ids = ["ingest-implement", "ingest-run", "ingest-structural-gate"]
 source = "machine_synthesized_profile_preset"
-expected_paths = ["pipeline/main.py", "output/inspection.json", "output/records.json", "output/report.md"]
-verify_commands = ["python3 -B pipeline/main.py", "anvil-ingest-check:phase_structure"]
+implement_expected_paths = ["pipeline/main.py", "output/inspection.json"]
+run_generated_outputs = ["output/records.json", "output/report.md"]
+verify_commands = ["python3 -B pipeline/main.py", "test -f output/records.json", "test -f output/report.md", "anvil-ingest-check:phase_structure"]
 
 [checks]
 n1 = "pipeline_probe"
