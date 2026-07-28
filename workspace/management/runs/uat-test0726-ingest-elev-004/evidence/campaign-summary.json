@@ -1,0 +1,344 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0726-ingest-elev-004",
+  "campaign_id": "ingest-create-elevated-20260728-010923",
+  "measurement_revision": "35313d9fc33a7a45895fb839a88e53ff5390dc82",
+  "contract": "docs/ingest-profile-contract.md (fixed 2026-07-25)",
+  "starting_workflows": {
+    "revision": "eb191c8296bcdd14fea6939b3087694876e3fab6",
+    "ci": {
+      "run_id": 30289518177,
+      "status": "completed",
+      "conclusion": "success"
+    },
+    "acceptance": {
+      "run_id": 30289518289,
+      "status": "completed",
+      "conclusion": "success"
+    }
+  },
+  "suite": {
+    "id": "ingest-create-elevated",
+    "sha256": "f7e9c448defd833c353b0e4a8f28b8a9adba19595c438b648cc50b6102325146",
+    "profile": "ingest",
+    "intent": "create",
+    "workspace_mode": "sourced",
+    "admission": "off",
+    "planner": "qwen3.6:27b-coding-nvfp4",
+    "executor": "gemma4:31b-cloud",
+    "provider": "ollama"
+  },
+  "source_hashes": {
+    "events_list_html": "dadcc23ffc94494d7d167e2733e05ec0e6ea339b6791a65d91b7e55832eeee07",
+    "events_table_html": "394b03ccd7ac141a2677c55d9a2059034ea2c7a92656b466201ee40b7050cddd",
+    "uat_meta": "632571160307f419659321da9da392602a0e0de03f0c42bc18dfdde5231e1217",
+    "report_skeleton": "38c4f2d8a1b460b20b2ca3704c93233ff93a3ca39886596a53ef344b99e41acc",
+    "acceptance_sheets": {
+      "list_cloud_001": "ef55faf59996e925aa767704ab270518cd72107dc7824e93e2c4ca21a6b038bf",
+      "list_cloud_002": "e3711d6f1b21b4b6b5eda8d25d00280a7eeb772839272c4867f359f0a9900ee8",
+      "list_cloud_003": "881d4f1e79149e20371805c2753b30cf1a3faaf9c9ae7e5cececd4ed0eafd3dd",
+      "table_cloud_001": "a90572695913356306b9e6ecb4301fe1e134f29deaaf347110ecd3d33d600856",
+      "table_cloud_002": "a13055f6e06c1b5e3897bd9ae4e2c69aadb5da414fe62319da09849e4b2e4148",
+      "table_cloud_003": "6dbc8c21e506fcbf792b35c6b55d9a2e1608c8fe24912bb63e9666522d79028c"
+    }
+  },
+  "epochs": {
+    "preflight_start": 1785200963,
+    "preflight_completed": 1785201139,
+    "run_start": 1785201139,
+    "run_end": 1785201259,
+    "audit_and_scrub_end": 1785201586
+  },
+  "cost_seconds": {
+    "preflight": 176,
+    "formal_run_sum": 120,
+    "list_family": 57,
+    "table_family": 63,
+    "preflight_and_formal_runs": 296,
+    "preflight_start_to_audit_and_scrub_end": 623
+  },
+  "preflight": {
+    "git_status": "clean",
+    "cargo_test_exit_code": 0,
+    "release_build_exit_code": 0,
+    "version": "commandagent 0.1.0 35313d9 2026-07-28T01:12:01Z",
+    "binary_sha256_built": "0e6d769b8c2c6314446a12502bad00c30cd1930cdb37e64d83ae7162d0984d97",
+    "binary_sha256_installed": "0e6d769b8c2c6314446a12502bad00c30cd1930cdb37e64d83ae7162d0984d97",
+    "node_env": "production",
+    "minimum_ancestor": "78b95ce"
+  },
+  "full_verification": {
+    "fmt": "green",
+    "clippy_all_targets_deny_warnings": "green",
+    "cargo_test_all_targets": {
+      "passed": 1841,
+      "failed": 0,
+      "ignored": 30
+    },
+    "focused_ingest_rust": {
+      "passed": 35,
+      "failed": 0
+    },
+    "ingest_plan_synthesis": {
+      "passed": 4,
+      "failed": 0
+    },
+    "config": {
+      "passed": 1,
+      "failed": 0
+    },
+    "ingest_manifest": {
+      "passed": 3,
+      "failed": 0
+    },
+    "ultra_preset": {
+      "passed": 5,
+      "failed": 0
+    },
+    "generality_guardrails": {
+      "passed": 9,
+      "failed": 0
+    },
+    "scaffold_unittest": {
+      "passed": 3,
+      "failed": 0
+    },
+    "ruff": "green"
+  },
+  "runs": [
+    {
+      "name": "list_cloud_001",
+      "family": "list",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (ingest_probe_not_run)",
+      "final_acceptance_reached": false,
+      "n1": "not_reached",
+      "n2": "not_reached",
+      "n3": "not_reached",
+      "n4": "not_reached",
+      "n5": "not_reached",
+      "automatic_class": "process_failure",
+      "audited_attribution": "model",
+      "stop_shape": "model_artifact_follow_through:ingest_delivery_incomplete_after_fixed_plan",
+      "final_artifacts": [
+        "pipeline/main.py"
+      ],
+      "missing_paths": [
+        "output/inspection.json",
+        "output/records.json",
+        "output/report.md"
+      ],
+      "duration_seconds": 16
+    },
+    {
+      "name": "list_cloud_002",
+      "family": "list",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (ingest_probe_not_run)",
+      "final_acceptance_reached": false,
+      "n1": "not_reached",
+      "n2": "not_reached",
+      "n3": "not_reached",
+      "n4": "not_reached",
+      "n5": "not_reached",
+      "automatic_class": "process_failure",
+      "audited_attribution": "model",
+      "stop_shape": "model_artifact_follow_through:ingest_delivery_incomplete_after_fixed_plan",
+      "final_artifacts": [
+        "pipeline/main.py",
+        "output/inspection.json"
+      ],
+      "missing_paths": [
+        "output/records.json",
+        "output/report.md"
+      ],
+      "duration_seconds": 18
+    },
+    {
+      "name": "list_cloud_003",
+      "family": "list",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (ingest_probe_not_run)",
+      "final_acceptance_reached": false,
+      "n1": "not_reached",
+      "n2": "not_reached",
+      "n3": "not_reached",
+      "n4": "not_reached",
+      "n5": "not_reached",
+      "automatic_class": "process_failure",
+      "audited_attribution": "model",
+      "stop_shape": "model_artifact_follow_through:ingest_delivery_incomplete_after_fixed_plan",
+      "final_artifacts": [
+        "pipeline/main.py"
+      ],
+      "missing_paths": [
+        "output/inspection.json",
+        "output/records.json",
+        "output/report.md"
+      ],
+      "duration_seconds": 23
+    },
+    {
+      "name": "table_cloud_001",
+      "family": "table",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (ingest_probe_not_run)",
+      "final_acceptance_reached": false,
+      "n1": "not_reached",
+      "n2": "not_reached",
+      "n3": "not_reached",
+      "n4": "not_reached",
+      "n5": "not_reached",
+      "automatic_class": "process_failure",
+      "audited_attribution": "model",
+      "stop_shape": "model_artifact_follow_through:ingest_delivery_incomplete_after_fixed_plan",
+      "final_artifacts": [
+        "pipeline/main.py",
+        "output/inspection.json"
+      ],
+      "missing_paths": [
+        "output/records.json",
+        "output/report.md"
+      ],
+      "duration_seconds": 21
+    },
+    {
+      "name": "table_cloud_002",
+      "family": "table",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (ingest_probe_not_run)",
+      "final_acceptance_reached": false,
+      "n1": "not_reached",
+      "n2": "not_reached",
+      "n3": "not_reached",
+      "n4": "not_reached",
+      "n5": "not_reached",
+      "automatic_class": "process_failure",
+      "audited_attribution": "model",
+      "stop_shape": "model_artifact_follow_through:ingest_delivery_incomplete_after_fixed_plan",
+      "final_artifacts": [
+        "pipeline/main.py",
+        "output/inspection.json"
+      ],
+      "missing_paths": [
+        "output/records.json",
+        "output/report.md"
+      ],
+      "duration_seconds": 18
+    },
+    {
+      "name": "table_cloud_003",
+      "family": "table",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (ingest_probe_not_run)",
+      "final_acceptance_reached": false,
+      "n1": "not_reached",
+      "n2": "not_reached",
+      "n3": "not_reached",
+      "n4": "not_reached",
+      "n5": "not_reached",
+      "automatic_class": "process_failure",
+      "audited_attribution": "model",
+      "stop_shape": "model_artifact_follow_through:ingest_delivery_incomplete_after_fixed_plan",
+      "final_artifacts": [
+        "pipeline/main.py",
+        "output/inspection.json"
+      ],
+      "missing_paths": [
+        "output/records.json",
+        "output/report.md"
+      ],
+      "duration_seconds": 24
+    }
+  ],
+  "preset_activation": {
+    "plan_preset_profile_origin_default_create_ingest": "6/6",
+    "preset_ultra_plan_planner_skipped_true": "6/6",
+    "ingest_plan_synthesized_first_phase": "6/6",
+    "first_phase": "ingest-implement",
+    "fixed_expected_paths": [
+      "pipeline/main.py",
+      "output/inspection.json",
+      "output/records.json",
+      "output/report.md"
+    ],
+    "fixed_expected_paths_observed": "6/6",
+    "planner_provider_turns": 0,
+    "executor_provider_turns": 66,
+    "planner_derived_floor_rows": 0
+  },
+  "effective_model_audit": {
+    "executor_run_start_matches": 6,
+    "executor_provider_turn_matches": 66,
+    "expected_runs": 6,
+    "expected_executor": "gemma4:31b-cloud",
+    "configured_planner_matches": 6,
+    "expected_planner": "qwen3.6:27b-coding-nvfp4",
+    "planner_was_skipped_by_profile_preset": "6/6"
+  },
+  "automatic_classification": {
+    "known": 6,
+    "unknown": 0,
+    "class": "process_failure",
+    "registry_attribution": "model"
+  },
+  "audited_attribution": {
+    "model": 6,
+    "machine": 0,
+    "rationale": "the fixed plan and four required paths were identical in every run; no planner provider turn occurred; the executor repeatedly listed or globbed input paths and stopped after writing only one or two of four required delivery artifacts"
+  },
+  "n_evidence": {
+    "runs_reaching_final_acceptance": 0,
+    "runs_executing_n1_through_n5": 0,
+    "candidate_freeze_records": 0,
+    "ingest_probe_records": 0,
+    "source_binding_records": 0,
+    "candidate_accounting_records": 0,
+    "format_schema_records": 0,
+    "rerun_consistency_records": 0,
+    "nearest_miss_records": 0
+  },
+  "rates": {
+    "honest_terminal": "6/6",
+    "failed": "6/6",
+    "full_equivalent": "0/6",
+    "false_success": "0/6",
+    "n_runtime_at_reached_run": "not_measured (0 reached)",
+    "sheet_self_supply": "6/6"
+  },
+  "acceptance": {
+    "p0_a_honest_terminal": "pass",
+    "p0_b_contract_assurance": "pass",
+    "p0_b_admission_cap_on_full_equivalent": "not_measured",
+    "p0_c_false_success_zero": "pass",
+    "p1_a_n1_through_n5_at_reached_run": "not_measured",
+    "p1_b_sheet_generation": "pass"
+  },
+  "calibration": {
+    "nearest_miss_records": 0,
+    "appended_records": 0
+  },
+  "scrub": {
+    "bench_run_results_ok": 6,
+    "campaign_rescan_ok": true,
+    "findings": []
+  }
+}
