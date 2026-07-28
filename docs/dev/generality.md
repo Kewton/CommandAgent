@@ -379,8 +379,8 @@ price; it is not evidence for the documentation-fidelity model wall. The
 wall statement comes from the two reached filter runs, both of which passed
 C1, C2, and C4 before C3 rejected the generated README claims.
 
-CLI C3 extends the standing spoof-rejection lineage rather than introducing a
-weaker, profile-specific truth rule:
+CLI C3 and ingest N2/N3 extend the standing spoof-rejection lineage rather
+than introducing weaker, profile-specific truth rules:
 
 | gate family | claim under test | observed rejection record |
 |---|---|---|
@@ -388,6 +388,7 @@ weaker, profile-specific truth rule:
 | I2 | diagnosis error/code quotation | 17 fabricated or unbound claims rejected in the investigation band |
 | F1–F3 | failing baseline, repaired result, frozen regressions | successful or irrelevant reproducers rejected; lineage and regression set remain frozen |
 | C3 | README execution-output claim | 6/6 fabricated CLI output claims rejected against live stdout in `elev-004` |
+| N2/N3 | ingest record value and frozen candidate accounting | source-absent/altered fields are rejected by N2; N3 rejected two fabricated accepted candidates against a detected set of zero in `elev-005` |
 
 Re-measure only by running
 `python3 workspace/management/scripts/band_aggregate.py --profile cli`.
@@ -396,6 +397,44 @@ ledger, reached-run evidence invariant, and Window B denominator are in
 [`band_summary_cli.md`](../../workspace/management/runs/band_summary_cli.md).
 The fixed verdict meaning remains
 [`docs/cli-profile-contract.md` §4](../cli-profile-contract.md#4-assurance-投影).
+
+## Measured capability bands (ingest × create, stage 1)
+
+The ingest/create band fixes the planner at
+`qwen3.6:27b-coding-nvfp4`. The local reference arm uses qwen35 and gemma31;
+formal elevated Window B is `uat-test0726-ingest-elev-008` with
+`gemma4:31b-cloud`. Historical `elev-001` through `elev-007` remain visible as
+the calibration arc but do not enter either formal denominator.
+
+| cell | arm / window | executor | N checks reached | N2 | N3 | full-equivalent | n | full rate | measured characteristic |
+|---|---|---|---:|---|---|---:|---:|---:|---|
+| ingest × create | local reference | qwen35 + gemma31 | 0/6 | not measured | not measured | 0 | 6 | 0% | Six honest pre-N terminals; no artifact presence was promoted to N evidence |
+| list | elevated Window B | `gemma4:31b-cloud` | 3/3 | 3/3 pass | 3/3 pass | 3 | 3 | 100% | Candidate/date fragments plus the positioned document-year fragment bind `8/3(月)` to `2026-08-03` |
+| table | elevated Window B | `gemma4:31b-cloud` | 3/3 | 1/3 pass | 3/3 pass | 1 | 3 | 33.3% | Two runs adopted an empty required date and were honestly rejected by N2 |
+| ingest × create | elevated Window B total | `gemma4:31b-cloud` | 6/6 | 4/6 pass | 6/6 pass | 4 | 6 | **66.7%** | Machine-attributed terminals 0/6; all N1–N5 evidence sets present |
+
+自治体イベント整形という実ユースケースで、第1段
+（保存済みsnapshot→抽出・整形）が成立した。出力fieldは候補内断片へ束縛され、
+部分日付は候補断片と文書共有文脈の両位置を記録した場合だけ補完される。
+日本語日付・和暦からISO日付への宣言済み値保存正規化、凍結candidate集合の
+`detected = accepted + reasoned excluded`勘定、sourceにないevent/valueの
+拒否は、conformanceだけでなく較正弧とformal Window Bの実入力で作動した。
+N3の実弾には`elev-005`でdetected 0に対する架空accepted 2件の拒否があり、
+N2のformal実弾には`elev-008`で空日付2件の拒否がある。
+
+値札はlocal 0/6、elevated 4/6（66.7%）。現在の能力壁はモデルの欠落値規律
+であり、table 2/6では日付欠落candidateを理由付き除外せず、required dateを
+空値のまま採用した。N3の候補勘定は6/6で成立したが、N2が空値を
+`source_binding_violation`として拒否したため偽成功は0である。
+
+Re-measure only by running
+`python3 workspace/management/scripts/band_aggregate.py --profile ingest`.
+Do not hand-edit the generated values. The complete 54-run ledger, seven
+calibration exclusions, N-evidence invariant, and formal denominators are in
+[`band_summary_ingest.md`](../../workspace/management/runs/band_summary_ingest.md).
+The stage-1 verdict meaning remains fixed by
+[`docs/ingest-profile-contract.md`](../ingest-profile-contract.md); network
+fetch and freshness remain stage 2 and are not implied by admission.
 
 ## Recommended Model Tier
 
