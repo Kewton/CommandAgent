@@ -1,8 +1,9 @@
-# Profile Contract Binding: ingest (fixed — admission off)
+# Profile Contract Binding: ingest (admitted)
 
 正準契約は [`docs/ingest-profile-contract.md`](../../../../../docs/ingest-profile-contract.md)
-（fixed v0.1 2026-07-28、v0 fixed 2026-07-25）。実装済みだが、実run corpusとreviewer admissionが
-未完了のため `admission = "off"` を維持する。
+（fixed v0.1 2026-07-28、v0 fixed 2026-07-25）。conformance 6負例＋full正例、
+全履歴の正直終端と偽成功ゼロ、elev-008の機械クラス0/6を根拠に
+`admission = "admitted"`へ昇格した。
 
 ## 1. スコープ
 
@@ -24,7 +25,7 @@ N4 `format_schema`、N5 `rerun`。詳細schemaは正準契約に従う。
 
 full=N1〜N5 pass、partial=N1 passかつN2 claims_absent、
 static=N1未実行、failed=N2捏造/改変・N3勘定・N4schema・N5再実行の違反。
-admission off中はearned full/partialを表示上staticへcapする。
+admitted後はearned full/partialをそのまま表示し、failedはfailedを維持する。
 
 ## 5. 実行プローブ
 

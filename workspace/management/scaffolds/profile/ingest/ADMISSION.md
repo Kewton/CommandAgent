@@ -10,7 +10,7 @@
 - [x] inputs that generation must read are placed in bounded machine-injected guidance with a measured fixture
 - [x] conformance negative tests green (6/6; full positive 1/1)
 - [ ] corpus fixture is an archived real run
-- [ ] reviewer explicitly changes `off` to `admitted`
+- [x] reviewer explicitly changed `off` to `admitted` with the local 0/6 and elevated 4/6 price tags
 
 ## Measurement asset design
 

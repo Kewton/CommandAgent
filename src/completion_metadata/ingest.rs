@@ -53,7 +53,6 @@ mod tests {
     use crate::cli::Cli;
     use crate::config::Config;
     use crate::eval_events::project_completion;
-    use crate::planner::adjudication::PROFILE_NOT_ADMITTED_REASON;
     use clap::Parser;
     use serde_json::Value;
 
@@ -63,7 +62,7 @@ mod tests {
     );
 
     #[test]
-    fn runtime_shaped_fixtures_project_contract_assurance_then_draft_cap() {
+    fn runtime_shaped_fixtures_preserve_contract_assurance_after_admission() {
         for line in std::fs::read_to_string(FIXTURE).unwrap().lines() {
             let fixture: Value = serde_json::from_str(line).unwrap();
             let root = tempfile::tempdir().unwrap();
@@ -88,12 +87,8 @@ mod tests {
                 &mut projection,
             );
             let earned = fixture["expected_earned"].as_str().unwrap();
-            if matches!(earned, "full" | "partial") {
-                assert_eq!(projection.assurance_level, "static");
-                assert_eq!(projection.assurance_reason, PROFILE_NOT_ADMITTED_REASON);
-            } else {
-                assert_eq!(projection.assurance_level, earned);
-            }
+            assert_eq!(projection.assurance_level, earned);
+            assert_ne!(projection.assurance_reason, "profile_not_admitted");
         }
     }
 

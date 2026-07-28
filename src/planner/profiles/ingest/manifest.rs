@@ -73,9 +73,9 @@ pub fn is_manifest_check_id(id: &str) -> bool {
 fn validate(manifest: &ManifestV1) -> Result<(), String> {
     if manifest.metadata.id != "ingest"
         || manifest.plan.profile != "ingest"
-        || manifest.metadata.status != ManifestStatus::Draft
+        || manifest.metadata.status != ManifestStatus::Admitted
     {
-        return Err("ingest identity must remain draft until admission review".to_string());
+        return Err("ingest identity must be admitted after E-4d".to_string());
     }
     let phases = manifest
         .plan
@@ -159,8 +159,8 @@ mod tests {
     use crate::planner::profiles::ingest::{accounting::CandidateSelector, guidance};
 
     #[test]
-    fn manifest_is_draft_and_binds_all_five_checks() {
-        assert_eq!(get().metadata.status, ManifestStatus::Draft);
+    fn manifest_is_admitted_and_binds_all_five_checks() {
+        assert_eq!(get().metadata.status, ManifestStatus::Admitted);
         assert_eq!(get().plan.phases.len(), 3);
         let resolved = get().resolve().unwrap();
         let capabilities = resolved

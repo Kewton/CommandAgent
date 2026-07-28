@@ -8,6 +8,7 @@ import json
 import tempfile
 import unittest
 from contextlib import redirect_stderr
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -646,6 +647,91 @@ class CliBandTests(unittest.TestCase):
         self.assertTrue(all(record.c2 == "pass" for record in reached))
         self.assertTrue(all(record.c3 == "fail" for record in reached))
         self.assertTrue(all(record.c4 == "pass" for record in reached))
+
+
+class IngestBandTests(unittest.TestCase):
+    def test_repository_ingest_settlement_windows_and_evidence_invariant(
+        self,
+    ) -> None:
+        records, scanned_sets = band.discover_ingest_records()
+
+        self.assertEqual(
+            scanned_sets,
+            [band.INGEST_LOCAL_ALIAS, *band.INGEST_ELEVATED_SETS],
+        )
+        self.assertEqual(len(records), 54)
+        self.assertEqual(band.assert_ingest_invariants(records), 20)
+        local = [
+            record for record in records if record.set_id == band.INGEST_LOCAL_ALIAS
+        ]
+        self.assertEqual(
+            band.ingest_rate_rows(local),
+            [
+                ["list", "gemma4:31b", "0", "1", "1", "0%"],
+                [
+                    "list",
+                    "qwen3.6:35b-a3b-coding-nvfp4",
+                    "0",
+                    "2",
+                    "2",
+                    "0%",
+                ],
+                ["table", "gemma4:31b", "0", "1", "1", "0%"],
+                [
+                    "table",
+                    "qwen3.6:35b-a3b-coding-nvfp4",
+                    "0",
+                    "2",
+                    "2",
+                    "0%",
+                ],
+            ],
+        )
+        window_b = [
+            record
+            for record in records
+            if record.set_id == band.INGEST_WINDOW_B_SET
+        ]
+        self.assertEqual(
+            band.ingest_rate_rows(window_b),
+            [
+                ["list", "gemma4:31b-cloud", "3", "0", "3", "100%"],
+                ["table", "gemma4:31b-cloud", "1", "2", "3", "33.3%"],
+            ],
+        )
+        summary = band.build_ingest_summary(records, scanned_sets, 20)
+        self.assertIn("- Window B full-equivalent: `4/6` (66.7%)", summary)
+        self.assertIn("- Window B machine-attributed terminals: `0/6`", summary)
+        self.assertIn("- Reached-run N1-N5 evidence sets verified: `20/20`", summary)
+        self.assertIn("相異なる成功commandをno-diff停滞", summary)
+        self.assertIn("複合CSSのengine被覆gap", summary)
+        self.assertIn("freeze済み正準candidate ID", summary)
+        self.assertIn(
+            f"`{band.INGEST_LOCAL_ALIAS}` → `{band.INGEST_LOCAL_SOURCE_SET}`",
+            summary,
+        )
+
+    def test_reached_run_requires_complete_n_evidence_set(self) -> None:
+        records, _ = band.discover_ingest_records()
+        reached = next(record for record in records if record.reached_checks)
+        incomplete = replace(reached, n5="not_reached")
+
+        with self.assertRaisesRegex(AssertionError, "partial N1-N5 evidence set"):
+            band.verify_ingest_reached_evidence([incomplete])
+
+    def test_full_equivalent_requires_all_n_checks_to_pass(self) -> None:
+        records, _ = band.discover_ingest_records()
+        index = next(
+            index
+            for index, record in enumerate(records)
+            if record.set_id == band.INGEST_WINDOW_B_SET and record.is_full
+        )
+        inconsistent = replace(records[index], n2="failed")
+        mutated = [*records]
+        mutated[index] = inconsistent
+
+        with self.assertRaisesRegex(AssertionError, "false ingest full"):
+            band.assert_ingest_invariants(mutated)
 
 
 class CircleBandTests(unittest.TestCase):

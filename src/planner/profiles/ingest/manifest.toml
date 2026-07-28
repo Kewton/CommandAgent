@@ -2,7 +2,7 @@
 id = "ingest"
 display_name = "Snapshot Ingest Pipeline"
 schema_version = "v1"
-status = "draft"
+status = "admitted"
 
 [plan]
 profile = "ingest"

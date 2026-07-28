@@ -971,3 +971,10 @@ selector/record format宣言→candidate freeze→pipeline/final inspection実�
 `/`境界の一意suffixだけをcanonical IDへ決定的解決し、provided/matches/
 resolved/statusをN2/N3 evidenceへ残す。曖昧suffixと偽IDは従来どおり
 violationであり、語彙配布と解決責任をmachine側で閉じるDATA-1系の完結形。
+
+E-4d admission（2026-07-29）: `uat-test0726-ingest-elev-008`は機械クラス
+0/6、conformance 6負例＋full正例、localからelev-008まで全54run正直終端、
+偽成功0であり、`off until admitted`の昇格条件が成立した。local full 0/6、
+elevated full相当4/6（66.7%）の値札を隠さず`admitted`へ昇格し、
+runtime-shaped投影fixtureでearned fullが`profile_not_admitted`へcapされず
+fullを表示することを固定した。

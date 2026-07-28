@@ -65,7 +65,7 @@ fn fixed_contract_rejects_six_forgery_shapes_and_accepts_full_evidence() {
 }
 
 #[test]
-fn draft_manifest_binds_exactly_n1_through_n5() {
+fn admitted_manifest_binds_exactly_n1_through_n5() {
     assert_eq!(
         manifest::required_capability_ids(),
         [
@@ -78,6 +78,6 @@ fn draft_manifest_binds_exactly_n1_through_n5() {
     );
     assert_eq!(
         manifest::get().metadata.status,
-        commandagent::planner::profile_manifest::ManifestStatus::Draft
+        commandagent::planner::profile_manifest::ManifestStatus::Admitted
     );
 }

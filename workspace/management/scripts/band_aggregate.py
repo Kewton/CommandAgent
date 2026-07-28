@@ -8,7 +8,9 @@ their event streams, and their F1-F3 evidence. Investigation/data uses the two
 fixed D-3b measurement sets and validates their I1/I2 evidence against
 adjudication events. Workflow circle uses the three fixed D-3a local-arm
 campaigns and admits only the post-propagation, post-execution-mode campaign
-to its formal denominator. Generated summaries are written below
+to its formal denominator. CLI and ingest keep defect-era calibration
+campaigns visible while restricting their formal elevated denominators to the
+declared Window B. Generated summaries are written below
 workspace/management/runs/ and printed to stdout.
 """
 
@@ -32,6 +34,7 @@ FIX_OUTPUT = RUNS_DIR / "band_summary_fix.md"
 INVESTIGATION_OUTPUT = RUNS_DIR / "band_summary_investigation.md"
 CIRCLE_OUTPUT = RUNS_DIR / "band_summary_circle.md"
 CLI_OUTPUT = RUNS_DIR / "band_summary_cli.md"
+INGEST_OUTPUT = RUNS_DIR / "band_summary_ingest.md"
 WINDOW_START = "uat-test0711-bs-003"
 NEXTJS_ARCHIVED_INPUT_SET_COUNT = 12
 NEXTJS_PROVENANCE_ANALYSIS = "band-f821-diff/analysis.md"
@@ -102,6 +105,49 @@ CLI_EXCLUSION_REASONS = {
     ),
     "uat-test0725-cli-elev-002": (
         "機械欠陥期: final acceptance到達後もC1〜C4 runtimeが未配線"
+    ),
+}
+INGEST_LOCAL_ALIAS = "uat-test0726-ingest-001-v3"
+INGEST_LOCAL_SOURCE_SET = "uat-test0726-ingest-001"
+INGEST_ELEVATED_SETS = tuple(
+    f"uat-test0726-ingest-elev-{index:03d}" for index in range(1, 9)
+)
+INGEST_WINDOW_B_SET = "uat-test0726-ingest-elev-008"
+INGEST_EXPECTED_RUNS_PER_SET = 6
+INGEST_EXPECTED_RUNS = INGEST_EXPECTED_RUNS_PER_SET * (
+    1 + len(INGEST_ELEVATED_SETS)
+)
+INGEST_LOCAL_MATRIX = {
+    ("list", "gemma4:31b"): 1,
+    ("list", "qwen3.6:35b-a3b-coding-nvfp4"): 2,
+    ("table", "gemma4:31b"): 1,
+    ("table", "qwen3.6:35b-a3b-coding-nvfp4"): 2,
+}
+INGEST_WINDOW_B_MATRIX = {
+    ("list", "gemma4:31b-cloud"): 3,
+    ("table", "gemma4:31b-cloud"): 3,
+}
+INGEST_EXCLUSION_REASONS = {
+    "uat-test0726-ingest-elev-001": (
+        "較正弧除外: 相異なる成功commandをno-diff停滞とした進捗意味論gap"
+    ),
+    "uat-test0726-ingest-elev-002": (
+        "較正弧除外: candidate_selectorのkind/value正準形を字義配布しないknowledge gap"
+    ),
+    "uat-test0726-ingest-elev-003": (
+        "較正弧除外: planner自由作文とverify path残存を許した計画源gap"
+    ),
+    "uat-test0726-ingest-elev-004": (
+        "較正弧除外: run生成物をimplement期待へ置いた段×生成主体の分解gap"
+    ),
+    "uat-test0726-ingest-elev-005": (
+        "較正弧除外: 計画源と同じ伝達床でsnapshot実構造をimplementへ渡さない材料gap"
+    ),
+    "uat-test0726-ingest-elev-006": (
+        "較正弧除外: 正当な複合CSSのengine被覆gap（同時に契約v0.1較正を採取）"
+    ),
+    "uat-test0726-ingest-elev-007": (
+        "較正弧除外: freeze済み正準candidate IDをimplementへ返さない語彙配布gap"
     ),
 }
 CIRCLE_EXCLUSION_REASONS = {
@@ -290,6 +336,45 @@ class CliRunRecord:
         return any(
             status not in {"not_executed", "not_reached"}
             for status in (self.c1, self.c2, self.c3, self.c4)
+        )
+
+
+@dataclass(frozen=True)
+class IngestRunRecord:
+    set_id: str
+    source_set_id: str
+    run_name: str
+    family: str
+    executor: str
+    harness_status: str
+    product_exit: int
+    verdict: str
+    earned_assurance: str
+    display_assurance: str
+    n1: str
+    n2: str
+    n3: str
+    n4: str
+    n5: str
+    failure_class: str
+    attribution: str
+    duration_seconds: int
+    evidence_summary: Path
+    evidence_report: Path
+
+    @property
+    def is_full(self) -> bool:
+        return self.earned_assurance == "full" and self.verdict in {
+            "complete",
+            "full",
+            "full_success",
+        }
+
+    @property
+    def reached_checks(self) -> bool:
+        return any(
+            status not in {"not_executed", "not_reached"}
+            for status in (self.n1, self.n2, self.n3, self.n4, self.n5)
         )
 
 
@@ -835,6 +920,13 @@ def pct(num: int, den: int) -> str:
     if den == 0:
         return "0%"
     return f"{round(num * 100 / den)}%"
+
+
+def ingest_pct(num: int, den: int) -> str:
+    if den == 0:
+        return "0%"
+    value = f"{num * 100 / den:.1f}".rstrip("0").rstrip(".")
+    return f"{value}%"
 
 
 def state_counts(records: list[RunRecord]) -> dict[str, Counter[str]]:
@@ -3085,15 +3177,309 @@ def build_cli_summary(
     return "\n".join(lines)
 
 
+def ingest_record_from_summary(
+    set_id: str,
+    source_set_id: str,
+    summary: Path,
+    suite: dict[str, Any],
+    row: dict[str, Any],
+) -> IngestRunRecord:
+    earned = str(
+        row.get("earned_assurance")
+        or row.get("assurance")
+        or ("failed" if row.get("verdict") == "failed" else "")
+    )
+    display = str(row.get("display_assurance") or row.get("assurance") or earned)
+    return IngestRunRecord(
+        set_id=set_id,
+        source_set_id=source_set_id,
+        run_name=str(row.get("name") or ""),
+        family=str(row.get("family") or "unknown"),
+        executor=str(row.get("executor") or suite.get("executor") or "unknown"),
+        harness_status=str(row.get("harness_status") or ""),
+        product_exit=int(row.get("product_exit")),
+        verdict=str(row.get("verdict") or ""),
+        earned_assurance=earned,
+        display_assurance=display,
+        n1=str(row.get("n1") or "not_reached"),
+        n2=str(row.get("n2") or "not_reached"),
+        n3=str(row.get("n3") or "not_reached"),
+        n4=str(row.get("n4") or "not_reached"),
+        n5=str(row.get("n5") or "not_reached"),
+        failure_class=str(row.get("automatic_class") or ""),
+        attribution=str(row.get("audited_attribution") or ""),
+        duration_seconds=int(row.get("duration_seconds")),
+        evidence_summary=summary,
+        evidence_report=summary.parent.parent / "uat-report.md",
+    )
+
+
+def discover_ingest_records() -> tuple[list[IngestRunRecord], list[str]]:
+    sources = [
+        (INGEST_LOCAL_ALIAS, INGEST_LOCAL_SOURCE_SET),
+        *((set_id, set_id) for set_id in INGEST_ELEVATED_SETS),
+    ]
+    records: list[IngestRunRecord] = []
+    for set_id, source_set_id in sources:
+        summary = (
+            RUNS_DIR / source_set_id / "evidence" / "campaign-summary.json"
+        )
+        data = read_json_dict(summary)
+        assert data is not None, f"missing ingest campaign summary: {summary}"
+        assert data.get("uat_id") == source_set_id
+        suite = data.get("suite")
+        assert isinstance(suite, dict)
+        assert suite.get("profile") == "ingest"
+        assert suite.get("intent") == "create"
+        rows = data.get("runs")
+        assert isinstance(rows, list)
+        for row in rows:
+            assert isinstance(row, dict)
+            records.append(
+                ingest_record_from_summary(
+                    set_id,
+                    source_set_id,
+                    summary,
+                    suite,
+                    row,
+                )
+            )
+    return records, [INGEST_LOCAL_ALIAS, *INGEST_ELEVATED_SETS]
+
+
+def verify_ingest_reached_evidence(records: list[IngestRunRecord]) -> int:
+    verified = 0
+    for record in records:
+        if not record.reached_checks:
+            continue
+        statuses = (record.n1, record.n2, record.n3, record.n4, record.n5)
+        assert all(
+            status not in {"not_executed", "not_reached"} for status in statuses
+        ), f"{record.set_id}/{record.run_name}: partial N1-N5 evidence set"
+        assert record.evidence_summary.is_file(), (
+            f"{record.set_id}/{record.run_name}: missing campaign evidence summary"
+        )
+        assert record.evidence_report.is_file(), (
+            f"{record.set_id}/{record.run_name}: missing evidence audit report"
+        )
+        verified += 1
+    return verified
+
+
+def assert_ingest_invariants(records: list[IngestRunRecord]) -> int:
+    assert len(records) == INGEST_EXPECTED_RUNS, (
+        f"ingest settlement has {len(records)} runs, expected {INGEST_EXPECTED_RUNS}"
+    )
+    assert Counter(record.set_id for record in records) == Counter(
+        {
+            set_id: INGEST_EXPECTED_RUNS_PER_SET
+            for set_id in [INGEST_LOCAL_ALIAS, *INGEST_ELEVATED_SETS]
+        }
+    ), "ingest source-set denominators drifted"
+    assert all(record.harness_status == "completed" for record in records), (
+        "ingest settlement contains a dishonest harness terminal"
+    )
+
+    local = [record for record in records if record.set_id == INGEST_LOCAL_ALIAS]
+    assert Counter((record.family, record.executor) for record in local) == Counter(
+        INGEST_LOCAL_MATRIX
+    ), "ingest local family/executor matrix drifted"
+    assert not any(record.is_full for record in local)
+
+    window_b = [
+        record for record in records if record.set_id == INGEST_WINDOW_B_SET
+    ]
+    assert Counter(
+        (record.family, record.executor) for record in window_b
+    ) == Counter(INGEST_WINDOW_B_MATRIX), "ingest Window B matrix drifted"
+    assert sum(record.is_full for record in window_b) == 4
+    assert sum(record.verdict == "failed" for record in window_b) == 2
+    assert not any(record.attribution == "machine" for record in window_b)
+    for record in window_b:
+        assert record.reached_checks
+        if record.is_full:
+            assert {record.n1, record.n2, record.n3, record.n4, record.n5} == {
+                "pass"
+            }, f"{record.run_name}: false ingest full"
+            assert record.product_exit == 0
+        else:
+            assert record.product_exit != 0
+            assert record.earned_assurance == "failed"
+    return verify_ingest_reached_evidence(records)
+
+
+def ingest_rate_rows(records: list[IngestRunRecord]) -> list[list[str]]:
+    counts: dict[tuple[str, str], Counter[str]] = defaultdict(Counter)
+    for record in records:
+        counts[(record.family, record.executor)][
+            "full" if record.is_full else "non_full"
+        ] += 1
+    rows = []
+    for family, executor in sorted(counts):
+        full = counts[(family, executor)]["full"]
+        non_full = counts[(family, executor)]["non_full"]
+        denominator = full + non_full
+        rows.append(
+            [
+                family,
+                executor,
+                str(full),
+                str(non_full),
+                str(denominator),
+                ingest_pct(full, denominator),
+            ]
+        )
+    return rows
+
+
+def ingest_band_status(set_id: str) -> str:
+    if set_id in INGEST_EXCLUSION_REASONS:
+        return f"excluded — {INGEST_EXCLUSION_REASONS[set_id]}"
+    if set_id == INGEST_WINDOW_B_SET:
+        return "formal elevated Window B"
+    return (
+        "formal local reference — repository source "
+        f"{INGEST_LOCAL_SOURCE_SET}; requested alias {INGEST_LOCAL_ALIAS}"
+    )
+
+
+def build_ingest_summary(
+    records: list[IngestRunRecord],
+    scanned_sets: list[str],
+    evidence_verified: int,
+) -> str:
+    local = [record for record in records if record.set_id == INGEST_LOCAL_ALIAS]
+    window_b = [
+        record for record in records if record.set_id == INGEST_WINDOW_B_SET
+    ]
+    reached = [record for record in records if record.reached_checks]
+    dispositions = []
+    for set_id in scanned_sets:
+        set_records = [record for record in records if record.set_id == set_id]
+        dispositions.append(
+            [
+                set_id,
+                str(len(set_records)),
+                str(sum(record.reached_checks for record in set_records)),
+                str(sum(record.is_full for record in set_records)),
+                ingest_band_status(set_id),
+            ]
+        )
+    window_full = sum(record.is_full for record in window_b)
+    lines = [
+        "# Ingest Create Capability Band Summary",
+        "",
+        "<!-- Generated by band_aggregate.py --profile ingest. Do not edit by hand. -->",
+        "",
+        f"- Source sets: `{len(scanned_sets)}` (local 1 + elevated 8)",
+        f"- Observed runs: `{len(records)}`",
+        f"- Honest terminals: `{sum(record.harness_status == 'completed' for record in records)}/{len(records)}`",
+        f"- Local reference: `{INGEST_LOCAL_ALIAS}` display alias → immutable repository source `{INGEST_LOCAL_SOURCE_SET}`",
+        f"- Formal elevated Window B: `{INGEST_WINDOW_B_SET}` only",
+        f"- Local full-equivalent: `{sum(record.is_full for record in local)}/{len(local)}` ({ingest_pct(sum(record.is_full for record in local), len(local))})",
+        f"- Window B full-equivalent: `{window_full}/{len(window_b)}` ({ingest_pct(window_full, len(window_b))})",
+        f"- Window B machine-attributed terminals: `{sum(record.attribution == 'machine' for record in window_b)}/{len(window_b)}`",
+        f"- All-history runs reaching N checks: `{len(reached)}/{len(records)}`",
+        f"- Reached-run N1-N5 evidence sets verified: `{evidence_verified}/{len(reached)}`",
+        "- Invariant: N1-N5 result evidence is mandatory for every run that executes any N check; non-reaching runs may not borrow artifact presence as N evidence.",
+        "- Invariant: full-equivalent requires N1-N5 all pass; failed N2/N3/N4/N5 remains failed even under the historical draft cap.",
+        "- Calibration campaigns elev-001 through elev-007 stay visible but never enter the local or Window B denominators.",
+        "- Zero-row policy: generation aborts before replacing the tracked output.",
+        "",
+        "## Formal elevated Window B by family and executor",
+        "",
+    ]
+    lines.extend(
+        table(
+            ["Family", "Executor", "full", "non-full", "denominator", "full rate"],
+            ingest_rate_rows(window_b),
+        )
+    )
+    lines.extend(["", "## Local reference arm by family and executor", ""])
+    lines.extend(
+        table(
+            ["Family", "Executor", "full", "non-full", "denominator", "full rate"],
+            ingest_rate_rows(local),
+        )
+    )
+    lines.extend(["", "## Campaign disposition", ""])
+    lines.extend(
+        table(
+            ["Set", "Runs", "N reached", "Full-equivalent", "Band status"],
+            dispositions,
+        )
+    )
+    lines.extend(["", "## Per-run ledger", ""])
+    lines.extend(
+        table(
+            [
+                "Set",
+                "Run",
+                "Family",
+                "Executor",
+                "Verdict",
+                "Earned",
+                "Display at measurement",
+                "N1",
+                "N2",
+                "N3",
+                "N4",
+                "N5",
+                "Failure class",
+                "Attribution",
+                "Band status",
+                "Seconds",
+            ],
+            [
+                [
+                    record.set_id,
+                    record.run_name,
+                    record.family,
+                    record.executor,
+                    record.verdict,
+                    record.earned_assurance,
+                    record.display_assurance,
+                    record.n1,
+                    record.n2,
+                    record.n3,
+                    record.n4,
+                    record.n5,
+                    record.failure_class or "—",
+                    record.attribution or "—",
+                    ingest_band_status(record.set_id),
+                    str(record.duration_seconds),
+                ]
+                for record in records
+            ],
+        )
+    )
+    lines.extend(["", "## Source sets", ""])
+    lines.append(
+        f"- `{INGEST_LOCAL_ALIAS}` → `{INGEST_LOCAL_SOURCE_SET}` "
+        "(display alias only; historical evidence is not rewritten)"
+    )
+    lines.extend(f"- `{set_id}`" for set_id in INGEST_ELEVATED_SETS)
+    lines.append("")
+    return "\n".join(lines)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--profile",
-        choices=("nextjs", "data", "fix", "investigation", "circle", "cli"),
+        choices=(
+            "nextjs",
+            "data",
+            "fix",
+            "investigation",
+            "circle",
+            "cli",
+            "ingest",
+        ),
         default="nextjs",
         help=(
             "capability band to aggregate (nextjs/data create, nextjs fix, "
-            "data investigation, workflow circle, or CLI create)"
+            "data investigation, workflow circle, CLI create, or ingest create)"
         ),
     )
     return parser.parse_args()
@@ -3102,7 +3488,21 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     try:
-        if args.profile == "cli":
+        if args.profile == "ingest":
+            ingest_records, scanned_sets = discover_ingest_records()
+            require_nonempty_aggregation(
+                args.profile,
+                ingest_records,
+                profile_set_diagnostics(ingest_records, scanned_sets),
+            )
+            evidence_verified = assert_ingest_invariants(ingest_records)
+            summary = build_ingest_summary(
+                ingest_records,
+                scanned_sets,
+                evidence_verified,
+            )
+            output = INGEST_OUTPUT
+        elif args.profile == "cli":
             cli_records, scanned_sets = discover_cli_records()
             require_nonempty_aggregation(
                 args.profile,

@@ -1,9 +1,9 @@
 # Ingest catalog binding plan (E-4a)
 
 Status: **forecast sealed 2026-07-26; E-4b implementation measured
-2026-07-27**. The fixed contract is
+2026-07-27; admitted 2026-07-29**. The fixed contract is
 [`docs/ingest-profile-contract.md`](../ingest-profile-contract.md). Admission
-remains `off`; the stage-2 fetch probe remains unimplemented and QUEUED.
+is `admitted`; the stage-2 fetch probe remains unimplemented and QUEUED.
 
 E-4a covers stage 1 only: acquired local HTML/text snapshots are transformed
 into declared records. Network acquisition and freshness evidence belong to
@@ -124,7 +124,8 @@ profile-plumbing cost from its numeric band.
 - Conformance: **complete**, six negative fixtures and one full positive.
 - Archived real-run corpus: **not complete**; synthetic conformance cannot
   settle comparator calibration.
-- Reviewer admission: **not complete**; `off`/draft is unchanged.
+- Reviewer admission: **complete in E-4d**; local 0/6 and elevated 4/6
+  full-equivalent price tags remain visible.
 
 Pre-push acceptance on 2026-07-27: focused conformance negatives **6/6** and
 full positive **1/1**; production final-acceptance activation **1/1**; privileged

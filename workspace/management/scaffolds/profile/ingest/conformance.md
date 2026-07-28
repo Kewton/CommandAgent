@@ -9,7 +9,7 @@ Executable suite:
 - schema-extra output: N4 failed
 - N1 not executed: static, never partial/full
 - frozen candidate set shrunk: N3 failed
-- N1–N5 pass: earned full before the draft admission cap
+- N1–N5 pass: earned and displayed full after admission
 
 Production activation:
 `ingest_final_acceptance_production_path_executes_n1_through_n5` runs the
