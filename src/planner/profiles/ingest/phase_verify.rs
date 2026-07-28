@@ -15,6 +15,17 @@ the literal shape is {\"candidate_selector\": {\"kind\": \"css\", \"value\": \
 \"ul.events > li\"}}. Values are examples only and must be replaced with actual snapshot \
 observations.";
 
+pub(crate) fn structure_check_step() -> PlanStep {
+    PlanStep {
+        id: "verify-ingest-phase-structure".to_string(),
+        kind: "verify".to_string(),
+        expected_result: "pass".to_string(),
+        instruction: VERIFY_INSTRUCTION.to_string(),
+        expected_paths: Vec::new(),
+        verify: vec![CHECK_COMMAND.to_string()],
+    }
+}
+
 pub(crate) fn canonicalize_step_plan(
     plan: &mut StepPlan,
     profile: &str,
@@ -34,14 +45,7 @@ pub(crate) fn canonicalize_step_plan(
         .map(|step| canonicalize_step(step, eval_events_path))
         .sum();
     if !plan.steps.iter().any(has_structure_check) {
-        let step = PlanStep {
-            id: "verify-ingest-phase-structure".to_string(),
-            kind: "verify".to_string(),
-            expected_result: "pass".to_string(),
-            instruction: VERIFY_INSTRUCTION.to_string(),
-            expected_paths: Vec::new(),
-            verify: vec![CHECK_COMMAND.to_string()],
-        };
+        let step = structure_check_step();
         emit_canonicalized(
             eval_events_path,
             &step.id,
@@ -275,14 +279,7 @@ mod tests {
     }
 
     fn check_step() -> PlanStep {
-        PlanStep {
-            id: "verify-results".to_string(),
-            kind: "verify".to_string(),
-            expected_result: "pass".to_string(),
-            instruction: VERIFY_INSTRUCTION.to_string(),
-            expected_paths: Vec::new(),
-            verify: vec![CHECK_COMMAND.to_string()],
-        }
+        structure_check_step()
     }
 
     #[test]

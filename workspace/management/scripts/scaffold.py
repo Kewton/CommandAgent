@@ -26,6 +26,9 @@ PRODUCTION_ACTIVATION_CHECKLIST_ITEM = (
 STRUCTURE_LITERAL_GUIDANCE_CHECKLIST_ITEM = (
     "every structure-gate required shape has prior literal-example guidance and a fixture"
 )
+MACHINE_PLAN_PRESET_CHECKLIST_ITEM = (
+    "create planning is machine-synthesized/profile-preset and planner free composition is disabled"
+)
 
 
 def generate(kind, ident):
@@ -63,6 +66,7 @@ def generate(kind, ident):
         f"- [ ] {PROJECTION_CHECKLIST_ITEM}\n"
         f"- [ ] {PRODUCTION_ACTIVATION_CHECKLIST_ITEM}\n"
         f"- [ ] {STRUCTURE_LITERAL_GUIDANCE_CHECKLIST_ITEM}\n"
+        f"- [ ] {MACHINE_PLAN_PRESET_CHECKLIST_ITEM}\n"
         "- [ ] conformance negative tests green\n"
         "- [ ] corpus fixture is an archived real run\n"
         "- [ ] reviewer explicitly changes `off` to `admitted`\n",

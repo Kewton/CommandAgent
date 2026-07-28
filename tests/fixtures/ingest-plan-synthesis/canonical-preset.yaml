@@ -1,0 +1,26 @@
+phase_order:
+  - ingest-implement
+  - ingest-run
+  - ingest-structural-gate
+plans:
+  - phase_id: ingest-implement
+    step_id: implement-ingest-delivery
+    kind: implement
+    expected_paths:
+      - pipeline/main.py
+      - output/inspection.json
+      - output/records.json
+      - output/report.md
+    verify: []
+  - phase_id: ingest-run
+    step_id: run-ingest-pipeline
+    kind: verify
+    expected_paths: []
+    verify:
+      - python3 -B pipeline/main.py
+  - phase_id: ingest-structural-gate
+    step_id: verify-ingest-phase-structure
+    kind: verify
+    expected_paths: []
+    verify:
+      - anvil-ingest-check:phase_structure

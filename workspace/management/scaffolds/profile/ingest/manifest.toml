@@ -9,7 +9,10 @@ runtime_manifest = "src/planner/profiles/ingest/manifest.toml"
 runtime_entry = "src/planner/profiles/ingest/runtime.rs"
 
 [phases]
-ids = ["ingest-inspection", "ingest-implementation", "ingest-validation"]
+ids = ["ingest-implement", "ingest-run", "ingest-structural-gate"]
+source = "machine_synthesized_profile_preset"
+expected_paths = ["pipeline/main.py", "output/inspection.json", "output/records.json", "output/report.md"]
+verify_commands = ["python3 -B pipeline/main.py", "anvil-ingest-check:phase_structure"]
 
 [checks]
 n1 = "pipeline_probe"

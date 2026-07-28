@@ -908,3 +908,15 @@ inspection/accounting/record format、records配列の字義例と
 ガイダンスへ先行配布し、実測負例→正準正例の対fixtureで固定した。
 E-1 scaffold checklistには「構造gate要求形の字義例ガイダンス＋fixture」を
 投影写像・production起動実在に続く第3の定形装備として必須化した。
+
+INGEST-4 ingest create preset（2026-07-28）: D-2b構造転回の第3適用
+（fix合成→investigation合成→ingest preset）。elev-003で残った
+verify内変更要求と2/6の検証script expected_pathは、開いたplanner生成分布を
+事後正準化する構造の症状だった。ingest createの既定計画を
+implement（4納品物の所有権を一本化・字義例同梱）→
+`python3 -B pipeline/main.py`実行→機械structural gate→N1〜N5 final
+acceptanceへ固定し、UltraPlanと各StepPlanのplanner自由作文をproduction
+経路から除いた。全StepPlanは既存`finalize_step_plan_for_execution`を通る。
+「1計測1欠陥」を閉じるため、E-1 scaffold checklistには「計画は
+machine synthesis/profile preset、planner自由作文禁止」を投影写像・
+起動実在・構造gate字義例に続く第4の定形装備として必須化した。

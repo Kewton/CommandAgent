@@ -5,11 +5,8 @@ use crate::planner::profile_manifest::{ManifestStatus, ManifestV1};
 use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
 
 const SOURCE: &str = include_str!("manifest.toml");
-const PHASE_IDS: [&str; 3] = [
-    "ingest-inspection",
-    "ingest-implementation",
-    "ingest-validation",
-];
+pub(crate) const PHASE_IDS: [&str; 3] =
+    ["ingest-implement", "ingest-run", "ingest-structural-gate"];
 const CHECK_IDS: [&str; 5] = [
     "pipeline_probe",
     "ingest_source_binding",
@@ -98,7 +95,7 @@ fn validate(manifest: &ManifestV1) -> Result<(), String> {
     if checks != BTreeSet::from(CHECK_IDS) {
         return Err(format!("ingest N1-N5 bindings are incomplete: {checks:?}"));
     }
-    let inspection_prompt = &manifest.plan.phases[0].prompt;
+    let implementation_prompt = &manifest.plan.phases[0].prompt;
     let guidance_text = manifest
         .guidance
         .variants
@@ -115,14 +112,14 @@ fn validate(manifest: &ManifestV1) -> Result<(), String> {
         "actual snapshots",
         "never copy example values as fixed data",
     ] {
-        if !inspection_prompt.contains(marker) {
+        if !implementation_prompt.contains(marker) {
             return Err(format!(
-                "ingest inspection prompt lacks canonical literal guidance: {marker}"
+                "ingest implementation prompt lacks canonical literal guidance: {marker}"
             ));
         }
     }
     for kind in crate::planner::profiles::ingest::guidance::SELECTOR_KINDS {
-        if !inspection_prompt.contains(kind) || !guidance_text.contains(kind) {
+        if !implementation_prompt.contains(kind) || !guidance_text.contains(kind) {
             return Err(format!(
                 "ingest selector vocabulary is not published before validation: {kind}"
             ));
@@ -171,7 +168,7 @@ mod tests {
     #[test]
     fn preset_and_repair_guidance_publish_every_canonical_literal_before_the_gate() {
         let preset = preset_ultra_plan("Extract actual events.", "default", "create").unwrap();
-        let inspection = &preset.phases[0].prompt;
+        let implementation = &preset.phases[0].prompt;
         let repair_guidance = guidance();
         for marker in [
             guidance::SELECTOR_LITERAL,
@@ -184,7 +181,7 @@ mod tests {
             "actual snapshots",
             "never copy example values as fixed data",
         ] {
-            assert!(inspection.contains(marker), "preset lacks {marker}");
+            assert!(implementation.contains(marker), "preset lacks {marker}");
             assert!(
                 guidance::GENERATION_RULES.contains(marker),
                 "synthesis guidance lacks {marker}"

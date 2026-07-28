@@ -357,6 +357,9 @@ impl Config {
     }
 
     pub fn plan_preset_origin(&self) -> &'static str {
+        if self.field_sources.plan_preset == "default_create_ingest" {
+            return "default_create_ingest";
+        }
         if self.field_sources.plan_preset == "default_fix_data" {
             return "default_fix_data";
         }
@@ -490,7 +493,14 @@ impl Config {
                         .as_ref()
                         .and_then(|preset| preset.profile.as_ref())
                         .is_some_and(|profile| profile.value == "data");
-                if matches!(cli.intent, Some(IntentArg::Investigate)) && data_profile {
+                let ingest_profile = cli.profile.as_deref() == Some("ingest")
+                    || preset
+                        .as_ref()
+                        .and_then(|preset| preset.profile.as_ref())
+                        .is_some_and(|profile| profile.value == "ingest");
+                if matches!(cli.intent, Some(IntentArg::Create)) && ingest_profile {
+                    Some(sourced(PlanPreset::Profile, "default_create_ingest"))
+                } else if matches!(cli.intent, Some(IntentArg::Investigate)) && data_profile {
                     Some(sourced(PlanPreset::Profile, "default_investigate_data"))
                 } else {
                     (matches!(cli.intent, Some(IntentArg::Fix)) && data_profile)
@@ -2108,6 +2118,40 @@ profile = "nextjs"
             "investigate",
             "--profile",
             "data",
+            "--plan-preset",
+            "none",
+        ]))
+        .unwrap();
+        assert_eq!(explicit_none.plan_preset, PlanPreset::None);
+        assert_eq!(explicit_none.plan_preset_origin(), "cli");
+    }
+
+    #[test]
+    fn create_ingest_defaults_to_profile_and_explicit_none_wins() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_string_lossy().to_string();
+        let defaulted = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--intent",
+            "create",
+            "--profile",
+            "ingest",
+        ]))
+        .unwrap();
+        assert_eq!(defaulted.plan_preset, PlanPreset::Profile);
+        assert_eq!(defaulted.field_sources.plan_preset, "default_create_ingest");
+        assert_eq!(defaulted.plan_preset_origin(), "default_create_ingest");
+
+        let explicit_none = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--intent",
+            "create",
+            "--profile",
+            "ingest",
             "--plan-preset",
             "none",
         ]))

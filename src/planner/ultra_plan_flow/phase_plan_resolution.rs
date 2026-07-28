@@ -12,23 +12,15 @@ pub(super) fn resolve(
     preset_plan: bool,
     final_phase: bool,
 ) -> anyhow::Result<StepPlan> {
-    crate::planner::investigation_plan_synthesis::resolve_phase_plan(config, plan, phase, || {
-        crate::planner::fix_plan_synthesis::resolve_phase_plan(
+    crate::planner::phase_plan_synthesis::resolve(config, plan, phase, fix_runtime, || {
+        generate_step_plan_with_ui_for_phase(
+            planner,
+            phase_prompt,
             config,
-            plan,
-            phase,
-            fix_runtime,
-            || {
-                generate_step_plan_with_ui_for_phase(
-                    planner,
-                    phase_prompt,
-                    config,
-                    ui,
-                    Some(&phase.id),
-                    preset_plan,
-                    final_phase,
-                )
-            },
+            ui,
+            Some(&phase.id),
+            preset_plan,
+            final_phase,
         )
     })
 }

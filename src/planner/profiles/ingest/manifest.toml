@@ -13,28 +13,28 @@ intent = "create"
 goal = "{goal}"
 
 [[plan.phases]]
-id = "ingest-inspection"
-prompt = '''Inspect data/snapshots for: {goal}. Before implementation, write output/inspection.json with candidate_selector, candidate_accounting, and record_format. Allowed candidate_selector kind values are exactly css, html_tag, and line_prefix. The literal selector shape is {"candidate_selector": {"kind": "css", "value": "ul.events > li"}}. The literal complete inspection shape is {"candidate_selector":{"kind":"css","value":"ul.events > li"},"candidate_accounting":{"accepted":[{"candidate_id":"data/snapshots/events.html#0","record_index":0}],"excluded":[{"candidate_id":"data/snapshots/events.html#1","reason":"missing required date"}]},"record_format":{"fields":[{"name":"name","type":"string","normalizations":["identity"]},{"name":"date","type":"string","normalizations":["japanese_date_to_iso"]},{"name":"location","type":"string","normalizations":["identity"]},{"name":"source_file","type":"string","normalizations":["identity"]}]}}. output/records.json must be a JSON array of objects in this literal field shape: [{"name":"observed event name","date":"2026-08-01","location":"observed location","source_file":"events.html"}]. pipeline/main.py and output/report.md must exist. The values shown are examples only: inspect the actual snapshots, replace every selector, candidate id, record value, exclusion reason, field, and normalization with actual observed declarations, and never copy example values as fixed data. Candidate identifiers and record indices must account for every selector match.'''
+id = "ingest-implement"
+prompt = '''Implement the complete deterministic offline ingest delivery for: {goal}. Read data/snapshots and create pipeline/main.py, output/inspection.json, output/records.json, and output/report.md in one artifact-owning phase. Declare candidate_selector, candidate_accounting, and record_format. Allowed candidate_selector kind values are exactly css, html_tag, and line_prefix. The literal selector shape is {"candidate_selector": {"kind": "css", "value": "ul.events > li"}}. The literal complete inspection shape is {"candidate_selector":{"kind":"css","value":"ul.events > li"},"candidate_accounting":{"accepted":[{"candidate_id":"data/snapshots/events.html#0","record_index":0}],"excluded":[{"candidate_id":"data/snapshots/events.html#1","reason":"missing required date"}]},"record_format":{"fields":[{"name":"name","type":"string","normalizations":["identity"]},{"name":"date","type":"string","normalizations":["japanese_date_to_iso"]},{"name":"location","type":"string","normalizations":["identity"]},{"name":"source_file","type":"string","normalizations":["identity"]}]}}. output/records.json must be a JSON array of objects in this literal field shape: [{"name":"observed event name","date":"2026-08-01","location":"observed location","source_file":"events.html"}]. The values shown are examples only: inspect the actual snapshots, replace every selector, candidate id, record value, exclusion reason, field, and normalization with actual observed declarations, and never copy example values as fixed data. Candidate identifiers and record indices must account for every selector match. Do not create smoke-check.py, verify_pipeline.py, smoke-check.js, verify-artifacts.js, or any other verification artifact.'''
 
 [[plan.phases]]
-id = "ingest-implementation"
-prompt = '''Implement deterministic offline extraction in pipeline/main.py for: {goal}. Read only data/snapshots, write output/records.json and output/report.md, and preserve each accepted record's field values from one candidate block. Do not fetch network data or join fragments from different candidates.'''
+id = "ingest-run"
+prompt = "Run the machine-fixed command python3 -B pipeline/main.py. Do not change files or invent an alternative verification command."
 
 [[plan.phases]]
-id = "ingest-validation"
-prompt = "Run the manifest-bound N1 pipeline probe, N2 source binding, N3 candidate accounting, N4 format schema, and N5 rerun consistency checks. Do not shrink the frozen candidate set or weaken a failed binding."
+id = "ingest-structural-gate"
+prompt = "Run the machine-owned ingest structural gate. Final acceptance then runs the manifest-bound N1 pipeline probe, N2 source binding, N3 candidate accounting, N4 format schema, and N5 rerun consistency checks."
 
 [step_templates.scaffold]
 phase = ["ingest inspection", "snapshot inspection", "候補検分"]
-phase_id = ["ingest-inspection"]
+phase_id = ["ingest-implement"]
 port_phase_markers = []
 port_script_phase = []
 
 [step_templates.build_verify]
-phase = ["ingest validation", "source binding", "candidate accounting", "rerun consistency"]
+phase = ["ingest run", "ingest structural gate"]
 
 [step_templates.implementation_kill]
-phase = ["ingest implementation", "extract", "transform", "整形"]
+phase = ["ingest implement", "extract", "transform", "整形"]
 
 [step_templates.ownership.setup_classifier]
 package_phrases = ["pipeline/main.py"]
