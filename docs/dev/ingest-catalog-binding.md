@@ -131,7 +131,7 @@ Pre-push acceptance on 2026-07-27: focused conformance negatives **6/6** and
 full positive **1/1**; production final-acceptance activation **1/1**; privileged
 `cargo test --all-targets` **1,814 passed, 0 failed, 30 ignored**.
 
-## Calibration arc interim measurement
+## Calibration arc measurement (settled in E-4d)
 
 INGEST-8 records the calibration cost before settlement rather than preserving
 the forecast by omission. The estimate above allowed **one to two calibration
@@ -150,6 +150,11 @@ It also required one contract revision, from fixed v0 to fixed v0.1, to define
 document-level shared context under the value-preservation, declaration, and
 two-positioned-fragment evidence conditions. The eight floors and one contract
 revision are materially beyond the forecast one-to-two-round calibration
-allowance. E-4 settlement must therefore revise the fourth-profile estimate
-using this measured cost; this document does not silently relabel the arc as
-two rounds or treat the excess as free reuse.
+allowance. E-4 settlement therefore revises the fourth-profile estimate
+using this measured cost rather than silently relabeling the arc as two rounds
+or treating the excess as free reuse.
+
+E-4d performed that revision in
+[`mechanism-ledger.md`](mechanism-ledger.md#e-4-settlement第1段2026-07-29):
+comparator 869 lines, plumbing 929 lines, eight classified machine floors,
+one contract revision, and a revised five-to-ten-campaign estimate.

@@ -241,3 +241,23 @@ analyzing their archive format and adapting it to the current profile-aware
 scanner. Until that separate task is complete, keep the tracked Next.js band
 frozen and treat regeneration from the current repository as unsupported; see
 [`analysis.md`](../../workspace/management/runs/band-f821-diff/analysis.md).
+
+## E-4 stage-1 post-close business queue (2026-07-29)
+
+Ingest admission covers only deterministic transformation of already acquired
+HTML/text snapshots. The following five business expansions are **QUEUED** and
+must not be presented as part of the current full assurance:
+
+1. Stage-2 fetch probe: network acquisition, source identity, acquisition
+   timestamp, freshness policy, and bounded retry evidence.
+2. Excel workbook input: `.xlsx` sheet/range declarations, cell-origin
+   lineage, formula/value distinction, and deterministic candidate accounting.
+3. JSON/JSONL input: record-root declarations, nested-field paths, array
+   candidate identity, and source-position evidence.
+4. PDF/attachment input: page/object lineage, OCR status, positioned fragments,
+   and an explicit reduced-assurance path when text extraction is uncertain.
+5. Multi-source reconciliation: duplicate/entity keys, merge precedence,
+   conflict evidence, and incremental add/update/delete accounting.
+
+Each item requires its own contract review, comparator or adapter estimate,
+real-input calibration, and separate capability-band denominator.

@@ -978,3 +978,79 @@ E-4d admission（2026-07-29）: `uat-test0726-ingest-elev-008`は機械クラス
 elevated full相当4/6（66.7%）の値札を隠さず`admitted`へ昇格し、
 runtime-shaped投影fixtureでearned fullが`profile_not_admitted`へcapされず
 fullを表示することを固定した。
+
+## E-4 settlement（第1段、2026-07-29）
+
+### 問いと答え
+
+問い「E-3で宣言した第4profile見積り式は当たったか」への答えは、
+**照合器は当たり、配管は等倍、較正は大幅な過少見積り**である。
+
+- N2/N3照合器は869 production Rust行で、予測500〜1,000行の帯内だった。
+- manifest/catalog、N1/N4/N5 adapter、typed evidence、freeze、投影、
+  production起動を含む配管は929行だった。照合器比1.07倍であり、
+  「新検証面とほぼ等量の配管を買う」という等倍則を確認した。
+- 較正は予測1〜2周に対し、実測で機械床8枚＋契約改訂1回を要した。
+  local 1＋elevated 8の9campaign、54runのformal run列合計は
+  23,004秒（6時間23分24秒）だった。
+
+### 較正乖離の内訳
+
+8枚はcampaign数を都合よく周へ畳まず、再発防止可能な欠陥クラスとして数える。
+
+| 系統 | 枚 | 機械床 | 一次観測 |
+|---|---:|---|---|
+| 伝達 | 1 | verification成果物をmodelへ自作させた責務伝達 | local |
+| 伝達 | 1 | workspace Python実行をdependency setupへ誤分類したauthority伝達 | local |
+| 意味論 | 1 | 相異なる成功commandを進捗と認識しない実行意味論 | elev-001 |
+| 伝達 | 1 | structure gateのkind/value正準形を字義配布しないknowledge | elev-002 |
+| 伝達 | 1 | planner自由作文・実入力材料未注入を残した計画源／材料伝達 | elev-003、elev-005 |
+| 段設計 | 1 | run生成物をimplement期待へ置いた段×生成主体の不整合 | elev-004 |
+| 意味論 | 1 | 正当な複合CSSを列挙できないselector engine被覆 | elev-006 |
+| 伝達 | 1 | freeze済み正準candidate IDを後段implementへ返さない語彙配布 | elev-007 |
+
+内訳は**伝達5・意味論2・段設計1**。これとは別に、候補内の部分日付と
+文書見出し年を値保存で合成する`document-level shared context`を定義するため、
+fixed v0からfixed v0.1へ契約を1回改訂した。契約改訂を機械床へ混ぜず、
+予測外コストとして独立表示する。
+
+第5profileでの再発防止見込みは、E-1 scaffoldへ恒久化した次の5点を
+実装前検問として使うことにある。
+
+1. completion assurance投影写像とruntime-shaped fixture。
+2. production acceptance経路からの部品起動実在テスト。
+3. structure gate要求形の字義例ガイダンス。
+4. machine-synthesized plan/presetによるplanner自由作文の禁止。
+5. boundedな実入力材料のprompt注入。
+
+これは再発ゼロの保証ではない。既知の伝達・段設計gapを実装前に落とし、
+残った未知の意味論gapだけを較正campaignへ送る見込み値である。
+
+### 改訂見積り式
+
+```text
+新検証面 =
+  照合器 500〜1,000 production Rust行
+  + 配管 等倍
+  + 較正（機械床N枚:
+      伝達・意味論・段設計の3系統をchecklistで事前検問した残り）
+  + 計測 5〜10 campaign
+```
+
+流用面は既存実装を再利用する限り新規行ゼロだが、adapter・typed evidence・
+dispatch・projection・production activationを配管として必ず別見積りする。
+「較正1〜2周」は廃止し、床の分類と除去を数える。計測5〜10campaignは
+ingest実測9campaignを根拠にした帯であり、local/elevated、機械欠陥除去後の
+正式窓を含む。
+
+### クローズ
+
+E-4第1段をクローズする。保存済みHTML/text snapshotからの自治体イベント
+整形について、N1実行、N2出典束縛と値保存正規化、N3候補勘定、
+N4宣言format、N5再実行一致、admission、local/elevated band、
+generality宣言まで実測で閉じた。値札はlocal full 0/6、elevated
+full相当4/6（66.7%）であり、壁は空の必須dateを採用したモデル2/6である。
+
+第2段のnetwork取得・鮮度を検証するfetch probeは**QUEUED**のまま維持する。
+Excel/JSON等の入力拡張も第1段fullへ遡及して含めず、
+`docs/dev/integration-notes.md`の事業queue 5件として分離する。
