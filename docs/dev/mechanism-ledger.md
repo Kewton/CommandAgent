@@ -857,6 +857,15 @@ title/見出し断片を、値保存・決定的宣言・両断片の出典位�
 `2026年`→`2026-08-03`を偽陽性から救う一方、日付ずらし、別候補の値の
 流用、文書内にない値は従来どおり拒否する非緩和の意味論精密化である。
 
+INGEST-7 violation/資産裁定（2026-07-28）: elev-006 list 003のN2 36件は
+9 record×4 fieldの個別捏造ではなく、modelが凍結candidate IDから
+`data/snapshots/` prefixを全件落とした単一lineage違反の派生である。N3の
+unknown 10＋unaccounted 10と同根であり、照合器は緩和しない。また
+`会場未定`はsource字義値として忠実なため採用を正当と裁定し、silent drop
+実弾は日付欠落の理由付き除外5/6と数える。scaffoldへ「意図した不備資産は
+意味的曖昧さでなく機械抽出不能にする」をmeasurement asset design項目として
+追加した。
+
 ## E-4b ingest検証部品（2026-07-27）
 
 E-3の第4profile見積り式（production Rust 500〜1,000行）を初めて実測

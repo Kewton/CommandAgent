@@ -32,6 +32,9 @@ MACHINE_PLAN_PRESET_CHECKLIST_ITEM = (
 SOURCE_MATERIAL_INJECTION_CHECKLIST_ITEM = (
     "inputs that generation must read are placed in bounded machine-injected guidance with a measured fixture"
 )
+MEASUREMENT_ASSET_DESIGN_CHECKLIST_ITEM = (
+    "intentionally incomplete measurement candidates are mechanically unextractable, not semantically ambiguous"
+)
 
 
 def generate(kind, ident):
@@ -73,7 +76,9 @@ def generate(kind, ident):
         f"- [ ] {SOURCE_MATERIAL_INJECTION_CHECKLIST_ITEM}\n"
         "- [ ] conformance negative tests green\n"
         "- [ ] corpus fixture is an archived real run\n"
-        "- [ ] reviewer explicitly changes `off` to `admitted`\n",
+        "- [ ] reviewer explicitly changes `off` to `admitted`\n"
+        "\n## Measurement asset design\n\n"
+        f"- [ ] {MEASUREMENT_ASSET_DESIGN_CHECKLIST_ITEM}\n",
         encoding="utf-8",
     )
     return base

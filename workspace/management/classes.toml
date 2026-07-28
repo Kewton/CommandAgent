@@ -226,3 +226,19 @@ match_reason = "candidate_set_violation:css_selector_compound"
 first_seen = "uat-test0726-ingest-elev-006"
 ledger_ref = "INGEST-7"
 note = "実HTMLに一致するtable tbody tr / table trをN runtimeがpre-evidence拒否した。INGEST-7で8段までのcompound descendant/direct-child chainを実装し、非対応CSSは構造gateで対応形つき事前拒否へ移した"
+
+[[class]]
+id = "ingest_candidate_accounting:candidate_id_path_prefix_omitted"
+attribution = "model"
+match_reason = "candidate_set_violation:unknown_candidate:events-list.html#0"
+first_seen = "uat-test0726-ingest-elev-006"
+ledger_ref = "INGEST-7"
+note = "list_cloud_003が凍結ID data/snapshots/events-list.html#Nからpath prefixを全件脱落させた。N3のunknown 10+unaccounted 10とN2の派生36件は判定正当であり、照合器は緩和しない"
+
+[[class]]
+id = "ingest_source_binding:document_year_context_unsupported"
+attribution = "machine"
+match_reason = "source_binding_violation:record=1:field=date:value=2026-08-03"
+first_seen = "uat-test0726-ingest-elev-006"
+ledger_ref = "INGEST-7"
+note = "候補内8/3(月)とpage title 2026年の値保存補完をv0が表現できなかった。v0.1でdocument_year_contextの宣言と両断片位置evidenceを必須にして精密化済み"

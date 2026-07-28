@@ -37,6 +37,14 @@ class ScaffoldTests(unittest.TestCase):
                 scaffold.SOURCE_MATERIAL_INJECTION_CHECKLIST_ITEM,
                 (out / "ADMISSION.md").read_text(),
             )
+            self.assertIn(
+                scaffold.MEASUREMENT_ASSET_DESIGN_CHECKLIST_ITEM,
+                (out / "ADMISSION.md").read_text(),
+            )
+            self.assertIn(
+                "## Measurement asset design",
+                (out / "ADMISSION.md").read_text(),
+            )
             self.assertEqual(
                 (out / "manifest.toml")
                 .read_text()
@@ -60,6 +68,10 @@ class ScaffoldTests(unittest.TestCase):
             self.assertIn(scaffold.MACHINE_PLAN_PRESET_CHECKLIST_ITEM, checklist)
             self.assertIn(
                 scaffold.SOURCE_MATERIAL_INJECTION_CHECKLIST_ITEM,
+                checklist,
+            )
+            self.assertIn(
+                scaffold.MEASUREMENT_ASSET_DESIGN_CHECKLIST_ITEM,
                 checklist,
             )
 

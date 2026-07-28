@@ -103,6 +103,15 @@ struct SourceValue {
     document_context: Option<BoundSourceFragment>,
 }
 
+struct FieldBindingInput<'a> {
+    record_index: usize,
+    candidate_id: &'a str,
+    field: &'a str,
+    output_value: &'a str,
+    rules: &'a [NormalizationRule],
+    candidate: Option<&'a FrozenCandidate>,
+}
+
 pub fn check(root: &Path, frozen: &CandidateFreeze) -> anyhow::Result<SourceBindingEvidence> {
     let inspection = accounting::load_inspection(root)?;
     let format: RecordFormat = serde_json::from_value(frozen.record_format.clone())
@@ -132,12 +141,14 @@ pub fn check(root: &Path, frozen: &CandidateFreeze) -> anyhow::Result<SourceBind
             };
             let binding = bind_field(
                 root,
-                record_index,
-                &candidate_id,
-                &field.name,
-                &value,
-                &field.normalizations,
-                candidate,
+                FieldBindingInput {
+                    record_index,
+                    candidate_id: &candidate_id,
+                    field: &field.name,
+                    output_value: &value,
+                    rules: &field.normalizations,
+                    candidate,
+                },
                 &frozen.candidates,
             )?;
             if !binding.matched {
@@ -228,14 +239,17 @@ fn load_records(root: &Path) -> anyhow::Result<Vec<serde_json::Map<String, Value
 
 fn bind_field(
     root: &Path,
-    record_index: usize,
-    candidate_id: &str,
-    field: &str,
-    output_value: &str,
-    rules: &[NormalizationRule],
-    candidate: Option<&FrozenCandidate>,
+    input: FieldBindingInput<'_>,
     frozen_candidates: &[FrozenCandidate],
 ) -> anyhow::Result<FieldBinding> {
+    let FieldBindingInput {
+        record_index,
+        candidate_id,
+        field,
+        output_value,
+        rules,
+        candidate,
+    } = input;
     let raw_candidate = candidate.map_or("", |candidate| candidate.raw.as_str());
     let mut values = source_values(raw_candidate, rules);
     if let Some(candidate) = candidate {

@@ -11,3 +11,7 @@
 - [x] conformance negative tests green (6/6; full positive 1/1)
 - [ ] corpus fixture is an archived real run
 - [ ] reviewer explicitly changes `off` to `admitted`
+
+## Measurement asset design
+
+- [ ] intentionally incomplete measurement candidates are mechanically unextractable, not semantically ambiguous
