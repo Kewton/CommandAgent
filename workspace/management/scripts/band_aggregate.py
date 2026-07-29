@@ -26,6 +26,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from id_vocabulary import INTERRUPTED_ENVIRONMENT
+
 ROOT = Path(__file__).resolve().parents[3]
 RUNS_DIR = ROOT / "workspace" / "management" / "runs"
 OUTPUT = RUNS_DIR / "band_summary.md"
@@ -1824,7 +1826,7 @@ def discover_fix_records() -> tuple[list[FixRunRecord], list[str]]:
     for row in bench_runs:
         assert isinstance(row, dict)
         run_name = str(row.get("name") or "")
-        interrupted = str(row.get("status") or "") == "interrupted(environment)"
+        interrupted = str(row.get("status") or "") == INTERRUPTED_ENVIRONMENT
         artifact = RUNS_DIR / FIX_BENCH_SET / "artifacts" / run_name
         records.append(
             FixRunRecord(
@@ -1848,7 +1850,10 @@ def discover_fix_records() -> tuple[list[FixRunRecord], list[str]]:
                 duration_seconds=row.get("duration_seconds"),
                 source=f"{FIX_BENCH_SET}/uat-meta.json",
                 evidence_dir=artifact / ".anvil" / "evidence",
-                excluded_reason="interrupted(environment): run non-consuming; two attempts were environment-interrupted"
+                excluded_reason=(
+                    f"{INTERRUPTED_ENVIRONMENT}: run non-consuming; "
+                    "two attempts were environment-interrupted"
+                )
                 if interrupted
                 else "",
             )

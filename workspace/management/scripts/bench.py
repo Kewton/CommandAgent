@@ -20,6 +20,8 @@ from typing import Any
 
 import tomllib
 
+from id_vocabulary import INTERRUPTED_ENVIRONMENT
+
 HARNESS_VERSION = "0.1"
 TAIL_BYTES = 64 * 1024
 MAX_SCRUB_FILE_BYTES = 10 * 1024 * 1024
@@ -27,7 +29,7 @@ TERMINAL_RUN_STATUSES = {
     "blocked",
     "completed",
     "dry-run-ready",
-    "interrupted(environment)",
+    INTERRUPTED_ENVIRONMENT,
 }
 WRAPPER_TOKENS = {"env", "nice", "nohup", "timeout"}
 EVENT_SEARCH_PATTERNS = {
@@ -1205,7 +1207,7 @@ def normalize_interrupted_runs(
         record = _metadata_run(metadata, run.name)
         if record.get("status") not in {"running", "starting"}:
             continue
-        record["status"] = "interrupted(environment)"
+        record["status"] = INTERRUPTED_ENVIRONMENT
         record["end_epoch"] = int(time.time())
         record["interruption_reason"] = (
             "resume observed a run without a recorded product terminal"
@@ -1223,7 +1225,7 @@ def normalize_interrupted_runs(
         changed = True
     if changed:
         metadata.setdefault("resume_notes", []).append(
-            "Interrupted runs were recorded as interrupted(environment) and were not rerun. "
+            f"Interrupted runs were recorded as {INTERRUPTED_ENVIRONMENT} and were not rerun. "
             "A one-time rerun in a new directory requires review adjudication."
         )
         write_metadata(metadata_path, metadata)
@@ -1289,7 +1291,7 @@ def process_runs(
             )
         except ProductInterrupted as error:
             product = error.result
-            record["status"] = "interrupted(environment)"
+            record["status"] = INTERRUPTED_ENVIRONMENT
             record["interruption_reason"] = "harness received KeyboardInterrupt"
             record["end_epoch"] = product.end_epoch
             record["duration_seconds"] = product.end_epoch - product.start_epoch
@@ -1302,7 +1304,7 @@ def process_runs(
                 suite.scrub_allow,
             )
             metadata.setdefault("resume_notes", []).append(
-                f"{run.name} was interrupted(environment) and must not be rerun. "
+                f"{run.name} was {INTERRUPTED_ENVIRONMENT} and must not be rerun. "
                 "A one-time rerun in a new directory requires review adjudication."
             )
             write_metadata(metadata_path, metadata)
@@ -1470,7 +1472,7 @@ def generate_report(campaign_dir: Path, metadata: dict[str, Any]) -> Path:
     interrupted = [
         record["name"]
         for record in metadata["runs"]
-        if record.get("status") == "interrupted(environment)"
+        if record.get("status") == INTERRUPTED_ENVIRONMENT
     ]
     if interrupted:
         lines.extend(
@@ -1656,7 +1658,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     except ProductInterrupted:
         print(
-            "bench: interrupted(environment); the run will not be retried",
+            f"bench: {INTERRUPTED_ENVIRONMENT}; the run will not be retried",
             file=sys.stderr,
         )
         return 130
