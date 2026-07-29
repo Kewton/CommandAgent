@@ -296,14 +296,14 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
     for budget in [
         ChokepointBudget {
             path: "src/planner/runner.rs",
-            total_baseline: 7_540,
-            production_baseline: 7_527,
+            total_baseline: 7_196,
+            production_baseline: 7_183,
             test_baseline: 13,
         },
         ChokepointBudget {
             path: "src/planner/runner/acceptance.rs",
-            total_baseline: 2_149,
-            production_baseline: 2_128,
+            total_baseline: 2_523,
+            production_baseline: 2_502,
             test_baseline: 21,
         },
         ChokepointBudget {
@@ -332,8 +332,8 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/final_acceptance.rs",
-            total_baseline: 2_209,
-            production_baseline: 2_204,
+            total_baseline: 2_235,
+            production_baseline: 2_230,
             test_baseline: 5,
         },
         ChokepointBudget {
@@ -380,8 +380,8 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/adjudication/create.rs",
-            total_baseline: 2_179,
-            production_baseline: 2_165,
+            total_baseline: 2_186,
+            production_baseline: 2_172,
             test_baseline: 14,
         },
         ChokepointBudget {
@@ -524,8 +524,8 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/assurance.rs",
-            total_baseline: 63,
-            production_baseline: 63,
+            total_baseline: 50,
+            production_baseline: 50,
             test_baseline: 0,
         },
         ChokepointBudget {
@@ -867,7 +867,7 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
 
 #[test]
 fn runner_test_modules_do_not_grow_past_transferred_budget() {
-    const AGGREGATE_BASELINE: usize = 15_205;
+    const AGGREGATE_BASELINE: usize = 15_206;
     let budgets = [
         TestModuleBudget {
             path: "src/planner/runner/tests/acceptance_boundary_tests.rs",
@@ -899,7 +899,7 @@ fn runner_test_modules_do_not_grow_past_transferred_budget() {
         },
         TestModuleBudget {
             path: "src/planner/runner/tests/mod.rs",
-            line_baseline: 41,
+            line_baseline: 42,
         },
         TestModuleBudget {
             path: "src/planner/runner/tests/phase_runtime_tests.rs",

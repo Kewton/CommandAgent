@@ -1,4 +1,24 @@
-use super::*;
+use super::CompileRepairPromptProtection;
+#[allow(unused_imports)]
+use super::{
+    BTreeMap, BTreeSet, Cell, ChatClient, CompileError, CompletionContract, Config, Duration,
+    InteractionUi, PROFILE_REPAIR_FILE_EXCERPT_MAX_CHARS, Path, PathBuf, PromptLayout,
+    RepairContext, RepairTarget, RunSessionOptions, RunSessionOutcome, RunSessionStepKind,
+    RuntimeAcceptanceReport, SessionSnapshot, TEXT_ECHO_AFTER_RELOAD_REPAIR_REQUIREMENT,
+    TEXT_ECHO_REPAIR_REQUIREMENT, ULTRA_CONTEXT_MAX_PATHS, ULTRA_PROMPT_GUIDANCE_MAX_LINES,
+    UltraPlan, UltraRunContext, UltraRunSetupAuthorityState, Value, VerificationReport,
+    app_behavior_probe_failure_kind, build_compile_regeneration_prompt_with_context,
+    capability_evidence_failure_evidence, capability_evidence_remedy_lines,
+    capability_evidence_unresolved_reason, clear_final_acceptance_browser_probe_evidence,
+    command_failure_summaries, compile_error_repair_guidance,
+    compile_repair_prompt_section_with_root, dedup_strings, eval_events,
+    interaction_repair_targets_for_reason, json, merge_unique_strings, missing_if_empty,
+    phase_goal_one_liner, push_context_items_capped, render_bounded_prompt_section,
+    report_has_production_build_failure, resolve_profile_runtime, restart_hook_attachment_guidance,
+    route_bound_source_paths, run_session_with_outcome_with_options,
+    ultra_final_acceptance_report_inner, ultra_final_acceptance_report_with_deterministic_remedies,
+    verification_missing_signals, workspace_relative_handoff_path,
+};
 
 pub(super) const FINAL_ACCEPTANCE_REPAIR_MAX_ATTEMPTS: usize = 2;
 

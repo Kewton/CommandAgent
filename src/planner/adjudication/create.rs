@@ -1,4 +1,32 @@
-use super::*;
+#[allow(unused_imports)]
+use super::{
+    BoundCompletionContract, BrowserInteractionProbeOptions, BrowserReadinessObservation,
+    CompletionContract, Config, DependencyReconciliationTrigger, Duration,
+    EvidenceArbitrationReport, Path, PathBuf, ProfileBehaviorProbeReport, ProfileId,
+    ProfileRuntime, ProfileRuntimeRegistry, ProfileSnapshot, RuntimeAcceptanceReport, UltraPlan,
+    UltraRunSetupAuthorityState, Value, VerificationReport, behavior_evidence,
+    carry_recorded_promotion_contract_requirements, compile_errors_from_release_evidence_path,
+    dependency_setup, depth_profile, display_path_for_event, earned_assurance_for_completion,
+    effective_requested_port, emit_browser_probe_event, emit_completion_contract_bound,
+    emit_depth_profile, eval_events, evidence_hint_tokens_for_goal,
+    explicit_completion_contract_path, generated_completion_contract_path, hook_snapshot,
+    interaction_action_hooks_from_path, interaction_probe,
+    interaction_state_dimensions_changed_from_path, interaction_surface_fit_from_path,
+    interaction_text_telemetry_from_path, json, merge_unique_strings, merge_verification_report,
+    missing_final_artifacts, plan_adherence_report,
+    probe_browser_readiness_with_offline_and_interaction_options, push_unique_label,
+    reconcile_manifest_changed_dependencies_if_needed, reconcile_run_dependency_setup,
+    recovery_scope_token, release_recovery_failure_evidence, release_recovery_failure_kind,
+    release_recovery_missing_capabilities, release_recovery_repair_targets,
+    release_recovery_verify_commands, resolve_profile_runtime,
+    run_nextjs_dev_route_probe_with_interaction_options, run_profile_behavior_probe,
+    runtime_acceptance_repair_guidance, runtime_acceptance_status, save_release_recovery_handoff,
+    signals, ultra_final_acceptance_report_with_cycle, ultra_plan_phase_signal_text,
+    ultra_plan_signal_text, verification_report_mentions_dependency_setup_missing,
+    verify_runtime_acceptance_with_browser_dirs_and_hints,
+};
+#[allow(unused_imports)]
+use super::{ContractRequirements, ReleaseRecoveryHandoffSummary, contract_origin_for_acceptance};
 use crate::planner::adjudication::{
     GateObservation, append_gate_observation, dedup_strings, disconnected_gate_observations_reason,
     execution_status_from_observed, profile_behavior_failure_reasons,

@@ -3,6 +3,7 @@ use crate::planner::lint::lint_step_plan_report_with_workspace;
 use crate::providers::{AssistantReply, ChatClient};
 use crate::state::ConversationMessage;
 use crate::tools::registry::ToolSpec;
+use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 
 #[path = "final_acceptance_tests.rs"]

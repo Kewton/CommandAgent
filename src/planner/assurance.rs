@@ -1,4 +1,8 @@
-use super::*;
+#[allow(unused_imports)]
+use super::{
+    AcceptanceGateTelemetry, ProfileBehaviorProbeReport, ReleaseGateSummary,
+    earned_assurance_from_release_gate,
+};
 use crate::planner::failure_vocabulary::AssuranceReasonId;
 use crate::planner::profile::{ProfileId, ProfileRuntimeRegistry};
 
