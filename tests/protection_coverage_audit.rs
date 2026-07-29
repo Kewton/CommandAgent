@@ -25,7 +25,7 @@ const PROTECTION_RULES: &[ProtectionRule] = &[
             "src/planner/profile.rs",
             "src/planner/profiles/python_cli.rs",
             "src/planner/fix_diagnostics.rs",
-            "src/planner/runner.rs",
+            "src/planner/runner/acceptance.rs",
         ],
         audit: audit_compile_output_source_of_truth,
     },
@@ -167,7 +167,7 @@ fn audit_compile_output_source_of_truth(
         violations.push("parse_compile_errors still accepts a raw string".to_string());
     }
     if corpus
-        .file("src/planner/runner.rs")
+        .file("src/planner/runner/acceptance.rs")
         .contains("release_evidence_compile_excerpt_fields")
     {
         violations.push("release evidence still has an excerpt-to-parser fallback".to_string());
@@ -246,6 +246,9 @@ fn audit_verify_normalization_boundary(corpus: &AuditCorpus, _: &ProtectionRule)
 fn audit_bounded_execution_chokepoints(corpus: &AuditCorpus, _: &ProtectionRule) -> Vec<String> {
     let mut violations = Vec::new();
     for (path, text) in corpus.src_rust_files() {
+        if path.starts_with("src/planner/runner/tests/") {
+            continue;
+        }
         let mut in_test_mod = false;
         for (line_index, line) in text.lines().enumerate() {
             if path != "src/provider_call.rs" && line.contains(".chat(") {

@@ -1,19 +1,44 @@
 use std::collections::BTreeSet;
+use std::path::Path;
 
 const AUDIT_PATH: &str = "workspace/management/runs/e5b-dispatch-audit.md";
 const RUNNER_PATH: &str = "src/planner/runner.rs";
+const RUNNER_MODULE_ROOT: &str = "src/planner/runner";
 
-fn production_runner() -> String {
-    let source = std::fs::read_to_string(RUNNER_PATH).expect("read runner");
-    source
-        .split_once("\n#[cfg(test)]\nmod tests")
-        .map(|(production, _)| production.to_string())
-        .expect("runner top-level test boundary")
+fn production_runner_modules() -> String {
+    let mut paths = vec![RUNNER_PATH.to_string()];
+    collect_production_runner_modules(Path::new(RUNNER_MODULE_ROOT), &mut paths);
+    paths.sort();
+    paths
+        .into_iter()
+        .map(|path| {
+            let source = std::fs::read_to_string(&path)
+                .unwrap_or_else(|err| panic!("read runner module {path}: {err}"));
+            format!("// {path}\n{source}")
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn collect_production_runner_modules(root: &Path, paths: &mut Vec<String>) {
+    for entry in std::fs::read_dir(root)
+        .unwrap_or_else(|err| panic!("read runner module directory {}: {err}", root.display()))
+        .flatten()
+    {
+        let path = entry.path();
+        if path.is_dir() {
+            if path.file_name().and_then(|name| name.to_str()) != Some("tests") {
+                collect_production_runner_modules(&path, paths);
+            }
+        } else if path.extension().and_then(|extension| extension.to_str()) == Some("rs") {
+            paths.push(path.to_string_lossy().replace('\\', "/"));
+        }
+    }
 }
 
 #[test]
 fn runner_profile_dispatch_is_confined_to_the_three_reviewed_identity_sites() {
-    let source = production_runner();
+    let source = production_runner_modules();
     let allowlist = [
         (
             "E5B_PROFILE_DISPATCH_ALLOW: inference-boundary",
@@ -32,17 +57,17 @@ fn runner_profile_dispatch_is_confined_to_the_three_reviewed_identity_sites() {
         assert_eq!(
             source.matches(marker).count(),
             1,
-            "runner allowlist marker must occur exactly once: {marker}"
+            "runner module allowlist marker must occur exactly once: {marker}"
         );
         assert!(
             source.contains(typed_site),
-            "runner allowlist site lost its typed identity form: {typed_site}"
+            "runner module allowlist site lost its typed identity form: {typed_site}"
         );
     }
     assert_eq!(
         source.matches("E5B_PROFILE_DISPATCH_ALLOW:").count(),
         3,
-        "new runner allowlist entries require explicit review"
+        "new runner module allowlist entries require explicit review"
     );
 
     for forbidden in [
@@ -56,7 +81,7 @@ fn runner_profile_dispatch_is_confined_to_the_three_reviewed_identity_sites() {
     ] {
         assert!(
             !source.contains(forbidden),
-            "runner reintroduced string profile dispatch: {forbidden}"
+            "runner modules reintroduced string profile dispatch: {forbidden}"
         );
     }
     for profile in [
@@ -75,7 +100,7 @@ fn runner_profile_dispatch_is_confined_to_the_three_reviewed_identity_sites() {
             let reversed = format!("\"{profile}\" {operator}");
             assert!(
                 !source.contains(&direct) && !source.contains(&reversed),
-                "runner reintroduced a profile literal comparison: {profile}"
+                "runner modules reintroduced a profile literal comparison: {profile}"
             );
         }
     }

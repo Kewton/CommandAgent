@@ -9,7 +9,8 @@ file-level growth budgets so they do not become replacement chokepoints.
 The CI/test guard records current baselines and fails if any file grows
 above baseline +2%:
 
-- `src/planner/runner.rs`: 3,373 lines
+- `src/planner/runner.rs`: 144 lines
+- `src/planner/runner/driver.rs`: 3,273 lines
 - `src/planner/runner/phase.rs`: 3,857 lines
 - `src/planner/runner/phase/flow.rs`: 1,656 lines
 - `src/planner/runner/acceptance.rs`: 2,523 lines
@@ -31,7 +32,8 @@ masking test bloat:
 
 | file | production baseline | test baseline |
 | --- | ---: | ---: |
-| `src/planner/runner.rs` | 3,360 | 13 |
+| `src/planner/runner.rs` | 131 | 13 |
+| `src/planner/runner/driver.rs` | 3,273 | 0 |
 | `src/planner/runner/phase.rs` | 3,857 | 0 |
 | `src/planner/runner/phase/flow.rs` | 1,656 | 0 |
 | `src/planner/runner/acceptance.rs` | 2,502 | 21 |

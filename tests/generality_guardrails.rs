@@ -130,7 +130,11 @@ fn planner_template_lint_calls_have_three_audited_sites() {
         }
     }
     assert_eq!(sites.len(), 3, "template lint sites changed: {sites:?}");
-    assert!(sites.iter().all(|(path, _, _)| path.ends_with("runner.rs")));
+    assert!(
+        sites
+            .iter()
+            .all(|(path, _, _)| path.ends_with("runner/driver.rs"))
+    );
 }
 
 #[test]
@@ -299,9 +303,15 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
     for budget in [
         ChokepointBudget {
             path: "src/planner/runner.rs",
-            total_baseline: 3_373,
-            production_baseline: 3_360,
+            total_baseline: 144,
+            production_baseline: 131,
             test_baseline: 13,
+        },
+        ChokepointBudget {
+            path: "src/planner/runner/driver.rs",
+            total_baseline: 3_273,
+            production_baseline: 3_273,
+            test_baseline: 0,
         },
         ChokepointBudget {
             path: "src/planner/runner/phase.rs",
