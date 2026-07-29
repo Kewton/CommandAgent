@@ -116,7 +116,7 @@ runner_sites = [1340, 1348, 1377, 1380, 1473, 1475, 1476, 1489, 1502, 1516, 1530
 [[migration_batch]]
 batch = 6
 kind = "intentional residual and guard"
-status = "pending"
+status = "complete"
 runner_sites = [1301, 1755, 3639]
 ```
 
@@ -412,3 +412,53 @@ dispatch, repair selection, or probe selection.
 
 No stage-2 production change should begin until these points and the
 disappear/retain partition above are adjudicated.
+
+## Stage-2 final result
+
+The reviewed migration completed on 2026-07-29 without changing an existing
+snapshot, conformance fixture, event, evidence, or stop-class string.
+
+| Measure | Baseline | Final |
+|---|---:|---:|
+| audited runner dispatch sites | 110 | 3 intentional identity sites |
+| consumed sites | 0 | 107 |
+| profile-literal behavior branches in production `runner.rs` | 35 direct/hybrid | 0 |
+| typed runtime resolution points | 0 | 1 (`ProfileRuntimeRegistry::resolve`) |
+| fifth-profile implementation contact files | 26 | 20 |
+
+The three residuals preserve the adjudicated responsibilities, not behavioral
+dispatch:
+
+1. baseline line 1301 is the workspace inference boundary;
+2. baseline line 1755 renders dependency-reconciliation telemetry through
+   `ProfileId::parse(profile).to_string()`;
+3. baseline line 3639 selects the generic-contract telemetry event with
+   `ProfileId::parse(profile) == ProfileId::Generic`.
+
+`tests/profile_runtime_guardrails.rs` fixes those three typed forms, rejects a
+fourth allowlist entry, rejects the legacy string-dispatch helpers and direct
+profile-literal comparisons in production `runner.rs`, and proves that the
+machine-readable migration ledger contains 110 unique sites with exactly the
+three reviewed residuals.
+
+### Fifth-profile contact remeasurement
+
+The 26-file baseline is the E-4b implementation set excluding the four
+scaffold output documents. Replaying that same definition for a fifth profile
+leaves 20 contacts: two development documents, `minimal_loop/evidence`, the
+capability catalog plus its profile leaf, `planner/mod.rs`, the typed registry,
+admission metadata, six profile-owned implementation/manifest files, four
+corpus files, the capability-catalog golden, and one conformance test.
+
+Six former contacts disappear: the four completion-projection dispatcher/leaf
+files, the runner activation-test file, and the literal-count guard. Their
+responsibilities are now carried by the runtime projection/acceptance methods
+and the generic registry guard. Profile-specific verifier semantics and
+fixtures are intentionally **not** counted as eliminated work.
+
+The scaffold checklist items now partly enforced by the type/registry boundary
+are completion projection, production acceptance activation, preset
+selection, repair policy, guidance/material injection, and probe selection.
+The checklist still requires profile-specific implementations, literal
+guidance examples, and runtime-shaped fixtures; the registry removes scattered
+dispatch wiring, not semantic review.

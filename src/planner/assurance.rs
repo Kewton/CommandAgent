@@ -1,14 +1,6 @@
 use super::*;
 use crate::planner::failure_vocabulary::AssuranceReasonId;
-use crate::planner::profile::{ProfileId, resolve_profile_runtime};
-
-pub(super) fn assurance_for_completion(
-    profile: &str,
-    required_capabilities: &[String],
-) -> (&'static str, &'static str) {
-    let profile_id = ProfileId::parse(profile);
-    resolve_profile_runtime(profile).assurance_for_completion(&profile_id, required_capabilities)
-}
+use crate::planner::profile::{ProfileId, ProfileRuntimeRegistry};
 
 pub(super) fn earned_assurance_for_completion(
     profile: &str,
@@ -19,7 +11,9 @@ pub(super) fn earned_assurance_for_completion(
     gate_telemetry: &AcceptanceGateTelemetry,
     profile_behavior_probe: Option<&ProfileBehaviorProbeReport>,
 ) -> (String, String) {
-    let data_profile = canonical_profile_name(profile) == "data";
+    let profile_id = ProfileId::parse(profile);
+    let runtime = ProfileRuntimeRegistry::resolve(&profile_id);
+    let data_profile = profile_id == ProfileId::Data;
     if data_profile {
         let status = profile_behavior_probe.map(|report| report.status);
         if status != Some("pass") {
@@ -38,7 +32,7 @@ pub(super) fn earned_assurance_for_completion(
     let (base_level, base_reason) = if data_profile {
         ("full", "")
     } else {
-        assurance_for_completion(profile, required_capabilities)
+        runtime.assurance_for_completion(&profile_id, required_capabilities)
     };
     earned_assurance_from_release_gate(
         profile,

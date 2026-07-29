@@ -355,8 +355,9 @@ export default function Memo() {
 
     #[test]
     fn data_assurance_is_earned_from_the_observed_profile_probe_level() {
+        let data_id = ProfileId::Data;
         assert_eq!(
-            assurance_for_completion("data", &[]),
+            ProfileRuntimeRegistry::resolve(&data_id).assurance_for_completion(&data_id, &[]),
             ("static", "data_profile_probe_not_run")
         );
         let release_gate = ReleaseGateSummary {

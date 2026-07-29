@@ -1068,3 +1068,19 @@ byte互換のまま固定した。Rust enumとPython producerの全ID→`classes
 これは可視化設計の3勝目（E-0-1 UNKNOWN、ingest床監査に続く）であり、
 不整合をgreenへ隠さず、登録簿の種別不足とcross-language境界を先に露出させた。
 最終登録簿は36件（terminal 30、violation_family 6）。
+
+## E-5b — ProfileRuntimeレジストリ（2026-07-29）
+
+`runner.rs`の監査済みprofile dispatchを**110→3**へ縮約し、107地点を
+typed `ProfileId`から解決した`ProfileRuntime`へ移した。残存3地点は
+workspace推論境界1件と、typed IDを描画・比較するtelemetry 2件だけである。
+runtime解決は`ProfileRuntimeRegistry::resolve`の**1点**、production
+`runner.rs`のprofile字義behavior分岐は0件となった。
+
+再散逸guardは残存3形を明示allowlistし、4件目、旧string dispatch helper、
+profile字義比較を拒否する。同時に監査台帳の110 unique site・消化107・
+残存3を機械照合する。第5profile追加の同一定義による接触ファイル実測は
+**26→20**。completion projection、acceptance起動、preset、repair、
+guidance/material、probeのdispatch配線をレジストリが肩代わりし、
+profile固有の照合意味論・字義ガイダンス・runtime-shaped fixtureは
+引き続きchecklistで検問する。

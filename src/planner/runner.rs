@@ -62,8 +62,8 @@ use crate::planner::lint::{
 };
 use crate::planner::profile::{
     GENERIC_INTERACTIVE_CONTRACT_CAPABILITY, PhaseVerificationMode, ProfileBehaviorProbeReport,
-    ProfileId, ProfileInferenceSource, ProfileRuntimeRegistry, ProfileSnapshot,
-    canonical_profile_name, infer_profile, profile_before_plan, resolve_profile_runtime,
+    ProfileId, ProfileInferenceSource, ProfileRuntimeRegistry, ProfileSnapshot, infer_profile,
+    profile_before_plan, resolve_profile_runtime,
 };
 #[cfg(test)]
 use crate::planner::profile::{
@@ -1292,6 +1292,7 @@ fn try_promote_profile_at_phase_boundary(
     if !promotion_state.can_promote(plan) {
         return Ok(None);
     }
+    // E5B_PROFILE_DISPATCH_ALLOW: inference-boundary
     let Some(inference) = infer_profile(None, &config.workspace_root) else {
         return Ok(None);
     };
@@ -1756,7 +1757,8 @@ fn reconcile_run_dependency_setup(
         json!({
             "event": "dependency_setup_reconciliation",
             "trigger": trigger.as_str(),
-            "profile": canonical_profile_name(profile),
+            // E5B_PROFILE_DISPATCH_ALLOW: telemetry-profile
+            "profile": ProfileId::parse(profile).to_string(),
             "authority": authority.as_str(),
             "setup_kind": setup.setup_kind.as_str(),
             "status": setup.status.as_str(),
@@ -3573,7 +3575,8 @@ fn emit_completion_contract_bound(
             "required_obligations": bound.contract.required_obligations.clone(),
         }),
     );
-    if canonical_profile_name(profile) == "generic"
+    // E5B_PROFILE_DISPATCH_ALLOW: telemetry-generic-contract
+    if ProfileId::parse(profile) == ProfileId::Generic
         && bound
             .contract
             .required_capabilities
