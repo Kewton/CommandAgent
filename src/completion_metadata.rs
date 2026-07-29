@@ -1,6 +1,6 @@
-mod cli;
-mod data;
-mod ingest;
+pub(crate) mod cli;
+pub(crate) mod data;
+pub(crate) mod ingest;
 mod intent;
 
 use crate::config::Config;
@@ -8,7 +8,6 @@ use crate::eval_events::{
     CompletionProjection, CompletionSnapshot, GENERIC_REDUCED_ASSURANCE_REASON,
     GENERIC_STATIC_ASSURANCE_REASON,
 };
-use crate::planner::profile::canonical_profile_name;
 use crate::planner::profile_admission::cap_assurance;
 
 pub(crate) fn apply_config_completion_metadata(config: &Config, snapshot: &mut CompletionSnapshot) {
@@ -25,20 +24,21 @@ pub(crate) fn apply_config_completion_metadata(config: &Config, snapshot: &mut C
     if snapshot.prompt_layout.trim().is_empty() {
         snapshot.prompt_layout = config.prompt_layout.as_str().to_string();
     }
-    if intent::apply_snapshot(config, snapshot) {
-        return;
-    }
-    if canonical_profile_name(&snapshot.profile) == "generic" {
-        if snapshot.assurance_level == "static" {
-            snapshot.assurance_reason = GENERIC_STATIC_ASSURANCE_REASON.to_string();
-        } else {
-            snapshot.assurance_level = "reduced".to_string();
-            snapshot.assurance_reason = GENERIC_REDUCED_ASSURANCE_REASON.to_string();
-        }
+    intent::apply_snapshot(config, snapshot);
+}
+
+pub(crate) fn apply_generic_snapshot(snapshot: &mut CompletionSnapshot) {
+    if snapshot.assurance_level == "static" {
+        snapshot.assurance_reason = GENERIC_STATIC_ASSURANCE_REASON.to_string();
     } else {
-        snapshot.assurance_level = "full".to_string();
-        snapshot.assurance_reason.clear();
+        snapshot.assurance_level = "reduced".to_string();
+        snapshot.assurance_reason = GENERIC_REDUCED_ASSURANCE_REASON.to_string();
     }
+}
+
+pub(crate) fn apply_full_snapshot(snapshot: &mut CompletionSnapshot) {
+    snapshot.assurance_level = "full".to_string();
+    snapshot.assurance_reason.clear();
 }
 
 pub(crate) fn apply_config_completion_projection(

@@ -531,11 +531,37 @@ impl ProfileRuntime for crate::planner::profiles::nextjs::NextjsProfile {
     fn profile_id(&self) -> ProfileId {
         ProfileId::Nextjs
     }
+
+    fn default_requested_port(&self) -> Option<u16> {
+        Some(crate::planner::profiles::nextjs::DEFAULT_REQUESTED_PORT)
+    }
+
+    fn route_bound_closure(&self, root: &Path) -> std::collections::BTreeSet<std::path::PathBuf> {
+        crate::minimal_loop::import_scan::nextjs_route_bound_closure(root)
+    }
 }
 
 impl ProfileRuntime for crate::planner::profiles::python_cli::PythonCliProfile {
     fn profile_id(&self) -> ProfileId {
         ProfileId::PythonCli
+    }
+
+    fn apply_completion_snapshot(
+        &self,
+        _profile_id: &ProfileId,
+        root: &Path,
+        snapshot: &mut crate::eval_events::CompletionSnapshot,
+    ) {
+        crate::completion_metadata::cli::apply_snapshot_runtime(root, snapshot);
+    }
+
+    fn apply_completion_projection(
+        &self,
+        _profile_id: &ProfileId,
+        root: &Path,
+        projection: &mut crate::eval_events::CompletionProjection,
+    ) {
+        crate::completion_metadata::cli::apply_terminal_projection_runtime(root, projection);
     }
 }
 
@@ -543,17 +569,133 @@ impl ProfileRuntime for DataProfile {
     fn profile_id(&self) -> ProfileId {
         ProfileId::Data
     }
+
+    fn assurance_for_completion(
+        &self,
+        _profile_id: &ProfileId,
+        _required_capabilities: &[String],
+    ) -> (&'static str, &'static str) {
+        ("static", "data_profile_probe_not_run")
+    }
+
+    fn apply_completion_snapshot(
+        &self,
+        _profile_id: &ProfileId,
+        root: &Path,
+        snapshot: &mut crate::eval_events::CompletionSnapshot,
+    ) {
+        crate::completion_metadata::data::apply_snapshot(root, snapshot);
+    }
+
+    fn apply_completion_projection(
+        &self,
+        _profile_id: &ProfileId,
+        root: &Path,
+        projection: &mut crate::eval_events::CompletionProjection,
+    ) {
+        crate::completion_metadata::data::apply_terminal_projection(root, projection);
+    }
 }
 
 impl ProfileRuntime for crate::planner::profiles::ingest::IngestProfile {
     fn profile_id(&self) -> ProfileId {
         ProfileId::Ingest
     }
+
+    fn apply_completion_snapshot(
+        &self,
+        _profile_id: &ProfileId,
+        root: &Path,
+        snapshot: &mut crate::eval_events::CompletionSnapshot,
+    ) {
+        crate::completion_metadata::ingest::apply_snapshot_runtime(root, snapshot);
+    }
+
+    fn apply_completion_projection(
+        &self,
+        _profile_id: &ProfileId,
+        root: &Path,
+        projection: &mut crate::eval_events::CompletionProjection,
+    ) {
+        crate::completion_metadata::ingest::apply_terminal_projection_runtime(root, projection);
+    }
 }
 
 impl ProfileRuntime for GenericProfile {
     fn profile_id(&self) -> ProfileId {
         ProfileId::Generic
+    }
+
+    fn assurance_for_completion(
+        &self,
+        profile_id: &ProfileId,
+        required_capabilities: &[String],
+    ) -> (&'static str, &'static str) {
+        if profile_id == &ProfileId::Generic {
+            if required_capabilities
+                .iter()
+                .any(|capability| capability == GENERIC_INTERACTIVE_CONTRACT_CAPABILITY)
+            {
+                (
+                    "static",
+                    crate::eval_events::GENERIC_STATIC_ASSURANCE_REASON,
+                )
+            } else {
+                (
+                    "reduced",
+                    crate::eval_events::GENERIC_REDUCED_ASSURANCE_REASON,
+                )
+            }
+        } else {
+            ("full", "")
+        }
+    }
+
+    fn apply_completion_snapshot(
+        &self,
+        profile_id: &ProfileId,
+        root: &Path,
+        snapshot: &mut crate::eval_events::CompletionSnapshot,
+    ) {
+        if profile_id == &ProfileId::Cli {
+            crate::completion_metadata::cli::apply_snapshot_runtime(root, snapshot);
+        } else if profile_id == &ProfileId::Generic {
+            crate::completion_metadata::apply_generic_snapshot(snapshot);
+        } else {
+            crate::completion_metadata::apply_full_snapshot(snapshot);
+        }
+    }
+
+    fn apply_completion_projection(
+        &self,
+        profile_id: &ProfileId,
+        root: &Path,
+        projection: &mut crate::eval_events::CompletionProjection,
+    ) {
+        if profile_id == &ProfileId::Cli {
+            crate::completion_metadata::cli::apply_terminal_projection_runtime(root, projection);
+        }
+    }
+
+    fn run_behavior_probe(
+        &self,
+        profile_id: &ProfileId,
+        root: &Path,
+        goal: &str,
+        required_capabilities: &[String],
+        offline: bool,
+    ) -> anyhow::Result<ProfileBehaviorProbeReport> {
+        if profile_id == &ProfileId::Cli {
+            let summary = crate::planner::profiles::python_cli::runtime::run_manifest_checks(root)?;
+            return Ok(ProfileBehaviorProbeReport {
+                status: summary.assurance.behavior_status(),
+                reasons: summary.reasons,
+                evidence_path: Some(
+                    crate::planner::profiles::python_cli::runtime::EVIDENCE_PATH.to_string(),
+                ),
+            });
+        }
+        self.behavior_probe(root, goal, required_capabilities, offline)
     }
 }
 

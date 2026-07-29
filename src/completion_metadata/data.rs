@@ -1,18 +1,16 @@
 use std::path::Path;
 
 use crate::eval_events::{CompletionProjection, CompletionSnapshot};
-use crate::planner::profile::canonical_profile_name;
 use crate::planner::profiles::data::runtime::{DataAssurance, assurance_from_evidence};
 
-pub(super) fn apply_snapshot(root: &Path, snapshot: &mut CompletionSnapshot) {
+pub(crate) fn apply_snapshot(root: &Path, snapshot: &mut CompletionSnapshot) {
     let (assurance, reason) = completion_assurance(root);
     snapshot.assurance_level = assurance.as_str().to_string();
     snapshot.assurance_reason = reason.to_string();
 }
 
-pub(super) fn apply_terminal_projection(root: &Path, projection: &mut CompletionProjection) {
+pub(crate) fn apply_terminal_projection(root: &Path, projection: &mut CompletionProjection) {
     if projection.contract_origin == crate::planner::fix_runtime::FIX_CONTRACT_ORIGIN
-        || canonical_profile_name(&projection.effective_profile) != "data"
         || projection.final_acceptance != "full_success"
     {
         return;
@@ -96,6 +94,9 @@ mod tests {
 
     #[test]
     fn nextjs_completion_projections_are_unchanged() {
+        let profile_id = crate::planner::profile::ProfileId::Nextjs;
+        let runtime = crate::planner::profile::ProfileRuntimeRegistry::resolve(&profile_id);
+        let root = Path::new(FIXTURE_ROOT);
         for (final_acceptance, release_gate, ok) in
             [("full_success", "pass", true), ("failed", "failed", false)]
         {
@@ -110,7 +111,7 @@ mod tests {
             let mut projection = project_completion(ok, &snapshot);
             let before = projection.clone();
 
-            apply_terminal_projection(Path::new(FIXTURE_ROOT), &mut projection);
+            runtime.apply_completion_projection(&profile_id, root, &mut projection);
 
             assert_eq!(projection, before);
         }

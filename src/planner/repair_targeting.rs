@@ -1,10 +1,10 @@
 use std::path::{Path, PathBuf};
 
 use crate::minimal_loop::evidence::required_evidence_for_capability;
-use crate::minimal_loop::import_scan::{
-    MissingImport, missing_import_target_rel, route_bound_closure,
+use crate::minimal_loop::import_scan::{MissingImport, missing_import_target_rel};
+use crate::planner::profile::{
+    is_nextjs_profile, profile_evidence_repair_target_paths, resolve_profile_runtime,
 };
-use crate::planner::profile::{is_nextjs_profile, profile_evidence_repair_target_paths};
 use crate::planner::runner::StepRunOutcome;
 
 mod fix;
@@ -314,7 +314,8 @@ pub(crate) fn profile_invariant_excerpt_candidates(
 }
 
 fn route_bound_source_candidates(root: &Path, profile: &str) -> Vec<String> {
-    let route_bound = route_bound_closure(root, profile)
+    let route_bound = resolve_profile_runtime(profile)
+        .route_bound_closure(root)
         .into_iter()
         .filter_map(normalized_source_path)
         .collect::<Vec<_>>();

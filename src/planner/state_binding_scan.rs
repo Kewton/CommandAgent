@@ -5,7 +5,7 @@ use regex::Regex;
 use serde_json::json;
 
 use crate::eval_events;
-use crate::minimal_loop::import_scan::route_bound_closure;
+use crate::planner::profile::resolve_profile_runtime;
 use crate::planner::profiles::nextjs::knowledge;
 use crate::planner::verify::VerificationReport;
 
@@ -220,7 +220,7 @@ fn contract_attribute_issue_for_no_expression(
 fn state_binding_scan_paths(root: &Path, profile: &str) -> Vec<PathBuf> {
     let mut route_entries = Vec::new();
     let mut non_layout = Vec::new();
-    for rel in route_bound_closure(root, profile) {
+    for rel in resolve_profile_runtime(profile).route_bound_closure(root) {
         let rel_text = rel.to_string_lossy().replace('\\', "/");
         if layout_source_path(&rel_text) {
             continue;

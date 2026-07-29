@@ -2,6 +2,7 @@ use std::path::Path;
 
 use crate::eval_events::{CompletionProjection, CompletionSnapshot};
 use crate::planner::fix_runtime::FIX_CONTRACT_ORIGIN;
+#[cfg(test)]
 use crate::planner::profile::canonical_profile_name;
 use crate::planner::profiles::ingest::runtime::{
     ASSURANCE_EVIDENCE_PATH, IngestAssurance, IngestCheckSummary, classify,
@@ -11,25 +12,39 @@ const PROBE_NOT_RUN: &str = "ingest_probe_not_run";
 const CLAIMS_ABSENT: &str = "ingest_claims_absent";
 const ASSURANCE_FAILED: &str = "ingest_assurance_failed";
 
-pub(super) fn apply_snapshot(root: &Path, snapshot: &mut CompletionSnapshot) -> bool {
-    if canonical_profile_name(&snapshot.effective_profile) != "ingest" {
-        return false;
-    }
+pub(crate) fn apply_snapshot_runtime(root: &Path, snapshot: &mut CompletionSnapshot) {
     let (assurance, reason) = completion_assurance(root);
     snapshot.assurance_level = assurance.as_str().to_string();
     snapshot.assurance_reason = reason.to_string();
-    true
 }
 
-pub(super) fn apply_terminal_projection(root: &Path, projection: &mut CompletionProjection) {
-    if projection.contract_origin == FIX_CONTRACT_ORIGIN
-        || canonical_profile_name(&projection.effective_profile) != "ingest"
-    {
+pub(crate) fn apply_terminal_projection_runtime(
+    root: &Path,
+    projection: &mut CompletionProjection,
+) {
+    if projection.contract_origin == FIX_CONTRACT_ORIGIN {
         return;
     }
     let (assurance, reason) = completion_assurance(root);
     projection.assurance_level = assurance.as_str().to_string();
     projection.assurance_reason = reason.to_string();
+}
+
+#[cfg(test)]
+pub(crate) fn apply_snapshot(root: &Path, snapshot: &mut CompletionSnapshot) -> bool {
+    if canonical_profile_name(&snapshot.effective_profile) != "ingest" {
+        return false;
+    }
+    apply_snapshot_runtime(root, snapshot);
+    true
+}
+
+#[cfg(test)]
+pub(crate) fn apply_terminal_projection(root: &Path, projection: &mut CompletionProjection) {
+    if canonical_profile_name(&projection.effective_profile) != "ingest" {
+        return;
+    }
+    apply_terminal_projection_runtime(root, projection);
 }
 
 fn completion_assurance(root: &Path) -> (IngestAssurance, &'static str) {

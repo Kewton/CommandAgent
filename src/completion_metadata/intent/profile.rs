@@ -1,20 +1,22 @@
 use crate::config::Config;
 use crate::eval_events::{CompletionProjection, CompletionSnapshot};
-use crate::planner::profile::canonical_profile_name;
+use crate::planner::profile::{ProfileId, resolve_profile_runtime};
 
 pub(super) fn apply_snapshot(config: &Config, snapshot: &mut CompletionSnapshot) -> bool {
-    if canonical_profile_name(&snapshot.effective_profile) == "data" {
-        super::super::data::apply_snapshot(&config.workspace_root, snapshot);
-        return true;
-    }
-    if super::super::ingest::apply_snapshot(&config.workspace_root, snapshot) {
-        return true;
-    }
-    super::super::cli::apply_snapshot(&config.workspace_root, snapshot)
+    let profile_id = ProfileId::parse(&snapshot.effective_profile);
+    resolve_profile_runtime(&snapshot.effective_profile).apply_completion_snapshot(
+        &profile_id,
+        &config.workspace_root,
+        snapshot,
+    );
+    true
 }
 
 pub(super) fn apply_terminal_projection(config: &Config, projection: &mut CompletionProjection) {
-    super::super::cli::apply_terminal_projection(&config.workspace_root, projection);
-    super::super::data::apply_terminal_projection(&config.workspace_root, projection);
-    super::super::ingest::apply_terminal_projection(&config.workspace_root, projection);
+    let profile_id = ProfileId::parse(&projection.effective_profile);
+    resolve_profile_runtime(&projection.effective_profile).apply_completion_projection(
+        &profile_id,
+        &config.workspace_root,
+        projection,
+    );
 }

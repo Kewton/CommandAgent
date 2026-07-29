@@ -33,7 +33,7 @@ use crate::minimal_loop::feedback::{
     capability_evidence_remedy_lines, capability_evidence_unresolved_reason,
 };
 use crate::minimal_loop::import_scan::{
-    MissingImport, UnattachedRefDiagnostic, format_missing_import_findings, route_bound_closure,
+    MissingImport, UnattachedRefDiagnostic, format_missing_import_findings,
     route_bound_unattached_ref_diagnostics, scan_relative_imports,
 };
 use crate::minimal_loop::interaction_probe::{
@@ -62,12 +62,14 @@ use crate::planner::lint::{
 };
 use crate::planner::profile::{
     GENERIC_INTERACTIVE_CONTRACT_CAPABILITY, PhaseVerificationMode, ProfileBehaviorProbeReport,
-    ProfileInferenceSource, ProfileSnapshot, canonical_profile_name, domain_profile, infer_profile,
-    is_nextjs_profile, profile_auto_repair, profile_before_plan, profile_deterministic_step_plan,
-    profile_expected_paths, profile_generation_rules, profile_guidance, profile_post_step_repair,
-    profile_quality_expectations, profile_runtime_contract, profile_setup_scaffold_paths,
+    ProfileId, ProfileInferenceSource, ProfileSnapshot, canonical_profile_name, domain_profile,
+    infer_profile, is_nextjs_profile, profile_auto_repair, profile_before_plan,
+    profile_deterministic_step_plan, profile_expected_paths, profile_generation_rules,
+    profile_guidance, profile_post_step_repair, profile_quality_expectations,
+    profile_runtime_contract, profile_setup_scaffold_paths, resolve_profile_runtime,
     verify_profile_final, verify_profile_invariant,
 };
+use crate::planner::profile_behavior::ProfileRuntime;
 use crate::planner::repair::{
     RecoveryHandoff, RepairContext, build_compact_compile_repair_prompt_with_context,
     build_compile_regeneration_prompt_with_context, build_repair_prompt_with_context,
@@ -206,7 +208,7 @@ struct EffectiveRequestedPort {
 }
 
 fn effective_requested_port(
-    profile: &str,
+    runtime: &dyn ProfileRuntime,
     goal: &str,
     plan_text: Option<&str>,
 ) -> Option<EffectiveRequestedPort> {
@@ -216,13 +218,12 @@ fn effective_requested_port(
             telemetry: format!("{} ({})", requested.port, requested.source.as_str()),
         });
     }
-    (canonical_profile_name(profile) == "nextjs").then(|| EffectiveRequestedPort {
-        port: crate::planner::profiles::nextjs::DEFAULT_REQUESTED_PORT,
-        telemetry: format!(
-            "{} (default)",
-            crate::planner::profiles::nextjs::DEFAULT_REQUESTED_PORT
-        ),
-    })
+    runtime
+        .default_requested_port()
+        .map(|port| EffectiveRequestedPort {
+            port,
+            telemetry: format!("{port} (default)"),
+        })
 }
 
 #[derive(Debug, Clone)]
@@ -1447,7 +1448,7 @@ fn try_promote_profile_at_phase_boundary(
         at_phase: index + 1,
         phase_id: phase.id.clone(),
         requested_port: effective_requested_port(
-            &plan.profile,
+            resolve_profile_runtime(&plan.profile),
             &plan.goal,
             Some(&ultra_plan_phase_signal_text(plan)),
         )
@@ -3778,8 +3779,9 @@ fn verify_plan_final_contract(
     let final_acceptance_status = release_gate_final_acceptance_status(&release_gate);
     let runtime_acceptance_status =
         runtime_acceptance_status(runtime_ok, runtime_acceptance.as_ref());
-    let (assurance_level, assurance_reason) =
-        assurance_for_completion(&config.profile, &required_capabilities);
+    let profile_id = ProfileId::parse(&config.profile);
+    let (assurance_level, assurance_reason) = resolve_profile_runtime(&config.profile)
+        .assurance_for_completion(&profile_id, &required_capabilities);
     let release_quality_completion =
         release_quality_completion_status(&release_gate, final_acceptance_status);
     let next_action = release_gate_next_action(&release_gate, final_acceptance_status);
@@ -3797,7 +3799,8 @@ fn verify_plan_final_contract(
         &release_gate.interaction_evidence_path,
         &text_telemetry,
     );
-    let requested_port = effective_requested_port(&config.profile, &plan.goal, None);
+    let requested_port =
+        effective_requested_port(resolve_profile_runtime(&config.profile), &plan.goal, None);
     let primary_reason = if !missing_final_artifacts.is_empty() {
         format!(
             "missing final artifacts: {}",
@@ -4084,7 +4087,7 @@ fn profile_invariant_setup_paths(root: &Path, profile: &str) -> Vec<String> {
 }
 
 fn profile_missing_relative_imports(root: &Path, profile: &str) -> Vec<MissingImport> {
-    let paths = domain_profile(profile).source_paths(root);
+    let paths = resolve_profile_runtime(profile).source_paths(root);
     if paths.is_empty() {
         return Vec::new();
     }
@@ -4196,7 +4199,7 @@ fn capability_evidence_failure_evidence(
 
 fn restart_hook_attachment_guidance(root: &Path, profile: &str) -> Vec<String> {
     let mut out = Vec::new();
-    for rel in route_bound_closure(root, profile) {
+    for rel in resolve_profile_runtime(profile).route_bound_closure(root) {
         if !restart_hook_scan_candidate(&rel) {
             continue;
         }
@@ -4924,7 +4927,8 @@ fn production_build_lifecycle_passed(lifecycles: &[BuildVerifierLifecycleObserva
 }
 
 fn route_bound_source_paths(root: &Path, profile: &str) -> Vec<String> {
-    route_bound_closure(root, profile)
+    resolve_profile_runtime(profile)
+        .route_bound_closure(root)
         .into_iter()
         .filter_map(|path| {
             path.to_str()
@@ -5388,7 +5392,10 @@ fn interaction_source_diagnostics(config: &Config) -> Vec<UnattachedRefDiagnosti
         .profile_inference
         .map(|inference| inference.profile.to_string())
         .unwrap_or_else(|| config.profile.clone());
-    route_bound_unattached_ref_diagnostics(&config.workspace_root, &profile)
+    route_bound_unattached_ref_diagnostics(
+        &config.workspace_root,
+        resolve_profile_runtime(&profile),
+    )
 }
 
 fn unattached_ref_diagnostic_labels(diagnostics: &[UnattachedRefDiagnostic]) -> Vec<String> {
@@ -5483,9 +5490,10 @@ fn run_profile_behavior_probe(
     if !profile_report.is_pass() {
         return ProfileBehaviorProbeReport::pass();
     }
-    match crate::planner::profile_behavior::run(
+    let profile_id = ProfileId::parse(profile);
+    match resolve_profile_runtime(profile).run_behavior_probe(
+        &profile_id,
         &config.workspace_root,
-        profile,
         goal,
         required_capabilities,
         config.offline,
@@ -7942,8 +7950,11 @@ fn emit_ultra_context_initialized(
     session_message_count: usize,
 ) {
     let phase_signal_text = ultra_plan_phase_signal_text(plan);
-    let requested_port =
-        effective_requested_port(&plan.profile, &plan.goal, Some(&phase_signal_text));
+    let requested_port = effective_requested_port(
+        resolve_profile_runtime(&plan.profile),
+        &plan.goal,
+        Some(&phase_signal_text),
+    );
     eval_events::emit(
         config.eval_events_path.as_deref(),
         json!({
@@ -9863,6 +9874,9 @@ mod tests {
 
     #[path = "cli_runtime_dispatch_tests.rs"]
     mod cli_runtime_dispatch_tests;
+
+    #[path = "requested_port_tests.rs"]
+    mod requested_port_tests;
 
     fn common_prefix(left: &str, right: &str) -> String {
         left.chars()
@@ -18191,19 +18205,6 @@ Type error: Cannot find name 'player'. Did you mean 'PLAYER_W'?\n\n\
     }
 
     #[test]
-    fn requested_port_telemetry_labels_nextjs_default_and_explicit_goal() {
-        let default = effective_requested_port("nextjs", "ブラウザで使えるメモアプリ", None)
-            .expect("nextjs default port");
-        assert_eq!(default.port, 3011);
-        assert_eq!(default.telemetry, "3011 (default)");
-
-        let explicit =
-            effective_requested_port("nextjs", "4000番ポートで起動", None).expect("explicit port");
-        assert_eq!(explicit.port, 4000);
-        assert_eq!(explicit.telemetry, "4000 (goal)");
-    }
-
-    #[test]
     fn requested_port_is_bound_before_browser_stage() {
         let dir = tempfile::tempdir().unwrap();
         let events = dir.path().join("events.jsonl");
@@ -18243,14 +18244,6 @@ Type error: Cannot find name 'player'. Did you mean 'PLAYER_W'?\n\n\
         );
         let snapshot = eval_events::latest_completion_snapshot(Some(&events));
         assert_eq!(snapshot.requested_port, "4022 (goal)");
-    }
-
-    #[test]
-    fn requested_port_telemetry_leaves_python_cli_without_default_port() {
-        assert_eq!(
-            effective_requested_port("python-cli", "CSVを集計するCLI", None),
-            None
-        );
     }
 
     #[test]

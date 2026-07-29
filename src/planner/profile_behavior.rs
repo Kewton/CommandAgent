@@ -1,9 +1,6 @@
 use std::path::Path;
 
-use crate::planner::profile::{
-    DomainProfile, ProfileBehaviorProbeReport, ProfileId, canonical_profile_name, domain_profile,
-};
-use crate::planner::profiles::python_cli::runtime;
+use crate::planner::profile::{DomainProfile, ProfileBehaviorProbeReport, ProfileId};
 
 /// Typed runtime surface derived from the E-5b dispatch inventory.
 ///
@@ -27,22 +24,48 @@ use crate::planner::profiles::python_cli::runtime;
 /// inherited methods are the implementation surface, not adapter completion.
 pub trait ProfileRuntime: DomainProfile {
     fn profile_id(&self) -> ProfileId;
-}
 
-pub(crate) fn run(
-    root: &Path,
-    profile: &str,
-    goal: &str,
-    required_capabilities: &[String],
-    offline: bool,
-) -> anyhow::Result<ProfileBehaviorProbeReport> {
-    if canonical_profile_name(profile) == "cli" {
-        let summary = runtime::run_manifest_checks(root)?;
-        return Ok(ProfileBehaviorProbeReport {
-            status: summary.assurance.behavior_status(),
-            reasons: summary.reasons,
-            evidence_path: Some(runtime::EVIDENCE_PATH.to_string()),
-        });
+    fn assurance_for_completion(
+        &self,
+        _profile_id: &ProfileId,
+        _required_capabilities: &[String],
+    ) -> (&'static str, &'static str) {
+        ("full", "")
     }
-    domain_profile(profile).behavior_probe(root, goal, required_capabilities, offline)
+
+    fn apply_completion_snapshot(
+        &self,
+        _profile_id: &ProfileId,
+        _root: &Path,
+        snapshot: &mut crate::eval_events::CompletionSnapshot,
+    ) {
+        crate::completion_metadata::apply_full_snapshot(snapshot);
+    }
+
+    fn apply_completion_projection(
+        &self,
+        _profile_id: &ProfileId,
+        _root: &Path,
+        _projection: &mut crate::eval_events::CompletionProjection,
+    ) {
+    }
+
+    fn default_requested_port(&self) -> Option<u16> {
+        None
+    }
+
+    fn route_bound_closure(&self, root: &Path) -> std::collections::BTreeSet<std::path::PathBuf> {
+        crate::minimal_loop::import_scan::all_route_source_files(root)
+    }
+
+    fn run_behavior_probe(
+        &self,
+        _profile_id: &ProfileId,
+        root: &Path,
+        goal: &str,
+        required_capabilities: &[String],
+        offline: bool,
+    ) -> anyhow::Result<ProfileBehaviorProbeReport> {
+        self.behavior_probe(root, goal, required_capabilities, offline)
+    }
 }

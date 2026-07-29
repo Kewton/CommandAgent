@@ -86,7 +86,7 @@ runner_sites = []
 [[migration_batch]]
 batch = 1
 kind = "projection and probe selection"
-status = "pending"
+status = "complete"
 runner_sites = [3782, 219, 1449, 3800, 4035, 4087, 4199, 4927, 5486, 7946]
 
 [[migration_batch]]

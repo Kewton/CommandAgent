@@ -13,8 +13,8 @@ use serde_json::{Map, Value};
 
 use crate::minimal_loop::evidence_knowledge;
 use crate::minimal_loop::import_scan::{
-    MissingImport, format_missing_import_findings, missing_import_target_path, route_bound_closure,
-    scan_relative_imports,
+    MissingImport, format_missing_import_findings, missing_import_target_path,
+    nextjs_route_bound_closure, scan_relative_imports,
 };
 use crate::planner::profile::profile_failure;
 use crate::planner::profile::{
@@ -860,7 +860,7 @@ fn required_hook_attributes() -> Vec<ProfileHookAttribute> {
 }
 
 fn route_bound_source_paths(root: &Path) -> Vec<String> {
-    route_bound_closure(root, "nextjs")
+    nextjs_route_bound_closure(root)
         .into_iter()
         .map(|path| path.display().to_string().replace('\\', "/"))
         .filter(|rel| is_import_scan_source_path(Path::new(rel)))
@@ -1274,7 +1274,7 @@ fn missing_app_relative_import_contract_failure(root: &Path) -> Option<String> {
 fn missing_app_relative_imports(root: &Path) -> anyhow::Result<Vec<MissingImport>> {
     let mut paths = project_app_source_paths(root);
     paths.extend(
-        route_bound_closure(root, "nextjs")
+        nextjs_route_bound_closure(root)
             .into_iter()
             .map(|path| path.display().to_string()),
     );

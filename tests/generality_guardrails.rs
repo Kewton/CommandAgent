@@ -170,12 +170,11 @@ fn nextjs_boundary_erosion_tripwire_keeps_dispatch_sites_audited() {
     let actual = nextjs_literal_counts_outside_profiles();
     let expected = BTreeMap::from([
         ("src/minimal_loop/browser_probe.rs".to_string(), 2),
-        ("src/minimal_loop/evidence.rs".to_string(), 4),
-        ("src/minimal_loop/import_scan.rs".to_string(), 1),
+        ("src/minimal_loop/evidence.rs".to_string(), 1),
         ("src/minimal_loop/loop_run.rs".to_string(), 2),
         ("src/planner/adjudication/create.rs".to_string(), 1),
         ("src/planner/lint.rs".to_string(), 2),
-        ("src/planner/runner.rs".to_string(), 13),
+        ("src/planner/runner.rs".to_string(), 12),
         ("src/planner/verify.rs".to_string(), 3),
     ]);
     assert_eq!(

@@ -5,6 +5,8 @@ use std::sync::LazyLock;
 use regex::Regex;
 use serde::Serialize;
 
+use crate::planner::profile_behavior::ProfileRuntime;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ImportScanIssue {
     MissingModule,
@@ -168,12 +170,12 @@ pub fn imported_symbol_definition_excerpt(
     })
 }
 
-pub fn route_bound_closure(root: &Path, profile: &str) -> BTreeSet<PathBuf> {
-    let all_source_files = collect_route_source_files(root);
-    if !matches!(profile, "nextjs" | "next-js" | "next.js") {
-        return all_source_files;
-    }
+pub(crate) fn all_route_source_files(root: &Path) -> BTreeSet<PathBuf> {
+    collect_route_source_files(root)
+}
 
+pub(crate) fn nextjs_route_bound_closure(root: &Path) -> BTreeSet<PathBuf> {
+    let all_source_files = all_route_source_files(root);
     let Some((project_root, project_prefix)) = nextjs_project_root(root) else {
         return all_source_files;
     };
@@ -225,12 +227,16 @@ pub fn route_bound_closure(root: &Path, profile: &str) -> BTreeSet<PathBuf> {
     }
 }
 
+pub fn route_bound_closure(root: &Path, profile: &str) -> BTreeSet<PathBuf> {
+    crate::planner::profile::resolve_profile_runtime(profile).route_bound_closure(root)
+}
+
 pub fn route_bound_unattached_ref_diagnostics(
     root: &Path,
-    profile: &str,
+    runtime: &dyn ProfileRuntime,
 ) -> Vec<UnattachedRefDiagnostic> {
     let mut diagnostics = Vec::new();
-    for rel in route_bound_closure(root, profile) {
+    for rel in runtime.route_bound_closure(root) {
         let rel_text = rel.to_string_lossy().replace('\\', "/");
         if !is_source_path(&rel_text) {
             continue;
@@ -1351,7 +1357,10 @@ export default function Page() {
         )
         .unwrap();
 
-        let diagnostics = route_bound_unattached_ref_diagnostics(dir.path(), "nextjs");
+        let diagnostics = route_bound_unattached_ref_diagnostics(
+            dir.path(),
+            crate::planner::profile::resolve_profile_runtime("nextjs"),
+        );
 
         assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
         let diagnostic = &diagnostics[0];
@@ -1390,7 +1399,13 @@ export default function Page() {
         )
         .unwrap();
 
-        assert!(route_bound_unattached_ref_diagnostics(dir.path(), "nextjs").is_empty());
+        assert!(
+            route_bound_unattached_ref_diagnostics(
+                dir.path(),
+                crate::planner::profile::resolve_profile_runtime("nextjs"),
+            )
+            .is_empty()
+        );
     }
 
     #[test]

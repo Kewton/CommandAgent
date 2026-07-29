@@ -1,25 +1,13 @@
 use super::*;
 use crate::planner::failure_vocabulary::AssuranceReasonId;
+use crate::planner::profile::{ProfileId, resolve_profile_runtime};
 
 pub(super) fn assurance_for_completion(
     profile: &str,
     required_capabilities: &[String],
 ) -> (&'static str, &'static str) {
-    let profile = canonical_profile_name(profile);
-    if profile == "data" {
-        ("static", "data_profile_probe_not_run")
-    } else if profile == "generic" {
-        if required_capabilities
-            .iter()
-            .any(|capability| capability == GENERIC_INTERACTIVE_CONTRACT_CAPABILITY)
-        {
-            ("static", eval_events::GENERIC_STATIC_ASSURANCE_REASON)
-        } else {
-            ("reduced", eval_events::GENERIC_REDUCED_ASSURANCE_REASON)
-        }
-    } else {
-        ("full", "")
-    }
+    let profile_id = ProfileId::parse(profile);
+    resolve_profile_runtime(profile).assurance_for_completion(&profile_id, required_capabilities)
 }
 
 pub(super) fn earned_assurance_for_completion(

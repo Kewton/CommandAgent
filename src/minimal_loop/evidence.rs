@@ -6,9 +6,10 @@ use serde_json::Value;
 
 use crate::minimal_loop::evidence_knowledge;
 use crate::minimal_loop::import_scan::{
-    route_bound_closure, route_bound_unattached_ref_diagnostics,
+    nextjs_route_bound_closure, route_bound_unattached_ref_diagnostics,
 };
 use crate::planner::adjudication::evaluate_requirements;
+use crate::planner::profile::resolve_profile_runtime;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RuntimeAcceptanceReport {
@@ -1228,7 +1229,7 @@ pub fn verify_runtime_acceptance_with_browser_dirs_and_hints(
         );
     }
     diagnostics.extend(
-        route_bound_unattached_ref_diagnostics(root, "nextjs")
+        route_bound_unattached_ref_diagnostics(root, resolve_profile_runtime("nextjs"))
             .into_iter()
             .map(|diagnostic| diagnostic.diagnostic),
     );
@@ -1388,7 +1389,7 @@ fn artifact_obligation_evidence_with_hints_and_scan_text(
     extra_scan_text: &str,
 ) -> Vec<ArtifactObligationEvidence> {
     let mut out = Vec::new();
-    let route_bound_files = route_bound_closure(root, "nextjs");
+    let route_bound_files = nextjs_route_bound_closure(root);
     for path in required_paths {
         let full = root.join(path);
         if !full.is_file() {
@@ -1719,7 +1720,7 @@ fn evidence_kinds_for_capability(capability: &str) -> Vec<EvidenceKind> {
 
 fn collect_workspace_evidence(root: &Path) -> WorkspaceEvidence {
     let mut evidence = WorkspaceEvidence::default();
-    let route_bound_files = route_bound_closure(root, "nextjs");
+    let route_bound_files = nextjs_route_bound_closure(root);
     for path in collect_candidate_files(root) {
         let Ok(rel) = path.strip_prefix(root) else {
             continue;
@@ -1886,7 +1887,7 @@ fn has_implementation_artifact(
             .is_some_and(|file| {
                 file.route_bound && artifact_role_for_file(file).satisfies_implementation()
             })
-            || route_bound_closure(root, "nextjs").contains(Path::new(path))
+            || nextjs_route_bound_closure(root).contains(Path::new(path))
                 && root.join(path).is_file()
                 && artifact_role_for_file(&SourceFile::new(
                     path.clone(),

@@ -191,7 +191,7 @@ impl DomainProfile for NextjsProfile {
     }
 
     fn annotate_compile_errors(&self, root: &Path, errors: &mut [CompileError]) {
-        let closure = crate::minimal_loop::import_scan::route_bound_closure(root, self.id());
+        let closure = crate::minimal_loop::import_scan::nextjs_route_bound_closure(root);
         for error in errors {
             error.route_bound = Some(closure.contains(Path::new(&error.path)));
         }

@@ -2,6 +2,7 @@ use std::path::Path;
 
 use crate::eval_events::{CompletionProjection, CompletionSnapshot};
 use crate::planner::fix_runtime::FIX_CONTRACT_ORIGIN;
+#[cfg(test)]
 use crate::planner::profile::canonical_profile_name;
 use crate::planner::profiles::python_cli::runtime::{
     CliAssurance, CliCheckSummary, EVIDENCE_PATH, classify,
@@ -11,32 +12,47 @@ const CLI_PROBE_NOT_RUN: &str = "cli_probe_not_run";
 const CLI_CLAIMS_ABSENT: &str = "cli_claims_absent";
 const CLI_ASSURANCE_FAILED: &str = "cli_assurance_failed";
 
-pub(super) fn is_cli_profile(profile: &str) -> bool {
+pub(crate) fn apply_snapshot_runtime(root: &Path, snapshot: &mut CompletionSnapshot) {
+    let (assurance, reason) = completion_assurance(root);
+    snapshot.assurance_level = assurance.as_str().to_string();
+    snapshot.assurance_reason = reason.to_string();
+}
+
+pub(crate) fn apply_terminal_projection_runtime(
+    root: &Path,
+    projection: &mut CompletionProjection,
+) {
+    if projection.contract_origin == FIX_CONTRACT_ORIGIN {
+        return;
+    }
+    let (assurance, reason) = completion_assurance(root);
+    projection.assurance_level = assurance.as_str().to_string();
+    projection.assurance_reason = reason.to_string();
+}
+
+#[cfg(test)]
+fn is_cli_profile(profile: &str) -> bool {
     matches!(
         canonical_profile_name(profile).as_str(),
         "python-cli" | "cli"
     )
 }
 
-pub(super) fn apply_snapshot(root: &Path, snapshot: &mut CompletionSnapshot) -> bool {
+#[cfg(test)]
+pub(crate) fn apply_snapshot(root: &Path, snapshot: &mut CompletionSnapshot) -> bool {
     if !is_cli_profile(&snapshot.effective_profile) {
         return false;
     }
-    let (assurance, reason) = completion_assurance(root);
-    snapshot.assurance_level = assurance.as_str().to_string();
-    snapshot.assurance_reason = reason.to_string();
+    apply_snapshot_runtime(root, snapshot);
     true
 }
 
-pub(super) fn apply_terminal_projection(root: &Path, projection: &mut CompletionProjection) {
-    if projection.contract_origin == FIX_CONTRACT_ORIGIN
-        || !is_cli_profile(&projection.effective_profile)
-    {
+#[cfg(test)]
+pub(crate) fn apply_terminal_projection(root: &Path, projection: &mut CompletionProjection) {
+    if !is_cli_profile(&projection.effective_profile) {
         return;
     }
-    let (assurance, reason) = completion_assurance(root);
-    projection.assurance_level = assurance.as_str().to_string();
-    projection.assurance_reason = reason.to_string();
+    apply_terminal_projection_runtime(root, projection);
 }
 
 fn completion_assurance(root: &Path) -> (CliAssurance, &'static str) {

@@ -179,7 +179,11 @@ fn maybe_run_ultra_final_browser_probe(
     {
         return None;
     }
-    let requested_port = effective_requested_port(effective_profile, &plan.goal, Some(&phase_text));
+    let requested_port = effective_requested_port(
+        resolve_profile_runtime(effective_profile),
+        &plan.goal,
+        Some(&phase_text),
+    );
     let observation = probe_browser_readiness_with_offline_and_interaction_options(
         &config.workspace_root,
         effective_profile,
@@ -209,7 +213,11 @@ fn run_ultra_final_browser_checks_before_arbitration(
     if !ultra_browser_probe_required(effective_profile, &signal_text, required_capabilities) {
         return None;
     }
-    let requested_port = effective_requested_port(effective_profile, &plan.goal, Some(&phase_text));
+    let requested_port = effective_requested_port(
+        resolve_profile_runtime(effective_profile),
+        &plan.goal,
+        Some(&phase_text),
+    );
     let interaction_options =
         browser_interaction_probe_options(required_capabilities, required_evidence);
     if ultra_browser_probe_runtime_enabled(config) {
@@ -758,8 +766,11 @@ pub(super) fn ultra_final_acceptance_report_inner(
     );
     let plan_adherence = plan_adherence_report(plan, &config.workspace_root);
     let phase_signal_text = ultra_plan_phase_signal_text(plan);
-    let requested_port =
-        effective_requested_port(&effective_profile, &plan.goal, Some(&phase_signal_text));
+    let requested_port = effective_requested_port(
+        resolve_profile_runtime(&effective_profile),
+        &plan.goal,
+        Some(&phase_signal_text),
+    );
     let mut compile_errors = profile_report.compile_errors.clone();
     if let Some(report) = external_report.as_ref() {
         for error in &report.compile_errors {
@@ -1148,7 +1159,8 @@ pub(super) fn final_acceptance_release_gate(
         .unwrap_or_default();
     let interaction_options =
         browser_interaction_probe_options(required_capabilities, &acceptance_required_evidence);
-    let requested_port = effective_requested_port(&effective_profile, goal, None);
+    let requested_port =
+        effective_requested_port(resolve_profile_runtime(&effective_profile), goal, None);
     let requires_browser = is_next
         && (required_capabilities.iter().any(|capability| {
             matches!(
