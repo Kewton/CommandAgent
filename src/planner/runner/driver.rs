@@ -1,6 +1,24 @@
 // Driver, initialization, and prompt construction extracted from the runner facade.
 // Keep observable strings and event order byte-compatible with the pre-split runner.
-use super::*;
+#[allow(unused_imports)]
+use super::{
+    AssistantReply, BTreeSet, ChatClient, CompletionContract, Config, Duration,
+    GeneratedStepPlanFieldDefault, IntentId, InteractionUi, MissingImport, NOOP_UI, Path, PathBuf,
+    PlanLintReport, PlanQualityContext, PlanQualityReport, PlanStep, ProfileRuntime,
+    ProfileSnapshot, PromptLayout, ProviderCallScope, RepairContext, RepairReachability,
+    RunSessionError, SanitizerReport, SessionSnapshot, StepKind, StepPlan, StepPromptContext,
+    StepRunOutcome, UiStatus, UltraPhase, UltraPlan, UltraRunContext, VerificationReport,
+    capability_evidence_remedy_lines, capability_evidence_unresolved_reason,
+    compact_workspace_snapshot, dedup_strings, eval_events, extract_json_object,
+    format_missing_import_findings, hook_snapshot, json, model_for,
+    parse_generated_step_plan_json_with_report, parse_step_plan, parse_ultra_plan,
+    plan_adherence_report, provider_call, reachability_failure_kind, render_prompt_bullets,
+    render_requested_features_not_detected_line, render_step_plan, render_ultra_plan,
+    repair_generated_step_plan_contract, repair_targeting, resolve_existing,
+    resolve_profile_runtime, run_step_plan_with_session_with_ui, runtime_required_evidence,
+    sanitize_step_plan_against_policy, scan_relative_imports, signals, step_plan_quality_report,
+    step_plan_quality_warnings, ultra_plan_phase_signal_text, workspace_relative_handoff_path,
+};
 
 pub(super) const STEP_TURN_MAX_ITERATIONS: usize = 8;
 pub(super) const STEP_REPAIR_MAX_ITERATIONS: usize = 6;
