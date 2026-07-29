@@ -1,0 +1,22 @@
+{"event":"ultra_context_initialized","total_phases":2}
+{"event":"ultra_phase_start","ok":null,"phase_id":"phase-one","phase_index":1,"stage":"start","step_count":null,"total_phases":2}
+{"event":"ultra_phase_context_attached","phase_id":"phase-one","phase_index":1,"total_phases":2}
+{"event":"ultra_phase_scaffold_complete","ok":true,"phase_id":"phase-one","phase_index":1,"stage":"scaffold","step_count":1,"total_phases":2}
+{"event":"ultra_phase_plan_validated","ok":true,"phase_id":"phase-one","phase_index":1,"stage":"lint","step_count":1,"total_phases":2}
+{"event":"ultra_phase_context_updated","partial_outcome_recorded":false,"phase_id":"phase-one","phase_index":1,"total_phases":2}
+{"event":"ultra_phase_execute_complete","ok":true,"phase_id":"phase-one","phase_index":1,"stage":"execute","step_count":null,"total_phases":2}
+{"event":"phase_verification_result","ok":true,"phase_id":"phase-one","phase_index":1,"phase_verification_mode":"intermediate_invariant","total_phases":2}
+{"event":"ultra_phase_profile_check","ok":true,"phase_id":"phase-one","phase_index":1,"stage":"profile_invariant","step_count":null,"total_phases":2}
+{"event":"ultra_phase_complete","ok":true,"phase_id":"phase-one","phase_index":1,"stage":"complete","step_count":null,"total_phases":2}
+{"event":"ultra_phase_start","ok":null,"phase_id":"phase-two","phase_index":2,"stage":"start","step_count":null,"total_phases":2}
+{"event":"ultra_phase_context_attached","phase_id":"phase-two","phase_index":2,"total_phases":2}
+{"event":"ultra_phase_scaffold_complete","ok":true,"phase_id":"phase-two","phase_index":2,"stage":"scaffold","step_count":1,"total_phases":2}
+{"event":"ultra_phase_plan_validated","ok":true,"phase_id":"phase-two","phase_index":2,"stage":"lint","step_count":1,"total_phases":2}
+{"event":"ultra_phase_context_updated","partial_outcome_recorded":false,"phase_id":"phase-two","phase_index":2,"total_phases":2}
+{"event":"ultra_phase_execute_complete","ok":true,"phase_id":"phase-two","phase_index":2,"stage":"execute","step_count":null,"total_phases":2}
+{"event":"phase_verification_result","ok":true,"phase_id":"phase-two","phase_index":2,"phase_verification_mode":"intermediate_invariant","total_phases":2}
+{"event":"phase_verification_result","ok":true,"phase_id":"phase-two","phase_index":2,"phase_verification_mode":"final_acceptance","total_phases":2}
+{"event":"ultra_phase_profile_check","ok":true,"phase_id":"phase-two","phase_index":2,"stage":"profile_observed","step_count":null,"total_phases":2}
+{"event":"ultra_phase_complete","ok":true,"phase_id":"phase-two","phase_index":2,"stage":"complete","step_count":null,"total_phases":2}
+{"assurance_level":"reduced","assurance_reason":"generic profile — no capability contract, no behavioral verification","event":"ultra_final_acceptance"}
+{"assurance_level":"reduced","assurance_reason":"generic profile — no capability contract, no behavioral verification","event":"ultra_plan_complete","ok":true,"total_phases":2}

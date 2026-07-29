@@ -3350,6 +3350,94 @@ if __name__ == "__main__":
     }
 
     #[test]
+    fn ultra_two_phase_ordered_lifecycle_matches_pre_split_fixture() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.eval_events_path = Some(events.clone());
+        let mut planner = FakeClient::new(vec![
+            AssistantReply::text(generated_step_plan_json("phase one")),
+            AssistantReply::text(generated_step_plan_json("phase two")),
+        ]);
+        let mut execution = FakeClient::new(vec![]);
+        let plan = UltraPlan {
+            goal: "Do two phases".to_string(),
+            profile: "generic".to_string(),
+            style: "default".to_string(),
+            intent: "create".to_string(),
+            phases: vec![
+                UltraPhase {
+                    id: "phase-one".to_string(),
+                    prompt: "Phase one".to_string(),
+                },
+                UltraPhase {
+                    id: "phase-two".to_string(),
+                    prompt: "Phase two".to_string(),
+                },
+            ],
+        };
+
+        let result = run_ultra_plan(&mut planner, &mut execution, &plan, &cfg).unwrap();
+
+        assert_eq!(result, "ultra-plan-run complete: 2 phases");
+        let actual = ordered_lifecycle_projection(&events);
+        let expected = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/runner-lifecycle/two-phase-success.jsonl"
+        ));
+        assert_eq!(actual.as_bytes(), expected.as_bytes(), "{actual}");
+    }
+
+    fn ordered_lifecycle_projection(events: &Path) -> String {
+        const EVENTS: &[&str] = &[
+            "ultra_context_initialized",
+            "ultra_phase_start",
+            "ultra_phase_context_attached",
+            "ultra_phase_scaffold_complete",
+            "ultra_phase_plan_validated",
+            "ultra_phase_context_updated",
+            "ultra_phase_execute_complete",
+            "phase_verification_result",
+            "ultra_phase_profile_check",
+            "ultra_phase_complete",
+            "ultra_final_acceptance",
+            "ultra_plan_complete",
+        ];
+        const FIELDS: &[&str] = &[
+            "event",
+            "phase_id",
+            "phase_index",
+            "stage",
+            "ok",
+            "step_count",
+            "phase_verification_mode",
+            "partial_outcome_recorded",
+            "total_phases",
+            "assurance_level",
+            "assurance_reason",
+        ];
+
+        let mut out = String::new();
+        for event in read_jsonl_events(events) {
+            let Some(name) = event.get("event").and_then(Value::as_str) else {
+                continue;
+            };
+            if !EVENTS.contains(&name) {
+                continue;
+            }
+            let mut projected = serde_json::Map::new();
+            for field in FIELDS {
+                if let Some(value) = event.get(*field) {
+                    projected.insert((*field).to_string(), value.clone());
+                }
+            }
+            out.push_str(&serde_json::to_string(&projected).unwrap());
+            out.push('\n');
+        }
+        out
+    }
+
+    #[test]
     fn ultra_plan_non_final_tailwind_invariant_repair_completes_and_runs_next_phase() {
         let dir = tempfile::tempdir().unwrap();
         let events = dir.path().join("events.jsonl");
