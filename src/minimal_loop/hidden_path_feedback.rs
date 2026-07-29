@@ -14,7 +14,7 @@ pub(crate) fn emit_for_error(
     attempt: usize,
 ) -> Option<String> {
     let access = crate::tools::hidden_path::access_from_error(error)?;
-    let continuation = crate::planner::profile::domain_profile(profile)
+    let continuation = crate::planner::profile::resolve_profile_runtime(profile)
         .hidden_path_continuation()
         .unwrap_or("");
     let feedback = if continuation.is_empty() {

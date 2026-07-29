@@ -25,6 +25,135 @@ use crate::planner::profile::{DomainProfile, ProfileBehaviorProbeReport, Profile
 pub trait ProfileRuntime: DomainProfile {
     fn profile_id(&self) -> ProfileId;
 
+    fn required_capabilities(&self, goal: &str) -> Vec<String> {
+        self.infer_required_capabilities(goal)
+    }
+
+    fn required_evidence(&self, goal: &str, required_capabilities: &[String]) -> Vec<String> {
+        let mut evidence = self.infer_required_evidence(goal, required_capabilities);
+        for capability in required_capabilities {
+            for required in
+                crate::minimal_loop::evidence::required_evidence_for_capability(capability)
+            {
+                if !evidence.contains(&required) {
+                    evidence.push(required);
+                }
+            }
+        }
+        evidence
+    }
+
+    fn required_obligations(
+        &self,
+        profile_id: &ProfileId,
+        goal: &str,
+        required_capabilities: &[String],
+    ) -> Vec<String> {
+        let obligations = self.infer_required_obligations(goal, required_capabilities);
+        if !obligations.is_empty() {
+            return obligations;
+        }
+        let app_profile = matches!(profile_id, ProfileId::Web | ProfileId::Vite);
+        if app_profile
+            && (crate::planner::signals::contains_app_like_token(goal)
+                || !required_capabilities.is_empty())
+        {
+            return vec!["implementation".to_string()];
+        }
+        if required_capabilities.iter().any(|capability| {
+            matches!(
+                capability.as_str(),
+                "implementation"
+                    | "entrypoint"
+                    | "input_output_contract"
+                    | "player_control"
+                    | "stateful_interaction"
+                    | "user_input_or_action"
+                    | "visible_state_change"
+                    | "persistence"
+                    | "adversary_or_challenge"
+                    | "progression_or_score"
+                    | "failure_or_collision_rule"
+            )
+        }) {
+            return vec!["implementation".to_string()];
+        }
+        Vec::new()
+    }
+
+    fn requires_completion_contract(
+        &self,
+        profile_id: &ProfileId,
+        goal: &str,
+        required_capabilities: &[String],
+    ) -> bool {
+        if self.completion_contract_required(goal, required_capabilities) {
+            return true;
+        }
+        let web_or_app_profile = matches!(
+            profile_id,
+            ProfileId::Vite | ProfileId::React | ProfileId::Web
+        );
+        let interactive_goal = crate::planner::signals::contains_app_like_token(goal)
+            || crate::planner::signals::contains_browser_probe_token(goal)
+            || crate::planner::signals::contains_canvas_token(goal);
+        let interactive_capability = required_capabilities.iter().any(|capability| {
+            matches!(
+                capability.as_str(),
+                "stateful_interaction"
+                    | "start_or_restart_flow"
+                    | "player_control"
+                    | "adversary_or_challenge"
+                    | "progression_or_score"
+                    | "failure_or_collision_rule"
+                    | "persistence"
+                    | "browser_interaction"
+                    | "playable_ui"
+            )
+        });
+        interactive_capability || (web_or_app_profile && interactive_goal)
+    }
+
+    fn interactive_app_capabilities(&self, profile_id: &ProfileId) -> Vec<String> {
+        if matches!(
+            profile_id,
+            ProfileId::Nextjs | ProfileId::React | ProfileId::Vite | ProfileId::Web
+        ) {
+            vec![
+                "stateful_interaction".to_string(),
+                "user_input_or_action".to_string(),
+                "visible_state_change".to_string(),
+            ]
+        } else {
+            Vec::new()
+        }
+    }
+
+    fn browser_release_gate_profile(&self) -> bool {
+        false
+    }
+
+    fn invariant_expected_paths(&self, root: &Path, paths: Vec<String>) -> Vec<String> {
+        self.filter_invariant_expected_paths(root, paths)
+    }
+
+    fn invariant_setup_paths(&self, root: &Path) -> Vec<String> {
+        self.setup_scaffold_paths(root)
+    }
+
+    fn verify_phase_invariant(
+        &self,
+        root: &Path,
+        goal: &str,
+        snapshot: &crate::planner::profile::ProfileSnapshot,
+    ) -> crate::planner::verify::VerificationReport {
+        let snapshot_report = self.after_phase(root, snapshot);
+        if !snapshot_report.is_pass() {
+            return snapshot_report;
+        }
+        self.verify_invariant(root, goal, snapshot)
+    }
+
     fn assurance_for_completion(
         &self,
         _profile_id: &ProfileId,

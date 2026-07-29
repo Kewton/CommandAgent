@@ -979,17 +979,15 @@ fn phase_mark(id: &str, progress: &PlanProgress) -> &'static str {
 }
 
 fn status_port(config: &Config) -> String {
-    if !crate::planner::profile::is_nextjs_profile(&config.profile) {
+    let runtime = crate::planner::profile::resolve_profile_runtime(&config.profile);
+    let Some(default_port) = runtime.default_requested_port() else {
         return "not applicable".to_string();
-    }
+    };
     let goal = crate::config::action_goal(&config.action).unwrap_or("");
     if let Some(port) = crate::planner::signals::requested_port_from_text(goal) {
         format!("{port} (goal)")
     } else {
-        format!(
-            "{} (default)",
-            crate::planner::profiles::nextjs::DEFAULT_REQUESTED_PORT
-        )
+        format!("{default_port} (default)")
     }
 }
 

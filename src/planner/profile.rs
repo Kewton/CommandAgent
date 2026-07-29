@@ -537,6 +537,14 @@ impl ProfileRuntime for crate::planner::profiles::nextjs::NextjsProfile {
         Some(crate::planner::profiles::nextjs::DEFAULT_REQUESTED_PORT)
     }
 
+    fn browser_release_gate_profile(&self) -> bool {
+        true
+    }
+
+    fn invariant_setup_paths(&self, root: &Path) -> Vec<String> {
+        crate::planner::profiles::nextjs::setup_invariant_required_paths(root)
+    }
+
     fn route_bound_closure(&self, root: &Path) -> std::collections::BTreeSet<std::path::PathBuf> {
         crate::minimal_loop::import_scan::nextjs_route_bound_closure(root)
     }

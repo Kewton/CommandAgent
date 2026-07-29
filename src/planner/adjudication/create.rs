@@ -135,36 +135,6 @@ pub(super) fn earned_assurance_from_release_gate(
     )
 }
 
-pub(super) fn completion_contract_required(
-    profile: &str,
-    goal: &str,
-    required_capabilities: &[String],
-) -> bool {
-    if domain_profile(profile).completion_contract_required(goal, required_capabilities) {
-        return true;
-    }
-    let profile = canonical_profile_name(profile);
-    let web_or_app_profile = matches!(profile.as_str(), "vite" | "react" | "web");
-    let interactive_goal = signals::contains_app_like_token(goal)
-        || signals::contains_browser_probe_token(goal)
-        || signals::contains_canvas_token(goal);
-    let interactive_capability = required_capabilities.iter().any(|capability| {
-        matches!(
-            capability.as_str(),
-            "stateful_interaction"
-                | "start_or_restart_flow"
-                | "player_control"
-                | "adversary_or_challenge"
-                | "progression_or_score"
-                | "failure_or_collision_rule"
-                | "persistence"
-                | "browser_interaction"
-                | "playable_ui"
-        )
-    });
-    interactive_capability || (web_or_app_profile && interactive_goal)
-}
-
 fn maybe_run_ultra_final_browser_probe(
     config: &Config,
     plan: &UltraPlan,
@@ -174,16 +144,13 @@ fn maybe_run_ultra_final_browser_probe(
 ) -> Option<BrowserReadinessObservation> {
     let phase_text = ultra_plan_phase_signal_text(plan);
     let signal_text = ultra_plan_signal_text(plan);
-    if !ultra_browser_probe_required(effective_profile, &signal_text, required_capabilities)
+    let runtime = resolve_profile_runtime(effective_profile);
+    if !ultra_browser_probe_required(runtime, &signal_text, required_capabilities)
         || !ultra_browser_probe_runtime_enabled(config)
     {
         return None;
     }
-    let requested_port = effective_requested_port(
-        resolve_profile_runtime(effective_profile),
-        &plan.goal,
-        Some(&phase_text),
-    );
+    let requested_port = effective_requested_port(runtime, &plan.goal, Some(&phase_text));
     let observation = probe_browser_readiness_with_offline_and_interaction_options(
         &config.workspace_root,
         effective_profile,
@@ -210,14 +177,11 @@ fn run_ultra_final_browser_checks_before_arbitration(
 ) -> Option<BrowserReadinessObservation> {
     let phase_text = ultra_plan_phase_signal_text(plan);
     let signal_text = ultra_plan_signal_text(plan);
-    if !ultra_browser_probe_required(effective_profile, &signal_text, required_capabilities) {
+    let runtime = resolve_profile_runtime(effective_profile);
+    if !ultra_browser_probe_required(runtime, &signal_text, required_capabilities) {
         return None;
     }
-    let requested_port = effective_requested_port(
-        resolve_profile_runtime(effective_profile),
-        &plan.goal,
-        Some(&phase_text),
-    );
+    let requested_port = effective_requested_port(runtime, &plan.goal, Some(&phase_text));
     let interaction_options =
         browser_interaction_probe_options(required_capabilities, required_evidence);
     if ultra_browser_probe_runtime_enabled(config) {
@@ -309,11 +273,11 @@ pub(super) fn report_has_production_build_failure(report: &VerificationReport) -
 }
 
 fn ultra_browser_probe_required(
-    profile: &str,
+    runtime: &dyn ProfileRuntime,
     signal_text: &str,
     required_capabilities: &[String],
 ) -> bool {
-    canonical_profile_name(profile) == "nextjs"
+    runtime.browser_release_gate_profile()
         && (required_capabilities.iter().any(|capability| {
             matches!(
                 capability.as_str(),
@@ -434,7 +398,12 @@ pub(super) fn bind_completion_contract_for_acceptance(
     required_evidence: &[String],
     required_obligations: &[String],
 ) -> anyhow::Result<Option<BoundCompletionContract>> {
-    let required = completion_contract_required(profile, goal, required_capabilities);
+    let profile_id = ProfileId::parse(profile);
+    let required = ProfileRuntimeRegistry::resolve(&profile_id).requires_completion_contract(
+        &profile_id,
+        goal,
+        required_capabilities,
+    );
     if let Some(contract) = CompletionContract::load_for_config(config)? {
         let mut contract = contract;
         contract.merge_evidence_hint_tokens_from_goal(goal);
@@ -538,14 +507,14 @@ pub(super) fn ultra_final_acceptance_report_inner(
     config: &Config,
     cycle_index: usize,
 ) -> anyhow::Result<VerificationReport> {
-    let effective_profile = canonical_profile_name(&plan.profile);
-    let mut required_paths =
-        profile_expected_paths(&config.workspace_root, &effective_profile, &plan.goal);
-    let mut required_capabilities = inferred_required_capabilities(&effective_profile, &plan.goal);
+    let effective_profile_id = ProfileId::parse(&plan.profile);
+    let effective_profile = effective_profile_id.to_string();
+    let runtime = ProfileRuntimeRegistry::resolve(&effective_profile_id);
+    let mut required_paths = runtime.expected_scaffold_paths(&config.workspace_root, &plan.goal);
+    let mut required_capabilities = runtime.required_capabilities(&plan.goal);
     let mut required_obligations =
-        inferred_required_obligations(&effective_profile, &plan.goal, &required_capabilities);
-    let mut required_evidence =
-        inferred_required_evidence(&effective_profile, &plan.goal, &required_capabilities);
+        runtime.required_obligations(&effective_profile_id, &plan.goal, &required_capabilities);
+    let mut required_evidence = runtime.required_evidence(&plan.goal, &required_capabilities);
     let mut requirements = ContractRequirements {
         capabilities: required_capabilities,
         evidence: required_evidence,
@@ -589,7 +558,7 @@ pub(super) fn ultra_final_acceptance_report_inner(
     }
     merge_unique_strings(
         &mut required_evidence,
-        &inferred_required_evidence(&effective_profile, &plan.goal, &required_capabilities),
+        &runtime.required_evidence(&plan.goal, &required_capabilities),
     );
     let missing = missing_final_artifacts(&config.workspace_root, &required_paths);
     let mut acceptance = verify_runtime_acceptance_with_browser_dirs_and_hints(
@@ -603,31 +572,29 @@ pub(super) fn ultra_final_acceptance_report_inner(
         &release_evidence_extra_dirs(config),
         &evidence_hint_tokens,
     );
-    let profile_invariant_report = verify_profile_invariant(
-        &config.workspace_root,
-        &effective_profile,
-        &plan.goal,
-        &ProfileSnapshot::None,
-    );
+    let profile_invariant_report =
+        runtime.verify_phase_invariant(&config.workspace_root, &plan.goal, &ProfileSnapshot::None);
     let profile_invariant_report = hook_snapshot::report_missing_as_profile_failure_with_runtime(
         config,
-        resolve_profile_runtime(&effective_profile),
+        runtime,
         &plan.goal,
         profile_invariant_report,
     );
     let profile_report = if !profile_invariant_report.is_pass() {
         profile_invariant_report
     } else {
-        verify_profile_final(&config.workspace_root, &effective_profile, &plan.goal)
+        runtime.verify_final(&config.workspace_root, &plan.goal)
     };
     let external_report = bound_contract.as_ref().map(|bound| {
         bound
             .contract
             .verify_with_goal(&config.workspace_root, &plan.goal)
     });
-    let contract_required =
-        completion_contract_required(&effective_profile, &plan.goal, &required_capabilities)
-            || bound_contract.as_ref().is_some_and(|bound| bound.required);
+    let contract_required = runtime.requires_completion_contract(
+        &effective_profile_id,
+        &plan.goal,
+        &required_capabilities,
+    ) || bound_contract.as_ref().is_some_and(|bound| bound.required);
     let external_contract_checked = bound_contract.is_some();
     let contract_binding_missing = contract_required && !external_contract_checked;
     let external_ok = !contract_binding_missing
@@ -661,9 +628,9 @@ pub(super) fn ultra_final_acceptance_report_inner(
         production_build_failed_release_gate()
     } else {
         let signal_text = ultra_plan_signal_text(plan);
-        final_acceptance_release_gate(
+        final_acceptance_release_gate_with_runtime(
             config,
-            &effective_profile,
+            runtime,
             &signal_text,
             &required_capabilities,
             Some(&acceptance),
@@ -1067,14 +1034,14 @@ pub(super) fn ultra_contract_runtime_acceptance_report(
     plan: &UltraPlan,
     config: &Config,
 ) -> anyhow::Result<RuntimeAcceptanceReport> {
-    let effective_profile = canonical_profile_name(&plan.profile);
-    let mut required_paths =
-        profile_expected_paths(&config.workspace_root, &effective_profile, &plan.goal);
-    let mut required_capabilities = inferred_required_capabilities(&effective_profile, &plan.goal);
+    let effective_profile_id = ProfileId::parse(&plan.profile);
+    let effective_profile = effective_profile_id.to_string();
+    let runtime = ProfileRuntimeRegistry::resolve(&effective_profile_id);
+    let mut required_paths = runtime.expected_scaffold_paths(&config.workspace_root, &plan.goal);
+    let mut required_capabilities = runtime.required_capabilities(&plan.goal);
     let mut required_obligations =
-        inferred_required_obligations(&effective_profile, &plan.goal, &required_capabilities);
-    let mut required_evidence =
-        inferred_required_evidence(&effective_profile, &plan.goal, &required_capabilities);
+        runtime.required_obligations(&effective_profile_id, &plan.goal, &required_capabilities);
+    let mut required_evidence = runtime.required_evidence(&plan.goal, &required_capabilities);
     let mut requirements = ContractRequirements {
         capabilities: required_capabilities,
         evidence: required_evidence,
@@ -1118,7 +1085,7 @@ pub(super) fn ultra_contract_runtime_acceptance_report(
     }
     merge_unique_strings(
         &mut required_evidence,
-        &inferred_required_evidence(&effective_profile, &plan.goal, &required_capabilities),
+        &runtime.required_evidence(&plan.goal, &required_capabilities),
     );
     Ok(verify_runtime_acceptance_with_browser_dirs_and_hints(
         &config.workspace_root,
@@ -1144,24 +1111,21 @@ pub(super) fn production_build_failed_release_gate() -> ReleaseGateSummary {
     }
 }
 
-pub(super) fn final_acceptance_release_gate(
+pub(super) fn final_acceptance_release_gate_with_runtime(
     config: &Config,
-    profile: &str,
+    runtime: &dyn ProfileRuntime,
     goal: &str,
     required_capabilities: &[String],
     acceptance: Option<&crate::minimal_loop::evidence::RuntimeAcceptanceReport>,
     check_browser_on_runtime_failure: bool,
 ) -> ReleaseGateSummary {
-    let effective_profile = canonical_profile_name(profile);
-    let is_next = is_nextjs_profile(&effective_profile);
     let acceptance_required_evidence = acceptance
         .map(|report| report.evidence_tiers.keys().cloned().collect::<Vec<_>>())
         .unwrap_or_default();
     let interaction_options =
         browser_interaction_probe_options(required_capabilities, &acceptance_required_evidence);
-    let requested_port =
-        effective_requested_port(resolve_profile_runtime(&effective_profile), goal, None);
-    let requires_browser = is_next
+    let requested_port = effective_requested_port(runtime, goal, None);
+    let requires_browser = runtime.browser_release_gate_profile()
         && (required_capabilities.iter().any(|capability| {
             matches!(
                 capability.as_str(),
@@ -1263,8 +1227,11 @@ pub(super) fn acceptance_gate_telemetry(
     required_evidence: &[String],
     release_gate: &ReleaseGateSummary,
 ) -> AcceptanceGateTelemetry {
-    let browser_applicable =
-        ultra_browser_probe_required(profile, signal_text, required_capabilities);
+    let browser_applicable = ultra_browser_probe_required(
+        resolve_profile_runtime(profile),
+        signal_text,
+        required_capabilities,
+    );
     let interaction_applicable =
         browser_applicable && interaction_gate_required(required_capabilities, required_evidence);
     AcceptanceGateTelemetry {

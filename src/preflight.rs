@@ -76,10 +76,11 @@ fn run_for_goal_with(
     ports: &dyn PortControl,
     probes: &dyn ProbeCheck,
 ) -> anyhow::Result<()> {
-    if !crate::planner::profile::is_nextjs_profile(&config.profile) {
+    let runtime = crate::planner::profile::resolve_profile_runtime(&config.profile);
+    let Some(default_port) = runtime.default_requested_port() else {
         return Ok(());
-    }
-    let port = crate::planner::profiles::nextjs::requested_or_default_port(goal);
+    };
+    let port = crate::planner::signals::requested_port_from_text(goal).unwrap_or(default_port);
     if let Some(owner) = ports.inspect(port)? {
         handle_busy_port(config, io, ports, port, owner)?;
     }

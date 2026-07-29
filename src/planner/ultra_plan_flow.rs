@@ -234,8 +234,8 @@ pub fn run_ultra_plan_with_ui(
         emit_planner_error_for_lint(config, "ultra-plan-file", &config.planner_model, &report, 0);
         anyhow::bail!("{}", report.primary_message());
     }
-    let mut final_expected_paths =
-        profile_expected_paths(&config.workspace_root, &plan.profile, &plan.goal);
+    let mut final_expected_paths = resolve_profile_runtime(&plan.profile)
+        .expected_scaffold_paths(&config.workspace_root, &plan.goal);
     let mut ultra_context = UltraRunContext::for_run(&config.workspace_root, &final_expected_paths);
     let mut ultra_session = SessionSnapshot::new();
     let mut fix_runtime = crate::planner::fix_runtime::FixRuntime::for_plan(plan, config);
@@ -475,7 +475,7 @@ pub fn run_ultra_plan_with_ui(
             None,
         );
         let mut invariant_report =
-            verify_profile_invariant_with_hook_snapshot(config, plan, &profile_snapshot);
+            verify_invariant_with_hooks(config, runtime, plan, &profile_snapshot);
         if !final_phase && !invariant_report.is_pass() {
             invariant_report = repair_intermediate_profile_invariant(
                 execution,
@@ -514,7 +514,7 @@ pub fn run_ultra_plan_with_ui(
             );
             emit_compile_rollback_context_carried(config, &rollback);
             invariant_report =
-                verify_profile_invariant_with_hook_snapshot(config, plan, &profile_snapshot);
+                verify_invariant_with_hooks(config, runtime, plan, &profile_snapshot);
         }
         if !invariant_report.is_pass() {
             let fresh_evidence = fresh_profile_invariant_failure_evidence(
@@ -1578,9 +1578,11 @@ pub fn run_ultra_plan_with_ui(
         }
     }
     append_final_acceptance_cycle_summary(config, &final_acceptance_cycle_deltas);
-    let terminal_capabilities = inferred_required_capabilities(&plan.profile, &plan.goal);
+    let profile_id = ProfileId::parse(&plan.profile);
+    let runtime = ProfileRuntimeRegistry::resolve(&profile_id);
+    let terminal_capabilities = runtime.required_capabilities(&plan.goal);
     let (assurance_level, assurance_reason) =
-        assurance_for_completion(&plan.profile, &terminal_capabilities);
+        runtime.assurance_for_completion(&profile_id, &terminal_capabilities);
     eval_events::emit(
         config.eval_events_path.as_deref(),
         json!({

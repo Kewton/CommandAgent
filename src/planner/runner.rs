@@ -26,7 +26,7 @@ use crate::minimal_loop::dependency_setup::{
     self, NodeDependencySetupAuthority, NodeDependencySetupRequirement, NodeDependencySetupStatus,
 };
 use crate::minimal_loop::evidence::{
-    RuntimeAcceptanceReport, comment_stripped_source_corpus, required_evidence_for_capability,
+    RuntimeAcceptanceReport, comment_stripped_source_corpus,
     verify_runtime_acceptance_with_browser_dirs_and_hints,
 };
 use crate::minimal_loop::feedback::{
@@ -62,10 +62,12 @@ use crate::planner::lint::{
 };
 use crate::planner::profile::{
     GENERIC_INTERACTIVE_CONTRACT_CAPABILITY, PhaseVerificationMode, ProfileBehaviorProbeReport,
-    ProfileId, ProfileInferenceSource, ProfileSnapshot, canonical_profile_name, domain_profile,
-    infer_profile, is_nextjs_profile, profile_before_plan, profile_expected_paths,
-    profile_setup_scaffold_paths, resolve_profile_runtime, verify_profile_final,
-    verify_profile_invariant,
+    ProfileId, ProfileInferenceSource, ProfileRuntimeRegistry, ProfileSnapshot,
+    canonical_profile_name, infer_profile, profile_before_plan, resolve_profile_runtime,
+};
+#[cfg(test)]
+use crate::planner::profile::{
+    domain_profile, profile_setup_scaffold_paths, verify_profile_invariant,
 };
 use crate::planner::profile_behavior::ProfileRuntime;
 use crate::planner::repair::{
@@ -1021,14 +1023,14 @@ impl ProfilePromotionState {
     fn for_run(plan: &UltraPlan, config: &Config) -> Self {
         Self {
             eligible: !crate::planner::fix_runtime::applies(plan)
-                && canonical_profile_name(&plan.profile) == "generic"
+                && ProfileId::parse(&plan.profile) == ProfileId::Generic
                 && !config.profile_explicit,
             promoted: false,
         }
     }
 
     fn can_promote(&self, plan: &UltraPlan) -> bool {
-        self.eligible && !self.promoted && canonical_profile_name(&plan.profile) == "generic"
+        self.eligible && !self.promoted && ProfileId::parse(&plan.profile) == ProfileId::Generic
     }
 }
 
@@ -1296,13 +1298,18 @@ fn try_promote_profile_at_phase_boundary(
     if inference.source != ProfileInferenceSource::Workspace {
         return Ok(None);
     }
-    let promoted = canonical_profile_name(inference.profile);
-    if promoted == "generic" || promoted == canonical_profile_name(&plan.profile) {
+    let promoted_id = ProfileId::parse(inference.profile);
+    if promoted_id == ProfileId::Generic || promoted_id == ProfileId::parse(&plan.profile) {
         return Ok(None);
     }
+    let promoted = promoted_id.to_string();
+    let promoted_runtime = ProfileRuntimeRegistry::resolve(&promoted_id);
+    let generic_id = ProfileId::Generic;
+    let generic_runtime = ProfileRuntimeRegistry::resolve(&generic_id);
 
-    let generic_paths = profile_expected_paths(&config.workspace_root, "generic", &plan.goal);
-    let mut generic_requirements = inferred_contract_requirements("generic", &plan.goal);
+    let generic_paths = generic_runtime.expected_scaffold_paths(&config.workspace_root, &plan.goal);
+    let mut generic_requirements =
+        runtime_contract_requirements(generic_runtime, &generic_id, &plan.goal);
     let pre_promotion_contract = bind_completion_contract_for_acceptance(
         config,
         "ultra-plan-run-pre-promotion",
@@ -1328,18 +1335,21 @@ fn try_promote_profile_at_phase_boundary(
         );
     }
 
-    let mut promoted_requirements = inferred_contract_requirements(&promoted, &plan.goal);
-    carry_pre_promotion_contract_requirements(
-        &promoted,
+    let mut promoted_requirements =
+        runtime_contract_requirements(promoted_runtime, &promoted_id, &plan.goal);
+    carry_pre_promotion_contract_requirements_with_runtime(
+        promoted_runtime,
+        &promoted_id,
         &plan.goal,
         &generic_requirements,
         &mut promoted_requirements,
     );
     merge_unique_strings(
         &mut promoted_requirements.evidence,
-        &inferred_required_evidence(&promoted, &plan.goal, &promoted_requirements.capabilities),
+        &promoted_runtime.required_evidence(&plan.goal, &promoted_requirements.capabilities),
     );
-    let promoted_paths = profile_expected_paths(&config.workspace_root, &promoted, &plan.goal);
+    let promoted_paths =
+        promoted_runtime.expected_scaffold_paths(&config.workspace_root, &plan.goal);
     let bound_contract = bind_completion_contract_for_acceptance(
         config,
         "ultra-plan-run",
@@ -1366,11 +1376,12 @@ fn try_promote_profile_at_phase_boundary(
     }
     merge_unique_strings(
         &mut promoted_requirements.evidence,
-        &inferred_required_evidence(&promoted, &plan.goal, &promoted_requirements.capabilities),
+        &promoted_runtime.required_evidence(&plan.goal, &promoted_requirements.capabilities),
     );
 
     let mapped_generic_capabilities = mapped_pre_promotion_capabilities_for_profile(
-        &promoted,
+        promoted_runtime,
+        &promoted_id,
         &generic_requirements.capabilities,
     );
     debug_assert!(
@@ -1429,7 +1440,7 @@ fn try_promote_profile_at_phase_boundary(
     config.profile = promoted.clone();
     config.profile_inference = Some(inference);
     *final_expected_paths =
-        profile_expected_paths(&config.workspace_root, &plan.profile, &plan.goal);
+        promoted_runtime.expected_scaffold_paths(&config.workspace_root, &plan.goal);
     context.pending_final_artifacts =
         missing_final_artifacts(&config.workspace_root, final_expected_paths);
     promotion_state.promoted = true;
@@ -1461,17 +1472,22 @@ fn ordered_string_difference(values: &[String], baseline: &[String]) -> Vec<Stri
         .collect()
 }
 
-fn inferred_contract_requirements(profile: &str, goal: &str) -> ContractRequirements {
-    let capabilities = inferred_required_capabilities(profile, goal);
+fn runtime_contract_requirements(
+    runtime: &dyn ProfileRuntime,
+    profile_id: &ProfileId,
+    goal: &str,
+) -> ContractRequirements {
+    let capabilities = runtime.required_capabilities(goal);
     ContractRequirements {
-        evidence: inferred_required_evidence(profile, goal, &capabilities),
-        obligations: inferred_required_obligations(profile, goal, &capabilities),
+        evidence: runtime.required_evidence(goal, &capabilities),
+        obligations: runtime.required_obligations(profile_id, goal, &capabilities),
         capabilities,
     }
 }
 
-fn carry_pre_promotion_contract_requirements(
-    promoted_profile: &str,
+fn carry_pre_promotion_contract_requirements_with_runtime(
+    promoted_runtime: &dyn ProfileRuntime,
+    promoted_id: &ProfileId,
     goal: &str,
     pre_promotion: &ContractRequirements,
     promoted: &mut ContractRequirements,
@@ -1479,7 +1495,8 @@ fn carry_pre_promotion_contract_requirements(
     merge_unique_strings(
         &mut promoted.capabilities,
         &mapped_pre_promotion_capabilities_for_profile(
-            promoted_profile,
+            promoted_runtime,
+            promoted_id,
             &pre_promotion.capabilities,
         ),
     );
@@ -1491,7 +1508,7 @@ fn carry_pre_promotion_contract_requirements(
     {
         merge_unique_strings(
             &mut promoted.capabilities,
-            &interactive_app_capabilities_for_profile(promoted_profile),
+            &promoted_runtime.interactive_app_capabilities(promoted_id),
         );
     }
     merge_unique_strings(&mut promoted.evidence, &pre_promotion.evidence);
@@ -1499,13 +1516,14 @@ fn carry_pre_promotion_contract_requirements(
 }
 
 fn mapped_pre_promotion_capabilities_for_profile(
-    promoted_profile: &str,
+    promoted_runtime: &dyn ProfileRuntime,
+    promoted_id: &ProfileId,
     capabilities: &[String],
 ) -> Vec<String> {
     let mut mapped = Vec::new();
     for capability in capabilities {
         if capability == GENERIC_INTERACTIVE_CONTRACT_CAPABILITY {
-            let equivalents = interactive_app_capabilities_for_profile(promoted_profile);
+            let equivalents = promoted_runtime.interactive_app_capabilities(promoted_id);
             if equivalents.is_empty() {
                 merge_unique_strings(&mut mapped, std::slice::from_ref(capability));
             } else {
@@ -1516,17 +1534,6 @@ fn mapped_pre_promotion_capabilities_for_profile(
         }
     }
     mapped
-}
-
-fn interactive_app_capabilities_for_profile(profile: &str) -> Vec<String> {
-    match canonical_profile_name(profile).as_str() {
-        "nextjs" | "react" | "vite" | "web" => vec![
-            "stateful_interaction".to_string(),
-            "user_input_or_action".to_string(),
-            "visible_state_change".to_string(),
-        ],
-        _ => Vec::new(),
-    }
 }
 
 fn emit_profile_reinferred(config: &Config, promotion: &ProfilePromotion) {
@@ -1561,21 +1568,26 @@ fn carry_recorded_promotion_contract_requirements(
     goal: &str,
     requirements: &mut ContractRequirements,
 ) {
+    let effective_profile_id = ProfileId::parse(effective_profile);
     if contract_origin_for_acceptance(config) != "promoted_union"
-        || canonical_profile_name(effective_profile) == "generic"
+        || effective_profile_id == ProfileId::Generic
     {
         return;
     }
-    let generic_requirements = inferred_contract_requirements("generic", goal);
-    carry_pre_promotion_contract_requirements(
-        effective_profile,
+    let generic_id = ProfileId::Generic;
+    let generic_runtime = ProfileRuntimeRegistry::resolve(&generic_id);
+    let generic_requirements = runtime_contract_requirements(generic_runtime, &generic_id, goal);
+    let effective_runtime = ProfileRuntimeRegistry::resolve(&effective_profile_id);
+    carry_pre_promotion_contract_requirements_with_runtime(
+        effective_runtime,
+        &effective_profile_id,
         goal,
         &generic_requirements,
         requirements,
     );
     merge_unique_strings(
         &mut requirements.evidence,
-        &inferred_required_evidence(effective_profile, goal, &requirements.capabilities),
+        &effective_runtime.required_evidence(goal, &requirements.capabilities),
     );
 }
 
@@ -1965,12 +1977,13 @@ fn run_step_plan_with_session_with_ui_and_run_authority(
         }
     }
     let required_final_artifacts = required_final_artifacts(plan, &config.workspace_root);
-    let mut final_required_capabilities =
-        inferred_required_capabilities(&config.profile, &plan.goal);
+    let profile_id = ProfileId::parse(&config.profile);
+    let runtime = ProfileRuntimeRegistry::resolve(&profile_id);
+    let mut final_required_capabilities = runtime.required_capabilities(&plan.goal);
     let final_required_obligations =
-        inferred_required_obligations(&config.profile, &plan.goal, &final_required_capabilities);
+        runtime.required_obligations(&profile_id, &plan.goal, &final_required_capabilities);
     let initial_required_evidence =
-        inferred_required_evidence(&config.profile, &plan.goal, &final_required_capabilities);
+        runtime.required_evidence(&plan.goal, &final_required_capabilities);
     let bound_contract = bind_completion_contract_for_acceptance(
         config,
         "plan-run",
@@ -1989,7 +2002,7 @@ fn run_step_plan_with_session_with_ui_and_run_authority(
         );
     }
     let mut final_required_evidence =
-        inferred_required_evidence(&config.profile, &plan.goal, &final_required_capabilities);
+        runtime.required_evidence(&plan.goal, &final_required_capabilities);
     if let Some(contract) = bound_contract.as_ref().map(|bound| &bound.contract) {
         merge_unique_strings(
             &mut final_required_capabilities,
@@ -3591,11 +3604,12 @@ fn verify_plan_final_contract(
     bound_contract: Option<&BoundCompletionContract>,
 ) -> anyhow::Result<()> {
     let mut required_paths = required_final_artifacts.to_vec();
-    let mut required_capabilities = inferred_required_capabilities(&config.profile, &plan.goal);
-    let mut required_evidence =
-        inferred_required_evidence(&config.profile, &plan.goal, &required_capabilities);
+    let profile_id = ProfileId::parse(&config.profile);
+    let runtime = ProfileRuntimeRegistry::resolve(&profile_id);
+    let mut required_capabilities = runtime.required_capabilities(&plan.goal);
+    let mut required_evidence = runtime.required_evidence(&plan.goal, &required_capabilities);
     let mut required_obligations =
-        inferred_required_obligations(&config.profile, &plan.goal, &required_capabilities);
+        runtime.required_obligations(&profile_id, &plan.goal, &required_capabilities);
     let mut evidence_hint_tokens = evidence_hint_tokens_for_goal(&plan.goal);
     let owned_bound_contract;
     let bound_contract = if let Some(bound_contract) = bound_contract {
@@ -3632,7 +3646,7 @@ fn verify_plan_final_contract(
     }
     merge_unique_strings(
         &mut required_evidence,
-        &inferred_required_evidence(&config.profile, &plan.goal, &required_capabilities),
+        &runtime.required_evidence(&plan.goal, &required_capabilities),
     );
     let missing_final_artifacts = missing_final_artifacts(&config.workspace_root, &required_paths);
     let external_report = bound_contract.map(|bound| {
@@ -3665,9 +3679,9 @@ fn verify_plan_final_contract(
             &required_obligations,
         )
     });
-    let mut release_gate = final_acceptance_release_gate(
+    let mut release_gate = final_acceptance_release_gate_with_runtime(
         config,
-        &config.profile,
+        runtime,
         &plan.goal,
         &required_capabilities,
         runtime_acceptance.as_ref(),
@@ -3684,7 +3698,7 @@ fn verify_plan_final_contract(
         ),
     );
     let contract_required =
-        completion_contract_required(&config.profile, &plan.goal, &required_capabilities)
+        runtime.requires_completion_contract(&profile_id, &plan.goal, &required_capabilities)
             || bound_contract.is_some_and(|bound| bound.required);
     let external_contract_checked = bound_contract.is_some();
     let contract_binding_missing = contract_required && !external_contract_checked;
@@ -3702,9 +3716,8 @@ fn verify_plan_final_contract(
     let final_acceptance_status = release_gate_final_acceptance_status(&release_gate);
     let runtime_acceptance_status =
         runtime_acceptance_status(runtime_ok, runtime_acceptance.as_ref());
-    let profile_id = ProfileId::parse(&config.profile);
-    let (assurance_level, assurance_reason) = resolve_profile_runtime(&config.profile)
-        .assurance_for_completion(&profile_id, &required_capabilities);
+    let (assurance_level, assurance_reason) =
+        runtime.assurance_for_completion(&profile_id, &required_capabilities);
     let release_quality_completion =
         release_quality_completion_status(&release_gate, final_acceptance_status);
     let next_action = release_gate_next_action(&release_gate, final_acceptance_status);
@@ -3948,12 +3961,13 @@ fn fresh_profile_invariant_failure_evidence(
     snapshot: &ProfileSnapshot,
     required_paths: &[String],
 ) -> ProfileInvariantFailureEvidence {
-    let report = verify_profile_invariant_with_hook_snapshot(config, plan, snapshot);
+    let runtime = resolve_profile_runtime(&plan.profile);
+    let report = verify_invariant_with_hooks(config, runtime, plan, snapshot);
     let mut required =
-        profile_invariant_expected_paths(&config.workspace_root, &plan.profile, required_paths);
+        runtime.invariant_expected_paths(&config.workspace_root, required_paths.to_vec());
     merge_unique_strings(
         &mut required,
-        &profile_invariant_setup_paths(&config.workspace_root, &plan.profile),
+        &runtime.invariant_setup_paths(&config.workspace_root),
     );
     let mut missing_paths = missing_final_artifacts(&config.workspace_root, &required);
     merge_unique_strings(&mut missing_paths, &report.missing_paths);
@@ -3983,31 +3997,16 @@ fn fresh_profile_invariant_failure_evidence(
     }
 }
 
-fn verify_profile_invariant_with_hook_snapshot(
+fn verify_invariant_with_hooks(
     config: &Config,
+    runtime: &dyn ProfileRuntime,
     plan: &UltraPlan,
     snapshot: &ProfileSnapshot,
 ) -> VerificationReport {
-    let report =
-        verify_profile_invariant(&config.workspace_root, &plan.profile, &plan.goal, snapshot);
+    let report = runtime.verify_phase_invariant(&config.workspace_root, &plan.goal, snapshot);
     hook_snapshot::report_missing_as_profile_failure_with_runtime(
-        config,
-        resolve_profile_runtime(&plan.profile),
-        &plan.goal,
-        report,
+        config, runtime, &plan.goal, report,
     )
-}
-
-fn profile_invariant_expected_paths(root: &Path, profile: &str, paths: &[String]) -> Vec<String> {
-    resolve_profile_runtime(profile).filter_invariant_expected_paths(root, paths.to_vec())
-}
-
-fn profile_invariant_setup_paths(root: &Path, profile: &str) -> Vec<String> {
-    if is_nextjs_profile(profile) {
-        crate::planner::profiles::nextjs::setup_invariant_required_paths(root)
-    } else {
-        profile_setup_scaffold_paths(root, profile)
-    }
 }
 
 fn profile_missing_relative_imports(root: &Path, profile: &str) -> Vec<MissingImport> {
@@ -4554,7 +4553,12 @@ fn repair_intermediate_profile_invariant(
                         setup_authority_state,
                     )?;
                 }
-                retry = verify_profile_invariant_with_hook_snapshot(config, plan, profile_snapshot);
+                retry = verify_invariant_with_hooks(
+                    config,
+                    resolve_profile_runtime(&plan.profile),
+                    plan,
+                    profile_snapshot,
+                );
                 emit_profile_invariant_repair_event(
                     config,
                     plan,
@@ -4643,7 +4647,12 @@ fn repair_intermediate_profile_invariant(
                 ultra_session.messages.len(),
                 true,
             );
-            retry = verify_profile_invariant_with_hook_snapshot(config, plan, profile_snapshot);
+            retry = verify_invariant_with_hooks(
+                config,
+                resolve_profile_runtime(&plan.profile),
+                plan,
+                profile_snapshot,
+            );
             emit_profile_invariant_repair_event(
                 config,
                 plan,
@@ -4675,7 +4684,12 @@ fn repair_intermediate_profile_invariant(
                     ULTRA_CONTEXT_MAX_PATHS,
                     &mut ultra_context.truncated,
                 );
-                retry = verify_profile_invariant_with_hook_snapshot(config, plan, profile_snapshot);
+                retry = verify_invariant_with_hooks(
+                    config,
+                    resolve_profile_runtime(&plan.profile),
+                    plan,
+                    profile_snapshot,
+                );
                 emit_profile_invariant_repair_event(
                     config,
                     plan,
@@ -5348,20 +5362,18 @@ fn annotate_interaction_evidence_with_source_diagnostics(
     }
 }
 
+#[cfg(test)]
 fn inferred_required_capabilities(profile: &str, goal: &str) -> Vec<String> {
-    domain_profile(profile).infer_required_capabilities(goal)
+    resolve_profile_runtime(profile).required_capabilities(goal)
 }
 
+#[cfg(test)]
 fn inferred_required_evidence(
     profile: &str,
     goal: &str,
     required_capabilities: &[String],
 ) -> Vec<String> {
-    let mut evidence = domain_profile(profile).infer_required_evidence(goal, required_capabilities);
-    for capability in required_capabilities {
-        merge_unique_strings(&mut evidence, &required_evidence_for_capability(capability));
-    }
-    evidence
+    resolve_profile_runtime(profile).required_evidence(goal, required_capabilities)
 }
 
 fn runtime_required_evidence(
@@ -5369,47 +5381,21 @@ fn runtime_required_evidence(
     goal: &str,
     required_capabilities: &[String],
 ) -> Vec<String> {
-    let mut evidence = runtime.infer_required_evidence(goal, required_capabilities);
-    for capability in required_capabilities {
-        merge_unique_strings(&mut evidence, &required_evidence_for_capability(capability));
-    }
-    evidence
+    runtime.required_evidence(goal, required_capabilities)
 }
 
+#[cfg(test)]
 fn inferred_required_obligations(
     profile: &str,
     goal: &str,
     required_capabilities: &[String],
 ) -> Vec<String> {
-    let profile_obligations =
-        domain_profile(profile).infer_required_obligations(goal, required_capabilities);
-    if !profile_obligations.is_empty() {
-        return profile_obligations;
-    }
-    let is_app_profile = matches!(canonical_profile_name(profile).as_str(), "web" | "vite");
-    let app_like_goal = signals::contains_app_like_token(goal);
-    if is_app_profile && (app_like_goal || !required_capabilities.is_empty()) {
-        return vec!["implementation".to_string()];
-    }
-    if required_capabilities.iter().any(|capability| {
-        matches!(
-            capability.as_str(),
-            "implementation"
-                | "entrypoint"
-                | "input_output_contract"
-                | "player_control"
-                | "stateful_interaction"
-                | "user_input_or_action"
-                | "visible_state_change"
-                | "persistence"
-                | "adversary_or_challenge"
-                | "progression_or_score"
-                | "failure_or_collision_rule"
-        )
-    }) {
-        return vec!["implementation".to_string()];
-    }
-    Vec::new()
+    let profile_id = ProfileId::parse(profile);
+    ProfileRuntimeRegistry::resolve(&profile_id).required_obligations(
+        &profile_id,
+        goal,
+        required_capabilities,
+    )
 }
 
 fn run_profile_behavior_probe(
@@ -9691,6 +9677,9 @@ mod tests {
     #[path = "requested_port_tests.rs"]
     mod requested_port_tests;
 
+    #[path = "profile_runtime_tests.rs"]
+    mod profile_runtime_tests;
+
     fn common_prefix(left: &str, right: &str) -> String {
         left.chars()
             .zip(right.chars())
@@ -11088,7 +11077,14 @@ Phase task: Set up the Python CLI package scaffold";
         let evidence = inferred_required_evidence("nextjs", goal, &capabilities);
 
         assert!(capabilities.is_empty(), "{capabilities:?}");
-        assert!(completion_contract_required("nextjs", goal, &capabilities));
+        let nextjs_id = ProfileId::Nextjs;
+        assert!(
+            ProfileRuntimeRegistry::resolve(&nextjs_id).requires_completion_contract(
+                &nextjs_id,
+                goal,
+                &capabilities,
+            )
+        );
         assert!(evidence.contains(&"nextjs_route_evidence".to_string()));
         assert!(evidence.contains(&"build_command_or_dependency_missing_boundary".to_string()));
     }
@@ -11113,53 +11109,6 @@ Phase task: Set up the Python CLI package scaffold";
             ]
         );
         assert_eq!(obligations, vec!["implementation".to_string()]);
-    }
-
-    #[test]
-    fn promoted_contract_union_never_drops_generic_interactive_requirements() {
-        let goal = "ちょっとしたメモアプリを作って";
-        let generic = inferred_contract_requirements("generic", goal);
-        let mut promoted = inferred_contract_requirements("nextjs", goal);
-
-        assert!(promoted.capabilities.is_empty());
-        carry_pre_promotion_contract_requirements("nextjs", goal, &generic, &mut promoted);
-        merge_unique_strings(
-            &mut promoted.evidence,
-            &inferred_required_evidence("nextjs", goal, &promoted.capabilities),
-        );
-
-        for capability in [
-            "stateful_interaction",
-            "user_input_or_action",
-            "visible_state_change",
-        ] {
-            assert!(
-                promoted.capabilities.contains(&capability.to_string()),
-                "{capability} missing from {promoted:?}"
-            );
-        }
-        for evidence in GENERIC_INTERACTIVE_EVIDENCE_KEYS {
-            assert!(
-                promoted.evidence.contains(&evidence.to_string()),
-                "{evidence} missing from {promoted:?}"
-            );
-        }
-        assert!(
-            promoted
-                .evidence
-                .contains(&"nextjs_route_evidence".to_string())
-        );
-        assert!(
-            promoted
-                .evidence
-                .contains(&"build_command_or_dependency_missing_boundary".to_string())
-        );
-        assert!(
-            generic
-                .obligations
-                .iter()
-                .all(|obligation| promoted.obligations.contains(obligation))
-        );
     }
 
     #[test]

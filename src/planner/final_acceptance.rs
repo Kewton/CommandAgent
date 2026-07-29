@@ -169,7 +169,7 @@ pub(super) fn snapshot_source_candidates(
 ) -> Vec<String> {
     let mut paths = Vec::new();
     merge_source_candidates(&mut paths, extra_paths.iter().map(String::as_str));
-    let profile_paths = profile_expected_paths(root, profile, goal);
+    let profile_paths = resolve_profile_runtime(profile).expected_scaffold_paths(root, goal);
     merge_source_candidates(&mut paths, profile_paths.iter().map(String::as_str));
     merge_source_candidates(
         &mut paths,
@@ -485,7 +485,8 @@ pub(super) fn final_acceptance_repair_expected_paths(
     config: &Config,
     report: &VerificationReport,
 ) -> anyhow::Result<Vec<String>> {
-    let mut expected = profile_expected_paths(&config.workspace_root, &plan.profile, &plan.goal);
+    let mut expected = resolve_profile_runtime(&plan.profile)
+        .expected_scaffold_paths(&config.workspace_root, &plan.goal);
     if let Some(contract) = CompletionContract::load_for_config(config)? {
         merge_unique_strings(&mut expected, &contract.required_paths);
     }
@@ -961,7 +962,8 @@ pub(super) fn try_compile_rollback_after_repair_exhaustion(
         restored_paths.push(rel.clone());
         origins.push(workspace_relative_handoff_path(snapshot));
     }
-    let rebuild_report = verify_profile_final(&config.workspace_root, profile, goal);
+    let rebuild_report =
+        resolve_profile_runtime(profile).verify_final(&config.workspace_root, goal);
     if report_has_production_build_failure(&rebuild_report) {
         eval_events::emit(
             config.eval_events_path.as_deref(),

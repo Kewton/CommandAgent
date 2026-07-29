@@ -1148,9 +1148,9 @@ if __name__ == "__main__":
             ..RuntimeAcceptanceReport::default()
         };
 
-        let gate = final_acceptance_release_gate(
+        let gate = final_acceptance_release_gate_with_runtime(
             &cfg,
-            "nextjs",
+            ProfileRuntimeRegistry::resolve(&ProfileId::Nextjs),
             "Create a static about page",
             &[],
             Some(&report),
@@ -1177,9 +1177,9 @@ if __name__ == "__main__":
             ..RuntimeAcceptanceReport::default()
         };
 
-        let gate = final_acceptance_release_gate(
+        let gate = final_acceptance_release_gate_with_runtime(
             &cfg,
-            "nextjs",
+            ProfileRuntimeRegistry::resolve(&ProfileId::Nextjs),
             "Create a canvas-based interactive browser game",
             &["player_control".to_string()],
             Some(&report),
@@ -1217,9 +1217,9 @@ if __name__ == "__main__":
             ..RuntimeAcceptanceReport::default()
         };
 
-        let gate = final_acceptance_release_gate(
+        let gate = final_acceptance_release_gate_with_runtime(
             &cfg,
-            "nextjs",
+            ProfileRuntimeRegistry::resolve(&ProfileId::Nextjs),
             "Create a canvas-based interactive browser game",
             &["player_control".to_string()],
             Some(&report),
