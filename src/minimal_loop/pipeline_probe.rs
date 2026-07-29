@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
@@ -7,6 +7,7 @@ use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::bounded_process::{self, BoundedProcessOutcomeKind};
+use crate::evidence_envelope::{EvidenceEnvelopeSpec, EvidenceFamily};
 use crate::minimal_loop::verifier_env;
 
 mod stream_capture;
@@ -26,6 +27,7 @@ pub struct PipelineProbeConfig {
     max_stream_bytes: usize,
     max_artifact_bytes: u64,
     max_artifacts: usize,
+    evidence_family: EvidenceFamily,
 }
 
 impl PipelineProbeConfig {
@@ -36,6 +38,7 @@ impl PipelineProbeConfig {
             max_stream_bytes: DEFAULT_MAX_STREAM_BYTES,
             max_artifact_bytes: DEFAULT_MAX_ARTIFACT_BYTES,
             max_artifacts: DEFAULT_MAX_ARTIFACTS,
+            evidence_family: EvidenceFamily::E,
         }
     }
 
@@ -46,6 +49,11 @@ impl PipelineProbeConfig {
 
     pub fn with_max_stream_bytes(mut self, max_stream_bytes: usize) -> Self {
         self.max_stream_bytes = max_stream_bytes;
+        self
+    }
+
+    pub(crate) fn with_evidence_family(mut self, family: EvidenceFamily) -> Self {
+        self.evidence_family = family;
         self
     }
 }
@@ -188,7 +196,7 @@ pub fn run(root: &Path, config: PipelineProbeConfig) -> anyhow::Result<PipelineP
         capture_warnings,
         python_error_extraction,
     };
-    write_evidence(root, &report)?;
+    write_evidence(root, &report, config.evidence_family)?;
     Ok(report)
 }
 
@@ -313,16 +321,23 @@ fn fnv1a64_file(path: &Path) -> std::io::Result<u64> {
     }
 }
 
-fn write_evidence(root: &Path, report: &PipelineProbeReport) -> anyhow::Result<()> {
+fn write_evidence(
+    root: &Path,
+    report: &PipelineProbeReport,
+    family: EvidenceFamily,
+) -> anyhow::Result<()> {
     let path =
         crate::tools::path_guard::resolve_optional_existing(root, PIPELINE_RUN_EVIDENCE_PATH)
             .context("pipeline evidence path escapes workspace")?;
     let parent = path.parent().context("pipeline evidence parent missing")?;
     std::fs::create_dir_all(parent)?;
-    let mut file = std::fs::File::create(path)?;
-    serde_json::to_writer_pretty(&mut file, report)?;
-    file.write_all(b"\n")?;
-    Ok(())
+    let source_refs = report.command.get(2).cloned().into_iter();
+    crate::evidence_envelope::write_json(
+        &path,
+        report,
+        EvidenceEnvelopeSpec::new(family, "pipeline_probe").with_source_refs(source_refs),
+        true,
+    )
 }
 
 fn millis_u64(duration: Duration) -> u64 {
@@ -372,6 +387,16 @@ print("pipeline stdout")
         assert_eq!(evidence["status"], "pass");
         assert_eq!(evidence["isolation"]["offline_policy_applied"], true);
         assert_eq!(evidence["isolation"]["network_namespace_enforced"], false);
+        // E-5c is additive: the pre-existing assertions above remain unchanged,
+        // and the common envelope is verified independently.
+        assert_eq!(evidence["evidence_envelope"]["family"], "E");
+        assert_eq!(evidence["evidence_envelope"]["kind"], "pipeline_probe");
+        assert_eq!(evidence["evidence_envelope"]["envelope_version"], 1);
+        assert!(evidence["evidence_envelope"]["epoch"].is_u64());
+        assert_eq!(
+            evidence["evidence_envelope"]["source_refs"],
+            serde_json::json!(["pipeline/main.py"])
+        );
     }
 
     #[test]

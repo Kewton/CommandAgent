@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::io::Write;
 use std::path::Path;
 use std::time::Duration;
 
@@ -7,6 +6,7 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use super::{checks, manifest, runtime_checks};
+use crate::evidence_envelope::{EvidenceEnvelopeSpec, EvidenceFamily};
 use crate::minimal_loop::pipeline_probe::{self, PipelineProbeConfig, PipelineProbeReport};
 use crate::planner::capability_catalog::{ProbeCapability, ResolvedCapability};
 
@@ -188,10 +188,12 @@ fn write_summary(root: &Path, summary: &DataCheckSummary) -> anyhow::Result<()> 
         .parent()
         .context("data assurance evidence parent missing")?;
     std::fs::create_dir_all(parent)?;
-    let mut file = std::fs::File::create(path)?;
-    serde_json::to_writer_pretty(&mut file, summary)?;
-    file.write_all(b"\n")?;
-    Ok(())
+    crate::evidence_envelope::write_json(
+        &path,
+        summary,
+        EvidenceEnvelopeSpec::new(EvidenceFamily::E, "assurance"),
+        true,
+    )
 }
 
 fn read_json<T: for<'de> Deserialize<'de>>(root: &Path, relative: &str) -> Option<T> {

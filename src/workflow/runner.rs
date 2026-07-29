@@ -158,7 +158,7 @@ pub fn derive_goal(intent: &str, origin_goal: &str) -> Option<String> {
 #[serde(tag = "event")]
 pub enum WorkflowEvent {
     #[serde(rename = "workflow_started")]
-    Started,
+    Started { epoch: u64 },
     #[serde(rename = "workflow_edge_fired")]
     EdgeFired { edge: String, checks: Vec<String> },
     #[serde(rename = "workflow_node_completed")]
@@ -167,6 +167,7 @@ pub enum WorkflowEvent {
     Adjudicated {
         verdict: String,
         reason: Option<String>,
+        epoch: u64,
     },
 }
 

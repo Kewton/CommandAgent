@@ -1,5 +1,4 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::io::Write;
 use std::path::Path;
 use std::time::Duration;
 
@@ -8,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{accounting, manifest, source_binding};
+use crate::evidence_envelope::{EvidenceEnvelopeSpec, EvidenceFamily};
 use crate::minimal_loop::pipeline_probe::{self, PipelineProbeConfig, PipelineProbeReport};
 use crate::minimal_loop::rerun_consistency;
 use crate::planner::capability_catalog::{ProbeCapability, ResolvedCapability};
@@ -255,7 +255,9 @@ fn adapters() -> anyhow::Result<Adapters> {
 fn run_pipeline(root: &Path, entry: &str, timeout_seconds: u16, reasons: &mut Vec<String>) -> bool {
     match pipeline_probe::run(
         root,
-        PipelineProbeConfig::new(entry).with_timeout(Duration::from_secs(timeout_seconds.into())),
+        PipelineProbeConfig::new(entry)
+            .with_timeout(Duration::from_secs(timeout_seconds.into()))
+            .with_evidence_family(EvidenceFamily::N),
     ) {
         Ok(report) => {
             reasons.extend(report.failure_kinds.clone());
@@ -278,7 +280,9 @@ fn run_ingest_probe(
     let mut failure_kinds = Vec::new();
     let execution = match pipeline_probe::run(
         root,
-        PipelineProbeConfig::new(entry).with_timeout(Duration::from_secs(timeout_seconds.into())),
+        PipelineProbeConfig::new(entry)
+            .with_timeout(Duration::from_secs(timeout_seconds.into()))
+            .with_evidence_family(EvidenceFamily::N),
     ) {
         Ok(report) => {
             failure_kinds.extend(report.failure_kinds.clone());
@@ -459,10 +463,19 @@ fn write_json<T: Serialize>(root: &Path, relative: &str, value: &T) -> anyhow::R
     let path = crate::tools::path_guard::resolve_optional_existing(root, relative)
         .with_context(|| format!("ingest evidence path escapes workspace: {relative}"))?;
     std::fs::create_dir_all(path.parent().context("ingest evidence parent missing")?)?;
-    let mut file = std::fs::File::create(path)?;
-    serde_json::to_writer_pretty(&mut file, value)?;
-    file.write_all(b"\n")?;
-    Ok(())
+    let kind = match relative {
+        ASSURANCE_EVIDENCE_PATH => "assurance",
+        INGEST_PROBE_EVIDENCE_PATH => "ingest_probe",
+        FORMAT_SCHEMA_EVIDENCE_PATH => "format_schema",
+        RERUN_EVIDENCE_PATH => "rerun_consistency",
+        _ => "ingest_check",
+    };
+    crate::evidence_envelope::write_json(
+        &path,
+        value,
+        EvidenceEnvelopeSpec::new(EvidenceFamily::N, kind),
+        true,
+    )
 }
 
 #[cfg(test)]

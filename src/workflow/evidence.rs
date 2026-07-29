@@ -127,8 +127,17 @@ impl WorkflowCircleEvidence {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent).map_err(|e| e.to_string())?;
         }
-        let bytes = serde_json::to_vec_pretty(self).map_err(|e| e.to_string())?;
-        fs::write(path, bytes).map_err(|e| e.to_string())
+        crate::evidence_envelope::write_json(
+            path,
+            self,
+            crate::evidence_envelope::EvidenceEnvelopeSpec::new(
+                crate::evidence_envelope::EvidenceFamily::Circle,
+                "workflow_circle",
+            )
+            .with_source_refs(["evidence/workflow-events.jsonl"]),
+            false,
+        )
+        .map_err(|e| e.to_string())
     }
 
     pub fn validate(&self) -> Result<(), String> {

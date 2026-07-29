@@ -25,20 +25,26 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
     };
     emit(
         &events_path,
-        json!({"event":"workflow_started","entry":workflow.entry,"origin":origin}),
+        workflow_started_event(&workflow.entry, origin),
     )?;
     let recovery_yaml_paths = runner::origin_recovery_yamls(origin);
     if recovery_yaml_paths.is_empty() {
         emit(
             &events_path,
-            json!({"event":"workflow_adjudicated","verdict":"circle_failed","reason":"edge_not_earned:create_to_investigate:recovery_yaml_present"}),
+            workflow_adjudicated_event(
+                "circle_failed",
+                Some("edge_not_earned:create_to_investigate:recovery_yaml_present"),
+            ),
         )?;
         bail!("workflow origin lacks recovery YAML");
     }
     let Some(origin_events) = runner::latest_failed_run_events(origin) else {
         emit(
             &events_path,
-            json!({"event":"workflow_adjudicated","verdict":"circle_failed","reason":"edge_not_earned:create_to_investigate:run_stop"}),
+            workflow_adjudicated_event(
+                "circle_failed",
+                Some("edge_not_earned:create_to_investigate:run_stop"),
+            ),
         )?;
         bail!("workflow origin lacks run events");
     };
@@ -63,7 +69,7 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
         Err(_) => {
             emit(
                 &events_path,
-                json!({"event":"workflow_adjudicated","verdict":"circle_failed","reason":"origin_goal_underivable"}),
+                workflow_adjudicated_event("circle_failed", Some("origin_goal_underivable")),
             )?;
             circle.adjudicate("circle_failed", Some("origin_goal_underivable"));
             return write_circle(origin, &circle);
@@ -97,7 +103,7 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
             let reason = StopClassId::edge_not_earned(edge, failed_check).to_string();
             emit(
                 &events_path,
-                json!({"event":"workflow_adjudicated","verdict":"circle_failed","reason":reason}),
+                workflow_adjudicated_event("circle_failed", Some(&reason)),
             )?;
             circle.adjudicate("circle_failed", Some(&reason));
             return write_circle(origin, &circle);
@@ -116,7 +122,7 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
             runner::verify_origin(&bindings, |_| true).map_err(|e| anyhow::anyhow!(e))?;
             emit(
                 &events_path,
-                json!({"event":"workflow_adjudicated","verdict":"circle_full"}),
+                workflow_adjudicated_event("circle_full", None),
             )?;
             circle.adjudicate("circle_full", Some("verify_origin"));
             return write_circle(origin, &circle);
@@ -198,7 +204,10 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
             emit_node_run_stop_if_absent(&identity.events_path, "failed", Some(&err))?;
             emit(
                 &events_path,
-                json!({"event":"workflow_adjudicated","verdict":"circle_failed","reason":format!("node_failed:{node_id}")}),
+                workflow_adjudicated_event(
+                    "circle_failed",
+                    Some(&format!("node_failed:{node_id}")),
+                ),
             )?;
             let reason = format!("node_failed:{node_id}");
             circle.adjudicate("circle_failed", Some(&reason));
@@ -213,7 +222,7 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
     }
     emit(
         &events_path,
-        json!({"event":"workflow_adjudicated","verdict":"circle_failed","reason":"edge_not_earned:no_route"}),
+        workflow_adjudicated_event("circle_failed", Some("edge_not_earned:no_route")),
     )?;
     circle.adjudicate("circle_failed", Some("edge_not_earned:no_route"));
     write_circle(origin, &circle)
@@ -693,6 +702,42 @@ fn emit(path: &Path, value: serde_json::Value) -> anyhow::Result<()> {
     writeln!(f, "{}", value)?;
     Ok(())
 }
+
+fn workflow_started_event(entry: &str, origin: &Path) -> serde_json::Value {
+    let epoch = crate::evidence_envelope::unix_epoch();
+    json!({
+        "event": "workflow_started",
+        "entry": entry,
+        "origin": origin,
+        "epoch": epoch,
+        "evidence_envelope": crate::evidence_envelope::event_envelope(
+            crate::evidence_envelope::EvidenceFamily::Workflow,
+            "workflow_started",
+            epoch,
+            ["evidence/workflow-events.jsonl"],
+        ),
+    })
+}
+
+fn workflow_adjudicated_event(verdict: &str, reason: Option<&str>) -> serde_json::Value {
+    let epoch = crate::evidence_envelope::unix_epoch();
+    let mut event = json!({
+        "event": "workflow_adjudicated",
+        "verdict": verdict,
+        "epoch": epoch,
+        "evidence_envelope": crate::evidence_envelope::event_envelope(
+            crate::evidence_envelope::EvidenceFamily::Workflow,
+            "workflow_adjudicated",
+            epoch,
+            ["evidence/workflow-events.jsonl"],
+        ),
+    });
+    if let Some(reason) = reason {
+        event["reason"] = json!(reason);
+    }
+    event
+}
+
 fn write_circle(origin: &Path, evidence: &WorkflowCircleEvidence) -> anyhow::Result<()> {
     let p = origin.join("evidence/workflow-circle.json");
     evidence.write_to(&p).map_err(anyhow::Error::msg)
@@ -802,6 +847,28 @@ mod tests {
         assert_eq!(event["model"], "elevated-model");
         assert_eq!(event["provider"], "gemini");
         assert_eq!(event["profile"], "data");
+    }
+
+    #[test]
+    fn workflow_boundary_events_add_epoch_and_common_envelope() {
+        let root = tempfile::tempdir().unwrap();
+
+        let started = workflow_started_event("create", root.path());
+        let adjudicated = workflow_adjudicated_event("circle_full", None);
+
+        for (event, kind) in [
+            (&started, "workflow_started"),
+            (&adjudicated, "workflow_adjudicated"),
+        ] {
+            assert!(event["epoch"].is_u64());
+            assert_eq!(event["evidence_envelope"]["family"], "workflow");
+            assert_eq!(event["evidence_envelope"]["kind"], kind);
+            assert_eq!(
+                event["epoch"], event["evidence_envelope"]["epoch"],
+                "the duration timestamp and envelope issuance epoch share one source"
+            );
+        }
+        assert!(adjudicated.get("reason").is_none());
     }
 
     #[test]

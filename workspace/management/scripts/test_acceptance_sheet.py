@@ -37,6 +37,15 @@ class AcceptanceSheetTests(unittest.TestCase):
         self.assertIn("未完了", s)
         self.assertIn("記録なし", s)
 
+    def test_circle_duration_is_derived_from_new_workflow_epochs(self):
+        d = self.make(
+            '{"event":"workflow_started","entry":"create","epoch":100}\n'
+            '{"event":"workflow_adjudicated","verdict":"circle_full","epoch":118}\n'
+        )
+        (d / "workflow-circle.json").write_text('{"verdict":"circle_full"}')
+        s = generate(d)
+        self.assertIn("円環全体の所要: 18秒", s)
+
     def test_unknown_check_passthrough(self):
         s = generate(
             self.make(

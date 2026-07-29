@@ -1,10 +1,10 @@
-use std::io::Write;
 use std::path::Path;
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::evidence_envelope::{EvidenceEnvelopeSpec, EvidenceFamily};
 use crate::planner::failure_vocabulary::ViolationId;
 
 mod input_selection;
@@ -244,10 +244,12 @@ fn write_evidence(root: &Path, evidence: &InspectionSchemaEvidence) -> anyhow::R
     let path = crate::tools::path_guard::resolve_optional_existing(root, EVIDENCE_PATH)
         .context("inspection schema evidence path escapes workspace")?;
     std::fs::create_dir_all(path.parent().context("evidence parent missing")?)?;
-    let mut file = std::fs::File::create(path)?;
-    serde_json::to_writer_pretty(&mut file, evidence)?;
-    file.write_all(b"\n")?;
-    Ok(())
+    crate::evidence_envelope::write_json(
+        &path,
+        evidence,
+        EvidenceEnvelopeSpec::new(EvidenceFamily::E, "inspection_schema"),
+        true,
+    )
 }
 
 #[cfg(test)]

@@ -108,9 +108,15 @@ fn execute_binding_if_ready(config: &Config) -> anyhow::Result<()> {
     );
     let evidence_dir = config.workspace_root.join("evidence");
     std::fs::create_dir_all(&evidence_dir)?;
-    std::fs::write(
-        evidence_dir.join("investigation-binding.json"),
-        serde_json::to_vec_pretty(&binding)?,
+    crate::evidence_envelope::write_json(
+        &evidence_dir.join("investigation-binding.json"),
+        &binding,
+        crate::evidence_envelope::EvidenceEnvelopeSpec::new(
+            crate::evidence_envelope::EvidenceFamily::I,
+            "investigation_binding",
+        )
+        .with_source_refs(["output/diagnosis.md", "evidence/investigation-run.json"]),
+        false,
     )?;
     Ok(())
 }

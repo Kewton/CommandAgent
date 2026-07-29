@@ -70,9 +70,17 @@ impl InvestigationRuntime {
         } else {
             "investigation-run.json"
         };
-        std::fs::write(
-            evidence_dir.join(evidence_name),
-            serde_json::to_vec_pretty(&run)?,
+        crate::evidence_envelope::write_json(
+            &evidence_dir.join(evidence_name),
+            &run,
+            crate::evidence_envelope::EvidenceEnvelopeSpec::new(
+                crate::evidence_envelope::EvidenceFamily::I,
+                "investigation_run",
+            )
+            .with_source_refs([
+                crate::planner::adjudication::investigate::INVESTIGATION_CONTRACT_REF,
+            ]),
+            false,
         )?;
         if run.failure_classification.is_reproducer_defect() {
             return Ok(InvestigationBeforeOutcome::RebuildRequired {

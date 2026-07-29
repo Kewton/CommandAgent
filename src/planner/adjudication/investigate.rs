@@ -196,8 +196,26 @@ pub fn write_investigation_evidence(
     std::fs::create_dir_all(&evidence)?;
     let run_path = evidence.join("investigation-run.json");
     let binding_path = evidence.join("investigation-binding.json");
-    std::fs::write(&run_path, serde_json::to_vec_pretty(run)?)?;
-    std::fs::write(&binding_path, serde_json::to_vec_pretty(binding)?)?;
+    crate::evidence_envelope::write_json(
+        &run_path,
+        run,
+        crate::evidence_envelope::EvidenceEnvelopeSpec::new(
+            crate::evidence_envelope::EvidenceFamily::I,
+            "investigation_run",
+        )
+        .with_source_refs([INVESTIGATION_CONTRACT_REF]),
+        false,
+    )?;
+    crate::evidence_envelope::write_json(
+        &binding_path,
+        binding,
+        crate::evidence_envelope::EvidenceEnvelopeSpec::new(
+            crate::evidence_envelope::EvidenceFamily::I,
+            "investigation_binding",
+        )
+        .with_source_refs(["output/diagnosis.md", "evidence/investigation-run.json"]),
+        false,
+    )?;
     Ok((run_path, binding_path))
 }
 
