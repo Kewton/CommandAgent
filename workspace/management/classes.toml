@@ -1,8 +1,11 @@
 # `failure_kind`/stop fields describe terminal shape; `attribution` is the
 # adjudicated cause (model, machine, mixed, or environment), and is not
 # inferred from the terminal vocabulary.
+# category = "terminal" identifies a run-stop terminal shape.
+# category = "violation_family" identifies a comparator violation family.
 [[class]]
 id = "model_stagnation_read_only"
+category = "terminal"
 attribution = "model"
 match_stop_class = "model_stagnation:read_only_loop"
 first_seen = "uat-test0717-dfix-001"
@@ -11,6 +14,7 @@ note = "モデルが書込み要求に対して読取りを反復した"
 
 [[class]]
 id = "repair_target_unresolved"
+category = "terminal"
 attribution = "machine"
 match_reason = "repair_target_unresolved"
 first_seen = "uat-test0722-circle-elev-004"
@@ -19,6 +23,7 @@ note = "修復対象を解決できず正直に停止した"
 
 [[class]]
 id = "diagnosis_unbound"
+category = "terminal"
 attribution = "machine"
 match_reason = "diagnosis_unbound"
 first_seen = "uat-test0722-circle-elev-001"
@@ -27,6 +32,7 @@ note = "診断主張が実証拠へ束縛されない"
 
 [[class]]
 id = "claims_absent"
+category = "terminal"
 attribution = "machine"
 match_reason = "claims_absent"
 first_seen = "uat-test0722-circle-elev-003"
@@ -35,6 +41,7 @@ note = "診断に機械照合可能な主張がない"
 
 [[class]]
 id = "edge_not_earned"
+category = "terminal"
 attribution = "machine"
 match_stop_class = "edge_not_earned"
 first_seen = "d3a2-smoke-v5"
@@ -43,6 +50,7 @@ note = "辺の成立条件不足で遷移しない"
 
 [[class]]
 id = "interrupted_environment"
+category = "terminal"
 attribution = "environment"
 match_stop_class = "interrupted(environment)"
 first_seen = "uat-test0719-dfix-006"
@@ -51,6 +59,7 @@ note = "環境中断でrun非消費となった"
 
 [[class]]
 id = "ollama_http_500"
+category = "terminal"
 attribution = "environment"
 match_reason = "HTTP 500 Internal Server Error"
 first_seen = "uat-test0722-circle-elev-006"
@@ -59,6 +68,7 @@ note = "Ollamaクラウド応答の一過性HTTP 500"
 
 [[class]]
 id = "origin_goal_underivable"
+category = "terminal"
 attribution = "machine"
 match_reason = "origin_goal_underivable"
 first_seen = "d3a2-smoke-v5"
@@ -67,6 +77,7 @@ note = "起点goalの導出不能"
 
 [[class]]
 id = "origin_verify_underivable"
+category = "terminal"
 attribution = "machine"
 match_reason = "origin_verify_underivable"
 first_seen = "d3a2-smoke-v5"
@@ -75,6 +86,7 @@ note = "起点検証集合の導出不能"
 
 [[class]]
 id = "workspace_confinement_violation"
+category = "terminal"
 attribution = "machine"
 match_reason = "workspace_confinement_violation"
 first_seen = "d3a2-smoke-v7"
@@ -83,6 +95,7 @@ note = "origin外workspaceへの書込みを拒否"
 
 [[class]]
 id = "data_schema_contract_failure"
+category = "terminal"
 attribution = "machine"
 match_reason = "inspection_schema_violation"
 first_seen = "uat-test0718-dfix-005"
@@ -91,6 +104,7 @@ note = "データ契約スキーマ検証が失敗した"
 
 [[class]]
 id = "process_failure"
+category = "terminal"
 attribution = "model"
 match_stop_class = "failure_kind:process_failure"
 first_seen = "uat-test0718-dfix-005"
@@ -99,6 +113,7 @@ note = "形状既定=modelは仮置きであり本クラスは解剖必須。本
 
 [[class]]
 id = "cli_runtime_dispatch:c_checks_not_run_after_final_acceptance"
+category = "terminal"
 attribution = "machine"
 match_reason = "cli_probe_not_run"
 first_seen = "uat-test0725-cli-elev-002"
@@ -107,6 +122,7 @@ note = "profile=cliのfinal acceptanceがE-3b C1〜C4 runtimeを起動しなか�
 
 [[class]]
 id = "cli_case_binding:first_usage_placeholder_masks_concrete_examples"
+category = "terminal"
 attribution = "machine"
 match_reason = "unrecognized arguments: [--count]"
 first_seen = "uat-test0725-cli-elev-003"
@@ -115,6 +131,7 @@ note = "先頭usageのoptional/placeholder記法を字義argv化した。CLI-4�
 
 [[class]]
 id = "cli_help_binding:required_args_mask_unknown_option_rejection"
+category = "terminal"
 attribution = "machine"
 match_reason = "help_binding:implementation_to_help:option=--anvil-invalid-probe"
 first_seen = "uat-test0725-cli-elev-003"
@@ -123,6 +140,7 @@ note = "未知option単独probeがargparse必須引数エラーに遮られた�
 
 [[class]]
 id = "cli_claims_binding:concrete_examples_unbound_after_template"
+category = "terminal"
 attribution = "machine"
 match_reason = "cli_output_claims:observed_stdout_mismatch"
 first_seen = "uat-test0725-cli-elev-003"
@@ -131,6 +149,7 @@ note = "先頭template後の具体的README出力blockをC3が未抽出だった
 
 [[class]]
 id = "cli_final_repair:nextjs_artifact_fallback_after_c_failure"
+category = "terminal"
 attribution = "machine"
 match_reason = "artifact_follow_through_exhausted: missing expected paths: src/app/page.ts"
 first_seen = "uat-test0725-cli-elev-003"
@@ -139,6 +158,7 @@ note = "CLI C失敗後のrepairが全profile共通Next.js fallbackを選んだ�
 
 [[class]]
 id = "bench_calibration_corpus:cli_evidence_shape_unsupported"
+category = "terminal"
 attribution = "machine"
 match_reason = "bench_calibration_corpus:cli_evidence_shape_unsupported"
 first_seen = "uat-test0725-cli-elev-003"
@@ -147,6 +167,7 @@ note = "collectorがCLI bindings/output_claims形を収集しなかった。CLI-
 
 [[class]]
 id = "cli_claims_binding:readme_output_claim_fabricated"
+category = "terminal"
 attribution = "model"
 match_reason = "Final acceptance failure: - primary reason: cli_output_claims:observed_stdout_mismatch"
 first_seen = "uat-test0725-cli-elev-004"
@@ -155,6 +176,7 @@ note = "CLI-4較正後のC3がREADME出力主張と実出力の不一致をlive�
 
 [[class]]
 id = "cli_verify:canonical_command_dropped_positional_input"
+category = "terminal"
 attribution = "machine"
 match_reason = "verify_command_false_negative: the verify command is malformed; the artifact may already satisfy the requirement"
 first_seen = "uat-test0725-cli-elev-004"
@@ -163,6 +185,7 @@ note = "stats_cloud_003で成功した実CLI commandからCSV位置引数を落�
 
 [[class]]
 id = "bench_suite_schema:create_empty_sources_unsupported"
+category = "terminal"
 attribution = "machine"
 match_reason = "suite must define at least one [[sources]] table"
 first_seen = "uat-test0724-cli-001"
@@ -171,6 +194,7 @@ note = "bench v0.3でworkspace_mode=emptyを追加して解消済み"
 
 [[class]]
 id = "verify_dependency_classifier:python_script_misclassified_as_setup"
+category = "terminal"
 attribution = "machine"
 match_reason = "dependency_setup_authority_required: python3 verify_pipeline.py"
 first_seen = "uat-test0726-ingest-001"
@@ -179,6 +203,7 @@ note = "実在するworkspace内Python scriptの成果物not foundを依存欠�
 
 [[class]]
 id = "phase_execution:successful_command_no_diff_stagnation"
+category = "terminal"
 attribution = "machine"
 match_reason = "model_stagnation:no_progress_recorded"
 first_seen = "uat-test0726-ingest-elev-001"
@@ -187,6 +212,7 @@ note = "成功した実行専用commandを差分なしとして停滞誤殺し�
 
 [[class]]
 id = "ingest_phase_structure:selector_not_kind_value"
+category = "terminal"
 attribution = "machine"
 match_reason = "ingest_phase_structure:selector_not_kind_value"
 first_seen = "uat-test0726-ingest-elev-002"
@@ -195,6 +221,7 @@ note = "近因はmodelの文字列selector生成、設計根因は正準kind/val
 
 [[class]]
 id = "ingest_phase_verify:canonicalized_verifier_path_remains_required"
+category = "terminal"
 attribution = "machine"
 match_reason = "missing expected paths: verify-artifacts.js"
 match_stop_class = "missing expected paths: output/report.md, smoke-check.js"
@@ -204,6 +231,7 @@ note = "モデル自作verify commandの機械正準化後もsmoke-check.js / ve
 
 [[class]]
 id = "ingest_preset:runtime_outputs_bound_before_run"
+category = "terminal"
 attribution = "machine"
 match_reason = "missing expected paths: output/records.json, output/report.md"
 match_stop_class = "missing expected paths: output/inspection.json, output/records.json, output/report.md"
@@ -213,6 +241,7 @@ note = "INGEST-4指示とpresetがpipeline実行で生まれるrecords/reportを
 
 [[class]]
 id = "ingest_selector:selector_without_snapshot_content_read"
+category = "terminal"
 attribution = "model"
 match_reason = "ingest_selector:selector_without_snapshot_content_read"
 first_seen = "uat-test0726-ingest-elev-005"
@@ -221,6 +250,7 @@ note = "近因はmodelがsnapshot本文をReadせず、実在しないselector�
 
 [[class]]
 id = "ingest_candidate_selector:valid_compound_css_rejected"
+category = "terminal"
 attribution = "machine"
 match_reason = "candidate_set_violation:css_selector_compound"
 first_seen = "uat-test0726-ingest-elev-006"
@@ -229,6 +259,7 @@ note = "実HTMLに一致するtable tbody tr / table trをN runtimeがpre-eviden
 
 [[class]]
 id = "ingest_candidate_accounting:candidate_id_path_prefix_omitted"
+category = "terminal"
 attribution = "model"
 match_reason = "candidate_set_violation:unknown_candidate:events-list.html#0"
 first_seen = "uat-test0726-ingest-elev-006"
@@ -237,8 +268,63 @@ note = "elev-006 list 003とelev-007 6/6で凍結ID data/snapshots/events-*.html
 
 [[class]]
 id = "ingest_source_binding:document_year_context_unsupported"
+category = "terminal"
 attribution = "machine"
 match_reason = "source_binding_violation:record=1:field=date:value=2026-08-03"
 first_seen = "uat-test0726-ingest-elev-006"
 ledger_ref = "INGEST-7"
 note = "候補内8/3(月)とpage title 2026年の値保存補完をv0が表現できなかった。v0.1でdocument_year_contextの宣言と両断片位置evidenceを必須にして精密化済み"
+
+[[class]]
+id = "data_assurance"
+category = "violation_family"
+attribution = "model"
+match_reason = "data_assurance_"
+first_seen = "uat-test0715-data-005"
+ledger_ref = "E-5a"
+note = "形状既定=modelは仮置き。解剖で覆り得る（process_failure事件の前例参照）"
+
+[[class]]
+id = "reconciliation_violation"
+category = "violation_family"
+attribution = "model"
+match_reason = "reconciliation_violation"
+first_seen = "uat-test0714-m4-004"
+ledger_ref = "E-5a"
+note = "形状既定=modelは仮置き。解剖で覆り得る（process_failure事件の前例参照）"
+
+[[class]]
+id = "claims_binding_violation"
+category = "violation_family"
+attribution = "model"
+match_reason = "claims_binding_violation"
+first_seen = "uat-test0714-m4-004"
+ledger_ref = "E-5a"
+note = "形状既定=modelは仮置き。解剖で覆り得る（process_failure事件の前例参照）"
+
+[[class]]
+id = "rerun_consistency_violation"
+category = "violation_family"
+attribution = "model"
+match_reason = "rerun_consistency_violation"
+first_seen = "unobserved_in_formal_runs"
+ledger_ref = "E-5a"
+note = "形状既定=modelは仮置き。解剖で覆り得る（process_failure事件の前例参照）"
+
+[[class]]
+id = "accounting_violation"
+category = "violation_family"
+attribution = "model"
+match_reason = "accounting_violation"
+first_seen = "uat-test0726-ingest-elev-005"
+ledger_ref = "E-5a"
+note = "形状既定=modelは仮置き。解剖で覆り得る（process_failure事件の前例参照）"
+
+[[class]]
+id = "format_schema_violation"
+category = "violation_family"
+attribution = "model"
+match_reason = "format_schema_violation"
+first_seen = "unobserved_in_formal_runs"
+ledger_ref = "E-5a"
+note = "形状既定=modelは仮置き。解剖で覆り得る（process_failure事件の前例参照）"

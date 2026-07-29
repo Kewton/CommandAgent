@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
+import json
 import tempfile
 import unittest
 from pathlib import Path
 
-from classify_runs import classify, classify_campaign
+from classify_runs import classes, classify, classify_campaign
 
 
 class ClassifyTests(unittest.TestCase):
@@ -57,3 +58,40 @@ class ClassifyTests(unittest.TestCase):
 
             self.assertEqual(len(rows), 1)
             self.assertIn("/artifacts/", rows[0]["run"])
+
+    def test_category_metadata_does_not_change_classification(self):
+        registry = classes()
+        without_category = [
+            {key: value for key, value in item.items() if key != "category"}
+            for item in registry
+        ]
+        self.assertTrue(
+            all(
+                item["category"] in {"terminal", "violation_family"}
+                for item in registry
+            )
+        )
+
+        for item in registry:
+            terms = [
+                item.get("match_stop_class"),
+                item.get("match_reason"),
+                item.get("match_phase"),
+                item.get("match_event"),
+            ]
+            for term in (term for term in terms if term):
+                run = self.make(
+                    json.dumps(
+                        {
+                            "event": "run_stop",
+                            "reason": term,
+                            "stop_class": term,
+                            "failure_kind": term,
+                        }
+                    )
+                )
+                self.assertEqual(
+                    classify(run, registry),
+                    classify(run, without_category),
+                    item["id"],
+                )
