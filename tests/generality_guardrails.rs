@@ -861,8 +861,12 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
 
 #[test]
 fn runner_test_modules_do_not_grow_past_transferred_budget() {
-    const AGGREGATE_BASELINE: usize = 15_149;
+    const AGGREGATE_BASELINE: usize = 15_205;
     let budgets = [
+        TestModuleBudget {
+            path: "src/planner/runner/tests/acceptance_boundary_tests.rs",
+            line_baseline: 1_340,
+        },
         TestModuleBudget {
             path: "src/planner/runner/tests/assurance_tests.rs",
             line_baseline: 1_398,
@@ -872,8 +876,16 @@ fn runner_test_modules_do_not_grow_past_transferred_budget() {
             line_baseline: 229,
         },
         TestModuleBudget {
+            path: "src/planner/runner/tests/compile_repair_tests.rs",
+            line_baseline: 1_255,
+        },
+        TestModuleBudget {
             path: "src/planner/runner/tests/data_pre_satisfied_tests.rs",
             line_baseline: 182,
+        },
+        TestModuleBudget {
+            path: "src/planner/runner/tests/driver_tests.rs",
+            line_baseline: 1_619,
         },
         TestModuleBudget {
             path: "src/planner/runner/tests/final_acceptance_tests.rs",
@@ -881,7 +893,11 @@ fn runner_test_modules_do_not_grow_past_transferred_budget() {
         },
         TestModuleBudget {
             path: "src/planner/runner/tests/mod.rs",
-            line_baseline: 8_384,
+            line_baseline: 41,
+        },
+        TestModuleBudget {
+            path: "src/planner/runner/tests/phase_runtime_tests.rs",
+            line_baseline: 1_269,
         },
         TestModuleBudget {
             path: "src/planner/runner/tests/profile_runtime_tests.rs",
@@ -890,6 +906,42 @@ fn runner_test_modules_do_not_grow_past_transferred_budget() {
         TestModuleBudget {
             path: "src/planner/runner/tests/requested_port_tests.rs",
             line_baseline: 27,
+        },
+        TestModuleBudget {
+            path: "src/planner/runner/tests/step_repair_tests.rs",
+            line_baseline: 612,
+        },
+        TestModuleBudget {
+            path: "src/planner/runner/tests/support/browser.rs",
+            line_baseline: 322,
+        },
+        TestModuleBudget {
+            path: "src/planner/runner/tests/support/build.rs",
+            line_baseline: 499,
+        },
+        TestModuleBudget {
+            path: "src/planner/runner/tests/support/client.rs",
+            line_baseline: 475,
+        },
+        TestModuleBudget {
+            path: "src/planner/runner/tests/support/evidence.rs",
+            line_baseline: 305,
+        },
+        TestModuleBudget {
+            path: "src/planner/runner/tests/support/nextjs.rs",
+            line_baseline: 317,
+        },
+        TestModuleBudget {
+            path: "src/planner/runner/tests/support/plan.rs",
+            line_baseline: 275,
+        },
+        TestModuleBudget {
+            path: "src/planner/runner/tests/support/process.rs",
+            line_baseline: 103,
+        },
+        TestModuleBudget {
+            path: "src/planner/runner/tests/support/text.rs",
+            line_baseline: 8,
         },
         TestModuleBudget {
             path: "src/planner/runner/tests/ultra_plan_flow_tests.rs",

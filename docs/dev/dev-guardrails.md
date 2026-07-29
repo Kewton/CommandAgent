@@ -10,7 +10,7 @@ The CI/test guard records current baselines and fails if any file grows
 above baseline +2%:
 
 - `src/planner/runner.rs`: 9,658 lines
-- `src/planner/runner/tests/*.rs`: 15,149 lines in aggregate
+- `src/planner/runner/tests/**/*.rs`: 15,205 lines in aggregate
 - `src/minimal_loop/loop_run.rs`: 7,444 lines
 - `src/minimal_loop/repair_pressure.rs`: 746 lines
 - `src/planner/repair_targeting.rs`: 597 lines
@@ -44,10 +44,12 @@ runner. Refactors that shrink these files are allowed; lower the baseline only
 after the shrink is intentional and reviewed. Do not raise a baseline to admit
 growth.
 
-The runner test aggregate includes the 8,384-line formatted module
-mechanically transferred from the former 8,429-line inline `runner.rs` test
-module and all 6,765 lines already externalized under
-`src/planner/runner/tests/`. Each test file also has its own baseline in
+The runner test aggregate includes 8,440 lines mechanically transferred from
+the former 8,429-line inline `runner.rs` test module (the delta is module
+wiring) and all 6,765 lines already externalized under
+`src/planner/runner/tests/`. The transferred tests are split by driver, phase,
+acceptance, step-repair, compile-repair, and support responsibility; no new
+support file exceeds 499 lines. Each test file also has its own baseline in
 `tests/generality_guardrails.rs`; the aggregate and per-file checks prevent
 relocation from becoming a growth-guard bypass.
 
