@@ -14,10 +14,6 @@ fn dev_server_probe_test_guard() -> std::sync::MutexGuard<'static, ()> {
 }
 
 #[cfg(unix)]
-static TEST_DEV_SERVER_PORT: std::sync::atomic::AtomicUsize =
-    std::sync::atomic::AtomicUsize::new(34_011);
-
-#[cfg(unix)]
 struct ReservedLocalPort {
     listener: std::net::TcpListener,
     port: u16,
@@ -26,11 +22,14 @@ struct ReservedLocalPort {
 #[cfg(unix)]
 impl ReservedLocalPort {
     fn reserve() -> Self {
-        let listener =
-            std::net::TcpListener::bind(("127.0.0.1", 0)).expect("reserve local test port");
-        let port = listener.local_addr().expect("reserved local address").port();
-        assert_ne!(port, NEXTJS_DEV_SERVER_DEFAULT_PORT);
-        Self { listener, port }
+        loop {
+            let listener =
+                std::net::TcpListener::bind(("127.0.0.1", 0)).expect("reserve local test port");
+            let port = listener.local_addr().expect("reserved local address").port();
+            if port != NEXTJS_DEV_SERVER_DEFAULT_PORT {
+                return Self { listener, port };
+            }
+        }
     }
 
     fn port(&self) -> u16 {
@@ -44,42 +43,10 @@ impl ReservedLocalPort {
 
 #[cfg(unix)]
 fn free_local_port() -> u16 {
-    for _ in 0..2_000 {
-        let port = TEST_DEV_SERVER_PORT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        if port > u16::MAX as usize {
-            break;
-        }
-        let port = port as u16;
-        if port == NEXTJS_DEV_SERVER_DEFAULT_PORT {
-            continue;
-        }
-        if test_dev_server_port_is_available(port) {
-            return port;
-        }
-    }
-    loop {
-        match std::net::TcpListener::bind(("127.0.0.1", 0)) {
-            Ok(listener) => {
-                let port = listener.local_addr().unwrap().port();
-                drop(listener);
-                if port != NEXTJS_DEV_SERVER_DEFAULT_PORT
-                    && test_dev_server_port_is_available(port)
-                {
-                    return port;
-                }
-            }
-            Err(_) => return NEXTJS_DEV_SERVER_DEFAULT_PORT + 1,
-        }
-    }
-}
-
-#[cfg(unix)]
-fn test_dev_server_port_is_available(port: u16) -> bool {
-    let Ok(listener) = std::net::TcpListener::bind(("127.0.0.1", port)) else {
-        return false;
-    };
-    drop(listener);
-    !localhost_port_accepts_connection(port)
+    let reservation = ReservedLocalPort::reserve();
+    let port = reservation.port();
+    reservation.release();
+    port
 }
 
 fn read_jsonl_events(path: &Path) -> Vec<Value> {

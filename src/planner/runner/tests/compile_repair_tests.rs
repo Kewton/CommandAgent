@@ -1053,6 +1053,7 @@ export default function Page() {\n\
 
 #[test]
 fn browser_probe_build_verifier_failure_routes_to_compile_ladder() {
+    let _probe_guard = dev_server_probe_test_guard();
     let dir = tempfile::tempdir().unwrap();
     let port = free_local_port();
     enable_dev_server_probe_test_override(dir.path());

@@ -82,6 +82,7 @@ fn nextjs_dev_route_probe_disabled_records_lifecycle_stages() {
 #[test]
 #[cfg(unix)]
 fn dev_server_cleanup_kills_grandchild_process_group_without_pipe_deadlock() {
+    let _probe_guard = dev_server_probe_test_guard();
     let dir = tempfile::tempdir().unwrap();
     let port = free_local_port();
     let events = dir.path().join("events.jsonl");
@@ -140,6 +141,7 @@ fn dev_server_cleanup_kills_grandchild_process_group_without_pipe_deadlock() {
 #[test]
 #[cfg(unix)]
 fn dev_server_writes_readiness_before_forced_cleanup_failure() {
+    let _probe_guard = dev_server_probe_test_guard();
     let dir = tempfile::tempdir().unwrap();
     let port = free_local_port();
     let events = dir.path().join("events.jsonl");
