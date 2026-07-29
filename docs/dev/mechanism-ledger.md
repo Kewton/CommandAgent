@@ -1135,3 +1135,64 @@ profile固有意味論・字義例・runtime-shaped fixtureのレビューは残
 [`e5f-phase-state-machine.md`](e5f-phase-state-machine.md)へ固定した。
 状態機械化は**QUEUED**であり、案A完了後の地形に対するレビュー裁定まで
 production control flowへ刃を入れない。
+
+## E-5e — 残債の決定化とpanic境界（2026-07-30）
+
+既知flake 2件を検証意図を弱めず決定化した。
+`final_acceptance_budget_exhaustion_uses_last_cycle_reason`は共有
+`AtomicUsize`の予測可能port帯とbind/check/dropのTOCTOUをやめ、
+test専用ephemeral leaseからproduction dev-serverへ所有権を渡す。
+キャンセル猶予テストはTERM trapのready同期点と仮想clockで100msの
+猶予全量を検証し、壁時計80ms assertだけを除いた。両者はそれぞれ
+20/20連続greenである。
+
+dev-server port監査は`TcpListener::bind` 24地点を、listener保持15、
+subprocess用ephemeral選択4、unreachable負例3、availability観測2へ分類した。
+共有Atomic allocatorと二重bindを除去して24→22地点、Atomic allocator 0とし、
+未guardだったrunnerの3境界を既存lifecycle mutexへ収容した。これは小差分で
+決定化可能な枠(a)の処置で、productionの`port_in_use`正直失敗は変更していない。
+
+productionの裁定・投影・照合器・registryにある`unwrap/expect`は初回33件。
+内訳は裁定1、投影0、照合器/leaf 26、registry/embedded manifest 6だった。
+run上位の裁定1件を同値な`Option` matchへ変換し、残り32件を
+repository-owned静的不変条件24と局所証明つきleaf 8へ裁定した。panic許容は
+静的定義・testだけとし、外部/run入力境界ではtyped failureを必須にした。
+leaf 8件の全型変換はbounded QUEUEDとして値札を残す。
+
+## E-5 settlement（2026-07-30）
+
+E-5の数値主文は次のとおり。
+
+| 工程 | 清算値 | 構造的な封鎖 |
+|---|---|---|
+| E-5a 語彙 | 登録36 class（terminal 30 / violation family 6）、Rust/Python producer双方向guard | ID発行と登録簿のdriftをCIで拒否 |
+| E-5b dispatch | profile分岐110→3、runtime resolve 1点、第5profile接触26→20 | `ProfileRuntime` registryと再散逸guard |
+| E-5c evidence | 共通envelope 7 family、横断3消費者21/21、workflow epoch債務返済 | 新旧fallbackとfamily追従guard |
+| E-5d runner | `runner.rs` 18,087→144行＋driver/phase(+flow)/acceptanceの4 module、guard被覆+7,063行 | ordered lifecycle fixtureと全移設先growth guard |
+| E-5e residual | flake 2件各20/20、port bind 24→22・Atomic allocator 0、unwrap 33→上位0＋裁定済み32 | 仮想clock・ephemeral allocation・panic layer policy |
+
+E-5a〜eを通じ、profile追加時に人が読むだけだったチェックリストと監査表を、
+typed vocabulary、registry、evidence envelope、追従/再散逸/growth guard、
+責務module、panic境界へ降ろした。プロセス資産を型と実行時/CIの検問へ
+変換したことがE-5の清算結果である。
+
+## Phase E出口宣言（2026-07-30）
+
+Phase Eは次の4成果を満たしたため、ここで出口を宣言する。
+
+1. **規律の機械化**: E-0の自動分類、較正collector、検収sheet自給が、
+   CLI/ingestの新セルでもUNKNOWN収穫・較正・sheet生成として複利稼働した。
+2. **intent宣言化**: E-2でcreate/fix/investigateの3実例を宣言へ移し、
+   snapshot/conformance/event文字列のbyte互換を維持した。
+3. **profile追加方法論**: E-3/E-4で見積り式v2、scaffold 5装備、
+   CLI/ingestの実戦較正を得た。自治体イベント整形は出典束縛・候補勘定・
+   正規化・捏造拒否の実弾つきでelevated full相当66.7%を記録した。
+4. **構造債務の返済**: E-5a〜eで語彙、dispatch、evidence、runner責務、
+   flake/port/panic境界を型・registry・guard・moduleへ移した。
+
+未達は隠さず次段へ送る。第三者による1セル追加の実証はG/BP1、
+第4 intentの宣言追加実測はQUEUED、E-5f状態機械化は16状態の設計済み
+QUEUEDである。ingest第2段fetch probeを含む事業queue 5件と、
+局所証明つきunwrap/expect 8件のtyped変換も現行fullへ含めない。
+現在地の正準indexは`docs/dev/integration-notes.md`の
+「Phase E exit: canonical next-stage queue」に集約した。

@@ -278,3 +278,23 @@ five-batch migration gates are recorded in
 **QUEUED**: implementation is decided only after review of the Option A
 terrain. This entry authorizes no event-order, interruption-boundary, evidence,
 or terminal-byte change.
+
+## Phase E exit: canonical next-stage queue (2026-07-30)
+
+This section is the current index for work explicitly carried across the
+Phase E boundary. Earlier sections remain immutable provenance; their status
+is read through this index when duplicated here.
+
+| item | current state | next decision / evidence |
+|---|---|---|
+| Third-party one-cell profile addition | **G/BP1** | Have a contributor who did not build E-3/E-4 add one cell from the scaffold and report touched files, calibration floors, and campaign cost. |
+| Fourth declarative intent | **QUEUED** | Add and measure one intent beyond create/fix/investigate with the E-2 byte/snapshot/conformance discipline. |
+| E-5f phase state machine | **QUEUED; design complete** | Review the 16-state/five-batch design in [`e5f-phase-state-machine.md`](e5f-phase-state-machine.md) on the post-E-5d terrain before authorizing control-flow changes. |
+| Ingest business expansion | **5 items QUEUED** | Stage-2 fetch probe, Excel, JSON/JSONL, PDF/attachment, and multi-source reconciliation remain separate contracts and denominators; the detailed five-item scope is in “E-4 stage-1 post-close business queue” above. |
+| Comparator leaf panic conversion | **8 sites QUEUED** | Convert the locally proved capture/container accesses listed in [`e5e-debt-audit.md`](../../workspace/management/runs/e5e-debt-audit.md) to typed violations when touched. Static regex/manifests remain in the permitted repository-owned panic layer. |
+
+The older T26 `catch_unwind` proposal remains a separate runtime-containment
+queue: E-5e removed the only audited upper adjudication `unwrap` and defined
+producer-side panic policy, but did not claim a process-wide unwind migration.
+Other historical low-priority/watch queues retain their local status and are
+not Phase E exit claims.
