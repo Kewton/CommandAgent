@@ -99,6 +99,9 @@ fn generic_profile_reduced_assurance_markers_still_render() {
 fn planner_lint_calls_have_one_production_chokepoint() {
     let mut calls = Vec::new();
     for path in rust_source_files(Path::new("src/planner")) {
+        if is_runner_test_source(&path) {
+            continue;
+        }
         let text = std::fs::read_to_string(&path).unwrap();
         for line in production_lines(&text) {
             if line.contains("lint_step_plan_report")
@@ -179,7 +182,7 @@ fn nextjs_boundary_erosion_tripwire_keeps_dispatch_sites_audited() {
         ("src/minimal_loop/evidence.rs".to_string(), 1),
         ("src/minimal_loop/loop_run.rs".to_string(), 2),
         ("src/planner/lint.rs".to_string(), 1),
-        ("src/planner/runner.rs".to_string(), 5),
+        ("src/planner/runner/acceptance.rs".to_string(), 5),
         ("src/planner/verify.rs".to_string(), 3),
     ]);
     assert_eq!(
@@ -296,14 +299,14 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
     for budget in [
         ChokepointBudget {
             path: "src/planner/runner.rs",
-            total_baseline: 4_557,
-            production_baseline: 4_544,
+            total_baseline: 3_373,
+            production_baseline: 3_360,
             test_baseline: 13,
         },
         ChokepointBudget {
             path: "src/planner/runner/phase.rs",
-            total_baseline: 2_660,
-            production_baseline: 2_660,
+            total_baseline: 3_857,
+            production_baseline: 3_857,
             test_baseline: 0,
         },
         ChokepointBudget {
@@ -409,9 +412,9 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
             test_baseline: 72,
         },
         ChokepointBudget {
-            path: "src/planner/ultra_plan_flow.rs",
-            total_baseline: 1_570,
-            production_baseline: 1_570,
+            path: "src/planner/runner/phase/flow.rs",
+            total_baseline: 1_656,
+            production_baseline: 1_656,
             test_baseline: 0,
         },
         ChokepointBudget {
@@ -1031,7 +1034,7 @@ fn nextjs_literal_counts_outside_profiles() -> BTreeMap<String, usize> {
     let mut counts = BTreeMap::new();
     for path in rust_source_files(Path::new("src")) {
         let rel = path.to_string_lossy().replace('\\', "/");
-        if rel.starts_with("src/planner/profiles/") {
+        if rel.starts_with("src/planner/profiles/") || is_runner_test_source(&path) {
             continue;
         }
         let text = std::fs::read_to_string(&path)
@@ -1045,6 +1048,12 @@ fn nextjs_literal_counts_outside_profiles() -> BTreeMap<String, usize> {
         }
     }
     counts
+}
+
+fn is_runner_test_source(path: &Path) -> bool {
+    path.to_string_lossy()
+        .replace('\\', "/")
+        .starts_with("src/planner/runner/tests/")
 }
 
 fn rust_source_files(root: &Path) -> Vec<PathBuf> {

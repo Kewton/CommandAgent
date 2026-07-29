@@ -1,6 +1,15 @@
 // StepPlan execution, bounded repair, and phase-owned context.
 // Pure extraction from the E-5d responsibility map (pre-split runner.rs:960-3602).
 use super::*;
+
+#[path = "phase/flow.rs"]
+mod flow;
+pub use flow::{
+    generate_and_run_ultra_plan, generate_and_run_ultra_plan_with_ui, generate_ultra_plan,
+    generate_ultra_plan_with_ui, run_ultra_plan, run_ultra_plan_file, run_ultra_plan_file_with_ui,
+    run_ultra_plan_with_ui, save_ultra_plan,
+};
+
 #[derive(Debug, Clone, Default)]
 pub(super) struct StepPlanRunOutcome {
     pub(super) summary: String,
@@ -2656,5 +2665,1193 @@ pub(super) fn emit_completion_contract_bound(
                 "completion_contract_path": bound.path,
             }),
         );
+    }
+}
+
+// Intermediate invariant repair and phase/recovery event boundary.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn repair_intermediate_profile_invariant(
+    execution: &mut dyn ChatClient,
+    ultra_session: &mut SessionSnapshot,
+    config: &Config,
+    plan: &UltraPlan,
+    phase: &UltraPhase,
+    index: usize,
+    profile_snapshot: &ProfileSnapshot,
+    step_plan: &StepPlan,
+    ultra_context: &mut UltraRunContext,
+    final_expected_paths: &[String],
+    ui: &dyn InteractionUi,
+    failed_report: VerificationReport,
+    setup_authority_state: &mut UltraRunSetupAuthorityState,
+) -> anyhow::Result<VerificationReport> {
+    let mut retry = failed_report.clone();
+    let runtime = resolve_profile_runtime(&plan.profile);
+    let deterministic_error =
+        match runtime.deterministic_repair(&config.workspace_root, &plan.goal, &failed_report) {
+            Ok(changed) => {
+                if changed {
+                    setup_authority_state.grant("manifest_repair");
+                    reconcile_run_dependency_setup(
+                        config,
+                        &plan.profile,
+                        DependencyReconciliationTrigger::ManifestRepair,
+                        setup_authority_state,
+                    )?;
+                }
+                retry = verify_invariant_with_hooks(
+                    config,
+                    resolve_profile_runtime(&plan.profile),
+                    plan,
+                    profile_snapshot,
+                );
+                emit_profile_invariant_repair_event(
+                    config,
+                    plan,
+                    phase,
+                    index,
+                    "deterministic",
+                    changed,
+                    retry.is_pass(),
+                    &retry.primary_reason(),
+                );
+                None
+            }
+            Err(err) => {
+                let message = err.to_string();
+                emit_profile_invariant_repair_event(
+                    config,
+                    plan,
+                    phase,
+                    index,
+                    "deterministic",
+                    false,
+                    false,
+                    &message,
+                );
+                Some(message)
+            }
+        };
+    if retry.is_pass() {
+        return Ok(confirm_phase_build_after_profile_repair(
+            config, plan, phase, index, step_plan, retry,
+        ));
+    }
+
+    let expected_paths = runtime.filter_invariant_expected_paths(
+        &config.workspace_root,
+        runtime.expected_scaffold_paths(&config.workspace_root, &plan.goal),
+    );
+    let mut hook_snapshot_feedback_given = false;
+    let mut repair_prompt = profile_invariant_model_repair_prompt(
+        plan,
+        phase,
+        &retry,
+        ultra_context,
+        &expected_paths,
+        config,
+        deterministic_error.as_deref(),
+    );
+    repair_prompt = hook_snapshot::prefix_feedback_if_missing_with_runtime(
+        config,
+        runtime,
+        &plan.goal,
+        "profile_invariant_repair",
+        Some(&phase.id),
+        &mut hook_snapshot_feedback_given,
+        repair_prompt,
+    );
+    let repair_config = capped_config(config, STEP_REPAIR_MAX_ITERATIONS);
+    match run_profile_repair_with_ultra_session(
+        execution,
+        ultra_session,
+        &repair_prompt,
+        &plan.intent,
+        &expected_paths,
+        &repair_config,
+        ui,
+    ) {
+        Ok(repair_outcome) => {
+            push_context_items_capped(
+                &mut ultra_context.created_or_changed_paths,
+                &repair_outcome.changed_paths,
+                ULTRA_CONTEXT_MAX_PATHS,
+                &mut ultra_context.truncated,
+            );
+            push_context_items_capped(
+                &mut ultra_context.last_repair_changed_paths,
+                &repair_outcome.changed_paths,
+                ULTRA_CONTEXT_MAX_PATHS,
+                &mut ultra_context.truncated,
+            );
+            emit_ultra_phase_context_updated(
+                config,
+                plan,
+                phase,
+                index,
+                ultra_context,
+                ultra_session.messages.len(),
+                true,
+            );
+            retry = verify_invariant_with_hooks(
+                config,
+                resolve_profile_runtime(&plan.profile),
+                plan,
+                profile_snapshot,
+            );
+            emit_profile_invariant_repair_event(
+                config,
+                plan,
+                phase,
+                index,
+                "model",
+                !repair_outcome.changed_paths.is_empty(),
+                retry.is_pass(),
+                &retry.primary_reason(),
+            );
+            if retry.is_pass() {
+                return Ok(confirm_phase_build_after_profile_repair(
+                    config, plan, phase, index, step_plan, retry,
+                ));
+            }
+            if hook_snapshot_feedback_given
+                && let Some(restored) =
+                    hook_snapshot::restore_first_missing_with_runtime(config, runtime, &plan.goal)?
+            {
+                push_context_items_capped(
+                    &mut ultra_context.created_or_changed_paths,
+                    std::slice::from_ref(&restored.restored_path),
+                    ULTRA_CONTEXT_MAX_PATHS,
+                    &mut ultra_context.truncated,
+                );
+                push_context_items_capped(
+                    &mut ultra_context.last_repair_changed_paths,
+                    std::slice::from_ref(&restored.restored_path),
+                    ULTRA_CONTEXT_MAX_PATHS,
+                    &mut ultra_context.truncated,
+                );
+                retry = verify_invariant_with_hooks(
+                    config,
+                    resolve_profile_runtime(&plan.profile),
+                    plan,
+                    profile_snapshot,
+                );
+                emit_profile_invariant_repair_event(
+                    config,
+                    plan,
+                    phase,
+                    index,
+                    "hook_snapshot_restore",
+                    true,
+                    retry.is_pass(),
+                    &retry.primary_reason(),
+                );
+                if retry.is_pass() {
+                    return Ok(confirm_phase_build_after_profile_repair(
+                        config, plan, phase, index, step_plan, retry,
+                    ));
+                }
+            }
+        }
+        Err(err) => {
+            emit_profile_invariant_repair_event(
+                config,
+                plan,
+                phase,
+                index,
+                "model",
+                false,
+                false,
+                &err.to_string(),
+            );
+        }
+    }
+    let fresh_evidence = fresh_profile_invariant_failure_evidence(
+        config,
+        plan,
+        profile_snapshot,
+        final_expected_paths,
+    );
+    retry = fresh_evidence.report.clone();
+    if retry.is_pass() {
+        return Ok(confirm_phase_build_after_profile_repair(
+            config, plan, phase, index, step_plan, retry,
+        ));
+    }
+    ultra_context.update_after_profile_failure(
+        phase,
+        &retry.primary_reason(),
+        fresh_evidence.missing_paths,
+    );
+    emit_ultra_phase_context_updated(
+        config,
+        plan,
+        phase,
+        index,
+        ultra_context,
+        ultra_session.messages.len(),
+        true,
+    );
+    Ok(retry)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn emit_profile_invariant_repair_event(
+    config: &Config,
+    plan: &UltraPlan,
+    phase: &UltraPhase,
+    index: usize,
+    method: &str,
+    changed: bool,
+    ok: bool,
+    reason: &str,
+) {
+    eval_events::emit(
+        config.eval_events_path.as_deref(),
+        json!({
+            "event": "profile_invariant_repair",
+            "phase_id": phase.id,
+            "phase_index": index + 1,
+            "total_phases": plan.phases.len(),
+            "final_phase": false,
+            "method": method,
+            "changed": changed,
+            "ok": ok,
+            "reason": eval_events::body_snippet(reason),
+            "bounded_repair": method == "model",
+        }),
+    );
+}
+
+pub(super) fn confirm_phase_build_after_profile_repair(
+    config: &Config,
+    plan: &UltraPlan,
+    phase: &UltraPhase,
+    index: usize,
+    step_plan: &StepPlan,
+    profile_report: VerificationReport,
+) -> VerificationReport {
+    let build_commands = phase_build_verify_commands(step_plan);
+    if build_commands.is_empty() {
+        return profile_report;
+    }
+    let build_step = PlanStep {
+        id: "profile-repair-build".to_string(),
+        kind: "verify".to_string(),
+        expected_result: "pass".to_string(),
+        instruction: "Re-run the phase build verification after profile repair".to_string(),
+        expected_paths: Vec::new(),
+        verify: build_commands.clone(),
+    };
+    let (build_report, build_lifecycles) = verify_step_with_profile_setup_observed_with_offline(
+        &config.workspace_root,
+        &build_step,
+        Some(&plan.profile),
+        NodeDependencySetupAuthority::None,
+        config.offline,
+    );
+    for lifecycle in &build_lifecycles {
+        emit_dependency_build_lifecycle(
+            config.eval_events_path.as_deref(),
+            "ultra-plan-run",
+            Some(&phase.id),
+            lifecycle,
+        );
+    }
+    eval_events::emit(
+        config.eval_events_path.as_deref(),
+        json!({
+            "event": "profile_invariant_repair_build_verify",
+            "phase_id": phase.id,
+            "phase_index": index + 1,
+            "total_phases": plan.phases.len(),
+            "commands": build_commands,
+            "ok": build_report.is_pass(),
+            "reason": eval_events::body_snippet(&build_report.primary_reason()),
+        }),
+    );
+    if build_report.is_pass() {
+        let expected_paths = step_plan
+            .steps
+            .iter()
+            .flat_map(|step| step.expected_paths.iter().cloned())
+            .collect::<Vec<_>>();
+        snapshot_last_known_good_sources(
+            config,
+            "profile_invariant_repair",
+            Some(&phase.id),
+            &plan.profile,
+            &plan.goal,
+            &expected_paths,
+        );
+        profile_report
+    } else {
+        build_report
+    }
+}
+
+pub(super) fn phase_build_verify_commands(plan: &StepPlan) -> Vec<String> {
+    let mut commands = Vec::new();
+    for command in plan.steps.iter().flat_map(|step| step.verify.iter()) {
+        if is_nextjs_build_verify_command_like(command) && !commands.contains(command) {
+            commands.push(command.clone());
+        }
+    }
+    commands
+}
+
+pub(super) fn production_build_lifecycle_passed(
+    lifecycles: &[BuildVerifierLifecycleObservation],
+) -> bool {
+    lifecycles
+        .iter()
+        .any(|lifecycle| lifecycle.final_status == BuildVerifierStatus::Passed)
+}
+
+pub(super) fn route_bound_source_paths(root: &Path, profile: &str) -> Vec<String> {
+    resolve_profile_runtime(profile)
+        .route_bound_closure(root)
+        .into_iter()
+        .filter_map(|path| {
+            path.to_str()
+                .and_then(safe_source_rel_path)
+                .map(|path| path.replace('\\', "/"))
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+pub(super) fn depth_profile(
+    root: &Path,
+    profile: &str,
+    state_dimensions_changed: &[String],
+    action_hooks: &[String],
+    interaction_evidence_path: &str,
+    text_telemetry: &InteractionTextTelemetry,
+) -> DepthProfile {
+    let route_bound_source_line_count = route_bound_source_paths(root, profile)
+        .iter()
+        .map(|path| source_line_count(&root.join(path)))
+        .sum();
+    let state_dimensions_count = state_dimensions_changed
+        .iter()
+        .filter(|value| !value.trim().is_empty())
+        .collect::<BTreeSet<_>>()
+        .len();
+    let source_action_kinds = route_bound_data_anvil_action_kinds(root, profile);
+    let data_anvil_action_kind_count = source_action_kinds
+        .iter()
+        .chain(action_hooks.iter())
+        .filter(|value| !value.trim().is_empty())
+        .collect::<BTreeSet<_>>()
+        .len();
+    let input_types_with_observed_state_change_count =
+        input_types_with_observed_state_change(interaction_evidence_path, text_telemetry).len();
+    let summary = format!(
+        "route_bound_source_lines={} state_dimensions={} data_anvil_action_kinds={} input_types_with_observed_state_change={}",
+        route_bound_source_line_count,
+        state_dimensions_count,
+        data_anvil_action_kind_count,
+        input_types_with_observed_state_change_count
+    );
+    DepthProfile {
+        route_bound_source_line_count,
+        state_dimensions_count,
+        data_anvil_action_kind_count,
+        input_types_with_observed_state_change_count,
+        summary,
+    }
+}
+
+pub(super) fn source_line_count(path: &Path) -> usize {
+    std::fs::read_to_string(path)
+        .map(|content| content.lines().count())
+        .unwrap_or(0)
+}
+
+pub(super) fn route_bound_data_anvil_action_kinds(root: &Path, profile: &str) -> Vec<String> {
+    route_bound_source_paths(root, profile)
+        .iter()
+        .filter_map(|path| std::fs::read_to_string(root.join(path)).ok())
+        .flat_map(|content| data_anvil_action_kinds_from_source(&content))
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+pub(super) fn data_anvil_action_kinds_from_source(source: &str) -> Vec<String> {
+    ["data-anvil-action=\"", "data-anvil-action='"]
+        .into_iter()
+        .flat_map(|needle| {
+            let quote = needle.chars().last().unwrap_or('"');
+            let mut out = Vec::new();
+            let mut rest = source;
+            while let Some(index) = rest.find(needle) {
+                let after = &rest[index + needle.len()..];
+                let Some(end) = after.find(quote) else {
+                    break;
+                };
+                let value = after[..end].trim();
+                if !value.is_empty() {
+                    out.push(value.to_string());
+                }
+                rest = &after[end + quote.len_utf8()..];
+            }
+            out
+        })
+        .collect()
+}
+
+pub(super) fn input_types_with_observed_state_change(
+    interaction_evidence_path: &str,
+    text_telemetry: &InteractionTextTelemetry,
+) -> BTreeSet<String> {
+    let mut types = BTreeSet::new();
+    if text_telemetry.text_input_state_change == Some(true)
+        && let Some(input_type) =
+            input_type_from_text_entry_target(&text_telemetry.text_entry_target)
+    {
+        types.insert(input_type);
+    }
+    if let Some(value) = read_json_file(interaction_evidence_path)
+        && raw_bool_field_deep(&value, "input_state_change") == Some(true)
+        && types.is_empty()
+    {
+        types.insert("control".to_string());
+    }
+    types
+}
+
+pub(super) fn input_type_from_text_entry_target(target: &str) -> Option<String> {
+    let input_type = target.split(':').next()?.trim();
+    (!input_type.is_empty()).then(|| input_type.to_string())
+}
+
+pub(super) fn read_json_file(path: &str) -> Option<Value> {
+    if path.trim().is_empty() {
+        return None;
+    }
+    let text = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&text).ok()
+}
+
+pub(super) fn emit_depth_profile(path: Option<&Path>, source_event: &str, profile: &DepthProfile) {
+    eval_events::emit(
+        path,
+        json!({
+            "event": "depth_profile",
+            "source_event": source_event,
+            "depth_profile_summary": profile.summary.as_str(),
+            "route_bound_source_line_count": profile.route_bound_source_line_count,
+            "state_dimensions_count": profile.state_dimensions_count,
+            "data_anvil_action_kind_count": profile.data_anvil_action_kind_count,
+            "input_types_with_observed_state_change_count": profile.input_types_with_observed_state_change_count,
+        }),
+    );
+}
+
+pub(super) fn is_nextjs_build_verify_command_like(command: &str) -> bool {
+    let lower = command.trim().to_ascii_lowercase();
+    lower == "npm run build"
+        || lower.starts_with("npm run build ")
+        || lower == "pnpm build"
+        || lower.starts_with("pnpm build ")
+        || lower == "yarn build"
+        || lower.starts_with("yarn build ")
+        || lower == "next build"
+        || lower.starts_with("next build ")
+}
+
+pub(super) fn profile_invariant_model_repair_prompt(
+    plan: &UltraPlan,
+    phase: &UltraPhase,
+    report: &VerificationReport,
+    context: &UltraRunContext,
+    expected_paths: &[String],
+    config: &Config,
+    deterministic_error: Option<&str>,
+) -> String {
+    let exact_reason = report.primary_reason();
+    let expected = render_prompt_bullets(expected_paths);
+    let file_excerpts = profile_invariant_offending_file_excerpts(
+        &config.workspace_root,
+        resolve_profile_runtime(&plan.profile),
+        &exact_reason,
+    );
+    let missing_imports = profile_missing_relative_imports(&config.workspace_root, &plan.profile);
+    let import_findings = format_missing_import_findings(&config.workspace_root, &missing_imports);
+    let fix_target_guidance = repair_targeting::fix_profile_invariant_target_guidance(
+        &config.workspace_root,
+        &plan.profile,
+        &plan.intent,
+        &missing_imports,
+    );
+    let import_scan_section = if import_findings.is_empty() {
+        "Current missing relative imports:\n- none".to_string()
+    } else {
+        format!(
+            "Current missing relative imports:\n{}",
+            render_prompt_bullets(&import_findings)
+        )
+    };
+    let deterministic_note = deterministic_error
+        .map(|err| format!("\nDeterministic repair error:\n{err}\n"))
+        .unwrap_or_default();
+    format!(
+        "Repair this intermediate profile invariant failure in one bounded turn.\n\n\
+Original ultra goal:\n{goal}\n\n\
+Profile: {profile}\nIntent: {intent}\nPhase id: {phase_id}\nPhase task:\n{phase_task}\n\n\
+Exact invariant reason:\n\"{exact_reason}\"\n{deterministic_note}\n\
+{fix_target_guidance}\
+Offending file contents:\n{file_excerpts}\n\n\
+{import_scan_section}\n\n\
+Expected profile artifacts:\n{expected}\n\n\
+{prior_context}\n\n\
+Bounded repair rules:\n\
+- Repair only the quoted invariant reason without weakening scripts, dependencies, tests, or profile checks.\n\
+- Prefer the smallest edit to the offending file shown above.\n\
+- For Tailwind, package.json must include tailwindcss/postcss/autoprefixer and postcss.config plugins must include BOTH tailwindcss and autoprefixer.\n\
+- Stop after one repair pass; do not start a new planning cycle.",
+        goal = plan.goal,
+        profile = plan.profile,
+        intent = plan.intent,
+        phase_id = phase.id,
+        phase_task = phase.prompt,
+        exact_reason = exact_reason,
+        deterministic_note = deterministic_note,
+        fix_target_guidance = fix_target_guidance,
+        file_excerpts = file_excerpts,
+        import_scan_section = import_scan_section,
+        expected = expected,
+        prior_context = context.render_prompt_section(),
+    )
+}
+
+pub(super) fn plan_adherence_report(plan: &UltraPlan, root: &Path) -> PlanAdherenceReport {
+    let tokens = ultra_plan_requested_feature_tokens(plan);
+    if tokens.is_empty() {
+        return PlanAdherenceReport::default();
+    }
+    let corpus = comment_stripped_source_corpus(root);
+    let corpus_lower = corpus.to_ascii_lowercase();
+    let mut report = PlanAdherenceReport::default();
+    for token in tokens {
+        let present = if token.is_ascii() {
+            corpus_lower.contains(&token)
+        } else {
+            corpus.contains(&token)
+        };
+        if present {
+            report.present.push(token);
+        } else {
+            report.missing.push(token);
+        }
+    }
+    report
+}
+
+pub(super) fn ultra_plan_requested_feature_tokens(plan: &UltraPlan) -> Vec<String> {
+    let mut tokens = BTreeSet::new();
+    for phase in &plan.phases {
+        collect_plan_feature_tokens(&phase.prompt, &mut tokens);
+    }
+    tokens.into_iter().collect()
+}
+
+pub(super) fn collect_plan_feature_tokens(text: &str, tokens: &mut BTreeSet<String>) {
+    let mut ascii = String::new();
+    let mut katakana = String::new();
+    for ch in text.chars() {
+        if ch.is_ascii_alphanumeric() {
+            flush_katakana_token(&mut katakana, tokens);
+            ascii.push(ch.to_ascii_lowercase());
+        } else if is_katakana(ch) {
+            flush_ascii_token(&mut ascii, tokens);
+            katakana.push(ch);
+        } else {
+            flush_ascii_token(&mut ascii, tokens);
+            flush_katakana_token(&mut katakana, tokens);
+        }
+    }
+    flush_ascii_token(&mut ascii, tokens);
+    flush_katakana_token(&mut katakana, tokens);
+}
+
+pub(super) fn flush_ascii_token(token: &mut String, tokens: &mut BTreeSet<String>) {
+    if token.len() >= 3
+        && !token.chars().all(|ch| ch.is_ascii_digit())
+        && !plan_adherence_stopword(token)
+    {
+        tokens.insert(token.clone());
+    }
+    token.clear();
+}
+
+pub(super) fn flush_katakana_token(token: &mut String, tokens: &mut BTreeSet<String>) {
+    if token.chars().count() >= 2 {
+        tokens.insert(token.clone());
+    }
+    token.clear();
+}
+
+pub(super) fn is_katakana(ch: char) -> bool {
+    matches!(ch, '\u{30A0}'..='\u{30FF}' | '\u{31F0}'..='\u{31FF}')
+}
+
+pub(super) fn plan_adherence_stopword(token: &str) -> bool {
+    signals::plan_adherence_stopword(token)
+}
+
+pub(super) fn ultra_plan_phase_signal_text(plan: &UltraPlan) -> String {
+    plan.phases
+        .iter()
+        .flat_map(|phase| [phase.id.as_str(), phase.prompt.as_str()])
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+pub(super) fn ultra_plan_signal_text(plan: &UltraPlan) -> String {
+    let phase_text = ultra_plan_phase_signal_text(plan);
+    if phase_text.is_empty() {
+        plan.goal.clone()
+    } else {
+        format!("{}\n{}", plan.goal, phase_text)
+    }
+}
+#[allow(clippy::too_many_arguments)]
+pub(super) fn emit_ultra_phase_event(
+    config: &Config,
+    event: &str,
+    plan: &UltraPlan,
+    phase: &UltraPhase,
+    index: usize,
+    stage: &str,
+    ok: Option<bool>,
+    reason: Option<&str>,
+    step_count: Option<usize>,
+) {
+    eval_events::emit(
+        config.eval_events_path.as_deref(),
+        json!({
+            "event": event,
+            "phase_id": phase.id,
+            "phase_index": index + 1,
+            "total_phases": plan.phases.len(),
+            "final_phase": index + 1 == plan.phases.len(),
+            "stage": stage,
+            "ok": ok,
+            "reason": reason.map(eval_events::body_snippet).unwrap_or_default(),
+            "step_count": step_count,
+        }),
+    );
+}
+
+pub(super) fn emit_phase_verification_event(
+    config: &Config,
+    plan: &UltraPlan,
+    phase: &UltraPhase,
+    index: usize,
+    mode: PhaseVerificationMode,
+    ok: bool,
+    reason: Option<&str>,
+) {
+    let mode = match mode {
+        PhaseVerificationMode::IntermediateInvariant => "intermediate_invariant",
+        PhaseVerificationMode::FinalAcceptance => "final_acceptance",
+    };
+    eval_events::emit(
+        config.eval_events_path.as_deref(),
+        json!({
+            "event": "phase_verification_result",
+            "phase_id": phase.id,
+            "phase_index": index + 1,
+            "total_phases": plan.phases.len(),
+            "phase_verification_mode": mode,
+            "ok": ok,
+            "reason": reason.map(eval_events::body_snippet).unwrap_or_default(),
+        }),
+    );
+}
+
+pub(super) struct UltraPhaseRecoveryRequest<'a> {
+    pub(super) failure_kind: &'a str,
+    pub(super) reason: &'a str,
+    pub(super) missing_paths: &'a [String],
+    pub(super) missing_signals: &'a [String],
+    pub(super) repair_targets: &'a [String],
+    pub(super) verify_commands: &'a [String],
+}
+
+pub(super) fn save_ultra_phase_recovery_handoff(
+    config: &Config,
+    plan: &UltraPlan,
+    phase: &UltraPhase,
+    request: UltraPhaseRecoveryRequest<'_>,
+) -> Option<eval_events::StopReasonParts> {
+    save_ultra_phase_recovery_handoff_with_evidence(config, plan, phase, request, &[])
+}
+
+pub(super) fn save_ultra_phase_recovery_handoff_with_evidence(
+    config: &Config,
+    plan: &UltraPlan,
+    phase: &UltraPhase,
+    request: UltraPhaseRecoveryRequest<'_>,
+    failure_evidence: &[String],
+) -> Option<eval_events::StopReasonParts> {
+    let handoff = RecoveryHandoff {
+        profile: plan.profile.clone(),
+        original_goal: plan.goal.clone(),
+        failed_phase: Some(phase.id.clone()),
+        failed_step: None,
+        failure_kind: request.failure_kind.to_string(),
+        failure_evidence: if failure_evidence.is_empty() {
+            vec![request.reason.to_string()]
+        } else {
+            failure_evidence.to_vec()
+        },
+        missing_paths: request.missing_paths.to_vec(),
+        missing_capabilities: request.missing_signals.to_vec(),
+        verify_commands: request.verify_commands.to_vec(),
+        changed_paths: Vec::new(),
+        repair_targets: request.repair_targets.to_vec(),
+    };
+    let failure_kind = request.failure_kind;
+    let reason = request.reason;
+    let scope = format!("phase-{}", recovery_scope_token(&phase.id));
+    let path = match save_ultra_recovery_prompt(&config.workspace_root, &scope, &handoff) {
+        Ok(path) => path,
+        Err(err) => {
+            eval_events::emit(
+                config.eval_events_path.as_deref(),
+                json!({
+                    "event": "recovery_prompt_save_failed",
+                    "recovery_handoff_kind": failure_kind,
+                    "phase_id": phase.id,
+                    "reason": eval_events::body_snippet(&err.to_string()),
+                }),
+            );
+            return Some(eval_events::StopReasonParts::free_text(format!(
+                "recovery prompt save failed: {err}"
+            )));
+        }
+    };
+    let recovery_plan = match save_recovery_ultra_plan(&config.workspace_root, &scope, &handoff) {
+        Ok(path) => Some(path),
+        Err(err) => {
+            let prompt_path = handoff_path(&path);
+            eval_events::emit(
+                config.eval_events_path.as_deref(),
+                json!({
+                    "event": "recovery_ultra_plan_save_failed",
+                    "recovery_handoff_kind": failure_kind,
+                    "phase_id": phase.id,
+                    "recovery_prompt_path": prompt_path,
+                    "reason": eval_events::body_snippet(&err.to_string()),
+                    "recovery_yaml_missing": true,
+                }),
+            );
+            None
+        }
+    };
+    let validation = validate_recovery_artifacts(&path, recovery_plan.as_deref());
+    let raw_prompt_command = suggested_ultra_recovery_command(&path, &plan.profile);
+    let prompt_command = if validation.prompt_command_available() {
+        raw_prompt_command
+    } else {
+        String::new()
+    };
+    let recovery_plan_command = recovery_plan
+        .as_ref()
+        .filter(|_| validation.yaml_command_available())
+        .map(|path| suggested_recovery_ultra_plan_command(path));
+    let prompt_path = handoff_path(&path);
+    let recovery_plan_path = optional_handoff_path(recovery_plan.as_ref());
+    let (completed_phases, pending_phases) = ultra_phase_status(plan, phase);
+    eval_events::emit(
+        config.eval_events_path.as_deref(),
+        json!({
+            "event": "recovery_prompt_saved",
+            "recovery_handoff_kind": failure_kind,
+            "phase_id": phase.id,
+            "recovery_prompt_path": &prompt_path,
+            "recovery_ultra_plan_path": &recovery_plan_path,
+            "recovery_yaml_missing": recovery_plan.is_none(),
+            "recovery_prompt_exists": validation.prompt_exists,
+            "recovery_prompt_parse_ok": validation.prompt_parse_ok,
+            "recovery_prompt_parse_error": validation.prompt_parse_error.as_deref().unwrap_or_default(),
+            "recovery_yaml_exists": validation.yaml_exists,
+            "recovery_yaml_parse_ok": validation.yaml_parse_ok,
+            "recovery_yaml_parse_error": validation.yaml_parse_error.as_deref().unwrap_or_default(),
+            "recovery_command_targets_valid": validation.command_targets_valid(),
+            "suggested_recovery_command": prompt_command.clone(),
+            "suggested_recovery_yaml_command": recovery_plan_command.clone().unwrap_or_default(),
+            "recovery_profile": plan.profile,
+            "local_repair_exhausted": true,
+            "status": "incomplete",
+        }),
+    );
+    eval_events::emit(
+        config.eval_events_path.as_deref(),
+        json!({
+            "event": "ultra_partial_artifact_summary",
+            "status": "incomplete",
+            "completed_phase_ids": completed_phases.clone(),
+            "failed_phase_id": phase.id,
+            "pending_phase_ids": pending_phases.clone(),
+            "failure_kind": failure_kind,
+            "recovery_prompt_path": &prompt_path,
+            "recovery_ultra_plan_path": &recovery_plan_path,
+            "recovery_yaml_missing": recovery_plan.is_none(),
+            "recovery_prompt_exists": validation.prompt_exists,
+            "recovery_prompt_parse_ok": validation.prompt_parse_ok,
+            "recovery_yaml_exists": validation.yaml_exists,
+            "recovery_yaml_parse_ok": validation.yaml_parse_ok,
+            "recovery_command_targets_valid": validation.command_targets_valid(),
+            "suggested_recovery_command": prompt_command.clone(),
+            "suggested_recovery_yaml_command": recovery_plan_command.clone().unwrap_or_default(),
+        }),
+    );
+    let recovery_yaml_summary = recovery_plan
+        .as_ref()
+        .map(|path| {
+            let display = handoff_path(path);
+            if validation.yaml_parse_ok {
+                format!("Recovery UltraPlan YAML saved: {display}")
+            } else {
+                format!(
+                    "Recovery UltraPlan YAML invalid: {} ({})",
+                    display,
+                    validation
+                        .yaml_parse_error
+                        .as_deref()
+                        .unwrap_or("recovery_yaml_invalid")
+                )
+            }
+        })
+        .unwrap_or_else(|| {
+            "Recovery UltraPlan YAML missing: failed to save valid recovery plan".to_string()
+        });
+    let prompt_command_summary = if validation.prompt_command_available() {
+        format!("Suggested command: {prompt_command}")
+    } else {
+        format!(
+            "Suggested command: unavailable because recovery prompt validation failed ({})",
+            validation
+                .prompt_parse_error
+                .as_deref()
+                .unwrap_or("recovery_prompt_invalid")
+        )
+    };
+    let recovery_yaml_command_summary = recovery_plan_command
+        .as_ref()
+        .map(|command| format!("Suggested YAML command: {command}"))
+        .unwrap_or_else(|| {
+            "Suggested YAML command: unavailable because recovery YAML is missing".to_string()
+        });
+    let artifact_check_summary = recovery_artifact_check_summary(&validation);
+    eval_events::write_run_summary(
+        config.eval_events_path.as_deref(),
+        &render_ultra_partial_run_summary(UltraPartialRunSummary {
+            completed_phases: &completed_phases,
+            failed_phase: &phase.id,
+            pending_phases: &pending_phases,
+            failure_kind,
+            reason,
+            recovery_prompt_path: &prompt_path,
+            recovery_yaml_summary: &recovery_yaml_summary,
+            prompt_command_summary: &prompt_command_summary,
+            recovery_yaml_command_summary: &recovery_yaml_command_summary,
+            recovery_artifact_check: &artifact_check_summary,
+            browser_evidence_missing_note: browser_evidence_missing_before_final_acceptance_note(
+                config,
+            ),
+        }),
+    );
+    let prompt_message = if validation.prompt_command_available() {
+        format!("suggested command: {prompt_command}")
+    } else {
+        "suggested command unavailable because recovery prompt validation failed".to_string()
+    };
+    let recovery_yaml_command_message = recovery_plan_command
+        .as_ref()
+        .map(|command| format!("suggested YAML command: {command}"))
+        .unwrap_or_else(|| {
+            "suggested YAML command unavailable because recovery YAML is missing".to_string()
+        });
+    Some(eval_events::StopReasonParts {
+        free_text: format!("incomplete; {artifact_check_summary}"),
+        paths: vec![
+            format!("repair prompt saved: {prompt_path}"),
+            recovery_yaml_summary,
+        ],
+        commands: vec![prompt_message, recovery_yaml_command_message],
+    })
+}
+
+pub(super) fn render_failure_stop_reason(
+    free_text: impl Into<String>,
+    handoff: Option<eval_events::StopReasonParts>,
+) -> String {
+    let free_text = free_text.into();
+    let mut parts = handoff.unwrap_or_default();
+    parts.free_text = if parts.free_text.trim().is_empty() {
+        free_text
+    } else {
+        format!("{free_text}; {}", parts.free_text)
+    };
+    eval_events::render_stop_reason(&parts)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub(super) fn save_release_recovery_handoff(
+    config: &Config,
+    profile: &str,
+    original_goal: &str,
+    scope: &str,
+    acceptance_layer: &str,
+    failure_kind: &str,
+    failure_evidence: Vec<String>,
+    missing_paths: Vec<String>,
+    missing_capabilities: Vec<String>,
+    repair_targets: Vec<String>,
+    verify_commands: Vec<String>,
+) -> Option<ReleaseRecoveryHandoffSummary> {
+    let handoff = RecoveryHandoff {
+        profile: profile.to_string(),
+        original_goal: original_goal.to_string(),
+        failed_phase: Some(acceptance_layer.to_string()),
+        failed_step: None,
+        failure_kind: failure_kind.to_string(),
+        failure_evidence,
+        missing_paths,
+        missing_capabilities,
+        verify_commands,
+        changed_paths: Vec::new(),
+        repair_targets,
+    };
+    let path = match save_ultra_recovery_prompt(&config.workspace_root, scope, &handoff) {
+        Ok(path) => path,
+        Err(err) => {
+            eval_events::emit(
+                config.eval_events_path.as_deref(),
+                json!({
+                    "event": "recovery_prompt_save_failed",
+                    "recovery_handoff_kind": failure_kind,
+                    "acceptance_layer": acceptance_layer,
+                    "reason": eval_events::body_snippet(&err.to_string()),
+                    "status": "incomplete",
+                }),
+            );
+            return None;
+        }
+    };
+    let recovery_plan = match save_recovery_ultra_plan(&config.workspace_root, scope, &handoff) {
+        Ok(path) => Some(path),
+        Err(err) => {
+            let prompt_path = handoff_path(&path);
+            eval_events::emit(
+                config.eval_events_path.as_deref(),
+                json!({
+                    "event": "recovery_ultra_plan_save_failed",
+                    "recovery_handoff_kind": failure_kind,
+                    "acceptance_layer": acceptance_layer,
+                    "recovery_prompt_path": prompt_path,
+                    "reason": eval_events::body_snippet(&err.to_string()),
+                    "recovery_yaml_missing": true,
+                    "status": "incomplete",
+                }),
+            );
+            None
+        }
+    };
+    let validation = validate_recovery_artifacts(&path, recovery_plan.as_deref());
+    let raw_prompt_command = suggested_ultra_recovery_command(&path, profile);
+    let prompt_command = if validation.prompt_command_available() {
+        raw_prompt_command
+    } else {
+        String::new()
+    };
+    let recovery_plan_command = recovery_plan
+        .as_ref()
+        .filter(|_| validation.yaml_command_available())
+        .map(|path| suggested_recovery_ultra_plan_command(path));
+    let prompt_path = handoff_path(&path);
+    let recovery_plan_path = optional_handoff_path(recovery_plan.as_ref());
+    let summary = ReleaseRecoveryHandoffSummary {
+        recovery_handoff_kind: failure_kind.to_string(),
+        acceptance_layer: acceptance_layer.to_string(),
+        recovery_prompt_path: prompt_path,
+        recovery_ultra_plan_path: recovery_plan_path,
+        suggested_recovery_command: prompt_command.clone(),
+        suggested_recovery_yaml_command: recovery_plan_command.clone().unwrap_or_default(),
+    };
+    eval_events::emit(
+        config.eval_events_path.as_deref(),
+        json!({
+            "event": "recovery_prompt_saved",
+            "recovery_handoff_kind": failure_kind,
+            "acceptance_layer": acceptance_layer,
+            "recovery_scope": scope,
+            "recovery_prompt_path": &summary.recovery_prompt_path,
+            "recovery_ultra_plan_path": &summary.recovery_ultra_plan_path,
+            "recovery_yaml_missing": recovery_plan.is_none(),
+            "recovery_prompt_exists": validation.prompt_exists,
+            "recovery_prompt_parse_ok": validation.prompt_parse_ok,
+            "recovery_prompt_parse_error": validation.prompt_parse_error.as_deref().unwrap_or_default(),
+            "recovery_yaml_exists": validation.yaml_exists,
+            "recovery_yaml_parse_ok": validation.yaml_parse_ok,
+            "recovery_yaml_parse_error": validation.yaml_parse_error.as_deref().unwrap_or_default(),
+            "recovery_command_targets_valid": validation.command_targets_valid(),
+            "suggested_recovery_command": &summary.suggested_recovery_command,
+            "suggested_recovery_yaml_command": &summary.suggested_recovery_yaml_command,
+            "recovery_profile": profile,
+            "release_acceptance_handoff": true,
+            "handoff_saved_not_success": true,
+            "status": "incomplete",
+        }),
+    );
+    eval_events::append_run_summary(
+        config.eval_events_path.as_deref(),
+        &render_release_recovery_handoff_summary(&summary, &validation),
+    );
+    Some(summary)
+}
+
+pub(super) fn render_release_recovery_handoff_summary(
+    summary: &ReleaseRecoveryHandoffSummary,
+    validation: &RecoveryArtifactValidation,
+) -> String {
+    format!(
+        "Recovery next action:\n\
+- Status: incomplete_release_acceptance\n\
+- Failed acceptance layer: {}\n\
+- Recovery handoff kind: {}\n\
+- Recovery prompt saved: {}\n\
+- Recovery UltraPlan YAML saved: {}\n\
+- Suggested command: {}\n\
+- Suggested YAML command: {}\n\
+- Recovery artifact check: {}",
+        summary.acceptance_layer,
+        summary.recovery_handoff_kind,
+        missing_if_empty(&summary.recovery_prompt_path),
+        missing_if_empty(&summary.recovery_ultra_plan_path),
+        missing_if_empty(&summary.suggested_recovery_command),
+        missing_if_empty(&summary.suggested_recovery_yaml_command),
+        recovery_artifact_check_summary(validation),
+    )
+}
+
+pub(super) fn missing_if_empty(value: &str) -> &str {
+    if value.is_empty() { "missing" } else { value }
+}
+
+pub(super) struct UltraPartialRunSummary<'a> {
+    pub(super) completed_phases: &'a [String],
+    pub(super) failed_phase: &'a str,
+    pub(super) pending_phases: &'a [String],
+    pub(super) failure_kind: &'a str,
+    pub(super) reason: &'a str,
+    pub(super) recovery_prompt_path: &'a str,
+    pub(super) recovery_yaml_summary: &'a str,
+    pub(super) prompt_command_summary: &'a str,
+    pub(super) recovery_yaml_command_summary: &'a str,
+    pub(super) recovery_artifact_check: &'a str,
+    pub(super) browser_evidence_missing_note: Option<&'a str>,
+}
+
+pub(super) const BROWSER_EVIDENCE_MISSING_BEFORE_FINAL_ACCEPTANCE: &str = "Browser evidence missing: run failed before final acceptance (interaction probe installed but not exercised).";
+
+pub(super) fn render_ultra_partial_run_summary(summary: UltraPartialRunSummary<'_>) -> String {
+    let browser_evidence_missing = summary
+        .browser_evidence_missing_note
+        .map(|note| format!("\n\n{note}"))
+        .unwrap_or_default();
+    format!(
+        "Status: incomplete\n\n\
+Completed phases:\n{}\n\n\
+Failed phase:\n- {} ({})\n\n\
+Pending phases:\n{}\n\n\
+Recovery next action:\n- {}\n- Recovery prompt saved: {}\n- {}\n- {}\n- {}\n\n\
+Failure:\n{}{}",
+        render_summary_bullets(summary.completed_phases),
+        summary.failed_phase,
+        summary.failure_kind,
+        render_summary_bullets(summary.pending_phases),
+        summary.recovery_yaml_summary,
+        summary.recovery_prompt_path,
+        summary.prompt_command_summary,
+        summary.recovery_yaml_command_summary,
+        summary.recovery_artifact_check,
+        eval_events::render_stop_reason_text(summary.reason),
+        browser_evidence_missing,
+    )
+}
+
+pub(super) fn browser_evidence_missing_before_final_acceptance_note(
+    config: &Config,
+) -> Option<&'static str> {
+    if interaction_probe_performed_for_run(config) {
+        return None;
+    }
+    match interaction_probe::playwright_availability(&config.workspace_root) {
+        interaction_probe::ProbeAvailability::Available(_) => {
+            Some(BROWSER_EVIDENCE_MISSING_BEFORE_FINAL_ACCEPTANCE)
+        }
+        interaction_probe::ProbeAvailability::Unavailable(_) => None,
+    }
+}
+
+pub(super) fn render_summary_bullets(items: &[String]) -> String {
+    if items.is_empty() {
+        "- none".to_string()
+    } else {
+        items
+            .iter()
+            .map(|item| format!("- {item}"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+pub(super) fn ultra_phase_status(
+    plan: &UltraPlan,
+    failed_phase: &UltraPhase,
+) -> (Vec<String>, Vec<String>) {
+    let failed_index = plan
+        .phases
+        .iter()
+        .position(|phase| phase.id == failed_phase.id)
+        .unwrap_or(0);
+    let completed = plan
+        .phases
+        .iter()
+        .take(failed_index)
+        .map(|phase| phase.id.clone())
+        .collect();
+    let pending = plan
+        .phases
+        .iter()
+        .skip(failed_index + 1)
+        .map(|phase| phase.id.clone())
+        .collect();
+    (completed, pending)
+}
+
+pub(super) fn recovery_scope_token(value: &str) -> String {
+    let token = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.') {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>();
+    if token.trim_matches('-').is_empty() {
+        "phase".to_string()
+    } else {
+        token
     }
 }

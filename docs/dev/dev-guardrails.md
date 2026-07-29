@@ -9,8 +9,9 @@ file-level growth budgets so they do not become replacement chokepoints.
 The CI/test guard records current baselines and fails if any file grows
 above baseline +2%:
 
-- `src/planner/runner.rs`: 4,557 lines
-- `src/planner/runner/phase.rs`: 2,660 lines
+- `src/planner/runner.rs`: 3,373 lines
+- `src/planner/runner/phase.rs`: 3,857 lines
+- `src/planner/runner/phase/flow.rs`: 1,656 lines
 - `src/planner/runner/acceptance.rs`: 2,523 lines
 - `src/planner/runner/tests/**/*.rs`: 15,206 lines in aggregate
 - `src/minimal_loop/loop_run.rs`: 7,444 lines
@@ -18,7 +19,6 @@ above baseline +2%:
 - `src/planner/repair_targeting.rs`: 597 lines
 - `src/planner/final_acceptance.rs`: 2,235 lines
 - `src/planner/adjudication/create.rs`: 2,186 lines
-- `src/planner/ultra_plan_flow.rs`: 1,570 lines
 - `src/planner/assurance.rs`: 50 lines
 - `src/planner/profiles/nextjs.rs`: 3,684 lines
 - `src/minimal_loop/evidence.rs`: 6,702 lines
@@ -31,15 +31,15 @@ masking test bloat:
 
 | file | production baseline | test baseline |
 | --- | ---: | ---: |
-| `src/planner/runner.rs` | 4,544 | 13 |
-| `src/planner/runner/phase.rs` | 2,660 | 0 |
+| `src/planner/runner.rs` | 3,360 | 13 |
+| `src/planner/runner/phase.rs` | 3,857 | 0 |
+| `src/planner/runner/phase/flow.rs` | 1,656 | 0 |
 | `src/planner/runner/acceptance.rs` | 2,502 | 21 |
 | `src/minimal_loop/loop_run.rs` | 4,960 | 2,485 |
 | `src/minimal_loop/repair_pressure.rs` | 278 | 468 |
 | `src/planner/repair_targeting.rs` | 459 | 138 |
 | `src/planner/final_acceptance.rs` | 2,230 | 5 |
 | `src/planner/adjudication/create.rs` | 2,172 | 14 |
-| `src/planner/ultra_plan_flow.rs` | 1,570 | 0 |
 | `src/planner/assurance.rs` | 50 | 0 |
 | `src/planner/profiles/nextjs.rs` | 2,361 | 1,323 |
 | `src/minimal_loop/evidence.rs` | 4,088 | 2,694 |

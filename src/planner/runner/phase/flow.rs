@@ -1,12 +1,67 @@
-use super::*;
+#[allow(unused_imports)]
+use super::{
+    ChatClient, Config, DependencyReconciliationTrigger, EscalationCarryoverHandle,
+    FINAL_ACCEPTANCE_COMPILE_NO_SNAPSHOT_EXTRA_ATTEMPTS,
+    FINAL_ACCEPTANCE_EVIDENCE_NO_CHANGE_EXTRA_ATTEMPTS, FINAL_ACCEPTANCE_REPAIR_MAX_ATTEMPTS,
+    FINAL_ACCEPTANCE_REPAIR_WALL_CLOCK_CAP, FinalAcceptanceCycleDelta, Instant, InteractionUi,
+    NOOP_UI, PhaseVerificationMode, ProfileId, ProfilePromotionState, ProfileRuntimeRegistry,
+    ProviderCallScope, STEP_REPAIR_MAX_ITERATIONS, SessionSnapshot, ULTRA_CONTEXT_MAX_MESSAGES,
+    ULTRA_CONTEXT_MAX_PATHS, ULTRA_PLAN_GENERATION_ATTEMPTS, UiStatus, UltraPhase,
+    UltraPhaseRecoveryRequest, UltraPlan, UltraRunContext, UltraRunSetupAuthorityState,
+    append_final_acceptance_cycle_summary, bounded_process,
+    build_final_acceptance_evidence_regeneration_prompt, build_ultra_plan_lint_retry_prompt,
+    build_ultra_plan_schema_retry_prompt, build_ultra_plan_tool_call_retry_prompt,
+    capability_evidence_failure_evidence, capability_evidence_unresolved_reason, capped_config,
+    changed_snapshot_paths, classify_repair_target, clear_final_acceptance_browser_probe_evidence,
+    contract_attribute_repair_target_paths, emit_compile_no_snapshot_narrow_retry,
+    emit_compile_regeneration_event, emit_compile_rollback_context_carried,
+    emit_evidence_regeneration_event, emit_final_acceptance_cycle_delta,
+    emit_phase_verification_event, emit_planner_error, emit_planner_error_for_lint,
+    emit_ultra_context_initialized, emit_ultra_phase_context_updated, emit_ultra_phase_event,
+    emit_ultra_plan_generation_attempt, emit_ultra_plan_generation_failed,
+    emit_ultra_plan_generation_metadata_normalized, emit_ultra_plan_generation_retry,
+    emit_ultra_plan_generation_succeeded, emit_ultra_plan_generation_tool_call_rejected,
+    emit_ultra_plan_raw_output_shape, eval_events, evidence_repair_retry_mode,
+    evidence_repair_zero_edit_eligible, exhaustion_reason_with_pending_contract_state,
+    final_acceptance_app_behavior_failure_kind, final_acceptance_evidence_regeneration_target,
+    final_acceptance_recovery_failure_evidence,
+    final_acceptance_recovery_failure_evidence_with_context, final_acceptance_recovery_reason,
+    final_acceptance_recovery_repair_targets, final_acceptance_repair_expected_paths,
+    final_acceptance_repair_prompt_with_events, final_acceptance_repair_signals,
+    final_acceptance_source_snapshot, fresh_profile_invariant_failure_evidence, hook_snapshot,
+    json, lint_ultra_plan_report, merge_unique_strings, missing_final_artifacts, model_for,
+    normalize_ultra_plan_metadata, parse_ultra_plan, plan_adherence_report,
+    planner_chat_with_request_retry, planner_stage_and_kind_for_lint, profile_before_plan,
+    push_context_items_capped, reconcile_manifest_changed_dependencies_if_needed,
+    reconcile_run_dependency_setup, render_failure_stop_reason,
+    repair_intermediate_profile_invariant, resolve_profile_runtime, resolved_missing_signals,
+    route_bound_changed_paths, route_bound_source_paths,
+    run_final_acceptance_repair_with_carryover,
+    run_step_plan_with_session_with_ui_and_run_authority, save_step_plan,
+    save_ultra_phase_recovery_handoff, save_ultra_phase_recovery_handoff_with_evidence,
+    should_run_compile_no_snapshot_narrow_retry, tool_call_names,
+    try_compile_rollback_after_repair_exhaustion, try_final_acceptance_compile_regeneration,
+    try_promote_profile_at_phase_boundary,
+    ultra_final_acceptance_report_with_deterministic_remedies, ultra_phase_prompt,
+    ultra_plan_generation_messages, verification_missing_signals, verify_invariant_with_hooks,
+    writable_workspace_source_path,
+};
+#[allow(unused_imports)]
+use super::{
+    Path, PathBuf, StepPlan, capability_evidence_remedy_lines,
+    generate_step_plan_with_ui_for_phase, render_ultra_plan, resolve_plan_file_path,
+    restart_hook_attachment_guidance,
+};
 
-#[path = "ultra_plan_flow/before_phase.rs"]
+#[path = "../../ultra_plan_flow/before_phase.rs"]
 mod before_phase;
+#[path = "../../fix_before.rs"]
 mod fix_before;
-#[path = "ultra_plan_flow/investigation_before.rs"]
+#[path = "../../ultra_plan_flow/investigation_before.rs"]
 mod investigation_before;
-#[path = "ultra_plan_flow/phase_plan_resolution.rs"]
+#[path = "../../ultra_plan_flow/phase_plan_resolution.rs"]
 mod phase_plan_resolution;
+#[path = "../../ultra_plan_storage.rs"]
 mod ultra_plan_storage;
 pub use ultra_plan_storage::{run_ultra_plan_file, run_ultra_plan_file_with_ui, save_ultra_plan};
 
