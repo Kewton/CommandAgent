@@ -25,6 +25,12 @@ struct ChokepointBudget {
     test_baseline: usize,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct TestModuleBudget {
+    path: &'static str,
+    line_baseline: usize,
+}
+
 #[test]
 fn generic_profile_reduced_assurance_markers_still_render() {
     let dir = tempfile::tempdir().unwrap();
@@ -290,9 +296,9 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
     for budget in [
         ChokepointBudget {
             path: "src/planner/runner.rs",
-            total_baseline: 18_242,
-            production_baseline: 9_904,
-            test_baseline: 8_339,
+            total_baseline: 9_658,
+            production_baseline: 9_624,
+            test_baseline: 34,
         },
         ChokepointBudget {
             path: "src/minimal_loop/loop_run.rs",
@@ -851,6 +857,59 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
             allowed,
         );
     }
+}
+
+#[test]
+fn runner_test_modules_do_not_grow_past_transferred_budget() {
+    const AGGREGATE_BASELINE: usize = 15_149;
+    let budgets = [
+        TestModuleBudget {
+            path: "src/planner/runner/tests/assurance_tests.rs",
+            line_baseline: 1_398,
+        },
+        TestModuleBudget {
+            path: "src/planner/runner/tests/cli_runtime_dispatch_tests.rs",
+            line_baseline: 229,
+        },
+        TestModuleBudget {
+            path: "src/planner/runner/tests/data_pre_satisfied_tests.rs",
+            line_baseline: 182,
+        },
+        TestModuleBudget {
+            path: "src/planner/runner/tests/final_acceptance_tests.rs",
+            line_baseline: 574,
+        },
+        TestModuleBudget {
+            path: "src/planner/runner/tests/mod.rs",
+            line_baseline: 8_384,
+        },
+        TestModuleBudget {
+            path: "src/planner/runner/tests/profile_runtime_tests.rs",
+            line_baseline: 58,
+        },
+        TestModuleBudget {
+            path: "src/planner/runner/tests/requested_port_tests.rs",
+            line_baseline: 27,
+        },
+        TestModuleBudget {
+            path: "src/planner/runner/tests/ultra_plan_flow_tests.rs",
+            line_baseline: 4_297,
+        },
+    ];
+    let mut aggregate = 0;
+    for budget in budgets {
+        let text = std::fs::read_to_string(budget.path)
+            .unwrap_or_else(|err| panic!("failed to read {}: {err}", budget.path));
+        let current = text.lines().count();
+        aggregate += current;
+        assert_line_budget(budget.path, "test module", current, budget.line_baseline);
+    }
+    assert_line_budget(
+        "src/planner/runner/tests/*.rs",
+        "aggregate test module",
+        aggregate,
+        AGGREGATE_BASELINE,
+    );
 }
 
 #[test]

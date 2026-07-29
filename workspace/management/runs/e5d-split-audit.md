@@ -538,3 +538,14 @@ Secondary gaps, which remain effect tests rather than transition-table tests:
 This audit recommends the A0 -> Option A -> separate E-5f sequence. It does not
 authorize that sequence, change a guard baseline, or decide the final module
 names. Production changes must wait for review adjudication.
+
+## Stage 2 migration ledger
+
+Review selected Option A on 2026-07-29. The following checkboxes bind each
+mechanical transfer back to this audit; later batches append rows rather than
+renumbering the original responsibility map.
+
+| Batch | Status | Audited ownership consumed | Mechanical transfer | Compatibility result |
+|---:|---|---|---|---|
+| 0 | [x] complete (`f2e2b0c`) | Verification gap: ordered lifecycle characterization | Added a 22-event normalized two-phase lifecycle fixture before moving production code. | Focused fixture, adjudication 6/6, conformance 18/18 (1 ignored), corpus 1/1 green. |
+| 1 | [x] complete | Inline test region `runner.rs:9656-18087` | Moved 8,429 source lines to `runner/tests/mod.rs` (8,384 after rustfmt), retained the `planner::runner::tests` module path, lowered the runner baseline to 9,658 lines, and enrolled all 15,149 runner-test lines in per-file plus aggregate growth guards. | `cargo check` and byte-sensitive suites green; no event/evidence/fixture bytes changed. |

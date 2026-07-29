@@ -9,7 +9,8 @@ file-level growth budgets so they do not become replacement chokepoints.
 The CI/test guard records current baselines and fails if any file grows
 above baseline +2%:
 
-- `src/planner/runner.rs`: 18,242 lines
+- `src/planner/runner.rs`: 9,658 lines
+- `src/planner/runner/tests/*.rs`: 15,149 lines in aggregate
 - `src/minimal_loop/loop_run.rs`: 7,444 lines
 - `src/minimal_loop/repair_pressure.rs`: 746 lines
 - `src/planner/repair_targeting.rs`: 597 lines
@@ -27,7 +28,7 @@ masking test bloat:
 
 | file | production baseline | test baseline |
 | --- | ---: | ---: |
-| `src/planner/runner.rs` | 9,904 | 8,339 |
+| `src/planner/runner.rs` | 9,624 | 34 |
 | `src/minimal_loop/loop_run.rs` | 4,960 | 2,485 |
 | `src/minimal_loop/repair_pressure.rs` | 278 | 468 |
 | `src/planner/repair_targeting.rs` | 459 | 138 |
@@ -42,6 +43,13 @@ When adding behavior, put new subsystems in new modules and call them from the
 runner. Refactors that shrink these files are allowed; lower the baseline only
 after the shrink is intentional and reviewed. Do not raise a baseline to admit
 growth.
+
+The runner test aggregate includes the 8,384-line formatted module
+mechanically transferred from the former 8,429-line inline `runner.rs` test
+module and all 6,765 lines already externalized under
+`src/planner/runner/tests/`. Each test file also has its own baseline in
+`tests/generality_guardrails.rs`; the aggregate and per-file checks prevent
+relocation from becoming a growth-guard bypass.
 
 Declarative Next.js and evidence knowledge must be changed in
 `src/planner/profiles/nextjs/knowledge.toml` and
