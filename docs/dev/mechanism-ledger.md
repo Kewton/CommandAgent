@@ -1103,3 +1103,35 @@ Rust enumも同じ機械可読登録簿7/7へ突合する。
 所要を自動導出し、epochを持たない歴史fixtureは従来どおり
 「記録なし」と表示する。E-5a/bのbyte互換とは異なり、E-5cでは
 **加法互換**を移行規律として確立した。
+
+## E-5d — runner責務3分割（2026-07-29）
+
+`runner.rs`を案Aの3責務へ純移設した。物理18,087行
+（production 9,655 / inline test 8,432）から、facade 144行
+（production 131 / test 13）へ縮小し、driver 3,291行、phase 3,931行
+（配下flow 1,656行）、acceptance 2,523行へ責務を固定した。
+production側の親globは0件で、test名前空間の4件だけを意図的に残す。
+
+最初に22-eventのordered lifecycle fixtureを現挙動から採取し、その後の
+全バッチでprompt bytes、adjudication 6形、conformance、corpus、event順序を
+無変更greenにした。既存snapshot・fixture・event・evidence・stop-class文字列は
+1バイトも変更していない。最終の権限付き`cargo test --all-targets`は
+1,873 passed / 30 ignored / 0 failed、fmt・全target clippy `-D warnings`もgreen。
+
+growth guardのrunner-family物理被覆は、移行前19,688行
+（runner 18,087 + 旧flow 1,601）から移行後26,751行
+（production module群11,545 + runner tests 15,206）へ拡大した。差分7,063行は、
+従来guard外だった既存外出しtest 6,677行と機械的なmodule/import wiringを
+被覆へ入れた結果であり、空いたrunner予算は全て引き下げた。分割先全fileと
+test aggregate/per-file、production/test別の上限をguardし、分割をgrowth
+guard回避路にしない。
+
+E-5bと同一定義の第5profile接触面は**26→20のまま**で、分割による再増加は0。
+型/registryがcompletion投影、production acceptance起動、preset選択、
+repair policy、guidance/material注入、probe選択の6 checklist項目を肩代わりする。
+profile固有意味論・字義例・runtime-shaped fixtureのレビューは残す。
+
+16状態のE-5f設計は
+[`e5f-phase-state-machine.md`](e5f-phase-state-machine.md)へ固定した。
+状態機械化は**QUEUED**であり、案A完了後の地形に対するレビュー裁定まで
+production control flowへ刃を入れない。

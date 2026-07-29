@@ -556,3 +556,64 @@ renumbering the original responsibility map.
 | 6 | [x] complete | Intermediate invariant/phase recovery `runner.rs:4530-5177,7301-7831`; outer `ultra_plan_flow.rs` | Added 1,179 audited source lines to the phase boundary, moved the 1,601-line outer flow to `runner/phase/flow.rs`, and replaced its parent glob with 119 enumerated imports (including child-leaf requirements). Final measured budgets: runner 3,373, phase 3,857, flow 1,656 lines. | Ordered 22-event lifecycle fixture, TUI/runtime integration, conformance, adjudication bytes, and corpus green. |
 | 7 | [x] complete | Driver/initialization/prompt generation `runner.rs:1-959,3945-4529,7832-9655` after prior transfers | Moved the remaining 3,242 source lines of constants, StepPlan APIs, initialization, event emission, and prompt construction to `runner/driver.rs` (3,273 formatted/wired lines). The 144-line `runner.rs` now contains imports, module wiring, stable public re-exports, and the test-module anchor only; both files have independent growth budgets. Mechanically re-anchored the compile-parser protection allowlist to `acceptance.rs`, excluded the already-guarded `runner/tests/` fixtures from the production child-process scan, and expanded the E-5b dispatch guard from the facade to every production module below `runner/`. | `cargo check`, the three audited template-lint sites, profile dispatch, and protection coverage green at their new owners; observable strings and event construction are mechanically unchanged. |
 | 8 | [x] complete | Option A dependency-direction and guard settlement | Replaced the remaining production parent globs in `runner/driver.rs` and `runner/phase.rs` with compiler-derived explicit import sets. The formatted wiring adds 18 and 74 physical lines respectively, both inside the already-recorded +2% ceilings; no baseline was raised. Test namespace globs remain deliberately confined to `runner/tests/`. | `cargo check`, growth/dispatch/protection guards, ordered lifecycle, prompt bytes, conformance, adjudication bytes, and corpus remain green. |
+
+## Stage 2 final settlement
+
+### Final responsibility map
+
+| File or family | Physical lines | Production/test classification | Final ownership |
+|---|---:|---:|---|
+| `src/planner/runner.rs` | 144 | 131 / 13 | Public facade, module declarations, stable re-exports, test anchor |
+| `src/planner/runner/driver.rs` | 3,291 | 3,291 / 0 | Initialization, StepPlan generation/driving, prompt and shared event construction |
+| `src/planner/runner/phase.rs` | 3,931 | 3,931 / 0 | Step execution/repair, phase context, invariant and recovery orchestration |
+| `src/planner/runner/phase/flow.rs` | 1,656 | 1,656 / 0 | Outer UltraPlan lifecycle, owned by the phase responsibility |
+| `src/planner/runner/acceptance.rs` | 2,523 | 2,502 / 21 | Final-contract, probe, evidence, and recovery boundary |
+| `src/planner/runner/tests/**/*.rs` | 15,206 | test-only aggregate | Driver/phase/acceptance/repair domains plus bounded support modules |
+
+The three responsibility modules are `driver`, `phase` (including `flow`), and
+`acceptance`; `runner.rs` is a 144-line facade rather than a fourth behavior
+bucket. Production parent globs are zero. Four same-namespace globs remain
+under `runner/tests/` to preserve hard-coded test identities and shared
+fixtures.
+
+### Growth-guard coverage
+
+The comparable physical runner-family guard surface is:
+
+| Measure | Before stage 2 | Final | Delta |
+|---|---:|---:|---:|
+| Guarded runner family | 19,688 (`runner.rs` 18,087 + old outer flow 1,601) | 26,751 (all five production-module files 11,545 + test tree 15,206) | +7,063 |
+| Existing external runner tests enrolled | 0 of 6,677 | 6,677 of 6,677 | +6,677 |
+| `runner.rs` alone | 18,087 | 144 | -17,943 |
+
+Before enrollment, the same code surface including the unguarded 6,677
+external test lines was 26,365 lines. The final 26,751-line surface differs by
+386 physical lines of module/import/fixture wiring, while guard coverage rises
+by 7,063. Every production destination has a file budget; the test tree has
+both aggregate and per-file budgets. Vacated runner allowance was lowered
+after each transfer and no final baseline was raised to admit behavior.
+
+### Compatibility and E-5b follow-through
+
+- The pre-split 22-event ordered lifecycle fixture remains byte-identical.
+- Existing snapshots and conformance fixtures were not updated.
+- Six adjudication byte fixtures, prompt-byte fixtures, 18 active conformance
+  tests, and the corpus regression remain green.
+- Final privileged `cargo test --all-targets` is 1,873 passed, 30 ignored,
+  zero failed; `cargo fmt --all -- --check` and all-target clippy with warnings
+  denied are green.
+- The profile-dispatch guard now recursively scans every production module
+  below `runner/`, excluding only `runner/tests/`; all 110 historical E-5b
+  sites and three typed residuals remain accounted for.
+- The E-5b fifth-profile contact simulation remains **26 -> 20**. The type and
+  registry boundary carries completion projection, production acceptance
+  activation, preset selection, repair policy, guidance/material injection,
+  and probe selection; profile-specific semantics and fixtures remain review
+  work.
+
+### E-5f queue
+
+The 16 reviewed states and their transition invariants are preserved in
+[`docs/dev/e5f-phase-state-machine.md`](../../../docs/dev/e5f-phase-state-machine.md).
+E-5f is **QUEUED**. The proposed state machine is a separate semantic migration
+to be decided on the Option A terrain; E-5d does not authorize it.

@@ -261,3 +261,13 @@ must not be presented as part of the current full assurance:
 
 Each item requires its own contract review, comparator or adapter estimate,
 real-input calibration, and separate capability-band denominator.
+
+## E-5f phase progression state machine (2026-07-29) [QUEUED]
+
+E-5d Option A has exposed the phase seam without changing control semantics.
+The 16 states, complete transition inventory, terminal invariants, and
+five-batch migration gates are recorded in
+[`e5f-phase-state-machine.md`](e5f-phase-state-machine.md). E-5f remains
+**QUEUED**: implementation is decided only after review of the Option A
+terrain. This entry authorizes no event-order, interruption-boundary, evidence,
+or terminal-byte change.
