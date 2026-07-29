@@ -69,6 +69,57 @@ that the site is already fully centralized.
 | other | 11 |
 | **Total** | **110** |
 
+## Migration progress
+
+This TOML block is the machine-readable consumption ledger for the 110 runner
+sites. A site moves to `consumed` only in the batch that removes its string
+dispatch or makes the operation profile-independent; adding an adapter alone
+does not consume a site.
+
+```toml
+[[migration_batch]]
+batch = 0
+kind = "typed runtime foundation"
+status = "complete"
+runner_sites = []
+
+[[migration_batch]]
+batch = 1
+kind = "projection and probe selection"
+status = "pending"
+runner_sites = [3782, 219, 1449, 3800, 4035, 4087, 4199, 4927, 5486, 7946]
+
+[[migration_batch]]
+batch = 2
+kind = "preset selection"
+status = "pending"
+runner_sites = [612, 622, 632, 809, 832, 2174, 2221, 2228, 8358, 8359, 8362, 8373, 8396, 8420]
+
+[[migration_batch]]
+batch = 3
+kind = "repair boundary"
+status = "pending"
+runner_sites = [1804, 2306, 2563, 2732, 4617, 4633, 4667, 4670, 4723, 4741, 4755, 5091, 5096, 5098, 5546, 7074, 7327]
+
+[[migration_batch]]
+batch = 4
+kind = "guidance injection"
+status = "pending"
+runner_sites = [530, 8945, 8948, 9117, 9126, 9195, 9204, 9258, 9271, 9349, 9358, 9587, 9589, 9591, 9592, 9594, 9596, 9701, 9703, 9705, 9706, 9708, 9710]
+
+[[migration_batch]]
+batch = 5
+kind = "acceptance runtime and non-residual other"
+status = "pending"
+runner_sites = [1340, 1348, 1377, 1380, 1473, 1475, 1476, 1489, 1502, 1516, 1530, 1578, 1586, 2042, 2044, 2046, 2065, 3670, 3672, 3674, 3711, 3744, 3763, 4025, 4027, 4030, 4066, 4067, 4071, 4079, 4082, 5425, 5433, 5446, 5450, 1032, 1039, 1307, 1308, 1312, 1350, 1440, 1573]
+
+[[migration_batch]]
+batch = 6
+kind = "intentional residual and guard"
+status = "pending"
+runner_sites = [1301, 1755, 3639]
+```
+
 ### Projection
 
 | Location | Branch kind | Profiles | Existing hook or direct branch | Proposed disposition |

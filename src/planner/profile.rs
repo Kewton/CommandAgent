@@ -8,6 +8,7 @@ use crate::minimal_loop::dependency_setup::{
 };
 use crate::minimal_loop::evidence::required_evidence_for_capability;
 use crate::planner::adjudication::contract::{ProbeOutcome, is_fix_intent};
+use crate::planner::profile_behavior::ProfileRuntime;
 use crate::planner::signals;
 use crate::planner::step_plan::StepPlan;
 use crate::planner::ultra_plan::UltraPlan;
@@ -122,6 +123,74 @@ pub struct ProfileDeterministicStepPlan {
 pub struct InteractionRepairContract {
     pub required_capabilities: Vec<String>,
     pub required_evidence: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ProfileId {
+    Nextjs,
+    PythonCli,
+    Data,
+    DataAnalysis,
+    DataPipeline,
+    Ingest,
+    Cli,
+    Generic,
+    Rust,
+    Docs,
+    Documentation,
+    Vite,
+    React,
+    Web,
+    Other(String),
+}
+
+impl ProfileId {
+    pub fn parse(profile: &str) -> Self {
+        let canonical = canonical_profile_name(profile);
+        match canonical.as_str() {
+            crate::planner::profiles::nextjs::PROFILE_ID => Self::Nextjs,
+            "python-cli" => Self::PythonCli,
+            "data" => Self::Data,
+            "data-analysis" => Self::DataAnalysis,
+            "data-pipeline" => Self::DataPipeline,
+            "ingest" => Self::Ingest,
+            "cli" => Self::Cli,
+            "generic" => Self::Generic,
+            "rust" => Self::Rust,
+            "docs" => Self::Docs,
+            "documentation" => Self::Documentation,
+            "vite" => Self::Vite,
+            "react" => Self::React,
+            "web" => Self::Web,
+            other => Self::Other(other.to_string()),
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Nextjs => crate::planner::profiles::nextjs::PROFILE_ID,
+            Self::PythonCli => "python-cli",
+            Self::Data => "data",
+            Self::DataAnalysis => "data-analysis",
+            Self::DataPipeline => "data-pipeline",
+            Self::Ingest => "ingest",
+            Self::Cli => "cli",
+            Self::Generic => "generic",
+            Self::Rust => "rust",
+            Self::Docs => "docs",
+            Self::Documentation => "documentation",
+            Self::Vite => "vite",
+            Self::React => "react",
+            Self::Web => "web",
+            Self::Other(value) => value,
+        }
+    }
+}
+
+impl std::fmt::Display for ProfileId {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
 }
 
 pub trait DomainProfile: Sync {
@@ -457,6 +526,64 @@ static DOMAIN_PROFILES: [&'static dyn DomainProfile; 5] = [
     &INGEST_PROFILE,
     &GENERIC_PROFILE,
 ];
+
+impl ProfileRuntime for crate::planner::profiles::nextjs::NextjsProfile {
+    fn profile_id(&self) -> ProfileId {
+        ProfileId::Nextjs
+    }
+}
+
+impl ProfileRuntime for crate::planner::profiles::python_cli::PythonCliProfile {
+    fn profile_id(&self) -> ProfileId {
+        ProfileId::PythonCli
+    }
+}
+
+impl ProfileRuntime for DataProfile {
+    fn profile_id(&self) -> ProfileId {
+        ProfileId::Data
+    }
+}
+
+impl ProfileRuntime for crate::planner::profiles::ingest::IngestProfile {
+    fn profile_id(&self) -> ProfileId {
+        ProfileId::Ingest
+    }
+}
+
+impl ProfileRuntime for GenericProfile {
+    fn profile_id(&self) -> ProfileId {
+        ProfileId::Generic
+    }
+}
+
+pub struct ProfileRuntimeRegistry;
+
+impl ProfileRuntimeRegistry {
+    /// The single typed runtime resolution point. Parsing/legacy aliases are
+    /// handled by `ProfileId::parse`; behavioral selection occurs only here.
+    pub fn resolve(profile: &ProfileId) -> &'static dyn ProfileRuntime {
+        match profile {
+            ProfileId::Nextjs => &NEXTJS_PROFILE,
+            ProfileId::PythonCli => &PYTHON_CLI_PROFILE,
+            ProfileId::Data | ProfileId::DataAnalysis | ProfileId::DataPipeline => &DATA_PROFILE,
+            ProfileId::Ingest => &INGEST_PROFILE,
+            ProfileId::Cli
+            | ProfileId::Generic
+            | ProfileId::Rust
+            | ProfileId::Docs
+            | ProfileId::Documentation
+            | ProfileId::Vite
+            | ProfileId::React
+            | ProfileId::Web
+            | ProfileId::Other(_) => &GENERIC_PROFILE,
+        }
+    }
+}
+
+pub fn resolve_profile_runtime(profile: &str) -> &'static dyn ProfileRuntime {
+    ProfileRuntimeRegistry::resolve(&ProfileId::parse(profile))
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProfileInferenceSource {
@@ -1272,6 +1399,45 @@ pub(crate) fn merge_unique_strings(out: &mut Vec<String>, incoming: &[String]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn typed_runtime_registry_preserves_legacy_resolution() {
+        for raw in [
+            "nextjs",
+            "next-js",
+            "python-cli",
+            "data",
+            "data-analysis",
+            "data-pipeline",
+            "ingest",
+            "generic",
+            "cli",
+            "rust",
+            "docs",
+            "vite",
+            "unknown-profile",
+        ] {
+            assert_eq!(
+                resolve_profile_runtime(raw).id(),
+                domain_profile(raw).id(),
+                "raw={raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn typed_profile_id_display_preserves_canonical_bytes() {
+        for (raw, expected) in [
+            (" next-js ", "nextjs"),
+            ("PY", "python-cli"),
+            ("data-analysis", "data-analysis"),
+            ("cli", "cli"),
+            ("documentation", "documentation"),
+            ("unknown-profile", "unknown-profile"),
+        ] {
+            assert_eq!(ProfileId::parse(raw).to_string(), expected);
+        }
+    }
 
     const FAILURE: &str = "browser_interaction_failed:input_state_change_missing_after_start";
 
