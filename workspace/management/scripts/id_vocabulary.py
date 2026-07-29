@@ -8,6 +8,6 @@ do not publish new run-terminal protocol IDs. Acceptance-sheet reason maps and
 scan diagnostics are presentation/audit vocabulary, not classification input.
 """
 
-INTERRUPTED_ENVIRONMENT = "interrupted(environment)"
+PYTHON_PRODUCED_IDS = ("interrupted(environment)",)
 
-PYTHON_PRODUCED_IDS = (INTERRUPTED_ENVIRONMENT,)
+INTERRUPTED_ENVIRONMENT = PYTHON_PRODUCED_IDS[0]

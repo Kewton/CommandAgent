@@ -115,3 +115,77 @@ must distinguish:
 
 Treating all three sets as interchangeable would turn the first guard run into
 a policy migration. E-5a does not silently perform that migration.
+
+## Bidirectional guard first-run result
+
+The guard was implemented against the centralized Rust enum families and run
+after commit 2. It failed in both directions, as follows:
+
+```text
+Rust ID families missing from classes.toml:
+- data_assurance_
+- reconciliation_violation
+- claims_binding_violation
+- rerun_consistency_violation
+- accounting_violation
+- format_schema_violation
+```
+
+```text
+classes.toml match_stop_class patterns without a Rust producer:
+- interrupted_environment => interrupted(environment)
+```
+
+The first list confirms the distinction already visible in the inventory:
+these are live evidence/assurance protocol families, but the current registry
+is campaign-derived rather than exhaustive. Adding six `[[class]]` entries
+would change adjudication policy and attribution, so the guard does not do so.
+
+The reverse mismatch is also live rather than a typo:
+`interrupted(environment)` is produced and consumed by the Python bench layer
+(`workspace/management/scripts/bench.py`), not by Rust. Treating it as a Rust
+producer would make the guard's claim false; deleting it would break an
+existing bench classification.
+
+At the first run, review adjudication was required to choose one of these
+policies before commit 3 could be made green:
+
+1. expand `classes.toml` into an exhaustive protocol-family registry and
+   adjudicate attribution for the six missing families;
+2. keep the campaign-derived registry and narrow direction 1 to a separately
+   declared class-ID enum; and
+3. decide whether direction 2 is Rust-only (requiring an explicit external
+   producer exception for `interrupted(environment)`) or cross-language
+   (requiring Python producer inventory in the guard).
+
+No registry entry, emitted string, or classification rule was changed while
+waiting for that decision.
+
+## Final adjudication and guard result
+
+The review adjudicated both first-run findings without exceptions:
+
+1. The six live Rust families were registered with
+   `category = "violation_family"` and provisional model attribution.
+   `data_assurance_` first appears in `uat-test0715-data-005`;
+   `reconciliation_violation` and `claims_binding_violation` first appear in
+   `uat-test0714-m4-004`; `accounting_violation` first appears in
+   `uat-test0726-ingest-elev-005`.
+2. `rerun_consistency_violation` and `format_schema_violation` have no
+   persisted formal-run observation, so their registry entries state
+   `first_seen = "unobserved_in_formal_runs"` rather than inventing a campaign.
+3. `interrupted(environment)` was formally declared in
+   `workspace/management/scripts/id_vocabulary.py` as a cross-language
+   Python producer. It is not a Rust-only exception.
+
+The enabled guard now checks both directions:
+
+- every member of `Rust enum IDs ∪ PYTHON_PRODUCED_IDS` has a
+  `classes.toml` registration;
+- every `match_stop_class` pattern has a declared Rust or Python producer.
+
+The first post-adjudication run passed in both directions. The final registry
+contains **36 classes: 30 terminal and 6 violation_family**.
+
+Cross-language producer lesson: 発行者はどの言語でも、語彙は必ず宣言され
+登録簿と突合される。将来のシェル層・D-3cも同じ規律で受ける。

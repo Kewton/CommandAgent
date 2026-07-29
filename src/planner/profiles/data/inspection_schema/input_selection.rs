@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use crate::planner::failure_vocabulary::ViolationId;
+use crate::planner::failure_vocabulary::inspection_id;
 
 use super::input_table::{self, InputTable};
 
@@ -24,9 +24,8 @@ pub(super) fn load(root: &Path, goal: Option<&str>) -> Result<InputTable, String
 
 fn goal_inputs(root: &Path, goal: &str) -> Result<Vec<PathBuf>, String> {
     let mut candidates = Vec::new();
-    collect_tables(root, root, &mut candidates, true).map_err(|error| {
-        ViolationId::inspection_schema(format!("input_scan:{error}")).to_string()
-    })?;
+    collect_tables(root, root, &mut candidates, true)
+        .map_err(|error| inspection_id!("input_scan:{error}"))?;
     candidates.sort();
     candidates.dedup();
     Ok(candidates
@@ -38,20 +37,18 @@ fn goal_inputs(root: &Path, goal: &str) -> Result<Vec<PathBuf>, String> {
 fn fallback_input(root: &Path) -> Result<Vec<PathBuf>, String> {
     let mut files = Vec::new();
     for directory in ["data", "input"] {
-        collect_tables(root, &root.join(directory), &mut files, false).map_err(|error| {
-            ViolationId::inspection_schema(format!("input_scan:{error}")).to_string()
-        })?;
+        collect_tables(root, &root.join(directory), &mut files, false)
+            .map_err(|error| inspection_id!("input_scan:{error}"))?;
     }
     files.sort();
     files.dedup();
     match files.len() {
         1 => Ok(files),
         0 => Err("inspection_schema_violation:input_missing".to_string()),
-        _ => Err(ViolationId::inspection_schema(format!(
+        _ => Err(inspection_id!(
             "multiple_inputs:{}:guidance={NAME_INPUT_GUIDANCE}",
             display_paths(root, &files).join(",")
-        ))
-        .to_string()),
+        )),
     }
 }
 
