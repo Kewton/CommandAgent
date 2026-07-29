@@ -9,7 +9,8 @@ file-level growth budgets so they do not become replacement chokepoints.
 The CI/test guard records current baselines and fails if any file grows
 above baseline +2%:
 
-- `src/planner/runner.rs`: 9,658 lines
+- `src/planner/runner.rs`: 7,540 lines
+- `src/planner/runner/acceptance.rs`: 2,149 lines
 - `src/planner/runner/tests/**/*.rs`: 15,205 lines in aggregate
 - `src/minimal_loop/loop_run.rs`: 7,444 lines
 - `src/minimal_loop/repair_pressure.rs`: 746 lines
@@ -28,7 +29,8 @@ masking test bloat:
 
 | file | production baseline | test baseline |
 | --- | ---: | ---: |
-| `src/planner/runner.rs` | 9,624 | 34 |
+| `src/planner/runner.rs` | 7,527 | 13 |
+| `src/planner/runner/acceptance.rs` | 2,128 | 21 |
 | `src/minimal_loop/loop_run.rs` | 4,960 | 2,485 |
 | `src/minimal_loop/repair_pressure.rs` | 278 | 468 |
 | `src/planner/repair_targeting.rs` | 459 | 138 |
