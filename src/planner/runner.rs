@@ -64,10 +64,9 @@ use crate::planner::profile::{
     GENERIC_INTERACTIVE_CONTRACT_CAPABILITY, PhaseVerificationMode, ProfileBehaviorProbeReport,
     ProfileId, ProfileInferenceSource, ProfileSnapshot, canonical_profile_name, domain_profile,
     infer_profile, is_nextjs_profile, profile_auto_repair, profile_before_plan,
-    profile_deterministic_step_plan, profile_expected_paths, profile_generation_rules,
-    profile_guidance, profile_post_step_repair, profile_quality_expectations,
-    profile_runtime_contract, profile_setup_scaffold_paths, resolve_profile_runtime,
-    verify_profile_final, verify_profile_invariant,
+    profile_expected_paths, profile_generation_rules, profile_guidance, profile_post_step_repair,
+    profile_quality_expectations, profile_runtime_contract, profile_setup_scaffold_paths,
+    resolve_profile_runtime, verify_profile_final, verify_profile_invariant,
 };
 use crate::planner::profile_behavior::ProfileRuntime;
 use crate::planner::repair::{
@@ -78,6 +77,8 @@ use crate::planner::repair::{
     workspace_relative_handoff_path,
 };
 use crate::planner::sanitizer::{SanitizerReport, sanitize_step_plan_against_policy};
+#[cfg(test)]
+use crate::planner::setup_step_policy;
 #[cfg(test)]
 use crate::planner::step_plan::parse_generated_step_plan_json;
 use crate::planner::step_plan::{
@@ -93,8 +94,7 @@ use crate::planner::verify::{
     verify_step_with_context, verify_step_with_profile_setup_observed_with_offline,
 };
 use crate::planner::{
-    contract_attribute_repair::merge_repair_target_paths, hook_snapshot, repair_targeting,
-    setup_step_policy, signals,
+    contract_attribute_repair::merge_repair_target_paths, hook_snapshot, repair_targeting, signals,
 };
 use crate::provider_call::{self, ProviderCallScope};
 use crate::providers::{AssistantReply, ChatClient, model_for};
@@ -609,31 +609,25 @@ fn generate_step_plan_with_ui_for_phase(
                 );
                 strengthen_step_plan_for_profile(&mut plan, config);
                 repair_generated_step_plan_contract(&mut plan);
-                let step_checks_converted =
-                    crate::planner::profiles::step_checks::canonicalize_create_plan(
-                        &mut plan,
-                        &config.profile,
-                        config.resolved_run_intent() == IntentId::Create,
-                        phase_label.is_none() || final_phase,
-                        config.eval_events_path.as_deref(),
-                    );
+                let runtime = resolve_profile_runtime(&config.profile);
+                let step_checks_converted = runtime.canonicalize_create_plan(
+                    &mut plan,
+                    config.resolved_run_intent() == IntentId::Create,
+                    phase_label.is_none() || final_phase,
+                    config.eval_events_path.as_deref(),
+                );
                 let sanitizer_report =
                     sanitize_step_plan_against_policy(&mut plan, Some(&config.workspace_root));
                 let preset_converted = if fix_before {
-                    if config.profile == "data" {
-                        crate::planner::profiles::data::step_policy::verify_default::bind_empty_fix_verify_steps(
-                            &mut plan,
-                            phase_label,
-                            config.eval_events_path.as_deref(),
-                        )
-                    } else {
-                        0
-                    }
+                    runtime.bind_empty_fix_verify_steps(
+                        &mut plan,
+                        phase_label,
+                        config.eval_events_path.as_deref(),
+                    )
                 } else {
-                    setup_step_policy::convert_preset_phase_setup_steps(
+                    runtime.convert_preset_phase_setup_steps(
                         &mut plan,
                         &config.workspace_root,
-                        &config.profile,
                         goal,
                         phase_label.map(|id| (id, final_phase)),
                         preset_phase,
@@ -807,10 +801,9 @@ fn deterministic_step_plan_for_phase(
     if crate::planner::fix_diagnostics::prompt_has_diagnostic(phase_prompt) {
         return Ok(None);
     }
-    let Some(template) = profile_deterministic_step_plan(
-        &config.workspace_root,
-        &config.profile,
+    let Some(template) = resolve_profile_runtime(&config.profile).deterministic_step_plan(
         phase_prompt,
+        &config.workspace_root,
         phase_prompt,
     ) else {
         return Ok(None);
@@ -830,9 +823,8 @@ fn deterministic_step_plan_for_phase(
     );
     strengthen_step_plan_for_profile(&mut plan, config);
     repair_generated_step_plan_contract(&mut plan);
-    let _ = crate::planner::profiles::step_checks::canonicalize_create_plan(
+    let _ = resolve_profile_runtime(&config.profile).canonicalize_create_plan(
         &mut plan,
-        &config.profile,
         config.resolved_run_intent() == IntentId::Create,
         phase_label.is_none() || final_phase,
         config.eval_events_path.as_deref(),
@@ -2171,21 +2163,20 @@ fn run_step(
     phase_scope: Option<&str>,
     mut run_setup_authority: Option<&mut UltraRunSetupAuthorityState>,
 ) -> Result<StepRunOutcome, StepRunError> {
-    let (mut runtime_step, synthesized_precheck) =
-        setup_step_policy::runtime_step_with_profile_checks(
-            &config.workspace_root,
-            &config.profile,
-            &prompt_context.overall_goal,
-            step,
-            phase_scope,
-            config.eval_events_path.as_deref(),
-        );
-    crate::planner::step_material::inject(config, &mut runtime_step).map_err(|err| {
-        StepRunError {
+    let runtime = resolve_profile_runtime(&config.profile);
+    let (mut runtime_step, synthesized_precheck) = runtime.runtime_step_with_profile_checks(
+        &config.workspace_root,
+        &prompt_context.overall_goal,
+        step,
+        phase_scope,
+        config.eval_events_path.as_deref(),
+    );
+    runtime
+        .inject_step_material(config, &mut runtime_step)
+        .map_err(|err| StepRunError {
             message: format!("step source material injection failed: {err}"),
             outcome: StepRunOutcome::default(),
-        }
-    })?;
+        })?;
     let instruction = build_step_prompt(plan, &runtime_step, prompt_context, config.prompt_layout);
     emit_step_prompt_contract(config, &runtime_step, prompt_context, &instruction);
     if step.step_kind() == StepKind::Report
@@ -2219,15 +2210,9 @@ fn run_step(
     ))
     .with_required_mutation_before_short_circuit(synthesized_precheck);
     let data_pre_satisfied =
-        crate::planner::profiles::data::pre_satisfied::profile_applies(&config.profile);
-    let verify_first_applicable = if data_pre_satisfied {
-        crate::planner::profiles::data::pre_satisfied::verify_first_applicable(
-            &config.workspace_root,
-            &runtime_step,
-        )
-    } else {
-        setup_step_policy::step_short_circuit_precheck_applicable(&config.profile, &runtime_step)
-    };
+        runtime.pre_satisfied_verify_first(&config.workspace_root, &runtime_step);
+    let verify_first_applicable = data_pre_satisfied
+        .unwrap_or_else(|| runtime.step_short_circuit_precheck_applicable(&runtime_step));
     if verify_first_applicable {
         let (report, build_lifecycles) = verify_step_completion_observed(
             config,
@@ -2247,7 +2232,7 @@ fn run_step(
             );
         }
         if report.is_pass() {
-            if data_pre_satisfied {
+            if data_pre_satisfied.is_some() {
                 crate::planner::profiles::data::pre_satisfied::emit_short_circuited(
                     config.eval_events_path.as_deref(),
                     &runtime_step,
@@ -8366,80 +8351,11 @@ fn command_list_summary(commands: &[String]) -> String {
 }
 
 fn fallback_step_plan_for_setup_phase(goal: &str, config: &Config) -> Option<StepPlan> {
-    let profile = canonical_profile_name(&config.profile);
-    if !known_profile_for_setup_fallback(&profile) || !looks_like_setup_phase_goal(goal) {
-        return None;
-    }
-    let expected_paths = profile_setup_scaffold_paths(&config.workspace_root, &profile);
-    if expected_paths.is_empty() {
-        return None;
-    }
-    let verify = fallback_setup_verify_commands(&expected_paths);
-    let plan = StepPlan {
-        goal: goal.to_string(),
-        steps: vec![PlanStep {
-            id: "fallback-setup".to_string(),
-            kind: "setup".to_string(),
-            expected_result: "pass".to_string(),
-            instruction: fallback_setup_instruction(&profile, goal, &expected_paths),
-            expected_paths,
-            verify,
-        }],
-    };
-    let lint_report =
-        crate::planner::lint::lint_template_contract(&plan, Some(&config.workspace_root));
-    lint_report.is_pass().then_some(plan)
-}
-
-fn fallback_setup_verify_commands(expected_paths: &[String]) -> Vec<String> {
-    expected_paths
-        .iter()
-        .map(|path| format!("test -f {path}"))
-        .filter_map(|command| {
-            crate::planner::verify::normalize_verify_command(&command)
-                .ok()
-                .map(|normalized| normalized.into_string())
-        })
-        .collect::<Vec<_>>()
-}
-
-fn fallback_setup_instruction(profile: &str, goal: &str, expected_paths: &[String]) -> String {
-    if profile == "python-cli" {
-        return format!(
-            "Create one coherent python-cli package scaffold for this setup phase: {goal}. \
-             Required files: {paths}. \
-             Coherence requirements: pyproject.toml declares the package metadata; \
-             src/<package>/main.py implements a CLI that reads stdin or argv and prints non-empty output that changes when input changes; \
-             keep dependency setup separate from verification and verify syntax with python -m compileall -q src.",
-            goal = compact_single_line(goal),
-            paths = expected_paths.join(", "),
-        );
-    }
-    format!(
-        "Create one coherent {profile} App Router scaffold for this setup phase: {goal}. \
-         Required files: {paths}. \
-         Coherence requirements: src/app/globals.css contains @tailwind base, @tailwind components, and @tailwind utilities; \
-         src/app/layout.tsx imports ./globals.css; \
-         create exactly one Tailwind config file, preferring tailwind.config.ts and never creating multiple tailwind.config.* files; \
-         package.json scripts.dev and scripts.start run next dev and next start on the goal's port when one is mentioned.",
-        goal = compact_single_line(goal),
-        paths = expected_paths.join(", "),
-    )
-}
-
-fn known_profile_for_setup_fallback(profile: &str) -> bool {
-    matches!(profile, "nextjs" | "python-cli")
-}
-
-fn looks_like_setup_phase_goal(goal: &str) -> bool {
-    let phase_text = phase_id_and_task_text(goal).unwrap_or_else(|| goal.to_string());
-    let lower = phase_text.to_ascii_lowercase();
-    signals::contains_setup_token(&phase_text)
-        || lower.contains("set up")
-        || lower.contains("scaffold")
-        || lower.contains("init")
-        || lower.contains("initialize")
-        || lower.contains("initialise")
+    let plan = resolve_profile_runtime(&config.profile)
+        .fallback_setup_plan(&config.workspace_root, goal)?;
+    crate::planner::lint::lint_template_contract(&plan, Some(&config.workspace_root))
+        .is_pass()
+        .then_some(plan)
 }
 
 fn phase_id_and_task_text(goal: &str) -> Option<String> {

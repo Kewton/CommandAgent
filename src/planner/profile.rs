@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use crate::config::Config;
 use crate::minimal_loop::build_verifier::{
     BuildVerifierRequirement, CompileError, ForeignToolchainObservation, FullCommandOutput,
 };
@@ -10,7 +11,7 @@ use crate::minimal_loop::evidence::required_evidence_for_capability;
 use crate::planner::adjudication::contract::{ProbeOutcome, is_fix_intent};
 use crate::planner::profile_behavior::ProfileRuntime;
 use crate::planner::signals;
-use crate::planner::step_plan::StepPlan;
+use crate::planner::step_plan::{PlanStep, StepPlan};
 use crate::planner::ultra_plan::UltraPlan;
 use crate::planner::verify::{NormalizedVerifyCommand, VerificationReport};
 
@@ -539,6 +540,59 @@ impl ProfileRuntime for crate::planner::profiles::nextjs::NextjsProfile {
     fn route_bound_closure(&self, root: &Path) -> std::collections::BTreeSet<std::path::PathBuf> {
         crate::minimal_loop::import_scan::nextjs_route_bound_closure(root)
     }
+
+    fn convert_preset_phase_setup_steps(
+        &self,
+        plan: &mut StepPlan,
+        root: &Path,
+        goal: &str,
+        phase_scope: Option<(&str, bool)>,
+        preset_phase: bool,
+        eval_events_path: Option<&Path>,
+    ) -> usize {
+        crate::planner::setup_step_policy::convert_preset_phase_setup_steps(
+            plan,
+            root,
+            crate::planner::profiles::nextjs::PROFILE_ID,
+            goal,
+            phase_scope,
+            preset_phase,
+            eval_events_path,
+        )
+    }
+
+    fn runtime_step_with_profile_checks(
+        &self,
+        root: &Path,
+        goal: &str,
+        step: &PlanStep,
+        phase_id: Option<&str>,
+        eval_events_path: Option<&Path>,
+    ) -> (PlanStep, bool) {
+        crate::planner::setup_step_policy::runtime_step_with_profile_checks(
+            root,
+            crate::planner::profiles::nextjs::PROFILE_ID,
+            goal,
+            step,
+            phase_id,
+            eval_events_path,
+        )
+    }
+
+    fn step_short_circuit_precheck_applicable(&self, step: &PlanStep) -> bool {
+        crate::planner::setup_step_policy::step_short_circuit_precheck_applicable(
+            crate::planner::profiles::nextjs::PROFILE_ID,
+            step,
+        )
+    }
+
+    fn fallback_setup_plan(&self, root: &Path, goal: &str) -> Option<StepPlan> {
+        crate::planner::profile_preset::nextjs_setup_fallback(root, goal)
+    }
+
+    fn enforce_nextjs_plan_shape(&self) -> bool {
+        true
+    }
 }
 
 impl ProfileRuntime for crate::planner::profiles::python_cli::PythonCliProfile {
@@ -562,6 +616,25 @@ impl ProfileRuntime for crate::planner::profiles::python_cli::PythonCliProfile {
         projection: &mut crate::eval_events::CompletionProjection,
     ) {
         crate::completion_metadata::cli::apply_terminal_projection_runtime(root, projection);
+    }
+
+    fn canonicalize_create_plan(
+        &self,
+        plan: &mut StepPlan,
+        create_intent: bool,
+        _terminal_plan: bool,
+        eval_events_path: Option<&Path>,
+    ) -> usize {
+        crate::planner::profiles::python_cli::readme_verify::canonicalize_step_plan(
+            plan,
+            self.id(),
+            create_intent,
+            eval_events_path,
+        )
+    }
+
+    fn fallback_setup_plan(&self, root: &Path, goal: &str) -> Option<StepPlan> {
+        crate::planner::profile_preset::python_cli_setup_fallback(root, goal)
     }
 }
 
@@ -595,6 +668,85 @@ impl ProfileRuntime for DataProfile {
     ) {
         crate::completion_metadata::data::apply_terminal_projection(root, projection);
     }
+
+    fn bind_empty_fix_verify_steps(
+        &self,
+        plan: &mut StepPlan,
+        phase_label: Option<&str>,
+        eval_events_path: Option<&Path>,
+    ) -> usize {
+        crate::planner::profiles::data::step_policy::verify_default::bind_empty_fix_verify_steps(
+            plan,
+            phase_label,
+            eval_events_path,
+        )
+    }
+
+    fn convert_preset_phase_setup_steps(
+        &self,
+        plan: &mut StepPlan,
+        root: &Path,
+        goal: &str,
+        phase_scope: Option<(&str, bool)>,
+        preset_phase: bool,
+        eval_events_path: Option<&Path>,
+    ) -> usize {
+        crate::planner::setup_step_policy::convert_preset_phase_setup_steps(
+            plan,
+            root,
+            self.id(),
+            goal,
+            phase_scope,
+            preset_phase,
+            eval_events_path,
+        )
+    }
+
+    fn runtime_step_with_profile_checks(
+        &self,
+        root: &Path,
+        goal: &str,
+        step: &PlanStep,
+        phase_id: Option<&str>,
+        eval_events_path: Option<&Path>,
+    ) -> (PlanStep, bool) {
+        crate::planner::setup_step_policy::runtime_step_with_profile_checks(
+            root,
+            self.id(),
+            goal,
+            step,
+            phase_id,
+            eval_events_path,
+        )
+    }
+
+    fn pre_satisfied_verify_first(&self, root: &Path, step: &PlanStep) -> Option<bool> {
+        Some(crate::planner::profiles::data::pre_satisfied::verify_first_applicable(root, step))
+    }
+
+    fn default_plan_preset(
+        &self,
+        intent: Option<crate::planner::adjudication::contract::IntentId>,
+    ) -> Option<(crate::config::PlanPreset, &'static str)> {
+        match intent {
+            Some(crate::planner::adjudication::contract::IntentId::Investigate) => Some((
+                crate::config::PlanPreset::Profile,
+                "default_investigate_data",
+            )),
+            Some(crate::planner::adjudication::contract::IntentId::Fix) => {
+                Some((crate::config::PlanPreset::Profile, "default_fix_data"))
+            }
+            _ => None,
+        }
+    }
+
+    fn synthesizes_fix_plan(&self) -> bool {
+        true
+    }
+
+    fn synthesizes_investigation_plan(&self) -> bool {
+        true
+    }
 }
 
 impl ProfileRuntime for crate::planner::profiles::ingest::IngestProfile {
@@ -618,6 +770,38 @@ impl ProfileRuntime for crate::planner::profiles::ingest::IngestProfile {
         projection: &mut crate::eval_events::CompletionProjection,
     ) {
         crate::completion_metadata::ingest::apply_terminal_projection_runtime(root, projection);
+    }
+
+    fn canonicalize_create_plan(
+        &self,
+        plan: &mut StepPlan,
+        create_intent: bool,
+        terminal_plan: bool,
+        eval_events_path: Option<&Path>,
+    ) -> usize {
+        crate::planner::profiles::ingest::phase_verify::canonicalize_step_plan(
+            plan,
+            self.id(),
+            create_intent,
+            terminal_plan,
+            eval_events_path,
+        )
+    }
+
+    fn default_plan_preset(
+        &self,
+        intent: Option<crate::planner::adjudication::contract::IntentId>,
+    ) -> Option<(crate::config::PlanPreset, &'static str)> {
+        (intent == Some(crate::planner::adjudication::contract::IntentId::Create))
+            .then_some((crate::config::PlanPreset::Profile, "default_create_ingest"))
+    }
+
+    fn inject_step_material(&self, config: &Config, step: &mut PlanStep) -> anyhow::Result<()> {
+        crate::planner::step_material::inject_ingest(config, step)
+    }
+
+    fn synthesizes_create_plan(&self) -> bool {
+        true
     }
 }
 

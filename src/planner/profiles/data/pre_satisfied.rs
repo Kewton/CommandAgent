@@ -3,13 +3,8 @@ use std::path::Path;
 use serde_json::json;
 
 use crate::eval_events;
-use crate::planner::profile::domain_profile;
 use crate::planner::step_plan::{PlanStep, StepKind};
 use crate::planner::verify::VerificationReport;
-
-pub(crate) fn profile_applies(profile: &str) -> bool {
-    domain_profile(profile).id() == "data"
-}
 
 pub(crate) fn verify_first_applicable(root: &Path, step: &PlanStep) -> bool {
     matches!(step.step_kind(), StepKind::Implement | StepKind::Verify)

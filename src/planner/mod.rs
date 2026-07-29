@@ -28,6 +28,7 @@ pub mod profile;
 pub(crate) mod profile_admission;
 pub(crate) mod profile_behavior;
 pub mod profile_manifest;
+pub(crate) mod profile_preset;
 pub mod repair;
 mod repair_target_selection;
 pub mod repair_targeting;

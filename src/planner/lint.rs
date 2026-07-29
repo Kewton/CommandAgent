@@ -1,8 +1,8 @@
 use std::path::Path;
 
-use crate::planner::side_effect_paths::diagnose_expected_path;
 use crate::planner::step_plan::{ExpectedResult, StepKind, StepPlan};
 use crate::planner::ultra_plan::UltraPlan;
+use crate::planner::{profile::resolve_profile_runtime, side_effect_paths::diagnose_expected_path};
 use crate::tools::path_guard::validate_workspace_relative;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -429,7 +429,7 @@ pub fn step_plan_quality_report(
         .flat_map(|step| step.verify.iter().map(String::as_str))
         .collect();
     let lower_goal = plan.goal.to_ascii_lowercase();
-    let looks_next_profile = matches!(context.profile.as_str(), "nextjs" | "next-js" | "next.js");
+    let looks_next_profile = resolve_profile_runtime(&context.profile).enforce_nextjs_plan_shape();
     let has_strong_verify = verify_commands
         .iter()
         .any(|command| is_strong_verify_command(command));

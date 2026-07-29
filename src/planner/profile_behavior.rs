@@ -68,4 +68,100 @@ pub trait ProfileRuntime: DomainProfile {
     ) -> anyhow::Result<ProfileBehaviorProbeReport> {
         self.behavior_probe(root, goal, required_capabilities, offline)
     }
+
+    fn canonicalize_create_plan(
+        &self,
+        _plan: &mut crate::planner::step_plan::StepPlan,
+        _create_intent: bool,
+        _terminal_plan: bool,
+        _eval_events_path: Option<&Path>,
+    ) -> usize {
+        0
+    }
+
+    fn bind_empty_fix_verify_steps(
+        &self,
+        _plan: &mut crate::planner::step_plan::StepPlan,
+        _phase_label: Option<&str>,
+        _eval_events_path: Option<&Path>,
+    ) -> usize {
+        0
+    }
+
+    fn convert_preset_phase_setup_steps(
+        &self,
+        _plan: &mut crate::planner::step_plan::StepPlan,
+        _root: &Path,
+        _goal: &str,
+        _phase_scope: Option<(&str, bool)>,
+        _preset_phase: bool,
+        _eval_events_path: Option<&Path>,
+    ) -> usize {
+        0
+    }
+
+    fn runtime_step_with_profile_checks(
+        &self,
+        _root: &Path,
+        _goal: &str,
+        step: &crate::planner::step_plan::PlanStep,
+        _phase_id: Option<&str>,
+        _eval_events_path: Option<&Path>,
+    ) -> (crate::planner::step_plan::PlanStep, bool) {
+        (step.clone(), false)
+    }
+
+    fn pre_satisfied_verify_first(
+        &self,
+        _root: &Path,
+        _step: &crate::planner::step_plan::PlanStep,
+    ) -> Option<bool> {
+        None
+    }
+
+    fn step_short_circuit_precheck_applicable(
+        &self,
+        step: &crate::planner::step_plan::PlanStep,
+    ) -> bool {
+        crate::planner::setup_step_policy::profile_independent_short_circuit_precheck(step)
+    }
+
+    fn fallback_setup_plan(
+        &self,
+        _root: &Path,
+        _goal: &str,
+    ) -> Option<crate::planner::step_plan::StepPlan> {
+        None
+    }
+
+    fn default_plan_preset(
+        &self,
+        _intent: Option<crate::planner::adjudication::contract::IntentId>,
+    ) -> Option<(crate::config::PlanPreset, &'static str)> {
+        None
+    }
+
+    fn inject_step_material(
+        &self,
+        _config: &crate::config::Config,
+        _step: &mut crate::planner::step_plan::PlanStep,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    fn synthesizes_fix_plan(&self) -> bool {
+        false
+    }
+
+    fn synthesizes_investigation_plan(&self) -> bool {
+        false
+    }
+
+    fn synthesizes_create_plan(&self) -> bool {
+        false
+    }
+
+    fn enforce_nextjs_plan_shape(&self) -> bool {
+        false
+    }
 }

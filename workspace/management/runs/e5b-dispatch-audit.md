@@ -92,7 +92,7 @@ runner_sites = [3782, 219, 1449, 3800, 4035, 4087, 4199, 4927, 5486, 7946]
 [[migration_batch]]
 batch = 2
 kind = "preset selection"
-status = "pending"
+status = "complete"
 runner_sites = [612, 622, 632, 809, 832, 2174, 2221, 2228, 8358, 8359, 8362, 8373, 8396, 8420]
 
 [[migration_batch]]

@@ -68,6 +68,17 @@ pub(crate) fn step_short_circuit_precheck_applicable(profile: &str, step: &PlanS
     }
 }
 
+pub(crate) fn profile_independent_short_circuit_precheck(step: &PlanStep) -> bool {
+    if step.expected_paths.is_empty() && step.verify.is_empty() {
+        return false;
+    }
+    match step.step_kind() {
+        StepKind::Setup => step_mentions_setup(&step.id, &step.instruction),
+        StepKind::Verify => !step.expected_paths.is_empty(),
+        _ => false,
+    }
+}
+
 pub(crate) fn references_template_owned_artifacts(profile: &str, step: &PlanStep) -> bool {
     referenced_template_artifact(profile, step).is_some()
 }

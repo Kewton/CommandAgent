@@ -6,10 +6,7 @@ use crate::planner::step_plan::PlanStep;
 const INGEST_SELECTOR_STEP_ID: &str = "declare-ingest-inspection";
 const INGEST_IMPLEMENT_STEP_ID: &str = "implement-ingest-delivery";
 
-pub(crate) fn inject(config: &Config, step: &mut PlanStep) -> anyhow::Result<()> {
-    if crate::planner::profile::domain_profile(&config.profile).id() != "ingest" {
-        return Ok(());
-    }
+pub(crate) fn inject_ingest(config: &Config, step: &mut PlanStep) -> anyhow::Result<()> {
     match step.id.as_str() {
         INGEST_SELECTOR_STEP_ID => {
             let guidance = crate::planner::profiles::ingest::snapshot_structure::render(
@@ -57,6 +54,12 @@ pub(crate) fn inject(config: &Config, step: &mut PlanStep) -> anyhow::Result<()>
         _ => {}
     }
     Ok(())
+}
+
+#[cfg(test)]
+pub(crate) fn inject(config: &Config, step: &mut PlanStep) -> anyhow::Result<()> {
+    crate::planner::profile::resolve_profile_runtime(&config.profile)
+        .inject_step_material(config, step)
 }
 
 #[cfg(test)]

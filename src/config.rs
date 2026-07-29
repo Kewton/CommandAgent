@@ -9,7 +9,7 @@ use crate::cli::{
 };
 pub use crate::planner::adjudication::contract::IntentId;
 use crate::planner::intent::detect_intent;
-use crate::planner::profile::{ProfileInference, infer_profile};
+use crate::planner::profile::{ProfileInference, infer_profile, resolve_profile_runtime};
 
 pub const LOCAL_PROVIDER_CHAT_TIMEOUT_SECS: u64 = 600;
 pub const REMOTE_PROVIDER_CHAT_TIMEOUT_SECS: u64 = 180;
@@ -488,24 +488,15 @@ impl Config {
             })
             .or_else(|| config_file_plan_preset(&workspace_root))
             .or_else(|| {
-                let data_profile = cli.profile.as_deref() == Some("data")
-                    || preset
+                let declared_profile = cli.profile.as_deref().or_else(|| {
+                    preset
                         .as_ref()
                         .and_then(|preset| preset.profile.as_ref())
-                        .is_some_and(|profile| profile.value == "data");
-                let ingest_profile = cli.profile.as_deref() == Some("ingest")
-                    || preset
-                        .as_ref()
-                        .and_then(|preset| preset.profile.as_ref())
-                        .is_some_and(|profile| profile.value == "ingest");
-                if matches!(cli.intent, Some(IntentArg::Create)) && ingest_profile {
-                    Some(sourced(PlanPreset::Profile, "default_create_ingest"))
-                } else if matches!(cli.intent, Some(IntentArg::Investigate)) && data_profile {
-                    Some(sourced(PlanPreset::Profile, "default_investigate_data"))
-                } else {
-                    (matches!(cli.intent, Some(IntentArg::Fix)) && data_profile)
-                        .then(|| sourced(PlanPreset::Profile, "default_fix_data"))
-                }
+                        .map(|profile| profile.value.as_str())
+                });
+                resolve_profile_runtime(declared_profile.unwrap_or("generic"))
+                    .default_plan_preset(cli.intent.map(IntentId::from))
+                    .map(|(preset, source)| sourced(preset, source))
             })
             .unwrap_or_else(|| default_plan_preset_for_planner(&planner_model.value));
         let state_dir = cli.state_dir.clone().unwrap_or_else(default_state_dir);

@@ -79,7 +79,7 @@ fn applies(config: &Config, plan: &UltraPlan) -> bool {
         && config.resolved_run_intent() == IntentId::Create
         && plan.intent == "create"
         && crate::planner::ultra_preset::is_profile_preset_plan(config, plan)
-        && crate::planner::profile::domain_profile(&plan.profile).id() == "ingest"
+        && crate::planner::profile::resolve_profile_runtime(&plan.profile).synthesizes_create_plan()
 }
 
 fn ensure_shape(plan: &UltraPlan) -> anyhow::Result<()> {

@@ -100,7 +100,7 @@ fn applies(config: &Config, plan: &UltraPlan) -> bool {
     config.plan_preset == PlanPreset::Profile
         && config.intent_override == Some(IntentId::Fix)
         && is_fix_intent(&plan.intent)
-        && crate::planner::profile::domain_profile(&plan.profile).id() == "data"
+        && crate::planner::profile::resolve_profile_runtime(&plan.profile).synthesizes_fix_plan()
 }
 
 fn ensure_contract_shape(plan: &UltraPlan) -> anyhow::Result<()> {
