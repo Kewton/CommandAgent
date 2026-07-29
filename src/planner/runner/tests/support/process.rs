@@ -18,6 +18,31 @@ static TEST_DEV_SERVER_PORT: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(34_011);
 
 #[cfg(unix)]
+struct ReservedLocalPort {
+    listener: std::net::TcpListener,
+    port: u16,
+}
+
+#[cfg(unix)]
+impl ReservedLocalPort {
+    fn reserve() -> Self {
+        let listener =
+            std::net::TcpListener::bind(("127.0.0.1", 0)).expect("reserve local test port");
+        let port = listener.local_addr().expect("reserved local address").port();
+        assert_ne!(port, NEXTJS_DEV_SERVER_DEFAULT_PORT);
+        Self { listener, port }
+    }
+
+    fn port(&self) -> u16 {
+        self.port
+    }
+
+    fn release(self) {
+        drop(self.listener);
+    }
+}
+
+#[cfg(unix)]
 fn free_local_port() -> u16 {
     for _ in 0..2_000 {
         let port = TEST_DEV_SERVER_PORT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);

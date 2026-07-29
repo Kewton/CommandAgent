@@ -228,11 +228,18 @@ Benchフェーズ(e)へ`acceptance_sheet`生成を統合し、シート自給率
 - fix（段階2）：合成計画snapshot＋conformance 9本でbyte互換を証明してから移行。
 - create（段階3）：manifest preset snapshot＋byte互換6/6を証明してから移行。
 
-## Known flaky test determinization [QUEUED]
+## Known flaky test determinization [RESOLVED 2026-07-30]
 
-`final_acceptance_budget_exhaustion_uses_last_cycle_reason`の低頻度・並列干渉候補を、dev-server flakyと同じ棚で共有状態除去として決定化する。発現時は単独3回反復で再診断する。
+`final_acceptance_budget_exhaustion_uses_last_cycle_reason`は共有Atomicの
+予測可能ポートを空き確認後に解放していたため、未guardの同系テストと
+TOCTOU窓を共有していた。E-5eで当該テスト専用のephemeral port leaseを
+導入し、production dev-serverへの所有権移行直前まで予約する形へ決定化した。
 
-80msキャンセル猶予テストのタイミングflake 1回発現 (E-3b full初回・単独1/1 pass+full再走green)—— budget-exhaustion系と同棚・決定化候補
+80msキャンセル猶予テストのタイミングflake 1回
+(E-3b full初回・単独1/1 pass+full再走green)は、E-5eで子processの
+ready同期点と仮想猶予clockへ置換した。壁時計assertは除去したが、
+TERMを無視する子へ猶予全量を与えてからuser abortとして受理する検証意図は
+維持した。両テストは各20回連続greenで解消確認済み。
 
 ## Next.js band input restoration (2026-07-22) [QUEUED]
 

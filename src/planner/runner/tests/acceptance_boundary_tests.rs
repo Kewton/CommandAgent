@@ -1054,7 +1054,8 @@ fn final_acceptance_evidence_no_change_uses_reanchor_then_compact_ladder() {
 fn final_acceptance_budget_exhaustion_uses_last_cycle_reason() {
     let _probe_guard = dev_server_probe_test_guard();
     let dir = tempfile::tempdir().unwrap();
-    let port = free_local_port();
+    let port_lease = ReservedLocalPort::reserve();
+    let port = port_lease.port();
     let events = dir.path().join(".anvil/runs/last-cycle/events.jsonl");
     enable_dev_server_probe_test_override(dir.path());
     interaction_probe::write_test_availability_override(dir.path(), true);
@@ -1107,6 +1108,9 @@ fn final_acceptance_budget_exhaustion_uses_last_cycle_reason() {
         ),
     ]);
 
+    // Keep this test's port unavailable to every parallel test until the
+    // production dev-server path is ready to take ownership.
+    port_lease.release();
     let err = run_ultra_plan(&mut planner, &mut execution, &plan, &cfg)
         .unwrap_err()
         .to_string();
@@ -1337,4 +1341,3 @@ fn browser_interaction_probe_options_require_text_echo_for_preview_contracts() {
     assert!(live_preview.text_entry_required);
     assert!(live_preview.token_echo_required);
 }
-

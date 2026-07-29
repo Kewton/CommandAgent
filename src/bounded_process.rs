@@ -311,7 +311,7 @@ where
 }
 
 fn wait_with_timeout_cancel_force_and_grace<F, G>(
-    mut child: Child,
+    child: Child,
     timeout: Duration,
     is_cancelled: F,
     is_force_cancelled: G,
@@ -320,6 +320,29 @@ fn wait_with_timeout_cancel_force_and_grace<F, G>(
 where
     F: Fn() -> bool,
     G: Fn() -> bool,
+{
+    wait_with_timeout_cancel_force_grace_and_clock(
+        child,
+        timeout,
+        is_cancelled,
+        is_force_cancelled,
+        user_interrupt_grace,
+        &SystemGraceClock,
+    )
+}
+
+fn wait_with_timeout_cancel_force_grace_and_clock<F, G, C>(
+    mut child: Child,
+    timeout: Duration,
+    is_cancelled: F,
+    is_force_cancelled: G,
+    user_interrupt_grace: Duration,
+    grace_clock: &C,
+) -> io::Result<BoundedProcessOutput>
+where
+    F: Fn() -> bool,
+    G: Fn() -> bool,
+    C: GraceClock,
 {
     let started = Instant::now();
     loop {
@@ -335,6 +358,7 @@ where
                 &mut child,
                 user_interrupt_grace,
                 &is_force_cancelled,
+                grace_clock,
             );
             return output_from_child(
                 child.wait_with_output()?,
@@ -343,7 +367,12 @@ where
             );
         }
         if started.elapsed() >= timeout {
-            terminate_process_group_with_grace(&mut child, DEFAULT_TIMEOUT_KILL_GRACE, || false);
+            terminate_process_group_with_grace(
+                &mut child,
+                DEFAULT_TIMEOUT_KILL_GRACE,
+                || false,
+                grace_clock,
+            );
             return output_from_child(
                 child.wait_with_output()?,
                 BoundedProcessOutcomeKind::TimedOut,
@@ -355,7 +384,12 @@ where
 }
 
 pub fn terminate_process_group(child: &mut Child) {
-    terminate_process_group_with_grace(child, DEFAULT_TIMEOUT_KILL_GRACE, || false);
+    terminate_process_group_with_grace(
+        child,
+        DEFAULT_TIMEOUT_KILL_GRACE,
+        || false,
+        &SystemGraceClock,
+    );
 }
 
 pub fn terminate_process_group_by_pid(pid: u32) -> io::Result<()> {
@@ -381,9 +415,40 @@ pub fn terminate_process_group_by_pid(pid: u32) -> io::Result<()> {
     }
 }
 
-fn terminate_process_group_with_grace<F>(child: &mut Child, grace: Duration, is_force_cancelled: F)
-where
+trait GraceClock {
+    type Mark: Copy;
+
+    fn mark(&self) -> Self::Mark;
+    fn elapsed(&self, mark: Self::Mark) -> Duration;
+    fn wait(&self, duration: Duration);
+}
+
+struct SystemGraceClock;
+
+impl GraceClock for SystemGraceClock {
+    type Mark = Instant;
+
+    fn mark(&self) -> Self::Mark {
+        Instant::now()
+    }
+
+    fn elapsed(&self, mark: Self::Mark) -> Duration {
+        mark.elapsed()
+    }
+
+    fn wait(&self, duration: Duration) {
+        thread::sleep(duration);
+    }
+}
+
+fn terminate_process_group_with_grace<F, C>(
+    child: &mut Child,
+    grace: Duration,
+    is_force_cancelled: F,
+    clock: &C,
+) where
     F: Fn() -> bool,
+    C: GraceClock,
 {
     #[cfg(unix)]
     {
@@ -392,16 +457,16 @@ where
             libc::kill(pgid, libc::SIGTERM);
         }
     }
-    let grace_started = Instant::now();
+    let grace_started = clock.mark();
     loop {
         if child.try_wait().ok().flatten().is_some() {
             return;
         }
-        if is_force_cancelled() || grace_started.elapsed() >= grace {
+        if is_force_cancelled() || clock.elapsed(grace_started) >= grace {
             break;
         }
-        let remaining = grace.saturating_sub(grace_started.elapsed());
-        thread::sleep(DEFAULT_POLL_INTERVAL.min(remaining));
+        let remaining = grace.saturating_sub(clock.elapsed(grace_started));
+        clock.wait(DEFAULT_POLL_INTERVAL.min(remaining));
     }
     #[cfg(unix)]
     {
@@ -540,28 +605,49 @@ mod tests {
 
     #[test]
     fn cancelled_child_is_classified_as_user_abort() {
+        struct TestGraceClock(std::cell::Cell<Duration>);
+
+        impl GraceClock for TestGraceClock {
+            type Mark = Duration;
+
+            fn mark(&self) -> Self::Mark {
+                self.0.get()
+            }
+
+            fn elapsed(&self, mark: Self::Mark) -> Duration {
+                self.0.get().saturating_sub(mark)
+            }
+
+            fn wait(&self, duration: Duration) {
+                self.0.set(self.0.get() + duration);
+            }
+        }
+
         let mut command = Command::new("sh");
         command
             .arg("-c")
-            .arg("trap '' TERM; while :; do :; done")
+            .arg("trap '' TERM; printf 'ready\\n'; while :; do :; done")
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let started = Instant::now();
-        let cancel_after = Instant::now() + Duration::from_millis(50);
-        let output = wait_with_timeout_cancel_force_and_grace(
-            spawn_child(&mut command).unwrap(),
+        let grace_clock = TestGraceClock(std::cell::Cell::new(Duration::ZERO));
+        let mut child = spawn_child(&mut command).unwrap();
+        let mut ready = [0_u8; 6];
+        std::io::Read::read_exact(child.stdout.as_mut().unwrap(), &mut ready).unwrap();
+        assert_eq!(&ready, b"ready\n");
+        let output = wait_with_timeout_cancel_force_grace_and_clock(
+            child,
             Duration::from_secs(30),
-            || Instant::now() >= cancel_after,
+            || true,
             || false,
             Duration::from_millis(100),
+            &grace_clock,
         )
         .unwrap();
 
         assert_eq!(output.kind, BoundedProcessOutcomeKind::CommandAbortedByUser);
-        assert!(started.elapsed() >= Duration::from_millis(80), "{output:?}");
-        assert!(started.elapsed() < Duration::from_secs(2), "{output:?}");
+        assert_eq!(grace_clock.0.get(), Duration::from_millis(100));
         assert_eq!(USER_INTERRUPT_KILL_GRACE, Duration::from_secs(5));
     }
 
