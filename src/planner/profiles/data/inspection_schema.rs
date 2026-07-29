@@ -5,6 +5,8 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::planner::failure_vocabulary::ViolationId;
+
 mod input_selection;
 mod input_table;
 
@@ -66,10 +68,10 @@ fn evaluate(root: &Path, goal: Option<&str>, evidence: &mut InspectionSchemaEvid
         .copied()
         .collect::<Vec<_>>();
     if !missing.is_empty() {
-        evidence.failure_kinds.push(format!(
-            "inspection_schema_violation:missing_keys:{}",
-            missing.join(",")
-        ));
+        evidence.failure_kinds.push(
+            ViolationId::inspection_schema(format!("missing_keys:{}", missing.join(",")))
+                .to_string(),
+        );
         return;
     }
     let input = match input_selection::load(root, goal) {
@@ -88,18 +90,23 @@ fn evaluate(root: &Path, goal: Option<&str>, evidence: &mut InspectionSchemaEvid
 }
 
 fn load_document(root: &Path) -> Result<Map<String, Value>, String> {
-    let path = crate::tools::path_guard::resolve_existing(root, INSPECTION_PATH)
-        .map_err(|error| format!("inspection_schema_violation:inspection_path:{error}"))?;
-    let metadata = path
-        .metadata()
-        .map_err(|error| format!("inspection_schema_violation:inspection_metadata:{error}"))?;
+    let path =
+        crate::tools::path_guard::resolve_existing(root, INSPECTION_PATH).map_err(|error| {
+            ViolationId::inspection_schema(format!("inspection_path:{error}")).to_string()
+        })?;
+    let metadata = path.metadata().map_err(|error| {
+        ViolationId::inspection_schema(format!("inspection_metadata:{error}")).to_string()
+    })?;
     if !metadata.is_file() || metadata.len() > MAX_INSPECTION_BYTES {
         return Err("inspection_schema_violation:inspection_file_invalid".to_string());
     }
-    let text = std::fs::read_to_string(path)
-        .map_err(|error| format!("inspection_schema_violation:inspection_unreadable:{error}"))?;
+    let text = std::fs::read_to_string(path).map_err(|error| {
+        ViolationId::inspection_schema(format!("inspection_unreadable:{error}")).to_string()
+    })?;
     serde_json::from_str::<Value>(&text)
-        .map_err(|error| format!("inspection_schema_violation:invalid_json:{error}"))?
+        .map_err(|error| {
+            ViolationId::inspection_schema(format!("invalid_json:{error}")).to_string()
+        })?
         .as_object()
         .cloned()
         .ok_or_else(|| "inspection_schema_violation:root_not_object".to_string())
@@ -125,10 +132,13 @@ fn validate_columns(
         .cloned()
         .collect::<Vec<_>>();
     if !missing.is_empty() {
-        failures.push(format!(
-            "inspection_schema_violation:column_names_missing_headers:{}",
-            missing.join(",")
-        ));
+        failures.push(
+            ViolationId::inspection_schema(format!(
+                "column_names_missing_headers:{}",
+                missing.join(",")
+            ))
+            .to_string(),
+        );
     }
     columns
 }
@@ -139,9 +149,12 @@ fn validate_row_count(document: &Map<String, Value>, expected: u64, failures: &m
         return;
     };
     if reported.as_u64() != Some(expected) && reported.as_f64() != Some(expected as f64) {
-        failures.push(format!(
-            "inspection_schema_violation:input_row_count_mismatch:expected={expected}:reported={reported}"
-        ));
+        failures.push(
+            ViolationId::inspection_schema(format!(
+                "input_row_count_mismatch:expected={expected}:reported={reported}"
+            ))
+            .to_string(),
+        );
     }
 }
 
@@ -160,10 +173,13 @@ fn validate_type_summaries(
         .cloned()
         .collect::<Vec<_>>();
     if !missing.is_empty() {
-        failures.push(format!(
-            "inspection_schema_violation:type_summaries_missing_columns:{}",
-            missing.join(",")
-        ));
+        failures.push(
+            ViolationId::inspection_schema(format!(
+                "type_summaries_missing_columns:{}",
+                missing.join(",")
+            ))
+            .to_string(),
+        );
     }
 }
 
@@ -190,10 +206,13 @@ fn validate_distinct_values(
         .cloned()
         .collect::<Vec<_>>();
     if !missing.is_empty() {
-        failures.push(format!(
-            "inspection_schema_violation:distinct_values_missing_categorical_columns:{}",
-            missing.join(",")
-        ));
+        failures.push(
+            ViolationId::inspection_schema(format!(
+                "distinct_values_missing_categorical_columns:{}",
+                missing.join(",")
+            ))
+            .to_string(),
+        );
     }
 }
 

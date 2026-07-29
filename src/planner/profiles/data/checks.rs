@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use super::claims_binding::{ClaimBinding, bind_report_claims_to_results, claim_limit_exceeded};
 use super::results_schema::{self, ExcludedRows, ResultsDocument};
 use crate::minimal_loop::pipeline_probe::{self, PipelineProbeConfig};
+use crate::planner::failure_vocabulary::ViolationId;
 
 pub use super::inspection_schema::{
     EVIDENCE_PATH as INSPECTION_SCHEMA_EVIDENCE_PATH, InspectionSchemaEvidence,
@@ -94,9 +95,9 @@ pub fn check_reconciliation(root: &Path) -> anyhow::Result<ReconciliationEvidenc
     };
     match results_schema::load(root) {
         Ok(results) => evaluate_reconciliation(&mut evidence, results),
-        Err(error) => evidence.failure_kinds.push(format!(
-            "reconciliation_violation:invalid_results_schema:{error}"
-        )),
+        Err(error) => evidence.failure_kinds.push(
+            ViolationId::reconciliation(format!("invalid_results_schema:{error}")).to_string(),
+        ),
     }
     evidence.ok = evidence.failure_kinds.is_empty();
     evidence.status = status(evidence.ok);
@@ -116,9 +117,9 @@ pub fn check_claims_binding(root: &Path) -> anyhow::Result<ClaimsBindingEvidence
     let results = match results_schema::load(root) {
         Ok(results) => Some(results),
         Err(error) => {
-            evidence.failure_kinds.push(format!(
-                "claims_binding_violation:invalid_results_schema:{error}"
-            ));
+            evidence.failure_kinds.push(
+                ViolationId::claims_binding(format!("invalid_results_schema:{error}")).to_string(),
+            );
             None
         }
     };
@@ -148,30 +149,33 @@ pub fn check_rerun_consistency(
     };
     match results_schema::load(root) {
         Ok(results) => evidence.baseline_results = Some(results),
-        Err(error) => evidence.failure_kinds.push(format!(
-            "rerun_consistency_violation:baseline_results:{error}"
-        )),
+        Err(error) => evidence
+            .failure_kinds
+            .push(ViolationId::rerun_consistency(format!("baseline_results:{error}")).to_string()),
     }
     if evidence.baseline_results.is_some() {
         match pipeline_probe::run(root, PipelineProbeConfig::new(entry).with_timeout(timeout)) {
             Ok(report) => {
                 evidence.pipeline_run_ok = report.ok;
                 if !report.ok {
-                    evidence.failure_kinds.push(format!(
-                        "rerun_consistency_violation:pipeline_run:{}",
-                        report.failure_kinds.join(",")
-                    ));
+                    evidence.failure_kinds.push(
+                        ViolationId::rerun_consistency(format!(
+                            "pipeline_run:{}",
+                            report.failure_kinds.join(",")
+                        ))
+                        .to_string(),
+                    );
                 }
             }
-            Err(error) => evidence.failure_kinds.push(format!(
-                "rerun_consistency_violation:pipeline_run_error:{error}"
-            )),
+            Err(error) => evidence.failure_kinds.push(
+                ViolationId::rerun_consistency(format!("pipeline_run_error:{error}")).to_string(),
+            ),
         }
         match results_schema::load(root) {
             Ok(results) => evidence.rerun_results = Some(results),
             Err(error) => evidence
                 .failure_kinds
-                .push(format!("rerun_consistency_violation:rerun_results:{error}")),
+                .push(ViolationId::rerun_consistency(format!("rerun_results:{error}")).to_string()),
         }
     }
     if let (Some(baseline), Some(rerun)) = (&evidence.baseline_results, &evidence.rerun_results)
@@ -196,9 +200,10 @@ fn evaluate_reconciliation(evidence: &mut ReconciliationEvidence, results: Resul
     evidence.excluded = reconciliation.excluded;
     for (index, excluded) in evidence.excluded.iter().enumerate() {
         if excluded.reason.trim().is_empty() {
-            evidence.failure_kinds.push(format!(
-                "reconciliation_violation:excluded_reason_empty:index={index}"
-            ));
+            evidence.failure_kinds.push(
+                ViolationId::reconciliation(format!("excluded_reason_empty:index={index}"))
+                    .to_string(),
+            );
         }
     }
     let excluded_rows = evidence
@@ -217,10 +222,13 @@ fn evaluate_reconciliation(evidence: &mut ReconciliationEvidence, results: Resul
         reconciliation.input_rows, reconciliation.used_rows, excluded_rows
     ));
     if reconciliation.used_rows.checked_add(excluded_rows) != Some(reconciliation.input_rows) {
-        evidence.failure_kinds.push(format!(
-            "reconciliation_violation:input_rows={} used_rows={} excluded_rows={excluded_rows}",
-            reconciliation.input_rows, reconciliation.used_rows
-        ));
+        evidence.failure_kinds.push(
+            ViolationId::reconciliation(format!(
+                "input_rows={} used_rows={} excluded_rows={excluded_rows}",
+                reconciliation.input_rows, reconciliation.used_rows
+            ))
+            .to_string(),
+        );
     }
 }
 
@@ -234,46 +242,50 @@ fn evaluate_reports(root: &Path, results: &ResultsDocument, evidence: &mut Claim
         let resolved = match crate::tools::path_guard::resolve_existing(root, report_path) {
             Ok(path) if path.is_file() => path,
             Ok(_) => {
-                evidence.failure_kinds.push(format!(
-                    "claims_binding_violation:report_not_file:{report_path}"
-                ));
+                evidence.failure_kinds.push(
+                    ViolationId::claims_binding(format!("report_not_file:{report_path}"))
+                        .to_string(),
+                );
                 continue;
             }
             Err(error) => {
-                evidence.failure_kinds.push(format!(
-                    "claims_binding_violation:report_path:{report_path}:{error}"
-                ));
+                evidence.failure_kinds.push(
+                    ViolationId::claims_binding(format!("report_path:{report_path}:{error}"))
+                        .to_string(),
+                );
                 continue;
             }
         };
         let metadata = match resolved.metadata() {
             Ok(metadata) => metadata,
             Err(error) => {
-                evidence.failure_kinds.push(format!(
-                    "claims_binding_violation:report_metadata:{report_path}:{error}"
-                ));
+                evidence.failure_kinds.push(
+                    ViolationId::claims_binding(format!("report_metadata:{report_path}:{error}"))
+                        .to_string(),
+                );
                 continue;
             }
         };
         if metadata.len() > MAX_REPORT_BYTES {
-            evidence.failure_kinds.push(format!(
-                "claims_binding_violation:report_size_limit:{report_path}"
-            ));
+            evidence.failure_kinds.push(
+                ViolationId::claims_binding(format!("report_size_limit:{report_path}")).to_string(),
+            );
             continue;
         }
         let text = match std::fs::read_to_string(&resolved) {
             Ok(text) => text,
             Err(error) => {
-                evidence.failure_kinds.push(format!(
-                    "claims_binding_violation:report_unreadable:{report_path}:{error}"
-                ));
+                evidence.failure_kinds.push(
+                    ViolationId::claims_binding(format!("report_unreadable:{report_path}:{error}"))
+                        .to_string(),
+                );
                 continue;
             }
         };
         if claim_limit_exceeded(report_path, &text) {
-            evidence.failure_kinds.push(format!(
-                "claims_binding_violation:claim_count_limit:{report_path}"
-            ));
+            evidence.failure_kinds.push(
+                ViolationId::claims_binding(format!("claim_count_limit:{report_path}")).to_string(),
+            );
         }
         evidence
             .claims
@@ -285,10 +297,13 @@ fn evaluate_reports(root: &Path, results: &ResultsDocument, evidence: &mut Claim
             .push("claims_binding_violation:report_missing".to_string());
     }
     for claim in evidence.claims.iter().filter(|claim| !claim.ok) {
-        evidence.failure_kinds.push(format!(
-            "claims_binding_violation:{}:{}:{}",
-            claim.report_path, claim.byte_offset, claim.raw
-        ));
+        evidence.failure_kinds.push(
+            ViolationId::claims_binding(format!(
+                "{}:{}:{}",
+                claim.report_path, claim.byte_offset, claim.raw
+            ))
+            .to_string(),
+        );
     }
 }
 

@@ -11,6 +11,7 @@ use super::{accounting, manifest, source_binding};
 use crate::minimal_loop::pipeline_probe::{self, PipelineProbeConfig, PipelineProbeReport};
 use crate::minimal_loop::rerun_consistency;
 use crate::planner::capability_catalog::{ProbeCapability, ResolvedCapability};
+use crate::planner::failure_vocabulary::ViolationId;
 
 pub const ASSURANCE_EVIDENCE_PATH: &str = "evidence/ingest-assurance.json";
 pub const INGEST_PROBE_EVIDENCE_PATH: &str = "evidence/ingest-probe.json";
@@ -346,9 +347,9 @@ fn check_format_schema(
     for (record_index, record) in records.iter().enumerate() {
         let observed = record.keys().cloned().collect::<BTreeSet<_>>();
         if observed != declared {
-            failure_kinds.push(format!(
-                "format_schema_violation:record={record_index}:fields"
-            ));
+            failure_kinds.push(
+                ViolationId::format_schema(format!("record={record_index}:fields")).to_string(),
+            );
         }
         for field in &format.fields {
             let valid = record.get(&field.name).is_some_and(|value| {
@@ -360,10 +361,13 @@ fn check_format_schema(
                 )
             });
             if !valid {
-                failure_kinds.push(format!(
-                    "format_schema_violation:record={record_index}:field={}:type",
-                    field.name
-                ));
+                failure_kinds.push(
+                    ViolationId::format_schema(format!(
+                        "record={record_index}:field={}:type",
+                        field.name
+                    ))
+                    .to_string(),
+                );
             }
         }
     }

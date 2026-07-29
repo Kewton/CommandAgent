@@ -10,6 +10,8 @@ use serde_json::Value;
 mod candidate_id;
 mod css_selector;
 
+use crate::planner::failure_vocabulary::ViolationId;
+
 pub use candidate_id::{CandidateIdResolution, ResolutionStatus};
 
 pub const INSPECTION_PATH: &str = "output/inspection.json";
@@ -127,7 +129,8 @@ pub fn check(root: &Path, frozen: &CandidateFreeze) -> anyhow::Result<CandidateA
         }
         Ok(_) => {}
         Err(error) => {
-            failure_kinds.push(format!("candidate_set_violation:reenumeration:{error}"));
+            failure_kinds
+                .push(ViolationId::candidate_set(format!("reenumeration:{error}")).to_string());
         }
     }
 
@@ -148,10 +151,13 @@ pub fn check(root: &Path, frozen: &CandidateFreeze) -> anyhow::Result<CandidateA
         );
         candidate_id_resolutions.push(resolution);
         if !accepted_indices.insert(accepted.record_index) {
-            failure_kinds.push(format!(
-                "accounting_violation:duplicate_record_index:{}",
-                accepted.record_index
-            ));
+            failure_kinds.push(
+                ViolationId::accounting(format!(
+                    "duplicate_record_index:{}",
+                    accepted.record_index
+                ))
+                .to_string(),
+            );
         }
     }
     let mut excluded_by_reason = BTreeMap::new();
@@ -165,10 +171,13 @@ pub fn check(root: &Path, frozen: &CandidateFreeze) -> anyhow::Result<CandidateA
         candidate_id_resolutions.push(resolution);
         let reason = excluded.reason.trim();
         if reason.is_empty() {
-            failure_kinds.push(format!(
-                "accounting_violation:empty_exclusion_reason:{}",
-                excluded.candidate_id
-            ));
+            failure_kinds.push(
+                ViolationId::accounting(format!(
+                    "empty_exclusion_reason:{}",
+                    excluded.candidate_id
+                ))
+                .to_string(),
+            );
         } else {
             *excluded_by_reason.entry(reason.to_string()).or_insert(0) += 1;
         }
@@ -177,9 +186,9 @@ pub fn check(root: &Path, frozen: &CandidateFreeze) -> anyhow::Result<CandidateA
         .iter()
         .filter(|candidate_id| !accounted.contains(**candidate_id))
     {
-        failure_kinds.push(format!(
-            "accounting_violation:unaccounted_candidate:{candidate_id}"
-        ));
+        failure_kinds.push(
+            ViolationId::accounting(format!("unaccounted_candidate:{candidate_id}")).to_string(),
+        );
     }
     validate_record_indices(root, &accepted_indices, &mut failure_kinds);
 
@@ -189,10 +198,13 @@ pub fn check(root: &Path, frozen: &CandidateFreeze) -> anyhow::Result<CandidateA
     let excluded = inspection.candidate_accounting.excluded.len();
     let ok = failure_kinds.is_empty() && frozen.candidates.len() == accepted + excluded;
     if !ok && frozen.candidates.len() != accepted + excluded {
-        failure_kinds.push(format!(
-            "accounting_violation:equation:detected={}:accepted={accepted}:excluded={excluded}",
-            frozen.candidates.len()
-        ));
+        failure_kinds.push(
+            ViolationId::accounting(format!(
+                "equation:detected={}:accepted={accepted}:excluded={excluded}",
+                frozen.candidates.len()
+            ))
+            .to_string(),
+        );
         failure_kinds.sort();
     }
     let evidence = CandidateAccountingEvidence {
@@ -374,13 +386,13 @@ fn validate_candidate_id(
         } else {
             "unknown_candidate"
         };
-        failures.push(format!("candidate_set_violation:{kind}:{candidate_id}"));
+        failures.push(ViolationId::candidate_set(format!("{kind}:{candidate_id}")).to_string());
         return resolution;
     };
     if !accounted.insert(resolved.to_string()) {
-        failures.push(format!(
-            "candidate_set_violation:duplicate_candidate:{candidate_id}"
-        ));
+        failures.push(
+            ViolationId::candidate_set(format!("duplicate_candidate:{candidate_id}")).to_string(),
+        );
     }
     resolution
 }
@@ -397,9 +409,12 @@ fn validate_record_indices(root: &Path, indices: &BTreeSet<usize>, failures: &mu
     };
     let expected = (0..record_count).collect::<BTreeSet<_>>();
     if *indices != expected {
-        failures.push(format!(
-            "accounting_violation:record_indices:expected={expected:?}:observed={indices:?}"
-        ));
+        failures.push(
+            ViolationId::accounting(format!(
+                "record_indices:expected={expected:?}:observed={indices:?}"
+            ))
+            .to_string(),
+        );
     }
 }
 

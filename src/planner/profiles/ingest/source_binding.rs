@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::accounting::{self, CandidateFreeze, FrozenCandidate};
+use crate::planner::failure_vocabulary::ViolationId;
 
 pub const EVIDENCE_PATH: &str = "evidence/source-binding.json";
 const RECORDS_PATH: &str = "output/records.json";
@@ -160,10 +161,13 @@ pub fn check(root: &Path, frozen: &CandidateFreeze) -> anyhow::Result<SourceBind
                 &frozen.candidates,
             )?;
             if !binding.matched {
-                failure_kinds.push(format!(
-                    "source_binding_violation:record={record_index}:field={}:value={value}",
-                    field.name
-                ));
+                failure_kinds.push(
+                    ViolationId::source_binding(format!(
+                        "record={record_index}:field={}:value={value}",
+                        field.name
+                    ))
+                    .to_string(),
+                );
             }
             bindings.push(binding);
         }

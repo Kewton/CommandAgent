@@ -1,4 +1,5 @@
 use super::*;
+use crate::planner::failure_vocabulary::AssuranceReasonId;
 
 pub(super) fn assurance_for_completion(
     profile: &str,
@@ -42,7 +43,7 @@ pub(super) fn earned_assurance_for_completion(
             let reason = profile_behavior_probe
                 .and_then(|report| report.reasons.first())
                 .cloned()
-                .unwrap_or_else(|| format!("data_assurance_{level}"));
+                .unwrap_or_else(|| AssuranceReasonId::data_assurance(level).to_string());
             return (level.to_string(), reason);
         }
     }

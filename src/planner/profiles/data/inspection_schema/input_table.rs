@@ -2,6 +2,8 @@ use std::collections::BTreeSet;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 
+use crate::planner::failure_vocabulary::ViolationId;
+
 const MAX_HEADER_BYTES: usize = 1024 * 1024;
 
 pub(super) struct InputTable {
@@ -11,14 +13,15 @@ pub(super) struct InputTable {
 }
 
 pub(super) fn load(root: &Path, path: PathBuf) -> Result<InputTable, String> {
-    let metadata = path
-        .metadata()
-        .map_err(|error| format!("inspection_schema_violation:input_metadata:{error}"))?;
+    let metadata = path.metadata().map_err(|error| {
+        ViolationId::inspection_schema(format!("input_metadata:{error}")).to_string()
+    })?;
     if !metadata.is_file() {
         return Err("inspection_schema_violation:input_not_file".to_string());
     }
-    let file = std::fs::File::open(&path)
-        .map_err(|error| format!("inspection_schema_violation:input_unreadable:{error}"))?;
+    let file = std::fs::File::open(&path).map_err(|error| {
+        ViolationId::inspection_schema(format!("input_unreadable:{error}")).to_string()
+    })?;
     let (header, record_count) = read_header_and_record_count(std::io::BufReader::new(file))?;
     let delimiter = delimiter(&path);
     let mut headers = parse_record(&header, delimiter)?;
@@ -44,8 +47,9 @@ fn read_header_and_record_count(reader: impl BufRead) -> Result<(String, u64), S
     let mut record_pending = false;
     let mut bytes = reader.bytes().peekable();
     while let Some(byte) = bytes.next() {
-        let byte =
-            byte.map_err(|error| format!("inspection_schema_violation:input_unreadable:{error}"))?;
+        let byte = byte.map_err(|error| {
+            ViolationId::inspection_schema(format!("input_unreadable:{error}")).to_string()
+        })?;
         record_pending = true;
         if records == 0 {
             header.push(byte);
@@ -60,7 +64,7 @@ fn read_header_and_record_count(reader: impl BufRead) -> Result<(String, u64), S
                     .is_some_and(|next| next.as_ref().is_ok_and(|escaped| *escaped == b'"'))
             {
                 let escaped = bytes.next().unwrap().map_err(|error| {
-                    format!("inspection_schema_violation:input_unreadable:{error}")
+                    ViolationId::inspection_schema(format!("input_unreadable:{error}")).to_string()
                 })?;
                 if records == 0 {
                     header.push(escaped);
@@ -91,7 +95,9 @@ fn read_header_and_record_count(reader: impl BufRead) -> Result<(String, u64), S
         return Err("inspection_schema_violation:input_header_invalid".to_string());
     }
     let header = std::str::from_utf8(trim_record_ending(&header))
-        .map_err(|error| format!("inspection_schema_violation:input_header:{error}"))?
+        .map_err(|error| {
+            ViolationId::inspection_schema(format!("input_header:{error}")).to_string()
+        })?
         .to_string();
     if header.is_empty() {
         return Err("inspection_schema_violation:input_header_invalid".to_string());

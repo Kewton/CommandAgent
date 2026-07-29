@@ -5,6 +5,8 @@ use serde::Serialize;
 use std::fs;
 use std::path::Path;
 
+use crate::planner::failure_vocabulary::{StopClassId, TerminalReasonId};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EdgeFailure {
     pub edge: String,
@@ -40,7 +42,7 @@ pub fn edge_earned(route: &Route, edge: &str, evidence: &EdgeEvidence) -> Result
 fn fail(edge: &str, reason: &str) -> EdgeFailure {
     EdgeFailure {
         edge: edge.into(),
-        reason: format!("edge_not_earned:{edge}:{reason}"),
+        reason: StopClassId::edge_not_earned(edge, reason).to_string(),
     }
 }
 
@@ -94,10 +96,13 @@ pub fn latest_failed_run_events(origin: &Path) -> Option<std::path::PathBuf> {
 /// plausible placeholder: doing so would make the child run diagnose a task
 /// that the origin did not bind.
 pub fn derive_origin_goal(events: &Path) -> Result<String, String> {
-    let text = fs::read_to_string(events).map_err(|e| format!("origin_goal_underivable:{e}"))?;
+    let text = fs::read_to_string(events).map_err(|error| {
+        TerminalReasonId::origin_goal_underivable(error.to_string()).to_string()
+    })?;
     for line in text.lines() {
-        let value: serde_json::Value =
-            serde_json::from_str(line).map_err(|e| format!("origin_goal_underivable:{e}"))?;
+        let value: serde_json::Value = serde_json::from_str(line).map_err(|error| {
+            TerminalReasonId::origin_goal_underivable(error.to_string()).to_string()
+        })?;
         if value["event"] != "run_start" {
             continue;
         }
@@ -125,8 +130,10 @@ fn goal_from_debug_action(action: &str) -> Result<String, String> {
         else {
             continue;
         };
-        let goal: String = serde_json::from_str(payload)
-            .map_err(|e| format!("origin_goal_underivable:invalid action goal: {e}"))?;
+        let goal: String = serde_json::from_str(payload).map_err(|error| {
+            TerminalReasonId::origin_goal_underivable(format!("invalid action goal: {error}"))
+                .to_string()
+        })?;
         if goal.trim().is_empty() {
             return Err("origin_goal_underivable:empty action goal".into());
         }
@@ -187,11 +194,14 @@ pub struct OriginBinding {
 /// An empty or malformed set is an honest underivable result; callers must not
 /// substitute a smaller verification set.
 pub fn derive_origin_bindings(events: &Path) -> Result<Vec<OriginBinding>, String> {
-    let text = fs::read_to_string(events).map_err(|e| format!("origin_verify_underivable:{e}"))?;
+    let text = fs::read_to_string(events).map_err(|error| {
+        TerminalReasonId::origin_verify_underivable(error.to_string()).to_string()
+    })?;
     let mut out = Vec::new();
     for line in text.lines() {
-        let value: serde_json::Value =
-            serde_json::from_str(line).map_err(|e| format!("origin_verify_underivable:{e}"))?;
+        let value: serde_json::Value = serde_json::from_str(line).map_err(|error| {
+            TerminalReasonId::origin_verify_underivable(error.to_string()).to_string()
+        })?;
         if value["event"] == "verify_default_bound" {
             let Some(checks) = value["bound_checks"].as_array() else {
                 return Err("origin_verify_underivable:bound_checks".into());

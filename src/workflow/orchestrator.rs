@@ -3,6 +3,8 @@ use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use crate::planner::failure_vocabulary::StopClassId;
+
 use super::{
     evidence::{
         EdgeCheck, EdgeChecks, EdgeRecord, NodeRunReference, OriginReference,
@@ -92,7 +94,7 @@ pub fn run_workflow(config: &Config, definition: &Path, origin: &Path) -> anyhow
         let failed_check = first_failed_check(&edge_record.checks);
         circle.record_edge(edge_record);
         if !fired {
-            let reason = format!("edge_not_earned:{edge}:{failed_check}");
+            let reason = StopClassId::edge_not_earned(edge, failed_check).to_string();
             emit(
                 &events_path,
                 json!({"event":"workflow_adjudicated","verdict":"circle_failed","reason":reason}),
