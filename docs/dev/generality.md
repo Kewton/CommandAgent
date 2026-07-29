@@ -436,6 +436,23 @@ The stage-1 verdict meaning remains fixed by
 [`docs/ingest-profile-contract.md`](../ingest-profile-contract.md); network
 fetch and freshness remain stage 2 and are not implied by admission.
 
+## Why adjudication logic is not declarative
+
+CommandAgent intentionally does not adopt declarative adjudication. YAML and
+TOML describe configuration, manifests, bindings, and registry metadata;
+verification and adjudication behavior remains executable Rust. Turning the
+verification implementation itself into declarative data would let a semantic
+gate change without passing the same code-review, focused-test, fixture,
+snapshot, clippy, and CI checkpoints as production logic.
+
+This is an intentional divergence from the external static-analysis
+recommendation received on 2026-07-27. E-5a centralizes the strings that cross
+the protocol boundary and checks them against `classes.toml`, including
+cross-language producers, but it does not move comparator or verdict semantics
+into YAML/TOML. In short: **YAML is configuration; verification is Rust.**
+Registry metadata may describe an adjudication class, but cannot implement or
+alter the verifier that earns it.
+
 ## Recommended Model Tier
 
 Production-quality implementation outcomes require an implementation model in

@@ -1054,3 +1054,17 @@ full相当4/6（66.7%）であり、壁は空の必須dateを採用したモデ�
 第2段のnetwork取得・鮮度を検証するfetch probeは**QUEUED**のまま維持する。
 Excel/JSON等の入力拡張も第1段fullへ遡及して含めず、
 `docs/dev/integration-notes.md`の事業queue 5件として分離する。
+
+## E-5a — 文字列プロトコルの型付け（2026-07-29）
+
+`src`内のID生成51箇所を種別enum＋`Display`へ中央化し、発話文字列を
+byte互換のまま固定した。Rust enumとPython producerの全ID→`classes.toml`、
+全`match_stop_class`→Rust/Python実在producer、の双方向整合guardにより、
+ドリフト事故2件（抽出UNKNOWN・ID接頭辞）の族を構造的に封鎖した。
+
+初回guardは未登録6 familyと越境producer 1件を実際に検出した。6 familyは
+`violation_family`として形状既定modelの仮置き帰属つきで登録し、
+`interrupted(environment)`はPython benchの正式producer語彙として宣言した。
+これは可視化設計の3勝目（E-0-1 UNKNOWN、ingest床監査に続く）であり、
+不整合をgreenへ隠さず、登録簿の種別不足とcross-language境界を先に露出させた。
+最終登録簿は36件（terminal 30、violation_family 6）。
