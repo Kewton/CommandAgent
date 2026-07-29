@@ -8,6 +8,11 @@ import json
 from pathlib import Path
 
 import tomllib
+from evidence_envelope import (
+    classification_jsonl_text,
+    classification_text,
+    envelope_for,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -21,7 +26,12 @@ def text_for(run):
     for p in run.rglob("*"):
         if p.is_file() and p.suffix in {".json", ".jsonl", ".md", ".log", ".yaml"}:
             try:
-                chunks.append(p.read_text(errors="replace"))
+                text = p.read_text(errors="replace")
+                if p.suffix == ".json":
+                    text = classification_text(text)
+                elif p.suffix == ".jsonl":
+                    text = classification_jsonl_text(text)
+                chunks.append(text)
             except OSError:
                 pass
     return "\n".join(chunks)
@@ -36,6 +46,7 @@ def terminal_text(run):
                 event = json.loads(line)
             except ValueError:
                 continue
+            envelope_for(event, "classify")
             if event.get("event") in {
                 "run_stop",
                 "tui_command_stop",

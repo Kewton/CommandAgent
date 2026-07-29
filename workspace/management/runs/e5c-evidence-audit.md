@@ -1,6 +1,6 @@
 # E-5c evidence and event shape audit
 
-Status: initial audit complete (2026-07-29); migration not yet applied.
+Status: final (2026-07-29); additive migration and transverse guards green.
 
 This is the additive-migration design record for E-5c. Existing files under
 `workspace/management/runs/` were read only. The only run-ledger write in the
@@ -106,9 +106,9 @@ classification.
 No finding changes the requested additive migration or requires adjudication,
 so implementation may continue.
 
-## Planned additive envelope
+## Additive envelope definition
 
-Every newly written evidence JSON object will gain one top-level
+Every newly written evidence JSON object gains one top-level
 `evidence_envelope` object:
 
 ```json
@@ -132,7 +132,31 @@ are neither renamed nor removed. `source_refs` contains workspace-relative
 paths only. `epoch` is Unix seconds at evidence issuance; it does not replace
 the existing F/I run-local ordinal.
 
+`workflow_started` and `workflow_adjudicated` additionally carry top-level
+`epoch` and the same common envelope. The top-level epoch and envelope epoch
+are created from one value. This is the workflow-event exception needed to
+repay the queued elapsed-time debt; all other event fields retain their former
+names and meanings.
+
 ## Commit-3 completion record
 
-Pending. This section will be finalized with the consumer matrix, family guard
-result, and historical-fallback proof.
+The family source of truth is
+`workspace/management/evidence-families.toml`; it registers seven families.
+The Rust test compares that exact ordered list with the serialized
+`EvidenceFamily` enum.
+
+| consumer | envelope-present path | historical envelope-absent fallback |
+|---|---|---|
+| collector | normalized `claims` plus `nearest_miss`; E2/I2/C2/C3 and new N2 adapter | unchanged E2/I2/C2/C3 family-specific reads |
+| sheet | validates the envelope and prints family/kind/count/source_refs before unchanged detailed transcription | unchanged family-specific reads; archived circle still prints `記録なし` for missing outer epochs |
+| classify | validates the family, removes only the additive envelope copy from fallback text, and continues to privilege terminal fields | unchanged terminal parsing and whole-text fallback |
+
+Initial family-follow guard result: **green, 7/7 families × 3/3 consumers
+(21/21 adapter cells)**. The negative conformance adds an unadapted `future`
+family and proves all three consumer directions fail with the missing family
+listed. Dead adapters fail symmetrically. The Rust registry direction is also
+green, 7/7.
+
+Historical fallback is exercised by the pre-E-5c measured C2 fixture, the
+archived circle acceptance-sheet fixture, and legacy classification fixtures.
+No historical evidence file was rewritten.

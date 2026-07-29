@@ -29,27 +29,11 @@ pub(super) fn persist_json(
     let path = crate::tools::path_guard::resolve_optional_existing(root, relative)?;
     let parent = path.parent().context("fix evidence parent missing")?;
     std::fs::create_dir_all(parent)?;
-    let kind = if relative.ends_with("-adjudication.json") {
-        "adjudication"
-    } else if relative.contains("-before-attempt-") {
-        "before_attempt"
-    } else if relative.ends_with("-before.json") {
-        "before"
-    } else if relative.ends_with("-after.json") {
-        "after"
-    } else if relative.contains("-regression-") {
-        "regression"
-    } else {
-        "fix_evidence"
-    };
-    crate::evidence_envelope::write_json(
+    crate::evidence_envelope::write_json_for_path(
         &path,
         value,
-        crate::evidence_envelope::EvidenceEnvelopeSpec::new(
-            crate::evidence_envelope::EvidenceFamily::F,
-            kind,
-        )
-        .with_source_refs([FIX_CONTRACT_REF]),
+        crate::evidence_envelope::EvidenceFamily::F,
+        relative,
         true,
     )
 }

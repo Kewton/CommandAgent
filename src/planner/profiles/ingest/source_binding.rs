@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::accounting::{self, CandidateFreeze, FrozenCandidate};
-use crate::evidence_envelope::{EvidenceEnvelopeSpec, EvidenceFamily};
+use crate::evidence_envelope::EvidenceFamily;
 use crate::planner::failure_vocabulary::ViolationId;
 
 pub const EVIDENCE_PATH: &str = "evidence/source-binding.json";
@@ -696,10 +696,11 @@ fn write_evidence(root: &Path, evidence: &SourceBindingEvidence) -> anyhow::Resu
         path.parent()
             .context("source binding evidence parent missing")?,
     )?;
-    crate::evidence_envelope::write_json(
+    crate::evidence_envelope::write_json_for_path(
         &path,
         evidence,
-        EvidenceEnvelopeSpec::new(EvidenceFamily::N, "source_binding"),
+        EvidenceFamily::N,
+        EVIDENCE_PATH,
         true,
     )
 }

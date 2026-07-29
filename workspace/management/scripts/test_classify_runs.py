@@ -21,6 +21,45 @@ class ClassifyTests(unittest.TestCase):
         r = classify(self.make('{"reason":"new_unseen_stop"}'))
         self.assertEqual(r["attribution"], "UNKNOWN")
 
+    def test_envelope_copies_do_not_broaden_terminal_classification(self):
+        run = self.make(
+            json.dumps(
+                {
+                    "event": "progress",
+                    "evidence_envelope": {
+                        "envelope_version": 1,
+                        "family": "E",
+                        "kind": "guard_fixture",
+                        "epoch": 123,
+                        "claims": [],
+                        "nearest_miss": [],
+                        "source_refs": ["repair_target_unresolved"],
+                    },
+                }
+            )
+        )
+        self.assertEqual(classify(run)["classes"], [])
+
+    def test_terminal_fields_remain_authoritative_with_an_envelope(self):
+        run = self.make(
+            json.dumps(
+                {
+                    "event": "run_stop",
+                    "reason": "repair_target_unresolved",
+                    "evidence_envelope": {
+                        "envelope_version": 1,
+                        "family": "workflow",
+                        "kind": "workflow_adjudicated",
+                        "epoch": 123,
+                        "claims": [],
+                        "nearest_miss": [],
+                        "source_refs": [],
+                    },
+                }
+            )
+        )
+        self.assertEqual(classify(run)["classes"], ["repair_target_unresolved"])
+
     def test_longest_and_ambiguous(self):
         reg = [
             {"id": "short", "attribution": "machine", "match_reason": "loop"},

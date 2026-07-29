@@ -8,6 +8,8 @@ import hashlib
 import json
 from pathlib import Path
 
+from evidence_envelope import envelope_for
+
 REASONS = {
     "verify_origin": "起点に束縛された検証を再実行して閉門しました。",
     "node_failed:fix": "修正ノードが未完了のため未完了。回収情報あり",
@@ -25,7 +27,9 @@ CHECKS = {
 
 def read_json(path):
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        document = json.loads(path.read_text(encoding="utf-8"))
+        envelope_for(document, "sheet")
+        return document
     except (OSError, ValueError, UnicodeDecodeError):
         return {}
 
@@ -36,7 +40,9 @@ def events(path):
     out = []
     for line in path.read_text(errors="replace").splitlines():
         try:
-            out.append(json.loads(line))
+            event = json.loads(line)
+            envelope_for(event, "sheet")
+            out.append(event)
         except ValueError:
             pass
     return out
@@ -112,6 +118,15 @@ def evidence_lines(run, files):
     out = []
     for p in files:
         d = read_json(p)
+        envelope = envelope_for(d, "sheet")
+        if envelope is not None:
+            refs = ", ".join(map(safe, envelope["source_refs"])) or "記録なし"
+            out.append(
+                f"- envelope `{envelope['family']}/{envelope['kind']}`: "
+                f"claims={len(envelope['claims'])} "
+                f"nearest_miss={len(envelope['nearest_miss'])} "
+                f"source_refs={refs}"
+            )
         cid = val(d, "capability_id", "check_id")
         if cid and "command" in d:
             out.append(

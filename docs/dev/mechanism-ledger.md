@@ -1084,3 +1084,22 @@ profile字義比較を拒否する。同時に監査台帳の110 unique site・�
 guidance/material、probeのdispatch配線をレジストリが肩代わりし、
 profile固有の照合意味論・字義ガイダンス・runtime-shaped fixtureは
 引き続きchecklistで検問する。
+
+## E-5c — evidence共通エンベロープ（2026-07-29）
+
+E/F/I/C/N/circle/workflowの**7 family**へ、既存フィールドを改名・削除
+せず、`evidence_envelope`を加法追加した。必須形は
+`envelope_version/family/kind/epoch/claims/nearest_miss/source_refs`。
+歴史evidenceは無改変で、3消費者は「新形を統一読取り／旧形を従来読取り」
+の明示fallbackを持つ。
+
+family追従guardは登録7 × 横断3消費者（較正collector・検収sheet・classify）
+= **21/21**を初回green。未adapterの新familyと死んだadapterを双方向で
+列挙失敗させ、ingest nearest_miss流出事件の族を構造的に封鎖した。
+Rust enumも同じ機械可読登録簿7/7へ突合する。
+
+同時に`workflow_started`/`workflow_adjudicated`へUnix秒`epoch`を追加し、
+共通エンベロープのepochと単一値で束縛した。新しい検収sheetは円環全体
+所要を自動導出し、epochを持たない歴史fixtureは従来どおり
+「記録なし」と表示する。E-5a/bのbyte互換とは異なり、E-5cでは
+**加法互換**を移行規律として確立した。

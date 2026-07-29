@@ -6,7 +6,7 @@ use anyhow::{Context, anyhow, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::bounded_process::{self, BoundedProcessOutcomeKind};
-use crate::evidence_envelope::{EvidenceEnvelopeSpec, EvidenceFamily};
+use crate::evidence_envelope::EvidenceFamily;
 use crate::minimal_loop::pipeline_probe::{StreamCapture, capture_stream, join_capture};
 use crate::minimal_loop::verifier_env;
 
@@ -589,19 +589,7 @@ pub(super) fn write_json<T: Serialize>(
 ) -> anyhow::Result<()> {
     let path = root.join(relative);
     std::fs::create_dir_all(path.parent().context("CLI evidence parent missing")?)?;
-    let kind = match relative {
-        CASE_BINDING_PATH => "case_binding",
-        EVIDENCE_PATH => "argv_probe",
-        super::help_binding::EVIDENCE_PATH => "help_binding",
-        super::runtime::EVIDENCE_PATH => "assurance",
-        _ => "cli_check",
-    };
-    crate::evidence_envelope::write_json(
-        &path,
-        value,
-        EvidenceEnvelopeSpec::new(EvidenceFamily::C, kind),
-        true,
-    )
+    crate::evidence_envelope::write_json_for_path(&path, value, EvidenceFamily::C, relative, true)
 }
 
 #[cfg(test)]

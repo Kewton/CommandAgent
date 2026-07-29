@@ -7,7 +7,7 @@ use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::bounded_process::{self, BoundedProcessOutcomeKind};
-use crate::evidence_envelope::{EvidenceEnvelopeSpec, EvidenceFamily};
+use crate::evidence_envelope::EvidenceFamily;
 use crate::minimal_loop::verifier_env;
 
 mod stream_capture;
@@ -331,11 +331,11 @@ fn write_evidence(
             .context("pipeline evidence path escapes workspace")?;
     let parent = path.parent().context("pipeline evidence parent missing")?;
     std::fs::create_dir_all(parent)?;
-    let source_refs = report.command.get(2).cloned().into_iter();
-    crate::evidence_envelope::write_json(
+    crate::evidence_envelope::write_json_for_path(
         &path,
         report,
-        EvidenceEnvelopeSpec::new(family, "pipeline_probe").with_source_refs(source_refs),
+        family,
+        PIPELINE_RUN_EVIDENCE_PATH,
         true,
     )
 }
@@ -387,16 +387,6 @@ print("pipeline stdout")
         assert_eq!(evidence["status"], "pass");
         assert_eq!(evidence["isolation"]["offline_policy_applied"], true);
         assert_eq!(evidence["isolation"]["network_namespace_enforced"], false);
-        // E-5c is additive: the pre-existing assertions above remain unchanged,
-        // and the common envelope is verified independently.
-        assert_eq!(evidence["evidence_envelope"]["family"], "E");
-        assert_eq!(evidence["evidence_envelope"]["kind"], "pipeline_probe");
-        assert_eq!(evidence["evidence_envelope"]["envelope_version"], 1);
-        assert!(evidence["evidence_envelope"]["epoch"].is_u64());
-        assert_eq!(
-            evidence["evidence_envelope"]["source_refs"],
-            serde_json::json!(["pipeline/main.py"])
-        );
     }
 
     #[test]

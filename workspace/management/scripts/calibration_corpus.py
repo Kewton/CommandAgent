@@ -7,8 +7,17 @@ import argparse
 import json
 from pathlib import Path
 
+from evidence_envelope import EnvelopeError, envelope_for
+
 ROOT = Path(__file__).resolve().parents[1]
 STORE = ROOT / "calibration"
+ENVELOPE_KINDS = {
+    ("E", "claims_binding"): ("e2", False),
+    ("I", "investigation_binding"): ("i2", False),
+    ("C", "help_binding"): ("c2", True),
+    ("C", "argv_probe"): ("c3", True),
+    ("N", "source_binding"): ("n2", True),
+}
 
 
 def evidence_record_id(campaign, evidence, kind, index):
@@ -24,6 +33,51 @@ def evidence_record_id(campaign, evidence, kind, index):
     return f"{campaign.name}/{relative.as_posix()}#{kind}:{index}"
 
 
+def envelope_records(campaign, path, envelope):
+    binding = ENVELOPE_KINDS.get((envelope["family"], envelope["kind"]))
+    if binding is None:
+        return
+    kind, nearest_only = binding
+    nearest = {}
+    for item in envelope["nearest_miss"]:
+        if not isinstance(item, dict) or not isinstance(item.get("claim_index"), int):
+            raise EnvelopeError(f"invalid nearest_miss entry: {path}")
+        nearest[item["claim_index"]] = item.get("value")
+    for index, claim in enumerate(envelope["claims"]):
+        if not isinstance(claim, dict):
+            raise EnvelopeError(f"invalid claim entry: {path}")
+        miss = nearest.get(index)
+        if nearest_only and miss is None:
+            continue
+        observation = claim.get("observation")
+        if isinstance(observation, dict):
+            stderr = observation.get("stderr", {})
+            stdout = observation.get("stdout", {})
+            observation = (
+                stderr.get("text")
+                if isinstance(stderr, dict) and stderr.get("text")
+                else (
+                    stdout.get("text")
+                    if isinstance(stdout, dict) and stdout.get("text")
+                    else observation
+                )
+            )
+        row = {
+            "record_id": evidence_record_id(campaign, path, kind, index),
+            "source_run": str(path),
+            "claim": claim.get("label", ""),
+            "kind": kind,
+            "judgement": claim.get("judgement", "violation"),
+            "nearest_miss": miss,
+            "observation": observation,
+        }
+        if claim.get("direction") is not None:
+            row["direction"] = claim["direction"]
+        if claim.get("source_ref") is not None:
+            row["source"] = claim["source_ref"]
+        yield row
+
+
 def records(campaign):
     campaign = Path(campaign)
     for p in campaign.rglob("*.json"):
@@ -32,6 +86,10 @@ def records(campaign):
         except (OSError, ValueError, UnicodeDecodeError):
             continue
         if not isinstance(d, dict):
+            continue
+        envelope = envelope_for(d, "collector")
+        if envelope is not None:
+            yield from envelope_records(campaign, p, envelope)
             continue
         if isinstance(d.get("claims"), list):
             for c in d["claims"]:

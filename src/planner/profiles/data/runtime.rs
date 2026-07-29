@@ -6,7 +6,7 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
 use super::{checks, manifest, runtime_checks};
-use crate::evidence_envelope::{EvidenceEnvelopeSpec, EvidenceFamily};
+use crate::evidence_envelope::EvidenceFamily;
 use crate::minimal_loop::pipeline_probe::{self, PipelineProbeConfig, PipelineProbeReport};
 use crate::planner::capability_catalog::{ProbeCapability, ResolvedCapability};
 
@@ -188,10 +188,11 @@ fn write_summary(root: &Path, summary: &DataCheckSummary) -> anyhow::Result<()> 
         .parent()
         .context("data assurance evidence parent missing")?;
     std::fs::create_dir_all(parent)?;
-    crate::evidence_envelope::write_json(
+    crate::evidence_envelope::write_json_for_path(
         &path,
         summary,
-        EvidenceEnvelopeSpec::new(EvidenceFamily::E, "assurance"),
+        EvidenceFamily::E,
+        DATA_ASSURANCE_EVIDENCE_PATH,
         true,
     )
 }

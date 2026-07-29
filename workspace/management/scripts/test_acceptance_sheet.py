@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import json
 import shutil
 import sys
 import tempfile
@@ -67,6 +68,34 @@ class AcceptanceSheetTests(unittest.TestCase):
         self.assertIn("exit=1", s)
         self.assertIn("claims=1, matched=1", s)
         self.assertIn("7 × 7 × pass", s)
+
+    def test_envelope_summary_is_additive_to_legacy_detail(self):
+        d = self.make(
+            '{"event":"run_stop","status":"full"}\n',
+            json.dumps(
+                {
+                    "capability_id": "pipeline_probe",
+                    "command": "python3 pipeline/main.py",
+                    "exit_code": 0,
+                    "outcome": "exited",
+                    "evidence_envelope": {
+                        "envelope_version": 1,
+                        "family": "E",
+                        "kind": "pipeline_probe",
+                        "epoch": 123,
+                        "claims": [],
+                        "nearest_miss": [],
+                        "source_refs": ["pipeline/main.py"],
+                    },
+                }
+            ),
+        )
+
+        s = generate(d)
+
+        self.assertIn("probe `pipeline_probe`", s)
+        self.assertIn("envelope `E/pipeline_probe`", s)
+        self.assertIn("source_refs=pipeline/main.py", s)
 
     def test_circle_acceptance_observations(self):
         p = (

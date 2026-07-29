@@ -13,6 +13,56 @@ MEASURED_ELEV_003 = (
 
 
 class CalibrationCorpusTests(unittest.TestCase):
+    def test_ingest_envelope_nearest_miss_uses_the_common_reader(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign = Path(tmp) / "campaign"
+            evidence = campaign / "artifacts/ingest_001/evidence"
+            evidence.mkdir(parents=True)
+            (evidence / "source-binding.json").write_text(
+                json.dumps(
+                    {
+                        "capability_id": "ingest_source_binding",
+                        "evidence_envelope": {
+                            "envelope_version": 1,
+                            "family": "N",
+                            "kind": "source_binding",
+                            "epoch": 123,
+                            "claims": [
+                                {
+                                    "index": 0,
+                                    "label": "date",
+                                    "judgement": "violation",
+                                    "observation": "2026-08-04",
+                                    "source_ref": "data/snapshots/events.html",
+                                    "direction": None,
+                                }
+                            ],
+                            "nearest_miss": [
+                                {
+                                    "claim_index": 0,
+                                    "value": {
+                                        "raw_source": "2026-08-03",
+                                        "distance": 1,
+                                    },
+                                }
+                            ],
+                            "source_refs": ["data/snapshots/events.html"],
+                        },
+                    }
+                )
+            )
+
+            rows = list(calibration_corpus.records(campaign))
+
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["kind"], "n2")
+            self.assertEqual(rows[0]["claim"], "date")
+            self.assertEqual(rows[0]["judgement"], "violation")
+            self.assertEqual(rows[0]["nearest_miss"]["distance"], 1)
+            self.assertEqual(
+                rows[0]["source"], "data/snapshots/events.html"
+            )
+
     def test_measured_c2_nearest_miss_is_retroactively_collected_once(self):
         rows = list(calibration_corpus.records(MEASURED_ELEV_003))
 

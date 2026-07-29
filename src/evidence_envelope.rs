@@ -136,6 +136,61 @@ pub(crate) fn write_json<T: Serialize>(
     Ok(())
 }
 
+pub(crate) fn write_json_for_path<T: Serialize>(
+    path: &Path,
+    value: &T,
+    family: EvidenceFamily,
+    relative: &str,
+    trailing_newline: bool,
+) -> anyhow::Result<()> {
+    let spec = EvidenceEnvelopeSpec::new(family, kind_for_path(family, relative));
+    let spec = if family == EvidenceFamily::Circle {
+        spec.with_source_refs(["evidence/workflow-events.jsonl"])
+    } else {
+        spec
+    };
+    write_json(path, value, spec, trailing_newline)
+}
+
+fn kind_for_path(family: EvidenceFamily, relative: &str) -> &'static str {
+    let name = relative.rsplit('/').next().unwrap_or(relative);
+    match (family, name) {
+        (EvidenceFamily::E, "pipeline-run.json") => "pipeline_probe",
+        (EvidenceFamily::E, "inspection-schema.json") => "inspection_schema",
+        (EvidenceFamily::E, "results-schema.json") => "results_schema",
+        (EvidenceFamily::E, "reconciliation.json") => "reconciliation",
+        (EvidenceFamily::E, "claims-binding.json") => "claims_binding",
+        (EvidenceFamily::E, "rerun-consistency.json") => "rerun_consistency",
+        (EvidenceFamily::E, "data-assurance.json") => "assurance",
+        (EvidenceFamily::C, "cli-case-binding.json") => "case_binding",
+        (EvidenceFamily::C, "cli-probe.json") => "argv_probe",
+        (EvidenceFamily::C, "help-binding.json") => "help_binding",
+        (EvidenceFamily::C, "cli-assurance.json") => "assurance",
+        (EvidenceFamily::N, "ingest-candidate-freeze.json") => "candidate_freeze",
+        (EvidenceFamily::N, "candidate-accounting.json") => "candidate_accounting",
+        (EvidenceFamily::N, "source-binding.json") => "source_binding",
+        (EvidenceFamily::N, "ingest-probe.json") => "ingest_probe",
+        (EvidenceFamily::N, "format-schema.json") => "format_schema",
+        (EvidenceFamily::N, "rerun-consistency.json") => "rerun_consistency",
+        (EvidenceFamily::N, "ingest-assurance.json") => "assurance",
+        (EvidenceFamily::Circle, "workflow-circle.json") => "workflow_circle",
+        _ if family == EvidenceFamily::F && name.ends_with("-adjudication.json") => "adjudication",
+        _ if family == EvidenceFamily::F && name.contains("-before-attempt-") => "before_attempt",
+        _ if family == EvidenceFamily::F && name.ends_with("-before.json") => "before",
+        _ if family == EvidenceFamily::F && name.ends_with("-after.json") => "after",
+        _ if family == EvidenceFamily::F && name.contains("-regression-") => "regression",
+        (EvidenceFamily::I, "investigation-binding.json") => "investigation_binding",
+        (EvidenceFamily::I, _) if name.starts_with("investigation-run") => "investigation_run",
+        (EvidenceFamily::E, _) => "data_check",
+        (EvidenceFamily::F, _) => "fix_evidence",
+        (EvidenceFamily::I, _) => "investigation_evidence",
+        (EvidenceFamily::C, _) => "cli_check",
+        (EvidenceFamily::N, _) => "ingest_check",
+        (EvidenceFamily::Circle, _) => "circle_evidence",
+        (EvidenceFamily::Workflow, _) => "workflow_evidence",
+    }
+}
+
 fn build_envelope(legacy: &Value, spec: EvidenceEnvelopeSpec) -> anyhow::Result<EvidenceEnvelope> {
     let object = legacy
         .as_object()
@@ -206,6 +261,7 @@ fn build_envelope(legacy: &Value, spec: EvidenceEnvelopeSpec) -> anyhow::Result<
         "results_path",
         "records_path",
         "candidate_freeze_path",
+        "contract_ref",
     ] {
         if let Some(value) = object.get(key).and_then(Value::as_str) {
             source_refs.insert(value.to_string());
@@ -215,6 +271,14 @@ fn build_envelope(legacy: &Value, spec: EvidenceEnvelopeSpec) -> anyhow::Result<
         if let Some(values) = object.get(key).and_then(Value::as_array) {
             source_refs.extend(values.iter().filter_map(Value::as_str).map(str::to_string));
         }
+    }
+    if let Some(entry) = object
+        .get("command")
+        .and_then(Value::as_array)
+        .and_then(|command| command.get(2))
+        .and_then(Value::as_str)
+    {
+        source_refs.insert(entry.to_string());
     }
     if let Some(invalid) = source_refs
         .iter()
@@ -332,6 +396,39 @@ mod tests {
                 json!("workflow"),
             ]
         );
+    }
+
+    #[test]
+    fn rust_wire_families_match_the_transverse_registry() {
+        #[derive(Deserialize)]
+        struct Registry {
+            families: Vec<String>,
+        }
+
+        let registry: Registry = toml::from_str(include_str!(
+            "../workspace/management/evidence-families.toml"
+        ))
+        .unwrap();
+        let rust = [
+            EvidenceFamily::E,
+            EvidenceFamily::F,
+            EvidenceFamily::I,
+            EvidenceFamily::C,
+            EvidenceFamily::N,
+            EvidenceFamily::Circle,
+            EvidenceFamily::Workflow,
+        ]
+        .into_iter()
+        .map(|family| {
+            serde_json::to_value(family)
+                .unwrap()
+                .as_str()
+                .unwrap()
+                .to_string()
+        })
+        .collect::<Vec<_>>();
+
+        assert_eq!(rust, registry.families);
     }
 
     #[test]

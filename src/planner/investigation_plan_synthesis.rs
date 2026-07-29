@@ -106,17 +106,9 @@ fn execute_binding_if_ready(config: &Config) -> anyhow::Result<()> {
         &diagnosis,
         &run,
     );
-    let evidence_dir = config.workspace_root.join("evidence");
-    std::fs::create_dir_all(&evidence_dir)?;
-    crate::evidence_envelope::write_json(
-        &evidence_dir.join("investigation-binding.json"),
+    crate::planner::adjudication::investigate::write_investigation_binding(
+        &config.workspace_root,
         &binding,
-        crate::evidence_envelope::EvidenceEnvelopeSpec::new(
-            crate::evidence_envelope::EvidenceFamily::I,
-            "investigation_binding",
-        )
-        .with_source_refs(["output/diagnosis.md", "evidence/investigation-run.json"]),
-        false,
     )?;
     Ok(())
 }

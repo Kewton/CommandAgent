@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::claims_binding::{ClaimBinding, bind_report_claims_to_results, claim_limit_exceeded};
 use super::results_schema::{self, ExcludedRows, ResultsDocument};
-use crate::evidence_envelope::{EvidenceEnvelopeSpec, EvidenceFamily};
+use crate::evidence_envelope::EvidenceFamily;
 use crate::minimal_loop::pipeline_probe::{self, PipelineProbeConfig};
 use crate::planner::failure_vocabulary::{claims_id, reconciliation_id, rerun_id};
 
@@ -299,19 +299,7 @@ fn write_evidence<T: Serialize>(root: &Path, relative: &str, value: &T) -> anyho
         .with_context(|| format!("evidence path escapes workspace: {relative}"))?;
     let parent = path.parent().context("evidence parent missing")?;
     std::fs::create_dir_all(parent)?;
-    let kind = match relative {
-        RESULTS_SCHEMA_EVIDENCE_PATH => "results_schema",
-        RECONCILIATION_EVIDENCE_PATH => "reconciliation",
-        CLAIMS_BINDING_EVIDENCE_PATH => "claims_binding",
-        RERUN_CONSISTENCY_EVIDENCE_PATH => "rerun_consistency",
-        _ => "data_check",
-    };
-    crate::evidence_envelope::write_json(
-        &path,
-        value,
-        EvidenceEnvelopeSpec::new(EvidenceFamily::E, kind),
-        true,
-    )
+    crate::evidence_envelope::write_json_for_path(&path, value, EvidenceFamily::E, relative, true)
 }
 
 fn status(ok: bool) -> String {

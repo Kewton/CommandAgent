@@ -9,7 +9,7 @@ use serde_json::Value;
 mod candidate_id;
 mod css_selector;
 
-use crate::evidence_envelope::{EvidenceEnvelopeSpec, EvidenceFamily};
+use crate::evidence_envelope::EvidenceFamily;
 use crate::planner::failure_vocabulary::ViolationId;
 
 pub use candidate_id::{CandidateIdResolution, ResolutionStatus};
@@ -440,17 +440,7 @@ fn write_json<T: Serialize>(root: &Path, relative: &str, value: &T) -> anyhow::R
     let path = crate::tools::path_guard::resolve_optional_existing(root, relative)
         .with_context(|| format!("candidate evidence path escapes workspace: {relative}"))?;
     std::fs::create_dir_all(path.parent().context("candidate evidence parent missing")?)?;
-    let kind = match relative {
-        FREEZE_EVIDENCE_PATH => "candidate_freeze",
-        ACCOUNTING_EVIDENCE_PATH => "candidate_accounting",
-        _ => "ingest_accounting",
-    };
-    crate::evidence_envelope::write_json(
-        &path,
-        value,
-        EvidenceEnvelopeSpec::new(EvidenceFamily::N, kind),
-        true,
-    )
+    crate::evidence_envelope::write_json_for_path(&path, value, EvidenceFamily::N, relative, true)
 }
 
 #[cfg(test)]

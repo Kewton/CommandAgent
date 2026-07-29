@@ -63,24 +63,15 @@ impl InvestigationRuntime {
         }
         crate::planner::investigation_output::attach(&mut run, &execution);
         run.failure_classification = execution.evidence.failure_classification;
-        let evidence_dir = config.workspace_root.join("evidence");
-        std::fs::create_dir_all(&evidence_dir)?;
         let evidence_name = if run.failure_classification.is_reproducer_defect() {
             "investigation-run-attempt-1.json"
         } else {
             "investigation-run.json"
         };
-        crate::evidence_envelope::write_json(
-            &evidence_dir.join(evidence_name),
+        crate::planner::adjudication::investigate::write_investigation_run(
+            &config.workspace_root,
+            evidence_name,
             &run,
-            crate::evidence_envelope::EvidenceEnvelopeSpec::new(
-                crate::evidence_envelope::EvidenceFamily::I,
-                "investigation_run",
-            )
-            .with_source_refs([
-                crate::planner::adjudication::investigate::INVESTIGATION_CONTRACT_REF,
-            ]),
-            false,
         )?;
         if run.failure_classification.is_reproducer_defect() {
             return Ok(InvestigationBeforeOutcome::RebuildRequired {

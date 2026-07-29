@@ -1,10 +1,13 @@
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use super::contract::{EvidenceStage, ExpectedOutcome, ProbeOutcome};
 use super::fix::FixFailureClassification;
+
+mod evidence;
+pub use evidence::write_investigation_evidence;
+pub(crate) use evidence::{write_investigation_binding, write_investigation_run};
 
 pub const INVESTIGATION_CONTRACT_VERSION: &str = "v0";
 pub const INVESTIGATION_CONTRACT_REF: &str = "docs/investigation-intent-contract.md";
@@ -185,38 +188,6 @@ pub fn evaluate_investigation_evidence(
     }
     statuses.insert(DIAGNOSIS_BOUND_ID.into(), "passed".into());
     adjudication(InvestigationAssurance::Full, "", statuses)
-}
-
-pub fn write_investigation_evidence(
-    root: &Path,
-    run: &InvestigationRunEvidence,
-    binding: &InvestigationBindingEvidence,
-) -> anyhow::Result<(PathBuf, PathBuf)> {
-    let evidence = root.join("evidence");
-    std::fs::create_dir_all(&evidence)?;
-    let run_path = evidence.join("investigation-run.json");
-    let binding_path = evidence.join("investigation-binding.json");
-    crate::evidence_envelope::write_json(
-        &run_path,
-        run,
-        crate::evidence_envelope::EvidenceEnvelopeSpec::new(
-            crate::evidence_envelope::EvidenceFamily::I,
-            "investigation_run",
-        )
-        .with_source_refs([INVESTIGATION_CONTRACT_REF]),
-        false,
-    )?;
-    crate::evidence_envelope::write_json(
-        &binding_path,
-        binding,
-        crate::evidence_envelope::EvidenceEnvelopeSpec::new(
-            crate::evidence_envelope::EvidenceFamily::I,
-            "investigation_binding",
-        )
-        .with_source_refs(["output/diagnosis.md", "evidence/investigation-run.json"]),
-        false,
-    )?;
-    Ok((run_path, binding_path))
 }
 
 fn adjudication(

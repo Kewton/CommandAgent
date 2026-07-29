@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::{accounting, manifest, source_binding};
-use crate::evidence_envelope::{EvidenceEnvelopeSpec, EvidenceFamily};
+use crate::evidence_envelope::EvidenceFamily;
 use crate::minimal_loop::pipeline_probe::{self, PipelineProbeConfig, PipelineProbeReport};
 use crate::minimal_loop::rerun_consistency;
 use crate::planner::capability_catalog::{ProbeCapability, ResolvedCapability};
@@ -463,19 +463,7 @@ fn write_json<T: Serialize>(root: &Path, relative: &str, value: &T) -> anyhow::R
     let path = crate::tools::path_guard::resolve_optional_existing(root, relative)
         .with_context(|| format!("ingest evidence path escapes workspace: {relative}"))?;
     std::fs::create_dir_all(path.parent().context("ingest evidence parent missing")?)?;
-    let kind = match relative {
-        ASSURANCE_EVIDENCE_PATH => "assurance",
-        INGEST_PROBE_EVIDENCE_PATH => "ingest_probe",
-        FORMAT_SCHEMA_EVIDENCE_PATH => "format_schema",
-        RERUN_EVIDENCE_PATH => "rerun_consistency",
-        _ => "ingest_check",
-    };
-    crate::evidence_envelope::write_json(
-        &path,
-        value,
-        EvidenceEnvelopeSpec::new(EvidenceFamily::N, kind),
-        true,
-    )
+    crate::evidence_envelope::write_json_for_path(&path, value, EvidenceFamily::N, relative, true)
 }
 
 #[cfg(test)]
