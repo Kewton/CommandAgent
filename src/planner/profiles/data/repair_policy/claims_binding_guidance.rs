@@ -26,8 +26,9 @@ pub(crate) fn for_failure(
     report: &VerificationReport,
     root: Option<&Path>,
 ) -> Option<String> {
-    if profile.is_none_or(|profile| crate::planner::profile::domain_profile(profile).id() != "data")
-        || !report_mentions_failure(report)
+    if profile.is_none_or(|profile| {
+        !crate::planner::profile::resolve_profile_runtime(profile).synthesizes_fix_plan()
+    }) || !report_mentions_failure(report)
     {
         return None;
     }

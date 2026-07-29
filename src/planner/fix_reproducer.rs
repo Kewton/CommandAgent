@@ -2,7 +2,7 @@ use serde_json::json;
 
 use crate::eval_events;
 use crate::planner::adjudication::contract::is_fix_intent;
-use crate::planner::profile::{ProfileFixReproducerSuggestion, domain_profile};
+use crate::planner::profile::{ProfileFixReproducerSuggestion, resolve_profile_runtime};
 use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
 
 pub(crate) type ReproducerSuggestion = ProfileFixReproducerSuggestion;
@@ -11,7 +11,7 @@ pub(crate) fn suggestion_for(plan: &UltraPlan) -> Option<ReproducerSuggestion> {
     if !is_fix_intent(&plan.intent) {
         return None;
     }
-    domain_profile(&plan.profile).fix_reproducer_suggestion(&plan.goal)
+    resolve_profile_runtime(&plan.profile).fix_reproducer_suggestion(&plan.goal)
 }
 
 pub(crate) fn attach_to_phase_prompt(

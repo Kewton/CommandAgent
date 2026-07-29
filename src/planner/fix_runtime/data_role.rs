@@ -23,7 +23,9 @@ pub(super) struct DataRolePolicy {
 
 impl DataRolePolicy {
     pub(super) fn for_plan(plan: &UltraPlan) -> Self {
-        let enabled = plan.profile == "data" && is_fix_intent(&plan.intent);
+        let enabled = crate::planner::profile::resolve_profile_runtime(&plan.profile)
+            .synthesizes_fix_plan()
+            && is_fix_intent(&plan.intent);
         let repair_phase_id = enabled.then(|| {
             plan.phases
                 .iter()

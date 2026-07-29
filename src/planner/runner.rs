@@ -63,10 +63,10 @@ use crate::planner::lint::{
 use crate::planner::profile::{
     GENERIC_INTERACTIVE_CONTRACT_CAPABILITY, PhaseVerificationMode, ProfileBehaviorProbeReport,
     ProfileId, ProfileInferenceSource, ProfileSnapshot, canonical_profile_name, domain_profile,
-    infer_profile, is_nextjs_profile, profile_auto_repair, profile_before_plan,
-    profile_expected_paths, profile_generation_rules, profile_guidance, profile_post_step_repair,
-    profile_quality_expectations, profile_runtime_contract, profile_setup_scaffold_paths,
-    resolve_profile_runtime, verify_profile_final, verify_profile_invariant,
+    infer_profile, is_nextjs_profile, profile_before_plan, profile_expected_paths,
+    profile_generation_rules, profile_guidance, profile_quality_expectations,
+    profile_runtime_contract, profile_setup_scaffold_paths, resolve_profile_runtime,
+    verify_profile_final, verify_profile_invariant,
 };
 use crate::planner::profile_behavior::ProfileRuntime;
 use crate::planner::repair::{
@@ -1794,79 +1794,14 @@ fn dependency_reconciliation_requirement(
     authority: NodeDependencySetupAuthority,
 ) -> Option<NodeDependencySetupRequirement> {
     let reason = format!("{} dependency reconciliation", trigger.as_str());
-    let canonical_profile = canonical_profile_name(profile);
-    if trigger == DependencyReconciliationTrigger::ManifestChanged {
-        if canonical_profile == "nextjs"
-            && dependency_setup::package_json_declares_dependencies(root)
-        {
-            return if !dependency_setup::next_build_dependencies_ready(root) {
-                Some(dependency_setup::requirement_for_next_build(
-                    root,
-                    Some(canonical_profile.as_str()),
-                    &reason,
-                    authority,
-                ))
-            } else {
-                Some(
-                    dependency_setup::requirement_for_node_declared_dependencies(
-                        root,
-                        Some(canonical_profile.as_str()),
-                        &reason,
-                        authority,
-                    ),
-                )
-            };
-        }
-        return match canonical_profile.as_str() {
-            "python-cli" | "python_cli" => None,
-            _ if dependency_setup::package_json_declares_dependencies(root) => Some(
-                dependency_setup::requirement_for_node_declared_dependencies(
-                    root,
-                    Some(&canonical_profile),
-                    &reason,
-                    authority,
-                ),
-            ),
-            _ => None,
-        };
-    }
-    match canonical_profile.as_str() {
-        "nextjs"
-            if dependency_setup::package_json_declares_dependencies(root)
-                && !dependency_setup::next_build_dependencies_ready(root) =>
-        {
-            Some(dependency_setup::requirement_for_next_build(
-                root,
-                Some(canonical_profile.as_str()),
-                &reason,
-                authority,
-            ))
-        }
-        "python-cli" | "python_cli"
-            if dependency_setup::python_cli_declares_dependencies(root)
-                && !dependency_setup::python_cli_dependencies_ready(root) =>
-        {
-            Some(dependency_setup::requirement_for_python_cli_dependencies(
-                root,
-                Some("python-cli"),
-                &reason,
-                authority,
-            ))
-        }
-        _ if dependency_setup::package_json_declares_dependencies(root)
-            && !dependency_setup::node_declared_dependencies_ready(root) =>
-        {
-            Some(
-                dependency_setup::requirement_for_node_declared_dependencies(
-                    root,
-                    Some(&canonical_profile),
-                    &reason,
-                    authority,
-                ),
-            )
-        }
-        _ => None,
-    }
+    let profile_id = ProfileId::parse(profile);
+    resolve_profile_runtime(profile).dependency_reconciliation_requirement(
+        root,
+        &profile_id,
+        trigger == DependencyReconciliationTrigger::ManifestChanged,
+        &reason,
+        authority,
+    )
 }
 
 fn reconcile_manifest_changed_dependencies_if_needed(
@@ -2289,7 +2224,7 @@ fn run_step(
         ..StepRunOutcome::default()
     };
     let overall_goal = prompt_context.overall_goal.as_str();
-    match profile_post_step_repair(&config.workspace_root, &config.profile, overall_goal) {
+    match runtime.post_step_repair(&config.workspace_root, overall_goal) {
         Ok(true) => {
             if let Some(state) = run_setup_authority.as_deref_mut() {
                 state.grant("manifest_repair");
@@ -2458,9 +2393,9 @@ fn run_step(
             } else {
                 build_repair_prompt_with_context(&step.id, &current_report, &context)
             };
-            repair_prompt = hook_snapshot::prefix_feedback_if_missing(
+            repair_prompt = hook_snapshot::prefix_feedback_if_missing_with_runtime(
                 config,
-                &config.profile,
+                runtime,
                 overall_goal,
                 "step_verify_repair",
                 Some(&step.id),
@@ -2546,7 +2481,7 @@ fn run_step(
                 &repair.missing_obligations,
             );
             merge_unique_strings(&mut outcome.repair_changed_paths, &repair.changed_paths);
-            match profile_post_step_repair(&config.workspace_root, &config.profile, overall_goal) {
+            match runtime.post_step_repair(&config.workspace_root, overall_goal) {
                 Ok(true) => {
                     if let Some(state) = run_setup_authority.as_deref_mut() {
                         state.grant("manifest_repair");
@@ -2715,7 +2650,11 @@ fn run_step(
                 return Ok(outcome);
             }
             if hook_snapshot_feedback_given && !hook_snapshot_restore_used {
-                match hook_snapshot::restore_first_missing(config, &config.profile, overall_goal) {
+                match hook_snapshot::restore_first_missing_with_runtime(
+                    config,
+                    runtime,
+                    overall_goal,
+                ) {
                     Ok(Some(restored)) => {
                         hook_snapshot_restore_used = true;
                         merge_changed_files(
@@ -4052,15 +3991,16 @@ fn verify_profile_invariant_with_hook_snapshot(
 ) -> VerificationReport {
     let report =
         verify_profile_invariant(&config.workspace_root, &plan.profile, &plan.goal, snapshot);
-    hook_snapshot::report_missing_as_profile_failure(config, &plan.profile, &plan.goal, report)
+    hook_snapshot::report_missing_as_profile_failure_with_runtime(
+        config,
+        resolve_profile_runtime(&plan.profile),
+        &plan.goal,
+        report,
+    )
 }
 
 fn profile_invariant_expected_paths(root: &Path, profile: &str, paths: &[String]) -> Vec<String> {
-    if is_nextjs_profile(profile) {
-        crate::planner::profiles::nextjs::filter_setup_invariant_paths(root, paths.to_vec())
-    } else {
-        paths.to_vec()
-    }
+    resolve_profile_runtime(profile).filter_invariant_expected_paths(root, paths.to_vec())
 }
 
 fn profile_invariant_setup_paths(root: &Path, profile: &str) -> Vec<String> {
@@ -4602,60 +4542,56 @@ fn repair_intermediate_profile_invariant(
     setup_authority_state: &mut UltraRunSetupAuthorityState,
 ) -> anyhow::Result<VerificationReport> {
     let mut retry = failed_report.clone();
-    let deterministic_error = match profile_auto_repair(
-        &config.workspace_root,
-        &plan.profile,
-        &plan.goal,
-        &failed_report,
-    ) {
-        Ok(changed) => {
-            if changed {
-                setup_authority_state.grant("manifest_repair");
-                reconcile_run_dependency_setup(
+    let runtime = resolve_profile_runtime(&plan.profile);
+    let deterministic_error =
+        match runtime.deterministic_repair(&config.workspace_root, &plan.goal, &failed_report) {
+            Ok(changed) => {
+                if changed {
+                    setup_authority_state.grant("manifest_repair");
+                    reconcile_run_dependency_setup(
+                        config,
+                        &plan.profile,
+                        DependencyReconciliationTrigger::ManifestRepair,
+                        setup_authority_state,
+                    )?;
+                }
+                retry = verify_profile_invariant_with_hook_snapshot(config, plan, profile_snapshot);
+                emit_profile_invariant_repair_event(
                     config,
-                    &plan.profile,
-                    DependencyReconciliationTrigger::ManifestRepair,
-                    setup_authority_state,
-                )?;
+                    plan,
+                    phase,
+                    index,
+                    "deterministic",
+                    changed,
+                    retry.is_pass(),
+                    &retry.primary_reason(),
+                );
+                None
             }
-            retry = verify_profile_invariant_with_hook_snapshot(config, plan, profile_snapshot);
-            emit_profile_invariant_repair_event(
-                config,
-                plan,
-                phase,
-                index,
-                "deterministic",
-                changed,
-                retry.is_pass(),
-                &retry.primary_reason(),
-            );
-            None
-        }
-        Err(err) => {
-            let message = err.to_string();
-            emit_profile_invariant_repair_event(
-                config,
-                plan,
-                phase,
-                index,
-                "deterministic",
-                false,
-                false,
-                &message,
-            );
-            Some(message)
-        }
-    };
+            Err(err) => {
+                let message = err.to_string();
+                emit_profile_invariant_repair_event(
+                    config,
+                    plan,
+                    phase,
+                    index,
+                    "deterministic",
+                    false,
+                    false,
+                    &message,
+                );
+                Some(message)
+            }
+        };
     if retry.is_pass() {
         return Ok(confirm_phase_build_after_profile_repair(
             config, plan, phase, index, step_plan, retry,
         ));
     }
 
-    let expected_paths = profile_invariant_expected_paths(
+    let expected_paths = runtime.filter_invariant_expected_paths(
         &config.workspace_root,
-        &plan.profile,
-        &profile_expected_paths(&config.workspace_root, &plan.profile, &plan.goal),
+        runtime.expected_scaffold_paths(&config.workspace_root, &plan.goal),
     );
     let mut hook_snapshot_feedback_given = false;
     let mut repair_prompt = profile_invariant_model_repair_prompt(
@@ -4667,9 +4603,9 @@ fn repair_intermediate_profile_invariant(
         config,
         deterministic_error.as_deref(),
     );
-    repair_prompt = hook_snapshot::prefix_feedback_if_missing(
+    repair_prompt = hook_snapshot::prefix_feedback_if_missing_with_runtime(
         config,
-        &plan.profile,
+        runtime,
         &plan.goal,
         "profile_invariant_repair",
         Some(&phase.id),
@@ -4726,7 +4662,7 @@ fn repair_intermediate_profile_invariant(
             }
             if hook_snapshot_feedback_given
                 && let Some(restored) =
-                    hook_snapshot::restore_first_missing(config, &plan.profile, &plan.goal)?
+                    hook_snapshot::restore_first_missing_with_runtime(config, runtime, &plan.goal)?
             {
                 push_context_items_capped(
                     &mut ultra_context.created_or_changed_paths,
@@ -5079,7 +5015,7 @@ fn profile_invariant_model_repair_prompt(
     let expected = render_prompt_bullets(expected_paths);
     let file_excerpts = profile_invariant_offending_file_excerpts(
         &config.workspace_root,
-        &plan.profile,
+        resolve_profile_runtime(&plan.profile),
         &exact_reason,
     );
     let missing_imports = profile_missing_relative_imports(&config.workspace_root, &plan.profile);
@@ -5535,13 +5471,11 @@ fn runtime_acceptance_repair_guidance(
                 ));
             }
             "persistence_evidence" => {
-                guidance.extend(
-                    crate::planner::profile::inferred_profile_interaction_repair_guidance(
-                        profile,
-                        goal,
-                        "browser_interaction_failed:persistence_after_reload_reset",
-                    ),
-                );
+                let contract = crate::planner::profile::interaction_repair_contract(profile, goal);
+                guidance.extend(resolve_profile_runtime(profile).interaction_repair_guidance(
+                    "browser_interaction_failed:persistence_after_reload_reset",
+                    &contract,
+                ));
             }
             "live_preview_evidence" | "requested_content_evidence" => {
                 guidance.push(TEXT_ECHO_REPAIR_REQUIREMENT.to_string())
@@ -7316,43 +7250,10 @@ fn release_recovery_verify_commands(
     profile: &str,
     release_gate: &ReleaseGateSummary,
 ) -> Vec<String> {
-    let mut commands = Vec::new();
-    if matches!(profile, "nextjs" | "next-js" | "next.js") {
-        commands.push("npm run build".to_string());
-        commands.push("start dev server with npm run dev and wait for readiness".to_string());
-        commands.push("probe browser route GET / and record HTTP status".to_string());
-        commands.push("write browser-readiness.json with route_rendered/http_status".to_string());
-        if release_gate
-            .reasons
-            .iter()
-            .any(|reason| reason.contains("interaction_unverified:probe_unavailable"))
-        {
-            commands.push(
-                crate::minimal_loop::interaction_probe::INTERACTION_PROBE_SETUP_REMEDIATION
-                    .to_string(),
-            );
-        } else if release_gate_has_interaction_probe_infrastructure_failure(release_gate) {
-            commands.push(
-                "fix the interaction probe infrastructure before rerunning release checks"
-                    .to_string(),
-            );
-            if release_gate
-                .reasons
-                .iter()
-                .any(|reason| reason.contains("probe_dependency_missing:browser_binaries_missing"))
-            {
-                commands.push(
-                    crate::minimal_loop::interaction_probe::INTERACTION_PROBE_SETUP_REMEDIATION
-                        .to_string(),
-                );
-            }
-        } else {
-            commands
-                .push("run the interaction probe and record browser-interaction.json".to_string());
-        }
-    } else {
-        commands.push("rerun deterministic acceptance checks for the original goal".to_string());
-    }
+    let mut commands = resolve_profile_runtime(profile).release_recovery_verify_commands(
+        &release_gate.reasons,
+        release_gate_has_interaction_probe_infrastructure_failure(release_gate),
+    );
     if release_gate.status == "partial" {
         commands.push("do not claim release_ready until release gate evidence passes".to_string());
     }

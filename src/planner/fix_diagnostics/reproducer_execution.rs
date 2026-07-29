@@ -14,7 +14,7 @@ pub(super) fn run(
     profile: &str,
     goal: &str,
 ) -> ReproducerExecution {
-    if let Some(observation) = crate::planner::profile::domain_profile(profile)
+    if let Some(observation) = crate::planner::profile::resolve_profile_runtime(profile)
         .run_fix_reproducer_catalog_check(
             &config.workspace_root,
             goal,

@@ -409,11 +409,10 @@ pub(super) fn safe_final_acceptance_snapshot_rel_path(raw: &str) -> Option<Strin
 
 pub(super) fn profile_invariant_offending_file_excerpts(
     root: &Path,
-    profile: &str,
+    runtime: &dyn crate::planner::profile_behavior::ProfileRuntime,
     reason: &str,
 ) -> String {
-    let paths =
-        crate::planner::profiles::nextjs::profile_invariant_relevant_paths(root, profile, reason);
+    let paths = runtime.invariant_relevant_paths(root, reason);
     if paths.is_empty() {
         return "- no matching profile files found".to_string();
     }

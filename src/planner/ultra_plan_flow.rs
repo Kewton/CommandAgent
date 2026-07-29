@@ -246,6 +246,7 @@ pub fn run_ultra_plan_with_ui(
     emit_ultra_context_initialized(config, plan, &ultra_context, ultra_session.messages.len());
     let phases = plan.phases.clone();
     for (index, phase) in phases.iter().enumerate() {
+        let runtime = resolve_profile_runtime(&plan.profile);
         if ui.interrupted() {
             anyhow::bail!("interrupted by user");
         }
@@ -593,7 +594,7 @@ pub fn run_ultra_plan_with_ui(
                 ));
             }
         } else {
-            hook_snapshot::save_phase_snapshots(config, &plan.profile, &plan.goal, &phase.id);
+            hook_snapshot::save_runtime(config, runtime, &plan.goal, &phase.id);
             emit_phase_verification_event(
                 config,
                 plan,
@@ -661,7 +662,7 @@ pub fn run_ultra_plan_with_ui(
         let final_invariant_reason =
             (!invariant_report.is_pass()).then(|| invariant_report.primary_reason());
         if invariant_report.is_pass() {
-            hook_snapshot::save_phase_snapshots(config, &plan.profile, &plan.goal, &phase.id);
+            hook_snapshot::save_runtime(config, runtime, &plan.goal, &phase.id);
         }
         emit_phase_verification_event(
             config,
@@ -1004,9 +1005,9 @@ pub fn run_ultra_plan_with_ui(
                     "Repair session mode: compact.\nEvidence repair compact mandate: use a fresh, minimal context and make the concrete Write/Edit change for the pending evidence keys. Do not inspect only.\n\n{repair_prompt}"
                 );
             }
-            repair_prompt = hook_snapshot::prefix_feedback_if_missing(
+            repair_prompt = hook_snapshot::prefix_feedback_if_missing_with_runtime(
                 config,
-                &plan.profile,
+                resolve_profile_runtime(&plan.profile),
                 &plan.goal,
                 "final_acceptance_repair",
                 Some(&fallback_phase.id),
@@ -1278,7 +1279,11 @@ pub fn run_ultra_plan_with_ui(
                 continue;
             }
             if hook_snapshot_feedback_given && !hook_snapshot_restore_used {
-                match hook_snapshot::restore_first_missing(config, &plan.profile, &plan.goal) {
+                match hook_snapshot::restore_first_missing_with_runtime(
+                    config,
+                    resolve_profile_runtime(&plan.profile),
+                    &plan.goal,
+                ) {
                     Ok(Some(restored)) => {
                         hook_snapshot_restore_used = true;
                         push_context_items_capped(

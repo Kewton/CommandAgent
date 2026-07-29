@@ -132,7 +132,9 @@ pub(crate) fn profile_guidance(
 }
 
 fn is_data_profile(profile: Option<&str>) -> bool {
-    profile.is_some_and(|profile| crate::planner::profile::domain_profile(profile).id() == "data")
+    profile.is_some_and(|profile| {
+        crate::planner::profile::resolve_profile_runtime(profile).synthesizes_fix_plan()
+    })
 }
 
 fn report_mentions_dependency_denial(report: &VerificationReport) -> bool {

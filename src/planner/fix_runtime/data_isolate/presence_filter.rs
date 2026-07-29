@@ -58,7 +58,8 @@ fn applies(profile: &str, phase: &UltraPhase) -> bool {
     // absent canonical artifacts (observed in dfix-003 schema/qwen A). Apply
     // the same presence filter there; write-capable steps remain untouched so
     // repair may create the artifact.
-    profile == "data" && (phase.id == "isolate-cause" || phase.id.starts_with("repair"))
+    crate::planner::profile::resolve_profile_runtime(profile).synthesizes_fix_plan()
+        && (phase.id == "isolate-cause" || phase.id.starts_with("repair"))
 }
 
 fn write_capable(step: &PlanStep) -> bool {

@@ -98,7 +98,7 @@ runner_sites = [612, 622, 632, 809, 832, 2174, 2221, 2228, 8358, 8359, 8362, 837
 [[migration_batch]]
 batch = 3
 kind = "repair boundary"
-status = "pending"
+status = "complete"
 runner_sites = [1804, 2306, 2563, 2732, 4617, 4633, 4667, 4670, 4723, 4741, 4755, 5091, 5096, 5098, 5546, 7074, 7327]
 
 [[migration_batch]]

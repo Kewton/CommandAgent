@@ -7,7 +7,8 @@ use serde_json::json;
 use crate::config::Config;
 use crate::eval_events;
 use crate::planner::hook_attributes::{hook_attribute_present, hook_attributes_present};
-use crate::planner::profile::{ProfileHookAttribute, profile_hook_snapshot_targets};
+use crate::planner::profile::ProfileHookAttribute;
+use crate::planner::profile_behavior::ProfileRuntime;
 use crate::planner::verify::VerificationReport;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,16 +46,16 @@ struct HookSnapshotManifestEntry {
     attributes: Vec<ProfileHookAttribute>,
 }
 
-pub fn save_phase_snapshots(
+pub fn save_runtime(
     config: &Config,
-    profile: &str,
+    runtime: &dyn ProfileRuntime,
     goal: &str,
     phase_id: &str,
 ) -> HookSnapshotSaveReport {
     let report = save_phase_snapshots_at(
         &config.workspace_root,
         config.eval_events_path.as_deref(),
-        profile,
+        runtime,
         goal,
         phase_id,
     );
@@ -74,30 +75,30 @@ pub fn save_phase_snapshots(
     report
 }
 
-pub fn report_missing_as_profile_failure(
+pub fn report_missing_as_profile_failure_with_runtime(
     config: &Config,
-    profile: &str,
+    runtime: &dyn ProfileRuntime,
     goal: &str,
     report: VerificationReport,
 ) -> VerificationReport {
     if !report.is_pass() {
         return report;
     }
-    let Some(diagnostic) = detect_missing(config, profile, goal) else {
+    let Some(diagnostic) = detect_missing_with_runtime(config, runtime, goal) else {
         return report;
     };
     VerificationReport::profile_failed(profile_failure_reason(&diagnostic))
 }
 
-pub fn detect_missing(
+pub fn detect_missing_with_runtime(
     config: &Config,
-    profile: &str,
+    runtime: &dyn ProfileRuntime,
     goal: &str,
 ) -> Option<HookSnapshotDiagnostic> {
     detect_missing_at(
         &config.workspace_root,
         config.eval_events_path.as_deref(),
-        profile,
+        runtime,
         goal,
     )
 }
@@ -139,9 +140,9 @@ pub fn emit_feedback(
     );
 }
 
-pub fn prefix_feedback_if_missing(
+pub fn prefix_feedback_if_missing_with_runtime(
     config: &Config,
-    profile: &str,
+    runtime: &dyn ProfileRuntime,
     goal: &str,
     lifecycle_stage: &str,
     scope_id: Option<&str>,
@@ -151,7 +152,7 @@ pub fn prefix_feedback_if_missing(
     if *feedback_given {
         return prompt;
     }
-    let Some(diagnostic) = detect_missing(config, profile, goal) else {
+    let Some(diagnostic) = detect_missing_with_runtime(config, runtime, goal) else {
         return prompt;
     };
     *feedback_given = true;
@@ -159,12 +160,12 @@ pub fn prefix_feedback_if_missing(
     format!("{}\n\n{}", deterministic_feedback(&diagnostic), prompt)
 }
 
-pub fn restore_first_missing(
+pub fn restore_first_missing_with_runtime(
     config: &Config,
-    profile: &str,
+    runtime: &dyn ProfileRuntime,
     goal: &str,
 ) -> anyhow::Result<Option<HookSnapshotRestore>> {
-    let Some(diagnostic) = detect_missing(config, profile, goal) else {
+    let Some(diagnostic) = detect_missing_with_runtime(config, runtime, goal) else {
         return Ok(None);
     };
     let Some(rel) = safe_source_rel_path(&diagnostic.path) else {
@@ -201,18 +202,10 @@ pub fn restore_first_missing(
     Ok(Some(restored))
 }
 
-pub fn current_missing_profile_failure_reason(
-    config: &Config,
-    profile: &str,
-    goal: &str,
-) -> Option<String> {
-    detect_missing(config, profile, goal).map(|diagnostic| profile_failure_reason(&diagnostic))
-}
-
 fn save_phase_snapshots_at(
     root: &Path,
     eval_events_path: Option<&Path>,
-    profile: &str,
+    runtime: &dyn ProfileRuntime,
     goal: &str,
     phase_id: &str,
 ) -> HookSnapshotSaveReport {
@@ -227,7 +220,7 @@ fn save_phase_snapshots_at(
     let mut saved_paths = Vec::new();
     let mut skipped_paths = Vec::new();
     let mut failures = Vec::new();
-    for target in profile_hook_snapshot_targets(root, profile, goal) {
+    for target in runtime.hook_snapshot_targets(root, goal) {
         let Some(rel) = safe_source_rel_path(&target.relative_path) else {
             continue;
         };
@@ -277,12 +270,12 @@ fn save_phase_snapshots_at(
 fn detect_missing_at(
     root: &Path,
     eval_events_path: Option<&Path>,
-    profile: &str,
+    runtime: &dyn ProfileRuntime,
     goal: &str,
 ) -> Option<HookSnapshotDiagnostic> {
     let snapshot_root = snapshot_root(root, eval_events_path)?;
     let manifest = read_manifest(&snapshot_root);
-    for target in profile_hook_snapshot_targets(root, profile, goal) {
+    for target in runtime.hook_snapshot_targets(root, goal) {
         let rel = safe_source_rel_path(&target.relative_path)?;
         let entry = manifest.entries.get(&rel);
         let snapshot_path = snapshot_root.join(&rel);
@@ -466,6 +459,58 @@ fn safe_source_rel_path(raw: &str) -> Option<String> {
     }
     let ext = path.extension().and_then(|ext| ext.to_str())?;
     matches!(ext, "tsx" | "ts" | "jsx" | "js" | "mjs" | "cjs").then_some(rel)
+}
+
+#[cfg(test)]
+fn save_phase_snapshots(
+    config: &Config,
+    profile: &str,
+    goal: &str,
+    phase_id: &str,
+) -> HookSnapshotSaveReport {
+    save_runtime(
+        config,
+        crate::planner::profile::resolve_profile_runtime(profile),
+        goal,
+        phase_id,
+    )
+}
+
+#[cfg(test)]
+fn detect_missing(config: &Config, profile: &str, goal: &str) -> Option<HookSnapshotDiagnostic> {
+    detect_missing_with_runtime(
+        config,
+        crate::planner::profile::resolve_profile_runtime(profile),
+        goal,
+    )
+}
+
+#[cfg(test)]
+fn report_missing_as_profile_failure(
+    config: &Config,
+    profile: &str,
+    goal: &str,
+    report: VerificationReport,
+) -> VerificationReport {
+    report_missing_as_profile_failure_with_runtime(
+        config,
+        crate::planner::profile::resolve_profile_runtime(profile),
+        goal,
+        report,
+    )
+}
+
+#[cfg(test)]
+fn restore_first_missing(
+    config: &Config,
+    profile: &str,
+    goal: &str,
+) -> anyhow::Result<Option<HookSnapshotRestore>> {
+    restore_first_missing_with_runtime(
+        config,
+        crate::planner::profile::resolve_profile_runtime(profile),
+        goal,
+    )
 }
 
 #[cfg(test)]

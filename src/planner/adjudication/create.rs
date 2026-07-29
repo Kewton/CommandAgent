@@ -609,9 +609,9 @@ pub(super) fn ultra_final_acceptance_report_inner(
         &plan.goal,
         &ProfileSnapshot::None,
     );
-    let profile_invariant_report = hook_snapshot::report_missing_as_profile_failure(
+    let profile_invariant_report = hook_snapshot::report_missing_as_profile_failure_with_runtime(
         config,
-        &effective_profile,
+        resolve_profile_runtime(&effective_profile),
         &plan.goal,
         profile_invariant_report,
     );

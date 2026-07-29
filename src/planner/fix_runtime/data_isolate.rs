@@ -58,7 +58,8 @@ pub(super) fn attach_for_workspace(
 }
 
 fn applies_prompt(profile: &str, phase: &UltraPhase) -> bool {
-    profile == "data" && phase.id == "isolate-cause"
+    crate::planner::profile::resolve_profile_runtime(profile).synthesizes_fix_plan()
+        && phase.id == "isolate-cause"
 }
 
 fn canonical_artifact_presence(

@@ -164,4 +164,45 @@ pub trait ProfileRuntime: DomainProfile {
     fn enforce_nextjs_plan_shape(&self) -> bool {
         false
     }
+
+    fn dependency_reconciliation_requirement(
+        &self,
+        root: &Path,
+        profile_id: &ProfileId,
+        manifest_changed: bool,
+        reason: &str,
+        authority: crate::minimal_loop::dependency_setup::NodeDependencySetupAuthority,
+    ) -> Option<crate::minimal_loop::dependency_setup::NodeDependencySetupRequirement> {
+        if crate::minimal_loop::dependency_setup::package_json_declares_dependencies(root)
+            && (manifest_changed
+                || !crate::minimal_loop::dependency_setup::node_declared_dependencies_ready(root))
+        {
+            Some(
+                crate::minimal_loop::dependency_setup::requirement_for_node_declared_dependencies(
+                    root,
+                    Some(profile_id.as_str()),
+                    reason,
+                    authority,
+                ),
+            )
+        } else {
+            None
+        }
+    }
+
+    fn release_recovery_verify_commands(
+        &self,
+        _reasons: &[String],
+        _probe_infrastructure_failure: bool,
+    ) -> Vec<String> {
+        vec!["rerun deterministic acceptance checks for the original goal".to_string()]
+    }
+
+    fn filter_invariant_expected_paths(&self, _root: &Path, paths: Vec<String>) -> Vec<String> {
+        paths
+    }
+
+    fn invariant_relevant_paths(&self, _root: &Path, _reason: &str) -> Vec<std::path::PathBuf> {
+        Vec::new()
+    }
 }

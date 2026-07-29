@@ -15,8 +15,7 @@ use crate::planner::adjudication::fix::{
     evidence_lineage, reproducer_lineage,
 };
 use crate::planner::profile::{
-    ProfileFixRegressionAdapter, ProfileFixRegressionBinding, profile_fix_regression_bindings,
-    run_profile_fix_regressions,
+    ProfileFixRegressionAdapter, ProfileFixRegressionBinding, resolve_profile_runtime,
 };
 use crate::planner::step_plan::{ExpectedResult, StepKind, StepPlan};
 use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
@@ -149,11 +148,8 @@ impl FixRuntime {
             run_id: uuid::Uuid::now_v7().to_string(),
             profile: plan.profile.clone(),
             goal: plan.goal.clone(),
-            regression_bindings: profile_fix_regression_bindings(
-                &config.workspace_root,
-                &plan.profile,
-                &plan.goal,
-            ),
+            regression_bindings: resolve_profile_runtime(&plan.profile)
+                .fix_regression_bindings(&config.workspace_root, &plan.goal),
             reproducer: None,
             before: None,
             after: None,
@@ -311,9 +307,8 @@ impl FixRuntime {
         emit_probe_observation(config, &after, &path);
 
         if after.outcome == ProbeOutcome::Success {
-            for regression in run_profile_fix_regressions(
+            for regression in resolve_profile_runtime(&self.profile).run_fix_regressions(
                 &config.workspace_root,
-                &self.profile,
                 &self.goal,
                 &self.regression_bindings,
                 config.offline,
@@ -661,7 +656,7 @@ mod tests {
     fn bind_python_cli_profile(root: &Path, config: &mut Config, plan: &mut UltraPlan) {
         let profile = "python-cli";
         let paths = crate::planner::profile::profile_setup_scaffold_paths(root, profile);
-        crate::planner::profile::domain_profile(profile)
+        crate::planner::profile::resolve_profile_runtime(profile)
             .complete_scaffold(root, &paths)
             .unwrap();
         config.profile = profile.to_string();

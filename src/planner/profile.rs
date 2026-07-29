@@ -593,6 +593,87 @@ impl ProfileRuntime for crate::planner::profiles::nextjs::NextjsProfile {
     fn enforce_nextjs_plan_shape(&self) -> bool {
         true
     }
+
+    fn dependency_reconciliation_requirement(
+        &self,
+        root: &Path,
+        profile_id: &ProfileId,
+        manifest_changed: bool,
+        reason: &str,
+        authority: NodeDependencySetupAuthority,
+    ) -> Option<NodeDependencySetupRequirement> {
+        if !dependency_setup::package_json_declares_dependencies(root) {
+            return None;
+        }
+        if !dependency_setup::next_build_dependencies_ready(root) {
+            return Some(dependency_setup::requirement_for_next_build(
+                root,
+                Some(profile_id.as_str()),
+                reason,
+                authority,
+            ));
+        }
+        manifest_changed.then(|| {
+            dependency_setup::requirement_for_node_declared_dependencies(
+                root,
+                Some(profile_id.as_str()),
+                reason,
+                authority,
+            )
+        })
+    }
+
+    fn release_recovery_verify_commands(
+        &self,
+        reasons: &[String],
+        probe_infrastructure_failure: bool,
+    ) -> Vec<String> {
+        let mut commands = vec![
+            "npm run build".to_string(),
+            "start dev server with npm run dev and wait for readiness".to_string(),
+            "probe browser route GET / and record HTTP status".to_string(),
+            "write browser-readiness.json with route_rendered/http_status".to_string(),
+        ];
+        if reasons
+            .iter()
+            .any(|reason| reason.contains("interaction_unverified:probe_unavailable"))
+        {
+            commands.push(
+                crate::minimal_loop::interaction_probe::INTERACTION_PROBE_SETUP_REMEDIATION
+                    .to_string(),
+            );
+        } else if probe_infrastructure_failure {
+            commands.push(
+                "fix the interaction probe infrastructure before rerunning release checks"
+                    .to_string(),
+            );
+            if reasons
+                .iter()
+                .any(|reason| reason.contains("probe_dependency_missing:browser_binaries_missing"))
+            {
+                commands.push(
+                    crate::minimal_loop::interaction_probe::INTERACTION_PROBE_SETUP_REMEDIATION
+                        .to_string(),
+                );
+            }
+        } else {
+            commands
+                .push("run the interaction probe and record browser-interaction.json".to_string());
+        }
+        commands
+    }
+
+    fn filter_invariant_expected_paths(&self, root: &Path, paths: Vec<String>) -> Vec<String> {
+        crate::planner::profiles::nextjs::filter_setup_invariant_paths(root, paths)
+    }
+
+    fn invariant_relevant_paths(&self, root: &Path, reason: &str) -> Vec<std::path::PathBuf> {
+        crate::planner::profiles::nextjs::profile_invariant_relevant_paths(
+            root,
+            crate::planner::profiles::nextjs::PROFILE_ID,
+            reason,
+        )
+    }
 }
 
 impl ProfileRuntime for crate::planner::profiles::python_cli::PythonCliProfile {
@@ -635,6 +716,27 @@ impl ProfileRuntime for crate::planner::profiles::python_cli::PythonCliProfile {
 
     fn fallback_setup_plan(&self, root: &Path, goal: &str) -> Option<StepPlan> {
         crate::planner::profile_preset::python_cli_setup_fallback(root, goal)
+    }
+
+    fn dependency_reconciliation_requirement(
+        &self,
+        root: &Path,
+        profile_id: &ProfileId,
+        manifest_changed: bool,
+        reason: &str,
+        authority: NodeDependencySetupAuthority,
+    ) -> Option<NodeDependencySetupRequirement> {
+        (!manifest_changed
+            && dependency_setup::python_cli_declares_dependencies(root)
+            && !dependency_setup::python_cli_dependencies_ready(root))
+        .then(|| {
+            dependency_setup::requirement_for_python_cli_dependencies(
+                root,
+                Some(profile_id.as_str()),
+                reason,
+                authority,
+            )
+        })
     }
 }
 
