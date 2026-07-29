@@ -2045,12 +2045,10 @@ pub(super) fn evidence_failure_reason(value: &Value, details: Option<&Value>) ->
             "status",
         ],
     );
-    if text_reason
-        .as_deref()
-        .is_some_and(prefer_release_evidence_failure_kind_over_http)
-    {
-        return text_reason.unwrap();
-    }
+    let text_reason = match text_reason {
+        Some(reason) if prefer_release_evidence_failure_kind_over_http(&reason) => return reason,
+        other => other,
+    };
     if let Some(status) =
         numeric_field_deep(value, details, &["http_status", "status", "status_code"])
         && status >= 400
