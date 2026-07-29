@@ -104,7 +104,7 @@ runner_sites = [1804, 2306, 2563, 2732, 4617, 4633, 4667, 4670, 4723, 4741, 4755
 [[migration_batch]]
 batch = 4
 kind = "guidance injection"
-status = "pending"
+status = "complete"
 runner_sites = [530, 8945, 8948, 9117, 9126, 9195, 9204, 9258, 9271, 9349, 9358, 9587, 9589, 9591, 9592, 9594, 9596, 9701, 9703, 9705, 9706, 9708, 9710]
 
 [[migration_batch]]

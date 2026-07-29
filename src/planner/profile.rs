@@ -674,6 +674,14 @@ impl ProfileRuntime for crate::planner::profiles::nextjs::NextjsProfile {
             reason,
         )
     }
+
+    fn styling_choice_rule(&self) -> &'static str {
+        "- For Next.js styling, use the default Tailwind scaffold coherently, or plain CSS coherently -- never a half-configured mix.\n"
+    }
+
+    fn route_bound_constraint(&self) -> &'static str {
+        "\nRoute-bound implementation constraint:\n- Keep a single route-bound implementation; do not leave capability components unimported.\n"
+    }
 }
 
 impl ProfileRuntime for crate::planner::profiles::python_cli::PythonCliProfile {
@@ -737,6 +745,22 @@ impl ProfileRuntime for crate::planner::profiles::python_cli::PythonCliProfile {
                 authority,
             )
         })
+    }
+
+    fn is_entrypoint_scaffold_path(&self, path: &str) -> bool {
+        let normalized = path.replace('\\', "/");
+        normalized.starts_with("src/")
+            && normalized.ends_with("/main.py")
+            && normalized
+                .strip_prefix("src/")
+                .and_then(|tail| tail.strip_suffix("/main.py"))
+                .is_some_and(|package| {
+                    !package.is_empty()
+                        && !package.chars().next().is_some_and(|ch| ch.is_ascii_digit())
+                        && package
+                            .chars()
+                            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+                })
     }
 }
 

@@ -64,9 +64,8 @@ use crate::planner::profile::{
     GENERIC_INTERACTIVE_CONTRACT_CAPABILITY, PhaseVerificationMode, ProfileBehaviorProbeReport,
     ProfileId, ProfileInferenceSource, ProfileSnapshot, canonical_profile_name, domain_profile,
     infer_profile, is_nextjs_profile, profile_before_plan, profile_expected_paths,
-    profile_generation_rules, profile_guidance, profile_quality_expectations,
-    profile_runtime_contract, profile_setup_scaffold_paths, resolve_profile_runtime,
-    verify_profile_final, verify_profile_invariant,
+    profile_setup_scaffold_paths, resolve_profile_runtime, verify_profile_final,
+    verify_profile_invariant,
 };
 use crate::planner::profile_behavior::ProfileRuntime;
 use crate::planner::repair::{
@@ -528,7 +527,7 @@ fn generate_step_plan_with_ui_for_phase(
         return Ok(plan);
     }
     let mut prompt = build_step_plan_user_prompt(goal, config);
-    if let Some(guidance) = profile_guidance(&config.profile, goal) {
+    if let Some(guidance) = resolve_profile_runtime(&config.profile).guidance(goal) {
         prompt.push_str("\n\nProfile contract:\n");
         prompt.push_str(&guidance);
         prompt.push_str(
@@ -5365,6 +5364,18 @@ fn inferred_required_evidence(
     evidence
 }
 
+fn runtime_required_evidence(
+    runtime: &dyn ProfileRuntime,
+    goal: &str,
+    required_capabilities: &[String],
+) -> Vec<String> {
+    let mut evidence = runtime.infer_required_evidence(goal, required_capabilities);
+    for capability in required_capabilities {
+        merge_unique_strings(&mut evidence, &required_evidence_for_capability(capability));
+    }
+    evidence
+}
+
 fn inferred_required_obligations(
     profile: &str,
     goal: &str,
@@ -8758,6 +8769,7 @@ fn ultra_plan_generation_messages(
 }
 
 fn ultra_plan_generation_system_prompt(profile: &str, style: &str, intent: &str) -> String {
+    let runtime = resolve_profile_runtime(profile);
     let intent_rules = crate::planner::fix_runtime::generation_rules(intent);
     let style_rules = match style {
         "tdd" => {
@@ -8770,14 +8782,10 @@ fn ultra_plan_generation_system_prompt(profile: &str, style: &str, intent: &str)
             "- Style default: use ordinary phased delivery unless the user explicitly asks for TDD or test hardening.\n"
         }
     };
-    let profile_rules = profile_generation_rules(profile, intent).unwrap_or(
+    let profile_rules = runtime.generation_rules(intent).unwrap_or(
         "- Profile generic: keep phases concrete, local, deterministic, and safe. Separate setup, implementation, and verification responsibilities.\n",
     );
-    let styling_choice_rule = if is_nextjs_profile(profile) {
-        "- For Next.js styling, use the default Tailwind scaffold coherently, or plain CSS coherently -- never a half-configured mix.\n"
-    } else {
-        ""
-    };
+    let styling_choice_rule = runtime.styling_choice_rule();
     format!(
         "You are CommandAgent's ultra planner. You do not execute tools or emit tool calls. Produce a top-level phase plan whose phases will each be executed by /plan-run.\n\
 Output YAML only, with this exact shape:\n\
@@ -8942,7 +8950,8 @@ fn build_step_plan_user_prompt(goal: &str, config: &Config) -> String {
 
 fn build_step_plan_user_prompt_stable(goal: &str, config: &Config) -> String {
     let mut prompt = String::new();
-    let expected_paths = profile_expected_paths(&config.workspace_root, &config.profile, goal);
+    let runtime = resolve_profile_runtime(&config.profile);
+    let expected_paths = runtime.expected_scaffold_paths(&config.workspace_root, goal);
     if !expected_paths.is_empty() {
         prompt.push_str("Required final artifacts:\n");
         for path in expected_paths {
@@ -8951,7 +8960,7 @@ fn build_step_plan_user_prompt_stable(goal: &str, config: &Config) -> String {
             prompt.push('\n');
         }
     }
-    let expectations = profile_quality_expectations(&config.workspace_root, &config.profile, goal);
+    let expectations = runtime.quality_expectations(&config.workspace_root, goal);
     if !expectations.preferred_verify.is_empty()
         || !expectations
             .dependency_order_hint
@@ -8985,7 +8994,7 @@ fn build_step_plan_user_prompt_stable(goal: &str, config: &Config) -> String {
             }
         }
     }
-    if let Some(note) = preprovisioned_scaffold_note(&config.workspace_root, &config.profile) {
+    if let Some(note) = preprovisioned_scaffold_note(&config.workspace_root, runtime) {
         if !prompt.is_empty() {
             prompt.push('\n');
         }
@@ -9020,7 +9029,8 @@ fn build_step_plan_user_prompt_stable(goal: &str, config: &Config) -> String {
 
 fn build_step_plan_user_prompt_legacy(goal: &str, config: &Config) -> String {
     let mut prompt = format!("Create a step plan for this task:\n{goal}");
-    let expected_paths = profile_expected_paths(&config.workspace_root, &config.profile, goal);
+    let runtime = resolve_profile_runtime(&config.profile);
+    let expected_paths = runtime.expected_scaffold_paths(&config.workspace_root, goal);
     if !expected_paths.is_empty() {
         prompt.push_str("\n\nRequired final artifacts:\n");
         for path in expected_paths {
@@ -9029,7 +9039,7 @@ fn build_step_plan_user_prompt_legacy(goal: &str, config: &Config) -> String {
             prompt.push('\n');
         }
     }
-    let expectations = profile_quality_expectations(&config.workspace_root, &config.profile, goal);
+    let expectations = runtime.quality_expectations(&config.workspace_root, goal);
     if !expectations.preferred_verify.is_empty()
         || !expectations
             .dependency_order_hint
@@ -9060,7 +9070,7 @@ fn build_step_plan_user_prompt_legacy(goal: &str, config: &Config) -> String {
             }
         }
     }
-    if let Some(note) = preprovisioned_scaffold_note(&config.workspace_root, &config.profile) {
+    if let Some(note) = preprovisioned_scaffold_note(&config.workspace_root, runtime) {
         prompt.push_str("\n\nPre-provisioned scaffold note:\n");
         prompt.push_str("- ");
         prompt.push_str(&note);
@@ -9082,8 +9092,8 @@ fn build_step_plan_user_prompt_legacy(goal: &str, config: &Config) -> String {
     prompt
 }
 
-fn preprovisioned_scaffold_note(root: &Path, profile: &str) -> Option<String> {
-    let scaffold_paths = profile_setup_scaffold_paths(root, profile);
+fn preprovisioned_scaffold_note(root: &Path, runtime: &dyn ProfileRuntime) -> Option<String> {
+    let scaffold_paths = runtime.setup_scaffold_paths(root);
     (!scaffold_paths.is_empty()).then(|| {
         "Required scaffold files are authored before phase 1 when absent; verify or extend the scaffold rather than re-planning file creation.".to_string()
     })
@@ -9096,7 +9106,8 @@ fn is_ultra_phase_step_goal(goal: &str) -> bool {
 }
 
 fn plan_quality_context(config: &Config, goal: &str) -> PlanQualityContext {
-    let expectations = profile_quality_expectations(&config.workspace_root, &config.profile, goal);
+    let expectations =
+        resolve_profile_runtime(&config.profile).quality_expectations(&config.workspace_root, goal);
     let workspace = workspace_quality_snapshot(&config.workspace_root);
     PlanQualityContext {
         profile: config.profile.clone(),
@@ -9157,6 +9168,7 @@ fn is_agent_metadata_entry(name: &str) -> bool {
 }
 
 fn strengthen_step_plan_for_profile(plan: &mut StepPlan, config: &Config) {
+    let runtime = resolve_profile_runtime(&config.profile);
     let is_scaffold = plan.goal.to_ascii_lowercase().contains("scaffold");
     let Some(target_index) = plan
         .steps
@@ -9174,7 +9186,7 @@ fn strengthen_step_plan_for_profile(plan: &mut StepPlan, config: &Config) {
     };
     let target = &mut plan.steps[target_index];
     if is_scaffold {
-        for path in profile_expected_paths(&config.workspace_root, &config.profile, &plan.goal) {
+        for path in runtime.expected_scaffold_paths(&config.workspace_root, &plan.goal) {
             if path.ends_with("package.json") && !target.expected_paths.contains(&path) {
                 target.expected_paths.push(path);
             }
@@ -9183,7 +9195,7 @@ fn strengthen_step_plan_for_profile(plan: &mut StepPlan, config: &Config) {
             target.kind = "implement".to_string();
         }
     }
-    if let Some(guidance) = profile_guidance(&config.profile, &plan.goal) {
+    if let Some(guidance) = runtime.guidance(&plan.goal) {
         target.instruction = format!("{}\n\nProfile contract:\n{}", target.instruction, guidance);
     }
 }
@@ -9412,16 +9424,15 @@ fn ultra_phase_prompt_stable(
     config: &Config,
     context: &UltraRunContext,
 ) -> String {
-    let expected_paths = profile_expected_paths(&config.workspace_root, &plan.profile, &plan.goal);
-    let expectations =
-        profile_quality_expectations(&config.workspace_root, &plan.profile, &plan.goal);
-    let generation_rules =
-        profile_generation_rules(&plan.profile, &plan.intent).unwrap_or("- none\n");
-    let runtime_contract = profile_runtime_contract(&plan.profile, &plan.intent, &plan.goal);
+    let runtime = resolve_profile_runtime(&plan.profile);
+    let expected_paths = runtime.expected_scaffold_paths(&config.workspace_root, &plan.goal);
+    let expectations = runtime.quality_expectations(&config.workspace_root, &plan.goal);
+    let generation_rules = runtime.generation_rules(&plan.intent).unwrap_or("- none\n");
+    let runtime_contract = runtime.runtime_contract(&plan.intent, &plan.goal);
     let phase_contract_text = format!("{}\n{}", plan.goal, phase.prompt);
-    let required_capabilities = inferred_required_capabilities(&plan.profile, &phase_contract_text);
+    let required_capabilities = runtime.infer_required_capabilities(&phase_contract_text);
     let required_evidence =
-        inferred_required_evidence(&plan.profile, &phase_contract_text, &required_capabilities);
+        runtime_required_evidence(runtime, &phase_contract_text, &required_capabilities);
     let required = if expected_paths.is_empty() {
         String::new()
     } else {
@@ -9473,15 +9484,8 @@ fn ultra_phase_prompt_stable(
     let unmet_final_requirements = context.render_unmet_final_requirements_section();
     let plan_adherence = plan_adherence_report(plan, &config.workspace_root);
     let requested_features = render_requested_features_not_detected_line(&plan_adherence.missing);
-    let route_bound_constraint = if matches!(
-        plan.profile.as_str(),
-        "nextjs" | "next-js" | "next.js"
-    ) {
-        "\nRoute-bound implementation constraint:\n- Keep a single route-bound implementation; do not leave capability components unimported.\n"
-    } else {
-        ""
-    };
-    let scaffold_note = preprovisioned_scaffold_note(&config.workspace_root, &plan.profile)
+    let route_bound_constraint = runtime.route_bound_constraint();
+    let scaffold_note = preprovisioned_scaffold_note(&config.workspace_root, runtime)
         .map(|note| format!("\nPre-provisioned scaffold note:\n- {note}\n"))
         .unwrap_or_default();
     let mut prompt = String::new();
@@ -9526,16 +9530,15 @@ fn ultra_phase_prompt_legacy(
     config: &Config,
     context: &UltraRunContext,
 ) -> String {
-    let expected_paths = profile_expected_paths(&config.workspace_root, &plan.profile, &plan.goal);
-    let expectations =
-        profile_quality_expectations(&config.workspace_root, &plan.profile, &plan.goal);
-    let generation_rules =
-        profile_generation_rules(&plan.profile, &plan.intent).unwrap_or("- none\n");
-    let runtime_contract = profile_runtime_contract(&plan.profile, &plan.intent, &plan.goal);
+    let runtime = resolve_profile_runtime(&plan.profile);
+    let expected_paths = runtime.expected_scaffold_paths(&config.workspace_root, &plan.goal);
+    let expectations = runtime.quality_expectations(&config.workspace_root, &plan.goal);
+    let generation_rules = runtime.generation_rules(&plan.intent).unwrap_or("- none\n");
+    let runtime_contract = runtime.runtime_contract(&plan.intent, &plan.goal);
     let phase_contract_text = format!("{}\n{}", plan.goal, phase.prompt);
-    let required_capabilities = inferred_required_capabilities(&plan.profile, &phase_contract_text);
+    let required_capabilities = runtime.infer_required_capabilities(&phase_contract_text);
     let required_evidence =
-        inferred_required_evidence(&plan.profile, &phase_contract_text, &required_capabilities);
+        runtime_required_evidence(runtime, &phase_contract_text, &required_capabilities);
     let required = if expected_paths.is_empty() {
         String::new()
     } else {
@@ -9587,15 +9590,8 @@ fn ultra_phase_prompt_legacy(
     let unmet_final_requirements = context.render_unmet_final_requirements_section();
     let plan_adherence = plan_adherence_report(plan, &config.workspace_root);
     let requested_features = render_requested_features_not_detected_line(&plan_adherence.missing);
-    let route_bound_constraint = if matches!(
-        plan.profile.as_str(),
-        "nextjs" | "next-js" | "next.js"
-    ) {
-        "\nRoute-bound implementation constraint:\n- Keep a single route-bound implementation; do not leave capability components unimported.\n"
-    } else {
-        ""
-    };
-    let scaffold_note = preprovisioned_scaffold_note(&config.workspace_root, &plan.profile)
+    let route_bound_constraint = runtime.route_bound_constraint();
+    let scaffold_note = preprovisioned_scaffold_note(&config.workspace_root, runtime)
         .map(|note| format!("\nPre-provisioned scaffold note:\n- {note}\n"))
         .unwrap_or_default();
     let mut prompt = String::new();

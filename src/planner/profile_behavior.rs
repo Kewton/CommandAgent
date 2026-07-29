@@ -205,4 +205,16 @@ pub trait ProfileRuntime: DomainProfile {
     fn invariant_relevant_paths(&self, _root: &Path, _reason: &str) -> Vec<std::path::PathBuf> {
         Vec::new()
     }
+
+    fn styling_choice_rule(&self) -> &'static str {
+        ""
+    }
+
+    fn route_bound_constraint(&self) -> &'static str {
+        ""
+    }
+
+    fn is_entrypoint_scaffold_path(&self, _path: &str) -> bool {
+        false
+    }
 }

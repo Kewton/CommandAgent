@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use crate::config::Config;
 use crate::eval_events;
 use crate::mode::ExecutionMode;
-use crate::planner::profile::{profile_complete_scaffold, profile_setup_scaffold_paths};
+use crate::planner::profile::resolve_profile_runtime;
 use crate::planner::setup_step_policy;
 use crate::planner::verify::{
     RuntimeCommandConnector, RuntimeNormalizedCommand, RuntimeNormalizedCommandSegment,
@@ -1141,7 +1141,7 @@ pub(crate) fn run_session_with_outcome_with_options(
     session
         .messages
         .push(ConversationMessage::user(user_prompt.to_string()));
-    let profile_guidance = crate::planner::profile::profile_guidance(&config.profile, user_prompt);
+    let profile_guidance = resolve_profile_runtime(&config.profile).guidance(user_prompt);
 
     for iteration in 0..iteration_limit {
         if iteration > 0
@@ -2918,13 +2918,15 @@ fn setup_short_circuit_allowed(options: &RunSessionOptions, user_prompt: &str) -
 }
 
 fn non_scaffold_missing_paths(config: &Config, missing_paths: &[String]) -> Vec<String> {
-    let scaffold_paths = profile_setup_scaffold_paths(&config.workspace_root, &config.profile)
+    let runtime = resolve_profile_runtime(&config.profile);
+    let scaffold_paths = runtime
+        .setup_scaffold_paths(&config.workspace_root)
         .into_iter()
         .collect::<BTreeSet<_>>();
     missing_paths
         .iter()
         .filter(|path| {
-            !scaffold_paths.contains(*path) && !python_cli_entrypoint_scaffold_path(config, path)
+            !scaffold_paths.contains(*path) && !runtime.is_entrypoint_scaffold_path(path)
         })
         .cloned()
         .collect()
@@ -2941,8 +2943,8 @@ fn maybe_complete_setup_scaffold(
     if !setup_scaffold_completion_applicable(config, options, user_prompt, missing_paths) {
         return Ok(Vec::new());
     }
-    let created =
-        profile_complete_scaffold(&config.workspace_root, &config.profile, missing_paths)?;
+    let created = resolve_profile_runtime(&config.profile)
+        .complete_scaffold(&config.workspace_root, missing_paths)?;
     if created.is_empty() {
         return Ok(created);
     }
@@ -2975,15 +2977,17 @@ fn setup_scaffold_completion_applicable(
     if missing_paths.is_empty() || !setup_step_or_phase(options, user_prompt) {
         return false;
     }
-    let scaffold_paths = profile_setup_scaffold_paths(&config.workspace_root, &config.profile)
+    let runtime = resolve_profile_runtime(&config.profile);
+    let scaffold_paths = runtime
+        .setup_scaffold_paths(&config.workspace_root)
         .into_iter()
         .collect::<BTreeSet<_>>();
     if scaffold_paths.is_empty() {
         return false;
     }
-    missing_paths.iter().all(|path| {
-        scaffold_paths.contains(path) || python_cli_entrypoint_scaffold_path(config, path)
-    })
+    missing_paths
+        .iter()
+        .all(|path| scaffold_paths.contains(path) || runtime.is_entrypoint_scaffold_path(path))
 }
 
 struct ArtifactRecoveryRescueInput<'a> {
@@ -3041,25 +3045,6 @@ fn setup_step_or_phase(options: &RunSessionOptions, user_prompt: &str) -> bool {
     ]
     .iter()
     .any(|token| lower.contains(token))
-}
-
-fn python_cli_entrypoint_scaffold_path(config: &Config, path: &str) -> bool {
-    if crate::planner::profile::canonical_profile_name(&config.profile) != "python-cli" {
-        return false;
-    }
-    let normalized = path.replace('\\', "/");
-    normalized.starts_with("src/")
-        && normalized.ends_with("/main.py")
-        && normalized
-            .strip_prefix("src/")
-            .and_then(|tail| tail.strip_suffix("/main.py"))
-            .is_some_and(|package| {
-                !package.is_empty()
-                    && !package.chars().next().is_some_and(|ch| ch.is_ascii_digit())
-                    && package
-                        .chars()
-                        .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
-            })
 }
 
 struct RequiredArtifactsStop {
