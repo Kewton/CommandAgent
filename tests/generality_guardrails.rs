@@ -296,9 +296,15 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
     for budget in [
         ChokepointBudget {
             path: "src/planner/runner.rs",
-            total_baseline: 7_196,
-            production_baseline: 7_183,
+            total_baseline: 4_557,
+            production_baseline: 4_544,
             test_baseline: 13,
+        },
+        ChokepointBudget {
+            path: "src/planner/runner/phase.rs",
+            total_baseline: 2_660,
+            production_baseline: 2_660,
+            test_baseline: 0,
         },
         ChokepointBudget {
             path: "src/planner/runner/acceptance.rs",
