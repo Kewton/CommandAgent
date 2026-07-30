@@ -1,0 +1,267 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0730-cli-pack-002",
+  "campaign_id": "cli-create-elevated-cli-assist-20260730-144559",
+  "revision": "d7a962f44d28b8e73829dc8e1447f1d70394a4d8",
+  "contract": "docs/cli-profile-contract.md (fixed 2026-07-24); docs/pack-institution-contract.md (fixed 2026-07-30)",
+  "suite": {
+    "id": "cli-create-elevated-cli-assist",
+    "profile": "cli",
+    "intent": "create",
+    "workspace_mode": "empty",
+    "admission": "admitted",
+    "planner": "qwen3.6:27b-coding-nvfp4",
+    "executor": "gemma4:31b-cloud",
+    "provider": "ollama",
+    "pack": {
+      "id": "cli-assist",
+      "version": "1.0.0",
+      "hash": "sha256:b1dcee70c1a0536954c25639e2d67508d8029328e414aaff030368e7fac844fd",
+      "assist_present": true,
+      "eval_present": false,
+      "assist_schema_version": "commandagent.pack.assist/v0",
+      "eval_schema_version": null
+    }
+  },
+  "source_hashes": {
+    "uat_meta_sha256": "15ad370c7d252082ff53c4c505b7ab9337f39596590b3752a89dc169b777b281",
+    "report_skeleton_sha256": "0c089ee0ee222b7eaa65d2fcf9499863ee7e0d00014c84b192f81ad86cfabb00",
+    "live_run_readme_sha256": {
+      "filter_cloud_001": "9048ad8cc1893c8f836ee7a027819cb6a0df72320c577f8e4f2a8403e0066552",
+      "filter_cloud_002": "6f5e769d2a19bed6073a3545163ec1ccb3daad16519c1e185abfc7bc8d39d73b"
+    },
+    "live_run_events_sha256": {
+      "filter_cloud_001": "43641b017a0b6a83a9ab07ececc6db9caa396535fc135db581af382be9e16f91",
+      "filter_cloud_002": "1c6f408ddccd4b3816d93bcdce20871f906201598c204ba0209a3a0706bf7c18"
+    }
+  },
+  "epochs": {
+    "preflight_start": 1785422759,
+    "run_start": 1785422982,
+    "run_end": 1785428677,
+    "audit_end": 1785428677
+  },
+  "cost_seconds": {
+    "preflight_start_to_run_end": 5918,
+    "run_sum": 5695,
+    "run_start_to_run_end": 5695,
+    "combined_pack_window_run_sum": 10645
+  },
+  "preflight": {
+    "git_clean": true,
+    "head": "d7a962f44d28b8e73829dc8e1447f1d70394a4d8",
+    "minimum_ancestor": "afb6881",
+    "cargo_test_exit_code": 0,
+    "release_build_exit_code": 0,
+    "version": "commandagent 0.1.0 d7a962f 2026-07-30T14:33:34Z",
+    "node_env": "production",
+    "deviations": []
+  },
+  "runs": [
+    {
+      "name": "stats_cloud_001",
+      "family": "stats",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 1662,
+      "pack_id": "cli-assist@1.0.0",
+      "pack_hash": "sha256:b1dcee70c1a0536954c25639e2d67508d8029328e414aaff030368e7fac844fd",
+      "pack_exposed": false
+    },
+    {
+      "name": "stats_cloud_002",
+      "family": "stats",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 821,
+      "pack_id": "cli-assist@1.0.0",
+      "pack_hash": "sha256:b1dcee70c1a0536954c25639e2d67508d8029328e414aaff030368e7fac844fd",
+      "pack_exposed": false
+    },
+    {
+      "name": "stats_cloud_003",
+      "family": "stats",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 348,
+      "pack_id": "cli-assist@1.0.0",
+      "pack_hash": "sha256:b1dcee70c1a0536954c25639e2d67508d8029328e414aaff030368e7fac844fd",
+      "pack_exposed": false
+    },
+    {
+      "name": "filter_cloud_001",
+      "family": "filter",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "failed (cli_assurance_failed)",
+      "final_acceptance_reached": true,
+      "c1": "pass",
+      "c2": "pass",
+      "c3": "fail",
+      "c4": "pass",
+      "class_id": "cli_claims_binding:readme_output_claim_fabricated",
+      "attribution": "model",
+      "duration_seconds": 935,
+      "pack_id": "cli-assist@1.0.0",
+      "pack_hash": "sha256:b1dcee70c1a0536954c25639e2d67508d8029328e414aaff030368e7fac844fd",
+      "pack_exposed": true,
+      "c3_claims": 3,
+      "c3_violations": 3
+    },
+    {
+      "name": "filter_cloud_002",
+      "family": "filter",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "failed (cli_assurance_failed)",
+      "final_acceptance_reached": true,
+      "c1": "pass",
+      "c2": "pass",
+      "c3": "fail",
+      "c4": "pass",
+      "class_id": "cli_claims_binding:readme_output_claim_fabricated",
+      "attribution": "model",
+      "duration_seconds": 1525,
+      "pack_id": "cli-assist@1.0.0",
+      "pack_hash": "sha256:b1dcee70c1a0536954c25639e2d67508d8029328e414aaff030368e7fac844fd",
+      "pack_exposed": true,
+      "c3_claims": 3,
+      "c3_violations": 3
+    },
+    {
+      "name": "filter_cloud_003",
+      "family": "filter",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 404,
+      "pack_id": "cli-assist@1.0.0",
+      "pack_hash": "sha256:b1dcee70c1a0536954c25639e2d67508d8029328e414aaff030368e7fac844fd",
+      "pack_exposed": false
+    }
+  ],
+  "effective_model_audit": {
+    "expected": "gemma4:31b-cloud",
+    "observed": 6,
+    "expected_runs": 6,
+    "planner_expected": "qwen3.6:27b-coding-nvfp4",
+    "planner_observed": 6
+  },
+  "e0": {
+    "logical_runs": {
+      "known": 6,
+      "unknown": 0
+    },
+    "acceptance_sheets_generated": 6,
+    "acceptance_sheets_expected": 6
+  },
+  "c_evidence": {
+    "runs_reaching_final_acceptance": 2,
+    "runs_executing_c1_through_c4": 2,
+    "pack_injection_records": 2,
+    "pack_exposure_runs": 2,
+    "c1_pass": 2,
+    "c2_pass": 2,
+    "c3_pass": 0,
+    "c3_fail": 2,
+    "c3_claims": 6,
+    "c3_violations": 6,
+    "c4_pass": 2,
+    "post_injection_write_runs": 0
+  },
+  "combined_pack_window": {
+    "sets": [
+      "uat-test0730-cli-pack-001",
+      "uat-test0730-cli-pack-002"
+    ],
+    "runs": 12,
+    "reached": 2,
+    "reach_rate": "2/12 (16.7%)",
+    "renderer_exposed": 2,
+    "renderer_exposure_rate": "2/12 (16.7%)",
+    "full": 0,
+    "full_rate": "0/12 (0%)",
+    "c3_claims_at_exposed_runs": 6,
+    "c3_violations_at_exposed_runs": 6,
+    "c3_violation_rate": "6/6 (100%)",
+    "predeclared_branch": "a_live_observation",
+    "effect_interpretation": "renderer was delivered after C3 failure, but both model repairs remained read-only and all six README claims remained fabricated"
+  },
+  "baseline_comparison": {
+    "baseline_set": "uat-test0725-cli-elev-004",
+    "baseline_runs": 6,
+    "baseline_reached": 2,
+    "baseline_reach_rate": "2/6 (33.3%)",
+    "baseline_full": "0/6",
+    "baseline_c3_violations": 6,
+    "pack_window_reached": "2/12 (16.7%)",
+    "reach_rate_difference_percentage_points": -16.7,
+    "pack_window_full": "0/12",
+    "full_rate_difference_percentage_points": 0,
+    "interpretation": "descriptive only; predeclared zero-reach drift escalation does not trigger because renderer exposure was observed"
+  },
+  "rates": {
+    "honest_terminal": "6/6",
+    "failed": "6/6",
+    "full": "0/6",
+    "false_full": "0/6",
+    "pack_pin_recorded": "6/6",
+    "pack_exposure": "2/6",
+    "sheet_self_supply": "6/6"
+  },
+  "acceptance": {
+    "p0_a_honest_terminal": "pass",
+    "p0_b_contract_section_4": "pass",
+    "p0_c_false_success_zero": "pass",
+    "p1_pack_pin_recorded": "pass",
+    "predeclared_rule": "a_live_observation"
+  },
+  "scrub": {
+    "campaign_ok": true,
+    "runs_ok": 6,
+    "findings": []
+  }
+}
