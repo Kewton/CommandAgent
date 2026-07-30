@@ -22,6 +22,12 @@ import tomllib
 from id_vocabulary import INTERRUPTED_ENVIRONMENT
 
 HARNESS_VERSION = "0.1"
+PACK_HASH_DOMAIN = b"commandagent-pack-v0\0"
+PACK_FILES = ("assist.yaml", "eval.yaml")
+PACK_SCHEMA_VERSIONS = {
+    "assist.yaml": "commandagent.pack.assist/v0",
+    "eval.yaml": "commandagent.pack.eval/v0",
+}
 TAIL_BYTES = 64 * 1024
 MAX_SCRUB_FILE_BYTES = 10 * 1024 * 1024
 TERMINAL_RUN_STATUSES = {
@@ -91,6 +97,7 @@ class SuiteDefinition:
     provider: str
     min_head: str | None
     pack_id: str | None
+    pack_version: str | None
     pack_hash: str | None
     workspace_mode: str
     goals: dict[str, str]
@@ -312,6 +319,7 @@ def load_suite(path: Path) -> SuiteDefinition:
             "provider",
             "min_head",
             "pack_id",
+            "pack_version",
             "pack_hash",
             "workspace_mode",
             "scrub_allow",
@@ -343,15 +351,31 @@ def load_suite(path: Path) -> SuiteDefinition:
     ):
         raise BenchError("suite.min_head must be a non-empty string when present")
     pack_id = suite_table.get("pack_id")
+    pack_version = suite_table.get("pack_version")
     pack_hash = suite_table.get("pack_hash")
-    if (pack_id is None) != (pack_hash is None):
-        raise BenchError("suite.pack_id and suite.pack_hash must be declared together")
+    pack_values = (pack_id, pack_version, pack_hash)
+    if any(value is not None for value in pack_values) and not all(
+        value is not None for value in pack_values
+    ):
+        raise BenchError(
+            "suite.pack_id, suite.pack_version, and suite.pack_hash "
+            "must be declared together"
+        )
     if pack_id is not None and (
         not isinstance(pack_id, str)
         or re.fullmatch(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*", pack_id) is None
         or len(pack_id) > 64
     ):
         raise BenchError("suite.pack_id must be a registered lowercase pack id")
+    if pack_version is not None and (
+        not isinstance(pack_version, str)
+        or re.fullmatch(
+            r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)",
+            pack_version,
+        )
+        is None
+    ):
+        raise BenchError("suite.pack_version must be a SemVer core version")
     if pack_hash is not None and (
         not isinstance(pack_hash, str)
         or re.fullmatch(r"sha256:[0-9a-f]{64}", pack_hash) is None
@@ -516,6 +540,7 @@ def load_suite(path: Path) -> SuiteDefinition:
         provider=_required_str(suite_table, "provider", "suite"),
         min_head=min_head_value,
         pack_id=pack_id,
+        pack_version=pack_version,
         pack_hash=pack_hash,
         workspace_mode=workspace_mode,
         goals=goals,
@@ -923,7 +948,11 @@ def procure_run(
 
 
 def run_product(
-    command: Sequence[str], run_dir: Path, console_path: Path, start_epoch: int
+    command: Sequence[str],
+    run_dir: Path,
+    console_path: Path,
+    start_epoch: int,
+    product_environment: dict[str, str] | None = None,
 ) -> ProductResult:
     verify_unwrapped_command(command)
     stdout_path = run_dir / ".bench-product-stdout"
@@ -939,12 +968,16 @@ def run_product(
             stdout_path.open("wb") as stdout_handle,
             stderr_path.open("wb") as stderr_handle,
         ):
-            process = subprocess.Popen(
-                list(command),
-                cwd=run_dir,
-                stdout=stdout_handle,
-                stderr=stderr_handle,
-            )
+            popen_arguments: dict[str, Any] = {
+                "cwd": run_dir,
+                "stdout": stdout_handle,
+                "stderr": stderr_handle,
+            }
+            if product_environment is not None:
+                environment = os.environ.copy()
+                environment.update(product_environment)
+                popen_arguments["env"] = environment
+            process = subprocess.Popen(list(command), **popen_arguments)
             try:
                 exit_code = process.wait()
             except KeyboardInterrupt:
@@ -1107,7 +1140,81 @@ def write_metadata(path: Path, metadata: dict[str, Any]) -> None:
     temporary.replace(path)
 
 
-def _suite_metadata(suite: SuiteDefinition) -> dict[str, Any]:
+def exact_pack_hash(pack_directory: Path) -> str:
+    digest = hashlib.sha256()
+    digest.update(PACK_HASH_DOMAIN)
+    for name in PACK_FILES:
+        path = pack_directory / name
+        payload = path.read_bytes() if path.is_file() else b""
+        encoded_name = name.encode("utf-8")
+        digest.update(len(encoded_name).to_bytes(8, "big"))
+        digest.update(encoded_name)
+        digest.update(len(payload).to_bytes(8, "big"))
+        digest.update(payload)
+    return f"sha256:{digest.hexdigest()}"
+
+
+def _pack_runtime_metadata(
+    suite: SuiteDefinition, repo_root: Path
+) -> tuple[dict[str, Any], Path] | None:
+    if suite.pack_id is None:
+        return None
+    pack_root = (repo_root / "packs").resolve()
+    directory = (pack_root / suite.pack_id / str(suite.pack_version)).resolve()
+    if directory.parent.parent != pack_root or not directory.is_dir():
+        raise BenchError(
+            f"suite pack directory is unavailable or outside packs/: {directory}"
+        )
+    observed_hash = exact_pack_hash(directory)
+    if observed_hash != suite.pack_hash:
+        raise BenchError(
+            f"suite pack hash mismatch: expected {suite.pack_hash}, "
+            f"observed {observed_hash}"
+        )
+    pin_path = directory / "pack.sha256"
+    try:
+        pinned_hash = pin_path.read_text(encoding="utf-8").strip()
+    except OSError as error:
+        raise BenchError(f"cannot read pack hash pin {pin_path}: {error}") from error
+    if pinned_hash != suite.pack_hash:
+        raise BenchError("suite pack hash does not match pack.sha256")
+    presence = {name: (directory / name).is_file() for name in PACK_FILES}
+    if not any(presence.values()):
+        raise BenchError("suite pack has neither assist.yaml nor eval.yaml")
+    metadata: dict[str, Any] = {
+        "id": suite.pack_id,
+        "version": suite.pack_version,
+        "hash": suite.pack_hash,
+        "assist_present": presence["assist.yaml"],
+        "eval_present": presence["eval.yaml"],
+        "assist_schema_version": (
+            PACK_SCHEMA_VERSIONS["assist.yaml"] if presence["assist.yaml"] else None
+        ),
+        "eval_schema_version": (
+            PACK_SCHEMA_VERSIONS["eval.yaml"] if presence["eval.yaml"] else None
+        ),
+    }
+    return metadata, directory
+
+
+def _pack_product_environment(
+    suite: SuiteDefinition, repo_root: Path
+) -> dict[str, str] | None:
+    resolved = _pack_runtime_metadata(suite, repo_root)
+    if resolved is None:
+        return None
+    metadata, directory = resolved
+    return {
+        "COMMANDAGENT_PACK_DIRECTORY": str(directory),
+        "COMMANDAGENT_PACK_ID": str(metadata["id"]),
+        "COMMANDAGENT_PACK_VERSION": str(metadata["version"]),
+        "COMMANDAGENT_PACK_HASH": str(metadata["hash"]),
+    }
+
+
+def _suite_metadata(
+    suite: SuiteDefinition, repo_root: Path
+) -> dict[str, Any]:
     metadata = {
         "id": suite.suite_id,
         "path": str(suite.path),
@@ -1124,8 +1231,9 @@ def _suite_metadata(suite: SuiteDefinition) -> dict[str, Any]:
     }
     if suite.workspace_mode != "sourced":
         metadata["workspace_mode"] = suite.workspace_mode
-    if suite.pack_id is not None:
-        metadata["pack"] = {"id": suite.pack_id, "hash": suite.pack_hash}
+    resolved_pack = _pack_runtime_metadata(suite, repo_root)
+    if resolved_pack is not None:
+        metadata["pack"] = resolved_pack[0]
     return metadata
 
 
@@ -1155,17 +1263,22 @@ def new_metadata(
     preflight: dict[str, Any],
     deviations: list[dict[str, str]],
 ) -> dict[str, Any]:
+    suite_metadata = _suite_metadata(suite, repo_root)
+    runs = [_new_run_metadata(suite, run) for run in suite.runs]
+    if "pack" in suite_metadata:
+        for record in runs:
+            record["pack"] = dict(suite_metadata["pack"])
     return {
         "schema_version": "1",
         "harness_version": HARNESS_VERSION,
         "campaign_id": campaign_id,
         "mode": mode,
         "repository_root": str(repo_root),
-        "suite": _suite_metadata(suite),
+        "suite": suite_metadata,
         "preflight": preflight,
         "deviations": deviations,
         "created_epoch": int(time.time()),
-        "runs": [_new_run_metadata(suite, run) for run in suite.runs],
+        "runs": runs,
     }
 
 
@@ -1263,6 +1376,7 @@ def process_runs(
     resume: bool,
 ) -> None:
     metadata_path = campaign_dir / "uat-meta.json"
+    product_environment = _pack_product_environment(suite, repo_root)
     if resume:
         normalize_interrupted_runs(suite, campaign_dir, metadata, metadata_path)
     for run in suite.runs:
@@ -1309,7 +1423,11 @@ def process_runs(
         write_metadata(metadata_path, metadata)
         try:
             product = run_product(
-                command, run_dir, run_dir / "uat-console.log", start_epoch
+                command,
+                run_dir,
+                run_dir / "uat-console.log",
+                start_epoch,
+                product_environment,
             )
         except ProductInterrupted as error:
             product = error.result

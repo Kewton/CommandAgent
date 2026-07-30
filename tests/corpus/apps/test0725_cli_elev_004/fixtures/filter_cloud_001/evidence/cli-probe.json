@@ -1,0 +1,189 @@
+{
+  "capability_id": "cli_probe",
+  "status": "pass",
+  "ok": true,
+  "binding_intact": true,
+  "c1_ok": true,
+  "c4_ok": true,
+  "binding": {
+    "entry": "cli/main.py",
+    "cases": [
+      {
+        "id": "normal",
+        "args": [
+          "--pattern",
+          "2023-10-01",
+          "data/sample.txt"
+        ],
+        "expected_stdout": [],
+        "source": "README.md:8"
+      },
+      {
+        "id": "invalid",
+        "args": [
+          "--anvil-invalid-probe"
+        ],
+        "expected_stdout": [],
+        "source": "contract:deterministic-invalid-option"
+      }
+    ]
+  },
+  "observations": [
+    {
+      "case_id": "normal",
+      "args": [
+        "--pattern",
+        "2023-10-01",
+        "data/sample.txt"
+      ],
+      "outcome": "exited",
+      "exit_code": 0,
+      "duration_ms": 50,
+      "stdout": {
+        "text": "2023-10-01 10:00:01 INFO System started\n2023-10-01 10:00:05 DEBUG Initializing modules\n2023-10-01 10:00:10 ERROR Failed to connect to database\n2023-10-01 10:00:15 INFO User 'admin' logged in\n2023-10-01 10:00:20 WARN High memory usage detected\n2023-10-01 10:00:25 INFO Request processed in 200ms\n2023-10-01 10:00:30 ERROR Timeout occurred during API call\n2023-10-01 10:00:35 DEBUG Cache refreshed\n2023-10-01 10:00:40 INFO User 'guest' logged in\n2023-10-01 10:00:45 ERROR Critical failure in storage subsystem\n",
+        "captured_bytes": 508,
+        "total_bytes": 508,
+        "truncated": false
+      },
+      "stderr": {
+        "text": "",
+        "captured_bytes": 0,
+        "total_bytes": 0,
+        "truncated": false
+      }
+    },
+    {
+      "case_id": "invalid",
+      "args": [
+        "--anvil-invalid-probe"
+      ],
+      "outcome": "exited",
+      "exit_code": 2,
+      "duration_ms": 50,
+      "stdout": {
+        "text": "",
+        "captured_bytes": 0,
+        "total_bytes": 0,
+        "truncated": false
+      },
+      "stderr": {
+        "text": "usage: main.py [-h] --pattern PATTERN [--count] file\nmain.py: error: the following arguments are required: file, --pattern\n",
+        "captured_bytes": 123,
+        "total_bytes": 123,
+        "truncated": false
+      }
+    },
+    {
+      "case_id": "normal-rerun",
+      "args": [
+        "--pattern",
+        "2023-10-01",
+        "data/sample.txt"
+      ],
+      "outcome": "exited",
+      "exit_code": 0,
+      "duration_ms": 50,
+      "stdout": {
+        "text": "2023-10-01 10:00:01 INFO System started\n2023-10-01 10:00:05 DEBUG Initializing modules\n2023-10-01 10:00:10 ERROR Failed to connect to database\n2023-10-01 10:00:15 INFO User 'admin' logged in\n2023-10-01 10:00:20 WARN High memory usage detected\n2023-10-01 10:00:25 INFO Request processed in 200ms\n2023-10-01 10:00:30 ERROR Timeout occurred during API call\n2023-10-01 10:00:35 DEBUG Cache refreshed\n2023-10-01 10:00:40 INFO User 'guest' logged in\n2023-10-01 10:00:45 ERROR Critical failure in storage subsystem\n",
+        "captured_bytes": 508,
+        "total_bytes": 508,
+        "truncated": false
+      },
+      "stderr": {
+        "text": "",
+        "captured_bytes": 0,
+        "total_bytes": 0,
+        "truncated": false
+      }
+    }
+  ],
+  "output_claims": [
+    {
+      "claim": "[2023-10-01 10:01:02] ERROR: Database connection failed.\n[2023-10-01 10:05:45] ERROR: Unauthorized access attempt.",
+      "matched": false,
+      "nearest_miss": "",
+      "source": "README.md:24->28",
+      "observation": {
+        "case_id": "output-claim-1",
+        "args": [
+          "--pattern",
+          "\"ERROR\"",
+          "data/sample.txt"
+        ],
+        "outcome": "exited",
+        "exit_code": 0,
+        "duration_ms": 45,
+        "stdout": {
+          "text": "",
+          "captured_bytes": 0,
+          "total_bytes": 0,
+          "truncated": false
+        },
+        "stderr": {
+          "text": "",
+          "captured_bytes": 0,
+          "total_bytes": 0,
+          "truncated": false
+        }
+      }
+    },
+    {
+      "claim": "Match count: 5",
+      "matched": false,
+      "nearest_miss": "0\n",
+      "source": "README.md:35->39",
+      "observation": {
+        "case_id": "output-claim-2",
+        "args": [
+          "--pattern",
+          "\"INFO\"",
+          "--count",
+          "data/sample.txt"
+        ],
+        "outcome": "exited",
+        "exit_code": 0,
+        "duration_ms": 45,
+        "stdout": {
+          "text": "0\n",
+          "captured_bytes": 2,
+          "total_bytes": 2,
+          "truncated": false
+        },
+        "stderr": {
+          "text": "",
+          "captured_bytes": 0,
+          "total_bytes": 0,
+          "truncated": false
+        }
+      }
+    },
+    {
+      "claim": "usage: main.py [-h] [--pattern PATTERN] [--count] file\npositional arguments:\n  file                  Path to the text file to search.\noptional arguments:\n  -h, --help            show this help message and exit\n  --pattern PATTERN     The search string to look for in each line.\n  --count               If specified, only the number of matching lines will be displayed.",
+      "matched": false,
+      "nearest_miss": "usage: main.py [-h] --pattern PATTERN [--count] file\n\nExtract lines containing a specific pattern from a text file.\n\npositional arguments:\n  file               Path to the text file to search\n\noptions:\n  -h, --help         show this help message and exit\n  --pattern PATTERN  Search string pattern\n  --count            Show only the count of matching lines\n",
+      "source": "README.md:44->48",
+      "observation": {
+        "case_id": "output-claim-3",
+        "args": [
+          "--help"
+        ],
+        "outcome": "exited",
+        "exit_code": 0,
+        "duration_ms": 48,
+        "stdout": {
+          "text": "usage: main.py [-h] --pattern PATTERN [--count] file\n\nExtract lines containing a specific pattern from a text file.\n\npositional arguments:\n  file               Path to the text file to search\n\noptions:\n  -h, --help         show this help message and exit\n  --pattern PATTERN  Search string pattern\n  --count            Show only the count of matching lines\n",
+          "captured_bytes": 357,
+          "total_bytes": 357,
+          "truncated": false
+        },
+        "stderr": {
+          "text": "",
+          "captured_bytes": 0,
+          "total_bytes": 0,
+          "truncated": false
+        }
+      }
+    }
+  ],
+  "failure_kinds": []
+}

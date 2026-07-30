@@ -26,6 +26,7 @@ def write_test_suite(
     expected_sha256: str | None = None,
     precheck_pattern: str = "ValueError",
     pack_id: str | None = None,
+    pack_version: str | None = None,
     pack_hash: str | None = None,
 ) -> bench.SuiteDefinition:
     source_dir = root / "fixtures" / "source"
@@ -37,6 +38,7 @@ def write_test_suite(
         line
         for line in (
             f'pack_id = "{pack_id}"' if pack_id is not None else "",
+            f'pack_version = "{pack_version}"' if pack_version is not None else "",
             f'pack_hash = "{pack_hash}"' if pack_hash is not None else "",
         )
         if line
@@ -200,9 +202,21 @@ class SuiteAndCommandTests(unittest.TestCase):
     def test_pack_identity_and_hash_are_recorded_in_suite_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            expected_hash = "sha256:" + ("a" * 64)
+            pack = root / "packs" / "ingest-default" / "1.0.0"
+            pack.mkdir(parents=True)
+            (pack / "assist.yaml").write_text(
+                "schema_version: commandagent.pack.assist/v0\n",
+                encoding="utf-8",
+            )
+            expected_hash = bench.exact_pack_hash(pack)
+            (pack / "pack.sha256").write_text(
+                expected_hash + "\n", encoding="utf-8"
+            )
             suite = write_test_suite(
-                root, pack_id="ingest-default", pack_hash=expected_hash
+                root,
+                pack_id="ingest-default",
+                pack_version="1.0.0",
+                pack_hash=expected_hash,
             )
             metadata = bench.new_metadata(
                 suite, "test-suite-campaign", "dry-run", root, {}, []
@@ -210,12 +224,32 @@ class SuiteAndCommandTests(unittest.TestCase):
 
             self.assertEqual(
                 metadata["suite"]["pack"],
-                {"id": "ingest-default", "hash": expected_hash},
+                {
+                    "id": "ingest-default",
+                    "version": "1.0.0",
+                    "hash": expected_hash,
+                    "assist_present": True,
+                    "eval_present": False,
+                    "assist_schema_version": "commandagent.pack.assist/v0",
+                    "eval_schema_version": None,
+                },
+            )
+            self.assertEqual(
+                metadata["runs"][0]["pack"], metadata["suite"]["pack"]
+            )
+            self.assertEqual(
+                bench._pack_product_environment(suite, root),
+                {
+                    "COMMANDAGENT_PACK_DIRECTORY": str(pack.resolve()),
+                    "COMMANDAGENT_PACK_ID": "ingest-default",
+                    "COMMANDAGENT_PACK_VERSION": "1.0.0",
+                    "COMMANDAGENT_PACK_HASH": expected_hash,
+                },
             )
 
     def test_pack_identity_and_hash_must_be_declared_together(self) -> None:
         with tempfile.TemporaryDirectory() as directory, self.assertRaisesRegex(
-            bench.BenchError, "pack_id and suite.pack_hash"
+            bench.BenchError, "pack_id, suite.pack_version, and suite.pack_hash"
         ):
             write_test_suite(Path(directory), pack_id="ingest-default")
 

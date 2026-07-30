@@ -1,0 +1,18 @@
+schema_version: commandagent.pack.assist/v0
+pack:
+  id: cli-assist
+  version: 1.0.0
+  profile: python-cli
+  intent: create
+inject:
+  - point: cli-validation
+    source: cli_probe
+    required: true
+    params:
+      case: normal
+      fields:
+        - argv
+        - exit_code
+        - stdout
+        - stderr
+      max_bytes_per_stream: 4000

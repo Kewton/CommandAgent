@@ -112,6 +112,27 @@ fn decoder_rejects_invented_ids_and_invalid_source_point_pairs() {
 }
 
 #[test]
+fn cli_probe_is_rejected_at_cli_implementation() {
+    let cli = br#"schema_version: commandagent.pack.assist/v0
+pack:
+  id: cli-assist
+  version: 1.0.0
+  profile: python-cli
+  intent: create
+inject:
+  - point: cli-implementation
+    source: cli_probe
+    required: true
+    params: {}
+"#;
+    let error = parse_bytes(Some(cli), None).unwrap_err().to_string();
+    assert!(
+        error.contains("source `cli_probe` is incompatible with point `cli-implementation`"),
+        "{error}"
+    );
+}
+
+#[test]
 fn eval_check_ids_resolve_through_capability_or_intent_registries() {
     let fix = br#"schema_version: commandagent.pack.eval/v0
 pack:
