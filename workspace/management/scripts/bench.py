@@ -90,6 +90,8 @@ class SuiteDefinition:
     planner_provider: str
     provider: str
     min_head: str | None
+    pack_id: str | None
+    pack_hash: str | None
     workspace_mode: str
     goals: dict[str, str]
     sources: tuple[SourceSpec, ...]
@@ -309,6 +311,8 @@ def load_suite(path: Path) -> SuiteDefinition:
             "planner_provider",
             "provider",
             "min_head",
+            "pack_id",
+            "pack_hash",
             "workspace_mode",
             "scrub_allow",
         },
@@ -338,6 +342,21 @@ def load_suite(path: Path) -> SuiteDefinition:
         not isinstance(min_head_value, str) or not min_head_value.strip()
     ):
         raise BenchError("suite.min_head must be a non-empty string when present")
+    pack_id = suite_table.get("pack_id")
+    pack_hash = suite_table.get("pack_hash")
+    if (pack_id is None) != (pack_hash is None):
+        raise BenchError("suite.pack_id and suite.pack_hash must be declared together")
+    if pack_id is not None and (
+        not isinstance(pack_id, str)
+        or re.fullmatch(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*", pack_id) is None
+        or len(pack_id) > 64
+    ):
+        raise BenchError("suite.pack_id must be a registered lowercase pack id")
+    if pack_hash is not None and (
+        not isinstance(pack_hash, str)
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", pack_hash) is None
+    ):
+        raise BenchError("suite.pack_hash must be sha256:<64 lowercase hex>")
     raw_allow = suite_table.get("scrub_allow", [])
     if not isinstance(raw_allow, list):
         raise BenchError("suite.scrub_allow must be an array of tables")
@@ -496,6 +515,8 @@ def load_suite(path: Path) -> SuiteDefinition:
         planner_provider=_required_str(suite_table, "planner_provider", "suite"),
         provider=_required_str(suite_table, "provider", "suite"),
         min_head=min_head_value,
+        pack_id=pack_id,
+        pack_hash=pack_hash,
         workspace_mode=workspace_mode,
         goals=goals,
         sources=tuple(sources),
@@ -1103,6 +1124,8 @@ def _suite_metadata(suite: SuiteDefinition) -> dict[str, Any]:
     }
     if suite.workspace_mode != "sourced":
         metadata["workspace_mode"] = suite.workspace_mode
+    if suite.pack_id is not None:
+        metadata["pack"] = {"id": suite.pack_id, "hash": suite.pack_hash}
     return metadata
 
 

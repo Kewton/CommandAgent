@@ -95,6 +95,14 @@ pub(crate) fn render<T>(route: BuiltinAssistRoute, renderer: impl FnOnce() -> T)
     }
 }
 
+pub(crate) fn render_investigation_files<T>(renderer: impl FnOnce() -> T) -> T {
+    render(BuiltinAssistRoute::InvestigationWorkspaceFiles, renderer)
+}
+
+pub(crate) fn render_investigation_output<T>(renderer: impl FnOnce() -> T) -> T {
+    render(BuiltinAssistRoute::InvestigationReproducerOutput, renderer)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

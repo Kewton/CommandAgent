@@ -101,6 +101,12 @@ impl AssistPack {
                 .map(|item| (item.point.as_str(), item.source.as_str())),
             "vocabulary point/source",
         )?;
+        unique_pairs(
+            self.literals
+                .iter()
+                .map(|item| (item.gate.as_str(), item.example.value.as_str())),
+            "literal gate/example",
+        )?;
         for item in &self.inject {
             validate_point_owner(&self.pack, item.point)?;
             item.validate()?;
@@ -309,7 +315,7 @@ impl CheckBinding {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CheckAt {
     Phase { id: InjectionPoint },
@@ -606,7 +612,7 @@ fn validate_check_params(id: &CheckId, params: &BTreeMap<String, Value>) -> Resu
         .map_err(|error| error.to_string())
 }
 
-fn yaml_to_toml(value: &Value) -> Result<toml::Value, String> {
+pub(super) fn yaml_to_toml(value: &Value) -> Result<toml::Value, String> {
     match value {
         Value::String(value) => Ok(toml::Value::String(value.clone())),
         Value::Number(value) => value

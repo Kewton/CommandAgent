@@ -10,10 +10,12 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 pub(crate) mod builtin;
+mod floor;
 mod schema;
 mod strict_yaml;
 mod vocabulary;
 
+pub use floor::{ConformanceError, ConformanceReport, conform, conform_directory};
 pub use schema::{
     ArtifactSchema, AssistPackDocument, CheckBinding, EvalPackDocument, Injection, Literal,
     PackIdentity, Vocabulary,

@@ -25,12 +25,22 @@ def write_test_suite(
     *,
     expected_sha256: str | None = None,
     precheck_pattern: str = "ValueError",
+    pack_id: str | None = None,
+    pack_hash: str | None = None,
 ) -> bench.SuiteDefinition:
     source_dir = root / "fixtures" / "source"
     source_dir.mkdir(parents=True)
     payload = b"qualified input\n"
     (source_dir / "input.txt").write_bytes(payload)
     expected = expected_sha256 or digest(payload)
+    pack_lines = "\n".join(
+        line
+        for line in (
+            f'pack_id = "{pack_id}"' if pack_id is not None else "",
+            f'pack_hash = "{pack_hash}"' if pack_hash is not None else "",
+        )
+        if line
+    )
     suite_path = root / "test-suite.toml"
     suite_path.write_text(
         textwrap.dedent(
@@ -44,6 +54,7 @@ def write_test_suite(
             planner_model = "planner"
             planner_provider = "ollama"
             provider = "ollama"
+            {pack_lines}
 
             [goals]
             pipe = "repair the pipeline"
@@ -179,11 +190,34 @@ class SuiteAndCommandTests(unittest.TestCase):
 
             self.assertEqual(suite.workspace_mode, "sourced")
             self.assertNotIn("workspace_mode", metadata["suite"])
+            self.assertNotIn("pack", metadata["suite"])
             self.assertEqual(metadata["runs"][0]["set"], "pipe-a")
             self.assertEqual(
                 metadata["runs"][0]["input_sha256_expected"],
                 suite.sources[0].input_sha256,
             )
+
+    def test_pack_identity_and_hash_are_recorded_in_suite_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            expected_hash = "sha256:" + ("a" * 64)
+            suite = write_test_suite(
+                root, pack_id="ingest-default", pack_hash=expected_hash
+            )
+            metadata = bench.new_metadata(
+                suite, "test-suite-campaign", "dry-run", root, {}, []
+            )
+
+            self.assertEqual(
+                metadata["suite"]["pack"],
+                {"id": "ingest-default", "hash": expected_hash},
+            )
+
+    def test_pack_identity_and_hash_must_be_declared_together(self) -> None:
+        with tempfile.TemporaryDirectory() as directory, self.assertRaisesRegex(
+            bench.BenchError, "pack_id and suite.pack_hash"
+        ):
+            write_test_suite(Path(directory), pack_id="ingest-default")
 
     def test_command_matches_required_argv_without_wrapper(self) -> None:
         suite = bench.load_suite(SUITES_DIR / "dfix-synthesis.toml")

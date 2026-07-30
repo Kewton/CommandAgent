@@ -4,7 +4,7 @@ use serde::de::Error as _;
 use serde::{Deserialize, Deserializer};
 
 macro_rules! closed_id {
-    ($visibility:vis enum $name:ident { $($variant:ident => $wire:literal),+ $(,)? }) => {
+    ($visibility:vis enum $name:ident { $($variant:ident => $wire:expr),+ $(,)? }) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
         $visibility enum $name {
             $($variant),+
@@ -18,10 +18,10 @@ macro_rules! closed_id {
             }
 
             pub fn parse(value: &str) -> Option<Self> {
-                match value {
-                    $($wire => Some(Self::$variant),)+
-                    _ => None,
-                }
+                $(if value == $wire {
+                    return Some(Self::$variant);
+                })+
+                None
             }
         }
 
@@ -50,7 +50,7 @@ closed_id! {
         Data => "data",
         PythonCli => "python-cli",
         Ingest => "ingest",
-        Nextjs => "nextjs",
+        Nextjs => crate::planner::profiles::nextjs::PROFILE_ID,
     }
 }
 

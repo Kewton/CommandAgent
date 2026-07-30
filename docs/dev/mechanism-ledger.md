@@ -1204,3 +1204,19 @@ v0構造schemaの充足と改訂儀式、イン・リポジトリ`packs/`を固�
 署名つき外部供給はPhase GへQUEUEDとし、未知キーから将来schemaを
 推測しない。パックはRust登録済み部品の構成であり、契約フロア以下へ
 検証を弱体化できない。
+
+実装では、棚卸し済み**注入器17経路中4族**（ingest入力構造、
+ingest凍結candidate ID、investigateのR出力、fixの失敗出力・診断carry）
+をtyped builtin pack registry経由へ移した。既存rendererとevent producerは
+変更せず、4族それぞれの実測snapshot/fixtureとcorpusを無変更greenにして
+prompt/event bytesのbyte互換を証明した。
+
+strict decoderは未知・重複key、YAML拡張、発明ID、不正なsource/point、
+非正規pathをRust登録簿との突合前後で拒否する。contract-floor mergeは
+profile manifest/intent contractを底として、check除去・境界移設・timeout
+拡大・extractor/normalizer除去を拒否し、登録済みnarrowingだけを許可する。
+初回のreviewed `ingest-default@1.0.0` conformanceはfloor 5/5・schema 1、
+exact-byte hash
+`sha256:becb151410f52276c066aed0f80772b39babf683e44b8ea49b2a275af5492c2b`
+でgreen。bench metaには任意の`pack.id × pack.hash`欄を加え、未指定suiteの
+既存metadata bytesは維持した。

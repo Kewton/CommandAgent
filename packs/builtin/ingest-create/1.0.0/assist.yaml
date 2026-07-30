@@ -1,0 +1,26 @@
+schema_version: commandagent.pack.assist/v0
+pack:
+  id: ingest-default
+  version: 1.0.0
+  profile: ingest
+  intent: create
+inject:
+  - point: declare-ingest-inspection
+    source: ingest_snapshot_structure_injected
+    required: true
+    params:
+      max_files: 8
+      max_entries: 256
+      max_depth: 4
+      max_bytes_per_file: 65536
+      leading_lines: 12
+      candidate_windows: 2
+      max_chars_per_line: 200
+vocabulary:
+  - point: implement-ingest-delivery
+    source: ingest_candidate_ids_injected
+    mode: verbatim
+    required: true
+    params:
+      max_ids: 1024
+      max_rendered_bytes: 65536
