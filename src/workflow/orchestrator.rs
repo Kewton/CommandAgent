@@ -617,9 +617,14 @@ fn node_config(
             .diagnosis
             .as_ref()
             .map(|diagnosis| {
-                format!(
-                    "{}\n\nVerified diagnosis (I2-matched; use as repair targeting material):\n{}",
-                    request.goal, diagnosis
+                crate::planner::pack::builtin::render(
+                    crate::planner::pack::builtin::BuiltinAssistRoute::VerifiedDiagnosisCarry,
+                    || {
+                        format!(
+                            "{}\n\nVerified diagnosis (I2-matched; use as repair targeting material):\n{}",
+                            request.goal, diagnosis
+                        )
+                    },
                 )
             })
             .unwrap_or_else(|| request.goal.clone())
@@ -884,6 +889,35 @@ mod tests {
         assert_eq!(child.provider, global.provider);
         assert_eq!(child.field_sources.model, global.field_sources.model);
         assert_eq!(child.field_sources.provider, global.field_sources.provider);
+    }
+
+    #[test]
+    fn verified_diagnosis_carry_keeps_the_existing_goal_bytes() {
+        let root = tempfile::tempdir().unwrap();
+        let global = config(root.path());
+        let node = Node {
+            intent: Intent::Fix,
+            profile: "data".into(),
+            model: None,
+            provider: None,
+        };
+        let mut request = request(root.path(), &global.model, global.provider);
+        request.intent = "fix".into();
+        request.goal = "repair the origin failure".into();
+        request.diagnosis = Some("ValueError is raised at pipeline/main.py:53".into());
+        let identity = identity(root.path());
+
+        let child = node_config(&global, &node, &request, &identity).unwrap();
+
+        assert!(matches!(
+            child.action,
+            Action::UltraPlanRun(goal)
+                if goal == concat!(
+                    "repair the origin failure\n\n",
+                    "Verified diagnosis (I2-matched; use as repair targeting material):\n",
+                    "ValueError is raised at pipeline/main.py:53"
+                )
+        ));
     }
 
     #[test]

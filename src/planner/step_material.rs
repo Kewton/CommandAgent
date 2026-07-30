@@ -9,8 +9,13 @@ const INGEST_IMPLEMENT_STEP_ID: &str = "implement-ingest-delivery";
 pub(crate) fn inject_ingest(config: &Config, step: &mut PlanStep) -> anyhow::Result<()> {
     match step.id.as_str() {
         INGEST_SELECTOR_STEP_ID => {
-            let guidance = crate::planner::profiles::ingest::snapshot_structure::render(
-                &config.workspace_root,
+            let guidance = crate::planner::pack::builtin::render(
+                crate::planner::pack::builtin::BuiltinAssistRoute::IngestSnapshotStructure,
+                || {
+                    crate::planner::profiles::ingest::snapshot_structure::render(
+                        &config.workspace_root,
+                    )
+                },
             )?;
             step.instruction.push_str("\n\n");
             step.instruction.push_str(&guidance.text);
@@ -28,8 +33,13 @@ pub(crate) fn inject_ingest(config: &Config, step: &mut PlanStep) -> anyhow::Res
             );
         }
         INGEST_IMPLEMENT_STEP_ID => {
-            let guidance = crate::planner::profiles::ingest::candidate_guidance::render(
-                &config.workspace_root,
+            let guidance = crate::planner::pack::builtin::render(
+                crate::planner::pack::builtin::BuiltinAssistRoute::IngestFrozenCandidateIds,
+                || {
+                    crate::planner::profiles::ingest::candidate_guidance::render(
+                        &config.workspace_root,
+                    )
+                },
             )?;
             step.instruction.push_str("\n\n");
             step.instruction.push_str(&guidance.text);

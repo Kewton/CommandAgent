@@ -18,8 +18,14 @@ amount = float(row["amount"])
 『修正方針:』以下に文章で書くこと（照合対象外となる）。"#;
 
 pub(super) fn diagnose_instruction(config: &Config, goal: &str) -> String {
-    let files = workspace_files(&config.workspace_root);
-    let observation = super::observed_failure::render(config);
+    let files = crate::planner::pack::builtin::render(
+        crate::planner::pack::builtin::BuiltinAssistRoute::InvestigationWorkspaceFiles,
+        || workspace_files(&config.workspace_root),
+    );
+    let observation = crate::planner::pack::builtin::render(
+        crate::planner::pack::builtin::BuiltinAssistRoute::InvestigationReproducerOutput,
+        || super::observed_failure::render(config),
+    );
     format!(
         "Read only existing workspace files and the executed reproducer output for {goal}; write output/diagnosis.md and do not modify the subject. This step exclusively owns output/diagnosis.md.\n\n{observation}\n\n{CLAIM_FORMAT_GUIDANCE}\n\n実在ファイル一覧（決定的な辞書順、最大{MAX_WORKSPACE_FILES}件。読み取り参照はこの一覧に限定）:\n{}\n一覧にないファイルを参照しないこと。",
         render_files(&files)

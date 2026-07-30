@@ -9,6 +9,7 @@ use schema::{AssistPack, EvalPack};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+pub(crate) mod builtin;
 mod schema;
 mod strict_yaml;
 mod vocabulary;

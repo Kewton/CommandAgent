@@ -156,7 +156,7 @@ pub(crate) fn attach_to_phase_prompt(
         && let Some(diagnostic) = diagnostic
     {
         prompt.push_str("\n\n");
-        prompt.push_str(&render_guidance(diagnostic));
+        prompt.push_str(&builtin_failure_guidance(phase, diagnostic));
     }
     prompt
 }
@@ -169,7 +169,7 @@ pub(crate) fn bind_step_plan(
     let Some(diagnostic) = diagnostic.filter(|_| diagnostic_phase(phase)) else {
         return;
     };
-    let guidance = render_guidance(diagnostic);
+    let guidance = builtin_failure_guidance(phase, diagnostic);
     for step in &mut plan.steps {
         if step.step_kind() != StepKind::Implement {
             continue;
@@ -185,6 +185,16 @@ pub(crate) fn bind_step_plan(
             step.expected_paths.push(diagnostic.target_path.clone());
         }
     }
+}
+
+fn builtin_failure_guidance(phase: &UltraPhase, diagnostic: &FixFailureDiagnostic) -> String {
+    let route = match phase.id.as_str() {
+        "isolate-cause" | "repair" => {
+            crate::planner::pack::builtin::BuiltinAssistRoute::FixFailureOutput
+        }
+        _ => return String::new(),
+    };
+    crate::planner::pack::builtin::render(route, || render_guidance(diagnostic))
 }
 
 pub(crate) fn repair_target_from_prompt(prompt: &str) -> Option<RepairTargetSelection> {
