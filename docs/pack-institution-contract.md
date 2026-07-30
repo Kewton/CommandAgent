@@ -1,15 +1,15 @@
 # Assist/eval pack institution contract
 
-Status: draft for review
+Status: fixed (2026-07-30)
 
 Date: 2026-07-30
 
-This document proposes the v0 contract for external `assist.yaml` and
-`eval.yaml` files. It is design input only. No loader, registry entry, runtime
-behavior, evidence shape, or assurance rule is changed by this draft.
+This document defines the fixed v0 contract for external `assist.yaml` and
+`eval.yaml` files. Implementations and later schema revisions are subordinate
+to this contract.
 
 The inventory in
-`workspace/management/runs/p0-pack-audit.md` is normative input to this draft.
+`workspace/management/runs/p0-pack-audit.md` is normative input to this contract.
 In particular, a pack can compose only an injector source, injection point,
 literal gate, check, extractor, or normalizer that already exists in that
 inventory and in the corresponding Rust registry. A YAML name never creates
@@ -648,18 +648,22 @@ P-1 should first prove one byte-compatible externalization, then add the two
 assist behaviors, and only then bind the newly registered nextjs evaluator.
 No provisional YAML ID is permitted.
 
-## 11. Review questions
+## 11. Resolved review questions
 
-Review must decide before implementation:
+The 2026-07-30 review resolved all four questions:
 
-1. whether the exact-byte hash, rather than canonical YAML hashing, is the
-   institutional identity;
-2. whether `cli-validation` is the acceptable ownership point for a
-   post-C1 repair injection or a new Rust point must be registered first;
-3. whether the v0 structural schema subset is sufficient for the first three
-   packs;
-4. whether packs live in the product tree, a reviewed management tree, or a
-   separately signed supply repository.
+1. **Identity:** the institutional identity is the exact-byte hash in
+   section 2.2. Canonical YAML hashing is not used.
+2. **CLI ownership:** `cli-validation` is the valid ownership point for
+   post-C1 injection. `cli-implementation` remains invalid because the C1
+   observation does not yet exist.
+3. **v0 schema:** the structural subset is sufficient for the first three
+   packs. Any revision requires the same sequence as a new contract:
+   inventory, draft, review adjudication, fixed seal, conformance, and
+   migration fixture.
+4. **Supply location:** reviewed packs live in the repository under `packs/`.
+   Signed external supply is deferred to Phase G and remains **QUEUED**; it is
+   not an alternative v0 load path.
 
-Until those questions and this draft are fixed, no pack is admitted and no
-runtime loader should be implemented.
+This resolution seals v0. Schema evolution is explicit and versioned; a
+loader must not infer a later schema from unknown keys.

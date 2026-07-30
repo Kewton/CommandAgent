@@ -1196,3 +1196,11 @@ QUEUEDである。ingest第2段fetch probeを含む事業queue 5件と、
 局所証明つきunwrap/expect 8件のtyped変換も現行fullへ含めない。
 現在地の正準indexは`docs/dev/integration-notes.md`の
 「Phase E exit: canonical next-stage queue」に集約した。
+
+## P-0b — パック契約v0封緘（2026-07-30）
+
+P-0の4裁定を反映し、exact-byte hash、C1後の`cli-validation`所有、
+v0構造schemaの充足と改訂儀式、イン・リポジトリ`packs/`を固定した。
+署名つき外部供給はPhase GへQUEUEDとし、未知キーから将来schemaを
+推測しない。パックはRust登録済み部品の構成であり、契約フロア以下へ
+検証を弱体化できない。
