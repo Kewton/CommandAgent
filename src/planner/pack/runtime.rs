@@ -14,6 +14,8 @@ use crate::evidence_envelope::{EvidenceEnvelopeSpec, EvidenceFamily};
 use crate::planner::profile::ProfileId;
 use crate::planner::profiles::python_cli::argv_probe;
 
+mod data;
+
 const PACK_DIRECTORY_ENV: &str = "COMMANDAGENT_PACK_DIRECTORY";
 const PACK_ID_ENV: &str = "COMMANDAGENT_PACK_ID";
 const PACK_VERSION_ENV: &str = "COMMANDAGENT_PACK_VERSION";
@@ -84,6 +86,17 @@ fn os_string(value: OsString, name: &str) -> anyhow::Result<String> {
         .map_err(|_| anyhow::anyhow!("{name} must contain valid UTF-8"))
 }
 
+pub(crate) fn append_phase_material_from_environment(
+    prompt: String,
+    root: &Path,
+    profile: &str,
+    intent: &str,
+    phase_id: &str,
+) -> anyhow::Result<String> {
+    let selection = RuntimeSelection::from_environment()?;
+    append_phase_material(prompt, root, profile, intent, phase_id, selection.as_ref())
+}
+
 pub(crate) fn append_cli_validation_repair_material_from_environment(
     prompt: String,
     root: &Path,
@@ -100,6 +113,43 @@ pub(crate) fn append_cli_validation_repair_material_from_environment(
         final_phase_id,
         selection.as_ref(),
     )
+}
+
+fn append_phase_material(
+    prompt: String,
+    root: &Path,
+    profile: &str,
+    intent: &str,
+    phase_id: &str,
+    selection: Option<&RuntimeSelection>,
+) -> anyhow::Result<String> {
+    let Some(selection) = selection else {
+        return Ok(prompt);
+    };
+    let pack = load_selected(selection, profile, intent)?;
+    let Some(point) = InjectionPoint::parse(phase_id) else {
+        return Ok(prompt);
+    };
+    let injections = matching_injections(&pack, point);
+    if injections.is_empty() {
+        return Ok(prompt);
+    }
+    let mut rendered = Vec::new();
+    for injection in injections {
+        match injection.source {
+            AssistSource::DataInspectionSchema => {
+                rendered.push(data::render_inspection(root, &pack, injection)?);
+            }
+            // C1 is produced by final acceptance, so this source is
+            // deliberately deferred to the within-phase repair hook below.
+            AssistSource::CliProbe => continue,
+            source => bail!(
+                "pack source `{source}` has no phase renderer at point `{}`",
+                injection.point
+            ),
+        }
+    }
+    append_sections(prompt, rendered)
 }
 
 fn append_cli_validation_repair_material(
@@ -407,6 +457,18 @@ mod tests {
     fn no_pack_preserves_existing_prompt_bytes() {
         let root = tempfile::tempdir().unwrap();
         let prompt = "existing prompt\nwith exact bytes".to_string();
+        assert_eq!(
+            append_phase_material(
+                prompt.clone(),
+                root.path(),
+                "data",
+                "create",
+                "data-cleaning",
+                None,
+            )
+            .unwrap(),
+            prompt
+        );
         assert_eq!(
             append_cli_validation_repair_material(
                 prompt.clone(),

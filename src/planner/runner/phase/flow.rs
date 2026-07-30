@@ -321,6 +321,13 @@ pub fn run_ultra_plan_with_ui(
         let final_phase = index + 1 == plan.phases.len();
         let phase_prompt =
             ultra_phase_prompt(plan, phase, config, &ultra_context, fix_runtime.as_ref());
+        let phase_prompt = crate::planner::pack::runtime::append_phase_material_from_environment(
+            phase_prompt,
+            &config.workspace_root,
+            &plan.profile,
+            &plan.intent,
+            &phase.id,
+        )?;
         let step_plan_result = phase_plan_resolution::resolve(
             planner,
             &phase_prompt,
