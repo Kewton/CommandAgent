@@ -23,6 +23,7 @@ pub(crate) mod investigation_plan_synthesis;
 pub(crate) mod investigation_runtime;
 pub mod lint;
 pub(crate) mod lint_rejection;
+pub mod pack;
 pub(crate) mod phase_plan_synthesis;
 pub mod profile;
 pub(crate) mod profile_admission;

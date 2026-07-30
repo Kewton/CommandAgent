@@ -36,6 +36,7 @@ rustyline = { version = "14", default-features = false, features = ["custom-bind
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
 serde_yaml = "0.9"
+sha2 = "0.10"
 signal-hook = "0.3"
 thiserror = "2"
 toml = "0.8"
