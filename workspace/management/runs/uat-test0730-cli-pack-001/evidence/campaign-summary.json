@@ -1,0 +1,235 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0730-cli-pack-001",
+  "campaign_id": "cli-create-elevated-cli-assist-20260730-124714",
+  "revision": "5653798098e71a1a1f81ee5796f68d3fcf5b4c98",
+  "contract": "docs/cli-profile-contract.md (fixed 2026-07-24); docs/pack-institution-contract.md (fixed 2026-07-30)",
+  "suite": {
+    "id": "cli-create-elevated-cli-assist",
+    "profile": "cli",
+    "intent": "create",
+    "workspace_mode": "empty",
+    "admission": "admitted",
+    "planner": "qwen3.6:27b-coding-nvfp4",
+    "executor": "gemma4:31b-cloud",
+    "provider": "ollama",
+    "pack": {
+      "id": "cli-assist",
+      "version": "1.0.0",
+      "hash": "sha256:b1dcee70c1a0536954c25639e2d67508d8029328e414aaff030368e7fac844fd",
+      "assist_present": true,
+      "eval_present": false,
+      "assist_schema_version": "commandagent.pack.assist/v0",
+      "eval_schema_version": null
+    }
+  },
+  "source_hashes": {
+    "suite_sha256": "342ad2b8727f95bf8868e7f94e1d74a5b067affc8dac993831dab2f7e9eab45e",
+    "uat_meta_sha256": "05b5c8518f97679d38f01af7f1332b0235e08d2bcb2311a951c6c90aa5079dd1",
+    "report_skeleton_sha256": "a61e08808d5b3da7c55e13c5334f90a3db804e16a0a8759348110d49833d514a",
+    "acceptance_sheet_sha256": {
+      "stats_cloud_001": "7f7e7c40352ccadfc5c4601b86e9bef40b6d1b7681b7cd8fe855e0a4d662dff0",
+      "stats_cloud_002": "65135e880cba27980f9f7f5176c608d7deec16e6bcde8b2661b6035309ffbd33",
+      "stats_cloud_003": "b9aa243e154f5d58cab5a11bc7438dc1c4a3654d163b8038c6177dce77dfce88",
+      "filter_cloud_001": "c5bd69bcc9ab487984b07b673ff7365e5056baa7d492a65af290b04b61dcaac7",
+      "filter_cloud_002": "0b664ba66b208143b6e1e427f5d0494e59f0d41c1b9385dadb21d08b9823d0a4",
+      "filter_cloud_003": "4e1aa0c419252dec2c75e6ebce73be7137e1ef9b9b5085495ace7246e317cea8"
+    }
+  },
+  "epochs": {
+    "preflight_start": 1785415634,
+    "run_start": 1785415865,
+    "run_end": 1785420815,
+    "audit_end": 1785420815
+  },
+  "cost_seconds": {
+    "preflight_start_to_run_end": 5181,
+    "run_sum": 4950,
+    "run_start_to_run_end": 4950
+  },
+  "preflight": {
+    "git_clean": true,
+    "head": "5653798098e71a1a1f81ee5796f68d3fcf5b4c98",
+    "minimum_ancestor": "afb6881",
+    "cargo_test_exit_code": 0,
+    "release_build_exit_code": 0,
+    "version": "commandagent 0.1.0 5653798 2026-07-30T12:50:46Z",
+    "node_env": "production",
+    "deviations": []
+  },
+  "runs": [
+    {
+      "name": "stats_cloud_001",
+      "family": "stats",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 1265,
+      "pack_id": "cli-assist@1.0.0",
+      "pack_hash": "sha256:b1dcee70c1a0536954c25639e2d67508d8029328e414aaff030368e7fac844fd"
+    },
+    {
+      "name": "stats_cloud_002",
+      "family": "stats",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 1174,
+      "pack_id": "cli-assist@1.0.0",
+      "pack_hash": "sha256:b1dcee70c1a0536954c25639e2d67508d8029328e414aaff030368e7fac844fd"
+    },
+    {
+      "name": "stats_cloud_003",
+      "family": "stats",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 838,
+      "pack_id": "cli-assist@1.0.0",
+      "pack_hash": "sha256:b1dcee70c1a0536954c25639e2d67508d8029328e414aaff030368e7fac844fd"
+    },
+    {
+      "name": "filter_cloud_001",
+      "family": "filter",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 366,
+      "pack_id": "cli-assist@1.0.0",
+      "pack_hash": "sha256:b1dcee70c1a0536954c25639e2d67508d8029328e414aaff030368e7fac844fd"
+    },
+    {
+      "name": "filter_cloud_002",
+      "family": "filter",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 1004,
+      "pack_id": "cli-assist@1.0.0",
+      "pack_hash": "sha256:b1dcee70c1a0536954c25639e2d67508d8029328e414aaff030368e7fac844fd"
+    },
+    {
+      "name": "filter_cloud_003",
+      "family": "filter",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 303,
+      "pack_id": "cli-assist@1.0.0",
+      "pack_hash": "sha256:b1dcee70c1a0536954c25639e2d67508d8029328e414aaff030368e7fac844fd"
+    }
+  ],
+  "effective_model_audit": {
+    "expected": "gemma4:31b-cloud",
+    "observed": 6,
+    "expected_runs": 6,
+    "planner_expected": "qwen3.6:27b-coding-nvfp4",
+    "planner_observed": 6
+  },
+  "e0": {
+    "logical_runs": {
+      "known": 6,
+      "unknown": 0
+    },
+    "acceptance_sheets_generated": 6,
+    "acceptance_sheets_expected": 6
+  },
+  "c_evidence": {
+    "runs_reaching_final_acceptance": 0,
+    "runs_executing_c1_through_c4": 0,
+    "cli_evidence_files": 0,
+    "pack_injection_records": 0,
+    "pack_exposure_runs": 0,
+    "c3_violations": 0,
+    "c3_interpretation": "not_observed_due_to_zero_pack_exposure"
+  },
+  "ab_comparison": {
+    "baseline_set": "uat-test0725-cli-elev-004",
+    "baseline_pack": "none",
+    "baseline_full": "0/6",
+    "baseline_c_reached": "2/6",
+    "baseline_c3_violations": 6,
+    "treatment_set": "uat-test0730-cli-pack-001",
+    "treatment_pack": "cli-assist@1.0.0",
+    "treatment_full": "0/6",
+    "treatment_c_reached": "0/6",
+    "treatment_c3_violations": 0,
+    "full_rate_effect_percentage_points": 0,
+    "primary_effect_interpretation": "unidentifiable_due_to_zero_pack_exposure"
+  },
+  "rates": {
+    "honest_terminal": "6/6",
+    "failed": "6/6",
+    "full": "0/6",
+    "false_full": "0/6",
+    "pack_pin_recorded": "6/6",
+    "pack_exposure": "0/6",
+    "sheet_self_supply": "6/6"
+  },
+  "acceptance": {
+    "p0_a_honest_terminal": "pass",
+    "p0_b_contract_section_4": "pass",
+    "p0_c_false_success_zero": "pass",
+    "p1_pack_pin_recorded": "pass",
+    "pack_effect": "unidentifiable"
+  },
+  "scrub": {
+    "campaign_ok": true,
+    "runs_ok": 6,
+    "findings": []
+  }
+}

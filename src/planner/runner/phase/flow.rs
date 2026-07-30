@@ -1058,13 +1058,15 @@ pub fn run_ultra_plan_with_ui(
                 compile_narrow_no_snapshot_retry,
                 config.eval_events_path.as_deref(),
             );
+            // This is the semantic cli-validation boundary: final acceptance
+            // has already emitted C1 evidence above. It is independent of the
+            // planner-authored name of the last delivery phase.
             repair_prompt =
                 crate::planner::pack::runtime::append_cli_validation_repair_material_from_environment(
                     repair_prompt,
                     &config.workspace_root,
                     &plan.profile,
                     &plan.intent,
-                    plan.phases.last().map(|phase| phase.id.as_str()),
                 )?;
             if evidence_reanchored_retry {
                 repair_prompt = format!(

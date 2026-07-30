@@ -137,6 +137,9 @@ class SuiteAndCommandTests(unittest.TestCase):
         dfix = bench.load_suite(SUITES_DIR / "dfix-synthesis.toml")
         investigation = bench.load_suite(SUITES_DIR / "investigation-data.toml")
         cli_create = bench.load_suite(SUITES_DIR / "cli-create.toml")
+        cli_pack = bench.load_suite(
+            SUITES_DIR / "cli-create-elevated-cli-assist.toml"
+        )
 
         self.assertEqual(dfix.suite_id, "dfix-synthesis")
         self.assertEqual(dfix.workspace_mode, "sourced")
@@ -148,6 +151,9 @@ class SuiteAndCommandTests(unittest.TestCase):
         self.assertEqual(cli_create.workspace_mode, "empty")
         self.assertEqual(cli_create.sources, ())
         self.assertTrue(all(run.set_id is None for run in cli_create.runs))
+        self.assertEqual(cli_pack.pack_id, "cli-assist")
+        self.assertEqual(cli_pack.pack_version, "1.0.0")
+        self.assertEqual(len(cli_pack.runs), 6)
 
     def test_empty_workspace_rejects_sources(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

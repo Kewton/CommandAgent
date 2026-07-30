@@ -87,8 +87,14 @@ CLI_LOCAL_SUMMARY = RUNS_DIR / CLI_LOCAL_SET / "evidence" / "campaign-summary.js
 CLI_ELEVATED_SETS = tuple(f"uat-test0725-cli-elev-{index:03d}" for index in range(1, 5))
 CLI_WINDOW_B_SET = "uat-test0725-cli-elev-004"
 CLI_CALIBRATION_SET = "uat-test0725-cli-elev-003"
+CLI_PACK_SET = "uat-test0730-cli-pack-001"
+CLI_PACK_SUMMARY = RUNS_DIR / CLI_PACK_SET / "evidence" / "campaign-summary.json"
+CLI_PACK_ID = "cli-assist@1.0.0"
+CLI_PACK_HASH = (
+    "sha256:b1dcee70c1a0536954c25639e2d67508d8029328e414aaff030368e7fac844fd"
+)
 CLI_EXPECTED_RUNS_PER_SET = 6
-CLI_EXPECTED_RUNS = CLI_EXPECTED_RUNS_PER_SET * (1 + len(CLI_ELEVATED_SETS))
+CLI_EXPECTED_RUNS = CLI_EXPECTED_RUNS_PER_SET * (2 + len(CLI_ELEVATED_SETS))
 CLI_EXPECTED_MATRIX = {
     ("filter", "gemma4:31b"): 1,
     ("filter", "qwen3.6:35b-a3b-coding-nvfp4"): 2,
@@ -328,6 +334,8 @@ class CliRunRecord:
     duration_seconds: int
     evidence_dir: Path
     evidence_report: Path | None = None
+    pack_id: str = "none"
+    pack_hash: str = ""
 
     @property
     def is_full(self) -> bool:
@@ -339,6 +347,12 @@ class CliRunRecord:
             status not in {"not_executed", "not_reached"}
             for status in (self.c1, self.c2, self.c3, self.c4)
         )
+
+    @property
+    def pack_label(self) -> str:
+        if self.pack_id == "none":
+            return "none"
+        return f"{self.pack_id} / {self.pack_hash}"
 
 
 @dataclass(frozen=True)
@@ -2868,6 +2882,8 @@ def cli_record_from_summary(
         duration_seconds=int(row.get("duration_seconds")),
         evidence_dir=summary.parent.parent / "artifacts" / run_name / "evidence",
         evidence_report=summary.parent.parent / "uat-report.md",
+        pack_id=str(row.get("pack_id") or "none"),
+        pack_hash=str(row.get("pack_hash") or ""),
     )
 
 
@@ -2959,7 +2975,26 @@ def discover_cli_records() -> tuple[list[CliRunRecord], list[str]]:
             assert isinstance(row, dict)
             records.append(cli_record_from_summary(set_id, summary, row))
     records.extend(discover_cli_window_b_records())
-    return records, [CLI_LOCAL_SET, *CLI_ELEVATED_SETS]
+    pack_data = read_json_dict(CLI_PACK_SUMMARY)
+    assert pack_data is not None, f"missing CLI pack-arm summary: {CLI_PACK_SUMMARY}"
+    assert pack_data.get("uat_id") == CLI_PACK_SET
+    pack_suite = pack_data.get("suite")
+    assert isinstance(pack_suite, dict)
+    assert pack_suite.get("profile") == "cli"
+    assert pack_suite.get("intent") == "create"
+    pack = pack_suite.get("pack")
+    assert isinstance(pack, dict)
+    assert f"{pack.get('id')}@{pack.get('version')}" == CLI_PACK_ID
+    assert pack.get("hash") == CLI_PACK_HASH
+    pack_rows = pack_data.get("runs")
+    assert isinstance(pack_rows, list)
+    for row in pack_rows:
+        assert isinstance(row, dict)
+        record = cli_record_from_summary(CLI_PACK_SET, CLI_PACK_SUMMARY, row)
+        assert record.pack_id == CLI_PACK_ID
+        assert record.pack_hash == CLI_PACK_HASH
+        records.append(record)
+    return records, [CLI_LOCAL_SET, *CLI_ELEVATED_SETS, CLI_PACK_SET]
 
 
 def cli_evidence_attested(record: CliRunRecord, reached_in_set: int) -> bool:
@@ -3006,13 +3041,24 @@ def assert_cli_invariants(records: list[CliRunRecord]) -> int:
     assert Counter(record.set_id for record in records) == Counter(
         {
             set_id: CLI_EXPECTED_RUNS_PER_SET
-            for set_id in [CLI_LOCAL_SET, *CLI_ELEVATED_SETS]
+            for set_id in [CLI_LOCAL_SET, *CLI_ELEVATED_SETS, CLI_PACK_SET]
         }
     ), "CLI source-set denominators drifted"
     local = [record for record in records if record.set_id == CLI_LOCAL_SET]
     assert Counter((record.family, record.executor) for record in local) == Counter(
         CLI_EXPECTED_MATRIX
     ), "CLI family/executor matrix drifted"
+    pack_arm = [record for record in records if record.set_id == CLI_PACK_SET]
+    assert Counter((record.family, record.executor) for record in pack_arm) == Counter(
+        {
+            ("filter", "gemma4:31b-cloud"): 3,
+            ("stats", "gemma4:31b-cloud"): 3,
+        }
+    ), "CLI pack family/executor matrix drifted"
+    assert all(
+        record.pack_id == CLI_PACK_ID and record.pack_hash == CLI_PACK_HASH
+        for record in pack_arm
+    ), "CLI pack pin drifted"
     for record in records:
         assert record.harness_status == "completed", (
             f"{record.run_name}: dishonest harness terminal"
@@ -3071,6 +3117,8 @@ def cli_band_status(set_id: str) -> str:
         return "calibration predecessor — 配線後・較正前"
     if set_id == CLI_WINDOW_B_SET:
         return "formal Window B"
+    if set_id == CLI_PACK_SET:
+        return "A/B pack arm — renderer exposure 0/6; effect unidentifiable"
     return "local reference arm"
 
 
@@ -3081,6 +3129,7 @@ def build_cli_summary(
 ) -> str:
     local = [record for record in records if record.set_id == CLI_LOCAL_SET]
     window_b = [record for record in records if record.set_id == CLI_WINDOW_B_SET]
+    pack_arm = [record for record in records if record.set_id == CLI_PACK_SET]
     reached = [record for record in records if record.reached_checks]
     window_b_reached = [record for record in window_b if record.reached_checks]
     dispositions = []
@@ -3092,6 +3141,7 @@ def build_cli_summary(
                 str(len(set_records)),
                 str(sum(record.reached_checks for record in set_records)),
                 str(sum(record.is_full for record in set_records)),
+                set_records[0].pack_label,
                 cli_band_status(set_id),
             ]
         )
@@ -3100,7 +3150,7 @@ def build_cli_summary(
         "",
         "<!-- Generated by band_aggregate.py --profile cli. Do not edit by hand. -->",
         "",
-        f"- Source sets: `{len(scanned_sets)}` (local 1 + elevated 4)",
+        f"- Source sets: `{len(scanned_sets)}` (local 1 + elevated 4 + pack A/B 1)",
         f"- Observed runs: `{len(records)}`",
         f"- Honest terminals: `{sum(record.harness_status == 'completed' for record in records)}/{len(records)}`",
         f"- Formal Window B: `{CLI_WINDOW_B_SET}` only",
@@ -3108,6 +3158,10 @@ def build_cli_summary(
         f"- Window B runs reaching C checks: `{len(window_b_reached)}/{len(window_b)}`",
         f"- All-history runs reaching C checks: `{len(reached)}/{len(records)}`",
         f"- Reached-run C evidence sets verified: `{evidence_verified}/{len(reached)}`",
+        f"- Pack A/B pin: `{CLI_PACK_ID}` / `{CLI_PACK_HASH}`",
+        f"- Pack arm full: `{sum(record.is_full for record in pack_arm)}/{len(pack_arm)}` ({pct(sum(record.is_full for record in pack_arm), len(pack_arm))}); Window Bとの差 `0 percentage points`",
+        f"- Pack renderer exposure: `{sum(record.reached_checks for record in pack_arm)}/{len(pack_arm)}`; primary effect `unidentifiable`",
+        "- A/B interpretation: treatmentのC3 violation 0件はC runtime未到達による未観測であり、改善として数えない。",
         "- Invariant: C evidence files are mandatory only after a run reaches the CLI checks.",
         "- Invariant: every reached run must attest cli-case-binding.json, cli-probe.json, help-binding.json, and cli-assurance.json by file or recorded SHA-256.",
         "- Invariant: non-reaching admitted runs outside defect-era exclusions remain failed with static (cli_probe_not_run) assurance.",
@@ -3129,10 +3183,17 @@ def build_cli_summary(
             cli_rate_rows(local),
         )
     )
+    lines.extend(["", "## Pack A/B arm by family and executor", ""])
+    lines.extend(
+        table(
+            ["Family", "Executor", "full", "non-full", "denominator", "full rate"],
+            cli_rate_rows(pack_arm),
+        )
+    )
     lines.extend(["", "## Campaign disposition", ""])
     lines.extend(
         table(
-            ["Set", "Runs", "C reached", "Full", "Band status"],
+            ["Set", "Runs", "C reached", "Full", "Pack ID / hash", "Band status"],
             dispositions,
         )
     )
@@ -3144,6 +3205,7 @@ def build_cli_summary(
                 "Run",
                 "Family",
                 "Executor",
+                "Pack ID / hash",
                 "Verdict",
                 "Assurance",
                 "C1",
@@ -3161,6 +3223,7 @@ def build_cli_summary(
                     record.run_name,
                     record.family,
                     record.executor,
+                    record.pack_label,
                     record.verdict,
                     record.assurance,
                     record.c1,

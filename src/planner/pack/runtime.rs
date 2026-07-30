@@ -102,17 +102,9 @@ pub(crate) fn append_cli_validation_repair_material_from_environment(
     root: &Path,
     profile: &str,
     intent: &str,
-    final_phase_id: Option<&str>,
 ) -> anyhow::Result<String> {
     let selection = RuntimeSelection::from_environment()?;
-    append_cli_validation_repair_material(
-        prompt,
-        root,
-        profile,
-        intent,
-        final_phase_id,
-        selection.as_ref(),
-    )
+    append_cli_validation_repair_material(prompt, root, profile, intent, selection.as_ref())
 }
 
 fn append_phase_material(
@@ -157,7 +149,6 @@ fn append_cli_validation_repair_material(
     root: &Path,
     profile: &str,
     intent: &str,
-    final_phase_id: Option<&str>,
     selection: Option<&RuntimeSelection>,
 ) -> anyhow::Result<String> {
     let Some(selection) = selection else {
@@ -168,12 +159,6 @@ fn append_cli_validation_repair_material(
     let injections = matching_injections(&pack, point);
     if injections.is_empty() {
         return Ok(prompt);
-    }
-    if final_phase_id != Some(point.as_str()) {
-        bail!(
-            "cli_probe injection requires final phase `{}` before rendering",
-            point
-        );
     }
     let mut rendered = Vec::new();
     for injection in injections {
@@ -475,7 +460,6 @@ mod tests {
                 root.path(),
                 "cli",
                 "create",
-                Some("cli-validation"),
                 None,
             )
             .unwrap(),
@@ -492,7 +476,6 @@ mod tests {
             root.path(),
             "cli",
             "create",
-            Some("cli-validation"),
             Some(&selection),
         )
         .unwrap_err()
@@ -505,7 +488,6 @@ mod tests {
             root.path(),
             "cli",
             "create",
-            Some("cli-validation"),
             Some(&selection),
         )
         .unwrap();
