@@ -26,6 +26,10 @@ pub fn run(config: Config) -> anyhow::Result<()> {
         config.state_dir.join("boundary-confirmations"),
         config.eval_events_path.clone(),
     );
+    let mut active_identity: Option<
+        crate::tui::boundary_shell::confirmation::ConfirmationIdentity,
+    > = None;
+    let mut directive_round = 0_u32;
     let mut editor = ReplEditor::new(&config)?;
     let history_path = config.state_dir.join("history.txt");
     if let Some(parent) = history_path.parent() {
@@ -66,6 +70,144 @@ pub fn run(config: Config) -> anyhow::Result<()> {
             break;
         }
         let _ = editor.add_history_entry(line);
+        if let Some(raw) = line.strip_prefix("/directive ").map(str::trim) {
+            let target_run_id = match boundary_run_id(config.eval_events_path.as_deref()) {
+                Ok(run_id) => run_id,
+                Err(error) => {
+                    renderer.render_assistant(&format!("Directive refused: {error}"))?;
+                    ui.reset_interrupt();
+                    continue;
+                }
+            };
+            let directive = match boundary_shell.begin_directive(
+                raw,
+                &target_run_id,
+                directive_round.saturating_add(1),
+            ) {
+                Ok(directive) => directive,
+                Err(error) => {
+                    renderer.render_assistant(&format!("Directive refused: {error}"))?;
+                    ui.reset_interrupt();
+                    continue;
+                }
+            };
+            let proposal = format!(
+                "# Gate 4 — Directive confirmation\n\n\
+- Directive: {}\n\
+- Directive hash: {}\n\
+- Target run ID: {}\n\
+- Directive round: {}\n\
+- Source: human_directive (bounded verbatim)\n\
+- Contract floor: unchanged\n\n\
+Confirm with `/confirm-directive {}` before continuation dispatch.",
+                directive.artifact().raw,
+                directive.hash(),
+                directive.artifact().target_run_id,
+                directive.artifact().round,
+                directive.hash(),
+            );
+            crate::tui::boundary_shell::transcript::append(
+                &config.state_dir,
+                "Gate 4 directive proposal",
+                &proposal,
+            )?;
+            renderer.render_assistant(&proposal)?;
+            ui.reset_interrupt();
+            continue;
+        }
+        if let Some(directive_hash) = line.strip_prefix("/confirm-directive ").map(str::trim) {
+            let Some(identity) = active_identity.clone() else {
+                renderer.render_assistant(
+                    "Directive confirmation refused: no failed confirmed run is active.",
+                )?;
+                ui.reset_interrupt();
+                continue;
+            };
+            let directive = match boundary_shell.confirm_directive(directive_hash) {
+                Ok(confirmed) => confirmed.directive().clone(),
+                Err(error) => {
+                    renderer
+                        .render_assistant(&format!("Directive confirmation refused: {error}"))?;
+                    ui.reset_interrupt();
+                    continue;
+                }
+            };
+            let Some(events_path) = config.eval_events_path.as_deref() else {
+                renderer.render_assistant(
+                    "Directive continuation refused: the failed run has no event stream.",
+                )?;
+                ui.reset_interrupt();
+                continue;
+            };
+            let continuation = match crate::tui::boundary_shell::directive::prepare_continuation(
+                &config.workspace_root,
+                events_path,
+                &directive,
+            ) {
+                Ok(continuation) => continuation,
+                Err(error) => {
+                    renderer
+                        .render_assistant(&format!("Directive continuation refused: {error}"))?;
+                    ui.reset_interrupt();
+                    continue;
+                }
+            };
+            let confirmed_text = format!(
+                "Persisted directive confirmation: `{}`\n\nContinuing target run `{}` at directive round {} in the same workspace.",
+                continuation.directive_hash,
+                continuation.target_run_id,
+                continuation.directive_round,
+            );
+            renderer.render_assistant(&confirmed_text)?;
+            crate::tui::boundary_shell::transcript::append(
+                &config.state_dir,
+                "Gate 4 directive confirmation",
+                &confirmed_text,
+            )?;
+            let mut dispatch_config = config.clone();
+            apply_confirmed_identity(&mut dispatch_config, &identity);
+            let command = format!("/run-ultra-plan {}", continuation.plan_workspace_path);
+            let result = boundary_shell.dispatch_directive(&continuation, || {
+                crate::tui::slash::handle_command(
+                    &command,
+                    &dispatch_config,
+                    &mut *planner,
+                    &mut *execution,
+                    &ui,
+                )
+            });
+            let generated = crate::tui::boundary_shell::sheet::generate(
+                &identity,
+                config.eval_events_path.as_deref(),
+                result.is_ok(),
+            )?;
+            let generated = crate::tui::boundary_shell::sheet::with_directive_metadata(
+                generated,
+                &continuation,
+            );
+            let sheet_path = crate::tui::boundary_shell::sheet::persist_directive_round(
+                &config.state_dir,
+                &identity,
+                &generated,
+                continuation.directive_round,
+            )?;
+            let terminal = boundary_shell.present_terminal(
+                generated.markdown,
+                generated.full,
+                generated.section5,
+            )?;
+            let rendered = render_terminal(&identity, terminal)?;
+            let gate = if terminal.full { "Gate 3" } else { "Gate 4" };
+            crate::tui::boundary_shell::transcript::append(
+                &config.state_dir,
+                gate,
+                &format!("{rendered}\n\nSheet path: {}", sheet_path.display()),
+            )?;
+            renderer.render_assistant(&rendered)?;
+            directive_round = continuation.directive_round;
+            ui.reset_interrupt();
+            continue;
+        }
         if let Some(card_hash) = line.strip_prefix("/confirm ").map(str::trim) {
             let identity = match boundary_shell.confirm(card_hash) {
                 Ok(confirmed) => confirmed.identity().clone(),
@@ -86,16 +228,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
                 &confirmed_text,
             )?;
             let mut dispatch_config = config.clone();
-            dispatch_config.profile = identity.profile.clone();
-            dispatch_config.profile_explicit = true;
-            dispatch_config.profile_inference = None;
-            dispatch_config.intent_override = match identity.intent.as_str() {
-                "create" => Some(crate::config::IntentId::Create),
-                "fix" => Some(crate::config::IntentId::Fix),
-                "investigate" => Some(crate::config::IntentId::Investigate),
-                _ => None,
-            };
-            dispatch_config.plan_preset = crate::config::PlanPreset::Profile;
+            apply_confirmed_identity(&mut dispatch_config, &identity);
             let command = format!(
                 "/ultra-plan-run --profile {} {}",
                 identity.profile, identity.request
@@ -124,41 +257,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
                 generated.full,
                 generated.section5,
             )?;
-            let rendered = if terminal.full {
-                crate::tui::boundary_shell::presentation::render_gate_three(&identity, terminal)?
-            } else {
-                crate::tui::boundary_shell::presentation::render_gate_four(
-                    &identity,
-                    terminal,
-                    &[
-                        (
-                            crate::tui::boundary_shell::acceptance::NextAction::Retry,
-                            true,
-                            "human confirmation required",
-                        ),
-                        (
-                            crate::tui::boundary_shell::acceptance::NextAction::RecoveryCircle,
-                            false,
-                            "availability must be earned by workflow evidence",
-                        ),
-                        (
-                            crate::tui::boundary_shell::acceptance::NextAction::ElevatedModel,
-                            true,
-                            "returns to Gate 1 with a new model pin",
-                        ),
-                        (
-                            crate::tui::boundary_shell::acceptance::NextAction::PackChange,
-                            false,
-                            "no pack selected for this confirmed run",
-                        ),
-                        (
-                            crate::tui::boundary_shell::acceptance::NextAction::Close,
-                            true,
-                            "records no further action",
-                        ),
-                    ],
-                )?
-            };
+            let rendered = render_terminal(&identity, terminal)?;
             let gate = if terminal.full { "Gate 3" } else { "Gate 4" };
             crate::tui::boundary_shell::transcript::append(
                 &config.state_dir,
@@ -166,6 +265,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
                 &format!("{rendered}\n\nSheet path: {}", sheet_path.display()),
             )?;
             renderer.render_assistant(&rendered)?;
+            active_identity = Some(identity);
             ui.reset_interrupt();
             continue;
         }
@@ -243,6 +343,77 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     }
     let _ = editor.save_history(&history_path);
     Ok(())
+}
+
+fn apply_confirmed_identity(
+    config: &mut Config,
+    identity: &crate::tui::boundary_shell::confirmation::ConfirmationIdentity,
+) {
+    config.profile = identity.profile.clone();
+    config.profile_explicit = true;
+    config.profile_inference = None;
+    config.intent_override = match identity.intent.as_str() {
+        "create" => Some(crate::config::IntentId::Create),
+        "fix" => Some(crate::config::IntentId::Fix),
+        "investigate" => Some(crate::config::IntentId::Investigate),
+        _ => None,
+    };
+    config.plan_preset = crate::config::PlanPreset::Profile;
+}
+
+fn boundary_run_id(events_path: Option<&std::path::Path>) -> anyhow::Result<String> {
+    events_path
+        .and_then(std::path::Path::parent)
+        .and_then(std::path::Path::file_name)
+        .and_then(std::ffi::OsStr::to_str)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| anyhow::anyhow!("the failed run has no stable event-stream run ID"))
+}
+
+fn render_terminal(
+    identity: &crate::tui::boundary_shell::confirmation::ConfirmationIdentity,
+    terminal: &crate::tui::boundary_shell::acceptance::TerminalPresentation,
+) -> anyhow::Result<String> {
+    if terminal.full {
+        return crate::tui::boundary_shell::presentation::render_gate_three(identity, terminal);
+    }
+    crate::tui::boundary_shell::presentation::render_gate_four(
+        identity,
+        terminal,
+        &[
+            (
+                crate::tui::boundary_shell::acceptance::NextAction::Retry,
+                true,
+                "human confirmation required",
+            ),
+            (
+                crate::tui::boundary_shell::acceptance::NextAction::RecoveryCircle,
+                false,
+                "availability must be earned by workflow evidence",
+            ),
+            (
+                crate::tui::boundary_shell::acceptance::NextAction::ElevatedModel,
+                true,
+                "returns to Gate 1 with a new model pin",
+            ),
+            (
+                crate::tui::boundary_shell::acceptance::NextAction::PackChange,
+                false,
+                "no pack selected for this confirmed run",
+            ),
+            (
+                crate::tui::boundary_shell::acceptance::NextAction::HumanDirective,
+                true,
+                "enter `/directive <instruction>`; persisted confirmation is required",
+            ),
+            (
+                crate::tui::boundary_shell::acceptance::NextAction::Close,
+                true,
+                "records no further action",
+            ),
+        ],
+    )
 }
 
 fn provider_name(provider: crate::config::Provider) -> &'static str {

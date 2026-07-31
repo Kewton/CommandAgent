@@ -41,6 +41,58 @@ pub struct DirectiveContinuation {
     pub directive_hash: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DirectiveConfirmationRecord {
+    schema_version: u8,
+    directive_hash: String,
+    confirmed_at_epoch: u64,
+    target_run_id: String,
+    round: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfirmedDirective {
+    directive: PersistedDirective,
+    record_path: PathBuf,
+}
+
+impl ConfirmedDirective {
+    pub fn directive(&self) -> &PersistedDirective {
+        &self.directive
+    }
+
+    pub fn record_path(&self) -> &Path {
+        &self.record_path
+    }
+
+    pub fn validate(&self) -> anyhow::Result<()> {
+        self.directive.validate()?;
+        let bytes = std::fs::read(&self.record_path).with_context(|| {
+            format!(
+                "read directive confirmation record {}",
+                self.record_path.display()
+            )
+        })?;
+        let record: DirectiveConfirmationRecord =
+            serde_json::from_slice(&bytes).with_context(|| {
+                format!(
+                    "parse directive confirmation record {}",
+                    self.record_path.display()
+                )
+            })?;
+        let artifact = self.directive.artifact();
+        if record.schema_version != DIRECTIVE_SCHEMA_VERSION
+            || record.directive_hash != self.directive.hash()
+            || record.target_run_id != artifact.target_run_id
+            || record.round != artifact.round
+        {
+            bail!("directive confirmation record does not match the frozen artifact");
+        }
+        Ok(())
+    }
+}
+
 impl PersistedDirective {
     pub fn artifact(&self) -> &DirectiveArtifact {
         &self.artifact
@@ -79,6 +131,72 @@ pub fn persist(
         .context("system time before UNIX epoch")?
         .as_secs();
     persist_at_epoch(root, raw, target_run_id, round, epoch)
+}
+
+pub fn confirm(root: &Path, directive: &PersistedDirective) -> anyhow::Result<ConfirmedDirective> {
+    let epoch = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("system time before UNIX epoch")?
+        .as_secs();
+    confirm_at_epoch(root, directive, epoch)
+}
+
+fn confirm_at_epoch(
+    root: &Path,
+    directive: &PersistedDirective,
+    epoch: u64,
+) -> anyhow::Result<ConfirmedDirective> {
+    directive.validate()?;
+    std::fs::create_dir_all(root)
+        .with_context(|| format!("create directive confirmation directory {}", root.display()))?;
+    let record_path = root.join(format!(
+        "{}.json",
+        directive.hash().trim_start_matches("sha256:")
+    ));
+    let artifact = directive.artifact();
+    let record = DirectiveConfirmationRecord {
+        schema_version: DIRECTIVE_SCHEMA_VERSION,
+        directive_hash: directive.hash().to_string(),
+        confirmed_at_epoch: epoch,
+        target_run_id: artifact.target_run_id.clone(),
+        round: artifact.round,
+    };
+    if record_path.exists() {
+        let bytes = std::fs::read(&record_path).with_context(|| {
+            format!(
+                "read existing directive confirmation {}",
+                record_path.display()
+            )
+        })?;
+        let existing: DirectiveConfirmationRecord = serde_json::from_slice(&bytes)?;
+        if existing.directive_hash != record.directive_hash
+            || existing.target_run_id != record.target_run_id
+            || existing.round != record.round
+        {
+            bail!("directive confirmation hash collision or stale record");
+        }
+    } else {
+        let mut bytes = serde_json::to_vec_pretty(&record)?;
+        bytes.push(b'\n');
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&record_path)
+            .with_context(|| {
+                format!(
+                    "create directive confirmation record {}",
+                    record_path.display()
+                )
+            })?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+    }
+    let confirmed = ConfirmedDirective {
+        directive: directive.clone(),
+        record_path,
+    };
+    confirmed.validate()?;
+    Ok(confirmed)
 }
 
 fn persist_at_epoch(

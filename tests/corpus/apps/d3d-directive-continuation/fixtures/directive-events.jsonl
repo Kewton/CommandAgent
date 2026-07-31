@@ -1,0 +1,4 @@
+{"confirmation_required":true,"directive_hash":"sha256:fixture","directive_round":1,"directive_target_run_id":"run-001","event":"human_directive_proposed","issued_gate":"gate_4","schema_version":"1"}
+{"confirmation_record":"boundary-directive-confirmations/fixture.json","directive_hash":"sha256:fixture","directive_round":1,"directive_target_run_id":"run-001","event":"human_directive_confirmed","schema_version":"1"}
+{"continuation_plan_path":".anvil/plans/directive-round-1-fixture.yaml","directive_hash":"sha256:fixture","directive_round":1,"directive_target_run_id":"run-001","event":"human_directive_continuation_started","same_workspace":true,"schema_version":"1"}
+{"directive_hash":"sha256:fixture","directive_round":1,"directive_target_run_id":"run-001","event":"human_directive_continuation_stopped","ok":false,"schema_version":"1"}

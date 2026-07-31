@@ -4,6 +4,7 @@ use anyhow::{Context, bail};
 use serde_json::Value;
 
 use super::confirmation::ConfirmationIdentity;
+use super::directive::DirectiveContinuation;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GeneratedSheet {
@@ -128,6 +129,42 @@ pub fn persist(
     ));
     std::fs::write(&path, sheet.markdown.as_bytes())
         .with_context(|| format!("write acceptance sheet {}", path.display()))?;
+    Ok(path)
+}
+
+pub fn with_directive_metadata(
+    mut sheet: GeneratedSheet,
+    continuation: &DirectiveContinuation,
+) -> GeneratedSheet {
+    sheet.markdown.push_str(&format!(
+        "\n## Directive continuation metadata\n\n\
+- Directive round: {}\n\
+- Directive hash: {}\n\
+- Target run ID: {}\n\
+- Continuation plan: {}\n",
+        continuation.directive_round,
+        continuation.directive_hash,
+        continuation.target_run_id,
+        continuation.plan_workspace_path,
+    ));
+    sheet
+}
+
+pub fn persist_directive_round(
+    state_root: &Path,
+    identity: &ConfirmationIdentity,
+    sheet: &GeneratedSheet,
+    round: u32,
+) -> anyhow::Result<PathBuf> {
+    let directory = state_root.join("boundary-sheets");
+    std::fs::create_dir_all(&directory)
+        .with_context(|| format!("create sheet directory {}", directory.display()))?;
+    let path = directory.join(format!(
+        "{}-directive-round-{round}.md",
+        identity.card_hash()?.trim_start_matches("sha256:")
+    ));
+    std::fs::write(&path, sheet.markdown.as_bytes())
+        .with_context(|| format!("write directive acceptance sheet {}", path.display()))?;
     Ok(path)
 }
 

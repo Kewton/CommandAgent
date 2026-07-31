@@ -18,6 +18,7 @@ use serde_json::json;
 use self::acceptance::{NextAction, TerminalPresentation};
 use self::ambiguity::RouteProposal;
 use self::confirmation::{ConfirmationIdentity, ConfirmedDispatch, ExecutionPins, PackSelection};
+use self::directive::{ConfirmedDirective, DirectiveContinuation, PersistedDirective};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BoundaryState {
@@ -32,6 +33,20 @@ pub enum BoundaryState {
     },
     AcceptanceReady(TerminalPresentation),
     FailureReady(TerminalPresentation),
+    AwaitingDirectiveConfirmation {
+        directive: PersistedDirective,
+        card_hash: String,
+    },
+    DirectiveConfirmed {
+        confirmed: ConfirmedDirective,
+        card_hash: String,
+    },
+    DirectiveRunning {
+        card_hash: String,
+        directive_hash: String,
+        directive_round: u32,
+        target_run_id: String,
+    },
     NeedsGateOne(NextAction),
     Closed,
 }
@@ -39,14 +54,22 @@ pub enum BoundaryState {
 pub struct BoundaryShell {
     state: BoundaryState,
     confirmation_root: PathBuf,
+    directive_root: PathBuf,
+    directive_confirmation_root: PathBuf,
     audit_events_path: Option<PathBuf>,
 }
 
 impl BoundaryShell {
     pub fn new(confirmation_root: PathBuf, audit_events_path: Option<PathBuf>) -> Self {
+        let state_root = confirmation_root
+            .parent()
+            .unwrap_or(&confirmation_root)
+            .to_path_buf();
         Self {
             state: BoundaryState::Collecting,
             confirmation_root,
+            directive_root: state_root.join("boundary-directives"),
+            directive_confirmation_root: state_root.join("boundary-directive-confirmations"),
             audit_events_path,
         }
     }
@@ -154,8 +177,10 @@ impl BoundaryShell {
         full: bool,
         section5: Option<String>,
     ) -> anyhow::Result<&TerminalPresentation> {
-        let BoundaryState::Running { card_hash } = &self.state else {
-            bail!("a terminal sheet can be presented only after confirmed dispatch");
+        let card_hash = match &self.state {
+            BoundaryState::Running { card_hash }
+            | BoundaryState::DirectiveRunning { card_hash, .. } => card_hash,
+            _ => bail!("a terminal sheet can be presented only after confirmed dispatch"),
         };
         let presentation =
             TerminalPresentation::new(card_hash.clone(), acceptance_sheet, full, section5)?;
@@ -171,9 +196,134 @@ impl BoundaryShell {
         }
     }
 
+    pub fn begin_directive(
+        &mut self,
+        raw: &str,
+        target_run_id: &str,
+        round: u32,
+    ) -> anyhow::Result<&PersistedDirective> {
+        let BoundaryState::FailureReady(terminal) = &self.state else {
+            bail!("human directives are available only for a failed run at Gate 4");
+        };
+        let card_hash = terminal.card_hash.clone();
+        let directive = directive::persist(&self.directive_root, raw, target_run_id, round)?;
+        crate::eval_events::emit(
+            self.audit_events_path.as_deref(),
+            json!({
+                "event": "human_directive_proposed",
+                "directive_hash": directive.hash(),
+                "directive_round": directive.artifact().round,
+                "directive_target_run_id": directive.artifact().target_run_id,
+                "issued_gate": directive.artifact().issued_gate,
+                "confirmation_required": true,
+            }),
+        );
+        self.state = BoundaryState::AwaitingDirectiveConfirmation {
+            directive,
+            card_hash,
+        };
+        match &self.state {
+            BoundaryState::AwaitingDirectiveConfirmation { directive, .. } => Ok(directive),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn confirm_directive(
+        &mut self,
+        directive_hash: &str,
+    ) -> anyhow::Result<&ConfirmedDirective> {
+        let BoundaryState::AwaitingDirectiveConfirmation {
+            directive,
+            card_hash,
+        } = &self.state
+        else {
+            bail!("no Gate 4 directive is awaiting confirmation");
+        };
+        if directive.hash() != directive_hash {
+            bail!("directive identity changed; render the Gate 4 directive again");
+        }
+        let card_hash = card_hash.clone();
+        let confirmed = directive::confirm(&self.directive_confirmation_root, directive)?;
+        crate::eval_events::emit(
+            self.audit_events_path.as_deref(),
+            json!({
+                "event": "human_directive_confirmed",
+                "directive_hash": confirmed.directive().hash(),
+                "directive_round": confirmed.directive().artifact().round,
+                "directive_target_run_id": confirmed.directive().artifact().target_run_id,
+                "confirmation_record": confirmed.record_path(),
+            }),
+        );
+        self.state = BoundaryState::DirectiveConfirmed {
+            confirmed,
+            card_hash,
+        };
+        match &self.state {
+            BoundaryState::DirectiveConfirmed { confirmed, .. } => Ok(confirmed),
+            _ => unreachable!(),
+        }
+    }
+
+    pub fn dispatch_directive(
+        &mut self,
+        continuation: &DirectiveContinuation,
+        run: impl FnOnce() -> anyhow::Result<String>,
+    ) -> anyhow::Result<String> {
+        let BoundaryState::DirectiveConfirmed {
+            confirmed,
+            card_hash,
+        } = &self.state
+        else {
+            bail!("directive dispatch denied: persisted directive confirmation is required");
+        };
+        confirmed.validate()?;
+        if continuation.directive_hash != confirmed.directive().hash()
+            || continuation.directive_round != confirmed.directive().artifact().round
+            || continuation.target_run_id != confirmed.directive().artifact().target_run_id
+        {
+            bail!("directive continuation does not match the confirmed directive");
+        }
+        if !continuation.plan_path.is_file() {
+            bail!("confirmed directive continuation plan is missing");
+        }
+        let card_hash = card_hash.clone();
+        self.state = BoundaryState::DirectiveRunning {
+            card_hash,
+            directive_hash: continuation.directive_hash.clone(),
+            directive_round: continuation.directive_round,
+            target_run_id: continuation.target_run_id.clone(),
+        };
+        crate::eval_events::emit(
+            self.audit_events_path.as_deref(),
+            json!({
+                "event": "human_directive_continuation_started",
+                "directive_hash": continuation.directive_hash,
+                "directive_round": continuation.directive_round,
+                "directive_target_run_id": continuation.target_run_id,
+                "continuation_plan_path": continuation.plan_workspace_path,
+                "same_workspace": true,
+            }),
+        );
+        let result = run();
+        crate::eval_events::emit(
+            self.audit_events_path.as_deref(),
+            json!({
+                "event": "human_directive_continuation_stopped",
+                "directive_hash": continuation.directive_hash,
+                "directive_round": continuation.directive_round,
+                "directive_target_run_id": continuation.target_run_id,
+                "ok": result.is_ok(),
+            }),
+        );
+        result
+    }
+
     pub fn select_next_action(&mut self, action: NextAction) -> anyhow::Result<()> {
         if !matches!(self.state, BoundaryState::FailureReady(_)) {
             bail!("next actions are available only at Gate 4");
+        }
+        if action == NextAction::HumanDirective {
+            bail!("human_directive requires persisted text through begin_directive");
         }
         crate::eval_events::emit(
             self.audit_events_path.as_deref(),
@@ -352,5 +502,81 @@ mod tests {
             shell.state(),
             &BoundaryState::NeedsGateOne(NextAction::ElevatedModel)
         );
+    }
+
+    #[test]
+    fn directive_cannot_dispatch_without_exact_persisted_confirmation() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        let mut shell = BoundaryShell::new(
+            dir.path().join("boundary-confirmations"),
+            Some(events.clone()),
+        );
+        shell
+            .begin_gate_one(
+                proposal(),
+                "request",
+                dir.path(),
+                pins(),
+                PackSelection::None,
+            )
+            .unwrap();
+        let card_hash = match shell.state() {
+            BoundaryState::AwaitingConfirmation { card_hash, .. } => card_hash.clone(),
+            _ => unreachable!(),
+        };
+        shell.confirm(&card_hash).unwrap();
+        shell.dispatch(|_| Ok("failed".to_string())).unwrap();
+        shell
+            .present_terminal(
+                "# sheet\n\n## 5. Stop reason\nfailed".to_string(),
+                false,
+                Some("failed".to_string()),
+            )
+            .unwrap();
+        let directive = shell
+            .begin_directive("repair README", "run-001", 1)
+            .unwrap()
+            .clone();
+        let plan_path = dir.path().join("continuation.yaml");
+        std::fs::write(&plan_path, "goal: x").unwrap();
+        let continuation = DirectiveContinuation {
+            plan_path,
+            plan_workspace_path: ".anvil/plans/directive.yaml".to_string(),
+            target_run_id: "run-001".to_string(),
+            directive_round: 1,
+            directive_hash: directive.hash().to_string(),
+        };
+
+        let mut calls = 0;
+        let denied = shell.dispatch_directive(&continuation, || {
+            calls += 1;
+            Ok("must not run".to_string())
+        });
+        assert!(denied.is_err());
+        assert_eq!(calls, 0);
+        assert!(shell.confirm_directive("sha256:wrong").is_err());
+        assert_eq!(calls, 0);
+
+        shell.confirm_directive(directive.hash()).unwrap();
+        let result = shell
+            .dispatch_directive(&continuation, || {
+                calls += 1;
+                Ok("continued".to_string())
+            })
+            .unwrap();
+        assert_eq!(result, "continued");
+        assert_eq!(calls, 1);
+        assert!(matches!(
+            shell.state(),
+            BoundaryState::DirectiveRunning {
+                directive_round: 1,
+                ..
+            }
+        ));
+        let event_text = std::fs::read_to_string(events).unwrap();
+        assert!(event_text.contains("\"event\":\"human_directive_continuation_started\""));
+        assert!(event_text.contains("\"directive_round\":1"));
+        assert!(event_text.contains("\"directive_target_run_id\":\"run-001\""));
     }
 }

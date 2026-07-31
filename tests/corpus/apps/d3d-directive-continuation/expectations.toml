@@ -1,0 +1,41 @@
+case_id = "d3d-directive-continuation"
+source = "D-3d persisted Gate 4 directive continuation contract"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["human_directive", "directive_round", "directive_hash"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/directive-events.jsonl = [
+  "\"event\":\"human_directive_proposed\"",
+  "\"confirmation_required\":true",
+  "\"event\":\"human_directive_confirmed\"",
+  "\"event\":\"human_directive_continuation_started\"",
+  "\"same_workspace\":true",
+  "\"directive_round\":1",
+  "\"event\":\"human_directive_continuation_stopped\""
+]
+
+[fixture_ordered]
+fixtures/directive-events.jsonl = [
+  "\"event\":\"human_directive_proposed\"",
+  "\"event\":\"human_directive_confirmed\"",
+  "\"event\":\"human_directive_continuation_started\"",
+  "\"event\":\"human_directive_continuation_stopped\""
+]

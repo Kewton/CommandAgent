@@ -6,6 +6,7 @@ pub enum NextAction {
     RecoveryCircle,
     ElevatedModel,
     PackChange,
+    HumanDirective,
     Close,
 }
 
@@ -16,6 +17,7 @@ impl NextAction {
             Self::RecoveryCircle => "recovery_circle",
             Self::ElevatedModel => "elevated_model",
             Self::PackChange => "pack_change",
+            Self::HumanDirective => "human_directive",
             Self::Close => "close",
         }
     }
