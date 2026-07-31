@@ -6,6 +6,8 @@ pub mod family_catalog;
 pub mod pack_catalog;
 pub mod presentation;
 pub mod route;
+pub mod sheet;
+pub mod transcript;
 
 use std::path::{Path, PathBuf};
 
@@ -62,7 +64,9 @@ impl BoundaryShell {
     ) -> anyhow::Result<&ConfirmationIdentity> {
         if !matches!(
             self.state,
-            BoundaryState::Collecting | BoundaryState::NeedsGateOne(_)
+            BoundaryState::Collecting
+                | BoundaryState::AwaitingConfirmation { .. }
+                | BoundaryState::NeedsGateOne(_)
         ) {
             bail!("boundary shell cannot start Gate 1 from {:?}", self.state);
         }

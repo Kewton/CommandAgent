@@ -112,9 +112,9 @@ pub const BAND_VALUES: &[BandValue] = &[
         "ingest",
         IntentId::Create,
         TaskFamilyId::List,
-        3,
-        3,
-        "100%",
+        4,
+        6,
+        "66.7%",
         "formal elevated Window B",
         "uat-test0726-ingest-elev-008",
         "workspace/management/runs/band_summary_ingest.md",
@@ -124,9 +124,9 @@ pub const BAND_VALUES: &[BandValue] = &[
         "ingest",
         IntentId::Create,
         TaskFamilyId::Table,
-        1,
-        3,
-        "33.3%",
+        4,
+        6,
+        "66.7%",
         "formal elevated Window B",
         "uat-test0726-ingest-elev-008",
         "workspace/management/runs/band_summary_ingest.md",
@@ -182,6 +182,10 @@ pub const BAND_VALUES: &[BandValue] = &[
     ),
 ];
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "a band row is a fixed ten-field displayed identity"
+)]
 const fn band(
     profile: &'static str,
     intent: IntentId,

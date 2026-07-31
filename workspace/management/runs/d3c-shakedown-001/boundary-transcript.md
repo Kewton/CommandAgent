@@ -1,0 +1,103 @@
+
+## Gate 1 proposal
+
+# Gate 1 — Request confirmation
+
+- Card hash: sha256:c7500bb43357737963e67724e8263040a0bd4d1e0d912d732cea0016d2b5ba95
+- Request: data/snapshots/ 配下のHTMLイベント一覧から自治体イベント情報を抽出し、JSON形式(name, date, location, source_file)でoutput/records.jsonへ整形するパイプラインを作成してください。候補検出セレクタを宣言し、抽出不能候補は理由付きで除外し、output/report.mdに件数と要約を記載してください。
+- Workspace: /private/tmp/d3c-shakedown.GkRHzj
+- Route: ingest × create × list
+- Route basis: workspace.snapshots=data/snapshots/; request.intent.create=create; request.profile.ingest=ingest; request.family=pipe; material.family.list=list-shaped snapshot
+- Contract: docs/ingest-profile-contract.md
+- Checks: N1, N2, N3, N4, N5
+- Value tag: 66.7% (4/6, formal elevated Window B)
+- Measurement: uat-test0726-ingest-elev-008
+- Band source: workspace/management/runs/band_summary_ingest.md
+- Full meaning: N1-N5 pass, including source-bound record values and complete candidate accounting; testimony/source binding is active as N2.
+- Planner: ollama / qwen3.6:27b-coding-nvfp4
+- Executor: ollama / gemma4:31b-cloud
+- Preset: profile
+- Pack: no pack
+- Pack pin: no pack
+- Compatible admitted packs: none
+
+This card is a proposal, not an earned result.
+Confirm with `/confirm sha256:c7500bb43357737963e67724e8263040a0bd4d1e0d912d732cea0016d2b5ba95` before dispatch.
+
+
+## Gate 1 proposal
+
+# Gate 1 — Request confirmation
+
+- Card hash: sha256:564ec8f762ef42048d0f4e22ae088ba201865490de2e1c2d3ef10df103b9f62c
+- Request: data/snapshots/ 配下のHTMLイベント一覧から自治体イベント情報を抽出し、JSON形式(name, date, location, source_file)でoutput/records.jsonへ整形するパイプラインを作成してください。候補検出セレクタを宣言し、抽出不能候補は理由付きで除外し、output/report.mdに件数と要約を記載してください。
+- Workspace: /private/tmp/d3c-shakedown.GkRHzj
+- Route: ingest × create × list
+- Route basis: workspace.snapshots=data/snapshots/; request.intent.create=create; request.profile.ingest=ingest; material.family.list=list-shaped snapshot
+- Contract: docs/ingest-profile-contract.md
+- Checks: N1, N2, N3, N4, N5
+- Value tag: 66.7% (4/6, formal elevated Window B)
+- Measurement: uat-test0726-ingest-elev-008
+- Band source: workspace/management/runs/band_summary_ingest.md
+- Full meaning: N1-N5 pass, including source-bound record values and complete candidate accounting; testimony/source binding is active as N2.
+- Planner: ollama / qwen3.6:27b-coding-nvfp4
+- Executor: ollama / gemma4:31b-cloud
+- Preset: profile
+- Pack: no pack
+- Pack pin: no pack
+- Compatible admitted packs: none
+
+This card is a proposal, not an earned result.
+Confirm with `/confirm sha256:564ec8f762ef42048d0f4e22ae088ba201865490de2e1c2d3ef10df103b9f62c` before dispatch.
+
+
+## Gate 1 confirmation
+
+Persisted confirmation: `sha256:564ec8f762ef42048d0f4e22ae088ba201865490de2e1c2d3ef10df103b9f62c`
+
+Dispatching ingest × create × list.
+
+
+## Gate 3
+
+# Gate 3 — Acceptance
+
+Confirmed Full meaning: N1-N5 pass, including source-bound record values and complete candidate accounting; testimony/source binding is active as N2.
+
+# D-3c acceptance sheet
+
+## 1. Confirmed identity
+
+- Card hash: sha256:564ec8f762ef42048d0f4e22ae088ba201865490de2e1c2d3ef10df103b9f62c
+- Request: data/snapshots/ 配下のHTMLイベント一覧から自治体イベント情報を抽出し、JSON形式(name, date, location, source_file)でoutput/records.jsonへ整形するパイプラインを作成してください。候補検出セレクタを宣言し、抽出不能候補は理由付きで除外し、output/report.mdに件数と要約を記載してください。
+- Workspace: /private/tmp/d3c-shakedown.GkRHzj
+- Route: ingest × create × list
+- Contract: docs/ingest-profile-contract.md
+- Full meaning: N1-N5 pass, including source-bound record values and complete candidate accounting; testimony/source binding is active as N2.
+- Value tag at confirmation: 66.7% (4/6, formal elevated Window B)
+
+## 2. Terminal projection
+
+- Command succeeded: true
+- Status: completed
+- Assurance: full
+- Runtime acceptance: pass
+- Final acceptance: full_success
+- Release gate: pass
+
+## 3. Definition of done
+
+- Contract checks: N1, N2, N3, N4, N5
+- Pack: no pack
+
+## 4. Machine evidence
+
+- Event stream: /private/tmp/d3c-shakedown.GkRHzj/.anvil/runs/019fb733-f316-7b63-b6ed-4331c4b9ac5b/events.jsonl
+- Product summary: /private/tmp/d3c-shakedown.GkRHzj/.anvil/runs/019fb733-f316-7b63-b6ed-4331c4b9ac5b/summary.md
+
+## 5. Stop reason
+
+completed
+
+
+Sheet path: /Users/maenokota/share/work/github_kewton/CommandAgent-develop/workspace/management/runs/d3c-shakedown-001/boundary-sheets/564ec8f762ef42048d0f4e22ae088ba201865490de2e1c2d3ef10df103b9f62c.md

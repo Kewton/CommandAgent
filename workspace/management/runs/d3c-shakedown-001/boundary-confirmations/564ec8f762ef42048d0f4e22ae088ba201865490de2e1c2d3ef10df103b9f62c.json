@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "card_hash": "sha256:564ec8f762ef42048d0f4e22ae088ba201865490de2e1c2d3ef10df103b9f62c",
+  "confirmed_at_epoch": 1785485075,
+  "identity": {
+    "request": "data/snapshots/ 配下のHTMLイベント一覧から自治体イベント情報を抽出し、JSON形式(name, date, location, source_file)でoutput/records.jsonへ整形するパイプラインを作成してください。候補検出セレクタを宣言し、抽出不能候補は理由付きで除外し、output/report.mdに件数と要約を記載してください。",
+    "workspace": "/private/tmp/d3c-shakedown.GkRHzj",
+    "profile": "ingest",
+    "intent": "create",
+    "task_family": "list",
+    "route_bases": [
+      "workspace.snapshots=data/snapshots/",
+      "request.intent.create=create",
+      "request.profile.ingest=ingest",
+      "material.family.list=list-shaped snapshot"
+    ],
+    "contract_ref": "docs/ingest-profile-contract.md",
+    "contract_checks": [
+      "N1",
+      "N2",
+      "N3",
+      "N4",
+      "N5"
+    ],
+    "band_full": 4,
+    "band_denominator": 6,
+    "band_rate": "66.7%",
+    "band_arm": "formal elevated Window B",
+    "band_measurement": "uat-test0726-ingest-elev-008",
+    "band_source": "workspace/management/runs/band_summary_ingest.md",
+    "full_meaning": "N1-N5 pass, including source-bound record values and complete candidate accounting; testimony/source binding is active as N2.",
+    "pins": {
+      "planner_provider": "ollama",
+      "planner_model": "qwen3.6:27b-coding-nvfp4",
+      "executor_provider": "ollama",
+      "executor_model": "gemma4:31b-cloud",
+      "preset": "profile"
+    },
+    "pack": {
+      "selection": "none"
+    }
+  }
+}

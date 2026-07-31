@@ -22,6 +22,10 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     let renderer = TerminalMarkdownRenderer::for_stdout();
     let mut execution = crate::providers::client_from_config(&config, false)?;
     let mut planner = crate::providers::client_from_config(&config, true)?;
+    let mut boundary_shell = crate::tui::boundary_shell::BoundaryShell::new(
+        config.state_dir.join("boundary-confirmations"),
+        config.eval_events_path.clone(),
+    );
     let mut editor = ReplEditor::new(&config)?;
     let history_path = config.state_dir.join("history.txt");
     if let Some(parent) = history_path.parent() {
@@ -62,10 +66,170 @@ pub fn run(config: Config) -> anyhow::Result<()> {
             break;
         }
         let _ = editor.add_history_entry(line);
+        if let Some(card_hash) = line.strip_prefix("/confirm ").map(str::trim) {
+            let identity = match boundary_shell.confirm(card_hash) {
+                Ok(confirmed) => confirmed.identity().clone(),
+                Err(error) => {
+                    renderer.render_assistant(&format!("Confirmation refused: {error}"))?;
+                    ui.reset_interrupt();
+                    continue;
+                }
+            };
+            let confirmed_text = format!(
+                "Persisted confirmation: `{}`\n\nDispatching {} × {} × {}.",
+                card_hash, identity.profile, identity.intent, identity.task_family
+            );
+            renderer.render_assistant(&confirmed_text)?;
+            crate::tui::boundary_shell::transcript::append(
+                &config.state_dir,
+                "Gate 1 confirmation",
+                &confirmed_text,
+            )?;
+            let mut dispatch_config = config.clone();
+            dispatch_config.profile = identity.profile.clone();
+            dispatch_config.profile_explicit = true;
+            dispatch_config.profile_inference = None;
+            dispatch_config.intent_override = match identity.intent.as_str() {
+                "create" => Some(crate::config::IntentId::Create),
+                "fix" => Some(crate::config::IntentId::Fix),
+                "investigate" => Some(crate::config::IntentId::Investigate),
+                _ => None,
+            };
+            dispatch_config.plan_preset = crate::config::PlanPreset::Profile;
+            let command = format!(
+                "/ultra-plan-run --profile {} {}",
+                identity.profile, identity.request
+            );
+            let result = boundary_shell.dispatch(|_| {
+                crate::tui::slash::handle_command(
+                    &command,
+                    &dispatch_config,
+                    &mut *planner,
+                    &mut *execution,
+                    &ui,
+                )
+            });
+            let generated = crate::tui::boundary_shell::sheet::generate(
+                &identity,
+                config.eval_events_path.as_deref(),
+                result.is_ok(),
+            )?;
+            let sheet_path = crate::tui::boundary_shell::sheet::persist(
+                &config.state_dir,
+                &identity,
+                &generated,
+            )?;
+            let terminal = boundary_shell.present_terminal(
+                generated.markdown,
+                generated.full,
+                generated.section5,
+            )?;
+            let rendered = if terminal.full {
+                crate::tui::boundary_shell::presentation::render_gate_three(&identity, terminal)?
+            } else {
+                crate::tui::boundary_shell::presentation::render_gate_four(
+                    &identity,
+                    terminal,
+                    &[
+                        (
+                            crate::tui::boundary_shell::acceptance::NextAction::Retry,
+                            true,
+                            "human confirmation required",
+                        ),
+                        (
+                            crate::tui::boundary_shell::acceptance::NextAction::RecoveryCircle,
+                            false,
+                            "availability must be earned by workflow evidence",
+                        ),
+                        (
+                            crate::tui::boundary_shell::acceptance::NextAction::ElevatedModel,
+                            true,
+                            "returns to Gate 1 with a new model pin",
+                        ),
+                        (
+                            crate::tui::boundary_shell::acceptance::NextAction::PackChange,
+                            false,
+                            "no pack selected for this confirmed run",
+                        ),
+                        (
+                            crate::tui::boundary_shell::acceptance::NextAction::Close,
+                            true,
+                            "records no further action",
+                        ),
+                    ],
+                )?
+            };
+            let gate = if terminal.full { "Gate 3" } else { "Gate 4" };
+            crate::tui::boundary_shell::transcript::append(
+                &config.state_dir,
+                gate,
+                &format!("{rendered}\n\nSheet path: {}", sheet_path.display()),
+            )?;
+            renderer.render_assistant(&rendered)?;
+            ui.reset_interrupt();
+            continue;
+        }
         if crate::tui::boundary_shell::execution_slash_requires_gate_one(line) {
             renderer.render_assistant(
                 "D-3c Gate 1 confirmation is required before this REPL execution command.",
             )?;
+            ui.reset_interrupt();
+            continue;
+        }
+        if !line.starts_with('/') {
+            let deterministic = crate::tui::boundary_shell::route::deterministic_route(
+                crate::tui::boundary_shell::route::RouteRequest {
+                    request: line,
+                    workspace: &config.workspace_root,
+                    explicit: crate::tui::boundary_shell::route::ExplicitRouteBinding::default(),
+                },
+            );
+            let proposal = crate::tui::boundary_shell::ambiguity::propose_route(
+                deterministic,
+                line,
+                provider_name(config.planner_provider),
+                &config.planner_model,
+                &mut *planner,
+            );
+            let pins = crate::tui::boundary_shell::confirmation::ExecutionPins {
+                planner_provider: provider_name(config.planner_provider).to_string(),
+                planner_model: config.planner_model.clone(),
+                executor_provider: provider_name(config.provider).to_string(),
+                executor_model: config.model.clone(),
+                preset: "profile".to_string(),
+            };
+            let identity = match boundary_shell.begin_gate_one(
+                proposal,
+                line,
+                &config.workspace_root,
+                pins,
+                crate::tui::boundary_shell::confirmation::PackSelection::None,
+            ) {
+                Ok(identity) => identity,
+                Err(error) => {
+                    let correction = format!(
+                        "Route remains typed unknown; correct or clarify the request before Gate 1: {error}"
+                    );
+                    crate::tui::boundary_shell::transcript::append(
+                        &config.state_dir,
+                        "Route correction required",
+                        &correction,
+                    )?;
+                    renderer.render_assistant(&correction)?;
+                    ui.reset_interrupt();
+                    continue;
+                }
+            };
+            let card = crate::tui::boundary_shell::presentation::render_gate_one(
+                identity,
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
+            )?;
+            crate::tui::boundary_shell::transcript::append(
+                &config.state_dir,
+                "Gate 1 proposal",
+                &card,
+            )?;
+            renderer.render_assistant(&card)?;
             ui.reset_interrupt();
             continue;
         }
@@ -77,6 +241,14 @@ pub fn run(config: Config) -> anyhow::Result<()> {
     }
     let _ = editor.save_history(&history_path);
     Ok(())
+}
+
+fn provider_name(provider: crate::config::Provider) -> &'static str {
+    match provider {
+        crate::config::Provider::Ollama => "ollama",
+        crate::config::Provider::Openai => "openai",
+        crate::config::Provider::Gemini => "gemini",
+    }
 }
 
 fn render_command_result(

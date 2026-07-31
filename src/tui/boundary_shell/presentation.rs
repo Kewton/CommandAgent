@@ -11,9 +11,11 @@ pub fn render_gate_one(
     repository_root: &Path,
 ) -> anyhow::Result<String> {
     validate_complete_identity(identity)?;
+    let card_hash = identity.card_hash()?;
     let mut lines = vec![
         "# Gate 1 — Request confirmation".to_string(),
         String::new(),
+        format!("- Card hash: {card_hash}"),
         format!("- Request: {}", identity.request),
         format!("- Workspace: {}", identity.workspace),
         format!(
@@ -41,10 +43,23 @@ pub fn render_gate_one(
         format!("- Preset: {}", identity.pins.preset),
     ];
     render_pack(identity, repository_root, &mut lines)?;
+    let candidates = pack_catalog::compatible(&identity.profile, &identity.intent);
+    lines.push(if candidates.is_empty() {
+        "- Compatible admitted packs: none".to_string()
+    } else {
+        format!(
+            "- Compatible admitted packs: {}",
+            candidates
+                .iter()
+                .map(|pack| format!("{}@{} / {}", pack.id, pack.version, pack.hash))
+                .collect::<Vec<_>>()
+                .join("; ")
+        )
+    });
     lines.extend([
         String::new(),
         "This card is a proposal, not an earned result.".to_string(),
-        "Confirm this exact card hash before dispatch.".to_string(),
+        format!("Confirm with `/confirm {card_hash}` before dispatch."),
     ]);
     Ok(lines.join("\n"))
 }

@@ -358,7 +358,10 @@ fn observe_families(
             TaskFamilyId::ContractHookFix,
             &["data-anvil", "contract hook", "restart hook"][..],
         ),
-        (TaskFamilyId::Pipe, &["pipe", "パイプ"][..]),
+        (
+            TaskFamilyId::Pipe,
+            &[" pipe ", "pipe failure", "パイプ障害", "パイプ不具合"][..],
+        ),
         (TaskFamilyId::Schema, &["schema", "スキーマ"][..]),
     ];
     for (family, tokens) in rules {
@@ -535,6 +538,25 @@ mod tests {
                 .map(|candidate| candidate.family)
                 .collect::<BTreeSet<_>>(),
             BTreeSet::from([TaskFamilyId::List, TaskFamilyId::Table])
+        );
+    }
+
+    #[test]
+    fn japanese_pipeline_word_is_not_evidence_for_the_pipe_failure_family() {
+        let dir = tempfile::tempdir().unwrap();
+        touch(dir.path(), "data/snapshots/events-list.html");
+        let result = deterministic_route(RouteRequest {
+            request: "イベント一覧を整形するパイプラインを作成してください",
+            workspace: dir.path(),
+            explicit: ExplicitRouteBinding::default(),
+        });
+        assert_eq!(result.resolution, DeterministicResolution::Unique);
+        assert_eq!(result.candidates[0].family, TaskFamilyId::List);
+        assert!(
+            result
+                .observations
+                .iter()
+                .all(|basis| basis.observation != TaskFamilyId::Pipe.as_str())
         );
     }
 
