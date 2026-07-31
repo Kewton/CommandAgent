@@ -112,8 +112,10 @@ fn decoder_rejects_invented_ids_and_invalid_source_point_pairs() {
 }
 
 #[test]
-fn cli_probe_is_rejected_at_cli_implementation() {
-    let cli = br#"schema_version: commandagent.pack.assist/v0
+fn cli_validation_sources_are_rejected_at_cli_implementation() {
+    for source in ["cli_probe", "c3_binding"] {
+        let cli = format!(
+            r#"schema_version: commandagent.pack.assist/v0
 pack:
   id: cli-assist
   version: 1.0.0
@@ -121,15 +123,21 @@ pack:
   intent: create
 inject:
   - point: cli-implementation
-    source: cli_probe
+    source: {source}
     required: true
-    params: {}
-"#;
-    let error = parse_bytes(Some(cli), None).unwrap_err().to_string();
-    assert!(
-        error.contains("source `cli_probe` is incompatible with point `cli-implementation`"),
-        "{error}"
-    );
+    params: {{}}
+"#
+        );
+        let error = parse_bytes(Some(cli.as_bytes()), None)
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains(&format!(
+                "source `{source}` is incompatible with point `cli-implementation`"
+            )),
+            "{error}"
+        );
+    }
 }
 
 #[test]

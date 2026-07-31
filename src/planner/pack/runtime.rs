@@ -14,6 +14,7 @@ use crate::evidence_envelope::{EvidenceEnvelopeSpec, EvidenceFamily};
 use crate::planner::profile::ProfileId;
 use crate::planner::profiles::python_cli::argv_probe;
 
+mod cli_testimony;
 mod data;
 
 const PACK_DIRECTORY_ENV: &str = "COMMANDAGENT_PACK_DIRECTORY";
@@ -134,7 +135,7 @@ fn append_phase_material(
             }
             // C1 is produced by final acceptance, so this source is
             // deliberately deferred to the within-phase repair hook below.
-            AssistSource::CliProbe => continue,
+            AssistSource::CliProbe | AssistSource::C3Binding => continue,
             source => bail!(
                 "pack source `{source}` has no phase renderer at point `{}`",
                 injection.point
@@ -162,13 +163,15 @@ fn append_cli_validation_repair_material(
     }
     let mut rendered = Vec::new();
     for injection in injections {
-        if injection.source != AssistSource::CliProbe {
-            bail!(
-                "pack source `{}` has no final CLI repair renderer",
-                injection.source
-            );
+        match injection.source {
+            AssistSource::CliProbe => rendered.push(render_cli_probe(root, &pack, injection)?),
+            AssistSource::C3Binding => {
+                rendered.push(cli_testimony::render_c3_binding(root, &pack, injection)?);
+            }
+            source => {
+                bail!("pack source `{source}` has no final CLI repair renderer");
+            }
         }
-        rendered.push(render_cli_probe(root, &pack, injection)?);
     }
     append_sections(prompt, rendered)
 }
@@ -420,16 +423,20 @@ mod tests {
     const CLI_ELEV_004: &str = include_str!(
         "../../../tests/corpus/apps/test0725_cli_elev_004/fixtures/filter_cloud_001/evidence/cli-probe.json"
     );
-    fn pack_selection(id: &str) -> RuntimeSelection {
+    fn pack_selection_at(id: &str, version: &str) -> RuntimeSelection {
         let directory = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("packs")
             .join(id)
-            .join("1.0.0");
+            .join(version);
         let hash = std::fs::read_to_string(directory.join(PACK_PIN_FILE))
             .unwrap()
             .trim()
             .to_string();
-        RuntimeSelection::new(directory, id, "1.0.0", &hash)
+        RuntimeSelection::new(directory, id, version, &hash)
+    }
+
+    fn pack_selection(id: &str) -> RuntimeSelection {
+        pack_selection_at(id, "1.0.0")
     }
 
     fn write(root: &Path, relative: &str, text: &str) {
@@ -496,6 +503,36 @@ mod tests {
             include_str!("../../../tests/golden/pack_cli_assist_elev_004.txt")
         );
         assert!(root.path().join(CLI_INJECTION_EVIDENCE_PATH).is_file());
+    }
+
+    #[test]
+    fn cli_assist_v1_1_adds_all_c3_pairs_after_the_existing_probe_material() {
+        let root = tempfile::tempdir().unwrap();
+        let selection = pack_selection_at("cli-assist", "1.1.0");
+        write(root.path(), CLI_EVIDENCE_PATH, CLI_ELEV_004);
+
+        let rendered = append_cli_validation_repair_material(
+            "repair".to_string(),
+            root.path(),
+            "cli",
+            "create",
+            Some(&selection),
+        )
+        .unwrap();
+
+        let probe = rendered.find("source=cli_probe").unwrap();
+        let c3 = rendered.find("source=c3_binding").unwrap();
+        assert!(probe < c3, "{rendered}");
+        assert_eq!(rendered.matches("README記載:").count(), 3);
+        assert_eq!(rendered.matches("実出力:").count(), 3);
+        assert_eq!(rendered.matches("判定: violation").count(), 3);
+        assert!(rendered.contains("README.md:24->28"), "{rendered}");
+        assert!(root.path().join(CLI_INJECTION_EVIDENCE_PATH).is_file());
+        assert!(
+            root.path()
+                .join(cli_testimony::CLI_C3_INJECTION_EVIDENCE_PATH)
+                .is_file()
+        );
     }
 
     #[test]

@@ -102,6 +102,7 @@ closed_id! {
         FixFailureOutput => "R_failure_output",
         VerifiedDiagnosis => "verified_diagnosis",
         CliProbe => "cli_probe",
+        C3Binding => "c3_binding",
         DataInspectionSchema => "data_inspection_schema",
         BrowserInteraction => "browser_interaction",
     }

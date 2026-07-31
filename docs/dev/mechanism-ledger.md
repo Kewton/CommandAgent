@@ -1220,3 +1220,16 @@ exact-byte hash
 `sha256:becb151410f52276c066aed0f80772b39babf683e44b8ea49b2a275af5492c2b`
 でgreen。bench metaには任意の`pack.id × pack.hash`欄を加え、未指定suiteの
 既存metadata bytesは維持した。
+
+## CLI-5 — 証言修復の照準と材料（2026-07-31）
+
+pack-002のlive 2runはC1材料を注入できた一方、汎用fallbackが
+`cli/main.py`をwrite pressureの先頭へ置き、C3主張の抽出元`README.md`を
+書けない照準交絡を起こしていた。C3 evidenceの出典を
+`testimony_artifact_mapped`で照準し、全C3主張について
+「README記載 / 実出力」の有界対照を渡す`c3_binding` sourceを登録した。
+
+これは「照準＋材料の対原則」である。材料は正しい行動チャネル
+（修復照準とwrite pressure anchor）と揃って初めて援助になる。
+full率を構成する`モデル × 試験 × 援助`のうち、援助は単一テキストではなく
+`(材料, 照準)`の対である、と精密化した。

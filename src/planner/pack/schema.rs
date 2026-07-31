@@ -419,7 +419,7 @@ fn validate_source_point(source: AssistSource, point: InjectionPoint) -> Result<
         AssistSource::VerifiedDiagnosis => {
             matches!(point, InjectionPoint::ImplementFix | InjectionPoint::Repair)
         }
-        AssistSource::CliProbe => point == InjectionPoint::CliValidation,
+        AssistSource::CliProbe | AssistSource::C3Binding => point == InjectionPoint::CliValidation,
         AssistSource::DataInspectionSchema => matches!(
             point,
             InjectionPoint::DataCleaning
@@ -561,6 +561,15 @@ fn validate_source_params(
                 &["argv", "exit_code", "stdout", "stderr"],
             )?;
             validate_optional_unsigned(params, "max_bytes_per_stream", 24_000)
+        }
+        AssistSource::C3Binding => {
+            reject_unknown_params(
+                params,
+                &["max_claims", "max_bytes_per_text", "max_rendered_bytes"],
+            )?;
+            validate_optional_unsigned(params, "max_claims", 128)?;
+            validate_optional_unsigned(params, "max_bytes_per_text", 24_000)?;
+            validate_optional_unsigned(params, "max_rendered_bytes", 256_000)
         }
         AssistSource::DataInspectionSchema => {
             reject_unknown_params(params, &["fields"])?;
