@@ -1042,6 +1042,14 @@ impl ProfileRuntime for GenericProfile {
 pub struct ProfileRuntimeRegistry;
 
 impl ProfileRuntimeRegistry {
+    const REGISTERED: [ProfileId; 5] = [
+        ProfileId::Nextjs,
+        ProfileId::PythonCli,
+        ProfileId::Data,
+        ProfileId::Ingest,
+        ProfileId::Generic,
+    ];
+
     /// The single typed runtime resolution point. Parsing/legacy aliases are
     /// handled by `ProfileId::parse`; behavioral selection occurs only here.
     pub fn resolve(profile: &ProfileId) -> &'static dyn ProfileRuntime {
@@ -1060,6 +1068,12 @@ impl ProfileRuntimeRegistry {
             | ProfileId::Web
             | ProfileId::Other(_) => &GENERIC_PROFILE,
         }
+    }
+
+    /// Read-only enumeration for D-3c. Runtime identity stays owned by this
+    /// registry instead of being copied into the boundary shell.
+    pub fn registered() -> impl Iterator<Item = ProfileId> {
+        Self::REGISTERED.into_iter()
     }
 }
 
