@@ -62,6 +62,13 @@ pub fn run(config: Config) -> anyhow::Result<()> {
             break;
         }
         let _ = editor.add_history_entry(line);
+        if crate::tui::boundary_shell::execution_slash_requires_gate_one(line) {
+            renderer.render_assistant(
+                "D-3c Gate 1 confirmation is required before this REPL execution command.",
+            )?;
+            ui.reset_interrupt();
+            continue;
+        }
         render_command_result(
             &renderer,
             crate::tui::slash::handle_command(line, &config, &mut *planner, &mut *execution, &ui),
