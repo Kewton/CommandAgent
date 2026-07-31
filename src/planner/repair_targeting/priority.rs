@@ -74,7 +74,8 @@ fn fix_priority_rank(reason: RepairTargetSelectionReason) -> u8 {
     match reason {
         RepairTargetSelectionReason::VerifiedDiagnosisMapped
         | RepairTargetSelectionReason::DiagnosisMapped
-        | RepairTargetSelectionReason::TracebackMapped => 0,
+        | RepairTargetSelectionReason::TracebackMapped
+        | RepairTargetSelectionReason::TestimonyArtifactMapped => 0,
         RepairTargetSelectionReason::ContractAttribute => 1,
         RepairTargetSelectionReason::RCommandMapped => 2,
         RepairTargetSelectionReason::EvidenceMapped

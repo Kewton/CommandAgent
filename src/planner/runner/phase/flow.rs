@@ -866,8 +866,14 @@ pub fn run_ultra_plan_with_ui(
                     &plan.profile,
                     &acceptance_report,
                 );
+            let testimony_artifact_paths =
+                crate::planner::repair_targeting::final_acceptance_testimony_artifact_paths(
+                    &config.workspace_root,
+                    &plan.profile,
+                    &acceptance_report,
+                );
             let target_selection =
-                crate::planner::repair_targeting::resolve_final_acceptance_repair_targets(
+                crate::planner::repair_targeting::resolve_final_acceptance_repair_targets_with_testimony(
                     crate::planner::repair_targeting::FinalAcceptanceRepairTargetInput {
                         root: &config.workspace_root,
                         profile: &plan.profile,
@@ -877,6 +883,7 @@ pub fn run_ultra_plan_with_ui(
                         required_paths: &expected_paths,
                         diagnosis_path: diagnosis.as_ref().map(|diagnosis| diagnosis.path.as_str()),
                     },
+                    &testimony_artifact_paths,
                 );
             merge_unique_strings(&mut expected_paths, &target_selection.selected_targets);
             let repair_required_paths = if target_selection.selected_targets.is_empty() {

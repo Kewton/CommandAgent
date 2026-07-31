@@ -66,6 +66,7 @@ pub(crate) enum WriteRequiredSelectionReason {
     AnchorFailure,
     DiagnosisMapped,
     TracebackMapped,
+    TestimonyArtifactMapped,
     EvidenceMapped,
     ContractAttribute,
     RepairChanged,
@@ -79,6 +80,7 @@ impl WriteRequiredSelectionReason {
             Self::AnchorFailure => "anchor_failure",
             Self::DiagnosisMapped => "diagnosis_mapped",
             Self::TracebackMapped => "traceback_mapped",
+            Self::TestimonyArtifactMapped => "testimony_artifact_mapped",
             Self::EvidenceMapped => "evidence_mapped",
             Self::ContractAttribute => "contract_attribute",
             Self::RepairChanged => "repair_changed",
@@ -92,6 +94,7 @@ impl WriteRequiredSelectionReason {
             "anchor_failure" => Some(Self::AnchorFailure),
             "diagnosis_mapped" => Some(Self::DiagnosisMapped),
             "traceback_mapped" => Some(Self::TracebackMapped),
+            "testimony_artifact_mapped" => Some(Self::TestimonyArtifactMapped),
             "evidence_mapped" => Some(Self::EvidenceMapped),
             "contract_attribute" => Some(Self::ContractAttribute),
             "repair_changed" => Some(Self::RepairChanged),
@@ -124,6 +127,9 @@ impl From<RepairTargetSelection> for WriteRequiredTargetSelection {
                 }
                 RepairTargetSelectionReason::TracebackMapped => {
                     WriteRequiredSelectionReason::TracebackMapped
+                }
+                RepairTargetSelectionReason::TestimonyArtifactMapped => {
+                    WriteRequiredSelectionReason::TestimonyArtifactMapped
                 }
                 RepairTargetSelectionReason::EvidenceMapped => {
                     WriteRequiredSelectionReason::EvidenceMapped

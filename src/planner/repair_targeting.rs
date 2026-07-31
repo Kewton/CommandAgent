@@ -12,6 +12,11 @@ pub(crate) use fix::fix_profile_invariant_target_guidance;
 mod cli;
 mod priority;
 pub(crate) use priority::RepairTargetPriority;
+mod testimony;
+pub(crate) use testimony::{
+    final_acceptance_testimony_artifact_paths,
+    resolve_final_acceptance_repair_targets_with_testimony,
+};
 mod verified;
 pub(crate) use verified::{r_command_target, verified_diagnosis_target};
 
