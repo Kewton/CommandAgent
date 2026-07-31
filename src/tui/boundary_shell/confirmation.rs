@@ -65,6 +65,11 @@ impl ConfirmationIdentity {
         pins: ExecutionPins,
         pack: PackSelection,
     ) -> anyhow::Result<Self> {
+        super::pack_catalog::validate_selection(
+            route.profile.as_str(),
+            route.intent.as_str(),
+            &pack,
+        )?;
         let workspace = workspace
             .canonicalize()
             .with_context(|| format!("canonicalize workspace {}", workspace.display()))?;
