@@ -1,4 +1,5 @@
 pub mod banner;
+pub mod boundary_shell;
 pub mod command_receipt;
 pub mod editor;
 pub mod elapsed;

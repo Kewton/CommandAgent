@@ -27,6 +27,21 @@ from pathlib import Path
 from typing import Any
 
 from id_vocabulary import INTERRUPTED_ENVIRONMENT
+from task_family_vocabulary import (
+    AGGREGATION,
+    BREAKOUT,
+    COMPILE_ERROR_FIX,
+    CONTRACT_HOOK_FIX,
+    DATA_CREATE_FAMILIES,
+    DATA_INVESTIGATE_FAMILIES,
+    NEXTJS_FIX_FAMILIES,
+    PIPE,
+    QUIZ,
+    SCHEMA,
+    SPACE,
+    TIMESERIES,
+    UNKNOWN,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
 RUNS_DIR = ROOT / "workspace" / "management" / "runs"
@@ -75,7 +90,7 @@ DATA_AGGREGATION_GOAL = (
     "data/sales.csv を読み込み、月次×地域の売上集計と全体合計を計算し、"
     "無効な行は理由別に除外して件数を明記した上で、要約レポートを作成してください。"
 )
-DATA_FAMILIES = ("aggregation", "timeseries", "unknown")
+DATA_FAMILIES = DATA_CREATE_FAMILIES
 DATA_FAMILY_STABLE_WINDOWS = {
     "aggregation": ("uat-test0715-data-007", "7b177fe"),
     "timeseries": ("uat-test0716-data-009", "2028eb4"),
@@ -84,7 +99,7 @@ FIX_WINDOW_SETS = tuple(f"uat-test0717-fix-{index:03d}" for index in range(1, 5)
 FIX_BENCH_SET = "uat-test0719-dfix-006"
 FIX_EXPECTED_RUNS = 30
 FIX_WINDOW_B_BASELINE_HEAD = "6decdce"
-FIX_FAMILIES = ("compile_error_fix", "contract_hook_fix", "unknown")
+FIX_FAMILIES = NEXTJS_FIX_FAMILIES
 FIX_ENVIRONMENT_HOLDS = {
     (
         "uat-test0717-fix-001",
@@ -102,7 +117,7 @@ INVESTIGATION_WINDOW_SETS = (
 INVESTIGATION_WINDOW_B_SET = "uat-test0718-inv-002"
 INVESTIGATION_WINDOW_B_BASELINE_HEAD = "3302dd9"
 INVESTIGATION_EXPECTED_RUNS = 12
-INVESTIGATION_FAMILIES = ("pipe", "schema")
+INVESTIGATION_FAMILIES = DATA_INVESTIGATE_FAMILIES
 CIRCLE_WINDOW_SETS = tuple(
     [f"uat-test0722-circle-{index:03d}" for index in range(1, 4)]
     + [f"uat-test0722-circle-elev-{index:03d}" for index in range(1, 9)]
@@ -444,7 +459,7 @@ def classify_data_family(goal: str) -> str:
     """Classify a data scenario only from its recorded goal text."""
     normalized = re.sub(r"\s+", "", goal).lower()
     if "前月比" in normalized or "移動平均" in normalized:
-        return "timeseries"
+        return TIMESERIES
     if (
         "月次×地域" in normalized
         or "月次x地域" in normalized
@@ -454,8 +469,8 @@ def classify_data_family(goal: str) -> str:
             and ("集計" in normalized or "合計" in normalized)
         )
     ):
-        return "aggregation"
-    return "unknown"
+        return AGGREGATION
+    return UNKNOWN
 
 
 def data_record_in_stable_window(record: DataRunRecord) -> bool:
@@ -500,12 +515,12 @@ uat-test0714-m4-004|data_agg_qwen27_plan_qwen35_exec_preset_profile_002|qwen3.6:
 def normalize_scenario(*parts: Any) -> str:
     text = " ".join(str(p or "") for p in parts).lower()
     if "space" in text or "invader" in text or "インベーダ" in text:
-        return "Space"
+        return SPACE
     if "breakout" in text or "ブロック" in text:
-        return "Breakout"
+        return BREAKOUT
     if "quiz" in text or "クイズ" in text:
-        return "Quiz"
-    return "unknown"
+        return QUIZ
+    return UNKNOWN
 
 
 def normalize_final(raw: Any, status: Any = "", release_gate: Any = "") -> str:
@@ -1800,16 +1815,16 @@ def classify_fix_family(run_name: str, goal: str) -> str:
         "契約フック",
     )
     if any(token in run_text for token in compile_tokens):
-        return "compile_error_fix"
+        return COMPILE_ERROR_FIX
     if any(token in run_text for token in hook_tokens):
-        return "contract_hook_fix"
+        return CONTRACT_HOOK_FIX
     # Named contract attributes are more specific than a goal's incidental
     # request to run a build as regression coverage.
     if any(token in goal_text for token in hook_tokens):
-        return "contract_hook_fix"
+        return CONTRACT_HOOK_FIX
     if any(token in goal_text for token in compile_tokens):
-        return "compile_error_fix"
-    return "unknown"
+        return COMPILE_ERROR_FIX
+    return UNKNOWN
 
 
 def discover_fix_records() -> tuple[list[FixRunRecord], list[str]]:
@@ -2389,10 +2404,10 @@ def only_event(
 def classify_investigation_family(run_name: str) -> str:
     """Classify the two fixed D-3b UAT families from immutable run names."""
     if "_pipe_" in run_name:
-        return "pipe"
+        return PIPE
     if "_schema_" in run_name:
-        return "schema"
-    return "unknown"
+        return SCHEMA
+    return UNKNOWN
 
 
 def investigation_failure_class(stop_reason: str) -> str:
