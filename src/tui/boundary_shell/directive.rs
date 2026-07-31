@@ -32,6 +32,15 @@ pub struct PersistedDirective {
     path: PathBuf,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirectiveContinuation {
+    pub plan_path: PathBuf,
+    pub plan_workspace_path: String,
+    pub target_run_id: String,
+    pub directive_round: u32,
+    pub directive_hash: String,
+}
+
 impl PersistedDirective {
     pub fn artifact(&self) -> &DirectiveArtifact {
         &self.artifact
@@ -142,6 +151,118 @@ This is guidance material only. It cannot remove, weaken, relocate, or satisfy a
         bail!("bounded human_directive rendering exceeds max_rendered_bytes");
     }
     Ok(rendered)
+}
+
+pub fn prepare_continuation(
+    workspace: &Path,
+    events_path: &Path,
+    directive: &PersistedDirective,
+) -> anyhow::Result<DirectiveContinuation> {
+    directive.validate()?;
+    let stop = crate::eval_events::latest_tui_command_stop_event(Some(events_path))
+        .context("failed tui_command_stop is required for directive continuation")?;
+    if stop.get("ok").and_then(serde_json::Value::as_bool) != Some(false) {
+        bail!("directive continuation v0 is available only for a failed run");
+    }
+    let recovery_path = stop
+        .get("recovery_ultra_plan_path")
+        .and_then(serde_json::Value::as_str)
+        .filter(|value| !value.is_empty())
+        .context("failed run did not record a recovery UltraPlan")?;
+    let source_path = resolve_workspace_plan(workspace, recovery_path)?;
+    let source_bytes = std::fs::read(&source_path)
+        .with_context(|| format!("read recovery UltraPlan {}", source_path.display()))?;
+    let rendered = continuation_plan_bytes(&source_bytes, Some(directive))?;
+    let directory = workspace.join(".anvil").join("plans");
+    std::fs::create_dir_all(&directory)
+        .with_context(|| format!("create continuation plan directory {}", directory.display()))?;
+    let hash_token = directive.hash().trim_start_matches("sha256:");
+    let path = directory.join(format!(
+        "directive-round-{}-{}.yaml",
+        directive.artifact().round,
+        &hash_token[..12]
+    ));
+    if path.exists() {
+        let existing = std::fs::read(&path)
+            .with_context(|| format!("read existing continuation plan {}", path.display()))?;
+        if existing != rendered {
+            bail!("directive continuation plan collision or stale plan");
+        }
+    } else {
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&path)
+            .with_context(|| format!("create directive continuation plan {}", path.display()))?;
+        file.write_all(&rendered)?;
+        file.sync_all()?;
+    }
+    let plan_workspace_path = crate::planner::repair::workspace_relative_handoff_path(&path);
+    Ok(DirectiveContinuation {
+        plan_path: path,
+        plan_workspace_path,
+        target_run_id: directive.artifact().target_run_id.clone(),
+        directive_round: directive.artifact().round,
+        directive_hash: directive.hash().to_string(),
+    })
+}
+
+fn continuation_plan_bytes(
+    source_bytes: &[u8],
+    directive: Option<&PersistedDirective>,
+) -> anyhow::Result<Vec<u8>> {
+    let Some(directive) = directive else {
+        return Ok(source_bytes.to_vec());
+    };
+    let source_text =
+        std::str::from_utf8(source_bytes).context("recovery UltraPlan is not UTF-8")?;
+    let mut plan = crate::planner::ultra_plan::parse_ultra_plan(source_text)?;
+    let mut repair_phases = plan
+        .phases
+        .iter_mut()
+        .filter(|phase| {
+            phase.id == "repair" || phase.id == "implement-fix" || phase.id.starts_with("repair-")
+        })
+        .collect::<Vec<_>>();
+    if repair_phases.len() != 1 {
+        bail!(
+            "directive continuation requires exactly one implement/repair phase; found {}",
+            repair_phases.len()
+        );
+    }
+    let rendered_directive = render(directive, DEFAULT_MAX_RENDERED_BYTES)?;
+    repair_phases[0].prompt.push_str("\n\n");
+    repair_phases[0].prompt.push_str(&rendered_directive);
+    let artifact = directive.artifact();
+    let mut rendered = format!(
+        "# anvil-directive-continuation\n\
+directive_schema_version: \"1\"\n\
+directive_round: {}\n\
+directive_hash: {}\n\
+directive_target_run_id: {}\n",
+        artifact.round,
+        crate::planner::ultra_plan::quote_yaml_string(directive.hash()),
+        crate::planner::ultra_plan::quote_yaml_string(&artifact.target_run_id),
+    );
+    rendered.push_str(&crate::planner::ultra_plan::render_ultra_plan(&plan));
+    Ok(rendered.into_bytes())
+}
+
+fn resolve_workspace_plan(workspace: &Path, raw: &str) -> anyhow::Result<PathBuf> {
+    let workspace = workspace
+        .canonicalize()
+        .context("workspace root is not accessible")?;
+    let path = Path::new(raw);
+    let resolved = if path.is_absolute() {
+        path.canonicalize()
+            .with_context(|| format!("resolve recovery UltraPlan {raw}"))?
+    } else {
+        crate::tools::path_guard::resolve_existing(&workspace, raw)?
+    };
+    if !resolved.starts_with(&workspace) {
+        bail!("recovery UltraPlan escapes the continued workspace");
+    }
+    Ok(resolved)
 }
 
 fn validate_artifact(artifact: &DirectiveArtifact) -> anyhow::Result<()> {
@@ -255,5 +376,120 @@ mod tests {
         let second = persist_at_epoch(root.path(), "repair README", "run-001", 1, 1).unwrap();
         assert_eq!(first.hash(), second.hash());
         assert_eq!(first.path(), second.path());
+    }
+
+    #[test]
+    fn failed_run_recovery_plan_gets_directive_only_in_repair_phase() {
+        let root = tempfile::tempdir().unwrap();
+        let plans = root.path().join(".anvil/plans");
+        std::fs::create_dir_all(&plans).unwrap();
+        let source_path = plans.join("recovery.yaml");
+        let plan = crate::planner::ultra_plan::UltraPlan {
+            goal: "repair the CLI".to_string(),
+            profile: "python-cli".to_string(),
+            style: "default".to_string(),
+            intent: "recover".to_string(),
+            phases: vec![
+                crate::planner::ultra_plan::UltraPhase {
+                    id: "inspect-current-state".to_string(),
+                    prompt: "inspect".to_string(),
+                },
+                crate::planner::ultra_plan::UltraPhase {
+                    id: "repair-final-acceptance".to_string(),
+                    prompt: "repair".to_string(),
+                },
+                crate::planner::ultra_plan::UltraPhase {
+                    id: "verify-recovery".to_string(),
+                    prompt: "verify".to_string(),
+                },
+            ],
+        };
+        let source = crate::planner::ultra_plan::render_ultra_plan(&plan);
+        std::fs::write(&source_path, &source).unwrap();
+        let events = root.path().join("events.jsonl");
+        crate::eval_events::emit(
+            Some(&events),
+            serde_json::json!({
+                "event": "tui_command_stop",
+                "ok": false,
+                "recovery_ultra_plan_path": ".anvil/plans/recovery.yaml",
+            }),
+        );
+        let directive = persist_at_epoch(
+            &root.path().join("boundary-directives"),
+            "repair README",
+            "run-001",
+            1,
+            1,
+        )
+        .unwrap();
+
+        let continuation = prepare_continuation(root.path(), &events, &directive).unwrap();
+        assert_eq!(continuation.target_run_id, "run-001");
+        assert_eq!(continuation.directive_round, 1);
+        assert!(
+            continuation
+                .plan_workspace_path
+                .starts_with(".anvil/plans/")
+        );
+        let derived = std::fs::read_to_string(&continuation.plan_path).unwrap();
+        let parsed = crate::planner::ultra_plan::parse_ultra_plan(&derived).unwrap();
+        assert_eq!(parsed.phases[0].prompt, "inspect");
+        assert!(parsed.phases[1].prompt.contains("source=human_directive"));
+        assert!(parsed.phases[1].prompt.contains("repair README"));
+        assert_eq!(parsed.phases[2].prompt, "verify");
+        assert_eq!(std::fs::read_to_string(source_path).unwrap(), source);
+    }
+
+    #[test]
+    fn directive_absence_preserves_recovery_plan_bytes_exactly() {
+        let source = b"# existing header\r\ngoal: \"x\"\r\ncustom spacing\r\n";
+        assert_eq!(continuation_plan_bytes(source, None).unwrap(), source);
+    }
+
+    #[test]
+    fn full_run_and_plan_without_one_repair_phase_are_rejected() {
+        let root = tempfile::tempdir().unwrap();
+        let plans = root.path().join(".anvil/plans");
+        std::fs::create_dir_all(&plans).unwrap();
+        let source = crate::planner::ultra_plan::UltraPlan::deterministic(
+            "goal",
+            "python-cli",
+            "default",
+            "create",
+        );
+        std::fs::write(
+            plans.join("recovery.yaml"),
+            crate::planner::ultra_plan::render_ultra_plan(&source),
+        )
+        .unwrap();
+        let events = root.path().join("events.jsonl");
+        crate::eval_events::emit(
+            Some(&events),
+            serde_json::json!({
+                "event": "tui_command_stop",
+                "ok": true,
+                "recovery_ultra_plan_path": ".anvil/plans/recovery.yaml",
+            }),
+        );
+        let directive = persist_at_epoch(
+            &root.path().join("boundary-directives"),
+            "repair README",
+            "run-001",
+            1,
+            1,
+        )
+        .unwrap();
+        assert!(prepare_continuation(root.path(), &events, &directive).is_err());
+
+        crate::eval_events::emit(
+            Some(&events),
+            serde_json::json!({
+                "event": "tui_command_stop",
+                "ok": false,
+                "recovery_ultra_plan_path": ".anvil/plans/recovery.yaml",
+            }),
+        );
+        assert!(prepare_continuation(root.path(), &events, &directive).is_err());
     }
 }
