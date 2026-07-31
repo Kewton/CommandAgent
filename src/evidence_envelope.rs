@@ -15,6 +15,7 @@ pub(crate) enum EvidenceFamily {
     I,
     C,
     N,
+    T,
     #[serde(rename = "circle")]
     Circle,
     #[serde(rename = "workflow")]
@@ -173,6 +174,7 @@ fn kind_for_path(family: EvidenceFamily, relative: &str) -> &'static str {
         (EvidenceFamily::N, "format-schema.json") => "format_schema",
         (EvidenceFamily::N, "rerun-consistency.json") => "rerun_consistency",
         (EvidenceFamily::N, "ingest-assurance.json") => "assurance",
+        (EvidenceFamily::T, "nextjs-testimony-binding.json") => "testimony_binding",
         (EvidenceFamily::Circle, "workflow-circle.json") => "workflow_circle",
         _ if family == EvidenceFamily::F && name.ends_with("-adjudication.json") => "adjudication",
         _ if family == EvidenceFamily::F && name.contains("-before-attempt-") => "before_attempt",
@@ -186,6 +188,7 @@ fn kind_for_path(family: EvidenceFamily, relative: &str) -> &'static str {
         (EvidenceFamily::I, _) => "investigation_evidence",
         (EvidenceFamily::C, _) => "cli_check",
         (EvidenceFamily::N, _) => "ingest_check",
+        (EvidenceFamily::T, _) => "testimony_check",
         (EvidenceFamily::Circle, _) => "circle_evidence",
         (EvidenceFamily::Workflow, _) => "workflow_evidence",
     }
@@ -381,6 +384,7 @@ mod tests {
             EvidenceFamily::I,
             EvidenceFamily::C,
             EvidenceFamily::N,
+            EvidenceFamily::T,
             EvidenceFamily::Circle,
             EvidenceFamily::Workflow,
         ];
@@ -392,6 +396,7 @@ mod tests {
                 json!("I"),
                 json!("C"),
                 json!("N"),
+                json!("T"),
                 json!("circle"),
                 json!("workflow"),
             ]
@@ -415,6 +420,7 @@ mod tests {
             EvidenceFamily::I,
             EvidenceFamily::C,
             EvidenceFamily::N,
+            EvidenceFamily::T,
             EvidenceFamily::Circle,
             EvidenceFamily::Workflow,
         ]

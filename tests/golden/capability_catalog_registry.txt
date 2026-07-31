@@ -9,6 +9,7 @@ hook_attribute_present | ShellCheck
 next_build_verify | ShellCheck
 scaffold_files_present | InternalCheck
   - files: [path] required default=-
+nextjs_testimony_binding | InternalCheck
 browser_readiness | Probe
 browser_interaction | Probe
 data_inspection_schema | InternalCheck

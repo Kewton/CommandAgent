@@ -75,6 +75,7 @@ pub enum ResolvedCapability {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InternalCapability {
     ScaffoldFilesPresent { files: Vec<String> },
+    NextjsTestimonyBinding,
     Data(DataInternalCheck),
     Ingest(ingest::IngestInternalCheck),
 }
@@ -184,7 +185,7 @@ static SCAFFOLD_FILES_PARAMS: [ParamSpec; 1] = [ParamSpec {
     default: None,
 }];
 
-static BASE_REGISTRY: [CapabilitySpec; 7] = [
+static BASE_REGISTRY: [CapabilitySpec; 8] = [
     CapabilitySpec {
         id: "package_json_port_script",
         kind: CapabilityKind::ShellCheck,
@@ -214,6 +215,12 @@ static BASE_REGISTRY: [CapabilitySpec; 7] = [
         kind: CapabilityKind::InternalCheck,
         params: &SCAFFOLD_FILES_PARAMS,
         description: "Check that required scaffold files are present.",
+    },
+    CapabilitySpec {
+        id: crate::planner::profiles::nextjs::testimony_binding::CHECK_ID,
+        kind: CapabilityKind::InternalCheck,
+        params: &NO_PARAMS,
+        description: "Bind Next.js product testimony to route and browser observations.",
     },
     CapabilitySpec {
         id: "browser_readiness",
@@ -276,6 +283,9 @@ pub fn resolve(id: &str, params: &Table) -> Result<ResolvedCapability, CatalogEr
                 files: required_path_list(spec, params, "files")?,
             },
         )),
+        crate::planner::profiles::nextjs::testimony_binding::CHECK_ID => Ok(
+            ResolvedCapability::Internal(InternalCapability::NextjsTestimonyBinding),
+        ),
         "browser_readiness" | "browser_interaction" => {
             Err(CatalogError::ProbeBindingUnimplemented { id: id.to_string() })
         }
@@ -521,6 +531,18 @@ mod tests {
             ResolvedCapability::Internal(InternalCapability::ScaffoldFilesPresent {
                 files: vec!["package.json".to_string(), "src/app/page.tsx".to_string()]
             })
+        );
+    }
+
+    #[test]
+    fn nextjs_testimony_binding_resolves_to_typed_internal_adapter() {
+        assert_eq!(
+            resolve(
+                crate::planner::profiles::nextjs::testimony_binding::CHECK_ID,
+                &Table::new()
+            )
+            .unwrap(),
+            ResolvedCapability::Internal(InternalCapability::NextjsTestimonyBinding)
         );
     }
 

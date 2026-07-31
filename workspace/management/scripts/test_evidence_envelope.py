@@ -29,6 +29,11 @@ def enveloped(family):
 class EvidenceEnvelopeGuardTests(unittest.TestCase):
     def test_every_registered_family_is_readable_by_all_consumers(self):
         self.assertEqual(guard_errors(), [])
+        self.assertEqual(
+            len(registered_families()) * 3,
+            24,
+            "T1 expands the transverse family guard from 21/21 to 24/24",
+        )
         for family in registered_families():
             for consumer in ("collector", "sheet", "classify"):
                 self.assertEqual(
@@ -43,6 +48,22 @@ class EvidenceEnvelopeGuardTests(unittest.TestCase):
                 "collector: missing family adapters: future",
                 "sheet: missing family adapters: future",
                 "classify: missing family adapters: future",
+            ],
+        )
+
+    def test_t1_family_would_fail_all_three_consumers_without_followup(self):
+        adapters = {
+            consumer: {
+                family: mode for family, mode in mapping.items() if family != "T"
+            }
+            for consumer, mapping in CONSUMER_ADAPTERS.items()
+        }
+        self.assertEqual(
+            guard_errors(adapters=adapters),
+            [
+                "collector: missing family adapters: T",
+                "sheet: missing family adapters: T",
+                "classify: missing family adapters: T",
             ],
         )
 

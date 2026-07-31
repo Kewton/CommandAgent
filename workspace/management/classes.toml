@@ -337,3 +337,12 @@ match_reason = "write_required exhausted for cli/main.py"
 first_seen = "uat-test0730-cli-pack-002"
 ledger_ref = "CLI-5"
 note = "C3がprimaryでも汎用CLI fallbackがcli/main.pyを照準し、README証言修復を交絡した。CLI-5でC3 evidenceの出典成果物へ束縛済み"
+
+[[class]]
+id = "testimony_binding_violation"
+category = "violation_family"
+attribution = "model"
+match_reason = "testimony_binding_violation"
+first_seen = "unobserved_in_formal_runs"
+ledger_ref = "P-1b"
+note = "形状既定=modelは仮置き。解剖で覆り得る（process_failure事件の前例参照）。T1の初正式観測はuat-test0731-nextjs-t1-001で採取する"

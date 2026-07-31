@@ -123,6 +123,8 @@ pub(crate) enum ViolationId {
     CandidateSet(String),
     Accounting(String),
     FormatSchema(String),
+    #[allow(dead_code)]
+    TestimonyBinding(String),
 }
 
 impl ViolationId {
@@ -136,6 +138,7 @@ impl ViolationId {
         "candidate_set_violation",
         "accounting_violation",
         "format_schema_violation",
+        "testimony_binding_violation",
     ];
 
     pub(crate) fn inspection_schema(detail: impl Into<String>) -> Self {
@@ -169,6 +172,11 @@ impl ViolationId {
     pub(crate) fn format_schema(detail: impl Into<String>) -> Self {
         Self::FormatSchema(detail.into())
     }
+
+    #[allow(dead_code)]
+    pub(crate) fn testimony_binding(detail: impl Into<String>) -> Self {
+        Self::TestimonyBinding(detail.into())
+    }
 }
 
 impl fmt::Display for ViolationId {
@@ -182,6 +190,7 @@ impl fmt::Display for ViolationId {
             Self::CandidateSet(detail) => ("candidate_set_violation", detail),
             Self::Accounting(detail) => ("accounting_violation", detail),
             Self::FormatSchema(detail) => ("format_schema_violation", detail),
+            Self::TestimonyBinding(detail) => ("testimony_binding_violation", detail),
         };
         write!(formatter, "{prefix}:{detail}")
     }
@@ -287,6 +296,10 @@ mod tests {
         assert_eq!(
             ViolationId::format_schema("record=0:fields").to_string(),
             "format_schema_violation:record=0:fields"
+        );
+        assert_eq!(
+            ViolationId::testimony_binding("claim=2:restart_not_observed").to_string(),
+            "testimony_binding_violation:claim=2:restart_not_observed"
         );
     }
 
