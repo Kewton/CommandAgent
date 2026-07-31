@@ -428,6 +428,9 @@ fn validate_source_point(source: AssistSource, point: InjectionPoint) -> Result<
                 | InjectionPoint::DataValidation
         ),
         AssistSource::BrowserInteraction => point == InjectionPoint::BuildVerification,
+        AssistSource::HumanDirective => {
+            matches!(point, InjectionPoint::ImplementFix | InjectionPoint::Repair)
+        }
     };
     if compatible {
         Ok(())
@@ -597,6 +600,10 @@ fn validate_source_params(
                     "outcome",
                 ],
             )
+        }
+        AssistSource::HumanDirective => {
+            reject_unknown_params(params, &["max_rendered_bytes"])?;
+            validate_optional_unsigned(params, "max_rendered_bytes", 24_000)
         }
     }
 }

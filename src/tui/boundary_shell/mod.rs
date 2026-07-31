@@ -2,6 +2,7 @@ pub mod acceptance;
 pub mod ambiguity;
 pub mod band_catalog;
 pub mod confirmation;
+pub mod directive;
 pub mod family_catalog;
 pub mod pack_catalog;
 pub mod presentation;

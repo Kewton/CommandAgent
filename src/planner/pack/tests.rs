@@ -141,6 +141,48 @@ inject:
 }
 
 #[test]
+fn human_directive_is_closed_to_fix_implementation_and_repair() {
+    for point in ["implement-fix", "repair"] {
+        let fix = format!(
+            r#"schema_version: commandagent.pack.assist/v0
+pack:
+  id: human-directive
+  version: 1.0.0
+  profile: python-cli
+  intent: fix
+inject:
+  - point: {point}
+    source: human_directive
+    required: true
+    params:
+      max_rendered_bytes: 24000
+"#
+        );
+        assert!(parse_bytes(Some(fix.as_bytes()), None).is_ok(), "{point}");
+    }
+
+    let invalid = r#"schema_version: commandagent.pack.assist/v0
+pack:
+  id: human-directive
+  version: 1.0.0
+  profile: python-cli
+  intent: create
+inject:
+  - point: cli-implementation
+    source: human_directive
+    required: true
+    params: {}
+"#;
+    let error = parse_bytes(Some(invalid.as_bytes()), None)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("source `human_directive` is incompatible with point `cli-implementation`"),
+        "{error}"
+    );
+}
+
+#[test]
 fn eval_check_ids_resolve_through_capability_or_intent_registries() {
     let fix = br#"schema_version: commandagent.pack.eval/v0
 pack:

@@ -105,6 +105,7 @@ closed_id! {
         C3Binding => "c3_binding",
         DataInspectionSchema => "data_inspection_schema",
         BrowserInteraction => "browser_interaction",
+        HumanDirective => "human_directive",
     }
 }
 
