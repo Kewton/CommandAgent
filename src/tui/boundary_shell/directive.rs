@@ -43,6 +43,18 @@ pub struct DirectiveContinuation {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+struct DirectiveRunMetadata {
+    schema_version: u8,
+    directive_round: u32,
+    directive_hash: String,
+    target_run_id: String,
+    continuation_plan_path: String,
+    same_workspace: bool,
+    ok: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct DirectiveConfirmationRecord {
     schema_version: u8,
     directive_hash: String,
@@ -323,6 +335,46 @@ pub fn prepare_continuation(
         directive_round: directive.artifact().round,
         directive_hash: directive.hash().to_string(),
     })
+}
+
+pub fn persist_run_metadata(
+    root: &Path,
+    continuation: &DirectiveContinuation,
+    ok: bool,
+) -> anyhow::Result<PathBuf> {
+    std::fs::create_dir_all(root)
+        .with_context(|| format!("create directive run metadata directory {}", root.display()))?;
+    let path = root.join(format!(
+        "{}.json",
+        continuation.directive_hash.trim_start_matches("sha256:")
+    ));
+    let metadata = DirectiveRunMetadata {
+        schema_version: DIRECTIVE_SCHEMA_VERSION,
+        directive_round: continuation.directive_round,
+        directive_hash: continuation.directive_hash.clone(),
+        target_run_id: continuation.target_run_id.clone(),
+        continuation_plan_path: continuation.plan_workspace_path.clone(),
+        same_workspace: true,
+        ok,
+    };
+    let mut bytes = serde_json::to_vec_pretty(&metadata)?;
+    bytes.push(b'\n');
+    if path.exists() {
+        let existing = std::fs::read(&path)
+            .with_context(|| format!("read directive run metadata {}", path.display()))?;
+        if existing != bytes {
+            bail!("directive run metadata already records a different terminal result");
+        }
+    } else {
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&path)
+            .with_context(|| format!("create directive run metadata {}", path.display()))?;
+        file.write_all(&bytes)?;
+        file.sync_all()?;
+    }
+    Ok(path)
 }
 
 fn continuation_plan_bytes(
@@ -609,5 +661,24 @@ mod tests {
             }),
         );
         assert!(prepare_continuation(root.path(), &events, &directive).is_err());
+    }
+
+    #[test]
+    fn directive_run_metadata_records_only_the_nonzero_round_configuration() {
+        let root = tempfile::tempdir().unwrap();
+        let continuation = DirectiveContinuation {
+            plan_path: root.path().join("plan.yaml"),
+            plan_workspace_path: ".anvil/plans/plan.yaml".to_string(),
+            target_run_id: "run-001".to_string(),
+            directive_round: 1,
+            directive_hash: format!("sha256:{}", "a".repeat(64)),
+        };
+        let path = persist_run_metadata(root.path(), &continuation, false).unwrap();
+        let value: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert_eq!(value["directive_round"], 1);
+        assert_eq!(value["directive_hash"], continuation.directive_hash);
+        assert_eq!(value["same_workspace"], true);
+        assert_eq!(value["ok"], false);
     }
 }

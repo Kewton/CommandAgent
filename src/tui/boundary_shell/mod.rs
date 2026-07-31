@@ -56,6 +56,7 @@ pub struct BoundaryShell {
     confirmation_root: PathBuf,
     directive_root: PathBuf,
     directive_confirmation_root: PathBuf,
+    directive_run_metadata_root: PathBuf,
     audit_events_path: Option<PathBuf>,
 }
 
@@ -70,6 +71,7 @@ impl BoundaryShell {
             confirmation_root,
             directive_root: state_root.join("boundary-directives"),
             directive_confirmation_root: state_root.join("boundary-directive-confirmations"),
+            directive_run_metadata_root: state_root.join("boundary-directive-runs"),
             audit_events_path,
         }
     }
@@ -305,6 +307,11 @@ impl BoundaryShell {
             }),
         );
         let result = run();
+        directive::persist_run_metadata(
+            &self.directive_run_metadata_root,
+            continuation,
+            result.is_ok(),
+        )?;
         crate::eval_events::emit(
             self.audit_events_path.as_deref(),
             json!({

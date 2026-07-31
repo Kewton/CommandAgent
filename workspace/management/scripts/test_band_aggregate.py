@@ -549,19 +549,21 @@ class CliBandTests(unittest.TestCase):
         self.assertEqual(
             band.cli_rate_rows(local),
             [
-                ["filter", "gemma4:31b", "0", "1", "1", "0%"],
+                ["filter", "gemma4:31b", "0", "0", "1", "1", "0%"],
                 [
                     "filter",
                     "qwen3.6:35b-a3b-coding-nvfp4",
+                    "0",
                     "0",
                     "2",
                     "2",
                     "0%",
                 ],
-                ["stats", "gemma4:31b", "0", "1", "1", "0%"],
+                ["stats", "gemma4:31b", "0", "0", "1", "1", "0%"],
                 [
                     "stats",
                     "qwen3.6:35b-a3b-coding-nvfp4",
+                    "0",
                     "0",
                     "2",
                     "2",
@@ -575,8 +577,8 @@ class CliBandTests(unittest.TestCase):
         self.assertEqual(
             band.cli_rate_rows(window_b),
             [
-                ["filter", "gemma4:31b-cloud", "0", "3", "3", "0%"],
-                ["stats", "gemma4:31b-cloud", "0", "3", "3", "0%"],
+                ["filter", "gemma4:31b-cloud", "0", "0", "3", "3", "0%"],
+                ["stats", "gemma4:31b-cloud", "0", "0", "3", "3", "0%"],
             ],
         )
         self.assertEqual(sum(record.reached_checks for record in window_b), 2)
@@ -586,8 +588,8 @@ class CliBandTests(unittest.TestCase):
         self.assertEqual(
             band.cli_rate_rows(pack_arm),
             [
-                ["filter", "gemma4:31b-cloud", "0", "9", "9", "0%"],
-                ["stats", "gemma4:31b-cloud", "0", "9", "9", "0%"],
+                ["filter", "gemma4:31b-cloud", "0", "0", "9", "9", "0%"],
+                ["stats", "gemma4:31b-cloud", "0", "0", "9", "9", "0%"],
             ],
         )
         self.assertEqual(sum(record.reached_checks for record in pack_arm), 3)
@@ -624,6 +626,58 @@ class CliBandTests(unittest.TestCase):
         self.assertIn("completion写像欠落", summary)
         self.assertIn("C1〜C4 runtimeが未配線", summary)
         self.assertIn("calibration predecessor — 配線後・較正前", summary)
+        self.assertIn("Directive round / hash", summary)
+        self.assertIn("No live directive measurement has been admitted yet.", summary)
+
+    def test_directive_round_is_a_separate_cli_configuration_axis(self) -> None:
+        root = Path("/tmp/d3d-band-fixture")
+        records = [
+            band.CliRunRecord(
+                set_id="round-0",
+                run_name="run-0",
+                family="filter",
+                executor="gemma4:31b-cloud",
+                harness_status="completed",
+                product_exit=1,
+                verdict="failed",
+                assurance="failed",
+                c1="pass",
+                c2="pass",
+                c3="fail",
+                c4="pass",
+                failure_class="claims_binding_violation",
+                attribution="model",
+                duration_seconds=1,
+                evidence_dir=root,
+            ),
+            band.CliRunRecord(
+                set_id=band.CLI_DIRECTIVE_SET,
+                run_name="run-1",
+                family="filter",
+                executor="gemma4:31b-cloud",
+                harness_status="completed",
+                product_exit=0,
+                verdict="full",
+                assurance="full",
+                c1="pass",
+                c2="pass",
+                c3="pass",
+                c4="pass",
+                failure_class="none",
+                attribution="model",
+                duration_seconds=1,
+                evidence_dir=root,
+                directive_round=1,
+                directive_hash=f"sha256:{'a' * 64}",
+            ),
+        ]
+        self.assertEqual(
+            band.cli_rate_rows(records),
+            [
+                ["filter", "gemma4:31b-cloud", "0", "0", "1", "1", "0%"],
+                ["filter", "gemma4:31b-cloud", "1", "1", "0", "1", "100%"],
+            ],
+        )
 
     def test_reached_run_requires_all_cli_evidence_files(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

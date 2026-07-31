@@ -123,6 +123,7 @@ fullでなければGate 4がシート全文、節5、typed next actionsを表示
 - recovery_circle: available|unavailable — <reason>
 - elevated_model: available|unavailable — <reason>
 - pack_change: available|unavailable — <reason>
+- human_directive: available — persisted confirmation required
 - close: available — records no further action
 ```
 
@@ -130,10 +131,14 @@ fullでなければGate 4がシート全文、節5、typed next actionsを表示
 - `recovery_circle`: 失敗証拠を引き継ぐ回復円環へ切り替える。
 - `elevated_model`: 上位モデル構成を新しい値札とpinで確認する。
 - `pack_change`: compatibleなadmitted packへ変更して再確認する。
+- `human_directive`: 失敗runへ追加指示を保存・確認して同じworkspaceで継続する。
 - `close`: 実行を増やさず閉じる。
 
-現行REPLは選択肢を表示しますが、Gate 4の対話選択配線はQUEUEDです。勝手に
-実行を続けず、REPLを閉じ、採る選択を記録して新しいGate 1から再開します。
+現行REPLでは、失敗runに限り`/directive <instruction>`で追加指示を
+提案できます。指示は資格情報検査後にhash付きで保存され、表示された
+`/confirm-directive <hash>`を明示実行するまで継続runへ渡りません。
+再試行・elevated・pack変更など、その他のGate 4選択肢は引き続き
+新しいGate 1確認が必要で、勝手に次の処理へ進むことはありません。
 
 ## 2. packを1パラメータだけ変えてA/Bする
 
