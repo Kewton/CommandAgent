@@ -1285,3 +1285,22 @@ D-3c実装で保護監査が曖昧分類器の直接provider呼びを初日捕�
 turn event経路へ移し、短応答要件も同じchokepoint内の512-byte上限として
 適用した。allowlist例外はゼロで是正した。chokepoint網は既存部品だけでなく、
 新規コンポーネントにも即日有効であることの実証となった。
+
+## D-3c settlement — 境界対話の清算（2026-07-31）
+
+D-3cは、設計draft、封緘、B0〜B5、provider-call境界是正1件の
+**8コミット**で完了した。production Rustは**2,322行**で、事前見積り
+1,320〜2,280行に対して上限比**+1.8%**（+42行）だった。是正コミットの
+増分67行は、曖昧分類を既存`provider_call` chokepointへ通し、有界応答・
+timeout・cancel・event記録を継承する代金に帰属する。確認前dispatch、
+REPL bypass、偽の決定的一意を塞ぐguard 3種に加え、保護監査が直接provider
+呼び出し1件を実装初日に捕捉し、allowlist例外ゼロで是正した。
+
+`d3c-shakedown-001`は4ゲートを通し、N1〜N5全pass、`assurance=full`へ
+到達した。Gate 1の永続確認記録は
+`sha256:564ec8f762ef42048d0f4e22ae088ba201865490de2e1c2d3ef10df103b9f62c`
+であり、会話表示ではなく記録hashからdispatchの正当性を再監査できる。
+
+見積り方法論の第3実測として、CLIは見込みの5.2倍、ingestは照合器が
+予測帯内かつ配管が等倍、D-3cは上限比+1.8%だった。差の大小ではなく、
+**事前宣言→実測→差分の機序帰属**を毎回主文に置く運用が定着した。
