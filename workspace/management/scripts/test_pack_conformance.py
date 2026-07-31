@@ -48,6 +48,20 @@ class PackConformanceCommandTests(unittest.TestCase):
                 "sha256:" + ("c" * 64),
             )
 
+    def test_writes_new_hash_pin_from_green_report_without_overwriting(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            pack = Path(directory)
+            exact_hash = "sha256:" + ("d" * 64)
+            report = '{"exact_byte_hash":"' + exact_hash + '"}'
+
+            self.assertEqual(pack_conformance.write_hash_pin(pack, report), exact_hash)
+            self.assertEqual(
+                (pack / pack_conformance.HASH_PIN).read_text(encoding="utf-8"),
+                exact_hash + "\n",
+            )
+            with self.assertRaisesRegex(ValueError, "refusing to replace"):
+                pack_conformance.write_hash_pin(pack, report)
+
 
 if __name__ == "__main__":
     unittest.main()

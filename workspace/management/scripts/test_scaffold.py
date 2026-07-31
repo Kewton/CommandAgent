@@ -83,3 +83,29 @@ class ScaffoldTests(unittest.TestCase):
                 (scaffold.generate("intent", "inspect") / "corpus").is_dir()
             )
         scaffold.ROOT = old
+
+    def test_pack_scaffold_clones_identity_but_not_reviewed_hash_pin(self):
+        old = scaffold.REPOSITORY_ROOT
+        with tempfile.TemporaryDirectory() as directory:
+            scaffold.REPOSITORY_ROOT = Path(directory)
+            source = Path(directory) / "packs" / "cli-assist" / "1.1.0"
+            source.mkdir(parents=True)
+            (source / "assist.yaml").write_text(
+                "schema_version: commandagent.pack.assist/v0\n"
+                "pack:\n"
+                "  id: cli-assist\n"
+                "  version: 1.1.0\n"
+                "  profile: python-cli\n"
+                "  intent: create\n"
+                "inject: []\n",
+                encoding="utf-8",
+            )
+            (source / "pack.sha256").write_text(
+                "sha256:" + ("a" * 64) + "\n", encoding="utf-8"
+            )
+
+            output = scaffold.generate_pack("cli-assist", "1.1.0", "1.1.1")
+
+            self.assertIn("  version: 1.1.1\n", (output / "assist.yaml").read_text())
+            self.assertFalse((output / "pack.sha256").exists())
+        scaffold.REPOSITORY_ROOT = old
