@@ -1,8 +1,10 @@
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
+use crate::config::Config;
 use crate::planner::adjudication::contract::IntentId;
 use crate::planner::profile::ProfileId;
+use crate::provider_call::{self, ProviderCallScope, ProviderChatRequest};
 use crate::providers::ChatClient;
 use crate::state::ConversationMessage;
 
@@ -10,6 +12,7 @@ use super::family_catalog::TaskFamilyId;
 use super::route::{DeterministicResolution, DeterministicRouteResult, RouteCandidate};
 
 const CLASSIFIER_PROMPT_VERSION: &str = "d3c-route-v1";
+const CLASSIFIER_MAX_RESPONSE_BYTES: usize = 512;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProposalStatus {
@@ -50,6 +53,8 @@ pub fn propose_route(
     provider: &str,
     model: &str,
     classifier: &mut dyn ChatClient,
+    config: &Config,
+    is_cancelled: &dyn Fn() -> bool,
 ) -> RouteProposal {
     let candidate_keys = deterministic
         .candidates
@@ -77,6 +82,8 @@ pub fn propose_route(
                 &deterministic.candidates,
                 model,
                 classifier,
+                config,
+                is_cancelled,
                 &mut provenance,
             )
         }
@@ -103,6 +110,8 @@ fn classify_closed_candidates(
     candidates: &[RouteCandidate],
     model: &str,
     classifier: &mut dyn ChatClient,
+    config: &Config,
+    is_cancelled: &dyn Fn() -> bool,
     provenance: &mut ClassifierProvenance,
 ) -> Option<RouteCandidate> {
     let keys = candidates.iter().map(candidate_key).collect::<Vec<_>>();
@@ -120,7 +129,21 @@ fn classify_closed_candidates(
         ),
         ConversationMessage::user(prompt),
     ];
-    let response = match classifier.chat(model, &messages, &[], false) {
+    let response = match provider_call::chat_with_cancel_and_response_limit(
+        classifier,
+        config,
+        ProviderChatRequest {
+            scope: ProviderCallScope::PlannerStep,
+            model,
+            messages: &messages,
+            tools: &[],
+            native_tools_enabled: false,
+        },
+        is_cancelled,
+        CLASSIFIER_MAX_RESPONSE_BYTES,
+    )
+    .result
+    {
         Ok(response) => response.content,
         Err(error) => {
             provenance.parse_reason = format!("typed_unknown:classifier_error:{error}");
@@ -180,6 +203,10 @@ fn sha256(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use crate::providers::AssistantReply;
     use crate::state::ConversationMessage;
     use crate::tools::registry::ToolSpec;
@@ -190,14 +217,14 @@ mod tests {
     #[derive(Clone)]
     struct StubClassifier {
         response: anyhow::Result<String, String>,
-        calls: usize,
+        calls: Arc<AtomicUsize>,
     }
 
     impl StubClassifier {
         fn responding(response: &str) -> Self {
             Self {
                 response: Ok(response.to_string()),
-                calls: 0,
+                calls: Arc::new(AtomicUsize::new(0)),
             }
         }
     }
@@ -218,7 +245,7 @@ mod tests {
             _tools: &[ToolSpec],
             _native_tools_enabled: bool,
         ) -> anyhow::Result<AssistantReply> {
-            self.calls += 1;
+            self.calls.fetch_add(1, Ordering::SeqCst);
             self.response
                 .clone()
                 .map(AssistantReply::text)
@@ -251,8 +278,45 @@ mod tests {
         }
     }
 
+    fn config(root: &Path) -> Config {
+        Config {
+            workspace_root: root.to_path_buf(),
+            state_dir: root.join("state"),
+            eval_events_path: Some(root.join("events.jsonl")),
+            completion_contract_path: None,
+            yes: true,
+            offline: false,
+            context_budget: 1_000,
+            model: "executor".to_string(),
+            provider: crate::config::Provider::Ollama,
+            prompt_layout: crate::config::PromptLayout::Stable,
+            plan_preset: crate::config::PlanPreset::None,
+            intent_override: None,
+            planner_model: "classifier".to_string(),
+            planner_provider: crate::config::Provider::Ollama,
+            ollama_host: "http://localhost:11434".to_string(),
+            num_predict: 100,
+            max_iterations: 1,
+            chat_timeout_secs: 1,
+            chat_timeout_source: "override:test".to_string(),
+            field_sources: crate::config::ConfigFieldSources::default(),
+            chat_retries: 0,
+            stream: false,
+            resume: None,
+            fresh_session: false,
+            no_footer: false,
+            narration: crate::config::NarrationMode::Normal,
+            profile: "generic".to_string(),
+            profile_explicit: false,
+            profile_inference: None,
+            style: "default".to_string(),
+            action: crate::config::Action::Repl,
+        }
+    }
+
     #[test]
     fn deterministic_unique_never_calls_the_classifier_but_still_requires_gate_one() {
+        let dir = tempfile::tempdir().unwrap();
         let mut classifier = StubClassifier::responding("unused");
         let proposal = propose_route(
             result(
@@ -263,8 +327,10 @@ mod tests {
             "stub",
             "stub-model",
             &mut classifier,
+            &config(dir.path()),
+            &|| false,
         );
-        assert_eq!(classifier.calls, 0);
+        assert_eq!(classifier.calls.load(Ordering::SeqCst), 0);
         assert_eq!(proposal.selected.unwrap().family, TaskFamilyId::List);
         assert_eq!(proposal.status, ProposalStatus::AwaitingConfirmation);
         assert!(proposal.confirmation_required);
@@ -272,6 +338,7 @@ mod tests {
 
     #[test]
     fn registered_ambiguous_output_selects_a_proposal_without_dispatch_authority() {
+        let dir = tempfile::tempdir().unwrap();
         let mut classifier = StubClassifier::responding(
             r#"{"profile":"ingest","intent":"create","family":"table"}"#,
         );
@@ -287,16 +354,23 @@ mod tests {
             "stub",
             "stub-model",
             &mut classifier,
+            &config(dir.path()),
+            &|| false,
         );
-        assert_eq!(classifier.calls, 1);
+        assert_eq!(classifier.calls.load(Ordering::SeqCst), 1);
         assert_eq!(proposal.selected.unwrap().family, TaskFamilyId::Table);
         assert!(proposal.confirmation_required);
         assert_eq!(proposal.status, ProposalStatus::AwaitingConfirmation);
         assert_eq!(proposal.classifier.parse_reason, "closed_candidate_match");
+        let events = std::fs::read_to_string(dir.path().join("events.jsonl")).unwrap();
+        assert!(events.contains("\"event\":\"provider_turn_duration\""));
+        assert!(events.contains("\"caller_scope\":\"planner_step\""));
     }
 
     #[test]
     fn unregistered_or_unstable_output_falls_to_typed_unknown() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = config(dir.path());
         for response in [
             r#"{"profile":"ingest","intent":"create","family":"invented"}"#,
             r#"{"profile":"ingest","intent":"create","family":"list","confidence":1}"#,
@@ -315,6 +389,8 @@ mod tests {
                 "stub",
                 "stub-model",
                 &mut classifier,
+                &config,
+                &|| false,
             );
             assert!(proposal.selected.is_none(), "{response}");
             assert!(
@@ -329,6 +405,7 @@ mod tests {
 
     #[test]
     fn no_candidate_is_unknown_without_giving_the_llm_an_open_vocabulary() {
+        let dir = tempfile::tempdir().unwrap();
         let mut classifier = StubClassifier::responding(
             r#"{"profile":"invented","intent":"create","family":"invented"}"#,
         );
@@ -338,8 +415,10 @@ mod tests {
             "stub",
             "stub-model",
             &mut classifier,
+            &config(dir.path()),
+            &|| false,
         );
-        assert_eq!(classifier.calls, 0);
+        assert_eq!(classifier.calls.load(Ordering::SeqCst), 0);
         assert!(proposal.selected.is_none());
         assert_eq!(
             proposal.classifier.parse_reason,
@@ -348,19 +427,79 @@ mod tests {
     }
 
     #[test]
-    fn ambiguity_adapter_has_no_execution_callback_or_config_input() {
+    fn oversized_classifier_output_is_rejected_inside_the_provider_boundary() {
+        let dir = tempfile::tempdir().unwrap();
+        let response = "x".repeat(CLASSIFIER_MAX_RESPONSE_BYTES + 1);
+        let mut classifier = StubClassifier::responding(&response);
+        let proposal = propose_route(
+            result(
+                DeterministicResolution::Ambiguous,
+                vec![
+                    candidate(TaskFamilyId::List),
+                    candidate(TaskFamilyId::Table),
+                ],
+            ),
+            "request",
+            "stub",
+            "stub-model",
+            &mut classifier,
+            &config(dir.path()),
+            &|| false,
+        );
+        assert!(proposal.selected.is_none());
+        assert!(
+            proposal
+                .classifier
+                .parse_reason
+                .contains("provider_response_limit")
+        );
+        let events = std::fs::read_to_string(dir.path().join("events.jsonl")).unwrap();
+        assert!(events.contains("\"finish_reason\":\"error\""));
+        assert!(events.contains("\"ok\":false"));
+    }
+
+    #[test]
+    fn cancelled_classifier_call_falls_to_typed_unknown_without_provider_work() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut classifier =
+            StubClassifier::responding(r#"{"profile":"ingest","intent":"create","family":"list"}"#);
+        let proposal = propose_route(
+            result(
+                DeterministicResolution::Ambiguous,
+                vec![
+                    candidate(TaskFamilyId::List),
+                    candidate(TaskFamilyId::Table),
+                ],
+            ),
+            "request",
+            "stub",
+            "stub-model",
+            &mut classifier,
+            &config(dir.path()),
+            &|| true,
+        );
+
+        assert!(proposal.selected.is_none());
+        assert_eq!(classifier.calls.load(Ordering::SeqCst), 0);
+        assert!(proposal.classifier.parse_reason.contains("aborted_by_user"));
+        let events = std::fs::read_to_string(dir.path().join("events.jsonl")).unwrap();
+        assert!(events.contains("\"event\":\"provider_turn_aborted_by_user\""));
+    }
+
+    #[test]
+    fn ambiguity_adapter_has_no_execution_callback() {
         let _binding = ExplicitRouteBinding::default();
         let source = include_str!("ambiguity.rs");
+        let production = source.split("#[cfg(test)]").next().unwrap_or(source);
         let forbidden = [
             ["run_", "ultra_plan"],
             ["generate_", "and_run"],
             ["Action", "::"],
-            ["Con", "fig"],
         ];
         for parts in forbidden {
             let needle = parts.concat();
             assert!(
-                !source.contains(&needle),
+                !production.contains(&needle),
                 "unexpected execution authority: {needle}"
             );
         }

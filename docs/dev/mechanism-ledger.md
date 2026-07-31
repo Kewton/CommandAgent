@@ -1277,3 +1277,11 @@ D-3c設計をfixedへ封緘した。正式band由来のtyped task-family catalog
 永続human confirmation、4境界gate、既存REPLへのleaf配線を実装方式とする。
 見積りはproduction Rust **1,320〜2,280行**、較正**5〜10 campaign**を
 確定値とし、確認前dispatch・REPL bypass・偽の決定的一意を必須guardで封鎖する。
+
+## D-3c provider-call boundary correction（2026-07-31）
+
+D-3c実装で保護監査が曖昧分類器の直接provider呼びを初日捕捉した。
+分類呼び出しを既存`provider_call`のclone worker・timeout・cancel polling・
+turn event経路へ移し、短応答要件も同じchokepoint内の512-byte上限として
+適用した。allowlist例外はゼロで是正した。chokepoint網は既存部品だけでなく、
+新規コンポーネントにも即日有効であることの実証となった。

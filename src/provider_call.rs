@@ -159,7 +159,28 @@ pub fn chat_with_cancel<F>(
 where
     F: Fn() -> bool,
 {
-    chat_with_cancel_inner(client, config, request, is_cancelled, false, None)
+    chat_with_cancel_inner(client, config, request, is_cancelled, None, false, None)
+}
+
+pub fn chat_with_cancel_and_response_limit<F>(
+    client: &mut dyn ChatClient,
+    config: &Config,
+    request: ProviderChatRequest<'_>,
+    is_cancelled: F,
+    max_response_bytes: usize,
+) -> ProviderCallOutcome
+where
+    F: Fn() -> bool,
+{
+    chat_with_cancel_inner(
+        client,
+        config,
+        request,
+        is_cancelled,
+        Some(max_response_bytes),
+        false,
+        None,
+    )
 }
 
 pub fn chat_with_cancel_and_stream<F>(
@@ -177,6 +198,7 @@ where
         config,
         request,
         is_cancelled,
+        None,
         config.streaming_enabled(),
         Some(on_chunk),
     )
@@ -187,6 +209,7 @@ fn chat_with_cancel_inner<F>(
     config: &Config,
     request: ProviderChatRequest<'_>,
     is_cancelled: F,
+    max_response_bytes: Option<usize>,
     stream_allowed: bool,
     mut on_chunk: Option<&mut ProviderChunkCallback<'_>>,
 ) -> ProviderCallOutcome
@@ -377,6 +400,7 @@ where
             }
             Ok(ProviderWorkerMessage::Completed(worker_result)) => {
                 let ProviderWorkerResult { result, timing } = worker_result;
+                let result = enforce_response_limit(result, max_response_bytes);
                 let elapsed = started.elapsed();
                 crate::tui::status_bus::publish_provider_finished(elapsed);
                 if result.is_ok() {
@@ -483,6 +507,22 @@ where
             }
         }
     }
+}
+
+fn enforce_response_limit(
+    result: anyhow::Result<AssistantReply>,
+    max_response_bytes: Option<usize>,
+) -> anyhow::Result<AssistantReply> {
+    let reply = result?;
+    if let Some(limit) = max_response_bytes
+        && reply.content.len() > limit
+    {
+        return Err(anyhow!(
+            "provider_response_limit: response was {} bytes; maximum is {limit} bytes",
+            reply.content.len()
+        ));
+    }
+    Ok(reply)
 }
 
 pub fn is_aborted_by_user(error: &str) -> bool {
@@ -1183,6 +1223,7 @@ mod tests {
                 native_tools_enabled: false,
             },
             || false,
+            None,
             true,
             Some(&mut |chunk| {
                 chunks.push(chunk.to_string());
@@ -1218,6 +1259,7 @@ mod tests {
                     native_tools_enabled: false,
                 },
                 || false,
+                None,
                 true,
                 Some(&mut |chunk| {
                     chunks.push(chunk.to_string());
@@ -1253,6 +1295,7 @@ mod tests {
                 native_tools_enabled: false,
             },
             || cancelled.load(Ordering::SeqCst),
+            None,
             true,
             Some(&mut |chunk| {
                 chunks.push(chunk.to_string());
@@ -1287,6 +1330,39 @@ mod tests {
     }
 
     #[test]
+    fn response_limit_is_enforced_inside_the_provider_chokepoint() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let events_path = tmp.path().join("events.jsonl");
+        let config = test_config(tmp.path(), events_path.clone(), 30);
+        let mut client = TokenClient;
+        let outcome = chat_with_cancel_and_response_limit(
+            &mut client,
+            &config,
+            ProviderChatRequest {
+                scope: ProviderCallScope::PlannerStep,
+                model: "m",
+                messages: &[ConversationMessage::user("classify")],
+                tools: &[],
+                native_tools_enabled: false,
+            },
+            || false,
+            1,
+        );
+
+        assert!(
+            outcome
+                .result
+                .unwrap_err()
+                .to_string()
+                .contains("provider_response_limit")
+        );
+        let events = std::fs::read_to_string(events_path).expect("events");
+        assert!(events.contains("\"caller_scope\":\"planner_step\""));
+        assert!(events.contains("\"finish_reason\":\"error\""));
+        assert!(events.contains("\"ok\":false"));
+    }
+
+    #[test]
     fn fake_client_without_stream_support_uses_legacy_chat_path() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let events_path = tmp.path().join("events.jsonl");
@@ -1305,6 +1381,7 @@ mod tests {
                 native_tools_enabled: false,
             },
             || false,
+            None,
             true,
             Some(&mut |chunk| {
                 chunks.push(chunk.to_string());

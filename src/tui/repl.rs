@@ -6,7 +6,7 @@ use rustyline::error::ReadlineError;
 use crate::config::Config;
 use crate::tui::editor::{PromptInterruptAction, ReplEditor, normalize_multiline_input};
 use crate::tui::markdown::TerminalMarkdownRenderer;
-use crate::tui::{OutputRenderer, TerminalUi};
+use crate::tui::{InteractionUi, OutputRenderer, TerminalUi};
 
 pub fn run(config: Config) -> anyhow::Result<()> {
     let stdin_is_terminal = io::stdin().is_terminal();
@@ -190,6 +190,8 @@ pub fn run(config: Config) -> anyhow::Result<()> {
                 provider_name(config.planner_provider),
                 &config.planner_model,
                 &mut *planner,
+                &config,
+                &|| ui.interrupted(),
             );
             let pins = crate::tui::boundary_shell::confirmation::ExecutionPins {
                 planner_provider: provider_name(config.planner_provider).to_string(),
