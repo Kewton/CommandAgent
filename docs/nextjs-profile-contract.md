@@ -1,13 +1,12 @@
 # Next.js Create Profile Contract
 
-Status: **draft for review (2026-07-31)**
+Status: **fixed (2026-07-31)**
 
-This is a retrospective contract draft for the admitted `nextjs × create`
-profile. Sections 1–5 document the implementation as it exists; they do not
-change its checks, evidence, assurance, prompts, or capability band. Sections
-6–7 propose a new testimony gate and its measurement labeling. Neither
-proposal is authorized for implementation until review adjudicates this
-draft.
+This is the retrospective fixed contract for the admitted `nextjs × create`
+profile. Sections 1–5 document the implementation as it existed at sealing;
+they do not change its checks, evidence, assurance, prompts, or capability
+band. Sections 6–7 fix the T1 testimony gate, its staged assurance treatment,
+and transparent measurement labels.
 
 ## 1. Scope and deliverables
 
@@ -135,46 +134,66 @@ The following remain permanently outside current `full`:
   product usefulness;
 - performance, load, scalability, and production operations;
 - exhaustive browser/device compatibility;
-- truthfulness of README or response-document feature testimony (the gap
-  proposed in section 6).
+- truthfulness of prose that does not match a registered T1 recognition shape
+  and vocabulary anchor. Such prose is counted as `unrecognized_prose`; this
+  profile does not infer arbitrary natural-language claims.
 
-## 6. Proposed testimony gate (new; not implemented)
+## 6. T1 testimony gate
 
 ### 6.1 T1 `testimony_binding`
 
-T1 would extract functional claims from `README.md` or a goal-response
-document delivered with the application and compare each claim with the
-route-bound implementation and observed behavior. The binding anchor is
-execution observation: the existing browser readiness, interaction, action
-hook, state-dimension, and route evidence. Source inspection may locate the
+T1 extracts functional claims from `README.md` or a run's persisted
+goal-response document and compares each claim with the route-bound
+implementation and observed behavior. The binding anchor is execution
+observation: the existing browser readiness, interaction, action-hook,
+state-dimension, and route evidence. Source inspection may locate the
 implementation or explain a nearest miss, but source text alone cannot prove
 a behavioral claim.
 
-Each proposed T1 result would preserve, per claim:
+Extraction is deliberately narrower than general prose understanding. A line
+is a claim only when it has both:
+
+1. a registered lexical anchor for a typed action, state, route, persistence,
+   or outcome claim; and
+2. a registered declarative Markdown shape: a paragraph sentence, list item,
+   table cell, or labelled feature/result line.
+
+Headings, code fences, commands, metadata-only lines, and prose without a
+registered anchor are not claims. They contribute only to the
+`unrecognized_prose` count. The Rust implementation owns the closed, typed
+lexicon and recognition-shape vocabulary and must publish its complete
+gate-to-guidance correspondence next to the extractor. Unknown vocabulary is
+not guessed into a claim.
+
+Each T1 result preserves, per claim:
 
 - the exact claim and source file/location;
-- the claimed action, state, route, or outcome;
+- the typed vocabulary anchor and claimed action, state, route, persistence,
+  or outcome;
 - the browser/interaction evidence and route-bound source references used for
   comparison;
-- `matched`, `claims_absent`, or a typed violation result; and
+- the typed result `matched` or `testimony_binding_violation`; and
 - a bounded `nearest_miss` when no observation satisfies the claim.
 
-A claim that an action works, a score changes, data persists, a retry resets
-state, or a named route is connected must be matched to the corresponding
-observed action/state/route evidence. A claim must not pass because a similarly
-named function or static string exists.
+The evidence also records `claims_absent` and the aggregate
+`unrecognized_prose` count. A claim that an action works, a score changes,
+data persists, a retry resets state, or a named route is connected must be
+matched to the corresponding observed action/state/route evidence. A claim
+must not pass because a similarly named function or static string exists.
+Claim kind, recognition shape, match result, and violation reason are typed
+Rust vocabulary. Serialized IDs are registered in the central failure and
+evidence vocabularies before production wiring.
 
 ### 6.2 Required implementation order
 
-No registered Rust check ID for this Next.js testimony comparator exists as of
-this draft. `T1` is a contract label, not an ID that may be placed in
-`eval.yaml`.
+`T1` is a contract label, not an ID that may be placed in `eval.yaml` before
+the corresponding Rust check exists.
 
 The required order is:
 
 1. implement the Rust extractor/comparator and evidence shape;
-2. register its typed check/violation vocabulary and add real measured
-   fixtures plus conformance;
+2. register its typed check/violation vocabulary and add real-run fixtures
+   plus conformance;
 3. connect it to the production Next.js acceptance path and assurance
    projection; then
 4. only after those gates are green, reference the final registered ID from a
@@ -183,7 +202,23 @@ The required order is:
 This order follows the pack institution rule: YAML composes registered
 verification; it does not create a verifier by spelling a new ID.
 
-## 7. Proposed value-label and band migration (new; not implemented)
+### 6.3 Staged assurance projection
+
+The sealed v0.1 rollout is additive except for an observed violation:
+
+- any `testimony_binding_violation` makes final assurance `failed`;
+- `matched`, `claims_absent`, and `unrecognized_prose` without a violation are
+  recorded but leave the pre-T1 assurance projection unchanged; and
+- no T1 evidence can promote an assurance level earned by the existing build,
+  route, browser, interaction, or state gates.
+
+This staged treatment avoids inventing a penalty for prose outside the closed
+recognition vocabulary while calibration data is collected. The first T1
+campaign records recognized claims, unrecognized prose, and violations for a
+reviewed v0.2 decision. Changing `claims_absent` or unrecognized prose from
+record-only to assurance-bearing requires a contract revision.
+
+## 7. Value-label and band migration
 
 Adding T1 can only retain or lower the reported Next.js `full` rate for the
 same artifacts. That is not a capability regression. It is a stricter,
@@ -195,15 +230,12 @@ every Next.js band row:
 
 | Label | Meaning |
 |---|---|
-| `nextjs-create/v0: build+browser+state+route` | Historical/current contract documented in sections 1–5. |
-| `nextjs-create/v1: v0+T1-testimony` | Future window after T1 Rust registration, production wiring, conformance, and review admission. |
+| `nextjs-create/v0: build+browser+state+route; testimony=not-tested` | Historical windows governed by sections 1–5. |
+| `nextjs-create/v0.1: v0+T1; testimony=violation-fails, otherwise-record-only` | Windows after T1 Rust registration and production wiring under section 6.3. |
 
-Historical rows and evidence remain immutable and keep the v0 label. A v1
-window starts only after the implementation commit and its effective pack
-ID/hash, if any, are pinned. The band must not compare v0 and v1 percentages
-without showing these labels, because their denominators have different
-meanings of `full`.
-
-Review must adjudicate T1 extraction scope, the treatment of
-`claims_absent`, violation vocabulary, evidence filename/schema, assurance
-projection, conformance cases, and the exact v1 window before implementation.
+Historical rows and evidence remain immutable and keep the v0 label. A v0.1
+window starts only after the T1 implementation and production-wiring commit;
+its effective pack ID/hash, if any, remains independently pinned. Every band
+must state the profile-specific meaning of `full` and the testimony-test
+state. It must not compare v0 and v0.1 percentages without these labels,
+because the two windows do not apply identical testimony tests.
