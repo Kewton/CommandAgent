@@ -528,8 +528,8 @@ class CliBandTests(unittest.TestCase):
             scanned_sets,
             [band.CLI_LOCAL_SET, *band.CLI_ELEVATED_SETS, *band.CLI_PACK_SETS],
         )
-        self.assertEqual(len(records), 42)
-        self.assertEqual(band.assert_cli_invariants(records), 5)
+        self.assertEqual(len(records), 48)
+        self.assertEqual(band.assert_cli_invariants(records), 6)
         local = [record for record in records if record.set_id == band.CLI_LOCAL_SET]
         self.assertEqual(
             band.cli_rate_rows(local),
@@ -571,27 +571,36 @@ class CliBandTests(unittest.TestCase):
         self.assertEqual(
             band.cli_rate_rows(pack_arm),
             [
-                ["filter", "gemma4:31b-cloud", "0", "6", "6", "0%"],
-                ["stats", "gemma4:31b-cloud", "0", "6", "6", "0%"],
+                ["filter", "gemma4:31b-cloud", "0", "9", "9", "0%"],
+                ["stats", "gemma4:31b-cloud", "0", "9", "9", "0%"],
             ],
         )
-        self.assertEqual(sum(record.reached_checks for record in pack_arm), 2)
-        self.assertEqual(sum(record.pack_exposed for record in pack_arm), 2)
-        self.assertEqual({record.pack_label for record in pack_arm}, {
-            f"{band.CLI_PACK_ID} / {band.CLI_PACK_HASH}"
-        })
-        summary = band.build_cli_summary(records, scanned_sets, 5)
+        self.assertEqual(sum(record.reached_checks for record in pack_arm), 3)
+        self.assertEqual(sum(record.pack_exposed for record in pack_arm), 3)
+        self.assertEqual(
+            {record.pack_label for record in pack_arm},
+            {
+                f"{band.CLI_PACK_ID} / {band.CLI_PACK_HASH}",
+                f"{band.CLI_PACK_V1_1_ID} / {band.CLI_PACK_V1_1_HASH}",
+            },
+        )
+        summary = band.build_cli_summary(records, scanned_sets, 6)
         self.assertIn("- Window B full: `0/6` (0%)", summary)
         self.assertIn("- Window B runs reaching C checks: `2/6`", summary)
-        self.assertIn("- All-history runs reaching C checks: `5/42`", summary)
-        self.assertIn("- Reached-run C evidence sets verified: `5/5`", summary)
-        self.assertIn("- Pack runs reaching C checks: `2/12`", summary)
-        self.assertIn("- Pack renderer exposure: `2/12`", summary)
-        self.assertIn("C3は6/6 violationのまま", summary)
+        self.assertIn("- All-history runs reaching C checks: `6/48`", summary)
+        self.assertIn("- Reached-run C evidence sets verified: `6/6`", summary)
+        self.assertIn("- Pack runs reaching C checks: `3/18`", summary)
+        self.assertIn("- Pack renderer exposure: `3/18`", summary)
+        self.assertIn("C3は9/9 violationのまま", summary)
         self.assertIn(
             f"{band.CLI_PACK_ID} / {band.CLI_PACK_HASH}",
             summary,
         )
+        self.assertIn(
+            f"{band.CLI_PACK_V1_1_ID} / {band.CLI_PACK_V1_1_HASH}",
+            summary,
+        )
+        self.assertIn("testimony target 1/1 reached", summary)
         self.assertIn("static (profile_not_admitted)", summary)
         self.assertIn("completion写像欠落", summary)
         self.assertIn("C1〜C4 runtimeが未配線", summary)

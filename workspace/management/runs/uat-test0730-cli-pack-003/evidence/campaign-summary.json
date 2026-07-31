@@ -1,0 +1,253 @@
+{
+  "schema_version": "1",
+  "uat_id": "uat-test0730-cli-pack-003",
+  "campaign_id": "cli-create-elevated-cli-assist-v1-1-20260731-003454",
+  "revision": "e3023be014be99dcbdf71ba928af5cab5a1e84bd",
+  "contract": "docs/cli-profile-contract.md (fixed 2026-07-24); docs/pack-institution-contract.md (fixed 2026-07-30)",
+  "suite": {
+    "id": "cli-create-elevated-cli-assist-v1-1",
+    "profile": "cli",
+    "intent": "create",
+    "workspace_mode": "empty",
+    "admission": "admitted",
+    "planner": "qwen3.6:27b-coding-nvfp4",
+    "executor": "gemma4:31b-cloud",
+    "provider": "ollama",
+    "pack": {
+      "id": "cli-assist",
+      "version": "1.1.0",
+      "hash": "sha256:3d11e126d3afbcd8a53e23367d53859924c700aeaf5345fa366060d66c917c82",
+      "assist_present": true,
+      "eval_present": false,
+      "assist_schema_version": "commandagent.pack.assist/v0",
+      "eval_schema_version": null
+    }
+  },
+  "source_hashes": {
+    "uat_meta_sha256": "8d21ce59b74bb85421b8a3e1ff2d1661377cd2da1024a6985a9163c5011834b5",
+    "report_skeleton_sha256": "5b5964c5136a94d99df8a1557c34d15db916d06cb6095ae1d003882e00491e8e",
+    "live_run_readme_sha256": {
+      "filter_cloud_001": "f25cb677e7cf849eae295242bdb89f8dda3959a2c7644e134072cc65d6a46407"
+    },
+    "live_run_events_sha256": {
+      "filter_cloud_001": "4726f9252092b1fc694cf7e82e306140204fc20595fa923cd9a702cf78c7af26"
+    }
+  },
+  "epochs": {
+    "preflight_start": 1785458094,
+    "run_start": 1785458329,
+    "run_end": 1785463989,
+    "audit_end": 1785463989
+  },
+  "cost_seconds": {
+    "preflight_start_to_run_end": 5895,
+    "run_sum": 5660,
+    "run_start_to_run_end": 5660
+  },
+  "preflight": {
+    "git_clean": true,
+    "head": "e3023be014be99dcbdf71ba928af5cab5a1e84bd",
+    "minimum_ancestor": "ce395ad",
+    "cargo_test_exit_code": 0,
+    "release_build_exit_code": 0,
+    "version": "commandagent 0.1.0 e3023be 2026-07-31T00:38:31Z",
+    "node_env": "production",
+    "deviations": []
+  },
+  "runs": [
+    {
+      "name": "stats_cloud_001",
+      "family": "stats",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 1798,
+      "pack_id": "cli-assist@1.1.0",
+      "pack_hash": "sha256:3d11e126d3afbcd8a53e23367d53859924c700aeaf5345fa366060d66c917c82",
+      "pack_exposed": false
+    },
+    {
+      "name": "stats_cloud_002",
+      "family": "stats",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 984,
+      "pack_id": "cli-assist@1.1.0",
+      "pack_hash": "sha256:3d11e126d3afbcd8a53e23367d53859924c700aeaf5345fa366060d66c917c82",
+      "pack_exposed": false
+    },
+    {
+      "name": "stats_cloud_003",
+      "family": "stats",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 265,
+      "pack_id": "cli-assist@1.1.0",
+      "pack_hash": "sha256:3d11e126d3afbcd8a53e23367d53859924c700aeaf5345fa366060d66c917c82",
+      "pack_exposed": false
+    },
+    {
+      "name": "filter_cloud_001",
+      "family": "filter",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "failed (cli_assurance_failed)",
+      "final_acceptance_reached": true,
+      "c1": "pass",
+      "c2": "pass",
+      "c3": "fail",
+      "c4": "pass",
+      "class_id": "cli_claims_binding:readme_output_claim_fabricated",
+      "attribution": "model",
+      "duration_seconds": 1745,
+      "pack_id": "cli-assist@1.1.0",
+      "pack_hash": "sha256:3d11e126d3afbcd8a53e23367d53859924c700aeaf5345fa366060d66c917c82",
+      "pack_exposed": true,
+      "c3_binding_exposed": true,
+      "testimony_target_selected": true,
+      "selection_reason": "testimony_artifact_mapped",
+      "selected_target": "README.md",
+      "post_injection_write": false,
+      "c3_claims": 3,
+      "c3_violations": 3
+    },
+    {
+      "name": "filter_cloud_002",
+      "family": "filter",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 553,
+      "pack_id": "cli-assist@1.1.0",
+      "pack_hash": "sha256:3d11e126d3afbcd8a53e23367d53859924c700aeaf5345fa366060d66c917c82",
+      "pack_exposed": false
+    },
+    {
+      "name": "filter_cloud_003",
+      "family": "filter",
+      "executor": "gemma4:31b-cloud",
+      "harness_status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "static (cli_probe_not_run)",
+      "final_acceptance_reached": false,
+      "c1": "not_reached",
+      "c2": "not_reached",
+      "c3": "not_reached",
+      "c4": "not_reached",
+      "class_id": "process_failure",
+      "attribution": "model",
+      "duration_seconds": 315,
+      "pack_id": "cli-assist@1.1.0",
+      "pack_hash": "sha256:3d11e126d3afbcd8a53e23367d53859924c700aeaf5345fa366060d66c917c82",
+      "pack_exposed": false
+    }
+  ],
+  "effective_model_audit": {
+    "expected": "gemma4:31b-cloud",
+    "observed": 6,
+    "expected_runs": 6,
+    "planner_expected": "qwen3.6:27b-coding-nvfp4",
+    "planner_observed": 6
+  },
+  "e0": {
+    "logical_runs": {
+      "known": 6,
+      "unknown": 0
+    },
+    "acceptance_sheets_generated": 6,
+    "acceptance_sheets_expected": 6,
+    "calibration_records_added": 3
+  },
+  "c_evidence": {
+    "runs_reaching_final_acceptance": 1,
+    "runs_executing_c1_through_c4": 1,
+    "cli_probe_injection_records": 1,
+    "c3_binding_injection_records": 1,
+    "pack_exposure_runs": 1,
+    "testimony_target_selection_runs": 1,
+    "c1_pass": 1,
+    "c2_pass": 1,
+    "c3_pass": 0,
+    "c3_fail": 1,
+    "c3_claims": 3,
+    "c3_violations": 3,
+    "c4_pass": 1,
+    "post_injection_write_runs": 0
+  },
+  "baseline_comparison": {
+    "baseline_set": "uat-test0725-cli-elev-004",
+    "baseline_runs": 6,
+    "baseline_reached": 2,
+    "baseline_reach_rate": "2/6 (33.3%)",
+    "baseline_full": "0/6",
+    "baseline_c3_violations": 6,
+    "v1_1_runs": 6,
+    "v1_1_reached": "1/6 (16.7%)",
+    "v1_1_full": "0/6",
+    "v1_1_c3_violations": 3,
+    "interpretation": "one live run directly received all C3 pairs at the mapped README target, but issued only Read calls and made no transcription"
+  },
+  "rates": {
+    "honest_terminal": "6/6",
+    "failed": "6/6",
+    "full": "0/6",
+    "false_full": "0/6",
+    "pack_pin_recorded": "6/6",
+    "pack_exposure": "1/6",
+    "testimony_target_selection": "1/1 reached",
+    "sheet_self_supply": "6/6"
+  },
+  "acceptance": {
+    "p0_a_honest_terminal": "pass",
+    "p0_b_contract_section_4": "pass",
+    "p0_c_false_success_zero": "pass",
+    "p1_testimony_target_fired_on_reached_runs": "pass",
+    "direct_hypothesis_result": "material and target were both exposed, but the model did not transcribe and C3 rejected all 3 claims"
+  },
+  "scrub": {
+    "campaign_ok": true,
+    "runs_ok": 6,
+    "findings": []
+  }
+}
