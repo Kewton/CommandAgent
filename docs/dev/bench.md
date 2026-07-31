@@ -56,6 +56,40 @@ the in-repository audit trail.
 | Show a search method for absence claims | The report records the recursive `events.jsonl` glob, `event` field, and regex patterns used. |
 | Do not skip environment gates | Clean git, HEAD/ancestor, cargo tests, release install/version, and `NODE_ENV` are recorded before procurement. |
 
+## Pack A/B measurement template
+
+Pack効果は「同じ仕事へ何を注入したか」だけを独立変数として測る。
+`pack-001`〜`pack-003`で確立した正準手順は次のとおり。
+
+1. **Aを凍結する。** profile、intent、family、goal、入力hash、planner、
+   executor/provider、preset、権限、suite run行列を固定し、pack未指定の
+   対照窓を選ぶ。Aは同じ契約・admission・runtime世代でなければならない。
+2. **Bはpinだけを変える。** 同じsuiteを使い、差分を
+   `pack.id@version × exact-byte hash`だけにする。pack IDとhashを
+   `uat-meta.json`、レポート、band行へ転記し、未指定経路の既存bytesが
+   fixture/snapshotで不変であることを確認する。
+3. **窓と延長規則を先に宣言する。** 初期run数、同一pinで合算できる
+   追加窓、renderer露出がない場合の延長上限、到達0時に効果実験を閉じて
+   到達率差を別課題へ昇格する規則を、実行前にレポートへ書く。
+4. **分母を段階表示する。** 全run、対象check到達run、renderer露出run、
+   下流判定runを混ぜない。合算は同じexact-byte hash、suite、モデル構成、
+   契約世代の窓だけで行い、日付とendpointも残す。
+5. **live runを三点監査する。** 注入**材料**が必要情報を覆ったか、
+   修復**照準**が正しい成果物を指したか、write**圧力**が同じanchorへ
+   向いたかを原文で確認する。三点の一つでも欠ければ効果仮説は未検証で
+   あり、モデル効果ゼロとは裁定しない。
+6. **下流差を測る。** violation署名、check別pass/fail、assurance、
+   verdict、full率をA/Bで比較する。三点完備かつrenderer live後にも
+   同じ違反署名が残った時だけ、残余をモデル行動へ帰属できる。
+7. **交絡を独立記録する。** 到達率変化、モデルendpoint drift、
+   harness/machine欠陥、契約・試験変更はpack効果へ畳み込まない。
+   scrub、正直終端、偽成功ゼロは両arm共通の受理床である。
+
+最低限のA/B主表は
+`arm / pack pin / n / check reached / renderer live / 三点完備 /
+下流pass-fail / full / stop class`を持つ。結論は「改善」「非改善」に
+二値化せず、`未露出`、`交絡あり`、`三点完備後も同一`まで区別する。
+
 ## Deliberately not automated
 
 The harness does not decide pass/fail, classify an incident, consume retries,

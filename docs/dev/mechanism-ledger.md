@@ -1253,3 +1253,19 @@ Phase A産の`nextjs × create`について、現行のbuild・route・browser�
 state検問を遡及文書化し、T1証言束縛の語彙錨抽出、型付き語彙、
 段階assurance、bandラベル透明化を裁定して契約をfixedへ封緘した。
 これにより、稼働中profileのうち契約文書を持たない最後のセルを解消した。
+
+## Phase P settlement — パック制度の稼働宣言（2026-07-31）
+
+| 工程 | 清算値 | 獲得した制度 |
+|---|---|---|
+| P-0 | 制度契約fixed、注入器17経路・評価binding 20（19 distinct ID）・抽出器候補8・normalizer 5を棚卸し | packは実装済みRust語彙の構成であり、検証実体や裁定演算をYAMLへ移さない境界を固定 |
+| P-0b | 17経路中4族をbuiltin pack経由へ移し、prompt/event bytesを4/4 byte互換で維持 | strict decoder、exact-byte hash、契約floor guard、1コマンドconformance、benchのpack pin受け口 |
+| P-1 | `cli-assist`と`data-assist`の2本を実装。CLI armはpack-001〜003の`n=18`、renderer live 3件 | `材料 × 照準 × 圧力`を完備してから残余をモデルへ帰属する手順と、援助飽和でも動かない壁の天井を実測 |
+| P-1 testimony floor | 仮のeval IDをpackへ発明せず、Rust T1→固定Next.js契約→production acceptanceの順で実装 | 閉じた語彙の裁定どおり、証言フロアはまず契約・Rust側でearnedにし、その後だけpackが参照できる |
+| P-2 | bench metaへpack ID × exact-byte hashをpinし、全6 profile bandへprofile別`Full meaning`と証言試験状態を表示 | 能力値をモデル名だけでなくpack構成と試験の意味へ結び、同じ`full`という語の非対称を可視化 |
+
+Phase Pはここで清算する。パック制度は単に外部ファイルを読めるだけでなく、
+**効く場所、効かない場所、それを測る手順**を獲得して稼働した。
+援助の効果がゼロだった場合も、露出前の未検証、照準交絡、材料不足、
+三点完備後のモデル残余を分離して記録できる。P-3の利用者ループ実証は、
+この制度を人間へ提示するD-3c境界対話シェルの後段で行う。
