@@ -320,6 +320,14 @@ impl BoundaryShell {
             continuation,
             result.is_ok(),
         )?;
+        if let Some(events_path) = self.audit_events_path.as_deref() {
+            directive_session::record_latest_result(
+                &self.directive_session_root,
+                &continuation.target_run_id,
+                continuation.directive_round,
+                events_path,
+            )?;
+        }
         crate::eval_events::emit(
             self.audit_events_path.as_deref(),
             json!({

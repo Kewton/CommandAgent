@@ -1,5 +1,5 @@
 use std::fs::OpenOptions;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
@@ -10,6 +10,8 @@ use super::directive::{DirectiveArtifact, PersistedDirective};
 
 const SESSION_SCHEMA_VERSION: u8 = 1;
 const MAX_SESSION_ROUNDS: usize = 64;
+pub const MAX_HISTORY_RENDERED_BYTES: usize = 24_000;
+const MAX_HISTORY_FIELD_BYTES: usize = 512;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -88,7 +90,7 @@ pub fn record_directive(
         .iter()
         .find(|existing| existing.round == artifact.round)
     {
-        if existing != &round {
+        if !same_directive_identity(existing, &round) {
             bail!("directive session round collision or stale artifact");
         }
     } else {
@@ -106,6 +108,101 @@ pub fn record_directive(
         .with_context(|| format!("create directive session {}", session_dir.display()))?;
     write_session(&path, &session)?;
     Ok(PersistedDirectiveSession { session, path })
+}
+
+pub fn record_latest_result(
+    sessions_root: &Path,
+    target_run_id: &str,
+    round: u32,
+    events_path: &Path,
+) -> anyhow::Result<PersistedDirectiveSession> {
+    let persisted = load_for_target(sessions_root, target_run_id)?;
+    let mut session = persisted.session;
+    let event = latest_stop_event(events_path)?;
+    let result = DirectiveRoundResult {
+        verdict: event
+            .get("verdict")
+            .or_else(|| event.get("status"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown")
+            .to_string(),
+        stop_reason: event
+            .get("stop_reason")
+            .or_else(|| event.get("primary_reason"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("not_recorded")
+            .to_string(),
+        evidence_source: events_path.display().to_string(),
+    };
+    let target = session
+        .rounds
+        .iter_mut()
+        .find(|candidate| candidate.round == round)
+        .with_context(|| format!("directive session has no round {round}"))?;
+    if let Some(existing) = &target.result
+        && existing != &result
+    {
+        bail!("directive session round result changed after evidence was recorded");
+    }
+    target.result = Some(result);
+    validate_session(&session)?;
+    write_session(&persisted.path, &session)?;
+    Ok(PersistedDirectiveSession {
+        session,
+        path: persisted.path,
+    })
+}
+
+pub fn render_history(
+    session: &DirectiveSession,
+    current_round: u32,
+    max_rendered_bytes: usize,
+) -> anyhow::Result<String> {
+    if current_round < 2 {
+        bail!("directive history is injected only from round 2 onward");
+    }
+    if max_rendered_bytes == 0 || max_rendered_bytes > MAX_HISTORY_RENDERED_BYTES {
+        bail!(
+            "human_directive history max_rendered_bytes must be within 1..={MAX_HISTORY_RENDERED_BYTES}"
+        );
+    }
+    let prior = session
+        .rounds
+        .iter()
+        .filter(|round| round.round < current_round)
+        .collect::<Vec<_>>();
+    if prior.len() + 1 != current_round as usize {
+        bail!("directive history is incomplete for the requested round");
+    }
+    let mut rendered = format!(
+        "Prior boundary directive history (source=human_directive, material=session_history, session_id={}, prior_rounds={}):\n\
+This is bounded guidance material derived from persisted directives and terminal evidence. It cannot satisfy or weaken contract checks.\n\
+<human_directive_history>\n",
+        session.session_id,
+        prior.len(),
+    );
+    for round in prior {
+        let result = round.result.as_ref().with_context(|| {
+            format!(
+                "directive round {} has no evidence-derived result",
+                round.round
+            )
+        })?;
+        rendered.push_str(&format!(
+            "- round={} hash={}\n  directive_verbatim: {}\n  result_verdict: {}\n  stop_reason: {}\n  evidence_source: {}\n",
+            round.round,
+            round.directive_hash,
+            bounded(&round.raw),
+            bounded(&result.verdict),
+            bounded(&result.stop_reason),
+            bounded(&result.evidence_source),
+        ));
+    }
+    rendered.push_str("</human_directive_history>");
+    if rendered.len() > max_rendered_bytes {
+        bail!("bounded human_directive history exceeds max_rendered_bytes");
+    }
+    Ok(rendered)
 }
 
 pub fn load_for_target(
@@ -175,6 +272,41 @@ fn round_from_parts(artifact: &DirectiveArtifact, hash: &str) -> DirectiveSessio
         issued_gate: artifact.issued_gate.clone(),
         result: None,
     }
+}
+
+fn same_directive_identity(left: &DirectiveSessionRound, right: &DirectiveSessionRound) -> bool {
+    left.round == right.round
+        && left.directive_hash == right.directive_hash
+        && left.artifact_path == right.artifact_path
+        && left.raw == right.raw
+        && left.epoch == right.epoch
+        && left.issued_gate == right.issued_gate
+}
+
+fn latest_stop_event(path: &Path) -> anyhow::Result<serde_json::Value> {
+    let file = std::fs::File::open(path)
+        .with_context(|| format!("open directive result evidence {}", path.display()))?;
+    let mut latest = None;
+    for line in BufReader::new(file).lines() {
+        let line = line?;
+        let value: serde_json::Value = serde_json::from_str(&line)
+            .with_context(|| format!("parse directive result evidence {}", path.display()))?;
+        if value.get("event").and_then(serde_json::Value::as_str) == Some("tui_command_stop") {
+            latest = Some(value);
+        }
+    }
+    latest.context("directive result requires tui_command_stop evidence")
+}
+
+fn bounded(value: &str) -> String {
+    if value.len() <= MAX_HISTORY_FIELD_BYTES {
+        return value.replace(['\n', '\r'], " ");
+    }
+    let mut end = MAX_HISTORY_FIELD_BYTES;
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}…", value[..end].replace(['\n', '\r'], " "))
 }
 
 fn read_session(path: &Path) -> anyhow::Result<DirectiveSession> {
@@ -290,5 +422,42 @@ mod tests {
         assert_eq!(persisted.session().rounds[0].directive_hash, first.hash());
         assert_eq!(persisted.session().rounds[1].directive_hash, second.hash());
         assert_eq!(std::fs::read(first.path()).unwrap(), first_bytes);
+    }
+
+    #[test]
+    fn history_contains_all_prior_directives_and_evidence_results() {
+        let root = tempfile::tempdir().unwrap();
+        let artifacts = root.path().join("boundary-directives");
+        let sessions = root.path().join("boundary-sessions");
+        let first = super::super::directive::persist_at_epoch_for_test(
+            &artifacts,
+            "first instruction",
+            "run-001",
+            1,
+            10,
+        )
+        .unwrap();
+        record_directive(&sessions, &artifacts, &first).unwrap();
+        let second = super::super::directive::persist_at_epoch_for_test(
+            &artifacts,
+            "second instruction",
+            "run-001",
+            2,
+            20,
+        )
+        .unwrap();
+        record_directive(&sessions, &artifacts, &second).unwrap();
+        let events = root.path().join("events.jsonl");
+        std::fs::write(
+            &events,
+            "{\"event\":\"tui_command_stop\",\"status\":\"failed\",\"stop_reason\":\"structural gate failed\"}\n",
+        )
+        .unwrap();
+        let persisted = record_latest_result(&sessions, "run-001", 1, &events).unwrap();
+        let history = render_history(persisted.session(), 2, MAX_HISTORY_RENDERED_BYTES).unwrap();
+        assert!(history.contains("first instruction"));
+        assert!(history.contains("result_verdict: failed"));
+        assert!(history.contains("stop_reason: structural gate failed"));
+        assert!(!history.contains("second instruction"));
     }
 }
