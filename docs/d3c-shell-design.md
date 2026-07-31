@@ -1,0 +1,422 @@
+# D-3c PM Router and Boundary Dialogue Shell
+
+Status: **draft for review (2026-07-31)**
+
+This document is design input only. It does not authorize a product-code
+change, a new event, an LLM call, a workflow dispatch, or a pack-selection
+default. Implementation starts only after review adjudication.
+
+The starting point is
+[`docs/demo/d3c-handoff.md`](demo/d3c-handoff.md): the acceptance sheet is not
+merely an end report. It is machine-produced material distributed across the
+human boundary gates.
+
+## 1. Question and answer
+
+The question is how a user can ask for work in ordinary task language without
+having to trust the assistant's conversational confidence.
+
+The proposed answer is a thin PM router plus four boundary gates:
+
+```text
+request
+  -> route proposal (profile × intent × task family)
+  -> human confirmation
+  -> unattended product execution
+  -> full acceptance sheet
+  -> close, or human-selected next-action proposal
+  -> human confirmation again
+```
+
+The router is deliberately lightweight. It proposes where a request should be
+sent; it does not earn completion, assurance, or even route correctness. A
+wrong route is caught by the selected profile/intent contract and produces an
+honest failure. Therefore the router should optimize for deterministic,
+inspectable suggestions rather than act as another adjudicator.
+
+The shell's core principle is:
+
+> Every consequential claim displayed at a human boundary comes from a typed
+> registry, fixed contract, pinned pack, event, evidence file, capability band,
+> or generated acceptance sheet. Conversation is navigation, not authority.
+
+## 2. Route proposal
+
+### 2.1 Typed output
+
+A route proposal has the following logical shape. Field names are design names,
+not a committed serialization schema.
+
+| Field | Source | Rule |
+|---|---|---|
+| `profile` | `ProfileId` + `ProfileRuntimeRegistry` | Closed registered value; aliases normalize before display |
+| `intent` | `IntentId` + strict `IntentSchema` registry | One of create/fix/investigate in v0 |
+| `task_family` | proposed `TaskFamilyId` catalog | Closed value for the selected profile × intent, or typed `unknown` |
+| `basis` | deterministic observation list | File type, verb, workspace state, or explicit user binding; never an opaque score |
+| `alternatives` | same typed catalogs | Sorted candidates that survived deterministic rules |
+| `classifier_used` | fixed boolean + model pin when true | True only after deterministic ambiguity |
+| `contract_ref` | resolved profile/intent contract | Required before confirmation |
+| `full_meaning` | tracked band label | Exact profile-specific sentence, including testimony state |
+| `pack_candidates` | admitted compatible pack registry | ID, version, exact-byte hash; no invented ID |
+| `status` | fixed `proposal` | A route proposal is never `earned`, `full`, or `accepted` |
+| `confirmation_required` | fixed `true` | No proposal may directly dispatch execution |
+
+E-5b already provides the single typed profile runtime resolve point.
+Implementation should add a read-only iterator to that registry rather than
+copy profile strings into the shell. `IntentId` is already typed; its runtime
+catalog must likewise expose the strict registered schemas instead of
+duplicating create/fix/investigate strings.
+
+E-5a's typed stop-class and violation IDs remain failure vocabulary. They may
+explain workspace state or a failed run, but must not be reused as task-family
+IDs. Doing so would conflate “what job is this?” with “how did it stop?”.
+
+### 2.2 Task-family catalog gap
+
+Task family is the one route dimension that is not currently centralized in
+Rust. Formal bands use code-owned Python classifiers and suite names:
+
+| Profile × intent | Current formal families |
+|---|---|
+| nextjs × create | Quiz, Breakout, Space |
+| data × create | aggregation, timeseries |
+| python-cli × create | stats, filter |
+| ingest × create | list, table |
+| nextjs × fix | compile-error fix, contract-hook fix |
+| data × investigate | pipe, schema |
+
+This draft does not hide that gap and does not solve it with free text.
+Implementation batch 0 must add a typed `TaskFamilyId`/catalog whose entries
+are derived from the existing formal band family definitions and guarded
+against the cross-language classifiers. Until a profile × intent has such an
+entry, the only legal result is typed `unknown`; the router may not invent a
+new family to make the card look complete.
+
+This catalog is descriptive and pricing-oriented. Selecting a family does not
+alter a profile contract or award assurance.
+
+### 2.3 Deterministic rule layer
+
+Rules run in fixed precedence order and emit their observations. A later rule
+does not silently overwrite an explicit earlier binding.
+
+1. **Explicit typed binding.** A valid user-supplied profile, intent, or family
+   narrows candidates. An unknown value is rejected with the registered list;
+   it is not passed through as an `Other` route.
+2. **Workspace file structure.** Inspect a bounded, sorted inventory. Examples:
+   a Next.js dependency plus an App Router tree proposes `nextjs`; `cli/main.py`
+   plus CLI usage artifacts proposes `python-cli`; `pipeline/main.py` with
+   tabular inputs proposes `data`; `data/snapshots/` plus ingest inspection
+   proposes `ingest`.
+3. **Request verbs and objects.** Create/build/make language proposes `create`;
+   repair/fix language with a failing artifact proposes `fix`; diagnose,
+   investigate, reproduce, or root-cause language proposes `investigate`.
+   These rules use a reviewed bilingual lexical table, not a model-generated
+   synonym list.
+4. **Workspace state.** An empty requested workspace strengthens create.
+   Persisted failure/recovery evidence strengthens fix or investigate.
+   Bound diagnosis carry strengthens fix. Existing successful deliverables do
+   not by themselves imply fix.
+5. **Family rules.** Run only inside the resolved profile × intent candidate
+   set. They reuse the formal band classifiers and input shapes: for example,
+   month-over-month/moving-average language distinguishes data timeseries,
+   CLI count/sum/mean distinguishes stats, a frozen table/list snapshot
+   distinguishes ingest table/list, and compile evidence distinguishes the two
+   current fix families.
+
+The rule result is:
+
+- one candidate: propose it and show every basis;
+- multiple candidates: send only those closed candidates to the ambiguity
+  classifier;
+- no candidate: use the relevant catalog plus `unknown` as the classifier
+  choice set;
+- contradictory explicit bindings: do not call the classifier; ask the human
+  to correct the request.
+
+Workspace inspection follows existing bounded-inventory rules: no symlink
+traversal, no dependency/build trees, normalized relative paths, fixed caps,
+and an explicit omission count.
+
+### 2.4 LLM ambiguity classifier
+
+The LLM is used only when the deterministic layer is ambiguous. Its prompt
+contains:
+
+- the original request;
+- bounded deterministic observations;
+- the closed candidate triples;
+- one machine-readable output schema;
+- the instruction that it is choosing a proposal, not adjudicating capability.
+
+It cannot return arbitrary IDs. The response is decoded into the typed
+candidate set; an invalid, missing, or multi-valued answer becomes `unknown`
+with the parse reason. Provider, model, prompt version, candidate set, and raw
+response hash are recorded as proposal provenance, not acceptance evidence.
+
+Human confirmation is mandatory after both deterministic and LLM proposals.
+The LLM never executes, changes a pack, expands a contract, or chooses a
+failure recovery action.
+
+## 3. Boundary dialogue lifecycle
+
+The shell has a small state model separate from the E-5f execution-phase state
+machine:
+
+```text
+collecting
+  -> route_proposed
+  -> awaiting_confirmation
+  -> confirmed
+  -> running
+  -> acceptance_ready | failure_ready
+  -> closed | next_action_proposed
+  -> awaiting_confirmation
+```
+
+Only `confirmed -> running` dispatches product work. Any route, model tier,
+provider, pack pin, workspace, goal, or next-action change creates a new
+proposal and returns to `awaiting_confirmation`.
+
+### 3.1 Gate 1 — request confirmation
+
+The confirmation card contains:
+
+1. the exact user request and workspace;
+2. proposed profile × intent × family, deterministic bases, alternatives, and
+   whether the ambiguity classifier was used;
+3. the resolved contract and its checks before execution;
+4. acceptance-sheet §3 “definition of done” material;
+5. the applicable capability-band value, denominator, measurement date/arm,
+   and exact **Full meaning** label;
+6. planner/executor/provider/preset and any known measured limitation;
+7. the selected pack or explicit `no pack`, including ID, version, exact-byte
+   hash, compatible point, and whether a comparable band row exists;
+8. unknown or unmeasured values rendered as such, never estimated silently.
+
+The human can confirm, edit the request/bindings, choose an admitted compatible
+pack, or cancel. Confirmation persists the exact card identity and selected
+pins. The card does not claim that the task will pass; it states what will be
+tested and what the current value tag means.
+
+Why conversation need not be trusted: all consequential card values are
+resolved from registries, contracts, bands, or pack conformance. The prose
+router rationale cannot alter them.
+
+### 3.2 Gate 2 — unattended execution
+
+After confirmation the shell constructs the existing product command/config
+from the frozen proposal and hands off to the normal runner. Execution has no
+clarifying dialogue and no plan edits from the PM shell. Existing cancellation
+and safety aborts remain available, but they stop the run; they are not an
+interactive route or contract mutation.
+
+The shell may display progress already emitted by the product. It may not
+reinterpret progress as completion, auto-select a repair, swap models, change
+packs, or answer a runner question on the user's behalf.
+
+Why conversation need not be trusted: execution consumes the persisted typed
+confirmation, not the latest chat text. Existing runner events, evidence,
+budgets, and honest-failure terminals remain authoritative.
+
+### 3.3 Gate 3 — acceptance
+
+On a terminal result, the shell presents the complete generated acceptance
+sheet, not a conversational summary in place of it. Navigation may highlight:
+
+- verdict and assurance;
+- the same Full meaning label shown at confirmation;
+- every bound contract check and result;
+- evidence paths/hashes and pack pins;
+- elapsed epochs and cost fields that were actually recorded;
+- discrepancies between the confirmed value tag and the executed identity.
+
+The user may acknowledge/close or inspect an evidence item. A friendly one-line
+heading is allowed, but it cannot omit, rewrite, or upgrade the sheet.
+
+Why conversation need not be trusted: the acceptance sheet is derived from the
+tracked events/evidence/meta body. The shell neither recomputes nor substitutes
+the verdict.
+
+### 3.4 Gate 4 — failure and next action
+
+For non-full or failed terminals, the shell presents the full sheet plus §5
+plain-language stop reason and only these typed next-action proposals:
+
+| Action | Required basis | Effect |
+|---|---|---|
+| retry | retry remains contractually allowed and the cause is not a deterministic repeat | Creates a new run proposal; never consumes a retry automatically |
+| recovery circle | recovery YAML and an admitted workflow edge exist | Proposes the existing circle with its carry/evidence requirements |
+| elevated model | an admitted provider/model configuration is available | Changes the model pin and value tag; returns to Gate 1 |
+| pack change | an admitted compatible pack exists | Changes exact pack identity; returns to Gate 1 and invalidates direct A/B comparability unless recorded |
+| close | always | Records no further action |
+
+The shell shows why unavailable actions are disabled. It does not infer that a
+retry is wise, create a workflow edge, admit a pack, or classify a model failure
+from conversational sympathy. The human chooses; every consequential choice
+returns to confirmation.
+
+Why conversation need not be trusted: availability is computed from typed
+terminal/evidence/registry state, and selection alone is not execution.
+
+## 4. Pack-selection surface
+
+Gate 1 lists only packs that satisfy all of the following:
+
+- loaded by the strict pack decoder;
+- schema/conformance green;
+- compatible with the selected profile, intent, source, and injection point;
+- contract-floor merge green;
+- admitted by the in-repository registry;
+- identified by exact bytes, not merely ID/version.
+
+`No pack` is an explicit choice and preserves the existing product path.
+Builtin compatibility packs that preserve historical bytes are implementation
+detail unless they change the user-visible measurement identity.
+
+The shell displays:
+
+```text
+cli-assist@1.1.0
+sha256:3d11e126...
+point: cli-validation
+band: measured / unmeasured
+```
+
+It never lists a merely present YAML file as selectable. A pack added after a
+card was rendered invalidates that card only if the user chooses it; the
+previous exact hash remains reproducible. Signed external supply remains Phase
+G scope and is not a D-3c path.
+
+Next.js T1 is currently a Rust/contract acceptance floor, not an eval pack.
+The shell must describe that fact rather than invent a `nextjs-eval` selection.
+
+## 5. Product placement
+
+D-3c integrates with the existing product REPL UX track; it is not a new bench
+front end and not a second product runner.
+
+Proposed leaf layout:
+
+```text
+src/tui/boundary_shell/
+  mod.rs                 # dialogue lifecycle only
+  route.rs               # typed proposal and deterministic rules
+  ambiguity.rs           # closed-candidate LLM adapter
+  confirmation.rs        # Gate 1 card + persisted identity
+  acceptance.rs          # Gate 3/4 sheet and next-action presentation
+  family_catalog.rs      # typed band-family catalog/guard
+```
+
+Minimal wiring belongs in `src/tui/repl.rs` and the existing slash/natural
+request dispatch boundary. `src/repl.rs` remains the thin entry point.
+`src/planner/runner.rs`, runner leaf modules, acceptance comparators, and
+workflow adjudication do not gain dialogue logic. The shell calls existing
+typed configuration and execution surfaces after confirmation.
+
+Management-side readers may expose the existing acceptance-sheet and band
+records through a small Rust adapter or a generated, versioned catalog. Runtime
+must not import Python classifiers or scrape Markdown ad hoc. If a catalog is
+generated, cross-language guard tests must fail when a band family, Full
+meaning label, admitted profile, or pack identity is missing.
+
+Proposed additive audit events, subject to review, are
+`route_proposed`, `route_confirmed`, and `next_action_selected`. Their payloads
+carry typed IDs, deterministic bases, card/hash identity, and classifier
+provenance. They do not carry assurance and do not change existing event bytes.
+Event-baseline and ordered-lifecycle fixtures must be updated before enabling
+the shell.
+
+## 6. Size and calibration estimate
+
+This is an E-3/E-4-style estimate declared before implementation. D-3c adds no
+new comparator or assurance surface, so the “new comparator 500–1,000 lines”
+term is zero. Its cost is typed routing, presentation plumbing, and calibration.
+
+| Component | Production Rust | Tests/fixtures | Main risk |
+|---|---:|---:|---|
+| registry iterators + typed family catalog/guard | 180–320 | 180–300 | cross-language family drift |
+| deterministic router + bounded workspace observations | 300–500 | 300–500 | false deterministic uniqueness |
+| ambiguity classifier adapter | 150–260 | 180–300 | unregistered/unstable output |
+| four-gate lifecycle and persisted confirmation | 350–600 | 350–600 | dispatch before confirmation |
+| card/sheet/band/pack presenters | 260–450 | 260–450 | conversational omission or stale pin |
+| REPL wiring | 80–150 | 100–180 | bypass path / UX regression |
+| **Total estimate** | **1,320–2,280** | **1,370–2,330** | — |
+
+The E-4 revised calibration rule applies: inspect the machine floor in the
+three categories of transmission, semantics, and stage design, then budget
+**5–10 campaigns** rather than assuming 1–2 turns. At minimum the campaign
+matrix covers:
+
+- deterministic unique, deterministic ambiguous, and no-family routes;
+- invalid LLM output and human correction;
+- each of the four boundary terminal paths;
+- no-pack and admitted-pack confirmation;
+- retry, circle, elevated, and pack-change next-action proposals;
+- one third-party P-3 user loop after D-3c admission.
+
+Success is not “the router guessed correctly once”. It is:
+
+1. zero execution before a persisted human confirmation;
+2. zero unregistered profile/intent/family/pack IDs;
+3. exact agreement between confirmation identity, product run identity, sheet,
+   and band label;
+4. honest contract failure for wrong confirmed routes;
+5. a user can make the next decision from machine evidence without trusting a
+   conversational claim.
+
+## 7. Verification plan
+
+Before live measurement, implementation must provide:
+
+- registry coverage guards for profile, intent, family, contract, Full meaning,
+  and admitted pack identities;
+- table-driven deterministic-route tests using real workspace/goal shapes;
+- invalid/ambiguous classifier fixtures proving mandatory confirmation;
+- a production-path test proving no runner call occurs before confirmation and
+  exactly one occurs after it;
+- Gate 1 golden cards for measured, unmeasured, no-pack, and pack-pin cases;
+- Gate 3/4 goldens from existing full/failed/circle acceptance sheets;
+- next-action tests proving every change returns to Gate 1;
+- ordered event fixture and byte-compatibility checks for existing product
+  execution/events/evidence;
+- corpus coverage for any request or recovery contract whose event/corpus shape
+  changes;
+- fmt, clippy, full Rust suite, Python checks, scrub, CI, and acceptance green.
+
+The first live arm should use an already admitted profile/intent and compare
+the shell path with the direct CLI path. Product verdict, assurance, evidence,
+and event bytes after dispatch must agree; only the additive boundary records
+may differ.
+
+## 8. Permanent scope exclusions
+
+D-3c does not include:
+
+- free-form assistant conversation as a product feature;
+- intervention, replanning, or pack/model swapping during execution;
+- learning or online adaptation of router rules;
+- an LLM-created profile, intent, family, contract, pack, or next action;
+- automatic retry, circle dispatch, elevated fallback, or pack admission;
+- new comparator/evaluator semantics;
+- changes to E-5f execution-phase control;
+- signed external pack supply;
+- replacing the full acceptance sheet with a summary.
+
+## 9. Review decisions requested
+
+1. Approve the mandatory-confirmation rule even for deterministic unique routes,
+   or allow an explicit non-interactive CLI path to remain the only bypass.
+2. Approve a new typed task-family catalog guarded against formal band
+   classifiers; no free-text family fallback is recommended.
+3. Approve the proposed leaf placement under `src/tui/boundary_shell/` and
+   minimal REPL wiring.
+4. Decide whether the three additive boundary event names are accepted or
+   should remain a separate shell audit file.
+5. Confirm that hard cancellation remains a safety stop while all semantic
+   mid-run intervention stays out of scope.
+6. Confirm the 1,320–2,280 production-line and 5–10 campaign estimate as the
+   implementation planning range.
+
+Until these decisions are adjudicated, this document remains draft and D-3c
+remains QUEUED.
