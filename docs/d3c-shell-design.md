@@ -1,10 +1,11 @@
 # D-3c PM Router and Boundary Dialogue Shell
 
-Status: **draft for review (2026-07-31)**
+Status: **fixed (2026-07-31)**
 
-This document is design input only. It does not authorize a product-code
-change, a new event, an LLM call, a workflow dispatch, or a pack-selection
-default. Implementation starts only after review adjudication.
+This document is the fixed D-3c implementation contract. Product-code changes
+remain limited to the typed router, boundary gates, presentation, and REPL
+wiring specified here; it does not authorize a new acceptance comparator,
+automatic dispatch, mid-run intervention, or a pack-selection default.
 
 The starting point is
 [`docs/demo/d3c-handoff.md`](demo/d3c-handoff.md): the acceptance sheet is not
@@ -85,8 +86,8 @@ Rust. Formal bands use code-owned Python classifiers and suite names:
 | nextjs × fix | compile-error fix, contract-hook fix |
 | data × investigate | pipe, schema |
 
-This draft does not hide that gap and does not solve it with free text.
-Implementation batch 0 must add a typed `TaskFamilyId`/catalog whose entries
+The fixed design does not hide that gap and does not solve it with free text.
+Implementation batch 0 adds a typed `TaskFamilyId`/catalog whose entries
 are derived from the existing formal band family definitions and guarded
 against the cross-language classifiers. Until a profile × intent has such an
 entry, the only legal result is typed `unknown`; the router may not invent a
@@ -320,7 +321,7 @@ must not import Python classifiers or scrape Markdown ad hoc. If a catalog is
 generated, cross-language guard tests must fail when a band family, Full
 meaning label, admitted profile, or pack identity is missing.
 
-Proposed additive audit events, subject to review, are
+The additive audit events are
 `route_proposed`, `route_confirmed`, and `next_action_selected`. Their payloads
 carry typed IDs, deterministic bases, card/hash identity, and classifier
 provenance. They do not carry assurance and do not change existing event bytes.
@@ -329,7 +330,7 @@ the shell.
 
 ## 6. Size and calibration estimate
 
-This is an E-3/E-4-style estimate declared before implementation. D-3c adds no
+This is the fixed E-3/E-4-style implementation estimate. D-3c adds no
 new comparator or assurance surface, so the “new comparator 500–1,000 lines”
 term is zero. Its cost is typed routing, presentation plumbing, and calibration.
 
@@ -403,20 +404,19 @@ D-3c does not include:
 - signed external pack supply;
 - replacing the full acceptance sheet with a summary.
 
-## 9. Review decisions requested
+## 9. Review adjudication
 
-1. Approve the mandatory-confirmation rule even for deterministic unique routes,
-   or allow an explicit non-interactive CLI path to remain the only bypass.
-2. Approve a new typed task-family catalog guarded against formal band
-   classifiers; no free-text family fallback is recommended.
-3. Approve the proposed leaf placement under `src/tui/boundary_shell/` and
-   minimal REPL wiring.
-4. Decide whether the three additive boundary event names are accepted or
-   should remain a separate shell audit file.
-5. Confirm that hard cancellation remains a safety stop while all semantic
-   mid-run intervention stays out of scope.
-6. Confirm the 1,320–2,280 production-line and 5–10 campaign estimate as the
-   implementation planning range.
+The six design questions are resolved as follows:
 
-Until these decisions are adjudicated, this document remains draft and D-3c
-remains QUEUED.
+1. Human confirmation is mandatory even for a deterministic unique route.
+   Explicit non-interactive product CLI actions remain outside the REPL shell;
+   no REPL execution path bypasses confirmation.
+2. Task families use the typed catalog and cross-language guard in §2.2.
+   Catalog misses resolve only to typed `unknown`.
+3. Implementation uses the leaf layout in §5 with minimal REPL wiring.
+4. The three additive boundary audit events in §5 are accepted.
+5. Hard cancellation remains a safety stop; semantic mid-run intervention
+   remains out of scope.
+6. The production estimate is fixed at **1,320–2,280 Rust lines**, with
+   **5–10 calibration campaigns**. Tests and fixtures retain the separate
+   **1,370–2,330 line** planning range.

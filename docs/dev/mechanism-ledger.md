@@ -1269,3 +1269,11 @@ Phase Pはここで清算する。パック制度は単に外部ファイルを�
 援助の効果がゼロだった場合も、露出前の未検証、照準交絡、材料不足、
 三点完備後のモデル残余を分離して記録できる。P-3の利用者ループ実証は、
 この制度を人間へ提示するD-3c境界対話シェルの後段で行う。
+
+## D-3c contract seal — 境界対話の実装裁定（2026-07-31）
+
+D-3c設計をfixedへ封緘した。正式band由来のtyped task-family catalog、
+決定的一意でない場合だけの閉語彙LLM分類、決定的一意を含む全routeでの
+永続human confirmation、4境界gate、既存REPLへのleaf配線を実装方式とする。
+見積りはproduction Rust **1,320〜2,280行**、較正**5〜10 campaign**を
+確定値とし、確認前dispatch・REPL bypass・偽の決定的一意を必須guardで封鎖する。
