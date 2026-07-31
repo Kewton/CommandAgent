@@ -600,6 +600,10 @@ class CliBandTests(unittest.TestCase):
             f"{band.CLI_PACK_V1_1_ID} / {band.CLI_PACK_V1_1_HASH}",
             summary,
         )
+        self.assertIn(
+            "assist ceiling measured — 援助飽和・効果なし (live 3/3同一署名)",
+            summary,
+        )
         self.assertIn("testimony target 1/1 reached", summary)
         self.assertIn("static (profile_not_admitted)", summary)
         self.assertIn("completion写像欠落", summary)

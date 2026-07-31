@@ -3150,7 +3150,8 @@ def cli_band_status(set_id: str) -> str:
         return "A/B pack arm segment 2 — live renderer exposure 2/6"
     if set_id == CLI_PACK_SETS[2]:
         return (
-            "v1.1 direct arm — testimony target 1/1 reached; "
+            "assist ceiling measured — 援助飽和・効果なし "
+            "(live 3/3同一署名); v1.1 testimony target 1/1 reached; "
             "C3 material 1/1; README write 0/1"
         )
     return "local reference arm"
@@ -3197,6 +3198,7 @@ def build_cli_summary(
         f"- Pack arm full: `{sum(record.is_full for record in pack_arm)}/{len(pack_arm)}` ({pct(sum(record.is_full for record in pack_arm), len(pack_arm))}); Window Bとの差 `0 percentage points`",
         f"- Pack runs reaching C checks: `{sum(record.reached_checks for record in pack_arm)}/{len(pack_arm)}`",
         f"- Pack renderer exposure: `{sum(record.pack_exposed for record in pack_arm)}/{len(pack_arm)}`",
+        "- Pack arm note: assist ceiling measured — 援助飽和・効果なし (live 3/3同一署名).",
         "- Pack interpretation: v1.0.0はlive 2件でC1材料のみ、v1.1.0はlive 1件でREADME照準+C3全3対を直接露出した。いずれもモデルはREADMEを更新せず、pack armのC3は9/9 violationのままだった。",
         "- Reach-rate comparison: Window B 2/6 (33.3%) vs v1.1.0 arm 1/6 (16.7%), -16.6 percentage points; combined pack arms 3/18 (16.7%) (descriptive only).",
         "- Invariant: C evidence files are mandatory only after a run reaches the CLI checks.",

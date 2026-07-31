@@ -289,6 +289,7 @@ is read through this index when duplicated here.
 |---|---|---|
 | Third-party one-cell profile addition | **G/BP1** | Have a contributor who did not build E-3/E-4 add one cell from the scaffold and report touched files, calibration floors, and campaign cost. |
 | Fourth declarative intent | **QUEUED** | Add and measure one intent beyond create/fix/investigate with the E-2 byte/snapshot/conformance discipline. |
+| CLI × C3 model-tier lever | **QUEUED; F-1 target cell** | The pack-001〜003 assist arm reached its measured ceiling (`n=18`, live `3/3` with the same C3 violation signature after material × target × pressure were completed). Change the model tier as the next independent variable in the F-1 model-column experiment. |
 | E-5f phase state machine | **QUEUED; design complete** | Review the 16-state/five-batch design in [`e5f-phase-state-machine.md`](e5f-phase-state-machine.md) on the post-E-5d terrain before authorizing control-flow changes. |
 | Ingest business expansion | **5 items QUEUED** | Stage-2 fetch probe, Excel, JSON/JSONL, PDF/attachment, and multi-source reconciliation remain separate contracts and denominators; the detailed five-item scope is in “E-4 stage-1 post-close business queue” above. |
 | Comparator leaf panic conversion | **8 sites QUEUED** | Convert the locally proved capture/container accesses listed in [`e5e-debt-audit.md`](../../workspace/management/runs/e5e-debt-audit.md) to typed violations when touched. Static regex/manifests remain in the permitted repository-owned panic layer. |
