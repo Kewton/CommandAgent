@@ -1,0 +1,39 @@
+case_id = "nextjs-testimony-quiz"
+source = "P-1b measured Quiz run 019fb6a1-a529-7030-a5cb-a8166b587e44"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["quiz", "score", "retry"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[json_fields]
+browser-readiness.json:route_rendered = "true"
+browser-interaction.json:interaction_success = "true"
+browser-interaction.json:input_state_change = "true"
+browser-interaction.json:recovery_transition = "false"
+
+[fixture_contains]
+README.md = [
+  "Next.js Quiz Application",
+  "Real-time score tracking",
+  "Retry control"
+]
+provenance.md = [
+  "019fb6a1-a529-7030-a5cb-a8166b587e44",
+  "T1"
+]

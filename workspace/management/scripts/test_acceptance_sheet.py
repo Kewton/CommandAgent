@@ -55,6 +55,17 @@ class AcceptanceSheetTests(unittest.TestCase):
         )
         self.assertIn("`new_check`", s)
 
+    def test_non_object_json_artifacts_do_not_break_check_discovery(self):
+        d = self.make(
+            '{"event":"run_stop","status":"full"}\n',
+            '{"check_id":"pipeline_probe"}',
+        )
+        (d / "generated-array.json").write_text('["framework", "artifact"]')
+
+        s = generate(d)
+
+        self.assertIn("パイプラインを実行", s)
+
     def test_evidence_values_are_transcribed(self):
         d = self.make(
             '{"event":"run_start","action":"goal text","profile":"data","model":"m","provider":"ollama","planner_model":"p"}\n{"event":"intent_resolved","value":"create"}\n{"event":"run_stop","status":"full"}\n',

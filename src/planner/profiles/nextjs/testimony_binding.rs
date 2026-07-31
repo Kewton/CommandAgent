@@ -402,10 +402,6 @@ fn recognized_anchor(line: &str) -> Option<(TestimonyClaimKind, &str)> {
     earliest.map(|(_, kind, anchor)| (kind, anchor))
 }
 
-fn contains_anchor(line: &str, anchor: &str) -> bool {
-    anchor_position(line, anchor).is_some()
-}
-
 fn anchor_position(line: &str, anchor: &str) -> Option<usize> {
     if !anchor.is_ascii() {
         return line.find(anchor);
@@ -606,13 +602,32 @@ fn bounded_nearest_miss(value: &Value) -> String {
 }
 
 #[cfg(test)]
+pub(crate) fn install_measured_quiz_fixture(root: &Path) {
+    let evidence = root.join(".anvil/evidence");
+    std::fs::create_dir_all(&evidence).unwrap();
+    std::fs::write(
+        root.join("README.md"),
+        include_str!("../../../../tests/corpus/apps/nextjs-testimony-quiz/README.md"),
+    )
+    .unwrap();
+    std::fs::write(
+        evidence.join("browser-readiness.json"),
+        include_str!("../../../../tests/corpus/apps/nextjs-testimony-quiz/browser-readiness.json"),
+    )
+    .unwrap();
+    std::fs::write(
+        evidence.join("browser-interaction.json"),
+        include_str!(
+            "../../../../tests/corpus/apps/nextjs-testimony-quiz/browser-interaction.json"
+        ),
+    )
+    .unwrap();
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
-    const REAL_QUIZ_README: &str =
-        include_str!("../../../../tests/corpus/apps/nextjs-testimony-quiz/README.md");
-    const REAL_MATCHED_READINESS: &str =
-        include_str!("../../../../tests/corpus/apps/nextjs-testimony-quiz/browser-readiness.json");
     const REAL_MATCHED_INTERACTION: &str = include_str!(
         "../../../../tests/corpus/apps/nextjs-testimony-quiz/browser-interaction.json"
     );
@@ -704,15 +719,12 @@ mod tests {
 
     fn measured_fixture(interaction: &str) -> tempfile::TempDir {
         let root = tempfile::tempdir().unwrap();
-        let evidence = root.path().join(".anvil/evidence");
-        std::fs::create_dir_all(&evidence).unwrap();
-        std::fs::write(root.path().join("README.md"), REAL_QUIZ_README).unwrap();
+        install_measured_quiz_fixture(root.path());
         std::fs::write(
-            evidence.join("browser-readiness.json"),
-            REAL_MATCHED_READINESS,
+            root.path().join(".anvil/evidence/browser-interaction.json"),
+            interaction,
         )
         .unwrap();
-        std::fs::write(evidence.join("browser-interaction.json"), interaction).unwrap();
         root
     }
 }

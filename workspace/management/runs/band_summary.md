@@ -1,5 +1,6 @@
 # Next.js Create Capability Band Summary
 
+- Full meaning label: build + real-browser route, interaction, and state-change evidence; T1 testimony binding is active, with violations failing and claims_absent/unrecognized prose recorded without promotion.
 - Window start: `uat-test0711-bs-003`
 - Scanned UAT sets: `12`
 - Aggregate.json rows asserted: `77`

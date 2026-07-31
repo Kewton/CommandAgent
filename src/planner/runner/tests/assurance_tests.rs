@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod moved {
     use super::super::*;
-
+    use crate::planner::failure_vocabulary::ViolationId;
+    use crate::planner::profiles::nextjs::testimony_binding as testimony;
     const ULTRA_FINAL_ACCEPTANCE_EVENT_KEYS: &[&str] = &[
         "acceptance_layer",
         "action_hooks",
@@ -1161,6 +1162,33 @@ if __name__ == "__main__":
         assert_eq!(gate.status, "pass");
         assert_eq!(gate.browser_readiness_status, "not_applicable");
         assert_eq!(gate.interaction_evidence_status, "not_applicable");
+    }
+
+    #[test]
+    fn nextjs_final_acceptance_production_path_starts_t1_and_projects_violation_failed() {
+        let dir = tempfile::tempdir().unwrap();
+        let cfg = config(dir.path().to_path_buf());
+        testimony::install_measured_quiz_fixture(dir.path());
+        let gate = final_acceptance_release_gate_with_runtime(
+            &cfg,
+            ProfileRuntimeRegistry::resolve(&ProfileId::Nextjs),
+            "Create a static Quiz page",
+            &[],
+            Some(&RuntimeAcceptanceReport {
+                passed: true,
+                primary_reason: "pass".to_string(),
+                ..RuntimeAcceptanceReport::default()
+            }),
+            true,
+        );
+        assert_eq!(gate.status, "failed", "{gate:?}");
+        assert!(
+            gate.reasons
+                .iter()
+                .any(|reason| ViolationId::is_testimony_binding(reason)),
+            "{gate:?}"
+        );
+        assert!(dir.path().join(testimony::EVIDENCE_RELATIVE_PATH).is_file());
     }
 
     #[test]

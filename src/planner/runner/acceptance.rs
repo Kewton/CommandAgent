@@ -2298,8 +2298,16 @@ pub(super) fn verify_plan_final_contract(
     let final_acceptance_status = release_gate_final_acceptance_status(&release_gate);
     let runtime_acceptance_status =
         runtime_acceptance_status(runtime_ok, runtime_acceptance.as_ref());
-    let (assurance_level, assurance_reason) =
+    let (base_assurance_level, base_assurance_reason) =
         runtime.assurance_for_completion(&profile_id, &required_capabilities);
+    let testimony_failed = release_gate.reasons.iter().any(|reason| {
+        crate::planner::failure_vocabulary::ViolationId::is_testimony_binding(reason)
+    });
+    let (assurance_level, assurance_reason) = if testimony_failed {
+        ("failed", "testimony_binding_violation")
+    } else {
+        (base_assurance_level, base_assurance_reason)
+    };
     let release_quality_completion =
         release_quality_completion_status(&release_gate, final_acceptance_status);
     let next_action = release_gate_next_action(&release_gate, final_acceptance_status);

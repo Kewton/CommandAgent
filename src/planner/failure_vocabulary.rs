@@ -123,11 +123,12 @@ pub(crate) enum ViolationId {
     CandidateSet(String),
     Accounting(String),
     FormatSchema(String),
-    #[allow(dead_code)]
     TestimonyBinding(String),
 }
 
 impl ViolationId {
+    const TESTIMONY_BINDING_FAMILY: &'static str = "testimony_binding_violation";
+
     #[cfg(test)]
     pub(crate) const ID_FAMILIES: &'static [&'static str] = &[
         "inspection_schema_violation",
@@ -173,9 +174,13 @@ impl ViolationId {
         Self::FormatSchema(detail.into())
     }
 
-    #[allow(dead_code)]
     pub(crate) fn testimony_binding(detail: impl Into<String>) -> Self {
         Self::TestimonyBinding(detail.into())
+    }
+
+    pub(crate) fn is_testimony_binding(value: &str) -> bool {
+        value == Self::TESTIMONY_BINDING_FAMILY
+            || value.starts_with(&format!("{}:", Self::TESTIMONY_BINDING_FAMILY))
     }
 }
 
@@ -190,7 +195,7 @@ impl fmt::Display for ViolationId {
             Self::CandidateSet(detail) => ("candidate_set_violation", detail),
             Self::Accounting(detail) => ("accounting_violation", detail),
             Self::FormatSchema(detail) => ("format_schema_violation", detail),
-            Self::TestimonyBinding(detail) => ("testimony_binding_violation", detail),
+            Self::TestimonyBinding(detail) => (Self::TESTIMONY_BINDING_FAMILY, detail),
         };
         write!(formatter, "{prefix}:{detail}")
     }

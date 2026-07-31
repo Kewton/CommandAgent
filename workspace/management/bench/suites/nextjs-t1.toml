@@ -1,0 +1,29 @@
+[suite]
+id = "nextjs-t1"
+profile = "nextjs"
+intent = "create"
+plan_preset = "profile"
+workspace_mode = "empty"
+context_budget = 65536
+planner_model = "qwen3.6:27b-coding-nvfp4"
+planner_provider = "ollama"
+provider = "ollama"
+min_head = "c2b26bb"
+
+[goals]
+quiz = "シンプルで美しいクイズアプリ（3問・スコア表示・リトライ可能）を3011ポートで起動可能なnext.jsアプリとして開発してください。"
+
+[[runs]]
+name = "quiz_qwen35_001"
+goal = "quiz"
+executor = "qwen3.6:35b-a3b-coding-nvfp4"
+
+[[runs]]
+name = "quiz_qwen35_002"
+goal = "quiz"
+executor = "qwen3.6:35b-a3b-coding-nvfp4"
+
+[[runs]]
+name = "quiz_qwen35_003"
+goal = "quiz"
+executor = "qwen3.6:35b-a3b-coding-nvfp4"

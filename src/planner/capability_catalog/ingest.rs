@@ -62,11 +62,13 @@ static REGISTRY: [CapabilitySpec; 4] = [
 pub(super) fn registry(base: &'static [CapabilitySpec]) -> &'static [CapabilitySpec] {
     static COMBINED: OnceLock<Vec<CapabilitySpec>> = OnceLock::new();
     COMBINED.get_or_init(|| {
-        super::cli::combined_registry(super::data::combined_registry(base))
-            .iter()
-            .chain(REGISTRY.iter())
-            .copied()
-            .collect()
+        super::cli::combined_registry(super::data::combined_registry(
+            super::nextjs::combined_registry(base),
+        ))
+        .iter()
+        .chain(REGISTRY.iter())
+        .copied()
+        .collect()
     })
 }
 

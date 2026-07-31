@@ -61,6 +61,8 @@ def all_events(run):
 
 
 def val(d, *keys, default=None):
+    if not isinstance(d, dict):
+        return default
     for k in keys:
         if d.get(k) is not None:
             return d[k]

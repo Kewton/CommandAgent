@@ -2,9 +2,6 @@ mod domain;
 mod fix_reproducer;
 pub(crate) mod knowledge;
 mod repair_excerpts;
-// P-1b section 6.2 registers the comparator before production dispatch.
-// Remove this scoped allowance in the subsequent wiring commit.
-#[allow(dead_code)]
 pub(crate) mod testimony_binding;
 
 pub use domain::{NextjsProfile, PROFILE_ID};

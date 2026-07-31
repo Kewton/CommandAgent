@@ -198,6 +198,15 @@ pub trait ProfileRuntime: DomainProfile {
         self.behavior_probe(root, goal, required_capabilities, offline)
     }
 
+    fn run_final_testimony_check(
+        &self,
+        _root: &Path,
+        _browser_readiness_path: Option<&str>,
+        _interaction_evidence_path: Option<&str>,
+    ) -> anyhow::Result<Option<ProfileBehaviorProbeReport>> {
+        Ok(None)
+    }
+
     fn canonicalize_create_plan(
         &self,
         _plan: &mut crate::planner::step_plan::StepPlan,

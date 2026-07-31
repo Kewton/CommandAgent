@@ -366,6 +366,72 @@ class ProcurementTests(unittest.TestCase):
 
 
 class ExecutionPolicyTests(unittest.TestCase):
+    def test_source_less_archive_excludes_reproducible_derivatives(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            artifact = root / "artifact"
+            workspace.mkdir()
+            artifact.mkdir()
+            (workspace / "README.md").write_text("deliverable")
+            for name in bench.DERIVED_ARTIFACT_DIRS:
+                (workspace / name).mkdir()
+                (workspace / name / "generated.txt").write_text("generated")
+                (artifact / name).mkdir()
+                (artifact / name / "stale.txt").write_text("stale")
+
+            bench.archive_run(None, workspace, artifact)
+
+            self.assertEqual((artifact / "README.md").read_text(), "deliverable")
+            for name in bench.DERIVED_ARTIFACT_DIRS:
+                self.assertFalse((artifact / name).exists())
+
+    def test_artifact_archive_is_idempotent_with_dependency_symlinks(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "workspace/node_modules/.bin"
+            source.mkdir(parents=True)
+            (root / "workspace/node_modules/tool.js").write_text("tool")
+            (source / "tool").symlink_to("../tool.js")
+            artifact = root / "artifact/node_modules"
+
+            bench._copy_to_artifact(root / "workspace/node_modules", artifact)
+            bench._copy_to_artifact(root / "workspace/node_modules", artifact)
+
+            self.assertTrue((artifact / ".bin/tool").is_symlink())
+            self.assertEqual((artifact / ".bin/tool").read_text(), "tool")
+
+    def test_resume_recovers_recorded_product_terminal_without_rerun(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            suite = bench.load_suite(write_source_less_suite(root))
+            campaign = root / "campaign"
+            run_dir = campaign / "workspaces" / "cli_qwen_001"
+            run_dir.mkdir(parents=True)
+            (run_dir / "uat-console.log").write_text(
+                "start_epoch: 100\ncommand: commandagent\nend_epoch: 109\n"
+                "product_exit: 0\n--- stdout tail ---\ncomplete\n"
+                "--- stderr tail ---\n",
+                encoding="utf-8",
+            )
+            metadata = bench.new_metadata(
+                suite, "source-less-campaign", "run", root, {}, []
+            )
+            metadata["runs"][0]["status"] = "running"
+
+            bench.normalize_interrupted_runs(
+                suite, campaign, metadata, campaign / "uat-meta.json"
+            )
+
+            record = metadata["runs"][0]
+            self.assertEqual(record["status"], "completed")
+            self.assertEqual(record["product_exit"], 0)
+            self.assertEqual(record["duration_seconds"], 9)
+            self.assertTrue(record["resume_recovered_product_terminal"])
+            self.assertTrue(
+                (campaign / "artifacts/cli_qwen_001/acceptance-sheet.md").is_file()
+            )
+
     def test_resume_skips_completed_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

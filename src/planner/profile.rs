@@ -541,6 +541,28 @@ impl ProfileRuntime for crate::planner::profiles::nextjs::NextjsProfile {
         true
     }
 
+    fn run_final_testimony_check(
+        &self,
+        root: &Path,
+        browser_readiness_path: Option<&str>,
+        interaction_evidence_path: Option<&str>,
+    ) -> anyhow::Result<Option<ProfileBehaviorProbeReport>> {
+        let report = crate::planner::profiles::nextjs::testimony_binding::evaluate(
+            root,
+            browser_readiness_path,
+            interaction_evidence_path,
+        )?;
+        crate::planner::profiles::nextjs::testimony_binding::write_evidence(root, &report)?;
+        Ok(Some(ProfileBehaviorProbeReport {
+            status: if report.failed() { "failed" } else { "pass" },
+            reasons: report.violations,
+            evidence_path: Some(
+                crate::planner::profiles::nextjs::testimony_binding::EVIDENCE_RELATIVE_PATH
+                    .to_string(),
+            ),
+        }))
+    }
+
     fn invariant_setup_paths(&self, root: &Path) -> Vec<String> {
         crate::planner::profiles::nextjs::setup_invariant_required_paths(root)
     }

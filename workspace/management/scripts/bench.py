@@ -30,6 +30,7 @@ PACK_SCHEMA_VERSIONS = {
 }
 TAIL_BYTES = 64 * 1024
 MAX_SCRUB_FILE_BYTES = 10 * 1024 * 1024
+DERIVED_ARTIFACT_DIRS = frozenset({"node_modules", ".next", "target"})
 TERMINAL_RUN_STATUSES = {
     "blocked",
     "completed",
@@ -198,7 +199,7 @@ def scrub_path(path: Path, scrub_allow: Sequence[dict[str, str]] = ()) -> ScrubR
             file_path.relative_to(path) if file_path != path else Path(file_path.name)
         )
         parts = set(relative.parts)
-        if any(part in {"node_modules", ".next", "target"} for part in parts):
+        if any(part in DERIVED_ARTIFACT_DIRS for part in parts):
             add("derived", file_path, str(relative))
         if file_path.stat().st_size > MAX_SCRUB_FILE_BYTES:
             add("oversize", file_path, f"{file_path.stat().st_size} bytes")
@@ -1025,8 +1026,12 @@ def _copy_to_artifact(source: Path, destination: Path) -> None:
     if not source.exists() and not source.is_symlink():
         return
     destination.parent.mkdir(parents=True, exist_ok=True)
+    if destination.is_symlink() or destination.is_file():
+        destination.unlink()
+    elif destination.is_dir():
+        shutil.rmtree(destination)
     if source.is_dir() and not source.is_symlink():
-        shutil.copytree(source, destination, dirs_exist_ok=True, symlinks=True)
+        shutil.copytree(source, destination, symlinks=True)
     else:
         shutil.copy2(source, destination, follow_symlinks=False)
 
@@ -1036,7 +1041,18 @@ def archive_run(
 ) -> None:
     artifact_dir.mkdir(parents=True, exist_ok=True)
     if source is None:
+        # Empty-workspace campaigns archive the created deliverable, but dependency
+        # and build trees are reproducible derivatives rather than evidence. Removing
+        # stale copies also makes post-product resume/re-archive deterministic.
+        for name in sorted(DERIVED_ARTIFACT_DIRS):
+            destination = artifact_dir / name
+            if destination.is_symlink() or destination.is_file():
+                destination.unlink()
+            elif destination.is_dir():
+                shutil.rmtree(destination)
         for item in sorted(run_dir.iterdir(), key=lambda path: path.name):
+            if item.name in DERIVED_ARTIFACT_DIRS:
+                continue
             _copy_to_artifact(item, artifact_dir / item.name)
         return
     _copy_to_artifact(run_dir / ".anvil", artifact_dir / ".anvil")
@@ -1331,6 +1347,35 @@ def _finish_run_record(
     record.update(collect_observations(artifact_dir))
 
 
+def _recorded_product_result(run_dir: Path) -> ProductResult | None:
+    """Recover a product result when a post-product harness consumer failed."""
+    try:
+        console = (run_dir / "uat-console.log").read_text(
+            encoding="utf-8", errors="replace"
+        )
+    except OSError:
+        return None
+    fields = {}
+    for key in ("start_epoch", "end_epoch", "product_exit"):
+        match = re.search(rf"(?m)^{key}: (-?[0-9]+)$", console)
+        if match is None:
+            return None
+        fields[key] = int(match.group(1))
+    stdout_section = console.partition("--- stdout tail ---\n")[2]
+    stdout_tail, separator, stderr_tail = stdout_section.partition(
+        "--- stderr tail ---\n"
+    )
+    if not separator:
+        return None
+    return ProductResult(
+        start_epoch=fields["start_epoch"],
+        end_epoch=fields["end_epoch"],
+        exit_code=fields["product_exit"],
+        stdout_tail=stdout_tail,
+        stderr_tail=stderr_tail,
+    )
+
+
 def normalize_interrupted_runs(
     suite: SuiteDefinition,
     campaign_dir: Path,
@@ -1342,13 +1387,24 @@ def normalize_interrupted_runs(
         record = _metadata_run(metadata, run.name)
         if record.get("status") not in {"running", "starting"}:
             continue
-        record["status"] = INTERRUPTED_ENVIRONMENT
-        record["end_epoch"] = int(time.time())
-        record["interruption_reason"] = (
-            "resume observed a run without a recorded product terminal"
-        )
         run_dir = campaign_dir / "workspaces" / run.name
         artifact_dir = campaign_dir / "artifacts" / run.name
+        product = _recorded_product_result(run_dir)
+        if product is not None:
+            record["status"] = "completed"
+            record["start_epoch"] = product.start_epoch
+            record["end_epoch"] = product.end_epoch
+            record["duration_seconds"] = product.end_epoch - product.start_epoch
+            record["product_exit"] = product.exit_code
+            record["stdout_tail"] = product.stdout_tail
+            record["stderr_tail"] = product.stderr_tail
+            record["resume_recovered_product_terminal"] = True
+        else:
+            record["status"] = INTERRUPTED_ENVIRONMENT
+            record["end_epoch"] = int(time.time())
+            record["interruption_reason"] = (
+                "resume observed a run without a recorded product terminal"
+            )
         if run_dir.exists():
             _finish_run_record(
                 record,
@@ -1360,8 +1416,9 @@ def normalize_interrupted_runs(
         changed = True
     if changed:
         metadata.setdefault("resume_notes", []).append(
-            f"Interrupted runs were recorded as {INTERRUPTED_ENVIRONMENT} and were not rerun. "
-            "A one-time rerun in a new directory requires review adjudication."
+            "Runs with a recorded product terminal were recovered after the post-product "
+            f"harness failure; other runs were recorded as {INTERRUPTED_ENVIRONMENT} "
+            "and were not rerun."
         )
         write_metadata(metadata_path, metadata)
 

@@ -16,6 +16,21 @@ from unittest import mock
 import band_aggregate as band
 
 
+class FullMeaningLabelTests(unittest.TestCase):
+    def test_every_profile_band_has_one_transparent_full_label(self) -> None:
+        self.assertEqual(
+            set(band.FULL_MEANING_LABELS),
+            {"nextjs", "data", "fix", "investigation", "cli", "ingest"},
+        )
+        for profile, meaning in band.FULL_MEANING_LABELS.items():
+            with self.subTest(profile=profile):
+                self.assertIn("testimony", meaning.lower())
+                self.assertEqual(
+                    band.full_meaning_label(profile),
+                    f"- Full meaning label: {meaning}",
+                )
+
+
 def data_record(
     *,
     family: str,

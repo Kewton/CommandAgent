@@ -9,6 +9,7 @@ use crate::tools::path_guard::validate_workspace_relative;
 mod cli;
 mod data;
 pub mod ingest;
+mod nextjs;
 pub use cli::{CliCapability, CliCheckKind};
 pub use data::{DataInternalCheck, ProbeCapability};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -185,7 +186,7 @@ static SCAFFOLD_FILES_PARAMS: [ParamSpec; 1] = [ParamSpec {
     default: None,
 }];
 
-static BASE_REGISTRY: [CapabilitySpec; 8] = [
+static BASE_REGISTRY: [CapabilitySpec; 5] = [
     CapabilitySpec {
         id: "package_json_port_script",
         kind: CapabilityKind::ShellCheck,
@@ -215,24 +216,6 @@ static BASE_REGISTRY: [CapabilitySpec; 8] = [
         kind: CapabilityKind::InternalCheck,
         params: &SCAFFOLD_FILES_PARAMS,
         description: "Check that required scaffold files are present.",
-    },
-    CapabilitySpec {
-        id: crate::planner::profiles::nextjs::testimony_binding::CHECK_ID,
-        kind: CapabilityKind::InternalCheck,
-        params: &NO_PARAMS,
-        description: "Bind Next.js product testimony to route and browser observations.",
-    },
-    CapabilitySpec {
-        id: "browser_readiness",
-        kind: CapabilityKind::Probe,
-        params: &NO_PARAMS,
-        description: "Registered browser readiness probe.",
-    },
-    CapabilitySpec {
-        id: "browser_interaction",
-        kind: CapabilityKind::Probe,
-        params: &NO_PARAMS,
-        description: "Registered browser interaction probe.",
     },
 ];
 
@@ -283,12 +266,7 @@ pub fn resolve(id: &str, params: &Table) -> Result<ResolvedCapability, CatalogEr
                 files: required_path_list(spec, params, "files")?,
             },
         )),
-        crate::planner::profiles::nextjs::testimony_binding::CHECK_ID => Ok(
-            ResolvedCapability::Internal(InternalCapability::NextjsTestimonyBinding),
-        ),
-        "browser_readiness" | "browser_interaction" => {
-            Err(CatalogError::ProbeBindingUnimplemented { id: id.to_string() })
-        }
+        _ if nextjs::is_id(spec.id) => nextjs::resolve(spec, params),
         _ if cli::is_id(spec.id) => cli::resolve(spec, params),
         _ => ingest::resolve_or_data(spec, params),
     }

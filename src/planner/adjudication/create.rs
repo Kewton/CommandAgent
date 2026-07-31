@@ -1177,7 +1177,7 @@ pub(super) fn final_acceptance_release_gate_with_runtime(
             interaction_evidence_path: String::new(),
         };
     };
-    if !report.passed {
+    let gate = if !report.passed {
         if requires_browser
             && check_browser_on_runtime_failure
             && runtime_acceptance_has_buildable_nextjs_boundary(report)
@@ -1192,18 +1192,18 @@ pub(super) fn final_acceptance_release_gate_with_runtime(
             reasons.extend(std::mem::take(&mut gate.reasons));
             gate.status = "failed".to_string();
             gate.reasons = dedup_strings(reasons);
-            return gate;
+            gate
+        } else {
+            ReleaseGateSummary {
+                status: "failed".to_string(),
+                reasons: vec![report.primary_reason.clone()],
+                browser_readiness_status: "not_checked".to_string(),
+                browser_readiness_evidence_path: String::new(),
+                interaction_evidence_status: "not_checked".to_string(),
+                interaction_evidence_path: String::new(),
+            }
         }
-        return ReleaseGateSummary {
-            status: "failed".to_string(),
-            reasons: vec![report.primary_reason.clone()],
-            browser_readiness_status: "not_checked".to_string(),
-            browser_readiness_evidence_path: String::new(),
-            interaction_evidence_status: "not_checked".to_string(),
-            interaction_evidence_path: String::new(),
-        };
-    }
-    if !report.unverified_evidence.is_empty() {
+    } else if !report.unverified_evidence.is_empty() {
         let mut gate = if requires_browser {
             browser_release_gate_with_options(
                 config,
@@ -1228,24 +1228,65 @@ pub(super) fn final_acceptance_release_gate_with_runtime(
         reasons.extend(std::mem::take(&mut gate.reasons));
         gate.status = "partial".to_string();
         gate.reasons = dedup_strings(reasons);
-        return gate;
-    }
-    if requires_browser {
-        return browser_release_gate_with_options(
+        gate
+    } else if requires_browser {
+        browser_release_gate_with_options(
             config,
             requires_canvas_surface(goal, required_capabilities),
             interaction_options,
             requested_port.as_ref().map(|requested| requested.port),
-        );
+        )
+    } else {
+        ReleaseGateSummary {
+            status: "pass".to_string(),
+            reasons: Vec::new(),
+            browser_readiness_status: "not_applicable".to_string(),
+            browser_readiness_evidence_path: String::new(),
+            interaction_evidence_status: "not_applicable".to_string(),
+            interaction_evidence_path: String::new(),
+        }
+    };
+    if report.passed {
+        apply_final_testimony_check(config, runtime, gate)
+    } else {
+        gate
     }
-    ReleaseGateSummary {
-        status: "pass".to_string(),
-        reasons: Vec::new(),
-        browser_readiness_status: "not_applicable".to_string(),
-        browser_readiness_evidence_path: String::new(),
-        interaction_evidence_status: "not_applicable".to_string(),
-        interaction_evidence_path: String::new(),
+}
+
+fn apply_final_testimony_check(
+    config: &Config,
+    runtime: &dyn ProfileRuntime,
+    mut gate: ReleaseGateSummary,
+) -> ReleaseGateSummary {
+    let readiness_path = (!gate.browser_readiness_evidence_path.is_empty())
+        .then_some(gate.browser_readiness_evidence_path.as_str());
+    let interaction_path = (!gate.interaction_evidence_path.is_empty())
+        .then_some(gate.interaction_evidence_path.as_str());
+    match runtime.run_final_testimony_check(
+        &config.workspace_root,
+        readiness_path,
+        interaction_path,
+    ) {
+        Ok(Some(report)) if report.status == "failed" => {
+            gate.status = "failed".to_string();
+            gate.reasons =
+                dedup_strings(gate.reasons.iter().cloned().chain(report.reasons).collect());
+        }
+        Ok(_) => {}
+        Err(error) => {
+            gate.status = "failed".to_string();
+            gate.reasons = dedup_strings(
+                gate.reasons
+                    .iter()
+                    .cloned()
+                    .chain(std::iter::once(format!(
+                        "testimony_binding_runtime_error:{error:#}"
+                    )))
+                    .collect(),
+            );
+        }
     }
+    gate
 }
 
 pub(super) fn acceptance_gate_telemetry(
