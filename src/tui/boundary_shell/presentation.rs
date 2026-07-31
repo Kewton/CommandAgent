@@ -73,7 +73,7 @@ pub fn render_gate_three(
         bail!("non-full terminals must use Gate 4");
     }
     Ok(format!(
-        "# Gate 3 — Acceptance\n\nConfirmed Full meaning: {}\n\n{}",
+        "# Gate 3 — Acceptance\n\nConfirmed Full meaning: {}\n\n{}\n\n## Continued modification\n\n- human_directive: available — enter `/directive <instruction>`; the full check set is frozen before confirmed dispatch",
         identity.full_meaning, terminal.acceptance_sheet
     ))
 }
@@ -301,7 +301,8 @@ mod tests {
             TerminalPresentation::new(identity.card_hash().unwrap(), sheet.clone(), true, None)
                 .unwrap();
         let rendered = render_gate_three(&identity, &terminal).unwrap();
-        assert!(rendered.ends_with(&sheet));
+        assert!(rendered.contains(&sheet));
+        assert!(rendered.contains("human_directive: available"));
 
         let other =
             TerminalPresentation::new("sha256:other".to_string(), sheet, true, None).unwrap();

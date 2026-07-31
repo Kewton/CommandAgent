@@ -25,8 +25,8 @@ The historical `d3c-shakedown-002` v0 files are immutable. Its round-1
 artifact may be referenced as the first element when the lineage first enters
 the v1.1 session format; the original file is not moved or edited.
 
-This document fixes the v0 contract for continuing a failed boundary-shell run
-with one or more explicit human directives. It extends the D-3c four-gate
+This document preserves the v0 contract for continuing a failed boundary-shell
+run and fixes the v1.1 session extension. It extends the D-3c four-gate
 lifecycle without creating an in-run chat channel, changing a profile contract,
 or treating human prose as acceptance evidence.
 
@@ -44,11 +44,11 @@ failed run at Gate 4
   -> Gate 3 or Gate 4
 ```
 
-Only a failed run may enter this path. A request to modify a full result is not
-a failure continuation and is permanently outside v0; a post-full revision
-flow is queued as D-3d v0.1. Execution-time intervention, interactive steering
-inside a phase, and mutation of an already running provider call are also out
-of scope.
+Only a failed run may enter the byte-compatible v0 path. v1.1 also permits a
+full result at Gate 3 to enter a post-full modification path after the exact
+contract-check set that earned full has been frozen. Execution-time
+intervention, interactive steering inside a phase, and mutation of an already
+running provider call remain permanently out of scope.
 
 The directive is guidance material at a human boundary. It cannot remove,
 relocate, downgrade, reinterpret, or satisfy a contract check. The selected
@@ -70,9 +70,9 @@ The JSON object is strict and contains exactly these semantic fields:
 |---|---|
 | `raw` | The scrubbed directive text, preserved verbatim |
 | `epoch` | Unix epoch seconds when the artifact was issued |
-| `target_run_id` | The failed run whose lineage is continued |
+| `target_run_id` | The terminal run whose lineage is continued |
 | `round` | Positive, monotonically increasing directive round |
-| `issued_gate` | Fixed value `gate_4` in v0 |
+| `issued_gate` | Fixed value `gate_4` in v0; `gate_3` for v1.1 post-full modification |
 
 The filename hash is computed from the exact persisted bytes. Existing content
 at that path must match byte-for-byte; a mismatch is a hard failure. Empty,
@@ -138,6 +138,13 @@ fields. Its prompts, events, and evidence therefore remain byte-for-byte
 identical. A fixture over the ordinary recovery path is the compatibility
 guard.
 
+From round 2 onward, the implement/repair prompt also receives a bounded
+`human_directive` session-history block. It lists every prior round's verbatim
+directive plus verdict and stop reason read from terminal event evidence. A
+missing result is a hard stop; the renderer does not invent a summary. The
+round-1 plan continues through the v0 renderer without this block, preserving
+its exact bytes.
+
 ## 5. Gate 4 lifecycle
 
 Gate 4 adds one next action, `human_directive` (displayed as “add a directive
@@ -152,7 +159,7 @@ failure_ready
   -> acceptance_ready | failure_ready
 ```
 
-The REPL accepts directive text only in `failure_ready`. It displays the exact
+The v0 REPL accepts directive text in `failure_ready`. It displays the exact
 persisted text, artifact hash, target run, and round, then requires explicit
 confirmation of that hash. Dispatch checks both the immutable artifact and its
 confirmation record. Tests must prove that a missing, stale, or mismatched
@@ -161,6 +168,19 @@ confirmation results in zero runner calls.
 The transcript records the verbatim directive, confirmation hash, continuation
 command identity, and terminal sheet. Conversation may navigate this sequence,
 but only persisted records authorize dispatch.
+
+## 5.1 Gate 3 modification lifecycle
+
+After full, Gate 3 exposes the same persisted directive confirmation boundary.
+Before a modification plan is created, the shell freezes the immediately
+preceding full terminal's profile, intent, and complete contract-check ID set
+to an exact-byte hashed artifact. The derived plan is bound to that hash. A
+Gate 3 continuation without the freeze is rejected before the runner call.
+
+The normal profile acceptance runtime runs again after modification. The
+continuation earns full only when the new terminal remains full under the
+frozen profile/check set; otherwise it returns honestly to Gate 4. The human
+instruction is guidance and never substitutes for a frozen check.
 
 ## 6. Configuration accounting
 
@@ -198,3 +218,4 @@ Implementation is accepted only when all of the following are green:
 5. recovery still reaches the normal profile acceptance runtime and cannot
    weaken the contract floor; and
 6. band aggregation distinguishes directive rounds.
+7. Gate 3 continuation cannot dispatch without a persisted regression freeze.

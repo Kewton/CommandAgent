@@ -219,6 +219,46 @@ pub fn load_for_target(
     Ok(PersistedDirectiveSession { session, path })
 }
 
+pub fn next_round(
+    sessions_root: &Path,
+    directive_root: &Path,
+    target_run_id: &str,
+) -> anyhow::Result<u32> {
+    let session_path = sessions_root
+        .join(session_id(target_run_id))
+        .join("session.json");
+    if session_path.is_file() {
+        let session = read_session(&session_path)?;
+        return Ok(session.rounds.len() as u32 + 1);
+    }
+    if !directive_root.is_dir() {
+        return Ok(1);
+    }
+    let mut rounds = Vec::new();
+    for entry in std::fs::read_dir(directive_root)? {
+        let path = entry?.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let bytes = std::fs::read(&path)?;
+        let artifact: DirectiveArtifact = serde_json::from_slice(&bytes)?;
+        super::directive::validate_artifact(&artifact)?;
+        if artifact.target_run_id == target_run_id {
+            rounds.push(artifact.round);
+        }
+    }
+    rounds.sort_unstable();
+    rounds.dedup();
+    if rounds
+        .iter()
+        .enumerate()
+        .any(|(index, round)| *round != index as u32 + 1)
+    {
+        bail!("persisted directives do not form a contiguous session history");
+    }
+    Ok(rounds.len() as u32 + 1)
+}
+
 fn legacy_rounds_before(
     directive_root: &Path,
     current: &DirectiveArtifact,

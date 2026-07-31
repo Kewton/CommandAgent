@@ -39,6 +39,7 @@ pub struct DirectiveContinuation {
     pub target_run_id: String,
     pub directive_round: u32,
     pub directive_hash: String,
+    pub regression_freeze: Option<super::directive_regression::PersistedRegressionFreeze>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,6 +52,10 @@ struct DirectiveRunMetadata {
     continuation_plan_path: String,
     same_workspace: bool,
     ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    regression_freeze_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    regression_check_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -145,6 +150,20 @@ pub fn persist(
     persist_at_epoch(root, raw, target_run_id, round, epoch)
 }
 
+pub fn persist_for_gate(
+    root: &Path,
+    raw: &str,
+    target_run_id: &str,
+    round: u32,
+    issued_gate: &str,
+) -> anyhow::Result<PersistedDirective> {
+    let epoch = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("system time before UNIX epoch")?
+        .as_secs();
+    persist_at_epoch_for_gate(root, raw, target_run_id, round, epoch, issued_gate)
+}
+
 pub fn confirm(root: &Path, directive: &PersistedDirective) -> anyhow::Result<ConfirmedDirective> {
     let epoch = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -218,6 +237,17 @@ fn persist_at_epoch(
     round: u32,
     epoch: u64,
 ) -> anyhow::Result<PersistedDirective> {
+    persist_at_epoch_for_gate(root, raw, target_run_id, round, epoch, "gate_4")
+}
+
+fn persist_at_epoch_for_gate(
+    root: &Path,
+    raw: &str,
+    target_run_id: &str,
+    round: u32,
+    epoch: u64,
+    issued_gate: &str,
+) -> anyhow::Result<PersistedDirective> {
     validate_scrubbed_text(raw)?;
     if target_run_id.trim().is_empty() {
         bail!("directive target run ID must not be empty");
@@ -228,7 +258,7 @@ fn persist_at_epoch(
         epoch,
         target_run_id: target_run_id.to_string(),
         round,
-        issued_gate: "gate_4".to_string(),
+        issued_gate: issued_gate.to_string(),
     };
     validate_artifact(&artifact)?;
     let mut bytes = serde_json::to_vec_pretty(&artifact)?;
@@ -270,6 +300,18 @@ pub(super) fn persist_at_epoch_for_test(
     epoch: u64,
 ) -> anyhow::Result<PersistedDirective> {
     persist_at_epoch(root, raw, target_run_id, round, epoch)
+}
+
+#[cfg(test)]
+pub(super) fn persist_at_epoch_for_gate_for_test(
+    root: &Path,
+    raw: &str,
+    target_run_id: &str,
+    round: u32,
+    epoch: u64,
+    issued_gate: &str,
+) -> anyhow::Result<PersistedDirective> {
+    persist_at_epoch_for_gate(root, raw, target_run_id, round, epoch, issued_gate)
 }
 
 pub fn render(directive: &PersistedDirective, max_rendered_bytes: usize) -> anyhow::Result<String> {
@@ -367,6 +409,7 @@ pub fn prepare_continuation(
         target_run_id: directive.artifact().target_run_id.clone(),
         directive_round: directive.artifact().round,
         directive_hash: directive.hash().to_string(),
+        regression_freeze: None,
     })
 }
 
@@ -389,6 +432,14 @@ pub fn persist_run_metadata(
         continuation_plan_path: continuation.plan_workspace_path.clone(),
         same_workspace: true,
         ok,
+        regression_freeze_hash: continuation
+            .regression_freeze
+            .as_ref()
+            .map(|freeze| freeze.hash().to_string()),
+        regression_check_ids: continuation
+            .regression_freeze
+            .as_ref()
+            .map(|freeze| freeze.artifact().check_ids.clone()),
     };
     let mut bytes = serde_json::to_vec_pretty(&metadata)?;
     bytes.push(b'\n');
@@ -520,8 +571,8 @@ pub(super) fn validate_artifact(artifact: &DirectiveArtifact) -> anyhow::Result<
     if artifact.round == 0 {
         bail!("directive round must be positive");
     }
-    if artifact.issued_gate != "gate_4" {
-        bail!("directive issued_gate must be gate_4");
+    if !matches!(artifact.issued_gate.as_str(), "gate_3" | "gate_4") {
+        bail!("directive issued_gate must be gate_3 or gate_4");
     }
     Ok(())
 }
@@ -810,6 +861,7 @@ mod tests {
             target_run_id: "run-001".to_string(),
             directive_round: 1,
             directive_hash: format!("sha256:{}", "a".repeat(64)),
+            regression_freeze: None,
         };
         let path = persist_run_metadata(root.path(), &continuation, false).unwrap();
         let value: serde_json::Value =

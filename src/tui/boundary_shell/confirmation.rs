@@ -227,6 +227,38 @@ pub fn persist_confirmation(
     Ok(confirmed)
 }
 
+pub fn load_latest_confirmation(root: &Path) -> anyhow::Result<Option<ConfirmedDispatch>> {
+    if !root.is_dir() {
+        return Ok(None);
+    }
+    let mut latest: Option<(u64, PathBuf, ConfirmationRecord)> = None;
+    for entry in std::fs::read_dir(root)
+        .with_context(|| format!("read confirmation directory {}", root.display()))?
+    {
+        let path = entry?.path();
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            continue;
+        }
+        let record = read_record(&path)?;
+        if latest
+            .as_ref()
+            .is_none_or(|(epoch, _, _)| record.confirmed_at_epoch > *epoch)
+        {
+            latest = Some((record.confirmed_at_epoch, path, record));
+        }
+    }
+    let Some((_, record_path, record)) = latest else {
+        return Ok(None);
+    };
+    let confirmed = ConfirmedDispatch {
+        record_path,
+        card_hash: record.card_hash,
+        identity: record.identity,
+    };
+    confirmed.validate()?;
+    Ok(Some(confirmed))
+}
+
 fn read_record(path: &Path) -> anyhow::Result<ConfirmationRecord> {
     let bytes = std::fs::read(path)
         .with_context(|| format!("read confirmation record {}", path.display()))?;

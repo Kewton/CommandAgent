@@ -26,9 +26,7 @@ pub fn run(config: Config) -> anyhow::Result<()> {
         config.state_dir.join("boundary-confirmations"),
         config.eval_events_path.clone(),
     );
-    let mut active_identity: Option<
-        crate::tui::boundary_shell::confirmation::ConfirmationIdentity,
-    > = None;
+    let mut active_identity = boundary_shell.restore_latest_terminal()?;
     let mut directive_round = 0_u32;
     let mut editor = ReplEditor::new(&config)?;
     let history_path = config.state_dir.join("history.txt");
@@ -79,11 +77,15 @@ pub fn run(config: Config) -> anyhow::Result<()> {
                     continue;
                 }
             };
-            let directive = match boundary_shell.begin_directive(
-                raw,
-                &target_run_id,
-                directive_round.saturating_add(1),
-            ) {
+            let next_round = match boundary_shell.next_directive_round(&target_run_id) {
+                Ok(round) => round.max(directive_round.saturating_add(1)),
+                Err(error) => {
+                    renderer.render_assistant(&format!("Directive refused: {error}"))?;
+                    ui.reset_interrupt();
+                    continue;
+                }
+            };
+            let directive = match boundary_shell.begin_directive(raw, &target_run_id, next_round) {
                 Ok(directive) => directive,
                 Err(error) => {
                     renderer.render_assistant(&format!("Directive refused: {error}"))?;
@@ -91,8 +93,13 @@ pub fn run(config: Config) -> anyhow::Result<()> {
                     continue;
                 }
             };
+            let gate_label = if directive.artifact().issued_gate == "gate_3" {
+                "Gate 3"
+            } else {
+                "Gate 4"
+            };
             let proposal = format!(
-                "# Gate 4 — Directive confirmation\n\n\
+                "# {gate_label} — Directive confirmation\n\n\
 - Directive: {}\n\
 - Directive hash: {}\n\
 - Target run ID: {}\n\
@@ -108,7 +115,7 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
             );
             crate::tui::boundary_shell::transcript::append(
                 &config.state_dir,
-                "Gate 4 directive proposal",
+                &format!("{gate_label} directive proposal"),
                 &proposal,
             )?;
             renderer.render_assistant(&proposal)?;
@@ -118,7 +125,7 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
         if let Some(directive_hash) = line.strip_prefix("/confirm-directive ").map(str::trim) {
             let Some(identity) = active_identity.clone() else {
                 renderer.render_assistant(
-                    "Directive confirmation refused: no failed confirmed run is active.",
+                    "Directive confirmation refused: no confirmed terminal run is active.",
                 )?;
                 ui.reset_interrupt();
                 continue;
@@ -139,9 +146,10 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
                 ui.reset_interrupt();
                 continue;
             };
-            let continuation = match crate::tui::boundary_shell::directive::prepare_continuation(
+            let continuation = match boundary_shell.prepare_confirmed_continuation(
                 &config.workspace_root,
                 events_path,
+                &identity,
                 &directive,
             ) {
                 Ok(continuation) => continuation,
@@ -161,7 +169,11 @@ Confirm with `/confirm-directive {}` before continuation dispatch.",
             renderer.render_assistant(&confirmed_text)?;
             crate::tui::boundary_shell::transcript::append(
                 &config.state_dir,
-                "Gate 4 directive confirmation",
+                if directive.artifact().issued_gate == "gate_3" {
+                    "Gate 3 directive confirmation"
+                } else {
+                    "Gate 4 directive confirmation"
+                },
                 &confirmed_text,
             )?;
             let mut dispatch_config = config.clone();

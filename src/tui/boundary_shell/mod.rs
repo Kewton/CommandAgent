@@ -3,6 +3,7 @@ pub mod ambiguity;
 pub mod band_catalog;
 pub mod confirmation;
 pub mod directive;
+pub mod directive_regression;
 pub mod directive_session;
 pub mod family_catalog;
 pub mod pack_catalog;
@@ -59,6 +60,7 @@ pub struct BoundaryShell {
     directive_confirmation_root: PathBuf,
     directive_run_metadata_root: PathBuf,
     directive_session_root: PathBuf,
+    regression_freeze_root: PathBuf,
     audit_events_path: Option<PathBuf>,
 }
 
@@ -75,12 +77,53 @@ impl BoundaryShell {
             directive_confirmation_root: state_root.join("boundary-directive-confirmations"),
             directive_run_metadata_root: state_root.join("boundary-directive-runs"),
             directive_session_root: state_root.join("boundary-sessions"),
+            regression_freeze_root: state_root.join("boundary-regression-freezes"),
             audit_events_path,
         }
     }
 
     pub fn state(&self) -> &BoundaryState {
         &self.state
+    }
+
+    pub fn restore_latest_terminal(&mut self) -> anyhow::Result<Option<ConfirmationIdentity>> {
+        if !matches!(self.state, BoundaryState::Collecting) {
+            bail!("boundary terminal restoration requires the collecting state");
+        }
+        let Some(confirmed) = confirmation::load_latest_confirmation(&self.confirmation_root)?
+        else {
+            return Ok(None);
+        };
+        let events_path = self
+            .audit_events_path
+            .as_deref()
+            .context("persisted boundary session requires an event stream")?;
+        let event = crate::eval_events::latest_tui_command_stop_event(Some(events_path))
+            .context("persisted boundary session has no terminal evidence")?;
+        let command_succeeded = event.get("ok").and_then(serde_json::Value::as_bool) == Some(true);
+        let generated =
+            sheet::generate(confirmed.identity(), Some(events_path), command_succeeded)?;
+        let terminal = TerminalPresentation::new(
+            confirmed.card_hash().to_string(),
+            generated.markdown,
+            generated.full,
+            generated.section5,
+        )?;
+        let identity = confirmed.identity().clone();
+        self.state = if terminal.full {
+            BoundaryState::AcceptanceReady(terminal)
+        } else {
+            BoundaryState::FailureReady(terminal)
+        };
+        Ok(Some(identity))
+    }
+
+    pub fn next_directive_round(&self, target_run_id: &str) -> anyhow::Result<u32> {
+        directive_session::next_round(
+            &self.directive_session_root,
+            &self.directive_root,
+            target_run_id,
+        )
     }
 
     pub fn begin_gate_one(
@@ -207,11 +250,24 @@ impl BoundaryShell {
         target_run_id: &str,
         round: u32,
     ) -> anyhow::Result<&PersistedDirective> {
-        let BoundaryState::FailureReady(terminal) = &self.state else {
-            bail!("human directives are available only for a failed run at Gate 4");
+        let (terminal, issued_gate) = match &self.state {
+            BoundaryState::FailureReady(terminal) => (terminal, "gate_4"),
+            BoundaryState::AcceptanceReady(terminal) => (terminal, "gate_3"),
+            _ => bail!("human directives are available only at Gate 3 or Gate 4"),
         };
         let card_hash = terminal.card_hash.clone();
-        let directive = directive::persist(&self.directive_root, raw, target_run_id, round)?;
+        let directive = if issued_gate == "gate_4" {
+            // v0 compatibility boundary: preserve the exact Gate 4 artifact bytes.
+            directive::persist(&self.directive_root, raw, target_run_id, round)?
+        } else {
+            directive::persist_for_gate(
+                &self.directive_root,
+                raw,
+                target_run_id,
+                round,
+                issued_gate,
+            )?
+        };
         directive_session::record_directive(
             &self.directive_session_root,
             &self.directive_root,
@@ -235,6 +291,50 @@ impl BoundaryShell {
         match &self.state {
             BoundaryState::AwaitingDirectiveConfirmation { directive, .. } => Ok(directive),
             _ => unreachable!(),
+        }
+    }
+
+    pub fn prepare_confirmed_continuation(
+        &self,
+        workspace: &Path,
+        events_path: &Path,
+        identity: &ConfirmationIdentity,
+        directive: &PersistedDirective,
+    ) -> anyhow::Result<DirectiveContinuation> {
+        match directive.artifact().issued_gate.as_str() {
+            "gate_4" => directive::prepare_continuation(workspace, events_path, directive),
+            "gate_3" => {
+                let freeze = directive_regression::freeze_from_full(
+                    &self.regression_freeze_root,
+                    events_path,
+                    &directive.artifact().target_run_id,
+                    &identity.profile,
+                    &identity.intent,
+                    &identity.contract_checks,
+                )?;
+                let history = if directive.artifact().round >= 2 {
+                    let session = directive_session::record_latest_result(
+                        &self.directive_session_root,
+                        &directive.artifact().target_run_id,
+                        directive.artifact().round - 1,
+                        events_path,
+                    )?;
+                    Some(directive_session::render_history(
+                        session.session(),
+                        directive.artifact().round,
+                        directive_session::MAX_HISTORY_RENDERED_BYTES,
+                    )?)
+                } else {
+                    None
+                };
+                directive_regression::prepare_modification_continuation(
+                    workspace,
+                    directive,
+                    freeze,
+                    history.as_deref(),
+                )
+            }
+            other => bail!("unsupported directive issue gate `{other}`"),
         }
     }
 
@@ -296,6 +396,16 @@ impl BoundaryShell {
         if !continuation.plan_path.is_file() {
             bail!("confirmed directive continuation plan is missing");
         }
+        let issued_gate = confirmed.directive().artifact().issued_gate.as_str();
+        if issued_gate == "gate_3" && continuation.regression_freeze.is_none() {
+            bail!("post-full directive dispatch denied: regression freeze is required");
+        }
+        if issued_gate == "gate_4" && continuation.regression_freeze.is_some() {
+            bail!("failed-run directive must not carry a post-full regression freeze");
+        }
+        if let Some(freeze) = &continuation.regression_freeze {
+            freeze.validate()?;
+        }
         let card_hash = card_hash.clone();
         self.state = BoundaryState::DirectiveRunning {
             card_hash,
@@ -315,6 +425,17 @@ impl BoundaryShell {
             }),
         );
         let result = run();
+        let result = match (result, continuation.regression_freeze.as_ref()) {
+            (Ok(output), Some(freeze)) => {
+                let events_path = self
+                    .audit_events_path
+                    .as_deref()
+                    .context("post-full regression verification requires an event stream")?;
+                directive_regression::verify_preserved_full(freeze, events_path)?;
+                Ok(output)
+            }
+            (result, _) => result,
+        };
         directive::persist_run_metadata(
             &self.directive_run_metadata_root,
             continuation,
@@ -557,6 +678,15 @@ mod tests {
                 Some("failed".to_string()),
             )
             .unwrap();
+        crate::eval_events::emit(
+            Some(&events),
+            serde_json::json!({
+                "event": "tui_command_stop",
+                "ok": false,
+                "status": "failed",
+                "stop_reason": "fixture failure",
+            }),
+        );
         let directive = shell
             .begin_directive("repair README", "run-001", 1)
             .unwrap()
@@ -569,6 +699,7 @@ mod tests {
             target_run_id: "run-001".to_string(),
             directive_round: 1,
             directive_hash: directive.hash().to_string(),
+            regression_freeze: None,
         };
 
         let mut calls = 0;
@@ -601,5 +732,87 @@ mod tests {
         assert!(event_text.contains("\"event\":\"human_directive_continuation_started\""));
         assert!(event_text.contains("\"directive_round\":1"));
         assert!(event_text.contains("\"directive_target_run_id\":\"run-001\""));
+    }
+
+    #[test]
+    fn gate_three_directive_cannot_dispatch_without_regression_freeze() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        let mut shell = BoundaryShell::new(dir.path().join("boundary-confirmations"), Some(events));
+        shell
+            .begin_gate_one(
+                proposal(),
+                "request",
+                dir.path(),
+                pins(),
+                PackSelection::None,
+            )
+            .unwrap();
+        let card_hash = match shell.state() {
+            BoundaryState::AwaitingConfirmation { card_hash, .. } => card_hash.clone(),
+            _ => unreachable!(),
+        };
+        shell.confirm(&card_hash).unwrap();
+        shell.dispatch(|_| Ok("full".to_string())).unwrap();
+        shell
+            .present_terminal("# full sheet".to_string(), true, None)
+            .unwrap();
+        let directive = shell
+            .begin_directive("change report", "run-001", 1)
+            .unwrap()
+            .clone();
+        assert_eq!(directive.artifact().issued_gate, "gate_3");
+        shell.confirm_directive(directive.hash()).unwrap();
+        let plan_path = dir.path().join("continuation.yaml");
+        std::fs::write(&plan_path, "goal: x").unwrap();
+        let continuation = DirectiveContinuation {
+            plan_path,
+            plan_workspace_path: ".anvil/plans/directive.yaml".to_string(),
+            target_run_id: "run-001".to_string(),
+            directive_round: 1,
+            directive_hash: directive.hash().to_string(),
+            regression_freeze: None,
+        };
+        let mut calls = 0;
+        let error = shell
+            .dispatch_directive(&continuation, || {
+                calls += 1;
+                Ok("must not run".to_string())
+            })
+            .unwrap_err();
+        assert!(error.to_string().contains("regression freeze is required"));
+        assert_eq!(calls, 0);
+    }
+
+    #[test]
+    fn persisted_confirmation_and_terminal_evidence_restore_the_session_boundary() {
+        let dir = tempfile::tempdir().unwrap();
+        let confirmations = dir.path().join("boundary-confirmations");
+        let events = dir.path().join("events.jsonl");
+        let mut first = BoundaryShell::new(confirmations.clone(), Some(events.clone()));
+        first
+            .begin_gate_one(
+                proposal(),
+                "request",
+                dir.path(),
+                pins(),
+                PackSelection::None,
+            )
+            .unwrap();
+        let card_hash = match first.state() {
+            BoundaryState::AwaitingConfirmation { card_hash, .. } => card_hash.clone(),
+            _ => unreachable!(),
+        };
+        first.confirm(&card_hash).unwrap();
+        std::fs::write(
+            &events,
+            "{\"event\":\"tui_command_stop\",\"ok\":false,\"status\":\"failed\",\"assurance_level\":\"static\",\"final_acceptance_status\":\"incomplete\",\"effective_profile\":\"ingest\",\"stop_reason\":\"fixture stop\"}\n",
+        )
+        .unwrap();
+
+        let mut resumed = BoundaryShell::new(confirmations, Some(events));
+        let identity = resumed.restore_latest_terminal().unwrap().unwrap();
+        assert_eq!(identity.profile, "ingest");
+        assert!(matches!(resumed.state(), BoundaryState::FailureReady(_)));
     }
 }
