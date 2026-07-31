@@ -1,0 +1,41 @@
+{
+  "schema_version": 1,
+  "card_hash": "sha256:eaed43d35fee067893d29fd91a4299fca6f1e3d47e8b042ff94297b404b30a02",
+  "confirmed_at_epoch": 1785511961,
+  "identity": {
+    "request": "テキストファイルから指定パターンを含む行を抽出するCLIツール cli/main.py を作成してください。--pattern で検索文字列、--count で件数のみ表示を指定できます。--help で使い方を表示します。サンプル入力 data/sample.txt を同梱し、実行例と出力例を README.md に記載してください。",
+    "workspace": "/private/tmp/d3d-shakedown-002-live.sgHyfv",
+    "profile": "python-cli",
+    "intent": "create",
+    "task_family": "filter",
+    "route_bases": [
+      "request.intent.create=create",
+      "request.profile.cli=python-cli",
+      "request.family=filter"
+    ],
+    "contract_ref": "docs/cli-profile-contract.md",
+    "contract_checks": [
+      "C1",
+      "C2",
+      "C3",
+      "C4"
+    ],
+    "band_full": 0,
+    "band_denominator": 3,
+    "band_rate": "0%",
+    "band_arm": "formal Window B",
+    "band_measurement": "uat-test0725-cli-elev-004",
+    "band_source": "workspace/management/runs/band_summary_cli.md",
+    "full_meaning": "C1-C4 pass, including README output claims bound to live CLI output by C3; testimony binding is active as C3.",
+    "pins": {
+      "planner_provider": "ollama",
+      "planner_model": "qwen3.6:27b-coding-nvfp4",
+      "executor_provider": "ollama",
+      "executor_model": "gemma4:31b-cloud",
+      "preset": "profile"
+    },
+    "pack": {
+      "selection": "none"
+    }
+  }
+}
