@@ -261,6 +261,17 @@ fn persist_at_epoch(
     Ok(persisted)
 }
 
+#[cfg(test)]
+pub(super) fn persist_at_epoch_for_test(
+    root: &Path,
+    raw: &str,
+    target_run_id: &str,
+    round: u32,
+    epoch: u64,
+) -> anyhow::Result<PersistedDirective> {
+    persist_at_epoch(root, raw, target_run_id, round, epoch)
+}
+
 pub fn render(directive: &PersistedDirective, max_rendered_bytes: usize) -> anyhow::Result<String> {
     directive.validate()?;
     if max_rendered_bytes == 0 || max_rendered_bytes > DEFAULT_MAX_RENDERED_BYTES {
@@ -435,7 +446,7 @@ fn resolve_workspace_plan(workspace: &Path, raw: &str) -> anyhow::Result<PathBuf
     Ok(resolved)
 }
 
-fn validate_artifact(artifact: &DirectiveArtifact) -> anyhow::Result<()> {
+pub(super) fn validate_artifact(artifact: &DirectiveArtifact) -> anyhow::Result<()> {
     if artifact.schema_version != DIRECTIVE_SCHEMA_VERSION {
         bail!("unsupported directive artifact schema version");
     }

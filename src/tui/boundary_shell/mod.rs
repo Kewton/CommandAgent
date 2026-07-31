@@ -3,6 +3,7 @@ pub mod ambiguity;
 pub mod band_catalog;
 pub mod confirmation;
 pub mod directive;
+pub mod directive_session;
 pub mod family_catalog;
 pub mod pack_catalog;
 pub mod presentation;
@@ -57,6 +58,7 @@ pub struct BoundaryShell {
     directive_root: PathBuf,
     directive_confirmation_root: PathBuf,
     directive_run_metadata_root: PathBuf,
+    directive_session_root: PathBuf,
     audit_events_path: Option<PathBuf>,
 }
 
@@ -72,6 +74,7 @@ impl BoundaryShell {
             directive_root: state_root.join("boundary-directives"),
             directive_confirmation_root: state_root.join("boundary-directive-confirmations"),
             directive_run_metadata_root: state_root.join("boundary-directive-runs"),
+            directive_session_root: state_root.join("boundary-sessions"),
             audit_events_path,
         }
     }
@@ -209,6 +212,11 @@ impl BoundaryShell {
         };
         let card_hash = terminal.card_hash.clone();
         let directive = directive::persist(&self.directive_root, raw, target_run_id, round)?;
+        directive_session::record_directive(
+            &self.directive_session_root,
+            &self.directive_root,
+            &directive,
+        )?;
         crate::eval_events::emit(
             self.audit_events_path.as_deref(),
             json!({

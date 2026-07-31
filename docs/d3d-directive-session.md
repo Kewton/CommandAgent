@@ -1,6 +1,29 @@
-# D-3d Boundary Directive Continuation
+# D-3d Boundary Directive Session
 
-Status: **fixed (2026-07-31)**
+Status: **fixed v1.1 (2026-08-01)**
+
+## v1.1 scope and v0 compatibility
+
+v1.1 completes the boundary-directive session shape on top of the fixed v0
+single-directive protocol. The v0 artifact, confirmation, prompt rendering,
+events, and round-1 continuation plan remain byte-compatible. The session
+container is additive: it references those artifacts and never relocates or
+rewrites them.
+
+The normative v1.1 differences from v0 are:
+
+1. future directive lineages have a `boundary-sessions/<session-id>/session.json`
+   container with an ordered `rounds` array;
+2. round 2 and later receive bounded prior-directive and evidence-derived
+   terminal-result history;
+3. Gate 3 may start a confirmed modification continuation only after the
+   immediately preceding full check set has been frozen for regression;
+4. round 0, round 1, round 2, and later rounds remain separate measured
+   configurations.
+
+The historical `d3c-shakedown-002` v0 files are immutable. Its round-1
+artifact may be referenced as the first element when the lineage first enters
+the v1.1 session format; the original file is not moved or edited.
 
 This document fixes the v0 contract for continuing a failed boundary-shell run
 with one or more explicit human directives. It extends the D-3c four-gate
@@ -58,6 +81,24 @@ oversized, or credential-bearing input is rejected before persistence.
 Confirmation is a second immutable record, analogous to D-3c Gate 1
 confirmation. It binds the artifact hash and confirmation epoch. A directive
 artifact alone never authorizes execution.
+
+## 2.1 Additive session container
+
+New directive sessions are stored as:
+
+```text
+boundary-sessions/<session-id>/session.json
+```
+
+The strict container records `schema_version`, `session_id`, `target_run_id`,
+`created_epoch`, and an ordered `rounds` array. Each round contains the exact
+directive hash, the existing artifact path, the scrubbed verbatim directive,
+its epoch, issued gate, and an optional evidence-derived terminal result. A
+round result contains only `verdict`, `stop_reason`, and its evidence source.
+
+The session ID is a deterministic hash of the target lineage ID. A session is
+therefore a container for one continued lineage, not a new run identity. Round
+numbers must be contiguous and directive artifacts remain authoritative.
 
 ## 3. Typed injection source
 
