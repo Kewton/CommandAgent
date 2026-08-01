@@ -11,6 +11,12 @@ pub enum ProviderArg {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum ToolProtocolArg {
+    Native,
+    Text,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum FooterArg {
     On,
     Off,
@@ -56,6 +62,13 @@ pub struct Cli {
     pub model: Option<String>,
     #[arg(long, value_enum)]
     pub provider: Option<ProviderArg>,
+    #[arg(
+        long,
+        value_enum,
+        value_name = "native|text",
+        help = "Declare the executor tool protocol; omitted delegates to the provider default"
+    )]
+    pub tool_protocol: Option<ToolProtocolArg>,
     #[arg(
         long,
         value_enum,

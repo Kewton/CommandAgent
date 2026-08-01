@@ -23,7 +23,10 @@ pub(crate) fn build_request(
 ) -> Value {
     let mut body = json!({
         "model": model,
-        "messages": messages.iter().map(chat_message).collect::<Vec<_>>(),
+        "messages": messages
+            .iter()
+            .map(|message| chat_message(message, native_tools_enabled))
+            .collect::<Vec<_>>(),
         "max_completion_tokens": max_predict,
     });
     if native_tools_enabled && !tools.is_empty() {
@@ -51,7 +54,18 @@ pub(crate) fn build_request(
     body
 }
 
-fn chat_message(message: &ConversationMessage) -> Value {
+fn chat_message(message: &ConversationMessage, native_tools_enabled: bool) -> Value {
+    if !native_tools_enabled {
+        let role = if message.role == "tool" {
+            "user"
+        } else {
+            message.role.as_str()
+        };
+        return json!({
+            "role": role,
+            "content": message.content,
+        });
+    }
     match message.role.as_str() {
         "assistant" if !message.tool_calls.is_empty() => json!({
             "role": "assistant",
@@ -183,6 +197,34 @@ mod tests {
         assert_eq!(body["tools"][0]["type"], "function");
         assert!(body["tools"][0].get("function").is_some());
         assert!(body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn luna_text_request_omits_tools_and_native_history_shape() {
+        let messages = [
+            ConversationMessage::assistant(
+                "",
+                vec![ToolCall {
+                    id: "call-1".to_string(),
+                    name: "Read".to_string(),
+                    arguments: json!({"path": "README.md"}),
+                }],
+            ),
+            ConversationMessage::tool("call-1", "contents"),
+        ];
+        let body = build_request(
+            LUNA_MODEL,
+            &messages,
+            ToolRegistry::default().specs(),
+            false,
+            128,
+            None,
+        );
+
+        assert!(body.get("tools").is_none());
+        assert!(body["messages"][0].get("tool_calls").is_none());
+        assert_eq!(body["messages"][1]["role"], "user");
+        assert!(body["messages"][1].get("tool_call_id").is_none());
     }
 
     #[test]

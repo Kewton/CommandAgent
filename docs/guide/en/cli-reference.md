@@ -17,7 +17,7 @@ for the TUI. The action selectors are `--prompt`, `--plan-steps`, `--plan-run`,
 selector.
 
 Clap also generates `-h`/`--help` and `-V`/`--version`. They are not part of the
-41 application flags below. The hidden `--completion-contract-json <PATH>` is an
+42 application flags below. The hidden `--completion-contract-json <PATH>` is an
 internal integration surface and is intentionally not a public user flag.
 
 ## Flag reference
@@ -29,6 +29,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--context-budget` | `<CONTEXT_BUDGET>` integer | `65536` | Set the approximate conversation compaction budget. | [Resolved defaults](#important-resolved-defaults) |
 | `--model` | `<MODEL>` | `qwen3.6:27b-coding-nvfp4` | Set the executor model ID. | [Providers](providers.md) |
 | `--provider` | `<PROVIDER>`: `ollama`, `openai`, or `gemini` | `ollama` | Select the executor provider. | [Providers](providers.md) |
+| `--tool-protocol` | `<native\|text>` | provider capability default | Explicitly select native function tools or the established text/XML tool protocol. | [Presets](configuration.md#presets) |
 | `--prompt-layout` | `<stable\|legacy>` | `legacy` | Choose prompt section order for A/B measurement. | [Precedence](configuration.md#resolution-precedence) |
 | `--plan-preset` | `<profile\|none>` | normally `none`; `profile` is selected for explicit `data` fix/investigate cases | Override planner-tier UltraPlan preset selection. `data/fix` can synthesize F1–F3 steps; `nextjs/fix` remains none-equivalent. | [Precedence](configuration.md#resolution-precedence) |
 | `--intent` | `<create\|fix\|investigate>` | inferred from the goal | Force intent instead of goal-based resolution. | [Examples](#examples) |

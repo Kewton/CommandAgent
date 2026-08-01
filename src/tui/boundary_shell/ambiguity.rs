@@ -289,6 +289,7 @@ mod tests {
             context_budget: 1_000,
             model: "executor".to_string(),
             provider: crate::config::Provider::Ollama,
+            tool_protocol: None,
             prompt_layout: crate::config::PromptLayout::Stable,
             plan_preset: crate::config::PlanPreset::None,
             intent_override: None,

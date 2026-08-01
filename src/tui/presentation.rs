@@ -1535,6 +1535,7 @@ mod tests {
             context_budget: 999,
             model: "flag-model".to_string(),
             provider: Provider::Ollama,
+            tool_protocol: None,
             prompt_layout: crate::config::PromptLayout::Stable,
             plan_preset: crate::config::PlanPreset::None,
             intent_override: None,

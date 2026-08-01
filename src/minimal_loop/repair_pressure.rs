@@ -569,6 +569,7 @@ mod anchor_tests {
             context_budget: 1000,
             model: "m".to_string(),
             provider: Provider::Ollama,
+            tool_protocol: None,
             prompt_layout: PromptLayout::Stable,
             plan_preset: PlanPreset::None,
             intent_override: None,

@@ -140,6 +140,7 @@ class SuiteAndCommandTests(unittest.TestCase):
         cli_pack = bench.load_suite(
             SUITES_DIR / "cli-create-elevated-cli-assist.toml"
         )
+        cli_luna = bench.load_suite(SUITES_DIR / "cli-create-luna.toml")
 
         self.assertEqual(dfix.suite_id, "dfix-synthesis")
         self.assertEqual(dfix.workspace_mode, "sourced")
@@ -154,6 +155,34 @@ class SuiteAndCommandTests(unittest.TestCase):
         self.assertEqual(cli_pack.pack_id, "cli-assist")
         self.assertEqual(cli_pack.pack_version, "1.0.0")
         self.assertEqual(len(cli_pack.runs), 6)
+        self.assertEqual(cli_luna.tool_protocol, "text")
+        self.assertIn(
+            "--tool-protocol",
+            bench.build_command(cli_luna, cli_luna.runs[0]),
+        )
+
+    def test_tool_protocol_is_optional_and_strict(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            suite_path = write_source_less_suite(Path(directory))
+            suite = bench.load_suite(suite_path)
+            metadata = bench.new_metadata(
+                suite, "source-less-campaign", "dry-run", Path(directory), {}, []
+            )
+            self.assertIsNone(suite.tool_protocol)
+            self.assertNotIn("tool_protocol", metadata["suite"])
+            self.assertNotIn("--tool-protocol", bench.build_command(suite, suite.runs[0]))
+
+            contents = suite_path.read_text(encoding="utf-8").replace(
+                'provider = "ollama"',
+                'provider = "ollama"\ntool_protocol = "automatic"',
+                1,
+            )
+            suite_path.write_text(contents, encoding="utf-8")
+            with self.assertRaisesRegex(
+                bench.BenchError,
+                "suite.tool_protocol must be native or text when present",
+            ):
+                bench.load_suite(suite_path)
 
     def test_empty_workspace_rejects_sources(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

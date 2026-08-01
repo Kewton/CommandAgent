@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::cli::{
     Cli, FooterArg, IntentArg, PlanPresetArg, PromptLayoutArg, ProviderArg, StreamArg,
+    ToolProtocolArg,
 };
 pub use crate::planner::adjudication::contract::IntentId;
 use crate::planner::intent::detect_intent;
@@ -18,6 +19,7 @@ pub const DEFAULT_MODEL: &str = "qwen3.6:27b-coding-nvfp4";
 pub const SUPPORTED_PRESET_KEYS: &[&str] = &[
     "model",
     "provider",
+    "tool_protocol",
     "planner_model",
     "planner_provider",
     "context_budget",
@@ -43,6 +45,32 @@ pub enum Provider {
     Ollama,
     Openai,
     Gemini,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ToolProtocol {
+    Native,
+    Text,
+}
+
+impl ToolProtocol {
+    fn from_config_value(value: &str) -> Option<Self> {
+        match value.trim() {
+            "native" => Some(Self::Native),
+            "text" => Some(Self::Text),
+            _ => None,
+        }
+    }
+}
+
+impl From<ToolProtocolArg> for ToolProtocol {
+    fn from(value: ToolProtocolArg) -> Self {
+        match value {
+            ToolProtocolArg::Native => Self::Native,
+            ToolProtocolArg::Text => Self::Text,
+        }
+    }
 }
 
 impl From<ProviderArg> for Provider {
@@ -225,6 +253,7 @@ pub struct Config {
     pub context_budget: usize,
     pub model: String,
     pub provider: Provider,
+    pub tool_protocol: Option<ToolProtocol>,
     pub prompt_layout: PromptLayout,
     pub plan_preset: PlanPreset,
     pub intent_override: Option<IntentId>,
@@ -301,6 +330,7 @@ fn sourced<T>(value: T, source: impl Into<String>) -> Sourced<T> {
 struct PresetConfig {
     model: Option<Sourced<String>>,
     provider: Option<Sourced<Provider>>,
+    tool_protocol: Option<Sourced<ToolProtocol>>,
     planner_model: Option<Sourced<String>>,
     planner_provider: Option<Sourced<Provider>>,
     context_budget: Option<Sourced<usize>>,
@@ -422,6 +452,14 @@ impl Config {
             .map(|value| sourced(Provider::from(value), "flag"))
             .or_else(|| preset.as_ref().and_then(|preset| preset.provider.clone()))
             .unwrap_or_else(|| sourced(Provider::Ollama, "default"));
+        let tool_protocol = cli
+            .tool_protocol
+            .map(|value| sourced(ToolProtocol::from(value), "flag"))
+            .or_else(|| {
+                preset
+                    .as_ref()
+                    .and_then(|preset| preset.tool_protocol.clone())
+            });
         let planner_provider = cli
             .planner_provider
             .map(|value| sourced(Provider::from(value), "flag"))
@@ -576,6 +614,7 @@ impl Config {
             context_budget: context_budget.value,
             model: model.value,
             provider: provider.value,
+            tool_protocol: tool_protocol.map(|value| value.value),
             prompt_layout: prompt_layout.value,
             plan_preset: plan_preset.value,
             intent_override: cli.intent.map(IntentId::from),
@@ -739,6 +778,7 @@ fn preset_missing_keys(preset: &PresetConfig) -> Vec<&'static str> {
 fn merge_preset(target: &mut PresetConfig, source: &PresetConfig) {
     merge_preset_field(&mut target.model, &source.model);
     merge_preset_field(&mut target.provider, &source.provider);
+    merge_preset_field(&mut target.tool_protocol, &source.tool_protocol);
     merge_preset_field(&mut target.planner_model, &source.planner_model);
     merge_preset_field(&mut target.planner_provider, &source.planner_provider);
     merge_preset_field(&mut target.context_budget, &source.context_budget);
@@ -1078,6 +1118,12 @@ fn parse_preset_key(
                 source,
             ))
         }
+        "tool_protocol" => {
+            preset.tool_protocol = Some(sourced(
+                parse_tool_protocol_value(path, line_no, &full_key, value)?,
+                source,
+            ))
+        }
         "planner_model" => {
             preset.planner_model = Some(sourced(
                 parse_string_value(path, line_no, &full_key, value)?,
@@ -1243,6 +1289,22 @@ fn parse_prompt_layout_value(
     PromptLayout::from_config_value(&value).ok_or_else(|| {
         anyhow::anyhow!(
             "{}:{} {key} expects prompt_layout stable|legacy",
+            path.display(),
+            line_no
+        )
+    })
+}
+
+fn parse_tool_protocol_value(
+    path: &Path,
+    line_no: usize,
+    key: &str,
+    value: &str,
+) -> anyhow::Result<ToolProtocol> {
+    let value = parse_string_value(path, line_no, key, value)?;
+    ToolProtocol::from_config_value(&value).ok_or_else(|| {
+        anyhow::anyhow!(
+            "{}:{} {key} expects tool_protocol native|text",
             path.display(),
             line_no
         )
@@ -1562,6 +1624,61 @@ mod tests {
 
             assert_eq!(Config::from_cli(cli).unwrap().model, model);
         }
+    }
+
+    #[test]
+    fn tool_protocol_is_declaration_only_and_accepts_flag_or_preset() {
+        let omitted = Config::from_cli(Cli::parse_from(["commandagent"])).unwrap();
+        let explicit =
+            Config::from_cli(Cli::parse_from(["commandagent", "--tool-protocol", "text"])).unwrap();
+
+        assert_eq!(omitted.tool_protocol, None);
+        assert_eq!(explicit.tool_protocol, Some(ToolProtocol::Text));
+
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_string_lossy().to_string();
+        std::fs::create_dir_all(dir.path().join(".anvil")).unwrap();
+        std::fs::write(
+            dir.path().join(".anvil/config.toml"),
+            r#"
+[preset.native-tools]
+tool_protocol = "native"
+"#,
+        )
+        .unwrap();
+        let from_preset = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--preset",
+            "native-tools",
+        ]))
+        .unwrap();
+        assert_eq!(from_preset.tool_protocol, Some(ToolProtocol::Native));
+    }
+
+    #[test]
+    fn preset_rejects_unknown_tool_protocol() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_string_lossy().to_string();
+        std::fs::create_dir_all(dir.path().join(".anvil")).unwrap();
+        std::fs::write(
+            dir.path().join(".anvil/config.toml"),
+            "[preset.invalid]\ntool_protocol = \"automatic\"\n",
+        )
+        .unwrap();
+
+        let error = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--preset",
+            "invalid",
+        ]))
+        .unwrap_err()
+        .to_string();
+
+        assert!(error.contains("tool_protocol native|text"), "{error}");
     }
 
     #[test]

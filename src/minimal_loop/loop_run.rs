@@ -1048,8 +1048,11 @@ pub(crate) fn run_session_with_outcome_with_options(
     options: RunSessionOptions,
 ) -> anyhow::Result<RunSessionOutcome> {
     let registry = ToolRegistry::default();
-    let mut native_tools_enabled =
-        client.supports_native_tools(&config.model) && !session.native_tools_disabled;
+    let mut native_tools_enabled = super::tool_protocol::native_tools_enabled(
+        config.tool_protocol,
+        client.supports_native_tools(&config.model),
+        session.native_tools_disabled,
+    );
     let completion_contract =
         if options.contract_runtime_enabled() || options.contract_path_merge_enabled() {
             CompletionContract::load_for_config(config)?
@@ -1337,7 +1340,7 @@ pub(crate) fn run_session_with_outcome_with_options(
             );
             provider_turn_timeouts = 0;
         }
-        let reply = match chat_result {
+        let mut reply = match chat_result {
             Ok(reply) => {
                 pending_feedback = None;
                 malformed_native_tool_feedbacks = 0;
@@ -1398,6 +1401,9 @@ pub(crate) fn run_session_with_outcome_with_options(
                 return Err(err);
             }
         };
+        if config.tool_protocol == Some(crate::config::ToolProtocol::Text) {
+            super::tool_protocol::normalize_text_reply(&mut reply, &specs)?;
+        }
         ui.publish_status(UiStatus::for_model_reply(
             config,
             &config.model,
@@ -5166,6 +5172,7 @@ mod tests {
             context_budget: 1000,
             model: "m".to_string(),
             provider: crate::config::Provider::Ollama,
+            tool_protocol: None,
             prompt_layout: crate::config::PromptLayout::Stable,
             plan_preset: crate::config::PlanPreset::None,
             intent_override: None,

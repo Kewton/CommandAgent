@@ -385,6 +385,7 @@ fn live_openai_responses_no_tool_http_smoke() {
         model: commandagent::env_compat::var("COMMANDAGENT_OPENAI_SMOKE_MODEL")
             .unwrap_or_else(|_| "gpt-5.4-mini".to_string()),
         provider: Provider::Openai,
+        tool_protocol: None,
         prompt_layout: commandagent::config::PromptLayout::Stable,
         plan_preset: commandagent::config::PlanPreset::None,
         intent_override: None,
@@ -522,6 +523,7 @@ fn live_gemini_interactions_no_tool_http_smoke() {
         context_budget: 4096,
         model: "unused".to_string(),
         provider: Provider::Ollama,
+        tool_protocol: None,
         prompt_layout: commandagent::config::PromptLayout::Stable,
         plan_preset: commandagent::config::PlanPreset::None,
         intent_override: None,
@@ -720,6 +722,7 @@ fn smoke_config(tmp_root: &Path, key_root: PathBuf, provider: Provider) -> Confi
         context_budget: 4096,
         model: "unused".to_string(),
         provider,
+        tool_protocol: None,
         prompt_layout: commandagent::config::PromptLayout::Stable,
         plan_preset: commandagent::config::PlanPreset::None,
         intent_override: None,

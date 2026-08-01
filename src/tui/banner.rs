@@ -188,6 +188,7 @@ mod tests {
             context_budget: 65536,
             model: "m\x1b[31m".to_string(),
             provider: Provider::Ollama,
+            tool_protocol: None,
             prompt_layout: crate::config::PromptLayout::Legacy,
             plan_preset: crate::config::PlanPreset::None,
             intent_override: None,

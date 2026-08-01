@@ -96,6 +96,7 @@ class SuiteDefinition:
     planner_model: str
     planner_provider: str
     provider: str
+    tool_protocol: str | None
     min_head: str | None
     pack_id: str | None
     pack_version: str | None
@@ -318,6 +319,7 @@ def load_suite(path: Path) -> SuiteDefinition:
             "planner_model",
             "planner_provider",
             "provider",
+            "tool_protocol",
             "min_head",
             "pack_id",
             "pack_version",
@@ -346,6 +348,12 @@ def load_suite(path: Path) -> SuiteDefinition:
         "sourced",
     }:
         raise BenchError("suite.workspace_mode must be empty or sourced")
+    tool_protocol = suite_table.get("tool_protocol")
+    if tool_protocol is not None and (
+        not isinstance(tool_protocol, str)
+        or tool_protocol not in {"native", "text"}
+    ):
+        raise BenchError("suite.tool_protocol must be native or text when present")
     min_head_value = suite_table.get("min_head")
     if min_head_value is not None and (
         not isinstance(min_head_value, str) or not min_head_value.strip()
@@ -539,6 +547,7 @@ def load_suite(path: Path) -> SuiteDefinition:
         planner_model=_required_str(suite_table, "planner_model", "suite"),
         planner_provider=_required_str(suite_table, "planner_provider", "suite"),
         provider=_required_str(suite_table, "provider", "suite"),
+        tool_protocol=tool_protocol,
         min_head=min_head_value,
         pack_id=pack_id,
         pack_version=pack_version,
@@ -570,6 +579,8 @@ def build_command(suite: SuiteDefinition, run: RunSpec) -> list[str]:
     ]
     if suite.plan_preset != "default":
         command.extend(["--plan-preset", suite.plan_preset])
+    if suite.tool_protocol is not None:
+        command.extend(["--tool-protocol", suite.tool_protocol])
     command.extend(
         [
             "--ultra-plan-run",
@@ -1245,6 +1256,8 @@ def _suite_metadata(
         "min_head": suite.min_head,
         "scrub_allow": list(suite.scrub_allow),
     }
+    if suite.tool_protocol is not None:
+        metadata["tool_protocol"] = suite.tool_protocol
     if suite.workspace_mode != "sourced":
         metadata["workspace_mode"] = suite.workspace_mode
     resolved_pack = _pack_runtime_metadata(suite, repo_root)

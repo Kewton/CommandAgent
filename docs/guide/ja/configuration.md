@@ -23,6 +23,7 @@ CLI フラグ > 選択した preset のフィールド > トップレベル設�
 | `footer` | `--no-footer` または `--footer` > preset > トップレベルキー > `on` |
 | `stream` | `--stream` > preset > トップレベルキー > REPL ではオン、直接アクションではオフ |
 | `model`、`provider`、`context_budget`、`chat_timeout_secs` | CLI > preset > 組み込み／プロバイダ依存の既定値 |
+| `tool_protocol` | CLI > preset > プロバイダ能力の既定値 |
 | `planner_model`、`planner_provider` | CLI > preset > 実行役割から継承。異なるプロバイダには planner model が必要 |
 | `profile` | CLI > preset > ゴール／ワークスペース推論 > `generic` |
 | `ollama_host`、`num_predict`、`max_iterations`、`chat_retries`、`style`、`state_dir`、その他の CLI 専用フィールド | CLI 値または CLI 宣言／組み込み既定値。設定ファイルでは受け付けない |
@@ -52,13 +53,14 @@ timeout の既定値は、いずれかの役割が Ollama なら `600` 秒、両
 
 ## Preset
 
-`--preset <name>` で preset を選択します。preset セクションでは、現在の 12 キーすべてを
+`--preset <name>` で preset を選択します。preset セクションでは、現在の 13 キーすべてを
 受け付けます。文字列／列挙値はダブルクォートで囲み、数値はクォートなしの整数で指定します。
 
 | Preset キー | 受け付ける値 | どの層にもない場合の実効 fallback |
 | --- | --- | --- |
 | `model` | model ID 文字列 | `qwen3.6:27b-coding-nvfp4` |
 | `provider` | `"ollama"`、`"openai"`、`"gemini"` | `"ollama"` |
+| `tool_protocol` | `"native"` または `"text"` | プロバイダ能力の既定値 |
 | `planner_model` | model ID 文字列 | プロバイダが同じなら実行モデル。それ以外は必須 |
 | `planner_provider` | `"ollama"`、`"openai"`、`"gemini"` | 実行プロバイダ |
 | `context_budget` | 非負のプラットフォームサイズ整数 | `65536` |
@@ -74,6 +76,7 @@ timeout の既定値は、いずれかの役割が Ollama なら `600` 秒、両
 [preset.local]
 model = "qwen3.6:27b-coding-nvfp4"
 provider = "ollama"
+tool_protocol = "text"
 planner_model = "qwen3.6:27b-coding-nvfp4"
 planner_provider = "ollama"
 context_budget = 65536
@@ -96,11 +99,11 @@ preset のマージは、`model`、`provider`、`planner_model`、`planner_provi
 `context_budget`、`chat_timeout_secs`、`plan_preset`、`profile`、`narration`、`footer`、
 `stream` の 11 フィールドが揃った時点で早期停止します。
 
-`prompt_layout` は受け付けるキーですが、この完全性判定には**含まれません**。優先度の高い preset が
+`prompt_layout` と `tool_protocol` は受け付けるキーですが、この完全性判定には**含まれません**。優先度の高い preset が
 11 個の完全性フィールドをすでに持ちながら `prompt_layout` を省略している場合、探索が停止し、
 優先度の低いファイルにある同じ preset の `prompt_layout` は継承されません。`prompt_layout` を
 優先度の高い同じ preset に置くか、意図した下位層まで探索されるように完全性フィールドを残してください。
-受け付ける 12 キーと、早期停止条件の 11 キーを同じものと仮定しないでください。
+受け付ける 13 キーと、早期停止条件の 11 キーを同じものと仮定しないでください。
 
 ## トップレベルキー
 

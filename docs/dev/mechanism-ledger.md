@@ -1355,3 +1355,11 @@ Debug、HTTP反射error、events、summary evidenceの全てで同一keyが不�
 provider返却どおり`null`、11 input / 4 output token、1.871秒、公式単価に
 基づく推定USD 0.000035だった。実物は
 `workspace/management/runs/f0-openai-smoke/`に保存した。
+
+## F-2a-3 — tool protocol能力の明示宣言（2026-08-01）
+
+暗黙前提の第2連弾（parameter注入に続く能力仮定）を受け、モデル構成へ
+`tool_protocol=native|text`を追加した。能力は宣言し、モデル名から推測しない。
+明示`text`は新しいprotocolを増やさず、ローカルモデルで歴戦済みの有界tools
+非送信・XML/text指示・typed解析・通常repair経路をOpenAIにも流用する。
+未宣言経路は既存provider capability判定を保存し、既存request bytesを変えない。

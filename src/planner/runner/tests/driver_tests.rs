@@ -1593,6 +1593,7 @@ fn config(root: PathBuf) -> Config {
         context_budget: 1000,
         model: "m".to_string(),
         provider: crate::config::Provider::Ollama,
+        tool_protocol: None,
         prompt_layout: crate::config::PromptLayout::Stable,
         plan_preset: crate::config::PlanPreset::None,
         intent_override: None,

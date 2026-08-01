@@ -805,6 +805,7 @@ mod tests {
             context_budget: 1000,
             model: "m".to_string(),
             provider: Provider::Ollama,
+            tool_protocol: None,
             prompt_layout: PromptLayout::Stable,
             plan_preset: crate::config::PlanPreset::None,
             intent_override: None,
