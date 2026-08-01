@@ -19,7 +19,8 @@ runtime evidence は通常 `<workspace>/.anvil/runs/<run-id>/` に書き込ま�
 5. キーを表示せずに CommandAgent を再起動します。
 
 [プロバイダ認証情報の設定](providers.md#認証情報の設定)も参照してください。OpenAI で対応する
-エラーは `OPENAI_API_KEY is not set` であり、`OPENAI_API_KEY` を使って同様に解決します。
+エラーは `OPENAI_API_KEY is not set` です。OpenAI の資格情報は workspace `.env` から読まないため、
+起動プロセスの環境に設定します。
 
 ## `preflight: port N is busy`
 
@@ -85,15 +86,17 @@ scrollback の breadcrumb は残ります。`--no-footer`、トップレベル�
 
 ## Model ID が存在しない
 
-CommandAgent は model ID を選択したプロバイダへ渡します。プロバイダ横断の catalog を保持せず、
-request 前に ID を検証しません。そのため、存在しない、利用できない、権限がない model は
-プロバイダ呼び出し時に失敗します。
+CommandAgent は通常、プロバイダ横断の catalog を持たず model ID を選択したプロバイダへ渡します。
+唯一警備するaliasはOpenAI executor ID `gpt-5.6`で、dispatch前に拒否します。厳密ID
+`gpt-5.6-luna`または利用可能なsnapshot付きLuna/Sol IDを使ってください。それ以外の存在しない、
+利用できない、権限がない model はプロバイダ呼び出し時に失敗します。
 
 ### 失敗の見え方
 
 - Gemini は `Gemini streamGenerateContent API failed: <status>` または
   `Gemini interactions API failed: <status>` を表示します。
-- OpenAI は `OpenAI Responses API failed: <status>` を表示します。
+- OpenAI は `OpenAI request failed: HTTP <status>` を表示します。LunaはChat Completions、
+  既存モデルはResponses endpointを維持します。
 - Ollama は設定済み再試行後に `Ollama /api/chat failed: <status>` を表示します。
 - TUI コマンドは error/failure block を表示して REPL に戻り、直接 CLI アクションは
   `error: ...` とともに非ゼロで終了します。

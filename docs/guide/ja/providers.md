@@ -11,7 +11,7 @@ CommandAgent は実行役割と planner 役割を分けられます。`--provide
 | プロバイダ | CLI 値 | 必要なキー | 取得／セットアップ先 | CommandAgent の endpoint | 設定方法 |
 | --- | --- | --- | --- | --- | --- |
 | Ollama | `ollama` | ローカルサーバーでは不要 | [Ollama quickstart](https://docs.ollama.com/quickstart) | `--ollama-host`、既定値 `http://localhost:11434`。`/api/chat` を付加 | `--provider ollama --model <model-id>` |
-| OpenAI | `openai` | `OPENAI_API_KEY` | [OpenAI API キーの作成](https://platform.openai.com/api-keys) | 固定の `https://api.openai.com/v1/responses` | プロセス環境またはワークスペース `.env` |
+| OpenAI | `openai` | `OPENAI_API_KEY` | [OpenAI API キーの作成](https://platform.openai.com/api-keys) | 固定の `https://api.openai.com`。Luna は `/v1/chat/completions`、既存モデルは `/v1/responses` を維持 | プロセス環境のみ |
 | Gemini | `gemini` | `GEMINI_API_KEY` | [Google AI Studio で Gemini API キーを作成](https://aistudio.google.com/app/apikey) | 固定の Google Generative Language endpoint | プロセス環境またはワークスペース `.env` |
 
 Google の一部 client library と異なり、CommandAgent は `GOOGLE_API_KEY` を
@@ -20,9 +20,10 @@ Google の一部 client library と異なり、CommandAgent は `GOOGLE_API_KEY`
 
 ## 認証情報の設定
 
-CommandAgent は最初にプロセス環境で正確なキー名を確認します。存在しないか空の場合は、
-`<workspace>/.env` を読みます。workspace は正規化した `--cwd` または現在のディレクトリです。
-空でないプロセス環境の値が `.env` より優先されます。
+`OPENAI_API_KEY` はプロセス環境だけから読みます。コマンド引数、preset、suite 定義、
+workspace の `.env` からの指定は意図的に拒否します。`GEMINI_API_KEY` は最初にプロセス環境を
+確認し、存在しない場合は `<workspace>/.env` へフォールバックします。workspace は正規化した
+`--cwd` または現在のディレクトリです。
 
 ### シェル環境
 
@@ -42,10 +43,9 @@ shell trace を実行しないでください。起動後は `/status` で実効
 
 ### ワークスペースの `.env`
 
-代わりに、アクティブなワークスペース直下へ `.env` を作成できます。
+Gemini に限り、代わりにアクティブなワークスペース直下へ `.env` を作成できます。
 
 ```dotenv
-OPENAI_API_KEY=<secret>
 GEMINI_API_KEY=<secret>
 ```
 
@@ -62,6 +62,14 @@ chmod 600 .env
 このリポジトリでは `.env` を ignore していますが、commit 前に各ワークスペースの ignore rule を
 確認してください。キー値を commit、貼り付け、記録、画面表示しないでください。露出した場合は
 プロバイダ側で revoke して交換してください。
+
+## OpenAI モデルID
+
+実行モデルには厳密ID `gpt-5.6-luna` を使います。別の Sol モデルへ解決され得る曖昧な
+alias `gpt-5.6` は拒否されます。反復可能な比較が必要な場合は、提供されているなら
+provider 公開の日付suffix付きLuna snapshot IDを優先してください。CommandAgent は返却された
+model IDと`system_fingerprint`をprovider turn eventへ記録し、資格情報を露出せずendpoint driftを
+監査可能にします。
 
 ## Ollama のホストとモデル
 
@@ -100,8 +108,8 @@ localhost の外へ Ollama を公開するとネットワーク上のセキュ�
 
 ## 秘密情報の取り扱いチェックリスト
 
-- クラウドキーは起動プロセスの環境またはワークスペース `.env` に保存し、`config.toml`、preset、
-  ゴール、コマンド引数には保存しません。
+- OpenAI キーは起動プロセスの環境だけに保存します。Gemini は workspace `.env` も利用できます。
+  クラウドキーを `config.toml`、preset、suite、ゴール、コマンド引数には保存しません。
 - Unix permission が使える環境では `.env` を `600` に設定します。
 - キー値を画面表示、screenshot、issue への貼り付け、端末 transcript の採取対象にしません。
 - `.env` を version control から除外し、commit 前に stage 済みファイルを確認します。

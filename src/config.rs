@@ -447,6 +447,7 @@ impl Config {
         let Some(planner_model) = planner_model else {
             bail!("--planner-model is required when --planner-provider differs from --provider");
         };
+        validate_openai_executor_model(provider.value, &model.value)?;
         let context_budget = cli
             .context_budget
             .map(|value| sourced(value, "flag"))
@@ -599,6 +600,15 @@ impl Config {
             action,
         })
     }
+}
+
+fn validate_openai_executor_model(provider: Provider, model: &str) -> anyhow::Result<()> {
+    if provider == Provider::Openai && model == "gpt-5.6" {
+        bail!(
+            "OpenAI executor model alias `gpt-5.6` is ambiguous. Specify the exact Luna or Sol model ID (`gpt-5.6-luna` or an available snapshot-qualified Luna/Sol ID)."
+        );
+    }
+    Ok(())
 }
 
 fn config_source_origin(source: &str) -> &'static str {
@@ -1533,6 +1543,25 @@ mod tests {
         let cli = Cli::parse_from(["commandagent", "--provider", "ollama", "--model", "m"]);
         let config = Config::from_cli(cli).unwrap();
         assert_eq!(config.planner_model, "m");
+    }
+
+    #[test]
+    fn openai_executor_rejects_ambiguous_gpt_5_6_alias() {
+        let cli = Cli::parse_from(["commandagent", "--provider", "openai", "--model", "gpt-5.6"]);
+
+        let error = Config::from_cli(cli).unwrap_err().to_string();
+
+        assert!(error.contains("gpt-5.6-luna"), "{error}");
+        assert!(error.contains("Luna or Sol"), "{error}");
+    }
+
+    #[test]
+    fn openai_executor_accepts_exact_luna_and_snapshot_ids() {
+        for model in ["gpt-5.6-luna", "gpt-5.6-luna-2026-07-31"] {
+            let cli = Cli::parse_from(["commandagent", "--provider", "openai", "--model", model]);
+
+            assert_eq!(Config::from_cli(cli).unwrap().model, model);
+        }
     }
 
     #[test]

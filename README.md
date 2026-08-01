@@ -117,9 +117,9 @@ For guided prerequisite checks, installation, and optional provider/probe
 setup, run `./scripts/setup.sh`. Use `--yes` for non-interactive safe defaults
 or `--check-only` to inspect prerequisites without changing anything.
 
-For remote providers, set the corresponding key in the process environment or
-in `.env` at the active workspace root. CommandAgent redacts these values from
-logs.
+For OpenAI, set `OPENAI_API_KEY` only in the launching process environment.
+Gemini may use the process environment or `.env` at the active workspace root.
+CommandAgent redacts these values from logs.
 
 ## Usage
 

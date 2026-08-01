@@ -21,8 +21,9 @@ active workspace's `.env`.
 5. Restart CommandAgent. Do not print the key while checking it.
 
 See [provider credential configuration](providers.md#configure-credentials).
-The analogous OpenAI error is `OPENAI_API_KEY is not set` and has the same
-resolution using `OPENAI_API_KEY`.
+The analogous OpenAI error is `OPENAI_API_KEY is not set`. Set it in the
+launching process environment; OpenAI credentials are not read from workspace
+`.env`.
 
 ## `preflight: port N is busy`
 
@@ -92,15 +93,18 @@ terminal can clear a scroll region left by the terminal emulator.
 
 ## Model ID does not exist
 
-CommandAgent passes model IDs to the selected provider; it does not maintain a
-cross-provider catalog or validate an ID before the request. A nonexistent,
-unavailable, or unauthorized model therefore fails at provider-call time.
+CommandAgent normally passes model IDs to the selected provider without a
+cross-provider catalog. The one guarded alias is OpenAI executor ID `gpt-5.6`,
+which is rejected before dispatch; use exact `gpt-5.6-luna` or an available
+snapshot-qualified Luna/Sol ID. Other nonexistent, unavailable, or unauthorized
+models fail at provider-call time.
 
 ### What the failure looks like
 
 - Gemini surfaces `Gemini streamGenerateContent API failed: <status>` or
   `Gemini interactions API failed: <status>`.
-- OpenAI surfaces `OpenAI Responses API failed: <status>`.
+- OpenAI surfaces an `OpenAI request failed: HTTP <status>` error; Luna uses the
+  Chat Completions endpoint and existing models retain Responses.
 - Ollama surfaces `Ollama /api/chat failed: <status>` after configured retries.
 - A TUI command prints an error/failure block and returns to the REPL; a direct
   CLI action exits nonzero with `error: ...`.

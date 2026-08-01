@@ -16,6 +16,7 @@ use crate::minimal_loop::interaction_probe::{
 
 const SCHEMA_VERSION: &str = "1";
 const OLLAMA_TIMEOUT: Duration = Duration::from_secs(2);
+const OPENAI_ENDPOINT: &str = "https://api.openai.com";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -400,25 +401,98 @@ fn add_provider_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {
         checks.extend(ollama_checks(&config.ollama_host, &ollama_roles));
     }
 
-    let dotenv = crate::config::read_dotenv(&config.workspace_root);
-    for (provider, key, id, label) in [
-        (
-            Provider::Openai,
+    if config.provider == Provider::Openai || config.planner_provider == Provider::Openai {
+        let openai_key = std::env::var("OPENAI_API_KEY")
+            .ok()
+            .filter(|value| !value.trim().is_empty());
+        checks.push(process_credential_check_with(
             "OPENAI_API_KEY",
             "provider.openai.api_key",
             "OpenAI key",
-        ),
-        (
-            Provider::Gemini,
+            |_| openai_key.clone(),
+        ));
+        checks.push(openai_reachability_check(openai_key.as_deref()));
+    }
+    if config.provider == Provider::Gemini || config.planner_provider == Provider::Gemini {
+        checks.push(credential_check_with(
             "GEMINI_API_KEY",
             "provider.gemini.api_key",
             "Gemini key",
+            &crate::config::read_dotenv(&config.workspace_root),
+            |name| std::env::var(name).ok(),
+        ));
+    }
+}
+
+fn openai_reachability_check(api_key: Option<&str>) -> DoctorCheck {
+    openai_reachability_check_with(api_key, |key| {
+        let client = reqwest::blocking::Client::builder()
+            .connect_timeout(OLLAMA_TIMEOUT)
+            .timeout(OLLAMA_TIMEOUT)
+            .build()
+            .map_err(|error| error.to_string())?;
+        client
+            .get(format!("{OPENAI_ENDPOINT}/v1/models"))
+            .bearer_auth(key)
+            .send()
+            .map(|response| response.status().as_u16())
+            .map_err(|error| error.to_string())
+    })
+}
+
+fn openai_reachability_check_with(
+    api_key: Option<&str>,
+    probe: impl FnOnce(&str) -> Result<u16, String>,
+) -> DoctorCheck {
+    let Some(api_key) = api_key else {
+        return DoctorCheck::new(
+            "provider.openai.reachable",
+            "provider",
+            "OpenAI",
+            CheckStatus::Warn,
+            "reachability was not attempted because OPENAI_API_KEY is missing",
+            Some("set OPENAI_API_KEY in the process environment and rerun --doctor".to_string()),
+            json!({ "endpoint": OPENAI_ENDPOINT, "reachable": null, "status": null }),
+        );
+    };
+    match probe(api_key) {
+        Ok(status) if (200..300).contains(&status) => DoctorCheck::new(
+            "provider.openai.reachable",
+            "provider",
+            "OpenAI",
+            CheckStatus::Pass,
+            format!("{OPENAI_ENDPOINT}/v1/models reachable"),
+            None,
+            json!({ "endpoint": OPENAI_ENDPOINT, "reachable": true, "status": status }),
         ),
-    ] {
-        if config.provider == provider || config.planner_provider == provider {
-            checks.push(credential_check_with(key, id, label, &dotenv, |name| {
-                std::env::var(name).ok()
-            }));
+        Ok(status) => DoctorCheck::new(
+            "provider.openai.reachable",
+            "provider",
+            "OpenAI",
+            CheckStatus::Warn,
+            format!("{OPENAI_ENDPOINT}/v1/models reachable but returned HTTP {status}"),
+            Some(
+                "verify OpenAI access, account permissions, and the process environment key"
+                    .to_string(),
+            ),
+            json!({ "endpoint": OPENAI_ENDPOINT, "reachable": true, "status": status }),
+        ),
+        Err(error) => {
+            let error = single_line(error.replace(api_key, "<redacted>"));
+            DoctorCheck::new(
+                "provider.openai.reachable",
+                "provider",
+                "OpenAI",
+                CheckStatus::Warn,
+                format!("{OPENAI_ENDPOINT}/v1/models unreachable ({error})"),
+                Some("verify network access to api.openai.com and rerun --doctor".to_string()),
+                json!({
+                    "endpoint": OPENAI_ENDPOINT,
+                    "reachable": false,
+                    "status": null,
+                    "error": error,
+                }),
+            )
         }
     }
 }
@@ -521,6 +595,39 @@ fn credential_check_with(
             format!("{key} is not set in the environment or workspace .env"),
             Some(format!(
                 "set {key} in the process environment or workspace .env without printing it"
+            )),
+            json!({ "key": key, "present": false, "source": null, "value": null }),
+        ),
+    }
+}
+
+fn process_credential_check_with(
+    key: &str,
+    id: &str,
+    label: &str,
+    get_env: impl Fn(&str) -> Option<String>,
+) -> DoctorCheck {
+    match get_env(key).filter(|value| !value.trim().is_empty()) {
+        Some(value) => {
+            let redacted = crate::config::redact(&value);
+            DoctorCheck::new(
+                id,
+                "provider",
+                label,
+                CheckStatus::Pass,
+                format!("{key} is set (source=environment; value={redacted})"),
+                None,
+                json!({ "key": key, "present": true, "source": "environment", "value": redacted }),
+            )
+        }
+        None => DoctorCheck::new(
+            id,
+            "provider",
+            label,
+            CheckStatus::Fail,
+            format!("{key} is not set in the process environment"),
+            Some(format!(
+                "set {key} in the process environment without printing it"
             )),
             json!({ "key": key, "present": false, "source": null, "value": null }),
         ),
@@ -877,6 +984,35 @@ mod tests {
 
         assert!(present.message.contains("source=.env"));
         assert_eq!(missing.status, CheckStatus::Fail);
+    }
+
+    #[test]
+    fn openai_credential_is_environment_only() {
+        let check = process_credential_check_with(
+            "OPENAI_API_KEY",
+            "provider.openai.api_key",
+            "OpenAI key",
+            |_| None,
+        );
+
+        assert_eq!(check.status, CheckStatus::Fail);
+        assert!(check.message.contains("process environment"));
+        assert!(!check.message.contains(".env"));
+    }
+
+    #[test]
+    fn openai_reachability_reports_status_without_exposing_key() {
+        let secret = "sk-proj-doctor-secret-123456789";
+        let reachable = openai_reachability_check_with(Some(secret), |_| Ok(200));
+        let reflected = openai_reachability_check_with(Some(secret), |_| {
+            Err(format!("upstream reflected {secret}"))
+        });
+        let serialized = serde_json::to_string(&(reachable.clone(), reflected.clone())).unwrap();
+
+        assert_eq!(reachable.status, CheckStatus::Pass);
+        assert_eq!(reflected.status, CheckStatus::Warn);
+        assert!(serialized.contains("<redacted>"));
+        assert!(!serialized.contains(secret));
     }
 
     #[test]

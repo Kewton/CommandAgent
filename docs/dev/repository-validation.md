@@ -43,8 +43,9 @@ contacting a provider. If a terminal shows cursor-region artifacts, rerun with
 
 ## Live provider tests
 
-`OPENAI_API_KEY` and `GEMINI_API_KEY` are read from the process environment
-first, then from `.env` in the active workspace. Values are redacted from logs.
+`OPENAI_API_KEY` is read only from the process environment. `GEMINI_API_KEY`
+checks the process environment first and then `.env` in the active workspace.
+Values are redacted from logs.
 
 Live provider tests are gated:
 
@@ -54,6 +55,14 @@ COMMANDAGENT_LIVE_PROVIDER_TESTS=1 cargo test live_ -- --ignored
 
 Override smoke model IDs with `COMMANDAGENT_OPENAI_SMOKE_MODEL` and
 `COMMANDAGENT_GEMINI_SMOKE_MODEL` when needed.
+
+The F-0 Luna chokepoint smoke is run separately with the exact model ID:
+
+```bash
+COMMANDAGENT_LIVE_PROVIDER_TESTS=1 \
+COMMANDAGENT_OPENAI_SMOKE_MODEL=gpt-5.6-luna \
+cargo test live_openai_luna_chokepoint_smoke -- --ignored --nocapture
+```
 
 ## Clean release build
 

@@ -150,9 +150,10 @@ configuration.
 
 ## Environment variables
 
-Provider keys are read from the process environment first and then from a
-workspace `.env`; see [Providers](providers.md). The following environment
-variables also affect normal user-visible behavior:
+The OpenAI key is read only from the process environment. The Gemini key checks
+the process environment first and then a workspace `.env`; see
+[Providers](providers.md). The following environment variables also affect
+normal user-visible behavior:
 
 | Variable | Effect |
 | --- | --- |
