@@ -13,6 +13,79 @@ MEASURED_ELEV_003 = (
 
 
 class CalibrationCorpusTests(unittest.TestCase):
+    def test_tool_parse_failure_envelope_becomes_calibration_material(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign = Path(tmp) / "campaign"
+            evidence = campaign / "artifacts/stats_luna_001/evidence"
+            evidence.mkdir(parents=True)
+            (evidence / "tool-parse-failure-001.json").write_text(
+                json.dumps(
+                    {
+                        "model": "gpt-5.6-luna",
+                        "protocol": "text",
+                        "failure_kind": "json_trailing",
+                        "parse_error": "trailing characters at line 1 column 121",
+                        "raw_excerpt": {"text": "{...} trailing", "max_bytes": 512},
+                        "phase": "create-sample-data",
+                        "claims": [
+                            {
+                                "claim": "json_trailing",
+                                "observation": {
+                                    "model": "gpt-5.6-luna",
+                                    "protocol": "text",
+                                    "failure_kind": "json_trailing",
+                                    "parse_error": "trailing characters at line 1 column 121",
+                                    "raw_excerpt": {
+                                        "text": "{...} trailing",
+                                        "max_bytes": 512,
+                                    },
+                                    "phase": "create-sample-data",
+                                },
+                            }
+                        ],
+                        "evidence_envelope": {
+                            "envelope_version": 1,
+                            "family": "tool_parse",
+                            "kind": "tool_parse_failure",
+                            "epoch": 123,
+                            "claims": [
+                                {
+                                    "index": 0,
+                                    "label": "json_trailing",
+                                    "judgement": "observed",
+                                    "observation": {
+                                        "model": "gpt-5.6-luna",
+                                        "protocol": "text",
+                                        "failure_kind": "json_trailing",
+                                        "parse_error": "trailing characters at line 1 column 121",
+                                        "raw_excerpt": {
+                                            "text": "{...} trailing",
+                                            "max_bytes": 512,
+                                        },
+                                        "phase": "create-sample-data",
+                                    },
+                                    "source_ref": None,
+                                    "direction": None,
+                                }
+                            ],
+                            "nearest_miss": [],
+                            "source_refs": [],
+                        },
+                    }
+                )
+            )
+
+            rows = list(calibration_corpus.records(campaign))
+
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["kind"], "tool_parse")
+            self.assertEqual(rows[0]["judgement"], "observed")
+            self.assertEqual(rows[0]["claim"], "json_trailing")
+            self.assertEqual(
+                rows[0]["observation"]["raw_excerpt"]["text"],
+                "{...} trailing",
+            )
+
     def test_ingest_envelope_nearest_miss_uses_the_common_reader(self):
         with tempfile.TemporaryDirectory() as tmp:
             campaign = Path(tmp) / "campaign"

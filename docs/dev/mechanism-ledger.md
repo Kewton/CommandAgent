@@ -1363,3 +1363,17 @@ provider返却どおり`null`、11 input / 4 output token、1.871秒、公式単
 明示`text`は新しいprotocolを増やさず、ローカルモデルで歴戦済みの有界tools
 非送信・XML/text指示・typed解析・通常repair経路をOpenAIにも流用する。
 未宣言経路は既存provider capability判定を保存し、既存request bytesを変えない。
+
+## F-2a-5 — tool parse失敗の自己記録化（2026-08-01）
+
+Luna text実測の個別解剖で、parse失敗を生んだ応答本文を機械が破棄し、
+error文字列から3/6を裁定できない観測gapが判明した。text parse失敗は今後、
+failure kind、parse error、失敗点周辺のscrub済み512-byte原文、model、protocol、
+phaseを加法eventとenvelope準拠evidenceへ自己記録する。`tool_parse`を横断family
+guardと較正collectorへ接続し、モデル族ごとの方言較正を他の照合器と同じ
+コーパス駆動へ降ろした。これは可視化設計の4例目である。
+
+text橋の最小能力は成立している。Lunaは003窓の4runで5件のWriteを既存
+text/XML protocol経由で実行した。一方、安定完走にはモデル族ごとの方言較正が
+必要である。レビューの「唯一の橋」評価には、textは作動するが普遍的に透明な
+橋ではなく、Responses API/native tools（F-0b）との比較裁定が要る、と注記する。

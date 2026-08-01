@@ -1401,8 +1401,16 @@ pub(crate) fn run_session_with_outcome_with_options(
                 return Err(err);
             }
         };
-        if config.tool_protocol == Some(crate::config::ToolProtocol::Text) {
-            super::tool_protocol::normalize_text_reply(&mut reply, &specs)?;
+        if config.tool_protocol == Some(crate::config::ToolProtocol::Text)
+            && let Err(error) = super::tool_protocol::normalize_text_reply(&mut reply, &specs)
+        {
+            super::tool_parse_failure::record_normalization_failure(
+                config,
+                options.phase_scope.as_deref(),
+                &reply.content,
+                &error,
+            );
+            return Err(error);
         }
         ui.publish_status(UiStatus::for_model_reply(
             config,
@@ -1626,7 +1634,16 @@ pub(crate) fn run_session_with_outcome_with_options(
                     continue;
                 }
                 session.messages.pop();
-                bail!("missing tool call for action prompt after feedback");
+                let error = "missing tool call for action prompt after feedback";
+                if config.tool_protocol == Some(crate::config::ToolProtocol::Text) {
+                    super::tool_parse_failure::record_missing_call(
+                        config,
+                        options.phase_scope.as_deref(),
+                        &reply.content,
+                        error,
+                    );
+                }
+                bail!(error);
             }
             if options.requires_action_tool_feedback(write_or_edit_seen, tool_call_count)
                 && looks_like_progress_without_tool(&reply.content)

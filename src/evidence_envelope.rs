@@ -16,6 +16,8 @@ pub(crate) enum EvidenceFamily {
     C,
     N,
     T,
+    #[serde(rename = "tool_parse")]
+    ToolParse,
     #[serde(rename = "circle")]
     Circle,
     #[serde(rename = "workflow")]
@@ -175,6 +177,9 @@ fn kind_for_path(family: EvidenceFamily, relative: &str) -> &'static str {
         (EvidenceFamily::N, "rerun-consistency.json") => "rerun_consistency",
         (EvidenceFamily::N, "ingest-assurance.json") => "assurance",
         (EvidenceFamily::T, "nextjs-testimony-binding.json") => "testimony_binding",
+        (EvidenceFamily::ToolParse, _) if name.starts_with("tool-parse-failure-") => {
+            "tool_parse_failure"
+        }
         (EvidenceFamily::Circle, "workflow-circle.json") => "workflow_circle",
         _ if family == EvidenceFamily::F && name.ends_with("-adjudication.json") => "adjudication",
         _ if family == EvidenceFamily::F && name.contains("-before-attempt-") => "before_attempt",
@@ -189,6 +194,7 @@ fn kind_for_path(family: EvidenceFamily, relative: &str) -> &'static str {
         (EvidenceFamily::C, _) => "cli_check",
         (EvidenceFamily::N, _) => "ingest_check",
         (EvidenceFamily::T, _) => "testimony_check",
+        (EvidenceFamily::ToolParse, _) => "tool_parse_evidence",
         (EvidenceFamily::Circle, _) => "circle_evidence",
         (EvidenceFamily::Workflow, _) => "workflow_evidence",
     }
@@ -385,6 +391,7 @@ mod tests {
             EvidenceFamily::C,
             EvidenceFamily::N,
             EvidenceFamily::T,
+            EvidenceFamily::ToolParse,
             EvidenceFamily::Circle,
             EvidenceFamily::Workflow,
         ];
@@ -397,6 +404,7 @@ mod tests {
                 json!("C"),
                 json!("N"),
                 json!("T"),
+                json!("tool_parse"),
                 json!("circle"),
                 json!("workflow"),
             ]
@@ -421,6 +429,7 @@ mod tests {
             EvidenceFamily::C,
             EvidenceFamily::N,
             EvidenceFamily::T,
+            EvidenceFamily::ToolParse,
             EvidenceFamily::Circle,
             EvidenceFamily::Workflow,
         ]
