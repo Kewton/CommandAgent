@@ -1322,3 +1322,36 @@ v0単発指示のartifact・prompt・event bytesは維持した。
 実在したが、`cli/main.py`起動例を復元できず構造ゲートで正直終端し、C3は
 未到達だった。T2F記録を開始するが、数値`2`は未獲得であり、現時点では
 round 2までの右打ち切りとして扱う。
+
+## CLI証言基準線の完成（2026-08-01）
+
+`d3c-shakedown-002` round 2は「起動例を`python3 cli/main.py`に戻す」という
+字義指示とround 1履歴を受けても、別pathを保持したまま構造gateで終端した。
+レビュー裁定により、次の成功可能roundは3以降なので基準線を**T2F≥3**とする。
+これはC3 passを獲得したという意味ではなく、字義指示への不服従まで含む
+F-2 Luna比較の下限値である。
+
+| 援助段 | 実測した材料 | cli証言壁での結果 |
+|---|---|---|
+| 材料 | C1実出力、C3対照、nearest miss | 編集行動ゼロ |
+| 照準・圧力 | README照準、write anchor、修復圧力 | live 3/3で同一違反 |
+| 明示指示 | 永続化した人間指示と履歴 | Writeは発火したが字義指示に従わず、round 2でもfull未達 |
+
+援助階層の全段を通した同一セルの基準線が揃った。F-2はこの基準線に対し、
+モデル階級だけをLunaへ替えてT2FとC3到達・転記を比較する。
+
+## F-0 — OpenAI providerとドリフト探針（2026-08-01）
+
+OpenAIの厳密ID `gpt-5.6-luna`をChat Completions互換経路へ追加し、既存
+`provider_call` chokepointのclone worker・timeout・cancel・turn eventを
+そのまま継承した。既存OpenAI Responses/Ollama/Gemini経路は変更せず、
+新経路だけが返却model ID、response ID、`system_fingerprint`、service tier、
+created epochを中央turn eventへ加える。これがband構成同一性をendpointの
+実体へ錨付けする最初のドリフト探針である。
+
+資格情報境界は`OPENAI_API_KEY`のprocess environment専用とし、clientの
+Debug、HTTP反射error、events、summary evidenceの全てで同一keyが不在となる
+負例を固定した。live hello probeは`gpt-5.6-luna`を返し、fingerprintは
+provider返却どおり`null`、11 input / 4 output token、1.871秒、公式単価に
+基づく推定USD 0.000035だった。実物は
+`workspace/management/runs/f0-openai-smoke/`に保存した。

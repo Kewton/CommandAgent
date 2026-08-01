@@ -4,6 +4,7 @@ use std::sync::Mutex;
 
 use commandagent::config::{Action, Config, Provider, load_api_key};
 use commandagent::mode::ExecutionMode;
+use commandagent::provider_call::{self, ProviderCallScope};
 use commandagent::providers::ChatClient;
 use commandagent::providers::gemini::GeminiClient;
 use commandagent::providers::gemini_function_calling::{
@@ -30,7 +31,7 @@ fn planner_live_provider_smoke_skips_without_keys() {
         .as_deref()
         == Some("1")
     {
-        let _ = find_workspace_with_key("OPENAI_API_KEY");
+        let _ = find_openai_process_key_root();
         let _ = find_workspace_with_key("GEMINI_API_KEY");
     }
 }
@@ -44,7 +45,7 @@ fn planner_live_openai_gemini_json_contract() {
     {
         return;
     }
-    let Some(openai_root) = find_workspace_with_key("OPENAI_API_KEY") else {
+    let Some(openai_root) = find_openai_process_key_root() else {
         return;
     };
     let Some(gemini_root) = find_workspace_with_key("GEMINI_API_KEY") else {
@@ -77,7 +78,7 @@ fn provider_probe_openai_tool_args_shape_skips_without_key() {
     if !provider_probe_enabled() {
         return;
     }
-    let Some(openai_root) = find_workspace_with_key("OPENAI_API_KEY") else {
+    let Some(openai_root) = find_openai_process_key_root() else {
         record_provider_probe(json!({
             "provider": "openai",
             "probe": "tool_args_shape",
@@ -350,7 +351,7 @@ fn live_openai_request_shape_uses_smoke_model() {
     {
         return;
     }
-    if find_workspace_with_key("OPENAI_API_KEY").is_none() {
+    if find_openai_process_key_root().is_none() {
         return;
     }
     let model = commandagent::env_compat::var("COMMANDAGENT_OPENAI_SMOKE_MODEL")
@@ -369,7 +370,7 @@ fn live_openai_responses_no_tool_http_smoke() {
     {
         return;
     }
-    let Some(workspace_root) = find_workspace_with_key("OPENAI_API_KEY") else {
+    let Some(workspace_root) = find_openai_process_key_root() else {
         return;
     };
     let tmp = tempfile::tempdir().expect("tempdir");
@@ -416,6 +417,65 @@ fn live_openai_responses_no_tool_http_smoke() {
             false,
         )
         .expect("OpenAI no-tool Responses API smoke");
+}
+
+#[test]
+#[ignore]
+fn live_openai_luna_chokepoint_smoke() {
+    if commandagent::env_compat::var("COMMANDAGENT_LIVE_PROVIDER_TESTS")
+        .ok()
+        .as_deref()
+        != Some("1")
+    {
+        return;
+    }
+    assert!(
+        commandagent::env_compat::var("OPENAI_API_KEY")
+            .ok()
+            .is_some_and(|value| !value.trim().is_empty()),
+        "OPENAI_API_KEY must be set in the process environment"
+    );
+    let model = commandagent::env_compat::var("COMMANDAGENT_OPENAI_SMOKE_MODEL")
+        .unwrap_or_else(|_| "gpt-5.6-luna".to_string());
+    assert!(
+        model == "gpt-5.6-luna" || model.starts_with("gpt-5.6-luna-"),
+        "F-0 smoke requires an exact Luna model ID, got {model}"
+    );
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let mut config = smoke_config(tmp.path(), PathBuf::from("."), Provider::Openai);
+    config.model = model.clone();
+    config.num_predict = 64;
+    config.eval_events_path = commandagent::env_compat::var_os("COMMANDAGENT_OPENAI_SMOKE_EVENTS")
+        .map(PathBuf::from)
+        .or_else(|| Some(tmp.path().join("events.jsonl")));
+    let mut client = OpenAiClient::from_env(&config).expect("OpenAI client");
+
+    let outcome = provider_call::chat(
+        &mut client,
+        &config,
+        ProviderCallScope::Executor,
+        &model,
+        &[ConversationMessage::user("Reply with exactly: hello")],
+        &[],
+        false,
+    );
+
+    let reply = outcome.result.expect("OpenAI Luna chokepoint smoke");
+    assert!(!reply.content.trim().is_empty(), "empty Luna response");
+    let events_path = config.eval_events_path.as_ref().expect("events path");
+    let turn = std::fs::read_to_string(events_path)
+        .expect("events")
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find(|event| event["event"] == "provider_turn_duration")
+        .expect("provider turn metadata event");
+    assert_eq!(turn["provider"], "openai");
+    assert!(turn.get("provider_model_id").is_some(), "{turn}");
+    assert!(turn.get("system_fingerprint").is_some(), "{turn}");
+    println!(
+        "F0_OPENAI_SMOKE_METADATA={}",
+        serde_json::to_string(&turn).expect("metadata JSON")
+    );
 }
 
 #[test]
@@ -551,6 +611,13 @@ fn find_workspace_with_key(name: &str) -> Option<PathBuf> {
     } else {
         None
     }
+}
+
+fn find_openai_process_key_root() -> Option<PathBuf> {
+    commandagent::env_compat::var("OPENAI_API_KEY")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .and_then(|_| std::env::current_dir().ok())
 }
 
 fn provider_probe_enabled() -> bool {

@@ -125,7 +125,7 @@ struct ProviderWorkerResult {
 
 enum ProviderWorkerMessage {
     Chunk(String),
-    Completed(ProviderWorkerResult),
+    Completed(Box<ProviderWorkerResult>),
     Panicked(Box<dyn std::any::Any + Send + 'static>),
 }
 
@@ -300,7 +300,7 @@ where
             }
         }));
         let message = match worker_result {
-            Ok(result) => ProviderWorkerMessage::Completed(result),
+            Ok(result) => ProviderWorkerMessage::Completed(Box::new(result)),
             Err(payload) => ProviderWorkerMessage::Panicked(payload),
         };
         let _ = tx.send(message);
@@ -414,7 +414,7 @@ where
                     result,
                     timing,
                     response_metadata,
-                } = worker_result;
+                } = *worker_result;
                 let result = enforce_response_limit(result, max_response_bytes);
                 let elapsed = started.elapsed();
                 crate::tui::status_bus::publish_provider_finished(elapsed);
@@ -1560,6 +1560,8 @@ mod tests {
         assert!(events.contains("\"prompt_eval_count\":10"));
         assert!(events.contains("\"eval_count\":2"));
         assert!(events.contains("\"finish_reason\":\"stop\""));
+        assert!(!events.contains("\"provider_model_id\""));
+        assert!(!events.contains("\"system_fingerprint\""));
         assert!(events.contains("\"event\":\"context_truncation_suspected\""));
         assert!(events.contains("\"level\":\"WARNING\""));
         assert!(events.contains("\"persistent_undercut_count\":2"));
