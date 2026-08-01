@@ -156,9 +156,11 @@ CLI_DIRECTIVE_MEASUREMENTS = (
     RUNS_DIR / CLI_DIRECTIVE_SET / "measurement.json",
     RUNS_DIR / CLI_DIRECTIVE_SET / "measurement-round-2.json",
 )
+CLI_LUNA_SET = "uat-test0801-cli-luna-001"
+CLI_LUNA_SUMMARY = RUNS_DIR / CLI_LUNA_SET / "evidence" / "campaign-summary.json"
 CLI_EXPECTED_RUNS_PER_SET = 6
 CLI_BASE_EXPECTED_RUNS = CLI_EXPECTED_RUNS_PER_SET * (
-    1 + len(CLI_ELEVATED_SETS) + len(CLI_PACK_SETS)
+    2 + len(CLI_ELEVATED_SETS) + len(CLI_PACK_SETS)
 )
 CLI_EXPECTED_MATRIX = {
     ("filter", "gemma4:31b"): 1,
@@ -404,6 +406,9 @@ class CliRunRecord:
     pack_exposed: bool = False
     directive_round: int = 0
     directive_hash: str = ""
+    api_input_tokens: int | None = None
+    api_output_tokens: int | None = None
+    cost_usd: float | None = None
 
     @property
     def is_full(self) -> bool:
@@ -427,6 +432,12 @@ class CliRunRecord:
         if self.directive_round == 0:
             return "round 0 / none"
         return f"round {self.directive_round} / {self.directive_hash}"
+
+    @property
+    def cost_label(self) -> str:
+        if self.cost_usd is None:
+            return "not recorded"
+        return f"${self.cost_usd:.6f}"
 
 
 @dataclass(frozen=True)
@@ -2969,6 +2980,19 @@ def cli_record_from_summary(
         pack_exposed=bool(row.get("pack_exposed", False)),
         directive_round=int(row.get("directive_round", 0)),
         directive_hash=str(row.get("directive_hash") or ""),
+        api_input_tokens=(
+            int(row["api_input_tokens"])
+            if row.get("api_input_tokens") is not None
+            else None
+        ),
+        api_output_tokens=(
+            int(row["api_output_tokens"])
+            if row.get("api_output_tokens") is not None
+            else None
+        ),
+        cost_usd=(
+            float(row["cost_usd"]) if row.get("cost_usd") is not None else None
+        ),
     )
 
 
@@ -3126,7 +3150,26 @@ def discover_cli_records() -> tuple[list[CliRunRecord], list[str]]:
             assert record.pack_id == expected_id
             assert record.pack_hash == expected_hash
             records.append(record)
-    scanned_sets = [CLI_LOCAL_SET, *CLI_ELEVATED_SETS, *CLI_PACK_SETS]
+    luna_data = read_json_dict(CLI_LUNA_SUMMARY)
+    assert luna_data is not None, f"missing CLI Luna-arm summary: {CLI_LUNA_SUMMARY}"
+    assert luna_data.get("uat_id") == CLI_LUNA_SET
+    luna_suite = luna_data.get("suite")
+    assert isinstance(luna_suite, dict)
+    assert luna_suite.get("profile") == "cli"
+    assert luna_suite.get("intent") == "create"
+    assert luna_suite.get("provider") == "openai"
+    assert luna_suite.get("executor") == "gpt-5.6-luna"
+    luna_rows = luna_data.get("runs")
+    assert isinstance(luna_rows, list)
+    for row in luna_rows:
+        assert isinstance(row, dict)
+        records.append(cli_record_from_summary(CLI_LUNA_SET, CLI_LUNA_SUMMARY, row))
+    scanned_sets = [
+        CLI_LOCAL_SET,
+        *CLI_ELEVATED_SETS,
+        *CLI_PACK_SETS,
+        CLI_LUNA_SET,
+    ]
     directive_records = discover_cli_directive_records()
     if directive_records:
         records.extend(directive_records)
@@ -3180,8 +3223,13 @@ def assert_cli_invariants(records: list[CliRunRecord]) -> int:
         f"CLI settlement has {len(records)} runs, expected {expected_runs}"
     )
     expected_sets = {
-            set_id: CLI_EXPECTED_RUNS_PER_SET
-            for set_id in [CLI_LOCAL_SET, *CLI_ELEVATED_SETS, *CLI_PACK_SETS]
+        set_id: CLI_EXPECTED_RUNS_PER_SET
+        for set_id in [
+            CLI_LOCAL_SET,
+            *CLI_ELEVATED_SETS,
+            *CLI_PACK_SETS,
+            CLI_LUNA_SET,
+        ]
     }
     if directive_records:
         expected_sets[CLI_DIRECTIVE_SET] = len(directive_records)
@@ -3216,6 +3264,19 @@ def assert_cli_invariants(records: list[CliRunRecord]) -> int:
         (record.pack_id, record.pack_hash) == CLI_PACK_PINS[record.set_id]
         for record in pack_arm
     ), "CLI pack pin drifted"
+    luna_arm = [record for record in records if record.set_id == CLI_LUNA_SET]
+    assert Counter((record.family, record.executor) for record in luna_arm) == Counter(
+        {
+            ("filter", "gpt-5.6-luna"): 3,
+            ("stats", "gpt-5.6-luna"): 3,
+        }
+    ), "CLI Luna family/executor matrix drifted"
+    assert all(
+        record.api_input_tokens == 0
+        and record.api_output_tokens == 0
+        and record.cost_usd == 0.0
+        for record in luna_arm
+    ), "CLI Luna cost observation is incomplete"
     for record in records:
         assert record.harness_status == "completed", (
             f"{record.run_name}: dishonest harness terminal"
@@ -3268,6 +3329,29 @@ def cli_rate_rows(records: list[CliRunRecord]) -> list[list[str]]:
     return rows
 
 
+def cli_cost_rows(records: list[CliRunRecord]) -> list[list[str]]:
+    groups: dict[tuple[str, str], list[CliRunRecord]] = defaultdict(list)
+    for record in records:
+        groups[(record.family, record.executor)].append(record)
+    rows = []
+    for (family, executor), grouped in sorted(groups.items()):
+        full = sum(record.is_full for record in grouped)
+        rows.append(
+            [
+                family,
+                executor,
+                str(full),
+                str(len(grouped) - full),
+                str(len(grouped)),
+                str(sum(record.reached_checks for record in grouped)),
+                str(sum(record.api_input_tokens or 0 for record in grouped)),
+                str(sum(record.api_output_tokens or 0 for record in grouped)),
+                f"${sum(record.cost_usd or 0.0 for record in grouped):.6f}",
+            ]
+        )
+    return rows
+
+
 def cli_band_status(set_id: str) -> str:
     if set_id in CLI_EXCLUSION_REASONS:
         return f"excluded — {CLI_EXCLUSION_REASONS[set_id]}"
@@ -3287,6 +3371,11 @@ def cli_band_status(set_id: str) -> str:
         )
     if set_id == CLI_DIRECTIVE_SET:
         return "interactive directive arm — human Gate 4 continuation"
+    if set_id == CLI_LUNA_SET:
+        return (
+            "OpenAI Luna arm — machine-confounded before C checks: "
+            "Chat Completions rejected function tools with reasoning_effort"
+        )
     return "local reference arm"
 
 
@@ -3299,6 +3388,7 @@ def build_cli_summary(
     window_b = [record for record in records if record.set_id == CLI_WINDOW_B_SET]
     pack_arm = [record for record in records if record.set_id in CLI_PACK_SETS]
     directive_arm = [record for record in records if record.set_id == CLI_DIRECTIVE_SET]
+    luna_arm = [record for record in records if record.set_id == CLI_LUNA_SET]
     reached = [record for record in records if record.reached_checks]
     window_b_reached = [record for record in window_b if record.reached_checks]
     dispositions = []
@@ -3327,7 +3417,7 @@ def build_cli_summary(
         "<!-- Generated by band_aggregate.py --profile cli. Do not edit by hand. -->",
         "",
         full_meaning_label("cli"),
-        f"- Source sets: `{len(scanned_sets)}` (local 1 + elevated 4 + pack arms 3 + directive source 1)",
+        f"- Source sets: `{len(scanned_sets)}` (local 1 + elevated 4 + pack arms 3 + Luna arm 1 + directive source 1)",
         f"- Observed runs: `{len(records)}`",
         f"- Honest terminals: `{sum(record.harness_status == 'completed' for record in records)}/{len(records)}`",
         f"- Formal Window B: `{CLI_WINDOW_B_SET}` only",
@@ -3343,6 +3433,8 @@ def build_cli_summary(
         "- Pack arm note: assist ceiling measured — 援助飽和・効果なし (live 3/3同一署名).",
         "- Pack interpretation: v1.0.0はlive 2件でC1材料のみ、v1.1.0はlive 1件でREADME照準+C3全3対を直接露出した。いずれもモデルはREADMEを更新せず、pack armのC3は9/9 violationのままだった。",
         f"- Directive arm: `{sum(record.is_full for record in directive_arm)}/{len(directive_arm)}` full; each round is a distinct configuration and retains its directive hash.",
+        f"- Luna arm: `{sum(record.is_full for record in luna_arm)}/{len(luna_arm)}` full; C checks reached `{sum(record.reached_checks for record in luna_arm)}/{len(luna_arm)}`; observed API usage `{sum(record.api_input_tokens or 0 for record in luna_arm)}` input / `{sum(record.api_output_tokens or 0 for record in luna_arm)}` output tokens; calculated cost `${sum(record.cost_usd or 0.0 for record in luna_arm):.6f}`.",
+        "- Luna interpretation: 6/6 requests were rejected before generation because Chat Completions received function tools with reasoning_effort; C3 testimony behavior and response fingerprint were not observed.",
         "- Reach-rate comparison: Window B 2/6 (33.3%) vs v1.1.0 arm 1/6 (16.7%), -16.6 percentage points; combined pack arms 3/18 (16.7%) (descriptive only).",
         "- Invariant: C evidence files are mandatory only after a run reaches the CLI checks.",
         "- Invariant: every reached run must attest cli-case-binding.json, cli-probe.json, help-binding.json, and cli-assurance.json by file or recorded SHA-256.",
@@ -3381,6 +3473,23 @@ def build_cli_summary(
         if directive_arm
         else ["No live directive measurement has been admitted yet."]
     )
+    lines.extend(["", "## OpenAI Luna arm with observed cost", ""])
+    lines.extend(
+        table(
+            [
+                "Family",
+                "Executor",
+                "full",
+                "non-full",
+                "denominator",
+                "C reached",
+                "API input tokens",
+                "API output tokens",
+                "Cost USD",
+            ],
+            cli_cost_rows(luna_arm),
+        )
+    )
     lines.extend(["", "## Campaign disposition", ""])
     lines.extend(
         table(
@@ -3408,6 +3517,7 @@ def build_cli_summary(
                 "Attribution",
                 "Band status",
                 "Seconds",
+                "Cost USD",
             ],
             [
                 [
@@ -3427,6 +3537,7 @@ def build_cli_summary(
                     record.attribution,
                     cli_band_status(record.set_id),
                     str(record.duration_seconds),
+                    record.cost_label,
                 ]
                 for record in records
             ],
