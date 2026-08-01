@@ -200,3 +200,61 @@ arguments検証を全て通る場合に限り、後続を厳密なallowlist（�
 `process_failure / model`帰属は変更せず、修復器拡張もF-0b昇格も実施しない。
 分類集計、救済見込みの上下限、台帳追記案は次コミットで追加し、その後
 レビュー裁定待ちとする。
+
+## 5. 集計
+
+| 分類 | 件数 | run | 裁定強度 |
+|---|---:|---|---|
+| a: 機械修復可能な近似形 | 2 | `stats_luna_003`, `filter_luna_003` | **候補**。先頭JSON valueの存在のみ確定し、tool call妥当性は未確定 |
+| b: 根本的不遵守 | 1 | `filter_luna_001` | 行動列（empty/non-tool反復）で確定。parser修復の対象外 |
+| c: その他 | 3 | `stats_luna_001`, `stats_luna_002`, `filter_luna_002` | raw非永続のため形状裁定不能 |
+
+修復拡張で救える見込みは、**実証済み0/6、条件付き上限2/6**である。
+trailing 2件はleading JSON valueが既存tool schema検証を通る場合に限って
+救済可能である。一方、malformed 3件はraw fixtureがないため見込み件数へ
+加算できず、不遵守1件はparser規則では救えない。従って「2/6を救える」と
+断定するのではなく、`0 proven / 2 plausible / 3 unknown / 1 not parser-fixable`
+を正準な読みとする。
+
+text橋の最小能力は実測で成立した。6run中4runで合計5件の`Write`が既存
+text/XML protocolを通っている。しかし、同じ4runの後続turnを含む6/6が
+protocol境界で停止したため、「接続できる」と「長い計画を安定完走できる」
+は分けて評価しなければならない。
+
+## 6. 裁定材料
+
+### 選択肢A: text修復層を拡張する
+
+- 根拠になるのはtrailing 2件のerror位置だけで、救済対象のraw fixtureは
+  現存しない。
+- 実装するなら、まず失敗応答を資格情報scrub後・有界で保存する観測面を
+  用意し、実測原文からfixtureを採取する必要がある。合成fixtureだけで
+  leading-value規則を入れるのは、今回の「実測原文から」の規律を満たさない。
+- 規則は先頭valueの切出しに留めず、既存のobject/name/allowed-tool/
+  arguments検証を全て通した場合だけ受理しなければならない。後続の任意文字を
+  捨てる一般緩和は不可。
+- `malformed XML` 3件は本文が得られるまで修復設計不能である。
+
+### 選択肢B: F-0b（Responses API/native tools）を昇格する
+
+- text/XML parser方言を経ない比較経路を得られるため、今回の交絡を構造的に
+  分離できる。
+- 一方で新しいprovider境界であり、native toolの正式対応、redaction、
+  chokepoint、event metadata、既存経路byte互換を改めて受理する必要がある。
+- native経路で完走することもREADME証言品質を保証しない。F-2a本来のC3比較は
+  acceptance到達後に別途行う必要がある。
+
+本報告だけではA/Bを選ばない。特にAは実測raw fixture欠落のまま着手できない。
+修復拡張、観測面の先行追加、F-0b昇格のいずれを採るかはレビュー裁定とする。
+
+## 7. 台帳追記案（未適用）
+
+> F-2a-4——text橋の普遍性の但し書き。最小能力の仮定は成立
+> （Lunaは4runで5件のWriteを実行）したが、6停止は方言修復候補2、
+> 明示書式への不遵守1、失敗応答raw非永続で裁定不能3に分かれた。
+> 修復層はモデル族ごとの方言較正を要する。レビューの「唯一の橋」評価を、
+> textは作動するが普遍的に透明な橋ではなく、Responses API/native tools
+> （F-0b）との比較裁定が必要、へ訂正する。
+
+この文案は裁定材料であり、`docs/dev/mechanism-ledger.md`にはまだ追記しない。
+production code、classes、既存run evidenceにも変更を加えない。
