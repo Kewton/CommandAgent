@@ -545,11 +545,11 @@ class CliBandTests(unittest.TestCase):
                 band.CLI_LOCAL_SET,
                 *band.CLI_ELEVATED_SETS,
                 *band.CLI_PACK_SETS,
-                band.CLI_LUNA_SET,
+                *band.CLI_LUNA_SETS,
                 band.CLI_DIRECTIVE_SET,
             ],
         )
-        self.assertEqual(len(records), 56)
+        self.assertEqual(len(records), 62)
         self.assertEqual(band.assert_cli_invariants(records), 6)
         local = [record for record in records if record.set_id == band.CLI_LOCAL_SET]
         self.assertEqual(
@@ -607,7 +607,9 @@ class CliBandTests(unittest.TestCase):
                 f"{band.CLI_PACK_V1_1_ID} / {band.CLI_PACK_V1_1_HASH}",
             },
         )
-        luna_arm = [record for record in records if record.set_id == band.CLI_LUNA_SET]
+        luna_arm = [
+            record for record in records if record.set_id in band.CLI_LUNA_SETS
+        ]
         self.assertEqual(
             band.cli_cost_rows(luna_arm),
             [
@@ -615,8 +617,8 @@ class CliBandTests(unittest.TestCase):
                     "filter",
                     "gpt-5.6-luna",
                     "0",
-                    "3",
-                    "3",
+                    "6",
+                    "6",
                     "0",
                     "0",
                     "0",
@@ -626,8 +628,8 @@ class CliBandTests(unittest.TestCase):
                     "stats",
                     "gpt-5.6-luna",
                     "0",
-                    "3",
-                    "3",
+                    "6",
+                    "6",
                     "0",
                     "0",
                     "0",
@@ -639,7 +641,7 @@ class CliBandTests(unittest.TestCase):
         summary = band.build_cli_summary(records, scanned_sets, 6)
         self.assertIn("- Window B full: `0/6` (0%)", summary)
         self.assertIn("- Window B runs reaching C checks: `2/6`", summary)
-        self.assertIn("- All-history runs reaching C checks: `6/56`", summary)
+        self.assertIn("- All-history runs reaching C checks: `6/62`", summary)
         self.assertIn("- Reached-run C evidence sets verified: `6/6`", summary)
         self.assertIn("- Pack runs reaching C checks: `3/18`", summary)
         self.assertIn("- Pack renderer exposure: `3/18`", summary)
@@ -672,11 +674,11 @@ class CliBandTests(unittest.TestCase):
             summary,
         )
         self.assertIn("cli_readme_structure:cli_invocation_missing", summary)
-        self.assertIn("- Luna arm: `0/6` full; C checks reached `0/6`", summary)
+        self.assertIn("- Luna arm: `0/12` full; C checks reached `0/12`", summary)
         self.assertIn("calculated cost `$0.000000`", summary)
         self.assertIn("## OpenAI Luna arm with observed cost", summary)
         self.assertIn(
-            "Chat Completions rejected function tools with reasoning_effort",
+            "provider-side omitted default plus Chat Completions function tools",
             summary,
         )
 

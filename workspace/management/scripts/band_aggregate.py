@@ -156,11 +156,18 @@ CLI_DIRECTIVE_MEASUREMENTS = (
     RUNS_DIR / CLI_DIRECTIVE_SET / "measurement.json",
     RUNS_DIR / CLI_DIRECTIVE_SET / "measurement-round-2.json",
 )
-CLI_LUNA_SET = "uat-test0801-cli-luna-001"
-CLI_LUNA_SUMMARY = RUNS_DIR / CLI_LUNA_SET / "evidence" / "campaign-summary.json"
+CLI_LUNA_SETS = (
+    "uat-test0801-cli-luna-001",
+    "uat-test0801-cli-luna-002",
+)
+CLI_LUNA_SET = CLI_LUNA_SETS[-1]
+CLI_LUNA_SUMMARIES = {
+    set_id: RUNS_DIR / set_id / "evidence" / "campaign-summary.json"
+    for set_id in CLI_LUNA_SETS
+}
 CLI_EXPECTED_RUNS_PER_SET = 6
 CLI_BASE_EXPECTED_RUNS = CLI_EXPECTED_RUNS_PER_SET * (
-    2 + len(CLI_ELEVATED_SETS) + len(CLI_PACK_SETS)
+    1 + len(CLI_ELEVATED_SETS) + len(CLI_PACK_SETS) + len(CLI_LUNA_SETS)
 )
 CLI_EXPECTED_MATRIX = {
     ("filter", "gemma4:31b"): 1,
@@ -3150,25 +3157,27 @@ def discover_cli_records() -> tuple[list[CliRunRecord], list[str]]:
             assert record.pack_id == expected_id
             assert record.pack_hash == expected_hash
             records.append(record)
-    luna_data = read_json_dict(CLI_LUNA_SUMMARY)
-    assert luna_data is not None, f"missing CLI Luna-arm summary: {CLI_LUNA_SUMMARY}"
-    assert luna_data.get("uat_id") == CLI_LUNA_SET
-    luna_suite = luna_data.get("suite")
-    assert isinstance(luna_suite, dict)
-    assert luna_suite.get("profile") == "cli"
-    assert luna_suite.get("intent") == "create"
-    assert luna_suite.get("provider") == "openai"
-    assert luna_suite.get("executor") == "gpt-5.6-luna"
-    luna_rows = luna_data.get("runs")
-    assert isinstance(luna_rows, list)
-    for row in luna_rows:
-        assert isinstance(row, dict)
-        records.append(cli_record_from_summary(CLI_LUNA_SET, CLI_LUNA_SUMMARY, row))
+    for set_id in CLI_LUNA_SETS:
+        summary = CLI_LUNA_SUMMARIES[set_id]
+        luna_data = read_json_dict(summary)
+        assert luna_data is not None, f"missing CLI Luna-arm summary: {summary}"
+        assert luna_data.get("uat_id") == set_id
+        luna_suite = luna_data.get("suite")
+        assert isinstance(luna_suite, dict)
+        assert luna_suite.get("profile") == "cli"
+        assert luna_suite.get("intent") == "create"
+        assert luna_suite.get("provider") == "openai"
+        assert luna_suite.get("executor") == "gpt-5.6-luna"
+        luna_rows = luna_data.get("runs")
+        assert isinstance(luna_rows, list)
+        for row in luna_rows:
+            assert isinstance(row, dict)
+            records.append(cli_record_from_summary(set_id, summary, row))
     scanned_sets = [
         CLI_LOCAL_SET,
         *CLI_ELEVATED_SETS,
         *CLI_PACK_SETS,
-        CLI_LUNA_SET,
+        *CLI_LUNA_SETS,
     ]
     directive_records = discover_cli_directive_records()
     if directive_records:
@@ -3228,7 +3237,7 @@ def assert_cli_invariants(records: list[CliRunRecord]) -> int:
             CLI_LOCAL_SET,
             *CLI_ELEVATED_SETS,
             *CLI_PACK_SETS,
-            CLI_LUNA_SET,
+            *CLI_LUNA_SETS,
         ]
     }
     if directive_records:
@@ -3264,13 +3273,17 @@ def assert_cli_invariants(records: list[CliRunRecord]) -> int:
         (record.pack_id, record.pack_hash) == CLI_PACK_PINS[record.set_id]
         for record in pack_arm
     ), "CLI pack pin drifted"
-    luna_arm = [record for record in records if record.set_id == CLI_LUNA_SET]
-    assert Counter((record.family, record.executor) for record in luna_arm) == Counter(
-        {
-            ("filter", "gpt-5.6-luna"): 3,
-            ("stats", "gpt-5.6-luna"): 3,
-        }
-    ), "CLI Luna family/executor matrix drifted"
+    luna_arm = [record for record in records if record.set_id in CLI_LUNA_SETS]
+    for set_id in CLI_LUNA_SETS:
+        luna_set = [record for record in luna_arm if record.set_id == set_id]
+        assert Counter(
+            (record.family, record.executor) for record in luna_set
+        ) == Counter(
+            {
+                ("filter", "gpt-5.6-luna"): 3,
+                ("stats", "gpt-5.6-luna"): 3,
+            }
+        ), f"CLI Luna family/executor matrix drifted for {set_id}"
     assert all(
         record.api_input_tokens == 0
         and record.api_output_tokens == 0
@@ -3371,10 +3384,15 @@ def cli_band_status(set_id: str) -> str:
         )
     if set_id == CLI_DIRECTIVE_SET:
         return "interactive directive arm — human Gate 4 continuation"
-    if set_id == CLI_LUNA_SET:
+    if set_id == CLI_LUNA_SETS[0]:
         return (
-            "OpenAI Luna arm — machine-confounded before C checks: "
-            "Chat Completions rejected function tools with reasoning_effort"
+            "OpenAI Luna predecessor — provider rejected function tools under "
+            "the omitted reasoning_effort default before C checks"
+        )
+    if set_id == CLI_LUNA_SETS[1]:
+        return (
+            "OpenAI Luna F-2a-2 rerun — explicit-only request fixture and live "
+            "unset confirm client omission; provider omitted default still rejected"
         )
     return "local reference arm"
 
@@ -3388,7 +3406,7 @@ def build_cli_summary(
     window_b = [record for record in records if record.set_id == CLI_WINDOW_B_SET]
     pack_arm = [record for record in records if record.set_id in CLI_PACK_SETS]
     directive_arm = [record for record in records if record.set_id == CLI_DIRECTIVE_SET]
-    luna_arm = [record for record in records if record.set_id == CLI_LUNA_SET]
+    luna_arm = [record for record in records if record.set_id in CLI_LUNA_SETS]
     reached = [record for record in records if record.reached_checks]
     window_b_reached = [record for record in window_b if record.reached_checks]
     dispositions = []
@@ -3417,7 +3435,7 @@ def build_cli_summary(
         "<!-- Generated by band_aggregate.py --profile cli. Do not edit by hand. -->",
         "",
         full_meaning_label("cli"),
-        f"- Source sets: `{len(scanned_sets)}` (local 1 + elevated 4 + pack arms 3 + Luna arm 1 + directive source 1)",
+        f"- Source sets: `{len(scanned_sets)}` (local 1 + elevated 4 + pack arms 3 + Luna arm 2 + directive source 1)",
         f"- Observed runs: `{len(records)}`",
         f"- Honest terminals: `{sum(record.harness_status == 'completed' for record in records)}/{len(records)}`",
         f"- Formal Window B: `{CLI_WINDOW_B_SET}` only",
@@ -3434,7 +3452,7 @@ def build_cli_summary(
         "- Pack interpretation: v1.0.0はlive 2件でC1材料のみ、v1.1.0はlive 1件でREADME照準+C3全3対を直接露出した。いずれもモデルはREADMEを更新せず、pack armのC3は9/9 violationのままだった。",
         f"- Directive arm: `{sum(record.is_full for record in directive_arm)}/{len(directive_arm)}` full; each round is a distinct configuration and retains its directive hash.",
         f"- Luna arm: `{sum(record.is_full for record in luna_arm)}/{len(luna_arm)}` full; C checks reached `{sum(record.reached_checks for record in luna_arm)}/{len(luna_arm)}`; observed API usage `{sum(record.api_input_tokens or 0 for record in luna_arm)}` input / `{sum(record.api_output_tokens or 0 for record in luna_arm)}` output tokens; calculated cost `${sum(record.cost_usd or 0.0 for record in luna_arm):.6f}`.",
-        "- Luna interpretation: 6/6 requests were rejected before generation because Chat Completions received function tools with reasoning_effort; C3 testimony behavior and response fingerprint were not observed.",
+        "- Luna interpretation: 12/12 requests across two windows were rejected before generation. F-2a-2 fixes unconfigured `reasoning_effort` omission in an exact request fixture and ran with the setting unset; the second 6/6 identical response therefore identifies the provider-side omitted default plus Chat Completions function tools as the remaining machine boundary. C3 testimony behavior and response fingerprint remain unobserved.",
         "- Reach-rate comparison: Window B 2/6 (33.3%) vs v1.1.0 arm 1/6 (16.7%), -16.6 percentage points; combined pack arms 3/18 (16.7%) (descriptive only).",
         "- Invariant: C evidence files are mandatory only after a run reaches the CLI checks.",
         "- Invariant: every reached run must attest cli-case-binding.json, cli-probe.json, help-binding.json, and cli-assurance.json by file or recorded SHA-256.",
