@@ -29,6 +29,7 @@ pub mod stagnation_carryover;
 pub mod stagnation_escalation;
 pub mod tool_feedback;
 pub(crate) mod tool_parse_failure;
+pub(crate) mod tool_parse_repair;
 pub(crate) mod tool_protocol;
 pub mod verifier_bootstrap;
 pub mod verifier_env;

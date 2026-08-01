@@ -1401,16 +1401,27 @@ pub(crate) fn run_session_with_outcome_with_options(
                 return Err(err);
             }
         };
-        if config.tool_protocol == Some(crate::config::ToolProtocol::Text)
-            && let Err(error) = super::tool_protocol::normalize_text_reply(&mut reply, &specs)
-        {
-            super::tool_parse_failure::record_normalization_failure(
-                config,
-                options.phase_scope.as_deref(),
-                &reply.content,
-                &error,
-            );
-            return Err(error);
+        if config.tool_protocol == Some(crate::config::ToolProtocol::Text) {
+            match super::tool_protocol::normalize_text_reply(&mut reply, &specs) {
+                Ok(repairs) => {
+                    for repair in repairs {
+                        super::tool_parse_repair::record_applied(
+                            config,
+                            options.phase_scope.as_deref(),
+                            &repair,
+                        )?;
+                    }
+                }
+                Err(error) => {
+                    super::tool_parse_failure::record_normalization_failure(
+                        config,
+                        options.phase_scope.as_deref(),
+                        &reply.content,
+                        &error,
+                    );
+                    return Err(error);
+                }
+            }
         }
         ui.publish_status(UiStatus::for_model_reply(
             config,

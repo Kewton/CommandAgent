@@ -124,7 +124,7 @@ fn extract_function_equals_calls(
     Ok(())
 }
 
-fn parse_tool_call(
+pub(super) fn parse_tool_call(
     raw: &str,
     default_name: Option<&str>,
     allowed_tools: &[String],

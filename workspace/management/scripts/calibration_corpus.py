@@ -18,6 +18,7 @@ ENVELOPE_KINDS = {
     ("C", "argv_probe"): ("c3", True),
     ("N", "source_binding"): ("n2", True),
     ("tool_parse", "tool_parse_failure"): ("tool_parse", False),
+    ("tool_parse", "repair_applied"): ("tool_parse_repair", False),
 }
 
 

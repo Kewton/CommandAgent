@@ -180,6 +180,9 @@ fn kind_for_path(family: EvidenceFamily, relative: &str) -> &'static str {
         (EvidenceFamily::ToolParse, _) if name.starts_with("tool-parse-failure-") => {
             "tool_parse_failure"
         }
+        (EvidenceFamily::ToolParse, _) if name.starts_with("tool-parse-repair-") => {
+            "repair_applied"
+        }
         (EvidenceFamily::Circle, "workflow-circle.json") => "workflow_circle",
         _ if family == EvidenceFamily::F && name.ends_with("-adjudication.json") => "adjudication",
         _ if family == EvidenceFamily::F && name.contains("-before-attempt-") => "before_attempt",

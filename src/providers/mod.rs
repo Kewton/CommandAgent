@@ -8,6 +8,7 @@ pub mod parsing;
 pub(crate) mod startup;
 pub mod streaming;
 pub mod xml_fallback;
+pub(crate) mod xml_repair;
 
 use anyhow::bail;
 use serde::{Deserialize, Serialize};

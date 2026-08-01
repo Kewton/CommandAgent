@@ -13,6 +13,28 @@ MEASURED_ELEV_003 = (
 
 
 class CalibrationCorpusTests(unittest.TestCase):
+    def test_tool_parse_repair_envelope_becomes_calibration_material(self):
+        fixture = (
+            Path(__file__).resolve().parents[3]
+            / "tests/corpus/apps/test0802_text_tool_repair/fixtures/tool-parse-repair.json"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            campaign = Path(tmp) / "campaign"
+            evidence = campaign / "artifacts/stats_luna_001/evidence"
+            evidence.mkdir(parents=True)
+            shutil.copyfile(fixture, evidence / "tool-parse-repair-001.json")
+
+            rows = list(calibration_corpus.records(campaign))
+
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["kind"], "tool_parse_repair")
+            self.assertEqual(rows[0]["judgement"], "observed")
+            self.assertEqual(rows[0]["claim"], "first_json_value")
+            self.assertEqual(
+                rows[0]["observation"]["change_excerpt"]["operation"],
+                "discarded",
+            )
+
     def test_tool_parse_failure_envelope_becomes_calibration_material(self):
         with tempfile.TemporaryDirectory() as tmp:
             campaign = Path(tmp) / "campaign"

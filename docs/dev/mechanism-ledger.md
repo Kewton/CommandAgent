@@ -1377,3 +1377,16 @@ text橋の最小能力は成立している。Lunaは003窓の4runで5件のWrit
 text/XML protocol経由で実行した。一方、安定完走にはモデル族ごとの方言較正が
 必要である。レビューの「唯一の橋」評価には、textは作動するが普遍的に透明な
 橋ではなく、Responses API/native tools（F-0b）との比較裁定が要る、と注記する。
+
+## F-2a-6 — text tool-call方言較正・第1周（2026-08-02）
+
+`tool_parse`較正コーパス6件を入力に、プロトコル普遍の最終fallbackを2規則だけ
+追加した。先頭の完結JSON値はobject・tool名・allowlist・必須arguments型の全検証を
+通る場合に限って採用し、後続を捨てる。開きtool-call tagと完結JSON bodyがあり、
+閉じtagだけが欠ける場合に限って閉じtagを補う。いずれも適用前に通常parserと
+ToolSpecを再通過させ、適用時はscrub済み256-byte上限の変更片を`repair_applied`
+eventとenvelope evidenceへ必ず自己申告する。モデル名による分岐はない。
+
+裁定者予測の外れも保存する。事前の「おしゃべり文」推論に対し、F-2a-5の実物は
+余分な`}` 1件・閉じtag欠落3件・根本的な散文不遵守2件だった。推論から修復器を
+発明せず、実物がコード推論に勝ち、較正コーパスから限定規則を導いた実例である。

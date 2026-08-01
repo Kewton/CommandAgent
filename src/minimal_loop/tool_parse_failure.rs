@@ -297,7 +297,7 @@ fn line_and_column(error: &str) -> Option<(usize, usize)> {
     Some((line.parse().ok()?, column.parse().ok()?))
 }
 
-fn truncate_utf8_bytes(value: &str, max_bytes: usize) -> String {
+pub(super) fn truncate_utf8_bytes(value: &str, max_bytes: usize) -> String {
     if value.len() <= max_bytes {
         return value.to_string();
     }
@@ -308,7 +308,7 @@ fn truncate_utf8_bytes(value: &str, max_bytes: usize) -> String {
     value[..end].to_string()
 }
 
-fn scrub_sensitive(value: &str) -> String {
+pub(super) fn scrub_sensitive(value: &str) -> String {
     let mut scrubbed = redact_prefixed_token(value, "sk-");
     scrubbed = redact_prefixed_token(&scrubbed, "AIza");
     redact_home_paths(&scrubbed)
@@ -575,5 +575,41 @@ mod tests {
                 && event["failure_kind"] == "missing_call"
                 && event["evidence_recorded"] == true
         }));
+    }
+
+    #[test]
+    fn production_loop_self_reports_an_applied_text_repair() {
+        let root = tempfile::tempdir().unwrap();
+        let events = root.path().join("events.jsonl");
+        let mut client = ScriptedClient::new(vec![AssistantReply::text(concat!(
+            r#"<anvil_tool_call name="Write">{"path":"data/sample.csv","content":"id,name,amount\n1,Alice,120.50\n2,Bob,75.25\n3,Charlie,204.00\n"}"#,
+            "}",
+            "</anvil_tool_call>"
+        ))]);
+        let mut session = SessionSnapshot::new();
+
+        super::super::loop_run::run_session_with_required_paths(
+            &mut client,
+            &mut session,
+            "create data/sample.csv",
+            &["data/sample.csv".to_string()],
+            &text_config(root.path(), events.clone()),
+        )
+        .unwrap();
+
+        assert!(root.path().join("data/sample.csv").is_file());
+        let values = event_values(&events);
+        assert!(values.iter().any(|event| {
+            event["event"] == "repair_applied"
+                && event["repair_kind"] == "first_json_value"
+                && event["change_excerpt"]["text"] == "}"
+                && event["evidence_recorded"] == true
+                && event["evidence_envelope"]["family"] == "tool_parse"
+        }));
+        assert!(
+            !values
+                .iter()
+                .any(|event| event["event"] == "tool_parse_failure")
+        );
     }
 }
