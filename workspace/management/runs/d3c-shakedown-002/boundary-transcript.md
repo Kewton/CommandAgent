@@ -198,3 +198,100 @@ Commands:
 - close: available — records no further action
 
 Sheet path: /Users/maenokota/share/work/github_kewton/CommandAgent-develop/workspace/management/runs/d3c-shakedown-002/boundary-sheets/eaed43d35fee067893d29fd91a4299fca6f1e3d47e8b042ff94297b404b30a02-directive-round-1.md
+
+## Gate 4 directive proposal
+
+# Gate 4 — Directive confirmation
+
+- Directive: 起動例を python3 cli/main.py に戻し、使用例の出力を実際の実行結果のとおりに書き直してください
+- Directive hash: sha256:55c180bb0fdc86eaa8b219f9aa7c872faae01c974e1d7ccce20ad01c708d2dc4
+- Target run ID: 019fb8ce-3806-7ee0-9818-f5eab0fb0bd1
+- Directive round: 2
+- Source: human_directive (bounded verbatim)
+- Contract floor: unchanged
+
+Confirm with `/confirm-directive sha256:55c180bb0fdc86eaa8b219f9aa7c872faae01c974e1d7ccce20ad01c708d2dc4` before continuation dispatch.
+
+
+## Gate 4 directive confirmation
+
+Persisted directive confirmation: `sha256:55c180bb0fdc86eaa8b219f9aa7c872faae01c974e1d7ccce20ad01c708d2dc4`
+
+Continuing target run `019fb8ce-3806-7ee0-9818-f5eab0fb0bd1` at directive round 2 in the same workspace.
+
+
+## Gate 4
+
+# Gate 4 — Failure and next action
+
+Confirmed Full meaning: C1-C4 pass, including README output claims bound to live CLI output by C3; testimony binding is active as C3.
+
+# D-3c acceptance sheet
+
+## 1. Confirmed identity
+
+- Card hash: sha256:eaed43d35fee067893d29fd91a4299fca6f1e3d47e8b042ff94297b404b30a02
+- Request: テキストファイルから指定パターンを含む行を抽出するCLIツール cli/main.py を作成してください。--pattern で検索文字列、--count で件数のみ表示を指定できます。--help で使い方を表示します。サンプル入力 data/sample.txt を同梱し、実行例と出力例を README.md に記載してください。
+- Workspace: /private/tmp/d3d-shakedown-002-live.sgHyfv
+- Route: python-cli × create × filter
+- Contract: docs/cli-profile-contract.md
+- Full meaning: C1-C4 pass, including README output claims bound to live CLI output by C3; testimony binding is active as C3.
+- Value tag at confirmation: 0% (0/3, formal Window B)
+
+## 2. Terminal projection
+
+- Command succeeded: false
+- Status: failed
+- Assurance: static (cli_probe_not_run)
+- Runtime acceptance: failed
+- Final acceptance: incomplete
+- Release gate: failed
+
+## 3. Definition of done
+
+- Contract checks: C1, C2, C3, C4
+- Pack: no pack
+
+## 4. Machine evidence
+
+- Event stream: /private/tmp/d3d-shakedown-002-live.sgHyfv/.anvil/runs/019fb8ce-3806-7ee0-9818-f5eab0fb0bd1/events.jsonl
+- Product summary: /private/tmp/d3d-shakedown-002-live.sgHyfv/.anvil/runs/019fb8ce-3806-7ee0-9818-f5eab0fb0bd1/summary.md
+
+## 5. Stop reason
+
+phase inspect-current-state failed: step update-readme failed verification after bounded repair: cli_readme_structure:cli_invocation_missing; failure_kind=bounded_repair_exhausted; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true Paths: - repair prompt saved: .anvil/repairs/repair-update-readme-019fbb5f-5acd-7821-b673-9871bb280ba9.md - Recovery UltraPlan YAML saved:
+Paths:
+- repair prompt saved: .anvil/repairs/repair-phase-inspect-current-state-019fbb5f-5ad0-7821-ba52-848916c3d044.md
+- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-inspect-current-state-019fbb5f-5ad1-7511-b5e5-abd9ca025ec4.yaml
+Commands:
+- suggested command: /ultra-plan-run --profile python-cli "$(cat .anvil/repairs/repair-phase-inspect-current-state-019fbb5f-5ad0-7821-ba52-848916c3d044.md)"
+- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-inspect-current-state-019fbb5f-5ad1-7511-b5e5-abd9ca025ec4.yaml
+
+## Directive continuation metadata
+
+- Directive round: 2
+- Directive hash: sha256:55c180bb0fdc86eaa8b219f9aa7c872faae01c974e1d7ccce20ad01c708d2dc4
+- Target run ID: 019fb8ce-3806-7ee0-9818-f5eab0fb0bd1
+- Continuation plan: .anvil/plans/directive-round-2-55c180bb0fdc.yaml
+
+
+## Section 5
+
+phase inspect-current-state failed: step update-readme failed verification after bounded repair: cli_readme_structure:cli_invocation_missing; failure_kind=bounded_repair_exhausted; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true Paths: - repair prompt saved: .anvil/repairs/repair-update-readme-019fbb5f-5acd-7821-b673-9871bb280ba9.md - Recovery UltraPlan YAML saved:
+Paths:
+- repair prompt saved: .anvil/repairs/repair-phase-inspect-current-state-019fbb5f-5ad0-7821-ba52-848916c3d044.md
+- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-inspect-current-state-019fbb5f-5ad1-7511-b5e5-abd9ca025ec4.yaml
+Commands:
+- suggested command: /ultra-plan-run --profile python-cli "$(cat .anvil/repairs/repair-phase-inspect-current-state-019fbb5f-5ad0-7821-ba52-848916c3d044.md)"
+- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-inspect-current-state-019fbb5f-5ad1-7511-b5e5-abd9ca025ec4.yaml
+
+## Typed next actions
+
+- retry: available — human confirmation required
+- recovery_circle: unavailable — availability must be earned by workflow evidence
+- elevated_model: available — returns to Gate 1 with a new model pin
+- pack_change: unavailable — no pack selected for this confirmed run
+- human_directive: available — enter `/directive <instruction>`; persisted confirmation is required
+- close: available — records no further action
+
+Sheet path: /Users/maenokota/share/work/github_kewton/CommandAgent-develop/workspace/management/runs/d3c-shakedown-002/boundary-sheets/eaed43d35fee067893d29fd91a4299fca6f1e3d47e8b042ff94297b404b30a02-directive-round-2.md

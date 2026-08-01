@@ -152,7 +152,10 @@ CLI_PACK_PINS = {
     CLI_PACK_SETS[2]: (CLI_PACK_V1_1_ID, CLI_PACK_V1_1_HASH),
 }
 CLI_DIRECTIVE_SET = "d3c-shakedown-002"
-CLI_DIRECTIVE_MEASUREMENT = RUNS_DIR / CLI_DIRECTIVE_SET / "measurement.json"
+CLI_DIRECTIVE_MEASUREMENTS = (
+    RUNS_DIR / CLI_DIRECTIVE_SET / "measurement.json",
+    RUNS_DIR / CLI_DIRECTIVE_SET / "measurement-round-2.json",
+)
 CLI_EXPECTED_RUNS_PER_SET = 6
 CLI_BASE_EXPECTED_RUNS = CLI_EXPECTED_RUNS_PER_SET * (
     1 + len(CLI_ELEVATED_SETS) + len(CLI_PACK_SETS)
@@ -2969,40 +2972,48 @@ def cli_record_from_summary(
     )
 
 
-def discover_cli_directive_record() -> CliRunRecord | None:
-    data = read_json_dict(CLI_DIRECTIVE_MEASUREMENT)
-    if data is None:
-        return None
-    assert data.get("schema_version") == "1"
-    assert data.get("set_id") == CLI_DIRECTIVE_SET
-    assert data.get("directive_round") == 1
-    directive_hash = str(data.get("directive_hash") or "")
-    assert re.fullmatch(r"sha256:[0-9a-f]{64}", directive_hash), (
-        "CLI directive measurement must pin an exact directive hash"
-    )
-    evidence_dir = RUNS_DIR / CLI_DIRECTIVE_SET / str(data["evidence_dir"])
-    evidence_report = RUNS_DIR / CLI_DIRECTIVE_SET / str(data["evidence_report"])
-    return CliRunRecord(
-        set_id=CLI_DIRECTIVE_SET,
-        run_name=str(data["run_name"]),
-        family=str(data["family"]),
-        executor=str(data["executor"]),
-        harness_status=str(data["harness_status"]),
-        product_exit=int(data["product_exit"]),
-        verdict=str(data["verdict"]),
-        assurance=str(data["assurance"]),
-        c1=str(data["c1"]),
-        c2=str(data["c2"]),
-        c3=str(data["c3"]),
-        c4=str(data["c4"]),
-        failure_class=str(data["failure_class"]),
-        attribution=str(data["attribution"]),
-        duration_seconds=int(data["duration_seconds"]),
-        evidence_dir=evidence_dir,
-        evidence_report=evidence_report,
-        directive_round=1,
-        directive_hash=directive_hash,
-    )
+def discover_cli_directive_records() -> list[CliRunRecord]:
+    records = []
+    for expected_round, measurement in enumerate(CLI_DIRECTIVE_MEASUREMENTS, 1):
+        data = read_json_dict(measurement)
+        if data is None:
+            continue
+        assert data.get("schema_version") == "1"
+        assert data.get("set_id") == CLI_DIRECTIVE_SET
+        assert data.get("directive_round") == expected_round
+        directive_hash = str(data.get("directive_hash") or "")
+        assert re.fullmatch(r"sha256:[0-9a-f]{64}", directive_hash), (
+            "CLI directive measurement must pin an exact directive hash"
+        )
+        evidence_dir = RUNS_DIR / CLI_DIRECTIVE_SET / str(data["evidence_dir"])
+        evidence_report = RUNS_DIR / CLI_DIRECTIVE_SET / str(data["evidence_report"])
+        records.append(
+            CliRunRecord(
+                set_id=CLI_DIRECTIVE_SET,
+                run_name=str(data["run_name"]),
+                family=str(data["family"]),
+                executor=str(data["executor"]),
+                harness_status=str(data["harness_status"]),
+                product_exit=int(data["product_exit"]),
+                verdict=str(data["verdict"]),
+                assurance=str(data["assurance"]),
+                c1=str(data["c1"]),
+                c2=str(data["c2"]),
+                c3=str(data["c3"]),
+                c4=str(data["c4"]),
+                failure_class=str(data["failure_class"]),
+                attribution=str(data["attribution"]),
+                duration_seconds=int(data["duration_seconds"]),
+                evidence_dir=evidence_dir,
+                evidence_report=evidence_report,
+                directive_round=expected_round,
+                directive_hash=directive_hash,
+            )
+        )
+    assert [record.directive_round for record in records] == list(
+        range(1, len(records) + 1)
+    ), "CLI directive rounds must be contiguous"
+    return records
 
 
 def normalize_cli_markdown_cell(value: str) -> str:
@@ -3116,9 +3127,9 @@ def discover_cli_records() -> tuple[list[CliRunRecord], list[str]]:
             assert record.pack_hash == expected_hash
             records.append(record)
     scanned_sets = [CLI_LOCAL_SET, *CLI_ELEVATED_SETS, *CLI_PACK_SETS]
-    directive_record = discover_cli_directive_record()
-    if directive_record is not None:
-        records.append(directive_record)
+    directive_records = discover_cli_directive_records()
+    if directive_records:
+        records.extend(directive_records)
         scanned_sets.append(CLI_DIRECTIVE_SET)
     return records, scanned_sets
 
@@ -3173,7 +3184,7 @@ def assert_cli_invariants(records: list[CliRunRecord]) -> int:
             for set_id in [CLI_LOCAL_SET, *CLI_ELEVATED_SETS, *CLI_PACK_SETS]
     }
     if directive_records:
-        expected_sets[CLI_DIRECTIVE_SET] = 1
+        expected_sets[CLI_DIRECTIVE_SET] = len(directive_records)
     assert Counter(record.set_id for record in records) == Counter(expected_sets), (
         "CLI source-set denominators drifted"
     )
@@ -3293,24 +3304,30 @@ def build_cli_summary(
     dispositions = []
     for set_id in scanned_sets:
         set_records = [record for record in records if record.set_id == set_id]
-        dispositions.append(
-            [
-                set_id,
-                str(len(set_records)),
-                str(sum(record.reached_checks for record in set_records)),
-                str(sum(record.is_full for record in set_records)),
-                set_records[0].pack_label,
-                set_records[0].directive_label,
-                cli_band_status(set_id),
-            ]
+        disposition_groups = (
+            [[record] for record in set_records]
+            if set_id == CLI_DIRECTIVE_SET
+            else [set_records]
         )
+        for disposition_records in disposition_groups:
+            dispositions.append(
+                [
+                    set_id,
+                    str(len(disposition_records)),
+                    str(sum(record.reached_checks for record in disposition_records)),
+                    str(sum(record.is_full for record in disposition_records)),
+                    disposition_records[0].pack_label,
+                    disposition_records[0].directive_label,
+                    cli_band_status(set_id),
+                ]
+            )
     lines = [
         "# CLI Create Capability Band Summary",
         "",
         "<!-- Generated by band_aggregate.py --profile cli. Do not edit by hand. -->",
         "",
         full_meaning_label("cli"),
-        f"- Source sets: `{len(scanned_sets)}` (local 1 + elevated 4 + pack arms 3 + directive arms {len(directive_arm)})",
+        f"- Source sets: `{len(scanned_sets)}` (local 1 + elevated 4 + pack arms 3 + directive source 1)",
         f"- Observed runs: `{len(records)}`",
         f"- Honest terminals: `{sum(record.harness_status == 'completed' for record in records)}/{len(records)}`",
         f"- Formal Window B: `{CLI_WINDOW_B_SET}` only",

@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "raw": "起動例を python3 cli/main.py に戻し、使用例の出力を実際の実行結果のとおりに書き直してください",
+  "epoch": 1785554847,
+  "target_run_id": "019fb8ce-3806-7ee0-9818-f5eab0fb0bd1",
+  "round": 2,
+  "issued_gate": "gate_4"
+}

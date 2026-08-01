@@ -1,0 +1,22 @@
+{
+  "schema_version": "1",
+  "set_id": "d3c-shakedown-002",
+  "run_name": "cli_filter_gemma31_cloud_directive_002",
+  "family": "filter",
+  "executor": "gemma4:31b-cloud",
+  "harness_status": "completed",
+  "product_exit": 1,
+  "verdict": "failed",
+  "assurance": "static (cli_probe_not_run)",
+  "c1": "not_reached",
+  "c2": "not_reached",
+  "c3": "not_reached",
+  "c4": "not_reached",
+  "failure_class": "cli_readme_structure:cli_invocation_missing",
+  "attribution": "model",
+  "duration_seconds": 1671,
+  "evidence_dir": "evidence",
+  "evidence_report": "report-round-2.md",
+  "directive_round": 2,
+  "directive_hash": "sha256:55c180bb0fdc86eaa8b219f9aa7c872faae01c974e1d7ccce20ad01c708d2dc4"
+}

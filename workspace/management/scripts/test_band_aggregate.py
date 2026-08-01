@@ -548,7 +548,7 @@ class CliBandTests(unittest.TestCase):
                 band.CLI_DIRECTIVE_SET,
             ],
         )
-        self.assertEqual(len(records), 49)
+        self.assertEqual(len(records), 50)
         self.assertEqual(band.assert_cli_invariants(records), 6)
         local = [record for record in records if record.set_id == band.CLI_LOCAL_SET]
         self.assertEqual(
@@ -609,7 +609,7 @@ class CliBandTests(unittest.TestCase):
         summary = band.build_cli_summary(records, scanned_sets, 6)
         self.assertIn("- Window B full: `0/6` (0%)", summary)
         self.assertIn("- Window B runs reaching C checks: `2/6`", summary)
-        self.assertIn("- All-history runs reaching C checks: `6/49`", summary)
+        self.assertIn("- All-history runs reaching C checks: `6/50`", summary)
         self.assertIn("- Reached-run C evidence sets verified: `6/6`", summary)
         self.assertIn("- Pack runs reaching C checks: `3/18`", summary)
         self.assertIn("- Pack renderer exposure: `3/18`", summary)
@@ -632,9 +632,13 @@ class CliBandTests(unittest.TestCase):
         self.assertIn("C1〜C4 runtimeが未配線", summary)
         self.assertIn("calibration predecessor — 配線後・較正前", summary)
         self.assertIn("Directive round / hash", summary)
-        self.assertIn("- Directive arm: `0/1` full", summary)
+        self.assertIn("- Directive arm: `0/2` full", summary)
         self.assertIn(
             "round 1 / sha256:e868fada3d47b09d1a9226564e214e752d03a3a2da32b77f7addd08bb5850203",
+            summary,
+        )
+        self.assertIn(
+            "round 2 / sha256:55c180bb0fdc86eaa8b219f9aa7c872faae01c974e1d7ccce20ad01c708d2dc4",
             summary,
         )
         self.assertIn("cli_readme_structure:cli_invocation_missing", summary)
