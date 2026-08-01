@@ -31,7 +31,10 @@ fn run_without_key(provider: &str, key: &str) -> Output {
 
 #[test]
 fn openai_and_gemini_missing_key_failures_explain_setup_and_doctor() {
-    for (provider, key) in [("openai", "OPENAI_API_KEY"), ("gemini", "GEMINI_API_KEY")] {
+    for (provider, key, setup) in [
+        ("openai", "OPENAI_API_KEY", "process environment"),
+        ("gemini", "GEMINI_API_KEY", "environment or workspace .env"),
+    ] {
         let output = run_without_key(provider, key);
         let stderr = String::from_utf8(output.stderr).unwrap();
 
@@ -39,12 +42,7 @@ fn openai_and_gemini_missing_key_failures_explain_setup_and_doctor() {
             !output.status.success(),
             "provider={provider} stderr={stderr:?}"
         );
-        for expected in [
-            key,
-            "environment",
-            "workspace .env",
-            "commandagent --doctor",
-        ] {
+        for expected in [key, setup, "commandagent --doctor"] {
             assert!(
                 stderr.contains(expected),
                 "provider={provider} missing {expected:?}. stderr={stderr:?}"

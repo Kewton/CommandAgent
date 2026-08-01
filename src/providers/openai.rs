@@ -1,11 +1,12 @@
 use std::collections::BTreeMap;
+use std::fmt;
 use std::path::PathBuf;
 
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::config::{Config, Provider, load_api_key};
+use crate::config::{Config, Provider, load_process_api_key};
 use crate::eval_events;
 use crate::state::{ConversationMessage, ToolCall};
 use crate::tools::args_recovery::recover_tool_arguments;
@@ -13,22 +14,37 @@ use crate::tools::registry::ToolSpec;
 
 use super::parsing::sanitized_tool_schema;
 use super::streaming::StreamControl;
-use super::{AssistantReply, ChatClient};
+use super::{AssistantReply, ChatClient, ProviderResponseMetadata, openai_chat_completions};
 
 const OPENAI_BASE_URL: &str = "https://api.openai.com";
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct OpenAiClient {
     api_key: String,
     http: Client,
+    base_url: String,
     max_predict: usize,
     retries: usize,
     eval_events_path: Option<PathBuf>,
+    response_metadata: Option<ProviderResponseMetadata>,
+}
+
+impl fmt::Debug for OpenAiClient {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("OpenAiClient")
+            .field("api_key", &"<redacted>")
+            .field("base_url", &self.base_url)
+            .field("max_predict", &self.max_predict)
+            .field("retries", &self.retries)
+            .field("eval_events_path", &self.eval_events_path)
+            .finish_non_exhaustive()
+    }
 }
 
 impl OpenAiClient {
     pub fn from_env(config: &Config) -> anyhow::Result<Self> {
-        let api_key = load_api_key(&config.workspace_root, "OPENAI_API_KEY")?;
+        let api_key = load_process_api_key("OPENAI_API_KEY")?;
         let http = Client::builder()
             .connect_timeout(std::time::Duration::from_secs(config.chat_timeout_secs))
             .timeout(std::time::Duration::from_secs(config.chat_timeout_secs))
@@ -36,10 +52,187 @@ impl OpenAiClient {
         Ok(Self {
             api_key,
             http,
+            base_url: OPENAI_BASE_URL.to_string(),
             max_predict: config.num_predict,
             retries: config.chat_retries,
             eval_events_path: config.eval_events_path.clone(),
+            response_metadata: None,
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(
+        api_key: impl Into<String>,
+        base_url: impl Into<String>,
+        eval_events_path: Option<PathBuf>,
+    ) -> Self {
+        Self {
+            api_key: api_key.into(),
+            http: Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(2))
+                .timeout(std::time::Duration::from_secs(2))
+                .build()
+                .expect("test OpenAI client"),
+            base_url: base_url.into(),
+            max_predict: 128,
+            retries: 0,
+            eval_events_path,
+            response_metadata: None,
+        }
+    }
+
+    fn chat_completions(
+        &mut self,
+        model: &str,
+        messages: &[ConversationMessage],
+        tools: &[ToolSpec],
+        native_tools_enabled: bool,
+    ) -> anyhow::Result<AssistantReply> {
+        let body = openai_chat_completions::build_request(
+            model,
+            messages,
+            tools,
+            native_tools_enabled,
+            self.max_predict,
+        );
+        eval_events::emit(
+            self.eval_events_path.as_deref(),
+            json!({
+                "event": "provider_request",
+                "provider": "openai",
+                "model": model,
+                "api": "chat_completions",
+                "tools": if native_tools_enabled { tools.len() } else { 0 },
+            }),
+        );
+        for attempt in 0..=self.retries {
+            match self
+                .http
+                .post(format!("{}/v1/chat/completions", self.base_url))
+                .bearer_auth(&self.api_key)
+                .json(&body)
+                .send()
+            {
+                Ok(response) if response.status().is_success() => {
+                    let body = response.text()?;
+                    match openai_chat_completions::parse_response(&body) {
+                        Ok((reply, metadata)) => {
+                            self.response_metadata = Some(metadata.clone());
+                            eval_events::emit(
+                                self.eval_events_path.as_deref(),
+                                json!({
+                                    "event": "provider_response",
+                                    "provider": "openai",
+                                    "model": model,
+                                    "api": "chat_completions",
+                                    "attempt": attempt + 1,
+                                    "tool_calls": reply.tool_calls.len(),
+                                    "response_model": metadata.model_id,
+                                    "system_fingerprint": metadata.system_fingerprint,
+                                }),
+                            );
+                            return Ok(reply);
+                        }
+                        Err(error) => {
+                            eval_events::emit(
+                                self.eval_events_path.as_deref(),
+                                json!({
+                                    "event": "provider_parse_error",
+                                    "provider": "openai",
+                                    "model": model,
+                                    "api": "chat_completions",
+                                    "error_kind": "provider_parse_error",
+                                    "message": self.redacted_snippet(&error.to_string()),
+                                }),
+                            );
+                            return Err(error);
+                        }
+                    }
+                }
+                Ok(response)
+                    if attempt == self.retries
+                        || !is_retryable_status(response.status().as_u16()) =>
+                {
+                    let status = response.status();
+                    let body = response.text().unwrap_or_default();
+                    eval_events::emit(
+                        self.eval_events_path.as_deref(),
+                        json!({
+                            "event": "provider_error",
+                            "provider": "openai",
+                            "model": model,
+                            "api": "chat_completions",
+                            "status": status.as_u16(),
+                            "error_kind": "http_status",
+                            "attempt": attempt + 1,
+                            "retry_exhausted": attempt == self.retries,
+                            "retryable": is_retryable_status(status.as_u16()),
+                            "body_snippet": self.redacted_snippet(&body),
+                        }),
+                    );
+                    return Err(super::guidance::http_status_error(
+                        Provider::Openai,
+                        model,
+                        status,
+                    ));
+                }
+                Ok(response) => {
+                    let status = response.status();
+                    eval_events::emit(
+                        self.eval_events_path.as_deref(),
+                        json!({
+                            "event": "provider_retry",
+                            "provider": "openai",
+                            "model": model,
+                            "api": "chat_completions",
+                            "status": status.as_u16(),
+                            "error_kind": "http_status",
+                            "attempt": attempt + 1,
+                            "retryable": true,
+                        }),
+                    );
+                }
+                Err(error) if attempt == self.retries => {
+                    eval_events::emit(
+                        self.eval_events_path.as_deref(),
+                        json!({
+                            "event": "provider_error",
+                            "provider": "openai",
+                            "model": model,
+                            "api": "chat_completions",
+                            "error_kind": "network",
+                            "attempt": attempt + 1,
+                            "retry_exhausted": true,
+                            "message": self.redacted_snippet(&error.to_string()),
+                        }),
+                    );
+                    return Err(super::guidance::connection_error(
+                        Provider::Openai,
+                        &self.base_url,
+                        error,
+                    ));
+                }
+                Err(error) => {
+                    eval_events::emit(
+                        self.eval_events_path.as_deref(),
+                        json!({
+                            "event": "provider_retry",
+                            "provider": "openai",
+                            "model": model,
+                            "api": "chat_completions",
+                            "error_kind": "network",
+                            "attempt": attempt + 1,
+                            "message": self.redacted_snippet(&error.to_string()),
+                        }),
+                    );
+                }
+            }
+        }
+        unreachable!("retry loop always returns or bails")
+    }
+
+    fn redacted_snippet(&self, value: &str) -> String {
+        eval_events::body_snippet(&value.replace(&self.api_key, "<redacted>"))
     }
 }
 
@@ -50,6 +243,10 @@ impl ChatClient for OpenAiClient {
 
     fn boxed_clone(&self) -> Box<dyn ChatClient> {
         Box::new(self.clone())
+    }
+
+    fn take_response_metadata(&mut self) -> Option<ProviderResponseMetadata> {
+        self.response_metadata.take()
     }
 
     fn supports_native_tools(&self, _model: &str) -> bool {
@@ -64,6 +261,10 @@ impl ChatClient for OpenAiClient {
         true
     }
 
+    fn supports_streaming_for_model(&self, model: &str) -> bool {
+        !openai_chat_completions::uses_chat_completions(model)
+    }
+
     fn chat_stream(
         &mut self,
         model: &str,
@@ -72,6 +273,9 @@ impl ChatClient for OpenAiClient {
         native_tools_enabled: bool,
         on_chunk: &mut dyn FnMut(&str) -> anyhow::Result<()>,
     ) -> anyhow::Result<AssistantReply> {
+        if openai_chat_completions::uses_chat_completions(model) {
+            anyhow::bail!("OpenAI chat completions streaming is not enabled")
+        }
         let mut body = build_response_request(
             model,
             messages,
@@ -92,7 +296,7 @@ impl ChatClient for OpenAiClient {
         for attempt in 0..=self.retries {
             match self
                 .http
-                .post(format!("{OPENAI_BASE_URL}/v1/responses"))
+                .post(format!("{}/v1/responses", self.base_url))
                 .bearer_auth(&self.api_key)
                 .json(&body)
                 .send()
@@ -124,6 +328,7 @@ impl ChatClient for OpenAiClient {
                                 delivered,
                             ) =>
                         {
+                            let err = redact_provider_error(err, &self.api_key);
                             eval_events::emit(
                                 self.eval_events_path.as_deref(),
                                 json!({
@@ -131,7 +336,7 @@ impl ChatClient for OpenAiClient {
                                     "provider": "openai",
                                     "model": model,
                                     "error_kind": "provider_stream_error",
-                                    "message": eval_events::body_snippet(&err.to_string()),
+                                    "message": self.redacted_snippet(&err.to_string()),
                                 }),
                             );
                             return Err(if delivered {
@@ -146,6 +351,7 @@ impl ChatClient for OpenAiClient {
                                 model,
                                 attempt,
                                 &err,
+                                &self.api_key,
                             );
                         }
                     }
@@ -167,7 +373,7 @@ impl ChatClient for OpenAiClient {
                             "attempt": attempt + 1,
                             "retry_exhausted": attempt == self.retries,
                             "retryable": is_retryable_status(status.as_u16()),
-                            "body_snippet": eval_events::body_snippet(&body),
+                            "body_snippet": self.redacted_snippet(&body),
                         }),
                     );
                     return Err(super::guidance::http_status_error(
@@ -201,7 +407,7 @@ impl ChatClient for OpenAiClient {
                             "error_kind": "network",
                             "attempt": attempt + 1,
                             "retry_exhausted": true,
-                            "message": eval_events::body_snippet(&err.to_string()),
+                            "message": self.redacted_snippet(&err.to_string()),
                         }),
                     );
                     return Err(super::guidance::connection_error(
@@ -210,9 +416,13 @@ impl ChatClient for OpenAiClient {
                         err,
                     ));
                 }
-                Err(err) => {
-                    emit_stream_retry(self.eval_events_path.as_deref(), model, attempt, &err)
-                }
+                Err(err) => emit_stream_retry(
+                    self.eval_events_path.as_deref(),
+                    model,
+                    attempt,
+                    &err,
+                    &self.api_key,
+                ),
             }
         }
         unreachable!("retry loop always returns or bails")
@@ -225,6 +435,10 @@ impl ChatClient for OpenAiClient {
         tools: &[ToolSpec],
         native_tools_enabled: bool,
     ) -> anyhow::Result<AssistantReply> {
+        self.response_metadata = None;
+        if openai_chat_completions::uses_chat_completions(model) {
+            return self.chat_completions(model, messages, tools, native_tools_enabled);
+        }
         let body = build_response_request(
             model,
             messages,
@@ -244,7 +458,7 @@ impl ChatClient for OpenAiClient {
         for attempt in 0..=self.retries {
             match self
                 .http
-                .post(format!("{OPENAI_BASE_URL}/v1/responses"))
+                .post(format!("{}/v1/responses", self.base_url))
                 .bearer_auth(&self.api_key)
                 .json(&body)
                 .send()
@@ -274,7 +488,7 @@ impl ChatClient for OpenAiClient {
                                     "provider": "openai",
                                     "model": model,
                                     "error_kind": "provider_parse_error",
-                                    "message": eval_events::body_snippet(&err.to_string()),
+                                    "message": self.redacted_snippet(&err.to_string()),
                                 }),
                             );
                             return Err(err);
@@ -298,7 +512,7 @@ impl ChatClient for OpenAiClient {
                             "attempt": attempt + 1,
                             "retry_exhausted": attempt == self.retries,
                             "retryable": is_retryable_status(status.as_u16()),
-                            "body_snippet": eval_events::body_snippet(&body),
+                            "body_snippet": self.redacted_snippet(&body),
                         }),
                     );
                     return Err(super::guidance::http_status_error(
@@ -332,7 +546,7 @@ impl ChatClient for OpenAiClient {
                             "error_kind": "network",
                             "attempt": attempt + 1,
                             "retry_exhausted": true,
-                            "message": eval_events::body_snippet(&err.to_string()),
+                            "message": self.redacted_snippet(&err.to_string()),
                         }),
                     );
                     return Err(super::guidance::connection_error(
@@ -350,7 +564,7 @@ impl ChatClient for OpenAiClient {
                             "model": model,
                             "error_kind": "network",
                             "attempt": attempt + 1,
-                            "message": eval_events::body_snippet(&err.to_string()),
+                            "message": self.redacted_snippet(&err.to_string()),
                         }),
                     );
                 }
@@ -364,11 +578,21 @@ fn is_retryable_status(status: u16) -> bool {
     matches!(status, 429 | 500 | 502 | 503 | 504)
 }
 
+fn redact_provider_error(error: anyhow::Error, api_key: &str) -> anyhow::Error {
+    let message = error.to_string();
+    if message.contains(api_key) {
+        anyhow::anyhow!(message.replace(api_key, "<redacted>"))
+    } else {
+        error
+    }
+}
+
 fn emit_stream_retry(
     events_path: Option<&std::path::Path>,
     model: &str,
     attempt: usize,
     err: &dyn std::fmt::Display,
+    api_key: &str,
 ) {
     eval_events::emit(
         events_path,
@@ -378,7 +602,7 @@ fn emit_stream_retry(
             "model": model,
             "error_kind": "stream_before_first_token",
             "attempt": attempt + 1,
-            "message": eval_events::body_snippet(&err.to_string()),
+            "message": eval_events::body_snippet(&err.to_string().replace(api_key, "<redacted>")),
         }),
     );
 }

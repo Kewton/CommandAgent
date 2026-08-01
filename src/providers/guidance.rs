@@ -41,6 +41,9 @@ fn status_hint(provider: Provider, model: &str, status: u16) -> String {
     let model = single_line(model);
     match status {
         401 | 403 => match api_key_name(provider) {
+            Some(key) if provider == Provider::Openai => {
+                format!("Set `{key}` in the process environment, then run `commandagent --doctor`.")
+            }
             Some(key) => format!(
                 "Set `{key}` in the environment or workspace `.env`, then run `commandagent --doctor`."
             ),
@@ -125,7 +128,7 @@ mod tests {
             (
                 Provider::Openai,
                 reqwest::StatusCode::UNAUTHORIZED,
-                "OpenAI request failed: HTTP 401 Unauthorized\nHint: Set `OPENAI_API_KEY` in the environment or workspace `.env`, then run `commandagent --doctor`.",
+                "OpenAI request failed: HTTP 401 Unauthorized\nHint: Set `OPENAI_API_KEY` in the process environment, then run `commandagent --doctor`.",
             ),
             (
                 Provider::Gemini,

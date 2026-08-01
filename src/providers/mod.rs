@@ -3,6 +3,7 @@ pub mod gemini_function_calling;
 pub(crate) mod guidance;
 pub mod ollama;
 pub mod openai;
+mod openai_chat_completions;
 pub mod parsing;
 pub(crate) mod startup;
 pub mod streaming;
@@ -21,6 +22,15 @@ pub struct ResponseTiming {
     pub eval_duration: Option<u64>,
     pub load_duration: Option<u64>,
     pub total_duration: Option<u64>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ProviderResponseMetadata {
+    pub response_id: Option<String>,
+    pub model_id: Option<String>,
+    pub system_fingerprint: Option<String>,
+    pub created_epoch: Option<i64>,
+    pub service_tier: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -57,8 +67,14 @@ pub trait ChatClient: Send {
     fn take_response_timing(&mut self) -> Option<ResponseTiming> {
         None
     }
+    fn take_response_metadata(&mut self) -> Option<ProviderResponseMetadata> {
+        None
+    }
     fn supports_streaming(&self) -> bool {
         false
+    }
+    fn supports_streaming_for_model(&self, _model: &str) -> bool {
+        self.supports_streaming()
     }
     fn chat_stream(
         &mut self,

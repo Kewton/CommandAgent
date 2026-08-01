@@ -1411,6 +1411,17 @@ pub fn load_api_key(workspace_root: &std::path::Path, name: &str) -> anyhow::Res
         })
 }
 
+pub fn load_process_api_key(name: &str) -> anyhow::Result<String> {
+    std::env::var(name)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "{name} is not set. Set {name} in the process environment, then run `commandagent --doctor`."
+            )
+        })
+}
+
 pub fn read_dotenv(workspace_root: &std::path::Path) -> HashMap<String, String> {
     let path = workspace_root.join(".env");
     let Ok(content) = std::fs::read_to_string(path) else {
@@ -1460,6 +1471,21 @@ mod tests {
                 "{key} is not set. Set {key} in the environment or workspace .env, then run `commandagent --doctor`."
             )
         );
+    }
+
+    #[test]
+    fn process_only_api_key_error_excludes_dotenv_remediation() {
+        let key = "COMMANDAGENT_TEST_MISSING_PROCESS_PROVIDER_KEY_F0";
+
+        let error = load_process_api_key(key).unwrap_err().to_string();
+
+        assert_eq!(
+            error,
+            format!(
+                "{key} is not set. Set {key} in the process environment, then run `commandagent --doctor`."
+            )
+        );
+        assert!(!error.contains(".env"));
     }
 
     #[test]

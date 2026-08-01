@@ -7,7 +7,7 @@ use serde_json::json;
 
 use crate::config::Config;
 use crate::eval_events;
-use crate::providers::{AssistantReply, ChatClient, ResponseTiming};
+use crate::providers::{AssistantReply, ChatClient, ProviderResponseMetadata, ResponseTiming};
 use crate::state::ConversationMessage;
 use crate::tools::registry::ToolSpec;
 
@@ -96,6 +96,7 @@ struct ProviderTurnTelemetry<'a> {
     generation_seconds: Option<f64>,
     load_seconds: Option<f64>,
     tokens_per_second_eval: Option<f64>,
+    response_metadata: Option<ProviderResponseMetadata>,
     finish_reason: String,
     elapsed: Duration,
     timed_out: bool,
@@ -119,6 +120,7 @@ struct ProviderTurnTelemetryBase<'a> {
 struct ProviderWorkerResult {
     result: anyhow::Result<AssistantReply>,
     timing: Option<ResponseTiming>,
+    response_metadata: Option<ProviderResponseMetadata>,
 }
 
 enum ProviderWorkerMessage {
@@ -222,8 +224,10 @@ where
     let tools = request.tools;
     let native_tools_enabled = request.native_tools_enabled;
     let provider = client.label().to_string();
-    let stream =
-        stream_allowed && on_chunk.is_some() && config.stream && client.supports_streaming();
+    let stream = stream_allowed
+        && on_chunk.is_some()
+        && config.stream
+        && client.supports_streaming_for_model(model);
     let render_stream_chunks = stream && scope.renders_stream_chunks();
     let timeout = Duration::from_secs(config.chat_timeout_secs);
     let estimated_prompt_tokens =
@@ -288,7 +292,12 @@ where
                 worker_client.chat(&worker_model, &messages, &tools, native_tools_enabled)
             };
             let timing = worker_client.take_response_timing();
-            ProviderWorkerResult { result, timing }
+            let response_metadata = worker_client.take_response_metadata();
+            ProviderWorkerResult {
+                result,
+                timing,
+                response_metadata,
+            }
         }));
         let message = match worker_result {
             Ok(result) => ProviderWorkerMessage::Completed(result),
@@ -339,6 +348,7 @@ where
                     generation_seconds: None,
                     load_seconds: None,
                     tokens_per_second_eval: None,
+                    response_metadata: None,
                     finish_reason: "timeout".to_string(),
                     elapsed,
                     timed_out: true,
@@ -388,6 +398,7 @@ where
                             },
                             &result,
                             None,
+                            None,
                         ),
                     );
                     return ProviderCallOutcome {
@@ -399,7 +410,11 @@ where
                 }
             }
             Ok(ProviderWorkerMessage::Completed(worker_result)) => {
-                let ProviderWorkerResult { result, timing } = worker_result;
+                let ProviderWorkerResult {
+                    result,
+                    timing,
+                    response_metadata,
+                } = worker_result;
                 let result = enforce_response_limit(result, max_response_bytes);
                 let elapsed = started.elapsed();
                 crate::tui::status_bus::publish_provider_finished(elapsed);
@@ -426,6 +441,7 @@ where
                         },
                         &result,
                         timing,
+                        response_metadata,
                     ),
                 );
                 return ProviderCallOutcome {
@@ -458,6 +474,7 @@ where
                         generation_seconds: None,
                         load_seconds: None,
                         tokens_per_second_eval: None,
+                        response_metadata: None,
                         finish_reason: "panic".to_string(),
                         elapsed,
                         timed_out: false,
@@ -491,6 +508,7 @@ where
                         generation_seconds: None,
                         load_seconds: None,
                         tokens_per_second_eval: None,
+                        response_metadata: None,
                         finish_reason: "error".to_string(),
                         elapsed,
                         timed_out: false,
@@ -673,6 +691,7 @@ fn provider_aborted_by_user(
             generation_seconds: None,
             load_seconds: None,
             tokens_per_second_eval: None,
+            response_metadata: None,
             finish_reason: "aborted_by_user".to_string(),
             elapsed,
             timed_out: false,
@@ -693,6 +712,7 @@ fn provider_turn_telemetry_from_result<'a>(
     base: ProviderTurnTelemetryBase<'a>,
     result: &anyhow::Result<AssistantReply>,
     timing: Option<ResponseTiming>,
+    response_metadata: Option<ProviderResponseMetadata>,
 ) -> ProviderTurnTelemetry<'a> {
     let reply = result.as_ref().ok();
     let prompt_eval_duration = timing
@@ -729,6 +749,7 @@ fn provider_turn_telemetry_from_result<'a>(
         generation_seconds,
         load_seconds,
         tokens_per_second_eval,
+        response_metadata,
         finish_reason: if base.timed_out {
             "timeout".to_string()
         } else if result.is_ok() {
@@ -779,6 +800,13 @@ fn emit_provider_turn_duration(config: &Config, telemetry: ProviderTurnTelemetry
     });
     if telemetry.aborted_by_user {
         value["classification"] = json!("aborted_by_user");
+    }
+    if let Some(metadata) = &telemetry.response_metadata {
+        value["provider_response_id"] = json!(metadata.response_id);
+        value["provider_model_id"] = json!(metadata.model_id);
+        value["system_fingerprint"] = json!(metadata.system_fingerprint);
+        value["provider_created_epoch"] = json!(metadata.created_epoch);
+        value["provider_service_tier"] = json!(metadata.service_tier);
     }
     eval_events::emit(config.eval_events_path.as_deref(), value);
     maybe_emit_context_truncation_warning(config, &telemetry);
@@ -882,6 +910,8 @@ fn emit_provider_turn_aborted_by_user(
 mod tests {
     use super::*;
     use crate::config::{Action, Provider};
+    use std::io::{Read as _, Write as _};
+    use std::net::TcpListener;
     use std::path::PathBuf;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -1100,6 +1130,117 @@ mod tests {
             style: "default".to_string(),
             action: Action::Repl,
         }
+    }
+
+    #[test]
+    fn openai_error_redacts_key_across_chokepoint_outputs() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let events_path = tmp.path().join("events.jsonl");
+        let mut config = test_config(tmp.path(), events_path.clone(), 2);
+        config.provider = Provider::Openai;
+        config.model = "gpt-5.6-luna".to_string();
+        let secret = "sk-proj-deliberate-redaction-secret-123456789";
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let address = listener.local_addr().expect("address");
+        let secret_for_server = secret.to_string();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut request = [0_u8; 8192];
+            let read = stream.read(&mut request).expect("request");
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.starts_with("POST /v1/chat/completions "));
+            assert!(
+                request
+                    .to_ascii_lowercase()
+                    .contains(&format!("authorization: bearer {secret_for_server}"))
+            );
+            let body = format!(r#"{{"error":"reflected {secret_for_server}"}}"#);
+            write!(
+                stream,
+                "HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .expect("response");
+        });
+        let mut client = crate::providers::openai::OpenAiClient::for_test(
+            secret,
+            format!("http://{address}"),
+            Some(events_path.clone()),
+        );
+
+        let outcome = chat(
+            &mut client,
+            &config,
+            ProviderCallScope::Executor,
+            &config.model,
+            &[ConversationMessage::user("hello")],
+            &[],
+            false,
+        );
+        let error = outcome.result.unwrap_err().to_string();
+        crate::eval_events::write_run_summary(Some(&events_path), &error);
+        server.join().expect("server");
+
+        let outputs = format!(
+            "{error}\n{}\n{}\n{client:?}",
+            std::fs::read_to_string(&events_path).expect("events"),
+            std::fs::read_to_string(tmp.path().join("summary.md")).expect("summary")
+        );
+        assert!(!outputs.contains(secret), "secret leaked: {outputs}");
+        assert!(outputs.contains("<redacted>"), "{outputs}");
+    }
+
+    #[test]
+    fn openai_response_metadata_reaches_provider_turn_event() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let events_path = tmp.path().join("events.jsonl");
+        let mut config = test_config(tmp.path(), events_path.clone(), 2);
+        config.provider = Provider::Openai;
+        config.model = "gpt-5.6-luna".to_string();
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let address = listener.local_addr().expect("address");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut request = [0_u8; 8192];
+            let _ = stream.read(&mut request).expect("request");
+            let body = r#"{"id":"chatcmpl-f0","model":"gpt-5.6-luna-2026-07-31","created":1785456000,"system_fingerprint":"fp_f0","service_tier":"default","choices":[{"message":{"content":"hello"}}],"usage":{"prompt_tokens":3,"completion_tokens":1}}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .expect("response");
+        });
+        let mut client = crate::providers::openai::OpenAiClient::for_test(
+            "sk-test-only-not-real-123456789",
+            format!("http://{address}"),
+            Some(events_path.clone()),
+        );
+
+        let outcome = chat(
+            &mut client,
+            &config,
+            ProviderCallScope::Executor,
+            &config.model,
+            &[ConversationMessage::user("hello")],
+            &[],
+            false,
+        );
+        server.join().expect("server");
+        assert_eq!(outcome.result.unwrap().content, "hello");
+        let events = std::fs::read_to_string(events_path).expect("events");
+        let turn = events
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .find(|event| event["event"] == "provider_turn_duration")
+            .expect("provider turn event");
+        assert_eq!(turn["provider_response_id"], "chatcmpl-f0");
+        assert_eq!(turn["provider_model_id"], "gpt-5.6-luna-2026-07-31");
+        assert_eq!(turn["system_fingerprint"], "fp_f0");
+        assert_eq!(turn["provider_created_epoch"], 1_785_456_000_i64);
+        assert_eq!(turn["provider_service_tier"], "default");
     }
 
     #[test]

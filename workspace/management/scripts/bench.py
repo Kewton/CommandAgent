@@ -46,7 +46,7 @@ EVENT_SEARCH_PATTERNS = {
     "*_adjudicated": re.compile(r"^[a-z0-9_]+_adjudicated$"),
 }
 SECRET_VALUE_PATTERNS = (
-    re.compile(r"sk-[A-Za-z0-9]{16,}"),
+    re.compile(r"sk-[A-Za-z0-9_-]{16,}"),
     re.compile(r"AIza[0-9A-Za-z_-]{35}"),
     re.compile(r"ghp_[A-Za-z0-9]{36,}"),
     re.compile(r"xox[baprs]-[A-Za-z0-9-]{10,}"),

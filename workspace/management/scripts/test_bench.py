@@ -521,6 +521,21 @@ class ScrubTests(unittest.TestCase):
                 any(item["kind"] == "secret_value" for item in result.findings)
             )
 
+    def test_modern_openai_key_shape_is_detected(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "event.jsonl").write_text(
+                "sk-proj_example-key-material_123456789\n", encoding="utf-8"
+            )
+
+            result = bench.scrub_path(root)
+
+            self.assertFalse(result.ok)
+            self.assertTrue(
+                any(item["kind"] == "secret_value" for item in result.findings)
+            )
+            self.assertNotIn("sk-proj_example-key-material_123456789", str(result.findings))
+
     def test_scrub_allow_is_transferred_and_suppresses_matching_finding(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
