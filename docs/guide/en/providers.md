@@ -76,6 +76,12 @@ suffix) when repeatable comparisons matter. CommandAgent records the returned
 model ID and `system_fingerprint` in the provider turn event so endpoint drift
 can be audited without exposing credentials.
 
+OpenAI Chat Completions reasoning effort is opt-in. Set
+`COMMANDAGENT_OPENAI_REASONING_EFFORT` in the process environment only when an
+explicit effort value is required. If it is unset or empty, CommandAgent omits
+`reasoning_effort` from the request; it does not synthesize a model-specific
+default.
+
 ## Ollama host and models
 
 Ollama requires a running HTTP server and a locally available model. Local API

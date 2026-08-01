@@ -17,6 +17,7 @@ use super::streaming::StreamControl;
 use super::{AssistantReply, ChatClient, ProviderResponseMetadata, openai_chat_completions};
 
 const OPENAI_BASE_URL: &str = "https://api.openai.com";
+const OPENAI_REASONING_EFFORT_ENV: &str = "COMMANDAGENT_OPENAI_REASONING_EFFORT";
 
 #[derive(Clone)]
 pub struct OpenAiClient {
@@ -25,6 +26,7 @@ pub struct OpenAiClient {
     base_url: String,
     max_predict: usize,
     retries: usize,
+    reasoning_effort: Option<String>,
     eval_events_path: Option<PathBuf>,
     response_metadata: Option<ProviderResponseMetadata>,
 }
@@ -55,6 +57,7 @@ impl OpenAiClient {
             base_url: OPENAI_BASE_URL.to_string(),
             max_predict: config.num_predict,
             retries: config.chat_retries,
+            reasoning_effort: explicit_reasoning_effort(),
             eval_events_path: config.eval_events_path.clone(),
             response_metadata: None,
         })
@@ -76,6 +79,7 @@ impl OpenAiClient {
             base_url: base_url.into(),
             max_predict: 128,
             retries: 0,
+            reasoning_effort: None,
             eval_events_path,
             response_metadata: None,
         }
@@ -94,6 +98,7 @@ impl OpenAiClient {
             tools,
             native_tools_enabled,
             self.max_predict,
+            self.reasoning_effort.as_deref(),
         );
         eval_events::emit(
             self.eval_events_path.as_deref(),
@@ -234,6 +239,13 @@ impl OpenAiClient {
     fn redacted_snippet(&self, value: &str) -> String {
         eval_events::body_snippet(&value.replace(&self.api_key, "<redacted>"))
     }
+}
+
+fn explicit_reasoning_effort() -> Option<String> {
+    crate::env_compat::var(OPENAI_REASONING_EFFORT_ENV)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
 impl ChatClient for OpenAiClient {

@@ -200,3 +200,13 @@ input $1.00 / 1M tokens、output $6.00 / 1M tokens、
   `1d70b028160f8a475a32d98199a0ca5ca219018cfae0b08eb0e82ae3ccc53c80`
 - `filter_luna_003/events.jsonl`:
   `cb0cb14e15d29b9a1bba59d3b1bbe32993036e444fc558a53c80a0d4298cdc70`
+
+## 13. F-2a-2レビュー裁定追記
+
+レビュー裁定により、本campaignの6/6停止は
+`openai_param_rejected:reasoning_effort_with_function_tools`、帰属は
+**machine**で確定した。実装棚卸しではF-0時点のrequest builderが
+`reasoning_effort`を明示送信していなかったことも確認したため、観測された
+拒否は未指定時のprovider側既定を含む組合せに対するものと区別する。
+F-2a-2は「宣言されないoptional parameterは送らない」をfixtureで固定し、
+明示指定時だけ送る設定経路を追加したうえで再計測する。

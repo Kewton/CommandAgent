@@ -19,6 +19,7 @@ pub(crate) fn build_request(
     tools: &[ToolSpec],
     native_tools_enabled: bool,
     max_predict: usize,
+    reasoning_effort: Option<&str>,
 ) -> Value {
     let mut body = json!({
         "model": model,
@@ -41,6 +42,11 @@ pub(crate) fn build_request(
                 })
                 .collect(),
         );
+    }
+    // Optional provider generation controls are declaration-only: omitting a
+    // setting must not silently materialize a client-side provider default.
+    if let Some(reasoning_effort) = reasoning_effort {
+        body["reasoning_effort"] = Value::String(reasoning_effort.to_string());
     }
     body
 }
@@ -168,6 +174,7 @@ mod tests {
             ToolRegistry::default().specs(),
             true,
             128,
+            None,
         );
 
         assert_eq!(body["model"], LUNA_MODEL);
@@ -175,6 +182,37 @@ mod tests {
         assert_eq!(body["max_completion_tokens"], 128);
         assert_eq!(body["tools"][0]["type"], "function");
         assert!(body["tools"][0].get("function").is_some());
+        assert!(body.get("reasoning_effort").is_none());
+    }
+
+    #[test]
+    fn reasoning_effort_is_present_only_when_explicitly_configured() {
+        let unconfigured = build_request(
+            LUNA_MODEL,
+            &[ConversationMessage::user("hello")],
+            &[],
+            false,
+            128,
+            None,
+        );
+        let configured = build_request(
+            LUNA_MODEL,
+            &[ConversationMessage::user("hello")],
+            ToolRegistry::default().specs(),
+            true,
+            128,
+            Some("none"),
+        );
+
+        assert_eq!(
+            unconfigured,
+            json!({
+                "model": LUNA_MODEL,
+                "messages": [{"role": "user", "content": "hello"}],
+                "max_completion_tokens": 128,
+            })
+        );
+        assert_eq!(configured["reasoning_effort"], "none");
     }
 
     #[test]

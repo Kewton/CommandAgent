@@ -71,6 +71,10 @@ provider 公開の日付suffix付きLuna snapshot IDを優先してください�
 model IDと`system_fingerprint`をprovider turn eventへ記録し、資格情報を露出せずendpoint driftを
 監査可能にします。
 
+OpenAI Chat Completions の reasoning effort は明示指定時だけ有効です。必要な場合だけ
+`COMMANDAGENT_OPENAI_REASONING_EFFORT` をプロセス環境に設定してください。未設定または空文字なら
+CommandAgent は request に `reasoning_effort` を含めず、model 別の既定値も合成しません。
+
 ## Ollama のホストとモデル
 
 Ollama には実行中の HTTP サーバーとローカルで利用可能なモデルが必要です。既定アドレスへの
