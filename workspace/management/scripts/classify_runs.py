@@ -64,8 +64,52 @@ def terminal_text(run):
     return "\n".join(values)
 
 
+def successful_terminal(run):
+    """Recognize an honest successful terminal before failure vocabulary matching."""
+    events = []
+    for p in sorted(run.rglob("events.jsonl")):
+        for line in p.read_text(errors="replace").splitlines():
+            try:
+                event = json.loads(line)
+            except ValueError:
+                continue
+            if event.get("event") in {
+                "run_stop",
+                "tui_command_stop",
+                "ultra_final_acceptance",
+            }:
+                events.append(event)
+    for event_name in ("run_stop", "tui_command_stop", "ultra_final_acceptance"):
+        authoritative = next(
+            (event for event in reversed(events) if event.get("event") == event_name),
+            None,
+        )
+        if authoritative is None:
+            continue
+        statuses = {
+            authoritative.get("status"),
+            authoritative.get("task_status"),
+            authoritative.get("completion_status"),
+            authoritative.get("final_acceptance_status"),
+        }
+        return authoritative.get("ok") is not False and bool(
+            statuses & {"complete", "completed", "full", "full_success"}
+        )
+    return False
+
+
 def classify(run, registry=None):
     registry = registry or classes()
+    if successful_terminal(run):
+        success = next(
+            item for item in registry if item.get("category") == "success"
+        )
+        return {
+            "run": str(run),
+            "classes": [success["id"]],
+            "attribution": success["attribution"],
+            "stop_class": "success",
+        }
     hay = terminal_text(run) or text_for(run)
     hits = []
     for item in registry:

@@ -15,6 +15,7 @@ use crate::{
     tools::bash::{BashOutcome, BashOutcomeKind},
 };
 
+mod cli_documented_input;
 mod dependency_classification;
 mod shell_control;
 mod shell_rewrite;
@@ -1087,7 +1088,9 @@ fn handle_failed_verify_command(
             traceback,
         };
     }
-    let Some(repair) = normalize_verify_command_for_oracle_repair(command_text) else {
+    let Some(repair) = normalize_verify_command_for_oracle_repair(command_text)
+        .or_else(|| cli_documented_input::normalize(command_text, root, profile))
+    else {
         return VerifyCommandRunResult::FalseNegative {
             command: command_text.to_string(),
             reason: verify_command_false_negative_reason(command_text, &formatted),

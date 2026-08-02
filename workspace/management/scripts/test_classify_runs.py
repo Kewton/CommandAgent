@@ -21,6 +21,46 @@ class ClassifyTests(unittest.TestCase):
         r = classify(self.make('{"reason":"new_unseen_stop"}'))
         self.assertEqual(r["attribution"], "UNKNOWN")
 
+    def test_full_complete_terminal_is_success_not_unknown(self):
+        run = self.make(
+            json.dumps(
+                {
+                    "event": "run_stop",
+                    "ok": True,
+                    "status": "complete",
+                    "final_acceptance_status": "full_success",
+                }
+            )
+        )
+        result = classify(run)
+        self.assertEqual(result["classes"], ["success"])
+        self.assertEqual(result["attribution"], "not_applicable")
+        self.assertEqual(result["stop_class"], "success")
+
+    def test_failed_run_never_inherits_an_earlier_success_event(self):
+        run = self.make(
+            "\n".join(
+                [
+                    json.dumps(
+                        {
+                            "event": "ultra_final_acceptance",
+                            "ok": True,
+                            "final_acceptance_status": "full_success",
+                        }
+                    ),
+                    json.dumps(
+                        {
+                            "event": "run_stop",
+                            "ok": False,
+                            "status": "failed",
+                            "reason": "repair_target_unresolved",
+                        }
+                    ),
+                ]
+            )
+        )
+        self.assertEqual(classify(run)["classes"], ["repair_target_unresolved"])
+
     def test_envelope_copies_do_not_broaden_terminal_classification(self):
         run = self.make(
             json.dumps(
@@ -106,7 +146,7 @@ class ClassifyTests(unittest.TestCase):
         ]
         self.assertTrue(
             all(
-                item["category"] in {"terminal", "violation_family"}
+                item["category"] in {"terminal", "violation_family", "success"}
                 for item in registry
             )
         )

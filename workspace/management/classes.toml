@@ -3,6 +3,15 @@
 # inferred from the terminal vocabulary.
 # category = "terminal" identifies a run-stop terminal shape.
 # category = "violation_family" identifies a comparator violation family.
+# category = "success" identifies an honest successful terminal before failure matching.
+[[class]]
+id = "success"
+category = "success"
+attribution = "not_applicable"
+first_seen = "uat-test0801-cli-luna-007"
+ledger_ref = "F-2a-8"
+note = "full/complete終端はfailure vocabularyへ流さず成功区分として表示する"
+
 [[class]]
 id = "model_stagnation_read_only"
 category = "terminal"

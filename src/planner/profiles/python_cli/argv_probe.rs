@@ -201,6 +201,13 @@ fn bind_cases(root: &Path, config: &Config) -> anyhow::Result<CaseBinding> {
     })
 }
 
+pub(crate) fn documented_normal_args(root: &Path) -> anyhow::Result<Vec<String>> {
+    let config = Config::new("cli/main.py", &["README.md", "USAGE.md"]);
+    validate_config(root, &config)?;
+    let binding = bind_cases(root, &config)?;
+    Ok(binding.cases[0].args.clone())
+}
+
 fn extract_usage_case(
     root: &Path,
     relative: &Path,

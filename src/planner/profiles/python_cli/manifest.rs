@@ -82,3 +82,37 @@ fn validate(manifest: &ManifestV1) -> Result<(), String> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use serde::Deserialize;
+
+    use super::*;
+
+    #[derive(Deserialize)]
+    struct MeasuredGuidanceFixture {
+        observed_readme_usage: String,
+        required_literal_example: String,
+        forbidden_notation: String,
+    }
+
+    #[test]
+    fn measured_placeholder_shape_is_answered_with_a_concrete_literal_example() {
+        let fixture: MeasuredGuidanceFixture = serde_json::from_str(include_str!(
+            "../../../../tests/corpus/apps/test0725_cli_elev_004/fixtures/uat-test0801-cli-luna-007/c1-guidance.json"
+        ))
+        .unwrap();
+        let guidance = guidance();
+        let plan = preset_ultra_plan("build the requested CLI", "default", "create").unwrap();
+        let scaffold = &plan.phases[0].prompt;
+
+        assert!(fixture.observed_readme_usage.contains('<'));
+        for rendered in [guidance.as_str(), scaffold.as_str()] {
+            assert!(
+                rendered.contains(&fixture.required_literal_example),
+                "{rendered}"
+            );
+            assert!(rendered.contains(&fixture.forbidden_notation), "{rendered}");
+        }
+    }
+}

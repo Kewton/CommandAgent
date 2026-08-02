@@ -14,7 +14,7 @@ goal = "{goal}"
 
 [[plan.phases]]
 id = "cli-scaffold"
-prompt = "Create cli/main.py and one README or usage document for: {goal}. Put the representative python3 cli/main.py invocation and its expected stdout in one fenced example before validation."
+prompt = "Create cli/main.py and one README or usage document for: {goal}. Put the representative python3 cli/main.py invocation and its expected stdout in one fenced example before validation. The first invocation must use concrete arguments from bundled sample data, for example `python3 cli/main.py data/sample.csv --column amount`; replace the example values with the actual sample path and field or pattern. Do not use `<...>` placeholder notation such as `<CSV_FILE>` or `<COLUMN>` there because an unresolved placeholder cannot be frozen as executable argv."
 
 [[plan.phases]]
 id = "cli-implementation"
@@ -91,12 +91,13 @@ triggers = [{ condition = "always" }]
 [guidance.variants.generation.messages]
 determinism = "The CLI must not depend on time, randomness, or network state; the same bound argv must reproduce exit code, stdout, and stderr."
 parser = "Derive --help from argparse or an equivalent standard parser so help text and accepted options share one runtime implementation."
+concrete_usage = "Write the first README usage as an executable concrete sample command, for example `python3 cli/main.py data/sample.csv --column amount`, using the actual bundled sample path and a real field or pattern. A `<...>` placeholder form is not bindable executable argv."
 
 [guidance.variants.contract]
 triggers = [{ condition = "check_failure", values = ["cli_probe", "help_binding", "cli_output_claims", "cli_rerun_consistency"] }]
 
 [guidance.variants.contract.messages]
-binding = "The normal case is the first safe Python invocation mechanically extracted from README.md then USAGE.md; the invalid case is always --anvil-invalid-probe. Frozen cases may not be replaced."
+binding = "The normal case is the first safe Python invocation mechanically extracted from README.md then USAGE.md; it must contain concrete bundled-sample arguments such as `python3 cli/main.py data/sample.csv --column amount`, not `<...>` placeholders. The invalid case is always --anvil-invalid-probe. Frozen cases may not be replaced."
 claims = "Every stdout line shown after the bound usage command must occur in the observed normal stdout."
 
 [[checks.c1]]
