@@ -12,7 +12,7 @@ executor model unless it is overridden.
 | Provider | CLI value | Required key | Obtain/setup | CommandAgent endpoint | Configuration |
 | --- | --- | --- | --- | --- | --- |
 | Ollama | `ollama` | none for a local server | [Ollama quickstart](https://docs.ollama.com/quickstart) | `--ollama-host`, default `http://localhost:11434`; `/api/chat` is appended | `--provider ollama --model <model-id>` |
-| OpenAI | `openai` | `OPENAI_API_KEY` | [Create an OpenAI API key](https://platform.openai.com/api-keys) | fixed `https://api.openai.com`; Luna uses `/v1/chat/completions`, existing models retain `/v1/responses` | process environment only |
+| OpenAI | `openai` | `OPENAI_API_KEY` | [Create an OpenAI API key](https://platform.openai.com/api-keys) | fixed `https://api.openai.com`; explicit `--api chat-completions` (default) or `--api responses` | process environment only |
 | Gemini | `gemini` | `GEMINI_API_KEY` | [Create a Gemini API key in Google AI Studio](https://aistudio.google.com/app/apikey) | fixed Google Generative Language endpoints | process environment or workspace `.env` |
 
 CommandAgent does not accept `GOOGLE_API_KEY` as a substitute for
@@ -37,7 +37,7 @@ export OPENAI_API_KEY="<secret>"
 # or
 export GEMINI_API_KEY="<secret>"
 
-commandagent --provider openai --model <openai-model-id>
+commandagent --provider openai --api responses --model <openai-model-id>
 ```
 
 Do not run `echo $OPENAI_API_KEY`, `env`, `printenv`, or shell tracing to verify
@@ -79,8 +79,14 @@ can be audited without exposing credentials.
 OpenAI Chat Completions reasoning effort is opt-in. Set
 `COMMANDAGENT_OPENAI_REASONING_EFFORT` in the process environment only when an
 explicit effort value is required. If it is unset or empty, CommandAgent omits
-`reasoning_effort` from the request; it does not synthesize a model-specific
-default.
+the control from the request; it does not synthesize a model-specific default.
+The same declaration is rendered as `reasoning.effort` for Responses.
+
+API selection is also declaration-only. Omission means Chat Completions;
+CommandAgent never infers an API from a model name. Responses native-tool turns
+retain the provider's reasoning output items and replay them with subsequent
+function outputs in the same run. Response IDs, service tier, cached input
+tokens, and reasoning-token counts are recorded in provider turn events.
 
 ## Ollama host and models
 

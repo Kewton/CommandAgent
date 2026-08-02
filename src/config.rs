@@ -5,8 +5,8 @@ use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::cli::{
-    Cli, FooterArg, IntentArg, PlanPresetArg, PromptLayoutArg, ProviderArg, StreamArg,
-    ToolProtocolArg,
+    Cli, FooterArg, IntentArg, OpenAiApiArg, PlanPresetArg, PromptLayoutArg, ProviderArg,
+    StreamArg, ToolProtocolArg,
 };
 pub use crate::planner::adjudication::contract::IntentId;
 use crate::planner::intent::detect_intent;
@@ -19,6 +19,7 @@ pub const DEFAULT_MODEL: &str = "qwen3.6:27b-coding-nvfp4";
 pub const SUPPORTED_PRESET_KEYS: &[&str] = &[
     "model",
     "provider",
+    "api",
     "tool_protocol",
     "planner_model",
     "planner_provider",
@@ -52,6 +53,40 @@ pub enum Provider {
 pub enum ToolProtocol {
     Native,
     Text,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OpenAiApi {
+    #[default]
+    ChatCompletions,
+    Responses,
+}
+
+impl OpenAiApi {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ChatCompletions => "chat_completions",
+            Self::Responses => "responses",
+        }
+    }
+
+    fn from_config_value(value: &str) -> Option<Self> {
+        match value.trim() {
+            "chat_completions" => Some(Self::ChatCompletions),
+            "responses" => Some(Self::Responses),
+            _ => None,
+        }
+    }
+}
+
+impl From<OpenAiApiArg> for OpenAiApi {
+    fn from(value: OpenAiApiArg) -> Self {
+        match value {
+            OpenAiApiArg::ChatCompletions => Self::ChatCompletions,
+            OpenAiApiArg::Responses => Self::Responses,
+        }
+    }
 }
 
 impl ToolProtocol {
@@ -253,6 +288,7 @@ pub struct Config {
     pub context_budget: usize,
     pub model: String,
     pub provider: Provider,
+    pub openai_api: OpenAiApi,
     pub tool_protocol: Option<ToolProtocol>,
     pub prompt_layout: PromptLayout,
     pub plan_preset: PlanPreset,
@@ -330,6 +366,7 @@ fn sourced<T>(value: T, source: impl Into<String>) -> Sourced<T> {
 struct PresetConfig {
     model: Option<Sourced<String>>,
     provider: Option<Sourced<Provider>>,
+    openai_api: Option<Sourced<OpenAiApi>>,
     tool_protocol: Option<Sourced<ToolProtocol>>,
     planner_model: Option<Sourced<String>>,
     planner_provider: Option<Sourced<Provider>>,
@@ -452,6 +489,11 @@ impl Config {
             .map(|value| sourced(Provider::from(value), "flag"))
             .or_else(|| preset.as_ref().and_then(|preset| preset.provider.clone()))
             .unwrap_or_else(|| sourced(Provider::Ollama, "default"));
+        let openai_api = cli
+            .openai_api
+            .map(|value| sourced(OpenAiApi::from(value), "flag"))
+            .or_else(|| preset.as_ref().and_then(|preset| preset.openai_api.clone()))
+            .unwrap_or_else(|| sourced(OpenAiApi::ChatCompletions, "default"));
         let tool_protocol = cli
             .tool_protocol
             .map(|value| sourced(ToolProtocol::from(value), "flag"))
@@ -614,6 +656,7 @@ impl Config {
             context_budget: context_budget.value,
             model: model.value,
             provider: provider.value,
+            openai_api: openai_api.value,
             tool_protocol: tool_protocol.map(|value| value.value),
             prompt_layout: prompt_layout.value,
             plan_preset: plan_preset.value,
@@ -778,6 +821,7 @@ fn preset_missing_keys(preset: &PresetConfig) -> Vec<&'static str> {
 fn merge_preset(target: &mut PresetConfig, source: &PresetConfig) {
     merge_preset_field(&mut target.model, &source.model);
     merge_preset_field(&mut target.provider, &source.provider);
+    merge_preset_field(&mut target.openai_api, &source.openai_api);
     merge_preset_field(&mut target.tool_protocol, &source.tool_protocol);
     merge_preset_field(&mut target.planner_model, &source.planner_model);
     merge_preset_field(&mut target.planner_provider, &source.planner_provider);
@@ -1118,6 +1162,12 @@ fn parse_preset_key(
                 source,
             ))
         }
+        "api" => {
+            preset.openai_api = Some(sourced(
+                parse_openai_api_value(path, line_no, &full_key, value)?,
+                source,
+            ))
+        }
         "tool_protocol" => {
             preset.tool_protocol = Some(sourced(
                 parse_tool_protocol_value(path, line_no, &full_key, value)?,
@@ -1305,6 +1355,22 @@ fn parse_tool_protocol_value(
     ToolProtocol::from_config_value(&value).ok_or_else(|| {
         anyhow::anyhow!(
             "{}:{} {key} expects tool_protocol native|text",
+            path.display(),
+            line_no
+        )
+    })
+}
+
+fn parse_openai_api_value(
+    path: &Path,
+    line_no: usize,
+    key: &str,
+    value: &str,
+) -> anyhow::Result<OpenAiApi> {
+    let value = parse_string_value(path, line_no, key, value)?;
+    OpenAiApi::from_config_value(&value).ok_or_else(|| {
+        anyhow::anyhow!(
+            "{}:{} {key} expects api chat_completions|responses",
             path.display(),
             line_no
         )
@@ -1624,6 +1690,57 @@ mod tests {
 
             assert_eq!(Config::from_cli(cli).unwrap().model, model);
         }
+    }
+
+    #[test]
+    fn openai_api_is_explicit_and_defaults_to_chat_completions() {
+        let omitted = Config::from_cli(Cli::parse_from(["commandagent"])).unwrap();
+        let explicit =
+            Config::from_cli(Cli::parse_from(["commandagent", "--api", "responses"])).unwrap();
+
+        assert_eq!(omitted.openai_api, OpenAiApi::ChatCompletions);
+        assert_eq!(explicit.openai_api, OpenAiApi::Responses);
+
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_string_lossy().to_string();
+        std::fs::create_dir_all(dir.path().join(".commandagent")).unwrap();
+        std::fs::write(
+            dir.path().join(".commandagent/config.toml"),
+            "[preset.responses]\napi = \"responses\"\n",
+        )
+        .unwrap();
+        let preset = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--preset",
+            "responses",
+        ]))
+        .unwrap();
+        assert_eq!(preset.openai_api, OpenAiApi::Responses);
+    }
+
+    #[test]
+    fn preset_rejects_unknown_openai_api() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_string_lossy().to_string();
+        std::fs::create_dir_all(dir.path().join(".commandagent")).unwrap();
+        std::fs::write(
+            dir.path().join(".commandagent/config.toml"),
+            "[preset.invalid]\napi = \"automatic\"\n",
+        )
+        .unwrap();
+
+        let error = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--preset",
+            "invalid",
+        ]))
+        .unwrap_err()
+        .to_string();
+        assert!(error.contains("api chat_completions|responses"), "{error}");
     }
 
     #[test]

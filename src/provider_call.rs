@@ -807,6 +807,15 @@ fn emit_provider_turn_duration(config: &Config, telemetry: ProviderTurnTelemetry
         value["system_fingerprint"] = json!(metadata.system_fingerprint);
         value["provider_created_epoch"] = json!(metadata.created_epoch);
         value["provider_service_tier"] = json!(metadata.service_tier);
+        if metadata.cached_input_tokens.is_some() {
+            value["provider_cached_input_tokens"] = json!(metadata.cached_input_tokens);
+        }
+        if metadata.reasoning_tokens.is_some() {
+            value["provider_reasoning_tokens"] = json!(metadata.reasoning_tokens);
+        }
+        if metadata.total_tokens.is_some() {
+            value["provider_total_tokens"] = json!(metadata.total_tokens);
+        }
     }
     eval_events::emit(config.eval_events_path.as_deref(), value);
     maybe_emit_context_truncation_warning(config, &telemetry);
@@ -1106,6 +1115,7 @@ mod tests {
             model: "m".to_string(),
             provider: Provider::Ollama,
             tool_protocol: None,
+            openai_api: crate::config::OpenAiApi::ChatCompletions,
             prompt_layout: crate::config::PromptLayout::Stable,
             plan_preset: crate::config::PlanPreset::None,
             intent_override: None,
@@ -1242,6 +1252,58 @@ mod tests {
         assert_eq!(turn["system_fingerprint"], "fp_f0");
         assert_eq!(turn["provider_created_epoch"], 1_785_456_000_i64);
         assert_eq!(turn["provider_service_tier"], "default");
+    }
+
+    #[test]
+    fn openai_responses_reasoning_usage_reaches_provider_turn_event() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let events_path = tmp.path().join("events.jsonl");
+        let mut config = test_config(tmp.path(), events_path.clone(), 2);
+        config.provider = Provider::Openai;
+        config.openai_api = crate::config::OpenAiApi::Responses;
+        config.model = "gpt-5.6-luna".to_string();
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let address = listener.local_addr().expect("address");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut request = [0_u8; 8192];
+            let _ = stream.read(&mut request).expect("request");
+            let body = r#"{"id":"resp-f0b","model":"gpt-5.6-luna-2026-08-01","created_at":1785542400,"service_tier":"default","output":[{"type":"message","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":8,"input_tokens_details":{"cached_tokens":3},"output_tokens":6,"output_tokens_details":{"reasoning_tokens":4},"total_tokens":14}}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .expect("response");
+        });
+        let mut client = crate::providers::openai::OpenAiClient::for_test_responses(
+            "sk-test-only-not-real-123456789",
+            format!("http://{address}"),
+            Some(events_path.clone()),
+        );
+
+        let outcome = chat(
+            &mut client,
+            &config,
+            ProviderCallScope::Executor,
+            &config.model,
+            &[ConversationMessage::user("hello")],
+            &[],
+            false,
+        );
+        server.join().expect("server");
+        assert_eq!(outcome.result.unwrap().content, "hello");
+        let events = std::fs::read_to_string(events_path).expect("events");
+        let turn = events
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .find(|event| event["event"] == "provider_turn_duration")
+            .expect("provider turn event");
+        assert_eq!(turn["provider_response_id"], "resp-f0b");
+        assert_eq!(turn["provider_reasoning_tokens"], 4);
+        assert_eq!(turn["provider_cached_input_tokens"], 3);
+        assert_eq!(turn["provider_total_tokens"], 14);
     }
 
     #[test]

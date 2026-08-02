@@ -362,6 +362,7 @@ mod tests {
             model: "m".to_string(),
             provider: Provider::Ollama,
             tool_protocol: None,
+            openai_api: crate::config::OpenAiApi::ChatCompletions,
             prompt_layout: PromptLayout::Stable,
             plan_preset: PlanPreset::None,
             intent_override: None,

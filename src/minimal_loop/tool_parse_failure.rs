@@ -412,6 +412,7 @@ mod tests {
             model: "gpt-fixture".to_string(),
             provider: Provider::Openai,
             tool_protocol: Some(ToolProtocol::Text),
+            openai_api: crate::config::OpenAiApi::ChatCompletions,
             prompt_layout: PromptLayout::Stable,
             plan_preset: PlanPreset::None,
             intent_override: None,

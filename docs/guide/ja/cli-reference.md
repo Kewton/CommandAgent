@@ -16,7 +16,7 @@
 複数のアクション選択フラグを組み合わせると拒否されます。
 
 Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリケーション固有の
-42 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
+43 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
 公開ユーザーフラグではありません。
 
 ## フラグ一覧
@@ -28,6 +28,7 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--context-budget` | `<CONTEXT_BUDGET>` 整数 | `65536` | 会話を圧縮する概算コンテキスト予算を設定します。 | [重要な解決後の既定値](#重要な解決後の既定値) |
 | `--model` | `<MODEL>` | `qwen3.6:27b-coding-nvfp4` | 実行モデル ID を設定します。 | [プロバイダ](providers.md) |
 | `--provider` | `<PROVIDER>`: `ollama`、`openai`、`gemini` | `ollama` | 実行プロバイダを選びます。 | [プロバイダ](providers.md) |
+| `--api` | `<chat-completions\|responses>` | `chat-completions` | OpenAI API 面を明示選択します。モデル名から暗黙選択しません。 | [preset](configuration.md#preset) |
 | `--tool-protocol` | `<native\|text>` | プロバイダ能力の既定値 | native function tools または既存text/XML tool protocolを明示選択します。 | [preset](configuration.md#preset) |
 | `--prompt-layout` | `<stable\|legacy>` | `legacy` | A/B 測定用のプロンプトセクション順序を選びます。 | [解決の優先順位](configuration.md#解決の優先順位) |
 | `--plan-preset` | `<profile\|none>` | 通常は `none`。明示的な `data` の fix/investigate では `profile` | planner 層の UltraPlan preset 選択を上書きします。`data/fix` は F1–F3 ステップを合成でき、`nextjs/fix` は none 相当のままです。 | [解決の優先順位](configuration.md#解決の優先順位) |

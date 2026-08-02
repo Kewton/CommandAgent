@@ -1713,6 +1713,7 @@ fn config(root: PathBuf) -> Config {
         model: "m".to_string(),
         provider: Provider::Ollama,
         tool_protocol: None,
+        openai_api: commandagent::config::OpenAiApi::ChatCompletions,
         prompt_layout: commandagent::config::PromptLayout::Stable,
         plan_preset: commandagent::config::PlanPreset::None,
         intent_override: None,

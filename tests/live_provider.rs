@@ -2,7 +2,7 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use commandagent::config::{Action, Config, Provider, load_api_key};
+use commandagent::config::{Action, Config, OpenAiApi, Provider, ToolProtocol, load_api_key};
 use commandagent::mode::ExecutionMode;
 use commandagent::provider_call::{self, ProviderCallScope};
 use commandagent::providers::ChatClient;
@@ -386,6 +386,7 @@ fn live_openai_responses_no_tool_http_smoke() {
             .unwrap_or_else(|_| "gpt-5.4-mini".to_string()),
         provider: Provider::Openai,
         tool_protocol: None,
+        openai_api: OpenAiApi::Responses,
         prompt_layout: commandagent::config::PromptLayout::Stable,
         plan_preset: commandagent::config::PlanPreset::None,
         intent_override: None,
@@ -481,6 +482,73 @@ fn live_openai_luna_chokepoint_smoke() {
 
 #[test]
 #[ignore]
+fn live_openai_responses_native_tool_chokepoint_smoke() {
+    if commandagent::env_compat::var("COMMANDAGENT_LIVE_PROVIDER_TESTS")
+        .ok()
+        .as_deref()
+        != Some("1")
+    {
+        return;
+    }
+    assert!(
+        commandagent::env_compat::var("OPENAI_API_KEY")
+            .ok()
+            .is_some_and(|value| !value.trim().is_empty()),
+        "OPENAI_API_KEY must be set in the process environment"
+    );
+    let model = commandagent::env_compat::var("COMMANDAGENT_OPENAI_SMOKE_MODEL")
+        .unwrap_or_else(|_| "gpt-5.6-luna".to_string());
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let mut config = smoke_config(tmp.path(), PathBuf::from("."), Provider::Openai);
+    config.model = model.clone();
+    config.openai_api = OpenAiApi::Responses;
+    config.tool_protocol = Some(ToolProtocol::Native);
+    config.num_predict = 256;
+    config.eval_events_path = commandagent::env_compat::var_os("COMMANDAGENT_OPENAI_SMOKE_EVENTS")
+        .map(PathBuf::from)
+        .or_else(|| Some(tmp.path().join("events.jsonl")));
+    let mut client = OpenAiClient::from_env(&config).expect("OpenAI Responses client");
+
+    let outcome = provider_call::chat(
+        &mut client,
+        &config,
+        ProviderCallScope::Executor,
+        &model,
+        &[ConversationMessage::user(
+            "Call the Read tool exactly once for README.md. Do not answer without a tool call.",
+        )],
+        ToolRegistry::default().specs(),
+        true,
+    );
+
+    let reply = outcome.result.expect("OpenAI Responses native-tool smoke");
+    assert!(
+        !reply.tool_calls.is_empty(),
+        "Responses returned no tool call"
+    );
+    let events_path = config.eval_events_path.as_ref().expect("events path");
+    let turn = std::fs::read_to_string(events_path)
+        .expect("events")
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find(|event| event["event"] == "provider_turn_duration")
+        .expect("provider turn metadata event");
+    assert_eq!(turn["provider"], "openai");
+    assert_eq!(turn["native_tools_enabled"], true);
+    assert!(turn.get("provider_response_id").is_some(), "{turn}");
+    assert!(turn.get("provider_reasoning_tokens").is_some(), "{turn}");
+    println!(
+        "F0B_RESPONSES_SMOKE_METADATA={}",
+        serde_json::to_string(&json!({
+            "turn": turn,
+            "tool_calls": reply.tool_calls.iter().map(|call| call.name.as_str()).collect::<Vec<_>>(),
+        }))
+        .expect("metadata JSON")
+    );
+}
+
+#[test]
+#[ignore]
 fn live_gemini_request_shape_uses_smoke_model() {
     if commandagent::env_compat::var("COMMANDAGENT_LIVE_PROVIDER_TESTS")
         .ok()
@@ -524,6 +592,7 @@ fn live_gemini_interactions_no_tool_http_smoke() {
         model: "unused".to_string(),
         provider: Provider::Ollama,
         tool_protocol: None,
+        openai_api: commandagent::config::OpenAiApi::ChatCompletions,
         prompt_layout: commandagent::config::PromptLayout::Stable,
         plan_preset: commandagent::config::PlanPreset::None,
         intent_override: None,
@@ -723,6 +792,7 @@ fn smoke_config(tmp_root: &Path, key_root: PathBuf, provider: Provider) -> Confi
         model: "unused".to_string(),
         provider,
         tool_protocol: None,
+        openai_api: commandagent::config::OpenAiApi::ChatCompletions,
         prompt_layout: commandagent::config::PromptLayout::Stable,
         plan_preset: commandagent::config::PlanPreset::None,
         intent_override: None,

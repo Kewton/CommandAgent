@@ -17,6 +17,12 @@ pub enum ToolProtocolArg {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum OpenAiApiArg {
+    ChatCompletions,
+    Responses,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum FooterArg {
     On,
     Off,
@@ -62,6 +68,13 @@ pub struct Cli {
     pub model: Option<String>,
     #[arg(long, value_enum)]
     pub provider: Option<ProviderArg>,
+    #[arg(
+        long = "api",
+        value_enum,
+        value_name = "chat-completions|responses",
+        help = "Declare the OpenAI API surface; omitted keeps chat-completions"
+    )]
+    pub openai_api: Option<OpenAiApiArg>,
     #[arg(
         long,
         value_enum,

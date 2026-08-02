@@ -290,6 +290,7 @@ mod tests {
             model: "executor".to_string(),
             provider: crate::config::Provider::Ollama,
             tool_protocol: None,
+            openai_api: crate::config::OpenAiApi::ChatCompletions,
             prompt_layout: crate::config::PromptLayout::Stable,
             plan_preset: crate::config::PlanPreset::None,
             intent_override: None,

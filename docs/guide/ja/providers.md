@@ -11,7 +11,7 @@ CommandAgent は実行役割と planner 役割を分けられます。`--provide
 | プロバイダ | CLI 値 | 必要なキー | 取得／セットアップ先 | CommandAgent の endpoint | 設定方法 |
 | --- | --- | --- | --- | --- | --- |
 | Ollama | `ollama` | ローカルサーバーでは不要 | [Ollama quickstart](https://docs.ollama.com/quickstart) | `--ollama-host`、既定値 `http://localhost:11434`。`/api/chat` を付加 | `--provider ollama --model <model-id>` |
-| OpenAI | `openai` | `OPENAI_API_KEY` | [OpenAI API キーの作成](https://platform.openai.com/api-keys) | 固定の `https://api.openai.com`。Luna は `/v1/chat/completions`、既存モデルは `/v1/responses` を維持 | プロセス環境のみ |
+| OpenAI | `openai` | `OPENAI_API_KEY` | [OpenAI API キーの作成](https://platform.openai.com/api-keys) | 固定の `https://api.openai.com`。明示 `--api chat-completions`（既定）または `--api responses` | プロセス環境のみ |
 | Gemini | `gemini` | `GEMINI_API_KEY` | [Google AI Studio で Gemini API キーを作成](https://aistudio.google.com/app/apikey) | 固定の Google Generative Language endpoint | プロセス環境またはワークスペース `.env` |
 
 Google の一部 client library と異なり、CommandAgent は `GOOGLE_API_KEY` を
@@ -34,7 +34,7 @@ export OPENAI_API_KEY="<secret>"
 # または
 export GEMINI_API_KEY="<secret>"
 
-commandagent --provider openai --model <openai-model-id>
+commandagent --provider openai --api responses --model <openai-model-id>
 ```
 
 共有画面や採取されるログで値を確認するために、`echo $OPENAI_API_KEY`、`env`、`printenv`、
@@ -73,7 +73,13 @@ model IDと`system_fingerprint`をprovider turn eventへ記録し、資格情報
 
 OpenAI Chat Completions の reasoning effort は明示指定時だけ有効です。必要な場合だけ
 `COMMANDAGENT_OPENAI_REASONING_EFFORT` をプロセス環境に設定してください。未設定または空文字なら
-CommandAgent は request に `reasoning_effort` を含めず、model 別の既定値も合成しません。
+CommandAgent は request に制御値を含めず、model 別の既定値も合成しません。Responses では同じ宣言を
+`reasoning.effort` として送ります。
+
+API 選択も宣言だけで決まります。省略時は Chat Completions で、モデル名から API を推測しません。
+Responses の native-tool turnでは、providerが返したreasoning output itemを保持し、同一runの後続
+function outputとともに再送します。response ID、service tier、cached input token、reasoning token数は
+provider turn eventへ記録します。
 
 ## Ollama のホストとモデル
 

@@ -4,6 +4,7 @@ pub(crate) mod guidance;
 pub mod ollama;
 pub mod openai;
 mod openai_chat_completions;
+mod openai_responses;
 pub mod parsing;
 pub(crate) mod startup;
 pub mod streaming;
@@ -32,6 +33,9 @@ pub struct ProviderResponseMetadata {
     pub system_fingerprint: Option<String>,
     pub created_epoch: Option<i64>,
     pub service_tier: Option<String>,
+    pub cached_input_tokens: Option<u64>,
+    pub reasoning_tokens: Option<u64>,
+    pub total_tokens: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

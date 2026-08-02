@@ -23,6 +23,7 @@ Resolution is field-by-field, and not every setting supports all four layers.
 | `footer` | `--no-footer` or `--footer` > preset > top-level key > `on` |
 | `stream` | `--stream` > preset > top-level key > on for REPL, off for direct actions |
 | `model`, `provider`, `context_budget`, `chat_timeout_secs` | CLI > preset > built-in/provider-dependent default |
+| `api` | `--api` > preset > `chat_completions` (OpenAI only) |
 | `tool_protocol` | CLI > preset > provider capability default |
 | `planner_model`, `planner_provider` | CLI > preset > executor role inheritance; a different provider requires a planner model |
 | `profile` | CLI > preset > goal/workspace inference > `generic` |
@@ -54,7 +55,7 @@ or guide paths based only on the newer `.commandagent/` config namespace.
 
 ## Presets
 
-Select a preset with `--preset <name>`. A preset section accepts all 13 current
+Select a preset with `--preset <name>`. A preset section accepts all 14 current
 keys below. String/enumeration values must be double-quoted; numeric values are
 unquoted integers.
 
@@ -62,6 +63,7 @@ unquoted integers.
 | --- | --- | --- |
 | `model` | model ID string | `qwen3.6:27b-coding-nvfp4` |
 | `provider` | `"ollama"`, `"openai"`, or `"gemini"` | `"ollama"` |
+| `api` | `"chat_completions"` or `"responses"` | `"chat_completions"` |
 | `tool_protocol` | `"native"` or `"text"` | provider capability default |
 | `planner_model` | model ID string | executor model when providers match; otherwise required |
 | `planner_provider` | `"ollama"`, `"openai"`, or `"gemini"` | executor provider |
@@ -78,6 +80,7 @@ unquoted integers.
 [preset.local]
 model = "qwen3.6:27b-coding-nvfp4"
 provider = "ollama"
+api = "chat_completions"
 tool_protocol = "text"
 planner_model = "qwen3.6:27b-coding-nvfp4"
 planner_provider = "ollama"
@@ -103,12 +106,12 @@ Preset merging stops early once these 11 fields are present: `model`,
 `chat_timeout_secs`, `plan_preset`, `profile`, `narration`, `footer`, and
 `stream`.
 
-`prompt_layout` and `tool_protocol` are accepted but are **not** part of that completeness test. If a
+`prompt_layout`, `api`, and `tool_protocol` are accepted but are **not** part of that completeness test. If a
 higher-priority preset already has the 11 completeness fields but omits
 `prompt_layout`, CommandAgent stops searching and does not inherit that preset's
 `prompt_layout` from a lower-priority file. Put `prompt_layout` in the same
 higher-priority preset, or omit enough completeness fields for the intended
-lower layer to be visited. Do not assume the 13 accepted keys are the same as
+lower layer to be visited. Do not assume the 14 accepted keys are the same as
 the 11-key early-stop condition.
 
 ## Top-level keys

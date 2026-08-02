@@ -155,7 +155,10 @@ class SuiteAndCommandTests(unittest.TestCase):
         self.assertEqual(cli_pack.pack_id, "cli-assist")
         self.assertEqual(cli_pack.pack_version, "1.0.0")
         self.assertEqual(len(cli_pack.runs), 6)
-        self.assertEqual(cli_luna.tool_protocol, "text")
+        self.assertEqual(cli_luna.api, "responses")
+        self.assertEqual(cli_luna.tool_protocol, "native")
+        self.assertIn("--api", bench.build_command(cli_luna, cli_luna.runs[0]))
+        self.assertIn("responses", bench.build_command(cli_luna, cli_luna.runs[0]))
         self.assertIn(
             "--tool-protocol",
             bench.build_command(cli_luna, cli_luna.runs[0]),
@@ -181,6 +184,29 @@ class SuiteAndCommandTests(unittest.TestCase):
             with self.assertRaisesRegex(
                 bench.BenchError,
                 "suite.tool_protocol must be native or text when present",
+            ):
+                bench.load_suite(suite_path)
+
+    def test_openai_api_is_optional_and_strict(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            suite_path = write_source_less_suite(Path(directory))
+            suite = bench.load_suite(suite_path)
+            metadata = bench.new_metadata(
+                suite, "source-less-campaign", "dry-run", Path(directory), {}, []
+            )
+            self.assertIsNone(suite.api)
+            self.assertNotIn("api", metadata["suite"])
+            self.assertNotIn("--api", bench.build_command(suite, suite.runs[0]))
+
+            contents = suite_path.read_text(encoding="utf-8").replace(
+                'provider = "ollama"',
+                'provider = "openai"\napi = "automatic"',
+                1,
+            )
+            suite_path.write_text(contents, encoding="utf-8")
+            with self.assertRaisesRegex(
+                bench.BenchError,
+                "suite.api must be chat_completions or responses when present",
             ):
                 bench.load_suite(suite_path)
 

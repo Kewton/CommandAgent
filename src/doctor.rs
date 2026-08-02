@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::cli::Cli;
-use crate::config::{Config, Provider};
+use crate::config::{Config, OpenAiApi, Provider};
 use crate::minimal_loop::interaction_probe::{
     INTERACTION_PROBE_SETUP_REMEDIATION, ProbeAvailability,
 };
@@ -411,7 +411,11 @@ fn add_provider_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {
             "OpenAI key",
             |_| openai_key.clone(),
         ));
-        checks.push(openai_reachability_check(openai_key.as_deref()));
+        checks.push(if config.openai_api == OpenAiApi::Responses {
+            openai_responses_reachability_check(openai_key.as_deref())
+        } else {
+            openai_reachability_check(openai_key.as_deref())
+        });
     }
     if config.provider == Provider::Gemini || config.planner_provider == Provider::Gemini {
         checks.push(credential_check_with(
@@ -438,6 +442,83 @@ fn openai_reachability_check(api_key: Option<&str>) -> DoctorCheck {
             .map(|response| response.status().as_u16())
             .map_err(|error| error.to_string())
     })
+}
+
+fn openai_responses_reachability_check(api_key: Option<&str>) -> DoctorCheck {
+    openai_responses_reachability_check_with(api_key, |key| {
+        let client = reqwest::blocking::Client::builder()
+            .connect_timeout(OLLAMA_TIMEOUT)
+            .timeout(OLLAMA_TIMEOUT)
+            .build()
+            .map_err(|error| error.to_string())?;
+        client
+            .post(format!("{OPENAI_ENDPOINT}/v1/responses"))
+            .bearer_auth(key)
+            // Deliberately incomplete and therefore non-billable: HTTP 400
+            // proves the authenticated Responses route exists without a turn.
+            .json(&json!({}))
+            .send()
+            .map(|response| response.status().as_u16())
+            .map_err(|error| error.to_string())
+    })
+}
+
+fn openai_responses_reachability_check_with(
+    api_key: Option<&str>,
+    probe: impl FnOnce(&str) -> Result<u16, String>,
+) -> DoctorCheck {
+    let endpoint = format!("{OPENAI_ENDPOINT}/v1/responses");
+    let Some(api_key) = api_key else {
+        return DoctorCheck::new(
+            "provider.openai.responses_reachable",
+            "provider",
+            "OpenAI Responses",
+            CheckStatus::Warn,
+            "reachability was not attempted because OPENAI_API_KEY is missing",
+            Some("set OPENAI_API_KEY in the process environment and rerun --doctor".to_string()),
+            json!({ "endpoint": endpoint, "reachable": null, "status": null }),
+        );
+    };
+    match probe(api_key) {
+        Ok(status) if (200..300).contains(&status) || status == 400 => DoctorCheck::new(
+            "provider.openai.responses_reachable",
+            "provider",
+            "OpenAI Responses",
+            CheckStatus::Pass,
+            format!("{endpoint} reachable"),
+            None,
+            json!({ "endpoint": endpoint, "reachable": true, "status": status }),
+        ),
+        Ok(status) => DoctorCheck::new(
+            "provider.openai.responses_reachable",
+            "provider",
+            "OpenAI Responses",
+            CheckStatus::Warn,
+            format!("{endpoint} reachable but returned HTTP {status}"),
+            Some(
+                "verify OpenAI Responses access, account permissions, and the process environment key"
+                    .to_string(),
+            ),
+            json!({ "endpoint": endpoint, "reachable": true, "status": status }),
+        ),
+        Err(error) => {
+            let error = single_line(error.replace(api_key, "<redacted>"));
+            DoctorCheck::new(
+                "provider.openai.responses_reachable",
+                "provider",
+                "OpenAI Responses",
+                CheckStatus::Warn,
+                format!("{endpoint} unreachable ({error})"),
+                Some("verify network access to api.openai.com and rerun --doctor".to_string()),
+                json!({
+                    "endpoint": endpoint,
+                    "reachable": false,
+                    "status": null,
+                    "error": error,
+                }),
+            )
+        }
+    }
 }
 
 fn openai_reachability_check_with(
@@ -1011,6 +1092,22 @@ mod tests {
 
         assert_eq!(reachable.status, CheckStatus::Pass);
         assert_eq!(reflected.status, CheckStatus::Warn);
+        assert!(serialized.contains("<redacted>"));
+        assert!(!serialized.contains(secret));
+    }
+
+    #[test]
+    fn responses_reachability_accepts_non_billable_probe_and_redacts_key() {
+        let secret = "sk-proj-doctor-responses-secret-123456789";
+        let reachable = openai_responses_reachability_check_with(Some(secret), |_| Ok(400));
+        let reflected = openai_responses_reachability_check_with(Some(secret), |_| {
+            Err(format!("upstream reflected {secret}"))
+        });
+        let serialized = serde_json::to_string(&(reachable.clone(), reflected.clone())).unwrap();
+
+        assert_eq!(reachable.status, CheckStatus::Pass);
+        assert_eq!(reflected.status, CheckStatus::Warn);
+        assert!(serialized.contains("/v1/responses"));
         assert!(serialized.contains("<redacted>"));
         assert!(!serialized.contains(secret));
     }

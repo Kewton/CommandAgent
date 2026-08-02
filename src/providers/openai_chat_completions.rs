@@ -7,11 +7,8 @@ use crate::tools::registry::ToolSpec;
 
 use super::parsing::sanitize_schema;
 
-pub(crate) const LUNA_MODEL: &str = "gpt-5.6-luna";
-
-pub(crate) fn uses_chat_completions(model: &str) -> bool {
-    model == LUNA_MODEL || model.starts_with("gpt-5.6-luna-")
-}
+#[cfg(test)]
+const LUNA_MODEL: &str = "gpt-5.6-luna";
 
 pub(crate) fn build_request(
     model: &str,
@@ -129,6 +126,9 @@ pub(crate) fn parse_response(
         system_fingerprint: optional_string(&value, "system_fingerprint"),
         created_epoch: value.get("created").and_then(Value::as_i64),
         service_tier: optional_string(&value, "service_tier"),
+        cached_input_tokens: None,
+        reasoning_tokens: None,
+        total_tokens: None,
     };
     Ok((reply, metadata))
 }
@@ -171,14 +171,6 @@ fn parse_tool_call(value: &Value) -> anyhow::Result<ToolCall> {
 mod tests {
     use super::*;
     use crate::tools::registry::ToolRegistry;
-
-    #[test]
-    fn luna_and_snapshot_ids_use_chat_completions() {
-        assert!(uses_chat_completions("gpt-5.6-luna"));
-        assert!(uses_chat_completions("gpt-5.6-luna-2026-07-31"));
-        assert!(!uses_chat_completions("gpt-5.6"));
-        assert!(!uses_chat_completions("gpt-5.4-mini"));
-    }
 
     #[test]
     fn request_uses_chat_completions_message_and_tool_shape() {

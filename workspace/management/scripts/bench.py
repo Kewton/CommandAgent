@@ -19,6 +19,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 import tomllib
+
 from id_vocabulary import INTERRUPTED_ENVIRONMENT
 
 HARNESS_VERSION = "0.1"
@@ -96,6 +97,7 @@ class SuiteDefinition:
     planner_model: str
     planner_provider: str
     provider: str
+    api: str | None
     tool_protocol: str | None
     min_head: str | None
     pack_id: str | None
@@ -319,6 +321,7 @@ def load_suite(path: Path) -> SuiteDefinition:
             "planner_model",
             "planner_provider",
             "provider",
+            "api",
             "tool_protocol",
             "min_head",
             "pack_id",
@@ -354,6 +357,14 @@ def load_suite(path: Path) -> SuiteDefinition:
         or tool_protocol not in {"native", "text"}
     ):
         raise BenchError("suite.tool_protocol must be native or text when present")
+    api = suite_table.get("api")
+    if api is not None and (
+        not isinstance(api, str)
+        or api not in {"chat_completions", "responses"}
+    ):
+        raise BenchError(
+            "suite.api must be chat_completions or responses when present"
+        )
     min_head_value = suite_table.get("min_head")
     if min_head_value is not None and (
         not isinstance(min_head_value, str) or not min_head_value.strip()
@@ -547,6 +558,7 @@ def load_suite(path: Path) -> SuiteDefinition:
         planner_model=_required_str(suite_table, "planner_model", "suite"),
         planner_provider=_required_str(suite_table, "planner_provider", "suite"),
         provider=_required_str(suite_table, "provider", "suite"),
+        api=api,
         tool_protocol=tool_protocol,
         min_head=min_head_value,
         pack_id=pack_id,
@@ -579,6 +591,8 @@ def build_command(suite: SuiteDefinition, run: RunSpec) -> list[str]:
     ]
     if suite.plan_preset != "default":
         command.extend(["--plan-preset", suite.plan_preset])
+    if suite.api is not None:
+        command.extend(["--api", suite.api.replace("_", "-")])
     if suite.tool_protocol is not None:
         command.extend(["--tool-protocol", suite.tool_protocol])
     command.extend(
@@ -1256,6 +1270,8 @@ def _suite_metadata(
         "min_head": suite.min_head,
         "scrub_allow": list(suite.scrub_allow),
     }
+    if suite.api is not None:
+        metadata["api"] = suite.api
     if suite.tool_protocol is not None:
         metadata["tool_protocol"] = suite.tool_protocol
     if suite.workspace_mode != "sourced":

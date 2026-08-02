@@ -8,7 +8,8 @@ context_budget = 65536
 planner_model = "qwen3.6:27b-coding-nvfp4"
 planner_provider = "ollama"
 provider = "openai"
-tool_protocol = "text"
+api = "responses"
+tool_protocol = "native"
 min_head = "527bdc1e"
 
 [goals]
