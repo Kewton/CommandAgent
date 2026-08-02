@@ -1,0 +1,76 @@
+{
+  "blocked_until": "F-1a score institution review adjudication",
+  "campaign": {
+    "campaign_id": "cli-create-luna-20260802-082157",
+    "revision": "612b20324d1a8bcb854bd4a771d2299b8d69f8cb",
+    "uat_id": "uat-test0801-cli-luna-008"
+  },
+  "guards": {
+    "correlation_computed": false,
+    "event_scan_performed": false,
+    "evidence_scan_performed": false,
+    "historical_files_mutated": false,
+    "new_judges": 0,
+    "score_computed": false
+  },
+  "inputs": {
+    "campaign_summary": "workspace/management/runs/uat-test0801-cli-luna-008/evidence/campaign-summary.json",
+    "events_root": null,
+    "score_config": null
+  },
+  "inventory": {
+    "event_stream_count": 6,
+    "run_count": 6,
+    "runs": [
+      {
+        "executor": "gpt-5.6-luna",
+        "expected_events_sha256": "bc4ddbcd6ba757d697c4df168d0b50a148cd8523317de3e95941bf7d9838f819",
+        "family": "stats",
+        "run_id": "stats_luna_001"
+      },
+      {
+        "executor": "gpt-5.6-luna",
+        "expected_events_sha256": "34f29d2be2242356d94a4a511808d2f4d78266e7a3b3cd22acdc6f3f8f7d3560",
+        "family": "stats",
+        "run_id": "stats_luna_002"
+      },
+      {
+        "executor": "gpt-5.6-luna",
+        "expected_events_sha256": "09fc7418a3810b1b32830fc003bb26f6777249ba573e2696db93759fa6eb837a",
+        "family": "stats",
+        "run_id": "stats_luna_003"
+      },
+      {
+        "executor": "gpt-5.6-luna",
+        "expected_events_sha256": "697d1482f979841a3c17a008f10819797f24744f3b48d71a8f508cb47571ad03",
+        "family": "filter",
+        "run_id": "filter_luna_001"
+      },
+      {
+        "executor": "gpt-5.6-luna",
+        "expected_events_sha256": "5fa58147b912d90aebdce839c8e7f5efaa4545d1ca4bbb982d79aeac29277e3f",
+        "family": "filter",
+        "run_id": "filter_luna_002"
+      },
+      {
+        "executor": "gpt-5.6-luna",
+        "expected_events_sha256": "4a9930f314248fe1deb52fef92c17557605e4e35bc274fccd426eed7ac5e7718",
+        "family": "filter",
+        "run_id": "filter_luna_003"
+      }
+    ]
+  },
+  "mode": "dry-run",
+  "planned_outputs": [
+    "checkpoint-vectors.jsonl",
+    "final-vectors.jsonl",
+    "study-summary.json"
+  ],
+  "planned_read_set": [
+    "one immutable events.jsonl per inventoried run",
+    "only evidence files referenced by registered atom producer events",
+    "the adjudicated eval.yaml score declaration and registry snapshot"
+  ],
+  "schema_version": "commandagent.score-retrospective-plan/v0",
+  "study_status": "not_executed_pending_adjudication"
+}
