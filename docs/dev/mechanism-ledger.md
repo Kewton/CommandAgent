@@ -1469,3 +1469,5 @@ violation 1を観測し、さらに`filter_luna_001`で2026-08-02にCLI史上初
 得たことである。これは証言壁がモデル階級で動く直接観測であり、Gemma×Lunaの
 全窓対照表をF-1スコアとT2F設計の第一検算材料に指定する。到達率、C3条件付き分布、
 full率は別軸のまま保持し、BLOCKED/text窓をnative能力分母へ混ぜない。
+
+F-1b seal（2026-08-02）: score schema v0、3 parameter family、`fail / violation = -w/2`の誠実性フロア、timestampなしはfinal-only、profile × model階級相関の`n < 5`非表示、scripted directive最大3 round、band五数要約を固定し、全履歴read-only遡及走査の完走をruntime実装の先行条件とした。

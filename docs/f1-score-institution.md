@@ -1,12 +1,11 @@
-# F-1a Score Institution
+# F-1 Score Institution
 
-Status: **draft for review**
+Status: fixed (2026-08-02)
 
 本稿は v2.5 roadmap の F-1 を、E-2a と同じ
-**draft → review adjudication → implementation** の順で制度化する設計稿である。
-この段階では `eval.yaml` を読み込む製品経路、verdict、assurance、admission、
-event schema、既存 band の値を変更しない。実装と全 run 遡及走査はレビュー裁定後に
-別タスクとして行う。
+**draft → review adjudication → implementation** の順で制度化した固定仕様である。
+§11の6項は裁定済みであり、runtime実装に先立って、固定した等配点を用いる全run
+遡及走査を完走する。scoreは既存のverdict、assurance、admission、earnedを変更しない。
 
 ## 1. 目的と非目的
 
@@ -188,20 +187,23 @@ score:
 |---|---:|---|
 | `pass` | `+1` | 既存judgeが実行証拠をpassとした |
 | `absent` | `0` | 対象主張等が存在せず、違反はしていない |
-| `violation` | `-1` | 既存judgeが不一致・違反・実行済みfailureを確定した |
+| `violation` | `-1/2` | 既存judgeが不一致・違反・実行済み`fail`を確定した |
 | `unobserved` | `0` | checkpointまでに時刻つき観測がない。順序比較の対象外 |
 
 ```text
 score(t) = 100 * Σ(w_i * s_i(t)) / Σ(w_i)
 ```
 
-scale は `[-100, 100]`、丸めは表示時だけ小数1桁のround-half-evenとする。保存JSONは
-分子 `weighted_state_sum` と分母 `weight_sum` を整数で保持し、再計算可能にする。
+scale は `[-50, 100]`、丸めは表示時だけ小数1桁のround-half-evenとする。保存JSONは
+倍精度整数分子 `weighted_state_sum_twice = Σ(w_i * 2s_i)` と整数分母
+`weight_sum` を保持し、`score = 50 * weighted_state_sum_twice / weight_sum` として
+再計算可能にする。
 原子を一つも観測していない時点は `score=null, reached=false` とし、0点runへ混ぜない。
 
 この固定式は、同じ他原子ベクトルに対して必ず
 `pass > absent > violation` を満たす。violationをabsentへ変えると `w_i`、passへ
-変えると `2*w_i` だけ分子が増える。正weight以外をschema拒否するため逆転できない。
+変えると `3*w_i` だけ倍精度整数分子が増える。正weight以外をschema拒否するため
+逆転できない。既存producerの`fail`はこの式の`violation`へ一意に写像する。
 
 「violation必負」は二重に守る。
 
@@ -267,7 +269,7 @@ typed状態があればfinal-only vectorへ利用できるが、checkpoint study
   "checkpoint_epoch": 1785664000,
   "reached": true,
   "score": 75.0,
-  "weighted_state_sum": 3,
+  "weighted_state_sum_twice": 6,
   "weight_sum": 4,
   "observed_weight": 4,
   "atoms": [
@@ -304,6 +306,10 @@ typed状態があればfinal-only vectorへ利用できるが、checkpoint study
 最初の本走査では各contractのrequired atomを等配点に固定する。結果が粗すぎる場合は
 その事実を報告し、同じデータで重みを調整せず、制度draftへ差し戻す。重み変更を
 裁定する場合は新しいschema versionと将来runの事前登録が必要である。
+
+相関はprofile × model階級で層別し、checkpointとfinal verdictをともに復元できる
+runが5件未満の層は係数を表示せず`hidden (n<5)`とする。表示抑制した層もcoverageの
+件数からは除外しない。
 
 ## 8. T2F scripted directive suite
 
@@ -367,38 +373,40 @@ F-2a-8の全窓対照表を第一検算材料にする。ここではCLI C1〜C4
 
 | arm | full | reached | reached score distribution | C3 integrity |
 |---|---:|---:|---|---|
-| Gemma formal Window B | 0/6 | 2/6 | `[50, 50]` | pass 0 / absent 0 / violation 2 |
-| Luna 006 Responses/native | 0/6 | 5/6 | `[-25, 50, 50, 50, 75]` | pass 2 / absent 2 / violation 1 |
-| Luna 007 Responses/native | 1/6 | 2/6 | `[50, 100]` | pass 2 / absent 0 / violation 0 |
-| Luna 008 Responses/native | 1/6 | 3/6 | `[25, 50, 100]` | pass 2 / absent 1 / violation 0 |
+| Gemma formal Window B | 0/6 | 2/6 | `[62.5, 62.5]` | pass 0 / absent 0 / violation 2 |
+| Luna 006 Responses/native | 0/6 | 5/6 | `[0, 62.5, 62.5, 62.5, 75]` | pass 2 / absent 2 / violation 1 |
+| Luna 007 Responses/native | 1/6 | 2/6 | `[62.5, 100]` | pass 2 / absent 0 / violation 0 |
+| Luna 008 Responses/native | 1/6 | 3/6 | `[37.5, 62.5, 100]` | pass 2 / absent 1 / violation 0 |
 
 計算例は次のとおり。
 
 - `pass/pass/absent/pass = 75`: fullではないが3/4項を実証し、違反はない。
-- `pass/pass/violation/pass = 50`: 同じ3 passでもviolationが25点を失わせる。
-- `fail/fail/absent/pass = -25`: 到達したが、未実証を成功へ見せない。
+- `pass/pass/violation/pass = 62.5`: 同じ3 passでもviolationをabsentより12.5点低くする。
+- `fail/fail/absent/pass = 0`: 到達したが、未実証を成功へ見せない。
 - `pass/pass/pass/pass = 100`: 既存contractがfullを与えたrunだけの完全ベクトル。
 
 したがってfull列だけではともに0となるGemmaとLuna 006に対し、粗い等配点でも
-Luna 006の「最大75、C3非違反4/5、C3 pass 2」とGemmaの「最大50、C3 pass 0、
-到達2/2がviolation」を分離できる。一方でGemmaのC1/C2/C4 passを0へ消さず50として
+Luna 006の「最大75、C3非違反4/5、C3 pass 2」とGemmaの「最大62.5、C3 pass 0、
+到達2/2がviolation」を分離できる。一方でGemmaのC1/C2/C4 passを0へ消さず62.5として
 残すため、単なる勝敗ラベルでもない。007/008の100は既存fullと一致し、scoreが
 fullを新造していない。
 
-この事前検算は等配点案を採択する証明ではない。全profile / intentの遡及coverageと
-checkpoint相関が得られるまで、制度はdraftのままである。
+この事前検算は等配点を事後選択する証明ではない。全profile / intentの遡及coverageと
+checkpoint相関は、固定した粗い物差しの妥当性だけを検証する。
 
-## 11. 実装裁定で決める事項
+## 11. 固定裁定
 
-レビューは少なくとも次を裁定する。
+2026-08-02のレビューで次の6項を固定した。
 
-1. score schema v0のfield集合と3 parameter familyを固定するか。
-2. signed scale `[-100, 100]` と等配点を最初の遡及specに採用するか。
-3. timestampのないhistorical atomをfinal-onlyへ限定するか。
-4. 相関出力の層別・最小sample表示規則を固定するか。
-5. scripted directiveの最大roundとsuite script本文を別commitで事前登録するか。
-6. bandの分布要約を五数要約にするか、固定bucketにするか。
+1. score schema v0のfield集合と3 parameter familyを固定する。
+2. signed scale `[-50, 100]`、`fail / violation = -w/2`、required atomの等配点を
+   最初の遡及specに採用する。
+3. timestampのないhistorical atomはfinal-onlyへ限定し、checkpoint時刻を捏造しない。
+4. 相関はprofile × model階級で層別し、`n < 5`は係数を非表示にする。
+5. scripted directiveは最大3 roundとし、suite script本文を実行前の別commitで
+   sha256固定する。
+6. bandの到達score分布は五数要約と`reached n/N`で表示する。
 
-裁定まではscore loader、runtime event、band列、directive suite dispatchを実装しない。
-次コミットの `scripts/score_retrospective.py` も入力inventoryを示すdry-run骨格に限定し、
-historical event走査と相関計算を無効のまま保つ。
+実装順序も固定する。`scripts/score_retrospective.py`による全historical runのread-only
+走査を完走し、coverage、相関、full=100整合を保存した後に限り、score loader、runtime
+event、band列を実装する。遡及結果を理由に本稿のweightは動かさない。
