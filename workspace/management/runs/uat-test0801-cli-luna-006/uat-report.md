@@ -219,7 +219,71 @@ provider turn eventのreturned usageを合計し、2026-08-02確認の公式Luna
 machine gapは、契約§4の字義に従いF-2a-7でpartialへ是正した。上のP0-b failは
 006計測時点の歴史値として不変であり、本追記は原因裁定と解消revisionを示す。
 
-## 12. 一次資料SHA-256
+## 12. C1 placeholder帰属解剖（F-2a-7）
+
+### 配布済みガイダンス原文
+
+計測revisionのCLI manifestがscaffold段へ配ったplaceholder関連の全原文は、次の
+2文だった。
+
+> Put the representative python3 cli/main.py invocation and its expected stdout
+> in one fenced example before validation.
+
+> The normal case is the first safe Python invocation mechanically extracted
+> from README.md then USAGE.md; the invalid case is always
+> --anvil-invalid-probe. Frozen cases may not be replaced.
+
+ここには、正規化器が認識する`<PATH>` / `<COLUMN>` / `<INPUT_FILE>` /
+`<PATTERN>`という角括弧形の字義例も、「先頭usageにはsampleの具体値を置く」という
+指示もない。実装上、`argv_probe.rs`は`<name>`だけをplaceholderとしてsampleへ束縛し、
+裸の大文字語は字義argvとして凍結する。
+
+### `stats_luna_003`
+
+Lunaが実装したargparse help:
+
+```text
+usage: main.py [-h] [--input INPUT] --column COLUMN
+```
+
+LunaがREADMEの先頭usageへ記載した形:
+
+```text
+python cli/main.py --input PATH --column COLUMN
+```
+
+C1が凍結したargvは`["--input", "PATH", "--column", "COLUMN"]`。実行は
+`cannot read input file 'PATH'`でexit 2だった。README後段には
+`--input data/sample.csv --column amount`という成功する具体例があったが、契約どおり
+先頭case凍結後の差替えは行っていない。
+
+### `filter_luna_003`
+
+Lunaが実装したargparse help:
+
+```text
+usage: main.py [-h] --pattern PATTERN [--count] input_file
+```
+
+LunaがREADMEの先頭usageへ記載した形:
+
+```text
+python3 cli/main.py INPUT_FILE --pattern PATTERN [--count]
+```
+
+`[--count]`は既存正規化で除去されたが、裸の`INPUT_FILE`と`PATTERN`は残り、C1は
+`["INPUT_FILE", "--pattern", "PATTERN"]`を凍結した。実行は存在しない
+`INPUT_FILE`を読んでexit 1だった。後段の具体例はC3で3件すべてpassしている。
+
+### 帰属裁定
+
+両runともLunaは標準argparse helpの裸大文字metavarに沿ったREADMEを作成している。
+機械側だけがその一般的な表記をliteral argvとして扱いながら、要求する角括弧正準形を
+字義例で配っていなかった。従って近因はモデル出力だが、設計根因は
+**machine（placeholder正準形の伝達床欠落）**と裁定する。C1の厳格性や凍結規則は
+正当であり、本コミットでは緩和・修正せず、次の是正裁定材料として保存する。
+
+## 13. 一次資料SHA-256
 
 - `stats_luna_002/cli-case-binding.json`:
   `4a959f9932a772874f4de6f95b548abfc7f64aca137f565fec13e8b6396be95f`
@@ -262,7 +326,7 @@ machine gapは、契約§4の字義に従いF-2a-7でpartialへ是正した。�
 - `filter_luna_003/cli-assurance.json`:
   `35c4bd9a483a18f53c290143eee5c2dc3f6ce254366e6208d755cebd53300602`
 
-## 13. Repository verification
+## 14. Repository verification
 
 - `cargo fmt --all -- --check`: green
 - `cargo clippy --all-targets -- -D warnings`: green
