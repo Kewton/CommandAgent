@@ -1428,3 +1428,44 @@ Luna全窓の対照表をF-1スコア設計の第一検算材料に指定する�
 `filter_luna_001`でCLI史上初のfullを得た。Luna合算n=42はfull 1、C到達7、
 観測費用USD 0.981943である。残余は裸・日本語placeholderの伝達床とcanonical
 verifyの機械床へ分解され、full率をモデル単独の値と誤読しない材料も同時に残した。
+
+## F-2a-8 — 機械床返済とモデル因子系列のsettlement（2026-08-02）
+
+モデル因子の単独観測に到達した系列を8窓・n=48・総費用USD 1.200131
+（計画時の「$1.3前後」に対する確定値）で清算する。F-2aで踏んだ壁7枚、すなわち
+parameter注入、endpoint境界、観測gap、方言被覆、endpoint作法、投影gap、
+C1字義例欠落は、いずれもfixture・typed構成・event/evidence・限定repair・
+投影guard・manifest guidanceの恒久装備へ転化した。併せてcanonical verifyの必須
+positional保持と、full/complete終端をfailure分類へ流さない`success`区分を床として
+固定した。既存provider request/event bytesと非CLI経路のgoldenは変更していない。
+
+Luna 008は床返済後もfull 1/6、C3 pass 2を再現し、007→008の2窓で同じ
+full率とC3 pass数を得た。008のC到達は3/6、C3はpass 2 / violation 0 /
+claims_absent 1、UNKNOWN 0。`stats_luna_003`のverifyは必須positional
+`data/sample.csv`を保持し、脱落形を再発させなかったが、sampleにない列名
+`amount`を正直に拒否した。したがって床返済は失敗を成功へ読み替えたのではなく、
+機械交絡だけを除いて残余のモデル出力差を露出した。
+
+| model / arm | window | protocol | n | C到達 | C3 pass / violation / absent | full | 費用 |
+|---|---|---|---:|---:|---|---:|---:|
+| Gemma | formal Window B (`elev-004`) | native | 6 | 2 | 0 / 2 run（6 claims）/ 0 | 0 | 未記録 |
+| Gemma | assist v1.0 segment 1 (`pack-001`) | native | 6 | 0 | 0 / 0 / 0 | 0 | 未記録 |
+| Gemma | assist v1.0 segment 2 (`pack-002`) | native | 6 | 2 | 0 / 2 / 0 | 0 | 未記録 |
+| Gemma | assist v1.1 ceiling (`pack-003`) | native | 6 | 1 | 0 / 1 / 0 | 0 | 未記録 |
+| Gemma | human directive round 1–2 | native | 2 | 0 | 0 / 0 / 0 | 0 | 未記録 |
+| Luna | 001 | Chat/native | 6 | 0 | 0 / 0 / 0 | 0 | $0.000000 |
+| Luna | 002 | Chat/native | 6 | 0 | 0 / 0 / 0 | 0 | $0.000000 |
+| Luna | 003 | Chat/text | 6 | 0 | 0 / 0 / 0 | 0 | $0.038459 |
+| Luna | 004 | Chat/text | 6 | 0 | 0 / 0 / 0 | 0 | $0.118284 |
+| Luna | 005 | Chat/text | 6 | 0 | 0 / 0 / 0 | 0 | $0.202160 |
+| Luna | 006 | Responses/native | 6 | 5 | 2 / 1 / 2 | 0 | $0.312987 |
+| Luna | 007 | Responses/native | 6 | 2 | 2 / 0 / 0 | 1 | $0.310053 |
+| Luna | 008 | Responses/native | 6 | 3 | 2 / 0 / 1 | 1 | $0.218188 |
+
+窓区分は001〜002を**machine BLOCKED**、003〜005を**text bridge**、006〜008を
+**Responses/native**とする。確定事実は、Gemmaのformal・pack・人間directiveという
+全援助段でC3 pass 0だったのに対し、LunaはC3 pass累計6（要求下限4+）、
+violation 1を観測し、さらに`filter_luna_001`で2026-08-02にCLI史上初のfullを
+得たことである。これは証言壁がモデル階級で動く直接観測であり、Gemma×Lunaの
+全窓対照表をF-1スコアとT2F設計の第一検算材料に指定する。到達率、C3条件付き分布、
+full率は別軸のまま保持し、BLOCKED/text窓をnative能力分母へ混ぜない。

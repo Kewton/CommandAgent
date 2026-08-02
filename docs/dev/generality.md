@@ -363,6 +363,15 @@ C2のhelp双方向照合とC4の再実行一致は到達2/2で実戦成立した
 Window B 0/6、いずれもfull 0%である。この主張はCへ到達した2runの
 観測に限定し、未到達runへ外挿しない。
 
+F-2a settlementは、このGemma基準線からモデル因子単独観測へ到達するまでの
+Luna 8窓（n=48）を固定した。001–002はmachine BLOCKED、003–005はtext bridge、
+006–008はResponses/nativeである。native 3窓はC到達10/18、C3 pass 6 /
+violation 1 / claims_absent 3、full 2/18。007と008はそれぞれfull 1/6・
+C3 pass 2を再現した。Gemmaのformal/pack/directive全援助段ではC3 pass 0であり、
+証言壁がモデル階級で動く比較が成立した。全窓・費用・protocol別の正準対照表は
+[`mechanism-ledger.md`のF-2a-8](mechanism-ledger.md#f-2a-8--機械床返済とモデル因子系列のsettlement2026-08-02)
+に置き、F-1スコアとT2F設計の第一検算材料とする。
+
 The elevated history preserves the defect-era campaigns without charging them
 to Window B. `uat-test0725-cli-elev-001` is excluded because C1-not-run was
 projected as partial instead of static; `elev-002` is excluded because final
