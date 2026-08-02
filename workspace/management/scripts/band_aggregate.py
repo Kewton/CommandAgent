@@ -58,6 +58,12 @@ SCORE_VECTOR_PATH = RUNS_DIR / "f1-retrospective-001" / "final-vectors.jsonl"
 CLI_SCRIPTED_DIRECTIVE_SUITE = (
     ROOT / "workspace" / "management" / "bench" / "directive-suites" / "cli-c3-bon0.toml"
 )
+CLI_BON_RESULT = (
+    RUNS_DIR / "uat-test0802-cli-bon0-001" / "evidence" / "bon-selection.json"
+)
+CLI_PRE_BON_SUMMARY_SHA256 = (
+    "7adfb4d248466ca02b464150b6a45cf93004403edc4ee4a1aa34dfa13baf4657"
+)
 FULL_MEANING_LABELS = {
     "nextjs": (
         "build + real-browser route, interaction, and state-change evidence; "
@@ -1271,6 +1277,124 @@ def load_scripted_directive_suite(path: Path | None = None) -> dict[str, Any]:
         "rounds": rounds,
         "manifest_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
     }
+
+
+def load_cli_bon_result(path: Path | None = None) -> dict[str, Any] | None:
+    source = path or CLI_BON_RESULT
+    if not source.is_file():
+        return None
+    result = json.loads(source.read_text(encoding="utf-8"))
+    assert isinstance(result, dict), "BoN result root must be an object"
+    assert result.get("schema_version") == "commandagent.bon-selection/v0", (
+        "unsupported BoN result schema"
+    )
+    assert result.get("valid_measurement") is True, (
+        "invalid BoN measurement must not enter the band"
+    )
+    definition = result.get("definition")
+    assert isinstance(definition, dict)
+    assert definition == {
+        "configuration": "bon:6",
+        "independent_workspaces": True,
+        "prediction": False,
+        "pruning": False,
+        "repair_connected": False,
+        "single_goal": "filter",
+    }, "BoN-0 definition drifted"
+    summary = result.get("summary")
+    selection = result.get("selection")
+    identity = result.get("identity")
+    assert isinstance(summary, dict) and summary.get("runs") == 6
+    assert isinstance(selection, dict) and selection.get("repair_connected") is False
+    assert isinstance(identity, dict) and identity.get("all_equal") is True, (
+        "invalid BoN measurement identity"
+    )
+    return result
+
+
+def cli_bon_band_rows(result: dict[str, Any] | None) -> list[list[str]]:
+    if result is None:
+        return [
+            [
+                "bon:6",
+                "filter",
+                "6",
+                "registered; unexecuted",
+                "pending",
+                "pending",
+                "N/A",
+                "N/A",
+                "N/A",
+                "N/A",
+                "N/A",
+                "N/A",
+                "pending",
+                "pending",
+                "pending",
+            ]
+        ]
+    summary = result["summary"]
+    selection = result["selection"]
+    five = summary.get("score_five_number")
+    values = (
+        [f"{float(five[key]):.1f}" for key in ("min", "q1", "median", "q3", "max")]
+        if isinstance(five, dict)
+        else ["N/A"] * 5
+    )
+    return [
+        [
+            "bon:6",
+            "filter",
+            "6",
+            str(selection["kind"]),
+            str(summary["earned_full"]),
+            str(selection["run"]),
+            f"{summary['reached']}/6",
+            *values,
+            str(summary["duration_seconds_total"]),
+            f"${float(summary['cost_usd_total']):.6f}",
+            "matched",
+        ]
+    ]
+
+
+def append_cli_bon_band(lines: list[str], result: dict[str, Any] | None) -> None:
+    lines.extend(
+        [
+            "## BoN configuration band",
+            "",
+            (
+                "`bon:6` is a separate configuration: six independent workspaces repeat "
+                "one exact filter goal. It is not pooled into any single-run rate row. "
+                "Selection uses earned evidence only; no pruning, prediction, or repair "
+                "is connected."
+            ),
+            "",
+        ]
+    )
+    lines.extend(
+        table(
+            [
+                "Configuration",
+                "Goal",
+                "N",
+                "Status",
+                "Full",
+                "Selected",
+                "Reached",
+                "Min",
+                "Q1",
+                "Median",
+                "Q3",
+                "Max",
+                "Total seconds",
+                "Cost USD",
+                "Identity",
+            ],
+            cli_bon_band_rows(result),
+        )
+    )
+    lines.append("")
 
 
 def build_summary(
@@ -3868,6 +3992,12 @@ def build_cli_summary(
     lines.extend(["", "## Source sets", ""])
     lines.extend(f"- `{set_id}`" for set_id in scanned_sets)
     lines.append("")
+    legacy_summary = "\n".join(lines)
+    assert (
+        hashlib.sha256(legacy_summary.encode()).hexdigest()
+        == CLI_PRE_BON_SUMMARY_SHA256
+    ), "pre-BoN CLI band bytes drifted"
+    append_cli_bon_band(lines, load_cli_bon_result())
     return "\n".join(lines)
 
 

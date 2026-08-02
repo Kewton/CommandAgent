@@ -71,6 +71,52 @@ class ScoreAxisTests(unittest.TestCase):
         self.assertEqual([item["round"] for item in suite["rounds"]], [1, 2, 3])
         self.assertRegex(suite["manifest_sha256"], r"^[0-9a-f]{64}$")
 
+    def test_bon_six_is_a_separate_pending_configuration(self) -> None:
+        self.assertEqual(
+            band.cli_bon_band_rows(None),
+            [
+                [
+                    "bon:6",
+                    "filter",
+                    "6",
+                    "registered; unexecuted",
+                    "pending",
+                    "pending",
+                    "N/A",
+                    "N/A",
+                    "N/A",
+                    "N/A",
+                    "N/A",
+                    "N/A",
+                    "pending",
+                    "pending",
+                    "pending",
+                ]
+            ],
+        )
+
+    def test_bon_loader_rejects_identity_mismatch(self) -> None:
+        fixture = {
+            "schema_version": "commandagent.bon-selection/v0",
+            "valid_measurement": True,
+            "definition": {
+                "configuration": "bon:6",
+                "independent_workspaces": True,
+                "prediction": False,
+                "pruning": False,
+                "repair_connected": False,
+                "single_goal": "filter",
+            },
+            "summary": {"runs": 6},
+            "selection": {"repair_connected": False},
+            "identity": {"all_equal": False},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "bon-selection.json"
+            path.write_text(json.dumps(fixture), encoding="utf-8")
+            with self.assertRaisesRegex(AssertionError, "invalid BoN measurement"):
+                band.load_cli_bon_result(path)
+
 
 def data_record(
     *,

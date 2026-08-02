@@ -224,3 +224,11 @@ This table is additive: every pre-existing band column and recorded SHA/pin abov
 - `uat-test0801-cli-luna-007`
 - `uat-test0801-cli-luna-008`
 - `d3c-shakedown-002`
+
+## BoN configuration band
+
+`bon:6` is a separate configuration: six independent workspaces repeat one exact filter goal. It is not pooled into any single-run rate row. Selection uses earned evidence only; no pruning, prediction, or repair is connected.
+
+| Configuration | Goal | N | Status | Full | Selected | Reached | Min | Q1 | Median | Q3 | Max | Total seconds | Cost USD | Identity |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| bon:6 | filter | 6 | registered; unexecuted | pending | pending | N/A | N/A | N/A | N/A | N/A | N/A | pending | pending | pending |
