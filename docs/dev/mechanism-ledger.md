@@ -1471,3 +1471,10 @@ violation 1を観測し、さらに`filter_luna_001`で2026-08-02にCLI史上初
 full率は別軸のまま保持し、BLOCKED/text窓をnative能力分母へ混ぜない。
 
 F-1b seal（2026-08-02）: score schema v0、3 parameter family、`fail / violation = -w/2`の誠実性フロア、timestampなしはfinal-only、profile × model階級相関の`n < 5`非表示、scripted directive最大3 round、band五数要約を固定し、全履歴read-only遡及走査の完走をruntime実装の先行条件とした。
+
+## BoN-0 — run末選別の最小形と初計測（2026-08-03）
+
+BoN-0——第4因子（試行数）の初の制度計測。選別はearnedのみ・予測ゼロ・
+`ρ=0.063`によりBoN-2はゲート維持。単一filter goalの同一構成6runを別workspaceで
+完走し、full 1/6の`filter_bon0_005`を採用した。binary・入力pin・model meta・pack
+pinは6/6一致し、5敗者のevidenceは削除せず保持した。途中刈り込みと修復接続は0件。

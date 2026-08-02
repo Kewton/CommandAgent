@@ -231,4 +231,4 @@ This table is additive: every pre-existing band column and recorded SHA/pin abov
 
 | Configuration | Goal | N | Status | Full | Selected | Reached | Min | Q1 | Median | Q3 | Max | Total seconds | Cost USD | Identity |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| bon:6 | filter | 6 | registered; unexecuted | pending | pending | N/A | N/A | N/A | N/A | N/A | N/A | pending | pending | pending |
+| bon:6 | filter | 6 | adopted_full | 1 | filter_bon0_005 | 6/6 | 25.0 | 25.0 | 43.8 | 62.5 | 100.0 | 7791 | $0.274865 | matched |
