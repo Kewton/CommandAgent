@@ -88,6 +88,10 @@ mod tests {
         env!("CARGO_MANIFEST_DIR"),
         "/tests/corpus/apps/test0725_cli_completion_projection/fixtures/projections.jsonl"
     );
+    const LUNA_CLAIMS_ABSENT_FIXTURE: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/corpus/apps/test0725_cli_completion_projection/fixtures/stats_luna_002-cli-assurance.json"
+    );
 
     #[test]
     fn measured_unexecuted_shapes_project_static_at_both_boundaries() {
@@ -136,6 +140,28 @@ mod tests {
                 CLI_ASSURANCE_FAILED,
             ),
             (
+                "c3-violation-after-other-checks-pass",
+                checks_state(
+                    CheckStatus::Pass,
+                    CheckStatus::Pass,
+                    CheckStatus::Failed,
+                    CheckStatus::Pass,
+                ),
+                "failed",
+                CLI_ASSURANCE_FAILED,
+            ),
+            (
+                "c4-rerun-violation-after-other-checks-pass",
+                checks_state(
+                    CheckStatus::Pass,
+                    CheckStatus::Pass,
+                    CheckStatus::Pass,
+                    CheckStatus::Failed,
+                ),
+                "failed",
+                CLI_ASSURANCE_FAILED,
+            ),
+            (
                 "claims-absent",
                 claims_absent_state(),
                 "partial",
@@ -155,6 +181,32 @@ mod tests {
             assert_eq!(projection.assurance_level, expected_level, "{name}");
             assert_eq!(projection.assurance_reason, expected_reason, "{name}");
         }
+    }
+
+    #[test]
+    fn measured_luna_c1_c2_c4_pass_and_c3_claims_absent_projects_partial() {
+        let measured: CliCheckSummary =
+            serde_json::from_str(&std::fs::read_to_string(LUNA_CLAIMS_ABSENT_FIXTURE).unwrap())
+                .unwrap();
+        assert_eq!(measured.assurance, CliAssurance::Failed);
+        assert_eq!(measured.evidence.checks[C1], CheckStatus::Pass);
+        assert_eq!(measured.evidence.checks[C2], CheckStatus::Pass);
+        assert_eq!(measured.evidence.checks[C3], CheckStatus::ClaimsAbsent);
+        assert_eq!(measured.evidence.checks[C4], CheckStatus::Pass);
+
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(root.path().join("evidence")).unwrap();
+        std::fs::copy(LUNA_CLAIMS_ABSENT_FIXTURE, root.path().join(EVIDENCE_PATH)).unwrap();
+        let mut snapshot = cli_snapshot();
+
+        apply_snapshot(root.path(), &mut snapshot);
+        assert_eq!(snapshot.assurance_level, "partial");
+        assert_eq!(snapshot.assurance_reason, CLI_CLAIMS_ABSENT);
+
+        let mut projection = project_completion(false, &snapshot);
+        apply_terminal_projection(root.path(), &mut projection);
+        assert_eq!(projection.assurance_level, "partial");
+        assert_eq!(projection.assurance_reason, CLI_CLAIMS_ABSENT);
     }
 
     #[test]
@@ -189,14 +241,28 @@ mod tests {
     }
 
     fn claims_absent_state() -> EvidenceState {
+        checks_state(
+            CheckStatus::Pass,
+            CheckStatus::ClaimsAbsent,
+            CheckStatus::ClaimsAbsent,
+            CheckStatus::Pass,
+        )
+    }
+
+    fn checks_state(
+        c1: CheckStatus,
+        c2: CheckStatus,
+        c3: CheckStatus,
+        c4: CheckStatus,
+    ) -> EvidenceState {
         EvidenceState {
             probe_attempted: true,
             binding_intact: true,
             checks: BTreeMap::from([
-                (C1.to_string(), CheckStatus::Pass),
-                (C2.to_string(), CheckStatus::ClaimsAbsent),
-                (C3.to_string(), CheckStatus::ClaimsAbsent),
-                (C4.to_string(), CheckStatus::Pass),
+                (C1.to_string(), c1),
+                (C2.to_string(), c2),
+                (C3.to_string(), c3),
+                (C4.to_string(), c4),
             ]),
         }
     }

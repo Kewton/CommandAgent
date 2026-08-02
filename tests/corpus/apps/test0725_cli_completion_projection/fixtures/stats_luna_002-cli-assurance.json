@@ -1,0 +1,24 @@
+{
+  "status": "failed",
+  "assurance": "failed",
+  "evidence": {
+    "probe_attempted": true,
+    "binding_intact": true,
+    "checks": {
+      "cli_output_claims": "claims_absent",
+      "cli_probe": "pass",
+      "cli_rerun_consistency": "pass",
+      "help_binding": "pass"
+    }
+  },
+  "reasons": [],
+  "evidence_envelope": {
+    "envelope_version": 1,
+    "family": "C",
+    "kind": "assurance",
+    "epoch": 1785634790,
+    "claims": [],
+    "nearest_miss": [],
+    "source_refs": []
+  }
+}

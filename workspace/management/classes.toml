@@ -355,3 +355,12 @@ match_reason = "Function tools with reasoning_effort are not supported"
 first_seen = "uat-test0801-cli-luna-001"
 ledger_ref = "F-2a-3"
 note = "OpenAI Chat Completions endpointがfunction toolsと未指定時のreasoning_effort既定の組合せを拒否した停止形。F-2a-2でクライアント側parameterを宣言時のみ送信に固定してもluna-002の6/6で再現したため、endpoint tool境界をmachineとして確定。F-2a-3は明示tool_protocol=textで既存text装備へ迂回する"
+
+[[class]]
+id = "cli_assurance_projection:c3_claims_absent_after_c1_c2_c4_pass"
+category = "terminal"
+attribution = "machine"
+match_reason = "C1/C2/C4 pass + C3 claims_absent"
+first_seen = "uat-test0801-cli-luna-006"
+ledger_ref = "F-2a-7"
+note = "契約§4がpartialと定める実測形をclassifyがfailedへ過小投影した。F-2a-7でC2 passをpartial条件へ追加し、violation→failed等の既存形は維持して解消"

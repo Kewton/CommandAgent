@@ -213,6 +213,12 @@ provider turn eventのreturned usageを合計し、2026-08-02確認の公式Luna
 - 記録値 C3: pass 2 / fail 1 / claims_absent 2
 - 記録値 OpenAI費用: $0.312987
 
+### F-2a-7解消印（2026-08-02）
+
+`stats_luna_002`のC1/C2/C4 pass・C3 `claims_absent`をfailedへ過小投影した
+machine gapは、契約§4の字義に従いF-2a-7でpartialへ是正した。上のP0-b failは
+006計測時点の歴史値として不変であり、本追記は原因裁定と解消revisionを示す。
+
 ## 12. 一次資料SHA-256
 
 - `stats_luna_002/cli-case-binding.json`:

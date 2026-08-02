@@ -1409,3 +1409,9 @@ assurance投影へ分解された。
 フロンティアにはtext橋は不適であり、Responsesが正門である。一方、text較正で得た
 自己記録化と限定repairの制度的配当は残る。Luna 006費用はcached inputを分離して
 USD 0.312987、reasoning tokensは8,399だった。
+
+F-2a-7はCLI assurance投影gapの4例目を確定した。ただし今回は、未実行や違反を
+高く見せる偽成功側ではなく、C1/C2/C4 pass・C3 `claims_absent`という契約§4の
+partial形をfailedへ落とす初の過小評価側だった。Luna 006の実evidenceをfixtureにし、
+C2 passをpartial条件へ加えた一方、violation→failed、C1未実行→static、C4不成立→
+failedを固定した。偽成功ゼロは昇格側だけでなく降格側も契約字義へ較正して守る。

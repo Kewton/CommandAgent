@@ -1,5 +1,5 @@
 case_id = "test0725_cli_completion_projection"
-source = "uat-test0724-cli-001-v3 local and uat-test0725-cli-elev-001 measured terminal projections"
+source = "uat-test0724-cli-001-v3 local, uat-test0725-cli-elev-001, and uat-test0801-cli-luna-006 measured projections"
 required_paths = []
 verify_commands = []
 required_capabilities = []
@@ -28,4 +28,10 @@ fixtures/projections.jsonl = [
   "\"fixture\":\"elevated_stats_cloud_run_stop\"",
   "\"assurance_level\":\"partial\"",
   "\"assurance_reason\":\"acceptance_not_full_success\""
+]
+fixtures/stats_luna_002-cli-assurance.json = [
+  "\"cli_output_claims\": \"claims_absent\"",
+  "\"cli_probe\": \"pass\"",
+  "\"cli_rerun_consistency\": \"pass\"",
+  "\"help_binding\": \"pass\""
 ]

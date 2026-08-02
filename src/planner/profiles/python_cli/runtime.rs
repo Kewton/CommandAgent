@@ -153,9 +153,12 @@ pub fn classify(evidence: &EvidenceState) -> CliAssurance {
     if statuses.iter().all(|status| *status == CheckStatus::Pass) {
         return CliAssurance::Full;
     }
+    // Contract §4: a measured C3 claims-absent outcome is partial when the
+    // executable probe, help binding, and rerun checks succeeded. C2 may also
+    // be claims-absent, preserving the pre-existing no-claims projection.
     if get(C1) == CheckStatus::Pass
         && get(C4) == CheckStatus::Pass
-        && get(C2) == CheckStatus::ClaimsAbsent
+        && matches!(get(C2), CheckStatus::Pass | CheckStatus::ClaimsAbsent)
         && get(C3) == CheckStatus::ClaimsAbsent
     {
         return CliAssurance::Partial;
