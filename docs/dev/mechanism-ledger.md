@@ -1415,3 +1415,16 @@ F-2a-7はCLI assurance投影gapの4例目を確定した。ただし今回は、
 partial形をfailedへ落とす初の過小評価側だった。Luna 006の実evidenceをfixtureにし、
 C2 passをpartial条件へ加えた一方、violation→failed、C1未実行→static、C4不成立→
 failedを固定した。偽成功ゼロは昇格側だけでなく降格側も契約字義へ較正して守る。
+
+## F-2a-7 — CLI投影整合とLuna比較系列の第一清算（2026-08-02）
+
+F-2a系列は壁6枚（parameter注入・endpoint境界・観測gap・方言被覆・endpoint
+作法・投影gap）を推測でなく実測へ変えた末、モデル因子の単独観測に到達した。
+Luna 006のC3はpass 2 / violation 1 / claims_absent 2であり、Gemma正式Window Bの
+README捏造拒否6件との比較から、証言壁は階級で動くことを確認した。この完全基準線×
+Luna全窓の対照表をF-1スコア設計の第一検算材料に指定する。
+
+契約§4へ投影を戻したLuna 007は、C到達2/6のC3を2/2 passとし、
+`filter_luna_001`でCLI史上初のfullを得た。Luna合算n=42はfull 1、C到達7、
+観測費用USD 0.981943である。残余は裸・日本語placeholderの伝達床とcanonical
+verifyの機械床へ分解され、full率をモデル単独の値と誤読しない材料も同時に残した。

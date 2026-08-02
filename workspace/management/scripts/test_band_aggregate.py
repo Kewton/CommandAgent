@@ -549,8 +549,8 @@ class CliBandTests(unittest.TestCase):
                 band.CLI_DIRECTIVE_SET,
             ],
         )
-        self.assertEqual(len(records), 86)
-        self.assertEqual(band.assert_cli_invariants(records), 11)
+        self.assertEqual(len(records), 92)
+        self.assertEqual(band.assert_cli_invariants(records), 13)
         local = [record for record in records if record.set_id == band.CLI_LOCAL_SET]
         self.assertEqual(
             band.cli_rate_rows(local),
@@ -616,24 +616,24 @@ class CliBandTests(unittest.TestCase):
                 [
                     "filter",
                     "gpt-5.6-luna",
-                    "0",
-                    "18",
-                    "18",
-                    "3",
-                    "494973",
-                    "23793",
-                    "$0.332328",
+                    "1",
+                    "20",
+                    "21",
+                    "5",
+                    "891834",
+                    "38847",
+                    "$0.502705",
                 ],
                 [
                     "stats",
                     "gpt-5.6-luna",
                     "0",
-                    "18",
-                    "18",
+                    "21",
+                    "21",
                     "2",
-                    "501606",
-                    "23209",
-                    "$0.339562",
+                    "833451",
+                    "35433",
+                    "$0.479238",
                 ],
             ],
         )
@@ -657,11 +657,11 @@ class CliBandTests(unittest.TestCase):
             },
             {"machine", "model"},
         )
-        summary = band.build_cli_summary(records, scanned_sets, 11)
+        summary = band.build_cli_summary(records, scanned_sets, 13)
         self.assertIn("- Window B full: `0/6` (0%)", summary)
         self.assertIn("- Window B runs reaching C checks: `2/6`", summary)
-        self.assertIn("- All-history runs reaching C checks: `11/86`", summary)
-        self.assertIn("- Reached-run C evidence sets verified: `11/11`", summary)
+        self.assertIn("- All-history runs reaching C checks: `13/92`", summary)
+        self.assertIn("- Reached-run C evidence sets verified: `13/13`", summary)
         self.assertIn("- Pack runs reaching C checks: `3/18`", summary)
         self.assertIn("- Pack renderer exposure: `3/18`", summary)
         self.assertIn("C3は9/9 violationのまま", summary)
@@ -693,8 +693,8 @@ class CliBandTests(unittest.TestCase):
             summary,
         )
         self.assertIn("cli_readme_structure:cli_invocation_missing", summary)
-        self.assertIn("- Luna arm: `0/36` full; C checks reached `5/36`", summary)
-        self.assertIn("calculated cost `$0.671890`", summary)
+        self.assertIn("- Luna arm: `1/42` full; C checks reached `7/42`", summary)
+        self.assertIn("calculated cost `$0.981943`", summary)
         self.assertIn("## OpenAI Luna arm with observed cost", summary)
         self.assertIn(
             "The 001/002 windows are machine BLOCKED 12/12",
@@ -704,6 +704,7 @@ class CliBandTests(unittest.TestCase):
         self.assertIn("repair_applied 9/9", summary)
         self.assertIn("residual b=4 or empty response=2", summary)
         self.assertIn("first Luna C3 distribution: pass 2 / violation 1", summary)
+        self.assertIn("earned the first CLI full", summary)
 
     def test_directive_round_is_a_separate_cli_configuration_axis(self) -> None:
         root = Path("/tmp/d3d-band-fixture")

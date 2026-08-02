@@ -163,6 +163,7 @@ CLI_LUNA_SETS = (
     "uat-test0801-cli-luna-004",
     "uat-test0801-cli-luna-005",
     "uat-test0801-cli-luna-006",
+    "uat-test0801-cli-luna-007",
 )
 CLI_LUNA_SET = CLI_LUNA_SETS[-1]
 CLI_LUNA_SUMMARIES = {
@@ -423,7 +424,13 @@ class CliRunRecord:
 
     @property
     def is_full(self) -> bool:
-        return self.verdict in {"full", "full_success"} and self.assurance == "full"
+        # Bench transfers a successful product terminal as `complete`; older
+        # hand-authored summaries used `full`/`full_success`. Assurance remains
+        # the second, mandatory leg so a successful process cannot fake full.
+        return (
+            self.verdict in {"complete", "full", "full_success"}
+            and self.assurance == "full"
+        )
 
     @property
     def reached_checks(self) -> bool:
@@ -3420,6 +3427,11 @@ def cli_band_status(set_id: str) -> str:
             "and 115 native tool calls; C checks 5/6; C3 pass 2 / fail 1 / "
             "claims_absent 2; full 0/6"
         )
+    if set_id == CLI_LUNA_SETS[6]:
+        return (
+            "OpenAI Luna F-2a-7 projection-corrected window — C checks 2/6; "
+            "C3 pass 2/2; first CLI full 1/6; contract projection aligned"
+        )
     return "local reference arm"
 
 
@@ -3478,7 +3490,7 @@ def build_cli_summary(
         "- Pack interpretation: v1.0.0はlive 2件でC1材料のみ、v1.1.0はlive 1件でREADME照準+C3全3対を直接露出した。いずれもモデルはREADMEを更新せず、pack armのC3は9/9 violationのままだった。",
         f"- Directive arm: `{sum(record.is_full for record in directive_arm)}/{len(directive_arm)}` full; each round is a distinct configuration and retains its directive hash.",
         f"- Luna arm: `{sum(record.is_full for record in luna_arm)}/{len(luna_arm)}` full; C checks reached `{sum(record.reached_checks for record in luna_arm)}/{len(luna_arm)}`; observed API usage `{sum(record.api_input_tokens or 0 for record in luna_arm)}` input / `{sum(record.api_output_tokens or 0 for record in luna_arm)}` output tokens; calculated cost `${sum(record.cost_usd or 0.0 for record in luna_arm):.6f}`.",
-        "- Luna interpretation: n=36 total. The 001/002 windows are machine BLOCKED 12/12 before generation (reasoning default × Chat Completions tools). The 003-005 text windows crossed the endpoint but stopped before C checks; the 005 dialect-calibrated window emitted repair_applied 9/9 yet retained residual b=4 or empty response=2. The 006 Responses/native window recorded 112/112 native-enabled provider turns and 115 function calls, reached C checks 5/6, and produced the first Luna C3 distribution: pass 2 / violation 1 / claims_absent 2. Full remains 0/36; two C3 matches show that the testimony wall can move with model class and the correct endpoint, while C1 placeholder binding, runtime compatibility, one C3 mismatch, and one assurance projection gap remain. Response model/service tier are observed while system_fingerprint is null.",
+        "- Luna interpretation: n=42 total. The 001/002 windows are machine BLOCKED 12/12 before generation (reasoning default × Chat Completions tools). The 003-005 text windows crossed the endpoint but stopped before C checks; the 005 dialect-calibrated window emitted repair_applied 9/9 yet retained residual b=4 or empty response=2. The 006 Responses/native window recorded 112/112 native-enabled provider turns and 115 function calls, reached C checks 5/6, and produced the first Luna C3 distribution: pass 2 / violation 1 / claims_absent 2. The 007 projection-corrected Responses/native window reached C checks 2/6, produced C3 pass 2/2, and earned the first CLI full. Luna full is 1/42; the testimony wall moves with model class and the correct endpoint, while placeholder transmission and canonical verify remain residual machine floors. Response model/service tier are observed while system_fingerprint is null.",
         "- Reach-rate comparison: Window B 2/6 (33.3%) vs v1.1.0 arm 1/6 (16.7%), -16.6 percentage points; combined pack arms 3/18 (16.7%) (descriptive only).",
         "- Invariant: C evidence files are mandatory only after a run reaches the CLI checks.",
         "- Invariant: every reached run must attest cli-case-binding.json, cli-probe.json, help-binding.json, and cli-assurance.json by file or recorded SHA-256.",
