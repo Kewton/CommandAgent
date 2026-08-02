@@ -1,0 +1,48 @@
+schema_version: commandagent.pack.eval/v0
+pack:
+  id: cli-score
+  version: 1.0.0
+  profile: python-cli
+  intent: create
+checks:
+  - id: cli_probe
+    at: {kind: final_acceptance}
+    extraction: [argv_probe.extract_usage_case]
+    params:
+      entry: cli/main.py
+      usage_paths: [README.md, USAGE.md]
+      timeout_seconds: 5
+  - id: help_binding
+    at: {kind: final_acceptance}
+    extraction: [help_binding.extract_options]
+    params:
+      entry: cli/main.py
+      usage_paths: [README.md, USAGE.md]
+      timeout_seconds: 5
+  - id: cli_output_claims
+    at: {kind: final_acceptance}
+    extraction: [argv_probe.extract_output_examples]
+    params:
+      entry: cli/main.py
+      usage_paths: [README.md, USAGE.md]
+      timeout_seconds: 5
+  - id: cli_rerun_consistency
+    at: {kind: final_acceptance}
+    params:
+      entry: cli/main.py
+      usage_paths: [README.md, USAGE.md]
+      timeout_seconds: 5
+score:
+  schema_version: commandagent.eval.score/v0
+  usage: [report, allocation]
+  weights:
+    - atom: {id: cli_probe, params: {}}
+      points: 1
+    - atom: {id: help_binding, params: {}}
+      points: 1
+    - atom:
+        id: cli_output_claims
+        params: {anchor: cli.readme.observed_stdout}
+      points: 1
+    - atom: {id: cli_rerun_consistency, params: {}}
+      points: 1

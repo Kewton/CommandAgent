@@ -2516,6 +2516,14 @@ pub(super) fn verify_plan_final_contract(
         "plan_final_contract",
         &depth_profile,
     );
+    if let Err(error) = crate::planner::pack::runtime::emit_score_checkpoint_from_environment(
+        &config.workspace_root,
+        &config.profile,
+        config.resolved_intent(&plan.goal),
+        config.eval_events_path.as_deref(),
+    ) {
+        eprintln!("warning: score checkpoint projection failed: {error:#}");
+    }
     if ok {
         return Ok(());
     }

@@ -1,0 +1,17 @@
+schema_version: commandagent.pack.eval/v0
+pack:
+  id: cli-score
+  version: 1.0.0
+  profile: python-cli
+  intent: create
+checks:
+  - id: cli_probe
+    at: {kind: final_acceptance}
+    params: {}
+score:
+  schema_version: commandagent.eval.score/v0
+  usage: [report]
+  weights:
+    - atom: {id: cli_probe, params: {}}
+      points: 1
+      judge: "award when the README looks convincing"

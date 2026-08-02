@@ -108,6 +108,19 @@ pub(crate) fn append_cli_validation_repair_material_from_environment(
     append_cli_validation_repair_material(prompt, root, profile, intent, selection.as_ref())
 }
 
+pub(crate) fn emit_score_checkpoint_from_environment(
+    root: &Path,
+    profile: &str,
+    intent: &str,
+    events_path: Option<&Path>,
+) -> anyhow::Result<bool> {
+    let Some(selection) = RuntimeSelection::from_environment()? else {
+        return Ok(false);
+    };
+    let pack = load_selected(&selection, profile, intent)?;
+    super::score::emit_checkpoint(&pack, root, events_path)
+}
+
 fn append_phase_material(
     prompt: String,
     root: &Path,

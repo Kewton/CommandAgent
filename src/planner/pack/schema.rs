@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::Deserialize;
 use serde_yaml::Value;
 
+use super::score::ScoreDeclaration;
 use super::vocabulary::{
     AssistSource, CheckId, ExtractionId, InjectionPoint, NormalizerId, PackIntent, PackProfile,
     VocabularySource,
@@ -248,6 +249,8 @@ pub(super) struct EvalPack {
     checks: Vec<CheckBinding>,
     #[serde(default)]
     schemas: Vec<ArtifactSchema>,
+    #[serde(default)]
+    score: Option<ScoreDeclaration>,
 }
 
 #[derive(Debug)]
@@ -255,6 +258,7 @@ pub struct EvalPackDocument {
     pub pack: PackIdentity,
     pub checks: Vec<CheckBinding>,
     pub schemas: Vec<ArtifactSchema>,
+    pub score: Option<ScoreDeclaration>,
 }
 
 impl EvalPack {
@@ -280,10 +284,14 @@ impl EvalPack {
         for schema in &self.schemas {
             schema.validate()?;
         }
+        if let Some(score) = &self.score {
+            score.validate(&self.checks)?;
+        }
         Ok(EvalPackDocument {
             pack: self.pack,
             checks: self.checks,
             schemas: self.schemas,
+            score: self.score,
         })
     }
 }

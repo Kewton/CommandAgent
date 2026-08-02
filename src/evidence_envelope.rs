@@ -22,6 +22,8 @@ pub(crate) enum EvidenceFamily {
     Circle,
     #[serde(rename = "workflow")]
     Workflow,
+    #[serde(rename = "score")]
+    Score,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -184,6 +186,7 @@ fn kind_for_path(family: EvidenceFamily, relative: &str) -> &'static str {
             "repair_applied"
         }
         (EvidenceFamily::Circle, "workflow-circle.json") => "workflow_circle",
+        (EvidenceFamily::Score, "score-checkpoint.json") => "score_checkpoint",
         _ if family == EvidenceFamily::F && name.ends_with("-adjudication.json") => "adjudication",
         _ if family == EvidenceFamily::F && name.contains("-before-attempt-") => "before_attempt",
         _ if family == EvidenceFamily::F && name.ends_with("-before.json") => "before",
@@ -200,6 +203,7 @@ fn kind_for_path(family: EvidenceFamily, relative: &str) -> &'static str {
         (EvidenceFamily::ToolParse, _) => "tool_parse_evidence",
         (EvidenceFamily::Circle, _) => "circle_evidence",
         (EvidenceFamily::Workflow, _) => "workflow_evidence",
+        (EvidenceFamily::Score, _) => "score_evidence",
     }
 }
 
@@ -397,6 +401,7 @@ mod tests {
             EvidenceFamily::ToolParse,
             EvidenceFamily::Circle,
             EvidenceFamily::Workflow,
+            EvidenceFamily::Score,
         ];
         assert_eq!(
             families.map(|family| serde_json::to_value(family).unwrap()),
@@ -410,6 +415,7 @@ mod tests {
                 json!("tool_parse"),
                 json!("circle"),
                 json!("workflow"),
+                json!("score"),
             ]
         );
     }
@@ -435,6 +441,7 @@ mod tests {
             EvidenceFamily::ToolParse,
             EvidenceFamily::Circle,
             EvidenceFamily::Workflow,
+            EvidenceFamily::Score,
         ]
         .into_iter()
         .map(|family| {

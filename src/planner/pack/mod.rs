@@ -13,6 +13,7 @@ pub(crate) mod builtin;
 mod floor;
 pub(crate) mod runtime;
 mod schema;
+mod score;
 mod strict_yaml;
 mod vocabulary;
 
@@ -20,6 +21,9 @@ pub use floor::{ConformanceError, ConformanceReport, conform, conform_directory}
 pub use schema::{
     ArtifactSchema, AssistPackDocument, CheckBinding, EvalPackDocument, Injection, Literal,
     PackIdentity, Vocabulary,
+};
+pub use score::{
+    AtomState, ScoreAtom, ScoreAtomVector, ScoreDeclaration, ScoreUsage, ScoreVector, ScoreWeight,
 };
 pub use vocabulary::{
     AssistSource, CheckId, ExtractionId, InjectionPoint, NormalizerId, PackIntent, PackProfile,

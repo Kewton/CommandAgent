@@ -27,7 +27,8 @@ semantics.
 - `assist.yaml` selects bounded material injection, literal examples, and
   machine-issued vocabulary.
 - `eval.yaml` selects registered checks, their existing execution boundary,
-  registered extraction rules and normalizers, and an output schema.
+  registered extraction rules and normalizers, an output schema, and an
+  optional score projection governed by `docs/f1-score-institution.md`.
 - The effective profile contract is always the Rust/profile-manifest floor
   merged with the pack. A pack can add checks or make registered parameters
   stricter. It cannot remove, relocate, disable, replace, or weaken a floor
@@ -346,9 +347,16 @@ schemas:
         type: string
         required: true
     additional_fields: false
+score:
+  schema_version: commandagent.eval.score/v0
+  usage: [report]
+  weights:
+    - atom: {id: ingest_source_binding, params: {anchor: ingest.output.frozen_source}}
+      points: 1
 ```
 
-Top-level keys are exactly `schema_version`, `pack`, `checks`, and `schemas`.
+Top-level keys are exactly `schema_version`, `pack`, `checks`, `schemas`, and
+`score`.
 
 | Key | Type | Cardinality |
 |---|---|---|
@@ -356,6 +364,7 @@ Top-level keys are exactly `schema_version`, `pack`, `checks`, and `schemas`.
 | `pack` | shared identity mapping | REQUIRED |
 | `checks` | sequence of `Check` | optional, default empty, unique `id` |
 | `schemas` | sequence of `ArtifactSchema` | optional, default empty, unique `artifact` |
+| `score` | score declaration | optional; closed schema `commandagent.eval.score/v0` |
 
 At least one of `checks` or `schemas` MUST be non-empty.
 
@@ -503,6 +512,16 @@ required field, narrow `additional_fields` from `true` to `false`, or add an
 artifact schema. It cannot remove a field, make a required field optional,
 change an existing field type, permit additional fields forbidden by the
 floor, or replace the contract-owned artifact path.
+
+### 4.6 Score projection
+
+The optional `score` key has the complete closed schema, registered parameter
+families, fixed state coefficients, and non-adoption invariant specified in
+`docs/f1-score-institution.md`. Score atoms MUST name checks present in the
+same `eval.yaml`; unknown atoms, free-form judges, invented existence-only
+atoms, coefficient/formula overrides, and `usage: adoption` are rejected.
+Scoring reads existing typed evidence and emits additive evidence only. It
+cannot change verdict, assurance, earned, admission, or release-gate state.
 
 ## 5. Contract-floor merge
 
