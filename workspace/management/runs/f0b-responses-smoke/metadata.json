@@ -1,0 +1,25 @@
+{
+  "schema_version": "1",
+  "run_id": "f0b-responses-smoke",
+  "observed_at": "2026-08-02T00:52:54Z",
+  "provider": "openai",
+  "api": "responses",
+  "model_requested": "gpt-5.6-luna",
+  "model_returned": "gpt-5.6-luna",
+  "response_id": "resp_0847532958af635b016a6e94e64200819a84eb234eb3af000c",
+  "service_tier": "default",
+  "system_fingerprint": null,
+  "native_tools_enabled": true,
+  "tool_calls": [
+    "Read"
+  ],
+  "input_tokens": 216,
+  "cached_input_tokens": 0,
+  "output_tokens": 28,
+  "reasoning_tokens": 0,
+  "total_tokens": 244,
+  "duration_ms": 4935,
+  "estimated_cost_usd": 0.000384,
+  "conclusion": "passed",
+  "credential_scrub": "passed"
+}

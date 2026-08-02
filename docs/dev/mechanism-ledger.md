@@ -1390,3 +1390,22 @@ eventとenvelope evidenceへ必ず自己申告する。モデル名による分�
 裁定者予測の外れも保存する。事前の「おしゃべり文」推論に対し、F-2a-5の実物は
 余分な`}` 1件・閉じtag欠落3件・根本的な散文不遵守2件だった。推論から修復器を
 発明せず、実物がコード推論に勝ち、較正コーパスから限定規則を導いた実例である。
+
+## F-0b — OpenAI Responses正門とLuna native実測（2026-08-02）
+
+壁5枚目はendpoint作法不一致だった。推論系はChat Completionsでfunction toolsを
+拒否し、text橋では散文・空応答へ退行した。`api=responses`を明示構成として追加し、
+reasoning/message/function_call output itemと推論状態をprovider契約で保持・再送する
+正門へ移した。既定は`chat_completions`のまま、モデル名sniffはなく、全呼び出しを
+既存`provider_call` chokepointへ通した。
+
+`uat-test0801-cli-luna-006`はResponses nativeで112/112 provider turns、115 function
+calls、endpoint rejection 0を記録し、C系へ5/6到達した。C3はpass 2 / violation 1 /
+claims_absent 2で、LunaがREADMEの実出力を正直に転記した初実物をstats/filter各1件で
+得た。fullは0/6で、残る壁はC1 placeholder束縛、生成Python互換性、C3不一致、
+assurance投影へ分解された。
+
+これによりtext橋の判定を確定する。観測と方言較正を配当した上で、reasoning系
+フロンティアにはtext橋は不適であり、Responsesが正門である。一方、text較正で得た
+自己記録化と限定repairの制度的配当は残る。Luna 006費用はcached inputを分離して
+USD 0.312987、reasoning tokensは8,399だった。
