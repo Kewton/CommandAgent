@@ -63,6 +63,15 @@ Baseline HEAD `3302dd9`; the six `uat-test0718-inv-002` runs measure projection 
 | uat-test0718-inv-002 | inv2_schema_qwen35_001 | schema | qwen3.6:35b-a3b-coding-nvfp4 | failed | diagnosis_unbound | passed | 4/0/4 | diagnosis_unbound | 123s | A+B |
 | uat-test0718-inv-002 | inv2_schema_qwen35_002 | schema | qwen3.6:35b-a3b-coding-nvfp4 | failed | diagnosis_unbound | passed | 3/0/3 | diagnosis_unbound | 36s | A+B |
 
+## F-1 reached score and T2F axis
+
+This table is additive: every pre-existing band column and recorded SHA/pin above remains unchanged. Scores come from the fixed read-only `f1-retrospective-001/final-vectors.jsonl`; unreached runs are not inserted as zeroes.
+
+| Configuration | Reached n/N | Min | Q1 | Median | Q3 | Max | T2F |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Window A — all history | reached 12/12 | 25.0 | 25.0 | 50.0 | 50.0 | 50.0 | not measured |
+| Window B — post-INV-1 | reached 6/6 | 25.0 | 31.2 | 50.0 | 50.0 | 50.0 | not measured |
+
 ## Source sets
 
 - `uat-test0718-inv-001`

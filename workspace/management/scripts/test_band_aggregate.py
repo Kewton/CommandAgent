@@ -31,6 +31,47 @@ class FullMeaningLabelTests(unittest.TestCase):
                 )
 
 
+class ScoreAxisTests(unittest.TestCase):
+    def test_fixed_retrospective_vectors_drive_five_number_rows(self) -> None:
+        vectors = band.load_final_score_vectors()
+        self.assertEqual(len(vectors), 287)
+        records = [
+            SimpleNamespace(
+                set_id="uat-test0801-cli-luna-008",
+                run_name=f"{family}_luna_{index:03d}",
+            )
+            for family, index in [
+                ("filter", 1),
+                ("filter", 2),
+                ("filter", 3),
+                ("stats", 1),
+                ("stats", 2),
+                ("stats", 3),
+            ]
+        ]
+        self.assertEqual(
+            band.score_axis_row("cli", "Luna 008", records, vectors),
+            [
+                "Luna 008",
+                "reached 3/6",
+                "37.5",
+                "50.0",
+                "62.5",
+                "81.2",
+                "100.0",
+                "not measured",
+            ],
+        )
+
+    def test_scripted_cli_suite_is_three_rounds_and_exactly_pinned(self) -> None:
+        suite = band.load_scripted_directive_suite()
+        self.assertEqual(suite["status"], "registered_unexecuted")
+        self.assertEqual(suite["measurement_plan"], "BoN-0")
+        self.assertEqual(suite["max_rounds"], 3)
+        self.assertEqual([item["round"] for item in suite["rounds"]], [1, 2, 3])
+        self.assertRegex(suite["manifest_sha256"], r"^[0-9a-f]{64}$")
+
+
 def data_record(
     *,
     family: str,
@@ -706,6 +747,17 @@ class CliBandTests(unittest.TestCase):
         self.assertIn("C3 pass 6 / violation 1 / claims_absent 3", summary)
         self.assertIn("first repeated CLI full-rate and C3 price", summary)
         self.assertIn("successful terminal without UNKNOWN", summary)
+        self.assertIn(
+            "| Family | Executor | Directive round | full | non-full | denominator | full rate |",
+            summary,
+        )
+        self.assertIn(
+            "| Configuration | Reached n/N | Min | Q1 | Median | Q3 | Max | T2F |",
+            summary,
+        )
+        self.assertIn("`cli-c3-bon0` is registered but unexecuted", summary)
+        self.assertIn("T2F is planned with `BoN-0`", summary)
+        self.assertIn("scripted CLI C3 suite (registered; unexecuted)", summary)
 
     def test_directive_round_is_a_separate_cli_configuration_axis(self) -> None:
         root = Path("/tmp/d3d-band-fixture")

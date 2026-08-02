@@ -353,6 +353,14 @@ directive_suite:
 D-3d human round 1–2はC3未到達だったため、現時点の正準表記は
 `T2F = NA @ 2 (target_not_observed)` である。`T2F > 2`とは書かない。
 
+実装登録は `workspace/management/bench/directive-suites/cli-c3-bon0.toml` を正本とする。
+statusは `registered_unexecuted`、上限は3 round、targetは
+`cli_output_claims(anchor=cli.readme.observed_stdout)` である。台本のexact-byte SHA-256は
+round 1 `158a57112e2626f41d2e933df844c3b25ea8d970d7e7c46eb117844ad55d744c`、
+round 2 `c93e2c6ab16a802fb27f76c6272a44f547dce4f3d68f52d758043b38c0e1c6c4`、
+round 3 `02245d4473f153ea6946d12031d82374631e37d0dd315d123aa3e34a8bc5d831`
+に固定した。実行とT2F計測はBoN-0と同時に行うため、本変更ではrunを起動しない。
+
 ## 9. 二軸band表示案
 
 bandに既存のfull、到達、C3分布を残したまま、次の2列を加える。

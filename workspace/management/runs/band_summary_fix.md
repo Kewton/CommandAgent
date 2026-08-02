@@ -117,6 +117,16 @@ The same four campaigns after excluding exactly two #1 rows whose inherited `NOD
 | uat-test0719-dfix-006 | schema_qwen35_001 | fix | uat-meta | contract_hook_fix | qwen3.6:35b-a3b-coding-nvfp4 | failed | failed | failed | bench_product_exit | 13s | A raw+official |
 | uat-test0719-dfix-006 | schema_qwen35_002 | fix | uat-meta | contract_hook_fix | qwen3.6:35b-a3b-coding-nvfp4 | failed | failed | failed | bench_product_exit | 112s | A raw+official |
 
+## F-1 reached score and T2F axis
+
+This table is additive: every pre-existing band column and recorded SHA/pin above remains unchanged. Scores come from the fixed read-only `f1-retrospective-001/final-vectors.jsonl`; unreached runs are not inserted as zeroes.
+
+| Configuration | Reached n/N | Min | Q1 | Median | Q3 | Max | T2F |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Window A — raw | reached 24/24 | -16.7 | 33.3 | 33.3 | 33.3 | 100.0 | not measured |
+| Window A — official | reached 22/22 | -16.7 | 33.3 | 33.3 | 33.3 | 100.0 | not measured |
+| Window B — post-FIX-5 | reached 0/5 | N/A | N/A | N/A | N/A | N/A | not measured |
+
 ## Source sets
 
 - `uat-test0717-fix-001`

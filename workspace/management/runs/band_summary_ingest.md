@@ -107,6 +107,15 @@
 | uat-test0726-ingest-elev-008 | table_cloud_002 | table | gemma4:31b-cloud | failed | failed | failed (ingest_assurance_failed) | pass | failed | pass | pass | pass | model_stagnation_read_only | model | formal elevated Window B | 34 |
 | uat-test0726-ingest-elev-008 | table_cloud_003 | table | gemma4:31b-cloud | complete | full | static (profile_not_admitted) | pass | pass | pass | pass | pass | — | — | formal elevated Window B | 46 |
 
+## F-1 reached score and T2F axis
+
+This table is additive: every pre-existing band column and recorded SHA/pin above remains unchanged. Scores come from the fixed read-only `f1-retrospective-001/final-vectors.jsonl`; unreached runs are not inserted as zeroes.
+
+| Configuration | Reached n/N | Min | Q1 | Median | Q3 | Max | T2F |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| formal elevated Window B | reached 6/6 | 70.0 | 77.5 | 100.0 | 100.0 | 100.0 | not measured |
+| local reference | reached 0/6 | N/A | N/A | N/A | N/A | N/A | not measured |
+
 ## Source sets
 
 - `uat-test0726-ingest-001-v3` → `uat-test0726-ingest-001` (display alias only; historical evidence is not rewritten)

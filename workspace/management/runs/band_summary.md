@@ -65,6 +65,14 @@
 | Breakout | 30% | 29% | -1pp |  |
 | Space | 7% | 9% | +2pp |  |
 
+## F-1 reached score and T2F axis
+
+This table is additive: every pre-existing band column above remains unchanged. The fixed retrospective found all 78 Next.js rows aggregate-only: their full labels are preserved, but no per-run atom row exists, so a score or reached value is not inferred.
+
+| Configuration | Reached n/N | Min | Q1 | Median | Q3 | Max | T2F |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| formal included band | reached N/A; scannable 0/78 | N/A | N/A | N/A | N/A | N/A | not measured |
+
 ## Source Sets
 - `uat-test0711-bs-003`
 - `uat-test0711-bs-004`

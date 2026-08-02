@@ -189,6 +189,15 @@ Family-specific fixed-code baselines: aggregation starts at `uat-test0715-data-0
 | uat-test0716-data-009 | uat-test0716-data-009 | data9_ts_qwen35_profile_001 | timeseries | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | failed | inspection_schema_repair_then_read_only_write_required_exhausted | 552s | A+B |
 | uat-test0716-data-009 | uat-test0716-data-009 | data9_ts_qwen35_profile_002 | timeseries | qwen3.6:35b-a3b-coding-nvfp4 | profile | not_checked | static | model_stagnation:read_only_loop:write_required_exhausted:pipeline/main.py | 676s | A+B |
 
+## F-1 reached score and T2F axis
+
+This table is additive: every pre-existing band column and recorded SHA/pin above remains unchanged. Scores come from the fixed read-only `f1-retrospective-001/final-vectors.jsonl`; unreached runs are not inserted as zeroes.
+
+| Configuration | Reached n/N | Min | Q1 | Median | Q3 | Max | T2F |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Window A — all history | reached 13/50 | -37.5 | -37.5 | 37.5 | 75.0 | 100.0 | not measured |
+| Window B — mechanism-stable | reached 2/12 | 100.0 | 100.0 | 100.0 | 100.0 | 100.0 | not measured |
+
 ## Source sets
 
 | Set ID | Record directory |

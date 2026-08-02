@@ -19,6 +19,8 @@
 - Pack arm note: assist ceiling measured — 援助飽和・効果なし (live 3/3同一署名).
 - Pack interpretation: v1.0.0はlive 2件でC1材料のみ、v1.1.0はlive 1件でREADME照準+C3全3対を直接露出した。いずれもモデルはREADMEを更新せず、pack armのC3は9/9 violationのままだった。
 - Directive arm: `0/2` full; each round is a distinct configuration and retains its directive hash.
+- Scripted directive suite: `cli-c3-bon0` is registered but unexecuted; max rounds `3`; target `cli_output_claims(cli.readme.observed_stdout)`; manifest SHA-256 `e11892cf229dd12486339e853ed412fb8443ef7707131d183b83c768beff3b8b`; T2F is planned with `BoN-0`.
+- Scripted directive round pins: r1 `158a57112e2626f41d2e933df844c3b25ea8d970d7e7c46eb117844ad55d744c`, r2 `c93e2c6ab16a802fb27f76c6272a44f547dce4f3d68f52d758043b38c0e1c6c4`, r3 `02245d4473f153ea6946d12031d82374631e37d0dd315d123aa3e34a8bc5d831`.
 - Luna arm: `2/48` full; C checks reached `10/48`; observed API usage `2194688` input / `93764` output tokens; calculated cost `$1.200131`.
 - Luna interpretation: n=48 total. The 001/002 windows are machine BLOCKED 12/12 before generation (reasoning default × Chat Completions tools). The 003-005 text windows crossed the endpoint but stopped before C checks; the 005 dialect-calibrated window emitted repair_applied 9/9 yet retained residual b=4 or empty response=2. The 006-008 Responses/native windows reached C checks 10/18 and produced C3 pass 6 / violation 1 / claims_absent 3. The 007 and 008 post-projection windows each earned full 1/6 and C3 pass 2, establishing the first repeated CLI full-rate and C3 price. Luna full is 2/48; the testimony wall moves with model class and the correct endpoint. The 008 floor probes retained the required positional input and classified its successful terminal without UNKNOWN, while unresolved README metavars remained honestly rejected. Response model/service tier are observed while system_fingerprint is null.
 - Reach-rate comparison: Window B 2/6 (33.3%) vs v1.1.0 arm 1/6 (16.7%), -16.6 percentage points; combined pack arms 3/18 (16.7%) (descriptive only).
@@ -189,6 +191,19 @@
 | uat-test0801-cli-luna-008 | filter_luna_003 | filter | gpt-5.6-luna | none | round 0 / none | failed | failed (cli_assurance_failed) | fail | pass | claims_absent | pass | process_failure | model | OpenAI Luna F-2a-8 post-floor stability window — C checks 3/6; C3 pass 2 / claims_absent 1; full 1/6; UNKNOWN 0 | 1366 | $0.050592 |
 | d3c-shakedown-002 | cli_filter_gemma31_cloud_directive_001 | filter | gemma4:31b-cloud | none | round 1 / sha256:e868fada3d47b09d1a9226564e214e752d03a3a2da32b77f7addd08bb5850203 | failed | static (cli_probe_not_run) | not_reached | not_reached | not_reached | not_reached | cli_readme_structure:cli_invocation_missing | model | interactive directive arm — human Gate 4 continuation | 1510 | not recorded |
 | d3c-shakedown-002 | cli_filter_gemma31_cloud_directive_002 | filter | gemma4:31b-cloud | none | round 2 / sha256:55c180bb0fdc86eaa8b219f9aa7c872faae01c974e1d7ccce20ad01c708d2dc4 | failed | static (cli_probe_not_run) | not_reached | not_reached | not_reached | not_reached | cli_readme_structure:cli_invocation_missing | model | interactive directive arm — human Gate 4 continuation | 1671 | not recorded |
+
+## F-1 reached score and T2F axis
+
+This table is additive: every pre-existing band column and recorded SHA/pin above remains unchanged. Scores come from the fixed read-only `f1-retrospective-001/final-vectors.jsonl`; unreached runs are not inserted as zeroes.
+
+| Configuration | Reached n/N | Min | Q1 | Median | Q3 | Max | T2F |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| formal Window B | reached 2/6 | 62.5 | 62.5 | 62.5 | 62.5 | 62.5 | not measured |
+| local reference | reached 0/6 | N/A | N/A | N/A | N/A | N/A | not measured |
+| pack A/B arm | reached 3/18 | 62.5 | 62.5 | 62.5 | 62.5 | 62.5 | not measured |
+| interactive human directive arm | reached 0/2 | N/A | N/A | N/A | N/A | N/A | T2F = NA @ 2 (target_not_observed; human) |
+| OpenAI Luna arm | reached 10/48 | 0.0 | 62.5 | 62.5 | 71.9 | 100.0 | not measured |
+| scripted CLI C3 suite (registered; unexecuted) | reached 0/0 | N/A | N/A | N/A | N/A | N/A | pending BoN-0 |
 
 ## Source sets
 

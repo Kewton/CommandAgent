@@ -17,6 +17,7 @@ workspace/management/runs/ and printed to stdout.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 import statistics
@@ -26,6 +27,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import tomllib
 from id_vocabulary import INTERRUPTED_ENVIRONMENT
 from task_family_vocabulary import (
     AGGREGATION,
@@ -52,6 +54,10 @@ INVESTIGATION_OUTPUT = RUNS_DIR / "band_summary_investigation.md"
 CIRCLE_OUTPUT = RUNS_DIR / "band_summary_circle.md"
 CLI_OUTPUT = RUNS_DIR / "band_summary_cli.md"
 INGEST_OUTPUT = RUNS_DIR / "band_summary_ingest.md"
+SCORE_VECTOR_PATH = RUNS_DIR / "f1-retrospective-001" / "final-vectors.jsonl"
+CLI_SCRIPTED_DIRECTIVE_SUITE = (
+    ROOT / "workspace" / "management" / "bench" / "directive-suites" / "cli-c3-bon0.toml"
+)
 FULL_MEANING_LABELS = {
     "nextjs": (
         "build + real-browser route, interaction, and state-change evidence; "
@@ -1089,6 +1095,184 @@ def full_meaning_label(profile: str) -> str:
     return f"- Full meaning label: {FULL_MEANING_LABELS[profile]}"
 
 
+def load_final_score_vectors(path: Path | None = None) -> dict[tuple[str, str], dict[str, Any]]:
+    source = path or SCORE_VECTOR_PATH
+    vectors: dict[tuple[str, str], dict[str, Any]] = {}
+    for line_number, line in enumerate(
+        source.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        value = json.loads(line)
+        assert isinstance(value, dict), f"score vector is not an object: {source}:{line_number}"
+        assert value.get("schema_version") == "commandagent.score-vector/v0", (
+            f"unsupported score vector schema: {source}:{line_number}"
+        )
+        profile = str(value.get("profile") or "")
+        run_id = str(value.get("run_id") or "")
+        assert profile and run_id, f"score vector identity missing: {source}:{line_number}"
+        key = (profile, run_id)
+        assert key not in vectors, f"duplicate score vector: {profile}/{run_id}"
+        reached = value.get("reached")
+        score = value.get("score")
+        assert isinstance(reached, bool), f"score reached flag missing: {profile}/{run_id}"
+        assert (reached and isinstance(score, (int, float))) or (
+            not reached and score is None
+        ), f"score/reached mismatch: {profile}/{run_id}"
+        vectors[key] = value
+    return vectors
+
+
+def band_record_id(record: Any) -> str:
+    run_name = getattr(record, "run_name", None)
+    if run_name is None:
+        run_name = record.run_id
+    return f"{record.set_id}/{run_name}"
+
+
+def score_quantile(values: list[float], fraction: float) -> float:
+    ordered = sorted(values)
+    assert ordered, "score quantile requires at least one value"
+    position = (len(ordered) - 1) * fraction
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    interpolation = position - lower
+    return round(
+        ordered[lower] + (ordered[upper] - ordered[lower]) * interpolation,
+        1,
+    )
+
+
+def score_axis_row(
+    profile: str,
+    configuration: str,
+    records: list[Any],
+    vectors: dict[tuple[str, str], dict[str, Any]],
+    t2f: str = "not measured",
+) -> list[str]:
+    matched = [
+        vector
+        for record in records
+        if (vector := vectors.get((profile, band_record_id(record)))) is not None
+    ]
+    scores = [float(vector["score"]) for vector in matched if vector["reached"]]
+    summary = (
+        [
+            f"{min(scores):.1f}",
+            f"{score_quantile(scores, 0.25):.1f}",
+            f"{score_quantile(scores, 0.5):.1f}",
+            f"{score_quantile(scores, 0.75):.1f}",
+            f"{max(scores):.1f}",
+        ]
+        if scores
+        else ["N/A"] * 5
+    )
+    return [
+        configuration,
+        (
+            f"reached {len(scores)}/{len(records)}"
+            if len(matched) == len(records)
+            else f"reached N/A; scannable {len(matched)}/{len(records)}"
+        ),
+        *summary,
+        t2f,
+    ]
+
+
+def append_score_axis(
+    lines: list[str],
+    profile: str,
+    configurations: list[tuple[str, list[Any], str]],
+) -> None:
+    vectors = load_final_score_vectors()
+    rows = [
+        score_axis_row(profile, label, records, vectors, t2f)
+        for label, records, t2f in configurations
+    ]
+    lines.extend(
+        [
+            "",
+            "## F-1 reached score and T2F axis",
+            "",
+            (
+                "This table is additive: every pre-existing band column and recorded "
+                "SHA/pin above remains unchanged. Scores come from the fixed read-only "
+                "`f1-retrospective-001/final-vectors.jsonl`; unreached runs are not "
+                "inserted as zeroes."
+            ),
+            "",
+        ]
+    )
+    lines.extend(
+        table(
+            ["Configuration", "Reached n/N", "Min", "Q1", "Median", "Q3", "Max", "T2F"],
+            rows,
+        )
+    )
+
+
+def load_scripted_directive_suite(path: Path | None = None) -> dict[str, Any]:
+    source = path or CLI_SCRIPTED_DIRECTIVE_SUITE
+    with source.open("rb") as handle:
+        document = tomllib.load(handle)
+    assert set(document) == {"directive_suite", "rounds"}, (
+        "directive suite accepts only directive_suite and rounds"
+    )
+    declaration = document["directive_suite"]
+    assert isinstance(declaration, dict)
+    expected_fields = {
+        "schema_version",
+        "id",
+        "status",
+        "profile",
+        "intent",
+        "base_suite",
+        "base_suite_sha256",
+        "measurement_plan",
+        "target_atom",
+        "target_anchor",
+        "max_rounds",
+    }
+    assert set(declaration) == expected_fields, "directive suite declaration fields drifted"
+    assert declaration == {
+        "schema_version": "commandagent.eval.directive-suite/v0",
+        "id": "cli-c3-bon0",
+        "status": "registered_unexecuted",
+        "profile": "cli",
+        "intent": "create",
+        "base_suite": "workspace/management/bench/suites/cli-create-luna.toml",
+        "base_suite_sha256": declaration["base_suite_sha256"],
+        "measurement_plan": "BoN-0",
+        "target_atom": "cli_output_claims",
+        "target_anchor": "cli.readme.observed_stdout",
+        "max_rounds": 3,
+    }, "directive suite fixed declaration mismatch"
+    rounds = document["rounds"]
+    assert isinstance(rounds, list) and len(rounds) == declaration["max_rounds"]
+    assert [item.get("round") for item in rounds if isinstance(item, dict)] == [1, 2, 3], (
+        "directive rounds must be contiguous through max_rounds"
+    )
+
+    pinned_paths = [(declaration["base_suite"], declaration["base_suite_sha256"])]
+    for index, item in enumerate(rounds, start=1):
+        assert isinstance(item, dict) and set(item) == {"round", "script", "sha256"}, (
+            f"directive round {index} fields drifted"
+        )
+        pinned_paths.append((item["script"], item["sha256"]))
+    for relative, expected_hash in pinned_paths:
+        assert isinstance(relative, str) and isinstance(expected_hash, str)
+        relative_path = Path(relative)
+        assert not relative_path.is_absolute() and ".." not in relative_path.parts
+        assert re.fullmatch(r"[0-9a-f]{64}", expected_hash), (
+            f"invalid SHA-256 pin for {relative}"
+        )
+        observed = hashlib.sha256(ROOT.joinpath(relative_path).read_bytes()).hexdigest()
+        assert observed == expected_hash, f"directive suite pin mismatch: {relative}"
+    return {
+        **declaration,
+        "rounds": rounds,
+        "manifest_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+    }
+
+
 def build_summary(
     records: list[RunRecord], aggregate_row_total: int, scanned_sets: list[str]
 ) -> str:
@@ -1237,6 +1421,12 @@ def build_summary(
             note = "diff >15pp; target window includes post-0711 gate/A-B/task28 sets and counts every rerun in time order"
         rows.append([scenario, f"{expected}%", f"{actual}%", f"{delta:+d}pp", note])
     lines.extend(table(["Scenario", "Provisional", "Measured", "Delta", "Note"], rows))
+    lines.append("")
+    append_score_axis(
+        lines,
+        "nextjs",
+        [("formal included band", included, "not measured")],
+    )
     lines.append("")
     lines.append("## Source Sets")
     for set_id in scanned_sets:
@@ -1828,6 +2018,14 @@ def build_data_summary(
             ledger_rows,
         )
     )
+    append_score_axis(
+        lines,
+        "data",
+        [
+            ("Window A — all history", included, "not measured"),
+            ("Window B — mechanism-stable", stable, "not measured"),
+        ],
+    )
     lines.extend(["", "## Source sets", ""])
     lines.extend(
         table(
@@ -2411,6 +2609,19 @@ def build_fix_summary(
             ],
         )
     )
+    append_score_axis(
+        lines,
+        "fix",
+        [
+            ("Window A — raw", window_a_records, "not measured"),
+            ("Window A — official", official, "not measured"),
+            (
+                "Window B — post-FIX-5",
+                [record for record in window_b_records if not record.excluded_reason],
+                "not measured",
+            ),
+        ],
+    )
     lines.extend(["", "## Source sets", ""])
     lines.extend(f"- `{set_id}`" for set_id in scanned_sets)
     lines.append("")
@@ -2808,6 +3019,14 @@ def build_investigation_summary(
             ],
         )
     )
+    append_score_axis(
+        lines,
+        "investigation",
+        [
+            ("Window A — all history", window_a_records, "not measured"),
+            ("Window B — post-INV-1", window_b, "not measured"),
+        ],
+    )
     lines.extend(["", "## Source sets", ""])
     lines.extend(f"- `{set_id}`" for set_id in scanned_sets)
     lines.append("")
@@ -2963,6 +3182,11 @@ def build_circle_summary(
                 for record in records
             ],
         )
+    )
+    append_score_axis(
+        lines,
+        "circle",
+        [("formal elevated arm", included, "not measured")],
     )
     lines.extend(["", "## Source sets", ""])
     lines.extend(f"- `{set_id}`" for set_id in scanned_sets)
@@ -3446,6 +3670,7 @@ def build_cli_summary(
     scanned_sets: list[str],
     evidence_verified: int,
 ) -> str:
+    scripted_suite = load_scripted_directive_suite()
     local = [record for record in records if record.set_id == CLI_LOCAL_SET]
     window_b = [record for record in records if record.set_id == CLI_WINDOW_B_SET]
     pack_arm = [record for record in records if record.set_id in CLI_PACK_SETS]
@@ -3495,6 +3720,21 @@ def build_cli_summary(
         "- Pack arm note: assist ceiling measured — 援助飽和・効果なし (live 3/3同一署名).",
         "- Pack interpretation: v1.0.0はlive 2件でC1材料のみ、v1.1.0はlive 1件でREADME照準+C3全3対を直接露出した。いずれもモデルはREADMEを更新せず、pack armのC3は9/9 violationのままだった。",
         f"- Directive arm: `{sum(record.is_full for record in directive_arm)}/{len(directive_arm)}` full; each round is a distinct configuration and retains its directive hash.",
+        (
+            f"- Scripted directive suite: `{scripted_suite['id']}` is registered but "
+            f"unexecuted; max rounds `{scripted_suite['max_rounds']}`; target "
+            f"`{scripted_suite['target_atom']}({scripted_suite['target_anchor']})`; "
+            f"manifest SHA-256 `{scripted_suite['manifest_sha256']}`; T2F is planned "
+            f"with `{scripted_suite['measurement_plan']}`."
+        ),
+        (
+            "- Scripted directive round pins: "
+            + ", ".join(
+                f"r{item['round']} `{item['sha256']}`"
+                for item in scripted_suite["rounds"]
+            )
+            + "."
+        ),
         f"- Luna arm: `{sum(record.is_full for record in luna_arm)}/{len(luna_arm)}` full; C checks reached `{sum(record.reached_checks for record in luna_arm)}/{len(luna_arm)}`; observed API usage `{sum(record.api_input_tokens or 0 for record in luna_arm)}` input / `{sum(record.api_output_tokens or 0 for record in luna_arm)}` output tokens; calculated cost `${sum(record.cost_usd or 0.0 for record in luna_arm):.6f}`.",
         "- Luna interpretation: n=48 total. The 001/002 windows are machine BLOCKED 12/12 before generation (reasoning default × Chat Completions tools). The 003-005 text windows crossed the endpoint but stopped before C checks; the 005 dialect-calibrated window emitted repair_applied 9/9 yet retained residual b=4 or empty response=2. The 006-008 Responses/native windows reached C checks 10/18 and produced C3 pass 6 / violation 1 / claims_absent 3. The 007 and 008 post-projection windows each earned full 1/6 and C3 pass 2, establishing the first repeated CLI full-rate and C3 price. Luna full is 2/48; the testimony wall moves with model class and the correct endpoint. The 008 floor probes retained the required positional input and classified its successful terminal without UNKNOWN, while unresolved README metavars remained honestly rejected. Response model/service tier are observed while system_fingerprint is null.",
         "- Reach-rate comparison: Window B 2/6 (33.3%) vs v1.1.0 arm 1/6 (16.7%), -16.6 percentage points; combined pack arms 3/18 (16.7%) (descriptive only).",
@@ -3604,6 +3844,26 @@ def build_cli_summary(
                 for record in records
             ],
         )
+    )
+    append_score_axis(
+        lines,
+        "cli",
+        [
+            ("formal Window B", window_b, "not measured"),
+            ("local reference", local, "not measured"),
+            ("pack A/B arm", pack_arm, "not measured"),
+            (
+                "interactive human directive arm",
+                directive_arm,
+                "T2F = NA @ 2 (target_not_observed; human)",
+            ),
+            ("OpenAI Luna arm", luna_arm, "not measured"),
+            (
+                "scripted CLI C3 suite (registered; unexecuted)",
+                [],
+                "pending BoN-0",
+            ),
+        ],
     )
     lines.extend(["", "## Source sets", ""])
     lines.extend(f"- `{set_id}`" for set_id in scanned_sets)
@@ -3887,6 +4147,14 @@ def build_ingest_summary(
                 for record in records
             ],
         )
+    )
+    append_score_axis(
+        lines,
+        "ingest",
+        [
+            ("formal elevated Window B", window_b, "not measured"),
+            ("local reference", local, "not measured"),
+        ],
     )
     lines.extend(["", "## Source sets", ""])
     lines.append(

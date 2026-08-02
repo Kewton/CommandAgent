@@ -89,6 +89,14 @@
 | uat-test0722-circle-elev-008 | run2 | elevated | circle_failed | node_failed:fix | formal denominator | uat-test0722-circle-elev-008/run2/workflow-circle.json | uat-test0722-circle-elev-008/run2/workflow-events.jsonl |
 | uat-test0722-circle-elev-008 | run3 | elevated | circle_failed | node_failed:fix | formal denominator | uat-test0722-circle-elev-008/run3/workflow-circle.json | uat-test0722-circle-elev-008/run3/workflow-events.jsonl |
 
+## F-1 reached score and T2F axis
+
+This table is additive: every pre-existing band column and recorded SHA/pin above remains unchanged. Scores come from the fixed read-only `f1-retrospective-001/final-vectors.jsonl`; unreached runs are not inserted as zeroes.
+
+| Configuration | Reached n/N | Min | Q1 | Median | Q3 | Max | T2F |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| formal elevated arm | reached 3/3 | 66.7 | 66.7 | 66.7 | 83.3 | 100.0 | not measured |
+
 ## Source sets
 
 - `uat-test0722-circle-001`

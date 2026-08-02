@@ -1,0 +1,1 @@
+残っている cli_output_claims 違反を解消してください。凍結済み通常 argv を変更せずに実行し、README.md の対応する出力例を観測 stdout の完全一致へ修正してください。placeholder、説明用の架空値、未実行の期待値を追加せず、C1〜C4 の通常 acceptance を再実行してください。

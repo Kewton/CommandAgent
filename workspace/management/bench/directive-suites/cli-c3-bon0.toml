@@ -1,0 +1,27 @@
+[directive_suite]
+schema_version = "commandagent.eval.directive-suite/v0"
+id = "cli-c3-bon0"
+status = "registered_unexecuted"
+profile = "cli"
+intent = "create"
+base_suite = "workspace/management/bench/suites/cli-create-luna.toml"
+base_suite_sha256 = "e4c04d2374aa2c0d45eaeb6cdc51a2ea3fd0692533fd66070e0df505b01da895"
+measurement_plan = "BoN-0"
+target_atom = "cli_output_claims"
+target_anchor = "cli.readme.observed_stdout"
+max_rounds = 3
+
+[[rounds]]
+round = 1
+script = "workspace/management/bench/directives/cli-c3-bon0/round-1.txt"
+sha256 = "158a57112e2626f41d2e933df844c3b25ea8d970d7e7c46eb117844ad55d744c"
+
+[[rounds]]
+round = 2
+script = "workspace/management/bench/directives/cli-c3-bon0/round-2.txt"
+sha256 = "c93e2c6ab16a802fb27f76c6272a44f547dce4f3d68f52d758043b38c0e1c6c4"
+
+[[rounds]]
+round = 3
+script = "workspace/management/bench/directives/cli-c3-bon0/round-3.txt"
+sha256 = "02245d4473f153ea6946d12031d82374631e37d0dd315d123aa3e34a8bc5d831"

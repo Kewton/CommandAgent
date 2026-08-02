@@ -1,0 +1,43 @@
+case_id = "test0802_f1_score_runtime"
+source = "F-1b fixed score schema, additive checkpoint, and rejection corpus"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = []
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/valid-eval.yaml = [
+  "schema_version: commandagent.eval.score/v0",
+  "usage: [report, allocation]",
+  "params: {anchor: cli.readme.observed_stdout}"
+]
+fixtures/invalid-adoption.yaml = [
+  "usage: [report, adoption]",
+  "adoption: {minimum_score: 80}"
+]
+fixtures/invalid-existence-score.yaml = [
+  "atom: {id: file_exists, params: {path: README.md}}"
+]
+fixtures/invalid-floor.yaml = [
+  "state_values: {pass: 1, absent: 2, violation: 0}",
+  "formula: sum(weights)"
+]
+fixtures/invalid-free-judge.yaml = [
+  "judge: \"award when the README looks convincing\""
+]
