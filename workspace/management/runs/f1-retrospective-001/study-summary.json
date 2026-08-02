@@ -1,0 +1,210 @@
+{
+  "correlation": {
+    "method": "Spearman rank correlation between the first epoch-backed vector with at least one required atom observed and final full=1/non-full=0",
+    "minimum_display_n": 5,
+    "strata": [
+      {
+        "display": "hidden (n<5)",
+        "model_tier": "cloud",
+        "n": 0,
+        "profile": "circle",
+        "reason": "minimum_sample_guard",
+        "spearman": null
+      },
+      {
+        "display": "hidden (n<5)",
+        "model_tier": "local",
+        "n": 0,
+        "profile": "circle",
+        "reason": "minimum_sample_guard",
+        "spearman": null
+      },
+      {
+        "display": "hidden (n<5)",
+        "model_tier": "cloud",
+        "n": 0,
+        "profile": "cli",
+        "reason": "minimum_sample_guard",
+        "spearman": null
+      },
+      {
+        "display": "hidden (n<5)",
+        "model_tier": "frontier_reasoning",
+        "n": 0,
+        "profile": "cli",
+        "reason": "minimum_sample_guard",
+        "spearman": null
+      },
+      {
+        "display": "hidden (n<5)",
+        "model_tier": "local",
+        "n": 0,
+        "profile": "cli",
+        "reason": "minimum_sample_guard",
+        "spearman": null
+      },
+      {
+        "display": "hidden (n<5)",
+        "model_tier": "cloud",
+        "n": 0,
+        "profile": "data",
+        "reason": "minimum_sample_guard",
+        "spearman": null
+      },
+      {
+        "display": "hidden (n<5)",
+        "model_tier": "local",
+        "n": 0,
+        "profile": "data",
+        "reason": "minimum_sample_guard",
+        "spearman": null
+      },
+      {
+        "display": "0.0629",
+        "model_tier": "local",
+        "n": 24,
+        "profile": "fix",
+        "reason": "reported",
+        "spearman": 0.0629
+      },
+      {
+        "display": "hidden (n<5)",
+        "model_tier": "cloud",
+        "n": 0,
+        "profile": "ingest",
+        "reason": "minimum_sample_guard",
+        "spearman": null
+      },
+      {
+        "display": "hidden (n<5)",
+        "model_tier": "local",
+        "n": 0,
+        "profile": "ingest",
+        "reason": "minimum_sample_guard",
+        "spearman": null
+      },
+      {
+        "display": "unavailable (constant input)",
+        "model_tier": "local",
+        "n": 12,
+        "profile": "investigation",
+        "reason": "constant_score_or_final_outcome",
+        "spearman": null
+      }
+    ]
+  },
+  "coverage": {
+    "checkpoint_capable_runs": 36,
+    "final_only_runs": 251,
+    "historical_inventory_runs": 365,
+    "profiles": [
+      {
+        "checkpoint_capable_runs": 0,
+        "final_only_runs": 0,
+        "full_runs": 31,
+        "gap": "aggregate summary retained; run-level atom rows unavailable",
+        "inventory_runs": 78,
+        "profile": "nextjs",
+        "reached_runs": 0,
+        "scannable_runs": 0
+      },
+      {
+        "checkpoint_capable_runs": 0,
+        "final_only_runs": 33,
+        "full_runs": 1,
+        "inventory_runs": 33,
+        "profile": "circle",
+        "reached_runs": 30,
+        "scannable_runs": 33
+      },
+      {
+        "checkpoint_capable_runs": 0,
+        "final_only_runs": 98,
+        "full_runs": 2,
+        "inventory_runs": 98,
+        "profile": "cli",
+        "reached_runs": 16,
+        "scannable_runs": 98
+      },
+      {
+        "checkpoint_capable_runs": 0,
+        "final_only_runs": 60,
+        "full_runs": 2,
+        "inventory_runs": 60,
+        "profile": "data",
+        "reached_runs": 13,
+        "scannable_runs": 60
+      },
+      {
+        "checkpoint_capable_runs": 24,
+        "final_only_runs": 6,
+        "full_runs": 1,
+        "inventory_runs": 30,
+        "profile": "fix",
+        "reached_runs": 24,
+        "scannable_runs": 30
+      },
+      {
+        "checkpoint_capable_runs": 0,
+        "final_only_runs": 54,
+        "full_runs": 4,
+        "inventory_runs": 54,
+        "profile": "ingest",
+        "reached_runs": 20,
+        "scannable_runs": 54
+      },
+      {
+        "checkpoint_capable_runs": 12,
+        "final_only_runs": 0,
+        "full_runs": 0,
+        "inventory_runs": 12,
+        "profile": "investigation",
+        "reached_runs": 12,
+        "scannable_runs": 12
+      }
+    ],
+    "scannable_runs": 287,
+    "unscannable_aggregate_only_runs": 78
+  },
+  "fixed_date": "2026-08-02",
+  "full_score_consistency": {
+    "failures": [],
+    "legacy_aggregate_only_full_runs_not_reconstructable": 31,
+    "scannable_full_runs": 10,
+    "score_100_runs": 10,
+    "status": "pass"
+  },
+  "guards": {
+    "checkpoint_time_invented": false,
+    "historical_files_mutated": false,
+    "historical_tree_after": {
+      "file_count": 4393,
+      "tree_sha256": "13c3428588202c820e3f293c18f137f907ff19d315926f09dc7ceeb60b598e38"
+    },
+    "historical_tree_before": {
+      "file_count": 4393,
+      "tree_sha256": "13c3428588202c820e3f293c18f137f907ff19d315926f09dc7ceeb60b598e38"
+    },
+    "mtime_used_as_checkpoint": false,
+    "new_judges": 0,
+    "weights_changed": false
+  },
+  "schema_version": "commandagent.score-retrospective/v0",
+  "score_spec": {
+    "new_judges": 0,
+    "scale": [
+      -50,
+      100
+    ],
+    "state_coefficients": {
+      "absent": 0,
+      "pass": 1,
+      "unobserved": 0,
+      "violation": -0.5
+    },
+    "weights": "equal required-atom weights",
+    "weights_changed_after_scan": false
+  },
+  "status": "complete",
+  "study_id": "f1-retrospective-001"
+}
