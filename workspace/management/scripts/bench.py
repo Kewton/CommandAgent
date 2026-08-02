@@ -19,7 +19,6 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 import tomllib
-
 from id_vocabulary import INTERRUPTED_ENVIRONMENT
 
 HARNESS_VERSION = "0.1"
