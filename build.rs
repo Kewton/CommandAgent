@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 #[allow(dead_code)]
 #[path = "src/env_compat.rs"]
@@ -72,21 +71,6 @@ fn build_timestamp() -> String {
     {
         return format!("unix:{seconds}");
     }
-    command_output("date", &["-u", "+%Y-%m-%dT%H:%M:%SZ"]).unwrap_or_else(|| {
-        let seconds = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|duration| duration.as_secs())
-            .unwrap_or_default();
-        format!("unix:{seconds}")
-    })
-}
 
-fn command_output(program: &str, args: &[&str]) -> Option<String> {
-    let output = Command::new(program).args(args).output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    let text = String::from_utf8(output.stdout).ok()?;
-    let trimmed = text.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
+    git_output(&["show", "-s", "--format=%cI", "HEAD"]).unwrap_or_else(|| "unknown".to_string())
 }

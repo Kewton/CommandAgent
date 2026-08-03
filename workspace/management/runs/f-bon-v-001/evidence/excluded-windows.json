@@ -1,0 +1,44 @@
+{
+  "schema_version": "commandagent.bon-excluded-windows/v0",
+  "recorded_at": "2026-08-03T17:50:44+09:00",
+  "series_id": "f-bon-v-cli-luna",
+  "denominator_policy": "Exclude windows executed without the new series binary pin; preserve their within-window observations without reclassifying outcomes.",
+  "windows": [
+    {
+      "label": "bon0-002",
+      "campaign_id": "cli-filter-bon0-20260803-033022",
+      "result": "bon0-002-selection.json",
+      "within_window_valid": true,
+      "full_count": 1,
+      "trials": 6,
+      "binary_sha256": "6eaae73c63088657be366b41a8587fd8f7daa370bb030938daa4018e4f8040c5",
+      "excluded_from_restart_denominator": true,
+      "reasons": [
+        "series_binary_pin_not_declared_or_checked_before_spend",
+        "cross_window_binary_sha256_mismatch"
+      ]
+    },
+    {
+      "label": "bon0-003",
+      "campaign_id": "cli-filter-bon0-20260803-060453",
+      "result": "bon0-003-selection.json",
+      "within_window_valid": true,
+      "full_count": 0,
+      "trials": 6,
+      "binary_sha256": "33af36ab2b4807c295f82819c22edff787a57df87d6baba2873dee7bb3bf722d",
+      "excluded_from_restart_denominator": true,
+      "reasons": [
+        "series_binary_pin_not_declared_or_checked_before_spend",
+        "cross_window_binary_sha256_mismatch"
+      ]
+    }
+  ],
+  "invalid_environment_attempt": {
+    "campaign_id": "cli-filter-bon0-20260803-031558",
+    "statistical_trials": 0,
+    "reason": "OPENAI_API_KEY_not_set",
+    "disposition": "remains outside every denominator"
+  },
+  "bon0-001_disposition": "Compare its instrument SHA with the post-commit-A pin in the restart predeclaration; exclude it and procure a fourth new window if they differ.",
+  "outcomes_reclassified": false
+}

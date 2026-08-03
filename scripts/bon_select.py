@@ -26,6 +26,7 @@ from score_retrospective import AtomObservation, normalize_state, score_atoms
 
 SCHEMA_VERSION = "commandagent.bon-selection/v0"
 INDEPENDENCE_SCHEMA_VERSION = "commandagent.bon-independence/v0"
+BON_PREDECLARATION_SCHEMA_VERSION = "commandagent.bon-validation-predeclaration/v1"
 EXPECTED_SUITE_ID = "cli-filter-bon0"
 EXPECTED_N = 6
 EXPECTED_GOAL = "filter"
@@ -434,6 +435,29 @@ def build_selection(
     )
     if not built_binary or built_binary != installed_binary:
         invalid.append("binary_hash_mismatch")
+    bon_series = suite_document["suite"].get("bon_series")
+    series_pin = metadata.get("preflight", {}).get("bon_series_pin")
+    if bon_series is not None:
+        if not isinstance(series_pin, dict):
+            invalid.append("bon_series_pin_missing")
+            series_pin = None
+        else:
+            pin_checks = (
+                series_pin.get("schema_version")
+                == BON_PREDECLARATION_SCHEMA_VERSION,
+                series_pin.get("series_id") == bon_series,
+                series_pin.get("execution_revision_expected")
+                == series_pin.get("execution_revision_observed"),
+                series_pin.get("suite_sha256_expected")
+                == sha256_file(suite_path),
+                series_pin.get("binary_sha256_expected") == built_binary,
+                series_pin.get("binary_sha256_observed") == built_binary,
+                series_pin.get("binary_sha256_matches") is True,
+            )
+            if not all(pin_checks):
+                invalid.append("bon_series_pin_mismatch")
+    elif series_pin is not None:
+        invalid.append("unexpected_bon_series_pin")
     pack_pin = metadata_suite.get("pack")
     if not isinstance(pack_pin, dict):
         pack_pin = None
@@ -543,8 +567,12 @@ def build_selection(
             "fields": {field: baseline_suite.get(field) for field in BASELINE_FIELDS},
         },
         "identity": {
-            "all_equal": not any(reason.endswith("mismatch") for reason in invalid),
+            "all_equal": not any(
+                reason.endswith("mismatch") or reason == "bon_series_pin_missing"
+                for reason in invalid
+            ),
             "binary_sha256": built_binary,
+            "bon_series_pin": series_pin,
             "input_pin_sha256": next(iter(input_pins), None),
             "pack_pin": pack_pin,
             "model_drift_probe": "requested/returned model, service tier, system fingerprint",

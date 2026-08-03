@@ -22,6 +22,7 @@ import tomllib
 from id_vocabulary import INTERRUPTED_ENVIRONMENT
 
 HARNESS_VERSION = "0.1"
+BON_PREDECLARATION_SCHEMA_VERSION = "commandagent.bon-validation-predeclaration/v1"
 PACK_HASH_DOMAIN = b"commandagent-pack-v0\0"
 PACK_FILES = ("assist.yaml", "eval.yaml")
 PACK_SCHEMA_VERSIONS = {
@@ -99,6 +100,7 @@ class SuiteDefinition:
     api: str | None
     tool_protocol: str | None
     min_head: str | None
+    bon_series: str | None
     pack_id: str | None
     pack_version: str | None
     pack_hash: str | None
@@ -127,6 +129,15 @@ class ProcurementResult:
     observed_sha256: dict[str, str | None]
     precheck: dict[str, Any] | None
     workspace_integrity: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class BonSeriesPredeclaration:
+    path: Path
+    series_id: str
+    execution_revision: str
+    suite_sha256: str
+    binary_sha256: str
 
 
 @dataclass(frozen=True)
@@ -323,6 +334,7 @@ def load_suite(path: Path) -> SuiteDefinition:
             "api",
             "tool_protocol",
             "min_head",
+            "bon_series",
             "pack_id",
             "pack_version",
             "pack_hash",
@@ -369,6 +381,14 @@ def load_suite(path: Path) -> SuiteDefinition:
         not isinstance(min_head_value, str) or not min_head_value.strip()
     ):
         raise BenchError("suite.min_head must be a non-empty string when present")
+    bon_series = suite_table.get("bon_series")
+    if bon_series is not None and (
+        not isinstance(bon_series, str)
+        or re.fullmatch(r"[a-z0-9][a-z0-9-]*", bon_series) is None
+    ):
+        raise BenchError(
+            "suite.bon_series must use lowercase letters, digits, and hyphens"
+        )
     pack_id = suite_table.get("pack_id")
     pack_version = suite_table.get("pack_version")
     pack_hash = suite_table.get("pack_hash")
@@ -560,6 +580,7 @@ def load_suite(path: Path) -> SuiteDefinition:
         api=api,
         tool_protocol=tool_protocol,
         min_head=min_head_value,
+        bon_series=bon_series,
         pack_id=pack_id,
         pack_version=pack_version,
         pack_hash=pack_hash,
@@ -568,6 +589,68 @@ def load_suite(path: Path) -> SuiteDefinition:
         sources=tuple(sources),
         runs=tuple(runs),
         scrub_allow=tuple(scrub_allow),
+    )
+
+
+def load_bon_predeclaration(
+    path: Path, suite: SuiteDefinition
+) -> BonSeriesPredeclaration:
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise BenchError(f"cannot load BoN predeclaration {path}: {error}") from error
+    if not isinstance(document, dict):
+        raise BenchError("BoN predeclaration root must be an object")
+    if document.get("schema_version") != BON_PREDECLARATION_SCHEMA_VERSION:
+        raise BenchError(
+            "BoN predeclaration schema_version must be "
+            f"{BON_PREDECLARATION_SCHEMA_VERSION}"
+        )
+    required = (
+        "recorded_at",
+        "series_id",
+        "execution_revision",
+        "suite_sha256",
+        "binary_sha256",
+    )
+    for key in required:
+        if not isinstance(document.get(key), str) or not document[key].strip():
+            raise BenchError(f"BoN predeclaration {key} must be a non-empty string")
+    series_id = str(document["series_id"])
+    if suite.bon_series is None:
+        raise BenchError("--bon-predeclaration is only valid for a BoN suite")
+    if series_id != suite.bon_series:
+        raise BenchError(
+            "BoN predeclaration series_id differs from suite.bon_series: "
+            f"expected {suite.bon_series}, observed {series_id}"
+        )
+    execution_revision = str(document["execution_revision"])
+    if re.fullmatch(r"[0-9a-f]{40,64}", execution_revision) is None:
+        raise BenchError(
+            "BoN predeclaration execution_revision must be a full lowercase Git SHA"
+        )
+    suite_sha256 = str(document["suite_sha256"])
+    binary_sha256 = str(document["binary_sha256"])
+    for label, value in (
+        ("suite_sha256", suite_sha256),
+        ("binary_sha256", binary_sha256),
+    ):
+        if re.fullmatch(r"[0-9a-f]{64}", value) is None:
+            raise BenchError(
+                f"BoN predeclaration {label} must be a lowercase SHA-256"
+            )
+    observed_suite_sha256 = sha256_file(suite.path)
+    if suite_sha256 != observed_suite_sha256:
+        raise BenchError(
+            "BoN predeclaration suite SHA-256 mismatch: "
+            f"expected {suite_sha256}, observed {observed_suite_sha256}"
+        )
+    return BonSeriesPredeclaration(
+        path=path.resolve(),
+        series_id=series_id,
+        execution_revision=execution_revision,
+        suite_sha256=suite_sha256,
+        binary_sha256=binary_sha256,
     )
 
 
@@ -706,6 +789,7 @@ def perform_preflight(
     min_head: str | None,
     skip_suite_tests: bool,
     allowed_output_dir: Path | None = None,
+    bon_predeclaration: BonSeriesPredeclaration | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, str]]]:
     records: dict[str, Any] = {"started_epoch": int(time.time())}
     deviations: list[dict[str, str]] = []
@@ -730,6 +814,23 @@ def perform_preflight(
     records["head"] = head
     _require_success(head, "HEAD resolution")
     records["head_sha"] = head["stdout_tail"].strip()
+    if bon_predeclaration is not None:
+        records["bon_series_pin"] = {
+            "schema_version": BON_PREDECLARATION_SCHEMA_VERSION,
+            "predeclaration_path": str(bon_predeclaration.path),
+            "predeclaration_sha256": sha256_file(bon_predeclaration.path),
+            "series_id": bon_predeclaration.series_id,
+            "execution_revision_expected": bon_predeclaration.execution_revision,
+            "execution_revision_observed": records["head_sha"],
+            "suite_sha256_expected": bon_predeclaration.suite_sha256,
+            "binary_sha256_expected": bon_predeclaration.binary_sha256,
+        }
+        if records["head_sha"] != bon_predeclaration.execution_revision:
+            raise BenchError(
+                "preflight BoN series revision pin mismatch: "
+                f"expected {bon_predeclaration.execution_revision}, "
+                f"observed {records['head_sha']}"
+            )
     head_log = _run_capture(["git", "log", "-1", "--oneline"], repo_root)
     records["head_log"] = head_log
     _require_success(head_log, "HEAD log")
@@ -771,6 +872,20 @@ def perform_preflight(
     built_binary = repo_root / "target" / "release" / "commandagent"
     if not built_binary.is_file():
         raise BenchError(f"preflight release binary missing: {built_binary}")
+    built_binary_sha256 = sha256_file(built_binary)
+    records["binary_sha256"] = {"built": built_binary_sha256}
+    if bon_predeclaration is not None:
+        pin_record = records["bon_series_pin"]
+        pin_record["binary_sha256_observed"] = built_binary_sha256
+        pin_record["binary_sha256_matches"] = (
+            built_binary_sha256 == bon_predeclaration.binary_sha256
+        )
+        if not pin_record["binary_sha256_matches"]:
+            raise BenchError(
+                "preflight BoN series binary SHA-256 pin mismatch: "
+                f"expected {bon_predeclaration.binary_sha256}, "
+                f"observed {built_binary_sha256}"
+            )
     install_dir = Path.home() / ".local" / "bin"
     try:
         install_dir.mkdir(parents=True, exist_ok=True)
@@ -782,10 +897,7 @@ def perform_preflight(
     )
     records["install"] = install
     _require_success(install, "release install")
-    records["binary_sha256"] = {
-        "built": sha256_file(built_binary),
-        "installed": sha256_file(installed_binary),
-    }
+    records["binary_sha256"]["installed"] = sha256_file(installed_binary)
     if records["binary_sha256"]["built"] != records["binary_sha256"]["installed"]:
         raise BenchError(
             "preflight installed binary SHA-256 differs from release build"
@@ -1273,6 +1385,8 @@ def _suite_metadata(
         metadata["api"] = suite.api
     if suite.tool_protocol is not None:
         metadata["tool_protocol"] = suite.tool_protocol
+    if suite.bon_series is not None:
+        metadata["bon_series"] = suite.bon_series
     if suite.workspace_mode != "sourced":
         metadata["workspace_mode"] = suite.workspace_mode
     resolved_pack = _pack_runtime_metadata(suite, repo_root)
@@ -1816,6 +1930,7 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--resume", action="store_true")
     run_parser.add_argument("--min-head")
     run_parser.add_argument("--skip-suite-tests", action="store_true")
+    run_parser.add_argument("--bon-predeclaration", type=Path)
     scrub_parser = subparsers.add_parser("scrub", help="scan a report or artifact tree")
     scrub_parser.add_argument("--path", required=True, type=Path)
     return parser
@@ -1840,13 +1955,28 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         suite_path = resolve_suite_path(repo_root, args.suite)
         suite = load_suite(suite_path)
+        bon_predeclaration = None
+        if suite.bon_series is not None:
+            if args.bon_predeclaration is None:
+                raise BenchError(
+                    "BoN suite requires --bon-predeclaration with a pinned binary SHA-256"
+                )
+            bon_predeclaration = load_bon_predeclaration(
+                args.bon_predeclaration.expanduser().resolve(), suite
+            )
+        elif args.bon_predeclaration is not None:
+            raise BenchError("--bon-predeclaration is only valid for a BoN suite")
         workspace_root = args.workspace_root.expanduser().resolve()
         _validate_workspace_root(workspace_root, repo_root)
         min_head = args.min_head or suite.min_head
         if args.resume:
             campaign_dir = find_resume_campaign(workspace_root, suite)
             preflight, deviations = perform_preflight(
-                repo_root, min_head, args.skip_suite_tests, campaign_dir
+                repo_root,
+                min_head,
+                args.skip_suite_tests,
+                campaign_dir,
+                bon_predeclaration,
             )
             metadata = load_resume_metadata(campaign_dir, suite)
             metadata["preflight"] = preflight
@@ -1855,7 +1985,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             campaign_dir = create_campaign(workspace_root, suite.suite_id, args.dry_run)
             preflight, deviations = perform_preflight(
-                repo_root, min_head, args.skip_suite_tests, campaign_dir
+                repo_root,
+                min_head,
+                args.skip_suite_tests,
+                campaign_dir,
+                bon_predeclaration,
             )
             metadata = new_metadata(
                 suite,

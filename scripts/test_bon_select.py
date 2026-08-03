@@ -98,12 +98,25 @@ def write_campaign(
         "suite": {
             "id": "cli-filter-bon0",
             "sha256": bon_select.sha256_file(SUITE),
+            "bon_series": "f-bon-v-cli-luna",
             "profile": "cli",
             "intent": "create",
             "planner_model": "qwen3.6:27b-coding-nvfp4",
             "provider": "openai",
         },
-        "preflight": {"binary_sha256": {"built": "a" * 64, "installed": "a" * 64}},
+        "preflight": {
+            "binary_sha256": {"built": "a" * 64, "installed": "a" * 64},
+            "bon_series_pin": {
+                "schema_version": bon_select.BON_PREDECLARATION_SCHEMA_VERSION,
+                "series_id": "f-bon-v-cli-luna",
+                "execution_revision_expected": "b" * 40,
+                "execution_revision_observed": "b" * 40,
+                "suite_sha256_expected": bon_select.sha256_file(SUITE),
+                "binary_sha256_expected": "a" * 64,
+                "binary_sha256_observed": "a" * 64,
+                "binary_sha256_matches": True,
+            },
+        },
         "runs": metadata_runs,
     }
     (campaign / "uat-meta.json").write_text(json.dumps(metadata), encoding="utf-8")
@@ -194,6 +207,26 @@ class BonSelectionTests(unittest.TestCase):
         self.assertIn("model_metadata_mismatch", result["invalid_reasons"])
         self.assertEqual(result["selection"]["kind"], "invalid_measurement")
         self.assertIsNone(result["selection"]["run"])
+
+    def test_series_binary_pin_mismatch_invalidates_measurement(self) -> None:
+        vectors = [("pass", "pass", "pass", "pass")] * 6
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            campaign = write_campaign(root, vectors, {1})
+            metadata_path = campaign / "uat-meta.json"
+            metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+            metadata["preflight"]["bon_series_pin"]["binary_sha256_expected"] = (
+                "c" * 64
+            )
+            metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+            result = bon_select.build_selection(
+                campaign, SUITE, BASELINE, root / "calibration"
+            )
+
+        self.assertFalse(result["valid_measurement"])
+        self.assertIn("bon_series_pin_mismatch", result["invalid_reasons"])
+        self.assertEqual(result["selection"]["kind"], "invalid_measurement")
 
     def test_cross_campaign_binomial_dispersion_uses_predeclared_ratio(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import shlex
 import tempfile
 import textwrap
@@ -88,6 +89,7 @@ def write_source_less_suite(
     workspace_mode: str | None = "empty",
     with_sources: bool = False,
     with_run_set: bool = False,
+    bon_series: str | None = None,
 ) -> Path:
     mode_line = (
         f'workspace_mode = "{workspace_mode}"' if workspace_mode is not None else ""
@@ -101,6 +103,9 @@ def write_source_less_suite(
         else ""
     )
     run_set = 'set = "unexpected"' if with_run_set else ""
+    bon_series_line = (
+        f'bon_series = "{bon_series}"' if bon_series is not None else ""
+    )
     suite_path = root / "source-less-suite.toml"
     suite_path.write_text(
         textwrap.dedent(
@@ -115,6 +120,7 @@ def write_source_less_suite(
             planner_provider = "ollama"
             provider = "ollama"
             {mode_line}
+            {bon_series_line}
 
             [goals]
             cli = "create a cli"
@@ -141,6 +147,7 @@ class SuiteAndCommandTests(unittest.TestCase):
             SUITES_DIR / "cli-create-elevated-cli-assist.toml"
         )
         cli_luna = bench.load_suite(SUITES_DIR / "cli-create-luna.toml")
+        cli_bon = bench.load_suite(SUITES_DIR / "cli-filter-bon0.toml")
 
         self.assertEqual(dfix.suite_id, "dfix-synthesis")
         self.assertEqual(dfix.workspace_mode, "sourced")
@@ -157,6 +164,7 @@ class SuiteAndCommandTests(unittest.TestCase):
         self.assertEqual(len(cli_pack.runs), 6)
         self.assertEqual(cli_luna.api, "responses")
         self.assertEqual(cli_luna.tool_protocol, "native")
+        self.assertEqual(cli_bon.bon_series, "f-bon-v-cli-luna")
         self.assertIn("--api", bench.build_command(cli_luna, cli_luna.runs[0]))
         self.assertIn("responses", bench.build_command(cli_luna, cli_luna.runs[0]))
         self.assertIn(
@@ -209,6 +217,71 @@ class SuiteAndCommandTests(unittest.TestCase):
                 "suite.api must be chat_completions or responses when present",
             ):
                 bench.load_suite(suite_path)
+
+    def test_bon_predeclaration_requires_binary_sha256(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            suite = bench.load_suite(
+                write_source_less_suite(root, bon_series="test-bon-series")
+            )
+            predeclaration = root / "predeclaration.json"
+            predeclaration.write_text(
+                json.dumps(
+                    {
+                        "schema_version": bench.BON_PREDECLARATION_SCHEMA_VERSION,
+                        "recorded_at": "2026-08-03T00:00:00+09:00",
+                        "series_id": "test-bon-series",
+                        "execution_revision": "a" * 40,
+                        "suite_sha256": bench.sha256_file(suite.path),
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                bench.BenchError,
+                "binary_sha256 must be a non-empty string",
+            ):
+                bench.load_bon_predeclaration(predeclaration, suite)
+
+    def test_bon_predeclaration_records_valid_series_pin(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            suite = bench.load_suite(
+                write_source_less_suite(root, bon_series="test-bon-series")
+            )
+            predeclaration = root / "predeclaration.json"
+            document = {
+                "schema_version": bench.BON_PREDECLARATION_SCHEMA_VERSION,
+                "recorded_at": "2026-08-03T00:00:00+09:00",
+                "series_id": "test-bon-series",
+                "execution_revision": "a" * 40,
+                "suite_sha256": bench.sha256_file(suite.path),
+                "binary_sha256": "b" * 64,
+            }
+            predeclaration.write_text(json.dumps(document), encoding="utf-8")
+
+            pin = bench.load_bon_predeclaration(predeclaration, suite)
+
+            self.assertEqual(pin.series_id, "test-bon-series")
+            self.assertEqual(pin.binary_sha256, "b" * 64)
+
+    def test_bon_suite_requires_predeclaration_before_workspace_allocation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory) / "workspace"
+
+            exit_code = bench.main(
+                [
+                    "run",
+                    "--suite",
+                    str(SUITES_DIR / "cli-filter-bon0.toml"),
+                    "--workspace-root",
+                    str(workspace),
+                ]
+            )
+
+            self.assertEqual(exit_code, 2)
+            self.assertFalse(workspace.exists())
 
     def test_empty_workspace_rejects_sources(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -351,6 +424,60 @@ class SuiteAndCommandTests(unittest.TestCase):
             bench.verify_unwrapped_command(["timeout", "commandagent"])
         with self.assertRaisesRegex(bench.BenchError, "wrapper token"):
             bench.verify_unwrapped_command(["commandagent", "nice"])
+
+
+class PreflightPinTests(unittest.TestCase):
+    def test_binary_pin_mismatch_fails_before_install_or_product(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / "target/release/commandagent"
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"deterministic fixture binary")
+            predeclaration = root / "predeclaration.json"
+            predeclaration.write_text("{}", encoding="utf-8")
+            pin = bench.BonSeriesPredeclaration(
+                path=predeclaration,
+                series_id="test-bon-series",
+                execution_revision="a" * 40,
+                suite_sha256="b" * 64,
+                binary_sha256="0" * 64,
+            )
+            commands: list[tuple[str, ...]] = []
+
+            def capture(argv: list[str], _cwd: Path) -> dict[str, object]:
+                commands.append(tuple(argv))
+                stdout = ""
+                if argv[:2] == ["git", "rev-parse"]:
+                    stdout = "a" * 40 + "\n"
+                elif argv[:2] == ["git", "log"]:
+                    stdout = "aaaaaaaa fixture\n"
+                return {
+                    "command_argv": argv,
+                    "command": bench.format_command(argv),
+                    "start_epoch": 1,
+                    "end_epoch": 1,
+                    "exit_code": 0,
+                    "stdout_tail": stdout,
+                    "stderr_tail": "",
+                }
+
+            with (
+                mock.patch.object(bench, "_run_capture", side_effect=capture),
+                self.assertRaisesRegex(
+                    bench.BenchError,
+                    "BoN series binary SHA-256 pin mismatch",
+                ),
+            ):
+                bench.perform_preflight(
+                    root,
+                    min_head=None,
+                    skip_suite_tests=True,
+                    bon_predeclaration=pin,
+                )
+
+            self.assertIn(("cargo", "build", "--release"), commands)
+            self.assertFalse(any(command[0] == "install" for command in commands))
+            self.assertFalse(any(command[0] == "commandagent" for command in commands))
 
 
 class ProcurementTests(unittest.TestCase):
