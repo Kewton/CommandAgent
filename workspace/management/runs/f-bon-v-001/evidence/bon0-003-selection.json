@@ -1,0 +1,525 @@
+{
+  "baseline": {
+    "fields": {
+      "api": "responses",
+      "context_budget": 65536,
+      "intent": "create",
+      "min_head": "527bdc1e",
+      "plan_preset": "default",
+      "planner_model": "qwen3.6:27b-coding-nvfp4",
+      "planner_provider": "ollama",
+      "profile": "cli",
+      "provider": "openai",
+      "tool_protocol": "native",
+      "workspace_mode": "empty"
+    },
+    "goal_sha256": "87977bbb84c010dc158eba0246c3f04794899f65303c3585292070d9b2ef4070",
+    "suite_id": "cli-create-luna",
+    "suite_sha256": "e4c04d2374aa2c0d45eaeb6cdc51a2ea3fd0692533fd66070e0df505b01da895"
+  },
+  "campaign_id": "cli-filter-bon0-20260803-060453",
+  "definition": {
+    "configuration": "bon:6",
+    "independent_workspaces": true,
+    "prediction": false,
+    "pruning": false,
+    "repair_connected": false,
+    "single_goal": "filter"
+  },
+  "identity": {
+    "all_equal": true,
+    "binary_sha256": "33af36ab2b4807c295f82819c22edff787a57df87d6baba2873dee7bb3bf722d",
+    "input_pin_sha256": "17ea4c1c82797c44434dac6681436d47d58e77bcbfd1c0b90b75e6f263fd843c",
+    "model_drift_probe": "requested/returned model, service tier, system fingerprint",
+    "pack_pin": null,
+    "sampling": {
+      "evidence": "disjoint executor provider-response-id sets",
+      "seed_policy": "provider-managed per request; no fixed seed shared across trials",
+      "temperature_policy": "provider default per request; no fixed temperature shared across trials",
+      "trial_specific": true
+    }
+  },
+  "invalid_reasons": [],
+  "pricing": {
+    "basis": "Luna standard rates fixed by the 2026-08-02 F-2 campaign",
+    "usd_per_million_tokens": {
+      "cached_input": 0.1,
+      "output": 6.0,
+      "uncached_input": 1.0
+    }
+  },
+  "retention": {
+    "calibration_records_appended": 3,
+    "nonselected_evidence_preserved": 5,
+    "nonselected_runs": 5
+  },
+  "runs": [
+    {
+      "calibration_records": 1,
+      "cost_usd": 0.0435706,
+      "duration_seconds": 1476,
+      "earned_full": false,
+      "evidence": {
+        "acceptance_sheet": true,
+        "event_files": 1,
+        "file_count": 21,
+        "preserved": true
+      },
+      "identity": {
+        "binary_sha256": "33af36ab2b4807c295f82819c22edff787a57df87d6baba2873dee7bb3bf722d",
+        "input_expected_observed_equal": true,
+        "input_pin_sha256": "17ea4c1c82797c44434dac6681436d47d58e77bcbfd1c0b90b75e6f263fd843c",
+        "model": {
+          "matches_requested_executor": true,
+          "provider_turns": 18,
+          "requested_models": [
+            "gpt-5.6-luna"
+          ],
+          "response_id_set_sha256": "c0018ed576b3c9fab3b568fed3e671c5eec98b9a66f6dfdecd96dad0bbb64da9",
+          "response_ids_recorded": 18,
+          "response_ids_unique": true,
+          "returned_models": [
+            "gpt-5.6-luna"
+          ],
+          "service_tiers": [
+            "default"
+          ],
+          "system_fingerprints": [
+            "null"
+          ]
+        },
+        "pack_pin": null,
+        "pack_pin_matches_suite": true
+      },
+      "name": "filter_bon0_001",
+      "native_tool_calls": 21,
+      "provider_turns": 18,
+      "score_vector": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "violation"
+          },
+          {
+            "key": "help_binding",
+            "state": "pass"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "violation"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "pass"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": 25.0,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 2
+      },
+      "selected": false,
+      "usage": {
+        "cached_input_tokens": 98356,
+        "input_tokens": 110965,
+        "output_tokens": 3521,
+        "reasoning_tokens": 762
+      }
+    },
+    {
+      "calibration_records": 0,
+      "cost_usd": 0.0530758,
+      "duration_seconds": 1282,
+      "earned_full": false,
+      "evidence": {
+        "acceptance_sheet": true,
+        "event_files": 1,
+        "file_count": 20,
+        "preserved": true
+      },
+      "identity": {
+        "binary_sha256": "33af36ab2b4807c295f82819c22edff787a57df87d6baba2873dee7bb3bf722d",
+        "input_expected_observed_equal": true,
+        "input_pin_sha256": "17ea4c1c82797c44434dac6681436d47d58e77bcbfd1c0b90b75e6f263fd843c",
+        "model": {
+          "matches_requested_executor": true,
+          "provider_turns": 16,
+          "requested_models": [
+            "gpt-5.6-luna"
+          ],
+          "response_id_set_sha256": "eee3d849727d0ffab655571e3a2a25b7286355ffe4bf451596f5e5293dd0f3a8",
+          "response_ids_recorded": 16,
+          "response_ids_unique": true,
+          "returned_models": [
+            "gpt-5.6-luna"
+          ],
+          "service_tiers": [
+            "default"
+          ],
+          "system_fingerprints": [
+            "null"
+          ]
+        },
+        "pack_pin": null,
+        "pack_pin_matches_suite": true
+      },
+      "name": "filter_bon0_002",
+      "native_tool_calls": 16,
+      "provider_turns": 16,
+      "score_vector": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "pass"
+          },
+          {
+            "key": "help_binding",
+            "state": "pass"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "absent"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "pass"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": 75.0,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 6
+      },
+      "selected": true,
+      "usage": {
+        "cached_input_tokens": 85808,
+        "input_tokens": 99097,
+        "output_tokens": 5201,
+        "reasoning_tokens": 1343
+      }
+    },
+    {
+      "calibration_records": 0,
+      "cost_usd": 0.0361849,
+      "duration_seconds": 1122,
+      "earned_full": false,
+      "evidence": {
+        "acceptance_sheet": true,
+        "event_files": 1,
+        "file_count": 21,
+        "preserved": true
+      },
+      "identity": {
+        "binary_sha256": "33af36ab2b4807c295f82819c22edff787a57df87d6baba2873dee7bb3bf722d",
+        "input_expected_observed_equal": true,
+        "input_pin_sha256": "17ea4c1c82797c44434dac6681436d47d58e77bcbfd1c0b90b75e6f263fd843c",
+        "model": {
+          "matches_requested_executor": true,
+          "provider_turns": 14,
+          "requested_models": [
+            "gpt-5.6-luna"
+          ],
+          "response_id_set_sha256": "512433c2d4c52aee3e8bd970947f6ef451a0204ebb14adc731420da04ebcbbd0",
+          "response_ids_recorded": 14,
+          "response_ids_unique": true,
+          "returned_models": [
+            "gpt-5.6-luna"
+          ],
+          "service_tiers": [
+            "default"
+          ],
+          "system_fingerprints": [
+            "null"
+          ]
+        },
+        "pack_pin": null,
+        "pack_pin_matches_suite": true
+      },
+      "name": "filter_bon0_003",
+      "native_tool_calls": 15,
+      "provider_turns": 14,
+      "score_vector": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "violation"
+          },
+          {
+            "key": "help_binding",
+            "state": "pass"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "pass"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "pass"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": 62.5,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 5
+      },
+      "selected": false,
+      "usage": {
+        "cached_input_tokens": 64379,
+        "input_tokens": 76204,
+        "output_tokens": 2987,
+        "reasoning_tokens": 886
+      }
+    },
+    {
+      "calibration_records": 1,
+      "cost_usd": 0.0591627,
+      "duration_seconds": 1458,
+      "earned_full": false,
+      "evidence": {
+        "acceptance_sheet": true,
+        "event_files": 1,
+        "file_count": 23,
+        "preserved": true
+      },
+      "identity": {
+        "binary_sha256": "33af36ab2b4807c295f82819c22edff787a57df87d6baba2873dee7bb3bf722d",
+        "input_expected_observed_equal": true,
+        "input_pin_sha256": "17ea4c1c82797c44434dac6681436d47d58e77bcbfd1c0b90b75e6f263fd843c",
+        "model": {
+          "matches_requested_executor": true,
+          "provider_turns": 20,
+          "requested_models": [
+            "gpt-5.6-luna"
+          ],
+          "response_id_set_sha256": "d6a211fa24691923ec0ebdc45555f9e00f771b715275c75eef3902c363354dab",
+          "response_ids_recorded": 20,
+          "response_ids_unique": true,
+          "returned_models": [
+            "gpt-5.6-luna"
+          ],
+          "service_tiers": [
+            "default"
+          ],
+          "system_fingerprints": [
+            "null"
+          ]
+        },
+        "pack_pin": null,
+        "pack_pin_matches_suite": true
+      },
+      "name": "filter_bon0_004",
+      "native_tool_calls": 20,
+      "provider_turns": 20,
+      "score_vector": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "pass"
+          },
+          {
+            "key": "help_binding",
+            "state": "pass"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "violation"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "pass"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": 62.5,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 5
+      },
+      "selected": false,
+      "usage": {
+        "cached_input_tokens": 148397,
+        "input_tokens": 164838,
+        "output_tokens": 4647,
+        "reasoning_tokens": 1402
+      }
+    },
+    {
+      "calibration_records": 1,
+      "cost_usd": 0.0295303,
+      "duration_seconds": 1626,
+      "earned_full": false,
+      "evidence": {
+        "acceptance_sheet": true,
+        "event_files": 1,
+        "file_count": 22,
+        "preserved": true
+      },
+      "identity": {
+        "binary_sha256": "33af36ab2b4807c295f82819c22edff787a57df87d6baba2873dee7bb3bf722d",
+        "input_expected_observed_equal": true,
+        "input_pin_sha256": "17ea4c1c82797c44434dac6681436d47d58e77bcbfd1c0b90b75e6f263fd843c",
+        "model": {
+          "matches_requested_executor": true,
+          "provider_turns": 11,
+          "requested_models": [
+            "gpt-5.6-luna"
+          ],
+          "response_id_set_sha256": "70af08b89ba5580f4884189c567fe8771e976a68beb62c0875ebde6dc4491f27",
+          "response_ids_recorded": 11,
+          "response_ids_unique": true,
+          "returned_models": [
+            "gpt-5.6-luna"
+          ],
+          "service_tiers": [
+            "default"
+          ],
+          "system_fingerprints": [
+            "null"
+          ]
+        },
+        "pack_pin": null,
+        "pack_pin_matches_suite": true
+      },
+      "name": "filter_bon0_005",
+      "native_tool_calls": 13,
+      "provider_turns": 11,
+      "score_vector": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "violation"
+          },
+          {
+            "key": "help_binding",
+            "state": "violation"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "pass"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "pass"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": 25.0,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 2
+      },
+      "selected": false,
+      "usage": {
+        "cached_input_tokens": 37703,
+        "input_tokens": 46051,
+        "output_tokens": 2902,
+        "reasoning_tokens": 675
+      }
+    },
+    {
+      "calibration_records": 0,
+      "cost_usd": 0.0357562,
+      "duration_seconds": 1223,
+      "earned_full": false,
+      "evidence": {
+        "acceptance_sheet": true,
+        "event_files": 1,
+        "file_count": 19,
+        "preserved": true
+      },
+      "identity": {
+        "binary_sha256": "33af36ab2b4807c295f82819c22edff787a57df87d6baba2873dee7bb3bf722d",
+        "input_expected_observed_equal": true,
+        "input_pin_sha256": "17ea4c1c82797c44434dac6681436d47d58e77bcbfd1c0b90b75e6f263fd843c",
+        "model": {
+          "matches_requested_executor": true,
+          "provider_turns": 14,
+          "requested_models": [
+            "gpt-5.6-luna"
+          ],
+          "response_id_set_sha256": "c0a3bcbdcd893fd6103cfd6a355e963125ecaf34cbb8bc311863c30829f2cabf",
+          "response_ids_recorded": 14,
+          "response_ids_unique": true,
+          "returned_models": [
+            "gpt-5.6-luna"
+          ],
+          "service_tiers": [
+            "default"
+          ],
+          "system_fingerprints": [
+            "null"
+          ]
+        },
+        "pack_pin": null,
+        "pack_pin_matches_suite": true
+      },
+      "name": "filter_bon0_006",
+      "native_tool_calls": 20,
+      "provider_turns": 14,
+      "score_vector": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "unobserved"
+          },
+          {
+            "key": "help_binding",
+            "state": "unobserved"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "unobserved"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "unobserved"
+          }
+        ],
+        "observed_weight": 0,
+        "reached": false,
+        "score": null,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 0
+      },
+      "selected": false,
+      "usage": {
+        "cached_input_tokens": 59132,
+        "input_tokens": 69775,
+        "output_tokens": 3200,
+        "reasoning_tokens": 662
+      }
+    }
+  ],
+  "schema_version": "commandagent.bon-selection/v0",
+  "selection": {
+    "kind": "most_promising_loser",
+    "repair_connected": false,
+    "run": "filter_bon0_002",
+    "tie_break": [
+      "earned_full_desc",
+      "reached_score_desc",
+      "duration_seconds_asc",
+      "cost_usd_asc",
+      "run_name_asc"
+    ]
+  },
+  "summary": {
+    "cost_usd_total": 0.2572805,
+    "duration_seconds_total": 8187,
+    "earned_full": 0,
+    "full_count": 0,
+    "reached": 5,
+    "runs": 6,
+    "score_five_number": {
+      "max": 75.0,
+      "median": 62.5,
+      "min": 25.0,
+      "q1": 25.0,
+      "q3": 62.5
+    }
+  },
+  "valid_measurement": true
+}

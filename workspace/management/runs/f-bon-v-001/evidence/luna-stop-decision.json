@@ -1,0 +1,33 @@
+{
+  "schema_version": "commandagent.f-bon-v-stop/v0",
+  "recorded_at": "2026-08-03T17:26:48+09:00",
+  "validation": "luna-repeat",
+  "predeclared_stop_condition": "cross-campaign configuration identity mismatch",
+  "triggered": true,
+  "reason": "release binary SHA-256 differs across campaigns because each full preflight rebuilt a timestamp-bearing binary",
+  "observed": {
+    "revision": "baaefb6307616270c865599340d372aae19fb238",
+    "suite_sha256": "209843c8bab4fcfdc028b3220383694c50b0b5e46360c284e4a83a8586cbf500",
+    "binary_sha256": {
+      "bon0-001": "5b77243ec1cdcec36e513cefaf8cd9f2253967a413e8a7c0ea55b4a2a432fb3a",
+      "bon0-002": "6eaae73c63088657be366b41a8587fd8f7daa370bb030938daa4018e4f8040c5",
+      "bon0-003": "33af36ab2b4807c295f82819c22edff787a57df87d6baba2873dee7bb3bf722d"
+    },
+    "full_counts": [
+      1,
+      1,
+      0
+    ],
+    "partial_full_total": 2,
+    "partial_trials_total": 18,
+    "partial_dispersion_ratio": 0.39373178990471686,
+    "partial_dispersion_decision": "underdispersed"
+  },
+  "detection_lag": "The bon0-001/bon0-002 mismatch was not compared after bon0-002; bon0-003 completed before the cross-campaign check detected it.",
+  "actions": {
+    "bon0-004_started": false,
+    "remaining_validations_started": false,
+    "existing_calibration_bytes_restored": true,
+    "dedicated_worktree_clean": true
+  }
+}
