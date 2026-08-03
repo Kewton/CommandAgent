@@ -82,6 +82,7 @@ class ScoreAxisTests(unittest.TestCase):
                     "registered; unexecuted",
                     "pending",
                     "pending",
+                    "pending",
                     "N/A",
                     "N/A",
                     "N/A",
@@ -93,6 +94,35 @@ class ScoreAxisTests(unittest.TestCase):
                     "pending",
                 ]
             ],
+        )
+
+    def test_bon_status_transitions_only_from_settlement(self) -> None:
+        result = {"summary": {"runs": 6}}
+        self.assertEqual(
+            band.cli_bon_validation_status(result, None),
+            "機構実証済み・統計検証未了(n=1)",
+        )
+        self.assertEqual(
+            band.cli_bon_validation_status(
+                result,
+                {
+                    "schema_version": "commandagent.bon-validation-settlement/v0",
+                    "status": "validation_complete",
+                    "luna_campaigns": 4,
+                },
+            ),
+            "機構実証済み・統計検証完了(n=4)",
+        )
+        self.assertEqual(
+            band.cli_bon_validation_status(
+                result,
+                {
+                    "schema_version": "commandagent.bon-validation-settlement/v0",
+                    "status": "issue_detected",
+                    "luna_campaigns": 4,
+                },
+            ),
+            "機構実証済み・統計検証で問題検出(n=4)",
         )
 
     def test_bon_loader_rejects_identity_mismatch(self) -> None:

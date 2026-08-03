@@ -61,6 +61,7 @@ CLI_SCRIPTED_DIRECTIVE_SUITE = (
 CLI_BON_RESULT = (
     RUNS_DIR / "uat-test0802-cli-bon0-001" / "evidence" / "bon-selection.json"
 )
+CLI_BON_SETTLEMENT = RUNS_DIR / "f-bon-v-001" / "evidence" / "settlement.json"
 CLI_PRE_BON_SUMMARY_SHA256 = (
     "7adfb4d248466ca02b464150b6a45cf93004403edc4ee4a1aa34dfa13baf4657"
 )
@@ -1334,7 +1335,33 @@ def load_cli_bon_result(path: Path | None = None) -> dict[str, Any] | None:
     return result
 
 
-def cli_bon_band_rows(result: dict[str, Any] | None) -> list[list[str]]:
+def load_cli_bon_settlement(path: Path | None = None) -> dict[str, Any] | None:
+    source = path or CLI_BON_SETTLEMENT
+    if not source.is_file():
+        return None
+    settlement = json.loads(source.read_text(encoding="utf-8"))
+    assert isinstance(settlement, dict), "BoN settlement root must be an object"
+    assert settlement.get("schema_version") == "commandagent.bon-validation-settlement/v0"
+    assert settlement.get("status") in {"validation_complete", "issue_detected"}
+    assert settlement.get("luna_campaigns") == 4
+    return settlement
+
+
+def cli_bon_validation_status(
+    result: dict[str, Any] | None, settlement: dict[str, Any] | None
+) -> str:
+    if result is None:
+        return "registered; unexecuted"
+    if settlement is None:
+        return "機構実証済み・統計検証未了(n=1)"
+    if settlement["status"] == "validation_complete":
+        return "機構実証済み・統計検証完了(n=4)"
+    return "機構実証済み・統計検証で問題検出(n=4)"
+
+
+def cli_bon_band_rows(
+    result: dict[str, Any] | None, settlement: dict[str, Any] | None = None
+) -> list[list[str]]:
     if result is None:
         return [
             [
@@ -1342,6 +1369,7 @@ def cli_bon_band_rows(result: dict[str, Any] | None) -> list[list[str]]:
                 "filter",
                 "6",
                 "registered; unexecuted",
+                "pending",
                 "pending",
                 "pending",
                 "N/A",
@@ -1368,6 +1396,7 @@ def cli_bon_band_rows(result: dict[str, Any] | None) -> list[list[str]]:
             "bon:6",
             "filter",
             "6",
+            cli_bon_validation_status(result, settlement),
             str(selection["kind"]),
             str(summary["earned_full"]),
             str(selection["run"]),
@@ -1380,7 +1409,11 @@ def cli_bon_band_rows(result: dict[str, Any] | None) -> list[list[str]]:
     ]
 
 
-def append_cli_bon_band(lines: list[str], result: dict[str, Any] | None) -> None:
+def append_cli_bon_band(
+    lines: list[str],
+    result: dict[str, Any] | None,
+    settlement: dict[str, Any] | None,
+) -> None:
     lines.extend(
         [
             "## BoN configuration band",
@@ -1401,6 +1434,7 @@ def append_cli_bon_band(lines: list[str], result: dict[str, Any] | None) -> None
                 "Goal",
                 "N",
                 "Status",
+                "Selection",
                 "Full",
                 "Selected",
                 "Reached",
@@ -1413,7 +1447,7 @@ def append_cli_bon_band(lines: list[str], result: dict[str, Any] | None) -> None
                 "Cost USD",
                 "Identity",
             ],
-            cli_bon_band_rows(result),
+            cli_bon_band_rows(result, settlement),
         )
     )
     lines.append("")
@@ -4019,7 +4053,7 @@ def build_cli_summary(
         hashlib.sha256(legacy_summary.encode()).hexdigest()
         == CLI_PRE_BON_SUMMARY_SHA256
     ), "pre-BoN CLI band bytes drifted"
-    append_cli_bon_band(lines, load_cli_bon_result())
+    append_cli_bon_band(lines, load_cli_bon_result(), load_cli_bon_settlement())
     return "\n".join(lines)
 
 

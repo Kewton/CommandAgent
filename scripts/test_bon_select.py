@@ -67,6 +67,7 @@ def write_campaign(
                 "provider_cached_input_tokens": 800,
                 "eval_count": 100,
                 "provider_reasoning_tokens": 10,
+                "provider_response_id": f"resp-{index}-1",
             },
             {
                 "event": "provider_response",
@@ -144,6 +145,8 @@ class BonSelectionTests(unittest.TestCase):
         self.assertEqual(result["selection"]["run"], "filter_bon0_002")
         self.assertFalse(result["selection"]["repair_connected"])
         self.assertEqual(result["summary"]["earned_full"], 1)
+        self.assertEqual(result["summary"]["full_count"], 1)
+        self.assertTrue(result["identity"]["sampling"]["trial_specific"])
         self.assertEqual(result["retention"]["nonselected_evidence_preserved"], 5)
 
     def test_multiple_fulls_use_duration_then_cost_then_name(self) -> None:
@@ -191,6 +194,65 @@ class BonSelectionTests(unittest.TestCase):
         self.assertIn("model_metadata_mismatch", result["invalid_reasons"])
         self.assertEqual(result["selection"]["kind"], "invalid_measurement")
         self.assertIsNone(result["selection"]["run"])
+
+    def test_cross_campaign_binomial_dispersion_uses_predeclared_ratio(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = []
+            for index, full_count in enumerate((0, 1, 2, 1), start=1):
+                path = root / f"campaign-{index}.json"
+                path.write_text(
+                    json.dumps(
+                        {
+                            "schema_version": bon_select.SCHEMA_VERSION,
+                            "campaign_id": f"campaign-{index}",
+                            "valid_measurement": True,
+                            "summary": {
+                                "runs": 6,
+                                "earned_full": full_count,
+                                "full_count": full_count,
+                            },
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                paths.append(path)
+
+            result = bon_select.build_independence_check(paths)
+
+        self.assertEqual(result["observed"]["full_counts"], [0, 1, 2, 1])
+        self.assertEqual(result["observed"]["full_count_total"], 4)
+        self.assertAlmostEqual(
+            result["cross_check"]["binomial_expected_variance"], 0.8466
+        )
+        self.assertAlmostEqual(result["cross_check"]["variance_ratio"], 0.78746358)
+        self.assertEqual(result["cross_check"]["decision"], "binomial_consistent")
+        self.assertEqual(
+            result["predeclared_test"]["dispersion_ratio_thresholds"],
+            {"underdispersed_below": 0.5, "overdispersed_above": 1.5},
+        )
+
+    def test_cross_campaign_binomial_dispersion_rejects_duplicate_campaign(
+        self,
+    ) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            path = root / "campaign.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": bon_select.SCHEMA_VERSION,
+                        "campaign_id": "same",
+                        "valid_measurement": True,
+                        "summary": {"runs": 6, "full_count": 1},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                bon_select.SelectionError, "campaign ids must be present and distinct"
+            ):
+                bon_select.build_independence_check([path, path])
 
 
 if __name__ == "__main__":

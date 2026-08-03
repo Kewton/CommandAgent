@@ -25,10 +25,14 @@ import tomllib
 from score_retrospective import AtomObservation, normalize_state, score_atoms
 
 SCHEMA_VERSION = "commandagent.bon-selection/v0"
+INDEPENDENCE_SCHEMA_VERSION = "commandagent.bon-independence/v0"
 EXPECTED_SUITE_ID = "cli-filter-bon0"
 EXPECTED_N = 6
 EXPECTED_GOAL = "filter"
 EXPECTED_EXECUTOR = "gpt-5.6-luna"
+DEFAULT_EXPECTED_FULL_PROBABILITY = 0.17
+DEFAULT_DISPERSION_LOWER = 0.5
+DEFAULT_DISPERSION_UPPER = 1.5
 REGISTERED_ATOMS = (
     "cli_probe",
     "help_binding",
@@ -269,12 +273,20 @@ def model_identity(turns: list[dict[str, Any]]) -> dict[str, Any]:
             for turn in turns
         }
     )
+    response_ids = [
+        str(turn["provider_response_id"])
+        for turn in turns
+        if turn.get("provider_response_id")
+    ]
     return {
         "provider_turns": len(turns),
         "requested_models": requested,
         "returned_models": returned,
         "service_tiers": tiers,
         "system_fingerprints": fingerprints,
+        "response_ids_recorded": len(response_ids),
+        "response_ids_unique": len(response_ids) == len(set(response_ids)),
+        "response_id_set_sha256": canonical_sha256(sorted(response_ids)),
         "matches_requested_executor": bool(turns)
         and requested == [EXPECTED_EXECUTOR]
         and returned == [EXPECTED_EXECUTOR],
@@ -443,6 +455,9 @@ def build_selection(
         )
         for run in observations
     }
+    sampling_signatures = {
+        run.identity["model"]["response_id_set_sha256"] for run in observations
+    }
     if len(input_pins) != 1 or not all(
         run.identity["input_expected_observed_equal"] for run in observations
     ):
@@ -457,6 +472,12 @@ def build_selection(
         run.identity["model"]["matches_requested_executor"] for run in observations
     ):
         invalid.append("model_metadata_mismatch")
+    if len(sampling_signatures) != len(observations) or not all(
+        run.identity["model"]["response_ids_recorded"] > 0
+        and run.identity["model"]["response_ids_unique"]
+        for run in observations
+    ):
+        invalid.append("sampling_identity_mismatch")
 
     fulls = sorted((run for run in observations if run.earned_full), key=selection_key)
     candidates = fulls or sorted(observations, key=selection_key)
@@ -527,6 +548,12 @@ def build_selection(
             "input_pin_sha256": next(iter(input_pins), None),
             "pack_pin": pack_pin,
             "model_drift_probe": "requested/returned model, service tier, system fingerprint",
+            "sampling": {
+                "trial_specific": "sampling_identity_mismatch" not in invalid,
+                "seed_policy": "provider-managed per request; no fixed seed shared across trials",
+                "temperature_policy": "provider default per request; no fixed temperature shared across trials",
+                "evidence": "disjoint executor provider-response-id sets",
+            },
         },
         "pricing": {
             "basis": "Luna standard rates fixed by the 2026-08-02 F-2 campaign",
@@ -547,6 +574,7 @@ def build_selection(
         "summary": {
             "runs": len(observations),
             "earned_full": len(fulls),
+            "full_count": len(fulls),
             "reached": len(scores),
             "score_five_number": five_number(scores),
             "duration_seconds_total": sum(run.duration_seconds for run in observations),
@@ -563,12 +591,137 @@ def build_selection(
     }
 
 
+def build_independence_check(
+    result_paths: Sequence[Path],
+    expected_full_probability: float = DEFAULT_EXPECTED_FULL_PROBABILITY,
+    dispersion_lower: float = DEFAULT_DISPERSION_LOWER,
+    dispersion_upper: float = DEFAULT_DISPERSION_UPPER,
+) -> dict[str, Any]:
+    """Compare cross-campaign full-count variance with a fixed binomial variance."""
+
+    if len(result_paths) < 2:
+        raise SelectionError("independence check requires at least two campaigns")
+    if not 0.0 < expected_full_probability < 1.0:
+        raise SelectionError("expected full probability must be between zero and one")
+    if not 0.0 <= dispersion_lower < dispersion_upper:
+        raise SelectionError("dispersion thresholds must satisfy 0 <= lower < upper")
+
+    campaigns: list[dict[str, Any]] = []
+    for path in result_paths:
+        result = load_json_object(path)
+        if result.get("schema_version") != SCHEMA_VERSION:
+            raise SelectionError(f"unsupported BoN result schema: {path}")
+        if result.get("valid_measurement") is not True:
+            raise SelectionError(f"invalid BoN measurement cannot be tested: {path}")
+        summary = result.get("summary")
+        if not isinstance(summary, dict):
+            raise SelectionError(f"BoN summary missing: {path}")
+        trials = summary.get("runs")
+        full_count = summary.get("full_count", summary.get("earned_full"))
+        if (
+            not isinstance(trials, int)
+            or isinstance(trials, bool)
+            or trials <= 0
+            or not isinstance(full_count, int)
+            or isinstance(full_count, bool)
+            or not 0 <= full_count <= trials
+        ):
+            raise SelectionError(f"invalid BoN full count: {path}")
+        campaigns.append(
+            {
+                "campaign_id": result.get("campaign_id"),
+                "trials": trials,
+                "full_count": full_count,
+                "source": str(path),
+            }
+        )
+
+    campaign_ids = [str(row["campaign_id"] or "") for row in campaigns]
+    if any(not campaign_id for campaign_id in campaign_ids) or len(
+        set(campaign_ids)
+    ) != len(campaign_ids):
+        raise SelectionError("campaign ids must be present and distinct")
+    trial_counts = {int(row["trials"]) for row in campaigns}
+    if len(trial_counts) != 1:
+        raise SelectionError("independence check requires equal campaign trial counts")
+
+    trials_per_campaign = next(iter(trial_counts))
+    full_counts = [int(row["full_count"]) for row in campaigns]
+    observed_variance = statistics.variance(full_counts)
+    expected_variance = (
+        trials_per_campaign
+        * expected_full_probability
+        * (1.0 - expected_full_probability)
+    )
+    variance_ratio = observed_variance / expected_variance
+    decision = (
+        "underdispersed"
+        if variance_ratio < dispersion_lower
+        else "overdispersed"
+        if variance_ratio > dispersion_upper
+        else "binomial_consistent"
+    )
+    campaign_count = len(campaigns)
+    return {
+        "schema_version": INDEPENDENCE_SCHEMA_VERSION,
+        "valid_measurement": True,
+        "predeclared_test": {
+            "kind": "cross-campaign-binomial-full-count-dispersion",
+            "p_value": False,
+            "expected_full_probability": expected_full_probability,
+            "trials_per_campaign": trials_per_campaign,
+            "expected_full_count_per_campaign": round(
+                trials_per_campaign * expected_full_probability, 12
+            ),
+            "expected_full_count_total": round(
+                campaign_count * trials_per_campaign * expected_full_probability,
+                12,
+            ),
+            "expected_campaigns_with_at_least_one_full": round(
+                campaign_count
+                * (1.0 - (1.0 - expected_full_probability) ** trials_per_campaign),
+                12,
+            ),
+            "dispersion_ratio_thresholds": {
+                "underdispersed_below": dispersion_lower,
+                "overdispersed_above": dispersion_upper,
+            },
+        },
+        "observed": {
+            "campaign_count": campaign_count,
+            "full_counts": full_counts,
+            "full_count_total": sum(full_counts),
+            "campaigns_with_at_least_one_full": sum(count > 0 for count in full_counts),
+            "full_count_mean": statistics.mean(full_counts),
+            "full_count_sample_variance": observed_variance,
+        },
+        "cross_check": {
+            "binomial_expected_variance": expected_variance,
+            "variance_ratio": variance_ratio,
+            "decision": decision,
+        },
+        "campaigns": campaigns,
+    }
+
+
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description=__doc__)
-    result.add_argument("--campaign", required=True, type=Path)
-    result.add_argument("--suite", required=True, type=Path)
-    result.add_argument("--baseline-suite", required=True, type=Path)
-    result.add_argument("--calibration-root", required=True, type=Path)
+    result.add_argument("--campaign", type=Path)
+    result.add_argument("--suite", type=Path)
+    result.add_argument("--baseline-suite", type=Path)
+    result.add_argument("--calibration-root", type=Path)
+    result.add_argument("--independence-result", action="append", type=Path)
+    result.add_argument(
+        "--expected-full-probability",
+        type=float,
+        default=DEFAULT_EXPECTED_FULL_PROBABILITY,
+    )
+    result.add_argument(
+        "--dispersion-lower", type=float, default=DEFAULT_DISPERSION_LOWER
+    )
+    result.add_argument(
+        "--dispersion-upper", type=float, default=DEFAULT_DISPERSION_UPPER
+    )
     result.add_argument("--output", type=Path)
     return result
 
@@ -576,12 +729,46 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
-        result = build_selection(
-            args.campaign.resolve(),
-            args.suite.resolve(),
-            args.baseline_suite.resolve(),
-            args.calibration_root.resolve(),
-        )
+        if args.independence_result:
+            if any(
+                value is not None
+                for value in (
+                    args.campaign,
+                    args.suite,
+                    args.baseline_suite,
+                    args.calibration_root,
+                )
+            ):
+                raise SelectionError(
+                    "independence mode cannot be combined with campaign selection"
+                )
+            result = build_independence_check(
+                [path.resolve() for path in args.independence_result],
+                args.expected_full_probability,
+                args.dispersion_lower,
+                args.dispersion_upper,
+            )
+        else:
+            missing = [
+                label
+                for label, value in (
+                    ("--campaign", args.campaign),
+                    ("--suite", args.suite),
+                    ("--baseline-suite", args.baseline_suite),
+                    ("--calibration-root", args.calibration_root),
+                )
+                if value is None
+            ]
+            if missing:
+                raise SelectionError(
+                    "campaign selection requires " + ", ".join(missing)
+                )
+            result = build_selection(
+                args.campaign.resolve(),
+                args.suite.resolve(),
+                args.baseline_suite.resolve(),
+                args.calibration_root.resolve(),
+            )
     except SelectionError as error:
         print(f"bon-select: {error}", file=sys.stderr)
         return 2

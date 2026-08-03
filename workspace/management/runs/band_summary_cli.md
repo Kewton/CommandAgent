@@ -229,6 +229,6 @@ This table is additive: every pre-existing band column and recorded SHA/pin abov
 
 `bon:6` is a separate configuration: six independent workspaces repeat one exact filter goal. It is not pooled into any single-run rate row. Selection uses earned evidence only; no pruning, prediction, or repair is connected.
 
-| Configuration | Goal | N | Status | Full | Selected | Reached | Min | Q1 | Median | Q3 | Max | Total seconds | Cost USD | Identity |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| bon:6 | filter | 6 | adopted_full | 1 | filter_bon0_005 | 6/6 | 25.0 | 25.0 | 43.8 | 62.5 | 100.0 | 7791 | $0.274865 | matched |
+| Configuration | Goal | N | Status | Selection | Full | Selected | Reached | Min | Q1 | Median | Q3 | Max | Total seconds | Cost USD | Identity |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| bon:6 | filter | 6 | 機構実証済み・統計検証未了(n=1) | adopted_full | 1 | filter_bon0_005 | 6/6 | 25.0 | 25.0 | 43.8 | 62.5 | 100.0 | 7791 | $0.274865 | matched |
