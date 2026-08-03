@@ -937,10 +937,14 @@ class IngestBandTests(unittest.TestCase):
 
         self.assertEqual(
             scanned_sets,
-            [band.INGEST_LOCAL_ALIAS, *band.INGEST_ELEVATED_SETS],
+            [
+                band.INGEST_LOCAL_ALIAS,
+                *band.INGEST_ELEVATED_SETS,
+                band.INGEST_LUNA_SET,
+            ],
         )
-        self.assertEqual(len(records), 54)
-        self.assertEqual(band.assert_ingest_invariants(records), 20)
+        self.assertEqual(len(records), 60)
+        self.assertEqual(band.assert_ingest_invariants(records), 26)
         local = [
             record for record in records if record.set_id == band.INGEST_LOCAL_ALIAS
         ]
@@ -979,10 +983,23 @@ class IngestBandTests(unittest.TestCase):
                 ["table", "gemma4:31b-cloud", "1", "2", "3", "33.3%"],
             ],
         )
-        summary = band.build_ingest_summary(records, scanned_sets, 20)
+        luna = [
+            record for record in records if record.set_id == band.INGEST_LUNA_SET
+        ]
+        self.assertEqual(
+            band.ingest_rate_rows(luna),
+            [
+                ["list", "gpt-5.6-luna", "3", "0", "3", "100%"],
+                ["table", "gpt-5.6-luna", "3", "0", "3", "100%"],
+            ],
+        )
+        summary = band.build_ingest_summary(records, scanned_sets, 26)
         self.assertIn("- Window B full-equivalent: `4/6` (66.7%)", summary)
+        self.assertIn("- Luna full-equivalent: `6/6` (100%)", summary)
         self.assertIn("- Window B machine-attributed terminals: `0/6`", summary)
-        self.assertIn("- Reached-run N1-N5 evidence sets verified: `20/20`", summary)
+        self.assertIn("- Reached-run N1-N5 evidence sets verified: `26/26`", summary)
+        self.assertIn("| Table empty date accepted | 2/3 | 0/3 |", summary)
+        self.assertIn("| Luna model-factor cell | reached 6/6 | 100.0", summary)
         self.assertIn("相異なる成功commandをno-diff停滞", summary)
         self.assertIn("複合CSSのengine被覆gap", summary)
         self.assertIn("freeze済み正準candidate ID", summary)

@@ -213,9 +213,10 @@ INGEST_ELEVATED_SETS = tuple(
     f"uat-test0726-ingest-elev-{index:03d}" for index in range(1, 9)
 )
 INGEST_WINDOW_B_SET = "uat-test0726-ingest-elev-008"
+INGEST_LUNA_SET = "uat-test0802-ingest-luna-001"
 INGEST_EXPECTED_RUNS_PER_SET = 6
 INGEST_EXPECTED_RUNS = INGEST_EXPECTED_RUNS_PER_SET * (
-    1 + len(INGEST_ELEVATED_SETS)
+    2 + len(INGEST_ELEVATED_SETS)
 )
 INGEST_LOCAL_MATRIX = {
     ("list", "gemma4:31b"): 1,
@@ -226,6 +227,10 @@ INGEST_LOCAL_MATRIX = {
 INGEST_WINDOW_B_MATRIX = {
     ("list", "gemma4:31b-cloud"): 3,
     ("table", "gemma4:31b-cloud"): 3,
+}
+INGEST_LUNA_MATRIX = {
+    ("list", "gpt-5.6-luna"): 3,
+    ("table", "gpt-5.6-luna"): 3,
 }
 INGEST_EXCLUSION_REASONS = {
     "uat-test0726-ingest-elev-001": (
@@ -488,6 +493,9 @@ class IngestRunRecord:
     n3: str
     n4: str
     n5: str
+    accepted: int | None
+    excluded: int | None
+    reached_score: float | None
     failure_class: str
     attribution: str
     duration_seconds: int
@@ -1187,23 +1195,37 @@ def append_score_axis(
     lines: list[str],
     profile: str,
     configurations: list[tuple[str, list[Any], str]],
+    supplemental_vectors: dict[tuple[str, str], dict[str, Any]] | None = None,
 ) -> None:
     vectors = load_final_score_vectors()
+    if supplemental_vectors:
+        overlap = set(vectors) & set(supplemental_vectors)
+        assert not overlap, f"supplemental score vectors overlap history: {overlap}"
+        vectors.update(supplemental_vectors)
     rows = [
         score_axis_row(profile, label, records, vectors, t2f)
         for label, records, t2f in configurations
     ]
+    score_axis_note = (
+        "This table is additive: every pre-existing band column and recorded "
+        "SHA/pin above remains unchanged. Historical scores come from the fixed "
+        "read-only `f1-retrospective-001/final-vectors.jsonl`; post-seal "
+        "measurement vectors may be added from their immutable campaign summary. "
+        "Unreached runs are not inserted as zeroes."
+        if supplemental_vectors
+        else (
+            "This table is additive: every pre-existing band column and recorded "
+            "SHA/pin above remains unchanged. Scores come from the fixed read-only "
+            "`f1-retrospective-001/final-vectors.jsonl`; unreached runs are not "
+            "inserted as zeroes."
+        )
+    )
     lines.extend(
         [
             "",
             "## F-1 reached score and T2F axis",
             "",
-            (
-                "This table is additive: every pre-existing band column and recorded "
-                "SHA/pin above remains unchanged. Scores come from the fixed read-only "
-                "`f1-retrospective-001/final-vectors.jsonl`; unreached runs are not "
-                "inserted as zeroes."
-            ),
+            score_axis_note,
             "",
         ]
     )
@@ -4030,6 +4052,11 @@ def ingest_record_from_summary(
         n3=str(row.get("n3") or "not_reached"),
         n4=str(row.get("n4") or "not_reached"),
         n5=str(row.get("n5") or "not_reached"),
+        accepted=(int(row["accepted"]) if row.get("accepted") is not None else None),
+        excluded=(int(row["excluded"]) if row.get("excluded") is not None else None),
+        reached_score=(
+            float(row["score"]) if row.get("score") is not None else None
+        ),
         failure_class=str(row.get("automatic_class") or ""),
         attribution=str(row.get("audited_attribution") or ""),
         duration_seconds=int(row.get("duration_seconds")),
@@ -4042,6 +4069,7 @@ def discover_ingest_records() -> tuple[list[IngestRunRecord], list[str]]:
     sources = [
         (INGEST_LOCAL_ALIAS, INGEST_LOCAL_SOURCE_SET),
         *((set_id, set_id) for set_id in INGEST_ELEVATED_SETS),
+        (INGEST_LUNA_SET, INGEST_LUNA_SET),
     ]
     records: list[IngestRunRecord] = []
     for set_id, source_set_id in sources:
@@ -4068,7 +4096,7 @@ def discover_ingest_records() -> tuple[list[IngestRunRecord], list[str]]:
                     row,
                 )
             )
-    return records, [INGEST_LOCAL_ALIAS, *INGEST_ELEVATED_SETS]
+    return records, [INGEST_LOCAL_ALIAS, *INGEST_ELEVATED_SETS, INGEST_LUNA_SET]
 
 
 def verify_ingest_reached_evidence(records: list[IngestRunRecord]) -> int:
@@ -4097,7 +4125,11 @@ def assert_ingest_invariants(records: list[IngestRunRecord]) -> int:
     assert Counter(record.set_id for record in records) == Counter(
         {
             set_id: INGEST_EXPECTED_RUNS_PER_SET
-            for set_id in [INGEST_LOCAL_ALIAS, *INGEST_ELEVATED_SETS]
+            for set_id in [
+                INGEST_LOCAL_ALIAS,
+                *INGEST_ELEVATED_SETS,
+                INGEST_LUNA_SET,
+            ]
         }
     ), "ingest source-set denominators drifted"
     assert all(record.harness_status == "completed" for record in records), (
@@ -4129,6 +4161,22 @@ def assert_ingest_invariants(records: list[IngestRunRecord]) -> int:
         else:
             assert record.product_exit != 0
             assert record.earned_assurance == "failed"
+
+    luna = [record for record in records if record.set_id == INGEST_LUNA_SET]
+    assert Counter((record.family, record.executor) for record in luna) == Counter(
+        INGEST_LUNA_MATRIX
+    ), "ingest Luna family/executor matrix drifted"
+    assert sum(record.is_full for record in luna) == 6
+    assert all(record.product_exit == 0 for record in luna)
+    assert all(record.reached_score == 100.0 for record in luna)
+    assert all(
+        {record.n1, record.n2, record.n3, record.n4, record.n5} == {"pass"}
+        for record in luna
+    ), "ingest Luna contains a false full"
+    luna_table = [record for record in luna if record.family == "table"]
+    assert all(
+        record.accepted == 9 and record.excluded == 1 for record in luna_table
+    ), "ingest Luna missing-date discipline drifted"
     return verify_ingest_reached_evidence(records)
 
 
@@ -4161,6 +4209,8 @@ def ingest_band_status(set_id: str) -> str:
         return f"excluded — {INGEST_EXCLUSION_REASONS[set_id]}"
     if set_id == INGEST_WINDOW_B_SET:
         return "formal elevated Window B"
+    if set_id == INGEST_LUNA_SET:
+        return "formal Luna model-factor cell"
     return (
         "formal local reference — repository source "
         f"{INGEST_LOCAL_SOURCE_SET}; requested alias {INGEST_LOCAL_ALIAS}"
@@ -4176,6 +4226,7 @@ def build_ingest_summary(
     window_b = [
         record for record in records if record.set_id == INGEST_WINDOW_B_SET
     ]
+    luna = [record for record in records if record.set_id == INGEST_LUNA_SET]
     reached = [record for record in records if record.reached_checks]
     dispositions = []
     for set_id in scanned_sets:
@@ -4196,13 +4247,15 @@ def build_ingest_summary(
         "<!-- Generated by band_aggregate.py --profile ingest. Do not edit by hand. -->",
         "",
         full_meaning_label("ingest"),
-        f"- Source sets: `{len(scanned_sets)}` (local 1 + elevated 8)",
+        f"- Source sets: `{len(scanned_sets)}` (local 1 + elevated 8 + Luna model cell 1)",
         f"- Observed runs: `{len(records)}`",
         f"- Honest terminals: `{sum(record.harness_status == 'completed' for record in records)}/{len(records)}`",
         f"- Local reference: `{INGEST_LOCAL_ALIAS}` display alias → immutable repository source `{INGEST_LOCAL_SOURCE_SET}`",
         f"- Formal elevated Window B: `{INGEST_WINDOW_B_SET}` only",
+        f"- Formal Luna model-factor cell: `{INGEST_LUNA_SET}` only",
         f"- Local full-equivalent: `{sum(record.is_full for record in local)}/{len(local)}` ({ingest_pct(sum(record.is_full for record in local), len(local))})",
         f"- Window B full-equivalent: `{window_full}/{len(window_b)}` ({ingest_pct(window_full, len(window_b))})",
+        f"- Luna full-equivalent: `{sum(record.is_full for record in luna)}/{len(luna)}` ({ingest_pct(sum(record.is_full for record in luna), len(luna))})",
         f"- Window B machine-attributed terminals: `{sum(record.attribution == 'machine' for record in window_b)}/{len(window_b)}`",
         f"- All-history runs reaching N checks: `{len(reached)}/{len(records)}`",
         f"- Reached-run N1-N5 evidence sets verified: `{evidence_verified}/{len(reached)}`",
@@ -4218,6 +4271,40 @@ def build_ingest_summary(
         table(
             ["Family", "Executor", "full", "non-full", "denominator", "full rate"],
             ingest_rate_rows(window_b),
+        )
+    )
+    lines.extend(["", "## Luna model-factor cell by family and executor", ""])
+    lines.extend(
+        table(
+            ["Family", "Executor", "full", "non-full", "denominator", "full rate"],
+            ingest_rate_rows(luna),
+        )
+    )
+    lines.extend(["", "## Gemma/Luna contract-stage comparison", ""])
+    lines.extend(
+        table(
+            ["Metric", "gemma31-cloud (elev-008)", "gpt-5.6-luna"],
+            [
+                ["Full-equivalent", "4/6 (66.7%)", "6/6 (100%)"],
+                *[
+                    [
+                        check.upper(),
+                        f"{sum(getattr(record, check) == 'pass' for record in window_b)}/6",
+                        f"{sum(getattr(record, check) == 'pass' for record in luna)}/6",
+                    ]
+                    for check in ("n1", "n2", "n3", "n4", "n5")
+                ],
+                [
+                    "Table empty date accepted",
+                    f"{sum(record.accepted == 10 for record in window_b if record.family == 'table')}/3",
+                    f"{sum(record.accepted == 10 for record in luna if record.family == 'table')}/3",
+                ],
+                [
+                    "Table empty date excluded with reason",
+                    f"{sum(record.excluded == 1 for record in window_b if record.family == 'table')}/3",
+                    f"{sum(record.excluded == 1 for record in luna if record.family == 'table')}/3",
+                ],
+            ],
         )
     )
     lines.extend(["", "## Local reference arm by family and executor", ""])
@@ -4283,8 +4370,16 @@ def build_ingest_summary(
         "ingest",
         [
             ("formal elevated Window B", window_b, "not measured"),
+            ("Luna model-factor cell", luna, "not measured"),
             ("local reference", local, "not measured"),
         ],
+        {
+            ("ingest", band_record_id(record)): {
+                "reached": record.reached_score is not None,
+                "score": record.reached_score,
+            }
+            for record in luna
+        },
     )
     lines.extend(["", "## Source sets", ""])
     lines.append(
@@ -4292,6 +4387,7 @@ def build_ingest_summary(
         "(display alias only; historical evidence is not rewritten)"
     )
     lines.extend(f"- `{set_id}`" for set_id in INGEST_ELEVATED_SETS)
+    lines.append(f"- `{INGEST_LUNA_SET}`")
     lines.append("")
     return "\n".join(lines)
 
