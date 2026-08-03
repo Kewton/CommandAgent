@@ -1478,3 +1478,9 @@ BoN-0——第4因子（試行数）の初の制度計測。選別はearnedの�
 `ρ=0.063`によりBoN-2はゲート維持。単一filter goalの同一構成6runを別workspaceで
 完走し、full 1/6の`filter_bon0_005`を採用した。binary・入力pin・model meta・pack
 pinは6/6一致し、5敗者のevidenceは削除せず保持した。途中刈り込みと修復接続は0件。
+
+F-C-1b seal（2026-08-03）: E-4第2段を、exact-domain/URLの閉契約、bounded child
+単一fetch境界、robots fail-closed、同URL×UTC日cache、取得時刻基準のN6として
+固定した。実装前見積りはcomparator/checkers 650〜1,050 production Rust行、
+plumbing 700〜1,200行、合計1,350〜2,250行、残存機械床4〜8、初回live較正5〜10
+campaignのまま封緘し、公開サイトの初計測は別指示まで行わない。

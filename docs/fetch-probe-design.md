@@ -1,18 +1,17 @@
 # Fetch probe design
 
-Status: **draft for review (2026-08-03)**
+Status: **fixed (2026-08-03)**
 
-This document is the E-2a design-first draft for E-4 stage 2. It specifies a
-bounded fetch-and-evidence boundary, but it does not change the current ingest
-contract, runtime, event schema, or acceptance meaning. The sequence is:
+This document is the fixed E-4 stage-2 fetch-and-evidence boundary. It was
+reviewed under the E-2a design-first sequence:
 
-1. review and adjudicate this draft;
-2. fix the contract and fixture vocabulary;
-3. implement the adjudicated boundary;
-4. calibrate it with new campaigns.
+1. draft the contract and fixture vocabulary;
+2. adjudicate the eight boundary decisions;
+3. fix the accepted design before implementation;
+4. implement, then calibrate with new campaigns.
 
-Implementation must not begin by treating the recommendations below as already
-fixed. Section 11 lists the decisions that must be adjudicated first.
+Section 11 records the fixed adjudication. Implementation and fixtures must use
+these decisions literally; changing one requires a new contract revision.
 
 Related fixed records are the [stage-1 ingest contract](ingest-profile-contract.md),
 the [D-3c boundary design](d3c-shell-design.md), and the
@@ -49,8 +48,7 @@ evidence.
 
 The fetch declaration belongs to a suite/ingest contract, not to an assist or
 eval pack. Packs remain unable to grant network authority. The following TOML
-is illustrative schema text for adjudication; it is not yet a supported runtime
-format.
+is the fixed v0 schema shape.
 
 ```toml
 [fetch]
@@ -63,7 +61,7 @@ max_response_bytes = 8388608
 freshness_max_age_seconds = 86400
 cache_policy = "canonical-url-utc-day"
 robots_policy = "respect"
-user_agent = "CommandAgentFetch/0.1"
+user_agent = "CommandAgentFetch/0.1 (+https://github.com/Kewton/CommandAgent)"
 min_origin_interval_ms = 1000
 redirect_policy = "reject"
 
@@ -74,7 +72,7 @@ snapshot_path = "data/snapshots/announcements.html"
 authorization = "contract"
 ```
 
-The proposed schema is closed: unknown fields, duplicate `source_id` values,
+The schema is closed: unknown fields, duplicate `source_id` values,
 invalid enumerations, and undeclared source URLs are schema errors. In v0:
 
 - `allowed_domains` contains exact DNS host names. Wildcards and implicit
@@ -95,9 +93,8 @@ invalid enumerations, and undeclared source URLs are schema errors. In v0:
   retained;
 - `freshness_max_age_seconds` must be finite and non-negative.
 
-The recommended v0 has no automatic retry. If review later admits retry, each
-attempt must consume the request cap and must appear in evidence; retry cannot
-silently weaken the timeout or idempotence rules.
+V0 has no automatic retry. A later contract version may add visible, capped
+attempts, but retry cannot silently weaken the timeout or idempotence rules.
 
 ### 2.1 Contract authority and Gate 1
 
@@ -123,7 +120,7 @@ Every attempted source produces a typed entry, including failures. A successful
 entry must contain at least the five required acquisition facts: URL, time,
 HTTP status, content SHA-256, and saved path.
 
-The proposed envelope is:
+The fixed envelope is:
 
 ```json
 {
@@ -184,7 +181,7 @@ For a successful acquisition:
 - reject a destination that resolves outside the snapshot root;
 - do not include the raw body in an event, console log, or error message.
 
-Only HTTP 200 admits a new snapshot in the recommended v0. Redirects and other
+Only HTTP 200 admits a new snapshot in v0. Redirects and other
 statuses are still recorded, but their content is not handed to N1--N5.
 Partially written and unverified files are never published.
 
@@ -212,7 +209,7 @@ alternate fetch path. If the transport is in-process, it still lives behind the
 same dedicated fetch interface and must expose equivalent bounds and typed
 results.
 
-The implementation should be a leaf module with minimal wiring at planner and
+The implementation is a leaf module with minimal wiring at planner and
 minimal-loop chokepoints. The first implementation commit must also register an
 audit guard that detects direct network transports or unregistered fetch
 dispatch sites outside the boundary. This is the D-3c lesson applied on day
@@ -226,7 +223,7 @@ typed failure; they do not panic.
 
 ### 4.1 URL and endpoint safety
 
-Before a request, the proposed v0 boundary must:
+Before a request, the v0 boundary must:
 
 1. parse and canonicalize the URL without fetching it;
 2. require HTTPS, an exact allowed host, an allowed port, and an exact declared
@@ -244,7 +241,7 @@ permission alone is not an SSRF defense.
 
 ## 5. Robots and courtesy policy
 
-The recommended policy is explicit, conservative, and measurable:
+The fixed policy is explicit, conservative, and measurable:
 
 - obtain and cache `robots.txt` per origin before content acquisition;
 - evaluate the product user-agent group, falling back to `*` when applicable;
@@ -259,10 +256,10 @@ The recommended policy is explicit, conservative, and measurable:
   identities;
 - count the robots request in `max_http_requests`.
 
-The product user agent should identify CommandAgent and provide a stable project
-information URL once that contact value is adjudicated. A suite cannot weaken
-robots behavior. It may make courtesy stricter by lowering caps or increasing
-the minimum interval.
+The required user-agent value is
+`CommandAgentFetch/0.1 (+https://github.com/Kewton/CommandAgent)`. A suite
+cannot replace or omit it and cannot weaken robots behavior. It may make
+courtesy stricter by lowering caps or increasing the minimum interval.
 
 Robots permission is not authorization to fetch an undeclared URL, and contract
 authorization is not permission to ignore robots. Both must pass.
@@ -284,17 +281,17 @@ A cache hit must:
 
 Cache corruption, missing metadata, or a hash mismatch fails closed. It does not
 silently refetch, because that would make a nominally idempotent rerun perform
-new network work. A later explicit policy may authorize repair, but such repair
-must be visible as a new acquisition.
+new network work. Any later repair policy requires a contract revision and must
+be visible as a new acquisition.
 
 The cache is workspace-local. A global cache, cross-contract trust, conditional
 GET, and server validator semantics are outside v0.
 
-## 7. Freshness verification: proposed N6
+## 7. Freshness verification: N6
 
-The smallest addition to the N family is a proposed
-`N6 ingest_fetch_freshness` check. The name and number are provisional pending
-Section 11 adjudication; N1--N5 retain their existing meanings either way.
+The smallest addition to the N family is the fixed
+`N6 ingest_fetch_freshness` check. N1--N5 retain their existing names and
+meanings.
 
 N6 consumes fetch evidence rather than page prose. For each source:
 
@@ -313,7 +310,7 @@ hash, fetch-evidence hash, acquisition time, evaluation time, age, configured
 maximum age, and `pass`/`violation`. It performs no network request and invokes
 no new judge.
 
-The recommended stage-2 acceptance relation is:
+The fixed stage-2 acceptance relation is:
 
 ```text
 valid fetch evidence
@@ -321,10 +318,10 @@ AND N6 pass for every required source
 AND existing N1, N2, N3, N4, and N5 pass
 ```
 
-A fetch failure or stale source does not enter N1--N5 as if it were an empty
-page. Its typed acquisition/freshness outcome remains visible. Exact mapping to
-the existing final-verdict vocabulary is an adjudication item; this draft does
-not change current `full` semantics.
+A fetch failure or N6 violation makes the stage-2 result `failed` and leaves
+N1--N5 `not_executed`; it never enters N1--N5 as an empty page. Stage-2 `full`
+requires valid fetch evidence plus N6 and N1--N5 pass. The existing stage-1
+entry point and its `full` semantics remain unchanged.
 
 ## 8. Typed outcomes and honest failure
 
@@ -346,10 +343,10 @@ report may separately state that no ingest attempt occurred. Verification and
 acceptance must not rewrite one of these outcomes to success merely to complete
 a campaign.
 
-Proposed additive lifecycle events are `fetch_authorized`, `fetch_completed`,
+The additive lifecycle events are `fetch_authorized`, `fetch_completed`,
 `fetch_cache_hit`, `fetch_failed`, and `ingest_fetch_freshness`. Their final
-names and envelopes require schema review; none is introduced by this draft.
-Existing event names and schemas remain byte-for-byte unchanged.
+envelopes are fixed by the implementation fixtures. Existing event names and
+schemas remain byte-for-byte unchanged.
 
 ## 9. Explicit v0 exclusions
 
@@ -406,8 +403,9 @@ and fixture lines are reported separately at settlement.
 | total | **1,350--2,250** | comparator plus plumbing; no autonomous navigation |
 | tests/fixtures (non-production) | 1,100--1,900 | contract negatives, local HTTP harness, storage/cache/freshness and chokepoint guards |
 
-Choosing a child-process transport rather than a bounded in-process client may
-move work within the plumbing band, but does not remove any boundary obligation.
+The transport is a bounded child process using the shared `bounded_process`
+facility. This choice stays within the plumbing band and does not remove any
+boundary obligation.
 Settlement must report actual added production lines by comparator and plumbing
 using the same counting rule as E-4; the band must not be raised after the fact
 to admit the implementation.
@@ -429,27 +427,27 @@ campaigns across allow/deny, live/cache, fresh/stale, timeout/oversize, and Gate
 1 authorization cells. These are forecasts, not permission to weaken honest
 failure or redefine a fixture after observation.
 
-## 11. Adjudication required
+## 11. Fixed adjudication (2026-08-03)
 
-Review must explicitly decide the following before implementation:
+1. `N6 ingest_fetch_freshness` is fixed. Fetch failure or N6 violation makes
+   stage 2 failed with N1--N5 not executed; stage-1 verdict bytes do not change.
+2. The closed TOML, exact-domain/exact-URL authority, and Gate 1's inability to
+   expand a domain are accepted.
+3. V0 is HTTPS-only, HTTP-200-only, has no retry, and records then rejects every
+   redirect.
+4. Robots 404/410 allows, 401/403 denies, and transport/parse uncertainty fails
+   closed. The required UA is
+   `CommandAgentFetch/0.1 (+https://github.com/Kewton/CommandAgent)`.
+5. The cache key is canonical URL plus UTC date. Corruption fails without an
+   implicit refetch.
+6. Observed acquisition time is authoritative for N6 and
+   `freshness_max_age_seconds` is owned by the fetch contract.
+7. The transport is a child process and every launch uses `bounded_process`;
+   the dedicated fetch boundary and its protection audit are mandatory.
+8. Production Rust remains forecast at comparator/checkers 650--1,050 lines,
+   plumbing 700--1,200 lines, total 1,350--2,250. Residual machine floors remain
+   4--8 and initial live calibration remains 5--10 campaigns.
 
-1. whether the freshness sibling is fixed as `N6 ingest_fetch_freshness`, and
-   how fetch failure/N6 violation maps to the final-verdict vocabulary;
-2. whether the closed TOML shape and exact-domain/exact-URL authority model are
-   accepted, including Gate 1 being unable to expand domains;
-3. whether HTTPS-only, HTTP-200-only, no retry, and reject-all-redirects are the
-   correct v0 defaults;
-4. whether robots 404/410 may allow while 401/403 denies and transport/parse
-   uncertainty fails closed, plus the product user-agent/contact value;
-5. whether same canonical URL plus UTC date is the cache key and corruption
-   must fail without implicit refetch;
-6. whether acquisition time alone is authoritative for the v0 freshness check
-   and where `freshness_max_age_seconds` is owned;
-7. whether to use a bounded child transport or an in-process client, while
-   preserving the single-boundary and audit-guard invariants;
-8. whether the line bands, 4--8 residual-floor forecast, and 5--10 campaign
-   calibration envelope are accepted.
-
-Until those decisions are recorded, this document remains a design draft. No
-production source, live suite schema, runtime event, assurance rule, band, or
-historical run record is changed by F-C-1a.
+F-C-1b implements this fixed boundary with recorded fixtures and localhost
+acceptance only. Selection and first measurement of a public site require a
+separate instruction.
