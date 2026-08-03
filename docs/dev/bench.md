@@ -56,6 +56,25 @@ the in-repository audit trail.
 | Show a search method for absence claims | The report records the recursive `events.jsonl` glob, `event` field, and regex patterns used. |
 | Do not skip environment gates | Clean git, HEAD/ancestor, cargo tests, release install/version, and `NODE_ENV` are recorded before procurement. |
 
+## BoN series predeclaration v2
+
+A suite with `suite.bon_series` must receive `--bon-predeclaration` before the
+harness allocates a workspace or starts a paid run. Schema
+`commandagent.bon-validation-predeclaration/v2` requires all instrument pins
+from v1 plus an uncertainty-aware baseline and prediction:
+
+- `baseline_rate` records `full_count`, `trial_count`, their exact `estimate`,
+  non-empty evidence `sources`, and the recomputed Wilson 95% interval.
+- `predictive_distribution` records a Jeffreys-prior Beta-binomial model, its
+  posterior parameters, the suite-sized probability of at least one full run,
+  expected full count, and the shortest contiguous 95% predictive band.
+
+The harness recomputes every derived value. A declaration using the former
+point-probability binomial fields, a point-binomial model, an incorrect
+denominator/interval, or an incorrect predictive band fails closed before
+spend. The validated objects are copied into `uat-meta.json` and must also be
+present when `bon_select.py` validates a campaign pin.
+
 ## Pack A/B measurement template
 
 Pack効果は「同じ仕事へ何を注入したか」だけを独立変数として測る。

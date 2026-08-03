@@ -1,0 +1,29 @@
+{
+  "schema_version": "commandagent.bon-model-snapshot-check/v0",
+  "recorded_at": "2026-08-04T08:01:55+09:00",
+  "requested_model": "gpt-5.6-luna",
+  "doctor": {
+    "exit_code": 0,
+    "overall_status": "warn",
+    "configured_executor": "pass",
+    "configured_planner": "pass",
+    "ollama_reachable": "pass",
+    "planner_model_present": "pass",
+    "openai_key_present_redacted": "pass",
+    "openai_models_endpoint_reachable": "pass",
+    "warning_scope": "non-provider interactive-environment checks"
+  },
+  "openai_models": {
+    "endpoint": "https://api.openai.com/v1/models",
+    "matching_model_ids": [
+      "gpt-5.6-luna"
+    ],
+    "dated_snapshot_model_ids": []
+  },
+  "suite": {
+    "path": "workspace/management/bench/suites/cli-filter-bon0.toml",
+    "executor": "gpt-5.6-luna",
+    "decision": "retain_alias_because_no_dated_snapshot_was_listed"
+  },
+  "secret_policy": "OPENAI_API_KEY was sourced only in the child process and was not recorded"
+}

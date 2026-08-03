@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
 import shlex
@@ -22,7 +23,7 @@ import tomllib
 from id_vocabulary import INTERRUPTED_ENVIRONMENT
 
 HARNESS_VERSION = "0.1"
-BON_PREDECLARATION_SCHEMA_VERSION = "commandagent.bon-validation-predeclaration/v1"
+BON_PREDECLARATION_SCHEMA_VERSION = "commandagent.bon-validation-predeclaration/v2"
 PACK_HASH_DOMAIN = b"commandagent-pack-v0\0"
 PACK_FILES = ("assist.yaml", "eval.yaml")
 PACK_SCHEMA_VERSIONS = {
@@ -138,6 +139,8 @@ class BonSeriesPredeclaration:
     execution_revision: str
     suite_sha256: str
     binary_sha256: str
+    baseline_rate: dict[str, Any]
+    predictive_distribution: dict[str, Any]
 
 
 @dataclass(frozen=True)
@@ -592,6 +595,249 @@ def load_suite(path: Path) -> SuiteDefinition:
     )
 
 
+def _required_number(table: dict[str, Any], key: str, context: str) -> float:
+    value = table.get(key)
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        raise BenchError(f"{context}.{key} must be a number")
+    number = float(value)
+    if not math.isfinite(number):
+        raise BenchError(f"{context}.{key} must be finite")
+    return number
+
+
+def wilson_score_interval(
+    full_count: int, trial_count: int, confidence: float
+) -> tuple[float, float]:
+    if confidence != 0.95:
+        raise BenchError("BoN confidence_interval.confidence must be 0.95")
+    z = 1.959963984540054
+    estimate = full_count / trial_count
+    denominator = 1.0 + z * z / trial_count
+    center = (estimate + z * z / (2.0 * trial_count)) / denominator
+    half_width = (
+        z
+        * math.sqrt(
+            estimate * (1.0 - estimate) / trial_count
+            + z * z / (4.0 * trial_count * trial_count)
+        )
+        / denominator
+    )
+    return center - half_width, center + half_width
+
+
+def beta_binomial_probabilities(
+    trials: int, alpha: float, beta: float
+) -> tuple[float, ...]:
+    probabilities = []
+    for full_count in range(trials + 1):
+        log_probability = (
+            math.lgamma(trials + 1)
+            - math.lgamma(full_count + 1)
+            - math.lgamma(trials - full_count + 1)
+            + math.lgamma(full_count + alpha)
+            + math.lgamma(trials - full_count + beta)
+            - math.lgamma(trials + alpha + beta)
+            - math.lgamma(alpha)
+            - math.lgamma(beta)
+            + math.lgamma(alpha + beta)
+        )
+        probabilities.append(math.exp(log_probability))
+    total = sum(probabilities)
+    return tuple(probability / total for probability in probabilities)
+
+
+def shortest_contiguous_band(
+    probabilities: Sequence[float], mass: float
+) -> tuple[int, int]:
+    if not 0.0 < mass < 1.0:
+        raise BenchError("BoN full_count_band.mass must be between zero and one")
+    candidates: list[tuple[int, float, int, int]] = []
+    for lower in range(len(probabilities)):
+        total = 0.0
+        for upper in range(lower, len(probabilities)):
+            total += probabilities[upper]
+            if total + 1e-15 >= mass:
+                candidates.append((upper - lower, -total, lower, upper))
+                break
+    if not candidates:
+        raise BenchError("BoN full_count_band mass cannot be reached")
+    _, _, lower, upper = min(candidates)
+    return lower, upper
+
+
+def _validate_bon_methodology(
+    document: dict[str, Any], suite: SuiteDefinition
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    legacy_point_binomial_keys = sorted(
+        {
+            "expected_full_probability",
+            "expected_full_count_per_campaign",
+            "expected_full_count_total",
+            "expected_full_count_band",
+            "probability_at_least_one_full_per_campaign",
+            "expected_campaigns_with_at_least_one_full",
+            "independence_test",
+        }.intersection(document)
+    )
+    if legacy_point_binomial_keys:
+        raise BenchError(
+            "BoN point-binomial declaration is forbidden; declare denominator, "
+            "Wilson CI, and Beta-binomial predictive band instead: "
+            + ", ".join(legacy_point_binomial_keys)
+        )
+
+    baseline = document.get("baseline_rate")
+    if not isinstance(baseline, dict):
+        raise BenchError("BoN predeclaration baseline_rate must be an object")
+    full_count = baseline.get("full_count")
+    trial_count = baseline.get("trial_count")
+    if (
+        not isinstance(full_count, int)
+        or isinstance(full_count, bool)
+        or not isinstance(trial_count, int)
+        or isinstance(trial_count, bool)
+        or trial_count <= 0
+        or not 0 <= full_count <= trial_count
+    ):
+        raise BenchError(
+            "BoN baseline_rate full_count/trial_count must satisfy 0 <= full <= trials"
+        )
+    estimate = _required_number(baseline, "estimate", "baseline_rate")
+    if not math.isclose(
+        estimate, full_count / trial_count, rel_tol=0.0, abs_tol=1e-12
+    ):
+        raise BenchError("BoN baseline_rate.estimate must equal full_count/trial_count")
+    sources = baseline.get("sources")
+    if (
+        not isinstance(sources, list)
+        or not sources
+        or any(not isinstance(source, str) or not source.strip() for source in sources)
+    ):
+        raise BenchError("BoN baseline_rate.sources must be a non-empty string array")
+    interval = baseline.get("confidence_interval")
+    if not isinstance(interval, dict):
+        raise BenchError("BoN baseline_rate.confidence_interval must be an object")
+    if interval.get("method") != "wilson_score":
+        raise BenchError(
+            "BoN baseline_rate.confidence_interval.method must be wilson_score"
+        )
+    confidence = _required_number(interval, "confidence", "confidence_interval")
+    observed_lower = _required_number(interval, "lower", "confidence_interval")
+    observed_upper = _required_number(interval, "upper", "confidence_interval")
+    expected_lower, expected_upper = wilson_score_interval(
+        full_count, trial_count, confidence
+    )
+    if not (
+        math.isclose(
+            observed_lower, expected_lower, rel_tol=0.0, abs_tol=1e-12
+        )
+        and math.isclose(
+            observed_upper, expected_upper, rel_tol=0.0, abs_tol=1e-12
+        )
+    ):
+        raise BenchError(
+            "BoN baseline_rate confidence interval does not match Wilson calculation"
+        )
+
+    predictive = document.get("predictive_distribution")
+    if not isinstance(predictive, dict):
+        raise BenchError(
+            "BoN predeclaration predictive_distribution must be an object"
+        )
+    if predictive.get("model") != "beta_binomial":
+        raise BenchError("BoN predictive_distribution.model must be beta_binomial")
+    prior = predictive.get("prior")
+    if not isinstance(prior, dict) or prior.get("name") != "jeffreys":
+        raise BenchError("BoN predictive_distribution.prior must be Jeffreys")
+    prior_alpha = _required_number(prior, "alpha", "predictive_distribution.prior")
+    prior_beta = _required_number(prior, "beta", "predictive_distribution.prior")
+    if prior_alpha != 0.5 or prior_beta != 0.5:
+        raise BenchError("BoN Jeffreys prior must use alpha=beta=0.5")
+    predictive_trials = predictive.get("trials")
+    if (
+        not isinstance(predictive_trials, int)
+        or isinstance(predictive_trials, bool)
+        or predictive_trials != len(suite.runs)
+    ):
+        raise BenchError(
+            "BoN predictive_distribution.trials must equal the suite run count"
+        )
+    posterior = predictive.get("posterior")
+    if not isinstance(posterior, dict):
+        raise BenchError("BoN predictive_distribution.posterior must be an object")
+    posterior_alpha = _required_number(
+        posterior, "alpha", "predictive_distribution.posterior"
+    )
+    posterior_beta = _required_number(
+        posterior, "beta", "predictive_distribution.posterior"
+    )
+    expected_alpha = prior_alpha + full_count
+    expected_beta = prior_beta + trial_count - full_count
+    if not (
+        math.isclose(
+            posterior_alpha, expected_alpha, rel_tol=0.0, abs_tol=1e-12
+        )
+        and math.isclose(
+            posterior_beta, expected_beta, rel_tol=0.0, abs_tol=1e-12
+        )
+    ):
+        raise BenchError(
+            "BoN predictive_distribution posterior does not match baseline and prior"
+        )
+    probabilities = beta_binomial_probabilities(
+        predictive_trials, posterior_alpha, posterior_beta
+    )
+    observed_at_least_one = _required_number(
+        predictive,
+        "probability_at_least_one_full",
+        "predictive_distribution",
+    )
+    expected_at_least_one = 1.0 - probabilities[0]
+    if not math.isclose(
+        observed_at_least_one,
+        expected_at_least_one,
+        rel_tol=0.0,
+        abs_tol=1e-12,
+    ):
+        raise BenchError(
+            "BoN predictive_distribution probability does not match Beta-binomial"
+        )
+    observed_expected_count = _required_number(
+        predictive, "expected_full_count", "predictive_distribution"
+    )
+    expected_count = predictive_trials * posterior_alpha / (
+        posterior_alpha + posterior_beta
+    )
+    if not math.isclose(
+        observed_expected_count, expected_count, rel_tol=0.0, abs_tol=1e-12
+    ):
+        raise BenchError(
+            "BoN predictive_distribution expected_full_count does not match posterior"
+        )
+    band = predictive.get("full_count_band")
+    if not isinstance(band, dict):
+        raise BenchError(
+            "BoN predictive_distribution.full_count_band must be an object"
+        )
+    if band.get("method") != "shortest_contiguous":
+        raise BenchError(
+            "BoN predictive_distribution.full_count_band.method must be shortest_contiguous"
+        )
+    mass = _required_number(band, "mass", "full_count_band")
+    if mass != 0.95:
+        raise BenchError("BoN full_count_band.mass must be 0.95")
+    expected_band = shortest_contiguous_band(probabilities, mass)
+    observed_band = (band.get("lower"), band.get("upper"))
+    if (
+        any(not isinstance(bound, int) or isinstance(bound, bool) for bound in observed_band)
+        or observed_band != expected_band
+    ):
+        raise BenchError(
+            "BoN predictive_distribution full_count_band does not match Beta-binomial"
+        )
+    return baseline, predictive
+
+
 def load_bon_predeclaration(
     path: Path, suite: SuiteDefinition
 ) -> BonSeriesPredeclaration:
@@ -639,6 +885,9 @@ def load_bon_predeclaration(
             raise BenchError(
                 f"BoN predeclaration {label} must be a lowercase SHA-256"
             )
+    baseline_rate, predictive_distribution = _validate_bon_methodology(
+        document, suite
+    )
     observed_suite_sha256 = sha256_file(suite.path)
     if suite_sha256 != observed_suite_sha256:
         raise BenchError(
@@ -651,6 +900,8 @@ def load_bon_predeclaration(
         execution_revision=execution_revision,
         suite_sha256=suite_sha256,
         binary_sha256=binary_sha256,
+        baseline_rate=baseline_rate,
+        predictive_distribution=predictive_distribution,
     )
 
 
@@ -824,6 +1075,8 @@ def perform_preflight(
             "execution_revision_observed": records["head_sha"],
             "suite_sha256_expected": bon_predeclaration.suite_sha256,
             "binary_sha256_expected": bon_predeclaration.binary_sha256,
+            "baseline_rate": bon_predeclaration.baseline_rate,
+            "predictive_distribution": bon_predeclaration.predictive_distribution,
         }
         if records["head_sha"] != bon_predeclaration.execution_revision:
             raise BenchError(

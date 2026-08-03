@@ -26,7 +26,7 @@ from score_retrospective import AtomObservation, normalize_state, score_atoms
 
 SCHEMA_VERSION = "commandagent.bon-selection/v0"
 INDEPENDENCE_SCHEMA_VERSION = "commandagent.bon-independence/v0"
-BON_PREDECLARATION_SCHEMA_VERSION = "commandagent.bon-validation-predeclaration/v1"
+BON_PREDECLARATION_SCHEMA_VERSION = "commandagent.bon-validation-predeclaration/v2"
 EXPECTED_SUITE_ID = "cli-filter-bon0"
 EXPECTED_N = 6
 EXPECTED_GOAL = "filter"
@@ -453,6 +453,8 @@ def build_selection(
                 series_pin.get("binary_sha256_expected") == built_binary,
                 series_pin.get("binary_sha256_observed") == built_binary,
                 series_pin.get("binary_sha256_matches") is True,
+                isinstance(series_pin.get("baseline_rate"), dict),
+                isinstance(series_pin.get("predictive_distribution"), dict),
             )
             if not all(pin_checks):
                 invalid.append("bon_series_pin_mismatch")

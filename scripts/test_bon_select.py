@@ -115,6 +115,11 @@ def write_campaign(
                 "binary_sha256_expected": "a" * 64,
                 "binary_sha256_observed": "a" * 64,
                 "binary_sha256_matches": True,
+                "baseline_rate": {
+                    "full_count": 4,
+                    "trial_count": 42,
+                },
+                "predictive_distribution": {"model": "beta_binomial"},
             },
         },
         "runs": metadata_runs,

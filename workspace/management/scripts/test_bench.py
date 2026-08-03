@@ -138,6 +138,66 @@ def write_source_less_suite(
     return suite_path
 
 
+def bon_methodology(
+    suite: bench.SuiteDefinition, full_count: int = 4, trial_count: int = 42
+) -> dict[str, object]:
+    estimate = full_count / trial_count
+    lower, upper = bench.wilson_score_interval(full_count, trial_count, 0.95)
+    posterior_alpha = full_count + 0.5
+    posterior_beta = trial_count - full_count + 0.5
+    probabilities = bench.beta_binomial_probabilities(
+        len(suite.runs), posterior_alpha, posterior_beta
+    )
+    band_lower, band_upper = bench.shortest_contiguous_band(probabilities, 0.95)
+    return {
+        "baseline_rate": {
+            "full_count": full_count,
+            "trial_count": trial_count,
+            "estimate": estimate,
+            "sources": ["fixture:4/42"],
+            "confidence_interval": {
+                "method": "wilson_score",
+                "confidence": 0.95,
+                "lower": lower,
+                "upper": upper,
+            },
+        },
+        "predictive_distribution": {
+            "model": "beta_binomial",
+            "prior": {"name": "jeffreys", "alpha": 0.5, "beta": 0.5},
+            "trials": len(suite.runs),
+            "posterior": {
+                "alpha": posterior_alpha,
+                "beta": posterior_beta,
+            },
+            "probability_at_least_one_full": 1.0 - probabilities[0],
+            "expected_full_count": len(suite.runs)
+            * posterior_alpha
+            / (posterior_alpha + posterior_beta),
+            "full_count_band": {
+                "method": "shortest_contiguous",
+                "mass": 0.95,
+                "lower": band_lower,
+                "upper": band_upper,
+            },
+        },
+    }
+
+
+def bon_predeclaration_document(
+    suite: bench.SuiteDefinition,
+) -> dict[str, object]:
+    return {
+        "schema_version": bench.BON_PREDECLARATION_SCHEMA_VERSION,
+        "recorded_at": "2026-08-04T00:00:00+09:00",
+        "series_id": "test-bon-series",
+        "execution_revision": "a" * 40,
+        "suite_sha256": bench.sha256_file(suite.path),
+        "binary_sha256": "b" * 64,
+        **bon_methodology(suite),
+    }
+
+
 class SuiteAndCommandTests(unittest.TestCase):
     def test_parse_bundled_suites(self) -> None:
         dfix = bench.load_suite(SUITES_DIR / "dfix-synthesis.toml")
@@ -225,18 +285,9 @@ class SuiteAndCommandTests(unittest.TestCase):
                 write_source_less_suite(root, bon_series="test-bon-series")
             )
             predeclaration = root / "predeclaration.json"
-            predeclaration.write_text(
-                json.dumps(
-                    {
-                        "schema_version": bench.BON_PREDECLARATION_SCHEMA_VERSION,
-                        "recorded_at": "2026-08-03T00:00:00+09:00",
-                        "series_id": "test-bon-series",
-                        "execution_revision": "a" * 40,
-                        "suite_sha256": bench.sha256_file(suite.path),
-                    }
-                ),
-                encoding="utf-8",
-            )
+            document = bon_predeclaration_document(suite)
+            del document["binary_sha256"]
+            predeclaration.write_text(json.dumps(document), encoding="utf-8")
 
             with self.assertRaisesRegex(
                 bench.BenchError,
@@ -251,20 +302,81 @@ class SuiteAndCommandTests(unittest.TestCase):
                 write_source_less_suite(root, bon_series="test-bon-series")
             )
             predeclaration = root / "predeclaration.json"
-            document = {
-                "schema_version": bench.BON_PREDECLARATION_SCHEMA_VERSION,
-                "recorded_at": "2026-08-03T00:00:00+09:00",
-                "series_id": "test-bon-series",
-                "execution_revision": "a" * 40,
-                "suite_sha256": bench.sha256_file(suite.path),
-                "binary_sha256": "b" * 64,
-            }
+            document = bon_predeclaration_document(suite)
             predeclaration.write_text(json.dumps(document), encoding="utf-8")
 
             pin = bench.load_bon_predeclaration(predeclaration, suite)
 
             self.assertEqual(pin.series_id, "test-bon-series")
             self.assertEqual(pin.binary_sha256, "b" * 64)
+            self.assertEqual(pin.baseline_rate["trial_count"], 42)
+            self.assertEqual(
+                pin.predictive_distribution["model"], "beta_binomial"
+            )
+
+    def test_bon_predeclaration_rejects_point_binomial_declaration(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            suite = bench.load_suite(
+                write_source_less_suite(root, bon_series="test-bon-series")
+            )
+            document = bon_predeclaration_document(suite)
+            document["expected_full_probability"] = 0.17
+            predeclaration = root / "predeclaration.json"
+            predeclaration.write_text(json.dumps(document), encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                bench.BenchError, "point-binomial declaration is forbidden"
+            ):
+                bench.load_bon_predeclaration(predeclaration, suite)
+
+    def test_bon_predeclaration_requires_wilson_confidence_interval(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            suite = bench.load_suite(
+                write_source_less_suite(root, bon_series="test-bon-series")
+            )
+            document = bon_predeclaration_document(suite)
+            del document["baseline_rate"]["confidence_interval"]
+            predeclaration = root / "predeclaration.json"
+            predeclaration.write_text(json.dumps(document), encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                bench.BenchError, "confidence_interval must be an object"
+            ):
+                bench.load_bon_predeclaration(predeclaration, suite)
+
+    def test_bon_predeclaration_recomputes_beta_binomial_band(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            suite = bench.load_suite(
+                write_source_less_suite(root, bon_series="test-bon-series")
+            )
+            document = bon_predeclaration_document(suite)
+            document["predictive_distribution"]["full_count_band"]["upper"] = 99
+            predeclaration = root / "predeclaration.json"
+            predeclaration.write_text(json.dumps(document), encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                bench.BenchError, "full_count_band does not match Beta-binomial"
+            ):
+                bench.load_bon_predeclaration(predeclaration, suite)
+
+    def test_bon_predeclaration_requires_ninety_five_percent_band(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            suite = bench.load_suite(
+                write_source_less_suite(root, bon_series="test-bon-series")
+            )
+            document = bon_predeclaration_document(suite)
+            document["predictive_distribution"]["full_count_band"]["mass"] = 0.5
+            predeclaration = root / "predeclaration.json"
+            predeclaration.write_text(json.dumps(document), encoding="utf-8")
+
+            with self.assertRaisesRegex(
+                bench.BenchError, "full_count_band.mass must be 0.95"
+            ):
+                bench.load_bon_predeclaration(predeclaration, suite)
 
     def test_bon_suite_requires_predeclaration_before_workspace_allocation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -441,6 +553,8 @@ class PreflightPinTests(unittest.TestCase):
                 execution_revision="a" * 40,
                 suite_sha256="b" * 64,
                 binary_sha256="0" * 64,
+                baseline_rate={"full_count": 0, "trial_count": 1},
+                predictive_distribution={"model": "beta_binomial"},
             )
             commands: list[tuple[str, ...]] = []
 
