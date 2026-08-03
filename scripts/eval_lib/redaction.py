@@ -5,13 +5,16 @@ import re
 from pathlib import Path
 from typing import Any
 
-
 SECRET_PATTERNS = [
     re.compile(r"sk-[A-Za-z0-9_\-]{8,}"),
     re.compile(r"AIza[0-9A-Za-z_\-]{8,}"),
     re.compile(r"Bearer\s+[A-Za-z0-9._\-]+", re.IGNORECASE),
     re.compile(r"request[_ -]?id[:=]\s*[A-Za-z0-9._\-]+", re.IGNORECASE),
 ]
+
+URL_QUERY_SECRET = re.compile(
+    r"(?i)([?&](?:access[_-]?token|api[_-]?key|apikey|authorization|credential|password|secret|signature|token)=)([^&#\s]+)"
+)
 
 
 def redact_text(value: str) -> str:
@@ -25,6 +28,7 @@ def redact_text(value: str) -> str:
         out = out.replace(home, "<HOME>")
     for pattern in SECRET_PATTERNS:
         out = pattern.sub(_redacted_match, out)
+    out = URL_QUERY_SECRET.sub(r"\1<REDACTED>", out)
     return out
 
 

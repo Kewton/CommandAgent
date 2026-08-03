@@ -6,7 +6,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from eval_lib.failure_classification import classify_events, classify_stderr, known_failure_kind
+from eval_lib.failure_classification import (
+    classify_events,
+    classify_stderr,
+    known_failure_kind,
+)
 from eval_lib.redaction import redact_text
 
 
@@ -383,6 +387,14 @@ class FailureSnapshotClassificationTest(unittest.TestCase):
         self.assertIn("sk-<REDACTED>", redacted)
         self.assertIn("request_id=<REDACTED>", redacted)
         self.assertNotIn("sk-1234567890abcdef", redacted)
+
+    def test_fixture_redaction_removes_url_query_credentials(self):
+        redacted = redact_text(
+            "GET https://example.test/events?page=1&access_token=query-secret&lang=ja"
+        )
+        self.assertIn("page=1", redacted)
+        self.assertIn("access_token=<REDACTED>", redacted)
+        self.assertNotIn("query-secret", redacted)
 
 
 if __name__ == "__main__":

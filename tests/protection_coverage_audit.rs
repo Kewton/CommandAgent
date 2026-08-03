@@ -44,6 +44,13 @@ const PROTECTION_RULES: &[ProtectionRule] = &[
         audit: audit_bounded_execution_chokepoints,
     },
     ProtectionRule {
+        category: "fetch_network_boundary",
+        site_predicate: "network fetch transport and dispatch",
+        required_wrapper: "fetch_probe / bounded_process",
+        allowlist: &["src/fetch_probe/mod.rs", "src/fetch_probe/transport.rs"],
+        audit: audit_fetch_network_boundary,
+    },
+    ProtectionRule {
         category: "provider_timeout_enforcement",
         site_predicate: "ChatClient implementors",
         required_wrapper: "required boxed_clone worker path",
@@ -97,6 +104,10 @@ fn protection_coverage_table_rejects_unregistered_mock_sites() {
             r#"fn f() { let _ = std::process::Command::new("sh").output(); }"#,
         ),
         (
+            "src/new_fetch.rs",
+            r#"fn f() { let _ = std::process::Command::new("curl").arg("https://example.test"); let _ = transport.get(root, request); }"#,
+        ),
+        (
             "src/new_verify.rs",
             r#"fn f(root: &std::path::Path) { let _ = crate::minimal_loop::verifier_env::run_checked("npm run build", root, false); }"#,
         ),
@@ -130,6 +141,7 @@ fn protection_coverage_table_rejects_unregistered_mock_sites() {
         "compile_output_source_of_truth",
         "verify_normalization_boundary",
         "bounded_execution_chokepoints",
+        "fetch_network_boundary",
         "provider_timeout_enforcement",
         "workspace_policy_tool_paths",
         "terminal_records",
@@ -139,6 +151,11 @@ fn protection_coverage_table_rejects_unregistered_mock_sites() {
             "mock site did not trip {category}; violations:\n{violations}"
         );
     }
+    assert!(
+        violations.contains("src/new_fetch.rs")
+            && violations.contains("constructs a fetch child outside the boundary"),
+        "mock fetch site did not trip the single-boundary guard: {violations}"
+    );
 }
 
 fn audit_protection_coverage(corpus: &AuditCorpus) -> Vec<String> {
@@ -272,6 +289,59 @@ fn audit_bounded_execution_chokepoints(corpus: &AuditCorpus, _: &ProtectionRule)
                 in_test_mod = true;
             }
         }
+    }
+    violations
+}
+
+fn audit_fetch_network_boundary(corpus: &AuditCorpus, rule: &ProtectionRule) -> Vec<String> {
+    let mut violations = Vec::new();
+    let transport = corpus.file("src/fetch_probe/transport.rs");
+    if !transport.contains("impl FetchTransport for BoundedCurlTransport") {
+        violations.push("bounded curl transport implementation is missing".to_string());
+    }
+    if !transport.contains("bounded_process::run_with_timeout(") {
+        violations.push("fetch transport bypasses bounded_process".to_string());
+    }
+    if transport.contains("reqwest::") {
+        violations.push("fetch transport uses an in-process network client".to_string());
+    }
+    for (path, text) in corpus.src_rust_files() {
+        let mut in_test_mod = false;
+        for (line_index, line) in text.lines().enumerate() {
+            let trimmed = line.trim();
+            if (trimmed.starts_with("mod tests") || trimmed.starts_with("pub mod tests"))
+                && line.contains('{')
+                && preceding_cfg_test(text, line_index)
+            {
+                in_test_mod = true;
+            }
+            if in_test_mod {
+                continue;
+            }
+            let constructs_fetch_child =
+                line.contains("Command::new(\"curl\"") || line.contains("Command::new(\"wget\"");
+            if constructs_fetch_child && path != "src/fetch_probe/transport.rs" {
+                violations.push(format!(
+                    "{path}:{} constructs a fetch child outside the boundary",
+                    line_index + 1
+                ));
+            }
+            if line.contains("transport.get(") && path != "src/fetch_probe/mod.rs" {
+                violations.push(format!(
+                    "{path}:{} dispatches fetch transport outside the boundary",
+                    line_index + 1
+                ));
+            }
+        }
+    }
+    for path in rule.allowlist {
+        if corpus.file(path).is_empty() {
+            violations.push(format!("registered fetch boundary file is missing: {path}"));
+        }
+    }
+    let registry = corpus.file("src/tools/registry.rs");
+    if registry.contains("spec(\"Fetch\"") || registry.contains("spec(\"Curl\"") {
+        violations.push("LLM tool registry exposes a raw network fetch tool".to_string());
     }
     violations
 }

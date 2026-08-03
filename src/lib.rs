@@ -11,6 +11,7 @@ pub mod doctor;
 pub mod env_compat;
 pub mod eval_events;
 mod evidence_envelope;
+pub mod fetch_probe;
 pub mod minimal_loop;
 pub mod mode;
 pub mod model_probe;

@@ -242,6 +242,7 @@ dependencies = [
  "thiserror",
  "toml",
  "unicode-width",
+ "url",
  "uuid",
 ]
 
