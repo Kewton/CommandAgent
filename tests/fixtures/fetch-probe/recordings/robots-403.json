@@ -1,0 +1,13 @@
+{
+  "schema_version": "commandagent.fetch-recording/v0",
+  "exchanges": [
+    {
+      "url": "https://events.example.test/robots.txt",
+      "http_status": 403,
+      "body": "denied",
+      "elapsed_ms": 2,
+      "remote_ip": "8.8.8.8",
+      "redirect_location": null
+    }
+  ]
+}

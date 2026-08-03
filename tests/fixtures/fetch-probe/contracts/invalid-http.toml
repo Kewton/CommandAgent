@@ -1,0 +1,19 @@
+[fetch]
+schema_version = "commandagent.fetch/v0"
+allowed_domains = ["events.example.test"]
+max_fetches = 1
+max_http_requests = 2
+timeout_seconds = 5
+max_response_bytes = 4096
+freshness_max_age_seconds = 86400
+cache_policy = "canonical-url-utc-day"
+robots_policy = "respect"
+user_agent = "CommandAgentFetch/0.1 (+https://github.com/Kewton/CommandAgent)"
+min_origin_interval_ms = 1000
+redirect_policy = "reject"
+
+[[fetch.sources]]
+source_id = "events"
+url = "http://events.example.test/events.html"
+snapshot_path = "data/snapshots/events.html"
+authorization = "contract"

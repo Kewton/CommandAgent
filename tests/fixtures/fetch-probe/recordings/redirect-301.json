@@ -1,0 +1,21 @@
+{
+  "schema_version": "commandagent.fetch-recording/v0",
+  "exchanges": [
+    {
+      "url": "https://events.example.test/robots.txt",
+      "http_status": 404,
+      "body": "",
+      "elapsed_ms": 2,
+      "remote_ip": "8.8.8.8",
+      "redirect_location": null
+    },
+    {
+      "url": "https://events.example.test/events.html",
+      "http_status": 301,
+      "body": "redirecting",
+      "elapsed_ms": 3,
+      "remote_ip": "8.8.8.8",
+      "redirect_location": "https://events.example.test/new?token=fixture-secret"
+    }
+  ]
+}

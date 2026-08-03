@@ -6,19 +6,23 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use anyhow::{Context, bail};
+use serde::Deserialize;
 
 use crate::bounded_process::{self, BoundedProcessOutcomeKind};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TransportRequest {
+pub(crate) struct TransportRequest {
     pub url: String,
+    pub host: String,
+    pub port: u16,
+    pub resolved_ip: String,
     pub user_agent: String,
     pub timeout_seconds: u16,
     pub max_response_bytes: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TransportResponse {
+pub(crate) struct TransportResponse {
     pub http_status: u16,
     pub body: Vec<u8>,
     pub elapsed_ms: u64,
@@ -26,12 +30,12 @@ pub struct TransportResponse {
     pub redirect_location: Option<String>,
 }
 
-pub trait FetchTransport: Send + Sync {
+pub(crate) trait FetchTransport: Send + Sync {
     fn get(&self, root: &Path, request: &TransportRequest) -> anyhow::Result<TransportResponse>;
 }
 
 #[derive(Debug, Clone)]
-pub struct BoundedCurlTransport {
+pub(crate) struct BoundedCurlTransport {
     program: String,
 }
 
@@ -45,7 +49,8 @@ impl Default for BoundedCurlTransport {
 
 impl FetchTransport for BoundedCurlTransport {
     fn get(&self, root: &Path, request: &TransportRequest) -> anyhow::Result<TransportResponse> {
-        let scratch = root.join("evidence/.fetch-transport");
+        let scratch =
+            crate::tools::path_guard::resolve_optional_existing(root, "evidence/.fetch-transport")?;
         fs::create_dir_all(&scratch)?;
         let nonce = format!("{}-{}", std::process::id(), super::time::unix_epoch_ms());
         let config = scratch.join(format!("{nonce}.curlrc"));
@@ -97,8 +102,18 @@ fn write_curl_config(
     headers: &Path,
     request: &TransportRequest,
 ) -> anyhow::Result<()> {
+    let resolved_ip = request
+        .resolved_ip
+        .parse::<std::net::IpAddr>()
+        .context("fetch resolved IP is invalid")?;
+    let resolve_value = match resolved_ip {
+        std::net::IpAddr::V4(ip) => ip.to_string(),
+        std::net::IpAddr::V6(ip) => format!("[{ip}]"),
+    };
     for value in [
         request.url.as_str(),
+        request.host.as_str(),
+        resolve_value.as_str(),
         request.user_agent.as_str(),
         body.to_string_lossy().as_ref(),
         headers.to_string_lossy().as_ref(),
@@ -108,8 +123,11 @@ fn write_curl_config(
         }
     }
     let text = format!(
-        "silent\nshow-error\nrequest = \"GET\"\nurl = \"{}\"\nuser-agent = \"{}\"\nheader = \"Accept-Encoding: identity\"\nproto = \"=https\"\nproto-redir = \"=https\"\nmax-redirs = 0\nconnect-timeout = {}\nmax-time = {}\nmax-filesize = {}\noutput = \"{}\"\ndump-header = \"{}\"\nwrite-out = \"%{{http_code}}\\n%{{remote_ip}}\\n%{{size_download}}\\n\"\n",
+        "silent\nshow-error\nrequest = \"GET\"\nurl = \"{}\"\nresolve = \"{}:{}:{}\"\nuser-agent = \"{}\"\nheader = \"Accept-Encoding: identity\"\nproto = \"=https\"\nproto-redir = \"=https\"\nmax-redirs = 0\nconnect-timeout = {}\nmax-time = {}\nmax-filesize = {}\noutput = \"{}\"\ndump-header = \"{}\"\nwrite-out = \"%{{http_code}}\\n%{{remote_ip}}\\n%{{size_download}}\\n\"\n",
         request.url,
+        request.host,
+        request.port,
+        resolve_value,
         request.user_agent,
         request.timeout_seconds,
         request.timeout_seconds,
@@ -165,41 +183,65 @@ fn parse_response(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RecordedExchange {
+pub(crate) struct RecordedExchange {
     pub expected_url: String,
     pub response: TransportResponse,
 }
 
-impl RecordedExchange {
-    pub fn ok(expected_url: impl Into<String>, body: &[u8]) -> Self {
-        Self {
-            expected_url: expected_url.into(),
-            response: TransportResponse {
-                http_status: 200,
-                body: body.to_vec(),
-                elapsed_ms: 1,
-                remote_ip: Some("recorded".to_string()),
-                redirect_location: None,
-            },
-        }
-    }
-}
-
 #[derive(Debug)]
-pub struct RecordedTransport {
+pub(crate) struct RecordedTransport {
     exchanges: Mutex<VecDeque<RecordedExchange>>,
 }
 
 impl RecordedTransport {
-    pub fn new(exchanges: impl IntoIterator<Item = RecordedExchange>) -> Self {
+    pub(crate) fn new(exchanges: impl IntoIterator<Item = RecordedExchange>) -> Self {
         Self {
             exchanges: Mutex::new(exchanges.into_iter().collect()),
         }
     }
 
-    pub fn remaining(&self) -> usize {
+    pub(crate) fn remaining(&self) -> usize {
         self.exchanges.lock().expect("recorded transport").len()
     }
+
+    pub(crate) fn from_fixture(path: &Path) -> anyhow::Result<Self> {
+        let bytes = fs::read(path).context("read fetch recording fixture")?;
+        let fixture = serde_json::from_slice::<RecordingFile>(&bytes)
+            .context("parse closed fetch recording fixture")?;
+        if fixture.schema_version != "commandagent.fetch-recording/v0" {
+            bail!("unsupported fetch recording schema_version");
+        }
+        Ok(Self::new(fixture.exchanges.into_iter().map(|exchange| {
+            RecordedExchange {
+                expected_url: exchange.url,
+                response: TransportResponse {
+                    http_status: exchange.http_status,
+                    body: exchange.body.into_bytes(),
+                    elapsed_ms: exchange.elapsed_ms,
+                    remote_ip: Some(exchange.remote_ip),
+                    redirect_location: exchange.redirect_location,
+                },
+            }
+        })))
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RecordingFile {
+    schema_version: String,
+    exchanges: Vec<RecordingExchange>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RecordingExchange {
+    url: String,
+    http_status: u16,
+    body: String,
+    elapsed_ms: u64,
+    remote_ip: String,
+    redirect_location: Option<String>,
 }
 
 impl FetchTransport for RecordedTransport {
@@ -257,6 +299,9 @@ printf '200\n192.0.2.1\n16\n'
                 root.path(),
                 &TransportRequest {
                     url: "https://data.example.test/events".to_string(),
+                    host: "data.example.test".to_string(),
+                    port: 443,
+                    resolved_ip: "8.8.8.8".to_string(),
                     user_agent: super::super::USER_AGENT.to_string(),
                     timeout_seconds: 2,
                     max_response_bytes: 1024,

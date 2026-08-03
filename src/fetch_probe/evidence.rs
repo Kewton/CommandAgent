@@ -15,6 +15,8 @@ pub enum FetchOutcome {
     CacheHit,
     RedirectRejected,
     HttpRejected,
+    RobotsDenied,
+    CacheCorrupt,
     Failed,
 }
 
@@ -33,7 +35,30 @@ pub struct FetchEvidenceEntry {
     pub elapsed_ms: u64,
     pub remote_ip: Option<String>,
     pub redirect_location: Option<String>,
+    pub robots: Option<RobotsEvidence>,
+    pub cache: Option<CacheEvidence>,
     pub failure_kind: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RobotsEvidence {
+    pub robots_url: String,
+    pub checked_at_utc: String,
+    pub checked_at_epoch_ms: u64,
+    pub http_status: u16,
+    pub content_sha256: String,
+    pub decision: String,
+    pub rule_group: String,
+    pub crawl_delay_ms: u64,
+    pub matched_rule: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CacheEvidence {
+    pub policy: String,
+    pub utc_date: String,
+    pub cache_key_sha256: String,
+    pub source_fetched_at_epoch_ms: u64,
 }
 
 impl FetchEvidenceEntry {
@@ -57,6 +82,8 @@ impl FetchEvidenceEntry {
             elapsed_ms: 0,
             remote_ip: None,
             redirect_location: None,
+            robots: None,
+            cache: None,
             failure_kind: None,
         }
     }

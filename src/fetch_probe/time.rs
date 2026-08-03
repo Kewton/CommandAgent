@@ -19,6 +19,10 @@ pub(crate) fn rfc3339_utc(epoch_ms: u64) -> String {
     format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{millis:03}Z")
 }
 
+pub(crate) fn utc_date(epoch_ms: u64) -> String {
+    rfc3339_utc(epoch_ms)[..10].to_string()
+}
+
 // Howard Hinnant's civil-from-days transform, with day zero at Unix epoch.
 fn civil_from_days(unix_days: i64) -> (i64, u32, u32) {
     let z = unix_days + 719_468;
