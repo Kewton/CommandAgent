@@ -58,3 +58,34 @@ product/API支出前に停止した。
 したがってコミットAを作成できる。コミット後のclean revisionを2回release buildし、
 version文字列とbinary SHA-256の一致をもう一度確認して、そのSHAだけを再開事前宣言へ
 転記する。
+
+## 3. コミット後の計器ピン確定
+
+コミットA `49002050dc00ddab15e6709ebbba7f1beb5a3c7f`をclean detached worktreeへ
+checkoutし、別々のtarget directoryで`cargo build --release --locked --bin
+commandagent`を2回実行した。
+
+| build | version | binary SHA-256 |
+|---|---|---|
+| A | `commandagent 0.1.0 49002050 2026-08-03T18:05:55+09:00` | `3fa2978aed3fc09aadc84ae873133bc477117bb03bf4116cc5092cee91c68988` |
+| B | `commandagent 0.1.0 49002050 2026-08-03T18:05:55+09:00` | `3fa2978aed3fc09aadc84ae873133bc477117bb03bf4116cc5092cee91c68988` |
+
+versionとbinary bytesはともに一致した。このSHAを再開系列の唯一の計器ピンとする。
+旧`bon0-001`のSHA
+`5b77243ec1cdcec36e513cefaf8cd9f2253967a413e8a7c0ea55b4a2a432fb3a`は
+新ピンと一致しないため、指示された条件分岐どおり旧001も再開分母から除外し、
+新規4窓を調達する。
+
+## 4. 固定build pathでのraw SHA訂正
+
+上記の別target directory 2本は互いには一致したが、実campaignが使う固定clean
+worktreeの`target/release/commandagent`とは一致しなかった。最初の再開preflightは
+宣言`3fa2978a...`に対して観測`1eb01906...`となり、設計どおりinstall・product/API
+支出前にfail closedした。差分はMach-O `LC_UUID` 16 bytesと、それを覆うlinker生成
+ad-hoc署名32 bytesで、version文字列は一致していた。
+
+したがって「同一commitなら異なるtarget directoryでもraw binary SHAが一致する」との
+上記推論は撤回する。build.rs決定的化の受理対象であるversion文字列一致は成立したまま、
+raw SHA系列ピンは全campaignが実際に使う固定build pathで採取・再build一致を確認した
+`1eb01906f23524da10463b35bf4ea5d58cf40078f4672431f2f6f25a69f18de1`へv2事前宣言で
+訂正した。支出0のpreflight事件は`evidence/luna-restart-preflight-incident.json`へ保存した。

@@ -1,0 +1,80 @@
+{
+  "schema_version": "commandagent.bon-validation-predeclaration/v1",
+  "recorded_at": "2026-08-03T18:20:29+09:00",
+  "series_id": "f-bon-v-cli-luna",
+  "execution_revision": "49002050dc00ddab15e6709ebbba7f1beb5a3c7f",
+  "suite_sha256": "f66b1c65095c86ed814e448d39ba984350fb94c0dd018b0e7d3d0467e34a1761",
+  "binary_sha256": "1eb01906f23524da10463b35bf4ea5d58cf40078f4672431f2f6f25a69f18de1",
+  "report_sha256_before_execution": "c6641d4d37bcc6a7d38c410a8d0c77dc1fad5f9d655c1349dbc155d0422e6dba",
+  "supersedes": "luna-restart-predeclaration.json",
+  "pin_correction": "use raw binary SHA from the fixed clean measurement worktree target directory",
+  "excluded_windows": [
+    {
+      "label": "bon0-001",
+      "reason": "binary_sha256_differs_from_restart_pin"
+    },
+    {
+      "label": "bon0-002",
+      "reason": "unpinned_instrument_and_cross_window_binary_mismatch"
+    },
+    {
+      "label": "bon0-003",
+      "reason": "unpinned_instrument_and_cross_window_binary_mismatch"
+    },
+    {
+      "label": "bon0-001r",
+      "reason": "preflight_binary_pin_mismatch_before_product_start",
+      "statistical_trials": 0
+    }
+  ],
+  "campaigns": [
+    {
+      "label": "bon0-001r2",
+      "workspace_root": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0803_bon0_001r2"
+    },
+    {
+      "label": "bon0-002r",
+      "workspace_root": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0803_bon0_002r"
+    },
+    {
+      "label": "bon0-003r",
+      "workspace_root": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0803_bon0_003r"
+    },
+    {
+      "label": "bon0-004r",
+      "workspace_root": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0803_bon0_004r"
+    }
+  ],
+  "trials_per_campaign": 6,
+  "expected_full_probability": 0.17,
+  "expected_full_count_per_campaign": 1.02,
+  "expected_full_count_total": 4.08,
+  "expected_full_count_band": [
+    3.5,
+    4.5
+  ],
+  "probability_at_least_one_full_per_campaign": 0.672019118431,
+  "expected_campaigns_with_at_least_one_full": 2.688076473724,
+  "independence_test": {
+    "p_value": false,
+    "binomial_expected_variance": 0.8466,
+    "dispersion_ratio_thresholds": {
+      "underdispersed_below": 0.5,
+      "overdispersed_above": 1.5
+    }
+  },
+  "sampling": {
+    "seed_policy": "provider-managed per request; no fixed seed shared across trials",
+    "temperature_policy": "provider default per request; no fixed temperature shared across trials",
+    "trial_specific_evidence": "disjoint executor provider-response-id sets"
+  },
+  "estimated_cost_usd": 1.2,
+  "stop_conditions": [
+    "preflight_pin_mismatch",
+    "invalid_measurement",
+    "configuration_identity_mismatch",
+    "sampling_identity_mismatch",
+    "scrub_failure",
+    "single_campaign_full_count_at_least_4"
+  ]
+}
