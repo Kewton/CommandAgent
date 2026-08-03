@@ -64,6 +64,9 @@ fn is_public_v4(ip: Ipv4Addr) -> bool {
 }
 
 fn is_public_v6(ip: Ipv6Addr) -> bool {
+    if let Some(ipv4) = ip.to_ipv4_mapped() {
+        return is_public_v4(ipv4);
+    }
     let segments = ip.segments();
     !(ip.is_loopback()
         || ip.is_unspecified()
@@ -71,6 +74,7 @@ fn is_public_v6(ip: Ipv6Addr) -> bool {
         || segments[0] & 0xfe00 == 0xfc00
         || segments[0] & 0xffc0 == 0xfe80
         || segments[0] & 0xffc0 == 0xfec0
+        || segments[..6].iter().all(|segment| *segment == 0)
         || (segments[0] == 0x2001 && segments[1] == 0x0db8))
 }
 
@@ -91,6 +95,8 @@ mod tests {
             "fc00::1",
             "fe80::1",
             "2001:db8::1",
+            "::127.0.0.1",
+            "::ffff:127.0.0.1",
         ] {
             assert!(!is_public_ip(raw.parse().unwrap()), "{raw}");
         }

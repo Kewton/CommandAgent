@@ -3,12 +3,15 @@ use std::fs;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use anyhow::{Context, bail};
 use serde::Deserialize;
 
 use crate::bounded_process::{self, BoundedProcessOutcomeKind};
+
+static TRANSPORT_NONCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TransportRequest {
@@ -52,14 +55,26 @@ impl FetchTransport for BoundedCurlTransport {
         let scratch =
             crate::tools::path_guard::resolve_optional_existing(root, "evidence/.fetch-transport")?;
         fs::create_dir_all(&scratch)?;
-        let nonce = format!("{}-{}", std::process::id(), super::time::unix_epoch_ms());
+        let nonce = format!(
+            "{}-{}-{}",
+            std::process::id(),
+            super::time::unix_epoch_ms(),
+            TRANSPORT_NONCE.fetch_add(1, Ordering::Relaxed)
+        );
         let config = scratch.join(format!("{nonce}.curlrc"));
         let body = scratch.join(format!("{nonce}.body"));
         let headers = scratch.join(format!("{nonce}.headers"));
         write_curl_config(&config, &body, &headers, request)?;
 
         let mut command = Command::new(&self.program);
+        for (key, _) in std::env::vars_os() {
+            if key != "PATH" {
+                command.env_remove(key);
+            }
+        }
         command
+            .env("PATH", std::env::var_os("PATH").unwrap_or_default())
+            .arg("--disable")
             .arg("--config")
             .arg(&config)
             .stdin(Stdio::null())
@@ -135,7 +150,13 @@ fn write_curl_config(
         body.display(),
         headers.display(),
     );
-    fs::write(config, text).context("write fetch child config")
+    let mut file = fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(config)
+        .context("create fetch child config")?;
+    std::io::Write::write_all(&mut file, text.as_bytes()).context("write fetch child config")?;
+    file.sync_all().context("flush fetch child config")
 }
 
 fn parse_response(
@@ -211,18 +232,36 @@ impl RecordedTransport {
         if fixture.schema_version != "commandagent.fetch-recording/v0" {
             bail!("unsupported fetch recording schema_version");
         }
-        Ok(Self::new(fixture.exchanges.into_iter().map(|exchange| {
-            RecordedExchange {
-                expected_url: exchange.url,
-                response: TransportResponse {
-                    http_status: exchange.http_status,
-                    body: exchange.body.into_bytes(),
-                    elapsed_ms: exchange.elapsed_ms,
-                    remote_ip: Some(exchange.remote_ip),
-                    redirect_location: exchange.redirect_location,
-                },
-            }
-        })))
+        if fixture.provenance.kind != "localhost_fixture"
+            || fixture.provenance.recorder != "scripts/fetch_fixture_recorder.py"
+            || !fixture
+                .provenance
+                .source_origin
+                .starts_with("http://127.0.0.1:")
+        {
+            bail!("fetch recording provenance is not the fixed localhost recorder");
+        }
+        let exchanges = fixture
+            .exchanges
+            .into_iter()
+            .map(|exchange| {
+                let body = exchange.body.into_bytes();
+                if super::sha256_hex(&body) != exchange.body_sha256 {
+                    bail!("fetch recording body SHA-256 mismatch");
+                }
+                Ok(RecordedExchange {
+                    expected_url: exchange.url,
+                    response: TransportResponse {
+                        http_status: exchange.http_status,
+                        body,
+                        elapsed_ms: exchange.elapsed_ms,
+                        remote_ip: Some(exchange.remote_ip),
+                        redirect_location: exchange.redirect_location,
+                    },
+                })
+            })
+            .collect::<anyhow::Result<Vec<_>>>()?;
+        Ok(Self::new(exchanges))
     }
 }
 
@@ -230,7 +269,16 @@ impl RecordedTransport {
 #[serde(deny_unknown_fields)]
 struct RecordingFile {
     schema_version: String,
+    provenance: RecordingProvenance,
     exchanges: Vec<RecordingExchange>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RecordingProvenance {
+    kind: String,
+    recorder: String,
+    source_origin: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -239,6 +287,7 @@ struct RecordingExchange {
     url: String,
     http_status: u16,
     body: String,
+    body_sha256: String,
     elapsed_ms: u64,
     remote_ip: String,
     redirect_location: Option<String>,
@@ -279,9 +328,12 @@ mod tests {
             &fake,
             r#"#!/bin/sh
 set -eu
-test "$1" = "--config"
-test "$#" = 2
-cfg="$2"
+test "$1" = "--disable"
+test "$2" = "--config"
+test "$#" = 3
+test -z "${HTTPS_PROXY:-}"
+test -z "${HOME:-}"
+cfg="$3"
 body=$(sed -n 's/^output = "\(.*\)"$/\1/p' "$cfg")
 headers=$(sed -n 's/^dump-header = "\(.*\)"$/\1/p' "$cfg")
 printf '<h1>fixture</h1>' > "$body"

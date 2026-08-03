@@ -174,10 +174,22 @@ fn atomic_write(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
         .and_then(|name| name.to_str())
         .context("fetch cache file name is not UTF-8")?;
     let staged = path.with_file_name(format!(".{file_name}.part"));
-    let mut file = fs::File::create(&staged)?;
-    std::io::Write::write_all(&mut file, bytes)?;
-    file.sync_all()?;
-    drop(file);
-    fs::rename(&staged, path)?;
-    Ok(())
+    if staged.exists() {
+        fs::remove_file(&staged)?;
+    }
+    let result = (|| {
+        let mut file = fs::OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .open(&staged)?;
+        std::io::Write::write_all(&mut file, bytes)?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(&staged, path)?;
+        Ok(())
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&staged);
+    }
+    result
 }

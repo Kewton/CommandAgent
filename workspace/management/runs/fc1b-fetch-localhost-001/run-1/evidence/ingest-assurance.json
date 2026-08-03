@@ -1,0 +1,23 @@
+{
+  "status": "full",
+  "assurance": "full",
+  "evidence": {
+    "checks": {
+      "ingest_candidate_accounting": "pass",
+      "ingest_format_schema": "pass",
+      "ingest_rerun_consistency": "pass",
+      "ingest_source_binding": "pass",
+      "pipeline_probe": "pass"
+    }
+  },
+  "reasons": [],
+  "evidence_envelope": {
+    "envelope_version": 1,
+    "family": "N",
+    "kind": "assurance",
+    "epoch": 1785723965,
+    "claims": [],
+    "nearest_miss": [],
+    "source_refs": []
+  }
+}

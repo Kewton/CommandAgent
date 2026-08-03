@@ -54,6 +54,9 @@ fn redirect_is_recorded_scrubbed_and_rejected_without_snapshot() {
     )
     .unwrap();
     let entry = &evidence.entries[0];
+    assert_eq!(entry.authorization, "contract");
+    assert_eq!(entry.authorization_ref, "fetch.sources[events]");
+    assert_eq!(entry.authorization_sha256, evidence.contract_sha256);
     assert_eq!(entry.outcome, FetchOutcome::RedirectRejected);
     assert_eq!(entry.http_status, Some(301));
     assert_eq!(

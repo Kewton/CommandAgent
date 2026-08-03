@@ -1,0 +1,36 @@
+{
+  "capability_id": "ingest_candidate_accounting",
+  "status": "pass",
+  "ok": true,
+  "selector": {
+    "kind": "html_tag",
+    "value": "article"
+  },
+  "detected": 1,
+  "accepted": 1,
+  "excluded_by_reason": {},
+  "equation": "1 = 1 + 0",
+  "candidate_ids": [
+    "data/snapshots/events.html#0"
+  ],
+  "candidate_id_resolutions": [
+    {
+      "provided_id": "data/snapshots/events.html#0",
+      "status": "exact",
+      "matched_ids": [
+        "data/snapshots/events.html#0"
+      ],
+      "resolved_id": "data/snapshots/events.html#0"
+    }
+  ],
+  "failure_kinds": [],
+  "evidence_envelope": {
+    "envelope_version": 1,
+    "family": "N",
+    "kind": "candidate_accounting",
+    "epoch": 1785723965,
+    "claims": [],
+    "nearest_miss": [],
+    "source_refs": []
+  }
+}

@@ -178,6 +178,9 @@ fn kind_for_path(family: EvidenceFamily, relative: &str) -> &'static str {
         (EvidenceFamily::N, "format-schema.json") => "format_schema",
         (EvidenceFamily::N, "rerun-consistency.json") => "rerun_consistency",
         (EvidenceFamily::N, "ingest-assurance.json") => "assurance",
+        (EvidenceFamily::N, "fetch-evidence.json") => "fetch_evidence",
+        (EvidenceFamily::N, "fetch-freshness.json") => "fetch_freshness",
+        (EvidenceFamily::N, "ingest-stage2-assurance.json") => "stage2_assurance",
         (EvidenceFamily::T, "nextjs-testimony-binding.json") => "testimony_binding",
         (EvidenceFamily::ToolParse, _) if name.starts_with("tool-parse-failure-") => {
             "tool_parse_failure"

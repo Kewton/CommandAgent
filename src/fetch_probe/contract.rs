@@ -3,7 +3,7 @@ use std::path::Path;
 
 use anyhow::{Context, bail};
 use serde::Deserialize;
-use url::Url;
+use url::{Host, Url};
 
 use super::{USER_AGENT, sha256_hex};
 
@@ -172,6 +172,10 @@ fn validate_domains(domains: Vec<String>) -> anyhow::Result<BTreeSet<String>> {
         {
             bail!("fetch allowed domain is not an exact canonical DNS name: {domain}");
         }
+        match Host::parse(&domain) {
+            Ok(Host::Domain(canonical)) if canonical == domain => {}
+            _ => bail!("fetch allowed domain is not an exact canonical DNS name: {domain}"),
+        }
         if !out.insert(domain.clone()) {
             bail!("fetch allowed_domains contains a duplicate: {domain}");
         }
@@ -195,6 +199,11 @@ fn validate_source(
     }
     if parsed.as_str() != source.url {
         bail!("fetch source URL must already be canonical");
+    }
+    validate_percent_encoding(&source.url)?;
+    let encoded_path = parsed.path().to_ascii_lowercase();
+    if encoded_path.contains("%2f") || encoded_path.contains("%5c") {
+        bail!("fetch source URL path contains an encoded separator");
     }
     if super::contains_secret_query(&source.url) {
         bail!("fetch source URL query contains credential-like material");
@@ -227,6 +236,25 @@ fn validate_source(
         path_for_robots,
         snapshot_path: source.snapshot_path,
     })
+}
+
+fn validate_percent_encoding(url: &str) -> anyhow::Result<()> {
+    let bytes = url.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            if index + 2 >= bytes.len()
+                || !bytes[index + 1].is_ascii_hexdigit()
+                || !bytes[index + 2].is_ascii_hexdigit()
+            {
+                bail!("fetch source URL contains malformed percent encoding");
+            }
+            index += 3;
+        } else {
+            index += 1;
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -294,6 +322,20 @@ authorization = "contract"
             .is_err()
         );
         assert!(parse(&valid("https://8.8.8.8/events", "8.8.8.8")).is_err());
+        assert!(
+            parse(&valid(
+                "https://events.example.test/%ZZ",
+                "events.example.test"
+            ))
+            .is_err()
+        );
+        assert!(
+            parse(&valid(
+                "https://events.example.test/a%2Fb",
+                "events.example.test"
+            ))
+            .is_err()
+        );
         assert!(
             parse(
                 &valid("https://events.example.test/events", "events.example.test")

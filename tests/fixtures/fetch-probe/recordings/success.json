@@ -1,10 +1,16 @@
 {
   "schema_version": "commandagent.fetch-recording/v0",
+  "provenance": {
+    "kind": "localhost_fixture",
+    "recorder": "scripts/fetch_fixture_recorder.py",
+    "source_origin": "http://127.0.0.1:ephemeral"
+  },
   "exchanges": [
     {
       "url": "https://events.example.test/robots.txt",
       "http_status": 404,
       "body": "",
+      "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
       "elapsed_ms": 2,
       "remote_ip": "8.8.8.8",
       "redirect_location": null
@@ -13,6 +19,7 @@
       "url": "https://events.example.test/events.html",
       "http_status": 200,
       "body": "<html><body><article>fixture event</article></body></html>\n",
+      "body_sha256": "f5db7e08f869612e9d4136fc0a511128288ffc45ef35efce35df4d47f0b8399b",
       "elapsed_ms": 3,
       "remote_ip": "8.8.8.8",
       "redirect_location": null

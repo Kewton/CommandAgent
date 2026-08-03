@@ -1,0 +1,55 @@
+{
+  "schema_version": "commandagent.fetch-evidence/v0",
+  "run_id": "localhost-recorded-002",
+  "contract_ref": "fetch.toml",
+  "contract_sha256": "574a195ede4a6150e711ebc6f94582d6d64632ae94ba3c466b6f255c15464121",
+  "entries": [
+    {
+      "source_id": "events",
+      "requested_url": "https://events.example.test/events.html",
+      "canonical_url": "https://events.example.test/events.html",
+      "authorization": "contract",
+      "authorization_ref": "fetch.sources[events]",
+      "authorization_sha256": "574a195ede4a6150e711ebc6f94582d6d64632ae94ba3c466b6f255c15464121",
+      "fetched_at_utc": "2026-08-03T02:26:05.268Z",
+      "fetched_at_epoch_ms": 1785723965268,
+      "http_status": 200,
+      "content_sha256": "f5db7e08f869612e9d4136fc0a511128288ffc45ef35efce35df4d47f0b8399b",
+      "content_bytes": 59,
+      "snapshot_path": "data/snapshots/events.html",
+      "outcome": "fetched",
+      "elapsed_ms": 3,
+      "remote_ip": "8.8.8.8",
+      "redirect_location": null,
+      "robots": {
+        "robots_url": "https://events.example.test/robots.txt",
+        "checked_at_utc": "2026-08-03T02:26:05.268Z",
+        "checked_at_epoch_ms": 1785723965268,
+        "http_status": 404,
+        "evidence_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "decision": "allow",
+        "rule_group": "no_published_rules",
+        "crawl_delay_ms": 0,
+        "matched_rule": null
+      },
+      "cache": {
+        "policy": "canonical-url-utc-day",
+        "utc_date": "2026-08-03",
+        "cache_key_sha256": "f8eed0da86a0f2b29bd3acd86dfc977f5439193774d17531f8e443e3c9df103c",
+        "source_fetched_at_epoch_ms": 1785723965268
+      },
+      "failure_kind": null
+    }
+  ],
+  "evidence_envelope": {
+    "envelope_version": 1,
+    "family": "N",
+    "kind": "fetch_evidence",
+    "epoch": 1785723965,
+    "claims": [],
+    "nearest_miss": [],
+    "source_refs": [
+      "fetch.toml"
+    ]
+  }
+}

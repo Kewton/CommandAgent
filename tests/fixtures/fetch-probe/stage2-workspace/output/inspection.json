@@ -1,0 +1,26 @@
+{
+  "candidate_selector": {
+    "kind": "html_tag",
+    "value": "article"
+  },
+  "candidate_accounting": {
+    "accepted": [
+      {
+        "candidate_id": "data/snapshots/events.html#0",
+        "record_index": 0
+      }
+    ],
+    "excluded": []
+  },
+  "record_format": {
+    "fields": [
+      {
+        "name": "name",
+        "type": "string",
+        "normalizations": [
+          "identity"
+        ]
+      }
+    ]
+  }
+}

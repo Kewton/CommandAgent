@@ -1,4 +1,9 @@
 {
   "schema_version": "commandagent.fetch-recording/v0",
+  "provenance": {
+    "kind": "localhost_fixture",
+    "recorder": "scripts/fetch_fixture_recorder.py",
+    "source_origin": "http://127.0.0.1:ephemeral"
+  },
   "exchanges": []
 }

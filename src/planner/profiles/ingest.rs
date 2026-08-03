@@ -6,6 +6,7 @@ pub(crate) mod phase_verify;
 pub mod runtime;
 pub(crate) mod snapshot_structure;
 pub mod source_binding;
+pub mod stage2;
 
 use std::path::Path;
 

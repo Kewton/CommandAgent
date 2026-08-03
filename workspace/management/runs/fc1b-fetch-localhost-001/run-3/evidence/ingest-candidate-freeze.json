@@ -1,0 +1,44 @@
+{
+  "capability_id": "ingest_candidate_freeze",
+  "selector": {
+    "kind": "html_tag",
+    "value": "article"
+  },
+  "record_format": {
+    "fields": [
+      {
+        "name": "name",
+        "normalizations": [
+          "identity"
+        ],
+        "type": "string"
+      }
+    ]
+  },
+  "snapshots": [
+    {
+      "path": "data/snapshots/events.html",
+      "bytes": 59,
+      "fnv1a64": "51d28a89f63134b7"
+    }
+  ],
+  "candidates": [
+    {
+      "id": "data/snapshots/events.html#0",
+      "source_path": "data/snapshots/events.html",
+      "ordinal": 0,
+      "byte_start": 12,
+      "byte_end": 44,
+      "fnv1a64": "dde6e7ad5f6a8861"
+    }
+  ],
+  "evidence_envelope": {
+    "envelope_version": 1,
+    "family": "N",
+    "kind": "candidate_freeze",
+    "epoch": 1785723965,
+    "claims": [],
+    "nearest_miss": [],
+    "source_refs": []
+  }
+}

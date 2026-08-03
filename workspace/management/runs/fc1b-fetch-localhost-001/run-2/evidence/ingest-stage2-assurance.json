@@ -1,0 +1,25 @@
+{
+  "status": "full",
+  "assurance": "full",
+  "checks": {
+    "ingest_candidate_accounting": "pass",
+    "ingest_fetch_freshness": "pass",
+    "ingest_format_schema": "pass",
+    "ingest_rerun_consistency": "pass",
+    "ingest_source_binding": "pass",
+    "pipeline_probe": "pass"
+  },
+  "fetch_evidence_path": "evidence/fetch-evidence.json",
+  "freshness_evidence_path": "evidence/fetch-freshness.json",
+  "stage1_evidence_path": "evidence/ingest-assurance.json",
+  "reasons": [],
+  "evidence_envelope": {
+    "envelope_version": 1,
+    "family": "N",
+    "kind": "stage2_assurance",
+    "epoch": 1785723965,
+    "claims": [],
+    "nearest_miss": [],
+    "source_refs": []
+  }
+}

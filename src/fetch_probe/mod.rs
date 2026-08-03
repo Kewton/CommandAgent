@@ -8,6 +8,7 @@ mod cache;
 mod contract;
 mod endpoint;
 mod evidence;
+mod freshness;
 mod redaction;
 mod robots;
 mod time;
@@ -28,6 +29,9 @@ use endpoint::{EndpointResolver, FixedResolver, SystemResolver, is_public_ip};
 pub use evidence::{
     CacheEvidence, FETCH_EVIDENCE_PATH, FetchEvidence, FetchEvidenceEntry, FetchOutcome,
     RobotsEvidence, write_fetch_evidence,
+};
+pub use freshness::{
+    FETCH_FRESHNESS_PATH, FreshnessEvidence, FreshnessSourceEvidence, FreshnessStatus,
 };
 pub use redaction::{contains_secret_query, scrub_url_query};
 use transport::{
@@ -104,6 +108,15 @@ pub fn run_recorded_contract(
     Ok(evidence)
 }
 
+pub fn evaluate_freshness(
+    root: &Path,
+    contract_ref: &str,
+    fetch_evidence: &FetchEvidence,
+) -> anyhow::Result<FreshnessEvidence> {
+    let contract = contract::load(root, contract_ref)?;
+    freshness::evaluate_and_write(root, &contract, fetch_evidence, time::unix_epoch_ms())
+}
+
 fn run_validated_contract_with(
     root: &Path,
     contract: &ValidatedContract,
@@ -123,6 +136,7 @@ fn run_validated_contract_with(
             &source.source_id,
             scrub_url_query(&source.url),
             &source.snapshot_path,
+            &contract.contract_sha256,
             evaluation_ms,
         );
         let cache_key = match cache::lookup(root, contract, source, &utc_date) {
@@ -154,7 +168,11 @@ fn run_validated_contract_with(
                     entry.cache = Some(evidence);
                     entry.outcome = FetchOutcome::CacheHit;
                 }
+                let passed = entry.outcome == FetchOutcome::CacheHit;
                 entries.push(entry);
+                if !passed {
+                    break;
+                }
                 continue;
             }
             Ok(cache::CacheLookup::Miss { cache_key_sha256 }) => cache_key_sha256,
@@ -243,7 +261,7 @@ fn run_validated_contract_with(
             checked_at_utc: time::rfc3339_utc(robots_checked_ms),
             checked_at_epoch_ms: robots_checked_ms,
             http_status: robots_response.http_status,
-            content_sha256: sha256_hex(&robots_response.body),
+            evidence_sha256: sha256_hex(&robots_response.body),
             decision: decision_name.to_string(),
             rule_group: decision_for_evidence
                 .map(|decision| decision.rule_group.clone())
@@ -440,9 +458,15 @@ fn publish_snapshot(root: &Path, relative: &str, bytes: &[u8]) -> anyhow::Result
     if staged.exists() {
         fs::remove_file(&staged)?;
     }
-    let mut file = fs::File::create(&staged)?;
-    std::io::Write::write_all(&mut file, bytes)?;
-    file.sync_all()?;
+    let mut file = fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&staged)?;
+    if let Err(error) = std::io::Write::write_all(&mut file, bytes).and_then(|()| file.sync_all()) {
+        drop(file);
+        let _ = fs::remove_file(&staged);
+        return Err(error.into());
+    }
     drop(file);
     if destination.exists() {
         if fs::read(&destination)? == bytes {
@@ -452,7 +476,10 @@ fn publish_snapshot(root: &Path, relative: &str, bytes: &[u8]) -> anyhow::Result
         let _ = fs::remove_file(&staged);
         bail!("fetch snapshot exists with different bytes: {relative}");
     }
-    fs::rename(&staged, &destination)?;
+    if let Err(error) = fs::rename(&staged, &destination) {
+        let _ = fs::remove_file(&staged);
+        return Err(error.into());
+    }
     Ok(())
 }
 
