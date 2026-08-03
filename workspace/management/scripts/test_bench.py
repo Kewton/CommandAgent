@@ -208,6 +208,10 @@ class SuiteAndCommandTests(unittest.TestCase):
         )
         cli_luna = bench.load_suite(SUITES_DIR / "cli-create-luna.toml")
         cli_bon = bench.load_suite(SUITES_DIR / "cli-filter-bon0.toml")
+        cli_elevated = bench.load_suite(SUITES_DIR / "cli-create-elevated.toml")
+        gemma_negative = bench.load_suite(
+            SUITES_DIR / "cli-gemma-negative-bon.toml"
+        )
 
         self.assertEqual(dfix.suite_id, "dfix-synthesis")
         self.assertEqual(dfix.workspace_mode, "sourced")
@@ -225,6 +229,33 @@ class SuiteAndCommandTests(unittest.TestCase):
         self.assertEqual(cli_luna.api, "responses")
         self.assertEqual(cli_luna.tool_protocol, "native")
         self.assertEqual(cli_bon.bon_series, "f-bon-v-cli-luna")
+        self.assertEqual(
+            gemma_negative.bon_series, "f-bon-v-cli-gemma-negative"
+        )
+        self.assertEqual(
+            {run.executor for run in gemma_negative.runs}, {"gemma4:31b-cloud"}
+        )
+        self.assertEqual(len(gemma_negative.runs), 6)
+        self.assertEqual(gemma_negative.goals, cli_elevated.goals)
+        self.assertEqual(
+            [run.goal_id for run in gemma_negative.runs],
+            [run.goal_id for run in cli_elevated.runs],
+        )
+        for field in (
+            "profile",
+            "intent",
+            "plan_preset",
+            "workspace_mode",
+            "context_budget",
+            "planner_model",
+            "planner_provider",
+            "provider",
+            "api",
+            "tool_protocol",
+        ):
+            self.assertEqual(
+                getattr(gemma_negative, field), getattr(cli_elevated, field)
+            )
         self.assertIn("--api", bench.build_command(cli_luna, cli_luna.runs[0]))
         self.assertIn("responses", bench.build_command(cli_luna, cli_luna.runs[0]))
         self.assertIn(
