@@ -1523,3 +1523,5 @@ repair接続、予測ranking、品質母集団主張はNO-GO。有効Luna窓費�
 計器事件で除外した実支出`$0.5281295`を別勘定にし、Gemma料金とlocal電力量は証跡が
 ないため推定しない。詳細は`workspace/management/runs/f-bon-v-001/settlement-report.md`と
 `evidence/settlement.json`を正本とする。
+
+F-MAP-0（2026-08-04）: `band_aggregate.py --profile score-time-map`を稼働し、モデル×ユースケース族×構成を構成総所要・正式run全数平均到達スコアへ投影する正準Markdown/SVG（n<3非描画、final-only/checkpoint分離、成功1件あたり期待時間・費用併記）を新規生成物として確立した。
