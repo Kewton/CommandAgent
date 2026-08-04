@@ -118,5 +118,108 @@ class P2FStatisticsTests(unittest.TestCase):
             self.assertIn("measurement had started", path.read_text(encoding="utf-8"))
 
 
+class P2FExecutionHarnessTests(unittest.TestCase):
+    def test_recorded_measurement_preserves_predeclared_order_and_scope(self) -> None:
+        if not p2f.RESULT_PATH.is_file():
+            self.skipTest("measurement has not been recorded yet")
+        declaration = json.loads(p2f.DECLARATION_PATH.read_text(encoding="utf-8"))
+        result = json.loads(p2f.RESULT_PATH.read_text(encoding="utf-8"))
+        runs = result["runs"]
+        self.assertEqual(result["status"], "complete")
+        self.assertEqual(result["sample_size"], 10)
+        self.assertEqual(len(runs), 10)
+        self.assertEqual(
+            [run["census_id"] for run in runs],
+            declaration["sampling"]["selected_ids"],
+        )
+        self.assertEqual(result["full_count"], sum(run["full"] for run in runs))
+        self.assertAlmostEqual(
+            result["duration_seconds_total"],
+            sum(run["duration_seconds"] for run in runs),
+        )
+        self.assertAlmostEqual(
+            result["cost_usd_total"], sum(run["cost_usd"] for run in runs)
+        )
+        self.assertTrue(all(run["repair_cycles"] == 1 for run in runs))
+        self.assertTrue(all(run["directive"] is None for run in runs))
+        self.assertTrue(
+            all(
+                run["source_workspace_tree_sha256_before"]
+                == run["source_workspace_tree_sha256_after"]
+                for run in runs
+            )
+        )
+
+    def test_continuation_argv_replaces_only_the_action_and_goal(self) -> None:
+        declaration = json.loads(p2f.DECLARATION_PATH.read_text(encoding="utf-8"))
+        entry = declaration["sampling"]["selected_entries"][1]
+        source_workspace = Path(entry["workspace"])
+        with tempfile.TemporaryDirectory() as temporary:
+            copied = Path(temporary)
+            recovery = Path(entry["recovery_plan"]).relative_to(source_workspace)
+            copied_recovery = copied / recovery
+            copied_recovery.parent.mkdir(parents=True)
+            copied_recovery.write_bytes(Path(entry["recovery_plan"]).read_bytes())
+            argv = p2f.continuation_argv(entry, copied)
+        self.assertEqual(argv[0], str(p2f.EXECUTION_BINARY))
+        self.assertNotIn("--intent", argv)
+        self.assertNotIn("--ultra-plan-run", argv)
+        self.assertEqual(argv.count("--run-ultra-plan"), 1)
+        self.assertEqual(argv[-1], recovery.as_posix())
+        self.assertIn("--profile", argv)
+        self.assertIn("cli", argv)
+
+    def test_usage_cost_counts_all_openai_turns_only(self) -> None:
+        events = [
+            {
+                "event": "provider_turn_duration",
+                "provider": "openai",
+                "prompt_eval_count": 1000,
+                "provider_cached_input_tokens": 600,
+                "eval_count": 100,
+            },
+            {
+                "event": "provider_turn_duration",
+                "provider": "ollama",
+                "prompt_eval_count": 9000,
+                "provider_cached_input_tokens": 0,
+                "eval_count": 900,
+            },
+        ]
+        usage, cost = p2f._usage_and_cost(events)
+        self.assertEqual(
+            usage,
+            {
+                "input_tokens": 1000,
+                "cached_input_tokens": 600,
+                "output_tokens": 100,
+            },
+        )
+        self.assertAlmostEqual(cost, 0.00106)
+
+    def test_cli_vector_requires_a_probe_in_the_new_event_file(self) -> None:
+        checks = {
+            "cli_probe": "failed",
+            "help_binding": "pass",
+            "cli_output_claims": "pass",
+            "cli_rerun_consistency": "pass",
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            evidence = workspace / "evidence/cli-assurance.json"
+            evidence.parent.mkdir()
+            evidence.write_text(
+                json.dumps({"evidence": {"checks": checks}}), encoding="utf-8"
+            )
+            unreached = p2f._cli_score_vector(workspace, [])
+            reached = p2f._cli_score_vector(
+                workspace, [{"event": "profile_behavior_probe"}]
+            )
+        self.assertFalse(unreached["reached"])
+        self.assertIsNone(unreached["score"])
+        self.assertTrue(reached["reached"])
+        self.assertEqual(reached["score"], 62.5)
+
+
 if __name__ == "__main__":
     unittest.main()

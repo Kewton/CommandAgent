@@ -1,0 +1,1220 @@
+{
+  "schema_version": "commandagent.p2f-measurement/v0",
+  "campaign_id": "p2f-0",
+  "status": "complete",
+  "declaration_path": "workspace/management/runs/p2f-0/predeclaration.json",
+  "declaration_sha256": "468221c8c8d2c71c3179258498c7bba4fd262c0ad41abce08f7a9c5ac1ebe006",
+  "declaration_recorded_before_measurement": true,
+  "execution_root": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0805_p2f_0/p2f-0-20260805-003041",
+  "binary_sha256": "5998a1f53dfb74bbff9164fec8bed1f3254aad6046ba6a2691132b5ccf36cccd",
+  "sample_size": 10,
+  "full_count": 1,
+  "duration_seconds_total": 8971.866,
+  "cost_usd_total": 0.4039273,
+  "runs": [
+    {
+      "ordinal": 1,
+      "census_id": "bon-local-001/breakout_local_bon_004",
+      "profile": "nextjs",
+      "family": "breakout",
+      "model": "qwen3.6:35b-a3b-coding-nvfp4",
+      "failure_class": "restart_or_recoverable_state_evidence_missing",
+      "failure_stratum": "nextjs_evidence",
+      "starting_score_band": "unreached",
+      "repair_route": "fix_continuation",
+      "repair_cycles": 1,
+      "directive": null,
+      "source_workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0804_bon_local_001/nextjs-breakout-local-bon-20260804-112413/workspaces/breakout_local_bon_004",
+      "execution_workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0805_p2f_0/p2f-0-20260805-003041/workspaces/01__bon-local-001__breakout_local_bon_004",
+      "source_workspace_tree_sha256_before": "70f7b37e57a5e1f4225d21504cbf4688e64181034ad56223076f8812fad2eb54",
+      "source_workspace_tree_sha256_after": "70f7b37e57a5e1f4225d21504cbf4688e64181034ad56223076f8812fad2eb54",
+      "product_tree_sha256_before": "cad50d0c4d0ae0b375f8c9c13c28d9a3802fd8bbbcef48cf4907b47679fae0cd",
+      "product_tree_sha256_after": "b7afde74942cbfc368e587cafc47ecc899efc428b885000dcda0ba17dbad70b1",
+      "product_changed": true,
+      "recovery_plan_sha256": "642488797a6d5e2d2c7d486ea743ccad00e749ad22183e1cfe53e27c50beafc0",
+      "command_argv": [
+        "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+        "--yes",
+        "--context-budget",
+        "65536",
+        "--model",
+        "qwen3.6:35b-a3b-coding-nvfp4",
+        "--provider",
+        "ollama",
+        "--planner-model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--planner-provider",
+        "ollama",
+        "--plan-preset",
+        "profile",
+        "--profile",
+        "nextjs",
+        "--run-ultra-plan",
+        ".anvil/plans/recovery-ultra-plan-phase-build-verification-019fcca3-c6aa-7b81-bb6b-e16e4a2ee931.yaml"
+      ],
+      "started_at": "2026-08-05T00:43:19+0900",
+      "finished_at": "2026-08-05T00:52:21+0900",
+      "duration_seconds": 540.061,
+      "exit_code": 1,
+      "run_id": "019fcd71-8e28-74b3-ba99-4cea137e41d7",
+      "events_sha256": "e7cd83f5df837a3705199e8e99debd91797ea27a77dc0556949f1331be24ad68",
+      "stdout_sha256": "b2cd10b9090a1eedf4c0ab127a7350ff5c77bf253949ae01a5da34cfcf3c445a",
+      "stderr_sha256": "1a6677dd3572bb52f1c97e277e4a974ef9396596b1c2d7b9a74530eeebb5c268",
+      "verdict": "failed",
+      "full": false,
+      "run_stop": {
+        "ok": false,
+        "status": "failed",
+        "final_acceptance_status": "incomplete",
+        "assurance_level": "partial",
+        "failure_kind": "process_failure",
+        "stop_reason": "ultra final acceptance repair failed: model_stagnation:read_only_loop: write_required exhausted for src/app/page.tsx; objective: Repair the final acceptance failure for the current ultra run. Original ultra goal: あなたが考える最高に面白くかっこいいブロック崩しゲームを3011ポートで起動可能なnext.jsアプリとして開発してください。 Profile: nextjs Intent: recover Final acceptance failure: - primary reason: missing_required_evidence:restart_or_recoverable_state_evidence - repair target: implementation - attempt: 1/2 Pending capability evidence\nPaths:\n- repair prompt saved: .anvil/repairs/repair-phase-verify-recovery-019fcd79-7616-7b71-b7be-faacae54bfa8.md\n- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-verify-recovery-019fcd79-7616-7b71-b7be-fab0a9b99ee9.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile nextjs \"$(cat .anvil/repairs/repair-phase-verify-recovery-019fcd79-7616-7b71-b7be-faacae54bfa8.md)\"\n- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-verify-recovery-019fcd79-7616-7b71-b7be-fab0a9b99ee9.yaml"
+      },
+      "score_vector_before": {
+        "mapping": "verdict_mapping",
+        "reached": false,
+        "score": null,
+        "atoms": []
+      },
+      "score_vector_after": {
+        "mapping": "verdict_mapping",
+        "reached": false,
+        "score": null,
+        "atoms": []
+      },
+      "score_change": {
+        "before": null,
+        "after": null,
+        "delta": null
+      },
+      "usage": {
+        "input_tokens": 0,
+        "cached_input_tokens": 0,
+        "output_tokens": 0
+      },
+      "cost_usd": 0.0,
+      "original_run_duration_seconds": 399.0,
+      "original_run_cost_usd": null
+    },
+    {
+      "ordinal": 2,
+      "census_id": "bon0-001/filter_bon0_001",
+      "profile": "cli",
+      "family": "filter",
+      "model": "gpt-5.6-luna",
+      "failure_class": "cli_output_claims:observed_stdout_mismatch",
+      "failure_stratum": "cli_claim_binding",
+      "starting_score_band": "mid:37.5-<75",
+      "repair_route": "fix_continuation",
+      "repair_cycles": 1,
+      "directive": null,
+      "source_workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0802_bon0/cli-filter-bon0-20260802-153030/workspaces/filter_bon0_001",
+      "execution_workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0805_p2f_0/p2f-0-20260805-003041/workspaces/02__bon0-001__filter_bon0_001",
+      "source_workspace_tree_sha256_before": "4792cdaaff2fc6e2085be041eb9f0f7158efbe5af3b2cfe346d8afec73ff6acb",
+      "source_workspace_tree_sha256_after": "4792cdaaff2fc6e2085be041eb9f0f7158efbe5af3b2cfe346d8afec73ff6acb",
+      "product_tree_sha256_before": "d6b53e2ef2e45a89eb42c42db01b9c39706d841faf9bf54bf489646fe5a43735",
+      "product_tree_sha256_after": "8a500778624feddb687020d9e7092fe46b8df82c59668aec1c53b5719a2f2707",
+      "product_changed": true,
+      "recovery_plan_sha256": "cc9d5be84a34bc5dd43fea23e9a9794455dfc88b3cd6b9e973aa121431ebaa68",
+      "command_argv": [
+        "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+        "--yes",
+        "--context-budget",
+        "65536",
+        "--model",
+        "gpt-5.6-luna",
+        "--provider",
+        "openai",
+        "--planner-model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--planner-provider",
+        "ollama",
+        "--api",
+        "responses",
+        "--tool-protocol",
+        "native",
+        "--profile",
+        "cli",
+        "--run-ultra-plan",
+        ".anvil/plans/recovery-ultra-plan-phase-final-verification-019fc333-62cf-72c2-8d83-0162dfb8d1af.yaml"
+      ],
+      "started_at": "2026-08-05T00:52:25+0900",
+      "finished_at": "2026-08-05T01:10:23+0900",
+      "duration_seconds": 1080.179,
+      "exit_code": 1,
+      "run_id": "019fcd79-e2d7-7071-b45f-535da816cc03",
+      "events_sha256": "3c05cb83e41f02466206c4224d1105f117ca11898758041bfe05f81db2c090be",
+      "stdout_sha256": "f87cbbc8b406df2b827604cfe483de054e236e0544930afde5653f9e7300522a",
+      "stderr_sha256": "1fc375ebb1a436545df7ce8b2e88a432c1e8e369b6970f757e15a5cff52cd620",
+      "verdict": "failed",
+      "full": false,
+      "run_stop": {
+        "ok": false,
+        "status": "failed",
+        "final_acceptance_status": "incomplete",
+        "assurance_level": "failed",
+        "failure_kind": "process_failure",
+        "stop_reason": "ultra final acceptance failed after bounded repair: cli_case_binding_changed; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true\nPaths:\n- repair prompt saved: .anvil/repairs/repair-phase-verify-recovery-019fcd8a-1364-7482-8e9d-09d57939714f.md\n- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-verify-recovery-019fcd8a-1365-71d1-a503-7a5f59506f8f.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile cli \"$(cat .anvil/repairs/repair-phase-verify-recovery-019fcd8a-1364-7482-8e9d-09d57939714f.md)\"\n- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-verify-recovery-019fcd8a-1365-71d1-a503-7a5f59506f8f.yaml"
+      },
+      "score_vector_before": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "pass"
+          },
+          {
+            "key": "help_binding",
+            "state": "pass"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "violation"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "pass"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": 62.5,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 5
+      },
+      "score_vector_after": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "violation"
+          },
+          {
+            "key": "help_binding",
+            "state": "violation"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "violation"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "violation"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": -50.0,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": -4
+      },
+      "score_change": {
+        "before": 62.5,
+        "after": -50.0,
+        "delta": -112.5
+      },
+      "usage": {
+        "input_tokens": 108785,
+        "cached_input_tokens": 97001,
+        "output_tokens": 4228
+      },
+      "cost_usd": 0.0468521,
+      "original_run_duration_seconds": 1539.0,
+      "original_run_cost_usd": 0.0567084
+    },
+    {
+      "ordinal": 3,
+      "census_id": "bon0-001/filter_bon0_002",
+      "profile": "cli",
+      "family": "filter",
+      "model": "gpt-5.6-luna",
+      "failure_class": "cli_probe_polarity_violation",
+      "failure_stratum": "cli_polarity",
+      "starting_score_band": "low:<37.5",
+      "repair_route": "fix_continuation",
+      "repair_cycles": 1,
+      "directive": null,
+      "source_workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0802_bon0/cli-filter-bon0-20260802-153030/workspaces/filter_bon0_002",
+      "execution_workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0805_p2f_0/p2f-0-20260805-003041/workspaces/03__bon0-001__filter_bon0_002",
+      "source_workspace_tree_sha256_before": "24186fbba0078dbb610eedd5cf79255393057af0dcec9abac525275eec19fd0f",
+      "source_workspace_tree_sha256_after": "24186fbba0078dbb610eedd5cf79255393057af0dcec9abac525275eec19fd0f",
+      "product_tree_sha256_before": "fcc72158e1db4f0108405c61d88eb2a59f3ac1416424ce26cdc439f55704ef97",
+      "product_tree_sha256_after": "4da864b1a2c5ebab345a931c57274c2aef3c4ef18a3b2bc4cc675bbd43181efb",
+      "product_changed": true,
+      "recovery_plan_sha256": "7d9584354e6349781fec48a6b254184359541ce9b5f752e2c14b636188d9f295",
+      "command_argv": [
+        "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+        "--yes",
+        "--context-budget",
+        "65536",
+        "--model",
+        "gpt-5.6-luna",
+        "--provider",
+        "openai",
+        "--planner-model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--planner-provider",
+        "ollama",
+        "--api",
+        "responses",
+        "--tool-protocol",
+        "native",
+        "--profile",
+        "cli",
+        "--run-ultra-plan",
+        ".anvil/plans/recovery-ultra-plan-phase-verify-artifacts-019fc340-190a-7960-8691-f19bcb8430f9.yaml"
+      ],
+      "started_at": "2026-08-05T01:10:23+0900",
+      "finished_at": "2026-08-05T01:29:25+0900",
+      "duration_seconds": 1140.233,
+      "exit_code": 1,
+      "run_id": "019fcd8a-56bb-7143-9b29-5b6ce4ea3b84",
+      "events_sha256": "cf54dc173cacd85518f6a263a5085955403dc9142ea1a0d1fd6a0a11b74a2e8a",
+      "stdout_sha256": "eedf88af4b08ee7f5775be0f36361da727f593c68c38824f86918cffdff7f150",
+      "stderr_sha256": "7182ab39cd10144f85bd7ff2dbb10f47e7dcfa9c8feb5695694248201632b7bc",
+      "verdict": "failed",
+      "full": false,
+      "run_stop": {
+        "ok": false,
+        "status": "failed",
+        "final_acceptance_status": "incomplete",
+        "assurance_level": "failed",
+        "failure_kind": "process_failure",
+        "stop_reason": "ultra final acceptance failed after bounded repair: cli_case_binding_changed; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true\nPaths:\n- repair prompt saved: .anvil/repairs/repair-phase-verify-recovery-019fcd9b-a3cc-79d3-b1fc-41d35026c200.md\n- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-verify-recovery-019fcd9b-a3cc-79d3-b1fc-41ee5bf7525e.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile cli \"$(cat .anvil/repairs/repair-phase-verify-recovery-019fcd9b-a3cc-79d3-b1fc-41d35026c200.md)\"\n- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-verify-recovery-019fcd9b-a3cc-79d3-b1fc-41ee5bf7525e.yaml"
+      },
+      "score_vector_before": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "violation"
+          },
+          {
+            "key": "help_binding",
+            "state": "violation"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "pass"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "pass"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": 25.0,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 2
+      },
+      "score_vector_after": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "violation"
+          },
+          {
+            "key": "help_binding",
+            "state": "violation"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "absent"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "violation"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": -37.5,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": -3
+      },
+      "score_change": {
+        "before": 25.0,
+        "after": -37.5,
+        "delta": -62.5
+      },
+      "usage": {
+        "input_tokens": 144919,
+        "cached_input_tokens": 129143,
+        "output_tokens": 4382
+      },
+      "cost_usd": 0.054982300000000005,
+      "original_run_duration_seconds": 833.0,
+      "original_run_cost_usd": 0.0418348
+    },
+    {
+      "ordinal": 4,
+      "census_id": "bon0-001/filter_bon0_004",
+      "profile": "cli",
+      "family": "filter",
+      "model": "gpt-5.6-luna",
+      "failure_class": "cli_probe_polarity_violation",
+      "failure_stratum": "cli_polarity",
+      "starting_score_band": "mid:37.5-<75",
+      "repair_route": "fix_continuation",
+      "repair_cycles": 1,
+      "directive": null,
+      "source_workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0802_bon0/cli-filter-bon0-20260802-153030/workspaces/filter_bon0_004",
+      "execution_workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0805_p2f_0/p2f-0-20260805-003041/workspaces/04__bon0-001__filter_bon0_004",
+      "source_workspace_tree_sha256_before": "4faa1121f0cfac46fae1ec7aaf5d9efa44834c90b9cf08336186c1d4c60524fb",
+      "source_workspace_tree_sha256_after": "4faa1121f0cfac46fae1ec7aaf5d9efa44834c90b9cf08336186c1d4c60524fb",
+      "product_tree_sha256_before": "3282149881f69d4af2b879aa60c0d72c90e4ffc309cd4df19b535bdea7e92179",
+      "product_tree_sha256_after": "3e515c5e6fc325ad581c0173ea091935e2b4bb7bd99f50ee70abd3d28546a9a9",
+      "product_changed": true,
+      "recovery_plan_sha256": "7d9584354e6349781fec48a6b254184359541ce9b5f752e2c14b636188d9f295",
+      "command_argv": [
+        "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+        "--yes",
+        "--context-budget",
+        "65536",
+        "--model",
+        "gpt-5.6-luna",
+        "--provider",
+        "openai",
+        "--planner-model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--planner-provider",
+        "ollama",
+        "--api",
+        "responses",
+        "--tool-protocol",
+        "native",
+        "--profile",
+        "cli",
+        "--run-ultra-plan",
+        ".anvil/plans/recovery-ultra-plan-phase-verify-artifacts-019fc368-aebf-7460-8b55-c1dd5d6021f0.yaml"
+      ],
+      "started_at": "2026-08-05T01:29:25+0900",
+      "finished_at": "2026-08-05T01:51:25+0900",
+      "duration_seconds": 1320.235,
+      "exit_code": 1,
+      "run_id": "019fcd9b-c4b9-7f62-af82-6519f60e9047",
+      "events_sha256": "7fd1abcb53a5e874b274af53ba8dd069b59e90b9404aa00b3645843b11a9514c",
+      "stdout_sha256": "1ceca8f7e64c48506cde0ec875560f5c679ee2dafb076e4c78f8dabf8d8a21a0",
+      "stderr_sha256": "887732c65ab4ad7e670556bb41173bc5f7af02cc764688fabe17b784797f2717",
+      "verdict": "failed",
+      "full": false,
+      "run_stop": {
+        "ok": false,
+        "status": "failed",
+        "final_acceptance_status": "incomplete",
+        "assurance_level": "failed",
+        "failure_kind": "process_failure",
+        "stop_reason": "ultra final acceptance failed after bounded repair: cli_case_binding_changed; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true\nPaths:\n- repair prompt saved: .anvil/repairs/repair-phase-verify-recovery-019fcdaf-9e64-7090-acc4-f3ad3d6603aa.md\n- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-verify-recovery-019fcdaf-9e64-7090-acc4-f3bddb35572f.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile cli \"$(cat .anvil/repairs/repair-phase-verify-recovery-019fcdaf-9e64-7090-acc4-f3ad3d6603aa.md)\"\n- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-verify-recovery-019fcdaf-9e64-7090-acc4-f3bddb35572f.yaml"
+      },
+      "score_vector_before": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "violation"
+          },
+          {
+            "key": "help_binding",
+            "state": "pass"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "pass"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "pass"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": 62.5,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 5
+      },
+      "score_vector_after": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "violation"
+          },
+          {
+            "key": "help_binding",
+            "state": "pass"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "violation"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "violation"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": -12.5,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": -1
+      },
+      "score_change": {
+        "before": 62.5,
+        "after": -12.5,
+        "delta": -75.0
+      },
+      "usage": {
+        "input_tokens": 199390,
+        "cached_input_tokens": 184475,
+        "output_tokens": 3916
+      },
+      "cost_usd": 0.0568585,
+      "original_run_duration_seconds": 1308.0,
+      "original_run_cost_usd": 0.0502942
+    },
+    {
+      "ordinal": 5,
+      "census_id": "bon0-002r/filter_bon0_001",
+      "profile": "cli",
+      "family": "filter",
+      "model": "gpt-5.6-luna",
+      "failure_class": "phase_failure:draft-readme",
+      "failure_stratum": "phase_verification",
+      "starting_score_band": "unreached",
+      "repair_route": "fix_continuation",
+      "repair_cycles": 1,
+      "directive": null,
+      "source_workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0803_bon0_002r/cli-filter-bon0-20260803-115414/workspaces/filter_bon0_001",
+      "execution_workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0805_p2f_0/p2f-0-20260805-003041/workspaces/05__bon0-002r__filter_bon0_001",
+      "source_workspace_tree_sha256_before": "a1b93bbab5c87fbc92a7c52c653e47efcda468e9b3a04978ef9729373bd55f2b",
+      "source_workspace_tree_sha256_after": "a1b93bbab5c87fbc92a7c52c653e47efcda468e9b3a04978ef9729373bd55f2b",
+      "product_tree_sha256_before": "f4f0a65d20c19f149f23404649eb57895c331043d5a3c02705bb493f01fe949d",
+      "product_tree_sha256_after": "4c7a0eac68f79f67cac24a1eabda998f4f1fa2c5e69ac46876a9c4cb6d914608",
+      "product_changed": true,
+      "recovery_plan_sha256": "a3e148bb6a43721e8e331bb41f91e87531bdeb46048940f1d0952768deb79850",
+      "command_argv": [
+        "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+        "--yes",
+        "--context-budget",
+        "65536",
+        "--model",
+        "gpt-5.6-luna",
+        "--provider",
+        "openai",
+        "--planner-model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--planner-provider",
+        "ollama",
+        "--api",
+        "responses",
+        "--tool-protocol",
+        "native",
+        "--profile",
+        "cli",
+        "--run-ultra-plan",
+        ".anvil/plans/recovery-ultra-plan-phase-draft-readme-019fc78c-d6e0-75c1-ae07-4989e2aa8875.yaml"
+      ],
+      "started_at": "2026-08-05T01:51:25+0900",
+      "finished_at": "2026-08-05T02:12:56+0900",
+      "duration_seconds": 1290.29,
+      "exit_code": 0,
+      "run_id": "019fcdaf-ea18-7800-a9e8-e95456b8c599",
+      "events_sha256": "dbce592e8845a115a4c4edd109a9853ca5f6c72e6ae65cbb3fca89044db5d950",
+      "stdout_sha256": "aa153c29fc0e976a504216f5303463b5d1bb72a46423e845eca0d77986e9e295",
+      "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "verdict": "full",
+      "full": true,
+      "run_stop": {
+        "ok": true,
+        "status": "completed",
+        "final_acceptance_status": "full_success",
+        "assurance_level": "full",
+        "failure_kind": "",
+        "stop_reason": "completed"
+      },
+      "score_vector_before": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "unobserved"
+          },
+          {
+            "key": "help_binding",
+            "state": "unobserved"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "unobserved"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "unobserved"
+          }
+        ],
+        "observed_weight": 0,
+        "reached": false,
+        "score": null,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 0
+      },
+      "score_vector_after": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "pass"
+          },
+          {
+            "key": "help_binding",
+            "state": "pass"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "pass"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "pass"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": 100.0,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 8
+      },
+      "score_change": {
+        "before": null,
+        "after": 100.0,
+        "delta": null
+      },
+      "usage": {
+        "input_tokens": 142508,
+        "cached_input_tokens": 129219,
+        "output_tokens": 5160
+      },
+      "cost_usd": 0.057170900000000004,
+      "original_run_duration_seconds": 1100.0,
+      "original_run_cost_usd": 0.0331376
+    },
+    {
+      "ordinal": 6,
+      "census_id": "bon0-002r/filter_bon0_006",
+      "profile": "cli",
+      "family": "filter",
+      "model": "gpt-5.6-luna",
+      "failure_class": "help_binding_failure",
+      "failure_stratum": "other_acceptance",
+      "starting_score_band": "mid:37.5-<75",
+      "repair_route": "fix_continuation",
+      "repair_cycles": 1,
+      "directive": null,
+      "source_workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0803_bon0_002r/cli-filter-bon0-20260803-115414/workspaces/filter_bon0_006",
+      "execution_workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0805_p2f_0/p2f-0-20260805-003041/workspaces/06__bon0-002r__filter_bon0_006",
+      "source_workspace_tree_sha256_before": "ca0ffaa7e51adafb8ca25c0845ff682564b1909c932b3aa8163090c3134b0af8",
+      "source_workspace_tree_sha256_after": "ca0ffaa7e51adafb8ca25c0845ff682564b1909c932b3aa8163090c3134b0af8",
+      "product_tree_sha256_before": "87002ee5529ef4146e0f16482d5ac32963d90d41fc41353964a3bc54efc2d0e0",
+      "product_tree_sha256_after": "9165c8a2ab9a405ed621d0d94316b2543814bc2a4762636a9f97f8192e3b13fd",
+      "product_changed": true,
+      "recovery_plan_sha256": "0d5995747192736cc95251ed630b7d5fab4ced4644511156b0be49c4cfeb0d3e",
+      "command_argv": [
+        "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+        "--yes",
+        "--context-budget",
+        "65536",
+        "--model",
+        "gpt-5.6-luna",
+        "--provider",
+        "openai",
+        "--planner-model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--planner-provider",
+        "ollama",
+        "--api",
+        "responses",
+        "--tool-protocol",
+        "native",
+        "--profile",
+        "cli",
+        "--run-ultra-plan",
+        ".anvil/plans/recovery-ultra-plan-phase-final-verification-019fc7da-8bcc-7670-8fe6-0349c29f7a11.yaml"
+      ],
+      "started_at": "2026-08-05T02:12:56+0900",
+      "finished_at": "2026-08-05T02:24:26+0900",
+      "duration_seconds": 690.168,
+      "exit_code": 1,
+      "run_id": "019fcdc3-9a73-7da3-b815-4c5cc2bf8faa",
+      "events_sha256": "3015be36f5597d2ba134cb9a539fea033ffda3ba60f2607661a34ab76fd4e227",
+      "stdout_sha256": "aa0d6af71ee218d52cd6cdd125ba7a2e4d9d0971f52cc57e6884d4ba08819a2d",
+      "stderr_sha256": "3d98fb413359b088aafb4bd3264c99574e2d8c382947157a2f516bbba15676ce",
+      "verdict": "failed",
+      "full": false,
+      "run_stop": {
+        "ok": false,
+        "status": "failed",
+        "final_acceptance_status": "incomplete",
+        "assurance_level": "failed",
+        "failure_kind": "process_failure",
+        "stop_reason": "ultra final acceptance failed after bounded repair: cli_case_binding_changed; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true\nPaths:\n- repair prompt saved: .anvil/repairs/repair-phase-verify-recovery-019fcdcd-d9d8-7ba1-b518-0c4a91940186.md\n- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-verify-recovery-019fcdcd-d9d8-7ba1-b518-0c52e3c986a1.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile cli \"$(cat .anvil/repairs/repair-phase-verify-recovery-019fcdcd-d9d8-7ba1-b518-0c4a91940186.md)\"\n- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-verify-recovery-019fcdcd-d9d8-7ba1-b518-0c52e3c986a1.yaml"
+      },
+      "score_vector_before": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "pass"
+          },
+          {
+            "key": "help_binding",
+            "state": "violation"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "absent"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "pass"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": 37.5,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 3
+      },
+      "score_vector_after": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "violation"
+          },
+          {
+            "key": "help_binding",
+            "state": "violation"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "violation"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "violation"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": -50.0,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": -4
+      },
+      "score_change": {
+        "before": 37.5,
+        "after": -50.0,
+        "delta": -87.5
+      },
+      "usage": {
+        "input_tokens": 200799,
+        "cached_input_tokens": 182744,
+        "output_tokens": 5382
+      },
+      "cost_usd": 0.0686214,
+      "original_run_duration_seconds": 1594.0,
+      "original_run_cost_usd": 0.0500095
+    },
+    {
+      "ordinal": 7,
+      "census_id": "bon0-003r/filter_bon0_002",
+      "profile": "cli",
+      "family": "filter",
+      "model": "gpt-5.6-luna",
+      "failure_class": "profile_behavior_probe_error",
+      "failure_stratum": "profile_probe",
+      "starting_score_band": "unreached",
+      "repair_route": "fix_continuation",
+      "repair_cycles": 1,
+      "directive": null,
+      "source_workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0803_bon0_003r/cli-filter-bon0-20260803-134215/workspaces/filter_bon0_002",
+      "execution_workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0805_p2f_0/p2f-0-20260805-003041/workspaces/07__bon0-003r__filter_bon0_002",
+      "source_workspace_tree_sha256_before": "0dc159d7919db08afb948ddf5815bbf0611d9ee0fb35dd99b143340aff6ea7f5",
+      "source_workspace_tree_sha256_after": "0dc159d7919db08afb948ddf5815bbf0611d9ee0fb35dd99b143340aff6ea7f5",
+      "product_tree_sha256_before": "f261cddfbcb77e5cb319cc14c4a43022450bbb489718df268f839c44a085789e",
+      "product_tree_sha256_after": "083bf56620b0f1ae82c5f3a5d66ef96af5fd0469b3ebfc08340c58e11156abd0",
+      "product_changed": true,
+      "recovery_plan_sha256": "7a76eab412b7680b23ae2251fbed8b41342ade7f5188846e8d2c749a8b127540",
+      "command_argv": [
+        "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+        "--yes",
+        "--context-budget",
+        "65536",
+        "--model",
+        "gpt-5.6-luna",
+        "--provider",
+        "openai",
+        "--planner-model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--planner-provider",
+        "ollama",
+        "--api",
+        "responses",
+        "--tool-protocol",
+        "native",
+        "--profile",
+        "cli",
+        "--run-ultra-plan",
+        ".anvil/plans/recovery-ultra-plan-phase-final-verification-019fc80c-2b2b-7870-968d-ba43b4655e57.yaml"
+      ],
+      "started_at": "2026-08-05T02:24:26+0900",
+      "finished_at": "2026-08-05T02:28:26+0900",
+      "duration_seconds": 240.061,
+      "exit_code": 1,
+      "run_id": "019fcdce-2293-7be3-81b6-ca09bc0156ea",
+      "events_sha256": "92660dabf4a307a505eaadacef39867a3f71064a781471e60a3c225c876bc9d9",
+      "stdout_sha256": "1aab61cc36b27c9ff4cba63621fdbccd79aa935d39d6728b7036b365bf34b6e6",
+      "stderr_sha256": "576e311cccc9ceb84c287d16c1d11c5d91d54aeeada8c7dbddd8565bf02b3f39",
+      "verdict": "failed",
+      "full": false,
+      "run_stop": {
+        "ok": false,
+        "status": "failed",
+        "final_acceptance_status": "not_checked",
+        "assurance_level": "static",
+        "failure_kind": "process_failure",
+        "stop_reason": "phase inspect-current-state failed: step run-tests failed verification after bounded repair: dependency_setup_authority_required: python -m unittest tests/test_cli.py; failure_kind=dependency_setup_authority_required; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true Paths: - repair prompt saved: .anvil/repairs/repair-run-tests-019fcdd1-9450-7e61-9de3-3bc7e5c6f18f.md - Recovery UltraPlan YAML saved:\nPaths:\n- repair prompt saved: .anvil/repairs/repair-phase-inspect-current-state-019fcdd1-9451-7471-a341-58f62aa63383.md\n- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-inspect-current-state-019fcdd1-9451-7471-a341-590dde646be4.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile cli \"$(cat .anvil/repairs/repair-phase-inspect-current-state-019fcdd1-9451-7471-a341-58f62aa63383.md)\"\n- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-inspect-current-state-019fcdd1-9451-7471-a341-590dde646be4.yaml"
+      },
+      "score_vector_before": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "unobserved"
+          },
+          {
+            "key": "help_binding",
+            "state": "unobserved"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "unobserved"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "unobserved"
+          }
+        ],
+        "observed_weight": 0,
+        "reached": false,
+        "score": null,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 0
+      },
+      "score_vector_after": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "unobserved"
+          },
+          {
+            "key": "help_binding",
+            "state": "unobserved"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "unobserved"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "unobserved"
+          }
+        ],
+        "observed_weight": 0,
+        "reached": false,
+        "score": null,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 0
+      },
+      "score_change": {
+        "before": null,
+        "after": null,
+        "delta": null
+      },
+      "usage": {
+        "input_tokens": 21616,
+        "cached_input_tokens": 15475,
+        "output_tokens": 1114
+      },
+      "cost_usd": 0.0143725,
+      "original_run_duration_seconds": 1337.0,
+      "original_run_cost_usd": 0.0334836
+    },
+    {
+      "ordinal": 8,
+      "census_id": "bon0-003r/filter_bon0_006",
+      "profile": "cli",
+      "family": "filter",
+      "model": "gpt-5.6-luna",
+      "failure_class": "cli_probe_polarity_violation",
+      "failure_stratum": "cli_polarity",
+      "starting_score_band": "mid:37.5-<75",
+      "repair_route": "fix_continuation",
+      "repair_cycles": 1,
+      "directive": null,
+      "source_workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0803_bon0_003r/cli-filter-bon0-20260803-134215/workspaces/filter_bon0_006",
+      "execution_workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0805_p2f_0/p2f-0-20260805-003041/workspaces/08__bon0-003r__filter_bon0_006",
+      "source_workspace_tree_sha256_before": "294c30641b37e9245f839129cd499d4fa2854abc6301a7924930fd1920344891",
+      "source_workspace_tree_sha256_after": "294c30641b37e9245f839129cd499d4fa2854abc6301a7924930fd1920344891",
+      "product_tree_sha256_before": "9873da41716dcfeb30fb9e08908b86cf27eb4bf687cb0a74b07dec448d5c3351",
+      "product_tree_sha256_after": "26731fdebc8671dbc0a835656ece3b103e7ce568a1cba8b64bd1598883837aca",
+      "product_changed": true,
+      "recovery_plan_sha256": "cbe5acec2bb35c7ca59e6c9ef1101aaf74209d00b194f75ff3b6f50a1886289e",
+      "command_argv": [
+        "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+        "--yes",
+        "--context-budget",
+        "65536",
+        "--model",
+        "gpt-5.6-luna",
+        "--provider",
+        "openai",
+        "--planner-model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--planner-provider",
+        "ollama",
+        "--api",
+        "responses",
+        "--tool-protocol",
+        "native",
+        "--profile",
+        "cli",
+        "--run-ultra-plan",
+        ".anvil/plans/recovery-ultra-plan-phase-create-readme-and-verify-019fc85e-58d4-7510-bd0b-18c5771813df.yaml"
+      ],
+      "started_at": "2026-08-05T02:28:26+0900",
+      "finished_at": "2026-08-05T02:47:26+0900",
+      "duration_seconds": 1140.283,
+      "exit_code": 1,
+      "run_id": "019fcdd1-cc75-75b1-ba6e-cea2877f1333",
+      "events_sha256": "d220bb3c44e62335d9b578d26ad602526db09526d87aaa907fe3d0440a8578fb",
+      "stdout_sha256": "8385cf4734b4dd57ebcd0aceb7ba67faeb926feb67a1d6982529c34d15a608a6",
+      "stderr_sha256": "77e19d2f0d20f92b9c6c9ab32a802728172da95c8c32319f80f337ac09261f40",
+      "verdict": "failed",
+      "full": false,
+      "run_stop": {
+        "ok": false,
+        "status": "failed",
+        "final_acceptance_status": "incomplete",
+        "assurance_level": "failed",
+        "failure_kind": "process_failure",
+        "stop_reason": "ultra final acceptance failed after bounded repair: cli_case_binding_changed; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true\nPaths:\n- repair prompt saved: .anvil/repairs/repair-phase-verify-recovery-019fcde2-e56d-7b80-8fa5-7af7b07a9ad3.md\n- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-verify-recovery-019fcde2-e56e-7e81-9328-0026445f6c3d.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile cli \"$(cat .anvil/repairs/repair-phase-verify-recovery-019fcde2-e56d-7b80-8fa5-7af7b07a9ad3.md)\"\n- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-verify-recovery-019fcde2-e56e-7e81-9328-0026445f6c3d.yaml"
+      },
+      "score_vector_before": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "violation"
+          },
+          {
+            "key": "help_binding",
+            "state": "pass"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "pass"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "pass"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": 62.5,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 5
+      },
+      "score_vector_after": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "violation"
+          },
+          {
+            "key": "help_binding",
+            "state": "pass"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "violation"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "violation"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": -12.5,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": -1
+      },
+      "score_change": {
+        "before": 62.5,
+        "after": -12.5,
+        "delta": -75.0
+      },
+      "usage": {
+        "input_tokens": 93843,
+        "cached_input_tokens": 81878,
+        "output_tokens": 3961
+      },
+      "cost_usd": 0.0439188,
+      "original_run_duration_seconds": 981.0,
+      "original_run_cost_usd": 0.036447
+    },
+    {
+      "ordinal": 9,
+      "census_id": "bon0-004r/filter_bon0_001",
+      "profile": "cli",
+      "family": "filter",
+      "model": "gpt-5.6-luna",
+      "failure_class": "cli_output_claims:observed_stdout_mismatch",
+      "failure_stratum": "cli_claim_binding",
+      "starting_score_band": "low:<37.5",
+      "repair_route": "fix_continuation",
+      "repair_cycles": 1,
+      "directive": null,
+      "source_workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0803_bon0_004r/cli-filter-bon0-20260803-160629/workspaces/filter_bon0_001",
+      "execution_workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0805_p2f_0/p2f-0-20260805-003041/workspaces/09__bon0-004r__filter_bon0_001",
+      "source_workspace_tree_sha256_before": "90f587396b60b0afef4d8a538b878e89e5e95c093ae9f951f7fdcf30b40199bd",
+      "source_workspace_tree_sha256_after": "90f587396b60b0afef4d8a538b878e89e5e95c093ae9f951f7fdcf30b40199bd",
+      "product_tree_sha256_before": "b3fed96b7705fb8d4d6610d532da6398734ab72dbbc3259386d95a36c4f80db4",
+      "product_tree_sha256_after": "2dcc66b9c8d811089775fe5d2c5df9464a4cb655ad46db9686a792af22d80294",
+      "product_changed": true,
+      "recovery_plan_sha256": "cc9d5be84a34bc5dd43fea23e9a9794455dfc88b3cd6b9e973aa121431ebaa68",
+      "command_argv": [
+        "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+        "--yes",
+        "--context-budget",
+        "65536",
+        "--model",
+        "gpt-5.6-luna",
+        "--provider",
+        "openai",
+        "--planner-model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--planner-provider",
+        "ollama",
+        "--api",
+        "responses",
+        "--tool-protocol",
+        "native",
+        "--profile",
+        "cli",
+        "--run-ultra-plan",
+        ".anvil/plans/recovery-ultra-plan-phase-final-verification-019fc87d-0c65-70f2-a144-fc51101c2765.yaml"
+      ],
+      "started_at": "2026-08-05T02:47:26+0900",
+      "finished_at": "2026-08-05T03:03:57+0900",
+      "duration_seconds": 990.222,
+      "exit_code": 1,
+      "run_id": "019fcde3-32e2-7921-a913-5baf78c82d98",
+      "events_sha256": "2a3ddd03de9cf12c6fa46c6eec70c62b8436f30292c94ad2e120f36700226611",
+      "stdout_sha256": "9ba16e21b7fc30911eb06819259e70af4c3ef1a32234c1f255bedecd04007d92",
+      "stderr_sha256": "36ab45a97bbc32c6f0c0fd8cd8339d984047204b6e72857836706e190dacc5fd",
+      "verdict": "failed",
+      "full": false,
+      "run_stop": {
+        "ok": false,
+        "status": "failed",
+        "final_acceptance_status": "incomplete",
+        "assurance_level": "failed",
+        "failure_kind": "process_failure",
+        "stop_reason": "ultra final acceptance failed after bounded repair: cli_case_binding_changed; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true\nPaths:\n- repair prompt saved: .anvil/repairs/repair-phase-verify-recovery-019fcdf2-294f-7d10-b517-9751809fb4f8.md\n- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-verify-recovery-019fcdf2-294f-7d10-b517-976dde8d0e00.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile cli \"$(cat .anvil/repairs/repair-phase-verify-recovery-019fcdf2-294f-7d10-b517-9751809fb4f8.md)\"\n- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-verify-recovery-019fcdf2-294f-7d10-b517-976dde8d0e00.yaml"
+      },
+      "score_vector_before": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "violation"
+          },
+          {
+            "key": "help_binding",
+            "state": "pass"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "violation"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "pass"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": 25.0,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 2
+      },
+      "score_vector_after": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "violation"
+          },
+          {
+            "key": "help_binding",
+            "state": "pass"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "pass"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "violation"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": 25.0,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 2
+      },
+      "score_change": {
+        "before": 25.0,
+        "after": 25.0,
+        "delta": 0.0
+      },
+      "usage": {
+        "input_tokens": 103429,
+        "cached_input_tokens": 91322,
+        "output_tokens": 3909
+      },
+      "cost_usd": 0.044693199999999995,
+      "original_run_duration_seconds": 1726.0,
+      "original_run_cost_usd": 0.0303041
+    },
+    {
+      "ordinal": 10,
+      "census_id": "luna-006/stats_luna_002",
+      "profile": "cli",
+      "family": "stats",
+      "model": "gpt-5.6-luna",
+      "failure_class": "profile_behavior_evidence_failed",
+      "failure_stratum": "profile_probe",
+      "starting_score_band": "high:75-<100",
+      "repair_route": "fix_continuation",
+      "repair_cycles": 1,
+      "directive": null,
+      "source_workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0801_cli_luna6/cli-create-luna-20260802-005454/workspaces/stats_luna_002",
+      "execution_workspace": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0805_p2f_0/p2f-0-20260805-003041/workspaces/10__luna-006__stats_luna_002",
+      "source_workspace_tree_sha256_before": "152d8cf0a239d73eb8eb1aff56361b243ee3be213be9bba0c9934f934f9c6036",
+      "source_workspace_tree_sha256_after": "152d8cf0a239d73eb8eb1aff56361b243ee3be213be9bba0c9934f934f9c6036",
+      "product_tree_sha256_before": "7c8799e97240c7c6643af6bea653dc6cdb63d4336f84257b53852f7c6251b678",
+      "product_tree_sha256_after": "4142742ff403e13c0ad1b52940630e0abfff11a7816b1553200a8b0d961399af",
+      "product_changed": true,
+      "recovery_plan_sha256": "079bdca9de316338605e29fd93b816be99b0e8ffa775ad6ab6e6ffbafcb6019f",
+      "command_argv": [
+        "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+        "--yes",
+        "--context-budget",
+        "65536",
+        "--model",
+        "gpt-5.6-luna",
+        "--provider",
+        "openai",
+        "--planner-model",
+        "qwen3.6:27b-coding-nvfp4",
+        "--planner-provider",
+        "ollama",
+        "--api",
+        "responses",
+        "--tool-protocol",
+        "native",
+        "--profile",
+        "cli",
+        "--run-ultra-plan",
+        ".anvil/plans/recovery-ultra-plan-phase-final-verification-019fc020-a5b9-72a2-8636-19c46d0912dc.yaml"
+      ],
+      "started_at": "2026-08-05T03:03:57+0900",
+      "finished_at": "2026-08-05T03:12:57+0900",
+      "duration_seconds": 540.134,
+      "exit_code": 1,
+      "run_id": "019fcdf2-4f21-7e71-a8fb-1ea559b8f2cc",
+      "events_sha256": "8a33aa3d7b24a429fedcd362fea1b795056f52ce4d4305dd5455d40845448a2e",
+      "stdout_sha256": "8aee4866552a8bef4bf74feaa406844729eff0a28e2f47bf8fbd1d69ed2ea25d",
+      "stderr_sha256": "cd9ed626d53e62243f2a5e62cb0ad6f072033eb6f0c29d5a7c12eb0ecbf14a9a",
+      "verdict": "failed",
+      "full": false,
+      "run_stop": {
+        "ok": false,
+        "status": "failed",
+        "final_acceptance_status": "not_checked",
+        "assurance_level": "partial",
+        "failure_kind": "process_failure",
+        "stop_reason": "phase repair-final-verification failed: path does not exist: tests/test_main.py; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true\nPaths:\n- repair prompt saved: .anvil/repairs/repair-phase-repair-final-verification-019fcdfa-2225-75b2-8d84-240bd216dc50.md\n- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-repair-final-verification-019fcdfa-2226-7db3-b9dc-3dc0546b4d3d.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile cli \"$(cat .anvil/repairs/repair-phase-repair-final-verification-019fcdfa-2225-75b2-8d84-240bd216dc50.md)\"\n- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-repair-final-verification-019fcdfa-2226-7db3-b9dc-3dc0546b4d3d.yaml"
+      },
+      "score_vector_before": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "source_ref": "workspace/management/runs/uat-test0801-cli-luna-006/uat-report.md",
+            "state": "pass"
+          },
+          {
+            "key": "help_binding",
+            "source_ref": "workspace/management/runs/uat-test0801-cli-luna-006/uat-report.md",
+            "state": "pass"
+          },
+          {
+            "key": "cli_output_claims",
+            "source_ref": "workspace/management/runs/uat-test0801-cli-luna-006/uat-report.md",
+            "state": "absent"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "source_ref": "workspace/management/runs/uat-test0801-cli-luna-006/uat-report.md",
+            "state": "pass"
+          }
+        ],
+        "observed_weight": 4,
+        "reached": true,
+        "score": 75.0,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 6
+      },
+      "score_vector_after": {
+        "atoms": [
+          {
+            "key": "cli_probe",
+            "state": "unobserved"
+          },
+          {
+            "key": "help_binding",
+            "state": "unobserved"
+          },
+          {
+            "key": "cli_output_claims",
+            "state": "unobserved"
+          },
+          {
+            "key": "cli_rerun_consistency",
+            "state": "unobserved"
+          }
+        ],
+        "observed_weight": 0,
+        "reached": false,
+        "score": null,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": 0
+      },
+      "score_change": {
+        "before": 75.0,
+        "after": null,
+        "delta": null
+      },
+      "usage": {
+        "input_tokens": 19277,
+        "cached_input_tokens": 13766,
+        "output_tokens": 1595
+      },
+      "cost_usd": 0.0164576,
+      "original_run_duration_seconds": 1365.0,
+      "original_run_cost_usd": 0.053263
+    }
+  ]
+}

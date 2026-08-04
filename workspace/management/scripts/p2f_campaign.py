@@ -7,8 +7,11 @@ import argparse
 import hashlib
 import json
 import math
+import os
 import re
+import shutil
 import subprocess
+import time
 from collections import Counter, defaultdict
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
@@ -20,6 +23,7 @@ RUNS_DIR = ROOT / "workspace/management/runs"
 OUTPUT_DIR = RUNS_DIR / "p2f-0"
 DECLARATION_PATH = OUTPUT_DIR / "predeclaration.json"
 CENSUS_PATH = OUTPUT_DIR / "census.md"
+RESULT_PATH = OUTPUT_DIR / "measurement-results.json"
 SCHEMA_VERSION = "commandagent.p2f-predeclaration/v0"
 SAMPLE_SEED = "p2f-0-stratified-v1"
 TARGET_SAMPLE_SIZE = 10
@@ -514,6 +518,439 @@ def _band_pins() -> dict[str, str]:
     return {name: _sha256(RUNS_DIR / name) for name in names}
 
 
+def _tree_sha256(path: Path, *, exclude_anvil: bool = False) -> str:
+    """Hash relative names, file bytes, and symlink targets in one workspace tree."""
+    digest = hashlib.sha256()
+    for item in sorted(path.rglob("*"), key=lambda candidate: candidate.as_posix()):
+        relative = item.relative_to(path)
+        if exclude_anvil and relative.parts and relative.parts[0] == ".anvil":
+            continue
+        digest.update(relative.as_posix().encode())
+        digest.update(b"\0")
+        if item.is_symlink():
+            digest.update(b"L")
+            digest.update(os.readlink(item).encode())
+        elif item.is_file():
+            digest.update(b"F")
+            digest.update(item.read_bytes())
+        elif item.is_dir():
+            digest.update(b"D")
+        else:
+            digest.update(b"O")
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _load_dotenv(environment: dict[str, str]) -> None:
+    """Load simple KEY=VALUE entries without logging credential values."""
+    path = ROOT / ".env"
+    assert path.is_file(), f"environment file missing: {path}"
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line.removeprefix("export ").lstrip()
+        key, separator, value = line.partition("=")
+        if not separator or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key):
+            continue
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        environment.setdefault(key, value)
+
+
+def _source_for_label(label: str) -> Source:
+    matches = [source for source in _sources() if source.label == label]
+    assert len(matches) == 1, f"source label mismatch: {label}"
+    return matches[0]
+
+
+def continuation_argv(entry: dict[str, Any], copied_workspace: Path) -> list[str]:
+    """Convert the source run argv according to the predeclared action-only rule."""
+    source = _source_for_label(str(entry["source_label"]))
+    _meta, runs = _meta_runs(source)
+    run = runs[str(entry["run_name"])]
+    raw_argv = run.get("command_argv")
+    assert isinstance(raw_argv, list) and all(
+        isinstance(item, str) for item in raw_argv
+    )
+    argv = list(raw_argv)
+    assert argv[0] == "commandagent"
+    assert argv[-1] and not argv[-1].startswith("--"), "source goal missing"
+    argv.pop()
+    retained = [str(EXECUTION_BINARY)]
+    index = 1
+    while index < len(argv):
+        item = argv[index]
+        if item == "--intent":
+            assert index + 1 < len(argv)
+            index += 2
+            continue
+        if item == "--ultra-plan-run":
+            index += 1
+            continue
+        retained.append(item)
+        index += 1
+    source_workspace = Path(str(entry["workspace"]))
+    recovery_relative = Path(str(entry["recovery_plan"])).relative_to(source_workspace)
+    copied_recovery = copied_workspace / recovery_relative
+    assert copied_recovery.is_file(), copied_recovery
+    retained.extend(["--run-ultra-plan", recovery_relative.as_posix()])
+    return retained
+
+
+def _read_events(path: Path) -> list[dict[str, Any]]:
+    events: list[dict[str, Any]] = []
+    for line_number, line in enumerate(
+        path.read_text(encoding="utf-8").splitlines(), start=1
+    ):
+        value = json.loads(line)
+        assert isinstance(value, dict), f"event is not an object: {path}:{line_number}"
+        events.append(value)
+    return events
+
+
+def _cli_score_vector(workspace: Path, events: list[dict[str, Any]]) -> dict[str, Any]:
+    keys = [
+        "cli_probe",
+        "help_binding",
+        "cli_output_claims",
+        "cli_rerun_consistency",
+    ]
+    probe_reached = any(
+        event.get("event") == "profile_behavior_probe" for event in events
+    )
+    if not probe_reached:
+        return {
+            "atoms": [{"key": key, "state": "unobserved"} for key in keys],
+            "observed_weight": 0,
+            "reached": False,
+            "score": None,
+            "weight_sum": 4,
+            "weighted_state_sum_twice": 0,
+        }
+    evidence_path = workspace / "evidence/cli-assurance.json"
+    evidence = _read_json(evidence_path)
+    payload = evidence.get("evidence")
+    assert isinstance(payload, dict)
+    checks = payload.get("checks")
+    assert isinstance(checks, dict)
+    state_by_check = {
+        "pass": "pass",
+        "failed": "violation",
+        "claims_absent": "absent",
+    }
+    contribution = {"pass": 2, "violation": -1, "absent": 0}
+    atoms: list[dict[str, str]] = []
+    for key in keys:
+        raw_state = checks.get(key)
+        assert isinstance(raw_state, str) and raw_state in state_by_check
+        atoms.append({"key": key, "state": state_by_check[raw_state]})
+    weighted = sum(contribution[atom["state"]] for atom in atoms)
+    return {
+        "atoms": atoms,
+        "observed_weight": 4,
+        "reached": True,
+        "score": weighted / 8 * 100,
+        "weight_sum": 4,
+        "weighted_state_sum_twice": weighted,
+    }
+
+
+def _after_score_vector(
+    profile: str,
+    workspace: Path,
+    events: list[dict[str, Any]],
+    full: bool,
+) -> dict[str, Any]:
+    if profile == "cli":
+        return _cli_score_vector(workspace, events)
+    assert profile == "nextjs"
+    return {
+        "mapping": "verdict_mapping",
+        "reached": full,
+        "score": 100.0 if full else None,
+        "atoms": [],
+    }
+
+
+def _before_score_vector(entry: dict[str, Any]) -> dict[str, Any]:
+    source = _source_for_label(str(entry["source_label"]))
+    if source.kind == "bon":
+        document = _read_json(source.evidence_path)
+        row = next(
+            item for item in document["runs"] if item["name"] == entry["run_name"]
+        )
+        return dict(row["score_vector"])
+    if source.kind == "luna":
+        document = _read_json(source.evidence_path)
+        uat_id = str(document["uat_id"])
+        vector = _final_vectors()[f"{uat_id}/{entry['run_name']}"]
+        return {
+            key: value
+            for key, value in vector.items()
+            if key
+            in {
+                "atoms",
+                "observed_weight",
+                "reached",
+                "score",
+                "weight_sum",
+                "weighted_state_sum_twice",
+            }
+        }
+    return {
+        "mapping": "verdict_mapping",
+        "reached": False,
+        "score": None,
+        "atoms": [],
+    }
+
+
+def _usage_and_cost(events: list[dict[str, Any]]) -> tuple[dict[str, int], float]:
+    input_tokens = 0
+    cached_tokens = 0
+    output_tokens = 0
+    for event in events:
+        if event.get("event") != "provider_turn_duration":
+            continue
+        if event.get("provider") != "openai":
+            continue
+        prompt = event.get("prompt_eval_count")
+        cached = event.get("provider_cached_input_tokens")
+        output = event.get("eval_count")
+        assert isinstance(prompt, int) and isinstance(cached, int)
+        assert isinstance(output, int)
+        input_tokens += prompt
+        cached_tokens += cached
+        output_tokens += output
+    assert cached_tokens <= input_tokens
+    cost = (
+        (input_tokens - cached_tokens) * 1.0 + cached_tokens * 0.1 + output_tokens * 6.0
+    ) / 1_000_000
+    return {
+        "input_tokens": input_tokens,
+        "cached_input_tokens": cached_tokens,
+        "output_tokens": output_tokens,
+    }, cost
+
+
+def _verify_execution_preflight(declaration: dict[str, Any]) -> None:
+    assert declaration.get("schema_version") == SCHEMA_VERSION
+    assert declaration.get("measurement_started") is False
+    identity = declaration["identity"]
+    assert _git("cat-file", "-t", str(identity["execution_revision"])) == "commit"
+    assert _sha256(EXECUTION_BINARY) == identity["binary_sha256"]
+    assert _production_tree_pin() == identity["production_path_tree"]
+    assert _band_pins() == identity["band_byte_pins"]
+    scope = declaration["scope"]
+    assert Path(str(scope["execution_root"])) == EXECUTION_ROOT
+    assert not EXECUTION_ROOT.exists(), (
+        f"execution destination exists: {EXECUTION_ROOT}"
+    )
+    for entry in declaration["sampling"]["selected_entries"]:
+        workspace = Path(str(entry["workspace"]))
+        recovery = Path(str(entry["recovery_plan"]))
+        assert workspace.is_dir(), workspace
+        assert recovery.is_file(), recovery
+        assert _sha256(recovery) == entry["recovery_plan_sha256"]
+
+
+def _iso_now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%S%z")
+
+
+def _run_one(
+    ordinal: int,
+    entry: dict[str, Any],
+    environment: dict[str, str],
+) -> dict[str, Any]:
+    safe_id = str(entry["census_id"]).replace("/", "__")
+    destination = EXECUTION_ROOT / "workspaces" / f"{ordinal:02d}__{safe_id}"
+    source_workspace = Path(str(entry["workspace"]))
+    source_tree_before = _tree_sha256(source_workspace)
+    source_product_before = _tree_sha256(source_workspace, exclude_anvil=True)
+    shutil.copytree(source_workspace, destination, symlinks=True)
+    copy_product_before = _tree_sha256(destination, exclude_anvil=True)
+    assert copy_product_before == source_product_before
+    prior_runs = {
+        item.name for item in (destination / ".anvil/runs").iterdir() if item.is_dir()
+    }
+    argv = continuation_argv(entry, destination)
+    log_dir = EXECUTION_ROOT / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    stdout_path = log_dir / f"{ordinal:02d}__{safe_id}.stdout.log"
+    stderr_path = log_dir / f"{ordinal:02d}__{safe_id}.stderr.log"
+    started_at = _iso_now()
+    started_monotonic = time.monotonic()
+    print(f"P2F start {ordinal:02d}/10 {entry['census_id']}", flush=True)
+    with stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
+        process = subprocess.Popen(
+            argv,
+            cwd=destination,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=stdout,
+            stderr=stderr,
+        )
+        while process.poll() is None:
+            time.sleep(30)
+            elapsed = int(time.monotonic() - started_monotonic)
+            print(
+                f"P2F heartbeat {ordinal:02d}/10 elapsed={elapsed}s",
+                flush=True,
+            )
+        exit_code = process.returncode
+    duration_seconds = round(time.monotonic() - started_monotonic, 3)
+    finished_at = _iso_now()
+    source_tree_after = _tree_sha256(source_workspace)
+    assert source_tree_after == source_tree_before, (
+        f"source workspace mutated: {entry['census_id']}"
+    )
+    current_runs = {
+        item.name for item in (destination / ".anvil/runs").iterdir() if item.is_dir()
+    }
+    new_runs = sorted(current_runs - prior_runs)
+    assert len(new_runs) == 1, (
+        f"expected one new run for {entry['census_id']}: {new_runs}"
+    )
+    events_path = destination / ".anvil/runs" / new_runs[0] / "events.jsonl"
+    events = _read_events(events_path)
+    stops = [event for event in events if event.get("event") == "run_stop"]
+    assert len(stops) == 1, f"run_stop count mismatch: {events_path}"
+    stop = stops[0]
+    full = (
+        stop.get("ok") is True
+        and stop.get("final_acceptance_status") == "full_success"
+        and stop.get("assurance_level") == "full"
+    )
+    before_vector = _before_score_vector(entry)
+    after_vector = _after_score_vector(str(entry["profile"]), destination, events, full)
+    before_score = before_vector.get("score")
+    after_score = after_vector.get("score")
+    usage, cost = _usage_and_cost(events)
+    product_after = _tree_sha256(destination, exclude_anvil=True)
+    result = {
+        "ordinal": ordinal,
+        "census_id": entry["census_id"],
+        "profile": entry["profile"],
+        "family": entry["family"],
+        "model": entry["model"],
+        "failure_class": entry["failure_class"],
+        "failure_stratum": entry["failure_stratum"],
+        "starting_score_band": entry["score_band"],
+        "repair_route": "fix_continuation",
+        "repair_cycles": 1,
+        "directive": None,
+        "source_workspace": str(source_workspace),
+        "execution_workspace": str(destination),
+        "source_workspace_tree_sha256_before": source_tree_before,
+        "source_workspace_tree_sha256_after": source_tree_after,
+        "product_tree_sha256_before": copy_product_before,
+        "product_tree_sha256_after": product_after,
+        "product_changed": copy_product_before != product_after,
+        "recovery_plan_sha256": entry["recovery_plan_sha256"],
+        "command_argv": argv,
+        "started_at": started_at,
+        "finished_at": finished_at,
+        "duration_seconds": duration_seconds,
+        "exit_code": exit_code,
+        "run_id": new_runs[0],
+        "events_sha256": _sha256(events_path),
+        "stdout_sha256": _sha256(stdout_path),
+        "stderr_sha256": _sha256(stderr_path),
+        "verdict": "full" if full else "failed",
+        "full": full,
+        "run_stop": {
+            "ok": stop.get("ok"),
+            "status": stop.get("status"),
+            "final_acceptance_status": stop.get("final_acceptance_status"),
+            "assurance_level": stop.get("assurance_level"),
+            "failure_kind": stop.get("failure_kind"),
+            "stop_reason": stop.get("stop_reason"),
+        },
+        "score_vector_before": before_vector,
+        "score_vector_after": after_vector,
+        "score_change": {
+            "before": before_score,
+            "after": after_score,
+            "delta": (
+                float(after_score) - float(before_score)
+                if isinstance(before_score, int | float)
+                and isinstance(after_score, int | float)
+                else None
+            ),
+        },
+        "usage": usage,
+        "cost_usd": cost,
+        "original_run_duration_seconds": entry["original_duration_seconds"],
+        "original_run_cost_usd": entry["original_cost_usd"],
+    }
+    print(
+        f"P2F finish {ordinal:02d}/10 verdict={result['verdict']} "
+        f"score={before_score}->{after_score} seconds={duration_seconds:.1f} "
+        f"cost=${cost:.6f}",
+        flush=True,
+    )
+    return result
+
+
+def run_measurement() -> dict[str, Any]:
+    """Execute the immutable one-continuation sample and write sanitized accounting."""
+    declaration = _read_json(DECLARATION_PATH)
+    _verify_execution_preflight(declaration)
+    environment = dict(os.environ)
+    _load_dotenv(environment)
+    assert environment.get("OPENAI_API_KEY"), "OPENAI_API_KEY is not configured"
+    EXECUTION_ROOT.mkdir(parents=True)
+    declaration_sha = _sha256(DECLARATION_PATH)
+    results: list[dict[str, Any]] = []
+    external_manifest = EXECUTION_ROOT / "measurement-manifest.json"
+    for ordinal, entry in enumerate(
+        declaration["sampling"]["selected_entries"], start=1
+    ):
+        results.append(_run_one(ordinal, entry, environment))
+        external_manifest.write_text(
+            json.dumps(
+                {
+                    "schema_version": "commandagent.p2f-execution-manifest/v0",
+                    "campaign_id": "p2f-0",
+                    "declaration_sha256": declaration_sha,
+                    "completed": len(results),
+                    "runs": results,
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    result = {
+        "schema_version": "commandagent.p2f-measurement/v0",
+        "campaign_id": "p2f-0",
+        "status": "complete",
+        "declaration_path": str(DECLARATION_PATH.relative_to(ROOT)),
+        "declaration_sha256": declaration_sha,
+        "declaration_recorded_before_measurement": True,
+        "execution_root": str(EXECUTION_ROOT),
+        "binary_sha256": EXECUTION_BINARY_SHA256,
+        "sample_size": len(results),
+        "full_count": sum(bool(item["full"]) for item in results),
+        "duration_seconds_total": sum(
+            float(item["duration_seconds"]) for item in results
+        ),
+        "cost_usd_total": sum(float(item["cost_usd"]) for item in results),
+        "runs": results,
+    }
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    RESULT_PATH.write_text(
+        json.dumps(result, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    return result
+
+
 def build_declaration(recorded_at: str) -> dict[str, Any]:
     """Build the complete machine-readable declaration before any fix run."""
     census = build_census()
@@ -781,12 +1218,20 @@ def main() -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     declare = subparsers.add_parser("declare")
     declare.add_argument("--recorded-at", required=True)
+    subparsers.add_parser("run")
     args = parser.parse_args()
     if args.command == "declare":
         declaration = write_declaration(args.recorded_at)
         print(
             f"declared {declaration['population']['census_size']} failed runs; "
             f"selected {declaration['sampling']['actual_size']}; measurement_started=false"
+        )
+        return 0
+    if args.command == "run":
+        result = run_measurement()
+        print(
+            f"measured {result['sample_size']} repair continuations; "
+            f"full={result['full_count']}; cost=${result['cost_usd_total']:.6f}"
         )
         return 0
     raise AssertionError(args.command)
