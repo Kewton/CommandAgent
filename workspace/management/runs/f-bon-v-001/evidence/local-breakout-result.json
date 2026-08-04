@@ -1,0 +1,178 @@
+{
+  "schema_version": "commandagent.bon-local-result/v0",
+  "recorded_at": "2026-08-04T21:15:19+09:00",
+  "status": "issue_detected",
+  "predeclaration": {
+    "path": "workspace/management/runs/f-bon-v-001/evidence/local-breakout-predeclaration.json",
+    "sha256": "68c9d1c40a6282cfe694ee66a078e94c4e5979b43e1f9a1028431a2b8c849a79",
+    "recorded_before_campaign": true
+  },
+  "campaign": {
+    "label": "bon-local-001",
+    "campaign_id": "nextjs-breakout-local-bon-20260804-112413",
+    "workspace_root": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0804_bon_local_001",
+    "campaign_path": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0804_bon_local_001/nextjs-breakout-local-bon-20260804-112413",
+    "started_at": "2026-08-04T20:25:57+09:00",
+    "finished_at": "2026-08-04T21:11:16+09:00",
+    "duration_seconds_total": 2719,
+    "uat_meta_sha256": "6f6416775fa5b9735e5a7b64d7f82a3a44d3660abc5e47eda02cc6b73c282bdb",
+    "report_skeleton_sha256": "ddb3255cb27d29d2d1423fa552be1fd627895742872f960c2e7f269d22da8db3",
+    "additional_or_replacement_trials": 0
+  },
+  "identity": {
+    "execution_revision_expected": "3d2409c8189e68fd79e14a2558c4478754dbc4c4",
+    "execution_revision_observed": "3d2409c8189e68fd79e14a2558c4478754dbc4c4",
+    "suite_sha256_expected": "8d467639c37df8a220a60566a09108249baeec9f62531271e921bc5b56e28b0a",
+    "suite_sha256_observed": "8d467639c37df8a220a60566a09108249baeec9f62531271e921bc5b56e28b0a",
+    "binary_sha256_expected": "df9160d98c6a63fa300cff1477ff4be6898888f2bd143dc7fd125496e687e127",
+    "binary_sha256_built": "df9160d98c6a63fa300cff1477ff4be6898888f2bd143dc7fd125496e687e127",
+    "binary_sha256_installed": "df9160d98c6a63fa300cff1477ff4be6898888f2bd143dc7fd125496e687e127",
+    "version": "commandagent 0.1.0 3d2409c8 2026-08-04T10:04:35+09:00",
+    "all_six_commands_equal": true,
+    "all_six_goals_equal": true,
+    "all_six_executors_equal": true,
+    "all_six_workspaces_initially_empty": true,
+    "preflight_cargo_test_exit": 0,
+    "preflight_release_build_exit": 0
+  },
+  "prediction": {
+    "baseline_full_count": 2,
+    "baseline_trials": 11,
+    "baseline_estimate": 0.18181818181818182,
+    "baseline_wilson_95": [
+      0.05136768974608513,
+      0.4769805619608442
+    ],
+    "model": "beta_binomial_with_jeffreys_prior",
+    "probability_at_least_one_full": 0.6850005965427045,
+    "expected_full_count": 1.25,
+    "predictive_full_count_band_95": [
+      0,
+      3
+    ]
+  },
+  "observation": {
+    "full_count": 1,
+    "trials": 6,
+    "at_least_one_full": true,
+    "within_predictive_full_count_band": true,
+    "difference_from_expected_full_count": -0.25,
+    "full_definition": "run_stop.ok=true AND final_acceptance_status=full_success AND assurance_level=full",
+    "selected_run": "breakout_local_bon_005"
+  },
+  "runs": [
+    {
+      "run": "breakout_local_bon_001",
+      "duration_seconds": 466,
+      "product_exit": 1,
+      "full": false,
+      "final_acceptance_status": "not_checked",
+      "assurance_level": "partial",
+      "terminal_class": "capability_evidence_unresolved:restart_or_recoverable_state_evidence",
+      "events_sha256": "cc72c8753b809e015c87699128ccf02160673f3a63558d74e19b1c83a25927a0",
+      "product_file_count": 9716,
+      "product_tree_sha256": "2ee133afa49ab1a4ad7780d92dd7ab40e362e5a175be707f4af87639857365a9"
+    },
+    {
+      "run": "breakout_local_bon_002",
+      "duration_seconds": 486,
+      "product_exit": 1,
+      "full": false,
+      "final_acceptance_status": "incomplete",
+      "assurance_level": "partial",
+      "terminal_class": "contract_instrumentation_missing:restart",
+      "events_sha256": "71a59792f9c25eb5d3ac3f3c7d17f58eb19ce89826557c81e705b4c6ba7f7614",
+      "product_file_count": 9737,
+      "product_tree_sha256": "ff20cd3b1c772809e2f7b337fc1e6ea9729a4a0dcc94fe5a7ce67976064df322"
+    },
+    {
+      "run": "breakout_local_bon_003",
+      "duration_seconds": 605,
+      "product_exit": 1,
+      "full": false,
+      "final_acceptance_status": "incomplete",
+      "assurance_level": "partial",
+      "terminal_class": "missing_required_evidence:restart_or_recoverable_state_evidence",
+      "events_sha256": "7f0e3e6aca906d406c2330ffa3c27c4d4ba3b62b865abf64fe9d2ba2307f91c2",
+      "product_file_count": 9737,
+      "product_tree_sha256": "deacd548c20287e571f552ee44ee8005876617f8eaf8049401f089b1c2a79103"
+    },
+    {
+      "run": "breakout_local_bon_004",
+      "duration_seconds": 399,
+      "product_exit": 1,
+      "full": false,
+      "final_acceptance_status": "incomplete",
+      "assurance_level": "partial",
+      "terminal_class": "missing_required_evidence:restart_or_recoverable_state_evidence",
+      "events_sha256": "18e420891a5d634bfb847b4b6d89e4a56f73dc8914c4bf5e29d10cb2a50e3795",
+      "product_file_count": 9737,
+      "product_tree_sha256": "353095868d1abc17ea037bf7e8bd26040344e32f951d2414693fdafb0d76f6aa"
+    },
+    {
+      "run": "breakout_local_bon_005",
+      "duration_seconds": 375,
+      "product_exit": 0,
+      "full": true,
+      "final_acceptance_status": "full_success",
+      "assurance_level": "full",
+      "terminal_class": "completed",
+      "events_sha256": "d85700607defca1437aadcab8fde980a7918630a727208dd0010c92c70f4e058",
+      "product_file_count": 9739,
+      "product_tree_sha256": "5a33cb2ae227859e28c354717567bdf0af701378095d4936fecf5a310131f484"
+    },
+    {
+      "run": "breakout_local_bon_006",
+      "duration_seconds": 388,
+      "product_exit": 1,
+      "full": false,
+      "final_acceptance_status": "incomplete",
+      "assurance_level": "partial",
+      "terminal_class": "missing_required_evidence:restart_or_recoverable_state_evidence",
+      "events_sha256": "979299e8621d462fa61f52774d9e4fb4ffcc171046a9dec896de85c226a854b7",
+      "product_file_count": 9736,
+      "product_tree_sha256": "011e502414c4d2668b0ba7d239e41162d1235d2309a0926eb37246d2dc0d3eb5"
+    }
+  ],
+  "sampling": {
+    "planner_temperature_default": 0.6,
+    "executor_temperature_default": 0.6,
+    "effective_seed_exposed": false,
+    "independent_workspaces": "6/6",
+    "product_tree_diversity": "6/6",
+    "non_empty_product_trees": "6/6",
+    "collision_replacement_trials": 0,
+    "interpretation": "All six non-empty product trees differ under one fixed command and fixed model configuration. This establishes effective artifact variation, not direct seed independence."
+  },
+  "power_reference": {
+    "start_source": "pmset and ollama ps immediately before execution",
+    "finish_source": "pmset and ollama ps immediately after execution",
+    "power_source_start": "AC Power",
+    "power_source_finish": "AC Power",
+    "low_power_mode_start": 0,
+    "low_power_mode_finish": 0,
+    "idle_sleep_prevention": "caffeinate -dimsu around the sequential campaign",
+    "accelerator_observation": "both Ollama models were reported at 100% GPU immediately after the campaign",
+    "energy_meter_available": false,
+    "energy_claim": "No kWh estimate is made."
+  },
+  "scrub": {
+    "per_run_ok": "6/6",
+    "campaign_scrub_exit": 0,
+    "findings": []
+  },
+  "projection_note": {
+    "kind": "secondary_acceptance_sheet_status_mapping",
+    "primary_sources_agree": [
+      "run_stop",
+      "summary.md",
+      "uat-meta.json"
+    ],
+    "primary_result": "full",
+    "secondary_source": "artifacts/breakout_local_bon_005/acceptance-sheet.md",
+    "secondary_rendering": "verdict completed; assurance incomplete",
+    "cause": "acceptance_sheet.py derives assurance from run_stop.status instead of assurance_level/final_acceptance_status",
+    "effect_on_full_count": "none; the predeclared full predicate uses the primary run_stop fields",
+    "disposition": "recorded for follow-up; no replacement trial"
+  }
+}

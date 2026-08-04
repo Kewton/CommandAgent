@@ -28,8 +28,47 @@
 
 ## 実測
 
-夜間窓待ち。
+2026-08-04 20:25:57 JSTに夜間窓内でcampaign
+`nextjs-breakout-local-bon-20260804-112413`を開始し、単一local acceleratorで
+6本を逐次実行した。21:11:16 JSTに完了し、合計所要は2,719秒（45分19秒）、
+追加・差し替えtrialは0だった。
+
+| run | 秒 | product exit | final / assurance | full | product tree SHA-256先頭 |
+|---|---:|---:|---|---:|---|
+| `breakout_local_bon_001` | 466 | 1 | not_checked / partial | 0 | `2ee133afa49a` |
+| `breakout_local_bon_002` | 486 | 1 | incomplete / partial | 0 | `ff20cd3b1c77` |
+| `breakout_local_bon_003` | 605 | 1 | incomplete / partial | 0 | `deacd548c202` |
+| `breakout_local_bon_004` | 399 | 1 | incomplete / partial | 0 | `353095868d1a` |
+| `breakout_local_bon_005` | 375 | 0 | full_success / full | 1 | `5a33cb2ae227` |
+| `breakout_local_bon_006` | 388 | 1 | incomplete / partial | 0 | `011e502414c4` |
+
+一次`run_stop`を事前宣言どおり`ok=true AND final_acceptance_status=full_success
+AND assurance_level=full`で再計算するとfullは`1/6`、`>=1`は成立した。005は
+`runtime_acceptance=pass / release_gate=pass / task_status=complete`も同時に保持する。
+失敗5本は主にrestart/recoverable-state証跡不足でpartialとなり、削除も救済採用も
+していない。
+
+開始・終了ともAC給電、Low Power Mode 0。idle sleepだけを`caffeinate -dimsu`で
+防止した。終了直後にplanner/executor両modelがOllama上で100% GPU使用と表示された。
+外付け電力量計がないためkWhや電気料金は推定せず、これは参考メモに留める。
 
 ## 検算
 
-夜間窓待ち。
+- 計器pin: revision、suite SHA、built/installed binary SHAは全一致。preflightの
+  `cargo test`とrelease buildもexit 0。6本は同一command、goal、executorで、
+  workspaceはすべてemptyから開始した。
+- 予測突合: 観測full 1本は事前のBeta-binomial 95%帯`0..3`内で、期待1.25本との差は
+  -0.25本。`>=1`成立は予測68.50%に対する1回の実現であり、確率自体の検証とは
+  言わない。
+- sampling: `.anvil/`、evidence、cache、console logを除くproduct tree SHAは6/6で
+  相異なり、全treeがnon-emptyだった。固定command・既定temperature 0.6の下で
+  成果物の実効variationを確認した。ただしproviderがseed実効値をeventへ出さないため、
+  seed独立性の直接証明とはしない。衝突もreplacementも0。
+- scrub: run別6/6とcampaign全体がgreen、findings 0。
+- 補助`acceptance-sheet.md`だけは、005の`run_stop.status=completed`をfull語彙として
+  読まず「assurance: 未完了」と表示した。一次event、summary、campaign metadataは
+  fullで一致し、事前full述語への影響はないが、表示投影の不整合として隠さず
+  `issue_detected`にする。追加計測はしない。
+
+機械検算値は`evidence/local-breakout-result.json`へ固定した。ローカルBoNはこの6本で
+CLOSEする。
