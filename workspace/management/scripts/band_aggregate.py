@@ -4663,6 +4663,7 @@ def parse_args() -> argparse.Namespace:
             "circle",
             "cli",
             "ingest",
+            "score-time-map",
         ),
         default="nextjs",
         help=(
@@ -4676,6 +4677,14 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     try:
+        if args.profile == "score-time-map":
+            import score_time_map
+
+            summary, _svg, _cells = score_time_map.write_score_time_map(
+                sys.modules[__name__]
+            )
+            print(summary)
+            return 0
         if args.profile == "ingest":
             ingest_records, scanned_sets = discover_ingest_records()
             require_nonempty_aggregation(
