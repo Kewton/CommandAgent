@@ -16,6 +16,81 @@ from unittest import mock
 import band_aggregate as band
 
 
+def bon_settlement_document(*, local_full: int = 1) -> dict[str, object]:
+    return {
+        "schema_version": "commandagent.bon-validation-settlement/v0",
+        "recorded_at": "2026-08-04T23:59:59+09:00",
+        "status": "issue_detected",
+        "luna_campaigns": 4,
+        "validation_results": {
+            "luna_probability": {
+                "status": "closed_without_follow_up_sampling",
+                "full_count": 4,
+                "trials": 42,
+                "restart_full_counts": [1, 0, 0, 0],
+                "dispersion_decision": "underdispersed",
+            },
+            "gemma_negative_control": {
+                "status": "complete",
+                "full_count": 0,
+                "trials": 6,
+            },
+            "local_breakout": {
+                "status": "complete",
+                "full_count": local_full,
+                "trials": 6,
+                "predictive_full_count_band": [0, 3],
+                "duration_seconds_total": 123,
+            },
+            "quality_audit": {
+                "status": "complete",
+                "artifacts": 4,
+                "score_vectors_all_pass": "4/4",
+                "c3_claims_matched": "9/9",
+                "tree_diversity": "4/4",
+                "statistical_claim": False,
+            },
+        },
+        "selection_accounting": {
+            "campaigns": 5,
+            "oracle_at_6": "2/5",
+            "selector_at_6": "2/5",
+            "conditional_full_recovery": "2/2",
+            "campaigns_with_zero_selection_gap": "5/5",
+            "selection_gap_mean": 0.0,
+        },
+        "diversity": {
+            "luna": {
+                "tree_diversity": "30/30",
+                "non_empty_trees": "29/30",
+            },
+            "gemma_negative_control": {
+                "tree_diversity": "6/6",
+                "non_empty_trees": "6/6",
+            },
+            "local_breakout": {
+                "tree_diversity": "6/6",
+                "non_empty_trees": "6/6",
+            },
+            "quality_audit": {
+                "tree_diversity": "4/4",
+                "non_empty_trees": "4/4",
+            },
+        },
+        "incidents": [
+            {"id": "non_deterministic_build_instrument"},
+            {"id": "point_rate_prediction_band"},
+        ],
+        "adjudicator_corrections": ["3.4/4 -> 2.69/4", "intermediate arithmetic"],
+        "bon1_adjudication": {
+            "decision": "split_go_no_go",
+            "go": ["earned-only run-end selector"],
+            "no_go": ["prediction and pruning"],
+            "requirements": ["cell-specific denominator and uncertainty"],
+        },
+    }
+
+
 class FullMeaningLabelTests(unittest.TestCase):
     def test_every_profile_band_has_one_transparent_full_label(self) -> None:
         self.assertEqual(
@@ -146,6 +221,61 @@ class ScoreAxisTests(unittest.TestCase):
             path.write_text(json.dumps(fixture), encoding="utf-8")
             with self.assertRaisesRegex(AssertionError, "invalid BoN measurement"):
                 band.load_cli_bon_result(path)
+
+    def test_bon_settlement_requires_all_validation_and_accounting_fields(
+        self,
+    ) -> None:
+        fixture = bon_settlement_document()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "settlement.json"
+            path.write_text(json.dumps(fixture), encoding="utf-8")
+            self.assertEqual(band.load_cli_bon_settlement(path), fixture)
+            del fixture["selection_accounting"]
+            path.write_text(json.dumps(fixture), encoding="utf-8")
+            with self.assertRaisesRegex(AssertionError, "fields incomplete"):
+                band.load_cli_bon_settlement(path)
+
+    def test_bon_settlement_renders_cli_and_nextjs_configuration_bands(self) -> None:
+        settlement = bon_settlement_document(local_full=2)
+        cli_lines: list[str] = []
+        band.append_cli_bon_band(cli_lines, None, settlement)
+        cli_summary = "\n".join(cli_lines)
+        self.assertIn("## BoN validation settlement", cli_summary)
+        self.assertIn("Oracle@6 `2/5`", cli_summary)
+        self.assertIn("nextjs Breakout × qwen35 × bon:6", cli_summary)
+        nextjs_lines: list[str] = []
+        band.append_nextjs_bon_band(nextjs_lines, settlement)
+        nextjs_summary = "\n".join(nextjs_lines)
+        self.assertIn("| bon:6 | Breakout", nextjs_summary)
+        self.assertIn("| 6 | 2 | 0..3 (Beta-binomial 95%)", nextjs_summary)
+
+    def test_nextjs_bon_append_is_idempotent_and_preserves_legacy_bytes(self) -> None:
+        settlement = bon_settlement_document(local_full=2)
+        legacy = "# frozen historical band\n\nlegacy bytes\n"
+        expected_hash = __import__("hashlib").sha256(legacy.encode()).hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "band.md"
+            path.write_text(legacy, encoding="utf-8")
+            first = band.build_nextjs_bon_settlement_summary(
+                settlement, path, expected_hash
+            )
+            path.write_text(first, encoding="utf-8")
+            second = band.build_nextjs_bon_settlement_summary(
+                settlement, path, expected_hash
+            )
+        self.assertEqual(first, second)
+        self.assertTrue(first.startswith(legacy))
+        self.assertIn("| bon:6 | Breakout", first)
+
+    def test_nextjs_bon_append_rejects_legacy_byte_drift(self) -> None:
+        settlement = bon_settlement_document()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "band.md"
+            path.write_text("changed\n", encoding="utf-8")
+            with self.assertRaisesRegex(AssertionError, "bytes drifted"):
+                band.build_nextjs_bon_settlement_summary(
+                    settlement, path, "0" * 64
+                )
 
 
 def data_record(

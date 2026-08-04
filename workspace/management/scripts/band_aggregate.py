@@ -65,6 +65,9 @@ CLI_BON_SETTLEMENT = RUNS_DIR / "f-bon-v-001" / "evidence" / "settlement.json"
 CLI_PRE_BON_SUMMARY_SHA256 = (
     "7adfb4d248466ca02b464150b6a45cf93004403edc4ee4a1aa34dfa13baf4657"
 )
+NEXTJS_PRE_BON_SUMMARY_SHA256 = (
+    "1376255999cf674fa613af0411297ecd3471acc449a90dff774abce2a7a30dc9"
+)
 FULL_MEANING_LABELS = {
     "nextjs": (
         "build + real-browser route, interaction, and state-change evidence; "
@@ -1341,9 +1344,106 @@ def load_cli_bon_settlement(path: Path | None = None) -> dict[str, Any] | None:
         return None
     settlement = json.loads(source.read_text(encoding="utf-8"))
     assert isinstance(settlement, dict), "BoN settlement root must be an object"
+    assert set(settlement) == {
+        "schema_version",
+        "recorded_at",
+        "status",
+        "luna_campaigns",
+        "validation_results",
+        "selection_accounting",
+        "diversity",
+        "incidents",
+        "adjudicator_corrections",
+        "bon1_adjudication",
+    }, "BoN settlement fields incomplete or unknown"
     assert settlement.get("schema_version") == "commandagent.bon-validation-settlement/v0"
     assert settlement.get("status") in {"validation_complete", "issue_detected"}
     assert settlement.get("luna_campaigns") == 4
+
+    validations = settlement.get("validation_results")
+    assert isinstance(validations, dict) and set(validations) == {
+        "luna_probability",
+        "gemma_negative_control",
+        "local_breakout",
+        "quality_audit",
+    }, "BoN settlement must contain all four validation results"
+    luna = validations["luna_probability"]
+    assert isinstance(luna, dict)
+    assert luna.get("status") == "closed_without_follow_up_sampling"
+    assert (luna.get("full_count"), luna.get("trials")) == (4, 42)
+    assert luna.get("restart_full_counts") == [1, 0, 0, 0]
+    assert luna.get("dispersion_decision") == "underdispersed"
+    gemma = validations["gemma_negative_control"]
+    assert isinstance(gemma, dict)
+    assert gemma.get("status") == "complete"
+    assert (gemma.get("full_count"), gemma.get("trials")) == (0, 6)
+    local = validations["local_breakout"]
+    assert isinstance(local, dict)
+    assert local.get("status") in {"complete", "issue_detected"}
+    assert local.get("trials") == 6
+    assert isinstance(local.get("full_count"), int)
+    assert 0 <= local["full_count"] <= local["trials"]
+    assert local.get("predictive_full_count_band") == [0, 3]
+    quality = validations["quality_audit"]
+    assert isinstance(quality, dict)
+    assert quality == {
+        "status": "complete",
+        "artifacts": 4,
+        "score_vectors_all_pass": "4/4",
+        "c3_claims_matched": "9/9",
+        "tree_diversity": "4/4",
+        "statistical_claim": False,
+    }
+
+    accounting = settlement.get("selection_accounting")
+    assert isinstance(accounting, dict)
+    assert accounting == {
+        "campaigns": 5,
+        "oracle_at_6": "2/5",
+        "selector_at_6": "2/5",
+        "conditional_full_recovery": "2/2",
+        "campaigns_with_zero_selection_gap": "5/5",
+        "selection_gap_mean": 0.0,
+    }
+    diversity = settlement.get("diversity")
+    assert isinstance(diversity, dict) and set(diversity) == {
+        "luna",
+        "gemma_negative_control",
+        "local_breakout",
+        "quality_audit",
+    }
+    assert diversity["luna"] == {
+        "tree_diversity": "30/30",
+        "non_empty_trees": "29/30",
+    }
+    assert diversity["gemma_negative_control"] == {
+        "tree_diversity": "6/6",
+        "non_empty_trees": "6/6",
+    }
+    assert diversity["quality_audit"] == {
+        "tree_diversity": "4/4",
+        "non_empty_trees": "4/4",
+    }
+    local_diversity = diversity["local_breakout"]
+    assert isinstance(local_diversity, dict)
+    assert set(local_diversity) == {"tree_diversity", "non_empty_trees"}
+
+    incidents = settlement.get("incidents")
+    assert isinstance(incidents, list)
+    assert {item.get("id") for item in incidents if isinstance(item, dict)} == {
+        "non_deterministic_build_instrument",
+        "point_rate_prediction_band",
+    }, "BoN settlement must retain both instrument and base-rate incidents"
+    corrections = settlement.get("adjudicator_corrections")
+    assert isinstance(corrections, list) and len(corrections) >= 2
+    adjudication = settlement.get("bon1_adjudication")
+    assert isinstance(adjudication, dict)
+    assert adjudication.get("decision") == "split_go_no_go"
+    assert isinstance(adjudication.get("go"), list) and adjudication["go"]
+    assert isinstance(adjudication.get("no_go"), list) and adjudication["no_go"]
+    assert isinstance(adjudication.get("requirements"), list) and adjudication[
+        "requirements"
+    ]
     return settlement
 
 
@@ -1451,6 +1551,129 @@ def append_cli_bon_band(
         )
     )
     lines.append("")
+    if settlement is None:
+        return
+    validations = settlement["validation_results"]
+    luna = validations["luna_probability"]
+    gemma = validations["gemma_negative_control"]
+    local = validations["local_breakout"]
+    quality = validations["quality_audit"]
+    lines.extend(["## BoN validation settlement", ""])
+    lines.extend(
+        table(
+            ["Validation", "Configuration", "Observed", "Disposition"],
+            [
+                [
+                    "Luna probability",
+                    "cli × gpt-5.6-luna × bon:6",
+                    f"{luna['full_count']}/{luna['trials']}; restart {luna['restart_full_counts']}",
+                    str(luna["status"]),
+                ],
+                [
+                    "Gemma negative control",
+                    "cli × gemma4:31b-cloud × bon:6",
+                    f"{gemma['full_count']}/{gemma['trials']}",
+                    str(gemma["status"]),
+                ],
+                [
+                    "Local Breakout",
+                    "nextjs Breakout × qwen35 × bon:6",
+                    f"{local['full_count']}/{local['trials']}; predictive band 0..3",
+                    str(local["status"]),
+                ],
+                [
+                    "Selected-artifact quality",
+                    "BoN full 2 vs single full 2",
+                    f"C3 {quality['c3_claims_matched']}; trees {quality['tree_diversity']}",
+                    "descriptive only",
+                ],
+            ],
+        )
+    )
+    accounting = settlement["selection_accounting"]
+    diversity = settlement["diversity"]
+    lines.extend(
+        [
+            "",
+            (
+                "Selection accounting: "
+                f"Oracle@6 `{accounting['oracle_at_6']}`; "
+                f"Selector@6 `{accounting['selector_at_6']}`; conditional recovery "
+                f"`{accounting['conditional_full_recovery']}`; zero Selection gap "
+                f"`{accounting['campaigns_with_zero_selection_gap']}`."
+            ),
+            (
+                "Diversity: Luna "
+                f"`{diversity['luna']['tree_diversity']}` unique "
+                f"(`{diversity['luna']['non_empty_trees']}` non-empty); Gemma "
+                f"`{diversity['gemma_negative_control']['tree_diversity']}`; local "
+                f"`{diversity['local_breakout']['tree_diversity']}`."
+            ),
+            "",
+        ]
+    )
+
+
+def append_nextjs_bon_band(
+    lines: list[str], settlement: dict[str, Any] | None
+) -> None:
+    if settlement is None:
+        return
+    local = settlement["validation_results"]["local_breakout"]
+    diversity = settlement["diversity"]["local_breakout"]
+    lines.extend(["## BoN configuration band", ""])
+    lines.extend(
+        table(
+            [
+                "Configuration",
+                "Scenario",
+                "Executor",
+                "N",
+                "Full",
+                "Predictive band",
+                "Tree diversity",
+                "Non-empty",
+                "Seconds",
+                "Status",
+            ],
+            [
+                [
+                    "bon:6",
+                    "Breakout",
+                    "qwen3.6:35b-a3b-coding-nvfp4",
+                    str(local["trials"]),
+                    str(local["full_count"]),
+                    "0..3 (Beta-binomial 95%)",
+                    str(diversity["tree_diversity"]),
+                    str(diversity["non_empty_trees"]),
+                    str(local["duration_seconds_total"]),
+                    str(local["status"]),
+                ]
+            ],
+        )
+    )
+    lines.append("")
+
+
+def build_nextjs_bon_settlement_summary(
+    settlement: dict[str, Any],
+    path: Path | None = None,
+    expected_legacy_sha256: str = NEXTJS_PRE_BON_SUMMARY_SHA256,
+) -> str:
+    source = path or OUTPUT
+    existing = source.read_text(encoding="utf-8")
+    marker = "\n\n## BoN configuration band\n"
+    if marker in existing:
+        legacy = existing.split(marker, 1)[0] + "\n"
+    else:
+        legacy = existing
+    assert hashlib.sha256(legacy.encode()).hexdigest() == expected_legacy_sha256, (
+        "pre-BoN Next.js band bytes drifted"
+    )
+    lines = legacy.rstrip("\n").splitlines()
+    lines.append("")
+    append_nextjs_bon_band(lines, settlement)
+    return "\n".join(lines)
 
 
 def build_summary(
@@ -1612,6 +1835,7 @@ def build_summary(
     for set_id in scanned_sets:
         lines.append(f"- `{set_id}`")
     lines.append("")
+    append_nextjs_bon_band(lines, load_cli_bon_settlement())
     return "\n".join(lines)
 
 
@@ -4432,6 +4656,7 @@ def parse_args() -> argparse.Namespace:
         "--profile",
         choices=(
             "nextjs",
+            "nextjs-bon",
             "data",
             "fix",
             "investigation",
@@ -4465,6 +4690,11 @@ def main() -> int:
                 evidence_verified,
             )
             output = INGEST_OUTPUT
+        elif args.profile == "nextjs-bon":
+            settlement = load_cli_bon_settlement()
+            assert settlement is not None, "BoN settlement is required"
+            summary = build_nextjs_bon_settlement_summary(settlement)
+            output = OUTPUT
         elif args.profile == "cli":
             cli_records, scanned_sets = discover_cli_records()
             require_nonempty_aggregation(
