@@ -1490,3 +1490,36 @@ campaignのまま封緘し、公開サイトの初計測は別指示まで行わ
 裁定者誤り系譜・事件1b（2026-08-04）: 上の丸め値`2.69/4`は正しかったが、中間値を`2.688076...`と転記した裁定者算術も誤りだった。正確には`1 - 0.83^6 = 0.673059626631...`、4窓期待は`2.692238506524...`。実行済みpredeclarationはSHA証跡のため不変とし、別 correction recordで訂正した。
 
 裁定者誤り系譜・事件2（2026-08-04）: `2/12`の点推定`p̂=16.7%`を既知の母比率として二項期待へ代入し、`3.5〜4.5`を予測帯と呼んだ設計が誤りだった。Wilson CIと基準率の分母を宣言せず、推定不確実性を予測へ伝播していない。Lunaは追い計測せず`4/42=9.52%`へ清算し、以後のBoN系列は分母・CI・Beta-binomial予測帯なしの宣言をlint拒否する。
+
+## F-BoN-V settlement — 分散の価値と適用限界（2026-08-04）
+
+4検証を追い計測なしでCLOSEし、statusを
+`機構実証済み・統計検証で問題検出(n=4)`とした。Lunaはpool
+`4/42=9.52%`（Wilson 95% CI 3.77–22.07%）、N=6の点代入増幅45.15%。pinned
+4窓のfull分布`[1,0,0,0]`は事前分散比閾0.5に対して0.295でunderdispersedだった。
+Gemma負対照は0/6（過去合算0/12、Wilson上限24.25%）で、成果物6/6が相異なっても
+受理境界へ届かない固執型を観測した。local Breakoutは事前Beta-binomial 95%帯0..3に
+対し1/6、tree 6/6 unique、合計2,719秒だった。
+
+品質監査はBoN採用full 2対単発full 2の全4個体が同じ100点vector、C3 9/9一致、
+tree 4/4 unique。n=4なので偏り不存在や同等性の統計主張は置かない。Luna 5窓の
+選別勘定はOracle@6 2/5、Selector@6 2/5、条件付き回収2/2、Selection gap 0が5/5、
+tree 30/30 unique（non-empty 29/30）。分散は資源だがfullの十分条件ではない。
+
+収穫1（系列計器）: timestamp-bearing buildとCargo target別Mach-O UUID/signature差を
+系列変数として露出した。決定的build、同一commit再build version一致、事前binary SHA、
+支出前fail-closedを制度化し、`bon0-002/003`を理由付き除外、`bon0-001r`をtrial 0で
+遮断した。収穫2（基準率）: 小分母の点pを既知母率として扱う設計を廃し、基準分母、
+CI、Beta-binomial帯をschema必須にした。裁定者誤り系譜1a/1b/2は原宣言を改竄せず、
+別証跡で保持する。
+
+local full個体は一次`run_stop`、summary、campaign metadataで一致した一方、補助
+acceptance sheetが`status=completed`をfullへ写像せず「未完了」と表示した。この差は
+full本数を遡及変更せず、同sheetを独立selector入力にする前の修正要件として残す。
+
+BoN-1裁定はsplit GO/NO-GO。earned-only run末選別、fixed N、全候補保存、
+Oracle@N/Selector@N/Selection gap/Diversity公開はGO。17%固定値、普遍適用、途中刈り込み、
+repair接続、予測ranking、品質母集団主張はNO-GO。有効Luna窓費用`$1.0267417`と、
+計器事件で除外した実支出`$0.5281295`を別勘定にし、Gemma料金とlocal電力量は証跡が
+ないため推定しない。詳細は`workspace/management/runs/f-bon-v-001/settlement-report.md`と
+`evidence/settlement.json`を正本とする。

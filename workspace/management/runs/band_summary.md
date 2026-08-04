@@ -86,3 +86,9 @@ This table is additive: every pre-existing band column above remains unchanged. 
 - `uat-test0712-gab-001`
 - `uat-test0713-28-001`
 - `uat-test0713-g-001`
+
+## BoN configuration band
+
+| Configuration | Scenario | Executor | N | Full | Predictive band | Tree diversity | Non-empty | Seconds | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| bon:6 | Breakout | qwen3.6:35b-a3b-coding-nvfp4 | 6 | 1 | 0..3 (Beta-binomial 95%) | 6/6 | 6/6 | 2719 | issue_detected |

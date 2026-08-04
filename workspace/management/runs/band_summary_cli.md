@@ -231,4 +231,16 @@ This table is additive: every pre-existing band column and recorded SHA/pin abov
 
 | Configuration | Goal | N | Status | Selection | Full | Selected | Reached | Min | Q1 | Median | Q3 | Max | Total seconds | Cost USD | Identity |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| bon:6 | filter | 6 | 機構実証済み・統計検証未了(n=1) | adopted_full | 1 | filter_bon0_005 | 6/6 | 25.0 | 25.0 | 43.8 | 62.5 | 100.0 | 7791 | $0.274865 | matched |
+| bon:6 | filter | 6 | 機構実証済み・統計検証で問題検出(n=4) | adopted_full | 1 | filter_bon0_005 | 6/6 | 25.0 | 25.0 | 43.8 | 62.5 | 100.0 | 7791 | $0.274865 | matched |
+
+## BoN validation settlement
+
+| Validation | Configuration | Observed | Disposition |
+| --- | --- | --- | --- |
+| Luna probability | cli × gpt-5.6-luna × bon:6 | 4/42; restart [1, 0, 0, 0] | closed_without_follow_up_sampling |
+| Gemma negative control | cli × gemma4:31b-cloud × bon:6 | 0/6 | complete |
+| Local Breakout | nextjs Breakout × qwen35 × bon:6 | 1/6; predictive band 0..3 | issue_detected |
+| Selected-artifact quality | BoN full 2 vs single full 2 | C3 9/9; trees 4/4 | descriptive only |
+
+Selection accounting: Oracle@6 `2/5`; Selector@6 `2/5`; conditional recovery `2/2`; zero Selection gap `5/5`.
+Diversity: Luna `30/30` unique (`29/30` non-empty); Gemma `6/6`; local `6/6`.

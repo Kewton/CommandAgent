@@ -1,0 +1,163 @@
+{
+  "schema_version": "commandagent.bon-validation-settlement/v0",
+  "recorded_at": "2026-08-04T21:20:00+09:00",
+  "status": "issue_detected",
+  "luna_campaigns": 4,
+  "validation_results": {
+    "luna_probability": {
+      "status": "closed_without_follow_up_sampling",
+      "full_count": 4,
+      "trials": 42,
+      "estimate": 0.09523809523809523,
+      "wilson_95": [
+        0.03766224880557388,
+        0.22065105808571023
+      ],
+      "bon_six_point_probability_at_least_one_full": 0.4514631132728971,
+      "restart_full_counts": [
+        1,
+        0,
+        0,
+        0
+      ],
+      "restart_full_count_total": 1,
+      "restart_trials": 24,
+      "dispersion_variance_ratio": 0.29529884242853766,
+      "dispersion_thresholds": {
+        "underdispersed_below": 0.5,
+        "overdispersed_above": 1.5
+      },
+      "dispersion_decision": "underdispersed",
+      "hypothesis_a": "The small 2/12 denominator overestimated the baseline; this is the primary explanation.",
+      "hypothesis_b": "Dated-snapshot/provider drift cannot be excluded because stationarity was not pinned.",
+      "cost_accounting_usd": {
+        "valid_pinned_restart_windows": 1.0267417,
+        "spent_but_excluded_instrument_windows": 0.5281295,
+        "preflight_blocked_attempt": 0.0
+      },
+      "source_sha256": {
+        "close_decision": "f178fadf75d32d4a90df36a2e05ef8a047fd30793334c0efece862210f5eee0d",
+        "independence": "82ce8db2a38e765bd56e31e25ee34779b784fce1f5ca8c13a299d975b396414a"
+      }
+    },
+    "gemma_negative_control": {
+      "status": "complete",
+      "full_count": 0,
+      "trials": 6,
+      "predictive_full_count_band": [
+        0,
+        2
+      ],
+      "within_predictive_band": true,
+      "historical_plus_new_full_count": 0,
+      "historical_plus_new_trials": 12,
+      "historical_plus_new_wilson_95": [
+        2.7755575615628914e-17,
+        0.24249400665524085
+      ],
+      "decision": "supports_persistence_but_does_not_prove_population_probability_zero",
+      "provider_cost_usd": "not_recorded_do_not_infer",
+      "source_sha256": "7e0c4e8526d7780c0d912c075802fd16932302b4d6d77def99ee1ddaaf9ed67d"
+    },
+    "local_breakout": {
+      "status": "issue_detected",
+      "full_count": 1,
+      "trials": 6,
+      "predictive_full_count_band": [
+        0,
+        3
+      ],
+      "within_predictive_band": true,
+      "probability_at_least_one_full": 0.6850005965427045,
+      "at_least_one_full_observed": true,
+      "duration_seconds_total": 2719,
+      "api_cost_usd": 0.0,
+      "electricity": "unmetered_do_not_infer",
+      "issue": "The secondary acceptance sheet maps run_stop.status=completed to incomplete assurance even though run_stop, summary, and campaign metadata agree on full.",
+      "issue_effect_on_predeclared_full_count": "none",
+      "source_sha256": "fb0802430aa2a4a51022a86b8b300ab1acbd07cde5db5c6ac163b79ec5848cdd"
+    },
+    "quality_audit": {
+      "status": "complete",
+      "artifacts": 4,
+      "score_vectors_all_pass": "4/4",
+      "c3_claims_matched": "9/9",
+      "tree_diversity": "4/4",
+      "statistical_claim": false
+    }
+  },
+  "selection_accounting": {
+    "campaigns": 5,
+    "oracle_at_6": "2/5",
+    "selector_at_6": "2/5",
+    "conditional_full_recovery": "2/2",
+    "campaigns_with_zero_selection_gap": "5/5",
+    "selection_gap_mean": 0.0
+  },
+  "diversity": {
+    "luna": {
+      "tree_diversity": "30/30",
+      "non_empty_trees": "29/30"
+    },
+    "gemma_negative_control": {
+      "tree_diversity": "6/6",
+      "non_empty_trees": "6/6"
+    },
+    "local_breakout": {
+      "tree_diversity": "6/6",
+      "non_empty_trees": "6/6"
+    },
+    "quality_audit": {
+      "tree_diversity": "4/4",
+      "non_empty_trees": "4/4"
+    }
+  },
+  "incidents": [
+    {
+      "id": "non_deterministic_build_instrument",
+      "harvest": "A timestamp-bearing build and then target-directory-specific Mach-O bytes made binary identity a measured variable. build.rs was made deterministic and preflight now fails closed on the declared binary SHA before spend."
+    },
+    {
+      "id": "point_rate_prediction_band",
+      "harvest": "A point estimate from 2/12 was incorrectly treated as a known population rate and a narrow count range was called a prediction band. Declarations now require denominator, confidence interval, and a Beta-binomial predictive band."
+    }
+  ],
+  "adjudicator_corrections": [
+    {
+      "id": "campaign_success_arithmetic",
+      "before": "3.4/4",
+      "after": "2.69/4",
+      "exact": 2.692238506524
+    },
+    {
+      "id": "intermediate_rounding_lineage",
+      "before": "2.688076...",
+      "after": "2.692238506524...",
+      "formula": "4 * (1 - 0.83^6)"
+    },
+    {
+      "id": "prediction_band_design",
+      "before": "point-p binomial band without baseline denominator or interval",
+      "after": "denominator plus confidence interval plus Beta-binomial predictive band"
+    }
+  ],
+  "bon1_adjudication": {
+    "decision": "split_go_no_go",
+    "go": [
+      "Keep earned-only run-end selection with a fixed, predeclared N.",
+      "Use BoN as opportunity amplification for configurations with observed full support; at pooled Luna p-hat=4/42, the N=6 point amplification is about 45.1%.",
+      "Retain all candidates and publish Oracle@N, Selector@N, Selection gap, and diversity."
+    ],
+    "no_go": [
+      "Do not use the original 17% point estimate or promise a 70% success rate.",
+      "Do not apply BoN as a universal remedy to the Gemma locked-failure configuration.",
+      "Do not enable predictive pruning, mid-run selection, repair connection, or population-level quality claims."
+    ],
+    "requirements": [
+      "Every series must pin revision, suite SHA, binary SHA, model identifier, baseline denominator, confidence interval, and Beta-binomial predictive band before spend.",
+      "Any dated provider snapshot must be preferred when discoverable; otherwise the alias and stationarity limitation must be explicit.",
+      "Reconcile the acceptance-sheet assurance projection before using that sheet as an independent selector input.",
+      "Keep correlation and quality claims descriptive until their predeclared denominators are large enough."
+    ]
+  }
+}
