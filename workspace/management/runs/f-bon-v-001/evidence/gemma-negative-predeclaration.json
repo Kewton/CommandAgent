@@ -1,0 +1,63 @@
+{
+  "schema_version": "commandagent.bon-validation-predeclaration/v2",
+  "recorded_at": "2026-08-04T08:07:30+09:00",
+  "series_id": "f-bon-v-cli-gemma-negative",
+  "execution_revision": "26d1db81fb4f1c3e7aaf623fc20bf36985d9b959",
+  "suite_sha256": "ee2a04d77324830d62f70b073bb8ebe205e2a823d432cee55d0b9e0bf83ea2b8",
+  "binary_sha256": "ad191bb86baade66e35da05e02a9c820810dfbd8079bff25f9cf96e7c5afdf6b",
+  "baseline_rate": {
+    "full_count": 0,
+    "trial_count": 6,
+    "estimate": 0.0,
+    "sources": [
+      "uat-test0725-cli-elev-004 formal Window B: full 0/6"
+    ],
+    "confidence_interval": {
+      "method": "wilson_score",
+      "confidence": 0.95,
+      "lower": 2.7755575615628914e-17,
+      "upper": 0.3903342879021653
+    }
+  },
+  "predictive_distribution": {
+    "model": "beta_binomial",
+    "prior": {
+      "name": "jeffreys",
+      "alpha": 0.5,
+      "beta": 0.5
+    },
+    "trials": 6,
+    "posterior": {
+      "alpha": 0.5,
+      "beta": 6.5
+    },
+    "probability_at_least_one_full": 0.2855039654356061,
+    "expected_full_count": 0.42857142857142855,
+    "full_count_band": {
+      "method": "shortest_contiguous",
+      "mass": 0.95,
+      "lower": 0,
+      "upper": 2
+    }
+  },
+  "campaign": {
+    "label": "bon-neg-001",
+    "workspace_root": "/Users/maenokota/share/work/localwork/commandagent_mvp/01/test0804_bon_neg_001"
+  },
+  "hypothesis": {
+    "mechanistic_point_expectation": "modal full count is zero; prior formal window observed 0/6",
+    "methodology_correction": "p-hat=0 is not treated as a known population probability",
+    "negative_control_readout": "zero full supports persistence; any full honestly refutes a deterministic-zero claim"
+  },
+  "sampling": {
+    "seed_policy": "provider-managed per request; no fixed seed shared across trials",
+    "temperature_policy": "provider default per request; no fixed temperature shared across trials",
+    "trial_specific_evidence": "distinct run workspaces and executor provider-turn evidence"
+  },
+  "stop_conditions": [
+    "preflight_pin_mismatch",
+    "invalid_measurement",
+    "configuration_identity_mismatch",
+    "scrub_failure"
+  ]
+}
