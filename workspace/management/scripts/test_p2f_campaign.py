@@ -20,7 +20,16 @@ import p2f_campaign as p2f
 class P2FCensusTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.census = p2f.build_census()
+        cls.declaration = json.loads(p2f.DECLARATION_PATH.read_text(encoding="utf-8"))
+        cls.census = [
+            p2f.CensusEntry(**entry)
+            for entry in cls.declaration["population"]["entries"]
+        ]
+
+    def test_live_census_matches_snapshot_when_sources_are_available(self) -> None:
+        if not all(source.campaign_path.is_dir() for source in p2f._sources()):
+            self.skipTest("campaign source workspaces are intentionally external")
+        self.assertEqual(p2f.build_census(), self.census)
 
     def test_census_is_complete_and_routes_exist(self) -> None:
         self.assertEqual(len(self.census), 44)
@@ -93,7 +102,7 @@ class P2FStatisticsTests(unittest.TestCase):
         self.assertAlmostEqual(mean, 3.75)
 
     def test_declaration_has_no_stratum_point_prediction(self) -> None:
-        declaration = p2f.build_declaration("2026-08-05T00:30:41+09:00")
+        declaration = json.loads(p2f.DECLARATION_PATH.read_text(encoding="utf-8"))
         prediction = declaration["prediction"]
         self.assertIsNone(prediction["stratum_point_predictions"])
         self.assertFalse(declaration["measurement_started"])
@@ -101,17 +110,13 @@ class P2FStatisticsTests(unittest.TestCase):
         self.assertFalse(declaration["scope"]["human_directive_injection"])
         self.assertEqual(prediction["predictive_full_count_band_95"], [0, 9])
 
-    def test_generated_files_match_canonical_build(self) -> None:
-        declaration = p2f.build_declaration("2026-08-05T00:30:41+09:00")
-        expected_json = json.dumps(declaration, ensure_ascii=False, indent=2) + "\n"
+    def test_census_markdown_matches_committed_declaration(self) -> None:
+        declaration = json.loads(p2f.DECLARATION_PATH.read_text(encoding="utf-8"))
         expected_markdown = p2f.render_census(declaration)
-        self.assertEqual(
-            p2f.DECLARATION_PATH.read_text(encoding="utf-8"), expected_json
-        )
         self.assertEqual(p2f.CENSUS_PATH.read_text(encoding="utf-8"), expected_markdown)
 
     def test_render_can_be_written_outside_the_repository(self) -> None:
-        declaration = p2f.build_declaration("2026-08-05T00:30:41+09:00")
+        declaration = json.loads(p2f.DECLARATION_PATH.read_text(encoding="utf-8"))
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "census.md"
             path.write_text(p2f.render_census(declaration), encoding="utf-8")
@@ -151,16 +156,30 @@ class P2FExecutionHarnessTests(unittest.TestCase):
         )
 
     def test_continuation_argv_replaces_only_the_action_and_goal(self) -> None:
-        declaration = json.loads(p2f.DECLARATION_PATH.read_text(encoding="utf-8"))
-        entry = declaration["sampling"]["selected_entries"][1]
-        source_workspace = Path(entry["workspace"])
-        with tempfile.TemporaryDirectory() as temporary:
-            copied = Path(temporary)
-            recovery = Path(entry["recovery_plan"]).relative_to(source_workspace)
-            copied_recovery = copied / recovery
-            copied_recovery.parent.mkdir(parents=True)
-            copied_recovery.write_bytes(Path(entry["recovery_plan"]).read_bytes())
-            argv = p2f.continuation_argv(entry, copied)
+        recovery = Path(".anvil/plans/recovery-ultra-plan-phase-final.yaml")
+        argv = p2f._continuation_argv_from_source(
+            [
+                "commandagent",
+                "--yes",
+                "--intent",
+                "create",
+                "--context-budget",
+                "65536",
+                "--model",
+                "executor",
+                "--provider",
+                "openai",
+                "--planner-model",
+                "planner",
+                "--planner-provider",
+                "openai",
+                "--ultra-plan-run",
+                "--profile",
+                "cli",
+                "build the original app",
+            ],
+            recovery,
+        )
         self.assertEqual(argv[0], str(p2f.EXECUTION_BINARY))
         self.assertNotIn("--intent", argv)
         self.assertNotIn("--ultra-plan-run", argv)

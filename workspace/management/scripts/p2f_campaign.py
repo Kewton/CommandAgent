@@ -568,12 +568,8 @@ def _source_for_label(label: str) -> Source:
     return matches[0]
 
 
-def continuation_argv(entry: dict[str, Any], copied_workspace: Path) -> list[str]:
-    """Convert the source run argv according to the predeclared action-only rule."""
-    source = _source_for_label(str(entry["source_label"]))
-    _meta, runs = _meta_runs(source)
-    run = runs[str(entry["run_name"])]
-    raw_argv = run.get("command_argv")
+def _continuation_argv_from_source(raw_argv: Any, recovery_relative: Path) -> list[str]:
+    """Apply the action-only argv rewrite without consulting campaign storage."""
     assert isinstance(raw_argv, list) and all(
         isinstance(item, str) for item in raw_argv
     )
@@ -594,12 +590,21 @@ def continuation_argv(entry: dict[str, Any], copied_workspace: Path) -> list[str
             continue
         retained.append(item)
         index += 1
+    retained.extend(["--run-ultra-plan", recovery_relative.as_posix()])
+    return retained
+
+
+def continuation_argv(entry: dict[str, Any], copied_workspace: Path) -> list[str]:
+    """Convert the source run argv according to the predeclared action-only rule."""
+    source = _source_for_label(str(entry["source_label"]))
+    _meta, runs = _meta_runs(source)
+    run = runs[str(entry["run_name"])]
+    raw_argv = run.get("command_argv")
     source_workspace = Path(str(entry["workspace"]))
     recovery_relative = Path(str(entry["recovery_plan"])).relative_to(source_workspace)
     copied_recovery = copied_workspace / recovery_relative
     assert copied_recovery.is_file(), copied_recovery
-    retained.extend(["--run-ultra-plan", recovery_relative.as_posix()])
-    return retained
+    return _continuation_argv_from_source(raw_argv, recovery_relative)
 
 
 def _read_events(path: Path) -> list[dict[str, Any]]:
