@@ -1,0 +1,198 @@
+{
+  "schema_version": "commandagent.bon-quality-audit/v1",
+  "recorded_at": "2026-08-04T10:20:00+09:00",
+  "scope": {
+    "bon_selected_full": 2,
+    "single_run_full": 2,
+    "total": 4,
+    "denominator_discipline": "descriptive_only_no_population_or_significance_claim"
+  },
+  "score_contract": {
+    "atoms": [
+      "cli_probe",
+      "help_binding",
+      "cli_output_claims",
+      "cli_rerun_consistency"
+    ],
+    "weights": [
+      1,
+      1,
+      1,
+      1
+    ],
+    "pass_score": 100.0
+  },
+  "artifact_tree_hash": {
+    "algorithm": "sha256(lexicographically_sorted_lines_of_sha256_two_spaces_relative_path)",
+    "excludes": [
+      ".anvil/**",
+      "evidence/**",
+      "**/__pycache__/**",
+      "uat-console.log"
+    ]
+  },
+  "individuals": [
+    {
+      "arm": "single_run_full",
+      "source_window": "luna-007",
+      "campaign": "cli-create-luna-20260802-045807",
+      "run": "filter_luna_001",
+      "family": "filter",
+      "score_vector": {
+        "cli_probe": "pass",
+        "help_binding": "pass",
+        "cli_output_claims": "pass",
+        "cli_rerun_consistency": "pass",
+        "score": 100.0
+      },
+      "duration_seconds": 1526,
+      "cost_usd": 0.0693643,
+      "artifact_tree_sha256": "c1ee84ed7723719ef261997652cec36414941d85ed5f390db470d3fc328859d5",
+      "product_file_sha256": {
+        "README.md": "4f47693ed27264e8e273413267b39be8bbef0cc118bceb5b66ffe398ce008844",
+        "cli/main.py": "2eac397432172a6a4799cce7e642908d68f2908ad120da4a0750d91e10a25bd7",
+        "data/sample.txt": "716bbde25c5319f2c3797a2bfc85dd9369e53eb8f040b76bc16af6ef6eda56a1"
+      },
+      "c3": {
+        "claims": 3,
+        "matched": 3,
+        "violations": 0,
+        "cli_probe_sha256": "c4e3ff9ed2158214708525e07ef929698743eff54fac06ec2f59c5ad513be4e"
+      },
+      "tracked_source": {
+        "path": "workspace/management/runs/uat-test0801-cli-luna-007/evidence/campaign-summary.json",
+        "sha256": "d2aa9577f1e234866959c0fb3aa630728be76369e8f341cbe154a5a395e4f2bf"
+      }
+    },
+    {
+      "arm": "single_run_full",
+      "source_window": "luna-008",
+      "campaign": "cli-create-luna-20260802-082157",
+      "run": "stats_luna_002",
+      "family": "stats",
+      "score_vector": {
+        "cli_probe": "pass",
+        "help_binding": "pass",
+        "cli_output_claims": "pass",
+        "cli_rerun_consistency": "pass",
+        "score": 100.0
+      },
+      "duration_seconds": 1316,
+      "cost_usd": 0.0438062,
+      "artifact_tree_sha256": "f1d9d3701f8d134628f7c998aafb6b99dd139309d4a8f503a6aef923b10e47a9",
+      "product_file_sha256": {
+        "README.md": "d95183e21ff56ceb2755b80b6fd52f9fa8338c4361044e1e8805de347d71a0ab",
+        "cli/main.py": "756ca81e370d813eb14aa96b0f89da2d3767043cfb089a00f82b7ea92284af36",
+        "data/sample.csv": "a61248a0e3b02e50fb919334689a31e4b10543bc713a5649d8b7c4f97caddf83"
+      },
+      "c3": {
+        "claims": 1,
+        "matched": 1,
+        "violations": 0,
+        "cli_probe_sha256": "bbdc0fe5f7e972acbe876fd99806c4b4db852cb1cbdd9cec4dd30e2a9550b3f0"
+      },
+      "tracked_source": {
+        "path": "workspace/management/runs/uat-test0801-cli-luna-008/evidence/campaign-summary.json",
+        "sha256": "50eaab20b9eddcf8ea1f131cd6a811fe95c2d39f4cefe11122e3d47240d34f7e"
+      }
+    },
+    {
+      "arm": "bon_selected_full",
+      "source_window": "bon0-001",
+      "campaign": "cli-filter-bon0-20260802-153030",
+      "run": "filter_bon0_005",
+      "family": "filter",
+      "score_vector": {
+        "cli_probe": "pass",
+        "help_binding": "pass",
+        "cli_output_claims": "pass",
+        "cli_rerun_consistency": "pass",
+        "score": 100.0
+      },
+      "duration_seconds": 1430,
+      "cost_usd": 0.0390891,
+      "artifact_tree_sha256": "cec60db0b81d3f8900bff46015e9aff72922f7f979c8c96e96f66471a0b44517",
+      "product_file_sha256": {
+        "README.md": "664470682527c21b4254222f09259707225c582a92fe53027804c6f8938eaf02",
+        "cli/main.py": "53173d2c656c8fc242901c24df018d7a5c19351844f06306e6d0e58824066159",
+        "data/sample.txt": "86d342dd632cc8c4dab544c448155a8c8a15426a9075a9503c004ac867c143dd"
+      },
+      "c3": {
+        "claims": 3,
+        "matched": 3,
+        "violations": 0,
+        "cli_probe_sha256": "70c3cf8773b982a1620288a10b0e5c5c206af0636bf2665272ac1a734be054ff"
+      },
+      "selection": {
+        "oracle_at_6": true,
+        "selector_at_6": true,
+        "selected_score": 100.0,
+        "best_unselected_score": 62.5,
+        "reached_score_margin": 37.5,
+        "binary_full_selection_gap": 0
+      },
+      "tracked_source": {
+        "path": "workspace/management/runs/uat-test0802-cli-bon0-001/evidence/bon-selection.json",
+        "sha256": "6c99fad22f8ba429725ef0a9be796d86813495997b5eca2af15aa15077da3637"
+      }
+    },
+    {
+      "arm": "bon_selected_full",
+      "source_window": "bon0-001r2",
+      "campaign": "cli-filter-bon0-20260803-092213",
+      "run": "filter_bon0_004",
+      "family": "filter",
+      "score_vector": {
+        "cli_probe": "pass",
+        "help_binding": "pass",
+        "cli_output_claims": "pass",
+        "cli_rerun_consistency": "pass",
+        "score": 100.0
+      },
+      "duration_seconds": 1431,
+      "cost_usd": 0.0651932,
+      "artifact_tree_sha256": "2c4c1aa3b1423cbf541ec083e83dafeb192d7c971e3e0d9d509d729e105c0c8a",
+      "product_file_sha256": {
+        "README.md": "d14bedc23e7c137366d393b2fafa79d2316b7049f289742545246a78b8a6e8ad",
+        "cli/main.py": "a2538a2a999a9224c64e3abca1ce81fcc14d8e9b2f0c02edbf2478ff5e216a09",
+        "data/sample.txt": "7760d66e03d2499dc81e925861eee6bbf2282fe0039d8fe10e73ef144e67bf68"
+      },
+      "c3": {
+        "claims": 2,
+        "matched": 2,
+        "violations": 0,
+        "cli_probe_sha256": "a2adb7af5964b7e172bbeda53da714d4a671e657fc49255afb5595f253ae0db1"
+      },
+      "selection": {
+        "oracle_at_6": true,
+        "selector_at_6": true,
+        "selected_score": 100.0,
+        "best_unselected_score": 75.0,
+        "reached_score_margin": 25.0,
+        "binary_full_selection_gap": 0
+      },
+      "tracked_source": {
+        "path": "workspace/management/runs/f-bon-v-001/evidence/bon0-001r2-selection.json",
+        "sha256": "007ff4f8ddbae852df0b82dd1fe57e19800b7e002032f6430a9d58e0097195f3"
+      }
+    }
+  ],
+  "aggregate": {
+    "score_vectors_all_pass": "4/4",
+    "c3_claims_matched": "9/9",
+    "artifact_tree_hashes_unique": "4/4",
+    "filter_family_tree_hashes_unique": "3/3",
+    "bon_oracle_at_6": "2/2",
+    "bon_selector_at_6": "2/2",
+    "conditional_full_recovery": "2/2",
+    "binary_full_selection_gap": 0,
+    "bon_duration_mean_seconds": 1430.5,
+    "single_duration_mean_seconds": 1421.0,
+    "bon_cost_mean_usd": 0.05214115,
+    "single_cost_mean_usd": 0.05658525
+  },
+  "decision": {
+    "systematic_bias_detected": false,
+    "claim": "No systematic quality bias is visible in these four accepted artifacts; the sample is too small and family composition too confounded for an inferential claim."
+  }
+}
