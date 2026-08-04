@@ -212,6 +212,10 @@ class SuiteAndCommandTests(unittest.TestCase):
         gemma_negative = bench.load_suite(
             SUITES_DIR / "cli-gemma-negative-bon.toml"
         )
+        nextjs_t1 = bench.load_suite(SUITES_DIR / "nextjs-t1.toml")
+        breakout_local = bench.load_suite(
+            SUITES_DIR / "nextjs-breakout-local-bon.toml"
+        )
 
         self.assertEqual(dfix.suite_id, "dfix-synthesis")
         self.assertEqual(dfix.workspace_mode, "sourced")
@@ -255,6 +259,30 @@ class SuiteAndCommandTests(unittest.TestCase):
         ):
             self.assertEqual(
                 getattr(gemma_negative, field), getattr(cli_elevated, field)
+            )
+        self.assertEqual(
+            breakout_local.bon_series, "f-bon-v-nextjs-breakout-local"
+        )
+        self.assertEqual(set(breakout_local.goals), {"breakout"})
+        self.assertEqual(len(breakout_local.runs), 6)
+        self.assertEqual(
+            {run.executor for run in breakout_local.runs},
+            {"qwen3.6:35b-a3b-coding-nvfp4"},
+        )
+        for field in (
+            "profile",
+            "intent",
+            "plan_preset",
+            "workspace_mode",
+            "context_budget",
+            "planner_model",
+            "planner_provider",
+            "provider",
+            "api",
+            "tool_protocol",
+        ):
+            self.assertEqual(
+                getattr(breakout_local, field), getattr(nextjs_t1, field)
             )
         self.assertIn("--api", bench.build_command(cli_luna, cli_luna.runs[0]))
         self.assertIn("responses", bench.build_command(cli_luna, cli_luna.runs[0]))
