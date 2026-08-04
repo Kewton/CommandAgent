@@ -1,0 +1,194 @@
+{
+  "schema_version": "commandagent.p2f-settlement/v0",
+  "campaign_id": "p2f-0",
+  "recorded_at": "2026-08-05T03:18:57+09:00",
+  "status": "closed",
+  "sources": {
+    "predeclaration": "workspace/management/runs/p2f-0/predeclaration.json",
+    "predeclaration_sha256": "468221c8c8d2c71c3179258498c7bba4fd262c0ad41abce08f7a9c5ac1ebe006",
+    "measurement": "workspace/management/runs/p2f-0/measurement-results.json",
+    "measurement_sha256": "5fa787fafeba0785c03123f39fbf6a08a895ec9b36320a0a2fd5d3d0b293fa28"
+  },
+  "overall": {
+    "metric": "P2F@1",
+    "full": 1,
+    "trials": 10,
+    "estimate": 0.1,
+    "wilson_95": [
+      0.017876213095072896,
+      0.4041500267952385
+    ],
+    "predeclared_beta_binomial_full_count_band_95": [
+      0,
+      9
+    ],
+    "within_predeclared_band": true,
+    "repair_duration_seconds_total": 8971.866,
+    "repair_cost_usd_total": 0.4039273
+  },
+  "by_failure_stratum": [
+    {
+      "label": "cli_claim_binding",
+      "n": 2,
+      "full": 0,
+      "rate": 0.0,
+      "after_score_reached": 2,
+      "duration_seconds_total": 2070.401,
+      "cost_usd_total": 0.0915453
+    },
+    {
+      "label": "cli_polarity",
+      "n": 3,
+      "full": 0,
+      "rate": 0.0,
+      "after_score_reached": 3,
+      "duration_seconds_total": 3600.7509999999997,
+      "cost_usd_total": 0.1557596
+    },
+    {
+      "label": "nextjs_evidence",
+      "n": 1,
+      "full": 0,
+      "rate": 0.0,
+      "after_score_reached": 0,
+      "duration_seconds_total": 540.061,
+      "cost_usd_total": 0.0
+    },
+    {
+      "label": "other_acceptance",
+      "n": 1,
+      "full": 0,
+      "rate": 0.0,
+      "after_score_reached": 1,
+      "duration_seconds_total": 690.168,
+      "cost_usd_total": 0.0686214
+    },
+    {
+      "label": "phase_verification",
+      "n": 1,
+      "full": 1,
+      "rate": 1.0,
+      "after_score_reached": 1,
+      "duration_seconds_total": 1290.29,
+      "cost_usd_total": 0.057170900000000004
+    },
+    {
+      "label": "profile_probe",
+      "n": 2,
+      "full": 0,
+      "rate": 0.0,
+      "after_score_reached": 0,
+      "duration_seconds_total": 780.195,
+      "cost_usd_total": 0.0308301
+    }
+  ],
+  "by_starting_score_band": [
+    {
+      "label": "high:75-<100",
+      "n": 1,
+      "full": 0,
+      "rate": 0.0,
+      "after_score_reached": 0,
+      "duration_seconds_total": 540.134,
+      "cost_usd_total": 0.0164576
+    },
+    {
+      "label": "low:<37.5",
+      "n": 2,
+      "full": 0,
+      "rate": 0.0,
+      "after_score_reached": 2,
+      "duration_seconds_total": 2130.455,
+      "cost_usd_total": 0.0996755
+    },
+    {
+      "label": "mid:37.5-<75",
+      "n": 4,
+      "full": 0,
+      "rate": 0.0,
+      "after_score_reached": 4,
+      "duration_seconds_total": 4230.865,
+      "cost_usd_total": 0.2162508
+    },
+    {
+      "label": "unreached",
+      "n": 3,
+      "full": 1,
+      "rate": 0.3333333333333333,
+      "after_score_reached": 1,
+      "duration_seconds_total": 2070.412,
+      "cost_usd_total": 0.07154340000000001
+    }
+  ],
+  "score_change": {
+    "comparable_pairs": 6,
+    "improved": 0,
+    "unchanged": 1,
+    "worsened": 5,
+    "noncomparable_nullable_pairs": 4
+  },
+  "exchange": {
+    "basis": "descriptive observed procurement accounting; no randomized contemporaneous equivalence claim",
+    "bon_new_trials": {
+      "configuration": "bon:6",
+      "trials": 30,
+      "instances": 5,
+      "successful_instances": 2,
+      "full": 2,
+      "time_seconds_total": 39935.0,
+      "cost_usd_total": 1.3016071999999999,
+      "time_seconds_per_full": 19967.5,
+      "cost_usd_per_full": 0.6508035999999999
+    },
+    "fix_failed_plus_one_continuation": {
+      "configuration": "single+fix",
+      "trials": 10,
+      "instances": 10,
+      "full": 1,
+      "original_time_seconds_total": 12182.0,
+      "repair_time_seconds_total": 8971.866,
+      "time_seconds_total": 21153.866,
+      "original_cost_usd_total": 0.3854822,
+      "repair_cost_usd_total": 0.4039273,
+      "cost_usd_total": 0.7894095,
+      "time_seconds_per_full": 21153.866,
+      "cost_usd_per_full": 0.7894095,
+      "local_source_cost_policy": "the one local source and repair have USD API cost 0; energy is unmeasured"
+    },
+    "fix_cli_luna_slice": {
+      "trials": 9,
+      "full": 1,
+      "time_seconds_total": 20214.805,
+      "cost_usd_total": 0.7894095,
+      "time_seconds_per_full": 20214.805,
+      "cost_usd_per_full": 0.7894095
+    },
+    "single_reference": {
+      "configuration": "single",
+      "trials": 48,
+      "instances": 48,
+      "successful_instances": 2,
+      "full": 2,
+      "time_seconds_total": 36783.0,
+      "cost_usd_total": 1.2001314,
+      "time_seconds_per_full": 18391.5,
+      "cost_usd_per_full": 0.6000657
+    }
+  },
+  "integrity": {
+    "sample_order_matches_predeclaration": true,
+    "source_workspace_unchanged": 10,
+    "product_changed": 10,
+    "one_cycle": 10,
+    "directive_none": 10,
+    "production_path_tree_matches_predeclaration": true,
+    "band_byte_pins_match_predeclaration": true
+  },
+  "decision_material": {
+    "p2f_mechanism_observed": true,
+    "automatic_bon_repair_connection": "NO-GO remains",
+    "score_monotonicity_observed": false,
+    "bon3_score_gate": "not released",
+    "reason": "one full arose from the unreached band; all seven numeric start bands produced zero full, and n is descriptive only"
+  }
+}

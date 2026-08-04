@@ -20,7 +20,7 @@ MAP_COMMAND = (
 HISTORICAL_VECTOR_COUNT = 287
 HISTORICAL_FINAL_ONLY_COUNT = 251
 HISTORICAL_CHECKPOINT_COUNT = 36
-SUPPLEMENTAL_RUN_COUNT = 48
+SUPPLEMENTAL_RUN_COUNT = 58
 
 
 @dataclass(frozen=True)
@@ -444,13 +444,67 @@ def _local_breakout_observations(
     ]
 
 
+def _p2f_observations(
+    band: Any,
+) -> tuple[list[Observation], tuple[str, str]]:
+    source = band.RUNS_DIR / "p2f-0" / "measurement-results.json"
+    document = _read_json(source)
+    rows = document.get("runs")
+    assert document.get("status") == "complete"
+    assert isinstance(rows, list) and len(rows) == 10
+    observations: list[Observation] = []
+    for row in rows:
+        assert isinstance(row, dict)
+        full = bool(row["full"])
+        profile = str(row["profile"])
+        model = str(row["model"])
+        family = "Breakout" if profile == "nextjs" else str(row["family"])
+        after = row.get("score_vector_after")
+        assert isinstance(after, dict)
+        score = after.get("score")
+        repair_seconds = float(row["duration_seconds"])
+        original_seconds = float(row["original_run_duration_seconds"])
+        repair_cost = float(row["cost_usd"])
+        original_cost = row.get("original_run_cost_usd")
+        if original_cost is None:
+            assert model.startswith("qwen3.6:"), (
+                f"only local P2F rows may omit source USD cost: {row['census_id']}"
+            )
+            original_cost = 0.0
+        total_seconds = original_seconds + repair_seconds
+        total_cost = float(original_cost) + repair_cost
+        run_id = f"p2f-0/{row['census_id']}"
+        observations.append(
+            Observation(
+                profile=profile,
+                model=model,
+                family=family,
+                configuration="single+fix",
+                marker="verdict_mapping",
+                run_id=run_id,
+                score=float(score) if score is not None else None,
+                full=full,
+                duration_seconds=total_seconds,
+                cost_usd=total_cost,
+                instance_id=run_id,
+                instance_seconds=total_seconds,
+                instance_cost_usd=total_cost,
+                instance_success=full,
+                source=str(source.relative_to(band.ROOT)),
+            )
+        )
+    assert sum(item.full for item in observations) == int(document["full_count"])
+    return observations, (str(source.relative_to(band.ROOT)), _sha256(source))
+
+
 def collect_observations(band: Any) -> tuple[list[Observation], list[tuple[str, str]]]:
     historical, unmatched_ingest = _historical_observations(band)
     ingest_luna = _ingest_luna_observations(band, unmatched_ingest)
     luna_bon, sources = _luna_bon_observations(band)
     gemma_negative, gemma_source = _gemma_negative_observations(band)
     local_breakout, local_sources = _local_breakout_observations(band)
-    supplemental = ingest_luna + luna_bon + gemma_negative + local_breakout
+    p2f, p2f_source = _p2f_observations(band)
+    supplemental = ingest_luna + luna_bon + gemma_negative + local_breakout + p2f
     assert len(supplemental) == SUPPLEMENTAL_RUN_COUNT
     source_rows = [
         (
@@ -475,6 +529,7 @@ def collect_observations(band: Any) -> tuple[list[Observation], list[tuple[str, 
         *sources,
         gemma_source,
         *local_sources,
+        p2f_source,
     ]
     return historical + supplemental, source_rows
 
@@ -611,6 +666,7 @@ def _reading(cells: list[MapCell]) -> list[str]:
     }
     cli_single = index[("cli", "gpt-5.6-luna", "filter", "single")]
     cli_bon = index[("cli", "gpt-5.6-luna", "filter", "bon:6")]
+    cli_fix = index[("cli", "gpt-5.6-luna", "filter", "single+fix")]
     ingest_list = index[("ingest", "gpt-5.6-luna", "list", "single")]
     ingest_table = index[("ingest", "gpt-5.6-luna", "table", "single")]
     local = next(
@@ -620,12 +676,16 @@ def _reading(cells: list[MapCell]) -> list[str]:
         and cell.family == "Breakout"
         and cell.configuration == "bon:6"
     )
+    local_fix = index[
+        ("nextjs", "qwen3.6:35b-a3b-coding-nvfp4", "Breakout", "single+fix")
+    ]
     return [
         (
             f"cli×Luna/filter は単発 {cli_single.mean_seconds:.1f}秒・"
             f"{cli_single.mean_score:.2f}点（n={cli_single.n}）に対し、bon:6 は"
             f"{cli_bon.mean_seconds:.1f}秒・{cli_bon.mean_score:.2f}点（n={cli_bon.n}）で、"
-            "構成時間と全run平均の位置だけを示す。"
+            f"single+fix は{cli_fix.mean_seconds:.1f}秒・{cli_fix.mean_score:.2f}点"
+            f"（n={cli_fix.n}）。構成時間と全run平均の位置だけを示す。"
         ),
         (
             f"ingest×Luna単発は list {ingest_list.mean_seconds:.1f}秒・"
@@ -635,7 +695,7 @@ def _reading(cells: list[MapCell]) -> list[str]:
         (
             f"local Breakout bon:6 は {local.mean_seconds:.1f}秒・"
             f"{local.mean_score:.2f}点（n={local.n}, 構成instance={local.instance_count}）が初出で、"
-            "1窓だけのため優劣は読まない。"
+            f"single+fix はn={local_fix.n}のため非描画。小分母から優劣は読まない。"
         ),
     ]
 
@@ -654,8 +714,8 @@ def build_markdown(
         "",
         "## 定義",
         "",
-        "- 1点は `(model, profile/family, configuration)`。`single`、`bon:N`、`directive:roundN#hash`、`pack:id#hash`を別構成として混ぜない。",
-        "- 横軸は構成instance総所要の算術平均。単発はrun所要、`bon:N`はN本を時分割実行したcampaign総所要で、SVGは対数軸。縦軸は正式run全数の平均到達寄与。",
+        "- 1点は `(model, profile/family, configuration)`。`single`、`single+fix`、`bon:N`、`directive:roundN#hash`、`pack:id#hash`を別構成として混ぜない。",
+        "- 横軸は構成instance総所要の算術平均。単発はrun所要、`single+fix`は原failed run+fix 1周、`bon:N`はN本を時分割実行したcampaign総所要で、SVGは対数軸。縦軸は正式run全数の平均到達寄与。",
         "- 到達済みは保存score、未到達はこの投影だけ0寄与とする。元の遡及vectorの`score=null`は不変で、`reached`分母を併記する。五数要約も同じ全run寄与に対する値。",
         "- `verdict_mapping`（菱形）は歴史final-only 251本とpost-seal最終判定写像、`checkpoint`（丸）はcheckpoint-capable 36本。両者を同一点へ混ぜない。",
         "- n<3は表に残して`n不足`、時間欠落も表に残して非描画。費用は構成instance平均を色とサイズへ写像し、欠測は灰色。",

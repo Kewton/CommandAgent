@@ -3,10 +3,13 @@
 
 from __future__ import annotations
 
+import sys
 import tempfile
 import unittest
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import band_aggregate as band
 import score_time_map as score_map
@@ -106,14 +109,14 @@ class RepositoryProjectionTests(unittest.TestCase):
         cls.observations, _sources = score_map.collect_observations(band)
 
     def test_frozen_and_post_seal_denominators_are_complete(self) -> None:
-        self.assertEqual(len(self.observations), 335)
+        self.assertEqual(len(self.observations), 345)
         historical = self.observations[: score_map.HISTORICAL_VECTOR_COUNT]
         self.assertEqual(
             sum(item.marker == "verdict_mapping" for item in historical), 251
         )
         self.assertEqual(sum(item.marker == "checkpoint" for item in historical), 36)
         self.assertEqual(
-            len(self.observations[score_map.HISTORICAL_VECTOR_COUNT :]), 48
+            len(self.observations[score_map.HISTORICAL_VECTOR_COUNT :]), 58
         )
 
     def test_required_reference_points_exist(self) -> None:
@@ -134,6 +137,22 @@ class RepositoryProjectionTests(unittest.TestCase):
             )
         ]
         self.assertEqual((local.n, local.instance_count, local.full), (6, 1, 1))
+        p2f_filter = keys[("cli", "gpt-5.6-luna", "filter", "single+fix")]
+        self.assertEqual((p2f_filter.n, p2f_filter.reached, p2f_filter.full), (8, 7, 1))
+        self.assertAlmostEqual(p2f_filter.mean_seconds or 0.0, 2288.708875)
+        self.assertAlmostEqual(p2f_filter.mean_cost_usd or 0.0, 0.0899611125)
+        p2f_stats = keys[("cli", "gpt-5.6-luna", "stats", "single+fix")]
+        self.assertEqual(p2f_stats.plot_reason, "n不足")
+        p2f_local = keys[
+            (
+                "nextjs",
+                "qwen3.6:35b-a3b-coding-nvfp4",
+                "Breakout",
+                "single+fix",
+            )
+        ]
+        self.assertEqual((p2f_local.n, p2f_local.full), (1, 0))
+        self.assertEqual(p2f_local.plot_reason, "n不足")
 
     def test_output_is_deterministic_and_self_describing(self) -> None:
         second_markdown, second_svg, _cells = score_map.build_score_time_map(band)
@@ -149,6 +168,16 @@ class RepositoryProjectionTests(unittest.TestCase):
         self.assertIn("<circle", self.svg)
         self.assertIn("<polygon", self.svg)
         ET.fromstring(self.svg)
+
+    def test_repository_outputs_match_the_canonical_projection(self) -> None:
+        self.assertEqual(
+            (band.RUNS_DIR / "score_time_map.md").read_text(encoding="utf-8"),
+            self.markdown,
+        )
+        self.assertEqual(
+            (band.RUNS_DIR / "score_time_map.svg").read_text(encoding="utf-8"),
+            self.svg,
+        )
 
     def test_writing_map_leaves_existing_band_bytes_unchanged(self) -> None:
         band_paths = [

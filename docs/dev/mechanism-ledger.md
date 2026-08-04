@@ -1525,3 +1525,19 @@ repair接続、予測ranking、品質母集団主張はNO-GO。有効Luna窓費�
 `evidence/settlement.json`を正本とする。
 
 F-MAP-0（2026-08-04）: `band_aggregate.py --profile score-time-map`を稼働し、モデル×ユースケース族×構成を構成総所要・正式run全数平均到達スコアへ投影する正準Markdown/SVG（n<3非描画、final-only/checkpoint分離、成功1件あたり期待時間・費用併記）を新規生成物として確立した。
+
+## P2F-0 — 第4因子の第2通貨の初計測（2026-08-05）
+
+failed在庫44本のcensusから失敗クラス×開始スコア帯を固定seedで層別抽出した
+10本へ、既存の保存済みrecovery UltraPlanをcopy上で各1周だけ適用した。P2F@1は
+1/10=10.0%（Wilson 95% CI 1.79–40.42%）で、事前Beta-binomial full本数95%帯
+0..9の内側。fix単独は8,971.866秒・$0.4039273、原failed runと合算したfull 1件の
+観測調達単価は21,153.866秒・$0.7894095だった。現有比較ではBoN new Nが
+19,967.500秒・$0.6508036/full、単発参考が18,391.500秒・$0.6000657/full。
+無作為同時比較ではないため優劣の統計主張は置かない。
+
+唯一のfullは開始スコア未到達帯から生じ、数値比較可能6本は改善0・横ばい1・悪化5。
+開始スコアの単調な成功予測は観測せず、BoN-3 score gateは解除しない。原workspace
+bytesは10/10不変、copy productは10/10変化、directive・追い周回・新規配線は0。
+F-BoN-Vの自動BoN修復接続NO-GOを維持し、P2F-1人間指示版とは分離した。正本は
+`workspace/management/runs/p2f-0/report.md`と`settlement.json`。

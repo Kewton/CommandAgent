@@ -24,6 +24,8 @@ OUTPUT_DIR = RUNS_DIR / "p2f-0"
 DECLARATION_PATH = OUTPUT_DIR / "predeclaration.json"
 CENSUS_PATH = OUTPUT_DIR / "census.md"
 RESULT_PATH = OUTPUT_DIR / "measurement-results.json"
+SETTLEMENT_PATH = OUTPUT_DIR / "settlement.json"
+REPORT_PATH = OUTPUT_DIR / "report.md"
 SCHEMA_VERSION = "commandagent.p2f-predeclaration/v0"
 SAMPLE_SEED = "p2f-0-stratified-v1"
 TARGET_SAMPLE_SIZE = 10
@@ -951,6 +953,403 @@ def run_measurement() -> dict[str, Any]:
     return result
 
 
+def _group_observations(rows: list[dict[str, Any]], field: str) -> list[dict[str, Any]]:
+    groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        groups[str(row[field])].append(row)
+    summaries: list[dict[str, Any]] = []
+    for label in sorted(groups):
+        items = groups[label]
+        after_reached = sum(
+            isinstance(item["score_change"]["after"], int | float) for item in items
+        )
+        summaries.append(
+            {
+                "label": label,
+                "n": len(items),
+                "full": sum(bool(item["full"]) for item in items),
+                "rate": sum(bool(item["full"]) for item in items) / len(items),
+                "after_score_reached": after_reached,
+                "duration_seconds_total": sum(
+                    float(item["duration_seconds"]) for item in items
+                ),
+                "cost_usd_total": sum(float(item["cost_usd"]) for item in items),
+            }
+        )
+    return summaries
+
+
+def _configuration_accounting(
+    observations: list[Any],
+    *,
+    configuration: str,
+    families: set[str],
+) -> dict[str, Any]:
+    matched = [
+        item
+        for item in observations
+        if item.profile == "cli"
+        and item.model == "gpt-5.6-luna"
+        and item.configuration == configuration
+        and item.family in families
+    ]
+    instances: dict[str, tuple[float, float, bool]] = {}
+    for item in matched:
+        assert item.instance_seconds is not None
+        assert item.instance_cost_usd is not None
+        value = (
+            float(item.instance_seconds),
+            float(item.instance_cost_usd),
+            bool(item.instance_success),
+        )
+        previous = instances.setdefault(item.instance_id, value)
+        assert previous == value
+    full = sum(bool(item.full) for item in matched)
+    total_seconds = sum(value[0] for value in instances.values())
+    total_cost = sum(value[1] for value in instances.values())
+    return {
+        "configuration": configuration,
+        "trials": len(matched),
+        "instances": len(instances),
+        "successful_instances": sum(value[2] for value in instances.values()),
+        "full": full,
+        "time_seconds_total": total_seconds,
+        "cost_usd_total": total_cost,
+        "time_seconds_per_full": total_seconds / full if full else math.inf,
+        "cost_usd_per_full": total_cost / full if full else math.inf,
+    }
+
+
+def _exchange_accounting(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    import band_aggregate as band
+    import score_time_map as score_map
+
+    observations, _sources_used = score_map.collect_observations(band)
+    bon = _configuration_accounting(
+        observations, configuration="bon:6", families={"filter"}
+    )
+    single = _configuration_accounting(
+        observations, configuration="single", families={"filter", "stats"}
+    )
+    original_seconds = sum(float(row["original_run_duration_seconds"]) for row in rows)
+    original_cost = sum(float(row["original_run_cost_usd"] or 0.0) for row in rows)
+    repair_seconds = sum(float(row["duration_seconds"]) for row in rows)
+    repair_cost = sum(float(row["cost_usd"]) for row in rows)
+    full = sum(bool(row["full"]) for row in rows)
+    fix = {
+        "configuration": "single+fix",
+        "trials": len(rows),
+        "instances": len(rows),
+        "full": full,
+        "original_time_seconds_total": original_seconds,
+        "repair_time_seconds_total": repair_seconds,
+        "time_seconds_total": original_seconds + repair_seconds,
+        "original_cost_usd_total": original_cost,
+        "repair_cost_usd_total": repair_cost,
+        "cost_usd_total": original_cost + repair_cost,
+        "time_seconds_per_full": (
+            (original_seconds + repair_seconds) / full if full else math.inf
+        ),
+        "cost_usd_per_full": (
+            (original_cost + repair_cost) / full if full else math.inf
+        ),
+        "local_source_cost_policy": (
+            "the one local source and repair have USD API cost 0; energy is unmeasured"
+        ),
+    }
+    cli_rows = [row for row in rows if row["profile"] == "cli"]
+    cli_full = sum(bool(row["full"]) for row in cli_rows)
+    cli_seconds = sum(
+        float(row["original_run_duration_seconds"]) + float(row["duration_seconds"])
+        for row in cli_rows
+    )
+    cli_cost = sum(
+        float(row["original_run_cost_usd"] or 0.0) + float(row["cost_usd"])
+        for row in cli_rows
+    )
+    return {
+        "basis": (
+            "descriptive observed procurement accounting; no randomized "
+            "contemporaneous equivalence claim"
+        ),
+        "bon_new_trials": bon,
+        "fix_failed_plus_one_continuation": fix,
+        "fix_cli_luna_slice": {
+            "trials": len(cli_rows),
+            "full": cli_full,
+            "time_seconds_total": cli_seconds,
+            "cost_usd_total": cli_cost,
+            "time_seconds_per_full": cli_seconds / cli_full if cli_full else math.inf,
+            "cost_usd_per_full": cli_cost / cli_full if cli_full else math.inf,
+        },
+        "single_reference": single,
+    }
+
+
+def build_settlement(recorded_at: str) -> dict[str, Any]:
+    """Recompute P2F@1, strata, exchange accounting, and integrity checks."""
+    declaration = _read_json(DECLARATION_PATH)
+    result = _read_json(RESULT_PATH)
+    rows = result.get("runs")
+    assert isinstance(rows, list) and len(rows) == 10
+    assert [row["census_id"] for row in rows] == declaration["sampling"]["selected_ids"]
+    full = sum(bool(row["full"]) for row in rows)
+    assert full == int(result["full_count"])
+    observed_wilson = wilson_interval(full, len(rows))
+    predictive_band = declaration["prediction"]["predictive_full_count_band_95"]
+    assert isinstance(predictive_band, list) and len(predictive_band) == 2
+    comparable = [
+        row for row in rows if isinstance(row["score_change"]["delta"], int | float)
+    ]
+    integrity = {
+        "sample_order_matches_predeclaration": True,
+        "source_workspace_unchanged": sum(
+            row["source_workspace_tree_sha256_before"]
+            == row["source_workspace_tree_sha256_after"]
+            for row in rows
+        ),
+        "product_changed": sum(bool(row["product_changed"]) for row in rows),
+        "one_cycle": sum(int(row["repair_cycles"]) == 1 for row in rows),
+        "directive_none": sum(row["directive"] is None for row in rows),
+        "production_path_tree_matches_predeclaration": (
+            _production_tree_pin() == declaration["identity"]["production_path_tree"]
+        ),
+        "band_byte_pins_match_predeclaration": (
+            _band_pins() == declaration["identity"]["band_byte_pins"]
+        ),
+    }
+    assert integrity == {
+        "sample_order_matches_predeclaration": True,
+        "source_workspace_unchanged": 10,
+        "product_changed": 10,
+        "one_cycle": 10,
+        "directive_none": 10,
+        "production_path_tree_matches_predeclaration": True,
+        "band_byte_pins_match_predeclaration": True,
+    }
+    return {
+        "schema_version": "commandagent.p2f-settlement/v0",
+        "campaign_id": "p2f-0",
+        "recorded_at": recorded_at,
+        "status": "closed",
+        "sources": {
+            "predeclaration": str(DECLARATION_PATH.relative_to(ROOT)),
+            "predeclaration_sha256": _sha256(DECLARATION_PATH),
+            "measurement": str(RESULT_PATH.relative_to(ROOT)),
+            "measurement_sha256": _sha256(RESULT_PATH),
+        },
+        "overall": {
+            "metric": "P2F@1",
+            "full": full,
+            "trials": len(rows),
+            "estimate": full / len(rows),
+            "wilson_95": list(observed_wilson),
+            "predeclared_beta_binomial_full_count_band_95": predictive_band,
+            "within_predeclared_band": predictive_band[0] <= full <= predictive_band[1],
+            "repair_duration_seconds_total": result["duration_seconds_total"],
+            "repair_cost_usd_total": result["cost_usd_total"],
+        },
+        "by_failure_stratum": _group_observations(rows, "failure_stratum"),
+        "by_starting_score_band": _group_observations(rows, "starting_score_band"),
+        "score_change": {
+            "comparable_pairs": len(comparable),
+            "improved": sum(row["score_change"]["delta"] > 0 for row in comparable),
+            "unchanged": sum(row["score_change"]["delta"] == 0 for row in comparable),
+            "worsened": sum(row["score_change"]["delta"] < 0 for row in comparable),
+            "noncomparable_nullable_pairs": len(rows) - len(comparable),
+        },
+        "exchange": _exchange_accounting(rows),
+        "integrity": integrity,
+        "decision_material": {
+            "p2f_mechanism_observed": True,
+            "automatic_bon_repair_connection": "NO-GO remains",
+            "score_monotonicity_observed": False,
+            "bon3_score_gate": "not released",
+            "reason": (
+                "one full arose from the unreached band; all seven numeric start "
+                "bands produced zero full, and n is descriptive only"
+            ),
+        },
+    }
+
+
+def _format_seconds(value: float) -> str:
+    return f"{value:,.3f}"
+
+
+def _format_exchange_value(value: float) -> str:
+    return "∞" if math.isinf(value) else f"{value:,.3f}"
+
+
+def render_report(settlement: dict[str, Any], result: dict[str, Any]) -> str:
+    """Render the generated P2F-0 settlement report."""
+    overall = settlement["overall"]
+    exchange = settlement["exchange"]
+    lines = [
+        "# P2F-0 settlement",
+        "",
+        "> GENERATED FILE: DO NOT EDIT.",
+        (
+            "> Regenerate: `python3 workspace/management/scripts/p2f_campaign.py "
+            f"settle --recorded-at {settlement['recorded_at']}`"
+        ),
+        "",
+        "## 事前宣言 → 実測 → 検算",
+        "",
+        "### 事前宣言",
+        "",
+        (
+            "failed母集団44本をcensusし、失敗クラス×開始スコア帯の9非空セルへ"
+            "固定seed SHA順位で配分した10本を、原workspaceのcopy上で保存済み"
+            "recovery UltraPlanへ各1周だけ通す。先行は円環1/3、Wilson 95% CI "
+            "6.1–79.2%。Jeffreys更新Beta-binomialによる10本のfull本数95%予測帯は"
+            "0..9。層別点予測は置かない。BoN修復接続、自動配線、directive注入は0。"
+        ),
+        "",
+        "### 実測",
+        "",
+        (
+            f"P2F@1は **{overall['full']}/{overall['trials']} = {overall['estimate']:.1%}**。"
+            f"Wilson 95% CI [{overall['wilson_95'][0]:.1%}, {overall['wilson_95'][1]:.1%}]。"
+            f"fix単独総所要 {_format_seconds(overall['repair_duration_seconds_total'])}秒、"
+            f"API費用 ${overall['repair_cost_usd_total']:.7f}。唯一のfullは"
+            "`bon0-002r/filter_bon0_001`（未到達→100）。"
+        ),
+        "",
+        "| # | census id | failure stratum | start band | verdict | score before → after | fix sec | fix cost |",
+        "|---:|---|---|---|---|---|---:|---:|",
+    ]
+    for row in result["runs"]:
+        before = row["score_change"]["before"]
+        after = row["score_change"]["after"]
+        before_text = "未到達" if before is None else f"{before:g}"
+        after_text = "未到達" if after is None else f"{after:g}"
+        lines.append(
+            f"| {row['ordinal']} | `{row['census_id']}` | `{row['failure_stratum']}` | "
+            f"`{row['starting_score_band']}` | {row['verdict']} | {before_text} → {after_text} | "
+            f"{row['duration_seconds']:.3f} | ${row['cost_usd']:.7f} |"
+        )
+    band = overall["predeclared_beta_binomial_full_count_band_95"]
+    lines.extend(
+        [
+            "",
+            "### 検算",
+            "",
+            (
+                f"観測full本数{overall['full']}は事前Beta-binomial 95%帯{band[0]}..{band[1]}の"
+                "内側。先行33%点との見かけの差を、n=3先行とn=10標本から有意差や"
+                "定常率へ昇格しない。原workspace tree SHAは10/10前後一致、copyのproduct "
+                "treeは10/10変化、1周10/10、directiveなし10/10。production/workflow集約SHAと"
+                "既存7 band byte SHAも事前pin一致。"
+            ),
+            "",
+            (
+                "数値比較可能な6本は改善0、横ばい1、悪化5。nullableな4組は差をゼロへ"
+                "潰さない。これはfixが変更を作ったことと、受理へ近づいたことが同義でない"
+                "ことを示す。"
+            ),
+            "",
+            "## 失敗クラス別（記述）",
+            "",
+            "| failure stratum | full/n | after score reached | fix seconds | fix cost |",
+            "|---|---:|---:|---:|---:|",
+        ]
+    )
+    for row in settlement["by_failure_stratum"]:
+        lines.append(
+            f"| `{row['label']}` | {row['full']}/{row['n']} | "
+            f"{row['after_score_reached']}/{row['n']} | {row['duration_seconds_total']:.3f} | "
+            f"${row['cost_usd_total']:.7f} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## 開始スコア帯別（記述）",
+            "",
+            "| starting score band | full/n | after score reached | fix seconds | fix cost |",
+            "|---|---:|---:|---:|---:|",
+        ]
+    )
+    for row in settlement["by_starting_score_band"]:
+        lines.append(
+            f"| `{row['label']}` | {row['full']}/{row['n']} | "
+            f"{row['after_score_reached']}/{row['n']} | {row['duration_seconds_total']:.3f} | "
+            f"${row['cost_usd_total']:.7f} |"
+        )
+    lines.extend(
+        [
+            "",
+            (
+                "唯一のfullは開始未到達帯1/3。low 0/2、mid 0/4、high 0/1で、"
+                "開始スコアが高いほどfix成功しやすいという単調性は観測しなかった。"
+                "n小の記述であり、相関不存在の主張はしない。BoN-3のscore gate解除材料には"
+                "ならない。"
+            ),
+            "",
+            "## 為替レート：full 1件の観測調達単価",
+            "",
+            "| route | accounting population | full | observed total sec | observed total cost | sec/full | cost/full |",
+            "|---|---|---:|---:|---:|---:|---:|",
+        ]
+    )
+    exchange_rows = [
+        ("BoN new N", exchange["bon_new_trials"]),
+        ("failed + one fix", exchange["fix_failed_plus_one_continuation"]),
+        ("single reference", exchange["single_reference"]),
+    ]
+    for label, row in exchange_rows:
+        lines.append(
+            f"| {label} | {row['trials']} trials / {row['instances']} instances | "
+            f"{row['full']} | {_format_seconds(row['time_seconds_total'])} | "
+            f"${row['cost_usd_total']:.7f} | {_format_exchange_value(row['time_seconds_per_full'])} | "
+            f"${row['cost_usd_per_full']:.7f} |"
+        )
+    fix = exchange["fix_failed_plus_one_continuation"]
+    cli_fix = exchange["fix_cli_luna_slice"]
+    lines.extend(
+        [
+            "",
+            (
+                f"fix行は原failed run {_format_seconds(fix['original_time_seconds_total'])}秒/"
+                f"${fix['original_cost_usd_total']:.7f}と、fix 1周 "
+                f"{_format_seconds(fix['repair_time_seconds_total'])}秒/"
+                f"${fix['repair_cost_usd_total']:.7f}を合算。local 1本のUSD API費用は$0、"
+                "電力量は未計測。CLI×Lunaだけのfix sliceは"
+                f"{cli_fix['full']}/{cli_fix['trials']}、{cli_fix['time_seconds_total']:.3f}秒/"
+                f"${cli_fix['cost_usd_total']:.7f} per full。"
+            ),
+            "",
+            (
+                "比較は時期・family・抽出条件を揃えた無作為試験ではなく、現有実測の"
+                "記述的為替表である。BoNは5窓30新規run、singleはCLI Lunaの既存48単発run、"
+                "fixは層別failed 10本を分母とする。"
+            ),
+            "",
+            "## 裁定材料",
+            "",
+            (
+                "既存fix継続が不合格をfullへ拾う機構は1/10で実測した。一方、自動BoN修復"
+                "接続のNO-GOは維持する。高開始スコアの優位、修復によるscore単調改善、"
+                "低単価優位はいずれもこの標本では支持されない。P2F-1（人間指示版）と"
+                "混ぜず、本campaignはCLOSEする。"
+            ),
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def write_settlement(recorded_at: str) -> dict[str, Any]:
+    settlement = build_settlement(recorded_at)
+    result = _read_json(RESULT_PATH)
+    SETTLEMENT_PATH.write_text(
+        json.dumps(settlement, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    REPORT_PATH.write_text(render_report(settlement, result), encoding="utf-8")
+    return settlement
+
+
 def build_declaration(recorded_at: str) -> dict[str, Any]:
     """Build the complete machine-readable declaration before any fix run."""
     census = build_census()
@@ -1219,6 +1618,8 @@ def main() -> int:
     declare = subparsers.add_parser("declare")
     declare.add_argument("--recorded-at", required=True)
     subparsers.add_parser("run")
+    settle = subparsers.add_parser("settle")
+    settle.add_argument("--recorded-at", required=True)
     args = parser.parse_args()
     if args.command == "declare":
         declaration = write_declaration(args.recorded_at)
@@ -1232,6 +1633,14 @@ def main() -> int:
         print(
             f"measured {result['sample_size']} repair continuations; "
             f"full={result['full_count']}; cost=${result['cost_usd_total']:.6f}"
+        )
+        return 0
+    if args.command == "settle":
+        settlement = write_settlement(args.recorded_at)
+        overall = settlement["overall"]
+        print(
+            f"settled P2F@1={overall['full']}/{overall['trials']}; "
+            f"within_band={overall['within_predeclared_band']}"
         )
         return 0
     raise AssertionError(args.command)

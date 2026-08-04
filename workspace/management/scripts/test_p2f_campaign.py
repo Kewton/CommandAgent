@@ -221,5 +221,62 @@ class P2FExecutionHarnessTests(unittest.TestCase):
         self.assertEqual(reached["score"], 62.5)
 
 
+class P2FSettlementTests(unittest.TestCase):
+    def test_settlement_recomputes_observation_and_exchange(self) -> None:
+        settlement = p2f.build_settlement("2026-08-05T03:18:57+09:00")
+        overall = settlement["overall"]
+        self.assertEqual((overall["full"], overall["trials"]), (1, 10))
+        self.assertEqual(
+            overall["predeclared_beta_binomial_full_count_band_95"], [0, 9]
+        )
+        self.assertTrue(overall["within_predeclared_band"])
+        self.assertAlmostEqual(overall["wilson_95"][0], 0.017876213095072896)
+        self.assertAlmostEqual(overall["wilson_95"][1], 0.4041500267952385)
+        self.assertEqual(
+            settlement["score_change"],
+            {
+                "comparable_pairs": 6,
+                "improved": 0,
+                "unchanged": 1,
+                "worsened": 5,
+                "noncomparable_nullable_pairs": 4,
+            },
+        )
+        exchange = settlement["exchange"]
+        self.assertAlmostEqual(
+            exchange["bon_new_trials"]["cost_usd_per_full"], 0.6508036
+        )
+        self.assertAlmostEqual(
+            exchange["fix_failed_plus_one_continuation"]["cost_usd_per_full"],
+            0.7894095,
+        )
+        self.assertAlmostEqual(
+            exchange["single_reference"]["cost_usd_per_full"], 0.6000657
+        )
+
+    def test_settlement_outputs_match_canonical_build(self) -> None:
+        settlement = p2f.build_settlement("2026-08-05T03:18:57+09:00")
+        result = json.loads(p2f.RESULT_PATH.read_text(encoding="utf-8"))
+        expected_json = json.dumps(settlement, ensure_ascii=False, indent=2) + "\n"
+        self.assertEqual(p2f.SETTLEMENT_PATH.read_text(encoding="utf-8"), expected_json)
+        self.assertEqual(
+            p2f.REPORT_PATH.read_text(encoding="utf-8"),
+            p2f.render_report(settlement, result),
+        )
+
+    def test_settlement_keeps_no_go_and_byte_pins(self) -> None:
+        settlement = p2f.build_settlement("2026-08-05T03:18:57+09:00")
+        integrity = settlement["integrity"]
+        self.assertTrue(integrity["production_path_tree_matches_predeclaration"])
+        self.assertTrue(integrity["band_byte_pins_match_predeclaration"])
+        self.assertEqual(
+            settlement["decision_material"]["automatic_bon_repair_connection"],
+            "NO-GO remains",
+        )
+        self.assertEqual(
+            settlement["decision_material"]["bon3_score_gate"], "not released"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
