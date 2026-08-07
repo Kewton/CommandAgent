@@ -1,7 +1,8 @@
 # E-5f Phase State Machine Design
 
-Status: **QUEUED** (2026-07-29). The state inventory is fixed as review
-material; no production state-machine migration is authorized by E-5d.
+Status: **IMPLEMENTED** (2026-08-07). The reviewed state inventory now drives
+the production phase lifecycle while the existing effect code retains event,
+evidence, error, and stop-reason behavior.
 
 ## Purpose and seam
 
@@ -70,9 +71,9 @@ loop remains an effect-owned submachine represented by one
 The full trigger-by-trigger inventory and source ownership are fixed in
 [`e5d-split-audit.md`](../../workspace/management/runs/e5d-split-audit.md#complete-transition-inventory).
 
-## Proposed implementation gates
+## Implementation record
 
-E-5f remains a five-batch review candidate:
+E-5f was implemented through the five review gates:
 
 1. freeze ordered event/terminal fixtures for every transition family and
    illegal terminal transitions;
@@ -82,6 +83,9 @@ E-5f remains a five-batch review candidate:
 5. migrate final acceptance, repair, and terminal transitions, removing the
    implicit loop only after byte and trace parity.
 
-Each batch requires `cargo check`, ordered lifecycle fixtures, all snapshots,
-conformance, adjudication byte fixtures, event-sequence tests, and the full
-suite unchanged. Review after E-5d decides whether these batches should run.
+The pure transition tests cover the standard lifecycle, final versus
+non-final invariant behavior, final-repair recheck, and illegal outgoing
+terminal transitions. Production wiring is isolated in `effects.rs`; the
+existing ordered two-phase fixture remains the trace-parity oracle. Phase
+boundary effects and StepPlan execution were also moved to leaf modules, and
+their new growth budgets are enforced by the generality guardrail.

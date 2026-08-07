@@ -1,3 +1,4 @@
+use super::effects::PhaseMachine;
 #[allow(unused_imports)]
 use super::{
     ChatClient, Config, DependencyReconciliationTrigger, EscalationCarryoverHandle,
@@ -59,6 +60,8 @@ mod before_phase;
 mod fix_before;
 #[path = "../../ultra_plan_flow/investigation_before.rs"]
 mod investigation_before;
+#[path = "phase_boundary.rs"]
+mod phase_boundary;
 #[path = "../../ultra_plan_flow/phase_plan_resolution.rs"]
 mod phase_plan_resolution;
 #[path = "../../ultra_plan_storage.rs"]
@@ -299,10 +302,12 @@ pub fn run_ultra_plan_with_ui(
     let mut promotion_state = ProfilePromotionState::for_run(plan, config);
     let mut setup_authority_state = UltraRunSetupAuthorityState::default();
     emit_ultra_context_initialized(config, plan, &ultra_context, ultra_session.messages.len());
+    let mut phase_machine = PhaseMachine::start()?;
     let phases = plan.phases.clone();
     for (index, phase) in phases.iter().enumerate() {
         let runtime = resolve_profile_runtime(&plan.profile);
         if ui.interrupted() {
+            phase_machine.interrupt("phase_start")?;
             anyhow::bail!("interrupted by user");
         }
         emit_ultra_phase_event(
@@ -318,6 +323,7 @@ pub fn run_ultra_plan_with_ui(
         );
         let profile_snapshot = profile_before_plan(&config.workspace_root, plan)?;
         ultra_context.emit_attached(config, plan, phase, index, &ultra_session);
+        phase_machine.phase_started()?;
         let final_phase = index + 1 == plan.phases.len();
         let phase_prompt =
             ultra_phase_prompt(plan, phase, config, &ultra_context, fix_runtime.as_ref());
@@ -384,6 +390,7 @@ pub fn run_ultra_plan_with_ui(
                 render_failure_stop_reason(format!("phase scaffold failed: {message}"), handoff,)
             )
         })?;
+        phase_machine.plan_resolved()?;
         crate::planner::fix_runtime::bind_step_plan(fix_runtime.as_mut(), phase, &mut step_plan);
         emit_ultra_phase_event(
             config,
@@ -408,6 +415,13 @@ pub fn run_ultra_plan_with_ui(
             Some(step_plan.steps.len()),
         );
         save_step_plan(&config.workspace_root, &step_plan)?;
+        let fix_before = fix_runtime
+            .as_ref()
+            .is_some_and(|runtime| runtime.is_before_phase(index));
+        let investigation_before = investigation_runtime
+            .as_ref()
+            .is_some_and(|runtime| runtime.is_reproducer_phase(index));
+        phase_machine.plan_persisted(fix_before, investigation_before)?;
         let Some(step_plan) = before_phase::run(
             planner,
             fix_runtime.as_mut(),
@@ -423,8 +437,10 @@ pub fn run_ultra_plan_with_ui(
             final_phase,
         )?
         else {
+            phase_machine.before_phase_completed(true, final_phase)?;
             continue;
         };
+        phase_machine.before_phase_completed(false, final_phase)?;
         let step_outcome = match run_step_plan_with_session_with_ui_and_run_authority(
             execution,
             &mut ultra_session,
@@ -536,9 +552,11 @@ pub fn run_ultra_plan_with_ui(
             None,
             None,
         );
+        phase_machine.step_succeeded(final_phase)?;
         let mut invariant_report =
             verify_invariant_with_hooks(config, runtime, plan, &profile_snapshot);
         if !final_phase && !invariant_report.is_pass() {
+            phase_machine.invariant_needs_repair()?;
             invariant_report = repair_intermediate_profile_invariant(
                 execution,
                 &mut ultra_session,
@@ -554,6 +572,7 @@ pub fn run_ultra_plan_with_ui(
                 invariant_report,
                 &mut setup_authority_state,
             )?;
+            phase_machine.invariant_repair_attempted()?;
         }
         if !final_phase
             && !invariant_report.is_pass()
@@ -630,6 +649,7 @@ pub fn run_ultra_plan_with_ui(
                 Some(&invariant_reason),
             );
             if !final_phase {
+                phase_machine.invariant_exhausted()?;
                 let handoff = save_ultra_phase_recovery_handoff_with_evidence(
                     config,
                     plan,
@@ -655,7 +675,9 @@ pub fn run_ultra_plan_with_ui(
                     )
                 ));
             }
+            phase_machine.invariant_observed(false)?;
         } else {
+            phase_machine.invariant_observed(true)?;
             hook_snapshot::save_runtime(config, runtime, &plan.goal, &phase.id);
             emit_phase_verification_event(
                 config,
@@ -690,17 +712,7 @@ pub fn run_ultra_plan_with_ui(
                 None,
                 None,
             );
-            bounded_process::reap_registered_server_children_for_workspace(
-                config.eval_events_path.as_deref(),
-                "phase_transition",
-                &config.workspace_root,
-            );
-            reconcile_manifest_changed_dependencies_if_needed(
-                config,
-                &plan.profile,
-                &mut setup_authority_state,
-            )?;
-            if try_promote_profile_at_phase_boundary(
+            phase_boundary::commit(
                 config,
                 plan,
                 &mut ultra_context,
@@ -708,17 +720,9 @@ pub fn run_ultra_plan_with_ui(
                 &mut promotion_state,
                 phase,
                 index,
-            )?
-            .is_some()
-            {
-                setup_authority_state.grant("profile_promotion");
-                reconcile_run_dependency_setup(
-                    config,
-                    &plan.profile,
-                    DependencyReconciliationTrigger::Promotion,
-                    &setup_authority_state,
-                )?;
-            }
+                &mut setup_authority_state,
+            )?;
+            phase_machine.phase_committed(false, &plan.intent)?;
             continue;
         }
         let final_invariant_reason =
@@ -757,17 +761,7 @@ pub fn run_ultra_plan_with_ui(
             None,
             None,
         );
-        bounded_process::reap_registered_server_children_for_workspace(
-            config.eval_events_path.as_deref(),
-            "phase_transition",
-            &config.workspace_root,
-        );
-        reconcile_manifest_changed_dependencies_if_needed(
-            config,
-            &plan.profile,
-            &mut setup_authority_state,
-        )?;
-        if try_promote_profile_at_phase_boundary(
+        phase_boundary::commit(
             config,
             plan,
             &mut ultra_context,
@@ -775,23 +769,19 @@ pub fn run_ultra_plan_with_ui(
             &mut promotion_state,
             phase,
             index,
-        )?
-        .is_some()
-        {
-            setup_authority_state.grant("profile_promotion");
-            reconcile_run_dependency_setup(
-                config,
-                &plan.profile,
-                DependencyReconciliationTrigger::Promotion,
-                &setup_authority_state,
-            )?;
-        }
+            &mut setup_authority_state,
+        )?;
+        phase_machine.phase_committed(true, &plan.intent)?;
     }
     if let Some(runtime) = fix_runtime {
-        return runtime.finish(config, plan);
+        let result = runtime.finish(config, plan);
+        phase_machine.intent_finished(result.is_ok())?;
+        return result;
     }
     if let Some(runtime) = investigation_runtime {
-        return runtime.finish(config, plan);
+        let result = runtime.finish(config, plan);
+        phase_machine.intent_finished(result.is_ok())?;
+        return result;
     }
     let mut final_acceptance_cycle_deltas = Vec::new();
     let (mut acceptance_report, mut deterministic_remedies_applied) =
@@ -804,6 +794,7 @@ pub fn run_ultra_plan_with_ui(
     if !acceptance_report.is_pass() {
         let initial_reason = acceptance_report.primary_reason();
         let initial_target = classify_repair_target(&acceptance_report);
+        phase_machine.acceptance_needs_repair(1, initial_target.as_str())?;
         eval_events::emit(
             config.eval_events_path.as_deref(),
             json!({
@@ -1647,6 +1638,7 @@ pub fn run_ultra_plan_with_ui(
                 },
                 &failure_evidence,
             );
+            phase_machine.fail("final_repair")?;
             anyhow::bail!(
                 "{}",
                 render_failure_stop_reason(
@@ -1656,22 +1648,26 @@ pub fn run_ultra_plan_with_ui(
             );
         }
     }
+    phase_machine.acceptance_passed(
+        final_acceptance_cycle_deltas
+            .last()
+            .map(|delta| delta.cycle_index)
+            .unwrap_or(0),
+    )?;
     append_final_acceptance_cycle_summary(config, &final_acceptance_cycle_deltas);
     let profile_id = ProfileId::parse(&plan.profile);
     let runtime = ProfileRuntimeRegistry::resolve(&profile_id);
     let terminal_capabilities = runtime.required_capabilities(&plan.goal);
     let (assurance_level, assurance_reason) =
         runtime.assurance_for_completion(&profile_id, &terminal_capabilities);
-    eval_events::emit(
+    eval_events::typed::emit(
         config.eval_events_path.as_deref(),
-        json!({
-            "event": "ultra_plan_complete",
-            "total_phases": plan.phases.len(),
-            "profile": plan.profile,
-            "assurance_level": assurance_level,
-            "assurance_reason": assurance_reason,
-            "ok": true,
-        }),
+        &eval_events::typed::UltraPlanCompleteEvent::new(
+            plan.phases.len(),
+            &plan.profile,
+            assurance_level,
+            assurance_reason,
+        ),
     );
     Ok(format!(
         "ultra-plan-run complete: {} phases",

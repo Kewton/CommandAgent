@@ -1,3 +1,12 @@
+//! CommandAgent's CLI runtime and reusable planning/execution components.
+//!
+//! [`run`] is the top-level CLI entry point. Callers that consume run evidence
+//! may continue to use [`eval_events::emit`] with `serde_json::Value`; internal
+//! lifecycle producers use typed schemas before crossing that compatible
+//! boundary. Minimal-loop failures expose structured contract data through
+//! [`minimal_loop::loop_run::RunSessionErrorContext`] without requiring callers
+//! to parse display text.
+
 #![recursion_limit = "256"]
 
 pub mod bounded_process;

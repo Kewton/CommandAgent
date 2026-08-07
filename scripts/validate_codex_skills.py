@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import argparse
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -102,12 +104,37 @@ def validate_skill(skill_dir: Path) -> list[str]:
     return errors
 
 
-def main() -> int:
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--tracked-only",
+        action="store_true",
+        help="validate only skills already tracked by Git",
+    )
+    return parser.parse_args(argv)
+
+
+def discover_skill_dirs(*, tracked_only: bool) -> list[Path]:
+    if not tracked_only:
+        return sorted(path for path in SKILLS_ROOT.iterdir() if path.is_dir())
+
+    tracked_files = subprocess.run(
+        ["git", "ls-files", "--", ".agents/skills/*/SKILL.md"],
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    return sorted({(REPO_ROOT / relative).parent for relative in tracked_files})
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
     if not SKILLS_ROOT.is_dir():
         print(f"Skills directory not found: {SKILLS_ROOT}", file=sys.stderr)
         return 1
 
-    skill_dirs = sorted(path for path in SKILLS_ROOT.iterdir() if path.is_dir())
+    skill_dirs = discover_skill_dirs(tracked_only=args.tracked_only)
     if not skill_dirs:
         print(f"No skills found under {SKILLS_ROOT}", file=sys.stderr)
         return 1

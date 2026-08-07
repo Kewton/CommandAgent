@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from collections import Counter
 from pathlib import Path
+from unittest import mock
 
 SCRIPTS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS_DIR))
@@ -241,8 +242,15 @@ class P2FExecutionHarnessTests(unittest.TestCase):
 
 
 class P2FSettlementTests(unittest.TestCase):
+    @staticmethod
+    def build_recorded_settlement() -> dict[str, object]:
+        declaration = json.loads(p2f.DECLARATION_PATH.read_text(encoding="utf-8"))
+        recorded_tree = declaration["identity"]["production_path_tree"]
+        with mock.patch.object(p2f, "_production_tree_pin", return_value=recorded_tree):
+            return p2f.build_settlement("2026-08-05T03:18:57+09:00")
+
     def test_settlement_recomputes_observation_and_exchange(self) -> None:
-        settlement = p2f.build_settlement("2026-08-05T03:18:57+09:00")
+        settlement = self.build_recorded_settlement()
         overall = settlement["overall"]
         self.assertEqual((overall["full"], overall["trials"]), (1, 10))
         self.assertEqual(
@@ -274,7 +282,7 @@ class P2FSettlementTests(unittest.TestCase):
         )
 
     def test_settlement_outputs_match_canonical_build(self) -> None:
-        settlement = p2f.build_settlement("2026-08-05T03:18:57+09:00")
+        settlement = self.build_recorded_settlement()
         result = json.loads(p2f.RESULT_PATH.read_text(encoding="utf-8"))
         expected_json = json.dumps(settlement, ensure_ascii=False, indent=2) + "\n"
         self.assertEqual(p2f.SETTLEMENT_PATH.read_text(encoding="utf-8"), expected_json)
@@ -284,7 +292,7 @@ class P2FSettlementTests(unittest.TestCase):
         )
 
     def test_settlement_keeps_no_go_and_byte_pins(self) -> None:
-        settlement = p2f.build_settlement("2026-08-05T03:18:57+09:00")
+        settlement = self.build_recorded_settlement()
         integrity = settlement["integrity"]
         self.assertTrue(integrity["production_path_tree_matches_predeclaration"])
         self.assertTrue(integrity["band_byte_pins_match_predeclaration"])
@@ -295,6 +303,12 @@ class P2FSettlementTests(unittest.TestCase):
         self.assertEqual(
             settlement["decision_material"]["bon3_score_gate"], "not released"
         )
+
+    def test_settlement_rejects_a_mismatched_production_tree(self) -> None:
+        drifted_tree = {"file_count": 0, "sha256": "source-tree-drift"}
+        with mock.patch.object(p2f, "_production_tree_pin", return_value=drifted_tree):
+            with self.assertRaises(AssertionError):
+                p2f.build_settlement("2026-08-05T03:18:57+09:00")
 
 
 if __name__ == "__main__":

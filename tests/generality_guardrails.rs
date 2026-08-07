@@ -184,7 +184,10 @@ fn nextjs_boundary_erosion_tripwire_keeps_dispatch_sites_audited() {
     let expected = BTreeMap::from([
         ("src/minimal_loop/browser_probe.rs".to_string(), 2),
         ("src/minimal_loop/evidence.rs".to_string(), 1),
-        ("src/minimal_loop/loop_run.rs".to_string(), 2),
+        (
+            "src/minimal_loop/loop_run/runtime_bash_effects.rs".to_string(),
+            2,
+        ),
         ("src/planner/lint.rs".to_string(), 1),
         ("src/planner/runner/acceptance.rs".to_string(), 5),
         ("src/planner/verify.rs".to_string(), 3),
@@ -322,8 +325,38 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/planner/runner/phase.rs",
-            total_baseline: 3_857,
-            production_baseline: 3_857,
+            total_baseline: 3_779,
+            production_baseline: 3_779,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/planner/runner/phase/effects.rs",
+            total_baseline: 164,
+            production_baseline: 164,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/planner/runner/phase/state.rs",
+            total_baseline: 220,
+            production_baseline: 220,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/planner/runner/phase/transition.rs",
+            total_baseline: 269,
+            production_baseline: 175,
+            test_baseline: 94,
+        },
+        ChokepointBudget {
+            path: "src/planner/runner/phase/phase_boundary.rs",
+            total_baseline: 44,
+            production_baseline: 44,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/planner/runner/phase/step_plan_execution.rs",
+            total_baseline: 162,
+            production_baseline: 162,
             test_baseline: 0,
         },
         ChokepointBudget {
@@ -334,9 +367,39 @@ fn runner_chokepoints_do_not_grow_past_interim_budget() {
         },
         ChokepointBudget {
             path: "src/minimal_loop/loop_run.rs",
-            total_baseline: 7_444,
-            production_baseline: 4_960,
+            total_baseline: 6_934,
+            production_baseline: 4_449,
             test_baseline: 2_485,
+        },
+        ChokepointBudget {
+            path: "src/minimal_loop/loop_run/context.rs",
+            total_baseline: 267,
+            production_baseline: 267,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/minimal_loop/loop_run/error.rs",
+            total_baseline: 72,
+            production_baseline: 72,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/minimal_loop/loop_run/state.rs",
+            total_baseline: 148,
+            production_baseline: 148,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/minimal_loop/loop_run/runtime_bash_effects.rs",
+            total_baseline: 186,
+            production_baseline: 186,
+            test_baseline: 0,
+        },
+        ChokepointBudget {
+            path: "src/eval_events/typed.rs",
+            total_baseline: 143,
+            production_baseline: 110,
+            test_baseline: 33,
         },
         ChokepointBudget {
             path: "src/minimal_loop/loop_run/runtime_bash_policy_telemetry.rs",

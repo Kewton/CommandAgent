@@ -17,31 +17,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: . -> target
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.10"
+          python-version: "3.12"
       - name: install harness test dependencies
-        run: pip install PyYAML==6.0.3 pytest==8.4.2 ruff==0.14.9
-      - name: Codex harness guardrails
-        run: |
-          python3 scripts/validate_codex_skills.py
-          ruff check scripts/codex_orchestrate.py scripts/validate_codex_skills.py tests/test_codex_orchestrate.py
-          python3 -m pytest tests/test_codex_orchestrate.py -q
-      - name: ShellCheck repository scripts
-        run: shellcheck scripts/*.sh
-      - name: cargo test all targets
-        run: cargo test --all-targets
-      - name: corpus harness
-        run: cargo test --test corpus_regression
-      - name: M6 generality guardrails
-        run: cargo test --test generality_guardrails
-      - name: conformance matrix
-        run: cargo test --test conformance
-      - name: scenario contract-inference golden tests
-        run: |
-          python3 -m unittest tests/eval/test_acceptance_contract.py
-          python3 -m unittest tests/eval/test_completion_contract_snapshots.py
-          python3 -m unittest tests/eval/test_false_positive_regression.py
+        run: python3 -m pip install --disable-pip-version-check -r requirements/ci.txt
+      - name: Repository acceptance suite
+        run: bash scripts/ci.sh

@@ -35,22 +35,23 @@ test-pty:
 
 # Run the three Python evaluation golden-test modules from CI.
 test-eval:
-    python3 -m unittest tests/eval/test_acceptance_contract.py
-    python3 -m unittest tests/eval/test_completion_contract_snapshots.py
-    python3 -m unittest tests/eval/test_false_positive_regression.py
+    python3 tests/eval/test_acceptance_contract.py
+    python3 tests/eval/test_completion_contract_snapshots.py
+    python3 tests/eval/test_false_positive_regression.py
 
 # Validate the Codex harness with the commands and pinned tools used in CI.
 test-harness:
-    python3 scripts/validate_codex_skills.py
-    ruff check scripts/codex_orchestrate.py scripts/validate_codex_skills.py tests/test_codex_orchestrate.py
+    python3 scripts/validate_codex_skills.py --tracked-only
+    ruff check --isolated --select E4,E7,E9,F,I --ignore E402 scripts/codex_orchestrate.py scripts/validate_codex_skills.py tests/test_codex_orchestrate.py workspace/management/scripts
     python3 -m pytest tests/test_codex_orchestrate.py -q
 
 # Run ShellCheck over repository shell scripts, matching CI.
 lint-shell:
     shellcheck scripts/*.sh
 
-# Run the complete non-networked CI test and guardrail sequence.
-ci: test-harness lint-shell test test-corpus test-guardrails test-conformance test-eval
+# Run the exact non-networked acceptance suite used by both CI workflows.
+ci:
+    bash scripts/ci.sh
 
 # Run the benchmark harness and pass all arguments through to scripts/bench.sh.
 bench *args:

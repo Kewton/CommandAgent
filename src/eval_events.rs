@@ -10,6 +10,8 @@ use crate::planner::adjudication::{
     terminal_status,
 };
 
+pub(crate) mod typed;
+
 const SNIPPET_LIMIT: usize = 500;
 const SUMMARY_LIMIT: usize = 8_000;
 pub const GENERIC_REDUCED_ASSURANCE_REASON: &str =

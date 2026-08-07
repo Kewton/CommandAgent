@@ -11,11 +11,21 @@ above baseline +2%:
 
 - `src/planner/runner.rs`: 144 lines
 - `src/planner/runner/driver.rs`: 3,273 lines
-- `src/planner/runner/phase.rs`: 3,857 lines
+- `src/planner/runner/phase.rs`: 3,779 lines
+- `src/planner/runner/phase/effects.rs`: 164 lines
+- `src/planner/runner/phase/state.rs`: 220 lines
+- `src/planner/runner/phase/transition.rs`: 269 lines
+- `src/planner/runner/phase/phase_boundary.rs`: 44 lines
+- `src/planner/runner/phase/step_plan_execution.rs`: 162 lines
 - `src/planner/runner/phase/flow.rs`: 1,656 lines
 - `src/planner/runner/acceptance.rs`: 2,523 lines
 - `src/planner/runner/tests/**/*.rs`: 15,206 lines in aggregate
-- `src/minimal_loop/loop_run.rs`: 7,444 lines
+- `src/minimal_loop/loop_run.rs`: 6,934 lines
+- `src/minimal_loop/loop_run/context.rs`: 267 lines
+- `src/minimal_loop/loop_run/error.rs`: 72 lines
+- `src/minimal_loop/loop_run/state.rs`: 148 lines
+- `src/minimal_loop/loop_run/runtime_bash_effects.rs`: 186 lines
+- `src/eval_events/typed.rs`: 143 lines
 - `src/minimal_loop/repair_pressure.rs`: 746 lines
 - `src/planner/repair_targeting.rs`: 597 lines
 - `src/planner/final_acceptance.rs`: 2,235 lines
@@ -34,10 +44,20 @@ masking test bloat:
 | --- | ---: | ---: |
 | `src/planner/runner.rs` | 131 | 13 |
 | `src/planner/runner/driver.rs` | 3,273 | 0 |
-| `src/planner/runner/phase.rs` | 3,857 | 0 |
+| `src/planner/runner/phase.rs` | 3,779 | 0 |
+| `src/planner/runner/phase/effects.rs` | 164 | 0 |
+| `src/planner/runner/phase/state.rs` | 220 | 0 |
+| `src/planner/runner/phase/transition.rs` | 175 | 94 |
+| `src/planner/runner/phase/phase_boundary.rs` | 44 | 0 |
+| `src/planner/runner/phase/step_plan_execution.rs` | 162 | 0 |
 | `src/planner/runner/phase/flow.rs` | 1,656 | 0 |
 | `src/planner/runner/acceptance.rs` | 2,502 | 21 |
-| `src/minimal_loop/loop_run.rs` | 4,960 | 2,485 |
+| `src/minimal_loop/loop_run.rs` | 4,449 | 2,485 |
+| `src/minimal_loop/loop_run/context.rs` | 267 | 0 |
+| `src/minimal_loop/loop_run/error.rs` | 72 | 0 |
+| `src/minimal_loop/loop_run/state.rs` | 148 | 0 |
+| `src/minimal_loop/loop_run/runtime_bash_effects.rs` | 186 | 0 |
+| `src/eval_events/typed.rs` | 110 | 33 |
 | `src/minimal_loop/repair_pressure.rs` | 278 | 468 |
 | `src/planner/repair_targeting.rs` | 459 | 138 |
 | `src/planner/final_acceptance.rs` | 2,230 | 5 |
