@@ -54,7 +54,8 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     let cli = temp.path().join("fake-commandagent");
     let fixture = include_str!("fixtures/gui_cli_events.jsonl");
     let script = format!(
-        "#!/bin/sh\nprintf '%s' '{}' > \"$COMMANDAGENT_EVAL_EVENTS\"\n",
+        "#!/bin/sh\ncase \" $* \" in\n  *\" --run-ultra-plan \"*) sleep 1; printf '%s' '{}' >> \"$COMMANDAGENT_EVAL_EVENTS\" ;;\n  *) printf '%s' '{}' > \"$COMMANDAGENT_EVAL_EVENTS\" ;;\nesac\n",
+        fixture.replace('\'', "'\\''"),
         fixture.replace('\'', "'\\''")
     );
     std::fs::write(&cli, script).unwrap();
@@ -85,9 +86,17 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     assert_eq!(proposal.status, 200, "{}", proposal.body);
     let proposal_json: serde_json::Value = serde_json::from_str(&proposal.body).unwrap();
     let card_hash = proposal_json["card_hash"].as_str().unwrap();
+    assert_eq!(proposal_json["price"]["duration_n"], 3);
+    assert_eq!(proposal_json["price"]["cost_n"], 0);
 
     let denied = server.request("POST", "/api/sessions", Some(&spec));
     assert_eq!(denied.status, 428, "{}", denied.body);
+
+    let mut stale_confirmation = spec.clone();
+    stale_confirmation["confirmation_hash"] =
+        serde_json::Value::String(format!("sha256:{}", "0".repeat(64)));
+    let stale = server.request("POST", "/api/sessions", Some(&stale_confirmation));
+    assert_eq!(stale.status, 412, "{}", stale.body);
 
     let mut confirmed = spec;
     confirmed["confirmation_hash"] = serde_json::Value::String(card_hash.to_string());
@@ -115,6 +124,77 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
             .unwrap()
             .contains("# D-3c acceptance sheet")
     );
+
+    let credential = serde_json::json!({
+        "directive": format!("use token={}", "a".repeat(24))
+    });
+    let rejected = server.request(
+        "POST",
+        &format!("/api/sessions/{id}/directives"),
+        Some(&credential),
+    );
+    assert_eq!(rejected.status, 422, "{}", rejected.body);
+
+    let directive_request = serde_json::json!({ "directive": "Keep the output sorted" });
+    let proposed = server.request(
+        "POST",
+        &format!("/api/sessions/{id}/directives"),
+        Some(&directive_request),
+    );
+    assert_eq!(proposed.status, 200, "{}", proposed.body);
+    let proposed_json: serde_json::Value = serde_json::from_str(&proposed.body).unwrap();
+    assert_eq!(
+        proposed_json["scrubbed_directive"],
+        "Keep the output sorted"
+    );
+    assert!(
+        proposed_json["directive_hash"]
+            .as_str()
+            .unwrap()
+            .starts_with("sha256:")
+    );
+    let duplicate = server.request(
+        "POST",
+        &format!("/api/sessions/{id}/directives"),
+        Some(&directive_request),
+    );
+    assert_eq!(duplicate.status, 409, "{}", duplicate.body);
+    let wrong_hash = format!("sha256:{}", "f".repeat(64));
+    let unconfirmed = server.request(
+        "POST",
+        &format!("/api/sessions/{id}/directives/{wrong_hash}"),
+        None,
+    );
+    assert_eq!(unconfirmed.status, 400, "{}", unconfirmed.body);
+
+    let directive_hash = proposed_json["directive_hash"].as_str().unwrap();
+    let continued = server.request(
+        "POST",
+        &format!("/api/sessions/{id}/directives/{directive_hash}"),
+        None,
+    );
+    assert_eq!(continued.status, 202, "{}", continued.body);
+    let intervention = server.request(
+        "POST",
+        &format!("/api/sessions/{id}/directives"),
+        Some(&directive_request),
+    );
+    assert_eq!(intervention.status, 409, "{}", intervention.body);
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        let completed = server.request("GET", &format!("/api/sessions/{id}"), None);
+        assert_eq!(completed.status, 200, "{}", completed.body);
+        let completed_json: serde_json::Value = serde_json::from_str(&completed.body).unwrap();
+        if completed_json["gate"] != "gate_2" {
+            assert_eq!(completed_json["gate"], "gate_3");
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "directive continuation timed out"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
     server.stop();
 }
 

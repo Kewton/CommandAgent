@@ -164,6 +164,25 @@ pub fn persist_for_gate(
     persist_at_epoch_for_gate(root, raw, target_run_id, round, epoch, issued_gate)
 }
 
+pub fn load(root: &Path, hash: &str) -> anyhow::Result<PersistedDirective> {
+    let suffix = hash
+        .strip_prefix("sha256:")
+        .filter(|value| value.len() == 64 && value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .context("directive hash must be sha256 followed by 64 hexadecimal characters")?;
+    let path = root.join(format!("{suffix}.json"));
+    let bytes = std::fs::read(&path)
+        .with_context(|| format!("read directive artifact {}", path.display()))?;
+    let artifact: DirectiveArtifact = serde_json::from_slice(&bytes)
+        .with_context(|| format!("parse directive artifact {}", path.display()))?;
+    let directive = PersistedDirective {
+        artifact,
+        hash: hash.to_string(),
+        path,
+    };
+    directive.validate()?;
+    Ok(directive)
+}
+
 pub fn confirm(root: &Path, directive: &PersistedDirective) -> anyhow::Result<ConfirmedDirective> {
     let epoch = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -636,14 +655,8 @@ mod tests {
     #[test]
     fn credential_scrub_rejects_before_writing() {
         let root = tempfile::tempdir().unwrap();
-        let error = persist_at_epoch(
-            root.path(),
-            "use token=abcdefghijklmnopsecretvalue",
-            "run-001",
-            1,
-            1,
-        )
-        .unwrap_err();
+        let credential = format!("use token={}", "a".repeat(24));
+        let error = persist_at_epoch(root.path(), &credential, "run-001", 1, 1).unwrap_err();
         assert!(error.to_string().contains("credential scrub"));
         assert!(std::fs::read_dir(root.path()).unwrap().next().is_none());
     }
@@ -870,5 +883,15 @@ mod tests {
         assert_eq!(value["directive_hash"], continuation.directive_hash);
         assert_eq!(value["same_workspace"], true);
         assert_eq!(value["ok"], false);
+    }
+
+    #[test]
+    fn persisted_directive_loads_only_by_its_exact_sha256_identity() {
+        let root = tempfile::tempdir().unwrap();
+        let persisted = persist_at_epoch(root.path(), "repair README", "run-001", 1, 10).unwrap();
+        let loaded = load(root.path(), persisted.hash()).unwrap();
+        assert_eq!(loaded, persisted);
+        assert!(load(root.path(), "sha256:../escape").is_err());
+        assert!(load(root.path(), &format!("sha256:{}", "0".repeat(64))).is_err());
     }
 }

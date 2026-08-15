@@ -1,6 +1,8 @@
 use std::collections::BTreeMap;
 use std::path::{Path as FilePath, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::time::Duration;
 
 use axum::Json;
 use axum::extract::{Path, State};
@@ -54,6 +56,16 @@ pub struct SessionProposal {
     card_hash: String,
     card_markdown: String,
     identity: ConfirmationIdentity,
+    price: BandPrice,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BandPrice {
+    duration_n: usize,
+    average_duration_seconds: Option<f64>,
+    cost_n: usize,
+    average_cost_usd: Option<f64>,
+    source: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -87,6 +99,30 @@ pub struct PolledSession {
     events_path: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DirectiveRequest {
+    directive: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DirectiveProposal {
+    directive_hash: String,
+    directive_round: u32,
+    issued_gate: String,
+    scrubbed_directive: String,
+    confirmation_required: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ConfirmedContinuation {
+    directive_hash: String,
+    directive_round: u32,
+    target_run_id: String,
+    continuation_plan: String,
+    status: &'static str,
+}
+
 #[derive(Debug)]
 pub struct SessionError {
     status: StatusCode,
@@ -109,11 +145,13 @@ pub async fn proposal(
     Json(spec): Json<SessionSpec>,
 ) -> Result<Json<SessionProposal>, SessionError> {
     let (_, identity, card_markdown) = gate_one(&state, &spec, proposal_confirmation_root(&state))?;
+    let price = band_price(&state.repository_root, &identity).await?;
     Ok(Json(SessionProposal {
         confirmation_required: true,
         card_hash: identity.card_hash().map_err(internal)?,
         card_markdown,
         identity,
+        price,
     }))
 }
 
@@ -168,22 +206,33 @@ pub async fn status(
     let events_path = paths.events_path();
     let text = read_events(&events_path).await?;
     let events = parse_events(&text)?;
-    let terminal = latest_event(&events, "tui_command_stop");
+    let terminal_index = latest_event_index(&events, "tui_command_stop");
+    let continuation_index = latest_event_index(&events, "human_directive_continuation_started");
+    let terminal_is_current = match (terminal_index, continuation_index) {
+        (Some(terminal), Some(continuation)) => terminal > continuation,
+        (Some(_), None) => true,
+        _ => false,
+    };
+    let terminal = terminal_index.map(|index| &events[index]);
     let run_stop = latest_event(&events, "run_stop");
-    let terminal_seen = terminal.is_some() || run_stop.is_some();
+    let terminal_seen = terminal_is_current && (terminal.is_some() || run_stop.is_some());
     let command_succeeded = terminal
         .and_then(|event| event.get("ok"))
         .and_then(Value::as_bool)
         .unwrap_or(false);
     let generated = terminal
+        .filter(|_| terminal_is_current)
         .map(|_| sheet::generate(confirmed.identity(), Some(&events_path), command_succeeded))
         .transpose()
         .map_err(internal)?;
-    let verdict = latest_event(&events, "ultra_final_acceptance")
+    let verdict = terminal_is_current
+        .then(|| latest_event(&events, "ultra_final_acceptance"))
+        .flatten()
         .and_then(|event| string(event, "verdict"))
         .or_else(|| terminal.and_then(|event| string(event, "assurance_level")))
         .map(str::to_string);
     let assurance = terminal
+        .filter(|_| terminal_is_current)
         .and_then(|event| string(event, "assurance_level"))
         .map(str::to_string);
     let gate = match generated.as_ref() {
@@ -192,14 +241,16 @@ pub async fn status(
         None if terminal_seen => "gate_4",
         None => "gate_2",
     };
-    let status = terminal
-        .and_then(|event| string(event, "status"))
-        .or_else(|| run_stop.and_then(|event| string(event, "status")))
-        .unwrap_or(if events.is_empty() {
-            "starting"
-        } else {
-            "running"
-        });
+    let status = if terminal_is_current {
+        terminal
+            .and_then(|event| string(event, "status"))
+            .or_else(|| run_stop.and_then(|event| string(event, "status")))
+            .unwrap_or("running")
+    } else if events.is_empty() {
+        "starting"
+    } else {
+        "running"
+    };
     Ok(Json(PolledSession {
         id,
         gate: gate.to_string(),
@@ -212,6 +263,83 @@ pub async fn status(
         section5: generated.and_then(|sheet| sheet.section5),
         events_path: relative_path(&state.execution_root, &events_path),
     }))
+}
+
+pub async fn propose_directive(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(request): Json<DirectiveRequest>,
+) -> Result<Json<DirectiveProposal>, SessionError> {
+    require_session_id(&id)?;
+    let paths = SessionPaths::new(&state.execution_root, &id);
+    let events_path = paths.events_path();
+    require_current_terminal(&events_path).await?;
+    require_no_pending_directive(&events_path).await?;
+    let mut shell = BoundaryShell::new(paths.confirmation_root(), Some(events_path));
+    shell.restore_latest_terminal().map_err(bad_request)?;
+    let round = shell.next_directive_round(&id).map_err(internal)?;
+    let directive = shell
+        .begin_directive(&request.directive, &id, round)
+        .map_err(unprocessable)?;
+    Ok(Json(DirectiveProposal {
+        directive_hash: directive.hash().to_string(),
+        directive_round: directive.artifact().round,
+        issued_gate: directive.artifact().issued_gate.clone(),
+        scrubbed_directive: directive.artifact().raw.clone(),
+        confirmation_required: true,
+    }))
+}
+
+pub async fn confirm_directive(
+    State(state): State<AppState>,
+    Path((id, hash)): Path<(String, String)>,
+) -> Result<impl IntoResponse, SessionError> {
+    require_session_id(&id)?;
+    let paths = SessionPaths::new(&state.execution_root, &id);
+    let events_path = paths.events_path();
+    require_current_terminal(&events_path).await?;
+    let mut shell = BoundaryShell::new(paths.confirmation_root(), Some(events_path.clone()));
+    let identity = shell
+        .restore_latest_terminal()
+        .map_err(bad_request)?
+        .ok_or_else(|| not_found("confirmed terminal identity was not found"))?;
+    let directive = shell
+        .restore_directive_proposal(&hash)
+        .map_err(bad_request)?
+        .clone();
+    shell.confirm_directive(&hash).map_err(bad_request)?;
+    let continuation = shell
+        .prepare_confirmed_continuation(&state.execution_root, &events_path, &identity, &directive)
+        .map_err(bad_request)?;
+    let response = ConfirmedContinuation {
+        directive_hash: continuation.directive_hash.clone(),
+        directive_round: continuation.directive_round,
+        target_run_id: continuation.target_run_id.clone(),
+        continuation_plan: continuation.plan_workspace_path.clone(),
+        status: "starting",
+    };
+    let (started_tx, started_rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let running_tx = started_tx.clone();
+        let result = shell.dispatch_directive(&continuation, || {
+            let _ = running_tx.send(Ok(()));
+            run_cli_continuation(&state, &paths, &identity, &continuation)
+        });
+        if let Err(error) = result {
+            let _ = started_tx.send(Err(error.to_string()));
+            eprintln!("GUI directive continuation failed: {error:#}");
+        }
+    });
+    match started_rx.recv_timeout(Duration::from_secs(2)) {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => return Err(internal(error)),
+        Err(error) => {
+            return Err(internal(format!(
+                "directive start acknowledgement: {error}"
+            )));
+        }
+    }
+    Ok((StatusCode::ACCEPTED, Json(response)))
 }
 
 fn gate_one(
@@ -324,6 +452,42 @@ fn spawn_cli(
     Ok(())
 }
 
+fn run_cli_continuation(
+    state: &AppState,
+    paths: &SessionPaths,
+    identity: &ConfirmationIdentity,
+    continuation: &commandagent::tui::boundary_shell::directive::DirectiveContinuation,
+) -> anyhow::Result<String> {
+    let status = Command::new(&state.commandagent_bin)
+        .current_dir(&state.execution_root)
+        .env("COMMANDAGENT_EVAL_EVENTS", paths.events_path())
+        .args(["--yes", "--quiet", "--footer", "off", "--stream", "off"])
+        .arg("--cwd")
+        .arg(&state.execution_root)
+        .arg("--state-dir")
+        .arg(paths.state_root())
+        .args(["--profile", identity.profile.as_str()])
+        .args(["--intent", identity.intent.as_str()])
+        .args(["--provider", identity.pins.executor_provider.as_str()])
+        .args(["--model", identity.pins.executor_model.as_str()])
+        .args([
+            "--planner-provider",
+            identity.pins.planner_provider.as_str(),
+        ])
+        .args(["--planner-model", identity.pins.planner_model.as_str()])
+        .args(["--plan-preset", identity.pins.preset.as_str()])
+        .arg("--run-ultra-plan")
+        .arg(&continuation.plan_path)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()?;
+    if !status.success() {
+        anyhow::bail!("delegated CLI exited with {status}");
+    }
+    Ok("delegated directive completed".to_string())
+}
+
 fn validate_spec(spec: &SessionSpec) -> Result<(), SessionError> {
     if spec.goal.trim().is_empty() || spec.goal.len() > MAX_GOAL_BYTES {
         return Err(unprocessable(format!(
@@ -403,6 +567,117 @@ async fn read_events(path: &FilePath) -> Result<String, SessionError> {
     tokio::fs::read_to_string(path).await.map_err(internal)
 }
 
+async fn require_current_terminal(path: &FilePath) -> Result<(), SessionError> {
+    let events = parse_events(&read_events(path).await?)?;
+    let terminal = latest_event_index(&events, "tui_command_stop")
+        .ok_or_else(|| conflict("session has not reached Gate 3 or Gate 4"))?;
+    if latest_event_index(&events, "human_directive_continuation_started")
+        .is_some_and(|continuation| continuation > terminal)
+    {
+        return Err(conflict(
+            "a confirmed directive continuation is still running",
+        ));
+    }
+    Ok(())
+}
+
+async fn require_no_pending_directive(path: &FilePath) -> Result<(), SessionError> {
+    let events = parse_events(&read_events(path).await?)?;
+    let terminal = latest_event_index(&events, "tui_command_stop")
+        .ok_or_else(|| conflict("session has not reached Gate 3 or Gate 4"))?;
+    if latest_event_index(&events, "human_directive_proposed")
+        .is_some_and(|proposal| proposal > terminal)
+    {
+        return Err(conflict(
+            "the current terminal already has a pending directive proposal",
+        ));
+    }
+    Ok(())
+}
+
+async fn band_price(
+    repository_root: &FilePath,
+    identity: &ConfirmationIdentity,
+) -> Result<BandPrice, SessionError> {
+    let path = repository_root.join(&identity.band_source);
+    let text = tokio::fs::read_to_string(&path).await.map_err(internal)?;
+    let mut durations = Vec::new();
+    let mut costs = Vec::new();
+    let mut headers: Option<Vec<String>> = None;
+    for line in text.lines() {
+        if !line.trim_start().starts_with('|') {
+            headers = None;
+            continue;
+        }
+        let cells = markdown_cells(line);
+        if cells.iter().all(|cell| {
+            let trimmed = cell.trim_matches(['-', ':', ' ']);
+            trimmed.is_empty()
+        }) {
+            continue;
+        }
+        if cells.iter().any(|cell| cell == "Family") && cells.iter().any(|cell| cell == "Seconds") {
+            headers = Some(cells);
+            continue;
+        }
+        let Some(header) = headers.as_ref() else {
+            continue;
+        };
+        if cells.len() != header.len() {
+            continue;
+        }
+        let field = |name: &str| {
+            header
+                .iter()
+                .position(|value| value == name)
+                .and_then(|index| cells.get(index))
+                .map(String::as_str)
+        };
+        if field("Family") != Some(identity.task_family.as_str()) {
+            continue;
+        }
+        if let Some(status) = field("Band status")
+            && !status.contains(&identity.band_arm)
+        {
+            continue;
+        }
+        if let Some(seconds) = field("Seconds").and_then(parse_number) {
+            durations.push(seconds);
+        }
+        if let Some(cost) = field("Cost USD").and_then(parse_number) {
+            costs.push(cost);
+        }
+    }
+    Ok(BandPrice {
+        duration_n: durations.len(),
+        average_duration_seconds: mean(&durations),
+        cost_n: costs.len(),
+        average_cost_usd: mean(&costs),
+        source: identity.band_source.clone(),
+    })
+}
+
+fn markdown_cells(line: &str) -> Vec<String> {
+    line.trim()
+        .trim_matches('|')
+        .split('|')
+        .map(|cell| cell.trim().to_string())
+        .collect()
+}
+
+fn parse_number(value: &str) -> Option<f64> {
+    value
+        .trim()
+        .trim_start_matches('$')
+        .replace(',', "")
+        .parse()
+        .ok()
+}
+
+fn mean(values: &[f64]) -> Option<f64> {
+    (!values.is_empty()).then(|| values.iter().sum::<f64>() / values.len() as f64)
+}
+
 fn parse_events(text: &str) -> Result<Vec<Value>, SessionError> {
     text.lines()
         .filter(|line| !line.trim().is_empty())
@@ -415,6 +690,12 @@ fn latest_event<'a>(events: &'a [Value], name: &str) -> Option<&'a Value> {
         .iter()
         .rev()
         .find(|event| string(event, "event") == Some(name))
+}
+
+fn latest_event_index(events: &[Value], name: &str) -> Option<usize> {
+    events
+        .iter()
+        .rposition(|event| string(event, "event") == Some(name))
 }
 
 fn string<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
@@ -481,6 +762,13 @@ fn bad_request(error: impl ToString) -> SessionError {
 fn not_found(message: impl ToString) -> SessionError {
     SessionError {
         status: StatusCode::NOT_FOUND,
+        message: message.to_string(),
+    }
+}
+
+fn conflict(message: impl ToString) -> SessionError {
+    SessionError {
+        status: StatusCode::CONFLICT,
         message: message.to_string(),
     }
 }

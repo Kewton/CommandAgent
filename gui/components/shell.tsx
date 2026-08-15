@@ -4,9 +4,10 @@ import { routePath, withBasePath, type GuiRoute } from "../lib/base-path";
 
 const navigation: { route: GuiRoute; label: string; index: string }[] = [
   { route: "dashboard", label: "Overview", index: "01" },
-  { route: "run", label: "Run detail", index: "02" },
-  { route: "assets", label: "Assets", index: "03" },
-  { route: "measurements", label: "Measures", index: "04" },
+  { route: "try", label: "Trial run", index: "02" },
+  { route: "run", label: "Run detail", index: "03" },
+  { route: "assets", label: "Assets", index: "04" },
+  { route: "measurements", label: "Measures", index: "05" },
 ];
 
 type ShellProps = {
@@ -31,7 +32,7 @@ export function Shell({ active, eyebrow, title, description, children }: ShellPr
           </span>
         </a>
         <div className="readonly-pill">
-          <span className="pulse-dot" /> Read only
+          <span className="pulse-dot" /> CLI delegated
         </div>
       </header>
 
@@ -49,9 +50,9 @@ export function Shell({ active, eyebrow, title, description, children }: ShellPr
           ))}
         </nav>
         <p className="sidebar-note">
-          Repository evidence
+          Existing gates
           <br />
-          projected without mutation.
+          remain authoritative.
         </p>
       </aside>
 

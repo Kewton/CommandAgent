@@ -57,6 +57,11 @@ fn gui_server_can_execute_only_through_the_confirmed_cli_delegate() {
         ".dispatch(|confirmed|",
         "Command::new(&state.commandagent_bin)",
         ".arg(\"--ultra-plan-run\")",
+        ".restore_directive_proposal(&hash)",
+        "shell.confirm_directive(&hash)",
+        ".prepare_confirmed_continuation(",
+        "shell.dispatch_directive(&continuation, ||",
+        ".arg(\"--run-ultra-plan\")",
         "COMMANDAGENT_EVAL_EVENTS",
     ] {
         assert!(
@@ -124,6 +129,36 @@ fn next_export_and_base_path_audit_are_pinned() {
     let package = std::fs::read_to_string("gui/package.json").unwrap();
     assert!(package.contains("scripts/lint-internal-paths.mjs"));
     assert!(Path::new("gui/package-lock.json").is_file());
+}
+
+#[test]
+fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
+    let source = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
+    for required in [
+        "if (!confirmed || proposal === null)",
+        "confirmation_hash: proposal.card_hash",
+        "disabled={!confirmed || busy || stage === \"gate_2\"}",
+        "Confirm and delegate to CLI",
+        "Confirm D-3d continuation",
+        "End without another run",
+    ] {
+        assert!(
+            source.contains(required),
+            "trial UI is missing {required:?}"
+        );
+    }
+    for forbidden in [
+        "Cancel session",
+        "Interrupt session",
+        "Stop session",
+        "Override gate",
+        "Skip gate",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "trial UI exposes forbidden intervention control {forbidden:?}"
+        );
+    }
 }
 
 fn collect_rust_files(root: &Path, output: &mut Vec<PathBuf>) {

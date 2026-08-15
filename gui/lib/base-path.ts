@@ -1,6 +1,6 @@
 const BASE_PATH = normalizeBasePath(process.env.NEXT_PUBLIC_GUI_BASE_PATH);
 
-export type GuiRoute = "dashboard" | "run" | "assets" | "measurements";
+export type GuiRoute = "dashboard" | "try" | "run" | "assets" | "measurements";
 
 function normalizeBasePath(value: string | undefined): string {
   if (value === undefined || value === "" || value === "/") {
@@ -19,6 +19,8 @@ export function routePath(route: GuiRoute, runId?: string): string {
   switch (route) {
     case "dashboard":
       return "/";
+    case "try":
+      return "/try/";
     case "run":
       return `/runs/?id=${encodeURIComponent(runId ?? "")}`;
     case "assets":

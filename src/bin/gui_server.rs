@@ -101,6 +101,14 @@ fn dashboard_router() -> Router<AppState> {
         .route("/api/session-proposals", post(sessions::proposal))
         .route("/api/sessions", post(sessions::create))
         .route("/api/sessions/{id}", get(sessions::status))
+        .route(
+            "/api/sessions/{id}/directives",
+            post(sessions::propose_directive),
+        )
+        .route(
+            "/api/sessions/{id}/directives/{hash}",
+            post(sessions::confirm_directive),
+        )
         .fallback(static_files::serve)
 }
 

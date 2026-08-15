@@ -294,6 +294,30 @@ impl BoundaryShell {
         }
     }
 
+    pub fn restore_directive_proposal(
+        &mut self,
+        directive_hash: &str,
+    ) -> anyhow::Result<&PersistedDirective> {
+        let (terminal, issued_gate) = match &self.state {
+            BoundaryState::FailureReady(terminal) => (terminal, "gate_4"),
+            BoundaryState::AcceptanceReady(terminal) => (terminal, "gate_3"),
+            _ => bail!("directive restoration requires Gate 3 or Gate 4"),
+        };
+        let card_hash = terminal.card_hash.clone();
+        let directive = directive::load(&self.directive_root, directive_hash)?;
+        if directive.artifact().issued_gate != issued_gate {
+            bail!("persisted directive gate differs from the current terminal gate");
+        }
+        self.state = BoundaryState::AwaitingDirectiveConfirmation {
+            directive,
+            card_hash,
+        };
+        match &self.state {
+            BoundaryState::AwaitingDirectiveConfirmation { directive, .. } => Ok(directive),
+            _ => unreachable!(),
+        }
+    }
+
     pub fn prepare_confirmed_continuation(
         &self,
         workspace: &Path,
@@ -810,9 +834,45 @@ mod tests {
         )
         .unwrap();
 
-        let mut resumed = BoundaryShell::new(confirmations, Some(events));
+        let mut resumed = BoundaryShell::new(confirmations.clone(), Some(events.clone()));
         let identity = resumed.restore_latest_terminal().unwrap().unwrap();
         assert_eq!(identity.profile, "ingest");
         assert!(matches!(resumed.state(), BoundaryState::FailureReady(_)));
+        let directive = resumed
+            .begin_directive("repair README", "run-001", 1)
+            .unwrap()
+            .clone();
+
+        let mut restarted = BoundaryShell::new(confirmations, Some(events));
+        restarted.restore_latest_terminal().unwrap().unwrap();
+        assert!(
+            restarted
+                .restore_directive_proposal("sha256:wrong")
+                .is_err()
+        );
+        let restored = restarted
+            .restore_directive_proposal(directive.hash())
+            .unwrap();
+        assert_eq!(restored, &directive);
+        let mut calls = 0;
+        assert!(
+            restarted
+                .dispatch_directive(
+                    &DirectiveContinuation {
+                        plan_path: dir.path().join("missing.yaml"),
+                        plan_workspace_path: ".anvil/plans/missing.yaml".to_string(),
+                        target_run_id: "run-001".to_string(),
+                        directive_round: 1,
+                        directive_hash: directive.hash().to_string(),
+                        regression_freeze: None,
+                    },
+                    || {
+                        calls += 1;
+                        Ok("must not run".to_string())
+                    },
+                )
+                .is_err()
+        );
+        assert_eq!(calls, 0);
     }
 }

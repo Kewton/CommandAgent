@@ -46,7 +46,7 @@ export default function DashboardPage() {
       active="dashboard"
       eyebrow="01 / SYSTEM OVERVIEW"
       title="Evidence, at a glance."
-      description="Repository truth projected into one quiet surface—no controls, no side effects, no hidden execution."
+      description="Repository truth projected into one quiet surface. Trial runs cross the existing confirmed CLI boundary; observation remains file-backed."
     >
       <section className="metric-strip" aria-label="Repository summary">
         <div>
@@ -62,8 +62,8 @@ export default function DashboardPage() {
           <strong>{bands.data?.length ?? "—"}</strong>
         </div>
         <div>
-          <span>Mutation surface</span>
-          <strong className="accent-text">ZERO</strong>
+          <span>Execution surface</span>
+          <strong className="accent-text">CLI ONLY</strong>
         </div>
       </section>
 
