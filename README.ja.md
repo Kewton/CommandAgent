@@ -11,7 +11,7 @@
 ローカルファーストなコーディングエージェントです。**
 
 CommandAgent は信頼できるローカルワークスペース内で動作し、モデル
-プロバイダーとして Ollama、Gemini、OpenAI を利用しながら、実装を検証に
+プロバイダーとして Ollama、LM Studio、Gemini、OpenAI を利用しながら、実装を検証に
 結び付けます。1つのプロンプトから始めることも、再利用できる YAML プランを
 生成することも、UltraPlan で大きなゴールをフェーズに分割して途中の失敗を
 修復することもできます。
@@ -38,8 +38,8 @@ scripted asset と、実際の provider-backed REPL `/ultra-plan-run` の録画�
   `--run-ultra-plan` で大きなゴールをフェーズに分割します。
 - **タスクプロファイル** — `generic`、`nextjs`、`python-cli`、`data` の
   ガイダンスと検証契約を利用できます。
-- **マルチプロバイダー** — Ollama でローカル実行するか、Gemini と OpenAI に
-  接続できます。
+- **マルチプロバイダー** — Ollama または LM Studio でローカル実行するか、Gemini と
+  OpenAI に接続できます。
 - **検証と修復** — 申告された結果を確認してエビデンスを収集し、失敗を有界な
   修復ループへ戻します。
 - **対話型 TUI** — 固定ステータスフッター、アクティビティスピナー、ストリーミング
@@ -84,6 +84,7 @@ scripted asset と、実際の provider-backed REPL `/ultra-plan-run` の録画�
 | --- | --- |
 | Rust 1.88 以降 | CommandAgent のビルドとインストール |
 | Ollama（任意） | ローカルモデルの実行 |
+| LM Studio（任意） | OpenAI 互換 API によるローカルモデルの実行 |
 | `GEMINI_API_KEY` または `OPENAI_API_KEY`（任意） | Gemini または OpenAI の実行 |
 | Node.js と npm（任意） | インタラクションプローブの導入と実行 |
 | Python 3（任意） | 評価ツールと Python 向けチェック |
@@ -119,7 +120,8 @@ formula を追加する案がありますが、外部リポジトリは作成し
 
 OpenAI を使う場合は `OPENAI_API_KEY` を起動プロセスの環境だけに設定します。
 Gemini はプロセス環境またはアクティブなワークスペース直下の `.env` を利用できます。
-CommandAgent はログ内の値を秘匿します。
+LM Studio のサーバー認証を有効にした場合は、任意の `LM_STUDIO_API_TOKEN` を
+起動プロセスの環境へ設定します。CommandAgent はログ内の値を秘匿します。
 
 ## 使い方
 
@@ -127,6 +129,14 @@ CommandAgent はログ内の値を秘匿します。
 
 ```bash
 commandagent --provider ollama --model "<your-model>"
+```
+
+LM Studio サーバーから見えるモデルを使う場合:
+
+```bash
+lms server start
+commandagent --provider lm-studio --model "<lm-studio-model-id>" \
+  --lm-studio-host http://localhost:1234
 ```
 
 REPL に入らず、minimal loop を1回実行します。

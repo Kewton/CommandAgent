@@ -203,6 +203,12 @@ mod tests {
         let investigate = &workflow.nodes["investigate"];
         assert_eq!(investigate.model.as_deref(), Some("elevated-model"));
         assert_eq!(investigate.provider, Some(Provider::Gemini));
+
+        let lm_studio = Workflow::parse(&VALID_V0_1.replace("gemini", "lm-studio")).unwrap();
+        assert_eq!(
+            lm_studio.nodes["investigate"].provider,
+            Some(Provider::LmStudio)
+        );
     }
 
     #[test]

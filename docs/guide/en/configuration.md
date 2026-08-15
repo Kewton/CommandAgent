@@ -23,14 +23,14 @@ Resolution is field-by-field, and not every setting supports all four layers.
 | `footer` | `--no-footer` or `--footer` > preset > top-level key > `on` |
 | `stream` | `--stream` > preset > top-level key > on for REPL, off for direct actions |
 | `model`, `provider`, `context_budget`, `chat_timeout_secs` | CLI > preset > built-in/provider-dependent default |
-| `api` | `--api` > preset > `chat_completions` (OpenAI only) |
+| `api` | `--api` > preset > `chat_completions` (OpenAI and LM Studio) |
 | `tool_protocol` | CLI > preset > provider capability default |
 | `planner_model`, `planner_provider` | CLI > preset > executor role inheritance; a different provider requires a planner model |
 | `profile` | CLI > preset > goal/workspace inference > `generic` |
-| `ollama_host`, `num_predict`, `max_iterations`, `chat_retries`, `style`, `state_dir`, and other CLI-only fields | CLI value or CLI-declared/built-in default; config files do not accept them |
+| `ollama_host`, `lm_studio_host`, `num_predict`, `max_iterations`, `chat_retries`, `style`, `state_dir`, and other CLI-only fields | CLI value or CLI-declared/built-in default; config files do not accept them |
 
-The timeout default is `600` seconds if either role uses Ollama and `180`
-seconds when both roles are remote. `context_budget` defaults to `65536`.
+The timeout default is `600` seconds if either role uses Ollama or LM Studio
+and `180` seconds when both roles are remote. `context_budget` defaults to `65536`.
 `plan_preset` is normally `none`; explicit `data` plus `fix` or `investigate`
 can compute `profile` before the planner-model default is applied.
 
@@ -62,11 +62,11 @@ unquoted integers.
 | Preset key | Accepted value | Effective fallback when absent everywhere |
 | --- | --- | --- |
 | `model` | model ID string | `qwen3.6:27b-coding-nvfp4` |
-| `provider` | `"ollama"`, `"openai"`, or `"gemini"` | `"ollama"` |
+| `provider` | `"ollama"`, `"lm-studio"`, `"openai"`, or `"gemini"` | `"ollama"` |
 | `api` | `"chat_completions"` or `"responses"` | `"chat_completions"` |
 | `tool_protocol` | `"native"` or `"text"` | provider capability default |
 | `planner_model` | model ID string | executor model when providers match; otherwise required |
-| `planner_provider` | `"ollama"`, `"openai"`, or `"gemini"` | executor provider |
+| `planner_provider` | `"ollama"`, `"lm-studio"`, `"openai"`, or `"gemini"` | executor provider |
 | `context_budget` | non-negative platform-sized integer | `65536` |
 | `chat_timeout_secs` | non-negative 64-bit integer | provider-dependent `600` or `180` |
 | `profile` | profile string | inferred, then `"generic"` |
@@ -156,13 +156,14 @@ configuration.
 
 ## Environment variables
 
-The OpenAI key is read only from the process environment. The Gemini key checks
-the process environment first and then a workspace `.env`; see
-[Providers](providers.md). The following environment variables also affect
-normal user-visible behavior:
+The OpenAI key and optional `LM_STUDIO_API_TOKEN` are read only from the process
+environment. The Gemini key checks the process environment first and then a
+workspace `.env`; see [Providers](providers.md). The following environment
+variables also affect normal user-visible behavior:
 
 | Variable | Effect |
 | --- | --- |
+| `LM_STUDIO_API_TOKEN` | Supplies an optional Bearer token when LM Studio server authentication is enabled. |
 | `NO_COLOR` | Disables ANSI color. It has no `ANVIL_*` alias. |
 | `COMMANDAGENT_NO_FOOTER` / `ANVIL_NO_FOOTER` | A non-empty value disables the fixed footer. |
 | `COMMANDAGENT_NO_SPINNER` / `ANVIL_NO_SPINNER` | A non-empty value disables the progress spinner. |

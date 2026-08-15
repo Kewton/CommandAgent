@@ -10,8 +10,8 @@
 **A local-first coding agent that turns a goal into verified code through a
 minimal loop or structured plans.**
 
-CommandAgent works inside a trusted local workspace, uses Ollama, Gemini, or
-OpenAI as its model provider, and keeps implementation tied to verification.
+CommandAgent works inside a trusted local workspace, uses Ollama, LM Studio,
+Gemini, or OpenAI as its model provider, and keeps implementation tied to verification.
 Start with a single prompt, generate a reusable YAML plan, or let an UltraPlan
 break a larger goal into phases and repair failures along the way.
 
@@ -37,8 +37,8 @@ separate recording of a real provider-backed REPL `/ultra-plan-run`.
   `--ultra-plan-run`, and `--run-ultra-plan`.
 - **Task profiles** — use `generic`, `nextjs`, `python-cli`, or `data` guidance
   and verification contracts.
-- **Multiple providers** — run locally with Ollama or connect to Gemini and
-  OpenAI.
+- **Multiple providers** — run locally with Ollama or LM Studio, or connect to
+  Gemini and OpenAI.
 - **Verification and repair** — check claimed results, collect evidence, and
   feed failures into bounded repair loops.
 - **Interactive TUI** — get a fixed status footer, activity spinner, streaming
@@ -82,6 +82,7 @@ model that actually exists in your local `ollama list` output.
 | --- | --- |
 | Rust 1.88 or newer | Building and installing CommandAgent |
 | Ollama (optional) | Local model execution |
+| LM Studio (optional) | Local OpenAI-compatible model execution |
 | `GEMINI_API_KEY` or `OPENAI_API_KEY` (optional) | Gemini or OpenAI execution |
 | Node.js and npm (optional) | Installing and running the interaction probe |
 | Python 3 (optional) | Evaluation tooling and Python-oriented checks |
@@ -119,7 +120,9 @@ or `--check-only` to inspect prerequisites without changing anything.
 
 For OpenAI, set `OPENAI_API_KEY` only in the launching process environment.
 Gemini may use the process environment or `.env` at the active workspace root.
-CommandAgent redacts these values from logs.
+When LM Studio server authentication is enabled, set the optional
+`LM_STUDIO_API_TOKEN` in the launching process environment. CommandAgent
+redacts these values from logs.
 
 ## Usage
 
@@ -127,6 +130,14 @@ Start the interactive REPL with a local model:
 
 ```bash
 commandagent --provider ollama --model "<your-model>"
+```
+
+Use a model visible to an LM Studio server:
+
+```bash
+lms server start
+commandagent --provider lm-studio --model "<lm-studio-model-id>" \
+  --lm-studio-host http://localhost:1234
 ```
 
 Run the minimal loop once without entering the REPL:

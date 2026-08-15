@@ -23,13 +23,13 @@ CLI フラグ > 選択した preset のフィールド > トップレベル設�
 | `footer` | `--no-footer` または `--footer` > preset > トップレベルキー > `on` |
 | `stream` | `--stream` > preset > トップレベルキー > REPL ではオン、直接アクションではオフ |
 | `model`、`provider`、`context_budget`、`chat_timeout_secs` | CLI > preset > 組み込み／プロバイダ依存の既定値 |
-| `api` | `--api` > preset > `chat_completions`（OpenAI のみ） |
+| `api` | `--api` > preset > `chat_completions`（OpenAI と LM Studio） |
 | `tool_protocol` | CLI > preset > プロバイダ能力の既定値 |
 | `planner_model`、`planner_provider` | CLI > preset > 実行役割から継承。異なるプロバイダには planner model が必要 |
 | `profile` | CLI > preset > ゴール／ワークスペース推論 > `generic` |
-| `ollama_host`、`num_predict`、`max_iterations`、`chat_retries`、`style`、`state_dir`、その他の CLI 専用フィールド | CLI 値または CLI 宣言／組み込み既定値。設定ファイルでは受け付けない |
+| `ollama_host`、`lm_studio_host`、`num_predict`、`max_iterations`、`chat_retries`、`style`、`state_dir`、その他の CLI 専用フィールド | CLI 値または CLI 宣言／組み込み既定値。設定ファイルでは受け付けない |
 
-timeout の既定値は、いずれかの役割が Ollama なら `600` 秒、両方がリモートなら `180` 秒です。
+timeout の既定値は、いずれかの役割が Ollama または LM Studio なら `600` 秒、両方がリモートなら `180` 秒です。
 `context_budget` の既定値は `65536` です。`plan_preset` は通常 `none` ですが、明示した `data` と
 `fix` または `investigate` の組み合わせでは、planner model の既定値を適用する前に `profile` を
 計算値として選ぶことがあります。
@@ -60,11 +60,11 @@ timeout の既定値は、いずれかの役割が Ollama なら `600` 秒、両
 | Preset キー | 受け付ける値 | どの層にもない場合の実効 fallback |
 | --- | --- | --- |
 | `model` | model ID 文字列 | `qwen3.6:27b-coding-nvfp4` |
-| `provider` | `"ollama"`、`"openai"`、`"gemini"` | `"ollama"` |
+| `provider` | `"ollama"`、`"lm-studio"`、`"openai"`、`"gemini"` | `"ollama"` |
 | `api` | `"chat_completions"` または `"responses"` | `"chat_completions"` |
 | `tool_protocol` | `"native"` または `"text"` | プロバイダ能力の既定値 |
 | `planner_model` | model ID 文字列 | プロバイダが同じなら実行モデル。それ以外は必須 |
-| `planner_provider` | `"ollama"`、`"openai"`、`"gemini"` | 実行プロバイダ |
+| `planner_provider` | `"ollama"`、`"lm-studio"`、`"openai"`、`"gemini"` | 実行プロバイダ |
 | `context_budget` | 非負のプラットフォームサイズ整数 | `65536` |
 | `chat_timeout_secs` | 非負の 64 bit 整数 | プロバイダ依存の `600` または `180` |
 | `profile` | profile 文字列 | 推論後に `"generic"` |
@@ -148,12 +148,13 @@ preset はサポートしません。値はクォートあり／なしの両方�
 
 ## 環境変数
 
-OpenAI キーはプロセス環境だけから読みます。Gemini キーは最初にプロセス環境、次に
+OpenAI キーと任意の `LM_STUDIO_API_TOKEN` はプロセス環境だけから読みます。Gemini キーは最初にプロセス環境、次に
 ワークスペースの `.env` から読みます。[プロバイダ](providers.md)も参照してください。
 通常のユーザー向け動作には次の環境変数も影響します。
 
 | 環境変数 | 効果 |
 | --- | --- |
+| `LM_STUDIO_API_TOKEN` | LM Studio のサーバー認証を有効にした場合に任意の Bearer token を指定します。 |
 | `NO_COLOR` | ANSI color を無効にします。`ANVIL_*` の別名はありません。 |
 | `COMMANDAGENT_NO_FOOTER` / `ANVIL_NO_FOOTER` | 空でない値で固定 footer を無効にします。 |
 | `COMMANDAGENT_NO_SPINNER` / `ANVIL_NO_SPINNER` | 空でない値で進捗 spinner を無効にします。 |

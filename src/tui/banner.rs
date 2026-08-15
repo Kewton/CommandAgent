@@ -138,11 +138,7 @@ pub(crate) fn render_startup_banner_for_locale(
 }
 
 fn provider_label(provider: Provider) -> &'static str {
-    match provider {
-        Provider::Ollama => "ollama",
-        Provider::Openai => "openai",
-        Provider::Gemini => "gemini",
-    }
+    provider.as_str()
 }
 
 fn narration_label(mode: crate::config::NarrationMode) -> &'static str {
@@ -196,6 +192,7 @@ mod tests {
             planner_model: "pm".to_string(),
             planner_provider: Provider::Gemini,
             ollama_host: "http://localhost:11434".to_string(),
+            lm_studio_host: "http://localhost:1234".to_string(),
             num_predict: 100,
             max_iterations: 4,
             chat_timeout_secs: 1,

@@ -10,6 +10,7 @@ use commandagent::providers::gemini::GeminiClient;
 use commandagent::providers::gemini_function_calling::{
     build_interactions_request, parse_interactions_response,
 };
+use commandagent::providers::lm_studio::LmStudioClient;
 use commandagent::providers::ollama::OllamaClient;
 use commandagent::providers::ollama::parse_chat_response;
 use commandagent::providers::openai::{
@@ -393,6 +394,7 @@ fn live_openai_responses_no_tool_http_smoke() {
         planner_model: "unused".to_string(),
         planner_provider: Provider::Openai,
         ollama_host: "http://127.0.0.1:11434".to_string(),
+        lm_studio_host: "http://localhost:1234".to_string(),
         num_predict: 64,
         max_iterations: 1,
         chat_timeout_secs: 30,
@@ -600,6 +602,7 @@ fn live_gemini_interactions_no_tool_http_smoke() {
             .unwrap_or_else(|_| "gemini-3.5-flash".to_string()),
         planner_provider: Provider::Gemini,
         ollama_host: "http://127.0.0.1:11434".to_string(),
+        lm_studio_host: "http://localhost:1234".to_string(),
         num_predict: 64,
         max_iterations: 1,
         chat_timeout_secs: 30,
@@ -668,6 +671,40 @@ fn live_ollama_chat_no_tool_http_smoke() {
             false,
         )
         .expect("Ollama /api/chat no-tool smoke");
+}
+
+#[test]
+#[ignore]
+fn live_lm_studio_chat_completions_no_tool_http_smoke() {
+    if commandagent::env_compat::var("COMMANDAGENT_LIVE_LM_STUDIO_TESTS")
+        .ok()
+        .as_deref()
+        != Some("1")
+    {
+        return;
+    }
+    let host = commandagent::env_compat::var("COMMANDAGENT_LM_STUDIO_HOST")
+        .unwrap_or_else(|_| "http://127.0.0.1:1234".to_string());
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let mut config = smoke_config(tmp.path(), PathBuf::from("."), Provider::LmStudio);
+    config.lm_studio_host = host;
+    config.openai_api = OpenAiApi::ChatCompletions;
+    let mut client = LmStudioClient::from_env(&config).expect("LM Studio client");
+    let visible_models = client.list_models().expect("LM Studio /v1/models smoke");
+    let model = commandagent::env_compat::var("COMMANDAGENT_LM_STUDIO_SMOKE_MODEL")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| visible_models.first().cloned())
+        .expect("LM Studio must expose at least one model");
+
+    client
+        .chat(
+            &model,
+            &[ConversationMessage::user("Reply with exactly OK.")],
+            &[],
+            false,
+        )
+        .expect("LM Studio /v1/chat/completions no-tool smoke");
 }
 
 fn find_workspace_with_key(name: &str) -> Option<PathBuf> {
@@ -799,6 +836,7 @@ fn smoke_config(tmp_root: &Path, key_root: PathBuf, provider: Provider) -> Confi
         planner_model: "unused".to_string(),
         planner_provider: provider,
         ollama_host: "http://127.0.0.1:11434".to_string(),
+        lm_studio_host: "http://localhost:1234".to_string(),
         num_predict: 512,
         max_iterations: 1,
         chat_timeout_secs: 60,

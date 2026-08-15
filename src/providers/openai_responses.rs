@@ -53,12 +53,52 @@ pub(crate) fn build_request(
     reasoning_effort: Option<&str>,
     state: &ConversationState,
 ) -> Value {
+    let mut body = build_base_request(
+        model,
+        messages,
+        tools,
+        native_tools_enabled,
+        max_predict,
+        reasoning_effort,
+        state,
+    );
+    body["store"] = Value::Bool(false);
+    body["include"] = json!(["reasoning.encrypted_content"]);
+    body
+}
+
+pub(crate) fn build_lm_studio_request(
+    model: &str,
+    messages: &[ConversationMessage],
+    tools: &[ToolSpec],
+    native_tools_enabled: bool,
+    max_predict: usize,
+    state: &ConversationState,
+) -> Value {
+    build_base_request(
+        model,
+        messages,
+        tools,
+        native_tools_enabled,
+        max_predict,
+        None,
+        state,
+    )
+}
+
+fn build_base_request(
+    model: &str,
+    messages: &[ConversationMessage],
+    tools: &[ToolSpec],
+    native_tools_enabled: bool,
+    max_predict: usize,
+    reasoning_effort: Option<&str>,
+    state: &ConversationState,
+) -> Value {
     let mut body = json!({
         "model": model,
         "input": responses_input(messages, state),
         "max_output_tokens": max_predict,
-        "store": false,
-        "include": ["reasoning.encrypted_content"],
     });
     if native_tools_enabled && !tools.is_empty() {
         body["tools"] = Value::Array(tools.iter().map(sanitized_tool_schema).collect());

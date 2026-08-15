@@ -691,11 +691,7 @@ where
 }
 
 fn provider_name(provider: Provider) -> &'static str {
-    match provider {
-        Provider::Ollama => "ollama",
-        Provider::Openai => "openai",
-        Provider::Gemini => "gemini",
-    }
+    provider.as_str()
 }
 
 fn emit(path: &Path, value: serde_json::Value) -> anyhow::Result<()> {

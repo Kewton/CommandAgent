@@ -1720,6 +1720,7 @@ fn config(root: PathBuf) -> Config {
         planner_model: "pm".to_string(),
         planner_provider: Provider::Gemini,
         ollama_host: "http://localhost:11434".to_string(),
+        lm_studio_host: "http://localhost:1234".to_string(),
         num_predict: 100,
         max_iterations: 6,
         chat_timeout_secs: 1,

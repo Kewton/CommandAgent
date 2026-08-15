@@ -401,6 +401,43 @@ fn add_provider_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {
         checks.extend(ollama_checks(&config.ollama_host, &ollama_roles));
     }
 
+    let lm_studio_roles = [
+        ("executor", config.provider, config.model.as_str()),
+        (
+            "planner",
+            config.planner_provider,
+            config.planner_model.as_str(),
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(role, provider, model)| (provider == Provider::LmStudio).then_some((role, model)))
+    .collect::<Vec<_>>();
+    if !lm_studio_roles.is_empty() {
+        let api_token =
+            crate::env_compat::var(crate::providers::lm_studio::LM_STUDIO_API_TOKEN_ENV)
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty());
+        checks.push(DoctorCheck::new(
+            "provider.lm_studio.api_token",
+            "provider",
+            "LM Studio token",
+            CheckStatus::Pass,
+            if api_token.is_some() {
+                "configured in the process environment"
+            } else {
+                "not configured (optional unless server authentication is enabled)"
+            },
+            None,
+            json!({ "configured": api_token.is_some(), "source": "process_environment" }),
+        ));
+        checks.extend(lm_studio_checks(
+            &config.lm_studio_host,
+            api_token,
+            &lm_studio_roles,
+        ));
+    }
+
     if config.provider == Provider::Openai || config.planner_provider == Provider::Openai {
         let openai_key = std::env::var("OPENAI_API_KEY")
             .ok()
@@ -635,6 +672,90 @@ fn ollama_checks(host: &str, roles: &[(&str, &str)]) -> Vec<DoctorCheck> {
             ),
             json!({ "host": host, "reachable": false, "error": format!("{error:#}") }),
         )],
+    }
+}
+
+fn lm_studio_checks(
+    host: &str,
+    api_token: Option<String>,
+    roles: &[(&str, &str)],
+) -> Vec<DoctorCheck> {
+    let client = crate::providers::lm_studio::LmStudioClient::new(
+        host.to_string(),
+        api_token,
+        OLLAMA_TIMEOUT.as_secs(),
+        1,
+        0,
+        OpenAiApi::ChatCompletions,
+        None,
+    );
+    let models = client.and_then(|client| client.list_models());
+    match models {
+        Ok(models) => {
+            let mut checks = vec![DoctorCheck::new(
+                "provider.lm_studio.reachable",
+                "provider",
+                "LM Studio",
+                CheckStatus::Pass,
+                format!(
+                    "{host}/v1/models reachable; {} visible model(s)",
+                    models.len()
+                ),
+                None,
+                json!({ "host": host, "reachable": true, "model_count": models.len() }),
+            )];
+            for (role, model) in roles {
+                let present = models.iter().any(|candidate| candidate == model);
+                checks.push(DoctorCheck::new(
+                    format!("provider.lm_studio.{role}_model"),
+                    "provider",
+                    format!("LM Studio {role} model"),
+                    if present {
+                        CheckStatus::Pass
+                    } else {
+                        CheckStatus::Fail
+                    },
+                    if present {
+                        format!("{model} is visible in /v1/models")
+                    } else {
+                        format!("{model} is absent from /v1/models")
+                    },
+                    (!present).then(|| {
+                        format!(
+                            "load '{model}' in LM Studio, enable Just-In-Time loading, or choose a visible model"
+                        )
+                    }),
+                    json!({ "role": role, "model": model, "present": present }),
+                ));
+            }
+            checks
+        }
+        Err(error) => {
+            let message = single_line(format!("{error:#}"));
+            let authentication_failed = message.contains("401") || message.contains("403");
+            vec![DoctorCheck::new(
+                "provider.lm_studio.reachable",
+                "provider",
+                "LM Studio",
+                CheckStatus::Fail,
+                format!("{host}/v1/models unreachable ({message})"),
+                Some(if authentication_failed {
+                    format!(
+                        "set {} in the process environment to a valid LM Studio API token",
+                        crate::providers::lm_studio::LM_STUDIO_API_TOKEN_ENV
+                    )
+                } else {
+                    "start the LM Studio server and verify --lm-studio-host, networking, and firewall settings"
+                        .to_string()
+                }),
+                json!({
+                    "host": host,
+                    "reachable": false,
+                    "authentication_failed": authentication_failed,
+                    "error": message,
+                }),
+            )]
+        }
     }
 }
 
@@ -970,11 +1091,7 @@ fn source_class(source: &str) -> &'static str {
 }
 
 fn provider_label(provider: Provider) -> &'static str {
-    match provider {
-        Provider::Ollama => "ollama",
-        Provider::Openai => "openai",
-        Provider::Gemini => "gemini",
-    }
+    provider.as_str()
 }
 
 fn status_label(status: CheckStatus) -> &'static str {
@@ -1151,5 +1268,72 @@ mod tests {
         assert_eq!(checks[0].status, CheckStatus::Pass);
         assert_eq!(checks[1].status, CheckStatus::Pass);
         assert_eq!(checks[2].status, CheckStatus::Fail);
+    }
+
+    #[test]
+    fn lm_studio_models_check_covers_reachability_auth_and_role_models() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 2048];
+            let read = stream.read(&mut request).unwrap();
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.contains("GET /v1/models"));
+            assert!(request.contains("authorization: Bearer lm-doctor-token"));
+            let body = r#"{"object":"list","data":[{"id":"executor/model"}]}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+        });
+
+        let host = format!("http://{address}/v1");
+        let checks = lm_studio_checks(
+            &host,
+            Some("lm-doctor-token".to_string()),
+            &[("executor", "executor/model"), ("planner", "missing/model")],
+        );
+        server.join().unwrap();
+
+        assert_eq!(checks[0].status, CheckStatus::Pass);
+        assert_eq!(checks[1].status, CheckStatus::Pass);
+        assert_eq!(checks[2].status, CheckStatus::Fail);
+        assert!(checks[2].remediation.as_deref().unwrap().contains("load"));
+    }
+
+    #[test]
+    fn lm_studio_auth_failure_has_token_remediation() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 1024];
+            let _ = stream.read(&mut request).unwrap();
+            write!(
+                stream,
+                "HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            )
+            .unwrap();
+        });
+
+        let checks = lm_studio_checks(
+            &format!("http://{address}"),
+            None,
+            &[("executor", "executor/model")],
+        );
+        server.join().unwrap();
+
+        assert_eq!(checks[0].status, CheckStatus::Fail);
+        assert!(
+            checks[0]
+                .remediation
+                .as_deref()
+                .unwrap()
+                .contains(crate::providers::lm_studio::LM_STUDIO_API_TOKEN_ENV)
+        );
     }
 }

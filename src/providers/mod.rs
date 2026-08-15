@@ -1,6 +1,7 @@
 pub mod gemini;
 pub mod gemini_function_calling;
 pub(crate) mod guidance;
+pub mod lm_studio;
 pub mod ollama;
 pub mod openai;
 mod openai_chat_completions;
@@ -113,6 +114,7 @@ pub fn client_from_config(config: &Config, planner: bool) -> anyhow::Result<Box<
             config.num_predict,
             config.chat_retries,
         )?)),
+        Provider::LmStudio => Ok(Box::new(lm_studio::LmStudioClient::from_env(config)?)),
         Provider::Openai => Ok(Box::new(openai::OpenAiClient::from_env(config)?)),
         Provider::Gemini => Ok(Box::new(gemini::GeminiClient::from_env(config)?)),
     }

@@ -44,8 +44,33 @@ pub const SUPPORTED_TOP_LEVEL_KEYS: &[&str] = &[
 #[serde(rename_all = "kebab-case")]
 pub enum Provider {
     Ollama,
+    LmStudio,
     Openai,
     Gemini,
+}
+
+impl Provider {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Ollama => "ollama",
+            Self::LmStudio => "lm-studio",
+            Self::Openai => "openai",
+            Self::Gemini => "gemini",
+        }
+    }
+
+    pub const fn display_name(self) -> &'static str {
+        match self {
+            Self::Ollama => "Ollama",
+            Self::LmStudio => "LM Studio",
+            Self::Openai => "OpenAI",
+            Self::Gemini => "Gemini",
+        }
+    }
+
+    pub const fn is_local(self) -> bool {
+        matches!(self, Self::Ollama | Self::LmStudio)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -112,6 +137,7 @@ impl From<ProviderArg> for Provider {
     fn from(value: ProviderArg) -> Self {
         match value {
             ProviderArg::Ollama => Self::Ollama,
+            ProviderArg::LmStudio => Self::LmStudio,
             ProviderArg::Openai => Self::Openai,
             ProviderArg::Gemini => Self::Gemini,
         }
@@ -296,6 +322,7 @@ pub struct Config {
     pub planner_model: String,
     pub planner_provider: Provider,
     pub ollama_host: String,
+    pub lm_studio_host: String,
     pub num_predict: usize,
     pub max_iterations: usize,
     pub chat_timeout_secs: u64,
@@ -664,6 +691,7 @@ impl Config {
             planner_model: planner_model.value,
             planner_provider: planner_provider.value,
             ollama_host: cli.ollama_host,
+            lm_studio_host: normalize_lm_studio_host(&cli.lm_studio_host)?,
             num_predict: cli.num_predict,
             max_iterations: cli.max_iterations,
             chat_timeout_secs,
@@ -691,6 +719,23 @@ fn validate_openai_executor_model(provider: Provider, model: &str) -> anyhow::Re
         );
     }
     Ok(())
+}
+
+pub(crate) fn normalize_lm_studio_host(value: &str) -> anyhow::Result<String> {
+    let trimmed = value.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        bail!("--lm-studio-host must not be empty");
+    }
+    let normalized = trimmed.strip_suffix("/v1").unwrap_or(trimmed);
+    let parsed = reqwest::Url::parse(normalized)
+        .with_context(|| format!("invalid --lm-studio-host URL `{value}`"))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        bail!("--lm-studio-host must use http or https");
+    }
+    if parsed.query().is_some() || parsed.fragment().is_some() {
+        bail!("--lm-studio-host must not contain a query or fragment");
+    }
+    Ok(normalized.to_string())
 }
 
 fn config_source_origin(source: &str) -> &'static str {
@@ -1284,10 +1329,11 @@ fn parse_provider_value(
 ) -> anyhow::Result<Provider> {
     match parse_string_value(path, line_no, key, value)?.as_str() {
         "ollama" => Ok(Provider::Ollama),
+        "lm-studio" => Ok(Provider::LmStudio),
         "openai" => Ok(Provider::Openai),
         "gemini" => Ok(Provider::Gemini),
         _ => bail!(
-            "{}:{} {key} expects provider ollama|openai|gemini",
+            "{}:{} {key} expects provider ollama|lm-studio|openai|gemini",
             path.display(),
             line_no
         ),
@@ -1413,7 +1459,7 @@ fn resolve_chat_timeout(
     if let Some(secs) = override_secs {
         return (secs, "override:cli".to_string());
     }
-    if matches!(provider, Provider::Ollama) || matches!(planner_provider, Provider::Ollama) {
+    if provider.is_local() || planner_provider.is_local() {
         (
             LOCAL_PROVIDER_CHAT_TIMEOUT_SECS,
             "default:local_provider".to_string(),
@@ -2007,6 +2053,60 @@ tool_protocol = "native"
     }
 
     #[test]
+    fn lm_studio_is_local_and_normalizes_optional_v1_suffix() {
+        let cli = Cli::parse_from([
+            "commandagent",
+            "--provider",
+            "lm-studio",
+            "--model",
+            "qwen/test",
+            "--lm-studio-host",
+            "http://127.0.0.1:1234/v1/",
+        ]);
+        let config = Config::from_cli(cli).unwrap();
+
+        assert_eq!(config.provider, Provider::LmStudio);
+        assert_eq!(config.planner_provider, Provider::LmStudio);
+        assert_eq!(config.lm_studio_host, "http://127.0.0.1:1234");
+        assert_eq!(config.chat_timeout_secs, LOCAL_PROVIDER_CHAT_TIMEOUT_SECS);
+        assert_eq!(config.chat_timeout_source, "default:local_provider");
+        assert_eq!(config.provider.as_str(), "lm-studio");
+    }
+
+    #[test]
+    fn lm_studio_host_rejects_non_http_and_query_components() {
+        let scheme = normalize_lm_studio_host("file:///tmp/lm-studio").unwrap_err();
+        assert!(scheme.to_string().contains("http or https"));
+
+        let query = normalize_lm_studio_host("http://localhost:1234?token=secret").unwrap_err();
+        assert!(query.to_string().contains("query or fragment"));
+    }
+
+    #[test]
+    fn preset_accepts_lm_studio_for_both_roles() {
+        let dir = tempfile::tempdir().unwrap();
+        let cwd = dir.path().to_string_lossy().to_string();
+        std::fs::create_dir_all(dir.path().join(".commandagent")).unwrap();
+        std::fs::write(
+            dir.path().join(".commandagent/config.toml"),
+            "[preset.local]\nmodel = \"qwen/test\"\nprovider = \"lm-studio\"\nplanner_model = \"qwen/test\"\nplanner_provider = \"lm-studio\"\n",
+        )
+        .unwrap();
+
+        let config = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--cwd",
+            &cwd,
+            "--preset",
+            "local",
+        ]))
+        .unwrap();
+
+        assert_eq!(config.provider, Provider::LmStudio);
+        assert_eq!(config.planner_provider, Provider::LmStudio);
+    }
+
+    #[test]
     fn remote_chat_timeout_defaults_to_remote_provider_budget() {
         let cli = Cli::parse_from([
             "commandagent",
@@ -2562,7 +2662,7 @@ profile = "nextjs"
 
         assert!(err.contains(".anvil/config.toml"), "{err}");
         assert!(err.contains("preset.bad.provider"), "{err}");
-        assert!(err.contains("ollama|openai|gemini"), "{err}");
+        assert!(err.contains("ollama|lm-studio|openai|gemini"), "{err}");
     }
 
     #[test]

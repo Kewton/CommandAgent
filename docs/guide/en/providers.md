@@ -12,6 +12,7 @@ executor model unless it is overridden.
 | Provider | CLI value | Required key | Obtain/setup | CommandAgent endpoint | Configuration |
 | --- | --- | --- | --- | --- | --- |
 | Ollama | `ollama` | none for a local server | [Ollama quickstart](https://docs.ollama.com/quickstart) | `--ollama-host`, default `http://localhost:11434`; `/api/chat` is appended | `--provider ollama --model <model-id>` |
+| LM Studio | `lm-studio` | none by default; `LM_STUDIO_API_TOKEN` when server authentication is enabled | [LM Studio local server](https://lmstudio.ai/docs/developer/core/server) | `--lm-studio-host`, default `http://localhost:1234`; OpenAI-compatible `/v1` routes are appended | `--provider lm-studio --model <model-id>` |
 | OpenAI | `openai` | `OPENAI_API_KEY` | [Create an OpenAI API key](https://platform.openai.com/api-keys) | fixed `https://api.openai.com`; explicit `--api chat-completions` (default) or `--api responses` | process environment only |
 | Gemini | `gemini` | `GEMINI_API_KEY` | [Create a Gemini API key in Google AI Studio](https://aistudio.google.com/app/apikey) | fixed Google Generative Language endpoints | process environment or workspace `.env` |
 
@@ -27,6 +28,10 @@ rejected from command arguments, presets, suite definitions, and workspace
 `.env` files. `GEMINI_API_KEY` first checks the process environment and then
 falls back to `<workspace>/.env`, where the workspace is the canonical `--cwd`
 or current directory.
+
+`LM_STUDIO_API_TOKEN` is optional and read only from the process environment.
+Leave it unset for the default unauthenticated local server. Set it only when
+LM Studio's Require Authentication setting is enabled.
 
 ### Shell environment
 
@@ -88,6 +93,29 @@ retain the provider's reasoning output items and replay them with subsequent
 function outputs in the same run. Response IDs, service tier, cached input
 tokens, and reasoning-token counts are recorded in provider turn events.
 
+## LM Studio server and models
+
+Start the server from LM Studio's Developer tab or with `lms`, then select an
+exact model identifier returned by `/v1/models`:
+
+```bash
+lms server start
+curl http://localhost:1234/v1/models
+commandagent --provider lm-studio --model <model-id> \
+  --lm-studio-host http://localhost:1234
+```
+
+The host flag accepts either `http://localhost:1234` or
+`http://localhost:1234/v1`; CommandAgent normalizes the optional `/v1` suffix.
+Chat Completions is the default. Select LM Studio's Responses endpoint with
+`--api responses`. Native function tools are enabled by default; use
+`--tool-protocol text` when measuring a model that does not reliably produce
+structured tool calls.
+
+LM Studio provider turns currently use the non-streaming client path. An
+interactive REPL remains functional when `--stream on`, but output is rendered
+after each provider turn completes.
+
 ## Ollama host and models
 
 Ollama requires a running HTTP server and a locally available model. Local API
@@ -130,6 +158,8 @@ security consequences; follow the official
 - Store the OpenAI key only in the launching process environment. Gemini may
   also use workspace `.env`. Never put a cloud key in `config.toml`, a preset,
   a suite, a goal, or a command argument.
+- Store an LM Studio token only in the launching process environment when
+  server authentication is enabled; it is unnecessary for the default server.
 - Set `.env` permissions to `600` where Unix permissions are available.
 - Do not display a key value on screen, include it in screenshots, paste it into
   issues, or capture it in terminal transcripts.
@@ -138,3 +168,5 @@ security consequences; follow the official
   rotate a key immediately after suspected exposure.
 - Treat the Ollama host as a service endpoint. Do not expose an unauthenticated
   local server to an untrusted network.
+- Apply the same restriction to LM Studio, especially when Serve on Local
+  Network is enabled.

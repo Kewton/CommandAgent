@@ -508,7 +508,10 @@ fn validate_spec(spec: &SessionSpec) -> Result<(), SessionError> {
         }
     }
     for provider in [&spec.provider, &spec.planner_provider] {
-        if !matches!(provider.as_str(), "ollama" | "openai" | "gemini") {
+        if !matches!(
+            provider.as_str(),
+            "ollama" | "lm-studio" | "openai" | "gemini"
+        ) {
             return Err(unprocessable(format!(
                 "provider `{provider}` is not admitted"
             )));
@@ -777,5 +780,24 @@ fn internal(error: impl ToString) -> SessionError {
     SessionError {
         status: StatusCode::INTERNAL_SERVER_ERROR,
         message: error.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lm_studio_is_admitted_for_both_session_roles() {
+        let spec = SessionSpec {
+            goal: "Inspect the workspace".to_string(),
+            profile: "generic".to_string(),
+            provider: "lm-studio".to_string(),
+            model: "qwen/test".to_string(),
+            planner_provider: "lm-studio".to_string(),
+            planner_model: "qwen/test".to_string(),
+        };
+
+        validate_spec(&spec).unwrap();
     }
 }

@@ -31,6 +31,9 @@ fn connection_hint(provider: Provider, endpoint: &str) -> String {
         Provider::Ollama => format!(
             "Start Ollama with `ollama serve`, verify `--ollama-host {endpoint}`, then run `commandagent --doctor`."
         ),
+        Provider::LmStudio => format!(
+            "Start the LM Studio server, verify `--lm-studio-host {endpoint}`, then run `commandagent --doctor`."
+        ),
         Provider::Openai | Provider::Gemini => {
             format!("Check connectivity to {endpoint}, then run `commandagent --doctor`.")
         }
@@ -41,7 +44,7 @@ fn status_hint(provider: Provider, model: &str, status: u16) -> String {
     let model = single_line(model);
     match status {
         401 | 403 => match api_key_name(provider) {
-            Some(key) if provider == Provider::Openai => {
+            Some(key) if matches!(provider, Provider::Openai | Provider::LmStudio) => {
                 format!("Set `{key}` in the process environment, then run `commandagent --doctor`.")
             }
             Some(key) => format!(
@@ -52,6 +55,9 @@ fn status_hint(provider: Provider, model: &str, status: u16) -> String {
         404 if provider == Provider::Ollama => format!(
             "Model `{model}` was not found. Run `ollama pull {model}`, then run `commandagent --doctor`."
         ),
+        404 if provider == Provider::LmStudio => format!(
+            "Model `{model}` was not found. Load it in LM Studio or enable Just-In-Time loading, then run `commandagent --doctor`."
+        ),
         404 => format!(
             "Verify model `{model}` exists and your account can access it, then run `commandagent --doctor`."
         ),
@@ -60,16 +66,13 @@ fn status_hint(provider: Provider, model: &str, status: u16) -> String {
 }
 
 fn provider_name(provider: Provider) -> &'static str {
-    match provider {
-        Provider::Ollama => "Ollama",
-        Provider::Openai => "OpenAI",
-        Provider::Gemini => "Gemini",
-    }
+    provider.display_name()
 }
 
 fn api_key_name(provider: Provider) -> Option<&'static str> {
     match provider {
         Provider::Ollama => None,
+        Provider::LmStudio => Some(super::lm_studio::LM_STUDIO_API_TOKEN_ENV),
         Provider::Openai => Some("OPENAI_API_KEY"),
         Provider::Gemini => Some("GEMINI_API_KEY"),
     }

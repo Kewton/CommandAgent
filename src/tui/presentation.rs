@@ -1071,11 +1071,7 @@ fn status_scope(runtime: Option<&crate::tui::status_bus::RuntimeStatus>) -> Stri
 }
 
 fn provider_label(provider: crate::config::Provider) -> &'static str {
-    match provider {
-        crate::config::Provider::Ollama => "ollama",
-        crate::config::Provider::Openai => "openai",
-        crate::config::Provider::Gemini => "gemini",
-    }
+    provider.as_str()
 }
 
 fn narration_label(mode: NarrationMode) -> &'static str {
@@ -1543,6 +1539,7 @@ mod tests {
             planner_model: "planner".to_string(),
             planner_provider: Provider::Gemini,
             ollama_host: "http://localhost:11434".to_string(),
+            lm_studio_host: "http://localhost:1234".to_string(),
             num_predict: 100,
             max_iterations: 4,
             chat_timeout_secs: 77,

@@ -9,6 +9,12 @@ pub(crate) fn warnings(config: &Config, stdin_is_terminal: bool) -> Vec<String> 
     if !should_probe(config, stdin_is_terminal) {
         return Vec::new();
     }
+    let mut warnings = ollama_warnings(config);
+    warnings.extend(lm_studio_warnings(config));
+    warnings
+}
+
+fn ollama_warnings(config: &Config) -> Vec<String> {
     let models = configured_ollama_models(config);
     if models.is_empty() {
         return Vec::new();
@@ -43,6 +49,47 @@ pub(crate) fn warnings(config: &Config, stdin_is_terminal: bool) -> Vec<String> 
     }
 }
 
+fn lm_studio_warnings(config: &Config) -> Vec<String> {
+    let models = configured_lm_studio_models(config);
+    if models.is_empty() {
+        return Vec::new();
+    }
+    let api_token = crate::env_compat::var(crate::providers::lm_studio::LM_STUDIO_API_TOKEN_ENV)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+    let result = crate::providers::lm_studio::LmStudioClient::new(
+        config.lm_studio_host.clone(),
+        api_token,
+        STARTUP_PROBE_TIMEOUT.as_secs(),
+        1,
+        0,
+        crate::config::OpenAiApi::ChatCompletions,
+        None,
+    )
+    .and_then(|client| client.list_models());
+    match result {
+        Ok(visible) => {
+            let visible = visible.into_iter().collect::<BTreeSet<_>>();
+            models
+                .difference(&visible)
+                .map(|model| {
+                    let model = single_line(model);
+                    format!(
+                        "warning: LM Studio model `{model}` is not visible at {}. Load it or enable Just-In-Time loading, then run `commandagent --doctor`.",
+                        single_line(&config.lm_studio_host)
+                    )
+                })
+                .collect()
+        }
+        Err(error) => vec![format!(
+            "warning: LM Studio is unreachable at {} ({error}). Start its local server, verify `--lm-studio-host`, then run `commandagent --doctor`; continuing.",
+            single_line(&config.lm_studio_host),
+            error = single_line(&error.to_string())
+        )],
+    }
+}
+
 fn should_probe(config: &Config, stdin_is_terminal: bool) -> bool {
     stdin_is_terminal && !config.offline && matches!(config.action, Action::Repl)
 }
@@ -54,6 +101,17 @@ fn configured_ollama_models(config: &Config) -> BTreeSet<String> {
     ]
     .into_iter()
     .filter(|(provider, _)| *provider == Provider::Ollama)
+    .map(|(_, model)| model.to_string())
+    .collect()
+}
+
+fn configured_lm_studio_models(config: &Config) -> BTreeSet<String> {
+    [
+        (config.provider, config.model.as_str()),
+        (config.planner_provider, config.planner_model.as_str()),
+    ]
+    .into_iter()
+    .filter(|(provider, _)| *provider == Provider::LmStudio)
     .map(|(_, model)| model.to_string())
     .collect()
 }
@@ -102,6 +160,7 @@ mod tests {
             planner_model: "planner:latest".to_string(),
             planner_provider: Provider::Ollama,
             ollama_host: host,
+            lm_studio_host: "http://localhost:1234".to_string(),
             num_predict: 1,
             max_iterations: 1,
             chat_timeout_secs: 600,
@@ -153,6 +212,40 @@ mod tests {
                 "warning: Ollama model `planner:latest` is not installed at {host}. Run `ollama pull planner:latest`, then run `commandagent --doctor`."
             )
         );
+    }
+
+    #[test]
+    fn reachable_lm_studio_warns_for_model_not_visible_to_server() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0_u8; 2048];
+            let read = stream.read(&mut request).unwrap();
+            let request = String::from_utf8_lossy(&request[..read]);
+            assert!(request.contains("GET /v1/models"));
+            assert!(!request.to_ascii_lowercase().contains("authorization:"));
+            let body = r#"{"object":"list","data":[{"id":"executor:latest"}]}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            )
+            .unwrap();
+        });
+        let host = format!("http://{address}");
+        let mut config = config("http://localhost:11434".to_string());
+        config.provider = Provider::LmStudio;
+        config.planner_provider = Provider::LmStudio;
+        config.lm_studio_host = host.clone();
+
+        let warnings = warnings(&config, true);
+        server.join().unwrap();
+
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("planner:latest"), "{}", warnings[0]);
+        assert!(warnings[0].contains(&host), "{}", warnings[0]);
+        assert!(warnings[0].contains("Just-In-Time"), "{}", warnings[0]);
     }
 
     #[test]

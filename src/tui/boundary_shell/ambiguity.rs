@@ -297,6 +297,7 @@ mod tests {
             planner_model: "classifier".to_string(),
             planner_provider: crate::config::Provider::Ollama,
             ollama_host: "http://localhost:11434".to_string(),
+            lm_studio_host: "http://localhost:1234".to_string(),
             num_predict: 100,
             max_iterations: 1,
             chat_timeout_secs: 1,

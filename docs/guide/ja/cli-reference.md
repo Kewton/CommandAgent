@@ -16,7 +16,7 @@
 複数のアクション選択フラグを組み合わせると拒否されます。
 
 Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリケーション固有の
-43 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
+44 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
 公開ユーザーフラグではありません。
 
 ## フラグ一覧
@@ -27,14 +27,14 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--preset` | `<PRESET>` | なし | 設定ファイルから組み立てた名前付き `[preset.<name>]` を選びます。 | [Preset](configuration.md#preset) |
 | `--context-budget` | `<CONTEXT_BUDGET>` 整数 | `65536` | 会話を圧縮する概算コンテキスト予算を設定します。 | [重要な解決後の既定値](#重要な解決後の既定値) |
 | `--model` | `<MODEL>` | `qwen3.6:27b-coding-nvfp4` | 実行モデル ID を設定します。 | [プロバイダ](providers.md) |
-| `--provider` | `<PROVIDER>`: `ollama`、`openai`、`gemini` | `ollama` | 実行プロバイダを選びます。 | [プロバイダ](providers.md) |
-| `--api` | `<chat-completions\|responses>` | `chat-completions` | OpenAI API 面を明示選択します。モデル名から暗黙選択しません。 | [preset](configuration.md#preset) |
+| `--provider` | `<PROVIDER>`: `ollama`、`lm-studio`、`openai`、`gemini` | `ollama` | 実行プロバイダを選びます。 | [プロバイダ](providers.md) |
+| `--api` | `<chat-completions\|responses>` | `chat-completions` | OpenAI互換API面を明示選択します。モデル名から暗黙選択しません。 | [preset](configuration.md#preset) |
 | `--tool-protocol` | `<native\|text>` | プロバイダ能力の既定値 | native function tools または既存text/XML tool protocolを明示選択します。 | [preset](configuration.md#preset) |
 | `--prompt-layout` | `<stable\|legacy>` | `legacy` | A/B 測定用のプロンプトセクション順序を選びます。 | [解決の優先順位](configuration.md#解決の優先順位) |
 | `--plan-preset` | `<profile\|none>` | 通常は `none`。明示的な `data` の fix/investigate では `profile` | planner 層の UltraPlan preset 選択を上書きします。`data/fix` は F1–F3 ステップを合成でき、`nextjs/fix` は none 相当のままです。 | [解決の優先順位](configuration.md#解決の優先順位) |
 | `--intent` | `<create\|fix\|investigate>` | ゴールから推論 | ゴールに基づく解決ではなく intent を固定します。 | [例](#例) |
 | `--planner-model` | `<PLANNER_MODEL>` | プロバイダが同じなら実行モデル | planner モデル ID を設定します。planner と実行のプロバイダが異なる場合は必須です。 | [プロバイダの役割](providers.md#プロバイダ対応表) |
-| `--planner-provider` | `<PLANNER_PROVIDER>`: `ollama`、`openai`、`gemini` | 実行プロバイダ | planner プロバイダを選びます。 | [プロバイダの役割](providers.md#プロバイダ対応表) |
+| `--planner-provider` | `<PLANNER_PROVIDER>`: `ollama`、`lm-studio`、`openai`、`gemini` | 実行プロバイダ | planner プロバイダを選びます。 | [プロバイダの役割](providers.md#プロバイダ対応表) |
 | `--prompt` | `<PROMPT>` | なし | TUI に入らず、minimal loop のプロンプトを 1 件実行します。 | [例](#例) |
 | `--plan-steps` | なし | オフ | 末尾のゴールに対する step plan を生成して保存します。 | [排他関係と組み合わせ](#排他関係と組み合わせ) |
 | `--plan-run` | なし | オフ | 末尾のゴールから step plan を生成して実行します。 | [排他関係と組み合わせ](#排他関係と組み合わせ) |
@@ -56,9 +56,10 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--offline` | なし | オフ | ネットワーク依存の依存関係セットアップと検査を禁止します。クラウドモデルをオフラインプロバイダに変えるものではありません。 | [プロバイダ](providers.md) |
 | `--quiet` | なし | オフ（`narration = "normal"`） | プレゼンテーションのナレーションを抑制します。 | [トップレベルキー](configuration.md#トップレベルキー) |
 | `--ollama-host` | `<OLLAMA_HOST>` URL | `http://localhost:11434` | CommandAgent が使う Ollama サーバーのベース URL を設定します。 | [Ollama のホスト](providers.md#ollama-のホストとモデル) |
+| `--lm-studio-host` | `<LM_STUDIO_HOST>` URL | `http://localhost:1234` | LM StudioのベースURLを設定します。末尾の任意の`/v1`は正規化します。 | [LM Studioのサーバー](providers.md#lm-studio-のサーバーとモデル) |
 | `--num-predict` | `<NUM_PREDICT>` 整数 | `8192` | プロバイダへ要求する最大出力トークン数を設定します。 | [重要な解決後の既定値](#重要な解決後の既定値) |
 | `--max-iterations` | `<MAX_ITERATIONS>` 整数 | `12` | minimal loop の反復予算を設定します。 | [重要な解決後の既定値](#重要な解決後の既定値) |
-| `--chat-timeout-secs` | `<CHAT_TIMEOUT_SECS>` 整数 | いずれかの役割が Ollama なら `600`、それ以外は `180` | プロバイダ呼び出しの接続およびリクエスト全体のタイムアウトを設定します。 | [重要な解決後の既定値](#重要な解決後の既定値) |
+| `--chat-timeout-secs` | `<CHAT_TIMEOUT_SECS>` 整数 | いずれかの役割が Ollama または LM Studio なら `600`、それ以外は `180` | プロバイダ呼び出しの接続およびリクエスト全体のタイムアウトを設定します。 | [重要な解決後の既定値](#重要な解決後の既定値) |
 | `--chat-retries` | `<CHAT_RETRIES>` 整数 | `1` | 最初のプロバイダ試行後の再試行回数を設定します。 | [プロバイダ失敗](troubleshooting.md#model-id-does-not-exist) |
 | `--stream` | `<on\|off>` | TUI ではオン、直接アクションではオフ | executor と repair の表示ストリーミングを制御します。planner の機械形式出力は表示しません。ストリーミングには stdin と stdout の両方が対話型 TTY であることも必要です。 | [トップレベルキー](configuration.md#トップレベルキー) |
 | `--state-dir` | `<STATE_DIR>` パス | `$XDG_STATE_HOME/anvilminimal`、なければ `~/.local/state/anvilminimal` | 保存セッションと REPL 履歴の格納先を上書きします。 | [パス](configuration.md#設定ファイルの探索パス) |
@@ -79,7 +80,7 @@ context budget、timeout、profile、footer、stream などは `Config::from_cli
 | --- | --- |
 | `num_predict` | `8192` |
 | `max_iterations` | `12` |
-| `chat_timeout_secs` | いずれかのプロバイダ役割が Ollama なら `600` 秒、両方がリモートなら `180` 秒 |
+| `chat_timeout_secs` | いずれかのプロバイダ役割が Ollama または LM Studio なら `600` 秒、両方がリモートなら `180` 秒 |
 | `chat_retries` | 最初の試行後に `1` 回再試行 |
 | `context_budget` | `65536` |
 

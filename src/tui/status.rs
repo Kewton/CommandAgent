@@ -120,11 +120,7 @@ fn display_or_missing(value: &str) -> &str {
 }
 
 fn provider_label(provider: Provider) -> &'static str {
-    match provider {
-        Provider::Ollama => "ollama",
-        Provider::Openai => "openai",
-        Provider::Gemini => "gemini",
-    }
+    provider.as_str()
 }
 
 #[cfg(test)]

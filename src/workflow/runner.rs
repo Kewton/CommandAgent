@@ -282,7 +282,7 @@ where
         "workflow_node":request.node,
         "profile":request.profile,
         "model":request.model,
-        "provider":format!("{:?}", request.provider).to_ascii_lowercase(),
+        "provider":request.provider.as_str(),
     });
     fs::write(events, format!("{}\n", started)).map_err(|e| e.to_string())?;
     execute(request)?;
@@ -396,5 +396,28 @@ mod tests {
             verify_origin(&bindings, |b| b.check_id == "a").unwrap_err(),
             "origin_verify_failed"
         );
+    }
+
+    #[test]
+    fn node_event_preserves_hyphenated_lm_studio_provider_identity() {
+        let origin = tempfile::tempdir().unwrap();
+        let events = origin.path().join("node-events.jsonl");
+        let request = NodeRunRequest {
+            node: "inspect".to_string(),
+            intent: "investigate".to_string(),
+            profile: "generic".to_string(),
+            goal: "Inspect the failure".to_string(),
+            origin: origin.path().to_path_buf(),
+            reproducer: None,
+            model: "qwen/test".to_string(),
+            provider: Provider::LmStudio,
+            diagnosis: None,
+        };
+
+        execute_node(&request, &events, |_| Ok(())).unwrap();
+
+        let event: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(events).unwrap()).unwrap();
+        assert_eq!(event["provider"], "lm-studio");
     }
 }

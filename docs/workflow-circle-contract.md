@@ -67,7 +67,7 @@ version: 0.1
 entry: <node-id>
 nodes:
   <node-id>: { intent: create|fix|investigate, profile: <profile-id>,
-               model: <executor-id>?, provider: ollama|openai|gemini? }
+               model: <executor-id>?, provider: ollama|lm-studio|openai|gemini? }
 routes:
   - { from: <node-id>, on: <verdict>, when: <condition-id>?,
       to: <node-id>, carry: [<carry-id>...] }

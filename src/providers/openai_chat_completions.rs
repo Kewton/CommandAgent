@@ -18,14 +18,52 @@ pub(crate) fn build_request(
     max_predict: usize,
     reasoning_effort: Option<&str>,
 ) -> Value {
+    build_request_with_token_field(
+        model,
+        messages,
+        tools,
+        native_tools_enabled,
+        max_predict,
+        reasoning_effort,
+        "max_completion_tokens",
+    )
+}
+
+pub(crate) fn build_lm_studio_request(
+    model: &str,
+    messages: &[ConversationMessage],
+    tools: &[ToolSpec],
+    native_tools_enabled: bool,
+    max_predict: usize,
+) -> Value {
+    build_request_with_token_field(
+        model,
+        messages,
+        tools,
+        native_tools_enabled,
+        max_predict,
+        None,
+        "max_tokens",
+    )
+}
+
+fn build_request_with_token_field(
+    model: &str,
+    messages: &[ConversationMessage],
+    tools: &[ToolSpec],
+    native_tools_enabled: bool,
+    max_predict: usize,
+    reasoning_effort: Option<&str>,
+    token_field: &str,
+) -> Value {
     let mut body = json!({
         "model": model,
         "messages": messages
             .iter()
             .map(|message| chat_message(message, native_tools_enabled))
             .collect::<Vec<_>>(),
-        "max_completion_tokens": max_predict,
     });
+    body[token_field] = json!(max_predict);
     if native_tools_enabled && !tools.is_empty() {
         body["tools"] = Value::Array(
             tools

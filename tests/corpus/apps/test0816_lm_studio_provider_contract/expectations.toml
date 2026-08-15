@@ -1,0 +1,33 @@
+case_id = "test0816_lm_studio_provider_contract"
+source = "first-class LM Studio provider event compatibility contract"
+required_paths = []
+verify_commands = []
+required_capabilities = []
+required_evidence = []
+required_obligations = []
+deferred_verify_requirements = []
+evidence_hint_tokens = ["lm-studio", "chat_completions", "native_tools_enabled"]
+
+[route_closure]
+include = []
+exclude = []
+
+[weak_evidence]
+contains = []
+
+[diagnostics]
+contains = []
+
+[compile]
+expect = "not_checked"
+
+[fixture_contains]
+fixtures/provider-events.jsonl = [
+  "\"event\":\"run_start\"",
+  "\"provider\":\"lm-studio\"",
+  "\"planner_provider\":\"lm-studio\"",
+  "\"event\":\"provider_request\"",
+  "\"api\":\"chat_completions\"",
+  "\"native_tools_enabled\":true",
+  "\"event\":\"provider_turn_duration\""
+]

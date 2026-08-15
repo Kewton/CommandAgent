@@ -594,9 +594,9 @@ fn emit_run_start(config: &Config) {
         json!({
             "event": "run_start",
             "workspace_root": eval_events::body_snippet(&config.workspace_root.display().to_string()),
-            "provider": format!("{:?}", config.provider).to_ascii_lowercase(),
+            "provider": config.provider.as_str(),
             "model": eval_events::body_snippet(&config.model),
-            "planner_provider": format!("{:?}", config.planner_provider).to_ascii_lowercase(),
+            "planner_provider": config.planner_provider.as_str(),
             "planner_model": eval_events::body_snippet(&config.planner_model),
             "chat_timeout_secs": config.chat_timeout_secs,
             "chat_timeout_source": config.chat_timeout_source,
@@ -838,6 +838,7 @@ mod tests {
             planner_model: "m".to_string(),
             planner_provider: Provider::Ollama,
             ollama_host: "http://localhost:11434".to_string(),
+            lm_studio_host: "http://localhost:1234".to_string(),
             num_predict: 100,
             max_iterations: 4,
             chat_timeout_secs: 1,
@@ -951,6 +952,23 @@ mod tests {
         assert!(event_text.contains("\"event\":\"plan_preset_resolved\""));
         assert!(event_text.contains("\"origin\":\"default\""));
         assert!(event_text.contains("\"source\":\"default:qwen27_planner\""));
+    }
+
+    #[test]
+    fn run_start_records_hyphenated_lm_studio_provider_identity() {
+        let dir = tempfile::tempdir().unwrap();
+        let events = dir.path().join("events.jsonl");
+        let mut cfg = config(dir.path().to_path_buf());
+        cfg.provider = Provider::LmStudio;
+        cfg.planner_provider = Provider::LmStudio;
+        cfg.eval_events_path = Some(events.clone());
+
+        emit_run_start(&cfg);
+
+        let event = std::fs::read_to_string(events).unwrap();
+        let start: Value = serde_json::from_str(event.lines().next().unwrap()).unwrap();
+        assert_eq!(start["provider"], "lm-studio");
+        assert_eq!(start["planner_provider"], "lm-studio");
     }
 
     #[test]

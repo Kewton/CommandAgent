@@ -6,6 +6,7 @@ use clap_complete::Shell;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum ProviderArg {
     Ollama,
+    LmStudio,
     Openai,
     Gemini,
 }
@@ -72,7 +73,7 @@ pub struct Cli {
         long = "api",
         value_enum,
         value_name = "chat-completions|responses",
-        help = "Declare the OpenAI API surface; omitted keeps chat-completions"
+        help = "Declare the OpenAI-compatible API surface; omitted keeps chat-completions"
     )]
     pub openai_api: Option<OpenAiApiArg>,
     #[arg(
@@ -177,6 +178,8 @@ pub struct Cli {
     pub quiet: bool,
     #[arg(long, default_value = "http://localhost:11434")]
     pub ollama_host: String,
+    #[arg(long, default_value = "http://localhost:1234")]
+    pub lm_studio_host: String,
     #[arg(long, default_value_t = 8_192)]
     pub num_predict: usize,
     #[arg(long, default_value_t = 12)]
@@ -397,6 +400,23 @@ mod tests {
         assert_eq!(cli.model, None);
         assert_eq!(cli.provider, None);
         assert_eq!(cli.context_budget, None);
+    }
+
+    #[test]
+    fn lm_studio_provider_and_host_parse() {
+        let cli = Cli::parse_from([
+            "commandagent",
+            "--provider",
+            "lm-studio",
+            "--planner-provider",
+            "lm-studio",
+            "--lm-studio-host",
+            "http://127.0.0.1:4321/v1",
+        ]);
+
+        assert_eq!(cli.provider, Some(ProviderArg::LmStudio));
+        assert_eq!(cli.planner_provider, Some(ProviderArg::LmStudio));
+        assert_eq!(cli.lm_studio_host, "http://127.0.0.1:4321/v1");
     }
 
     #[test]

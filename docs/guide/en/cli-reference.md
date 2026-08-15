@@ -17,7 +17,7 @@ for the TUI. The action selectors are `--prompt`, `--plan-steps`, `--plan-run`,
 selector.
 
 Clap also generates `-h`/`--help` and `-V`/`--version`. They are not part of the
-43 application flags below. The hidden `--completion-contract-json <PATH>` is an
+44 application flags below. The hidden `--completion-contract-json <PATH>` is an
 internal integration surface and is intentionally not a public user flag.
 
 ## Flag reference
@@ -28,8 +28,8 @@ internal integration surface and is intentionally not a public user flag.
 | `--preset` | `<PRESET>` | none | Select a named `[preset.<name>]` assembled from configuration files. | [Presets](configuration.md#presets) |
 | `--context-budget` | `<CONTEXT_BUDGET>` integer | `65536` | Set the approximate conversation compaction budget. | [Resolved defaults](#important-resolved-defaults) |
 | `--model` | `<MODEL>` | `qwen3.6:27b-coding-nvfp4` | Set the executor model ID. | [Providers](providers.md) |
-| `--provider` | `<PROVIDER>`: `ollama`, `openai`, or `gemini` | `ollama` | Select the executor provider. | [Providers](providers.md) |
-| `--api` | `<chat-completions\|responses>` | `chat-completions` | Explicitly select the OpenAI API surface; model names never select it implicitly. | [Presets](configuration.md#presets) |
+| `--provider` | `<PROVIDER>`: `ollama`, `lm-studio`, `openai`, or `gemini` | `ollama` | Select the executor provider. | [Providers](providers.md) |
+| `--api` | `<chat-completions\|responses>` | `chat-completions` | Explicitly select the OpenAI-compatible API surface; model names never select it implicitly. | [Presets](configuration.md#presets) |
 | `--tool-protocol` | `<native\|text>` | provider capability default | Explicitly select native function tools or the established text/XML tool protocol. | [Presets](configuration.md#presets) |
 | `--prompt-layout` | `<stable\|legacy>` | `legacy` | Choose prompt section order for A/B measurement. | [Precedence](configuration.md#resolution-precedence) |
 | `--plan-preset` | `<profile\|none>` | normally `none`; `profile` is selected for explicit `data` fix/investigate cases | Override planner-tier UltraPlan preset selection. `data/fix` can synthesize F1–F3 steps; `nextjs/fix` remains none-equivalent. | [Precedence](configuration.md#resolution-precedence) |
@@ -37,7 +37,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--workflow` | `<PATH>` | none | Run a declarative workflow-circle definition. Mutually exclusive with `--intent`. | [Examples](#examples) |
 | `--origin` | `<PATH>` | none | Supply the existing failed origin run workspace for `--workflow`. | [Examples](#examples) |
 | `--planner-model` | `<PLANNER_MODEL>` | executor model when providers match | Set the planner model ID. Required when planner and executor providers differ. | [Provider roles](providers.md#provider-matrix) |
-| `--planner-provider` | `<PLANNER_PROVIDER>`: `ollama`, `openai`, or `gemini` | executor provider | Select the planner provider. | [Provider roles](providers.md#provider-matrix) |
+| `--planner-provider` | `<PLANNER_PROVIDER>`: `ollama`, `lm-studio`, `openai`, or `gemini` | executor provider | Select the planner provider. | [Provider roles](providers.md#provider-matrix) |
 | `--prompt` | `<PROMPT>` | none | Run one minimal-loop prompt instead of entering the TUI. | [Examples](#examples) |
 | `--plan-steps` | none | off | Generate and save a step plan for the trailing goal. | [Action exclusivity](#conflicts-and-combinations) |
 | `--plan-run` | none | off | Generate and run a step plan for the trailing goal. | [Action exclusivity](#conflicts-and-combinations) |
@@ -59,9 +59,10 @@ internal integration surface and is intentionally not a public user flag.
 | `--offline` | none | off | Block network-dependent dependency setup and checks; it does not turn a cloud model into an offline provider. | [Providers](providers.md) |
 | `--quiet` | none | off (`narration = "normal"`) | Suppress presentation narration. | [Top-level keys](configuration.md#top-level-keys) |
 | `--ollama-host` | `<OLLAMA_HOST>` URL | `http://localhost:11434` | Set the Ollama server base URL used by CommandAgent. | [Ollama host](providers.md#ollama-host-and-models) |
+| `--lm-studio-host` | `<LM_STUDIO_HOST>` URL | `http://localhost:1234` | Set the LM Studio base URL; an optional trailing `/v1` is normalized. | [LM Studio server](providers.md#lm-studio-server-and-models) |
 | `--num-predict` | `<NUM_PREDICT>` integer | `8192` | Set the maximum provider output-token request. | [Resolved defaults](#important-resolved-defaults) |
 | `--max-iterations` | `<MAX_ITERATIONS>` integer | `12` | Set the minimal-loop iteration budget. | [Resolved defaults](#important-resolved-defaults) |
-| `--chat-timeout-secs` | `<CHAT_TIMEOUT_SECS>` integer | `600` if either role uses Ollama; otherwise `180` | Set connect and whole-request timeouts for provider calls. | [Resolved defaults](#important-resolved-defaults) |
+| `--chat-timeout-secs` | `<CHAT_TIMEOUT_SECS>` integer | `600` if either role uses Ollama or LM Studio; otherwise `180` | Set connect and whole-request timeouts for provider calls. | [Resolved defaults](#important-resolved-defaults) |
 | `--chat-retries` | `<CHAT_RETRIES>` integer | `1` | Set retries after the initial provider attempt. | [Provider failures](troubleshooting.md#model-id-does-not-exist) |
 | `--stream` | `<on\|off>` | on for the TUI, off for direct actions | Control visible executor and repair streaming; planner machine output stays hidden. Streaming still requires an interactive stdin and stdout TTY. | [Top-level keys](configuration.md#top-level-keys) |
 | `--state-dir` | `<STATE_DIR>` path | `$XDG_STATE_HOME/anvilminimal`, otherwise `~/.local/state/anvilminimal` | Override saved session and REPL history storage. | [Paths](configuration.md#configuration-search-paths) |
@@ -83,7 +84,7 @@ See [Configuration](configuration.md) for the exact per-field layers.
 | --- | --- |
 | `num_predict` | `8192` |
 | `max_iterations` | `12` |
-| `chat_timeout_secs` | `600` seconds when either provider role is Ollama; `180` seconds when both are remote |
+| `chat_timeout_secs` | `600` seconds when either provider role is Ollama or LM Studio; `180` seconds when both are remote |
 | `chat_retries` | `1` retry after the first attempt |
 | `context_budget` | `65536` |
 

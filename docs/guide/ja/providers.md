@@ -11,6 +11,7 @@ CommandAgent は実行役割と planner 役割を分けられます。`--provide
 | プロバイダ | CLI 値 | 必要なキー | 取得／セットアップ先 | CommandAgent の endpoint | 設定方法 |
 | --- | --- | --- | --- | --- | --- |
 | Ollama | `ollama` | ローカルサーバーでは不要 | [Ollama quickstart](https://docs.ollama.com/quickstart) | `--ollama-host`、既定値 `http://localhost:11434`。`/api/chat` を付加 | `--provider ollama --model <model-id>` |
+| LM Studio | `lm-studio` | 既定では不要。サーバー認証時は `LM_STUDIO_API_TOKEN` | [LM Studio local server](https://lmstudio.ai/docs/developer/core/server) | `--lm-studio-host`、既定値 `http://localhost:1234`。OpenAI 互換の `/v1` ルートを付加 | `--provider lm-studio --model <model-id>` |
 | OpenAI | `openai` | `OPENAI_API_KEY` | [OpenAI API キーの作成](https://platform.openai.com/api-keys) | 固定の `https://api.openai.com`。明示 `--api chat-completions`（既定）または `--api responses` | プロセス環境のみ |
 | Gemini | `gemini` | `GEMINI_API_KEY` | [Google AI Studio で Gemini API キーを作成](https://aistudio.google.com/app/apikey) | 固定の Google Generative Language endpoint | プロセス環境またはワークスペース `.env` |
 
@@ -24,6 +25,10 @@ Google の一部 client library と異なり、CommandAgent は `GOOGLE_API_KEY`
 workspace の `.env` からの指定は意図的に拒否します。`GEMINI_API_KEY` は最初にプロセス環境を
 確認し、存在しない場合は `<workspace>/.env` へフォールバックします。workspace は正規化した
 `--cwd` または現在のディレクトリです。
+
+`LM_STUDIO_API_TOKEN` は任意で、プロセス環境だけから読みます。既定の認証なしローカル
+サーバーでは未設定のままにし、LM Studio の Require Authentication を有効にした場合だけ
+設定してください。
 
 ### シェル環境
 
@@ -81,6 +86,27 @@ Responses の native-tool turnでは、providerが返したreasoning output item
 function outputとともに再送します。response ID、service tier、cached input token、reasoning token数は
 provider turn eventへ記録します。
 
+## LM Studio のサーバーとモデル
+
+LM Studio の Developer タブまたは `lms` でサーバーを起動し、`/v1/models` が返す正確な
+モデルIDを指定します。
+
+```bash
+lms server start
+curl http://localhost:1234/v1/models
+commandagent --provider lm-studio --model <model-id> \
+  --lm-studio-host http://localhost:1234
+```
+
+host には `http://localhost:1234` と `http://localhost:1234/v1` のどちらも指定でき、
+任意の `/v1` 接尾辞は CommandAgent が正規化します。既定は Chat Completions です。
+LM Studio の Responses endpoint を使う場合は `--api responses` を指定します。native function
+tool は既定で有効です。構造化 tool call が安定しないモデルを測定する場合は
+`--tool-protocol text` を使用してください。
+
+現在、LM Studio provider turn は非ストリーミング経路を使います。REPL で `--stream on` でも
+機能は維持されますが、出力は provider turn 完了後に描画されます。
+
 ## Ollama のホストとモデル
 
 Ollama には実行中の HTTP サーバーとローカルで利用可能なモデルが必要です。既定アドレスへの
@@ -120,9 +146,11 @@ localhost の外へ Ollama を公開するとネットワーク上のセキュ�
 
 - OpenAI キーは起動プロセスの環境だけに保存します。Gemini は workspace `.env` も利用できます。
   クラウドキーを `config.toml`、preset、suite、ゴール、コマンド引数には保存しません。
+- LM Studio tokenはサーバー認証を有効にした場合だけ、起動プロセスの環境へ保存します。
 - Unix permission が使える環境では `.env` を `600` に設定します。
 - キー値を画面表示、screenshot、issue への貼り付け、端末 transcript の採取対象にしません。
 - `.env` を version control から除外し、commit 前に stage 済みファイルを確認します。
 - プロバイダが対応する場合は用途別の最小権限キーを使い、露出が疑われたら直ちに rotate します。
 - Ollama host をサービス endpoint として扱い、認証のないローカルサーバーを信頼できない
   ネットワークへ公開しません。
+- LM StudioでServe on Local Networkを有効にする場合も同じ制限を適用します。

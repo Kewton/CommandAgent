@@ -50,3 +50,46 @@ fn openai_and_gemini_missing_key_failures_explain_setup_and_doctor() {
         }
     }
 }
+
+#[test]
+fn lm_studio_does_not_require_a_token_when_server_auth_is_disabled() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = listener.local_addr().unwrap();
+    drop(listener);
+    let workspace = tempfile::tempdir().unwrap();
+    let state = workspace.path().join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_commandagent"))
+        .args([
+            "--offline",
+            "--provider",
+            "lm-studio",
+            "--model",
+            "test-model",
+            "--planner-provider",
+            "lm-studio",
+            "--planner-model",
+            "test-model",
+            "--lm-studio-host",
+            &format!("http://{address}"),
+            "--prompt",
+            "hello",
+            "--cwd",
+            workspace.path().to_str().unwrap(),
+            "--state-dir",
+            state.to_str().unwrap(),
+            "--no-footer",
+        ])
+        .env_remove("LM_STUDIO_API_TOKEN")
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+
+    assert!(!output.status.success());
+    assert!(stderr.contains("LM Studio request failed"), "{stderr}");
+    assert!(stderr.contains("--lm-studio-host"), "{stderr}");
+    assert!(
+        !stderr.contains("LM_STUDIO_API_TOKEN is not set"),
+        "{stderr}"
+    );
+}

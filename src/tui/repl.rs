@@ -429,11 +429,7 @@ fn render_terminal(
 }
 
 fn provider_name(provider: crate::config::Provider) -> &'static str {
-    match provider {
-        crate::config::Provider::Ollama => "ollama",
-        crate::config::Provider::Openai => "openai",
-        crate::config::Provider::Gemini => "gemini",
-    }
+    provider.as_str()
 }
 
 fn render_command_result(

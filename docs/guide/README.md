@@ -16,7 +16,7 @@ pages have matching structures and cover the same behavior.
   inline flags, file expansion, and profile inference
 - [Configuration](en/configuration.md) — precedence, presets, paths, legacy
   files, and environment variables
-- [Providers](en/providers.md) — Ollama, OpenAI, and Gemini setup
+- [Providers](en/providers.md) — Ollama, LM Studio, OpenAI, and Gemini setup
 - [Troubleshooting](en/troubleshooting.md) — common startup, provider, and TUI
   problems
 - [Model behavior probe](model-probe.md) — the bounded provider/model
@@ -32,7 +32,7 @@ walkthrough. Read the [security model](../../SECURITY.md) before enabling
 - [スラッシュコマンド](ja/slash-commands.md) — 受け付ける全 15 コマンド名、インラインフラグ、
   ファイル展開、プロファイル推論
 - [設定](ja/configuration.md) — 優先順位、preset、探索パス、旧形式ファイル、環境変数
-- [プロバイダ](ja/providers.md) — Ollama、OpenAI、Gemini のセットアップ
+- [プロバイダ](ja/providers.md) — Ollama、LM Studio、OpenAI、Gemini のセットアップ
 - [トラブルシューティング](ja/troubleshooting.md) — 起動時、プロバイダ、TUI の一般的な問題
 - [モデル動作プローブ](model-probe.md) — プロバイダ／モデルを限定的に測定する手順
 
