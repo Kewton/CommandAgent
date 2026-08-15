@@ -1,0 +1,45 @@
+command: env -u NODE_ENV cargo test --lib planner::runner::tests::final_acceptance_budget_exhaustion_uses_last_cycle_reason -- --exact
+budget 01/20 PASS 2s
+budget 02/20 PASS 3s
+budget 03/20 PASS 3s
+budget 04/20 PASS 3s
+budget 05/20 PASS 3s
+budget 06/20 PASS 3s
+budget 07/20 PASS 3s
+budget 08/20 PASS 3s
+budget 09/20 PASS 3s
+budget 10/20 PASS 3s
+budget 11/20 PASS 3s
+budget 12/20 PASS 3s
+budget 13/20 PASS 3s
+budget 14/20 PASS 3s
+budget 15/20 PASS 3s
+budget 16/20 PASS 3s
+budget 17/20 PASS 3s
+budget 18/20 PASS 3s
+budget 19/20 PASS 3s
+budget 20/20 PASS 3s
+budget TOTAL 20/20 PASS 59s
+
+command: env -u NODE_ENV cargo test --lib planner::runner::tests::final_acceptance_repair_cycle_reprobes_restart_hook_recovery_to_pass -- --exact
+repair 01/20 PASS 2s
+repair 02/20 PASS 2s
+repair 03/20 PASS 2s
+repair 04/20 PASS 3s
+repair 05/20 PASS 2s
+repair 06/20 PASS 2s
+repair 07/20 PASS 2s
+repair 08/20 PASS 2s
+repair 09/20 PASS 2s
+repair 10/20 PASS 3s
+repair 11/20 PASS 2s
+repair 12/20 PASS 2s
+repair 13/20 PASS 2s
+repair 14/20 PASS 2s
+repair 15/20 PASS 2s
+repair 16/20 PASS 2s
+repair 17/20 PASS 3s
+repair 18/20 PASS 2s
+repair 19/20 PASS 2s
+repair 20/20 PASS 2s
+repair TOTAL 20/20 PASS 43s

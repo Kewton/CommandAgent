@@ -900,6 +900,7 @@ fn final_acceptance_repair_cycle_reprobes_restart_hook_recovery_to_pass() {
     let port = free_local_port();
     let events = dir.path().join(".anvil/runs/restart-cycle/events.jsonl");
     enable_dev_server_probe_test_override(dir.path());
+    write_fake_nextjs_package_manager(dir.path(), false);
     interaction_probe::write_test_availability_override(dir.path(), true);
     interaction_probe::write_test_result_overrides(
         dir.path(),
@@ -1060,6 +1061,7 @@ fn final_acceptance_budget_exhaustion_uses_last_cycle_reason() {
     let port = port_lease.port();
     let events = dir.path().join(".anvil/runs/last-cycle/events.jsonl");
     enable_dev_server_probe_test_override(dir.path());
+    write_fake_nextjs_package_manager(dir.path(), false);
     interaction_probe::write_test_availability_override(dir.path(), true);
     interaction_probe::write_test_result_overrides(
         dir.path(),
