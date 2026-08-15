@@ -1,0 +1,12 @@
+{
+  "compile_errors": [
+    {
+      "path": "gui/components/shell.tsx",
+      "line": 67,
+      "column": 9,
+      "message": "ReactNode is not assignable to ReactNode from a foreign dependency tree",
+      "route_bound": false
+    }
+  ],
+  "expected_blocked_requirement": "foreign_project_compile_error"
+}

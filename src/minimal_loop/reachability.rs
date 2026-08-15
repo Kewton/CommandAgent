@@ -1,6 +1,9 @@
+use std::path::Path;
+
 use serde::Serialize;
 
 use crate::minimal_loop::build_verifier;
+use crate::minimal_loop::compile_repair_scope;
 use crate::minimal_loop::completion::CompletionContract;
 use crate::minimal_loop::dependency_setup::NodeDependencySetupAuthority;
 use crate::minimal_loop::evidence::{SatisfactionChannel, evidence_satisfaction_channel};
@@ -39,6 +42,16 @@ pub fn assess_repair_reachability(
     setup_authority: NodeDependencySetupAuthority,
     offline: bool,
 ) -> RepairReachability {
+    assess_repair_reachability_at_root(None, report, contract, setup_authority, offline)
+}
+
+pub fn assess_repair_reachability_at_root(
+    root: Option<&Path>,
+    report: &VerificationReport,
+    contract: Option<&CompletionContract>,
+    setup_authority: NodeDependencySetupAuthority,
+    offline: bool,
+) -> RepairReachability {
     let _ = contract;
     let mut assessment = RepairReachability {
         reachable: false,
@@ -48,6 +61,14 @@ pub fn assess_repair_reachability(
 
     if !report.verifier_command_false_negatives.is_empty() {
         push_blocked(&mut assessment, "deterministic_verify_command_bug");
+        return assessment;
+    }
+
+    if compile_repair_scope::only_foreign(root, &report.compile_errors) {
+        push_blocked(
+            &mut assessment,
+            compile_repair_scope::FOREIGN_PROJECT_COMPILE_ERROR,
+        );
         return assessment;
     }
 
@@ -96,6 +117,10 @@ pub fn reachability_recovery_reason(reachability: &RepairReachability) -> String
     }
     if kind == "deterministic_verify_command_bug" {
         return "deterministic_verify_command_bug: the verify command is malformed; the artifact may already satisfy the requirement".to_string();
+    }
+    if kind == compile_repair_scope::FOREIGN_PROJECT_COMPILE_ERROR {
+        return "foreign_project_compile_error: build failed only in source files that are not imported by the selected route; automatic repair is not authorized"
+            .to_string();
     }
     format!(
         "repair_unreachable: {}",
@@ -279,6 +304,42 @@ mod tests {
         assert_eq!(
             reachability_recovery_reason(&reachability),
             "deterministic_verify_command_bug: the verify command is malformed; the artifact may already satisfy the requirement"
+        );
+    }
+
+    #[test]
+    fn foreign_compile_error_is_unreachable_by_source_edit() {
+        let mut report = VerificationReport::pass();
+        report
+            .compile_errors
+            .push(crate::minimal_loop::build_verifier::CompileError {
+                path: "gui/components/shell.tsx".to_string(),
+                line: 67,
+                column: 9,
+                message: "Type error".to_string(),
+                excerpt: String::new(),
+                symbol: None,
+                route_bound: Some(false),
+            });
+        report.push_command_failure("npm run build", "implementation_compile_error");
+
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("package.json"), "{}").unwrap();
+        std::fs::create_dir_all(root.path().join("gui/components")).unwrap();
+        std::fs::write(root.path().join("gui/package.json"), "{}").unwrap();
+        let reachability = assess_repair_reachability_at_root(
+            Some(root.path()),
+            &report,
+            None,
+            NodeDependencySetupAuthority::None,
+            false,
+        );
+
+        assert!(!reachability.reachable);
+        assert!(reachability.viable_actions.is_empty());
+        assert_eq!(
+            reachability.blocked_requirements,
+            vec![compile_repair_scope::FOREIGN_PROJECT_COMPILE_ERROR.to_string()]
         );
     }
 }

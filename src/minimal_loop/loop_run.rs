@@ -44,7 +44,7 @@ use super::execution_progress::{ExecutionProgress, ExecutionProgressTracker};
 use super::import_scan::{format_missing_import_feedback, scan_relative_imports};
 use super::prompt::{ToolPromptMode, build_request_messages};
 use super::reachability::{
-    RepairReachability, assess_repair_reachability, reachability_failure_kind,
+    RepairReachability, assess_repair_reachability_at_root, reachability_failure_kind,
     reachability_recovery_reason,
 };
 use super::repair_pressure::{
@@ -2831,8 +2831,13 @@ fn verify_completion_contract_with_enforcement(
         build_verifier_required,
         &build_verifier_lifecycles,
     );
-    let reachability =
-        assess_repair_reachability(&report, Some(contract), setup_authority, offline);
+    let reachability = assess_repair_reachability_at_root(
+        Some(root),
+        &report,
+        Some(contract),
+        setup_authority,
+        offline,
+    );
     eval_events::emit(
         eval_events_path,
         json!({
@@ -3114,6 +3119,7 @@ fn verify_completion_contract_with_enforcement(
     }
     let feedback = reanchored_verify_feedback_if_needed(
         format_verify_feedback_with_contract(&report, Some(contract)),
+        root,
         repair_follow_through,
         repair_target,
         &report,
@@ -3910,6 +3916,7 @@ fn handle_verify_repair_no_edit(
 
 fn reanchored_verify_feedback_if_needed(
     feedback: String,
+    root: &std::path::Path,
     repair_follow_through: Option<RepairFollowThrough>,
     repair_target: RepairTarget,
     report: &crate::planner::verify::VerificationReport,
@@ -3922,7 +3929,8 @@ fn reanchored_verify_feedback_if_needed(
     ) {
         return feedback;
     }
-    let paths = follow_through_anchor_paths(repair_target, report, contract, runtime_acceptance);
+    let paths =
+        follow_through_anchor_paths(root, repair_target, report, contract, runtime_acceptance);
     format!(
         "Previous edit did not address the failure. You must edit one of the following files: {}\n\n{}",
         paths.join(", "),
@@ -3931,6 +3939,7 @@ fn reanchored_verify_feedback_if_needed(
 }
 
 fn follow_through_anchor_paths(
+    root: &std::path::Path,
     repair_target: RepairTarget,
     report: &crate::planner::verify::VerificationReport,
     contract: &CompletionContract,
@@ -3940,6 +3949,9 @@ fn follow_through_anchor_paths(
         return report
             .compile_errors
             .iter()
+            .filter(|error| {
+                !crate::minimal_loop::compile_repair_scope::is_foreign(Some(root), error)
+            })
             .map(|error| error.path.clone())
             .collect::<std::collections::BTreeSet<_>>()
             .into_iter()

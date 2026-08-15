@@ -941,7 +941,7 @@ pub fn auto_repair(root: &Path, goal: &str, report: &VerificationReport) -> anyh
     )?;
     ensure_file(
         &project.path.join("tsconfig.json"),
-        r#"{"compilerOptions":{"target":"ES2017","lib":["dom","dom.iterable","esnext"],"allowJs":true,"skipLibCheck":true,"strict":true,"noEmit":true,"esModuleInterop":true,"module":"esnext","moduleResolution":"bundler","resolveJsonModule":true,"isolatedModules":true,"jsx":"preserve","incremental":true,"plugins":[{"name":"next"}],"baseUrl":".","paths":{"@/*":["./src/*"]}},"include":["next-env.d.ts","**/*.ts","**/*.tsx",".next/types/**/*.ts"],"exclude":["node_modules"]}"#,
+        r#"{"compilerOptions":{"target":"ES2017","lib":["dom","dom.iterable","esnext"],"allowJs":true,"skipLibCheck":true,"strict":true,"noEmit":true,"esModuleInterop":true,"module":"esnext","moduleResolution":"bundler","resolveJsonModule":true,"isolatedModules":true,"jsx":"preserve","incremental":true,"plugins":[{"name":"next"}],"baseUrl":".","paths":{"@/*":["./src/*"]}},"include":["next-env.d.ts","src/**/*","app/**/*","pages/**/*","components/**/*","*.ts","*.tsx",".next/types/**/*.ts"],"exclude":["node_modules"]}"#,
     )?;
     ensure_file(
         &project.path.join("src/app/globals.css"),
@@ -1082,7 +1082,7 @@ fn locate_project_root(root: &Path) -> Result<ProjectRoot, String> {
         let Ok(file_type) = entry.file_type() else {
             continue;
         };
-        if !file_type.is_dir() || entry.path().join("node_modules").is_dir() {
+        if !file_type.is_dir() || entry.file_name() == "node_modules" {
             continue;
         }
         if entry.path().join("package.json").is_file() {
@@ -2853,6 +2853,19 @@ Phase task: Scaffold the Next.js app";
         .unwrap();
         std::fs::write(app.join("src/app/layout.tsx"), "export default function Layout({children}:{children:React.ReactNode}){return children;}").unwrap();
         assert!(verify(dir.path(), "3011").is_pass());
+    }
+
+    #[test]
+    fn nested_project_remains_selected_after_dependencies_are_installed() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = dir.path().join("existing-app");
+        std::fs::create_dir_all(app.join("node_modules")).unwrap();
+        std::fs::write(app.join("package.json"), package_json()).unwrap();
+
+        let project = locate_project_root(dir.path()).unwrap();
+
+        assert_eq!(project.path, app);
+        assert_eq!(project.prefix, "existing-app/");
     }
 
     #[test]

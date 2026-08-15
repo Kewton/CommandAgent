@@ -3,6 +3,7 @@ pub mod behavior_evidence;
 pub mod browser_probe;
 pub mod build_verifier;
 pub mod compact;
+pub mod compile_repair_scope;
 pub mod completion;
 pub mod dependency_setup;
 pub mod edit_anchor_recovery;

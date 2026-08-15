@@ -4,6 +4,12 @@ use std::path::Path;
 use commandagent::minimal_loop::evidence::verify_runtime_acceptance_with_hints;
 use commandagent::minimal_loop::import_scan::route_bound_closure;
 use commandagent::minimal_loop::interaction_probe::static_html_probe_selection;
+use commandagent::minimal_loop::reachability::{
+    assess_repair_reachability_at_root, reachability_failure_kind,
+};
+use commandagent::minimal_loop::{
+    build_verifier::CompileError, dependency_setup::NodeDependencySetupAuthority,
+};
 use commandagent::planner::interaction_qualification::qualify_interaction_evidence;
 use commandagent::planner::profile::{
     ProfileSnapshot, profile_expected_paths, profile_generation_rules, profile_guidance,
@@ -11,6 +17,7 @@ use commandagent::planner::profile::{
     profile_setup_scaffold_paths, verify_profile_final, verify_profile_invariant,
 };
 use commandagent::planner::profiles::nextjs;
+use commandagent::planner::verify::VerificationReport;
 
 #[derive(Debug, Default)]
 struct CorpusCase {
@@ -263,6 +270,42 @@ fn generated_app_corpus_matches_detector_and_probe_expectations() {
             assert_fixture_ordered(&case_dir, display, fixture, ordered_tokens);
         }
     }
+}
+
+#[test]
+fn foreign_compile_incident_fixture_is_not_repairable() {
+    let path = Path::new(
+        "tests/corpus/apps/test0816_gui_foreign_compile/fixtures/foreign-compile-error.json",
+    );
+    let value: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let source = &value["compile_errors"][0];
+    let mut report = VerificationReport::pass();
+    report.compile_errors.push(CompileError {
+        path: source["path"].as_str().unwrap().to_string(),
+        line: source["line"].as_u64().unwrap() as usize,
+        column: source["column"].as_u64().unwrap() as usize,
+        message: source["message"].as_str().unwrap().to_string(),
+        excerpt: String::new(),
+        symbol: None,
+        route_bound: source["route_bound"].as_bool(),
+    });
+    report.push_command_failure("npm run build", "implementation_compile_error");
+
+    let root = path.parent().unwrap().parent().unwrap();
+    let reachability = assess_repair_reachability_at_root(
+        Some(root),
+        &report,
+        None,
+        NodeDependencySetupAuthority::None,
+        false,
+    );
+
+    assert!(!reachability.reachable);
+    assert_eq!(
+        reachability_failure_kind(&reachability),
+        value["expected_blocked_requirement"].as_str().unwrap()
+    );
 }
 
 fn assert_nextjs_profile_matches_direct_impl(case_dir: &Path, display: &str) {
