@@ -23,7 +23,7 @@ pub struct AppState {
 }
 
 #[derive(Debug, Parser)]
-#[command(about = "Serve the read-only CommandAgent dashboard")]
+#[command(about = "Serve the CommandAgent management dashboard")]
 struct Arguments {
     #[arg(long, default_value_t = 4173)]
     port: u16,

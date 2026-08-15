@@ -1,0 +1,202 @@
+{
+  "schema_version": "commandagent.gui-smoke/v2",
+  "generated_at": "2026-08-15T09:09:50.262Z",
+  "playwright": {
+    "source": "managed_interaction_probe",
+    "version": "1.61.1"
+  },
+  "delegate": {
+    "commandagent_bin": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/target/release/commandagent",
+    "provider": "ollama",
+    "model": "qwen3:8b",
+    "fixture": "/Users/maenokota/share/work/github_kewton/CommandAgent-develop/tests/corpus/apps/test0725_cli_elev_003/fixtures",
+    "scratch_runtime": "removed_after_success"
+  },
+  "cases": [
+    {
+      "id": "root",
+      "base_path": "/",
+      "dashboard": {
+        "status": 200,
+        "heading": "Evidence, at a glance."
+      },
+      "api_checks": [
+        {
+          "endpoint": "runs",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "bands",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "maps",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "packs",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "contracts",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "suites",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "reports",
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ],
+      "svg": {
+        "complete": true,
+        "naturalWidth": 1400,
+        "source": "/api/maps/score-time.svg"
+      },
+      "links_use_base_path": true,
+      "pages": {
+        "assets": {
+          "status": 200,
+          "heading": "Pinned means visible.",
+          "headingMatches": true
+        },
+        "measurements": {
+          "status": 200,
+          "heading": "Claims need coordinates.",
+          "headingMatches": true
+        },
+        "run_detail": {
+          "status": 200,
+          "heading": "One run. Every receipt.",
+          "headingMatches": true
+        },
+        "trial": {
+          "status": 200
+        }
+      },
+      "gate_1": {
+        "launch_disabled_before_confirmation": true,
+        "api_without_confirmation_status": 428,
+        "visible_text": "CONTRACT\npython-cli × create × filter\ndocs/cli-profile-contract.md\nC1\nC2\nC3\nC4\n\nC1-C4 pass, including README output claims bound to live CLI output by C3; testimony binding is active as C3.\n\nMEASURED PRICE TAG\n0%\n0/3 full\nMean duration\n10.2 min mean · n=3\nMean cost\nnot recorded · n=0\nMeasurement\nuat-test0725-cli-elev-004\nI confirm this exact contract, model pin, and measured value tag.\nsha256:33955a9c8314d1a09275c87ffb51af54f53872da6c1e0c09aa07cd6351c95782\nCONFIRM AND DELEGATE TO CLI"
+      },
+      "session": {
+        "id": "01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+        "gate": "gate_4",
+        "status": "failed",
+        "verdict": "static",
+        "assurance": "static",
+        "event_count": 97,
+        "events_sha256": "sha256:1f62405468515ee3b9ebb55c19c5ec0633eaf811bf48a6b77e9826aae67950b8",
+        "terminal_visible_text": "GATE_4 / TERMINAL\nstatic\n\nAssurance: static\n\n# D-3c acceptance sheet\n\n## 1. Confirmed identity\n\n- Card hash: sha256:33955a9c8314d1a09275c87ffb51af54f53872da6c1e0c09aa07cd6351c95782\n- Request: Create a CLI --pattern filter command\n- Workspace: /private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/commandagent-g1-gui-smoke-d7KgZF/root\n- Route: python-cli × create × filter\n- Contract: docs/cli-profile-contract.md\n- Full meaning: C1-C4 pass, including README output claims bound to live CLI output by C3; testimony binding is active as C3.\n- Value tag at confirmation: 0% (0/3, formal Window B)\n\n## 2. Terminal projection\n\n- Command succeeded: false\n- Status: failed\n- Assurance: static (cli_probe_not_run)\n- Runtime acceptance: not_checked\n- Final acceptance: not_checked\n- Release gate: not_applicable\n\n## 3. Definition of done\n\n- Contract checks: C1, C2, C3, C4\n- Pack: no pack\n\n## 4. Machine evidence\n\n- Event stream: /var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/commandagent-g1-gui-smoke-d7KgZF/root/.anvil/runs/01a004a9-3aee-74f2-9ae9-3b423e7234b2/events.jsonl\n- Product summary: /var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/commandagent-g1-gui-smoke-d7KgZF/root/.anvil/runs/01a004a9-3aee-74f2-9ae9-3b423e7234b2/summary.md\n\n## 5. Stop reason\n\nphase setup-project failed: step verify-input-output-contract failed verification after bounded repair: dependency_setup_missing: command failed: python -m unittest src/anvil_app/test_main.py outcome: CommandFailed status: exit status: 1 elapsed_ms: 125 summary: ERROR: test_pattern_filter (src.anvil_app.test_main.TestCLI.test_pattern_filter) FileNotFoundError: [Errno 2] No such file or directory: 'test_input.txt' FAILED (errors=1) stdout: stderr: E\nPaths:\n- repair prompt saved: .anvil/repairs/repair-phase-setup-project-01a004ab-9773-7bd0-b120-e7c55f19e72e.md\n- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-setup-project-01a004ab-9773-7bd0-b120-e7d98f6d758c.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile python-cli \"$(cat .anvil/repairs/repair-phase-setup-project-01a004ab-9773-7bd0-b120-e7c55f19e72e.md)\"\n- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-setup-project-01a004ab-9773-7bd0-b120-e7d98f6d758c.yaml\n\nNEXT ACTION / D-3d\nBoundary instruction\n\nSaved text is scrubbed and hashed. It cannot alter the frozen contract floor.\n\nSCRUB AND PERSIST INSTRUCTIONEND WITHOUT ANOTHER RUN"
+      },
+      "elapsed_seconds": 163.11,
+      "expected_negative_console_errors": [
+        "Failed to load resource: the server responded with a status of 428 (Precondition Required)"
+      ],
+      "unexpected_console_errors": [],
+      "ok": true
+    },
+    {
+      "id": "proxy-commandagent",
+      "base_path": "/proxy/commandagent/",
+      "dashboard": {
+        "status": 200,
+        "heading": "Evidence, at a glance."
+      },
+      "api_checks": [
+        {
+          "endpoint": "runs",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "bands",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "maps",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "packs",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "contracts",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "suites",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "reports",
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ],
+      "svg": {
+        "complete": true,
+        "naturalWidth": 1400,
+        "source": "/proxy/commandagent/api/maps/score-time.svg"
+      },
+      "links_use_base_path": true,
+      "pages": {
+        "assets": {
+          "status": 200,
+          "heading": "Pinned means visible.",
+          "headingMatches": true
+        },
+        "measurements": {
+          "status": 200,
+          "heading": "Claims need coordinates.",
+          "headingMatches": true
+        },
+        "run_detail": {
+          "status": 200,
+          "heading": "One run. Every receipt.",
+          "headingMatches": true
+        },
+        "trial": {
+          "status": 200
+        }
+      },
+      "gate_1": {
+        "launch_disabled_before_confirmation": true,
+        "api_without_confirmation_status": 428,
+        "visible_text": "CONTRACT\npython-cli × create × filter\ndocs/cli-profile-contract.md\nC1\nC2\nC3\nC4\n\nC1-C4 pass, including README output claims bound to live CLI output by C3; testimony binding is active as C3.\n\nMEASURED PRICE TAG\n0%\n0/3 full\nMean duration\n10.2 min mean · n=3\nMean cost\nnot recorded · n=0\nMeasurement\nuat-test0725-cli-elev-004\nI confirm this exact contract, model pin, and measured value tag.\nsha256:1d330330fe74df5f1f4aca2210319dd699c4d2f20a18f8648c4a3a1118756ab6\nCONFIRM AND DELEGATE TO CLI"
+      },
+      "session": {
+        "id": "01a004ab-b3f5-7163-a428-8269a77ce4d9",
+        "gate": "gate_4",
+        "status": "failed",
+        "verdict": "static",
+        "assurance": "static",
+        "event_count": 125,
+        "events_sha256": "sha256:a4d440e526829e5d908c6eeac1e1bd2cd5245ac305ce55977c89d57e7e69aaa2",
+        "terminal_visible_text": "GATE_4 / TERMINAL\nstatic\n\nAssurance: static\n\n# D-3c acceptance sheet\n\n## 1. Confirmed identity\n\n- Card hash: sha256:1d330330fe74df5f1f4aca2210319dd699c4d2f20a18f8648c4a3a1118756ab6\n- Request: Create a CLI --pattern filter command\n- Workspace: /private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/commandagent-g1-gui-smoke-d7KgZF/proxy-commandagent\n- Route: python-cli × create × filter\n- Contract: docs/cli-profile-contract.md\n- Full meaning: C1-C4 pass, including README output claims bound to live CLI output by C3; testimony binding is active as C3.\n- Value tag at confirmation: 0% (0/3, formal Window B)\n\n## 2. Terminal projection\n\n- Command succeeded: false\n- Status: failed\n- Assurance: static (cli_probe_not_run)\n- Runtime acceptance: not_checked\n- Final acceptance: not_checked\n- Release gate: not_applicable\n\n## 3. Definition of done\n\n- Contract checks: C1, C2, C3, C4\n- Pack: no pack\n\n## 4. Machine evidence\n\n- Event stream: /var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/commandagent-g1-gui-smoke-d7KgZF/proxy-commandagent/.anvil/runs/01a004ab-b3f5-7163-a428-8269a77ce4d9/events.jsonl\n- Product summary: /var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/commandagent-g1-gui-smoke-d7KgZF/proxy-commandagent/.anvil/runs/01a004ab-b3f5-7163-a428-8269a77ce4d9/summary.md\n\n## 5. Stop reason\n\nphase scaffold failed: invalid StepPlan after corrective retries: step instruction must be natural language, not a shell command; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true\nPaths:\n- repair prompt saved: .anvil/repairs/repair-phase-verify-cli-01a004af-3ba3-7a92-8144-6dd9047a12d2.md\n- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-verify-cli-01a004af-3ba3-7a92-8144-6de384284f23.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile python-cli \"$(cat .anvil/repairs/repair-phase-verify-cli-01a004af-3ba3-7a92-8144-6dd9047a12d2.md)\"\n- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-verify-cli-01a004af-3ba3-7a92-8144-6de384284f23.yaml\n\nNEXT ACTION / D-3d\nBoundary instruction\n\nSaved text is scrubbed and hashed. It cannot alter the frozen contract floor.\n\nSCRUB AND PERSIST INSTRUCTIONEND WITHOUT ANOTHER RUN"
+      },
+      "elapsed_seconds": 239.163,
+      "expected_negative_console_errors": [
+        "Failed to load resource: the server responded with a status of 428 (Precondition Required)"
+      ],
+      "unexpected_console_errors": [],
+      "ok": true
+    }
+  ],
+  "ok": true
+}

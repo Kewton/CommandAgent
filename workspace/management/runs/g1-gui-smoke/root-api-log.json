@@ -1,0 +1,1097 @@
+{
+  "schema_version": "commandagent.gui-api-smoke/v1",
+  "base_path": "/",
+  "denied_without_confirmation": {
+    "status": 428,
+    "body": {
+      "error": "Gate 1 confirmation_hash is required before dispatch"
+    }
+  },
+  "observed_calls": [
+    {
+      "method": "POST",
+      "path": "/api/session-proposals",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/api/sessions",
+      "status": 428
+    },
+    {
+      "method": "POST",
+      "path": "/api/sessions",
+      "status": 202
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/sessions/01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "status": 200
+    }
+  ],
+  "terminal_poll": {
+    "status": 200,
+    "body": {
+      "id": "01a004a9-3aee-74f2-9ae9-3b423e7234b2",
+      "gate": "gate_4",
+      "status": "failed",
+      "verdict": "static",
+      "assurance": "static",
+      "phases": [
+        {
+          "id": "setup-project",
+          "index": 0,
+          "total": 0,
+          "stage": "recovery_prompt_saved",
+          "status": "running"
+        },
+        {
+          "id": "setup-project",
+          "index": 1,
+          "total": 5,
+          "stage": "execute",
+          "status": "failed"
+        }
+      ],
+      "event_count": 97,
+      "acceptance_sheet": "# D-3c acceptance sheet\n\n## 1. Confirmed identity\n\n- Card hash: sha256:33955a9c8314d1a09275c87ffb51af54f53872da6c1e0c09aa07cd6351c95782\n- Request: Create a CLI --pattern filter command\n- Workspace: /private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/commandagent-g1-gui-smoke-d7KgZF/root\n- Route: python-cli × create × filter\n- Contract: docs/cli-profile-contract.md\n- Full meaning: C1-C4 pass, including README output claims bound to live CLI output by C3; testimony binding is active as C3.\n- Value tag at confirmation: 0% (0/3, formal Window B)\n\n## 2. Terminal projection\n\n- Command succeeded: false\n- Status: failed\n- Assurance: static (cli_probe_not_run)\n- Runtime acceptance: not_checked\n- Final acceptance: not_checked\n- Release gate: not_applicable\n\n## 3. Definition of done\n\n- Contract checks: C1, C2, C3, C4\n- Pack: no pack\n\n## 4. Machine evidence\n\n- Event stream: /var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/commandagent-g1-gui-smoke-d7KgZF/root/.anvil/runs/01a004a9-3aee-74f2-9ae9-3b423e7234b2/events.jsonl\n- Product summary: /var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/commandagent-g1-gui-smoke-d7KgZF/root/.anvil/runs/01a004a9-3aee-74f2-9ae9-3b423e7234b2/summary.md\n\n## 5. Stop reason\n\nphase setup-project failed: step verify-input-output-contract failed verification after bounded repair: dependency_setup_missing: command failed: python -m unittest src/anvil_app/test_main.py outcome: CommandFailed status: exit status: 1 elapsed_ms: 125 summary: ERROR: test_pattern_filter (src.anvil_app.test_main.TestCLI.test_pattern_filter) FileNotFoundError: [Errno 2] No such file or directory: 'test_input.txt' FAILED (errors=1) stdout: stderr: E\nPaths:\n- repair prompt saved: .anvil/repairs/repair-phase-setup-project-01a004ab-9773-7bd0-b120-e7c55f19e72e.md\n- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-setup-project-01a004ab-9773-7bd0-b120-e7d98f6d758c.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile python-cli \"$(cat .anvil/repairs/repair-phase-setup-project-01a004ab-9773-7bd0-b120-e7c55f19e72e.md)\"\n- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-setup-project-01a004ab-9773-7bd0-b120-e7d98f6d758c.yaml\n",
+      "section5": "phase setup-project failed: step verify-input-output-contract failed verification after bounded repair: dependency_setup_missing: command failed: python -m unittest src/anvil_app/test_main.py outcome: CommandFailed status: exit status: 1 elapsed_ms: 125 summary: ERROR: test_pattern_filter (src.anvil_app.test_main.TestCLI.test_pattern_filter) FileNotFoundError: [Errno 2] No such file or directory: 'test_input.txt' FAILED (errors=1) stdout: stderr: E\nPaths:\n- repair prompt saved: .anvil/repairs/repair-phase-setup-project-01a004ab-9773-7bd0-b120-e7c55f19e72e.md\n- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-setup-project-01a004ab-9773-7bd0-b120-e7d98f6d758c.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile python-cli \"$(cat .anvil/repairs/repair-phase-setup-project-01a004ab-9773-7bd0-b120-e7c55f19e72e.md)\"\n- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-setup-project-01a004ab-9773-7bd0-b120-e7d98f6d758c.yaml",
+      "events_path": ".anvil/runs/01a004a9-3aee-74f2-9ae9-3b423e7234b2/events.jsonl"
+    }
+  }
+}

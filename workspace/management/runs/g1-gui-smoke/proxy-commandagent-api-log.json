@@ -1,0 +1,1623 @@
+{
+  "schema_version": "commandagent.gui-api-smoke/v1",
+  "base_path": "/proxy/commandagent/",
+  "denied_without_confirmation": {
+    "status": 428,
+    "body": {
+      "error": "Gate 1 confirmation_hash is required before dispatch"
+    }
+  },
+  "observed_calls": [
+    {
+      "method": "POST",
+      "path": "/proxy/commandagent/api/session-proposals",
+      "status": 200
+    },
+    {
+      "method": "POST",
+      "path": "/proxy/commandagent/api/sessions",
+      "status": 428
+    },
+    {
+      "method": "POST",
+      "path": "/proxy/commandagent/api/sessions",
+      "status": 202
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/proxy/commandagent/api/sessions/01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "status": 200
+    }
+  ],
+  "terminal_poll": {
+    "status": 200,
+    "body": {
+      "id": "01a004ab-b3f5-7163-a428-8269a77ce4d9",
+      "gate": "gate_4",
+      "status": "failed",
+      "verdict": "static",
+      "assurance": "static",
+      "phases": [
+        {
+          "id": "verify-cli",
+          "index": 0,
+          "total": 0,
+          "stage": "recovery_prompt_saved",
+          "status": "running"
+        },
+        {
+          "id": "setup-project",
+          "index": 1,
+          "total": 4,
+          "stage": "complete",
+          "status": "completed"
+        },
+        {
+          "id": "implement-main",
+          "index": 2,
+          "total": 4,
+          "stage": "complete",
+          "status": "completed"
+        },
+        {
+          "id": "add-filtering",
+          "index": 3,
+          "total": 4,
+          "stage": "complete",
+          "status": "completed"
+        },
+        {
+          "id": "verify-cli",
+          "index": 4,
+          "total": 4,
+          "stage": "scaffold",
+          "status": "failed"
+        }
+      ],
+      "event_count": 125,
+      "acceptance_sheet": "# D-3c acceptance sheet\n\n## 1. Confirmed identity\n\n- Card hash: sha256:1d330330fe74df5f1f4aca2210319dd699c4d2f20a18f8648c4a3a1118756ab6\n- Request: Create a CLI --pattern filter command\n- Workspace: /private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/commandagent-g1-gui-smoke-d7KgZF/proxy-commandagent\n- Route: python-cli × create × filter\n- Contract: docs/cli-profile-contract.md\n- Full meaning: C1-C4 pass, including README output claims bound to live CLI output by C3; testimony binding is active as C3.\n- Value tag at confirmation: 0% (0/3, formal Window B)\n\n## 2. Terminal projection\n\n- Command succeeded: false\n- Status: failed\n- Assurance: static (cli_probe_not_run)\n- Runtime acceptance: not_checked\n- Final acceptance: not_checked\n- Release gate: not_applicable\n\n## 3. Definition of done\n\n- Contract checks: C1, C2, C3, C4\n- Pack: no pack\n\n## 4. Machine evidence\n\n- Event stream: /var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/commandagent-g1-gui-smoke-d7KgZF/proxy-commandagent/.anvil/runs/01a004ab-b3f5-7163-a428-8269a77ce4d9/events.jsonl\n- Product summary: /var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/commandagent-g1-gui-smoke-d7KgZF/proxy-commandagent/.anvil/runs/01a004ab-b3f5-7163-a428-8269a77ce4d9/summary.md\n\n## 5. Stop reason\n\nphase scaffold failed: invalid StepPlan after corrective retries: step instruction must be natural language, not a shell command; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true\nPaths:\n- repair prompt saved: .anvil/repairs/repair-phase-verify-cli-01a004af-3ba3-7a92-8144-6dd9047a12d2.md\n- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-verify-cli-01a004af-3ba3-7a92-8144-6de384284f23.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile python-cli \"$(cat .anvil/repairs/repair-phase-verify-cli-01a004af-3ba3-7a92-8144-6dd9047a12d2.md)\"\n- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-verify-cli-01a004af-3ba3-7a92-8144-6de384284f23.yaml\n",
+      "section5": "phase scaffold failed: invalid StepPlan after corrective retries: step instruction must be natural language, not a shell command; incomplete; Recovery artifact check: prompt_parse_ok=true, yaml_parse_ok=true, command_targets_valid=true\nPaths:\n- repair prompt saved: .anvil/repairs/repair-phase-verify-cli-01a004af-3ba3-7a92-8144-6dd9047a12d2.md\n- Recovery UltraPlan YAML saved: .anvil/plans/recovery-ultra-plan-phase-verify-cli-01a004af-3ba3-7a92-8144-6de384284f23.yaml\nCommands:\n- suggested command: /ultra-plan-run --profile python-cli \"$(cat .anvil/repairs/repair-phase-verify-cli-01a004af-3ba3-7a92-8144-6dd9047a12d2.md)\"\n- suggested YAML command: /run-ultra-plan .anvil/plans/recovery-ultra-plan-phase-verify-cli-01a004af-3ba3-7a92-8144-6de384284f23.yaml",
+      "events_path": ".anvil/runs/01a004ab-b3f5-7163-a428-8269a77ce4d9/events.jsonl"
+    }
+  }
+}

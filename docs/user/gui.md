@@ -1,9 +1,11 @@
-# Read-only GUI
+# Management GUI
 
-The CommandAgent GUI projects repository evidence into four read-only views:
-the score/time dashboard, run acceptance and evidence detail, admitted assets,
-and measurement reports. The server binds only to `127.0.0.1`, exposes only
-GET routes, and does not use forwarded-host headers.
+The CommandAgent GUI projects repository evidence into four read-only views
+and adds one confirmed trial-run view. The dashboard, run detail, admitted
+assets, and measurement reports remain file projections. Trial run can launch
+an existing non-interactive `commandagent` CLI process after Gate 1; the GUI
+does not call providers or runners in process. The server binds only to
+`127.0.0.1` and does not use forwarded-host headers.
 
 ## Prerequisites
 
@@ -31,7 +33,9 @@ cargo run --features gui --bin gui_server -- \
   --port 4173 \
   --base-path / \
   --static-dir gui/out \
-  --repository-root .
+  --repository-root . \
+  --execution-root /path/to/trial-workspace \
+  --commandagent-bin target/release/commandagent
 ```
 
 Open `http://127.0.0.1:4173/`.
@@ -54,7 +58,9 @@ cargo run --features gui --bin gui_server -- \
   --port 4173 \
   --base-path /proxy/commandagent \
   --static-dir gui/out \
-  --repository-root .
+  --repository-root . \
+  --execution-root /path/to/trial-workspace \
+  --commandagent-bin target/release/commandagent
 ```
 
 An nginx location can preserve that prefix when proxying to the loopback
@@ -69,7 +75,32 @@ location /proxy/commandagent/ {
 Do not derive the GUI origin or prefix from `X-Forwarded-*`. Set the prefix
 explicitly at build and startup.
 
-## Read-only API
+## Trial run: Gate 1 through Gate 3/4
+
+Open **Trial run** and enter a goal, admitted profile, provider, and exact
+planner/executor model pins.
+
+1. Select **Check contract and price**. Gate 1 shows the frozen contract
+   checks, full rate and sample count, and any recorded mean duration/cost.
+2. Select the confirmation checkbox. The launch button stays disabled until
+   this explicit confirmation, and the API independently requires the exact
+   card hash.
+3. Select **Confirm and delegate to CLI**. The server starts the existing
+   non-interactive boundary command. Progress is reconstructed by reading that
+   session's JSONL events; there is no GUI state database.
+4. At Gate 3 or Gate 4, inspect the generated acceptance sheet. You may end
+   without another run, or persist an additional D-3d instruction. A D-3d
+   instruction is credential-scrubbed, exact-byte hashed, displayed, and must
+   be confirmed before the existing continuation path is delegated.
+
+There is no cancel, interrupt, phase-edit, or gate-override control while a
+session is running. Use the existing CLI/runtime operating procedures for
+external process management. GUI confirmation cannot lower, replace, or
+satisfy the contract checks.
+
+## API
+
+The evidence routes are same-origin GET requests below the selected base path:
 
 All API routes are same-origin GET requests below the selected base path:
 
@@ -86,8 +117,21 @@ All API routes are same-origin GET requests below the selected base path:
 | `api/reports` and `api/reports/view?path=…` | Measurement report archive |
 
 Paths are canonicalized below their allowed inventory root, symlinks are not
-followed during listing, and individual text views are capped at 1 MiB. There
-are no POST, PUT, PATCH, or DELETE routes.
+followed during listing, and individual text views are capped at 1 MiB.
+
+Trial run adds these bounded routes:
+
+| Route | Operation |
+| --- | --- |
+| `POST api/session-proposals` | Render a deterministic Gate 1 identity and measured price tag |
+| `POST api/sessions` | Require the exact Gate 1 hash, then delegate to the configured CLI binary |
+| `GET api/sessions/{id}` | Read events and artifacts to project phase, gate, and terminal verdict |
+| `POST api/sessions/{id}/directives` | Apply the existing credential scrub and persist a hashed D-3d proposal |
+| `POST api/sessions/{id}/directives/{hash}` | Require that exact proposal, then delegate the existing continuation plan |
+
+The two POST dispatch routes cannot accept an unconfirmed identity. The sole
+process surface executes `commandagent` directly without a shell; provider and
+runner calls are forbidden in the GUI server by the protection audit.
 
 ## Two-basePath browser smoke
 
@@ -97,14 +141,30 @@ live `.anvil/` namespace. By default it reads:
 
 `~/.anvil/tools/interaction-probe/node_modules/playwright`
 
-Run both `/` and `/proxy/commandagent/` cases and store screenshots plus the
-JSON result in a new evidence directory:
+First build the product binary used by the delegate:
+
+```bash
+cargo build --release --bin commandagent
+```
+
+Then run a real local-model lap for both `/` and
+`/proxy/commandagent/`. The runner copies the small Python CLI corpus fixture
+to an isolated temporary workspace. For each base path it records the
+dashboard/API/SVG probes, Gate 1 before and after confirmation, Gate 2,
+Gate 3/4, the session event stream and its SHA-256, and an API log:
 
 ```bash
 cd gui
-npm run smoke -- --output ../workspace/management/runs/g0-gui-smoke
+npm run smoke -- \
+  --output ../workspace/management/runs/g1-gui-smoke \
+  --commandagent-bin ../target/release/commandagent \
+  --model qwen3:8b
 ```
 
 If the managed package is elsewhere, set `COMMANDAGENT_PLAYWRIGHT_PATH` to its
-Playwright package directory. A missing browser or package is an honest smoke
-failure; the runner does not install or substitute one.
+Playwright package directory. Use `--trial-timeout-ms` only to raise or lower
+the per-run wait bound. A missing browser, package, model, or terminal event is
+an honest smoke failure; the runner does not install or substitute one. A
+successful run removes its temporary runtime. A failed run preserves the
+exact temporary path in `browser-smoke.json` for investigation instead of
+interrupting the delegated CLI.
