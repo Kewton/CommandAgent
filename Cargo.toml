@@ -21,8 +21,13 @@ include = [
 
 [workspace]
 
+[features]
+default = []
+gui = ["dep:axum", "dep:tokio"]
+
 [dependencies]
 anyhow = "1"
+axum = { version = "0.8", optional = true }
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 clap_mangen = "0.2"
@@ -39,6 +44,7 @@ serde_yaml = "0.9"
 sha2 = "0.10"
 signal-hook = "0.3"
 thiserror = "2"
+tokio = { version = "1", features = ["fs", "macros", "net", "rt-multi-thread"], optional = true }
 toml = "0.8"
 unicode-width = "0.1"
 url = "2"
@@ -46,3 +52,13 @@ uuid = { version = "1", default-features = false, features = ["v7", "std", "serd
 
 [dev-dependencies]
 tempfile = "3"
+
+[[bin]]
+name = "gui_server"
+path = "src/bin/gui_server.rs"
+required-features = ["gui"]
+
+[[test]]
+name = "gui_server"
+path = "tests/gui_server.rs"
+required-features = ["gui"]

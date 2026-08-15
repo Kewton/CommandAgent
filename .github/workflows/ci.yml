@@ -11,6 +11,26 @@ env:
   RUSTFLAGS: "-D warnings"
 
 jobs:
+  changes:
+    name: Detect GUI changes
+    runs-on: ubuntu-latest
+    outputs:
+      gui: ${{ steps.filter.outputs.gui }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            gui:
+              - 'gui/**'
+              - 'src/bin/gui_server.rs'
+              - 'src/bin/gui_server/**'
+              - 'tests/gui_*.rs'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.github/workflows/ci.yml'
+
   commandagent-guardrails:
     name: CommandAgent Test and Guardrails
     runs-on: ubuntu-latest
@@ -29,3 +49,41 @@ jobs:
         run: python3 -m pip install --disable-pip-version-check -r requirements/ci.txt
       - name: Repository acceptance suite
         run: bash scripts/ci.sh
+
+  gui-dashboard:
+    name: GUI Dashboard
+    needs: changes
+    if: needs.changes.outputs.gui == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: gui/package-lock.json
+      - name: Install pinned GUI dependencies
+        working-directory: gui
+        run: npm ci --include=dev
+      - name: Audit internal paths
+        working-directory: gui
+        run: npm run lint
+      - name: Type check
+        working-directory: gui
+        run: npm run typecheck
+      - name: Build root-path export
+        working-directory: gui
+        run: GUI_BASE_PATH=/ npm run build
+      - name: Build proxy-path export
+        working-directory: gui
+        run: GUI_BASE_PATH=/proxy/commandagent/ npm run build
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+      - name: Verify read-only GUI server
+        run: |
+          cargo clippy --features gui --bin gui_server -- -D warnings
+          cargo test --features gui --test gui_server
