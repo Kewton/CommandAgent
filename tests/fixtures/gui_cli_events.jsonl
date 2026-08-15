@@ -1,0 +1,4 @@
+{"event":"ultra_phase_start","phase_id":"fixture","phase_index":1,"total_phases":1,"schema_version":"1"}
+{"event":"ultra_phase_complete","phase_id":"fixture","phase_index":1,"total_phases":1,"stage":"complete","ok":true,"schema_version":"1"}
+{"event":"ultra_final_acceptance","verdict":"full","ok":true,"schema_version":"1"}
+{"event":"tui_command_stop","effective_profile":"python-cli","status":"completed","assurance_level":"full","assurance_reason":"","runtime_acceptance_status":"pass","final_acceptance_status":"full_success","release_gate_status":"not_applicable","stop_reason":"completed","ok":true,"schema_version":"1"}
