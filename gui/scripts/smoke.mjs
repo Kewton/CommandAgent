@@ -19,6 +19,7 @@ const fixtureRoot = resolve(
     join(repositoryRoot, "tests/corpus/apps/test0725_cli_elev_003/fixtures"),
 );
 const model = valueArgument(arguments_, "--model") ?? "qwen3:8b";
+const trialToken = process.env.GUI_TRIAL_TOKEN ?? "commandagent-gui-smoke-token-000000000001";
 const trialTimeoutMs = Number(valueArgument(arguments_, "--trial-timeout-ms") ?? 1_800_000);
 const managedPlaywrightPath =
   process.env.COMMANDAGENT_PLAYWRIGHT_PATH ??
@@ -192,6 +193,7 @@ async function runCase(smokeCase) {
     const trialUrl = new URL(`${prefix}try/`, server.origin).href;
     const trialResponse = await page.goto(trialUrl, { waitUntil: "networkidle" });
     await page.locator("[data-testid='trial-goal']").fill("Create a CLI --pattern filter command");
+    await page.locator("[data-testid='trial-token']").fill(trialToken);
     const modelInputs = page.locator(".trial-fields input");
     await modelInputs.nth(0).fill(model);
     await modelInputs.nth(1).fill(model);
@@ -201,10 +203,13 @@ async function runCase(smokeCase) {
     const launchDisabledBeforeConfirmation = await launch.isDisabled();
     const gateOneText = await page.locator("[data-testid='gate-one-card']").innerText();
     const deniedWithoutConfirmation = await page.evaluate(
-      async ({ apiUrl, modelName }) => {
+      async ({ apiUrl, modelName, trialToken }) => {
         const result = await fetch(apiUrl, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            authorization: `Bearer ${trialToken}`,
+            "content-type": "application/json",
+          },
           body: JSON.stringify({
             goal: "Create a CLI --pattern filter command",
             profile: "python-cli",
@@ -216,7 +221,11 @@ async function runCase(smokeCase) {
         });
         return { status: result.status, body: await result.json() };
       },
-      { apiUrl: new URL(`${prefix}api/sessions`, server.origin).href, modelName: model },
+      {
+        apiUrl: new URL(`${prefix}api/sessions`, server.origin).href,
+        modelName: model,
+        trialToken,
+      },
     );
     await page.screenshot({
       fullPage: true,
@@ -233,11 +242,16 @@ async function runCase(smokeCase) {
     });
     await page.locator("[data-testid='terminal-gate']").waitFor({ timeout: trialTimeoutMs });
     const finalApi = await page.evaluate(
-      async (apiUrl) => {
-        const result = await fetch(apiUrl);
+      async ({ apiUrl, trialToken }) => {
+        const result = await fetch(apiUrl, {
+          headers: { authorization: `Bearer ${trialToken}` },
+        });
         return { status: result.status, body: await result.json() };
       },
-      new URL(`${prefix}api/sessions/${encodeURIComponent(sessionId)}`, server.origin).href,
+      {
+        apiUrl: new URL(`${prefix}api/sessions/${encodeURIComponent(sessionId)}`, server.origin).href,
+        trialToken,
+      },
     );
     const terminalText = await page.locator("[data-testid='terminal-gate']").innerText();
     await page.screenshot({
@@ -352,7 +366,11 @@ async function startServer(basePath, executionRoot) {
       "--commandagent-bin",
       commandagentBin,
     ],
-    { cwd: repositoryRoot, env: process.env, stdio: ["ignore", "pipe", "pipe"] },
+    {
+      cwd: repositoryRoot,
+      env: { ...process.env, GUI_TRIAL_TOKEN: trialToken },
+      stdio: ["ignore", "pipe", "pipe"],
+    },
   );
   let diagnostics = "";
   child.stderr.setEncoding("utf8");

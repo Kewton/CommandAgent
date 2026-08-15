@@ -12,14 +12,19 @@ mod api;
 mod sessions;
 #[path = "gui_server/static_files.rs"]
 mod static_files;
+#[path = "gui_server/trial_access.rs"]
+mod trial_access;
+#[path = "gui_server/workspace_policy.rs"]
+mod workspace_policy;
 
 #[derive(Debug, Clone)]
 pub struct AppState {
     pub repository_root: PathBuf,
     pub static_root: PathBuf,
     pub base_path: String,
-    pub execution_root: PathBuf,
     pub commandagent_bin: PathBuf,
+    pub trial_access: trial_access::TrialAccess,
+    pub trial_workspace: workspace_policy::TrialWorkspace,
 }
 
 #[derive(Debug, Parser)]
@@ -43,20 +48,29 @@ struct Arguments {
 async fn main() -> anyhow::Result<()> {
     let arguments = Arguments::parse();
     let base_path = normalize_base_path(&arguments.base_path)?;
-    let execution_root = arguments
-        .execution_root
-        .unwrap_or_else(|| arguments.repository_root.clone());
+    let repository_root = arguments.repository_root.canonicalize().with_context(|| {
+        format!(
+            "canonicalize repository root {}",
+            arguments.repository_root.display()
+        )
+    })?;
+    let trial_workspace = workspace_policy::TrialWorkspace::configure(
+        &repository_root,
+        arguments.execution_root.as_deref(),
+    )?;
+    let trial_access = trial_access::TrialAccess::from_environment(trial_workspace.is_enabled())?;
     let commandagent_bin = if arguments.commandagent_bin.is_absolute() {
         arguments.commandagent_bin
     } else {
-        arguments.repository_root.join(arguments.commandagent_bin)
+        repository_root.join(arguments.commandagent_bin)
     };
     let state = AppState {
-        repository_root: arguments.repository_root,
+        repository_root,
         static_root: arguments.static_dir,
         base_path: base_path.clone(),
-        execution_root,
         commandagent_bin,
+        trial_access,
+        trial_workspace,
     };
     let dashboard = dashboard_router();
     let app = if base_path == "/" {

@@ -54,6 +54,9 @@ fn gui_server_can_execute_only_through_the_confirmed_cli_delegate() {
     let delegate = std::fs::read_to_string(DELEGATE_MODULE).unwrap();
     for required in [
         "shell.confirm(confirmation_hash)",
+        ".trial_workspace.acquire(&id)",
+        ".trial_workspace.require_current()",
+        "Gate 1 workspace changed before CLI delegation",
         ".dispatch(|confirmed|",
         "Command::new(&state.commandagent_bin)",
         ".arg(\"--ultra-plan-run\")",
@@ -93,6 +96,7 @@ fn delegation_guard_negative_examples_are_rejected() {
             "commandagent::planner::runner::run_plan_file()",
         ),
         (DELEGATE_MODULE, "Command::new(\"sh\").arg(\"-c\")"),
+        (DELEGATE_MODULE, "Command::new(\"node\").spawn()"),
     ];
     for (path, source) in bad_examples {
         assert!(
@@ -136,7 +140,11 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
     let source = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
     for required in [
         "if (!confirmed || proposal === null)",
+        "authorization: `Bearer ${token}`",
         "confirmation_hash: proposal.card_hash",
+        "data-testid=\"trial-workspace\"",
+        "proposal.identity.workspace",
+        "may create, modify, or delete content inside this directory",
         "disabled={!confirmed || busy || stage === \"gate_2\"}",
         "Confirm and delegate to CLI",
         "Confirm D-3d continuation",
@@ -157,6 +165,32 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         assert!(
             !source.contains(forbidden),
             "trial UI exposes forbidden intervention control {forbidden:?}"
+        );
+    }
+}
+
+#[test]
+fn trial_workspace_and_authentication_guards_are_not_optional() {
+    let entry = std::fs::read_to_string("src/bin/gui_server.rs").unwrap();
+    assert!(!entry.contains("unwrap_or_else(|| arguments.repository_root.clone())"));
+    assert!(entry.contains("TrialWorkspace::configure"));
+    assert!(entry.contains("TrialAccess::from_environment"));
+
+    let delegate = std::fs::read_to_string(DELEGATE_MODULE).unwrap();
+    assert_eq!(
+        delegate.matches("require_trial(&state, &headers").count(),
+        5,
+        "every Trial API handler must enforce workspace and access guards"
+    );
+    for required in [
+        "StatusCode::SERVICE_UNAVAILABLE",
+        "StatusCode::UNAUTHORIZED",
+        "StatusCode::FORBIDDEN",
+        "complete_from_events",
+    ] {
+        assert!(
+            delegate.contains(required),
+            "missing Trial guard {required:?}"
         );
     }
 }
@@ -186,6 +220,7 @@ fn violates_delegation_guard(path: &Path, source: &str) -> bool {
     ]
     .iter()
     .any(|token| source.contains(token))
+        || source.contains("Command::new(\"")
         || (path != Path::new(DELEGATE_MODULE)
             && ["std::process", "Command::new", ".spawn("]
                 .iter()

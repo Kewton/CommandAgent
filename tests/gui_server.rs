@@ -3,6 +3,8 @@ use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+const TEST_TRIAL_TOKEN: &str = "commandagent-gui-test-token-000000000001";
+
 #[test]
 fn gui_server_help_exposes_only_serving_inputs() {
     let output = Command::new(env!("CARGO_BIN_EXE_gui_server"))
@@ -42,6 +44,104 @@ fn gui_server_rejects_noncanonical_base_paths() {
     }
 }
 
+#[test]
+fn gui_server_disables_trial_without_an_execution_root() {
+    let mut server = Server::start_dashboard_only();
+    let dashboard = server.request_without_access("GET", "/", None);
+    assert_eq!(dashboard.status, 200, "{}", dashboard.body);
+    let response =
+        server.request_without_access("POST", "/api/session-proposals", Some(&session_spec()));
+    assert_eq!(response.status, 503, "{}", response.body);
+    assert!(response.body.contains("trial execution is disabled"));
+    server.stop();
+}
+
+#[test]
+fn gui_server_requires_a_runtime_token_for_trial_execution() {
+    let workspace = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_gui_server"))
+        .args(["--port", "0", "--base-path", "/"])
+        .arg("--repository-root")
+        .arg(env!("CARGO_MANIFEST_DIR"))
+        .arg("--execution-root")
+        .arg(workspace.path())
+        .env_remove("GUI_TRIAL_TOKEN")
+        .output()
+        .unwrap();
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("GUI_TRIAL_TOKEN is required"),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn gui_server_rejects_repository_workspace_overlap_and_symlink_aliases() {
+    use std::os::unix::fs::symlink;
+
+    let repository = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let temp = tempfile::tempdir().unwrap();
+    let alias = temp.path().join("repository-alias");
+    let repository_child = repository.join("gui");
+    symlink(repository, &alias).unwrap();
+    for workspace in [
+        repository,
+        repository.parent().unwrap(),
+        repository_child.as_path(),
+        &alias,
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_gui_server"))
+            .args(["--port", "0", "--base-path", "/"])
+            .arg("--repository-root")
+            .arg(repository)
+            .arg("--execution-root")
+            .arg(workspace)
+            .env("GUI_TRIAL_TOKEN", TEST_TRIAL_TOKEN)
+            .output()
+            .unwrap();
+        assert!(!output.status.success(), "accepted {}", workspace.display());
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("must be disjoint"),
+            "stderr for {}: {}",
+            workspace.display(),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn gui_server_revalidates_the_workspace_before_dispatch() {
+    use std::os::unix::fs::symlink;
+
+    let temp = tempfile::tempdir().unwrap();
+    let first = temp.path().join("first");
+    let second = temp.path().join("second");
+    std::fs::create_dir_all(&first).unwrap();
+    std::fs::create_dir_all(&second).unwrap();
+    let alias = temp.path().join("trial-workspace");
+    symlink(&first, &alias).unwrap();
+    let mut server = Server::start(
+        &alias,
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+    );
+    let spec = session_spec();
+    let proposal = server.request("POST", "/api/session-proposals", Some(&spec));
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    let proposal: serde_json::Value = serde_json::from_str(&proposal.body).unwrap();
+
+    std::fs::remove_file(&alias).unwrap();
+    symlink(&second, &alias).unwrap();
+    let mut confirmed = spec;
+    confirmed["confirmation_hash"] = proposal["card_hash"].clone();
+    let response = server.request("POST", "/api/sessions", Some(&confirmed));
+    assert_eq!(response.status, 409, "{}", response.body);
+    assert!(response.body.contains("changed after startup"));
+    server.stop();
+}
+
 #[cfg(unix)]
 #[test]
 fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
@@ -54,7 +154,8 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     let cli = temp.path().join("fake-commandagent");
     let fixture = include_str!("fixtures/gui_cli_events.jsonl");
     let script = format!(
-        "#!/bin/sh\ncase \" $* \" in\n  *\" --run-ultra-plan \"*) sleep 1; printf '%s' '{}' >> \"$COMMANDAGENT_EVAL_EVENTS\" ;;\n  *) printf '%s' '{}' > \"$COMMANDAGENT_EVAL_EVENTS\" ;;\nesac\n",
+        "#!/bin/sh\ncase \" $* \" in\n  *\" --run-ultra-plan \"*) sleep 1; printf '%s' '{}' >> \"$COMMANDAGENT_EVAL_EVENTS\" ;;\n  *\" --ultra-plan-run \"*) sleep 1; printf '%s' '{}' > \"$COMMANDAGENT_EVAL_EVENTS\" ;;\n  *) printf '%s' '{}' > \"$COMMANDAGENT_EVAL_EVENTS\" ;;\nesac\n",
+        fixture.replace('\'', "'\\''"),
         fixture.replace('\'', "'\\''"),
         fixture.replace('\'', "'\\''")
     );
@@ -88,6 +189,21 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     let card_hash = proposal_json["card_hash"].as_str().unwrap();
     assert_eq!(proposal_json["price"]["duration_n"], 3);
     assert_eq!(proposal_json["price"]["cost_n"], 0);
+    assert_eq!(
+        proposal_json["identity"]["workspace"],
+        workspace.canonicalize().unwrap().to_string_lossy().as_ref()
+    );
+
+    let unauthorized = server.request_without_access("POST", "/api/session-proposals", Some(&spec));
+    assert_eq!(unauthorized.status, 401, "{}", unauthorized.body);
+    let forbidden_origin = server.request_with_access(
+        "POST",
+        "/api/session-proposals",
+        Some(&spec),
+        Some(TEST_TRIAL_TOKEN),
+        Some("https://attacker.invalid"),
+    );
+    assert_eq!(forbidden_origin.status, 403, "{}", forbidden_origin.body);
 
     let denied = server.request("POST", "/api/sessions", Some(&spec));
     assert_eq!(denied.status, 428, "{}", denied.body);
@@ -105,6 +221,9 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     let created_json: serde_json::Value = serde_json::from_str(&created.body).unwrap();
     let id = created_json["id"].as_str().unwrap();
     let delegated_events = workspace.join(".anvil/runs").join(id).join("events.jsonl");
+
+    let competing = server.request("POST", "/api/sessions", Some(&confirmed));
+    assert_eq!(competing.status, 409, "{}", competing.body);
 
     let deadline = Instant::now() + Duration::from_secs(5);
     while !delegated_events.is_file() && Instant::now() < deadline {
@@ -207,20 +326,42 @@ struct Server {
 #[cfg(unix)]
 impl Server {
     fn start(workspace: &std::path::Path, cli: &std::path::Path) -> Self {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_gui_server"))
+        Self::start_with_workspace(Some(workspace), cli, true)
+    }
+
+    fn start_dashboard_only() -> Self {
+        Self::start_with_workspace(
+            None,
+            std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+            false,
+        )
+    }
+
+    fn start_with_workspace(
+        workspace: Option<&std::path::Path>,
+        cli: &std::path::Path,
+        authenticated: bool,
+    ) -> Self {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_gui_server"));
+        command
             .args(["--port", "0", "--base-path", "/"])
             .arg("--repository-root")
             .arg(env!("CARGO_MANIFEST_DIR"))
             .arg("--static-dir")
             .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/out"))
-            .arg("--execution-root")
-            .arg(workspace)
             .arg("--commandagent-bin")
             .arg(cli)
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .unwrap();
+            .stderr(Stdio::piped());
+        if let Some(workspace) = workspace {
+            command.arg("--execution-root").arg(workspace);
+        }
+        if authenticated {
+            command.env("GUI_TRIAL_TOKEN", TEST_TRIAL_TOKEN);
+        } else {
+            command.env_remove("GUI_TRIAL_TOKEN");
+        }
+        let mut child = command.spawn().unwrap();
         let mut line = String::new();
         BufReader::new(child.stdout.take().unwrap())
             .read_line(&mut line)
@@ -235,11 +376,39 @@ impl Server {
     }
 
     fn request(&self, method: &str, path: &str, body: Option<&serde_json::Value>) -> HttpResponse {
+        let origin = format!("http://127.0.0.1:{}", self.port);
+        self.request_with_access(method, path, body, Some(TEST_TRIAL_TOKEN), Some(&origin))
+    }
+
+    fn request_without_access(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&serde_json::Value>,
+    ) -> HttpResponse {
+        self.request_with_access(method, path, body, None, None)
+    }
+
+    fn request_with_access(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&serde_json::Value>,
+        token: Option<&str>,
+        origin: Option<&str>,
+    ) -> HttpResponse {
         let body = body.map(ToString::to_string).unwrap_or_default();
+        let authorization = token
+            .map(|token| format!("Authorization: Bearer {token}\r\n"))
+            .unwrap_or_default();
+        let origin = origin
+            .map(|origin| format!("Origin: {origin}\r\n"))
+            .unwrap_or_default();
         let mut stream = TcpStream::connect(("127.0.0.1", self.port)).unwrap();
         write!(
             stream,
-            "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n{authorization}{origin}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            self.port,
             body.len()
         )
         .unwrap();
@@ -275,4 +444,15 @@ impl Drop for Server {
 struct HttpResponse {
     status: u16,
     body: String,
+}
+
+fn session_spec() -> serde_json::Value {
+    serde_json::json!({
+        "goal": "Create a CLI --pattern filter command",
+        "profile": "python-cli",
+        "provider": "ollama",
+        "model": "fixture-executor",
+        "planner_provider": "ollama",
+        "planner_model": "fixture-planner"
+    })
 }

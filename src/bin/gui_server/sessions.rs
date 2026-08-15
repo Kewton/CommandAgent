@@ -1,12 +1,12 @@
 use std::collections::BTreeMap;
 use std::path::{Path as FilePath, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
 use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::{StatusCode, header};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use commandagent::planner::profile::ProfileId;
 use commandagent::tui::boundary_shell::ambiguity::{
@@ -25,7 +25,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
-use super::AppState;
+use super::trial_access::AccessError;
+use super::{AppState, workspace_policy::TrialWorkspace};
 
 const MAX_GOAL_BYTES: usize = 16 * 1024;
 const MAX_FIELD_BYTES: usize = 256;
@@ -142,9 +143,16 @@ impl IntoResponse for SessionError {
 
 pub async fn proposal(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(spec): Json<SessionSpec>,
 ) -> Result<Json<SessionProposal>, SessionError> {
-    let (_, identity, card_markdown) = gate_one(&state, &spec, proposal_confirmation_root(&state))?;
+    let workspace = require_trial(&state, &headers, true)?;
+    let (_, identity, card_markdown) = gate_one(
+        &state,
+        &spec,
+        &workspace,
+        proposal_confirmation_root(&workspace),
+    )?;
     let price = band_price(&state.repository_root, &identity).await?;
     Ok(Json(SessionProposal {
         confirmation_required: true,
@@ -157,8 +165,10 @@ pub async fn proposal(
 
 pub async fn create(
     State(state): State<AppState>,
+    headers: HeaderMap,
     Json(request): Json<CreateSessionRequest>,
 ) -> Result<impl IntoResponse, SessionError> {
+    let workspace = require_trial(&state, &headers, true)?;
     let Some(confirmation_hash) = request.confirmation_hash.as_deref() else {
         return Err(SessionError {
             status: StatusCode::PRECONDITION_REQUIRED,
@@ -166,8 +176,9 @@ pub async fn create(
         });
     };
     let id = Uuid::now_v7().to_string();
-    let paths = SessionPaths::new(&state.execution_root, &id);
-    let (mut shell, identity, _) = gate_one(&state, &request.spec, paths.confirmation_root())?;
+    let paths = SessionPaths::new(&workspace, &id);
+    let (mut shell, identity, _) =
+        gate_one(&state, &request.spec, &workspace, paths.confirmation_root())?;
     let expected_hash = identity.card_hash().map_err(internal)?;
     if confirmation_hash != expected_hash {
         return Err(SessionError {
@@ -175,21 +186,35 @@ pub async fn create(
             message: "Gate 1 card changed; request and confirm the current card".to_string(),
         });
     }
-    shell.confirm(confirmation_hash).map_err(bad_request)?;
+    state.trial_workspace.acquire(&id).map_err(conflict)?;
+    if let Err(error) = shell.confirm(confirmation_hash) {
+        state.trial_workspace.cancel_start(&id);
+        return Err(bad_request(error));
+    }
     let events_path = paths.events_path();
-    shell
-        .dispatch(|confirmed| {
-            spawn_cli(&state, &paths, confirmed)?;
-            Ok("delegated".to_string())
-        })
-        .map_err(internal)?;
+    let dispatch = shell.dispatch(|confirmed| {
+        let child = spawn_cli(&state, &paths, confirmed)?;
+        monitor_cli(
+            state.trial_workspace.clone(),
+            id.clone(),
+            events_path.clone(),
+            child,
+        );
+        Ok("delegated".to_string())
+    });
+    if let Err(error) = dispatch {
+        state
+            .trial_workspace
+            .complete_from_events(&id, &events_path);
+        return Err(internal(error));
+    }
     Ok((
         StatusCode::ACCEPTED,
         Json(CreatedSession {
             id,
             gate: "gate_2",
             status: "starting",
-            events_path: relative_path(&state.execution_root, &events_path),
+            events_path: relative_path(&workspace, &events_path),
         }),
     ))
 }
@@ -197,9 +222,11 @@ pub async fn create(
 pub async fn status(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Json<PolledSession>, SessionError> {
+    let workspace = require_trial(&state, &headers, false)?;
     require_session_id(&id)?;
-    let paths = SessionPaths::new(&state.execution_root, &id);
+    let paths = SessionPaths::new(&workspace, &id);
     let confirmed = load_latest_confirmation(&paths.confirmation_root())
         .map_err(internal)?
         .ok_or_else(|| not_found("session confirmation was not found"))?;
@@ -261,17 +288,19 @@ pub async fn status(
         event_count: events.len(),
         acceptance_sheet: generated.as_ref().map(|sheet| sheet.markdown.clone()),
         section5: generated.and_then(|sheet| sheet.section5),
-        events_path: relative_path(&state.execution_root, &events_path),
+        events_path: relative_path(&workspace, &events_path),
     }))
 }
 
 pub async fn propose_directive(
     State(state): State<AppState>,
     Path(id): Path<String>,
+    headers: HeaderMap,
     Json(request): Json<DirectiveRequest>,
 ) -> Result<Json<DirectiveProposal>, SessionError> {
+    let workspace = require_trial(&state, &headers, true)?;
     require_session_id(&id)?;
-    let paths = SessionPaths::new(&state.execution_root, &id);
+    let paths = SessionPaths::new(&workspace, &id);
     let events_path = paths.events_path();
     require_current_terminal(&events_path).await?;
     require_no_pending_directive(&events_path).await?;
@@ -293,9 +322,11 @@ pub async fn propose_directive(
 pub async fn confirm_directive(
     State(state): State<AppState>,
     Path((id, hash)): Path<(String, String)>,
+    headers: HeaderMap,
 ) -> Result<impl IntoResponse, SessionError> {
+    let workspace = require_trial(&state, &headers, true)?;
     require_session_id(&id)?;
-    let paths = SessionPaths::new(&state.execution_root, &id);
+    let paths = SessionPaths::new(&workspace, &id);
     let events_path = paths.events_path();
     require_current_terminal(&events_path).await?;
     let mut shell = BoundaryShell::new(paths.confirmation_root(), Some(events_path.clone()));
@@ -307,10 +338,20 @@ pub async fn confirm_directive(
         .restore_directive_proposal(&hash)
         .map_err(bad_request)?
         .clone();
-    shell.confirm_directive(&hash).map_err(bad_request)?;
-    let continuation = shell
-        .prepare_confirmed_continuation(&state.execution_root, &events_path, &identity, &directive)
-        .map_err(bad_request)?;
+    state.trial_workspace.acquire(&id).map_err(conflict)?;
+    if let Err(error) = shell.confirm_directive(&hash) {
+        state.trial_workspace.cancel_start(&id);
+        return Err(bad_request(error));
+    }
+    let continuation =
+        shell.prepare_confirmed_continuation(&workspace, &events_path, &identity, &directive);
+    let continuation = match continuation {
+        Ok(continuation) => continuation,
+        Err(error) => {
+            state.trial_workspace.cancel_start(&id);
+            return Err(bad_request(error));
+        }
+    };
     let response = ConfirmedContinuation {
         directive_hash: continuation.directive_hash.clone(),
         directive_round: continuation.directive_round,
@@ -319,12 +360,16 @@ pub async fn confirm_directive(
         status: "starting",
     };
     let (started_tx, started_rx) = mpsc::channel();
+    let lease = state.trial_workspace.clone();
+    let lease_id = id.clone();
+    let lease_events = events_path.clone();
     std::thread::spawn(move || {
         let running_tx = started_tx.clone();
         let result = shell.dispatch_directive(&continuation, || {
             let _ = running_tx.send(Ok(()));
             run_cli_continuation(&state, &paths, &identity, &continuation)
         });
+        lease.complete_from_events(&lease_id, &lease_events);
         if let Err(error) = result {
             let _ = started_tx.send(Err(error.to_string()));
             eprintln!("GUI directive continuation failed: {error:#}");
@@ -345,6 +390,7 @@ pub async fn confirm_directive(
 fn gate_one(
     state: &AppState,
     spec: &SessionSpec,
+    workspace: &FilePath,
     confirmation_root: PathBuf,
 ) -> Result<(BoundaryShell, ConfirmationIdentity, String), SessionError> {
     validate_spec(spec)?;
@@ -357,7 +403,7 @@ fn gate_one(
     }
     let deterministic = deterministic_route(RouteRequest {
         request: &spec.goal,
-        workspace: &state.execution_root,
+        workspace,
         explicit: ExplicitRouteBinding {
             profile: Some(profile),
             ..ExplicitRouteBinding::default()
@@ -408,7 +454,7 @@ fn gate_one(
         .begin_gate_one(
             proposal,
             spec.goal.clone(),
-            &state.execution_root,
+            workspace,
             pins,
             PackSelection::None,
         )
@@ -422,14 +468,21 @@ fn spawn_cli(
     state: &AppState,
     paths: &SessionPaths,
     identity: &ConfirmationIdentity,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Child> {
+    let workspace = state
+        .trial_workspace
+        .require_current()
+        .map_err(anyhow::Error::msg)?;
+    if identity.workspace != workspace.to_string_lossy() {
+        anyhow::bail!("Gate 1 workspace changed before CLI delegation");
+    }
     let mut command = Command::new(&state.commandagent_bin);
-    command
-        .current_dir(&state.execution_root)
+    Ok(command
+        .current_dir(&workspace)
         .env("COMMANDAGENT_EVAL_EVENTS", paths.events_path())
         .args(["--yes", "--quiet", "--footer", "off", "--stream", "off"])
         .arg("--cwd")
-        .arg(&state.execution_root)
+        .arg(&workspace)
         .arg("--state-dir")
         .arg(paths.state_root())
         .args(["--profile", identity.profile.as_str()])
@@ -448,8 +501,16 @@ fn spawn_cli(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()?;
-    Ok(())
+        .spawn()?)
+}
+
+fn monitor_cli(lease: TrialWorkspace, session_id: String, events_path: PathBuf, mut child: Child) {
+    std::thread::spawn(move || {
+        if let Err(error) = child.wait() {
+            eprintln!("GUI delegated CLI wait failed: {error:#}");
+        }
+        lease.complete_from_events(&session_id, &events_path);
+    });
 }
 
 fn run_cli_continuation(
@@ -458,12 +519,19 @@ fn run_cli_continuation(
     identity: &ConfirmationIdentity,
     continuation: &commandagent::tui::boundary_shell::directive::DirectiveContinuation,
 ) -> anyhow::Result<String> {
+    let workspace = state
+        .trial_workspace
+        .require_current()
+        .map_err(anyhow::Error::msg)?;
+    if identity.workspace != workspace.to_string_lossy() {
+        anyhow::bail!("Gate 1 workspace changed before CLI continuation");
+    }
     let status = Command::new(&state.commandagent_bin)
-        .current_dir(&state.execution_root)
+        .current_dir(&workspace)
         .env("COMMANDAGENT_EVAL_EVENTS", paths.events_path())
         .args(["--yes", "--quiet", "--footer", "off", "--stream", "off"])
         .arg("--cwd")
-        .arg(&state.execution_root)
+        .arg(&workspace)
         .arg("--state-dir")
         .arg(paths.state_root())
         .args(["--profile", identity.profile.as_str()])
@@ -713,6 +781,38 @@ fn require_session_id(id: &str) -> Result<(), SessionError> {
     Ok(())
 }
 
+fn require_trial(
+    state: &AppState,
+    headers: &HeaderMap,
+    require_origin: bool,
+) -> Result<PathBuf, SessionError> {
+    if !state.trial_workspace.is_enabled() {
+        return Err(SessionError {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            message: "trial execution is disabled; configure --execution-root".to_string(),
+        });
+    }
+    let workspace = state.trial_workspace.require_current().map_err(conflict)?;
+    state
+        .trial_access
+        .authorize(headers, require_origin)
+        .map_err(|error| match error {
+            AccessError::Disabled => SessionError {
+                status: StatusCode::SERVICE_UNAVAILABLE,
+                message: "trial execution authentication is disabled".to_string(),
+            },
+            AccessError::Unauthorized => SessionError {
+                status: StatusCode::UNAUTHORIZED,
+                message: "a valid GUI trial bearer token is required".to_string(),
+            },
+            AccessError::ForbiddenOrigin => SessionError {
+                status: StatusCode::FORBIDDEN,
+                message: "trial request origin is not allowed".to_string(),
+            },
+        })?;
+    Ok(workspace)
+}
+
 fn relative_path(root: &FilePath, path: &FilePath) -> String {
     path.strip_prefix(root)
         .unwrap_or(path)
@@ -720,8 +820,8 @@ fn relative_path(root: &FilePath, path: &FilePath) -> String {
         .replace('\\', "/")
 }
 
-fn proposal_confirmation_root(state: &AppState) -> PathBuf {
-    state.execution_root.join(".anvil/gui-proposal-preview")
+fn proposal_confirmation_root(workspace: &FilePath) -> PathBuf {
+    workspace.join(".anvil/gui-proposal-preview")
 }
 
 struct SessionPaths {

@@ -1041,6 +1041,29 @@ button {
   line-height: 1.6;
 }
 
+.workspace-boundary {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1.25rem;
+  padding: 1rem;
+  border: 1px solid rgba(255, 114, 114, 0.52);
+  background: rgba(255, 114, 114, 0.06);
+}
+
+.workspace-boundary strong {
+  color: var(--danger);
+  font: 0.62rem/1 var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.workspace-boundary p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
 .price-rate {
   display: flex;
   align-items: end;

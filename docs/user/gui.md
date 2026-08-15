@@ -29,6 +29,7 @@ root:
 cd gui
 GUI_BASE_PATH=/ npm run build
 cd ..
+export GUI_TRIAL_TOKEN='replace-with-at-least-32-random-characters'
 cargo run --features gui --bin gui_server -- \
   --port 4173 \
   --base-path / \
@@ -37,6 +38,12 @@ cargo run --features gui --bin gui_server -- \
   --execution-root /path/to/trial-workspace \
   --commandagent-bin target/release/commandagent
 ```
+
+The runtime-only token is not compiled into the static export. Enter it in the **Trial
+access token** field; the page keeps it only in memory and sends it as a Bearer
+token to Trial APIs. If `--execution-root` is omitted, the dashboard remains
+available but all Trial APIs fail closed with HTTP 503. If `--execution-root`
+is present without `GUI_TRIAL_TOKEN`, the server refuses to start.
 
 Open `http://127.0.0.1:4173/`.
 
@@ -54,6 +61,8 @@ one:
 cd gui
 GUI_BASE_PATH=/proxy/commandagent/ npm run build
 cd ..
+GUI_TRIAL_TOKEN='replace-with-at-least-32-random-characters' \
+GUI_TRIAL_ALLOWED_ORIGINS='https://admin.example.com' \
 cargo run --features gui --bin gui_server -- \
   --port 4173 \
   --base-path /proxy/commandagent \
@@ -75,13 +84,26 @@ location /proxy/commandagent/ {
 Do not derive the GUI origin or prefix from `X-Forwarded-*`. Set the prefix
 explicitly at build and startup.
 
+`GUI_TRIAL_ALLOWED_ORIGINS` is a comma-separated allowlist for reverse-proxy
+origins. Same-host browser requests are accepted automatically. A valid token
+does not replace upstream authentication: when exposing Trial through
+Cloudflare or another tunnel, require an administrator access policy at that
+proxy as well.
+
+The execution root must already exist and must be disjoint from the repository
+root. The server rejects the repository itself, its parents, its children, and
+symlink aliases of those paths. It canonicalizes the workspace again before
+initial dispatch and D-3d continuation. Use one dedicated project workspace;
+the GUI permits only one delegated process in that workspace at a time.
+
 ## Trial run: Gate 1 through Gate 3/4
 
 Open **Trial run** and enter a goal, admitted profile, provider, and exact
 planner/executor model pins.
 
-1. Select **Check contract and price**. Gate 1 shows the frozen contract
-   checks, full rate and sample count, and any recorded mean duration/cost.
+1. Enter the runtime Trial token, then select **Check contract and price**.
+   Gate 1 shows the frozen contract checks, full rate and sample count, any
+   recorded mean duration/cost, and the canonical filesystem write boundary.
 2. Select the confirmation checkbox. The launch button stays disabled until
    this explicit confirmation, and the API independently requires the exact
    card hash.
@@ -102,8 +124,6 @@ satisfy the contract checks.
 
 The evidence routes are same-origin GET requests below the selected base path:
 
-All API routes are same-origin GET requests below the selected base path:
-
 | Route | Repository projection |
 | --- | --- |
 | `api/runs` | Run directory index |
@@ -120,6 +140,10 @@ Paths are canonicalized below their allowed inventory root, symlinks are not
 followed during listing, and individual text views are capped at 1 MiB.
 
 Trial run adds these bounded routes:
+
+Every route in this table requires `Authorization: Bearer <GUI_TRIAL_TOKEN>`.
+POST requests also require a same-host Origin or an origin admitted by
+`GUI_TRIAL_ALLOWED_ORIGINS`.
 
 | Route | Operation |
 | --- | --- |

@@ -24,6 +24,7 @@ const initialSpec: SessionSpec = {
 type ScreenStage = "compose" | "gate_1" | "gate_2" | "terminal" | "closed";
 
 export default function TrialRunPage() {
+  const [trialToken, setTrialToken] = useState("");
   const [spec, setSpec] = useState<SessionSpec>(initialSpec);
   const [proposal, setProposal] = useState<SessionProposal | null>(null);
   const [confirmed, setConfirmed] = useState(false);
@@ -41,7 +42,9 @@ export default function TrialRunPage() {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const poll = async () => {
       try {
-        const response = await fetch(apiPath(`sessions/${encodeURIComponent(created.id)}`));
+        const response = await fetch(apiPath(`sessions/${encodeURIComponent(created.id)}`), {
+          headers: authorizationHeaders(trialToken),
+        });
         if (!response.ok) throw new Error(await apiError(response));
         const value = (await response.json()) as PolledSession;
         if (cancelled) return;
@@ -61,7 +64,7 @@ export default function TrialRunPage() {
       cancelled = true;
       if (timer !== undefined) clearTimeout(timer);
     };
-  }, [created, stage]);
+  }, [created, stage, trialToken]);
 
   const priceDuration = useMemo(() => {
     const seconds = proposal?.price.average_duration_seconds;
@@ -87,7 +90,7 @@ export default function TrialRunPage() {
     try {
       const response = await fetch(apiPath("session-proposals"), {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authorizationHeaders(trialToken, true),
         body: JSON.stringify(spec),
       });
       if (!response.ok) throw new Error(await apiError(response));
@@ -111,7 +114,7 @@ export default function TrialRunPage() {
     try {
       const response = await fetch(apiPath("sessions"), {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: authorizationHeaders(trialToken, true),
         body: JSON.stringify({ ...spec, confirmation_hash: proposal.card_hash }),
       });
       if (!response.ok) throw new Error(await apiError(response));
@@ -134,7 +137,7 @@ export default function TrialRunPage() {
         apiPath(`sessions/${encodeURIComponent(created.id)}/directives`),
         {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: authorizationHeaders(trialToken, true),
           body: JSON.stringify({ directive: directiveText }),
         },
       );
@@ -156,7 +159,7 @@ export default function TrialRunPage() {
         apiPath(
           `sessions/${encodeURIComponent(created.id)}/directives/${encodeURIComponent(directive.directive_hash)}`,
         ),
-        { method: "POST", headers: { "content-type": "application/json" }, body: "{}" },
+        { method: "POST", headers: authorizationHeaders(trialToken, true), body: "{}" },
       );
       if (!response.ok) throw new Error(await apiError(response));
       setDirective(null);
@@ -193,6 +196,20 @@ export default function TrialRunPage() {
             rows={5}
             value={spec.goal}
           />
+          <label htmlFor="trial-token">Trial access token</label>
+          <input
+            autoComplete="off"
+            data-testid="trial-token"
+            id="trial-token"
+            onChange={(event) => {
+              setTrialToken(event.target.value);
+              setProposal(null);
+              setConfirmed(false);
+              setStage("compose");
+            }}
+            type="password"
+            value={trialToken}
+          />
           <div className="trial-fields">
             <label>
               Profile
@@ -226,7 +243,7 @@ export default function TrialRunPage() {
           <button
             className="secondary-action"
             data-testid="check-contract"
-            disabled={busy || stage === "gate_2"}
+            disabled={trialToken === "" || busy || stage === "gate_2"}
             onClick={() => void checkContract()}
             type="button"
           >
@@ -258,6 +275,11 @@ export default function TrialRunPage() {
               {proposal.identity.contract_checks.map((check) => <li key={check}>{check}</li>)}
             </ul>
             <p>{proposal.identity.full_meaning}</p>
+            <div className="workspace-boundary" data-testid="trial-workspace">
+              <strong>Filesystem write boundary</strong>
+              <code>{proposal.identity.workspace}</code>
+              <p>The delegated CLI may create, modify, or delete content inside this directory.</p>
+            </div>
           </article>
           <article className="panel price-card">
             <span className="panel-index">MEASURED PRICE TAG</span>
@@ -277,7 +299,7 @@ export default function TrialRunPage() {
                 onChange={(event) => setConfirmed(event.target.checked)}
                 type="checkbox"
               />
-              I confirm this exact contract, model pin, and measured value tag.
+              I confirm this exact contract, model pin, measured value tag, and displayed filesystem write boundary.
             </label>
             <code className="hash-line">{proposal.card_hash}</code>
             <button
@@ -375,4 +397,11 @@ async function apiError(response: Response): Promise<string> {
 
 function message(reason: unknown): string {
   return reason instanceof Error ? reason.message : "The trial request failed.";
+}
+
+function authorizationHeaders(token: string, json = false): Record<string, string> {
+  return {
+    authorization: `Bearer ${token}`,
+    ...(json ? { "content-type": "application/json" } : {}),
+  };
 }
