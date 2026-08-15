@@ -95,3 +95,10 @@ update, and tests in the same change.
 CI is an acceptance necessary condition, not a substitute for the authorized
 full-suite green run. The local acceptance conditions, including privileged
 full verification where required, remain in force.
+
+## Push Preflight
+
+Before pushing a commit series, resolve its remote parent SHA and record the
+GitHub Actions `CI` conclusion for that exact SHA. A failed, pending, cancelled,
+or unavailable parent conclusion blocks the push and must be reported; only an
+explicit owner instruction may authorize proceeding on a non-green parent.

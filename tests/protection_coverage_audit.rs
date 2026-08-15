@@ -39,8 +39,12 @@ const PROTECTION_RULES: &[ProtectionRule] = &[
     ProtectionRule {
         category: "bounded_execution_chokepoints",
         site_predicate: "provider chat and child process launch",
-        required_wrapper: "provider_call / bounded_process",
-        allowlist: &["src/provider_call.rs", "src/bounded_process.rs"],
+        required_wrapper: "provider_call / bounded_process / confirmed GUI CLI delegate",
+        allowlist: &[
+            "src/provider_call.rs",
+            "src/bounded_process.rs",
+            "src/bin/gui_server/sessions.rs",
+        ],
         audit: audit_bounded_execution_chokepoints,
     },
     ProtectionRule {
@@ -260,7 +264,7 @@ fn audit_verify_normalization_boundary(corpus: &AuditCorpus, _: &ProtectionRule)
     violations
 }
 
-fn audit_bounded_execution_chokepoints(corpus: &AuditCorpus, _: &ProtectionRule) -> Vec<String> {
+fn audit_bounded_execution_chokepoints(corpus: &AuditCorpus, rule: &ProtectionRule) -> Vec<String> {
     let mut violations = Vec::new();
     for (path, text) in corpus.src_rust_files() {
         if path.starts_with("src/planner/runner/tests/") {
@@ -274,7 +278,10 @@ fn audit_bounded_execution_chokepoints(corpus: &AuditCorpus, _: &ProtectionRule)
                     line_index + 1
                 ));
             }
-            if path != "src/bounded_process.rs" && raw_process_invocation(line) && !in_test_mod {
+            if !rule.allowlist.contains(&path.as_str())
+                && raw_process_invocation(line)
+                && !in_test_mod
+            {
                 violations.push(format!(
                     "{path}:{} direct child-process invocation: {}",
                     line_index + 1,

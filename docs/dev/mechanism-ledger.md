@@ -1541,3 +1541,5 @@ failed在庫44本のcensusから失敗クラス×開始スコア帯を固定seed
 bytesは10/10不変、copy productは10/10変化、directive・追い周回・新規配線は0。
 F-BoN-Vの自動BoN修復接続NO-GOを維持し、P2F-1人間指示版とは分離した。正本は
 `workspace/management/runs/p2f-0/report.md`と`settlement.json`。
+G-0 red-on-red違反（2026-08-15事後記帳）: `49feed64`のCI run `31175327521`がfailureのまま、親CI conclusionを確認せずG-0 `0b4dfad7`以降をpushした。後続の両greenは当時の違反を遡及的に正当化しない。
+裁量コミット原則（再確定）: 開発主体の裁量で作るコミット列は、push前preflightでremote親SHAの`CI` conclusion=successを記録する。failure/pending/cancelled/unavailableなら停止・原文報告し、明示的な所有者指示なしにredの上へ積んでpushしない。
