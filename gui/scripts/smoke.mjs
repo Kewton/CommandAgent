@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
@@ -19,7 +19,7 @@ const fixtureRoot = resolve(
     join(repositoryRoot, "tests/corpus/apps/test0725_cli_elev_003/fixtures"),
 );
 const model = valueArgument(arguments_, "--model") ?? "qwen3:8b";
-const trialToken = process.env.GUI_TRIAL_TOKEN ?? "commandagent-gui-smoke-token-000000000001";
+const trialCredential = process.env.GUI_TRIAL_TOKEN ?? randomBytes(32).toString("hex");
 const trialTimeoutMs = Number(valueArgument(arguments_, "--trial-timeout-ms") ?? 1_800_000);
 const managedPlaywrightPath =
   process.env.COMMANDAGENT_PLAYWRIGHT_PATH ??
@@ -193,7 +193,7 @@ async function runCase(smokeCase) {
     const trialUrl = new URL(`${prefix}try/`, server.origin).href;
     const trialResponse = await page.goto(trialUrl, { waitUntil: "networkidle" });
     await page.locator("[data-testid='trial-goal']").fill("Create a CLI --pattern filter command");
-    await page.locator("[data-testid='trial-token']").fill(trialToken);
+    await page.locator("[data-testid='trial-token']").fill(trialCredential);
     const modelInputs = page.locator(".trial-fields input");
     await modelInputs.nth(0).fill(model);
     await modelInputs.nth(1).fill(model);
@@ -224,7 +224,7 @@ async function runCase(smokeCase) {
       {
         apiUrl: new URL(`${prefix}api/sessions`, server.origin).href,
         modelName: model,
-        trialToken,
+        trialToken: trialCredential,
       },
     );
     await page.screenshot({
@@ -250,7 +250,7 @@ async function runCase(smokeCase) {
       },
       {
         apiUrl: new URL(`${prefix}api/sessions/${encodeURIComponent(sessionId)}`, server.origin).href,
-        trialToken,
+        trialToken: trialCredential,
       },
     );
     const terminalText = await page.locator("[data-testid='terminal-gate']").innerText();
@@ -368,7 +368,7 @@ async function startServer(basePath, executionRoot) {
     ],
     {
       cwd: repositoryRoot,
-      env: { ...process.env, GUI_TRIAL_TOKEN: trialToken },
+      env: { ...process.env, GUI_TRIAL_TOKEN: trialCredential },
       stdio: ["ignore", "pipe", "pipe"],
     },
   );

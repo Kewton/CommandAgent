@@ -29,7 +29,7 @@ root:
 cd gui
 GUI_BASE_PATH=/ npm run build
 cd ..
-export GUI_TRIAL_TOKEN='replace-with-at-least-32-random-characters'
+export GUI_TRIAL_TOKEN="$(openssl rand -hex 32)"
 cargo run --features gui --bin gui_server -- \
   --port 4173 \
   --base-path / \
@@ -61,7 +61,7 @@ one:
 cd gui
 GUI_BASE_PATH=/proxy/commandagent/ npm run build
 cd ..
-GUI_TRIAL_TOKEN='replace-with-at-least-32-random-characters' \
+export GUI_TRIAL_TOKEN="$(openssl rand -hex 32)"
 GUI_TRIAL_ALLOWED_ORIGINS='https://admin.example.com' \
 cargo run --features gui --bin gui_server -- \
   --port 4173 \
