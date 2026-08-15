@@ -5,6 +5,7 @@
   "scripts": {
     "build": "next build",
     "lint": "node scripts/lint-internal-paths.mjs",
+    "smoke": "node scripts/smoke.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
