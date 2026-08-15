@@ -1,0 +1,50 @@
+{
+  "schema_version": "commandagent.gui-workspace-isolation/v1",
+  "generated_at": "2026-08-16T02:26:26+09:00",
+  "incident_session": "01a005e0-ddad-74f1-9987-68ef0883409a",
+  "managed_playwright_version": "1.61.1",
+  "provider": "ollama",
+  "model": "qwen3:8b",
+  "cases": [
+    {
+      "base_path": "/",
+      "session_id": "01a00671-a7d5-79e0-b096-11afd008544b",
+      "dashboard_status": 200,
+      "read_api_statuses": [200, 200, 200, 200, 200, 200, 200],
+      "svg_natural_width": 1400,
+      "links_use_base_path": true,
+      "launch_disabled_before_confirmation": true,
+      "unconfirmed_api_status": 428,
+      "terminal_gate": "gate_4",
+      "terminal_status": "failed",
+      "terminal_verdict": "static",
+      "terminal_assurance": "static",
+      "event_count": 103,
+      "events_sha256": "e16bc22da184f055fcf9c111663b4b856384e131b0cf6b8e00810139d733ba35",
+      "elapsed_seconds": 182.154,
+      "unexpected_console_errors": [],
+      "smoke_ok": true
+    },
+    {
+      "base_path": "/proxy/commandagent/",
+      "session_id": "01a00674-6f55-73d0-9894-b13b1fee260f",
+      "dashboard_status": 200,
+      "read_api_statuses": [200, 200, 200, 200, 200, 200, 200],
+      "svg_natural_width": 1400,
+      "links_use_base_path": true,
+      "launch_disabled_before_confirmation": true,
+      "unconfirmed_api_status": 428,
+      "terminal_gate": "gate_4",
+      "terminal_status": "failed",
+      "terminal_verdict": "static",
+      "terminal_assurance": "static",
+      "event_count": 58,
+      "events_sha256": "700c62935a1741385b4a4399023ff232b94166db4d18ce21b2346131f0fd4355",
+      "elapsed_seconds": 103.001,
+      "unexpected_console_errors": [],
+      "smoke_ok": true
+    }
+  ],
+  "raw_logs_committed": false,
+  "ok": true
+}
