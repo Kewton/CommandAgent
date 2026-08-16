@@ -1543,3 +1543,11 @@ F-BoN-Vの自動BoN修復接続NO-GOを維持し、P2F-1人間指示版とは分
 `workspace/management/runs/p2f-0/report.md`と`settlement.json`。
 G-0 red-on-red違反（2026-08-15事後記帳）: `49feed64`のCI run `31175327521`がfailureのまま、親CI conclusionを確認せずG-0 `0b4dfad7`以降をpushした。後続の両greenは当時の違反を遡及的に正当化しない。
 裁量コミット原則（再確定）: 開発主体の裁量で作るコミット列は、push前preflightでremote親SHAの`CI` conclusion=successを記録する。failure/pending/cancelled/unavailableなら停止・原文報告し、明示的な所有者指示なしにredの上へ積んでpushしない。
+
+GUI-304（2026-08-16）: Trial status GETはconfirmation hashとevents metadataから
+weak ETagを導出し、`If-None-Match`一致時はevents全読込・JSONL parse・terminal
+acceptance sheet再生成より前に304を返す。clientは変化時1秒へ戻り、連続304時だけ
+最大10秒まで指数backoffする。`PolledSession` schemaは不変。Next exportの
+`_next/static/**`だけを1年immutableとし、`index.html`を含む他pathは`no-store`を
+維持する。10分virtual-clock smokeは旧750 ms固定の801 callに対し65 call以下を
+受理境界とする。

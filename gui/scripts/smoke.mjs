@@ -11,6 +11,7 @@ const guiRoot = resolve(scriptDirectory, "..");
 const repositoryRoot = resolve(guiRoot, "..");
 const arguments_ = process.argv.slice(2);
 const outputDirectory = valueArgument(arguments_, "--output");
+const pollingOnly = arguments_.includes("--polling-only");
 const commandagentBin = resolve(
   valueArgument(arguments_, "--commandagent-bin") ?? join(repositoryRoot, "target/release/commandagent"),
 );
@@ -27,7 +28,7 @@ const managedPlaywrightPath =
 
 if (outputDirectory === null) {
   console.error(
-    "usage: npm run smoke -- --output <evidence-directory> [--commandagent-bin <path>] [--model <name>]",
+    "usage: npm run smoke -- --output <evidence-directory> [--polling-only] [--commandagent-bin <path>] [--model <name>]",
   );
   process.exit(2);
 }
@@ -57,7 +58,7 @@ const results = [];
 try {
   for (const smokeCase of cases) {
     try {
-      results.push(await runCase(smokeCase));
+      results.push(await (pollingOnly ? runPollingCase(smokeCase) : runCase(smokeCase)));
     } catch (reason) {
       results.push({
         id: smokeCase.id,
@@ -83,6 +84,7 @@ const report = {
     version: packageMetadata.version,
   },
   delegate: {
+    mode: pollingOnly ? "polling_only" : "full_trial",
     commandagent_bin: commandagentBin,
     provider: "ollama",
     model,
@@ -98,6 +100,34 @@ const report = {
 await writeFile(join(outputDirectory, "browser-smoke.json"), `${JSON.stringify(report, null, 2)}\n`);
 console.log(JSON.stringify(report, null, 2));
 if (!report.ok) process.exitCode = 1;
+
+async function runPollingCase(smokeCase) {
+  const executionRoot = join(scratchRoot, smokeCase.id);
+  await mkdir(executionRoot, { recursive: true });
+  await runChecked("npm", ["run", "build"], guiRoot, {
+    ...process.env,
+    GUI_BASE_PATH: smokeCase.buildBasePath,
+  });
+  const server = await startServer(smokeCase.serverBasePath, executionRoot);
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const polling = await probeTenMinutePolling(browser, server.origin, smokeCase.serverBasePath);
+    return {
+      id: smokeCase.id,
+      base_path: smokeCase.buildBasePath,
+      duration_ms: polling.duration_ms,
+      fixed_750ms_calls: polling.fixed_750ms_calls,
+      observed_call_count: polling.observed_call_count,
+      observed_calls: polling.observed_calls,
+      conditional_requests: polling.conditional_requests,
+      reduction_percent: polling.reduction_percent,
+      ok: polling.ok,
+    };
+  } finally {
+    await browser.close();
+    server.stop();
+  }
+}
 
 async function runCase(smokeCase) {
   const startedAt = Date.now();
@@ -189,6 +219,7 @@ async function runCase(smokeCase) {
       "One run. Every receipt.",
     );
     await page.locator(".document-viewer").waitFor();
+    const pollingBudget = await probeTenMinutePolling(browser, server.origin, smokeCase.serverBasePath);
 
     const trialUrl = new URL(`${prefix}try/`, server.origin).href;
     const trialResponse = await page.goto(trialUrl, { waitUntil: "networkidle" });
@@ -267,6 +298,7 @@ async function runCase(smokeCase) {
       base_path: smokeCase.buildBasePath,
       denied_without_confirmation: deniedWithoutConfirmation,
       observed_calls: apiCalls,
+      ten_minute_polling: pollingBudget,
       terminal_poll: finalApi,
     };
     await writeFile(
@@ -297,6 +329,7 @@ async function runCase(smokeCase) {
       trialResponse?.status() === 200 &&
       launchDisabledBeforeConfirmation &&
       deniedWithoutConfirmation.status === 428 &&
+      pollingBudget.ok &&
       finalApi.status === 200 &&
       ["gate_3", "gate_4"].includes(finalApi.body.gate) &&
       expectedNegativeConsoleErrors.length === 1 &&
@@ -309,6 +342,7 @@ async function runCase(smokeCase) {
       svg: map,
       links_use_base_path: linksUseBasePath,
       pages: { assets, measurements, run_detail: runDetail, trial: { status: trialResponse?.status() ?? 0 } },
+      ten_minute_polling: pollingBudget,
       gate_1: {
         launch_disabled_before_confirmation: launchDisabledBeforeConfirmation,
         api_without_confirmation_status: deniedWithoutConfirmation.status,
@@ -333,6 +367,158 @@ async function runCase(smokeCase) {
     await browser.close();
     server.stop();
   }
+}
+
+async function probeTenMinutePolling(browser, origin, basePath) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const durationMs = 600_000;
+  const fixedIntervalMs = 750;
+  const fixedIntervalCalls = 1 + Math.floor(durationMs / fixedIntervalMs);
+  const sessionId = "0198b9c8-fab8-7000-8000-000000000080";
+  const etag = 'W/"synthetic-unchanged"';
+  const observedCalls = [];
+  try {
+    await page.clock.install({ time: new Date("2026-08-16T00:00:00Z") });
+    await page.route("**/api/**", async (route) => {
+      const request = route.request();
+      const pathname = new URL(request.url()).pathname;
+      if (pathname.endsWith("/api/trial-workspace")) {
+        await route.fulfill({
+          contentType: "application/json",
+          status: 200,
+          body: JSON.stringify({ status: "idle" }),
+        });
+        return;
+      }
+      if (pathname.endsWith("/api/session-proposals")) {
+        await route.fulfill({
+          contentType: "application/json",
+          status: 200,
+          body: JSON.stringify(syntheticProposal()),
+        });
+        return;
+      }
+      if (pathname.endsWith("/api/sessions") && request.method() === "POST") {
+        await route.fulfill({
+          contentType: "application/json",
+          status: 202,
+          body: JSON.stringify({
+            id: sessionId,
+            gate: "gate_2",
+            status: "starting",
+            events_path: `.anvil/runs/${sessionId}/events.jsonl`,
+          }),
+        });
+        return;
+      }
+      if (pathname.endsWith(`/api/sessions/${sessionId}`) && request.method() === "GET") {
+        observedCalls.push({
+          sequence: observedCalls.length + 1,
+          if_none_match: request.headers()["if-none-match"] ?? null,
+        });
+        if (observedCalls.length === 1) {
+          await route.fulfill({
+            contentType: "application/json",
+            headers: { etag, "cache-control": "no-cache" },
+            status: 200,
+            body: JSON.stringify({
+              id: sessionId,
+              gate: "gate_2",
+              status: "running",
+              verdict: null,
+              assurance: null,
+              phases: [],
+              event_count: 0,
+              acceptance_sheet: null,
+              section5: null,
+              events_path: `.anvil/runs/${sessionId}/events.jsonl`,
+            }),
+          });
+        } else {
+          await route.fulfill({ status: 304, headers: { etag, "cache-control": "no-cache" } });
+        }
+        return;
+      }
+      await route.continue();
+    });
+
+    const prefix = displayBasePath(basePath);
+    await page.goto(new URL(`${prefix}try/`, origin).href, { waitUntil: "networkidle" });
+    await page.locator("[data-testid='trial-goal']").fill("Synthetic ten-minute polling probe");
+    await page.locator("[data-testid='trial-token']").fill("synthetic-poll-token");
+    const modelInputs = page.locator(".trial-fields input");
+    await modelInputs.nth(0).fill("synthetic-model");
+    await modelInputs.nth(1).fill("synthetic-model");
+    await page.locator("[data-testid='check-contract']").click();
+    await page.locator("[data-testid='gate-one-card']").waitFor();
+    await page.locator("[data-testid='gate-one-confirm']").check();
+    await page.locator("[data-testid='launch-session']").click();
+    await page.locator("[data-testid='session-progress']").waitFor();
+    await page.waitForFunction(() => document.body.textContent?.includes("running"));
+    for (let elapsed = 0; elapsed < durationMs; elapsed += 1_000) {
+      await page.clock.runFor(1_000);
+      await new Promise((resolveTurn) => setImmediate(resolveTurn));
+    }
+
+    const conditionalRequests = observedCalls
+      .slice(1)
+      .every((call) => call.if_none_match === etag);
+    const reductionPercent = 100 * (1 - observedCalls.length / fixedIntervalCalls);
+    return {
+      duration_ms: durationMs,
+      fixed_750ms_calls: fixedIntervalCalls,
+      observed_call_count: observedCalls.length,
+      observed_calls: observedCalls,
+      conditional_requests: conditionalRequests,
+      reduction_percent: reductionPercent,
+      ok:
+        observedCalls.length >= 50 &&
+        observedCalls.length <= 65 &&
+        conditionalRequests &&
+        reductionPercent >= 90,
+    };
+  } finally {
+    await page.close();
+  }
+}
+
+function syntheticProposal() {
+  return {
+    confirmation_required: true,
+    card_hash: `sha256:${"8".repeat(64)}`,
+    card_markdown: "# Synthetic Gate 1 polling probe",
+    identity: {
+      request: "Synthetic ten-minute polling probe",
+      workspace: "/synthetic/polling-probe",
+      profile: "python-cli",
+      intent: "create",
+      task_family: "cli",
+      route_bases: ["smoke=synthetic"],
+      contract_ref: "synthetic/polling",
+      contract_checks: ["conditional status polling"],
+      band_full: 1,
+      band_denominator: 1,
+      band_rate: "1/1",
+      band_arm: "smoke",
+      band_measurement: "virtual clock",
+      band_source: "gui/scripts/smoke.mjs",
+      full_meaning: "The exported page keeps one representation and revalidates it.",
+      pins: {
+        planner_provider: "ollama",
+        planner_model: "synthetic-model",
+        executor_provider: "ollama",
+        executor_model: "synthetic-model",
+        preset: "profile",
+      },
+    },
+    price: {
+      duration_n: 0,
+      average_duration_seconds: null,
+      cost_n: 0,
+      average_cost_usd: null,
+      source: "synthetic",
+    },
+  };
 }
 
 async function probePage(page, origin, basePath, relativePath, expectedHeading) {

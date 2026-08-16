@@ -11,9 +11,9 @@ pub async fn serve(State(state): State<AppState>, uri: Uri) -> Response {
     let Some(relative) = request_path(uri.path(), &state.base_path) else {
         return StatusCode::NOT_FOUND.into_response();
     };
-    let candidate = state.static_root.join(relative);
+    let candidate = state.static_root.join(&relative);
     match tokio::fs::read(&candidate).await {
-        Ok(bytes) => response_for(&candidate, bytes),
+        Ok(bytes) => response_for(&relative, bytes),
         Err(_) => StatusCode::NOT_FOUND.into_response(),
     }
 }
@@ -51,13 +51,28 @@ fn response_for(path: &Path, bytes: Vec<u8>) -> Response {
         Some("woff2") => "font/woff2",
         _ => "application/octet-stream",
     };
+    let cache_control = if is_next_static(path) {
+        "public, max-age=31536000, immutable"
+    } else {
+        "no-store"
+    };
     (
         StatusCode::OK,
         [
             (header::CONTENT_TYPE, content_type),
-            (header::CACHE_CONTROL, "no-store"),
+            (header::CACHE_CONTROL, cache_control),
         ],
         Body::from(bytes),
     )
         .into_response()
+}
+
+fn is_next_static(path: &Path) -> bool {
+    let components = path
+        .components()
+        .filter_map(|component| component.as_os_str().to_str())
+        .collect::<Vec<_>>();
+    components
+        .windows(2)
+        .any(|pair| pair == ["_next", "static"])
 }

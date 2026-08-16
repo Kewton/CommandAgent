@@ -2,11 +2,11 @@ use std::collections::BTreeMap;
 use std::path::{Path as FilePath, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, UNIX_EPOCH};
 
 use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use commandagent::planner::profile::ProfileId;
 use commandagent::tui::boundary_shell::ambiguity::{
@@ -223,7 +223,7 @@ pub async fn status(
     State(state): State<AppState>,
     Path(id): Path<String>,
     headers: HeaderMap,
-) -> Result<Json<PolledSession>, SessionError> {
+) -> Result<Response, SessionError> {
     let workspace = require_trial(&state, &headers, false)?;
     require_session_id(&id)?;
     let paths = SessionPaths::new(&workspace, &id);
@@ -231,6 +231,10 @@ pub async fn status(
         .map_err(internal)?
         .ok_or_else(|| not_found("session confirmation was not found"))?;
     let events_path = paths.events_path();
+    let etag = status_etag(confirmed.card_hash(), &events_path).await?;
+    if if_none_match(&headers, &etag) {
+        return Ok(status_response(StatusCode::NOT_MODIFIED, &etag));
+    }
     let text = read_events(&events_path).await?;
     let events = parse_events(&text)?;
     let terminal_index = latest_event_index(&events, "tui_command_stop");
@@ -278,7 +282,7 @@ pub async fn status(
     } else {
         "running"
     };
-    Ok(Json(PolledSession {
+    let session = PolledSession {
         id,
         gate: gate.to_string(),
         status: status.to_string(),
@@ -289,7 +293,10 @@ pub async fn status(
         acceptance_sheet: generated.as_ref().map(|sheet| sheet.markdown.clone()),
         section5: generated.and_then(|sheet| sheet.section5),
         events_path: relative_path(&workspace, &events_path),
-    }))
+    };
+    let mut response = Json(session).into_response();
+    insert_status_headers(&mut response, &etag);
+    Ok(response)
 }
 
 pub async fn propose_directive(
@@ -636,6 +643,57 @@ async fn read_events(path: &FilePath) -> Result<String, SessionError> {
         });
     }
     tokio::fs::read_to_string(path).await.map_err(internal)
+}
+
+async fn status_etag(card_hash: &str, events_path: &FilePath) -> Result<String, SessionError> {
+    let revision = match tokio::fs::metadata(events_path).await {
+        Ok(metadata) => {
+            let modified = metadata
+                .modified()
+                .map_err(internal)?
+                .duration_since(UNIX_EPOCH)
+                .map_err(internal)?
+                .as_nanos();
+            format!("{}-{modified}", metadata.len())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => "missing".to_string(),
+        Err(error) => return Err(internal(error)),
+    };
+    Ok(format!(
+        "W/\"{}-{revision}\"",
+        card_hash.trim_start_matches("sha256:")
+    ))
+}
+
+fn if_none_match(headers: &HeaderMap, etag: &str) -> bool {
+    headers
+        .get_all(header::IF_NONE_MATCH)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .map(str::trim)
+        .any(|candidate| candidate == "*" || weak_etag_eq(candidate, etag))
+}
+
+fn weak_etag_eq(left: &str, right: &str) -> bool {
+    left.strip_prefix("W/").unwrap_or(left) == right.strip_prefix("W/").unwrap_or(right)
+}
+
+fn status_response(status: StatusCode, etag: &str) -> Response {
+    let mut response = status.into_response();
+    insert_status_headers(&mut response, etag);
+    response
+}
+
+fn insert_status_headers(response: &mut Response, etag: &str) {
+    response.headers_mut().insert(
+        header::ETAG,
+        HeaderValue::from_str(etag).expect("generated status ETags are valid header values"),
+    );
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-cache"),
+    );
 }
 
 async fn require_current_terminal(path: &FilePath) -> Result<(), SessionError> {

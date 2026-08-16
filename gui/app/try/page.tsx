@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Shell } from "../../components/shell";
 import { apiPath } from "../../lib/base-path";
+import { CHANGED_POLL_INTERVAL_MS, unchangedPollDelay } from "../../lib/trial-polling";
 import type {
   CreatedSession,
   DirectiveProposal,
@@ -42,22 +43,34 @@ export default function TrialRunPage() {
   useEffect(() => {
     if (created === null || stage === "closed") return;
     let cancelled = false;
+    let etag: string | null = null;
+    let unchangedResponses = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const poll = async () => {
       try {
+        const headers = authorizationHeaders(trialToken);
+        if (etag !== null) headers["if-none-match"] = etag;
         const response = await fetch(apiPath(`sessions/${encodeURIComponent(created.id)}`), {
-          headers: authorizationHeaders(trialToken),
+          headers,
         });
+        if (response.status === 304) {
+          if (cancelled) return;
+          unchangedResponses += 1;
+          timer = setTimeout(() => void poll(), unchangedPollDelay(unchangedResponses));
+          return;
+        }
         if (!response.ok) throw new Error(await apiError(response));
         const value = (await response.json()) as PolledSession;
         if (cancelled) return;
+        etag = response.headers.get("etag");
+        unchangedResponses = 0;
         setSession(value);
         if (value.gate === "gate_3" || value.gate === "gate_4") {
           setStage("terminal");
           return;
         }
         setStage("gate_2");
-        timer = setTimeout(() => void poll(), 750);
+        timer = setTimeout(() => void poll(), CHANGED_POLL_INTERVAL_MS);
       } catch (reason) {
         if (!cancelled) setError(message(reason));
       }
