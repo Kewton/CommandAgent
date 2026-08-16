@@ -187,7 +187,7 @@ fn trial_workspace_and_authentication_guards_are_not_optional() {
     let delegate = std::fs::read_to_string(DELEGATE_MODULE).unwrap();
     assert_eq!(
         delegate.matches("require_trial(&state, &headers").count(),
-        5,
+        6,
         "every Trial API handler must enforce workspace and access guards"
     );
     for required in [
@@ -195,10 +195,59 @@ fn trial_workspace_and_authentication_guards_are_not_optional() {
         "StatusCode::UNAUTHORIZED",
         "StatusCode::FORBIDDEN",
         "complete_from_events",
+        "lease_snapshot",
+        "rollback_unstarted",
+        "failed to spawn delegated CLI binary",
     ] {
         assert!(
             delegate.contains(required),
             "missing Trial guard {required:?}"
+        );
+    }
+
+    assert!(entry.contains(".route(\"/api/trial-workspace\", get(sessions::workspace_status))"));
+}
+
+#[test]
+fn trial_workspace_recovery_is_visible_but_read_only() {
+    let page = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
+    for required in [
+        "fetch(apiPath(\"trial-workspace\")",
+        "data-testid=\"workspace-lease-status\"",
+        "data-testid=\"workspace-lease-session\"",
+        "Recovery required",
+        "Read-only inspection. This cannot clear the lease or dispatch a CLI process.",
+        "Inspect workspace lease",
+    ] {
+        assert!(
+            page.contains(required),
+            "Trial lease UI is missing {required:?}"
+        );
+    }
+    for forbidden in [
+        "Clear workspace lease",
+        "Reset workspace lease",
+        "Force idle",
+        "Recover automatically",
+    ] {
+        assert!(
+            !page.contains(forbidden),
+            "Trial lease UI exposes a mutating recovery action {forbidden:?}"
+        );
+    }
+
+    let guide = std::fs::read_to_string("docs/user/gui.md").unwrap();
+    for required in [
+        "## Workspace lease inspection and recovery",
+        "GET api/trial-workspace",
+        "`commandagent` remains for the execution root",
+        "archive outside",
+        "do not append a synthetic terminal event",
+        "It must report `Idle`",
+    ] {
+        assert!(
+            guide.contains(required),
+            "GUI recovery guide is missing {required:?}"
         );
     }
 }

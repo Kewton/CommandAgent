@@ -113,6 +113,7 @@ fn dashboard_router() -> Router<AppState> {
         .route("/api/reports", get(api::reports))
         .route("/api/reports/view", get(api::report_content))
         .route("/api/session-proposals", post(sessions::proposal))
+        .route("/api/trial-workspace", get(sessions::workspace_status))
         .route("/api/sessions", post(sessions::create))
         .route("/api/sessions/{id}", get(sessions::status))
         .route(
