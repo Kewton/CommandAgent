@@ -144,15 +144,15 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "confirmation_hash: proposal.card_hash",
         "data-testid=\"trial-workspace\"",
         "proposal.identity.workspace",
-        "may create, modify, or delete content inside this directory",
+        "このディレクトリ内の内容を作成・変更・削除できます",
         "<option value=\"lm-studio\">LM Studio</option>",
         "window.matchMedia(\"(max-width: 720px)\")",
         "target.scrollIntoView({ behavior: \"smooth\", block: \"start\" })",
-        "Enter the runtime Trial access token before checking the contract.",
+        "契約を確認する前に、実行時の Trial アクセストークンを入力してください。",
         "disabled={!confirmed || busy || stage === \"gate_2\"}",
-        "Confirm and delegate to CLI",
-        "Confirm D-3d continuation",
-        "End without another run",
+        "確認して CLI に委譲",
+        "D-3d 継続を確認",
+        "追加実行せず終了",
     ] {
         assert!(
             source.contains(required),
@@ -184,9 +184,9 @@ fn trial_monitor_retries_and_reconnects_without_persisting_access() {
         "redirect: \"manual\"",
         "response.type === \"opaqueredirect\"",
         "data-testid=\"monitor-state\"",
-        "Last successful update:",
-        "Reconnect monitoring",
-        "GET only. This cannot dispatch another CLI process.",
+        "最終更新成功:",
+        "監視を再接続",
+        "GET のみを使用し、別の CLI プロセスは起動しません。",
         "new URLSearchParams(window.location.search).get(\"session\")",
         "url.searchParams.set(\"session\", id)",
         "sessionIdFromConflict(detail)",
@@ -210,7 +210,7 @@ fn trial_monitor_retries_and_reconnects_without_persisting_access() {
         "Math.min(POLL_INTERVAL_MS * 2 ** exponent, MAX_BACKOFF_MS)",
         "response.status === 401 || response.status === 403",
         "response.status === 413 || invalidJsonl",
-        "proxy or network connection",
+        "プロキシまたはネットワーク接続",
     ] {
         assert!(
             policy.contains(required),
@@ -256,6 +256,87 @@ fn gui_style_and_run_ledger_accessibility_contracts_are_pinned() {
     assert!(dashboard.contains("<div className=\"run-table-head\" aria-hidden=\"true\">"));
     assert!(!dashboard.contains("role=\"table\""));
     assert!(!dashboard.contains("role=\"row\""));
+}
+
+#[test]
+fn gui_language_navigation_titles_and_runtime_status_are_pinned() {
+    let gui_files = [
+        "gui/app/page.tsx",
+        "gui/app/try/page.tsx",
+        "gui/app/runs/page.tsx",
+        "gui/app/assets/page.tsx",
+        "gui/app/measurements/page.tsx",
+        "gui/components/shell.tsx",
+        "gui/scripts/smoke.mjs",
+    ];
+    let gui = gui_files
+        .iter()
+        .map(|path| std::fs::read_to_string(path).unwrap())
+        .collect::<String>();
+    let removed = [
+        ["Launch once.", " Trust the gates."].concat(),
+        ["Claims need", " coordinates."].concat(),
+        ["Pinned means", " visible."].concat(),
+        ["Evidence,", " at a glance."].concat(),
+        ["One run.", " Every receipt."].concat(),
+        ["CLI", " delegated"].concat(),
+        ["Existing gates", " remain authoritative."].concat(),
+        ["CommandAgent", " Observatory"].concat(),
+    ];
+    for removed in removed {
+        assert!(
+            !gui.contains(&removed),
+            "obsolete GUI copy remains: {removed}"
+        );
+    }
+
+    let shell = std::fs::read_to_string("gui/components/shell.tsx").unwrap();
+    assert_eq!(
+        shell
+            .lines()
+            .filter(|line| line.trim_start().starts_with("{ route: \""))
+            .count(),
+        4
+    );
+    assert!(!shell.contains("{ route: \"assets\""));
+    for required in [
+        "data-testid=\"runtime-status\"",
+        "data-trial-available",
+        "data-session-state",
+        "Trial 利用可",
+        "実行中なし",
+        "要復旧",
+    ] {
+        assert!(
+            shell.contains(required),
+            "runtime shell is missing {required:?}"
+        );
+    }
+
+    let dashboard = std::fs::read_to_string("gui/app/page.tsx").unwrap();
+    assert!(dashboard.contains("data-testid=\"assets-link\""));
+    let styles = std::fs::read_to_string("gui/app/globals.css").unwrap();
+    assert!(styles.contains("grid-template-columns: repeat(4, minmax(0, 1fr));"));
+    assert!(styles.contains(".page-intro > p {\n    display: none;"));
+
+    let titles = [
+        ("gui/app/layout.tsx", "default: \"概要 | CommandAgent\""),
+        ("gui/app/try/layout.tsx", "title: \"トライアル\""),
+        ("gui/app/runs/layout.tsx", "title: \"実行詳細\""),
+        ("gui/app/assets/layout.tsx", "title: \"アセット\""),
+        ("gui/app/measurements/layout.tsx", "title: \"計測\""),
+    ];
+    for (path, title) in titles {
+        assert!(
+            std::fs::read_to_string(path).unwrap().contains(title),
+            "{path} is missing {title:?}"
+        );
+    }
+
+    let server = std::fs::read_to_string("src/bin/gui_server.rs").unwrap();
+    assert!(server.contains("/api/runtime-status"));
+    let runtime = std::fs::read_to_string("src/bin/gui_server/runtime_status.rs").unwrap();
+    assert!(runtime.contains("state.trial_workspace.runtime_status()"));
 }
 
 #[test]

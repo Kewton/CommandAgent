@@ -171,6 +171,7 @@ The evidence routes are same-origin GET requests below the selected base path:
 | `api/contracts` | Contract documents |
 | `api/suites` | Measurement suite definitions |
 | `api/reports` and `api/reports/view?path=…` | Measurement report archive |
+| `api/runtime-status` | Trial availability and the current workspace lease state |
 
 Paths are canonicalized below their allowed inventory root, symlinks are not
 followed during listing, and individual text views are capped at 1 MiB.

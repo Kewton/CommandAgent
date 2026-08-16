@@ -20,8 +20,8 @@ export async function responseFailure(response: Response): Promise<MonitorFailur
   if (response.type === "opaqueredirect") {
     return {
       guidance:
-        "Monitoring reached an upstream access sign-in redirect. Reload this page and re-authenticate with the proxy, then re-enter the runtime token.",
-      summary: "Upstream access re-authentication required",
+        "監視が上流アクセスのサインインへ転送されました。ページを再読み込みしてプロキシで再認証し、実行時トークンを再入力してください。",
+      summary: "上流アクセスの再認証が必要です",
       terminal: false,
     };
   }
@@ -29,7 +29,7 @@ export async function responseFailure(response: Response): Promise<MonitorFailur
   const detail = await responseDetail(response);
   if (response.status === 401 || response.status === 403) {
     return {
-      guidance: `Monitoring authorization failed (${response.status}). Re-enter the runtime Trial access token and verify that this origin is authorized.`,
+      guidance: `監視の認証に失敗しました (${response.status})。実行時の Trial アクセストークンを再入力し、このオリジンが許可されているか確認してください。`,
       summary: detail,
       terminal: false,
     };
@@ -39,20 +39,20 @@ export async function responseFailure(response: Response): Promise<MonitorFailur
   return {
     guidance:
       response.status === 413
-        ? "The session event stream exceeds the polling limit. Inspect the CLI artifacts directly."
+        ? "セッションのイベントストリームがポーリング上限を超えました。CLI の成果物を直接確認してください。"
         : invalidJsonl
-          ? "The session event JSONL is invalid. Inspect and repair the existing artifacts before reconnecting."
-          : `Monitoring request failed (${response.status || "unknown status"}). Retrying with capped backoff.`,
+          ? "セッションのイベント JSONL が不正です。再接続する前に既存の成果物を確認し、修復してください。"
+          : `監視リクエストに失敗しました (${response.status || "状態不明"})。上限付きバックオフで再試行します。`,
     summary: detail,
     terminal: response.status === 413 || invalidJsonl,
   };
 }
 
 export function thrownFailure(reason: unknown): MonitorFailure {
-  const detail = reason instanceof Error ? reason.message : "The browser rejected the request.";
+  const detail = reason instanceof Error ? reason.message : "ブラウザがリクエストを拒否しました。";
   return {
     guidance:
-      "Monitoring could not reach the server. Check the proxy or network connection, reload or re-authenticate if required, then re-enter the runtime token.",
+      "監視がサーバーへ接続できません。プロキシまたはネットワーク接続を確認し、必要なら再読み込みまたは再認証して、実行時トークンを再入力してください。",
     summary: detail,
     terminal: false,
   };

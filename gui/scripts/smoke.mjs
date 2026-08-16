@@ -132,13 +132,16 @@ async function runCase(smokeCase) {
     const response = await page.goto(dashboardUrl, { waitUntil: "networkidle" });
     await page.locator("[data-testid='score-time-map']").waitFor();
     const heading = await page.locator("h1").innerText();
+    const dashboardTitle = await page.title();
+    await page.locator("[data-testid='runtime-status'][data-trial-available='true'][data-session-state='idle']").waitFor();
+    const idleRuntimeText = await page.locator("[data-testid='runtime-status']").innerText();
     const map = await page.locator("[data-testid='score-time-map']").evaluate((image) => ({
       complete: image.complete,
       naturalWidth: image.naturalWidth,
       source: image.getAttribute("src"),
     }));
     const apiChecks = await page.evaluate(async () => {
-      const endpoints = ["runs", "bands", "maps", "packs", "contracts", "suites", "reports"];
+      const endpoints = ["runs", "bands", "maps", "packs", "contracts", "suites", "reports", "runtime-status"];
       const apiPrefix = document.querySelector("[data-testid='score-time-map']")
         ?.getAttribute("src")
         ?.replace(/maps\/score-time\.svg$/, "");
@@ -154,6 +157,8 @@ async function runCase(smokeCase) {
     );
     const expectedPrefix = smokeCase.serverBasePath === "/" ? "/" : `${smokeCase.serverBasePath}/`;
     const linksUseBasePath = internalLinks.every((link) => link.startsWith(expectedPrefix));
+    const primaryNavigation = await page.locator(".sidebar .nav-link").allInnerTexts();
+    const assetsLink = await page.locator("[data-testid='assets-link']").getAttribute("href");
     const firstRunId = await page.evaluate(async () => {
       const mapSource =
         document.querySelector("[data-testid='score-time-map']")?.getAttribute("src") ?? "";
@@ -182,26 +187,30 @@ async function runCase(smokeCase) {
       server.origin,
       smokeCase.serverBasePath,
       "assets/",
-      "Pinned means visible.",
+      "アセット",
+      "アセット | CommandAgent",
     );
     const measurements = await probePage(
       page,
       server.origin,
       smokeCase.serverBasePath,
       "measurements/",
-      "Claims need coordinates.",
+      "計測",
+      "計測 | CommandAgent",
     );
     const runDetail = await probePage(
       page,
       server.origin,
       smokeCase.serverBasePath,
       `runs/?id=${encodeURIComponent(firstRunId)}`,
-      "One run. Every receipt.",
+      "実行詳細",
+      "実行詳細 | CommandAgent",
     );
     await page.locator(".document-viewer").waitFor();
 
     const trialUrl = new URL(`${prefix}try/`, server.origin).href;
     const trialResponse = await page.goto(trialUrl, { waitUntil: "networkidle" });
+    const trialTitle = await page.title();
     await page.locator("[data-testid='trial-goal']").fill("Create a CLI --pattern filter command");
     await page.locator("[data-testid='trial-token']").fill(trialCredential);
     const modelInputs = page.locator(".trial-fields input");
@@ -261,6 +270,8 @@ async function runCase(smokeCase) {
     const injectedFailureCount = await page.evaluate(
       () => window.__commandagentTrialPollInjection?.count ?? 0,
     );
+    await page.locator("[data-testid='runtime-status'][data-session-state='running']").waitFor({ timeout: 10_000 });
+    const runningRuntimeText = await page.locator("[data-testid='runtime-status']").innerText();
     const executionScroll = await mobileStageScroll(page, "[data-testid='session-progress']");
     await page.screenshot({
       fullPage: true,
@@ -292,6 +303,8 @@ async function runCase(smokeCase) {
     );
     const terminalText = await page.locator("[data-testid='terminal-gate']").innerText();
     const connectedMonitorText = await page.locator("[data-testid='monitor-state']").innerText();
+    await page.locator("[data-testid='runtime-status'][data-session-state='idle']").waitFor({ timeout: 10_000 });
+    const completedRuntimeText = await page.locator("[data-testid='runtime-status']").innerText();
     await page.setViewportSize({ width: 1440, height: 1050 });
     await page.screenshot({
       fullPage: true,
@@ -322,6 +335,7 @@ async function runCase(smokeCase) {
 
     await page.goto(trialUrl, { waitUntil: "networkidle" });
     await installSessionConflict(page, sessionId);
+    await page.locator("[data-testid='trial-goal']").fill("Create a CLI --pattern filter command");
     await page.locator("[data-testid='trial-token']").fill(trialCredential);
     await modelInputs.nth(0).fill(model);
     await modelInputs.nth(1).fill(model);
@@ -374,21 +388,28 @@ async function runCase(smokeCase) {
 
     const ok =
       response?.status() === 200 &&
-      heading === "Evidence, at a glance." &&
+      heading === "概要" &&
+      dashboardTitle === "概要 | CommandAgent" &&
       map.complete &&
       map.naturalWidth > 0 &&
       apiChecks.every((check) => check.status === 200) &&
       linksUseBasePath &&
+      JSON.stringify(primaryNavigation) === JSON.stringify(["01\n概要", "02\nトライアル", "03\n実行詳細", "04\n計測"]) &&
+      assetsLink === `${expectedPrefix}assets/` &&
       runLedgerAccessibility.columnHeadingsHidden &&
       runLedgerAccessibility.invalidTableRoleCount === 0 &&
       runLedgerAccessibility.nativeLinkRows &&
       assets.status === 200 &&
       assets.headingMatches &&
+      assets.titleMatches &&
       measurements.status === 200 &&
       measurements.headingMatches &&
+      measurements.titleMatches &&
       runDetail.status === 200 &&
       runDetail.headingMatches &&
+      runDetail.titleMatches &&
       trialResponse?.status() === 200 &&
+      trialTitle === "トライアル | CommandAgent" &&
       desktopTrialAlignment.aligned &&
       mobileTrialAlignment.aligned &&
       launchDisabledBeforeConfirmation &&
@@ -399,16 +420,20 @@ async function runCase(smokeCase) {
       ["gate_3", "gate_4"].includes(finalApi.body.gate) &&
       injectedFailureCount === 1 &&
       degradedMonitorText.includes(
-        injectedFailureMode === "access" ? "upstream access" : "proxy or network",
+        injectedFailureMode === "access" ? "上流アクセス" : "プロキシまたはネットワーク",
       ) &&
-      connectedMonitorText.toLowerCase().includes("monitoring: connected") &&
-      connectedMonitorText.includes("Last successful update:") &&
+      connectedMonitorText.includes("監視: 接続中") &&
+      connectedMonitorText.includes("最終更新成功:") &&
+      idleRuntimeText.includes("Trial 利用可") &&
+      idleRuntimeText.includes("実行中なし") &&
+      runningRuntimeText.includes(`実行中 ${sessionId.slice(0, 8)}`) &&
+      completedRuntimeText.includes("実行中なし") &&
       reloadSessionQuery === sessionId &&
       reloadedTokenEmpty &&
-      authorizationGuidance.includes("runtime Trial access token") &&
+      authorizationGuidance.includes("Trial アクセストークン") &&
       reconnectOnlyGets &&
       tokenStayedInMemory &&
-      conflictGuidance.includes(`Reconnect to session ${sessionId}`) &&
+      conflictGuidance.includes(`セッション ${sessionId} へ再接続`) &&
       conflictReconnectId === sessionId &&
       conflictSessionQuery === sessionId &&
       conflictDispatchCount === 1 &&
@@ -419,12 +444,18 @@ async function runCase(smokeCase) {
     return {
       id: smokeCase.id,
       base_path: smokeCase.buildBasePath,
-      dashboard: { status: response?.status() ?? 0, heading },
+      dashboard: {
+        assets_link: assetsLink,
+        heading,
+        primary_navigation: primaryNavigation,
+        status: response?.status() ?? 0,
+        title: dashboardTitle,
+      },
       api_checks: apiChecks,
       svg: map,
       links_use_base_path: linksUseBasePath,
       run_ledger_accessibility: runLedgerAccessibility,
-      pages: { assets, measurements, run_detail: runDetail, trial: { status: trialResponse?.status() ?? 0 } },
+      pages: { assets, measurements, run_detail: runDetail, trial: { status: trialResponse?.status() ?? 0, title: trialTitle } },
       mobile,
       gate_1: {
         launch_disabled_before_confirmation: launchDisabledBeforeConfirmation,
@@ -454,6 +485,11 @@ async function runCase(smokeCase) {
         injected_failure_count: injectedFailureCount,
         degraded_visible_text: degradedMonitorText,
         connected_visible_text: connectedMonitorText,
+      },
+      runtime_status: {
+        completed_visible_text: completedRuntimeText,
+        idle_visible_text: idleRuntimeText,
+        running_visible_text: runningRuntimeText,
       },
       reconnect: {
         reload_session_query: reloadSessionQuery,
@@ -489,6 +525,7 @@ async function probeMobile(browser, origin, basePath) {
     const prefix = displayBasePath(basePath);
     const dashboard = await page.goto(new URL(prefix, origin).href, { waitUntil: "networkidle" });
     const dashboardHeading = await page.locator("h1").innerText();
+    const dashboardIntroOneLine = await page.locator(".page-intro > p").isHidden();
     const dashboardFits = await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
     );
@@ -496,19 +533,22 @@ async function probeMobile(browser, origin, basePath) {
       waitUntil: "networkidle",
     });
     const trialHeading = await page.locator("h1").innerText();
+    const trialIntroOneLine = await page.locator(".page-intro > p").isHidden();
     await page.locator("[data-testid='reconnect-card']").waitFor();
     const trialFits = await page.evaluate(
       () => document.documentElement.scrollWidth <= window.innerWidth,
     );
     return {
-      dashboard: { fits_viewport: dashboardFits, heading: dashboardHeading, status: dashboard?.status() ?? 0 },
-      trial: { fits_viewport: trialFits, heading: trialHeading, status: trial?.status() ?? 0 },
+      dashboard: { fits_viewport: dashboardFits, heading: dashboardHeading, intro_one_line: dashboardIntroOneLine, status: dashboard?.status() ?? 0 },
+      trial: { fits_viewport: trialFits, heading: trialHeading, intro_one_line: trialIntroOneLine, status: trial?.status() ?? 0 },
       ok:
         dashboard?.status() === 200 &&
-        dashboardHeading === "Evidence, at a glance." &&
+        dashboardHeading === "概要" &&
+        dashboardIntroOneLine &&
         dashboardFits &&
         trial?.status() === 200 &&
-        trialHeading === "Launch once. Trust the gates." &&
+        trialHeading === "トライアル" &&
+        trialIntroOneLine &&
         trialFits,
     };
   } finally {
@@ -626,12 +666,19 @@ async function mobileStageScroll(page, selector) {
   });
 }
 
-async function probePage(page, origin, basePath, relativePath, expectedHeading) {
+async function probePage(page, origin, basePath, relativePath, expectedHeading, expectedTitle) {
   const prefix = displayBasePath(basePath);
   const url = new URL(`${prefix}${relativePath}`, origin).href;
   const response = await page.goto(url, { waitUntil: "networkidle" });
   const heading = await page.locator("h1").innerText();
-  return { status: response?.status() ?? 0, heading, headingMatches: heading === expectedHeading };
+  const title = await page.title();
+  return {
+    status: response?.status() ?? 0,
+    heading,
+    headingMatches: heading === expectedHeading,
+    title,
+    titleMatches: title === expectedTitle,
+  };
 }
 
 async function startServer(basePath, executionRoot) {
