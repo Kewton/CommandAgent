@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DocumentViewer } from "../../components/document-viewer";
+import { GateCardMarkdown } from "../../components/gate-card-markdown";
 import { Shell } from "../../components/shell";
 import { TrialSessionIndexPanel } from "../../components/trial-session-index";
 import { apiPath } from "../../lib/base-path";
@@ -218,7 +219,7 @@ export default function TrialRunPage() {
   useEffect(() => {
     if (stage !== "terminal" || session === null) return;
     const previousTitle = document.title;
-    document.title = `✔ ${session.verdict ?? session.status} — CommandAgent`;
+    document.title = `✔ ${terminalHeading(session)} — CommandAgent`;
     return () => {
       document.title = previousTitle;
     };
@@ -511,8 +512,8 @@ export default function TrialRunPage() {
         <div className="trial-compose panel">
           <header className="panel-heading">
             <div>
-              <span className="panel-index">GATE 1 / リクエスト</span>
-              <h2>固定された起動条件</h2>
+              <span className="panel-index">GATE 1 / 実行前確認</span>
+              <h2>実行内容を確認</h2>
             </div>
             <span className="gate-chip">{stageLabel(stage, session)}</span>
           </header>
@@ -673,7 +674,7 @@ export default function TrialRunPage() {
             onClick={() => void checkContract()}
             type="button"
           >
-            契約と価格を確認
+            契約と見積りを確認
           </button>
           {optionsError !== null && <p className="trial-error" role="alert">{optionsError}</p>}
           {error !== null && (
@@ -716,30 +717,20 @@ export default function TrialRunPage() {
       {proposal !== null && (stage === "gate_1" || stage === "gate_2") && (
         <section className="gate-one-grid" data-testid="gate-one-card" ref={gateOneRef}>
           <article className="panel contract-card">
-            <span className="panel-index">契約</span>
-            <h2>{proposal.identity.profile} × {proposal.identity.intent} × {proposal.identity.task_family}</h2>
-            <code>{proposal.identity.contract_ref}</code>
-            <ul>
-              {proposal.identity.contract_checks.map((check) => <li key={check}>{check}</li>)}
-            </ul>
-            <p>{proposal.identity.full_meaning}</p>
-            <div className="workspace-boundary" data-testid="trial-workspace">
-              <strong>ファイルシステムの書き込み境界</strong>
-              <code>{proposal.identity.workspace}</code>
-              <p>委譲された CLI は、このディレクトリ内の内容を作成・変更・削除できます。</p>
-            </div>
+            <GateCardMarkdown markdown={proposal.card_markdown} />
           </article>
           <article className="panel price-card">
-            <span className="panel-index">計測済み価格</span>
-            <div className="price-rate">
-              <strong>{proposal.identity.band_rate}</strong>
-              <span>{proposal.identity.band_full}/{proposal.identity.band_denominator} full</span>
-            </div>
+            <span className="panel-index">時間と費用の目安</span>
+            <h2>過去の実行記録から確認</h2>
             <dl>
-              <div><dt>平均所要時間</dt><dd>{priceDuration} · n={proposal.price.duration_n}</dd></div>
-              <div><dt>平均費用</dt><dd>{priceCost} · n={proposal.price.cost_n}</dd></div>
-              <div><dt>計測</dt><dd>{proposal.identity.band_measurement}</dd></div>
+              <div><dt>所要時間</dt><dd>{priceDuration} ({proposal.price.duration_n} 件)</dd></div>
+              <div><dt>費用</dt><dd>{priceCost} ({proposal.price.cost_n} 件)</dd></div>
             </dl>
+            <div className="workspace-boundary" data-testid="trial-workspace">
+              <strong>ファイルを変更できる範囲</strong>
+              <code>{proposal.identity.workspace}</code>
+              <p>実行する CLI は、このディレクトリ内の内容だけを作成・変更・削除できます。</p>
+            </div>
             <label className="confirm-check">
               <input
                 checked={confirmed}
@@ -747,9 +738,13 @@ export default function TrialRunPage() {
                 onChange={(event) => setConfirmed(event.target.checked)}
                 type="checkbox"
               />
-              この契約、モデル固定値、計測値、表示された書き込み境界を確認しました。
+              必須チェック、使用モデル、過去の実行結果、表示されたファイル変更範囲を確認しました。
             </label>
-            <code className="hash-line">{proposal.card_hash}</code>
+            <div className="confirmation-id">
+              <strong>確認 ID</strong>
+              <code className="hash-line">{proposal.card_hash}</code>
+              <p>確認内容が1つでも変わると、この ID も変わります。</p>
+            </div>
             <button
               className="primary-action"
               data-testid="launch-session"
@@ -757,7 +752,7 @@ export default function TrialRunPage() {
               onClick={() => void launchConfirmed()}
               type="button"
             >
-              確認して CLI に委譲
+              確認して CLI を実行
             </button>
             {launchBlockReason !== null && (
               <p className="launch-block-reason" data-testid="launch-block-reason">
@@ -896,32 +891,37 @@ export default function TrialRunPage() {
       {stage === "terminal" && session !== null && (
         <section className="terminal-grid" data-testid="terminal-gate" ref={terminalRef}>
           <article className="panel verdict-card">
-            <span className="panel-index">{session.gate.toUpperCase()} / 終端</span>
-            <h2>{session.verdict ?? session.status}</h2>
-            <p>保証: <strong>{session.assurance ?? "未記録"}</strong></p>
-            <pre>{session.acceptance_sheet ?? "終端証跡が不完全なため、受入シートは昇格されていません。"}</pre>
+            <span className="panel-index">実行結果 / {session.gate === "gate_3" ? "Gate 3" : "Gate 4"}</span>
+            <h2 data-testid="terminal-result-heading">{terminalHeading(session)}</h2>
+            <p className="terminal-gate-explanation">{gateExplanation(session.gate)}</p>
+            <dl className="terminal-result-summary" data-testid="terminal-result-summary">
+              <div><dt>結果</dt><dd data-testid="terminal-verdict-summary">{verdictSummary(session)}</dd></div>
+              <div><dt>保証水準</dt><dd data-testid="terminal-assurance-summary">{assuranceSummary(session.assurance)}</dd></div>
+              <div><dt>状態</dt><dd data-testid="terminal-status-summary">{statusSummary(session.status)}</dd></div>
+            </dl>
+            <pre>{session.acceptance_sheet ?? "実行結果の証跡が不足しているため、受入シートは生成されていません。"}</pre>
           </article>
           <aside className="panel next-action-card">
-            <span className="panel-index">次の操作 / D-3d</span>
-            <h2>境界指示</h2>
-            <p>保存する文言は機密情報を除去してハッシュ化され、固定済みの契約下限は変更できません。</p>
+            <span className="panel-index">任意の次の操作</span>
+            <h2>追加の依頼を入力</h2>
+            <p>保存前に認証情報を除去し、実行前に内容をもう一度確認します。確定済みの必須チェックは変更できません。</p>
             <textarea
               data-testid="directive-input"
               onChange={(event) => { setDirectiveText(event.target.value); setDirective(null); }}
-              placeholder="終端後の指示を追加…"
+              placeholder="実行結果を踏まえた追加の依頼を入力…"
               rows={4}
               value={directiveText}
             />
             <button className="secondary-action" disabled={busy || directive !== null || directiveText.trim() === ""} onClick={() => void persistDirective()} type="button">
-              指示を除染して保存
+              追加の依頼を確認用に準備
             </button>
             {directive !== null && (
               <div className="directive-receipt" data-testid="directive-receipt">
                 <strong>{directive.scrubbed_directive}</strong>
                 <code>{directive.directive_hash}</code>
-                <small>{directive.issued_gate} · ラウンド {directive.directive_round}</small>
+                <small>{directive.issued_gate} · 追加依頼 {directive.directive_round}</small>
                 <button className="primary-action" disabled={busy} onClick={() => void confirmDirective()} type="button">
-                  D-3d 継続を確認
+                  確認して追加の依頼を実行
                 </button>
               </div>
             )}
@@ -955,6 +955,56 @@ export default function TrialRunPage() {
       setReconnectSessionId(active);
       replaceSessionQuery(active);
     }
+  }
+}
+
+function terminalHeading(session: PolledSession): string {
+  return session.gate === "gate_3"
+    ? "すべての必須チェックに合格しました"
+    : "すべての必須チェックには合格していません";
+}
+
+function gateExplanation(gate: string): string {
+  return gate === "gate_3"
+    ? "Gate 3 は、固定された必須チェックをすべて満たした実行結果です。"
+    : "Gate 4 は、未達または不十分な必須チェックがあり、証跡と次の操作を確認する結果です。";
+}
+
+function verdictSummary(session: PolledSession): string {
+  if (session.verdict === null) return "最終受け入れは記録されていません。";
+  if (["static", "partial", "failed", "none", "reduced"].includes(session.verdict)) {
+    return "最終受け入れは記録されていません。";
+  }
+  return session.gate === "gate_3"
+    ? "最終受け入れは合格として記録されています。"
+    : "最終受け入れは不合格として記録されています。";
+}
+
+function assuranceSummary(assurance: string | null): string {
+  switch (assurance) {
+    case "full":
+      return "必要な実行証跡がすべて記録されています。";
+    case "partial":
+      return "必要な実行証跡の一部だけが記録されています。";
+    case "static":
+      return "実行検証は完了しておらず、静的な証跡だけが記録されています。";
+    case "failed":
+      return "記録された証跡に、必須チェックの不合格があります。";
+    case null:
+      return "保証水準は記録されていません。";
+    default:
+      return "詳しい保証水準は下の受入シートで確認してください。";
+  }
+}
+
+function statusSummary(status: string): string {
+  switch (status) {
+    case "completed": return "実行は完了しました。";
+    case "failed": return "実行は失敗として終了しました。";
+    case "interrupted": return "実行は中断されました。";
+    case "starting": return "実行を開始しています。";
+    case "running": return "実行中です。";
+    default: return "詳しい状態は下の受入シートで確認してください。";
   }
 }
 

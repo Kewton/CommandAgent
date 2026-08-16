@@ -120,13 +120,16 @@ delegated CLI uses its default `--lm-studio-host http://localhost:1234` and
 inherits `LM_STUDIO_API_TOKEN` from the GUI server environment when LM Studio
 authentication is enabled.
 
-1. Enter the runtime Trial token, then select **Check contract and price**.
-   Gate 1 shows the frozen contract checks, full rate and sample count, any
-   recorded mean duration/cost, and the canonical filesystem write boundary.
+1. Enter the runtime Trial token, then select **契約と見積りを確認**.
+   Gate 1 renders the server-provided `card_markdown`. It explains each
+   required check, including Python CLI C1-C4, and states the comparable runs
+   that passed every check instead of exposing only the internal rate/window
+   labels. Recorded mean duration/cost and the canonical filesystem write
+   boundary remain visible beside the card.
 2. Select the confirmation checkbox. The launch button stays disabled until
    this explicit confirmation, and the API independently requires the exact
    card hash.
-3. Select **Confirm and delegate to CLI**. The server starts the existing
+3. Select **確認して CLI を実行**. The server starts the existing
    non-interactive boundary command. Progress is reconstructed by reading that
    session's JSONL events; there is no GUI state database. The launch identity
    fields remain read-only throughout Gate 2 and the terminal result so the
@@ -141,14 +144,17 @@ authentication is enabled.
    projection reports a nonzero total.
 4. During Gate 2, use **Recent events** or **Browse artifacts** to inspect
    bounded, read-only session evidence without leaving the GUI. At Gate 3 or
-   Gate 4 the inventory opens automatically; select `summary.md`, recent
+   Gate 4 the inventory opens automatically. The result, assurance level, and
+   execution status are shown under separate labels; if no final verdict was
+   recorded, the result says so instead of presenting an assurance identifier
+   such as `static` as the verdict. Select `summary.md`, recent
    `events.jsonl`, or an acceptance-related text file to investigate a
    failure. You may then end without another run, or persist an additional
-   D-3d instruction. A D-3d instruction is credential-scrubbed, exact-byte
-   hashed, displayed, and must be confirmed before the existing continuation
-   path is delegated. Reaching Gate 3/4 also changes the browser tab title to
-   `✔ <outcome> — CommandAgent` so completion is visible while the Trial tab
-   is in the background.
+   instruction with **追加の依頼を確認用に準備**. The instruction is
+   credential-scrubbed, exact-byte hashed, displayed, and must be confirmed;
+   it cannot lower the fixed contract checks. Reaching Gate 3/4 also changes
+   the browser tab title to the plain-language result so completion is visible
+   while the Trial tab is in the background.
 5. After **End without another run**, select **Start a new run** to return to
    an editable draft. The in-memory Trial token and launch fields are retained,
    while the previous proposal, session progress, and directive are cleared.

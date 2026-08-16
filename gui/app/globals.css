@@ -1319,6 +1319,29 @@ button {
   letter-spacing: -0.025em;
 }
 
+.gate-card-markdown > h2 {
+  margin-top: 0;
+}
+
+.gate-card-markdown h3 {
+  margin: 1.25rem 0 0.55rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.gate-card-markdown ul {
+  margin: 0;
+}
+
+.gate-card-markdown p {
+  margin: 0.8rem 0 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.6;
+}
+
 .contract-card code,
 .hash-line,
 .directive-receipt code,
@@ -1367,6 +1390,16 @@ button {
   color: var(--muted-strong);
   font-size: 0.7rem;
   line-height: 1.5;
+}
+
+.confirmation-id {
+  display: grid;
+  gap: 0.45rem;
+  margin: 1rem 0;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
 }
 
 .lease-status-card {
@@ -1430,17 +1463,15 @@ button {
   border-bottom: 1px solid var(--line);
 }
 
-.price-rate strong {
-  color: var(--accent);
-  font-size: clamp(2rem, 4vw, 3.2rem);
-  font-weight: 720;
-  line-height: 0.9;
-  letter-spacing: -0.05em;
+.confirmation-id strong {
+  font-size: 0.68rem;
 }
 
-.price-rate span {
+.confirmation-id p {
+  margin: 0;
   color: var(--muted);
   font-size: 0.68rem;
+  line-height: 1.5;
 }
 
 .price-card dl {
@@ -1795,6 +1826,49 @@ button {
   border: 0;
   border-radius: 0;
   box-shadow: none;
+}
+
+.terminal-gate-explanation {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+
+.terminal-result-summary {
+  display: grid;
+  gap: 0;
+  margin: 1rem 0 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.terminal-result-summary > div {
+  display: grid;
+  grid-template-columns: 5rem minmax(0, 1fr);
+  gap: 0.75rem;
+  padding: 0.7rem 0.8rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.terminal-result-summary > div:last-child {
+  border-bottom: 0;
+}
+
+.terminal-result-summary dt,
+.terminal-result-summary dd {
+  margin: 0;
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
+
+.terminal-result-summary dt {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.terminal-result-summary dd {
+  color: var(--muted-strong);
 }
 
 .verdict-card pre {

@@ -317,9 +317,23 @@ async function runCase(smokeCase) {
     await page.locator("[data-testid='trial-planner-model']").fill(model);
     await page.locator("[data-testid='check-contract']").click();
     await page.locator("[data-testid='gate-one-card']").waitFor();
+    const cardMarkdown = page.locator("[data-testid='gate-one-card-markdown']");
+    await cardMarkdown.waitFor();
     const launch = page.locator("[data-testid='launch-session']");
     const launchDisabledBeforeConfirmation = await launch.isDisabled();
     const gateOneText = await page.locator("[data-testid='gate-one-card']").innerText();
+    const cardMarkdownText = await cardMarkdown.innerText();
+    const gateOneCopyIsPlain = [
+      "Gate 1 — 実行前の確認",
+      "必須チェック",
+      "C1 — 実行動作",
+      "C2 — ヘルプの正確さ",
+      "C3 — 出力の正確さ",
+      "C4 — 再現性",
+      "全必須チェックに合格した実行: 3件中0件 (0%)",
+    ].every((expected) => cardMarkdownText.includes(expected)) &&
+      gateOneText.includes("時間と費用の目安") &&
+      !gateOneText.includes("MEASURED PRICE TAG");
     const desktopTrialAlignment = await trialControlAlignment(page);
     const deniedWithoutConfirmation = await page.evaluate(
       async ({ apiUrl, modelName, trialToken }) => {
@@ -410,6 +424,23 @@ async function runCase(smokeCase) {
       },
     );
     const terminalText = await page.locator("[data-testid='terminal-gate']").innerText();
+    const terminalHeading = await page
+      .locator("[data-testid='terminal-result-heading']")
+      .innerText();
+    const expectedTerminalHeading = finalApi.body.gate === "gate_3"
+      ? "すべての必須チェックに合格しました"
+      : "すべての必須チェックには合格していません";
+    const terminalHeadingIsPlain = terminalHeading === expectedTerminalHeading &&
+      terminalHeading !== finalApi.body.assurance;
+    const terminalVerdictSummary = await page
+      .locator("[data-testid='terminal-verdict-summary']")
+      .innerText();
+    const terminalAssuranceSummary = await page
+      .locator("[data-testid='terminal-assurance-summary']")
+      .innerText();
+    const terminalStatusSummary = await page
+      .locator("[data-testid='terminal-status-summary']")
+      .innerText();
     await page.locator("[data-testid='trial-session-files']").waitFor();
     await page.locator("[data-testid='trial-events-open']").click();
     await page.waitForFunction(
@@ -621,6 +652,7 @@ async function runCase(smokeCase) {
       desktopTrialAlignment.aligned &&
       mobileTrialAlignment.aligned &&
       launchDisabledBeforeConfirmation &&
+      gateOneCopyIsPlain &&
       gateTwoIdentityLocked &&
       !tokenFocusAtGateTwo.focused &&
       tokenFocusAtGateTwo.stage === "GATE 2" &&
@@ -639,6 +671,13 @@ async function runCase(smokeCase) {
       terminalScroll.clearsStickyHeader &&
       finalApi.status === 200 &&
       ["gate_3", "gate_4"].includes(finalApi.body.gate) &&
+      terminalHeadingIsPlain &&
+      terminalText.includes("結果") &&
+      terminalText.includes("保証水準") &&
+      terminalText.includes("状態") &&
+      terminalVerdictSummary.includes("最終受け入れ") &&
+      terminalAssuranceSummary.length > 0 &&
+      terminalStatusSummary.length > 0 &&
       eventsViewer.heading === "events.jsonl" &&
       eventsViewer.path === "events.jsonl" &&
       eventsViewer.content.includes('"event"') &&
@@ -667,7 +706,7 @@ async function runCase(smokeCase) {
       authorizationGuidance.includes("Trial アクセストークン") &&
       reconnectOnlyGets &&
       tokenStayedInMemory &&
-      conflictGuidance.includes(`セッション ${sessionId} へ再接続`) &&
+      conflictGuidance.includes(`セッション ${sessionId} に再接続`) &&
       conflictReconnectId === sessionId &&
       conflictSessionQuery === sessionId &&
       conflictDispatchCount === 1 &&
@@ -695,6 +734,8 @@ async function runCase(smokeCase) {
       trial_feedback: trialFeedback,
       session_index_lease: sessionIndexLease,
       gate_1: {
+        card_markdown_visible_text: cardMarkdownText,
+        copy_is_plain_japanese: gateOneCopyIsPlain,
         empty_goal_guidance: emptyGoalGuidance,
         initial_fields_empty: initialTrialFieldsEmpty,
         launch_disabled_before_confirmation: launchDisabledBeforeConfirmation,
@@ -725,6 +766,11 @@ async function runCase(smokeCase) {
         assurance: finalApi.body.assurance,
         event_count: finalApi.body.event_count,
         events_sha256: `sha256:${createHash("sha256").update(eventBytes).digest("hex")}`,
+        terminal_heading: terminalHeading,
+        terminal_heading_is_plain_japanese: terminalHeadingIsPlain,
+        terminal_verdict_summary: terminalVerdictSummary,
+        terminal_assurance_summary: terminalAssuranceSummary,
+        terminal_status_summary: terminalStatusSummary,
         mobile_stage_scroll: {
           execution: executionScroll,
           terminal: terminalScroll,
@@ -890,7 +936,8 @@ async function probeTrialFeedback(browser, origin, basePath) {
     const elapsedChanged =
       elapsedAfter >= elapsedBefore + 2 && elapsedTextAfter !== elapsedTextBefore;
     const titleChanged =
-      terminalTitle !== runningTitle && terminalTitle === "✔ pass — CommandAgent";
+      terminalTitle !== runningTitle &&
+      terminalTitle === "✔ すべての必須チェックに合格しました — CommandAgent";
     return {
       elapsed_before_seconds: elapsedBefore,
       elapsed_after_seconds: elapsedAfter,
@@ -1147,7 +1194,7 @@ function syntheticFeedbackProposal() {
 function syntheticFeedbackSession(sessionId, phaseTotal, terminal) {
   return {
     id: sessionId,
-    gate: terminal ? "gate_4" : "gate_2",
+    gate: terminal ? "gate_3" : "gate_2",
     status: terminal ? "completed" : "running",
     verdict: terminal ? "pass" : null,
     assurance: terminal ? "full" : null,
@@ -1364,7 +1411,10 @@ async function installSessionConflict(page, sessionId) {
       if (method === "POST" && /\/api\/sessions$/.test(path)) {
         window.__commandagentTrialConflictInjection.count += 1;
         return new Response(
-          JSON.stringify({ error: `trial workspace is already running session ${activeSessionId}` }),
+          JSON.stringify({
+            code: "trial_workspace_running",
+            error: `trial workspace is already running session ${activeSessionId}`,
+          }),
           { headers: { "content-type": "application/json" }, status: 409 },
         );
       }

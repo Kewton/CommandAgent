@@ -192,9 +192,10 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "if (!confirmed || proposal === null)",
         "\"x-commandagent-trial-authorization\": `Bearer ${token.trim()}`",
         "confirmation_hash: proposal.card_hash",
+        "<GateCardMarkdown markdown={proposal.card_markdown} />",
         "data-testid=\"trial-workspace\"",
         "proposal.identity.workspace",
-        "このディレクトリ内の内容を作成・変更・削除できます",
+        "このディレクトリ内の内容だけを作成・変更・削除できます",
         "apiPath(\"trial-options\")",
         "trialOptions.profiles.map",
         "trialOptions.providers.map",
@@ -210,8 +211,17 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "stage === \"gate_2\" || stage === \"terminal\" || stage === \"closed\"",
         "disabled={busy || launchIdentityLocked}",
         "disabled={!confirmed || busy || stage === \"gate_2\" || launchBlockReason !== null}",
-        "確認して CLI に委譲",
-        "D-3d 継続を確認",
+        "確認して CLI を実行",
+        "確認して追加の依頼を実行",
+        "data-testid=\"terminal-result-heading\"",
+        "data-testid=\"terminal-result-summary\"",
+        "data-testid=\"terminal-verdict-summary\"",
+        "data-testid=\"terminal-assurance-summary\"",
+        "data-testid=\"terminal-status-summary\"",
+        "terminalHeading(session)",
+        "verdictSummary(session)",
+        "assuranceSummary(session.assurance)",
+        "最終受け入れは記録されていません。",
         "追加実行せず終了",
         "data-testid=\"start-new-run\"",
         "新しい実行を開始",
@@ -285,6 +295,36 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         );
     }
 
+    for internal_copy in [
+        "Frozen launch identity",
+        "MEASURED PRICE TAG",
+        "NEXT ACTION / D-3d",
+        "Boundary instruction",
+        "Scrub and persist instruction",
+        "session.verdict ?? session.status",
+    ] {
+        assert!(
+            !source.contains(internal_copy),
+            "trial UI still exposes internal copy {internal_copy:?}"
+        );
+    }
+
+    let markdown = std::fs::read_to_string("gui/components/gate-card-markdown.tsx").unwrap();
+    for required in [
+        "data-testid=\"gate-one-card-markdown\"",
+        "parseGateCard(markdown)",
+        "<h2 key={index}>{block.text}</h2>",
+        "<h3 key={index}>{block.text}</h3>",
+    ] {
+        assert!(
+            markdown.contains(required),
+            "Gate 1 markdown renderer is missing {required:?}"
+        );
+    }
+    assert!(
+        !markdown.contains("dangerouslySetInnerHTML"),
+        "Gate 1 markdown must stay escaped by React"
+    );
     let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
     for explicit_fill in [
         "[data-testid='trial-goal']\").fill(\"Create a CLI --pattern filter command\")",
@@ -301,6 +341,9 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "emptyGoalGuidance.includes(\"目標を入力してください\")",
         "selectOption(\"lm-studio\")",
         "providerModelGuidance.includes(\"実行モデルは自動更新されません\")",
+        "terminalTitle === \"✔ すべての必須チェックに合格しました — CommandAgent\"",
+        "code: \"trial_workspace_running\"",
+        "conflictGuidance.includes(`セッション ${sessionId} に再接続`)",
     ] {
         assert!(
             smoke.contains(browser_check),
@@ -571,7 +614,7 @@ fn trial_feedback_uses_elapsed_time_phase_total_and_terminal_title() {
         "currentPhase.total > 0",
         "フェーズ {currentPhase.index} / {currentPhase.total}",
         "平均所要時間（予測ではありません）",
-        "document.title = `✔ ${session.verdict ?? session.status} — CommandAgent`",
+        "document.title = `✔ ${terminalHeading(session)} — CommandAgent`",
     ] {
         assert!(
             source.contains(required),
