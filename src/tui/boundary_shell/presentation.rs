@@ -13,42 +13,65 @@ pub fn render_gate_one(
     validate_complete_identity(identity)?;
     let card_hash = identity.card_hash()?;
     let mut lines = vec![
-        "# Gate 1 — Request confirmation".to_string(),
+        "# Gate 1 — 実行前の確認".to_string(),
         String::new(),
-        format!("- Card hash: {card_hash}"),
-        format!("- Request: {}", identity.request),
-        format!("- Workspace: {}", identity.workspace),
+        "## 実行する内容".to_string(),
+        String::new(),
+        format!("- 依頼: {}", inline(&identity.request)),
+        format!("- 作業内容: {}", work_type(identity)),
         format!(
-            "- Route: {} × {} × {}",
-            identity.profile, identity.intent, identity.task_family
+            "- この作業として判定した根拠: {}",
+            identity.route_bases.join("; ")
         ),
-        format!("- Route basis: {}", identity.route_bases.join("; ")),
-        format!("- Contract: {}", identity.contract_ref),
-        format!("- Checks: {}", identity.contract_checks.join(", ")),
+        format!("- 契約の参照先: {}", identity.contract_ref),
+        String::new(),
+        "## 必須チェック".to_string(),
+        String::new(),
+    ];
+    lines.extend(identity.contract_checks.iter().map(|check| {
         format!(
-            "- Value tag: {} ({}/{}, {})",
-            identity.band_rate, identity.band_full, identity.band_denominator, identity.band_arm
+            "- {}",
+            contract_check_description(&identity.profile, check, &identity.contract_ref)
+        )
+    }));
+    lines.extend([
+        String::new(),
+        "## 類似実行の結果".to_string(),
+        String::new(),
+        format!(
+            "- 全必須チェックに合格した実行: {}件中{}件 ({})",
+            identity.band_denominator, identity.band_full, identity.band_rate
         ),
-        format!("- Measurement: {}", identity.band_measurement),
-        format!("- Band source: {}", identity.band_source),
-        format!("- Full meaning: {}", identity.full_meaning),
         format!(
-            "- Planner: {} / {}",
+            "- 比較対象: {}; {} までの証跡",
+            identity.band_arm, identity.band_measurement
+        ),
+        format!("- 証跡の参照先: {}", identity.band_source),
+        format!("- 合格の条件: {}", full_meaning(identity)),
+        String::new(),
+        "## ファイルへのアクセス".to_string(),
+        String::new(),
+        format!("- 変更可能な範囲: {}", identity.workspace),
+        String::new(),
+        "## モデルとプリセット".to_string(),
+        String::new(),
+        format!(
+            "- 計画モデル: {} / {}",
             identity.pins.planner_provider, identity.pins.planner_model
         ),
         format!(
-            "- Executor: {} / {}",
+            "- 実行モデル: {} / {}",
             identity.pins.executor_provider, identity.pins.executor_model
         ),
-        format!("- Preset: {}", identity.pins.preset),
-    ];
+        format!("- 計画プリセット: {}", identity.pins.preset),
+    ]);
     render_pack(identity, repository_root, &mut lines)?;
     let candidates = pack_catalog::compatible(&identity.profile, &identity.intent);
     lines.push(if candidates.is_empty() {
-        "- Compatible admitted packs: none".to_string()
+        "- ほかに利用可能な検証パック: なし".to_string()
     } else {
         format!(
-            "- Compatible admitted packs: {}",
+            "- ほかに利用可能な検証パック: {}",
             candidates
                 .iter()
                 .map(|pack| format!("{}@{} / {}", pack.id, pack.version, pack.hash))
@@ -58,10 +81,96 @@ pub fn render_gate_one(
     });
     lines.extend([
         String::new(),
-        "This card is a proposal, not an earned result.".to_string(),
-        format!("Confirm with `/confirm {card_hash}` before dispatch."),
+        "## 確認".to_string(),
+        String::new(),
+        format!("- 確認 ID (内容が1つでも変わると ID も変わります): {card_hash}"),
+        "これは提案であり、実行結果ではありません。".to_string(),
+        format!("実行前にこの ID と完全一致する内容を確認してください。CLI では /confirm {card_hash} を使用します。"),
     ]);
     Ok(lines.join("\n"))
+}
+
+fn inline(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn work_type(identity: &ConfirmationIdentity) -> String {
+    let profile = match identity.profile.as_str() {
+        "python-cli" => "Python CLI ツール",
+        "nextjs" => "Web アプリ",
+        "data" => "データ処理パイプライン",
+        "ingest" => "データ取り込みパイプライン",
+        _ => identity.profile.as_str(),
+    };
+    let intent = match identity.intent.as_str() {
+        "create" => "新しい機能を作成",
+        "fix" => "既存機能を修正",
+        "investigate" => "問題を調査",
+        _ => identity.intent.as_str(),
+    };
+    let family = match identity.task_family.as_str() {
+        "filter" => "絞り込み",
+        "stats" => "集計",
+        "aggregation" => "集約",
+        "timeseries" => "時系列",
+        "list" => "一覧",
+        "table" => "表",
+        _ => identity.task_family.as_str(),
+    };
+    format!(
+        "{intent} ({}): {profile} ({}) / {family} ({})",
+        identity.intent, identity.profile, identity.task_family
+    )
+}
+
+fn contract_check_description(profile: &str, check: &str, contract_ref: &str) -> String {
+    let description = match (profile, check) {
+        ("python-cli", "C1") => "実行動作: 通常のコマンドは成功し、不正な入力はエラーになる",
+        ("python-cli", "C2") => {
+            "ヘルプの正確さ: --help と実際に受け付けるオプション・引数が一致する"
+        }
+        ("python-cli", "C3") => "出力の正確さ: README の例や説明が実際のコマンド出力と一致する",
+        ("python-cli", "C4") => "再現性: 同じケースを再実行しても同じ結果になる",
+        ("data", "E1") => "行の勘定: すべての入力行が採用または除外として説明される",
+        ("data", "E2") => "記述の正確さ: レポート値が実行結果で観測した値と一致する",
+        ("data", "E3") => "再現性: パイプラインを再実行しても同じ結果になる",
+        ("data", "E4") => "スキーマの正確さ: 生成データが必須スキーマと一致する",
+        ("ingest", "N1") => "パイプライン実行: 有界な取り込みコマンドが正常に完了する",
+        ("ingest", "N2") => "入力元の正確さ: すべての出力値が選択した入力レコードに結び付く",
+        ("ingest", "N3") => "候補の勘定: すべての検出候補が採用または明示的な除外になる",
+        ("ingest", "N4") => "形式の正確さ: 出力フィールドと型が必須スキーマと一致する",
+        ("ingest", "N5") => "再現性: 取り込みを再実行しても同じ結果になる",
+        ("nextjs", "build") => "ビルド: アプリケーションが正常にコンパイルできる",
+        ("nextjs", "browser_route") => "ブラウザ表示: 必須ページが実ブラウザで表示される",
+        ("nextjs", "interaction_state") => "操作: 必須のユーザー操作で確認可能な状態変化が起きる",
+        ("nextjs", "T1_testimony") => {
+            "記述の正確さ: ユーザー向け説明がブラウザで観測した動作と一致する"
+        }
+        _ => {
+            return format!("{check} — 必須証跡の内容は契約 {contract_ref} で定義されています");
+        }
+    };
+    format!("{check} — {description}")
+}
+
+fn full_meaning(identity: &ConfirmationIdentity) -> &str {
+    match (identity.profile.as_str(), identity.intent.as_str()) {
+        ("python-cli", "create") => {
+            "上記4項目がすべて合格し、README の出力説明も実際のコマンド出力と一致すること"
+        }
+        ("data", "create") => {
+            "パイプラインが実行され、観測した成果物に基づいて上記4項目がすべて合格すること"
+        }
+        ("ingest", "create") => {
+            "入力元に結び付いた値と完全な候補勘定を含め、上記5項目がすべて合格すること"
+        }
+        ("nextjs", "create") => {
+            "ビルド、実ブラウザ表示、操作、状態変化、記述の各チェックがすべて合格すること"
+        }
+        (_, "fix") => "修正前の問題が再現し、修正後のチェックが合格し、回帰が残っていないこと",
+        (_, "investigate") => "失敗を再現する検証を実行し、調査報告の記述が観測証跡と一致すること",
+        _ => identity.full_meaning.as_str(),
+    }
 }
 
 pub fn render_gate_three(
@@ -116,8 +225,8 @@ fn render_pack(
 ) -> anyhow::Result<()> {
     match &identity.pack {
         PackSelection::None => {
-            lines.push("- Pack: no pack".to_string());
-            lines.push("- Pack pin: no pack".to_string());
+            lines.push("- 追加の検証パック: 選択なし".to_string());
+            lines.push("- 検証パックの完全一致 ID: なし".to_string());
         }
         PackSelection::Pinned {
             id,
@@ -125,17 +234,17 @@ fn render_pack(
             hash,
             point,
         } => {
-            lines.push(format!("- Pack: {id}@{version}"));
-            lines.push(format!("- Pack pin: {hash}"));
-            lines.push(format!("- Pack point: {point}"));
+            lines.push(format!("- 追加の検証パック: {id}@{version}"));
+            lines.push(format!("- 検証パックの完全一致 ID: {hash}"));
+            lines.push(format!("- 検証箇所: {point}"));
             let observed = pack_catalog::observed_pin(repository_root, &identity.pack)?;
             if observed.as_deref() != Some(hash) {
                 lines.push(format!(
-                    "- WARNING: stale pack pin (confirmed {hash}, observed {})",
+                    "- 警告: 検証パックが変更されています (確認済み {hash}, 現在 {})",
                     observed.as_deref().unwrap_or("missing")
                 ));
             } else {
-                lines.push("- Pack pin status: exact-byte match".to_string());
+                lines.push("- 検証パックの状態: バイト単位で一致".to_string());
             }
         }
     }
@@ -236,18 +345,25 @@ mod tests {
     }
 
     #[test]
-    fn no_pack_card_cannot_omit_value_full_meaning_or_explicit_pin_state() {
+    fn no_pack_card_explains_python_cli_checks_value_and_confirmation() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"));
         let identity = identity(PackSelection::None);
         let rendered = render_gate_one(&identity, root).unwrap();
         for required in [
-            "Value tag: 0% (0/3, formal Window B)",
-            "Full meaning: C1-C4 pass",
-            "Pack: no pack",
-            "Pack pin: no pack",
-            "Checks: C1, C2, C3, C4",
+            "全必須チェックに合格した実行: 3件中0件 (0%)",
+            "C1 — 実行動作: 通常のコマンドは成功",
+            "C2 — ヘルプの正確さ: --help と実際",
+            "C3 — 出力の正確さ: README の例",
+            "C4 — 再現性: 同じケースを再実行",
+            "追加の検証パック: 選択なし",
+            "検証パックの完全一致 ID: なし",
+            "確認 ID (内容が1つでも変わると ID も変わります): sha256:",
+            "CLI では /confirm sha256:",
         ] {
             assert!(rendered.contains(required), "{rendered}");
+        }
+        for internal_label in ["Card hash:", "Route:", "Checks: C1", "Value tag:"] {
+            assert!(!rendered.contains(internal_label), "{rendered}");
         }
     }
 
@@ -286,7 +402,10 @@ mod tests {
         std::fs::write(destination.join("assist.yaml"), bytes).unwrap();
 
         let rendered = render_gate_one(&identity, temp.path()).unwrap();
-        assert!(rendered.contains("WARNING: stale pack pin"), "{rendered}");
+        assert!(
+            rendered.contains("警告: 検証パックが変更されています"),
+            "{rendered}"
+        );
         assert!(
             rendered.contains(pack_catalog::ADMITTED_PACKS[1].hash),
             "{rendered}"

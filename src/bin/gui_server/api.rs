@@ -10,9 +10,10 @@ use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 
 use super::AppState;
+use super::error_response::GuiError;
 
-const MAX_TEXT_BYTES: u64 = 1_048_576;
-const MAX_LIST_ENTRIES: usize = 256;
+pub(super) const MAX_TEXT_BYTES: u64 = 1_048_576;
+pub(super) const MAX_LIST_ENTRIES: usize = 256;
 
 #[derive(Debug, Serialize)]
 pub struct RunSummary {
@@ -20,6 +21,29 @@ pub struct RunSummary {
     modified_epoch_seconds: u64,
     report_path: Option<String>,
     status: String,
+    status_text: String,
+    state: RunState,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RunIndex {
+    runs: Vec<RunSummary>,
+    total: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum RunState {
+    Pass,
+    Fail,
+    Pending,
+    Unknown,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct ExtractedStatus {
+    state: RunState,
+    text: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -59,27 +83,13 @@ pub struct EvidenceQuery {
     path: String,
 }
 
-#[derive(Debug)]
-pub struct ApiError {
-    status: StatusCode,
-    message: String,
-}
+pub type ApiError = GuiError;
 
-impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
-        (
-            self.status,
-            [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
-            Json(serde_json::json!({ "error": self.message })),
-        )
-            .into_response()
-    }
-}
-
-pub async fn runs(State(state): State<AppState>) -> Result<Json<Vec<RunSummary>>, ApiError> {
+pub async fn runs(State(state): State<AppState>) -> Result<Json<RunIndex>, ApiError> {
     let root = state.repository_root.join("workspace/management/runs");
     let mut entries = directory_entries(&root).await?;
     entries.retain(|path| path.is_dir());
+    let total = entries.len();
     entries.sort_by(|left, right| right.file_name().cmp(&left.file_name()));
     entries.truncate(100);
 
@@ -88,19 +98,22 @@ pub async fn runs(State(state): State<AppState>) -> Result<Json<Vec<RunSummary>>
         let id = file_name(&path)?;
         let modified_epoch_seconds = modified_epoch_seconds(&path).await;
         let report = preferred_report(&path).await;
-        let (report_path, status) = match report {
+        let (report_path, extracted_status) = match report {
             Some(report) => {
                 let content = read_text(&report).await.unwrap_or_default();
                 let relative = relative_string(&state.repository_root, &report)?;
                 (Some(relative), extract_status(&content))
             }
-            None => (None, "not recorded".to_string()),
+            None => (None, status_value("not recorded")),
         };
+        let status_text = extracted_status.text;
         summaries.push(RunSummary {
             id,
             modified_epoch_seconds,
             report_path,
-            status,
+            status: status_text.clone(),
+            status_text,
+            state: extracted_status.state,
         });
     }
     summaries.sort_by(|left, right| {
@@ -109,7 +122,10 @@ pub async fn runs(State(state): State<AppState>) -> Result<Json<Vec<RunSummary>>
             .cmp(&left.modified_epoch_seconds)
             .then_with(|| right.id.cmp(&left.id))
     });
-    Ok(Json(summaries))
+    Ok(Json(RunIndex {
+        runs: summaries,
+        total,
+    }))
 }
 
 pub async fn run_detail(
@@ -289,7 +305,7 @@ async fn documents_matching(
     Ok(Json(documents))
 }
 
-async fn document(root: &FilePath, path: &FilePath) -> Result<Document, ApiError> {
+pub(super) async fn document(root: &FilePath, path: &FilePath) -> Result<Document, ApiError> {
     Ok(Document {
         id: file_name(path)?,
         path: relative_string(root, path)?,
@@ -297,7 +313,7 @@ async fn document(root: &FilePath, path: &FilePath) -> Result<Document, ApiError
     })
 }
 
-fn document_summary(root: &FilePath, path: &FilePath) -> Option<DocumentSummary> {
+pub(super) fn document_summary(root: &FilePath, path: &FilePath) -> Option<DocumentSummary> {
     let size_bytes = path.metadata().ok()?.len();
     Some(DocumentSummary {
         id: path.file_name()?.to_str()?.to_string(),
@@ -306,7 +322,10 @@ fn document_summary(root: &FilePath, path: &FilePath) -> Option<DocumentSummary>
     })
 }
 
-async fn collect_documents(root: &FilePath, max_depth: usize) -> Result<Vec<PathBuf>, ApiError> {
+pub(super) async fn collect_documents(
+    root: &FilePath,
+    max_depth: usize,
+) -> Result<Vec<PathBuf>, ApiError> {
     let mut pending = vec![(root.to_path_buf(), 0usize)];
     let mut documents = Vec::new();
     let skipped_directories = BTreeSet::from([".git", ".next", "node_modules", "target"]);
@@ -402,7 +421,7 @@ fn choose_acceptance(documents: &[PathBuf]) -> Option<&PathBuf> {
     })
 }
 
-fn extract_status(content: &str) -> String {
+fn extract_status(content: &str) -> ExtractedStatus {
     content
         .lines()
         .find_map(|line| {
@@ -412,11 +431,56 @@ fn extract_status(content: &str) -> String {
                 .find_map(|prefix| {
                     normalized
                         .strip_prefix(prefix)
-                        .map(|value| value.trim().trim_matches('`').to_string())
+                        .map(status_value)
+                        .filter(|status| !status.text.is_empty())
                 })
         })
-        .filter(|status| !status.is_empty())
-        .unwrap_or_else(|| "recorded".to_string())
+        .unwrap_or_else(|| status_value("recorded"))
+}
+
+fn status_value(value: &str) -> ExtractedStatus {
+    let text = value
+        .trim()
+        .chars()
+        .filter(|character| !matches!(character, '*' | '`'))
+        .collect::<String>()
+        .trim()
+        .to_string();
+    let words = text
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect::<BTreeSet<_>>();
+    let state = if [
+        "abort", "aborted", "block", "blocked", "fail", "failed", "failure",
+    ]
+    .iter()
+    .any(|word| words.contains(*word))
+    {
+        RunState::Fail
+    } else if [
+        "complete",
+        "completed",
+        "full",
+        "green",
+        "merge",
+        "merged",
+        "pass",
+        "passed",
+    ]
+    .iter()
+    .any(|word| words.contains(*word))
+    {
+        RunState::Pass
+    } else if ["open", "pending", "progress", "running"]
+        .iter()
+        .any(|word| words.contains(*word))
+    {
+        RunState::Pending
+    } else {
+        RunState::Unknown
+    };
+    ExtractedStatus { state, text }
 }
 
 fn is_measurement_report(path: &FilePath) -> bool {
@@ -441,10 +505,11 @@ async fn read_text(path: &FilePath) -> Result<String, ApiError> {
         .await
         .map_err(|error| not_found(format!("read {}: {error}", path.display())))?;
     if metadata.len() > MAX_TEXT_BYTES {
-        return Err(ApiError {
-            status: StatusCode::PAYLOAD_TOO_LARGE,
-            message: format!("{} exceeds the 1 MiB viewing limit", path.display()),
-        });
+        return Err(GuiError::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "resource_too_large",
+            format!("{} exceeds the 1 MiB viewing limit", path.display()),
+        ));
     }
     tokio::fs::read_to_string(path)
         .await
@@ -476,7 +541,35 @@ async fn checked_existing_path(root: &FilePath, relative: &FilePath) -> Result<P
     Ok(candidate)
 }
 
-async fn checked_existing_directory(
+pub(super) async fn checked_existing_path_without_symlinks(
+    root: &FilePath,
+    relative: &FilePath,
+) -> Result<PathBuf, ApiError> {
+    if relative.as_os_str().is_empty()
+        || relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return Err(not_found("invalid relative path"));
+    }
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        let Component::Normal(component) = component else {
+            return Err(not_found("invalid relative path"));
+        };
+        current.push(component);
+        let metadata = tokio::fs::symlink_metadata(&current)
+            .await
+            .map_err(|error| not_found(format!("document not found: {error}")))?;
+        if metadata.file_type().is_symlink() {
+            return Err(not_found("document symlinks are not readable"));
+        }
+    }
+    checked_existing_path(root, relative).await
+}
+
+pub(super) async fn checked_existing_directory(
     root: &FilePath,
     relative: &FilePath,
 ) -> Result<PathBuf, ApiError> {
@@ -536,15 +629,72 @@ fn file_name(path: &FilePath) -> Result<String, ApiError> {
 }
 
 fn not_found(message: impl Into<String>) -> ApiError {
-    ApiError {
-        status: StatusCode::NOT_FOUND,
-        message: message.into(),
-    }
+    GuiError::new(StatusCode::NOT_FOUND, "resource_not_found", message)
 }
 
 fn internal(message: impl Into<String>) -> ApiError {
-    ApiError {
-        status: StatusCode::INTERNAL_SERVER_ERROR,
-        message: message.into(),
+    GuiError::new(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "repository_read_failed",
+        message,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ExtractedStatus, RunState, extract_status};
+
+    #[test]
+    fn extract_status_normalizes_markdown_and_enumerates_pass() {
+        assert_eq!(
+            extract_status("# Acceptance\n\nStatus: **FULL 3/3 (2026-08-03)**\n"),
+            ExtractedStatus {
+                state: RunState::Pass,
+                text: "FULL 3/3 (2026-08-03)".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn extract_status_removes_code_markers_and_keeps_unknown_fallbacks_neutral() {
+        assert_eq!(
+            extract_status("- Overall: `NOT RECORDED`\n"),
+            ExtractedStatus {
+                state: RunState::Unknown,
+                text: "NOT RECORDED".to_string(),
+            }
+        );
+        assert_eq!(
+            extract_status("# Report without a status field\n"),
+            ExtractedStatus {
+                state: RunState::Unknown,
+                text: "recorded".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn extract_status_classifies_exact_failure_and_pending_words() {
+        assert_eq!(
+            extract_status("Status: blocked pending owner action\n"),
+            ExtractedStatus {
+                state: RunState::Fail,
+                text: "blocked pending owner action".to_string(),
+            }
+        );
+        assert_eq!(
+            extract_status("Task status: verification in progress\n"),
+            ExtractedStatus {
+                state: RunState::Pending,
+                text: "verification in progress".to_string(),
+            }
+        );
+        assert_eq!(
+            extract_status("Overall: blockade readiness\n"),
+            ExtractedStatus {
+                state: RunState::Unknown,
+                text: "blockade readiness".to_string(),
+            }
+        );
     }
 }

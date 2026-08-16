@@ -32,6 +32,8 @@ desktop.
   - measures all four interactive states at 390 × 844 for Japanese step labels,
     one visible workflow state, and a primary action or progress heading above
     the bottom navigation;
+  - moves predecessor alignment/monitor/reconnect/lifecycle probes to the active
+    state that still owns each control, instead of relying on accumulated DOM;
   - records those measurements in the existing two-base-path smoke report.
 - `tests/gui_read_only_guard.rs`
   - pins mutually exclusive state rendering, Japanese-only new labels, mobile
@@ -41,14 +43,16 @@ desktop.
 
 ## Compatibility
 
-No Rust production source changed. Trial API paths, methods, request/response
+The latest `develop`, including Issues 63, 64, 66–77, 79, and 80, was integrated
+before the Issue 78 layout was reapplied. Issue 78 adds no Rust production
+change. Trial API paths, methods, request/response
 schemas, event names and bytes, `PolledSession`, Gate 1 confirmation semantics,
 `proposal.card_hash`, the dedicated authorization header, CLI-only delegation,
 D-3d hashing, corpus contracts, historical evidence, and `.anvil/` runtime
 state are unchanged.
 
-The predecessor branches were inspected but were not merged, cherry-picked, or
-copied. Their polling/reconnect, lease, options, phase feedback, artifacts,
-session index, coded errors, Japanese copy, accessibility, token decision, and
-304 behavior remain state-local integration inputs for the later
-dependency-order merge.
+Integrated polling/reconnect, lease, options, phase feedback, artifacts, session
+index, coded errors, Japanese copy, accessibility, token decision, and 304
+behavior remain available in their owning active states. Read-only session
+index context stays below the active state because it supports compose recovery
+and Terminal reconnect without duplicating a workflow state.

@@ -14,20 +14,21 @@ This patch is presentation-only:
 - keep existing `data-testid` values and add only layout-oriented IDs;
 - keep CLI-only delegation, event projection, polling, D-3d hashing, and the
   absence of cancel/override controls unchanged;
-- do not merge, cherry-pick, or copy predecessor histories. The layout is made
-  as a narrow wrapper/conditional-rendering change so later dependency-order
-  integration can place predecessor cards inside the matching active state.
+- integrate the latest `develop` first, then apply the layout as a narrow
+  wrapper/conditional-rendering change around the predecessor controls already
+  present in their matching active states.
 
 ## Predecessor review
 
 The committed predecessor summaries and changed-file sets were inspected before
-this design. The layout must leave room for these state-local additions:
+this design and reviewed again after merging the latest `develop`. The layout
+preserves these integrated state-local contracts:
 
 | Issue | Contract that the layout preserves |
 | --- | --- |
 | 63, 80 | Gate 2 polling/reconnect and 200/304 monitoring state stay inside the execution state. |
 | 64, 71 | Workspace lease and session index are read-only compose/recovery information; they do not become dispatch controls. |
-| 66 | Launch identity remains locked during execution; 終了状態には後で既存の新規実行 reset を配置できる。 |
+| 66 | Launch identity remains locked during execution; 終了状態は統合済みの新規実行 reset を保持する。 |
 | 67 | Server-derived profile/provider/model controls remain in the compose state with their stable test IDs. |
 | 68, 69 | Gate 2 phase status, elapsed time, phase x/N, and measured mean are the execution state's primary feedback. |
 | 70 | Recent events and artifact browsing remain Gate 2/Terminal read-only actions. |
@@ -48,7 +49,7 @@ stateDiagram-v2
     実行 --> 結果: 投影 gate が gate_3 または gate_4
     結果 --> 実行: D-3d 継続を確認
     結果 --> 終了: 追加実行なしで終了
-    終了 --> 依頼: predecessor #66 統合後の新規実行
+    終了 --> 依頼: 新しい実行
 
     note right of 依頼
       目標/token/profile/provider/model
@@ -122,7 +123,7 @@ rendered.
 └─────────────────────────────────────────┴───────────────────────┘
 
 ┌ 終了 ───────────────────────────────────────────────────────────┐
-│ 追加実行なし。#66 の新規実行操作はここへ統合される。            │
+│ 追加実行なし。[新しい実行を開始]                                │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -195,7 +196,7 @@ active state 自体は scroll できる。
 
 ┌ 390px ───────────────────────────┐
 │ 終了の確認                       │
-│（#66 の新規実行操作を配置）      │
+│ [新しい実行を開始]               │
 └─────────────────────────────────┘
 ```
 
@@ -218,10 +219,13 @@ active state 自体は scroll できる。
   for implementation**.
 - 390px review: 依頼と確認の主ボタンはナビゲーション上に固定し、実行は
   live progress、結果は D-3d 操作から始まる。
+- Integration review on 2026-08-17: latest `develop` predecessor behavior is
+  preserved; compose recovery/session-index controls remain read-only, Gate 2
+  retains monitoring and evidence, and Terminal retains D-3d plus new-run flow.
 - Language review: #78 が新設する stepper/wire のラベルは
   「依頼・確認・実行・結果・終了」とし、#76 の日本語固定・i18n 非導入判断を
   継承する。API/event/hash/opaque ID は翻訳しない。
 - Contract review: no API, event, hash, confirmation requirement, or existing
   `data-testid` change is designed.
-- Integration review: predecessor state-local components have explicit landing
-  states and no predecessor commit is included in this branch.
+- Integration review: all predecessor state-local components remain in their
+  explicit owning state after the dependency-order merge.
