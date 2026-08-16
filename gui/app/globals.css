@@ -1519,11 +1519,25 @@ button {
   text-transform: uppercase;
 }
 
-.phase-row.completed em,
-.phase-row.passed em,
 .phase-row.running em {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+
+.phase-row.completed em,
+.phase-row.passed em {
   background: var(--success-soft);
   color: var(--success);
+}
+
+.phase-row.failed em {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.phase-row.interrupted em {
+  background: color-mix(in srgb, var(--warning) 12%, transparent);
+  color: var(--warning);
 }
 
 .execution-panel footer {

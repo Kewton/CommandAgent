@@ -616,37 +616,100 @@ fn validate_spec(spec: &SessionSpec) -> Result<(), SessionError> {
 
 fn phase_statuses(events: &[Value]) -> Vec<PhaseStatus> {
     let mut phases = BTreeMap::<(u64, String), PhaseStatus>::new();
+    let mut terminal_seen = false;
     for event in events {
+        let event_name = string(event, "event").unwrap_or("unknown");
+        if matches!(event_name, "tui_command_stop" | "run_stop") {
+            terminal_seen = true;
+            for phase in phases.values_mut() {
+                if matches!(phase.status.as_str(), "pending" | "running") {
+                    phase.status = "interrupted".to_string();
+                }
+            }
+            continue;
+        }
+
         let Some(id) = string(event, "phase_id") else {
             continue;
         };
-        let index = event
-            .get("phase_index")
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
+        let Some(effect) = phase_event_effect(event_name) else {
+            continue;
+        };
+        if terminal_seen && matches!(effect, PhaseEventEffect::Status(status) if status != "failed")
+        {
+            continue;
+        }
+        let index = event.get("phase_index").and_then(Value::as_u64);
+        let key = match index {
+            Some(index) => (index, id.to_string()),
+            None => {
+                let Some(key) = phases
+                    .keys()
+                    .rev()
+                    .find(|(_, phase_id)| phase_id == id)
+                    .cloned()
+                else {
+                    continue;
+                };
+                key
+            }
+        };
+        if matches!(effect, PhaseEventEffect::StageOnly) && !phases.contains_key(&key) {
+            continue;
+        }
         let total = event
             .get("total_phases")
             .and_then(Value::as_u64)
             .unwrap_or(0);
-        let event_name = string(event, "event").unwrap_or("unknown");
-        let phase = phases
-            .entry((index, id.to_string()))
-            .or_insert_with(|| PhaseStatus {
-                id: id.to_string(),
-                index,
-                total,
-                stage: "queued".to_string(),
-                status: "pending".to_string(),
-            });
-        phase.stage = string(event, "stage").unwrap_or(event_name).to_string();
-        phase.status = match event_name {
-            "ultra_phase_complete" => "completed",
-            "ultra_phase_failed" => "failed",
-            _ => "running",
+        let phase_index = key.0;
+        let phase = phases.entry(key).or_insert_with(|| PhaseStatus {
+            id: id.to_string(),
+            index: phase_index,
+            total,
+            stage: "queued".to_string(),
+            status: "pending".to_string(),
+        });
+        match effect {
+            PhaseEventEffect::StageOnly => {
+                phase.stage = string(event, "stage").unwrap_or(event_name).to_string();
+            }
+            PhaseEventEffect::Status(status) => {
+                let current_status = phase.status.as_str();
+                if current_status == "failed"
+                    || (current_status == "completed" && status != "failed")
+                    || (current_status == "interrupted" && status != "failed")
+                {
+                    continue;
+                }
+                phase.stage = string(event, "stage").unwrap_or(event_name).to_string();
+                phase.status = status.to_string();
+            }
         }
-        .to_string();
     }
     phases.into_values().collect()
+}
+
+#[derive(Clone, Copy)]
+enum PhaseEventEffect {
+    Status(&'static str),
+    StageOnly,
+}
+
+fn phase_event_effect(event_name: &str) -> Option<PhaseEventEffect> {
+    match event_name {
+        "ultra_phase_complete" => Some(PhaseEventEffect::Status("completed")),
+        "ultra_phase_failed" => Some(PhaseEventEffect::Status("failed")),
+        "ultra_phase_start"
+        | "ultra_phase_scaffold_complete"
+        | "ultra_phase_plan_validated"
+        | "ultra_phase_execute_complete"
+        | "phase_verification_result"
+        | "ultra_phase_profile_check" => Some(PhaseEventEffect::Status("running")),
+        "ultra_phase_context_attached"
+        | "ultra_phase_context_updated"
+        | "recovery_prompt_saved" => Some(PhaseEventEffect::StageOnly),
+        _ => None,
+    }
 }
 
 async fn read_events(path: &FilePath) -> Result<String, SessionError> {
@@ -938,5 +1001,157 @@ mod tests {
         };
 
         validate_spec(&spec).unwrap();
+    }
+
+    #[test]
+    fn phase_statuses_attach_unindexed_events_without_creating_ghost_rows() {
+        let events = vec![
+            serde_json::json!({
+                "event": "ultra_phase_start",
+                "phase_id": "setup",
+                "phase_index": 1,
+                "total_phases": 1
+            }),
+            serde_json::json!({
+                "event": "recovery_prompt_saved",
+                "phase_id": "setup"
+            }),
+            serde_json::json!({
+                "event": "ultra_phase_start",
+                "phase_id": "ghost",
+                "total_phases": 1
+            }),
+        ];
+
+        let phases = phase_statuses(&events);
+
+        assert_eq!(phases.len(), 1);
+        assert_eq!(phases[0].index, 1);
+        assert_eq!(phases[0].stage, "recovery_prompt_saved");
+        assert_eq!(phases[0].status, "running");
+    }
+
+    #[test]
+    fn phase_statuses_do_not_restore_running_after_completion() {
+        let events = vec![
+            serde_json::json!({
+                "event": "ultra_phase_start",
+                "phase_id": "setup",
+                "phase_index": 1,
+                "total_phases": 1
+            }),
+            serde_json::json!({
+                "event": "ultra_phase_complete",
+                "phase_id": "setup",
+                "phase_index": 1,
+                "total_phases": 1,
+                "stage": "complete"
+            }),
+            serde_json::json!({
+                "event": "ultra_phase_context_updated",
+                "phase_id": "setup",
+                "phase_index": 1,
+                "total_phases": 1
+            }),
+        ];
+
+        let phases = phase_statuses(&events);
+
+        assert_eq!(phases.len(), 1);
+        assert!(phases.iter().all(|phase| phase.status != "running"));
+        assert_eq!(phases[0].stage, "ultra_phase_context_updated");
+        assert_eq!(phases[0].status, "completed");
+    }
+
+    #[test]
+    fn phase_statuses_keep_failures_terminal() {
+        let events = vec![
+            serde_json::json!({
+                "event": "ultra_phase_start",
+                "phase_id": "setup",
+                "phase_index": 1,
+                "total_phases": 1
+            }),
+            serde_json::json!({
+                "event": "ultra_phase_failed",
+                "phase_id": "setup",
+                "phase_index": 1,
+                "total_phases": 1,
+                "stage": "execute"
+            }),
+            serde_json::json!({
+                "event": "recovery_prompt_saved",
+                "phase_id": "setup"
+            }),
+            serde_json::json!({
+                "event": "future_phase_annotation",
+                "phase_id": "setup",
+                "phase_index": 1,
+                "total_phases": 1
+            }),
+        ];
+
+        let phases = phase_statuses(&events);
+
+        assert_eq!(phases.len(), 1);
+        assert_eq!(phases[0].stage, "recovery_prompt_saved");
+        assert_eq!(phases[0].status, "failed");
+    }
+
+    #[test]
+    fn phase_statuses_interrupt_running_phases_at_terminal() {
+        let events = vec![
+            serde_json::json!({
+                "event": "ultra_phase_start",
+                "phase_id": "setup",
+                "phase_index": 1,
+                "total_phases": 2
+            }),
+            serde_json::json!({
+                "event": "ultra_phase_start",
+                "phase_id": "build",
+                "phase_index": 2,
+                "total_phases": 2
+            }),
+            serde_json::json!({
+                "event": "ultra_phase_complete",
+                "phase_id": "build",
+                "phase_index": 2,
+                "total_phases": 2,
+                "stage": "complete"
+            }),
+            serde_json::json!({"event": "tui_command_stop", "status": "failed"}),
+            serde_json::json!({"event": "run_stop", "status": "failed"}),
+            serde_json::json!({
+                "event": "ultra_phase_context_updated",
+                "phase_id": "setup",
+                "phase_index": 1,
+                "total_phases": 2
+            }),
+        ];
+
+        let phases = phase_statuses(&events);
+
+        assert_eq!(phases.len(), 2);
+        assert_eq!(phases[0].status, "interrupted");
+        assert_eq!(phases[1].status, "completed");
+        assert!(phases.iter().all(|phase| phase.status != "running"));
+    }
+
+    #[test]
+    fn gui_smoke_events_project_one_failed_phase() {
+        let events = parse_events(include_str!(
+            "../../../workspace/management/runs/g1-gui-smoke/root-events.jsonl"
+        ))
+        .unwrap();
+
+        let phases = phase_statuses(&events);
+
+        assert_eq!(phases.len(), 1);
+        assert_eq!(phases[0].id, "setup-project");
+        assert_eq!(phases[0].index, 1);
+        assert_eq!(phases[0].total, 5);
+        assert_eq!(phases[0].stage, "recovery_prompt_saved");
+        assert_eq!(phases[0].status, "failed");
     }
 }

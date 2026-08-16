@@ -422,6 +422,23 @@ fn gui_language_navigation_titles_and_runtime_status_are_pinned() {
 }
 
 #[test]
+fn trial_phase_badges_distinguish_pending_running_completed_failed_and_interrupted() {
+    let css = std::fs::read_to_string("gui/app/globals.css").unwrap();
+    for required in [
+        ".phase-row em {\n  padding: 0.25rem 0.45rem;\n  border-radius: 999px;\n  background: var(--surface-soft);",
+        ".phase-row.running em {\n  background: var(--accent-soft);\n  color: var(--accent-hover);",
+        ".phase-row.completed em,\n.phase-row.passed em {\n  background: var(--success-soft);\n  color: var(--success);",
+        ".phase-row.failed em {\n  background: var(--danger-soft);\n  color: var(--danger);",
+        ".phase-row.interrupted em {\n  background: color-mix(in srgb, var(--warning) 12%, transparent);\n  color: var(--warning);",
+    ] {
+        assert!(
+            css.contains(required),
+            "phase badge CSS is missing distinct styling {required:?}"
+        );
+    }
+}
+
+#[test]
 fn trial_workspace_and_authentication_guards_are_not_optional() {
     let entry = std::fs::read_to_string("src/bin/gui_server.rs").unwrap();
     assert!(!entry.contains("unwrap_or_else(|| arguments.repository_root.clone())"));
