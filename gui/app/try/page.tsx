@@ -4,6 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Shell } from "../../components/shell";
 import { apiPath } from "../../lib/base-path";
+import {
+  describeError,
+  reconnectSessionId as reconnectIdFromError,
+  responseError,
+} from "../../lib/errors";
 import type {
   CreatedSession,
   DirectiveProposal,
@@ -36,6 +41,7 @@ export default function TrialRunPage() {
   const [stage, setStage] = useState<ScreenStage>("compose");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reconnectSessionId, setReconnectSessionId] = useState<string | null>(null);
   const [directiveText, setDirectiveText] = useState("");
   const [directive, setDirective] = useState<DirectiveProposal | null>(null);
 
@@ -48,7 +54,7 @@ export default function TrialRunPage() {
         const response = await fetch(apiPath(`sessions/${encodeURIComponent(created.id)}`), {
           headers: authorizationHeaders(trialToken),
         });
-        if (!response.ok) throw new Error(await apiError(response));
+        if (!response.ok) throw await responseError(response);
         const value = (await response.json()) as PolledSession;
         if (cancelled) return;
         setSession(value);
@@ -59,7 +65,7 @@ export default function TrialRunPage() {
         setStage("gate_2");
         timer = setTimeout(() => void poll(), 750);
       } catch (reason) {
-        if (!cancelled) setError(message(reason));
+        if (!cancelled) recordError(reason);
       }
     };
     void poll();
@@ -111,18 +117,19 @@ export default function TrialRunPage() {
     }
     setBusy(true);
     setError(null);
+    setReconnectSessionId(null);
     try {
       const response = await fetch(apiPath("session-proposals"), {
         method: "POST",
         headers: authorizationHeaders(trialToken, true),
         body: JSON.stringify(spec),
       });
-      if (!response.ok) throw new Error(await apiError(response));
+      if (!response.ok) throw await responseError(response);
       setProposal((await response.json()) as SessionProposal);
       setConfirmed(false);
       setStage("gate_1");
     } catch (reason) {
-      setError(message(reason));
+      recordError(reason);
     } finally {
       setBusy(false);
     }
@@ -135,18 +142,19 @@ export default function TrialRunPage() {
     }
     setBusy(true);
     setError(null);
+    setReconnectSessionId(null);
     try {
       const response = await fetch(apiPath("sessions"), {
         method: "POST",
         headers: authorizationHeaders(trialToken, true),
         body: JSON.stringify({ ...spec, confirmation_hash: proposal.card_hash }),
       });
-      if (!response.ok) throw new Error(await apiError(response));
+      if (!response.ok) throw await responseError(response);
       setCreated((await response.json()) as CreatedSession);
       setSession(null);
       setStage("gate_2");
     } catch (reason) {
-      setError(message(reason));
+      recordError(reason);
     } finally {
       setBusy(false);
     }
@@ -156,6 +164,7 @@ export default function TrialRunPage() {
     if (created === null || directiveText.trim() === "") return;
     setBusy(true);
     setError(null);
+    setReconnectSessionId(null);
     try {
       const response = await fetch(
         apiPath(`sessions/${encodeURIComponent(created.id)}/directives`),
@@ -165,10 +174,10 @@ export default function TrialRunPage() {
           body: JSON.stringify({ directive: directiveText }),
         },
       );
-      if (!response.ok) throw new Error(await apiError(response));
+      if (!response.ok) throw await responseError(response);
       setDirective((await response.json()) as DirectiveProposal);
     } catch (reason) {
-      setError(message(reason));
+      recordError(reason);
     } finally {
       setBusy(false);
     }
@@ -178,6 +187,7 @@ export default function TrialRunPage() {
     if (created === null || directive === null) return;
     setBusy(true);
     setError(null);
+    setReconnectSessionId(null);
     try {
       const response = await fetch(
         apiPath(
@@ -185,12 +195,12 @@ export default function TrialRunPage() {
         ),
         { method: "POST", headers: authorizationHeaders(trialToken, true), body: "{}" },
       );
-      if (!response.ok) throw new Error(await apiError(response));
+      if (!response.ok) throw await responseError(response);
       setDirective(null);
       setDirectiveText("");
       setStage("gate_2");
     } catch (reason) {
-      setError(message(reason));
+      recordError(reason);
     } finally {
       setBusy(false);
     }
@@ -276,7 +286,23 @@ export default function TrialRunPage() {
           >
             Check contract and price
           </button>
-          {error !== null && <p className="trial-error" role="alert">{error}</p>}
+          {error !== null && (
+            <div className="trial-error" role="alert">
+              <p>{error}</p>
+              {reconnectSessionId !== null && (
+                <a
+                  data-testid="reconnect-session-link"
+                  href={`?session=${encodeURIComponent(reconnectSessionId)}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    reconnectSession(reconnectSessionId);
+                  }}
+                >
+                  セッション {reconnectSessionId} に再接続
+                </a>
+              )}
+            </div>
+          )}
         </div>
 
         <aside className="trial-rail">
@@ -402,6 +428,27 @@ export default function TrialRunPage() {
       {stage === "closed" && <section className="panel closed-card"><span>SESSION CLOSED</span><h2>No further action was dispatched.</h2></section>}
     </Shell>
   );
+
+  function recordError(reason: unknown) {
+    setError(describeError(reason));
+    setReconnectSessionId(reconnectIdFromError(reason));
+  }
+
+  function reconnectSession(id: string) {
+    const url = new URL(window.location.href);
+    url.searchParams.set("session", id);
+    window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+    setCreated({
+      id,
+      gate: "gate_2",
+      status: "starting",
+      events_path: `.anvil/runs/${id}/events.jsonl`,
+    });
+    setSession(null);
+    setReconnectSessionId(null);
+    setError(null);
+    setStage("gate_2");
+  }
 }
 
 function stageLabel(stage: ScreenStage, session: PolledSession | null): string {
@@ -410,20 +457,6 @@ function stageLabel(stage: ScreenStage, session: PolledSession | null): string {
   if (stage === "gate_1") return "AWAITING CONFIRMATION";
   if (stage === "closed") return "CLOSED";
   return "DRAFT";
-}
-
-async function apiError(response: Response): Promise<string> {
-  const text = await response.text();
-  try {
-    const parsed = JSON.parse(text) as { error?: string };
-    return `${response.status}: ${parsed.error ?? text}`;
-  } catch {
-    return `${response.status}: ${text}`;
-  }
-}
-
-function message(reason: unknown): string {
-  return reason instanceof Error ? reason.message : "The trial request failed.";
 }
 
 function authorizationHeaders(token: string, json = false): Record<string, string> {

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { apiPath } from "./base-path";
+import { describeError, responseError } from "./errors";
 
 type ResourceState<T> = {
   data: T | null;
@@ -23,8 +24,7 @@ export function useResource<T>(resource: string): ResourceState<T> {
     fetch(apiPath(resource), { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) {
-          const message = await response.text();
-          throw new Error(`${response.status}: ${message}`);
+          throw await responseError(response);
         }
         return response.json() as Promise<T>;
       })
@@ -33,7 +33,7 @@ export function useResource<T>(resource: string): ResourceState<T> {
         if (error instanceof DOMException && error.name === "AbortError") return;
         setState({
           data: null,
-          error: error instanceof Error ? error.message : "Unknown API error",
+          error: describeError(error),
           loading: false,
         });
       });

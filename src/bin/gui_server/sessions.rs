@@ -6,8 +6,8 @@ use std::time::Duration;
 
 use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode, header};
-use axum::response::{IntoResponse, Response};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::IntoResponse;
 use commandagent::planner::profile::ProfileId;
 use commandagent::tui::boundary_shell::ambiguity::{
     ClassifierProvenance, ProposalStatus, RouteProposal,
@@ -25,6 +25,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use uuid::Uuid;
 
+use super::error_response::GuiError;
 use super::trial_access::AccessError;
 use super::{AppState, workspace_policy::TrialWorkspace};
 
@@ -124,22 +125,7 @@ pub struct ConfirmedContinuation {
     status: &'static str,
 }
 
-#[derive(Debug)]
-pub struct SessionError {
-    status: StatusCode,
-    message: String,
-}
-
-impl IntoResponse for SessionError {
-    fn into_response(self) -> Response {
-        (
-            self.status,
-            [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
-            Json(serde_json::json!({ "error": self.message })),
-        )
-            .into_response()
-    }
-}
+pub type SessionError = GuiError;
 
 pub async fn proposal(
     State(state): State<AppState>,
@@ -170,10 +156,11 @@ pub async fn create(
 ) -> Result<impl IntoResponse, SessionError> {
     let workspace = require_trial(&state, &headers, true)?;
     let Some(confirmation_hash) = request.confirmation_hash.as_deref() else {
-        return Err(SessionError {
-            status: StatusCode::PRECONDITION_REQUIRED,
-            message: "Gate 1 confirmation_hash is required before dispatch".to_string(),
-        });
+        return Err(GuiError::new(
+            StatusCode::PRECONDITION_REQUIRED,
+            "trial_confirmation_required",
+            "Gate 1 confirmation_hash is required before dispatch",
+        ));
     };
     let id = Uuid::now_v7().to_string();
     let paths = SessionPaths::new(&workspace, &id);
@@ -181,10 +168,11 @@ pub async fn create(
         gate_one(&state, &request.spec, &workspace, paths.confirmation_root())?;
     let expected_hash = identity.card_hash().map_err(internal)?;
     if confirmation_hash != expected_hash {
-        return Err(SessionError {
-            status: StatusCode::PRECONDITION_FAILED,
-            message: "Gate 1 card changed; request and confirm the current card".to_string(),
-        });
+        return Err(GuiError::new(
+            StatusCode::PRECONDITION_FAILED,
+            "trial_confirmation_stale",
+            "Gate 1 card changed; request and confirm the current card",
+        ));
     }
     state.trial_workspace.acquire(&id).map_err(conflict)?;
     if let Err(error) = shell.confirm(confirmation_hash) {
@@ -630,10 +618,11 @@ async fn read_events(path: &FilePath) -> Result<String, SessionError> {
         Err(error) => return Err(internal(error)),
     };
     if metadata.len() > MAX_EVENTS_BYTES {
-        return Err(SessionError {
-            status: StatusCode::PAYLOAD_TOO_LARGE,
-            message: "session event stream exceeds the 4 MiB polling limit".to_string(),
-        });
+        return Err(GuiError::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "trial_events_too_large",
+            "session event stream exceeds the 4 MiB polling limit",
+        ));
     }
     tokio::fs::read_to_string(path).await.map_err(internal)
 }
@@ -787,28 +776,32 @@ fn require_trial(
     require_origin: bool,
 ) -> Result<PathBuf, SessionError> {
     if !state.trial_workspace.is_enabled() {
-        return Err(SessionError {
-            status: StatusCode::SERVICE_UNAVAILABLE,
-            message: "trial execution is disabled; configure --execution-root".to_string(),
-        });
+        return Err(GuiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "trial_execution_disabled",
+            "trial execution is disabled; configure --execution-root",
+        ));
     }
     let workspace = state.trial_workspace.require_current().map_err(conflict)?;
     state
         .trial_access
         .authorize(headers, require_origin)
         .map_err(|error| match error {
-            AccessError::Disabled => SessionError {
-                status: StatusCode::SERVICE_UNAVAILABLE,
-                message: "trial execution authentication is disabled".to_string(),
-            },
-            AccessError::Unauthorized => SessionError {
-                status: StatusCode::UNAUTHORIZED,
-                message: "a valid GUI trial bearer token is required".to_string(),
-            },
-            AccessError::ForbiddenOrigin => SessionError {
-                status: StatusCode::FORBIDDEN,
-                message: "trial request origin is not allowed".to_string(),
-            },
+            AccessError::Disabled => GuiError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "trial_authentication_disabled",
+                "trial execution authentication is disabled",
+            ),
+            AccessError::Unauthorized => GuiError::new(
+                StatusCode::UNAUTHORIZED,
+                "trial_token_invalid",
+                "a valid GUI trial bearer token is required",
+            ),
+            AccessError::ForbiddenOrigin => GuiError::new(
+                StatusCode::FORBIDDEN,
+                "trial_origin_not_allowed",
+                "trial request origin is not allowed",
+            ),
         })?;
     Ok(workspace)
 }
@@ -849,38 +842,43 @@ impl SessionPaths {
 }
 
 fn unprocessable(message: impl ToString) -> SessionError {
-    SessionError {
-        status: StatusCode::UNPROCESSABLE_ENTITY,
-        message: message.to_string(),
-    }
+    GuiError::new(
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "trial_request_invalid",
+        message.to_string(),
+    )
 }
 
 fn bad_request(error: impl ToString) -> SessionError {
-    SessionError {
-        status: StatusCode::BAD_REQUEST,
-        message: error.to_string(),
-    }
+    GuiError::new(
+        StatusCode::BAD_REQUEST,
+        "trial_request_invalid",
+        error.to_string(),
+    )
 }
 
 fn not_found(message: impl ToString) -> SessionError {
-    SessionError {
-        status: StatusCode::NOT_FOUND,
-        message: message.to_string(),
-    }
+    GuiError::new(
+        StatusCode::NOT_FOUND,
+        "trial_session_not_found",
+        message.to_string(),
+    )
 }
 
 fn conflict(message: impl ToString) -> SessionError {
-    SessionError {
-        status: StatusCode::CONFLICT,
-        message: message.to_string(),
-    }
+    GuiError::new(
+        StatusCode::CONFLICT,
+        "trial_workspace_conflict",
+        message.to_string(),
+    )
 }
 
 fn internal(error: impl ToString) -> SessionError {
-    SessionError {
-        status: StatusCode::INTERNAL_SERVER_ERROR,
-        message: error.to_string(),
-    }
+    GuiError::new(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "trial_internal_error",
+        error.to_string(),
+    )
 }
 
 #[cfg(test)]

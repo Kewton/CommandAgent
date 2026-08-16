@@ -136,6 +136,50 @@ fn next_export_and_base_path_audit_are_pinned() {
 }
 
 #[test]
+fn gui_fetch_failures_use_one_actionable_error_descriptor() {
+    let descriptor = std::fs::read_to_string("gui/lib/errors.ts").unwrap();
+    for required in [
+        "export function describeError",
+        "export async function responseError",
+        "trial_token_invalid",
+        "GUI_TRIAL_ALLOWED_ORIGINS",
+        "--commandagent-bin",
+        "trial_workspace_conflict",
+        "reconnectSessionId",
+    ] {
+        assert!(
+            descriptor.contains(required),
+            "shared GUI error descriptor is missing {required:?}"
+        );
+    }
+
+    for path in [
+        "gui/lib/use-resource.ts",
+        "gui/app/try/page.tsx",
+        "gui/app/runs/page.tsx",
+        "gui/app/measurements/page.tsx",
+    ] {
+        let source = std::fs::read_to_string(path).unwrap();
+        for required in ["describeError", "responseError"] {
+            assert!(
+                source.contains(required),
+                "{path} bypasses the common failure path: missing {required}"
+            );
+        }
+    }
+
+    let raw_network_message = ["Failed", "to", "fetch"].join(" ");
+    for path in gui_source_files(Path::new("gui")) {
+        let source = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !source.contains(&raw_network_message),
+            "{} exposes the browser's raw network message",
+            path.display()
+        );
+    }
+}
+
+#[test]
 fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
     let source = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
     for required in [
@@ -212,6 +256,27 @@ fn collect_rust_files(root: &Path, output: &mut Vec<PathBuf>) {
             output.push(path);
         }
     }
+}
+
+fn gui_source_files(root: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(root).unwrap().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if !matches!(
+                path.file_name().and_then(|name| name.to_str()),
+                Some(".next" | "node_modules" | "out")
+            ) {
+                files.extend(gui_source_files(&path));
+            }
+        } else if matches!(
+            path.extension().and_then(|extension| extension.to_str()),
+            Some("ts" | "tsx" | "js" | "mjs")
+        ) {
+            files.push(path);
+        }
+    }
+    files
 }
 
 fn violates_delegation_guard(path: &Path, source: &str) -> bool {

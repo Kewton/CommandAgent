@@ -6,6 +6,7 @@ import { DocumentViewer } from "../../components/document-viewer";
 import { Shell } from "../../components/shell";
 import { EmptyState, ErrorState, LoadingState } from "../../components/states";
 import { apiPath, routePath, withBasePath } from "../../lib/base-path";
+import { describeError, responseError } from "../../lib/errors";
 import type { DocumentRecord, RunDetail, RunSummary } from "../../lib/types";
 import { useResource } from "../../lib/use-resource";
 
@@ -35,13 +36,13 @@ export default function RunDetailPage() {
     setSelected(null);
     fetch(apiPath(`runs/${encodeURIComponent(runId)}`), { signal: controller.signal })
       .then(async (response) => {
-        if (!response.ok) throw new Error(await response.text());
+        if (!response.ok) throw await responseError(response);
         return response.json() as Promise<RunDetail>;
       })
       .then((value) => setDetail(value))
       .catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === "AbortError") return;
-        setError(reason instanceof Error ? reason.message : "Unable to read run");
+        setError(describeError(reason));
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
@@ -68,10 +69,10 @@ export default function RunDetailPage() {
     try {
       const query = new URLSearchParams({ path });
       const response = await fetch(apiPath(`runs/${encodeURIComponent(runId)}/evidence`, query));
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) throw await responseError(response);
       setSelected((await response.json()) as DocumentRecord);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to read evidence");
+      setError(describeError(reason));
     } finally {
       setLoading(false);
     }
