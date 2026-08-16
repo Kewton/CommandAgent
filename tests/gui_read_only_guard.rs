@@ -145,8 +145,15 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "data-testid=\"trial-workspace\"",
         "proposal.identity.workspace",
         "このディレクトリ内の内容を作成・変更・削除できます",
-        "--pattern で行を抽出する CLI コマンドを作成する",
-        "<option value=\"lm-studio\">LM Studio</option>",
+        "apiPath(\"trial-options\")",
+        "trialOptions.profiles.map",
+        "trialOptions.providers.map",
+        "data-testid=\"trial-profile-description\"",
+        "data-testid=\"trial-provider-model-hint\"",
+        "プロバイダーを変更しても実行モデルは自動更新されません。",
+        "契約を確認する前に、目標を入力してください。",
+        "契約を確認する前に、実行モデルの正確な ID を入力してください。",
+        "契約を確認する前に、計画モデルの正確な ID を入力してください。",
         "window.matchMedia(\"(max-width: 720px)\")",
         "target.scrollIntoView({ behavior: \"smooth\", block: \"start\" })",
         "契約を確認する前に、実行時の Trial アクセストークンを入力してください。",
@@ -164,14 +171,41 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
             "trial UI is missing {required:?}"
         );
     }
+    for empty_default in ["goal: \"\",", "model: \"\",", "planner_model: \"\","] {
+        assert!(
+            source.contains(empty_default),
+            "trial UI retains a demo default for {empty_default:?}"
+        );
+    }
+    assert!(
+        !source.contains("qwen3:8b")
+            && !source.contains("<option value=\"python-cli\">")
+            && !source.contains("<option value=\"lm-studio\">")
+            && !source.contains("<option value=\"openai\">")
+            && !source.contains("<option value=\"gemini\">"),
+        "Trial defaults and options must not be copied into the client"
+    );
+    assert!(
+        source.find("契約を確認する前に、目標を入力してください。")
+            < source
+                .find("契約を確認する前に、実行時の Trial アクセストークンを入力してください。"),
+        "empty Goal guidance must run before token validation"
+    );
     assert!(
         !source.contains("disabled={trialToken === \"\""),
         "Trial token guidance must not be hidden behind a disabled button"
     );
     assert_eq!(
         source.matches("disabled={launchIdentityLocked}").count(),
-        6,
-        "every launch identity control must share the run-stage lock"
+        4,
+        "goal, token, and both model controls must share the run-stage lock"
+    );
+    assert_eq!(
+        source
+            .matches("disabled={launchIdentityLocked || trialOptions === null}")
+            .count(),
+        2,
+        "profile and provider controls must combine option loading with the run-stage lock"
     );
     for reset in [
         "setProposal(null)",
@@ -198,6 +232,29 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         assert!(
             !source.contains(forbidden),
             "trial UI exposes forbidden intervention control {forbidden:?}"
+        );
+    }
+
+    let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
+    for explicit_fill in [
+        "[data-testid='trial-goal']\").fill(\"Create a CLI --pattern filter command\")",
+        "[data-testid='trial-executor-model']\").fill(model)",
+        "[data-testid='trial-planner-model']\").fill(model)",
+    ] {
+        assert!(
+            smoke.matches(explicit_fill).count() >= 3,
+            "GUI smoke must fill {explicit_fill:?} for initial, conflict, and lifecycle runs"
+        );
+    }
+    for browser_check in [
+        "initialTrialFieldsEmpty",
+        "emptyGoalGuidance.includes(\"目標を入力してください\")",
+        "selectOption(\"lm-studio\")",
+        "providerModelGuidance.includes(\"実行モデルは自動更新されません\")",
+    ] {
+        assert!(
+            smoke.contains(browser_check),
+            "GUI smoke is missing browser acceptance check {browser_check:?}"
         );
     }
 }

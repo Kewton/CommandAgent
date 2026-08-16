@@ -27,7 +27,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::trial_access::AccessError;
-use super::{AppState, workspace_policy::TrialWorkspace};
+use super::{AppState, trial_options, workspace_policy::TrialWorkspace};
 
 const MAX_GOAL_BYTES: usize = 16 * 1024;
 const MAX_FIELD_BYTES: usize = 256;
@@ -605,10 +605,7 @@ fn validate_spec(spec: &SessionSpec) -> Result<(), SessionError> {
         }
     }
     for provider in [&spec.provider, &spec.planner_provider] {
-        if !matches!(
-            provider.as_str(),
-            "ollama" | "lm-studio" | "openai" | "gemini"
-        ) {
+        if !trial_options::is_admitted_provider(provider) {
             return Err(unprocessable(format!(
                 "provider `{provider}` is not admitted"
             )));

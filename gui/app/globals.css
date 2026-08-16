@@ -1055,6 +1055,25 @@ button {
   margin-bottom: 1rem;
 }
 
+.trial-field-hint,
+.trial-model-warning {
+  font-size: 0.65rem;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.trial-field-hint {
+  color: var(--muted);
+}
+
+.trial-model-warning {
+  padding: 0.55rem 0.65rem;
+  border: 1px solid rgba(217, 119, 6, 0.3);
+  border-radius: var(--radius-sm);
+  background: #fffbeb;
+  color: var(--warning);
+}
+
 .reconnect-card {
   display: grid;
   gap: 0.5rem;
@@ -1608,6 +1627,7 @@ button {
     background: #e2e8f0;
   }
 
+  .trial-model-warning,
   .workspace-boundary {
     background: rgba(251, 191, 36, 0.08);
   }

@@ -19,16 +19,17 @@ import type {
   PolledSession,
   SessionProposal,
   SessionSpec,
+  TrialOptions,
   TrialWorkspaceLease,
 } from "../../lib/types";
 
 const initialSpec: SessionSpec = {
-  goal: "--pattern で行を抽出する CLI コマンドを作成する",
+  goal: "",
   profile: "python-cli",
   provider: "ollama",
-  model: "qwen3:8b",
+  model: "",
   planner_provider: "ollama",
-  planner_model: "qwen3:8b",
+  planner_model: "",
 };
 
 type ScreenStage = "compose" | "gate_1" | "gate_2" | "terminal" | "closed";
@@ -65,12 +66,33 @@ export default function TrialRunPage() {
   const [stage, setStage] = useState<ScreenStage>("compose");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [trialOptions, setTrialOptions] = useState<TrialOptions | null>(null);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
+  const [providerChanged, setProviderChanged] = useState(false);
   const [directiveText, setDirectiveText] = useState("");
   const [directive, setDirective] = useState<DirectiveProposal | null>(null);
   const [workspaceLease, setWorkspaceLease] = useState<TrialWorkspaceLease | null>(null);
   const launchIdentityLocked =
     stage === "gate_2" || stage === "terminal" || stage === "closed";
   const [monitor, setMonitor] = useState<MonitorState>(initialMonitor);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadOptions = async () => {
+      try {
+        const response = await fetch(apiPath("trial-options"));
+        if (!response.ok) throw new Error(await apiError(response));
+        const value = (await response.json()) as TrialOptions;
+        if (!cancelled) setTrialOptions(value);
+      } catch (reason) {
+        if (!cancelled) setOptionsError(`Trial の選択肢を読み込めませんでした: ${message(reason)}`);
+      }
+    };
+    void loadOptions();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const id = new URLSearchParams(window.location.search).get("session");
@@ -162,11 +184,14 @@ export default function TrialRunPage() {
     const cost = proposal?.price.average_cost_usd;
     return cost === null || cost === undefined ? "未記録" : `平均 $${cost.toFixed(4)}`;
   }, [proposal]);
+  const selectedProfile = trialOptions?.profiles.find((option) => option.id === spec.profile);
+  const selectedProvider = trialOptions?.providers.find((option) => option.id === spec.provider);
 
   function update<K extends keyof SessionSpec>(field: K, value: SessionSpec[K]) {
     setSpec((current) => ({ ...current, [field]: value }));
     setProposal(null);
     setConfirmed(false);
+    setError(null);
     setStage("compose");
   }
 
@@ -182,6 +207,18 @@ export default function TrialRunPage() {
   }
 
   async function checkContract() {
+    if (spec.goal.trim() === "") {
+      setError("契約を確認する前に、目標を入力してください。");
+      return;
+    }
+    if (spec.model.trim() === "") {
+      setError("契約を確認する前に、実行モデルの正確な ID を入力してください。");
+      return;
+    }
+    if (spec.planner_model.trim() === "") {
+      setError("契約を確認する前に、計画モデルの正確な ID を入力してください。");
+      return;
+    }
     if (trialToken.trim() === "") {
       setError("契約を確認する前に、実行時の Trial アクセストークンを入力してください。");
       return;
@@ -437,41 +474,72 @@ export default function TrialRunPage() {
             <label>
               プロファイル
               <select
-                disabled={launchIdentityLocked}
+                data-testid="trial-profile"
+                disabled={launchIdentityLocked || trialOptions === null}
                 value={spec.profile}
                 onChange={(event) => update("profile", event.target.value)}
               >
-                <option value="python-cli">python-cli</option>
-                <option value="data">data</option>
-                <option value="ingest">ingest</option>
-                <option value="nextjs">nextjs</option>
+                {trialOptions === null ? (
+                  <option value={spec.profile}>許可済みプロファイルを読み込み中…</option>
+                ) : (
+                  trialOptions.profiles.map((option) => (
+                    <option key={option.id} value={option.id}>{option.label}</option>
+                  ))
+                )}
               </select>
+              {selectedProfile !== undefined && (
+                <small className="trial-field-hint" data-testid="trial-profile-description">
+                  {selectedProfile.description}
+                </small>
+              )}
             </label>
             <label>
               プロバイダー
               <select
-                disabled={launchIdentityLocked}
+                data-testid="trial-provider"
+                disabled={launchIdentityLocked || trialOptions === null}
                 value={spec.provider}
-                onChange={(event) => update("provider", event.target.value)}
+                onChange={(event) => {
+                  update("provider", event.target.value);
+                  setProviderChanged(true);
+                }}
               >
-                <option value="ollama">ollama</option>
-                <option value="lm-studio">LM Studio</option>
-                <option value="openai">openai</option>
-                <option value="gemini">gemini</option>
+                {trialOptions === null ? (
+                  <option value={spec.provider}>プロバイダーを読み込み中…</option>
+                ) : (
+                  trialOptions.providers.map((option) => (
+                    <option key={option.id} value={option.id}>{option.label}</option>
+                  ))
+                )}
               </select>
             </label>
             <label>
               実行モデル
               <input
+                aria-describedby={providerChanged ? "trial-provider-model-hint" : undefined}
+                data-testid="trial-executor-model"
                 disabled={launchIdentityLocked}
+                placeholder="正確なモデル ID"
                 value={spec.model}
                 onChange={(event) => update("model", event.target.value)}
               />
+              {providerChanged && selectedProvider !== undefined && (
+                <small
+                  className="trial-model-warning"
+                  data-testid="trial-provider-model-hint"
+                  id="trial-provider-model-hint"
+                  role="status"
+                >
+                  プロバイダーを変更しても実行モデルは自動更新されません。{selectedProvider.model_hint}
+                </small>
+              )}
             </label>
             <label>
               計画モデル
               <input
+                data-testid="trial-planner-model"
                 disabled={launchIdentityLocked}
+                placeholder="正確なモデル ID"
                 value={spec.planner_model}
                 onChange={(event) => update("planner_model", event.target.value)}
               />
@@ -486,6 +554,7 @@ export default function TrialRunPage() {
           >
             契約と価格を確認
           </button>
+          {optionsError !== null && <p className="trial-error" role="alert">{optionsError}</p>}
           {error !== null && <p className="trial-error" role="alert">{error}</p>}
         </div>
 
