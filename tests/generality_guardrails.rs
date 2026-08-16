@@ -197,6 +197,10 @@ fn nextjs_boundary_erosion_tripwire_keeps_dispatch_sites_audited() {
         ("src/tui/boundary_shell/band_catalog.rs".to_string(), 5),
         ("src/tui/boundary_shell/confirmation.rs".to_string(), 1),
         ("src/tui/boundary_shell/family_catalog.rs".to_string(), 5),
+        // Issue #73 renders reader-facing profile/check descriptions here.
+        // Pin these literals so presentation cannot silently grow into an
+        // unaudited profile-dispatch surface.
+        ("src/tui/boundary_shell/presentation.rs".to_string(), 6),
         ("src/tui/boundary_shell/route.rs".to_string(), 4),
     ]);
     assert_eq!(

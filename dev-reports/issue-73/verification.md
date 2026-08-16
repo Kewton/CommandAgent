@@ -17,6 +17,7 @@
 - `cargo fmt --all -- --check`: `passed`
 - `cargo clippy --all-targets -- -D warnings`: `passed`
 - `cargo test`: `passed`
+- `cargo test --test generality_guardrails nextjs_boundary_erosion_tripwire_keeps_dispatch_sites_audited -- --exact --nocapture` (CI follow-up): `passed`
 - `git diff --check`: `passed`
 
 ## Results
@@ -34,3 +35,7 @@
 - The release binary reported `commandagent 0.1.0`; the build metadata marked
   the working tree dirty because verification ran before the required Issue
   commit.
+- PR #92 initially failed both GitHub Actions workflows because the Issue added
+  six reader-facing `nextjs` literals in `presentation.rs` without adding that
+  leaf module to the exact-count boundary audit. The audit now pins the module
+  at six literals; no production behavior or guardrail condition was weakened.
