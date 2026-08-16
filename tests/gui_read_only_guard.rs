@@ -160,7 +160,7 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "契約を確認する前に、実行時の Trial アクセストークンを入力してください。",
         "stage === \"gate_2\" || stage === \"terminal\" || stage === \"closed\"",
         "disabled={busy || launchIdentityLocked}",
-        "disabled={!confirmed || busy || stage === \"gate_2\"}",
+        "disabled={!confirmed || busy || stage === \"gate_2\" || launchBlockReason !== null}",
         "確認して CLI に委譲",
         "D-3d 継続を確認",
         "追加実行せず終了",
@@ -560,6 +560,14 @@ fn trial_workspace_and_authentication_guards_are_not_optional() {
         6,
         "every Trial API handler must enforce workspace and access guards"
     );
+    let session_index = std::fs::read_to_string("src/bin/gui_server/session_index.rs").unwrap();
+    assert_eq!(
+        session_index
+            .matches("require_trial(&state, &headers, false)")
+            .count(),
+        1,
+        "the Trial session index must enforce workspace and access guards"
+    );
     for required in [
         "StatusCode::SERVICE_UNAVAILABLE",
         "StatusCode::UNAUTHORIZED",
@@ -695,6 +703,88 @@ fn trial_session_files_are_get_only_authenticated_views() {
     let delegate = std::fs::read_to_string(DELEGATE_MODULE).unwrap();
     assert_eq!(delegate.matches(".stdout(Stdio::null())").count(), 2);
     assert_eq!(delegate.matches(".stderr(Stdio::null())").count(), 2);
+}
+
+#[test]
+fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
+    let entry = std::fs::read_to_string("src/bin/gui_server.rs").unwrap();
+    assert!(entry.contains("get(session_index::list).post(sessions::create)"));
+
+    let index = std::fs::read_to_string("src/bin/gui_server/session_index.rs").unwrap();
+    for required in [
+        "const MAX_SESSIONS: usize = 100",
+        "require_trial(&state, &headers, false)",
+        "workspace.join(\".anvil/runs\")",
+        "has_confirmation_record",
+        ".lease_snapshot()",
+        "started_epoch_seconds",
+        "id.get_version_num() == 7",
+        "gate: Option<&'static str>",
+        "full_terminal_without_sheet",
+        "let right_is_active = active_session == Some(right.id.as_str())",
+        ".cmp(&left_is_active)",
+        "sessions.truncate(MAX_SESSIONS)",
+        "human_directive_continuation_started",
+    ] {
+        assert!(
+            index.contains(required),
+            "Trial session index is missing {required:?}"
+        );
+    }
+
+    let page = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
+    let panel = std::fs::read_to_string("gui/components/trial-session-index.tsx").unwrap();
+    let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
+    for required in [
+        "data-testid=\"trial-session-index\"",
+        "fetchSessionIndex(accessToken)",
+        "fetch(apiPath(\"sessions\"), {",
+        "x-commandagent-trial-authorization",
+        "session.started_epoch_seconds",
+        "session.modified_epoch_seconds",
+        "session.gate ?? \"unknown\"",
+        "href={sessionLink(session.id)}",
+        "return `?session=${encodeURIComponent(id)}`",
+        "data-testid=\"session-reconnect-link\"",
+    ] {
+        assert!(
+            panel.contains(required),
+            "Trial session list panel is missing {required:?}"
+        );
+    }
+    for required in [
+        "<TrialSessionIndexPanel",
+        "onLeaseChange={setWorkspaceLease}",
+        "launchBlockReason !== null",
+        "実行中のセッション ${lease.session_id} がワークスペースを使用しているため",
+    ] {
+        assert!(
+            page.contains(required),
+            "Trial session list UI is missing {required:?}"
+        );
+    }
+    for forbidden in [
+        "Delete session",
+        "Remove session",
+        "Clear workspace lease",
+        "Force idle",
+    ] {
+        assert!(
+            !page.contains(forbidden) && !panel.contains(forbidden),
+            "Trial session list exposes forbidden mutation {forbidden:?}"
+        );
+    }
+    for required in [
+        "probeSessionIndexLease",
+        "lease: { status: \"running\", session_id: sessionId }",
+        "launch_disabled: launchDisabled",
+        "dispatchCount === 0",
+    ] {
+        assert!(
+            smoke.contains(required),
+            "Trial session index smoke is missing {required:?}"
+        );
+    }
 }
 
 fn collect_rust_files(root: &Path, output: &mut Vec<PathBuf>) {

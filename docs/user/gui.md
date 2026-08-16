@@ -153,6 +153,24 @@ authentication is enabled.
    an editable draft. The in-memory Trial token and launch fields are retained,
    while the previous proposal, session progress, and directive are cleared.
 
+The **Trial sessions** panel reads the configured execution root rather than
+`workspace/management/runs`. Entering a complete runtime token loads up to 100
+confirmed Trial run directories, with the active lease session first and the
+remaining rows ordered by latest update. **Refresh sessions** reads the
+directory again, so added or removed runs appear without a server restart. Each
+row shows its UUID-v7-derived start time (or file-creation fallback), latest
+update, file-backed gate/status, and a link to the existing
+`?session=<id>` reconnect flow. Following that link does not issue a POST or
+delegate another process; the runtime token remains memory-only and must be
+entered again after navigation before the session-status GET can succeed.
+
+The existing workspace lease card displays `idle`, `running(<session-id>)`, or
+`recovery_required(<session-id>)`, and is refreshed from the same index
+response. A non-idle snapshot disables confirmed launch and explains which
+session owns or blocks the workspace. This snapshot is advisory and read-only:
+the server independently enforces the lease during POST, and the GUI provides
+no clear, reset, cancel, or force-idle action.
+
 There is no cancel, interrupt, phase-edit, or gate-override control while a
 session is running. Use the existing CLI/runtime operating procedures for
 external process management. GUI confirmation cannot lower, replace, or
@@ -254,6 +272,7 @@ direct-client `Authorization` form). POST requests also require a same-host Orig
 | --- | --- |
 | `GET api/trial-options` | Return admitted profiles, providers, and model-ID guidance without executing anything |
 | `POST api/session-proposals` | Render a deterministic Gate 1 identity and measured price tag |
+| `GET api/sessions` | List up to 100 execution-root Trial sessions and the current read-only lease snapshot |
 | `GET api/trial-workspace` | Read the current workspace lease and active/recovery session ID |
 | `POST api/sessions` | Require the exact Gate 1 hash, then delegate to the configured CLI binary |
 | `GET api/sessions/{id}` | Read events and artifacts to project phase, gate, and terminal verdict |
@@ -271,8 +290,9 @@ The event-tail reader scans backward, so it remains useful after the complete
 stream exceeds the 4 MiB status-polling limit. Artifact listing uses the same
 text-extension allowlist, depth-four walk, skipped directories, ordering, and
 entry cap as the repository run viewer. All Trial file routes require a
-canonical session UUID and the runtime token; no session-listing capability is
-implied.
+canonical session UUID and the runtime token. The bounded index exposes only
+session identity and lifecycle projection; artifact content remains behind the
+per-session routes.
 
 Delegated stdout and stderr are intentionally not saved by this GUI path. The
 CLI-owned `events.jsonl` and `summary.md` are the structured diagnostic

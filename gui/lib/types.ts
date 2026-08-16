@@ -106,6 +106,19 @@ export type TrialWorkspaceLease =
   | { status: "running"; session_id: string }
   | { status: "recovery_required"; session_id: string };
 
+export type TrialSessionSummary = {
+  id: string;
+  started_epoch_seconds: number;
+  modified_epoch_seconds: number;
+  gate: "gate_2" | "gate_3" | "gate_4" | null;
+  status: string;
+};
+
+export type TrialSessionIndex = {
+  sessions: TrialSessionSummary[];
+  lease: TrialWorkspaceLease;
+};
+
 export type PhaseStatus = {
   id: string;
   index: number;

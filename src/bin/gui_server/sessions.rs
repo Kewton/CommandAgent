@@ -1036,7 +1036,7 @@ fn conflict(message: impl ToString) -> SessionError {
     }
 }
 
-fn internal(error: impl ToString) -> SessionError {
+pub(super) fn internal(error: impl ToString) -> SessionError {
     SessionError {
         status: StatusCode::INTERNAL_SERVER_ERROR,
         message: error.to_string(),

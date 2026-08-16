@@ -12,6 +12,8 @@ mod api;
 mod runtime_status;
 #[path = "gui_server/session_files.rs"]
 mod session_files;
+#[path = "gui_server/session_index.rs"]
+mod session_index;
 #[path = "gui_server/sessions.rs"]
 mod sessions;
 #[path = "gui_server/static_files.rs"]
@@ -122,7 +124,10 @@ fn dashboard_router() -> Router<AppState> {
         .route("/api/runtime-status", get(runtime_status::get))
         .route("/api/session-proposals", post(sessions::proposal))
         .route("/api/trial-workspace", get(sessions::workspace_status))
-        .route("/api/sessions", post(sessions::create))
+        .route(
+            "/api/sessions",
+            get(session_index::list).post(sessions::create),
+        )
         .route("/api/sessions/{id}", get(sessions::status))
         .route(
             "/api/sessions/{id}/artifacts",

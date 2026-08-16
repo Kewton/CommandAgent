@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DocumentViewer } from "../../components/document-viewer";
 import { Shell } from "../../components/shell";
+import { TrialSessionIndexPanel } from "../../components/trial-session-index";
 import { apiPath } from "../../lib/base-path";
 import {
   CHANGED_POLL_INTERVAL_MS,
@@ -493,6 +494,8 @@ export default function TrialRunPage() {
     }
   }
 
+  const launchBlockReason = leaseLaunchBlockReason(workspaceLease);
+
   return (
     <Shell
       active="try"
@@ -684,6 +687,11 @@ export default function TrialRunPage() {
         </aside>
       </section>
 
+      <TrialSessionIndexPanel
+        accessToken={trialToken}
+        onLeaseChange={setWorkspaceLease}
+      />
+
       {proposal !== null && (stage === "gate_1" || stage === "gate_2") && (
         <section className="gate-one-grid" data-testid="gate-one-card" ref={gateOneRef}>
           <article className="panel contract-card">
@@ -724,12 +732,17 @@ export default function TrialRunPage() {
             <button
               className="primary-action"
               data-testid="launch-session"
-              disabled={!confirmed || busy || stage === "gate_2"}
+              disabled={!confirmed || busy || stage === "gate_2" || launchBlockReason !== null}
               onClick={() => void launchConfirmed()}
               type="button"
             >
               確認して CLI に委譲
             </button>
+            {launchBlockReason !== null && (
+              <p className="launch-block-reason" data-testid="launch-block-reason">
+                {launchBlockReason}
+              </p>
+            )}
           </article>
         </section>
       )}
@@ -1043,6 +1056,14 @@ async function fetchWorkspaceLease(token: string): Promise<TrialWorkspaceLease> 
   });
   if (!response.ok) throw new Error(await apiError(response));
   return (await response.json()) as TrialWorkspaceLease;
+}
+
+function leaseLaunchBlockReason(lease: TrialWorkspaceLease | null): string | null {
+  if (lease === null || lease.status === "idle") return null;
+  if (lease.status === "running") {
+    return `実行中のセッション ${lease.session_id} がワークスペースを使用しているため、新しい起動はできません。`;
+  }
+  return `セッション ${lease.session_id} のワークスペース復旧が必要なため、新しい起動はできません。`;
 }
 
 function authorizationHeaders(token: string, json = false): Record<string, string> {
