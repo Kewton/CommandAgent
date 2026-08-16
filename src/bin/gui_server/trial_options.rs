@@ -62,27 +62,27 @@ fn profile_option(profile: ProfileId) -> ProfileOption {
     let (label, description) = match &profile {
         ProfileId::Nextjs => (
             "Next.js",
-            "Next.js App Router projects with browser-facing contract checks.",
+            "ブラウザー向け契約チェックを備えた Next.js App Router プロジェクト。",
         ),
         ProfileId::PythonCli => (
             "Python CLI",
-            "Python command-line tools with usage and behavior checks.",
+            "使用方法と動作を検証する Python コマンドラインツール。",
         ),
         ProfileId::Data => (
-            "Tabular data pipeline",
-            "CSV or TSV inspection, transformation, reconciliation, and reporting.",
+            "表形式データパイプライン",
+            "CSV または TSV の検査、変換、照合、レポート作成。",
         ),
         ProfileId::Ingest => (
-            "Snapshot ingest pipeline",
-            "Offline snapshot extraction with source and candidate-accounting checks.",
+            "スナップショット取り込みパイプライン",
+            "ソースと候補件数を検証するオフライン・スナップショット抽出。",
         ),
         ProfileId::Generic => (
-            "Generic",
-            "General work without a specialized admitted profile contract.",
+            "汎用",
+            "許可済みの専用プロファイル契約を使用しない一般的な作業。",
         ),
         _ => (
             profile.as_str(),
-            "An admitted CommandAgent runtime profile.",
+            "許可済みの CommandAgent ランタイムプロファイル。",
         ),
     };
     ProfileOption {
@@ -94,11 +94,15 @@ fn profile_option(profile: ProfileId) -> ProfileOption {
 
 const fn provider_model_hint(provider: Provider) -> &'static str {
     match provider {
-        Provider::Ollama => "Use the exact ID of a model installed in Ollama.",
+        Provider::Ollama => "Ollama にインストール済みのモデルの正確な ID を入力してください。",
         Provider::LmStudio => {
-            "Use the exact model identifier exposed by the loaded LM Studio model."
+            "LM Studio で読み込み済みモデルが公開する正確な ID を入力してください。"
         }
-        Provider::Openai => "Use an exact OpenAI model ID available to the server API key.",
-        Provider::Gemini => "Use an exact Gemini model ID available to the server API key.",
+        Provider::Openai => {
+            "サーバーの API キーで利用できる OpenAI モデルの正確な ID を入力してください。"
+        }
+        Provider::Gemini => {
+            "サーバーの API キーで利用できる Gemini モデルの正確な ID を入力してください。"
+        }
     }
 }

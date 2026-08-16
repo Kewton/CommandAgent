@@ -101,6 +101,11 @@ export type CreatedSession = {
   events_path: string;
 };
 
+export type TrialWorkspaceLease =
+  | { status: "idle" }
+  | { status: "running"; session_id: string }
+  | { status: "recovery_required"; session_id: string };
+
 export type PhaseStatus = {
   id: string;
   index: number;
@@ -128,4 +133,12 @@ export type DirectiveProposal = {
   issued_gate: "gate_3" | "gate_4";
   scrubbed_directive: string;
   confirmation_required: boolean;
+};
+
+export type RuntimeStatus = {
+  trial_available: boolean;
+  session: {
+    id: string;
+    state: "running" | "recovery_required";
+  } | null;
 };
