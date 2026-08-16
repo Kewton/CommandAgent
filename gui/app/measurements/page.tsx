@@ -6,6 +6,7 @@ import { DocumentViewer } from "../../components/document-viewer";
 import { Shell } from "../../components/shell";
 import { EmptyState, ErrorState, LoadingState } from "../../components/states";
 import { apiPath } from "../../lib/base-path";
+import { describeError, responseError } from "../../lib/errors";
 import type { DocumentRecord, DocumentSummary } from "../../lib/types";
 import { useResource } from "../../lib/use-resource";
 
@@ -21,11 +22,11 @@ export default function MeasurementsPage() {
     try {
       const query = new URLSearchParams({ path });
       const response = await fetch(apiPath("reports/view", query), { signal });
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) throw await responseError(response);
       setSelected((await response.json()) as DocumentRecord);
     } catch (reason) {
       if (reason instanceof DOMException && reason.name === "AbortError") return;
-      setError(reason instanceof Error ? reason.message : "レポートを読み込めませんでした");
+      setError(describeError(reason));
     } finally {
       setLoading(false);
     }

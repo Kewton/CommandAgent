@@ -7,6 +7,11 @@ import { Shell } from "../../components/shell";
 import { TrialSessionIndexPanel } from "../../components/trial-session-index";
 import { apiPath } from "../../lib/base-path";
 import {
+  describeError,
+  reconnectSessionId as reconnectIdFromError,
+  responseError,
+} from "../../lib/errors";
+import {
   CHANGED_POLL_INTERVAL_MS,
   TERMINAL_FAILURE_LIMIT,
   type MonitorFailure,
@@ -73,6 +78,7 @@ export default function TrialRunPage() {
   const [stage, setStage] = useState<ScreenStage>("compose");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [errorReconnectSessionId, setErrorReconnectSessionId] = useState<string | null>(null);
   const [trialOptions, setTrialOptions] = useState<TrialOptions | null>(null);
   const [optionsError, setOptionsError] = useState<string | null>(null);
   const [providerChanged, setProviderChanged] = useState(false);
@@ -98,10 +104,10 @@ export default function TrialRunPage() {
         apiPath(`sessions/${encodeURIComponent(created.id)}/artifacts`),
         { headers: authorizationHeaders(trialToken) },
       );
-      if (!response.ok) throw new Error(await apiError(response));
+      if (!response.ok) throw await responseError(response);
       setArtifacts((await response.json()) as DocumentSummary[]);
     } catch (reason) {
-      setEvidenceError(message(reason));
+      setEvidenceError(describeError(reason));
     } finally {
       setEvidenceLoading(false);
     }
@@ -112,11 +118,11 @@ export default function TrialRunPage() {
     const loadOptions = async () => {
       try {
         const response = await fetch(apiPath("trial-options"));
-        if (!response.ok) throw new Error(await apiError(response));
+        if (!response.ok) throw await responseError(response);
         const value = (await response.json()) as TrialOptions;
         if (!cancelled) setTrialOptions(value);
       } catch (reason) {
-        if (!cancelled) setOptionsError(`Trial の選択肢を読み込めませんでした: ${message(reason)}`);
+        if (!cancelled) setOptionsError(describeError(reason));
       }
     };
     void loadOptions();
@@ -261,6 +267,7 @@ export default function TrialRunPage() {
     setProposal(null);
     setConfirmed(false);
     setError(null);
+    setErrorReconnectSessionId(null);
     setStage("compose");
   }
 
@@ -278,6 +285,7 @@ export default function TrialRunPage() {
     setDirectiveText("");
     setDirective(null);
     setError(null);
+    setErrorReconnectSessionId(null);
     setStage("compose");
   }
 
@@ -300,6 +308,7 @@ export default function TrialRunPage() {
     }
     setBusy(true);
     setError(null);
+    setErrorReconnectSessionId(null);
     try {
       setWorkspaceLease(await fetchWorkspaceLease(trialToken));
       const response = await fetch(apiPath("session-proposals"), {
@@ -307,12 +316,12 @@ export default function TrialRunPage() {
         headers: authorizationHeaders(trialToken, true),
         body: JSON.stringify(spec),
       });
-      if (!response.ok) throw new Error(await apiError(response));
+      if (!response.ok) throw await responseError(response);
       setProposal((await response.json()) as SessionProposal);
       setConfirmed(false);
       setStage("gate_1");
     } catch (reason) {
-      setError(message(reason));
+      recordError(reason);
     } finally {
       setBusy(false);
     }
@@ -328,7 +337,7 @@ export default function TrialRunPage() {
     try {
       setWorkspaceLease(await fetchWorkspaceLease(trialToken));
     } catch (reason) {
-      setError(message(reason));
+      recordError(reason);
     } finally {
       setBusy(false);
     }
@@ -341,6 +350,7 @@ export default function TrialRunPage() {
     }
     setBusy(true);
     setError(null);
+    setErrorReconnectSessionId(null);
     try {
       const response = await fetch(apiPath("sessions"), {
         method: "POST",
@@ -348,20 +358,12 @@ export default function TrialRunPage() {
         body: JSON.stringify({ ...spec, confirmation_hash: proposal.card_hash }),
       });
       if (!response.ok) {
-        const detail = await apiError(response);
+        const requestError = await responseError(response);
         if (response.status === 409) {
           const currentLease = await fetchWorkspaceLease(trialToken).catch(() => null);
           if (currentLease !== null) setWorkspaceLease(currentLease);
-          const active = sessionIdFromConflict(detail);
-          if (active !== null) {
-            setReconnectSessionId(active);
-            replaceSessionQuery(active);
-            throw new Error(
-              `${detail}。下のセッション ${active} へ再接続してください。再接続の監視は GET のみを使用します。`,
-            );
-          }
         }
-        throw new Error(detail);
+        throw requestError;
       }
       const value = (await response.json()) as CreatedSession;
       setCreated(value);
@@ -378,14 +380,14 @@ export default function TrialRunPage() {
       setEvidenceError(null);
       setStage("gate_2");
     } catch (reason) {
-      setError(message(reason));
+      recordError(reason);
     } finally {
       setBusy(false);
     }
   }
 
-  async function reconnectExisting() {
-    const id = reconnectSessionId.trim();
+  async function reconnectExisting(requestedId?: string) {
+    const id = (requestedId ?? reconnectSessionId).trim();
     if (id === "" || trialToken.trim() === "") {
       setError("再接続するセッション ID と実行時の Trial アクセストークンを入力してください。");
       return;
@@ -398,6 +400,7 @@ export default function TrialRunPage() {
       setSession(value);
       setCreated({ id: value.id, gate: "gate_2", status: "starting", events_path: value.events_path });
       setReconnectSessionId(value.id);
+      setErrorReconnectSessionId(null);
       replaceSessionQuery(value.id);
       setMonitor({
         attempt: 0,
@@ -422,6 +425,7 @@ export default function TrialRunPage() {
     if (created === null || directiveText.trim() === "") return;
     setBusy(true);
     setError(null);
+    setErrorReconnectSessionId(null);
     try {
       const response = await fetch(
         apiPath(`sessions/${encodeURIComponent(created.id)}/directives`),
@@ -431,10 +435,10 @@ export default function TrialRunPage() {
           body: JSON.stringify({ directive: directiveText }),
         },
       );
-      if (!response.ok) throw new Error(await apiError(response));
+      if (!response.ok) throw await responseError(response);
       setDirective((await response.json()) as DirectiveProposal);
     } catch (reason) {
-      setError(message(reason));
+      recordError(reason);
     } finally {
       setBusy(false);
     }
@@ -444,6 +448,7 @@ export default function TrialRunPage() {
     if (created === null || directive === null) return;
     setBusy(true);
     setError(null);
+    setErrorReconnectSessionId(null);
     try {
       const response = await fetch(
         apiPath(
@@ -451,13 +456,13 @@ export default function TrialRunPage() {
         ),
         { method: "POST", headers: authorizationHeaders(trialToken, true), body: "{}" },
       );
-      if (!response.ok) throw new Error(await apiError(response));
+      if (!response.ok) throw await responseError(response);
       setDirective(null);
       setDirectiveText("");
       setWorkspaceLease(null);
       setStage("gate_2");
     } catch (reason) {
-      setError(message(reason));
+      recordError(reason);
     } finally {
       setBusy(false);
     }
@@ -485,10 +490,10 @@ export default function TrialRunPage() {
     setEvidenceError(null);
     try {
       const response = await fetch(url, { headers: authorizationHeaders(trialToken) });
-      if (!response.ok) throw new Error(await apiError(response));
+      if (!response.ok) throw await responseError(response);
       setEvidenceDocument((await response.json()) as DocumentRecord);
     } catch (reason) {
-      setEvidenceError(message(reason));
+      setEvidenceError(describeError(reason));
     } finally {
       setEvidenceLoading(false);
     }
@@ -671,7 +676,23 @@ export default function TrialRunPage() {
             契約と価格を確認
           </button>
           {optionsError !== null && <p className="trial-error" role="alert">{optionsError}</p>}
-          {error !== null && <p className="trial-error" role="alert">{error}</p>}
+          {error !== null && (
+            <div className="trial-error" role="alert">
+              <p>{error}</p>
+              {errorReconnectSessionId !== null && (
+                <a
+                  data-testid="reconnect-session-link"
+                  href={`?session=${encodeURIComponent(errorReconnectSessionId)}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    void reconnectExisting(errorReconnectSessionId);
+                  }}
+                >
+                  セッション {errorReconnectSessionId} に再接続
+                </a>
+              )}
+            </div>
+          )}
         </div>
 
         <aside className="trial-rail">
@@ -925,6 +946,16 @@ export default function TrialRunPage() {
       )}
     </Shell>
   );
+
+  function recordError(reason: unknown) {
+    setError(describeError(reason));
+    const active = reconnectIdFromError(reason);
+    setErrorReconnectSessionId(active);
+    if (active !== null) {
+      setReconnectSessionId(active);
+      replaceSessionQuery(active);
+    }
+  }
 }
 
 function stageLabel(stage: ScreenStage, session: PolledSession | null): string {
@@ -1005,10 +1036,6 @@ function isMonitorFailure(reason: unknown): reason is MonitorFailure {
   );
 }
 
-function sessionIdFromConflict(detail: string): string | null {
-  return detail.match(/(?:already running session|non-terminal session) ([0-9a-f-]{36})/i)?.[1] ?? null;
-}
-
 function replaceSessionQuery(id: string) {
   const url = new URL(window.location.href);
   url.searchParams.set("session", id);
@@ -1021,16 +1048,6 @@ function formatLastSuccess(value: string | null): string {
     dateStyle: "medium",
     timeStyle: "medium",
   }).format(new Date(value));
-}
-
-async function apiError(response: Response): Promise<string> {
-  const text = await response.text();
-  try {
-    const parsed = JSON.parse(text) as { error?: string };
-    return `${response.status}: ${parsed.error ?? text}`;
-  } catch {
-    return `${response.status}: ${text}`;
-  }
 }
 
 function message(reason: unknown): string {
@@ -1054,7 +1071,7 @@ async function fetchWorkspaceLease(token: string): Promise<TrialWorkspaceLease> 
   const response = await fetch(apiPath("trial-workspace"), {
     headers: authorizationHeaders(token),
   });
-  if (!response.ok) throw new Error(await apiError(response));
+  if (!response.ok) throw await responseError(response);
   return (await response.json()) as TrialWorkspaceLease;
 }
 

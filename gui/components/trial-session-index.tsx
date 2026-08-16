@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { apiPath } from "../lib/base-path";
+import { describeError, responseError } from "../lib/errors";
 import type {
   TrialSessionIndex,
   TrialWorkspaceLease,
@@ -39,7 +40,7 @@ export function TrialSessionIndexPanel({
           setError(null);
         })
         .catch((reason: unknown) => {
-          if (!cancelled) setError(message(reason));
+          if (!cancelled) setError(describeError(reason));
         });
     }, 250);
     return () => {
@@ -60,7 +61,7 @@ export function TrialSessionIndexPanel({
       setSessionIndex(value);
       onLeaseChange(value.lease);
     } catch (reason) {
-      setError(message(reason));
+      setError(describeError(reason));
     } finally {
       setBusy(false);
     }
@@ -119,7 +120,7 @@ async function fetchSessionIndex(token: string): Promise<TrialSessionIndex> {
       "x-commandagent-trial-authorization": `Bearer ${token.trim()}`,
     },
   });
-  if (!response.ok) throw new Error(await apiError(response));
+  if (!response.ok) throw await responseError(response);
   return (await response.json()) as TrialSessionIndex;
 }
 
@@ -130,18 +131,4 @@ function sessionLink(id: string): string {
 function sessionTime(epochSeconds: number): string {
   if (epochSeconds <= 0) return "未記録";
   return new Date(epochSeconds * 1_000).toISOString();
-}
-
-async function apiError(response: Response): Promise<string> {
-  const text = await response.text();
-  try {
-    const parsed = JSON.parse(text) as { error?: string };
-    return `${response.status}: ${parsed.error ?? text}`;
-  } catch {
-    return `${response.status}: ${text}`;
-  }
-}
-
-function message(reason: unknown): string {
-  return reason instanceof Error ? reason.message : "セッション一覧の取得に失敗しました。";
 }

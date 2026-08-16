@@ -286,6 +286,51 @@ The two POST dispatch routes cannot accept an unconfirmed identity. The sole
 process surface executes `commandagent` directly without a shell; provider and
 runner calls are forbidden in the GUI server by the protection audit.
 
+### Error responses and recovery
+
+API failures use JSON with an additive stable code while retaining the existing
+HTTP status and `error` text:
+
+```json
+{
+  "code": "trial_token_invalid",
+  "error": "a valid GUI trial bearer token is required"
+}
+```
+
+The GUI translates the code into a next action and keeps the server detail
+visible for diagnosis:
+
+| Status / code | Recovery |
+| --- | --- |
+| `401 trial_token_invalid` | Reload the page, re-authenticate at the upstream access layer, and enter the runtime Trial token again. |
+| `403 trial_origin_not_allowed` | Add the exact browser Origin to `GUI_TRIAL_ALLOWED_ORIGINS`, then restart the GUI server. |
+| `409 trial_workspace_running` | Use the displayed session ID and reconnect link to resume GET-only monitoring. |
+| `409 trial_workspace_recovery_required` | Inspect that session's events and complete the existing CLI/runtime recovery procedure before reconnecting. Do not delete `.anvil/` state to bypass the lease. |
+| `409 trial_workspace_conflict` | Verify that the execution root is still available at its startup path and remains disjoint from the repository. |
+| `412 trial_confirmation_stale` | Request the current Gate 1 card and confirm it again. |
+| `428 trial_confirmation_required` | Check the contract and price, then explicitly confirm the displayed Gate 1 card. |
+| `503 trial_execution_disabled` | Restart the GUI server with a valid `--execution-root` and `GUI_TRIAL_TOKEN`. |
+| `500 trial_internal_error` | Verify that `--commandagent-bin` points to an existing executable, inspect the server log, and reconnect to an already-created session instead of dispatching another process. |
+
+Read-only pages use the same descriptor for missing or unreadable repository
+records. Reload the inventory first; if the error remains, verify
+`--repository-root`, the selected path, and file permissions. A proxy or
+network rejection is reported as a connection/reload action instead of the
+browser's implementation-specific exception text.
+
+To verify these recovery paths without a provider call, run the focused smoke:
+
+```bash
+cd gui
+npm run smoke:errors
+```
+
+It builds the static GUI, starts a loopback server with an isolated temporary
+workspace and bounded fake CLI, then uses Playwright to check a wrong token, a
+foreign Origin header, and a live workspace 409 with its reconnect link. It
+removes the temporary workspace after the probe.
+
 The event-tail reader scans backward, so it remains useful after the complete
 stream exceeds the 4 MiB status-polling limit. Artifact listing uses the same
 text-extension allowlist, depth-four walk, skipped directories, ordering, and

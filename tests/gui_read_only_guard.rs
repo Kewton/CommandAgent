@@ -55,8 +55,8 @@ fn gui_server_can_execute_only_through_the_confirmed_cli_delegate() {
     let delegate = std::fs::read_to_string(DELEGATE_MODULE).unwrap();
     for required in [
         "shell.confirm(confirmation_hash)",
-        ".trial_workspace.acquire(&id)",
-        ".trial_workspace.require_current()",
+        ".trial_workspace\n        .acquire(&id)\n        .map_err(workspace_conflict)",
+        ".trial_workspace\n        .require_current()\n        .map_err(workspace_conflict)",
         "Gate 1 workspace changed before CLI delegation",
         ".dispatch(|confirmed|",
         "Command::new(&state.commandagent_bin)",
@@ -134,6 +134,55 @@ fn next_export_and_base_path_audit_are_pinned() {
     let package = std::fs::read_to_string("gui/package.json").unwrap();
     assert!(package.contains("scripts/lint-internal-paths.mjs"));
     assert!(Path::new("gui/package-lock.json").is_file());
+}
+
+#[test]
+fn gui_fetch_failures_use_one_actionable_error_descriptor() {
+    let descriptor = std::fs::read_to_string("gui/lib/errors.ts").unwrap();
+    for required in [
+        "export function describeError",
+        "export async function responseError",
+        "trial_token_invalid",
+        "GUI_TRIAL_ALLOWED_ORIGINS",
+        "--commandagent-bin",
+        "trial_workspace_running",
+        "trial_workspace_recovery_required",
+        "trial_request_invalid",
+        "resource_too_large",
+        "上流プロキシまたはアクセス認証",
+        "reconnectSessionId",
+    ] {
+        assert!(
+            descriptor.contains(required),
+            "shared GUI error descriptor is missing {required:?}"
+        );
+    }
+
+    for path in [
+        "gui/lib/use-resource.ts",
+        "gui/app/try/page.tsx",
+        "gui/app/runs/page.tsx",
+        "gui/app/measurements/page.tsx",
+        "gui/components/trial-session-index.tsx",
+    ] {
+        let source = std::fs::read_to_string(path).unwrap();
+        for required in ["describeError", "responseError"] {
+            assert!(
+                source.contains(required),
+                "{path} bypasses the common failure path: missing {required}"
+            );
+        }
+    }
+
+    let raw_network_message = ["Failed", "to", "fetch"].join(" ");
+    for path in gui_source_files(Path::new("gui")) {
+        let source = std::fs::read_to_string(&path).unwrap();
+        assert!(
+            !source.contains(&raw_network_message),
+            "{} exposes the browser's raw network message",
+            path.display()
+        );
+    }
 }
 
 #[test]
@@ -272,7 +321,8 @@ fn trial_monitor_retries_and_reconnects_without_persisting_access() {
         "GET のみを使用し、別の CLI プロセスは起動しません。",
         "new URLSearchParams(window.location.search).get(\"session\")",
         "url.searchParams.set(\"session\", id)",
-        "sessionIdFromConflict(detail)",
+        "reconnectIdFromError(reason)",
+        "data-testid=\"reconnect-session-link\"",
     ] {
         assert!(
             page.contains(required),
@@ -796,6 +846,27 @@ fn collect_rust_files(root: &Path, output: &mut Vec<PathBuf>) {
             output.push(path);
         }
     }
+}
+
+fn gui_source_files(root: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    for entry in std::fs::read_dir(root).unwrap().flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if !matches!(
+                path.file_name().and_then(|name| name.to_str()),
+                Some(".next" | "node_modules" | "out")
+            ) {
+                files.extend(gui_source_files(&path));
+            }
+        } else if matches!(
+            path.extension().and_then(|extension| extension.to_str()),
+            Some("ts" | "tsx" | "js" | "mjs")
+        ) {
+            files.push(path);
+        }
+    }
+    files
 }
 
 fn violates_delegation_guard(path: &Path, source: &str) -> bool {

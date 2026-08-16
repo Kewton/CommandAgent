@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { apiPath } from "./base-path";
+import { responseError } from "./errors";
 import type { RuntimeStatus } from "./types";
 
 type RuntimeState = {
@@ -21,7 +22,7 @@ export function useRuntimeStatus(): RuntimeState {
     const refresh = async () => {
       try {
         const response = await fetch(apiPath("runtime-status"), { cache: "no-store" });
-        if (!response.ok) throw new Error(`${response.status}`);
+        if (!response.ok) throw await responseError(response);
         const data = (await response.json()) as RuntimeStatus;
         if (!cancelled) setState({ data, failed: false });
       } catch {

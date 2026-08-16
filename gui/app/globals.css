@@ -1122,6 +1122,19 @@ button {
   line-height: 1.5;
 }
 
+.trial-error p {
+  margin: 0;
+}
+
+.trial-error a {
+  display: inline-block;
+  margin-top: 0.45rem;
+  color: inherit;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+
 .session-index {
   margin-bottom: 1rem;
   overflow: hidden;

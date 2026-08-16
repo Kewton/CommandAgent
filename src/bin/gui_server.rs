@@ -8,6 +8,8 @@ use clap::Parser;
 
 #[path = "gui_server/api.rs"]
 mod api;
+#[path = "gui_server/error_response.rs"]
+mod error_response;
 #[path = "gui_server/runtime_status.rs"]
 mod runtime_status;
 #[path = "gui_server/session_files.rs"]

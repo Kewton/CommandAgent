@@ -10,6 +10,7 @@ use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 
 use super::AppState;
+use super::error_response::GuiError;
 
 pub(super) const MAX_TEXT_BYTES: u64 = 1_048_576;
 pub(super) const MAX_LIST_ENTRIES: usize = 256;
@@ -59,22 +60,7 @@ pub struct EvidenceQuery {
     path: String,
 }
 
-#[derive(Debug)]
-pub struct ApiError {
-    status: StatusCode,
-    message: String,
-}
-
-impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
-        (
-            self.status,
-            [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
-            Json(serde_json::json!({ "error": self.message })),
-        )
-            .into_response()
-    }
-}
+pub type ApiError = GuiError;
 
 pub async fn runs(State(state): State<AppState>) -> Result<Json<Vec<RunSummary>>, ApiError> {
     let root = state.repository_root.join("workspace/management/runs");
@@ -444,10 +430,11 @@ async fn read_text(path: &FilePath) -> Result<String, ApiError> {
         .await
         .map_err(|error| not_found(format!("read {}: {error}", path.display())))?;
     if metadata.len() > MAX_TEXT_BYTES {
-        return Err(ApiError {
-            status: StatusCode::PAYLOAD_TOO_LARGE,
-            message: format!("{} exceeds the 1 MiB viewing limit", path.display()),
-        });
+        return Err(GuiError::new(
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "resource_too_large",
+            format!("{} exceeds the 1 MiB viewing limit", path.display()),
+        ));
     }
     tokio::fs::read_to_string(path)
         .await
@@ -567,15 +554,13 @@ fn file_name(path: &FilePath) -> Result<String, ApiError> {
 }
 
 fn not_found(message: impl Into<String>) -> ApiError {
-    ApiError {
-        status: StatusCode::NOT_FOUND,
-        message: message.into(),
-    }
+    GuiError::new(StatusCode::NOT_FOUND, "resource_not_found", message)
 }
 
 fn internal(message: impl Into<String>) -> ApiError {
-    ApiError {
-        status: StatusCode::INTERNAL_SERVER_ERROR,
-        message: message.into(),
-    }
+    GuiError::new(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "repository_read_failed",
+        message,
+    )
 }

@@ -4,7 +4,7 @@ use std::path::{Path as FilePath, PathBuf};
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 
@@ -13,6 +13,7 @@ use super::api::{
     MAX_LIST_ENTRIES, MAX_TEXT_BYTES, checked_existing_directory,
     checked_existing_path_without_symlinks, collect_documents, document, document_summary,
 };
+use super::error_response::GuiError;
 use super::sessions::{require_session_id, require_trial};
 
 const MAX_EVENT_TAIL_LINES: usize = 2_000;
@@ -256,10 +257,11 @@ fn tail_error(status: StatusCode, message: impl Into<String>) -> TailError {
 }
 
 fn json_error(status: StatusCode, message: impl Into<String>) -> Response {
-    (
-        status,
-        [(header::CONTENT_TYPE, "application/json; charset=utf-8")],
-        Json(serde_json::json!({ "error": message.into() })),
-    )
-        .into_response()
+    let code = match status {
+        StatusCode::NOT_FOUND => "trial_session_file_not_found",
+        StatusCode::PAYLOAD_TOO_LARGE => "resource_too_large",
+        StatusCode::UNPROCESSABLE_ENTITY => "trial_request_invalid",
+        _ => "trial_session_file_read_failed",
+    };
+    GuiError::new(status, code, message).into_response()
 }

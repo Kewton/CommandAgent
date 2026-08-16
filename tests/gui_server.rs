@@ -60,7 +60,27 @@ fn gui_server_disables_trial_without_an_execution_root() {
     let response =
         server.request_without_access("POST", "/api/session-proposals", Some(&session_spec()));
     assert_eq!(response.status, 503, "{}", response.body);
-    assert!(response.body.contains("trial execution is disabled"));
+    assert_error(
+        &response,
+        "trial_execution_disabled",
+        "trial execution is disabled; configure --execution-root",
+    );
+    server.stop();
+}
+
+#[test]
+fn gui_server_read_errors_use_the_shared_coded_json_contract() {
+    let mut server = Server::start_dashboard_only();
+    let response =
+        server.request_without_access("GET", "/api/runs/issue-72-record-that-does-not-exist", None);
+    assert_eq!(response.status, 404, "{}", response.body);
+    let payload: serde_json::Value = serde_json::from_str(&response.body).unwrap();
+    assert_eq!(payload["code"], "resource_not_found");
+    assert!(
+        payload["error"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty())
+    );
     server.stop();
 }
 
@@ -228,6 +248,7 @@ fn gui_server_revalidates_the_workspace_before_dispatch() {
     confirmed["confirmation_hash"] = proposal["card_hash"].clone();
     let response = server.request("POST", "/api/sessions", Some(&confirmed));
     assert_eq!(response.status, 409, "{}", response.body);
+    assert_eq!(response.json()["code"], "trial_workspace_conflict");
     assert!(response.body.contains("changed after startup"));
     server.stop();
 }
@@ -249,6 +270,7 @@ fn spawn_failure_reports_the_binary_and_releases_the_workspace() {
 
     let failed = server.request("POST", "/api/sessions", Some(&confirmed));
     assert_eq!(failed.status, 500, "{}", failed.body);
+    assert_eq!(failed.json()["code"], "trial_internal_error");
     assert!(
         failed.body.contains(cli.to_string_lossy().as_ref()),
         "{}",
@@ -308,6 +330,20 @@ fn recovery_required_lease_is_exposed_by_an_authenticated_get() {
             "status": "recovery_required",
             "session_id": session_id,
         })
+    );
+
+    let spec = session_spec();
+    let proposal = server.request("POST", "/api/session-proposals", Some(&spec));
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    let proposal = proposal.json();
+    let mut confirmed = spec;
+    confirmed["confirmation_hash"] = proposal["card_hash"].clone();
+    let blocked = server.request("POST", "/api/sessions", Some(&confirmed));
+    assert_eq!(blocked.status, 409, "{}", blocked.body);
+    assert_error(
+        &blocked,
+        "trial_workspace_recovery_required",
+        &format!("trial workspace requires recovery for non-terminal session {session_id}"),
     );
     server.stop();
 }
@@ -471,6 +507,11 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
 
     let unauthorized = server.request_without_access("POST", "/api/session-proposals", Some(&spec));
     assert_eq!(unauthorized.status, 401, "{}", unauthorized.body);
+    assert_error(
+        &unauthorized,
+        "trial_token_invalid",
+        "a valid GUI trial bearer token is required",
+    );
     let forbidden_origin = server.request_with_access(
         "POST",
         "/api/session-proposals",
@@ -479,15 +520,30 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
         Some("https://attacker.invalid"),
     );
     assert_eq!(forbidden_origin.status, 403, "{}", forbidden_origin.body);
+    assert_error(
+        &forbidden_origin,
+        "trial_origin_not_allowed",
+        "trial request origin is not allowed",
+    );
 
     let denied = server.request("POST", "/api/sessions", Some(&spec));
     assert_eq!(denied.status, 428, "{}", denied.body);
+    assert_error(
+        &denied,
+        "trial_confirmation_required",
+        "Gate 1 confirmation_hash is required before dispatch",
+    );
 
     let mut stale_confirmation = spec.clone();
     stale_confirmation["confirmation_hash"] =
         serde_json::Value::String(format!("sha256:{}", "0".repeat(64)));
     let stale = server.request("POST", "/api/sessions", Some(&stale_confirmation));
     assert_eq!(stale.status, 412, "{}", stale.body);
+    assert_error(
+        &stale,
+        "trial_confirmation_stale",
+        "Gate 1 card changed; request and confirm the current card",
+    );
 
     let mut confirmed = spec;
     confirmed["confirmation_hash"] = serde_json::Value::String(card_hash.to_string());
@@ -506,6 +562,11 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
 
     let competing = server.request("POST", "/api/sessions", Some(&confirmed));
     assert_eq!(competing.status, 409, "{}", competing.body);
+    assert_error(
+        &competing,
+        "trial_workspace_running",
+        &format!("trial workspace is already running session {id}"),
+    );
 
     let index = server.request("GET", "/api/sessions", None);
     assert_eq!(index.status, 200, "{}", index.body);
@@ -758,6 +819,7 @@ fn trial_session_files_are_authenticated_confined_and_bounded() {
     assert_eq!(symlink_read.status, 404, "{}", symlink_read.body);
     let oversized = server.request("GET", &format!("{artifacts_path}?path=oversized.txt"), None);
     assert_eq!(oversized.status, 413, "{}", oversized.body);
+    assert_eq!(oversized.json()["code"], "resource_too_large");
 
     let tail =
         server.request_with_access("GET", &events_endpoint, None, Some(TEST_TRIAL_TOKEN), None);
@@ -774,6 +836,7 @@ fn trial_session_files_are_authenticated_confined_and_bounded() {
         None,
     );
     assert_eq!(excessive_tail.status, 422, "{}", excessive_tail.body);
+    assert_eq!(excessive_tail.json()["code"], "trial_request_invalid");
     let invalid_id = server.request("GET", "/api/sessions/not-a-uuid/events?tail=2", None);
     assert_eq!(invalid_id.status, 404, "{}", invalid_id.body);
     let aliased_run = server.request(
@@ -1005,11 +1068,26 @@ struct HttpResponse {
 
 #[cfg(unix)]
 impl HttpResponse {
+    fn json(&self) -> serde_json::Value {
+        serde_json::from_str(&self.body).unwrap()
+    }
+
     fn header(&self, name: &str) -> Option<&str> {
         self.headers
             .get(&name.to_ascii_lowercase())
             .map(String::as_str)
     }
+}
+
+#[cfg(unix)]
+fn assert_error(response: &HttpResponse, code: &str, error: &str) {
+    assert_eq!(
+        response.json(),
+        serde_json::json!({
+            "code": code,
+            "error": error,
+        })
+    );
 }
 
 fn session_spec() -> serde_json::Value {
