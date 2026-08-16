@@ -178,6 +178,21 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
 }
 
 #[test]
+fn trial_phase_badges_distinguish_running_completed_and_failed() {
+    let css = std::fs::read_to_string("gui/app/globals.css").unwrap();
+    for required in [
+        ".phase-row.running em {\n  background: var(--accent-soft);\n  color: var(--accent-hover);",
+        ".phase-row.completed em,\n.phase-row.passed em {\n  background: var(--success-soft);\n  color: var(--success);",
+        ".phase-row.failed em {\n  background: var(--danger-soft);\n  color: var(--danger);",
+    ] {
+        assert!(
+            css.contains(required),
+            "phase badge CSS is missing distinct styling {required:?}"
+        );
+    }
+}
+
+#[test]
 fn trial_workspace_and_authentication_guards_are_not_optional() {
     let entry = std::fs::read_to_string("src/bin/gui_server.rs").unwrap();
     assert!(!entry.contains("unwrap_or_else(|| arguments.repository_root.clone())"));
