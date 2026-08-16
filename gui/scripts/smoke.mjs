@@ -192,11 +192,13 @@ async function runCase(smokeCase) {
 
     const trialUrl = new URL(`${prefix}try/`, server.origin).href;
     const trialResponse = await page.goto(trialUrl, { waitUntil: "networkidle" });
+    await page
+      .locator("[data-testid='trial-profile'] option[value='python-cli']")
+      .waitFor({ state: "attached" });
     await page.locator("[data-testid='trial-goal']").fill("Create a CLI --pattern filter command");
     await page.locator("[data-testid='trial-token']").fill(trialCredential);
-    const modelInputs = page.locator(".trial-fields input");
-    await modelInputs.nth(0).fill(model);
-    await modelInputs.nth(1).fill(model);
+    await page.locator("[data-testid='trial-executor-model']").fill(model);
+    await page.locator("[data-testid='trial-planner-model']").fill(model);
     await page.locator("[data-testid='check-contract']").click();
     await page.locator("[data-testid='gate-one-card']").waitFor();
     const launch = page.locator("[data-testid='launch-session']");

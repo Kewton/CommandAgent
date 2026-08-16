@@ -3,6 +3,8 @@ use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use commandagent::tui::boundary_shell::route::admitted_profiles;
+
 const TEST_TRIAL_TOKEN: &str = "commandagent-gui-test-token-000000000001";
 
 #[test]
@@ -53,6 +55,52 @@ fn gui_server_disables_trial_without_an_execution_root() {
         server.request_without_access("POST", "/api/session-proposals", Some(&session_spec()));
     assert_eq!(response.status, 503, "{}", response.body);
     assert!(response.body.contains("trial execution is disabled"));
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn trial_options_match_admitted_profiles_without_trial_access() {
+    let mut server = Server::start_dashboard_only();
+    let response = server.request_without_access("GET", "/api/trial-options", None);
+    assert_eq!(response.status, 200, "{}", response.body);
+    let body: serde_json::Value = serde_json::from_str(&response.body).unwrap();
+    let actual_profiles = body["profiles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|option| option["id"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    let expected_profiles = admitted_profiles()
+        .into_iter()
+        .map(|profile| profile.to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(actual_profiles, expected_profiles);
+    assert!(body["profiles"].as_array().unwrap().iter().all(|option| {
+        option["label"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty())
+            && option["description"]
+                .as_str()
+                .is_some_and(|value| !value.is_empty())
+    }));
+
+    let providers = body["providers"].as_array().unwrap();
+    assert_eq!(
+        providers
+            .iter()
+            .map(|option| option["id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["ollama", "lm-studio", "openai", "gemini"]
+    );
+    assert!(providers.iter().all(|option| {
+        option["label"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty())
+            && option["model_hint"]
+                .as_str()
+                .is_some_and(|value| !value.is_empty())
+    }));
     server.stop();
 }
 

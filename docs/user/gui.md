@@ -102,7 +102,16 @@ the GUI permits only one delegated process in that workspace at a time.
 ## Trial run: Gate 1 through Gate 3/4
 
 Open **Trial run** and enter a goal, admitted profile, provider, and exact
-planner/executor model pins.
+planner/executor model pins. Goal and both model fields start empty so a demo
+request or model cannot be delegated accidentally. **Check contract and
+price** validates those empty fields in the browser before making a proposal
+request.
+
+The browser obtains profile and provider choices from `GET api/trial-options`.
+Profiles are the server's current `admitted_profiles()` set and include a short
+scope description. Provider choices include model-ID guidance. Changing the
+provider does not rewrite either model pin, so the form shows a warning to
+review the executor model before Gate 1.
 
 The **LM Studio** provider selection maps to the existing CLI spelling
 `--provider lm-studio`; it is not an alias or a GUI-side provider
@@ -151,13 +160,18 @@ followed during listing, and individual text views are capped at 1 MiB.
 
 Trial run adds these bounded routes:
 
-Every route in this table requires
+`GET api/trial-options` is an unauthenticated, read-only projection of compiled
+profile/provider metadata so the form can be populated before a Trial token is
+entered. It neither inspects the execution workspace nor contacts a provider.
+
+Every other route in this table requires
 `X-CommandAgent-Trial-Authorization: Bearer <GUI_TRIAL_TOKEN>` (or the legacy
 direct-client `Authorization` form). POST requests also require a same-host Origin or an origin admitted by
 `GUI_TRIAL_ALLOWED_ORIGINS`.
 
 | Route | Operation |
 | --- | --- |
+| `GET api/trial-options` | Return admitted profiles, providers, and model-ID guidance without executing anything |
 | `POST api/session-proposals` | Render a deterministic Gate 1 identity and measured price tag |
 | `POST api/sessions` | Require the exact Gate 1 hash, then delegate to the configured CLI binary |
 | `GET api/sessions/{id}` | Read events and artifacts to project phase, gate, and terminal verdict |
@@ -186,7 +200,9 @@ Then run a real local-model lap for both `/` and
 `/proxy/commandagent/`. The runner copies the small Python CLI corpus fixture
 to an isolated temporary workspace. For each base path it records the
 dashboard/API/SVG probes, Gate 1 before and after confirmation, Gate 2,
-Gate 3/4, the session event stream and its SHA-256, and an API log:
+Gate 3/4, the session event stream and its SHA-256, and an API log. The browser
+script explicitly fills Goal plus executor and planner model fields, so it does
+not depend on Trial form defaults:
 
 ```bash
 cd gui

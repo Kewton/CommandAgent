@@ -42,6 +42,19 @@ export type SessionSpec = {
   planner_model: string;
 };
 
+export type TrialOptions = {
+  profiles: Array<{
+    id: string;
+    label: string;
+    description: string;
+  }>;
+  providers: Array<{
+    id: string;
+    label: string;
+    model_hint: string;
+  }>;
+};
+
 export type ConfirmationIdentity = {
   request: string;
   workspace: string;

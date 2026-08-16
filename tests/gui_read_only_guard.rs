@@ -145,7 +145,15 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "data-testid=\"trial-workspace\"",
         "proposal.identity.workspace",
         "may create, modify, or delete content inside this directory",
-        "<option value=\"lm-studio\">LM Studio</option>",
+        "apiPath(\"trial-options\")",
+        "trialOptions.profiles.map",
+        "trialOptions.providers.map",
+        "data-testid=\"trial-profile-description\"",
+        "data-testid=\"trial-provider-model-hint\"",
+        "Provider changed. Changing provider does not update Executor model.",
+        "Enter a Goal before checking the contract.",
+        "Enter the exact executor model ID before checking the contract.",
+        "Enter the exact planner model ID before checking the contract.",
         "window.matchMedia(\"(max-width: 720px)\")",
         "target.scrollIntoView({ behavior: \"smooth\", block: \"start\" })",
         "Enter the runtime Trial access token before checking the contract.",
@@ -159,6 +167,25 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
             "trial UI is missing {required:?}"
         );
     }
+    for empty_default in ["goal: \"\",", "model: \"\",", "planner_model: \"\","] {
+        assert!(
+            source.contains(empty_default),
+            "trial UI retains a demo default for {empty_default:?}"
+        );
+    }
+    assert!(
+        !source.contains("qwen3:8b")
+            && !source.contains("<option value=\"python-cli\">")
+            && !source.contains("<option value=\"lm-studio\">")
+            && !source.contains("<option value=\"openai\">")
+            && !source.contains("<option value=\"gemini\">"),
+        "Trial defaults and options must not be copied into the client"
+    );
+    assert!(
+        source.find("Enter a Goal before checking the contract.")
+            < source.find("Enter the runtime Trial access token before checking the contract."),
+        "empty Goal guidance must run before token validation"
+    );
     assert!(
         !source.contains("disabled={trialToken === \"\""),
         "Trial token guidance must not be hidden behind a disabled button"
@@ -173,6 +200,18 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         assert!(
             !source.contains(forbidden),
             "trial UI exposes forbidden intervention control {forbidden:?}"
+        );
+    }
+
+    let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
+    for explicit_fill in [
+        "[data-testid='trial-goal']\").fill(\"Create a CLI --pattern filter command\")",
+        "[data-testid='trial-executor-model']\").fill(model)",
+        "[data-testid='trial-planner-model']\").fill(model)",
+    ] {
+        assert!(
+            smoke.contains(explicit_fill),
+            "GUI smoke no longer explicitly fills {explicit_fill:?}"
         );
     }
 }

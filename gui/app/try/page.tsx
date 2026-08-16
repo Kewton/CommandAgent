@@ -10,15 +10,16 @@ import type {
   PolledSession,
   SessionProposal,
   SessionSpec,
+  TrialOptions,
 } from "../../lib/types";
 
 const initialSpec: SessionSpec = {
-  goal: "Create a CLI --pattern filter command",
+  goal: "",
   profile: "python-cli",
   provider: "ollama",
-  model: "qwen3:8b",
+  model: "",
   planner_provider: "ollama",
-  planner_model: "qwen3:8b",
+  planner_model: "",
 };
 
 type ScreenStage = "compose" | "gate_1" | "gate_2" | "terminal" | "closed";
@@ -36,8 +37,29 @@ export default function TrialRunPage() {
   const [stage, setStage] = useState<ScreenStage>("compose");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [trialOptions, setTrialOptions] = useState<TrialOptions | null>(null);
+  const [optionsError, setOptionsError] = useState<string | null>(null);
+  const [providerChanged, setProviderChanged] = useState(false);
   const [directiveText, setDirectiveText] = useState("");
   const [directive, setDirective] = useState<DirectiveProposal | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadOptions = async () => {
+      try {
+        const response = await fetch(apiPath("trial-options"));
+        if (!response.ok) throw new Error(await apiError(response));
+        const value = (await response.json()) as TrialOptions;
+        if (!cancelled) setTrialOptions(value);
+      } catch (reason) {
+        if (!cancelled) setOptionsError(`Unable to load Trial options: ${message(reason)}`);
+      }
+    };
+    void loadOptions();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (created === null || stage === "closed") return;
@@ -96,15 +118,30 @@ export default function TrialRunPage() {
     const cost = proposal?.price.average_cost_usd;
     return cost === null || cost === undefined ? "not recorded" : `$${cost.toFixed(4)} mean`;
   }, [proposal]);
+  const selectedProfile = trialOptions?.profiles.find((option) => option.id === spec.profile);
+  const selectedProvider = trialOptions?.providers.find((option) => option.id === spec.provider);
 
   function update<K extends keyof SessionSpec>(field: K, value: SessionSpec[K]) {
     setSpec((current) => ({ ...current, [field]: value }));
     setProposal(null);
     setConfirmed(false);
+    setError(null);
     setStage("compose");
   }
 
   async function checkContract() {
+    if (spec.goal.trim() === "") {
+      setError("Enter a Goal before checking the contract.");
+      return;
+    }
+    if (spec.model.trim() === "") {
+      setError("Enter the exact executor model ID before checking the contract.");
+      return;
+    }
+    if (spec.planner_model.trim() === "") {
+      setError("Enter the exact planner model ID before checking the contract.");
+      return;
+    }
     if (trialToken.trim() === "") {
       setError("Enter the runtime Trial access token before checking the contract.");
       return;
@@ -239,29 +276,71 @@ export default function TrialRunPage() {
           <div className="trial-fields">
             <label>
               Profile
-              <select value={spec.profile} onChange={(event) => update("profile", event.target.value)}>
-                <option value="python-cli">python-cli</option>
-                <option value="data">data</option>
-                <option value="ingest">ingest</option>
-                <option value="nextjs">nextjs</option>
+              <select
+                data-testid="trial-profile"
+                disabled={trialOptions === null}
+                value={spec.profile}
+                onChange={(event) => update("profile", event.target.value)}
+              >
+                {trialOptions === null ? (
+                  <option value={spec.profile}>Loading admitted profiles…</option>
+                ) : (
+                  trialOptions.profiles.map((option) => (
+                    <option key={option.id} value={option.id}>{option.label}</option>
+                  ))
+                )}
               </select>
+              {selectedProfile !== undefined && (
+                <small className="trial-field-hint" data-testid="trial-profile-description">
+                  {selectedProfile.description}
+                </small>
+              )}
             </label>
             <label>
               Provider
-              <select value={spec.provider} onChange={(event) => update("provider", event.target.value)}>
-                <option value="ollama">ollama</option>
-                <option value="lm-studio">LM Studio</option>
-                <option value="openai">openai</option>
-                <option value="gemini">gemini</option>
+              <select
+                data-testid="trial-provider"
+                disabled={trialOptions === null}
+                value={spec.provider}
+                onChange={(event) => {
+                  update("provider", event.target.value);
+                  setProviderChanged(true);
+                }}
+              >
+                {trialOptions === null ? (
+                  <option value={spec.provider}>Loading providers…</option>
+                ) : (
+                  trialOptions.providers.map((option) => (
+                    <option key={option.id} value={option.id}>{option.label}</option>
+                  ))
+                )}
               </select>
             </label>
             <label>
               Executor model
-              <input value={spec.model} onChange={(event) => update("model", event.target.value)} />
+              <input
+                aria-describedby={providerChanged ? "trial-provider-model-hint" : undefined}
+                data-testid="trial-executor-model"
+                placeholder="Exact model ID"
+                value={spec.model}
+                onChange={(event) => update("model", event.target.value)}
+              />
+              {providerChanged && selectedProvider !== undefined && (
+                <small
+                  className="trial-model-warning"
+                  data-testid="trial-provider-model-hint"
+                  id="trial-provider-model-hint"
+                  role="status"
+                >
+                  Provider changed. Changing provider does not update Executor model. {selectedProvider.model_hint}
+                </small>
+              )}
             </label>
             <label>
               Planner model
               <input
+                data-testid="trial-planner-model"
+                placeholder="Exact model ID"
                 value={spec.planner_model}
                 onChange={(event) => update("planner_model", event.target.value)}
               />
@@ -276,6 +355,7 @@ export default function TrialRunPage() {
           >
             Check contract and price
           </button>
+          {optionsError !== null && <p className="trial-error" role="alert">{optionsError}</p>}
           {error !== null && <p className="trial-error" role="alert">{error}</p>}
         </div>
 
