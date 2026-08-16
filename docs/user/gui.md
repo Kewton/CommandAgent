@@ -119,7 +119,11 @@ authentication is enabled.
    card hash.
 3. Select **Confirm and delegate to CLI**. The server starts the existing
    non-interactive boundary command. Progress is reconstructed by reading that
-   session's JSONL events; there is no GUI state database.
+   session's JSONL events; there is no GUI state database. Gate 2 reports the
+   execution state separately from monitoring health (`connected`, `degraded`,
+   or `lost`) and shows the last successful update time. A transient monitoring
+   failure retries with capped exponential backoff while the delegated CLI keeps
+   running.
 4. At Gate 3 or Gate 4, inspect the generated acceptance sheet. You may end
    without another run, or persist an additional D-3d instruction. A D-3d
    instruction is credential-scrubbed, exact-byte hashed, displayed, and must
@@ -129,6 +133,28 @@ There is no cancel, interrupt, phase-edit, or gate-override control while a
 session is running. Use the existing CLI/runtime operating procedures for
 external process management. GUI confirmation cannot lower, replace, or
 satisfy the contract checks.
+
+The page places the launched session ID, but never the token, in
+`?session=<id>`. After a reload or navigation, re-enter the runtime Trial token
+and select **Reconnect monitoring**. Reconnect calls only
+`GET api/sessions/{id}` and cannot delegate another CLI process. A 409 response
+that identifies an already running or recovery-required session fills this same
+reconnect path.
+
+Monitoring guidance distinguishes authentication and browser boundaries:
+
+- HTTP 401/403 asks you to re-enter the runtime token and verify the allowed
+  origin.
+- An upstream manual redirect asks you to reload and re-authenticate with the
+  access proxy.
+- A thrown browser fetch asks you to check the proxy/network connection and
+  reload or re-authenticate if required.
+
+HTTP 413 and invalid event JSONL are retried only to the terminal-error limit,
+then monitoring stops with an artifact inspection reason. Other failures keep
+retrying at the capped interval. The token remains only in page memory: it is
+not stored in `localStorage`, included in URLs, or compiled into the static
+export.
 
 ## API
 
@@ -185,8 +211,10 @@ cargo build --release --bin commandagent
 Then run a real local-model lap for both `/` and
 `/proxy/commandagent/`. The runner copies the small Python CLI corpus fixture
 to an isolated temporary workspace. For each base path it records the
-dashboard/API/SVG probes, Gate 1 before and after confirmation, Gate 2,
-Gate 3/4, the session event stream and its SHA-256, and an API log:
+dashboard/API/SVG probes, desktop and mobile layout probes, Gate 1 before and
+after confirmation, a rejected first poll followed by Gate 3/4 recovery,
+proxy-access re-authentication guidance, token re-entry and GET-only reconnect,
+the session event stream and its SHA-256, and an API log:
 
 ```bash
 cd gui
