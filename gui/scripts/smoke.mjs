@@ -162,6 +162,16 @@ async function runCase(smokeCase) {
       const runs = await result.json();
       return runs[0]?.id ?? "";
     });
+    const runLedgerAccessibility = await page.locator(".run-table").evaluate((ledger) => ({
+      columnHeadingsHidden:
+        ledger.querySelector(".run-table-head")?.getAttribute("aria-hidden") === "true",
+      invalidTableRoleCount:
+        (ledger.matches('[role="table"], [role="row"]') ? 1 : 0) +
+        ledger.querySelectorAll('[role="table"], [role="row"]').length,
+      nativeLinkRows: [...ledger.querySelectorAll(".run-row")].every(
+        (row) => row.tagName === "A" && !row.hasAttribute("role"),
+      ),
+    }));
 
     await page.screenshot({
       fullPage: true,
@@ -202,6 +212,7 @@ async function runCase(smokeCase) {
     const launch = page.locator("[data-testid='launch-session']");
     const launchDisabledBeforeConfirmation = await launch.isDisabled();
     const gateOneText = await page.locator("[data-testid='gate-one-card']").innerText();
+    const desktopTrialAlignment = await trialControlAlignment(page);
     const deniedWithoutConfirmation = await page.evaluate(
       async ({ apiUrl, modelName, trialToken }) => {
         const result = await fetch(apiUrl, {
@@ -231,6 +242,12 @@ async function runCase(smokeCase) {
       fullPage: true,
       path: join(outputDirectory, `${smokeCase.id}-gate-1.png`),
     });
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileTrialAlignment = await trialControlAlignment(page);
+    await page.screenshot({
+      fullPage: true,
+      path: join(outputDirectory, `${smokeCase.id}-gate-1-mobile.png`),
+    });
 
     const injectedFailureMode = smokeCase.id === "proxy-commandagent" ? "access" : "network";
     await installPollFailure(page, injectedFailureMode);
@@ -244,11 +261,23 @@ async function runCase(smokeCase) {
     const injectedFailureCount = await page.evaluate(
       () => window.__commandagentTrialPollInjection?.count ?? 0,
     );
+    const executionScroll = await mobileStageScroll(page, "[data-testid='session-progress']");
+    await page.screenshot({
+      fullPage: true,
+      path: join(outputDirectory, `${smokeCase.id}-gate-2-mobile.png`),
+    });
+    await page.setViewportSize({ width: 1440, height: 1050 });
     await page.screenshot({
       fullPage: true,
       path: join(outputDirectory, `${smokeCase.id}-gate-2.png`),
     });
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.locator("[data-testid='terminal-gate']").waitFor({ timeout: trialTimeoutMs });
+    const terminalScroll = await mobileStageScroll(page, "[data-testid='terminal-gate']");
+    await page.screenshot({
+      fullPage: true,
+      path: join(outputDirectory, `${smokeCase.id}-gate-terminal-mobile.png`),
+    });
     const finalApi = await page.evaluate(
       async ({ apiUrl, trialToken }) => {
         const result = await fetch(apiUrl, {
@@ -263,6 +292,7 @@ async function runCase(smokeCase) {
     );
     const terminalText = await page.locator("[data-testid='terminal-gate']").innerText();
     const connectedMonitorText = await page.locator("[data-testid='monitor-state']").innerText();
+    await page.setViewportSize({ width: 1440, height: 1050 });
     await page.screenshot({
       fullPage: true,
       path: join(outputDirectory, `${smokeCase.id}-gate-terminal.png`),
@@ -349,6 +379,9 @@ async function runCase(smokeCase) {
       map.naturalWidth > 0 &&
       apiChecks.every((check) => check.status === 200) &&
       linksUseBasePath &&
+      runLedgerAccessibility.columnHeadingsHidden &&
+      runLedgerAccessibility.invalidTableRoleCount === 0 &&
+      runLedgerAccessibility.nativeLinkRows &&
       assets.status === 200 &&
       assets.headingMatches &&
       measurements.status === 200 &&
@@ -356,8 +389,12 @@ async function runCase(smokeCase) {
       runDetail.status === 200 &&
       runDetail.headingMatches &&
       trialResponse?.status() === 200 &&
+      desktopTrialAlignment.aligned &&
+      mobileTrialAlignment.aligned &&
       launchDisabledBeforeConfirmation &&
       deniedWithoutConfirmation.status === 428 &&
+      executionScroll.clearsStickyHeader &&
+      terminalScroll.clearsStickyHeader &&
       finalApi.status === 200 &&
       ["gate_3", "gate_4"].includes(finalApi.body.gate) &&
       injectedFailureCount === 1 &&
@@ -386,11 +423,16 @@ async function runCase(smokeCase) {
       api_checks: apiChecks,
       svg: map,
       links_use_base_path: linksUseBasePath,
+      run_ledger_accessibility: runLedgerAccessibility,
       pages: { assets, measurements, run_detail: runDetail, trial: { status: trialResponse?.status() ?? 0 } },
       mobile,
       gate_1: {
         launch_disabled_before_confirmation: launchDisabledBeforeConfirmation,
         api_without_confirmation_status: deniedWithoutConfirmation.status,
+        control_alignment: {
+          desktop_1440: desktopTrialAlignment,
+          mobile_390: mobileTrialAlignment,
+        },
         visible_text: gateOneText,
       },
       session: {
@@ -401,6 +443,10 @@ async function runCase(smokeCase) {
         assurance: finalApi.body.assurance,
         event_count: finalApi.body.event_count,
         events_sha256: `sha256:${createHash("sha256").update(eventBytes).digest("hex")}`,
+        mobile_stage_scroll: {
+          execution: executionScroll,
+          terminal: terminalScroll,
+        },
         terminal_visible_text: terminalText,
       },
       monitoring: {
@@ -523,6 +569,61 @@ async function installSessionConflict(page, sessionId) {
       return nativeFetch(input, init);
     };
   }, sessionId);
+}
+
+async function trialControlAlignment(page) {
+  const [goal, token] = await Promise.all([
+    page.locator("[data-testid='trial-goal']").boundingBox(),
+    page.locator("[data-testid='trial-token']").boundingBox(),
+  ]);
+  if (goal === null || token === null) throw new Error("Trial controls are not visible");
+  const leftDelta = Math.abs(goal.x - token.x);
+  const rightDelta = Math.abs(goal.x + goal.width - (token.x + token.width));
+  return {
+    aligned: leftDelta <= 1 && rightDelta <= 1,
+    goal: { left: goal.x, right: goal.x + goal.width },
+    left_delta_px: leftDelta,
+    right_delta_px: rightDelta,
+    token: { left: token.x, right: token.x + token.width },
+    viewport_width: page.viewportSize()?.width ?? 0,
+  };
+}
+
+async function mobileStageScroll(page, selector) {
+  await page.waitForFunction((targetSelector) => {
+    const target = document.querySelector(targetSelector);
+    const topbar = document.querySelector(".topbar");
+    const heading = target?.querySelector("h2");
+    if (target === null || topbar === null || heading === null) return false;
+    const headingBounds = heading.getBoundingClientRect();
+    const topbarBottom = topbar.getBoundingClientRect().bottom;
+    const scrollMarginTop = Number.parseFloat(getComputedStyle(target).scrollMarginTop);
+    return (
+      scrollMarginTop > topbar.getBoundingClientRect().height &&
+      headingBounds.top >= topbarBottom - 1 &&
+      headingBounds.bottom <= window.innerHeight
+    );
+  }, selector);
+  return page.locator(selector).evaluate((target) => {
+    const topbar = document.querySelector(".topbar");
+    const heading = target.querySelector("h2");
+    if (topbar === null || heading === null) {
+      throw new Error("Stage heading or sticky top bar is missing");
+    }
+    const targetTop = target.getBoundingClientRect().top;
+    const headingBounds = heading.getBoundingClientRect();
+    const topbarBottom = topbar.getBoundingClientRect().bottom;
+    return {
+      clearance_px: headingBounds.top - topbarBottom,
+      clearsStickyHeader:
+        headingBounds.top >= topbarBottom - 1 && headingBounds.bottom <= window.innerHeight,
+      heading_bottom_px: headingBounds.bottom,
+      heading_top_px: headingBounds.top,
+      scroll_margin_top_px: Number.parseFloat(getComputedStyle(target).scrollMarginTop),
+      target_top_px: targetTop,
+      topbar_bottom_px: topbarBottom,
+    };
+  });
 }
 
 async function probePage(page, origin, basePath, relativePath, expectedHeading) {
