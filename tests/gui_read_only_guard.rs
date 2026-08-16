@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 const DELEGATE_MODULE: &str = "src/bin/gui_server/sessions.rs";
+const SESSION_FILES_MODULE: &str = "src/bin/gui_server/session_files.rs";
 
 #[test]
 fn gui_server_can_execute_only_through_the_confirmed_cli_delegate() {
@@ -623,6 +624,77 @@ fn trial_workspace_recovery_is_visible_but_read_only() {
             "GUI recovery guide is missing {required:?}"
         );
     }
+}
+
+#[test]
+fn trial_session_files_are_get_only_authenticated_views() {
+    let entry = std::fs::read_to_string("src/bin/gui_server.rs").unwrap();
+    for required in [
+        "\"/api/sessions/{id}/artifacts\"",
+        "get(session_files::artifacts)",
+        "\"/api/sessions/{id}/events\"",
+        "get(session_files::events)",
+    ] {
+        assert!(
+            entry.contains(required),
+            "missing GET-only route {required:?}"
+        );
+    }
+    for forbidden in [
+        "post(session_files::artifacts)",
+        "post(session_files::events)",
+    ] {
+        assert!(
+            !entry.contains(forbidden),
+            "session file route can mutate: {forbidden:?}"
+        );
+    }
+
+    let files = std::fs::read_to_string(SESSION_FILES_MODULE).unwrap();
+    assert_eq!(
+        files
+            .matches("session_run_root(&state, &id, &headers)")
+            .count(),
+        2
+    );
+    assert_eq!(
+        files
+            .matches("require_trial(state, headers, false)")
+            .count(),
+        1
+    );
+    for required in [
+        "require_session_id(id)",
+        "checked_existing_path_without_symlinks",
+        "MAX_LIST_ENTRIES",
+        "MAX_TEXT_BYTES",
+        "MAX_EVENT_TAIL_LINES",
+        "spawn_blocking",
+    ] {
+        assert!(
+            files.contains(required),
+            "missing session read guard {required:?}"
+        );
+    }
+
+    let page = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
+    for required in [
+        "data-testid=\"trial-events-footer\"",
+        "data-testid=\"trial-events-open\"",
+        "data-testid={artifact.path === \"summary.md\" ? \"trial-summary-open\" : undefined}",
+        "data-testid=\"trial-file-viewer\"",
+        "headers: authorizationHeaders(trialToken)",
+        "直近 200 行",
+    ] {
+        assert!(
+            page.contains(required),
+            "missing Trial file viewer {required:?}"
+        );
+    }
+
+    let delegate = std::fs::read_to_string(DELEGATE_MODULE).unwrap();
+    assert_eq!(delegate.matches(".stdout(Stdio::null())").count(), 2);
+    assert_eq!(delegate.matches(".stderr(Stdio::null())").count(), 2);
 }
 
 fn collect_rust_files(root: &Path, output: &mut Vec<PathBuf>) {

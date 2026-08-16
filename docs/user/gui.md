@@ -139,12 +139,16 @@ authentication is enabled.
    session, keeps the measured mean beside it as a comparison rather than an
    ETA guarantee, and shows `Phase x / N` only when the file-backed phase
    projection reports a nonzero total.
-4. At Gate 3 or Gate 4, inspect the generated acceptance sheet. You may end
-   without another run, or persist an additional D-3d instruction. A D-3d
-   instruction is credential-scrubbed, exact-byte hashed, displayed, and must
-   be confirmed before the existing continuation path is delegated. Reaching
-   Gate 3/4 also changes the browser tab title to `✔ <outcome> — CommandAgent`
-   so completion is visible while the Trial tab is in the background.
+4. During Gate 2, use **Recent events** or **Browse artifacts** to inspect
+   bounded, read-only session evidence without leaving the GUI. At Gate 3 or
+   Gate 4 the inventory opens automatically; select `summary.md`, recent
+   `events.jsonl`, or an acceptance-related text file to investigate a
+   failure. You may then end without another run, or persist an additional
+   D-3d instruction. A D-3d instruction is credential-scrubbed, exact-byte
+   hashed, displayed, and must be confirmed before the existing continuation
+   path is delegated. Reaching Gate 3/4 also changes the browser tab title to
+   `✔ <outcome> — CommandAgent` so completion is visible while the Trial tab
+   is in the background.
 5. After **End without another run**, select **Start a new run** to return to
    an editable draft. The in-memory Trial token and launch fields are retained,
    while the previous proposal, session progress, and directive are cleared.
@@ -253,12 +257,28 @@ direct-client `Authorization` form). POST requests also require a same-host Orig
 | `GET api/trial-workspace` | Read the current workspace lease and active/recovery session ID |
 | `POST api/sessions` | Require the exact Gate 1 hash, then delegate to the configured CLI binary |
 | `GET api/sessions/{id}` | Read events and artifacts to project phase, gate, and terminal verdict |
+| `GET api/sessions/{id}/artifacts` | List up to 256 text artifacts below the Trial run root |
+| `GET api/sessions/{id}/artifacts?path=…` | Read one canonical, non-symlink text artifact up to 1 MiB |
+| `GET api/sessions/{id}/events?tail=N` | Read the last `1..=2000` event lines, with a 1 MiB response limit |
 | `POST api/sessions/{id}/directives` | Apply the existing credential scrub and persist a hashed D-3d proposal |
 | `POST api/sessions/{id}/directives/{hash}` | Require that exact proposal, then delegate the existing continuation plan |
 
 The two POST dispatch routes cannot accept an unconfirmed identity. The sole
 process surface executes `commandagent` directly without a shell; provider and
 runner calls are forbidden in the GUI server by the protection audit.
+
+The event-tail reader scans backward, so it remains useful after the complete
+stream exceeds the 4 MiB status-polling limit. Artifact listing uses the same
+text-extension allowlist, depth-four walk, skipped directories, ordering, and
+entry cap as the repository run viewer. All Trial file routes require a
+canonical session UUID and the runtime token; no session-listing capability is
+implied.
+
+Delegated stdout and stderr are intentionally not saved by this GUI path. The
+CLI-owned `events.jsonl` and `summary.md` are the structured diagnostic
+records, and the GUI server only reads them. If an unstructured log is later
+required, it must be introduced as a CLI-owned output contract rather than a
+GUI-server write.
 
 ## Two-basePath browser smoke
 
@@ -282,9 +302,9 @@ after confirmation, a rejected first poll followed by Gate 3/4 recovery,
 proxy-access re-authentication guidance, token re-entry and GET-only reconnect,
 the read-only launch identity, CLOSED-to-compose recovery and a second terminal
 run, a mocked elapsed/phase/title feedback probe, the first session event
-stream and its SHA-256, and an API log. The browser script explicitly fills
-Goal plus executor and planner model fields for each new run, so it does not
-depend on Trial form defaults:
+stream and its SHA-256, in-page recent-events and summary viewing, and an API
+log. The browser script explicitly fills Goal plus executor and planner model
+fields for each new run, so it does not depend on Trial form defaults:
 
 ```bash
 cd gui

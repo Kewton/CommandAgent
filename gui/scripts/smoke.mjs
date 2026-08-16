@@ -399,6 +399,25 @@ async function runCase(smokeCase) {
       },
     );
     const terminalText = await page.locator("[data-testid='terminal-gate']").innerText();
+    await page.locator("[data-testid='trial-session-files']").waitFor();
+    await page.locator("[data-testid='trial-events-open']").click();
+    await page.waitForFunction(
+      () => document.querySelector("[data-testid='trial-file-viewer'] h2")?.textContent === "events.jsonl",
+    );
+    const eventsViewer = await page.locator("[data-testid='trial-file-viewer']").evaluate((viewer) => ({
+      heading: viewer.querySelector("h2")?.textContent ?? "",
+      path: viewer.querySelector("header code")?.textContent ?? "",
+      content: viewer.querySelector("pre")?.textContent ?? "",
+    }));
+    await page.locator("[data-testid='trial-summary-open']").click();
+    await page.waitForFunction(
+      () => document.querySelector("[data-testid='trial-file-viewer'] h2")?.textContent === "summary.md",
+    );
+    const summaryViewer = await page.locator("[data-testid='trial-file-viewer']").evaluate((viewer) => ({
+      heading: viewer.querySelector("h2")?.textContent ?? "",
+      path: viewer.querySelector("header code")?.textContent ?? "",
+      content: viewer.querySelector("pre")?.textContent ?? "",
+    }));
     const connectedMonitorText = await page.locator("[data-testid='monitor-state']").innerText();
     await page.locator("[data-testid='runtime-status'][data-session-state='idle']").waitFor({ timeout: 10_000 });
     const completedRuntimeText = await page.locator("[data-testid='runtime-status']").innerText();
@@ -564,6 +583,12 @@ async function runCase(smokeCase) {
       terminalScroll.clearsStickyHeader &&
       finalApi.status === 200 &&
       ["gate_3", "gate_4"].includes(finalApi.body.gate) &&
+      eventsViewer.heading === "events.jsonl" &&
+      eventsViewer.path === "events.jsonl" &&
+      eventsViewer.content.includes('"event"') &&
+      summaryViewer.heading === "summary.md" &&
+      summaryViewer.path === "summary.md" &&
+      summaryViewer.content.trim() !== "" &&
       injectedFailureCount === 1 &&
       degradedMonitorText.includes(
         injectedFailureMode === "access" ? "上流アクセス" : "プロキシまたはネットワーク",
@@ -639,6 +664,17 @@ async function runCase(smokeCase) {
         mobile_stage_scroll: {
           execution: executionScroll,
           terminal: terminalScroll,
+        },
+        events_viewer: {
+          heading: eventsViewer.heading,
+          path: eventsViewer.path,
+          content_bytes: Buffer.byteLength(eventsViewer.content),
+          contains_event: eventsViewer.content.includes('"event"'),
+        },
+        summary_viewer: {
+          heading: summaryViewer.heading,
+          path: summaryViewer.path,
+          content_bytes: Buffer.byteLength(summaryViewer.content),
         },
         terminal_visible_text: terminalText,
       },

@@ -533,6 +533,176 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
 }
 
 #[cfg(unix)]
+#[test]
+fn trial_session_files_are_authenticated_confined_and_bounded() {
+    use std::os::unix::fs::symlink;
+
+    const SESSION_ID: &str = "018f0e32-7b80-7000-8000-000000000070";
+    const ALIAS_SESSION_ID: &str = "018f0e32-7b80-7000-8000-000000000071";
+
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let run_root = workspace.join(".anvil/runs").join(SESSION_ID);
+    std::fs::create_dir_all(run_root.join("evidence")).unwrap();
+    std::fs::write(
+        run_root.join("summary.md"),
+        "# Trial summary\nfailed honestly\n",
+    )
+    .unwrap();
+    std::fs::write(
+        run_root.join("evidence/acceptance.txt"),
+        "acceptance details\n",
+    )
+    .unwrap();
+    std::fs::write(run_root.join("oversized.txt"), vec![b'x'; 1_048_577]).unwrap();
+    std::fs::write(workspace.join("outside.txt"), "outside\n").unwrap();
+    symlink(
+        run_root.join("summary.md"),
+        run_root.join("summary-link.md"),
+    )
+    .unwrap();
+    symlink(
+        &run_root,
+        workspace.join(".anvil/runs").join(ALIAS_SESSION_ID),
+    )
+    .unwrap();
+    for index in 0..260 {
+        std::fs::write(
+            run_root.join(format!("evidence/artifact-{index:03}.txt")),
+            format!("artifact {index}\n"),
+        )
+        .unwrap();
+    }
+
+    let events_path = run_root.join("events.jsonl");
+    let mut events = std::fs::File::create(&events_path).unwrap();
+    let padding = "x".repeat(4_040);
+    for index in 0..1_040 {
+        writeln!(
+            events,
+            "{{\"event\":\"progress\",\"index\":{index},\"padding\":\"{padding}\"}}"
+        )
+        .unwrap();
+    }
+    writeln!(events, "{{\"event\":\"penultimate\"}}").unwrap();
+    writeln!(events, "{{\"event\":\"terminal\"}}").unwrap();
+    drop(events);
+    assert!(std::fs::metadata(&events_path).unwrap().len() > 4 * 1024 * 1024);
+
+    let mut server = Server::start(
+        &workspace,
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+    );
+    let artifacts_path = format!("/api/sessions/{SESSION_ID}/artifacts");
+    let events_endpoint = format!("/api/sessions/{SESSION_ID}/events?tail=2");
+
+    let unauthorized = server.request_without_access("GET", &artifacts_path, None);
+    assert_eq!(unauthorized.status, 401, "{}", unauthorized.body);
+    let unauthorized_events = server.request_without_access("GET", &events_endpoint, None);
+    assert_eq!(
+        unauthorized_events.status, 401,
+        "{}",
+        unauthorized_events.body
+    );
+
+    let listing =
+        server.request_with_access("GET", &artifacts_path, None, Some(TEST_TRIAL_TOKEN), None);
+    assert_eq!(listing.status, 200, "{}", listing.body);
+    let listing: serde_json::Value = serde_json::from_str(&listing.body).unwrap();
+    assert_eq!(listing.as_array().unwrap().len(), 256);
+    assert!(listing.as_array().unwrap().iter().all(|entry| {
+        entry["path"].as_str() != Some("summary-link.md")
+            && entry["path"]
+                .as_str()
+                .is_some_and(|path| !path.starts_with('/'))
+    }));
+
+    let summary = server.request("GET", &format!("{artifacts_path}?path=summary.md"), None);
+    assert_eq!(summary.status, 200, "{}", summary.body);
+    let summary: serde_json::Value = serde_json::from_str(&summary.body).unwrap();
+    assert_eq!(summary["path"], "summary.md");
+    assert_eq!(summary["content"], "# Trial summary\nfailed honestly\n");
+
+    let traversal = server.request(
+        "GET",
+        &format!("{artifacts_path}?path=%2E%2E%2Foutside.txt"),
+        None,
+    );
+    assert_eq!(traversal.status, 404, "{}", traversal.body);
+    let symlink_read = server.request(
+        "GET",
+        &format!("{artifacts_path}?path=summary-link.md"),
+        None,
+    );
+    assert_eq!(symlink_read.status, 404, "{}", symlink_read.body);
+    let oversized = server.request("GET", &format!("{artifacts_path}?path=oversized.txt"), None);
+    assert_eq!(oversized.status, 413, "{}", oversized.body);
+
+    let tail =
+        server.request_with_access("GET", &events_endpoint, None, Some(TEST_TRIAL_TOKEN), None);
+    assert_eq!(tail.status, 200, "{}", tail.body);
+    let tail: serde_json::Value = serde_json::from_str(&tail.body).unwrap();
+    assert_eq!(tail["path"], "events.jsonl");
+    assert_eq!(
+        tail["content"],
+        "{\"event\":\"penultimate\"}\n{\"event\":\"terminal\"}\n"
+    );
+    let excessive_tail = server.request(
+        "GET",
+        &format!("/api/sessions/{SESSION_ID}/events?tail=2001"),
+        None,
+    );
+    assert_eq!(excessive_tail.status, 422, "{}", excessive_tail.body);
+    let invalid_id = server.request("GET", "/api/sessions/not-a-uuid/events?tail=2", None);
+    assert_eq!(invalid_id.status, 404, "{}", invalid_id.body);
+    let aliased_run = server.request(
+        "GET",
+        &format!("/api/sessions/{ALIAS_SESSION_ID}/artifacts"),
+        None,
+    );
+    assert_eq!(aliased_run.status, 404, "{}", aliased_run.body);
+
+    let management_runs = server.request_without_access("GET", "/api/runs", None);
+    assert_eq!(management_runs.status, 200, "{}", management_runs.body);
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn trial_session_files_reject_a_symlinked_runtime_root() {
+    use std::os::unix::fs::symlink;
+
+    const SESSION_ID: &str = "018f0e32-7b80-7000-8000-000000000072";
+
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let external_anvil = temp.path().join("external-anvil");
+    std::fs::create_dir_all(&workspace).unwrap();
+    std::fs::create_dir_all(external_anvil.join("runs").join(SESSION_ID)).unwrap();
+    std::fs::write(
+        external_anvil
+            .join("runs")
+            .join(SESSION_ID)
+            .join("summary.md"),
+        "must remain outside the readable boundary\n",
+    )
+    .unwrap();
+    symlink(&external_anvil, workspace.join(".anvil")).unwrap();
+
+    let mut server = Server::start(
+        &workspace,
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+    );
+    let response = server.request(
+        "GET",
+        &format!("/api/sessions/{SESSION_ID}/artifacts?path=summary.md"),
+        None,
+    );
+    assert_eq!(response.status, 404, "{}", response.body);
+    server.stop();
+}
+
+#[cfg(unix)]
 struct Server {
     child: Child,
     port: u16,

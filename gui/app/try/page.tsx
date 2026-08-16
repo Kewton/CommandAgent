@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { DocumentViewer } from "../../components/document-viewer";
 import { Shell } from "../../components/shell";
 import { apiPath } from "../../lib/base-path";
 import {
@@ -17,6 +18,8 @@ import {
 import type {
   CreatedSession,
   DirectiveProposal,
+  DocumentRecord,
+  DocumentSummary,
   PolledSession,
   SessionProposal,
   SessionSpec,
@@ -78,6 +81,30 @@ export default function TrialRunPage() {
   const launchIdentityLocked =
     stage === "gate_2" || stage === "terminal" || stage === "closed";
   const [monitor, setMonitor] = useState<MonitorState>(initialMonitor);
+  const [artifacts, setArtifacts] = useState<DocumentSummary[]>([]);
+  const [evidenceDocument, setEvidenceDocument] = useState<DocumentRecord | null>(null);
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
+  const [evidenceLoading, setEvidenceLoading] = useState(false);
+  const [evidenceError, setEvidenceError] = useState<string | null>(null);
+
+  const loadArtifacts = useCallback(async () => {
+    if (created === null) return;
+    setEvidenceOpen(true);
+    setEvidenceLoading(true);
+    setEvidenceError(null);
+    try {
+      const response = await fetch(
+        apiPath(`sessions/${encodeURIComponent(created.id)}/artifacts`),
+        { headers: authorizationHeaders(trialToken) },
+      );
+      if (!response.ok) throw new Error(await apiError(response));
+      setArtifacts((await response.json()) as DocumentSummary[]);
+    } catch (reason) {
+      setEvidenceError(message(reason));
+    } finally {
+      setEvidenceLoading(false);
+    }
+  }, [created, trialToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -191,6 +218,10 @@ export default function TrialRunPage() {
   }, [session, stage]);
 
   useEffect(() => {
+    if (stage === "terminal") void loadArtifacts();
+  }, [loadArtifacts, stage]);
+
+  useEffect(() => {
     if (!window.matchMedia("(max-width: 720px)").matches) return;
     const target =
       stage === "gate_1"
@@ -239,6 +270,10 @@ export default function TrialRunPage() {
     setSession(null);
     setGateTwoStartedAt(null);
     setElapsedSeconds(0);
+    setArtifacts([]);
+    setEvidenceDocument(null);
+    setEvidenceOpen(false);
+    setEvidenceError(null);
     setDirectiveText("");
     setDirective(null);
     setError(null);
@@ -336,6 +371,10 @@ export default function TrialRunPage() {
       setMonitor(initialMonitor);
       setGateTwoStartedAt(Date.now());
       setElapsedSeconds(0);
+      setArtifacts([]);
+      setEvidenceDocument(null);
+      setEvidenceOpen(false);
+      setEvidenceError(null);
       setStage("gate_2");
     } catch (reason) {
       setError(message(reason));
@@ -420,6 +459,37 @@ export default function TrialRunPage() {
       setError(message(reason));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function readEvents() {
+    if (created === null) return;
+    const query = new URLSearchParams({ tail: "200" });
+    await readEvidence(
+      apiPath(`sessions/${encodeURIComponent(created.id)}/events`, query),
+    );
+  }
+
+  async function readArtifact(path: string) {
+    if (created === null) return;
+    const query = new URLSearchParams({ path });
+    await readEvidence(
+      apiPath(`sessions/${encodeURIComponent(created.id)}/artifacts`, query),
+    );
+  }
+
+  async function readEvidence(url: string) {
+    setEvidenceOpen(true);
+    setEvidenceLoading(true);
+    setEvidenceError(null);
+    try {
+      const response = await fetch(url, { headers: authorizationHeaders(trialToken) });
+      if (!response.ok) throw new Error(await apiError(response));
+      setEvidenceDocument((await response.json()) as DocumentRecord);
+    } catch (reason) {
+      setEvidenceError(message(reason));
+    } finally {
+      setEvidenceLoading(false);
     }
   }
 
@@ -717,7 +787,75 @@ export default function TrialRunPage() {
               </div>
             ))}
           </div>
-          <footer><code>{session?.events_path ?? created.events_path}</code><span>{session?.event_count ?? 0} イベント</span></footer>
+          <footer>
+            <div className="execution-receipt">
+              <code>{session?.events_path ?? created.events_path}</code>
+              <span>{session?.event_count ?? 0} イベント</span>
+            </div>
+            <div className="session-file-actions">
+              <button
+                data-testid="trial-events-footer"
+                disabled={evidenceLoading}
+                onClick={() => void readEvents()}
+                type="button"
+              >
+                直近のイベント
+              </button>
+              <button
+                disabled={evidenceLoading}
+                onClick={() => void loadArtifacts()}
+                type="button"
+              >
+                成果物を参照
+              </button>
+            </div>
+          </footer>
+        </section>
+      )}
+
+      {evidenceOpen && created !== null && (stage === "gate_2" || stage === "terminal") && (
+        <section className="panel session-files-panel" data-testid="trial-session-files">
+          <header className="panel-heading">
+            <div>
+              <span className="panel-index">読み取り専用セッションファイル</span>
+              <h2>失敗の証跡</h2>
+            </div>
+            <span>{evidenceLoading ? "読み込み中…" : `${artifacts.length} 件`}</span>
+          </header>
+          {evidenceError !== null && <p className="trial-error" role="alert">{evidenceError}</p>}
+          <div className="session-files-workbench">
+            <aside className="session-file-list" aria-label="セッションファイル">
+              <button
+                className={evidenceDocument?.path === "events.jsonl" ? "active" : ""}
+                data-testid="trial-events-open"
+                disabled={evidenceLoading}
+                onClick={() => void readEvents()}
+                type="button"
+              >
+                <span>events.jsonl</span>
+                <small>直近 200 行</small>
+              </button>
+              {artifacts.filter((artifact) => artifact.path !== "events.jsonl").map((artifact) => (
+                <button
+                  className={evidenceDocument?.path === artifact.path ? "active" : ""}
+                  data-testid={artifact.path === "summary.md" ? "trial-summary-open" : undefined}
+                  disabled={evidenceLoading}
+                  key={artifact.path}
+                  onClick={() => void readArtifact(artifact.path)}
+                  type="button"
+                >
+                  <span>{artifact.id}</span>
+                  <small>{byteLabel(artifact.size_bytes)}</small>
+                </button>
+              ))}
+            </aside>
+            <div className="session-file-document" data-testid="trial-file-viewer">
+              <DocumentViewer
+                document={evidenceDocument}
+                empty="イベント、サマリー、または受入成果物を選択すると、ここに表示します。"
+              />
+            </div>
+          </div>
         </section>
       )}
 
@@ -912,4 +1050,9 @@ function authorizationHeaders(token: string, json = false): Record<string, strin
     "x-commandagent-trial-authorization": `Bearer ${token.trim()}`,
     ...(json ? { "content-type": "application/json" } : {}),
   };
+}
+
+function byteLabel(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  return `${(bytes / 1024).toFixed(1)} KiB`;
 }
