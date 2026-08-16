@@ -119,11 +119,17 @@ async function runFeedbackCase(smokeCase) {
   const browser = await chromium.launch({ headless: true });
   try {
     const feedback = await probeTrialFeedback(browser, server.origin, smokeCase.serverBasePath);
+    const sessionIndexLease = await probeSessionIndexLease(
+      browser,
+      server.origin,
+      smokeCase.serverBasePath,
+    );
     return {
       id: smokeCase.id,
       base_path: smokeCase.buildBasePath,
       trial_feedback: feedback,
-      ok: feedback.ok,
+      session_index_lease: sessionIndexLease,
+      ok: feedback.ok && sessionIndexLease.ok,
     };
   } finally {
     await browser.close();
@@ -279,6 +285,11 @@ async function runCase(smokeCase) {
     await page.locator(".document-viewer").waitFor();
     const pollingBudget = await probeTenMinutePolling(browser, server.origin, smokeCase.serverBasePath);
     const trialFeedback = await probeTrialFeedback(browser, server.origin, smokeCase.serverBasePath);
+    const sessionIndexLease = await probeSessionIndexLease(
+      browser,
+      server.origin,
+      smokeCase.serverBasePath,
+    );
 
     const trialUrl = new URL(`${prefix}try/`, server.origin).href;
     const trialResponse = await page.goto(trialUrl, { waitUntil: "networkidle" });
@@ -623,6 +634,7 @@ async function runCase(smokeCase) {
       deniedWithoutConfirmation.status === 428 &&
       pollingBudget.ok &&
       trialFeedback.ok &&
+      sessionIndexLease.ok &&
       executionScroll.clearsStickyHeader &&
       terminalScroll.clearsStickyHeader &&
       finalApi.status === 200 &&
@@ -681,6 +693,7 @@ async function runCase(smokeCase) {
       mobile,
       ten_minute_polling: pollingBudget,
       trial_feedback: trialFeedback,
+      session_index_lease: sessionIndexLease,
       gate_1: {
         empty_goal_guidance: emptyGoalGuidance,
         initial_fields_empty: initialTrialFieldsEmpty,
@@ -902,6 +915,95 @@ async function probeTrialFeedback(browser, origin, basePath) {
         meanLabel.includes("予測ではありません") &&
         feedbackAfterMonitor === 1 &&
         titleChanged,
+    };
+  } finally {
+    await page.close();
+  }
+}
+
+async function probeSessionIndexLease(browser, origin, basePath) {
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
+  const sessionId = "0198b9c8-fab8-7000-8000-000000000071";
+  let dispatchCount = 0;
+  try {
+    await page.route("**/api/**", async (route) => {
+      const request = route.request();
+      const pathname = new URL(request.url()).pathname;
+      if (pathname.endsWith("/api/sessions") && request.method() === "GET") {
+        await route.fulfill({
+          contentType: "application/json",
+          status: 200,
+          body: JSON.stringify({
+            sessions: [
+              {
+                id: sessionId,
+                started_epoch_seconds: 1_723_769_600,
+                modified_epoch_seconds: 1_723_769_660,
+                gate: "gate_2",
+                status: "running",
+              },
+            ],
+            lease: { status: "running", session_id: sessionId },
+          }),
+        });
+        return;
+      }
+      if (pathname.endsWith("/api/trial-workspace") && request.method() === "GET") {
+        await route.fulfill({
+          contentType: "application/json",
+          status: 200,
+          body: JSON.stringify({ status: "running", session_id: sessionId }),
+        });
+        return;
+      }
+      if (pathname.endsWith("/api/session-proposals") && request.method() === "POST") {
+        await route.fulfill({
+          contentType: "application/json",
+          status: 200,
+          body: JSON.stringify(syntheticProposal()),
+        });
+        return;
+      }
+      if (pathname.endsWith("/api/sessions") && request.method() === "POST") {
+        dispatchCount += 1;
+        await route.fulfill({ status: 500, body: "unexpected dispatch" });
+        return;
+      }
+      await route.continue();
+    });
+
+    const prefix = displayBasePath(basePath);
+    await page.goto(new URL(`${prefix}try/`, origin).href, { waitUntil: "networkidle" });
+    await page.locator("[data-testid='trial-goal']").fill("Synthetic running lease probe");
+    await page
+      .locator("[data-testid='trial-token']")
+      .fill("synthetic-session-index-lease-token-000000000071");
+    await page.locator("[data-testid='trial-executor-model']").fill("synthetic-model");
+    await page.locator("[data-testid='trial-planner-model']").fill("synthetic-model");
+    await page.locator("[data-testid='session-reconnect-link']").waitFor();
+    const leaseText = await page.locator("[data-testid='workspace-lease-status']").innerText();
+    const sessionText = await page.locator("[data-testid='trial-session-index']").innerText();
+    await page.locator("[data-testid='check-contract']").click();
+    await page.locator("[data-testid='gate-one-card']").waitFor();
+    await page.locator("[data-testid='gate-one-confirm']").check();
+    const launch = page.locator("[data-testid='launch-session']");
+    const launchDisabled = await launch.isDisabled();
+    const reason = await page.locator("[data-testid='launch-block-reason']").innerText();
+    return {
+      dispatch_count: dispatchCount,
+      launch_disabled: launchDisabled,
+      lease_text: leaseText,
+      reason,
+      session_text: sessionText,
+      ok:
+        leaseText.includes("実行中") &&
+        leaseText.includes(sessionId) &&
+        sessionText.includes(sessionId) &&
+        sessionText.includes("GATE_2 / RUNNING") &&
+        launchDisabled &&
+        reason.includes(sessionId) &&
+        reason.includes("新しい起動はできません") &&
+        dispatchCount === 0,
     };
   } finally {
     await page.close();

@@ -11,6 +11,7 @@
 - `cd gui && npm run build`: `passed`
 - `cd gui && GUI_BASE_PATH=/proxy/commandagent/ npm run build`: `passed`
 - `cd gui && npm run smoke -- --output /private/tmp/commandagent-issue-71-post70-full-3 --commandagent-bin ../target/release/commandagent --model qwen3:8b`: `passed` (root and proxy)
+- `cd gui && npm run smoke -- --output /private/tmp/commandagent-issue-71-running-lease --feedback-only`: `passed` (root and proxy)
 - `cargo fmt --all -- --check`: `passed`
 - `cargo clippy --all-targets -- -D warnings`: `passed`
 - `cargo clippy --features gui --all-targets -- -D warnings`: `passed`
@@ -39,6 +40,12 @@ and `/proxy/commandagent/` record an authenticated `GET api/sessions`, visible
 start/update/Gate/status values, a `?session=<id>` link that issues no POST,
 GET-only reconnect, no token persistence, no unexpected console errors, and
 `ok: true`. The successful run removed its disposable scratch runtime.
+
+The focused running-lease browser evidence is
+`/private/tmp/commandagent-issue-71-running-lease/browser-smoke.json`. Both base
+paths show the exact `running` session ID in the lease card and session row,
+render `GATE_2 / RUNNING`, disable the confirmed launch button with the owning
+session reason, record `dispatch_count: 0`, and report `ok: true`.
 
 The first full smoke attempt failed before dispatch because the worktree release
 binary did not yet exist. After the release build, a second run exposed two

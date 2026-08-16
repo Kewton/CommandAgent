@@ -734,6 +734,7 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
 
     let page = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
     let panel = std::fs::read_to_string("gui/components/trial-session-index.tsx").unwrap();
+    let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
     for required in [
         "data-testid=\"trial-session-index\"",
         "fetchSessionIndex(accessToken)",
@@ -771,6 +772,17 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         assert!(
             !page.contains(forbidden) && !panel.contains(forbidden),
             "Trial session list exposes forbidden mutation {forbidden:?}"
+        );
+    }
+    for required in [
+        "probeSessionIndexLease",
+        "lease: { status: \"running\", session_id: sessionId }",
+        "launch_disabled: launchDisabled",
+        "dispatchCount === 0",
+    ] {
+        assert!(
+            smoke.contains(required),
+            "Trial session index smoke is missing {required:?}"
         );
     }
 }
