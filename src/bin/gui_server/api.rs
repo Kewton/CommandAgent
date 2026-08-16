@@ -21,6 +21,29 @@ pub struct RunSummary {
     modified_epoch_seconds: u64,
     report_path: Option<String>,
     status: String,
+    status_text: String,
+    state: RunState,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RunIndex {
+    runs: Vec<RunSummary>,
+    total: usize,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum RunState {
+    Pass,
+    Fail,
+    Pending,
+    Unknown,
+}
+
+#[derive(Debug, Eq, PartialEq)]
+struct ExtractedStatus {
+    state: RunState,
+    text: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -62,10 +85,11 @@ pub struct EvidenceQuery {
 
 pub type ApiError = GuiError;
 
-pub async fn runs(State(state): State<AppState>) -> Result<Json<Vec<RunSummary>>, ApiError> {
+pub async fn runs(State(state): State<AppState>) -> Result<Json<RunIndex>, ApiError> {
     let root = state.repository_root.join("workspace/management/runs");
     let mut entries = directory_entries(&root).await?;
     entries.retain(|path| path.is_dir());
+    let total = entries.len();
     entries.sort_by(|left, right| right.file_name().cmp(&left.file_name()));
     entries.truncate(100);
 
@@ -74,19 +98,22 @@ pub async fn runs(State(state): State<AppState>) -> Result<Json<Vec<RunSummary>>
         let id = file_name(&path)?;
         let modified_epoch_seconds = modified_epoch_seconds(&path).await;
         let report = preferred_report(&path).await;
-        let (report_path, status) = match report {
+        let (report_path, extracted_status) = match report {
             Some(report) => {
                 let content = read_text(&report).await.unwrap_or_default();
                 let relative = relative_string(&state.repository_root, &report)?;
                 (Some(relative), extract_status(&content))
             }
-            None => (None, "not recorded".to_string()),
+            None => (None, status_value("not recorded")),
         };
+        let status_text = extracted_status.text;
         summaries.push(RunSummary {
             id,
             modified_epoch_seconds,
             report_path,
-            status,
+            status: status_text.clone(),
+            status_text,
+            state: extracted_status.state,
         });
     }
     summaries.sort_by(|left, right| {
@@ -95,7 +122,10 @@ pub async fn runs(State(state): State<AppState>) -> Result<Json<Vec<RunSummary>>
             .cmp(&left.modified_epoch_seconds)
             .then_with(|| right.id.cmp(&left.id))
     });
-    Ok(Json(summaries))
+    Ok(Json(RunIndex {
+        runs: summaries,
+        total,
+    }))
 }
 
 pub async fn run_detail(
@@ -391,7 +421,7 @@ fn choose_acceptance(documents: &[PathBuf]) -> Option<&PathBuf> {
     })
 }
 
-fn extract_status(content: &str) -> String {
+fn extract_status(content: &str) -> ExtractedStatus {
     content
         .lines()
         .find_map(|line| {
@@ -401,11 +431,56 @@ fn extract_status(content: &str) -> String {
                 .find_map(|prefix| {
                     normalized
                         .strip_prefix(prefix)
-                        .map(|value| value.trim().trim_matches('`').to_string())
+                        .map(status_value)
+                        .filter(|status| !status.text.is_empty())
                 })
         })
-        .filter(|status| !status.is_empty())
-        .unwrap_or_else(|| "recorded".to_string())
+        .unwrap_or_else(|| status_value("recorded"))
+}
+
+fn status_value(value: &str) -> ExtractedStatus {
+    let text = value
+        .trim()
+        .chars()
+        .filter(|character| !matches!(character, '*' | '`'))
+        .collect::<String>()
+        .trim()
+        .to_string();
+    let words = text
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect::<BTreeSet<_>>();
+    let state = if [
+        "abort", "aborted", "block", "blocked", "fail", "failed", "failure",
+    ]
+    .iter()
+    .any(|word| words.contains(*word))
+    {
+        RunState::Fail
+    } else if [
+        "complete",
+        "completed",
+        "full",
+        "green",
+        "merge",
+        "merged",
+        "pass",
+        "passed",
+    ]
+    .iter()
+    .any(|word| words.contains(*word))
+    {
+        RunState::Pass
+    } else if ["open", "pending", "progress", "running"]
+        .iter()
+        .any(|word| words.contains(*word))
+    {
+        RunState::Pending
+    } else {
+        RunState::Unknown
+    };
+    ExtractedStatus { state, text }
 }
 
 fn is_measurement_report(path: &FilePath) -> bool {
@@ -563,4 +638,63 @@ fn internal(message: impl Into<String>) -> ApiError {
         "repository_read_failed",
         message,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ExtractedStatus, RunState, extract_status};
+
+    #[test]
+    fn extract_status_normalizes_markdown_and_enumerates_pass() {
+        assert_eq!(
+            extract_status("# Acceptance\n\nStatus: **FULL 3/3 (2026-08-03)**\n"),
+            ExtractedStatus {
+                state: RunState::Pass,
+                text: "FULL 3/3 (2026-08-03)".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn extract_status_removes_code_markers_and_keeps_unknown_fallbacks_neutral() {
+        assert_eq!(
+            extract_status("- Overall: `NOT RECORDED`\n"),
+            ExtractedStatus {
+                state: RunState::Unknown,
+                text: "NOT RECORDED".to_string(),
+            }
+        );
+        assert_eq!(
+            extract_status("# Report without a status field\n"),
+            ExtractedStatus {
+                state: RunState::Unknown,
+                text: "recorded".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn extract_status_classifies_exact_failure_and_pending_words() {
+        assert_eq!(
+            extract_status("Status: blocked pending owner action\n"),
+            ExtractedStatus {
+                state: RunState::Fail,
+                text: "blocked pending owner action".to_string(),
+            }
+        );
+        assert_eq!(
+            extract_status("Task status: verification in progress\n"),
+            ExtractedStatus {
+                state: RunState::Pending,
+                text: "verification in progress".to_string(),
+            }
+        );
+        assert_eq!(
+            extract_status("Overall: blockade readiness\n"),
+            ExtractedStatus {
+                state: RunState::Unknown,
+                text: "blockade readiness".to_string(),
+            }
+        );
+    }
 }

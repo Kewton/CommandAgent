@@ -10,6 +10,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const guiRoot = resolve(scriptDirectory, "..");
 const repositoryRoot = resolve(guiRoot, "..");
 const arguments_ = process.argv.slice(2);
+const overviewOnly = arguments_.includes("--overview-only");
 const outputDirectory = valueArgument(arguments_, "--output");
 const feedbackOnly = arguments_.includes("--feedback-only");
 const pollingOnly = arguments_.includes("--polling-only");
@@ -29,7 +30,7 @@ const managedPlaywrightPath =
 
 if (outputDirectory === null) {
   console.error(
-    "usage: npm run smoke -- --output <evidence-directory> [--feedback-only | --polling-only] [--commandagent-bin <path>] [--model <name>]",
+    "usage: npm run smoke -- --output <evidence-directory> [--overview-only | --feedback-only | --polling-only] [--commandagent-bin <path>] [--model <name>]",
   );
   process.exit(2);
 }
@@ -91,7 +92,13 @@ const report = {
     version: packageMetadata.version,
   },
   delegate: {
-    mode: feedbackOnly ? "feedback_only" : pollingOnly ? "polling_only" : "full_trial",
+    mode: overviewOnly
+      ? "overview_only"
+      : feedbackOnly
+        ? "feedback_only"
+        : pollingOnly
+          ? "polling_only"
+          : "full_trial",
     commandagent_bin: commandagentBin,
     provider: "ollama",
     model,
@@ -235,14 +242,44 @@ async function runCase(smokeCase) {
     const linksUseBasePath = internalLinks.every((link) => link.startsWith(expectedPrefix));
     const primaryNavigation = await page.locator(".sidebar .nav-link").allInnerTexts();
     const assetsLink = await page.locator("[data-testid='assets-link']").getAttribute("href");
-    const firstRunId = await page.evaluate(async () => {
+    const runIndex = await page.evaluate(async () => {
       const mapSource =
         document.querySelector("[data-testid='score-time-map']")?.getAttribute("src") ?? "";
       const apiRoot = mapSource.replace(/maps\/score-time\.svg$/, "");
       const result = await fetch(`${apiRoot}runs`);
-      const runs = await result.json();
-      return runs[0]?.id ?? "";
+      return result.json();
     });
+    const firstRunId = runIndex.runs[0]?.id ?? "";
+    const runCountText = await page.locator("[data-testid='run-count']").innerText();
+    const expectedRunCountText = `${Math.min(runIndex.runs.length, 8)} / ${runIndex.total}`;
+    const statusBadgeTexts = await page.locator(".status-badge").allInnerTexts();
+    const statusBadgesArePlainText = statusBadgeTexts.every(
+      (text) => !text.includes("**") && !text.includes("`"),
+    );
+    const dashboard = {
+      assets_link: assetsLink,
+      primary_navigation: primaryNavigation,
+      status: response?.status() ?? 0,
+      heading,
+      title: dashboardTitle,
+      run_count: runCountText,
+      expected_run_count: expectedRunCountText,
+      status_badges: statusBadgeTexts,
+      status_badges_are_plain_text: statusBadgesArePlainText,
+    };
+    const dashboardOk =
+      response?.status() === 200 &&
+      heading === "概要" &&
+      dashboardTitle === "概要 | CommandAgent" &&
+      map.complete &&
+      map.naturalWidth > 0 &&
+      apiChecks.every((check) => check.status === 200) &&
+      linksUseBasePath &&
+      JSON.stringify(primaryNavigation) ===
+        JSON.stringify(["01\n概要", "02\nトライアル", "03\n実行詳細", "04\n計測"]) &&
+      assetsLink === `${expectedPrefix}assets/` &&
+      runCountText === expectedRunCountText &&
+      statusBadgesArePlainText;
     const runLedgerAccessibility = await page.locator(".run-table").evaluate((ledger) => ({
       columnHeadingsHidden:
         ledger.querySelector(".run-table-head")?.getAttribute("aria-hidden") === "true",
@@ -253,11 +290,29 @@ async function runCase(smokeCase) {
         (row) => row.tagName === "A" && !row.hasAttribute("role"),
       ),
     }));
+    const dashboardAccessible =
+      runLedgerAccessibility.columnHeadingsHidden &&
+      runLedgerAccessibility.invalidTableRoleCount === 0 &&
+      runLedgerAccessibility.nativeLinkRows;
 
     await page.screenshot({
       fullPage: true,
       path: join(outputDirectory, `${smokeCase.id}-dashboard.png`),
     });
+    if (overviewOnly) {
+      return {
+        id: smokeCase.id,
+        base_path: smokeCase.buildBasePath,
+        dashboard,
+        api_checks: apiChecks,
+        svg: map,
+        links_use_base_path: linksUseBasePath,
+        run_ledger_accessibility: runLedgerAccessibility,
+        elapsed_seconds: (Date.now() - startedAt) / 1000,
+        unexpected_console_errors: consoleErrors,
+        ok: dashboardOk && dashboardAccessible && consoleErrors.length === 0,
+      };
+    }
     const assets = await probePage(
       page,
       server.origin,
@@ -622,18 +677,8 @@ async function runCase(smokeCase) {
     );
 
     const ok =
-      response?.status() === 200 &&
-      heading === "概要" &&
-      dashboardTitle === "概要 | CommandAgent" &&
-      map.complete &&
-      map.naturalWidth > 0 &&
-      apiChecks.every((check) => check.status === 200) &&
-      linksUseBasePath &&
-      JSON.stringify(primaryNavigation) === JSON.stringify(["01\n概要", "02\nトライアル", "03\n実行詳細", "04\n計測"]) &&
-      assetsLink === `${expectedPrefix}assets/` &&
-      runLedgerAccessibility.columnHeadingsHidden &&
-      runLedgerAccessibility.invalidTableRoleCount === 0 &&
-      runLedgerAccessibility.nativeLinkRows &&
+      dashboardOk &&
+      dashboardAccessible &&
       assets.status === 200 &&
       assets.headingMatches &&
       assets.titleMatches &&
@@ -717,13 +762,7 @@ async function runCase(smokeCase) {
     return {
       id: smokeCase.id,
       base_path: smokeCase.buildBasePath,
-      dashboard: {
-        assets_link: assetsLink,
-        heading,
-        primary_navigation: primaryNavigation,
-        status: response?.status() ?? 0,
-        title: dashboardTitle,
-      },
+      dashboard,
       api_checks: apiChecks,
       svg: map,
       links_use_base_path: linksUseBasePath,

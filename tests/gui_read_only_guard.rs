@@ -428,10 +428,47 @@ fn gui_style_and_run_ledger_accessibility_contracts_are_pinned() {
     ));
 
     let dashboard = std::fs::read_to_string("gui/app/page.tsx").unwrap();
-    assert!(dashboard.contains("<div className=\"run-table\">"));
-    assert!(dashboard.contains("<div className=\"run-table-head\" aria-hidden=\"true\">"));
+    for required in [
+        "<div className=\"run-table\">",
+        "<div className=\"run-table-head\" aria-hidden=\"true\">",
+        "useResource<RunIndex>(\"runs\")",
+        "data-testid=\"run-count\"",
+        "${recentRuns.length} / ${runs.data.total}",
+        "statusTone(run.state)",
+        "{run.status_text}",
+    ] {
+        assert!(
+            dashboard.contains(required),
+            "Overview run contract is missing {required:?}"
+        );
+    }
     assert!(!dashboard.contains("role=\"table\""));
     assert!(!dashboard.contains("role=\"row\""));
+
+    let types = std::fs::read_to_string("gui/lib/types.ts").unwrap();
+    for required in [
+        "export type RunIndex = {",
+        "status: string;",
+        "status_text: string;",
+        "state: RunState;",
+    ] {
+        assert!(
+            types.contains(required),
+            "RunIndex types are missing {required:?}"
+        );
+    }
+
+    let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
+    for required in [
+        "--overview-only",
+        "statusBadgesArePlainText",
+        "runCountText === expectedRunCountText",
+    ] {
+        assert!(
+            smoke.contains(required),
+            "Overview smoke is missing {required:?}"
+        );
+    }
 }
 
 #[test]

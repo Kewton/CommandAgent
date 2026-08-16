@@ -3,15 +3,12 @@
 import { Shell } from "../components/shell";
 import { EmptyState, ErrorState, LoadingState } from "../components/states";
 import { apiPath, routePath, withBasePath } from "../lib/base-path";
-import type { DocumentRecord, RunSummary } from "../lib/types";
+import type { DocumentRecord, RunIndex, RunState } from "../lib/types";
 import { useResource } from "../lib/use-resource";
 
-function statusTone(status: string): string {
-  const normalized = status.toLowerCase();
-  if (normalized.includes("pass") || normalized.includes("full") || normalized.includes("green")) {
-    return "positive";
-  }
-  if (normalized.includes("fail") || normalized.includes("block")) return "negative";
+function statusTone(state: RunState): string {
+  if (state === "pass") return "positive";
+  if (state === "fail") return "negative";
   return "neutral";
 }
 
@@ -36,10 +33,9 @@ function dateLabel(epochSeconds: number): string {
 }
 
 export default function DashboardPage() {
-  const runs = useResource<RunSummary[]>("runs");
+  const runs = useResource<RunIndex>("runs");
   const bands = useResource<DocumentRecord[]>("bands");
-  const recentRuns = runs.data?.slice(0, 8) ?? [];
-  const completed = recentRuns.filter((run) => statusTone(run.status) === "positive").length;
+  const recentRuns = runs.data?.runs.slice(0, 8) ?? [];
 
   return (
     <Shell
@@ -49,20 +45,10 @@ export default function DashboardPage() {
     >
       <section className="metric-strip" aria-label="リポジトリ概要">
         <div>
-          <span>表示できる実行</span>
-          <strong>{runs.data?.length ?? "—"}</strong>
-        </div>
-        <div>
-          <span>直近の成功</span>
-          <strong>{runs.data === null ? "—" : `${completed}/${recentRuns.length}`}</strong>
-        </div>
-        <div>
-          <span>正式なバンド</span>
-          <strong>{bands.data?.length ?? "—"}</strong>
-        </div>
-        <div>
-          <span>実行経路</span>
-          <strong className="accent-text">CLI のみ</strong>
+          <span>表示件数 / 総数</span>
+          <strong data-testid="run-count">
+            {runs.data === null ? "—" : `${recentRuns.length} / ${runs.data.total}`}
+          </strong>
         </div>
       </section>
 
@@ -125,7 +111,7 @@ export default function DashboardPage() {
         </header>
         {runs.loading && <LoadingState label="実行記録を索引化しています" />}
         {runs.error !== null && <ErrorState message={runs.error} />}
-        {runs.data?.length === 0 && <EmptyState message="実行ディレクトリが見つかりません。" />}
+        {runs.data?.runs.length === 0 && <EmptyState message="実行ディレクトリが見つかりません。" />}
         {recentRuns.length > 0 && (
           <div className="run-table">
             <div className="run-table-head" aria-hidden="true">
@@ -141,7 +127,7 @@ export default function DashboardPage() {
                 key={run.id}
               >
                 <strong>{run.id}</strong>
-                <span className={`status-badge ${statusTone(run.status)}`}>{run.status}</span>
+                <span className={`status-badge ${statusTone(run.state)}`}>{run.status_text}</span>
                 <time>{dateLabel(run.modified_epoch_seconds)}</time>
                 <span aria-hidden="true" className="row-arrow">↗</span>
               </a>

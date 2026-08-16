@@ -166,6 +166,58 @@ fn trial_options_match_admitted_profiles_without_trial_access() {
     server.stop();
 }
 
+#[cfg(unix)]
+#[test]
+fn run_index_reports_total_before_limit_and_normalized_status_state() {
+    let repository = tempfile::tempdir().unwrap();
+    let runs_root = repository.path().join("workspace/management/runs");
+    for index in 0..101 {
+        let run_root = runs_root.join(format!("run-{index:03}"));
+        std::fs::create_dir_all(&run_root).unwrap();
+        if index == 100 {
+            std::fs::write(
+                run_root.join("uat-report.md"),
+                "# Acceptance\n\nStatus: **FULL 3/3 (2026-08-03)**\n",
+            )
+            .unwrap();
+        }
+    }
+    let mut server = Server::start_dashboard_only_at_repository_root(repository.path());
+
+    let response = server.request_without_access("GET", "/api/runs", None);
+    assert_eq!(response.status, 200, "{}", response.body);
+    let index: serde_json::Value = serde_json::from_str(&response.body).unwrap();
+    assert_eq!(index["total"], 101);
+    let runs = index["runs"].as_array().unwrap();
+    assert_eq!(runs.len(), 100);
+    assert!(runs.iter().all(|run| run["id"] != "run-000"));
+
+    let summary = runs
+        .iter()
+        .find(|run| run["id"] == "run-100")
+        .unwrap_or_else(|| panic!("missing normalized fixture: {runs:?}"));
+    let fields = summary.as_object().unwrap();
+    for field in [
+        "id",
+        "modified_epoch_seconds",
+        "report_path",
+        "status",
+        "status_text",
+        "state",
+    ] {
+        assert!(fields.contains_key(field), "missing {field}: {summary}");
+    }
+    assert_eq!(fields.len(), 6, "unexpected RunSummary schema: {summary}");
+    assert_eq!(summary["status"], "FULL 3/3 (2026-08-03)");
+    assert_eq!(summary["status_text"], "FULL 3/3 (2026-08-03)");
+    assert_eq!(summary["state"], "pass");
+    assert_eq!(
+        summary["report_path"],
+        "workspace/management/runs/run-100/uat-report.md"
+    );
+    server.stop();
+}
+
 #[test]
 fn gui_server_requires_a_runtime_token_for_trial_execution() {
     let workspace = tempfile::tempdir().unwrap();
@@ -929,17 +981,44 @@ impl Server {
         )
     }
 
+    fn start_dashboard_only_at_repository_root(repository_root: &std::path::Path) -> Self {
+        let static_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/out");
+        Self::start_with_repository_root(
+            None,
+            std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+            false,
+            repository_root,
+            &static_root,
+        )
+    }
+
     fn start_with_workspace(
         workspace: Option<&std::path::Path>,
         cli: &std::path::Path,
         authenticated: bool,
         static_root: &std::path::Path,
     ) -> Self {
+        Self::start_with_repository_root(
+            workspace,
+            cli,
+            authenticated,
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")),
+            static_root,
+        )
+    }
+
+    fn start_with_repository_root(
+        workspace: Option<&std::path::Path>,
+        cli: &std::path::Path,
+        authenticated: bool,
+        repository_root: &std::path::Path,
+        static_root: &std::path::Path,
+    ) -> Self {
         let mut command = Command::new(env!("CARGO_BIN_EXE_gui_server"));
         command
             .args(["--port", "0", "--base-path", "/"])
             .arg("--repository-root")
-            .arg(env!("CARGO_MANIFEST_DIR"))
+            .arg(repository_root)
             .arg("--static-dir")
             .arg(static_root)
             .arg("--commandagent-bin")
