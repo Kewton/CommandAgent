@@ -9,6 +9,12 @@ import { useResource } from "../../lib/use-resource";
 
 type AssetTab = "packs" | "contracts" | "suites";
 
+const assetTabLabels: Record<AssetTab, string> = {
+  packs: "パック",
+  contracts: "契約",
+  suites: "計測スイート",
+};
+
 function assetTitle(document: DocumentRecord): string {
   return document.content.match(/^#\s+(.+)$/m)?.[1] ?? document.id;
 }
@@ -22,11 +28,10 @@ export default function AssetsPage() {
   return (
     <Shell
       active="assets"
-      eyebrow="03 / ADMITTED ASSETS"
-      title="Pinned means visible."
-      description="Packs, contracts, and suites are read from their admitted repository bytes. This surface has no editor."
+      title="アセット"
+      description="登録済みのパック・契約・計測スイートを読み取り専用で確認します。"
     >
-      <section className="asset-tabs" aria-label="Asset category">
+      <section className="asset-tabs" aria-label="アセット種別">
         {(["packs", "contracts", "suites"] as const).map((item, index) => (
           <button
             className={tab === item ? "active" : ""}
@@ -35,27 +40,27 @@ export default function AssetsPage() {
             type="button"
           >
             <span>0{index + 1}</span>
-            {item}
+            {assetTabLabels[item]}
           </button>
         ))}
       </section>
 
       {tab === "packs" && (
         <section className="asset-content">
-          {packs.loading && <LoadingState label="Reading pack pins" />}
+          {packs.loading && <LoadingState label="パックの固定情報を読み込んでいます" />}
           {packs.error !== null && <ErrorState message={packs.error} />}
-          {packs.data?.length === 0 && <EmptyState message="No pinned packs were found." />}
+          {packs.data?.length === 0 && <EmptyState message="固定済みパックが見つかりません。" />}
           <div className="pack-grid">
             {packs.data?.map((pack) => (
               <article className="pack-card" key={`${pack.id}-${pack.version}`}>
                 <header>
-                  <span>ADMITTED PACK</span>
+                  <span>登録済みパック</span>
                   <strong>{pack.version}</strong>
                 </header>
                 <h2>{pack.id}</h2>
                 <p>{pack.path}</p>
                 <div className="pin-block">
-                  <span>EXACT-BYTE PIN</span>
+                  <span>完全一致の固定値</span>
                   <code>{pack.pin}</code>
                 </div>
                 <footer>
@@ -73,7 +78,7 @@ export default function AssetsPage() {
           documents={contracts.data}
           error={contracts.error}
           loading={contracts.loading}
-          empty="No contract documents were found."
+          empty="契約文書が見つかりません。"
         />
       )}
 
@@ -82,7 +87,7 @@ export default function AssetsPage() {
           documents={suites.data}
           error={suites.error}
           loading={suites.loading}
-          empty="No measurement suites were found."
+          empty="計測スイートが見つかりません。"
         />
       )}
     </Shell>

@@ -23,7 +23,7 @@ import type {
 } from "../../lib/types";
 
 const initialSpec: SessionSpec = {
-  goal: "Create a CLI --pattern filter command",
+  goal: "--pattern で行を抽出する CLI コマンドを作成する",
   profile: "python-cli",
   provider: "ollama",
   model: "qwen3:8b",
@@ -118,7 +118,7 @@ export default function TrialRunPage() {
         setMonitor((current) => ({
           attempt,
           guidance: stop
-            ? `Monitoring stopped after ${attempt} attempts. ${failure.guidance}`
+            ? `${attempt} 回失敗したため監視を停止しました。${failure.guidance}`
             : failure.guidance,
           lastSuccessAt: current.lastSuccessAt,
           retryInMs: stop ? null : delay,
@@ -155,12 +155,12 @@ export default function TrialRunPage() {
   const priceDuration = useMemo(() => {
     const seconds = proposal?.price.average_duration_seconds;
     return seconds === null || seconds === undefined
-      ? "not recorded"
-      : `${(seconds / 60).toFixed(1)} min mean`;
+      ? "未記録"
+      : `平均 ${(seconds / 60).toFixed(1)} 分`;
   }, [proposal]);
   const priceCost = useMemo(() => {
     const cost = proposal?.price.average_cost_usd;
-    return cost === null || cost === undefined ? "not recorded" : `$${cost.toFixed(4)} mean`;
+    return cost === null || cost === undefined ? "未記録" : `平均 $${cost.toFixed(4)}`;
   }, [proposal]);
 
   function update<K extends keyof SessionSpec>(field: K, value: SessionSpec[K]) {
@@ -183,7 +183,7 @@ export default function TrialRunPage() {
 
   async function checkContract() {
     if (trialToken.trim() === "") {
-      setError("Enter the runtime Trial access token before checking the contract.");
+      setError("契約を確認する前に、実行時の Trial アクセストークンを入力してください。");
       return;
     }
     setBusy(true);
@@ -208,7 +208,7 @@ export default function TrialRunPage() {
 
   async function inspectWorkspaceLease() {
     if (trialToken.trim() === "") {
-      setError("Enter the runtime Trial access token before inspecting the workspace lease.");
+      setError("ワークスペースのリースを確認する前に、実行時の Trial アクセストークンを入力してください。");
       return;
     }
     setBusy(true);
@@ -224,7 +224,7 @@ export default function TrialRunPage() {
 
   async function launchConfirmed() {
     if (!confirmed || proposal === null) {
-      setError("Gate 1 must be explicitly confirmed before launch.");
+      setError("起動するには Gate 1 の明示的な確認が必要です。");
       return;
     }
     setBusy(true);
@@ -245,7 +245,7 @@ export default function TrialRunPage() {
             setReconnectSessionId(active);
             replaceSessionQuery(active);
             throw new Error(
-              `${detail}. Reconnect to session ${active} below; reconnect monitoring performs GET only.`,
+              `${detail}。下のセッション ${active} へ再接続してください。再接続の監視は GET のみを使用します。`,
             );
           }
         }
@@ -269,7 +269,7 @@ export default function TrialRunPage() {
   async function reconnectExisting() {
     const id = reconnectSessionId.trim();
     if (id === "" || trialToken.trim() === "") {
-      setError("Enter an existing session ID and the runtime Trial access token to reconnect.");
+      setError("再接続するセッション ID と実行時の Trial アクセストークンを入力してください。");
       return;
     }
     setBusy(true);
@@ -346,20 +346,19 @@ export default function TrialRunPage() {
   return (
     <Shell
       active="try"
-      eyebrow="02 / CONFIRMED TRIAL"
-      title="Launch once. Trust the gates."
-      description="The GUI confirms and launches. The existing CLI executes; filesystem events and acceptance artifacts remain authoritative."
+      title="トライアル"
+      description="契約と書き込み先を確認してから、既存の CLI 実行を開始・監視します。"
     >
       <section className="trial-layout">
         <div className="trial-compose panel">
           <header className="panel-heading">
             <div>
-              <span className="panel-index">GATE 1 / REQUEST</span>
-              <h2>Frozen launch identity</h2>
+              <span className="panel-index">GATE 1 / リクエスト</span>
+              <h2>固定された起動条件</h2>
             </div>
             <span className="gate-chip">{stageLabel(stage, session)}</span>
           </header>
-          <label htmlFor="trial-goal">Goal</label>
+          <label htmlFor="trial-goal">目標</label>
           <textarea
             data-testid="trial-goal"
             disabled={launchIdentityLocked}
@@ -368,7 +367,7 @@ export default function TrialRunPage() {
             rows={5}
             value={spec.goal}
           />
-          <label htmlFor="trial-token">Trial access token</label>
+          <label htmlFor="trial-token">Trial アクセストークン</label>
           <input
             autoComplete="off"
             autoCapitalize="none"
@@ -393,13 +392,13 @@ export default function TrialRunPage() {
             data-testid="workspace-lease-status"
           >
             <div>
-              <span>Workspace lease snapshot</span>
+              <span>ワークスペースのリース状態</span>
               <strong>{workspaceLeaseLabel(workspaceLease)}</strong>
             </div>
             {workspaceLease !== null && workspaceLease.status !== "idle" && (
               <code data-testid="workspace-lease-session">{workspaceLease.session_id}</code>
             )}
-            <p>Read-only inspection. This cannot clear the lease or dispatch a CLI process.</p>
+            <p>読み取り専用の確認です。リースの解除や CLI プロセスの起動は行いません。</p>
             <button
               className="secondary-action"
               data-testid="inspect-workspace-lease"
@@ -407,11 +406,11 @@ export default function TrialRunPage() {
               onClick={() => void inspectWorkspaceLease()}
               type="button"
             >
-              Inspect workspace lease
+              ワークスペースのリースを確認
             </button>
           </div>
           <div className="reconnect-card" data-testid="reconnect-card">
-            <label htmlFor="reconnect-session">Existing session ID</label>
+            <label htmlFor="reconnect-session">既存セッション ID</label>
             <div>
               <input
                 autoCapitalize="none"
@@ -429,14 +428,14 @@ export default function TrialRunPage() {
                 onClick={() => void reconnectExisting()}
                 type="button"
               >
-                Reconnect monitoring
+                監視を再接続
               </button>
             </div>
-            <small>GET only. This cannot dispatch another CLI process.</small>
+            <small>GET のみを使用し、別の CLI プロセスは起動しません。</small>
           </div>
           <div className="trial-fields">
             <label>
-              Profile
+              プロファイル
               <select
                 disabled={launchIdentityLocked}
                 value={spec.profile}
@@ -449,7 +448,7 @@ export default function TrialRunPage() {
               </select>
             </label>
             <label>
-              Provider
+              プロバイダー
               <select
                 disabled={launchIdentityLocked}
                 value={spec.provider}
@@ -462,7 +461,7 @@ export default function TrialRunPage() {
               </select>
             </label>
             <label>
-              Executor model
+              実行モデル
               <input
                 disabled={launchIdentityLocked}
                 value={spec.model}
@@ -470,7 +469,7 @@ export default function TrialRunPage() {
               />
             </label>
             <label>
-              Planner model
+              計画モデル
               <input
                 disabled={launchIdentityLocked}
                 value={spec.planner_model}
@@ -485,20 +484,20 @@ export default function TrialRunPage() {
             onClick={() => void checkContract()}
             type="button"
           >
-            Check contract and price
+            契約と価格を確認
           </button>
           {error !== null && <p className="trial-error" role="alert">{error}</p>}
         </div>
 
         <aside className="trial-rail">
           <div className={`rail-step ${stage !== "compose" ? "reached" : ""}`}>
-            <span>1</span><div><strong>Gate 1</strong><small>Human confirmation</small></div>
+            <span>1</span><div><strong>Gate 1</strong><small>人による確認</small></div>
           </div>
           <div className={`rail-step ${stage === "gate_2" || stage === "terminal" ? "reached" : ""}`}>
-            <span>2</span><div><strong>Execute</strong><small>Existing CLI only</small></div>
+            <span>2</span><div><strong>実行</strong><small>既存 CLI のみ</small></div>
           </div>
           <div className={`rail-step ${stage === "terminal" ? "reached" : ""}`}>
-            <span>3</span><div><strong>Gate 3 / 4</strong><small>Artifact verdict</small></div>
+            <span>3</span><div><strong>Gate 3 / 4</strong><small>成果物の判定</small></div>
           </div>
         </aside>
       </section>
@@ -506,7 +505,7 @@ export default function TrialRunPage() {
       {proposal !== null && (stage === "gate_1" || stage === "gate_2") && (
         <section className="gate-one-grid" data-testid="gate-one-card" ref={gateOneRef}>
           <article className="panel contract-card">
-            <span className="panel-index">CONTRACT</span>
+            <span className="panel-index">契約</span>
             <h2>{proposal.identity.profile} × {proposal.identity.intent} × {proposal.identity.task_family}</h2>
             <code>{proposal.identity.contract_ref}</code>
             <ul>
@@ -514,21 +513,21 @@ export default function TrialRunPage() {
             </ul>
             <p>{proposal.identity.full_meaning}</p>
             <div className="workspace-boundary" data-testid="trial-workspace">
-              <strong>Filesystem write boundary</strong>
+              <strong>ファイルシステムの書き込み境界</strong>
               <code>{proposal.identity.workspace}</code>
-              <p>The delegated CLI may create, modify, or delete content inside this directory.</p>
+              <p>委譲された CLI は、このディレクトリ内の内容を作成・変更・削除できます。</p>
             </div>
           </article>
           <article className="panel price-card">
-            <span className="panel-index">MEASURED PRICE TAG</span>
+            <span className="panel-index">計測済み価格</span>
             <div className="price-rate">
               <strong>{proposal.identity.band_rate}</strong>
               <span>{proposal.identity.band_full}/{proposal.identity.band_denominator} full</span>
             </div>
             <dl>
-              <div><dt>Mean duration</dt><dd>{priceDuration} · n={proposal.price.duration_n}</dd></div>
-              <div><dt>Mean cost</dt><dd>{priceCost} · n={proposal.price.cost_n}</dd></div>
-              <div><dt>Measurement</dt><dd>{proposal.identity.band_measurement}</dd></div>
+              <div><dt>平均所要時間</dt><dd>{priceDuration} · n={proposal.price.duration_n}</dd></div>
+              <div><dt>平均費用</dt><dd>{priceCost} · n={proposal.price.cost_n}</dd></div>
+              <div><dt>計測</dt><dd>{proposal.identity.band_measurement}</dd></div>
             </dl>
             <label className="confirm-check">
               <input
@@ -537,7 +536,7 @@ export default function TrialRunPage() {
                 onChange={(event) => setConfirmed(event.target.checked)}
                 type="checkbox"
               />
-              I confirm this exact contract, model pin, measured value tag, and displayed filesystem write boundary.
+              この契約、モデル固定値、計測値、表示された書き込み境界を確認しました。
             </label>
             <code className="hash-line">{proposal.card_hash}</code>
             <button
@@ -547,7 +546,7 @@ export default function TrialRunPage() {
               onClick={() => void launchConfirmed()}
               type="button"
             >
-              Confirm and delegate to CLI
+              確認して CLI に委譲
             </button>
           </article>
         </section>
@@ -556,9 +555,9 @@ export default function TrialRunPage() {
       {(stage === "gate_2" || stage === "terminal") && created !== null && (
         <section className="panel execution-panel" data-testid="session-progress" ref={executionRef}>
           <header className="panel-heading">
-            <div><span className="panel-index">GATE 2 / FILE-BACKED PROGRESS</span><h2>{created.id}</h2></div>
+            <div><span className="panel-index">GATE 2 / ファイルに基づく進行状況</span><h2>{created.id}</h2></div>
             <span className={`live-label ${monitor.status === "connected" ? "connected" : ""}`}>
-              <i /> execution: {session?.status ?? "starting"}
+              <i /> 実行: {session?.status ?? "starting"}
             </span>
           </header>
           <div
@@ -567,21 +566,21 @@ export default function TrialRunPage() {
             data-testid="monitor-state"
           >
             <div>
-              <strong>Monitoring: {monitor.status}</strong>
+              <strong>監視: {monitorLabel(monitor.status)}</strong>
               <span>
-                Last successful update: {formatLastSuccess(monitor.lastSuccessAt)}
+                最終更新成功: {formatLastSuccess(monitor.lastSuccessAt)}
               </span>
             </div>
             <small>
-              {monitor.summary ?? "Waiting for the next file-backed status update."}
+              {monitor.summary ?? "次のファイルベース状態更新を待っています。"}
               {monitor.retryInMs === null
                 ? ""
-                : ` Retry ${monitor.attempt} in ${(monitor.retryInMs / 1000).toFixed(2)}s.`}
+                : ` ${monitor.attempt} 回目の再試行まで ${(monitor.retryInMs / 1000).toFixed(2)} 秒。`}
             </small>
             {monitor.guidance !== null && <p>{monitor.guidance}</p>}
           </div>
           <div className="phase-list">
-            {session?.phases.length === 0 && <p>Waiting for the first CLI event…</p>}
+            {session?.phases.length === 0 && <p>最初の CLI イベントを待っています…</p>}
             {session?.phases.map((phase) => (
               <div className={`phase-row ${phase.status}`} key={`${phase.index}-${phase.id}`}>
                 <span>{String(phase.index).padStart(2, "0")}</span>
@@ -590,58 +589,58 @@ export default function TrialRunPage() {
               </div>
             ))}
           </div>
-          <footer><code>{session?.events_path ?? created.events_path}</code><span>{session?.event_count ?? 0} events</span></footer>
+          <footer><code>{session?.events_path ?? created.events_path}</code><span>{session?.event_count ?? 0} イベント</span></footer>
         </section>
       )}
 
       {stage === "terminal" && session !== null && (
         <section className="terminal-grid" data-testid="terminal-gate" ref={terminalRef}>
           <article className="panel verdict-card">
-            <span className="panel-index">{session.gate.toUpperCase()} / TERMINAL</span>
+            <span className="panel-index">{session.gate.toUpperCase()} / 終端</span>
             <h2>{session.verdict ?? session.status}</h2>
-            <p>Assurance: <strong>{session.assurance ?? "not recorded"}</strong></p>
-            <pre>{session.acceptance_sheet ?? "Terminal evidence is incomplete; no sheet was promoted."}</pre>
+            <p>保証: <strong>{session.assurance ?? "未記録"}</strong></p>
+            <pre>{session.acceptance_sheet ?? "終端証跡が不完全なため、受入シートは昇格されていません。"}</pre>
           </article>
           <aside className="panel next-action-card">
-            <span className="panel-index">NEXT ACTION / D-3d</span>
-            <h2>Boundary instruction</h2>
-            <p>Saved text is scrubbed and hashed. It cannot alter the frozen contract floor.</p>
+            <span className="panel-index">次の操作 / D-3d</span>
+            <h2>境界指示</h2>
+            <p>保存する文言は機密情報を除去してハッシュ化され、固定済みの契約下限は変更できません。</p>
             <textarea
               data-testid="directive-input"
               onChange={(event) => { setDirectiveText(event.target.value); setDirective(null); }}
-              placeholder="Add a post-terminal instruction…"
+              placeholder="終端後の指示を追加…"
               rows={4}
               value={directiveText}
             />
             <button className="secondary-action" disabled={busy || directive !== null || directiveText.trim() === ""} onClick={() => void persistDirective()} type="button">
-              Scrub and persist instruction
+              指示を除染して保存
             </button>
             {directive !== null && (
               <div className="directive-receipt" data-testid="directive-receipt">
                 <strong>{directive.scrubbed_directive}</strong>
                 <code>{directive.directive_hash}</code>
-                <small>{directive.issued_gate} · round {directive.directive_round}</small>
+                <small>{directive.issued_gate} · ラウンド {directive.directive_round}</small>
                 <button className="primary-action" disabled={busy} onClick={() => void confirmDirective()} type="button">
-                  Confirm D-3d continuation
+                  D-3d 継続を確認
                 </button>
               </div>
             )}
-            <button className="close-action" data-testid="close-session" onClick={() => setStage("closed")} type="button">End without another run</button>
+            <button className="close-action" data-testid="close-session" onClick={() => setStage("closed")} type="button">追加実行せず終了</button>
           </aside>
         </section>
       )}
 
       {stage === "closed" && (
         <section className="panel closed-card" data-testid="closed-session">
-          <span>SESSION CLOSED</span>
-          <h2>No further action was dispatched.</h2>
+          <span>セッション終了</span>
+          <h2>追加の操作は実行されていません。</h2>
           <button
             className="primary-action"
             data-testid="start-new-run"
             onClick={startNewRun}
             type="button"
           >
-            Start a new run
+            新しい実行を開始
           </button>
         </section>
       )}
@@ -650,11 +649,11 @@ export default function TrialRunPage() {
 }
 
 function stageLabel(stage: ScreenStage, session: PolledSession | null): string {
-  if (stage === "terminal") return session?.gate.toUpperCase() ?? "TERMINAL";
+  if (stage === "terminal") return session?.gate.toUpperCase() ?? "終端";
   if (stage === "gate_2") return "GATE 2";
-  if (stage === "gate_1") return "AWAITING CONFIRMATION";
-  if (stage === "closed") return "CLOSED";
-  return "DRAFT";
+  if (stage === "gate_1") return "確認待ち";
+  if (stage === "closed") return "終了";
+  return "下書き";
 }
 
 async function fetchSession(id: string, token: string): Promise<PolledSession> {
@@ -675,7 +674,7 @@ async function fetchSession(id: string, token: string): Promise<PolledSession> {
   } catch (reason) {
     throw {
       guidance:
-        "Monitoring received an invalid status response. Inspect the proxy response and existing session artifacts before reconnecting.",
+        "監視が不正な状態応答を受信しました。再接続する前に、プロキシ応答と既存セッションの成果物を確認してください。",
       summary: message(reason),
       terminal: true,
     } satisfies MonitorFailure;
@@ -708,8 +707,8 @@ function replaceSessionQuery(id: string) {
 }
 
 function formatLastSuccess(value: string | null): string {
-  if (value === null) return "not yet connected";
-  return new Intl.DateTimeFormat(undefined, {
+  if (value === null) return "未接続";
+  return new Intl.DateTimeFormat("ja-JP", {
     dateStyle: "medium",
     timeStyle: "medium",
   }).format(new Date(value));
@@ -726,14 +725,20 @@ async function apiError(response: Response): Promise<string> {
 }
 
 function message(reason: unknown): string {
-  return reason instanceof Error ? reason.message : "The trial request failed.";
+  return reason instanceof Error ? reason.message : "Trial リクエストに失敗しました。";
+}
+
+function monitorLabel(status: MonitorStatus): string {
+  if (status === "connected") return "接続中";
+  if (status === "degraded") return "不安定";
+  return "切断";
 }
 
 function workspaceLeaseLabel(lease: TrialWorkspaceLease | null): string {
-  if (lease === null) return "Not inspected";
-  if (lease.status === "recovery_required") return "Recovery required";
-  if (lease.status === "running") return "Running";
-  return "Idle";
+  if (lease === null) return "未確認";
+  if (lease.status === "recovery_required") return "復旧が必要";
+  if (lease.status === "running") return "実行中";
+  return "待機中";
 }
 
 async function fetchWorkspaceLease(token: string): Promise<TrialWorkspaceLease> {

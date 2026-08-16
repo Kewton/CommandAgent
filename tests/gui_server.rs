@@ -49,6 +49,11 @@ fn gui_server_disables_trial_without_an_execution_root() {
     let mut server = Server::start_dashboard_only();
     let dashboard = server.request_without_access("GET", "/", None);
     assert_eq!(dashboard.status, 200, "{}", dashboard.body);
+    let runtime = server.request_without_access("GET", "/api/runtime-status", None);
+    assert_eq!(runtime.status, 200, "{}", runtime.body);
+    let runtime: serde_json::Value = serde_json::from_str(&runtime.body).unwrap();
+    assert_eq!(runtime["trial_available"], false);
+    assert!(runtime["session"].is_null());
     let response =
         server.request_without_access("POST", "/api/session-proposals", Some(&session_spec()));
     assert_eq!(response.status, 503, "{}", response.body);
@@ -254,6 +259,11 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     );
     let direct_bytes = std::fs::read(&direct_events).unwrap();
     let mut server = Server::start(&workspace, &cli);
+    let idle = server.request_without_access("GET", "/api/runtime-status", None);
+    assert_eq!(idle.status, 200, "{}", idle.body);
+    let idle: serde_json::Value = serde_json::from_str(&idle.body).unwrap();
+    assert_eq!(idle["trial_available"], true);
+    assert!(idle["session"].is_null());
     let spec = serde_json::json!({
         "goal": "Create a CLI --pattern filter command",
         "profile": "python-cli",
@@ -302,6 +312,13 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     let id = created_json["id"].as_str().unwrap();
     let delegated_events = workspace.join(".anvil/runs").join(id).join("events.jsonl");
 
+    let running = server.request_without_access("GET", "/api/runtime-status", None);
+    assert_eq!(running.status, 200, "{}", running.body);
+    let running: serde_json::Value = serde_json::from_str(&running.body).unwrap();
+    assert_eq!(running["trial_available"], true);
+    assert_eq!(running["session"]["id"], id);
+    assert_eq!(running["session"]["state"], "running");
+
     let competing = server.request("POST", "/api/sessions", Some(&confirmed));
     assert_eq!(competing.status, 409, "{}", competing.body);
 
@@ -323,6 +340,11 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
             .unwrap()
             .contains("# D-3c acceptance sheet")
     );
+    let completed = server.request_without_access("GET", "/api/runtime-status", None);
+    assert_eq!(completed.status, 200, "{}", completed.body);
+    let completed: serde_json::Value = serde_json::from_str(&completed.body).unwrap();
+    assert_eq!(completed["trial_available"], true);
+    assert!(completed["session"].is_null());
 
     let credential = serde_json::json!({
         "directive": format!("use token={}", "a".repeat(24))

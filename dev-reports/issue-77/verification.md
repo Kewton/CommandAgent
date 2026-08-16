@@ -23,7 +23,6 @@
   both base-path cases are stored beside the smoke report.
 - The first sandboxed smoke attempt could not bind `127.0.0.1:0`; the exact
   command was rerun with approved localhost access and passed.
-
 ## Post-Issue #63/#66 integration verification
 
 The monitoring/reconnect and read-only/CLOSED lifecycle changes from current

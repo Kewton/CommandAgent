@@ -1526,6 +1526,14 @@ repair接続、予測ranking、品質母集団主張はNO-GO。有効Luna窓費�
 
 F-MAP-0（2026-08-04）: `band_aggregate.py --profile score-time-map`を稼働し、モデル×ユースケース族×構成を構成総所要・正式run全数平均到達スコアへ投影する正準Markdown/SVG（n<3非描画、final-only/checkpoint分離、成功1件あたり期待時間・費用併記）を新規生成物として確立した。
 
+GUI 言語・情報設計（Issue 76、2026-08-16）: 運用 GUI の文言は日本語固定とし、
+i18n 基盤や言語切替は導入しない。ページ冒頭はページ名と説明1行に圧縮し、モバイル
+ではページ名1行だけを表示する。ページごとに固有のタブタイトルを持たせ、Assets は
+主ナビから外して概要から参照する。装飾的な常時緑表示は廃止し、Trial 利用可否と
+workspace lease の `idle` / `running` / `recovery_required` を読み取り専用 API から
+投影する。内部イベント名、既存 API 識別子、profile/provider/status の保存値、`.anvil/`
+状態は変更しない。
+
 ## P2F-0 — 第4因子の第2通貨の初計測（2026-08-05）
 
 failed在庫44本のcensusから失敗クラス×開始スコア帯を固定seedで層別抽出した

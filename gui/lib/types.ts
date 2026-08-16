@@ -121,3 +121,11 @@ export type DirectiveProposal = {
   scrubbed_directive: string;
   confirmation_required: boolean;
 };
+
+export type RuntimeStatus = {
+  trial_available: boolean;
+  session: {
+    id: string;
+    state: "running" | "recovery_required";
+  } | null;
+};
