@@ -2,15 +2,12 @@
 
 ## Scope and predecessor compatibility
 
-The required Issue #63, #64, #66, and #67 commits were inspected before this
-design. They are verified sibling commits of this worktree's base rather than
-ancestors, so this patch does not copy their unrelated monitoring recovery,
-workspace-lease, lifecycle, or option-guidance UI. The polling policy will live
-in a new `gui/lib/trial-polling.ts` leaf so Issue #63's failure/reconnect policy
-can remain independent: transport failures use its retry backoff, while valid
-unchanged responses use this Issue's idle backoff. The status handler and tests
-are additive to the server changes in Issues #64 and #67, and no Issue #66
-lifecycle state is changed.
+The current Issue #63, #64, #66, #67, #68, #76, and #77 commits are integrated.
+The successful-response idle policy and Issue #63's transport-failure policy
+live together in `gui/lib/trial-monitor.ts`: transport failures retain their
+bounded retry classification, while valid unchanged 304 responses use the idle
+backoff without losing the last `PolledSession`. Workspace lease, lifecycle,
+phase projection, Japanese UI, and option-guidance behavior remain unchanged.
 
 ## Status validation
 
@@ -42,8 +39,8 @@ lifecycle state is changed.
 
 ## Static response caching
 
-- Return `public, max-age=31536000, immutable` only for files below
-  `_next/static/**`, whose exported Next.js names are content-addressed.
+- Return `public, max-age=31536000, immutable` only when the relative path
+  starts with `_next/static/`, whose exported Next.js names are content-addressed.
 - Keep `index.html` and all other static paths at `no-store`, preserving prompt
   discovery of new deployments and avoiding accidental long-lived caching of
   unhashed files.

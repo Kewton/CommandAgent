@@ -68,11 +68,8 @@ fn response_for(path: &Path, bytes: Vec<u8>) -> Response {
 }
 
 fn is_next_static(path: &Path) -> bool {
-    let components = path
-        .components()
-        .filter_map(|component| component.as_os_str().to_str())
-        .collect::<Vec<_>>();
-    components
-        .windows(2)
-        .any(|pair| pair == ["_next", "static"])
+    let mut components = path.components();
+    matches!(components.next(), Some(Component::Normal(value)) if value == "_next")
+        && matches!(components.next(), Some(Component::Normal(value)) if value == "static")
+        && components.next().is_some()
 }

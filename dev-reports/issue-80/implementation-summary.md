@@ -9,10 +9,12 @@
 - Kept the `PolledSession` payload unchanged at its original ten fields. A
   focused integration assertion compares the exact JSON key set, and
   `tests/gui_read_only_guard.rs` pins the TypeScript shape.
-- Added `gui/lib/trial-polling.ts` with a one-second changed-response interval
-  and exponential unchanged-response backoff capped at ten seconds. The Trial
-  page retains the last representation on 304, sends its ETag on the next GET,
-  and resets the backoff on every changed 200 response.
+- Extended `gui/lib/trial-monitor.ts` with a one-second changed-response
+  interval and exponential unchanged-response backoff capped at ten seconds.
+  The Trial page retains the last representation on 304, sends its ETag on the
+  next GET, resets idle backoff on changed 200 responses, and preserves Issue
+  #63's independently bounded transport-failure recovery in the same state
+  machine.
 - Changed static response caching so only `_next/static/**` receives
   `public, max-age=31536000, immutable`. Exported HTML and all other paths keep
   `Cache-Control: no-store`.
@@ -26,20 +28,18 @@
 
 ## Measured result
 
-The passing ten-minute smoke observed 58 status calls for the root deployment
-and 57 for `/proxy/commandagent/`, versus 801 at the former fixed interval.
+The final passing ten-minute smoke observed 60 status calls for both the root
+deployment and `/proxy/commandagent/`, versus 801 at the former fixed interval.
 Both cases sent the expected ETag on every conditional request and reduced
-request count by approximately 92.8%.
+request count by approximately 92.51%.
 
 ## Compatibility and scope
 
 - Event names, event bytes, `PolledSession`, and the live `.anvil/` namespace
   are unchanged. No corpus fixture update was required because no event,
   recovery, or corpus contract changed.
-- Required predecessor commits #63, #64, #66, and #67 were inspected as
-  non-ancestor sibling commits. Their unrelated UI behavior was not copied.
-  The new unchanged-response policy remains in a separate leaf module from
-  Issue #63's transport-failure/reconnect policy so both can be combined when
-  the dependency branches are integrated.
-- No pull request, merge, release, CommandMate action, or external issue state
-  was changed.
+- Required predecessor commits are integrated. The new unchanged-response
+  policy shares the existing `trial-monitor.ts` leaf with Issue #63 without
+  weakening failure/reconnect behavior.
+- No CommandMate process, release, historical evidence, or live `.anvil/`
+  runtime state was changed.

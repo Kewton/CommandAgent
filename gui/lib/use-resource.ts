@@ -33,7 +33,7 @@ export function useResource<T>(resource: string): ResourceState<T> {
         if (error instanceof DOMException && error.name === "AbortError") return;
         setState({
           data: null,
-          error: error instanceof Error ? error.message : "Unknown API error",
+          error: error instanceof Error ? error.message : "不明な API エラー",
           loading: false,
         });
       });
