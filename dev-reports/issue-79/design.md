@@ -13,13 +13,12 @@ This issue makes a security design decision only. It does not change the page,
 server, API, token format, Cloudflare policy, or static export. Implementation
 must be handled by a separate issue after this design is accepted.
 
-The listed predecessor commits for Issues 63, 64, 66-73, and 80 were inspected.
-All have passed verification and are parallel commits from this branch's
-current parent. Issue 63 is the relevant overlap: it permits a session ID in
-`?session=<id>` for reconnect but explicitly keeps the token out of URLs and
-browser storage. This decision changes only that memory-only storage rule; it
-preserves the token-free reconnect URL and composes with the other predecessor
-changes.
+The branch is integrated with current `develop` (`062386ff`), including Issues
+63, 64, 66-77, and 80. Issue 63 is the relevant overlap: it permits a session
+ID in `?session=<id>` for reconnect but explicitly keeps the token out of URLs
+and browser storage. This decision changes only the future memory-only storage
+rule; it preserves the token-free reconnect URL and composes with the other
+integrated predecessor behavior.
 
 ## Security assumptions and assets
 

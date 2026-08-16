@@ -75,8 +75,10 @@ class FirstLoopDocDriftTests(unittest.TestCase):
     def test_gate_examples_keep_every_required_user_decision_visible(self) -> None:
         text = GUIDE.read_text(encoding="utf-8")
         for marker in [
-            "# Gate 1 — Request confirmation",
-            "This card is a proposal, not an earned result.",
+            "# Gate 1 — 実行前の確認",
+            "## 必須チェック",
+            "確認 ID (内容が1つでも変わると ID も変わります)",
+            "これは提案であり、実行結果ではありません。",
             "Dispatching ingest × create × list.",
             "# Gate 3 — Acceptance",
             "## 1. Confirmed identity",

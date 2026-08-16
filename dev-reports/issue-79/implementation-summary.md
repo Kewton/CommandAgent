@@ -33,12 +33,11 @@ behavior tests and broad Rust/GUI checks are therefore deferred to the separate
 implementation issue and are not required for this documentation-only patch.
 
 After design acceptance and a duplicate search, the orchestrator created the
-required implementation follow-up as Issue #81:
+required implementation follow-up as Issue #81, which remains open:
 <https://github.com/Kewton/CommandAgent/issues/81>.
 
 ## Predecessors
 
-Issues 63, 64, 66, 67, 68, 69, 70, 71, 72, 73, and 80 were inspected at their
-committed branch heads. Every predecessor report records `passed`, and every
-commit is a parallel child of this branch's current `origin/develop` parent.
-No predecessor commit was merged or copied into this design-only branch.
+Current `develop` (`062386ff`) was integrated before final verification. This
+includes Issues 63, 64, 66-77, and 80; no predecessor production behavior was
+modified by the design-only Issue 79 patch.
