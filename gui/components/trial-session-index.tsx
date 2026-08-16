@@ -9,22 +9,20 @@ import type {
 } from "../lib/types";
 
 type TrialSessionIndexProps = {
-  lease: TrialWorkspaceLease | null;
+  accessToken: string;
   onLeaseChange: (lease: TrialWorkspaceLease | null) => void;
-  token: string;
 };
 
 export function TrialSessionIndexPanel({
-  lease,
+  accessToken,
   onLeaseChange,
-  token,
 }: TrialSessionIndexProps) {
   const [sessionIndex, setSessionIndex] = useState<TrialSessionIndex | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const trimmed = token.trim();
+    const trimmed = accessToken.trim();
     if (trimmed.length < 32) {
       setSessionIndex(null);
       setError(null);
@@ -48,17 +46,17 @@ export function TrialSessionIndexPanel({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [onLeaseChange, token]);
+  }, [accessToken, onLeaseChange]);
 
   async function refresh() {
-    if (token.trim() === "") {
-      setError("Enter the runtime Trial access token before refreshing sessions.");
+    if (accessToken.trim() === "") {
+      setError("セッションを更新する前に Trial アクセストークンを入力してください。");
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      const value = await fetchSessionIndex(token);
+      const value = await fetchSessionIndex(accessToken);
       setSessionIndex(value);
       onLeaseChange(value.lease);
     } catch (reason) {
@@ -72,30 +70,25 @@ export function TrialSessionIndexPanel({
     <section className="panel session-index" data-testid="trial-session-index">
       <header className="panel-heading">
         <div>
-          <span className="panel-index">EXECUTION ROOT / SESSIONS</span>
-          <h2>Trial history and workspace lease</h2>
+          <span className="panel-index">EXECUTION ROOT / セッション</span>
+          <h2>Trial セッション</h2>
         </div>
         <button
           className="secondary-action"
           data-testid="refresh-trial-sessions"
-          disabled={busy || token.trim() === ""}
+          disabled={busy || accessToken.trim() === ""}
           onClick={() => void refresh()}
           type="button"
         >
-          Refresh sessions
+          セッションを更新
         </button>
       </header>
-      <div className="lease-summary" data-testid="workspace-lease-status">
-        <span>Workspace lease</span>
-        <strong>{leaseLabel(lease)}</strong>
-        <small>Read-only snapshot; the server-side lease remains authoritative.</small>
-      </div>
       {error !== null && <p className="trial-error" role="alert">{error}</p>}
       {sessionIndex === null && error === null && (
-        <p className="session-index-empty">Enter the runtime Trial token to load this execution root.</p>
+        <p className="session-index-empty">Trial トークンを入力すると実行ルートを読み込みます。</p>
       )}
       {sessionIndex !== null && sessionIndex.sessions.length === 0 && (
-        <p className="session-index-empty">No confirmed Trial sessions were found.</p>
+        <p className="session-index-empty">確認済み Trial セッションはありません。</p>
       )}
       {sessionIndex !== null && sessionIndex.sessions.length > 0 && (
         <ol className="session-list">
@@ -103,11 +96,14 @@ export function TrialSessionIndexPanel({
             <li key={session.id}>
               <div>
                 <code>{session.id}</code>
-                <time>{sessionTime(session.modified_epoch_seconds)}</time>
+                <time>開始: {sessionTime(session.started_epoch_seconds)}</time>
+                <time>最終更新: {sessionTime(session.modified_epoch_seconds)}</time>
               </div>
-              <span className={`session-status ${session.status}`}>{session.status}</span>
+              <span className={`session-status ${session.status}`}>
+                {session.gate ?? "unknown"} / {session.status}
+              </span>
               <a data-testid="session-reconnect-link" href={sessionLink(session.id)}>
-                Reconnect
+                再接続
               </a>
             </li>
           ))}
@@ -127,18 +123,12 @@ async function fetchSessionIndex(token: string): Promise<TrialSessionIndex> {
   return (await response.json()) as TrialSessionIndex;
 }
 
-function leaseLabel(lease: TrialWorkspaceLease | null): string {
-  if (lease === null) return "not loaded";
-  if (lease.status === "idle") return "idle";
-  return `${lease.status}(${lease.session_id})`;
-}
-
 function sessionLink(id: string): string {
   return `?session=${encodeURIComponent(id)}`;
 }
 
 function sessionTime(epochSeconds: number): string {
-  if (epochSeconds <= 0) return "time not recorded";
+  if (epochSeconds <= 0) return "未記録";
   return new Date(epochSeconds * 1_000).toISOString();
 }
 
@@ -153,5 +143,5 @@ async function apiError(response: Response): Promise<string> {
 }
 
 function message(reason: unknown): string {
-  return reason instanceof Error ? reason.message : "The session index request failed.";
+  return reason instanceof Error ? reason.message : "セッション一覧の取得に失敗しました。";
 }
