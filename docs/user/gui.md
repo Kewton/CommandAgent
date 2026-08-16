@@ -111,19 +111,24 @@ delegated CLI uses its default `--lm-studio-host http://localhost:1234` and
 inherits `LM_STUDIO_API_TOKEN` from the GUI server environment when LM Studio
 authentication is enabled.
 
-1. Enter the runtime Trial token, then select **Check contract and price**.
-   Gate 1 shows the frozen contract checks, full rate and sample count, any
-   recorded mean duration/cost, and the canonical filesystem write boundary.
+1. Enter the runtime Trial token, then select **契約と見積りを確認**.
+   Gate 1 renders the server-provided `card_markdown`. It explains each
+   required check, including Python CLI C1-C4, and states the comparable runs
+   that passed every check instead of exposing only the internal rate/window
+   labels. Recorded mean duration/cost and the canonical filesystem write
+   boundary remain visible beside the card.
 2. Select the confirmation checkbox. The launch button stays disabled until
    this explicit confirmation, and the API independently requires the exact
    card hash.
-3. Select **Confirm and delegate to CLI**. The server starts the existing
+3. Select **確認して CLI を実行**. The server starts the existing
    non-interactive boundary command. Progress is reconstructed by reading that
    session's JSONL events; there is no GUI state database.
-4. At Gate 3 or Gate 4, inspect the generated acceptance sheet. You may end
-   without another run, or persist an additional D-3d instruction. A D-3d
-   instruction is credential-scrubbed, exact-byte hashed, displayed, and must
-   be confirmed before the existing continuation path is delegated.
+4. At Gate 3 or Gate 4, the Terminal heading says whether every required check
+   passed; an assurance identifier such as `static` is translated into a
+   separate evidence-coverage explanation. You may end without another run,
+   or select **追加の依頼を確認用に準備**. The existing D-3d instruction is
+   credential-scrubbed, exact-byte hashed, displayed, and must be confirmed
+   before the existing continuation path is delegated.
 
 There is no cancel, interrupt, phase-edit, or gate-override control while a
 session is running. Use the existing CLI/runtime operating procedures for

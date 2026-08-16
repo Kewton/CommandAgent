@@ -1106,6 +1106,29 @@ button {
   letter-spacing: -0.025em;
 }
 
+.gate-card-markdown > h2 {
+  margin-top: 0;
+}
+
+.gate-card-markdown h3 {
+  margin: 1.25rem 0 0.55rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.gate-card-markdown ul {
+  margin: 0;
+}
+
+.gate-card-markdown p {
+  margin: 0.8rem 0 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+  line-height: 1.6;
+}
+
 .contract-card code,
 .hash-line,
 .directive-receipt code,
@@ -1156,26 +1179,25 @@ button {
   line-height: 1.5;
 }
 
-.price-rate {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  margin: 0.9rem 0;
-  padding-bottom: 0.85rem;
-  border-bottom: 1px solid var(--line);
+.confirmation-id {
+  display: grid;
+  gap: 0.45rem;
+  margin: 1rem 0;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
 }
 
-.price-rate strong {
-  color: var(--accent);
-  font-size: clamp(2rem, 4vw, 3.2rem);
-  font-weight: 720;
-  line-height: 0.9;
-  letter-spacing: -0.05em;
+.confirmation-id strong {
+  font-size: 0.68rem;
 }
 
-.price-rate span {
+.confirmation-id p {
+  margin: 0;
   color: var(--muted);
   font-size: 0.68rem;
+  line-height: 1.5;
 }
 
 .price-card dl {

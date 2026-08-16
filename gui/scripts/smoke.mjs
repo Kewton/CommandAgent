@@ -199,9 +199,23 @@ async function runCase(smokeCase) {
     await modelInputs.nth(1).fill(model);
     await page.locator("[data-testid='check-contract']").click();
     await page.locator("[data-testid='gate-one-card']").waitFor();
+    const cardMarkdown = page.locator("[data-testid='gate-one-card-markdown']");
+    await cardMarkdown.waitFor();
     const launch = page.locator("[data-testid='launch-session']");
     const launchDisabledBeforeConfirmation = await launch.isDisabled();
     const gateOneText = await page.locator("[data-testid='gate-one-card']").innerText();
+    const cardMarkdownText = await cardMarkdown.innerText();
+    const gateOneCopyIsPlain = [
+      "Gate 1 — 実行前の確認",
+      "必須チェック",
+      "C1 — 実行動作",
+      "C2 — ヘルプの正確さ",
+      "C3 — 出力の正確さ",
+      "C4 — 再現性",
+      "全必須チェックに合格した実行: 3件中0件 (0%)",
+    ].every((expected) => cardMarkdownText.includes(expected)) &&
+      gateOneText.includes("時間と費用の目安") &&
+      !gateOneText.includes("MEASURED PRICE TAG");
     const deniedWithoutConfirmation = await page.evaluate(
       async ({ apiUrl, modelName, trialToken }) => {
         const result = await fetch(apiUrl, {
@@ -254,6 +268,14 @@ async function runCase(smokeCase) {
       },
     );
     const terminalText = await page.locator("[data-testid='terminal-gate']").innerText();
+    const terminalHeading = await page
+      .locator("[data-testid='terminal-result-heading']")
+      .innerText();
+    const expectedTerminalHeading = finalApi.body.gate === "gate_3"
+      ? "すべての必須チェックに合格しました"
+      : "すべての必須チェックには合格していません";
+    const terminalHeadingIsPlain = terminalHeading === expectedTerminalHeading &&
+      terminalHeading !== finalApi.body.assurance;
     await page.screenshot({
       fullPage: true,
       path: join(outputDirectory, `${smokeCase.id}-gate-terminal.png`),
@@ -296,9 +318,11 @@ async function runCase(smokeCase) {
       runDetail.headingMatches &&
       trialResponse?.status() === 200 &&
       launchDisabledBeforeConfirmation &&
+      gateOneCopyIsPlain &&
       deniedWithoutConfirmation.status === 428 &&
       finalApi.status === 200 &&
       ["gate_3", "gate_4"].includes(finalApi.body.gate) &&
+      terminalHeadingIsPlain &&
       expectedNegativeConsoleErrors.length === 1 &&
       unexpectedConsoleErrors.length === 0;
     return {
@@ -310,6 +334,8 @@ async function runCase(smokeCase) {
       links_use_base_path: linksUseBasePath,
       pages: { assets, measurements, run_detail: runDetail, trial: { status: trialResponse?.status() ?? 0 } },
       gate_1: {
+        card_markdown_visible_text: cardMarkdownText,
+        copy_is_plain_japanese: gateOneCopyIsPlain,
         launch_disabled_before_confirmation: launchDisabledBeforeConfirmation,
         api_without_confirmation_status: deniedWithoutConfirmation.status,
         visible_text: gateOneText,
@@ -322,6 +348,8 @@ async function runCase(smokeCase) {
         assurance: finalApi.body.assurance,
         event_count: finalApi.body.event_count,
         events_sha256: `sha256:${createHash("sha256").update(eventBytes).digest("hex")}`,
+        terminal_heading: terminalHeading,
+        terminal_heading_is_plain_japanese: terminalHeadingIsPlain,
         terminal_visible_text: terminalText,
       },
       elapsed_seconds: (Date.now() - startedAt) / 1000,

@@ -187,6 +187,22 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     assert_eq!(proposal.status, 200, "{}", proposal.body);
     let proposal_json: serde_json::Value = serde_json::from_str(&proposal.body).unwrap();
     let card_hash = proposal_json["card_hash"].as_str().unwrap();
+    assert_eq!(proposal_json["confirmation_required"], true);
+    assert_eq!(
+        proposal_json["identity"]["contract_checks"],
+        serde_json::json!(["C1", "C2", "C3", "C4"])
+    );
+    let card_markdown = proposal_json["card_markdown"].as_str().unwrap();
+    for expected in [
+        "# Gate 1 — 実行前の確認",
+        "C1 — 実行動作",
+        "C2 — ヘルプの正確さ",
+        "C3 — 出力の正確さ",
+        "C4 — 再現性",
+        card_hash,
+    ] {
+        assert!(card_markdown.contains(expected), "{card_markdown}");
+    }
     assert_eq!(proposal_json["price"]["duration_n"], 3);
     assert_eq!(proposal_json["price"]["cost_n"], 0);
     assert_eq!(

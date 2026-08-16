@@ -29,6 +29,17 @@ All evidence is anchored in execution observations, not prose or source text.
   execution (the E2 claims-binding sibling).
 - C4 rerun consistency (reuse E3).
 
+Gate 1 の GUI カードでは ID を変えず、次の説明を併記する。
+
+- C1 — 実行動作: 通常のコマンドは成功し、不正な入力はエラーになる。
+- C2 — ヘルプの正確さ: `--help` と実際に受け付けるオプション・引数が
+  一致する。
+- C3 — 出力の正確さ: README の例や説明が実際のコマンド出力と一致する。
+- C4 — 再現性: 同じケースを再実行しても同じ結果になる。
+
+これらは確認者向けの説明であり、C1〜C4 の ID、判定条件、必須証跡を
+置き換えたり緩和したりしない。
+
 ## 4. Assurance
 
 - `full`: C1–C4 all succeed.

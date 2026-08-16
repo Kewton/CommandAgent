@@ -142,16 +142,20 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "if (!confirmed || proposal === null)",
         "\"x-commandagent-trial-authorization\": `Bearer ${token.trim()}`",
         "confirmation_hash: proposal.card_hash",
+        "<GateCardMarkdown markdown={proposal.card_markdown} />",
         "data-testid=\"trial-workspace\"",
         "proposal.identity.workspace",
-        "may create, modify, or delete content inside this directory",
+        "このディレクトリ内の内容だけを作成・変更・削除できます",
         "<option value=\"lm-studio\">LM Studio</option>",
         "window.matchMedia(\"(max-width: 720px)\")",
         "target.scrollIntoView({ behavior: \"smooth\", block: \"start\" })",
         "Enter the runtime Trial access token before checking the contract.",
         "disabled={!confirmed || busy || stage === \"gate_2\"}",
-        "Confirm and delegate to CLI",
-        "Confirm D-3d continuation",
+        "確認して CLI を実行",
+        "確認して追加の依頼を実行",
+        "data-testid=\"terminal-result-heading\"",
+        "terminalHeading(session)",
+        "assuranceSummary(session.assurance)",
         "End without another run",
     ] {
         assert!(
@@ -175,6 +179,37 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
             "trial UI exposes forbidden intervention control {forbidden:?}"
         );
     }
+
+    for internal_copy in [
+        "Frozen launch identity",
+        "MEASURED PRICE TAG",
+        "NEXT ACTION / D-3d",
+        "Boundary instruction",
+        "Scrub and persist instruction",
+        "session.verdict ?? session.status",
+    ] {
+        assert!(
+            !source.contains(internal_copy),
+            "trial UI still exposes internal copy {internal_copy:?}"
+        );
+    }
+
+    let markdown = std::fs::read_to_string("gui/components/gate-card-markdown.tsx").unwrap();
+    for required in [
+        "data-testid=\"gate-one-card-markdown\"",
+        "parseGateCard(markdown)",
+        "<h2 key={index}>{block.text}</h2>",
+        "<h3 key={index}>{block.text}</h3>",
+    ] {
+        assert!(
+            markdown.contains(required),
+            "Gate 1 markdown renderer is missing {required:?}"
+        );
+    }
+    assert!(
+        !markdown.contains("dangerouslySetInnerHTML"),
+        "Gate 1 markdown must stay escaped by React"
+    );
 }
 
 #[test]
