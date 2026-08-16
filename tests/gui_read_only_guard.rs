@@ -149,10 +149,14 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "window.matchMedia(\"(max-width: 720px)\")",
         "target.scrollIntoView({ behavior: \"smooth\", block: \"start\" })",
         "Enter the runtime Trial access token before checking the contract.",
+        "stage === \"gate_2\" || stage === \"terminal\" || stage === \"closed\"",
+        "disabled={busy || launchIdentityLocked}",
         "disabled={!confirmed || busy || stage === \"gate_2\"}",
         "Confirm and delegate to CLI",
         "Confirm D-3d continuation",
         "End without another run",
+        "data-testid=\"start-new-run\"",
+        "Start a new run",
     ] {
         assert!(
             source.contains(required),
@@ -163,6 +167,26 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         !source.contains("disabled={trialToken === \"\""),
         "Trial token guidance must not be hidden behind a disabled button"
     );
+    assert_eq!(
+        source.matches("disabled={launchIdentityLocked}").count(),
+        6,
+        "every launch identity control must share the run-stage lock"
+    );
+    for reset in [
+        "setProposal(null)",
+        "setConfirmed(false)",
+        "setCreated(null)",
+        "setSession(null)",
+        "setDirectiveText(\"\")",
+        "setDirective(null)",
+        "setError(null)",
+        "setStage(\"compose\")",
+    ] {
+        assert!(
+            source.contains(reset),
+            "new-run transition is missing reset {reset:?}"
+        );
+    }
     for forbidden in [
         "Cancel session",
         "Interrupt session",
@@ -173,6 +197,87 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         assert!(
             !source.contains(forbidden),
             "trial UI exposes forbidden intervention control {forbidden:?}"
+        );
+    }
+}
+
+#[test]
+fn gui_style_and_run_ledger_accessibility_contracts_are_pinned() {
+    let styles = std::fs::read_to_string("gui/app/globals.css").unwrap();
+    assert_eq!(
+        styles.matches(".trial-compose > input,").count(),
+        2,
+        "desktop and mobile Trial insets must include the token input"
+    );
+    assert!(styles.contains(
+        ".trial-compose > textarea,\n.trial-compose > input {\n  width: calc(100% - 2.5rem);"
+    ));
+    assert!(styles.contains(
+        ".trial-compose > textarea,\n  .trial-compose > input {\n    width: calc(100% - 2rem);"
+    ));
+    assert!(styles.contains(
+        ".gate-one-grid,\n  .execution-panel,\n  .terminal-grid {\n    scroll-margin-top: 4.5rem;"
+    ));
+
+    let dashboard = std::fs::read_to_string("gui/app/page.tsx").unwrap();
+    assert!(dashboard.contains("<div className=\"run-table\">"));
+    assert!(dashboard.contains("<div className=\"run-table-head\" aria-hidden=\"true\">"));
+    assert!(!dashboard.contains("role=\"table\""));
+    assert!(!dashboard.contains("role=\"row\""));
+}
+
+#[test]
+fn trial_monitor_retries_and_reconnects_without_persisting_access() {
+    let page = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
+    for required in [
+        "redirect: \"manual\"",
+        "response.type === \"opaqueredirect\"",
+        "data-testid=\"monitor-state\"",
+        "Last successful update:",
+        "Reconnect monitoring",
+        "GET only. This cannot dispatch another CLI process.",
+        "new URLSearchParams(window.location.search).get(\"session\")",
+        "url.searchParams.set(\"session\", id)",
+        "sessionIdFromConflict(detail)",
+    ] {
+        assert!(
+            page.contains(required),
+            "trial monitoring UI is missing {required:?}"
+        );
+    }
+    for forbidden in ["localStorage", "sessionStorage", "trialToken=", "token="] {
+        assert!(
+            !page.contains(forbidden),
+            "trial UI persists or exposes access through {forbidden:?}"
+        );
+    }
+
+    let policy = std::fs::read_to_string("gui/lib/trial-monitor.ts").unwrap();
+    for required in [
+        "const MAX_BACKOFF_MS = 12_000",
+        "export const TERMINAL_FAILURE_LIMIT = 4",
+        "Math.min(POLL_INTERVAL_MS * 2 ** exponent, MAX_BACKOFF_MS)",
+        "response.status === 401 || response.status === 403",
+        "response.status === 413 || invalidJsonl",
+        "proxy or network connection",
+    ] {
+        assert!(
+            policy.contains(required),
+            "trial monitoring policy is missing {required:?}"
+        );
+    }
+
+    let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
+    for required in [
+        "Synthetic browser fetch rejection",
+        "return \"opaqueredirect\"",
+        "reconnectMethods.every((method) => method === \"GET\")",
+        "tokenStayedInMemory",
+        "probeMobile(browser",
+    ] {
+        assert!(
+            smoke.contains(required),
+            "browser smoke is missing {required:?}"
         );
     }
 }

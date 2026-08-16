@@ -35,3 +35,29 @@ execution root still reads `idle`, and installing the valid fixture binary at
 that path makes the next confirmed Trial return HTTP 202. The recovery snapshot
 test asserts an unauthenticated GET is rejected and an authenticated GET returns
 `recovery_required` with the exact unfinished session ID.
+
+## Post-Issue #63/#66/#77 integration verification
+
+Current `develop` was merged while preserving both the read-only workspace
+lease projection and the monitoring/reconnect/read-only accessibility
+contracts. A 409 now refreshes the lease snapshot and, when a session ID is
+available, prepares the GET-only reconnect path.
+
+- `git diff --check`: `passed`
+- `node --check gui/scripts/smoke.mjs`: `passed`
+- `npm run typecheck` (from `gui/`): `passed`
+- `npm run lint` (from `gui/`): `passed`
+- `npm run build` (from `gui/`): `passed`
+- `GUI_BASE_PATH=/proxy/commandagent/ npm run build` (from `gui/`): `passed`
+- `cargo test --test gui_read_only_guard`: `passed` (9 tests)
+- `cargo test --features gui --test gui_server`: `passed` (9 tests)
+- `cargo fmt --all -- --check`: `passed`
+- `cargo clippy --features gui --all-targets -- -D warnings`: `passed`
+- `cargo clippy --all-targets -- -D warnings`: `passed`
+- `cargo test`: `passed`
+
+The focused server suite again verified that spawn failure names the binary and
+OS cause, releases the lease, allows a subsequent launch in the same execution
+root, and exposes an unfinished session only through the authenticated
+read-only `recovery_required` projection. The combined GUI guard pinned lease,
+monitoring, accessibility, and delegation boundaries together.
