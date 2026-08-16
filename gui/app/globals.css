@@ -709,6 +709,36 @@ button {
   white-space: nowrap;
 }
 
+.document-viewer-actions {
+  display: flex;
+  min-width: 0;
+  max-width: 62%;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.document-viewer-actions code {
+  min-width: 0;
+  max-width: none;
+}
+
+.document-wrap-toggle {
+  flex: 0 0 auto;
+  min-height: 2.15rem;
+  padding: 0 0.7rem;
+  border: 1px solid var(--line-bright);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted-strong);
+  font: 600 0.64rem/1 var(--mono);
+}
+
+.document-wrap-toggle[aria-pressed="true"] {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+
 .document-viewer pre,
 .document-card pre {
   max-height: 68vh;
@@ -719,8 +749,17 @@ button {
   color: #dbeafe;
   font: 0.72rem/1.7 var(--mono);
   tab-size: 2;
+}
+
+.document-content--wrapped,
+.document-card pre {
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.document-content--unwrapped {
+  white-space: pre;
+  word-break: normal;
 }
 
 .document-empty {
@@ -924,6 +963,18 @@ button {
   color: var(--muted);
   font-size: 0.8rem;
   line-height: 1.6;
+}
+
+.map-source-link {
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.map-source-link:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+  text-underline-offset: 0.2rem;
 }
 
 .map-frame.compact {
@@ -1655,6 +1706,20 @@ button {
 
   .document-viewer header code {
     max-width: 100%;
+  }
+
+  .document-viewer-actions {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .measure-map .map-frame {
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
+  }
+
+  .measure-map .map-frame img {
+    min-width: 70rem;
   }
 
   .asset-tabs button {

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { DocumentViewer } from "../../components/document-viewer";
 import { Shell } from "../../components/shell";
-import { EmptyState, ErrorState, LoadingState } from "../../components/states";
+import { ErrorState, LoadingState } from "../../components/states";
 import { apiPath, routePath, withBasePath } from "../../lib/base-path";
 import type { DocumentRecord, RunDetail, RunSummary } from "../../lib/types";
 import { useResource } from "../../lib/use-resource";
@@ -12,6 +12,14 @@ import { useResource } from "../../lib/use-resource";
 function byteLabel(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   return `${(bytes / 1024).toFixed(1)} KiB`;
+}
+
+function dateLabel(epochSeconds: number): string {
+  if (epochSeconds === 0) return "time unavailable";
+  return new Intl.DateTimeFormat("ja-JP", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(epochSeconds * 1000));
 }
 
 export default function RunDetailPage() {
@@ -91,7 +99,7 @@ export default function RunDetailPage() {
             <option value="">Choose a run…</option>
             {runs.data?.map((run) => (
               <option key={run.id} value={run.id}>
-                {run.id}
+                {dateLabel(run.modified_epoch_seconds)} — {run.id}
               </option>
             ))}
           </select>
@@ -131,7 +139,7 @@ export default function RunDetailPage() {
           {loading && <LoadingState label="Reading immutable evidence" />}
           {error !== null && <ErrorState message={error} />}
           {!loading && error === null && runId === "" && (
-            <EmptyState message="Choose a run from the ledger to begin inspection." />
+            <DocumentViewer document={null} empty="Choose a run from the ledger to begin inspection." />
           )}
           {!loading && error === null && runId !== "" && (
             <DocumentViewer document={selected ?? acceptance} empty="No acceptance record was found." />

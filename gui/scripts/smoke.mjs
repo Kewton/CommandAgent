@@ -10,6 +10,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const guiRoot = resolve(scriptDirectory, "..");
 const repositoryRoot = resolve(guiRoot, "..");
 const arguments_ = process.argv.slice(2);
+const readOnly = arguments_.includes("--read-only");
 const outputDirectory = valueArgument(arguments_, "--output");
 const commandagentBin = resolve(
   valueArgument(arguments_, "--commandagent-bin") ?? join(repositoryRoot, "target/release/commandagent"),
@@ -27,7 +28,7 @@ const managedPlaywrightPath =
 
 if (outputDirectory === null) {
   console.error(
-    "usage: npm run smoke -- --output <evidence-directory> [--commandagent-bin <path>] [--model <name>]",
+    "usage: npm run smoke -- --output <evidence-directory> [--read-only] [--commandagent-bin <path>] [--model <name>]",
   );
   process.exit(2);
 }
@@ -83,6 +84,7 @@ const report = {
     version: packageMetadata.version,
   },
   delegate: {
+    mode: readOnly ? "read_only" : "full_trial",
     commandagent_bin: commandagentBin,
     provider: "ollama",
     model,
@@ -154,13 +156,13 @@ async function runCase(smokeCase) {
     );
     const expectedPrefix = smokeCase.serverBasePath === "/" ? "/" : `${smokeCase.serverBasePath}/`;
     const linksUseBasePath = internalLinks.every((link) => link.startsWith(expectedPrefix));
-    const firstRunId = await page.evaluate(async () => {
+    const runSummaries = await page.evaluate(async () => {
       const mapSource =
         document.querySelector("[data-testid='score-time-map']")?.getAttribute("src") ?? "";
       const apiRoot = mapSource.replace(/maps\/score-time\.svg$/, "");
       const result = await fetch(`${apiRoot}runs`);
-      const runs = await result.json();
-      return runs[0]?.id ?? "";
+      const payload = await result.json();
+      return Array.isArray(payload) ? payload : payload.runs;
     });
 
     await page.screenshot({
@@ -174,21 +176,42 @@ async function runCase(smokeCase) {
       "assets/",
       "Pinned means visible.",
     );
-    const measurements = await probePage(
+    const readOnlyUi = await probeReadOnlyUi(
       page,
       server.origin,
       smokeCase.serverBasePath,
-      "measurements/",
-      "Claims need coordinates.",
+      runSummaries,
+      smokeCase.id,
     );
-    const runDetail = await probePage(
-      page,
-      server.origin,
-      smokeCase.serverBasePath,
-      `runs/?id=${encodeURIComponent(firstRunId)}`,
-      "One run. Every receipt.",
-    );
-    await page.locator(".document-viewer").waitFor();
+    const measurements = readOnlyUi.pages.measurements;
+    const runDetail = readOnlyUi.pages.run_detail;
+    const readOnlyOk =
+      response?.status() === 200 &&
+      heading === "Evidence, at a glance." &&
+      map.complete &&
+      map.naturalWidth > 0 &&
+      apiChecks.every((check) => check.status === 200) &&
+      linksUseBasePath &&
+      assets.status === 200 &&
+      assets.headingMatches &&
+      readOnlyUi.ok &&
+      consoleErrors.length === 0;
+
+    if (readOnly) {
+      return {
+        id: smokeCase.id,
+        base_path: smokeCase.buildBasePath,
+        dashboard: { status: response?.status() ?? 0, heading },
+        api_checks: apiChecks,
+        svg: map,
+        links_use_base_path: linksUseBasePath,
+        pages: { assets, measurements, run_detail: runDetail },
+        issue_75: readOnlyUi,
+        elapsed_seconds: (Date.now() - startedAt) / 1000,
+        unexpected_console_errors: consoleErrors,
+        ok: readOnlyOk,
+      };
+    }
 
     const trialUrl = new URL(`${prefix}try/`, server.origin).href;
     const trialResponse = await page.goto(trialUrl, { waitUntil: "networkidle" });
@@ -294,6 +317,7 @@ async function runCase(smokeCase) {
       measurements.headingMatches &&
       runDetail.status === 200 &&
       runDetail.headingMatches &&
+      readOnlyUi.ok &&
       trialResponse?.status() === 200 &&
       launchDisabledBeforeConfirmation &&
       deniedWithoutConfirmation.status === 428 &&
@@ -309,6 +333,7 @@ async function runCase(smokeCase) {
       svg: map,
       links_use_base_path: linksUseBasePath,
       pages: { assets, measurements, run_detail: runDetail, trial: { status: trialResponse?.status() ?? 0 } },
+      issue_75: readOnlyUi,
       gate_1: {
         launch_disabled_before_confirmation: launchDisabledBeforeConfirmation,
         api_without_confirmation_status: deniedWithoutConfirmation.status,
@@ -333,6 +358,134 @@ async function runCase(smokeCase) {
     await browser.close();
     server.stop();
   }
+}
+
+async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
+  const measurements = await probePage(
+    page,
+    origin,
+    basePath,
+    "measurements/",
+    "Claims need coordinates.",
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mapFrame = page.locator("[data-testid='measurement-map-frame']");
+  await mapFrame.waitFor();
+  const mobileMap = await mapFrame.evaluate((frame) => ({
+    client_width: frame.clientWidth,
+    horizontally_scrollable: frame.scrollWidth > frame.clientWidth,
+    scroll_width: frame.scrollWidth,
+  }));
+  const mobilePageFits = await page.evaluate(
+    () => document.documentElement.scrollWidth <= window.innerWidth,
+  );
+  const fullSizeHref = await page.locator(".map-source-link").getAttribute("href");
+  await page.screenshot({
+    fullPage: true,
+    path: join(outputDirectory, `${caseId}-measurements-mobile.png`),
+  });
+
+  await page.setViewportSize({ width: 1440, height: 1050 });
+  const runDetail = await probePage(
+    page,
+    origin,
+    basePath,
+    "runs/",
+    "One run. Every receipt.",
+  );
+  await page.waitForFunction(
+    () => document.querySelectorAll("#run-select option:not([value=''])").length > 0,
+  );
+  const unselectedText = await page.locator(".run-document").innerText();
+  const displayedOptions = await page.locator("#run-select option:not([value=''])").evaluateAll(
+    (options) => options.map((option) => ({ text: option.textContent ?? "", value: option.value })),
+  );
+  const expectedOptions = await page.evaluate((runs) => {
+    const formatter = new Intl.DateTimeFormat("ja-JP", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+    return runs.map((run) => {
+      const date = run.modified_epoch_seconds === 0
+        ? "time unavailable"
+        : formatter.format(new Date(run.modified_epoch_seconds * 1000));
+      return { text: `${date} — ${run.id}`, value: run.id };
+    });
+  }, runSummaries);
+  const optionsIncludeDates = JSON.stringify(displayedOptions) === JSON.stringify(expectedOptions);
+  const firstRunId = runSummaries[0]?.id ?? "";
+  if (firstRunId === "") throw new Error("Run detail probe requires at least one run");
+  await page.locator("#run-select").selectOption(firstRunId);
+  await page.locator(".document-viewer").waitFor();
+
+  const content = page.locator("[data-testid='document-content']");
+  const toggle = page.locator("[data-testid='document-wrap-toggle']");
+  const initialClass = await content.getAttribute("class");
+  const initialPressed = await toggle.getAttribute("aria-pressed");
+  await toggle.click();
+  await page.waitForFunction(
+    () => document.querySelector("[data-testid='document-content']")
+      ?.classList.contains("document-content--unwrapped"),
+  );
+  const toggledClass = await content.getAttribute("class");
+  const toggledPressed = await toggle.getAttribute("aria-pressed");
+  await toggle.click();
+  await page.waitForFunction(
+    () => document.querySelector("[data-testid='document-content']")
+      ?.classList.contains("document-content--wrapped"),
+  );
+  const restoredClass = await content.getAttribute("class");
+  const restoredPressed = await toggle.getAttribute("aria-pressed");
+  const wrapToggle = {
+    classes_switch:
+      initialClass === "document-content--wrapped" &&
+      toggledClass === "document-content--unwrapped" &&
+      restoredClass === "document-content--wrapped",
+    initial_class: initialClass,
+    initial_pressed: initialPressed,
+    restored_class: restoredClass,
+    restored_pressed: restoredPressed,
+    toggled_class: toggledClass,
+    toggled_pressed: toggledPressed,
+  };
+  await page.screenshot({
+    fullPage: true,
+    path: join(outputDirectory, `${caseId}-run-detail.png`),
+  });
+
+  const fullSizeLinkPresent = fullSizeHref?.endsWith("/api/maps/score-time.svg") ?? false;
+  const unselectedHasNoRecords = !unselectedText.includes("NO RECORDS");
+  return {
+    pages: { measurements, run_detail: runDetail },
+    run_selection: {
+      displayed_options: displayedOptions.length,
+      expected_options: expectedOptions.length,
+      no_records_label_absent: unselectedHasNoRecords,
+      options_include_dates: optionsIncludeDates,
+    },
+    wrap_toggle: wrapToggle,
+    mobile_map: {
+      ...mobileMap,
+      full_size_href: fullSizeHref,
+      full_size_link_present: fullSizeLinkPresent,
+      page_fits_viewport: mobilePageFits,
+      viewport_width: 390,
+    },
+    ok:
+      measurements.status === 200 &&
+      measurements.headingMatches &&
+      runDetail.status === 200 &&
+      runDetail.headingMatches &&
+      unselectedHasNoRecords &&
+      optionsIncludeDates &&
+      wrapToggle.classes_switch &&
+      initialPressed === "true" &&
+      toggledPressed === "false" &&
+      restoredPressed === "true" &&
+      mobileMap.horizontally_scrollable &&
+      mobilePageFits &&
+      fullSizeLinkPresent,
+  };
 }
 
 async function probePage(page, origin, basePath, relativePath, expectedHeading) {

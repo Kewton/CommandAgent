@@ -11,6 +11,7 @@ import { useResource } from "../../lib/use-resource";
 
 export default function MeasurementsPage() {
   const reports = useResource<DocumentSummary[]>("reports");
+  const scoreTimeMapPath = apiPath("maps/score-time.svg");
   const [selected, setSelected] = useState<DocumentRecord | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,11 +51,27 @@ export default function MeasurementsPage() {
         <div>
           <span className="panel-index">REFERENCE MAP</span>
           <h2>Attainment × configuration time</h2>
-          <p>Every mark is backed by a repository measurement row; hover the SVG points for source detail.</p>
+          <p>
+            Every mark is backed by a repository measurement row. On a narrow screen, scroll the map
+            horizontally or open the full-size SVG to zoom and inspect source details.
+          </p>
+          <a className="map-source-link" href={scoreTimeMapPath} rel="noreferrer" target="_blank">
+            Open full-size SVG ↗
+          </a>
         </div>
-        <div className="map-frame compact">
+        <div
+          aria-label="Scrollable score and time map"
+          className="map-frame compact"
+          data-testid="measurement-map-frame"
+          role="region"
+          tabIndex={0}
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={apiPath("maps/score-time.svg")} alt="Score and time measurement map" />
+          <img
+            data-testid="measurement-score-time-map"
+            src={scoreTimeMapPath}
+            alt="Score and time measurement map"
+          />
         </div>
       </section>
 
