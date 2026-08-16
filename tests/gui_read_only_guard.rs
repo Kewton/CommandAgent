@@ -246,6 +246,17 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
             "GUI smoke must fill {explicit_fill:?} for initial, conflict, and lifecycle runs"
         );
     }
+    for browser_check in [
+        "initialTrialFieldsEmpty",
+        "emptyGoalGuidance.includes(\"目標を入力してください\")",
+        "selectOption(\"lm-studio\")",
+        "providerModelGuidance.includes(\"実行モデルは自動更新されません\")",
+    ] {
+        assert!(
+            smoke.contains(browser_check),
+            "GUI smoke is missing browser acceptance check {browser_check:?}"
+        );
+    }
 }
 
 #[test]

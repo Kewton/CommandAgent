@@ -141,7 +141,17 @@ async function runCase(smokeCase) {
       source: image.getAttribute("src"),
     }));
     const apiChecks = await page.evaluate(async () => {
-      const endpoints = ["runs", "bands", "maps", "packs", "contracts", "suites", "reports", "runtime-status"];
+      const endpoints = [
+        "runs",
+        "bands",
+        "maps",
+        "packs",
+        "contracts",
+        "suites",
+        "reports",
+        "runtime-status",
+        "trial-options",
+      ];
       const apiPrefix = document.querySelector("[data-testid='score-time-map']")
         ?.getAttribute("src")
         ?.replace(/maps\/score-time\.svg$/, "");
@@ -217,6 +227,17 @@ async function runCase(smokeCase) {
     const launchIdentityControls = page.locator(
       "[data-testid='trial-goal'], [data-testid='trial-token'], .trial-fields input, .trial-fields select",
     );
+    const initialTrialFieldsEmpty =
+      (await page.locator("[data-testid='trial-goal']").inputValue()) === "" &&
+      (await page.locator("[data-testid='trial-executor-model']").inputValue()) === "" &&
+      (await page.locator("[data-testid='trial-planner-model']").inputValue()) === "";
+    await page.locator("[data-testid='check-contract']").click();
+    const emptyGoalGuidance = await page.locator(".trial-error[role='alert']").innerText();
+    await page.locator("[data-testid='trial-provider']").selectOption("lm-studio");
+    const providerModelGuidance = await page
+      .locator("[data-testid='trial-provider-model-hint']")
+      .innerText();
+    await page.locator("[data-testid='trial-provider']").selectOption("ollama");
     await page.locator("[data-testid='trial-goal']").fill("Create a CLI --pattern filter command");
     await page.locator("[data-testid='trial-token']").fill(trialCredential);
     await page.locator("[data-testid='trial-executor-model']").fill(model);
@@ -456,6 +477,10 @@ async function runCase(smokeCase) {
       runDetail.titleMatches &&
       trialResponse?.status() === 200 &&
       trialTitle === "トライアル | CommandAgent" &&
+      initialTrialFieldsEmpty &&
+      emptyGoalGuidance.includes("目標を入力してください") &&
+      providerModelGuidance.includes("実行モデルは自動更新されません") &&
+      providerModelGuidance.includes("LM Studio") &&
       desktopTrialAlignment.aligned &&
       mobileTrialAlignment.aligned &&
       launchDisabledBeforeConfirmation &&
@@ -514,7 +539,10 @@ async function runCase(smokeCase) {
       pages: { assets, measurements, run_detail: runDetail, trial: { status: trialResponse?.status() ?? 0, title: trialTitle } },
       mobile,
       gate_1: {
+        empty_goal_guidance: emptyGoalGuidance,
+        initial_fields_empty: initialTrialFieldsEmpty,
         launch_disabled_before_confirmation: launchDisabledBeforeConfirmation,
+        provider_model_guidance: providerModelGuidance,
         api_without_confirmation_status: deniedWithoutConfirmation.status,
         control_alignment: {
           desktop_1440: desktopTrialAlignment,
