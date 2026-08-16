@@ -472,6 +472,70 @@ fn gui_style_and_run_ledger_accessibility_contracts_are_pinned() {
 }
 
 #[test]
+fn run_detail_and_measurement_read_only_browsing_contracts_are_pinned() {
+    let run_page = std::fs::read_to_string("gui/app/runs/page.tsx").unwrap();
+    for required in [
+        "id=\"run-filter\"",
+        "run.status_text",
+        "filteredRuns.map",
+        "label=\"実行未選択\"",
+        "label=\"該当なし\"",
+        "sourceHref={documentSourceHref}",
+    ] {
+        assert!(
+            run_page.contains(required),
+            "Run detail browsing contract is missing {required:?}"
+        );
+    }
+
+    let viewer = std::fs::read_to_string("gui/components/document-viewer.tsx").unwrap();
+    for required in [
+        "sourceHref?: string | null",
+        "data-testid=\"document-source-link\"",
+        "target=\"_blank\"",
+        "data-testid=\"document-wrap-toggle\"",
+        "document-content--unwrapped",
+    ] {
+        assert!(
+            viewer.contains(required),
+            "document viewer contract is missing {required:?}"
+        );
+    }
+
+    let states = std::fs::read_to_string("gui/components/states.tsx").unwrap();
+    assert!(states.contains("label = \"記録なし\""));
+    assert!(states.contains("<span className=\"state-code\">{label}</span>"));
+
+    let measurements = std::fs::read_to_string("gui/app/measurements/page.tsx").unwrap();
+    for required in [
+        "data-testid=\"measurement-map-frame\"",
+        "className=\"map-source-link\"",
+        "原寸 SVG を開く",
+        "apiPath(\"reports/view\"",
+    ] {
+        assert!(
+            measurements.contains(required),
+            "Measurements browsing contract is missing {required:?}"
+        );
+    }
+
+    let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
+    for required in [
+        "--read-only",
+        "options_include_dates_and_status",
+        "filter_matches_id",
+        "no_match_label_visible",
+        "sourceLinkPresent",
+        "mobileMap.horizontally_scrollable",
+    ] {
+        assert!(
+            smoke.contains(required),
+            "Issue 75 browser smoke is missing {required:?}"
+        );
+    }
+}
+
+#[test]
 fn gui_language_navigation_titles_and_runtime_status_are_pinned() {
     let gui_files = [
         "gui/app/page.tsx",

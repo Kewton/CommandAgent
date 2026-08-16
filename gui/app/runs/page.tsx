@@ -15,6 +15,14 @@ function byteLabel(bytes: number): string {
   return `${(bytes / 1024).toFixed(1)} KiB`;
 }
 
+function dateLabel(epochSeconds: number): string {
+  if (epochSeconds === 0) return "時刻不明";
+  return new Intl.DateTimeFormat("ja-JP", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(epochSeconds * 1000));
+}
+
 export default function RunDetailPage() {
   const runs = useResource<RunIndex>("runs");
   const [runId, setRunId] = useState("");
@@ -22,6 +30,7 @@ export default function RunDetailPage() {
   const [selected, setSelected] = useState<DocumentRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [filter, setFilter] = useState("");
 
   useEffect(() => {
     const requested = new URLSearchParams(window.location.search).get("id");
@@ -57,6 +66,27 @@ export default function RunDetailPage() {
     };
   }, [detail]);
 
+  const filteredRuns = useMemo(() => {
+    const available = runs.data?.runs ?? [];
+    const query = filter.trim().toLocaleLowerCase("ja-JP");
+    if (query === "") return available;
+    return available.filter((run) =>
+      [run.id, dateLabel(run.modified_epoch_seconds), run.status_text, run.state]
+        .join(" ")
+        .toLocaleLowerCase("ja-JP")
+        .includes(query),
+    );
+  }, [filter, runs.data]);
+
+  const documentSourceHref = useMemo(() => {
+    if (runId === "" || acceptance === null) return null;
+    if (selected === null) return apiPath(`runs/${encodeURIComponent(runId)}`);
+    return apiPath(
+      `runs/${encodeURIComponent(runId)}/evidence`,
+      new URLSearchParams({ path: selected.path }),
+    );
+  }, [acceptance, runId, selected]);
+
   function chooseRun(id: string) {
     setRunId(id);
     window.history.replaceState(null, "", withBasePath(routePath("run", id)));
@@ -86,17 +116,30 @@ export default function RunDetailPage() {
     >
       <section className="run-workbench">
         <aside className="run-picker panel">
-          <label htmlFor="run-select">実行ID</label>
+          <div className="run-filter">
+            <label htmlFor="run-filter">実行を絞り込む</label>
+            <input
+              id="run-filter"
+              onChange={(event) => setFilter(event.target.value)}
+              placeholder="ID・日付・状態で検索"
+              type="search"
+              value={filter}
+            />
+          </div>
+          <label htmlFor="run-select">実行ID・日付・状態</label>
           <select id="run-select" value={runId} onChange={(event) => chooseRun(event.target.value)}>
             <option value="">実行を選択…</option>
-            {runs.data?.runs.map((run) => (
+            {filteredRuns.map((run) => (
               <option key={run.id} value={run.id}>
-                {run.id}
+                {dateLabel(run.modified_epoch_seconds)} — {run.status_text} — {run.id}
               </option>
             ))}
           </select>
           {runs.loading && <LoadingState label="実行一覧を読み込んでいます" />}
           {runs.error !== null && <ErrorState message={runs.error} />}
+          {runs.data !== null && runs.data.runs.length > 0 && filteredRuns.length === 0 && (
+            <EmptyState label="該当なし" message="条件に一致する実行がありません。" />
+          )}
           {detail !== null && (
             <>
               <div className="picker-heading">
@@ -131,10 +174,14 @@ export default function RunDetailPage() {
           {loading && <LoadingState label="変更不可の証跡を読み込んでいます" />}
           {error !== null && <ErrorState message={error} />}
           {!loading && error === null && runId === "" && (
-            <EmptyState message="台帳から実行を選択してください。" />
+            <EmptyState label="実行未選択" message="台帳から実行を選択してください。" />
           )}
           {!loading && error === null && runId !== "" && (
-            <DocumentViewer document={selected ?? acceptance} empty="受入記録が見つかりません。" />
+            <DocumentViewer
+              document={selected ?? acceptance}
+              empty="受入記録が見つかりません。"
+              sourceHref={documentSourceHref}
+            />
           )}
         </div>
       </section>

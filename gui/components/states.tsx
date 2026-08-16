@@ -16,10 +16,10 @@ export function ErrorState({ message }: { message: string }) {
   );
 }
 
-export function EmptyState({ message }: { message: string }) {
+export function EmptyState({ label = "記録なし", message }: { label?: string; message: string }) {
   return (
     <div className="state-card">
-      <span className="state-code">記録なし</span>
+      <span className="state-code">{label}</span>
       <p>{message}</p>
     </div>
   );

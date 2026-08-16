@@ -10,6 +10,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const guiRoot = resolve(scriptDirectory, "..");
 const repositoryRoot = resolve(guiRoot, "..");
 const arguments_ = process.argv.slice(2);
+const readOnly = arguments_.includes("--read-only");
 const overviewOnly = arguments_.includes("--overview-only");
 const outputDirectory = valueArgument(arguments_, "--output");
 const feedbackOnly = arguments_.includes("--feedback-only");
@@ -30,7 +31,7 @@ const managedPlaywrightPath =
 
 if (outputDirectory === null) {
   console.error(
-    "usage: npm run smoke -- --output <evidence-directory> [--overview-only | --feedback-only | --polling-only] [--commandagent-bin <path>] [--model <name>]",
+    "usage: npm run smoke -- --output <evidence-directory> [--read-only | --overview-only | --feedback-only | --polling-only] [--commandagent-bin <path>] [--model <name>]",
   );
   process.exit(2);
 }
@@ -92,13 +93,15 @@ const report = {
     version: packageMetadata.version,
   },
   delegate: {
-    mode: overviewOnly
-      ? "overview_only"
-      : feedbackOnly
-        ? "feedback_only"
-        : pollingOnly
-          ? "polling_only"
-          : "full_trial",
+    mode: readOnly
+      ? "read_only"
+      : overviewOnly
+        ? "overview_only"
+        : feedbackOnly
+          ? "feedback_only"
+          : pollingOnly
+            ? "polling_only"
+            : "full_trial",
     commandagent_bin: commandagentBin,
     provider: "ollama",
     model,
@@ -249,7 +252,6 @@ async function runCase(smokeCase) {
       const result = await fetch(`${apiRoot}runs`);
       return result.json();
     });
-    const firstRunId = runIndex.runs[0]?.id ?? "";
     const runCountText = await page.locator("[data-testid='run-count']").innerText();
     const expectedRunCountText = `${Math.min(runIndex.runs.length, 8)} / ${runIndex.total}`;
     const statusBadgeTexts = await page.locator(".status-badge").allInnerTexts();
@@ -321,23 +323,40 @@ async function runCase(smokeCase) {
       "アセット",
       "アセット | CommandAgent",
     );
-    const measurements = await probePage(
+    const readOnlyUi = await probeReadOnlyUi(
       page,
       server.origin,
       smokeCase.serverBasePath,
-      "measurements/",
-      "計測",
-      "計測 | CommandAgent",
+      runIndex.runs,
+      smokeCase.id,
     );
-    const runDetail = await probePage(
-      page,
-      server.origin,
-      smokeCase.serverBasePath,
-      `runs/?id=${encodeURIComponent(firstRunId)}`,
-      "実行詳細",
-      "実行詳細 | CommandAgent",
-    );
-    await page.locator(".document-viewer").waitFor();
+    const measurements = readOnlyUi.pages.measurements;
+    const runDetail = readOnlyUi.pages.run_detail;
+    const readOnlyOk =
+      dashboardOk &&
+      dashboardAccessible &&
+      assets.status === 200 &&
+      assets.headingMatches &&
+      assets.titleMatches &&
+      readOnlyUi.ok &&
+      consoleErrors.length === 0;
+
+    if (readOnly) {
+      return {
+        id: smokeCase.id,
+        base_path: smokeCase.buildBasePath,
+        dashboard,
+        api_checks: apiChecks,
+        svg: map,
+        links_use_base_path: linksUseBasePath,
+        run_ledger_accessibility: runLedgerAccessibility,
+        pages: { assets, measurements, run_detail: runDetail },
+        issue_75: readOnlyUi,
+        elapsed_seconds: (Date.now() - startedAt) / 1000,
+        unexpected_console_errors: consoleErrors,
+        ok: readOnlyOk,
+      };
+    }
     const pollingBudget = await probeTenMinutePolling(browser, server.origin, smokeCase.serverBasePath);
     const trialFeedback = await probeTrialFeedback(browser, server.origin, smokeCase.serverBasePath);
     const sessionIndexLease = await probeSessionIndexLease(
@@ -687,6 +706,7 @@ async function runCase(smokeCase) {
       measurements.titleMatches &&
       runDetail.status === 200 &&
       runDetail.headingMatches &&
+      readOnlyUi.ok &&
       runDetail.titleMatches &&
       trialResponse?.status() === 200 &&
       trialTitle === "トライアル | CommandAgent" &&
@@ -768,6 +788,7 @@ async function runCase(smokeCase) {
       links_use_base_path: linksUseBasePath,
       run_ledger_accessibility: runLedgerAccessibility,
       pages: { assets, measurements, run_detail: runDetail, trial: { status: trialResponse?.status() ?? 0, title: trialTitle } },
+      issue_75: readOnlyUi,
       mobile,
       ten_minute_polling: pollingBudget,
       trial_feedback: trialFeedback,
@@ -881,6 +902,166 @@ async function runCase(smokeCase) {
     await browser.close();
     server.stop();
   }
+}
+
+async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
+  const measurements = await probePage(
+    page,
+    origin,
+    basePath,
+    "measurements/",
+    "計測",
+    "計測 | CommandAgent",
+  );
+  await page.setViewportSize({ width: 390, height: 844 });
+  const mapFrame = page.locator("[data-testid='measurement-map-frame']");
+  await mapFrame.waitFor();
+  const mobileMap = await mapFrame.evaluate((frame) => ({
+    client_width: frame.clientWidth,
+    horizontally_scrollable: frame.scrollWidth > frame.clientWidth,
+    scroll_width: frame.scrollWidth,
+  }));
+  const mobilePageFits = await page.evaluate(
+    () => document.documentElement.scrollWidth <= window.innerWidth,
+  );
+  const fullSizeHref = await page.locator(".map-source-link").getAttribute("href");
+  await page.screenshot({
+    fullPage: true,
+    path: join(outputDirectory, `${caseId}-measurements-mobile.png`),
+  });
+
+  await page.setViewportSize({ width: 1440, height: 1050 });
+  const runDetail = await probePage(
+    page,
+    origin,
+    basePath,
+    "runs/",
+    "実行詳細",
+    "実行詳細 | CommandAgent",
+  );
+  await page.waitForFunction(
+    () => document.querySelectorAll("#run-select option:not([value=''])").length > 0,
+  );
+  const unselectedText = await page.locator(".run-document").innerText();
+  const displayedOptions = await page.locator("#run-select option:not([value=''])").evaluateAll(
+    (options) => options.map((option) => ({ text: option.textContent ?? "", value: option.value })),
+  );
+  const expectedOptions = await page.evaluate((runs) => {
+    const formatter = new Intl.DateTimeFormat("ja-JP", {
+      dateStyle: "medium",
+      timeStyle: "short",
+    });
+    return runs.map((run) => {
+      const date = run.modified_epoch_seconds === 0
+        ? "時刻不明"
+        : formatter.format(new Date(run.modified_epoch_seconds * 1000));
+      return { text: `${date} — ${run.status_text} — ${run.id}`, value: run.id };
+    });
+  }, runSummaries);
+  const optionsIncludeDatesAndStatus =
+    JSON.stringify(displayedOptions) === JSON.stringify(expectedOptions);
+  const firstRunId = runSummaries[0]?.id ?? "";
+  if (firstRunId === "") throw new Error("Run detail probe requires at least one run");
+  const filterInput = page.locator("#run-filter");
+  await filterInput.fill("__issue_75_no_match__");
+  const noMatchLabelVisible = await page
+    .locator(".run-picker .state-code", { hasText: "該当なし" })
+    .isVisible();
+  await filterInput.fill(firstRunId);
+  const filteredOptions = await page.locator("#run-select option:not([value=''])").evaluateAll(
+    (options) => options.map((option) => ({ text: option.textContent ?? "", value: option.value })),
+  );
+  const filterMatchesId =
+    filteredOptions.length === 1 && filteredOptions[0]?.value === firstRunId;
+  await page.locator("#run-select").selectOption(firstRunId);
+  await page.locator(".document-viewer").waitFor();
+
+  const content = page.locator("[data-testid='document-content']");
+  const toggle = page.locator("[data-testid='document-wrap-toggle']");
+  const sourceLink = page.locator("[data-testid='document-source-link']");
+  const sourceHref = await sourceLink.getAttribute("href");
+  const sourceTarget = await sourceLink.getAttribute("target");
+  const sourceLinkPresent =
+    sourceHref?.endsWith(`/api/runs/${encodeURIComponent(firstRunId)}`) === true &&
+    sourceTarget === "_blank";
+  const initialClass = await content.getAttribute("class");
+  const initialPressed = await toggle.getAttribute("aria-pressed");
+  await toggle.click();
+  await page.waitForFunction(
+    () => document.querySelector("[data-testid='document-content']")
+      ?.classList.contains("document-content--unwrapped"),
+  );
+  const toggledClass = await content.getAttribute("class");
+  const toggledPressed = await toggle.getAttribute("aria-pressed");
+  await toggle.click();
+  await page.waitForFunction(
+    () => document.querySelector("[data-testid='document-content']")
+      ?.classList.contains("document-content--wrapped"),
+  );
+  const restoredClass = await content.getAttribute("class");
+  const restoredPressed = await toggle.getAttribute("aria-pressed");
+  const wrapToggle = {
+    classes_switch:
+      initialClass === "document-content--wrapped" &&
+      toggledClass === "document-content--unwrapped" &&
+      restoredClass === "document-content--wrapped",
+    initial_class: initialClass,
+    initial_pressed: initialPressed,
+    restored_class: restoredClass,
+    restored_pressed: restoredPressed,
+    toggled_class: toggledClass,
+    toggled_pressed: toggledPressed,
+  };
+  await page.screenshot({
+    fullPage: true,
+    path: join(outputDirectory, `${caseId}-run-detail.png`),
+  });
+
+  const fullSizeLinkPresent = fullSizeHref?.endsWith("/api/maps/score-time.svg") ?? false;
+  const unselectedHasNoRecords = !unselectedText.includes("NO RECORDS");
+  return {
+    pages: { measurements, run_detail: runDetail },
+    run_selection: {
+      displayed_options: displayedOptions.length,
+      expected_options: expectedOptions.length,
+      filter_matches_id: filterMatchesId,
+      no_records_label_absent: unselectedHasNoRecords,
+      no_match_label_visible: noMatchLabelVisible,
+      options_include_dates_and_status: optionsIncludeDatesAndStatus,
+    },
+    source_link: {
+      href: sourceHref,
+      opens_new_tab: sourceTarget === "_blank",
+      present: sourceLinkPresent,
+    },
+    wrap_toggle: wrapToggle,
+    mobile_map: {
+      ...mobileMap,
+      full_size_href: fullSizeHref,
+      full_size_link_present: fullSizeLinkPresent,
+      page_fits_viewport: mobilePageFits,
+      viewport_width: 390,
+    },
+    ok:
+      measurements.status === 200 &&
+      measurements.headingMatches &&
+      measurements.titleMatches &&
+      runDetail.status === 200 &&
+      runDetail.headingMatches &&
+      runDetail.titleMatches &&
+      unselectedHasNoRecords &&
+      noMatchLabelVisible &&
+      filterMatchesId &&
+      optionsIncludeDatesAndStatus &&
+      sourceLinkPresent &&
+      wrapToggle.classes_switch &&
+      initialPressed === "true" &&
+      toggledPressed === "false" &&
+      restoredPressed === "true" &&
+      mobileMap.horizontally_scrollable &&
+      mobilePageFits &&
+      fullSizeLinkPresent,
+  };
 }
 
 async function probeTrialFeedback(browser, origin, basePath) {

@@ -12,6 +12,7 @@ import { useResource } from "../../lib/use-resource";
 
 export default function MeasurementsPage() {
   const reports = useResource<DocumentSummary[]>("reports");
+  const scoreTimeMapPath = apiPath("maps/score-time.svg");
   const [selected, setSelected] = useState<DocumentRecord | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,11 +51,27 @@ export default function MeasurementsPage() {
         <div>
           <span className="panel-index">参照マップ</span>
           <h2>到達度 × 構成時間</h2>
-          <p>各点はリポジトリの計測行に対応します。SVG の点にカーソルを合わせると出典を確認できます。</p>
+          <p>
+            各点はリポジトリの計測行に対応します。画面が狭い場合は横にスクロールするか、原寸 SVG
+            を開いて拡大し、出典を確認できます。
+          </p>
+          <a className="map-source-link" href={scoreTimeMapPath} rel="noreferrer" target="_blank">
+            原寸 SVG を開く ↗
+          </a>
         </div>
-        <div className="map-frame compact">
+        <div
+          aria-label="横スクロールできるスコアと時間の計測マップ"
+          className="map-frame compact"
+          data-testid="measurement-map-frame"
+          role="region"
+          tabIndex={0}
+        >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={apiPath("maps/score-time.svg")} alt="スコアと時間の計測マップ" />
+          <img
+            data-testid="measurement-score-time-map"
+            src={scoreTimeMapPath}
+            alt="スコアと時間の計測マップ"
+          />
         </div>
       </section>
 
@@ -85,7 +102,15 @@ export default function MeasurementsPage() {
           {loading && <LoadingState label="計測レポートを読み込んでいます" />}
           {error !== null && <ErrorState message={error} />}
           {!loading && error === null && (
-            <DocumentViewer document={selected} empty="一覧からレポートを選択してください。" />
+            <DocumentViewer
+              document={selected}
+              empty="一覧からレポートを選択してください。"
+              sourceHref={
+                selected === null
+                  ? null
+                  : apiPath("reports/view", new URLSearchParams({ path: selected.path }))
+              }
+            />
           )}
         </div>
       </section>
