@@ -2,12 +2,13 @@ use std::collections::BTreeMap;
 use std::path::{Path as FilePath, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
-use std::time::Duration;
+use std::time::{Duration, UNIX_EPOCH};
 
+use anyhow::Context;
 use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
-use axum::response::IntoResponse;
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::response::{IntoResponse, Response};
 use commandagent::planner::profile::ProfileId;
 use commandagent::tui::boundary_shell::ambiguity::{
     ClassifierProvenance, ProposalStatus, RouteProposal,
@@ -27,7 +28,7 @@ use uuid::Uuid;
 
 use super::error_response::GuiError;
 use super::trial_access::AccessError;
-use super::{AppState, workspace_policy::TrialWorkspace};
+use super::{AppState, trial_options, workspace_policy::TrialWorkspace};
 
 const MAX_GOAL_BYTES: usize = 16 * 1024;
 const MAX_FIELD_BYTES: usize = 256;
@@ -174,7 +175,10 @@ pub async fn create(
             "Gate 1 card changed; request and confirm the current card",
         ));
     }
-    state.trial_workspace.acquire(&id).map_err(conflict)?;
+    state
+        .trial_workspace
+        .acquire(&id)
+        .map_err(workspace_conflict)?;
     if let Err(error) = shell.confirm(confirmation_hash) {
         state.trial_workspace.cancel_start(&id);
         return Err(bad_request(error));
@@ -191,10 +195,20 @@ pub async fn create(
         Ok("delegated".to_string())
     });
     if let Err(error) = dispatch {
-        state
-            .trial_workspace
-            .complete_from_events(&id, &events_path);
-        return Err(internal(error));
+        return match paths.rollback_unstarted() {
+            Ok(()) => {
+                state.trial_workspace.cancel_start(&id);
+                Err(internal(format!("{error:#}")))
+            }
+            Err(rollback_error) => {
+                state
+                    .trial_workspace
+                    .complete_from_events(&id, &events_path);
+                Err(internal(format!(
+                    "{error:#}; failed to roll back unstarted session {id}: {rollback_error:#}"
+                )))
+            }
+        };
     }
     Ok((
         StatusCode::ACCEPTED,
@@ -207,11 +221,23 @@ pub async fn create(
     ))
 }
 
+pub async fn workspace_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<super::workspace_policy::LeaseSnapshot>, SessionError> {
+    require_trial(&state, &headers, false)?;
+    state
+        .trial_workspace
+        .lease_snapshot()
+        .map(Json)
+        .map_err(internal)
+}
+
 pub async fn status(
     State(state): State<AppState>,
     Path(id): Path<String>,
     headers: HeaderMap,
-) -> Result<Json<PolledSession>, SessionError> {
+) -> Result<Response, SessionError> {
     let workspace = require_trial(&state, &headers, false)?;
     require_session_id(&id)?;
     let paths = SessionPaths::new(&workspace, &id);
@@ -219,6 +245,10 @@ pub async fn status(
         .map_err(internal)?
         .ok_or_else(|| not_found("session confirmation was not found"))?;
     let events_path = paths.events_path();
+    let etag = status_etag(confirmed.card_hash(), &events_path).await?;
+    if if_none_match(&headers, &etag) {
+        return Ok(status_response(StatusCode::NOT_MODIFIED, &etag));
+    }
     let text = read_events(&events_path).await?;
     let events = parse_events(&text)?;
     let terminal_index = latest_event_index(&events, "tui_command_stop");
@@ -266,7 +296,7 @@ pub async fn status(
     } else {
         "running"
     };
-    Ok(Json(PolledSession {
+    let session = PolledSession {
         id,
         gate: gate.to_string(),
         status: status.to_string(),
@@ -277,7 +307,10 @@ pub async fn status(
         acceptance_sheet: generated.as_ref().map(|sheet| sheet.markdown.clone()),
         section5: generated.and_then(|sheet| sheet.section5),
         events_path: relative_path(&workspace, &events_path),
-    }))
+    };
+    let mut response = Json(session).into_response();
+    insert_status_headers(&mut response, &etag);
+    Ok(response)
 }
 
 pub async fn propose_directive(
@@ -326,7 +359,10 @@ pub async fn confirm_directive(
         .restore_directive_proposal(&hash)
         .map_err(bad_request)?
         .clone();
-    state.trial_workspace.acquire(&id).map_err(conflict)?;
+    state
+        .trial_workspace
+        .acquire(&id)
+        .map_err(workspace_conflict)?;
     if let Err(error) = shell.confirm_directive(&hash) {
         state.trial_workspace.cancel_start(&id);
         return Err(bad_request(error));
@@ -465,7 +501,7 @@ fn spawn_cli(
         anyhow::bail!("Gate 1 workspace changed before CLI delegation");
     }
     let mut command = Command::new(&state.commandagent_bin);
-    Ok(command
+    command
         .current_dir(&workspace)
         .env("COMMANDAGENT_EVAL_EVENTS", paths.events_path())
         .args(["--yes", "--quiet", "--footer", "off", "--stream", "off"])
@@ -489,7 +525,13 @@ fn spawn_cli(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()?)
+        .spawn()
+        .map_err(|cause| {
+            anyhow::anyhow!(
+                "failed to spawn delegated CLI binary {}: {cause}",
+                state.commandagent_bin.display()
+            )
+        })
 }
 
 fn monitor_cli(lease: TrialWorkspace, session_id: String, events_path: PathBuf, mut child: Child) {
@@ -564,10 +606,7 @@ fn validate_spec(spec: &SessionSpec) -> Result<(), SessionError> {
         }
     }
     for provider in [&spec.provider, &spec.planner_provider] {
-        if !matches!(
-            provider.as_str(),
-            "ollama" | "lm-studio" | "openai" | "gemini"
-        ) {
+        if !trial_options::is_admitted_provider(provider) {
             return Err(unprocessable(format!(
                 "provider `{provider}` is not admitted"
             )));
@@ -578,37 +617,100 @@ fn validate_spec(spec: &SessionSpec) -> Result<(), SessionError> {
 
 fn phase_statuses(events: &[Value]) -> Vec<PhaseStatus> {
     let mut phases = BTreeMap::<(u64, String), PhaseStatus>::new();
+    let mut terminal_seen = false;
     for event in events {
+        let event_name = string(event, "event").unwrap_or("unknown");
+        if matches!(event_name, "tui_command_stop" | "run_stop") {
+            terminal_seen = true;
+            for phase in phases.values_mut() {
+                if matches!(phase.status.as_str(), "pending" | "running") {
+                    phase.status = "interrupted".to_string();
+                }
+            }
+            continue;
+        }
+
         let Some(id) = string(event, "phase_id") else {
             continue;
         };
-        let index = event
-            .get("phase_index")
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
+        let Some(effect) = phase_event_effect(event_name) else {
+            continue;
+        };
+        if terminal_seen && matches!(effect, PhaseEventEffect::Status(status) if status != "failed")
+        {
+            continue;
+        }
+        let index = event.get("phase_index").and_then(Value::as_u64);
+        let key = match index {
+            Some(index) => (index, id.to_string()),
+            None => {
+                let Some(key) = phases
+                    .keys()
+                    .rev()
+                    .find(|(_, phase_id)| phase_id == id)
+                    .cloned()
+                else {
+                    continue;
+                };
+                key
+            }
+        };
+        if matches!(effect, PhaseEventEffect::StageOnly) && !phases.contains_key(&key) {
+            continue;
+        }
         let total = event
             .get("total_phases")
             .and_then(Value::as_u64)
             .unwrap_or(0);
-        let event_name = string(event, "event").unwrap_or("unknown");
-        let phase = phases
-            .entry((index, id.to_string()))
-            .or_insert_with(|| PhaseStatus {
-                id: id.to_string(),
-                index,
-                total,
-                stage: "queued".to_string(),
-                status: "pending".to_string(),
-            });
-        phase.stage = string(event, "stage").unwrap_or(event_name).to_string();
-        phase.status = match event_name {
-            "ultra_phase_complete" => "completed",
-            "ultra_phase_failed" => "failed",
-            _ => "running",
+        let phase_index = key.0;
+        let phase = phases.entry(key).or_insert_with(|| PhaseStatus {
+            id: id.to_string(),
+            index: phase_index,
+            total,
+            stage: "queued".to_string(),
+            status: "pending".to_string(),
+        });
+        match effect {
+            PhaseEventEffect::StageOnly => {
+                phase.stage = string(event, "stage").unwrap_or(event_name).to_string();
+            }
+            PhaseEventEffect::Status(status) => {
+                let current_status = phase.status.as_str();
+                if current_status == "failed"
+                    || (current_status == "completed" && status != "failed")
+                    || (current_status == "interrupted" && status != "failed")
+                {
+                    continue;
+                }
+                phase.stage = string(event, "stage").unwrap_or(event_name).to_string();
+                phase.status = status.to_string();
+            }
         }
-        .to_string();
     }
     phases.into_values().collect()
+}
+
+#[derive(Clone, Copy)]
+enum PhaseEventEffect {
+    Status(&'static str),
+    StageOnly,
+}
+
+fn phase_event_effect(event_name: &str) -> Option<PhaseEventEffect> {
+    match event_name {
+        "ultra_phase_complete" => Some(PhaseEventEffect::Status("completed")),
+        "ultra_phase_failed" => Some(PhaseEventEffect::Status("failed")),
+        "ultra_phase_start"
+        | "ultra_phase_scaffold_complete"
+        | "ultra_phase_plan_validated"
+        | "ultra_phase_execute_complete"
+        | "phase_verification_result"
+        | "ultra_phase_profile_check" => Some(PhaseEventEffect::Status("running")),
+        "ultra_phase_context_attached"
+        | "ultra_phase_context_updated"
+        | "recovery_prompt_saved" => Some(PhaseEventEffect::StageOnly),
+        _ => None,
+    }
 }
 
 async fn read_events(path: &FilePath) -> Result<String, SessionError> {
@@ -625,6 +727,57 @@ async fn read_events(path: &FilePath) -> Result<String, SessionError> {
         ));
     }
     tokio::fs::read_to_string(path).await.map_err(internal)
+}
+
+async fn status_etag(card_hash: &str, events_path: &FilePath) -> Result<String, SessionError> {
+    let revision = match tokio::fs::metadata(events_path).await {
+        Ok(metadata) => {
+            let modified = metadata
+                .modified()
+                .map_err(internal)?
+                .duration_since(UNIX_EPOCH)
+                .map_err(internal)?
+                .as_nanos();
+            format!("{}-{modified}", metadata.len())
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => "missing".to_string(),
+        Err(error) => return Err(internal(error)),
+    };
+    Ok(format!(
+        "W/\"{}-{revision}\"",
+        card_hash.trim_start_matches("sha256:")
+    ))
+}
+
+fn if_none_match(headers: &HeaderMap, etag: &str) -> bool {
+    headers
+        .get_all(header::IF_NONE_MATCH)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .flat_map(|value| value.split(','))
+        .map(str::trim)
+        .any(|candidate| candidate == "*" || weak_etag_eq(candidate, etag))
+}
+
+fn weak_etag_eq(left: &str, right: &str) -> bool {
+    left.strip_prefix("W/").unwrap_or(left) == right.strip_prefix("W/").unwrap_or(right)
+}
+
+fn status_response(status: StatusCode, etag: &str) -> Response {
+    let mut response = status.into_response();
+    insert_status_headers(&mut response, etag);
+    response
+}
+
+fn insert_status_headers(response: &mut Response, etag: &str) {
+    response.headers_mut().insert(
+        header::ETAG,
+        HeaderValue::from_str(etag).expect("generated status ETags are valid header values"),
+    );
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-cache"),
+    );
 }
 
 async fn require_current_terminal(path: &FilePath) -> Result<(), SessionError> {
@@ -762,7 +915,7 @@ fn string<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
 
-fn require_session_id(id: &str) -> Result<(), SessionError> {
+pub(super) fn require_session_id(id: &str) -> Result<(), SessionError> {
     let parsed = Uuid::parse_str(id).map_err(|_| not_found("invalid session id"))?;
     if parsed.to_string() != id {
         return Err(not_found("invalid session id"));
@@ -770,7 +923,7 @@ fn require_session_id(id: &str) -> Result<(), SessionError> {
     Ok(())
 }
 
-fn require_trial(
+pub(super) fn require_trial(
     state: &AppState,
     headers: &HeaderMap,
     require_origin: bool,
@@ -782,7 +935,10 @@ fn require_trial(
             "trial execution is disabled; configure --execution-root",
         ));
     }
-    let workspace = state.trial_workspace.require_current().map_err(conflict)?;
+    let workspace = state
+        .trial_workspace
+        .require_current()
+        .map_err(workspace_conflict)?;
     state
         .trial_access
         .authorize(headers, require_origin)
@@ -839,6 +995,19 @@ impl SessionPaths {
     fn events_path(&self) -> PathBuf {
         self.run_root.join("events.jsonl")
     }
+
+    fn rollback_unstarted(&self) -> anyhow::Result<()> {
+        match std::fs::remove_dir_all(&self.run_root) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error).with_context(|| {
+                format!(
+                    "remove unstarted session directory {}",
+                    self.run_root.display()
+                )
+            }),
+        }
+    }
 }
 
 fn unprocessable(message: impl ToString) -> SessionError {
@@ -868,12 +1037,24 @@ fn not_found(message: impl ToString) -> SessionError {
 fn conflict(message: impl ToString) -> SessionError {
     GuiError::new(
         StatusCode::CONFLICT,
-        "trial_workspace_conflict",
+        "trial_session_conflict",
         message.to_string(),
     )
 }
 
-fn internal(error: impl ToString) -> SessionError {
+fn workspace_conflict(message: impl ToString) -> SessionError {
+    let message = message.to_string();
+    let code = if message.contains("already running session") {
+        "trial_workspace_running"
+    } else if message.contains("requires recovery for non-terminal session") {
+        "trial_workspace_recovery_required"
+    } else {
+        "trial_workspace_conflict"
+    };
+    GuiError::new(StatusCode::CONFLICT, code, message)
+}
+
+pub(super) fn internal(error: impl ToString) -> SessionError {
     GuiError::new(
         StatusCode::INTERNAL_SERVER_ERROR,
         "trial_internal_error",
@@ -897,5 +1078,157 @@ mod tests {
         };
 
         validate_spec(&spec).unwrap();
+    }
+
+    #[test]
+    fn phase_statuses_attach_unindexed_events_without_creating_ghost_rows() {
+        let events = vec![
+            serde_json::json!({
+                "event": "ultra_phase_start",
+                "phase_id": "setup",
+                "phase_index": 1,
+                "total_phases": 1
+            }),
+            serde_json::json!({
+                "event": "recovery_prompt_saved",
+                "phase_id": "setup"
+            }),
+            serde_json::json!({
+                "event": "ultra_phase_start",
+                "phase_id": "ghost",
+                "total_phases": 1
+            }),
+        ];
+
+        let phases = phase_statuses(&events);
+
+        assert_eq!(phases.len(), 1);
+        assert_eq!(phases[0].index, 1);
+        assert_eq!(phases[0].stage, "recovery_prompt_saved");
+        assert_eq!(phases[0].status, "running");
+    }
+
+    #[test]
+    fn phase_statuses_do_not_restore_running_after_completion() {
+        let events = vec![
+            serde_json::json!({
+                "event": "ultra_phase_start",
+                "phase_id": "setup",
+                "phase_index": 1,
+                "total_phases": 1
+            }),
+            serde_json::json!({
+                "event": "ultra_phase_complete",
+                "phase_id": "setup",
+                "phase_index": 1,
+                "total_phases": 1,
+                "stage": "complete"
+            }),
+            serde_json::json!({
+                "event": "ultra_phase_context_updated",
+                "phase_id": "setup",
+                "phase_index": 1,
+                "total_phases": 1
+            }),
+        ];
+
+        let phases = phase_statuses(&events);
+
+        assert_eq!(phases.len(), 1);
+        assert!(phases.iter().all(|phase| phase.status != "running"));
+        assert_eq!(phases[0].stage, "ultra_phase_context_updated");
+        assert_eq!(phases[0].status, "completed");
+    }
+
+    #[test]
+    fn phase_statuses_keep_failures_terminal() {
+        let events = vec![
+            serde_json::json!({
+                "event": "ultra_phase_start",
+                "phase_id": "setup",
+                "phase_index": 1,
+                "total_phases": 1
+            }),
+            serde_json::json!({
+                "event": "ultra_phase_failed",
+                "phase_id": "setup",
+                "phase_index": 1,
+                "total_phases": 1,
+                "stage": "execute"
+            }),
+            serde_json::json!({
+                "event": "recovery_prompt_saved",
+                "phase_id": "setup"
+            }),
+            serde_json::json!({
+                "event": "future_phase_annotation",
+                "phase_id": "setup",
+                "phase_index": 1,
+                "total_phases": 1
+            }),
+        ];
+
+        let phases = phase_statuses(&events);
+
+        assert_eq!(phases.len(), 1);
+        assert_eq!(phases[0].stage, "recovery_prompt_saved");
+        assert_eq!(phases[0].status, "failed");
+    }
+
+    #[test]
+    fn phase_statuses_interrupt_running_phases_at_terminal() {
+        let events = vec![
+            serde_json::json!({
+                "event": "ultra_phase_start",
+                "phase_id": "setup",
+                "phase_index": 1,
+                "total_phases": 2
+            }),
+            serde_json::json!({
+                "event": "ultra_phase_start",
+                "phase_id": "build",
+                "phase_index": 2,
+                "total_phases": 2
+            }),
+            serde_json::json!({
+                "event": "ultra_phase_complete",
+                "phase_id": "build",
+                "phase_index": 2,
+                "total_phases": 2,
+                "stage": "complete"
+            }),
+            serde_json::json!({"event": "tui_command_stop", "status": "failed"}),
+            serde_json::json!({"event": "run_stop", "status": "failed"}),
+            serde_json::json!({
+                "event": "ultra_phase_context_updated",
+                "phase_id": "setup",
+                "phase_index": 1,
+                "total_phases": 2
+            }),
+        ];
+
+        let phases = phase_statuses(&events);
+
+        assert_eq!(phases.len(), 2);
+        assert_eq!(phases[0].status, "interrupted");
+        assert_eq!(phases[1].status, "completed");
+        assert!(phases.iter().all(|phase| phase.status != "running"));
+    }
+
+    #[test]
+    fn gui_smoke_events_project_one_failed_phase() {
+        let events = parse_events(include_str!(
+            "../../../workspace/management/runs/g1-gui-smoke/root-events.jsonl"
+        ))
+        .unwrap();
+
+        let phases = phase_statuses(&events);
+
+        assert_eq!(phases.len(), 1);
+        assert_eq!(phases[0].id, "setup-project");
+        assert_eq!(phases[0].index, 1);
+        assert_eq!(phases[0].total, 5);
+        assert_eq!(phases[0].stage, "recovery_prompt_saved");
+        assert_eq!(phases[0].status, "failed");
     }
 }

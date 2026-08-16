@@ -43,31 +43,30 @@ export default function MeasurementsPage() {
   return (
     <Shell
       active="measurements"
-      eyebrow="04 / MEASUREMENT ARCHIVE"
-      title="Claims need coordinates."
-      description="Browse score/time geometry and the reports that explain it. Values are displayed from existing evidence only."
+      title="計測"
+      description="スコアと所要時間の分布、根拠となる既存レポートを確認します。"
     >
       <section className="measure-map panel">
         <div>
-          <span className="panel-index">REFERENCE MAP</span>
-          <h2>Attainment × configuration time</h2>
-          <p>Every mark is backed by a repository measurement row; hover the SVG points for source detail.</p>
+          <span className="panel-index">参照マップ</span>
+          <h2>到達度 × 構成時間</h2>
+          <p>各点はリポジトリの計測行に対応します。SVG の点にカーソルを合わせると出典を確認できます。</p>
         </div>
         <div className="map-frame compact">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={apiPath("maps/score-time.svg")} alt="Score and time measurement map" />
+          <img src={apiPath("maps/score-time.svg")} alt="スコアと時間の計測マップ" />
         </div>
       </section>
 
       <section className="measurement-workbench">
         <aside className="report-index panel">
           <header>
-            <span>REPORT INDEX</span>
+            <span>レポート一覧</span>
             <strong>{reports.data?.length ?? "—"}</strong>
           </header>
-          {reports.loading && <LoadingState label="Indexing measurement reports" />}
+          {reports.loading && <LoadingState label="計測レポートを索引化しています" />}
           {reports.error !== null && <ErrorState message={reports.error} />}
-          {reports.data?.length === 0 && <EmptyState message="No reports were found." />}
+          {reports.data?.length === 0 && <EmptyState message="レポートが見つかりません。" />}
           <div className="report-list">
             {reports.data?.map((report) => (
               <button
@@ -83,10 +82,10 @@ export default function MeasurementsPage() {
           </div>
         </aside>
         <div className="report-document">
-          {loading && <LoadingState label="Reading measurement report" />}
+          {loading && <LoadingState label="計測レポートを読み込んでいます" />}
           {error !== null && <ErrorState message={error} />}
           {!loading && error === null && (
-            <DocumentViewer document={selected} empty="Select a report from the archive." />
+            <DocumentViewer document={selected} empty="一覧からレポートを選択してください。" />
           )}
         </div>
       </section>

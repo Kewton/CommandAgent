@@ -11,7 +11,8 @@ strings remain unchanged.
 - Added a shared Axum `GuiError` response that emits additive
   `{ "code", "error" }` JSON for both repository-read and Trial APIs.
 - Assigned explicit codes to the required 401, 403, 409, 412, 428, and 503
-  Trial responses. Other read, validation, size, missing-session, and internal
+  Trial responses. Running, recovery-required, and unavailable workspace 409s
+  are distinct. Other read, validation, size, missing-session, and internal
   failures also receive bounded codes.
 - Added `gui/lib/errors.ts` with `responseError`, `describeError`, and active
   session ID extraction. It provides token, Origin allowlist, Gate 1,
@@ -39,6 +40,7 @@ strings remain unchanged.
   `Gate 1 confirmation_hash is required before dispatch`.
 - No event schema, historical evidence, live `.anvil/` namespace, provider
   boundary, or verification gate changed.
-- The shared error type remains public within the GUI binary surface so the
-  predecessor session-file, session-index, option, runtime-status, and polling
-  modules can reuse it when integrated.
+- The shared error type is reused by the integrated session-file and
+  session-index routes. Runtime-status remains a successful read-only status
+  projection, and Gate 2 polling retains its stricter retry/terminal-failure
+  contract while other GUI actions use the common descriptor.

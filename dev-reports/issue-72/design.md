@@ -31,7 +31,9 @@ different.
    | ---: | --- | --- |
    | 401 | `trial_token_invalid` | a valid runtime bearer token is required |
    | 403 | `trial_origin_not_allowed` | the request Origin is not admitted |
-   | 409 | `trial_workspace_conflict` | workspace/session state prevents the operation |
+   | 409 | `trial_workspace_running` | an active session owns the execution-root lease |
+   | 409 | `trial_workspace_recovery_required` | a non-terminal prior session requires recovery |
+   | 409 | `trial_workspace_conflict` | the execution root changed or became unavailable |
    | 412 | `trial_confirmation_stale` | the Gate 1 card changed |
    | 428 | `trial_confirmation_required` | the Gate 1 hash is missing |
    | 503 | `trial_execution_disabled` | Trial execution is not configured |

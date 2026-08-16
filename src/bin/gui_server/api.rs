@@ -12,8 +12,8 @@ use serde::{Deserialize, Serialize};
 use super::AppState;
 use super::error_response::GuiError;
 
-const MAX_TEXT_BYTES: u64 = 1_048_576;
-const MAX_LIST_ENTRIES: usize = 256;
+pub(super) const MAX_TEXT_BYTES: u64 = 1_048_576;
+pub(super) const MAX_LIST_ENTRIES: usize = 256;
 
 #[derive(Debug, Serialize)]
 pub struct RunSummary {
@@ -275,7 +275,7 @@ async fn documents_matching(
     Ok(Json(documents))
 }
 
-async fn document(root: &FilePath, path: &FilePath) -> Result<Document, ApiError> {
+pub(super) async fn document(root: &FilePath, path: &FilePath) -> Result<Document, ApiError> {
     Ok(Document {
         id: file_name(path)?,
         path: relative_string(root, path)?,
@@ -283,7 +283,7 @@ async fn document(root: &FilePath, path: &FilePath) -> Result<Document, ApiError
     })
 }
 
-fn document_summary(root: &FilePath, path: &FilePath) -> Option<DocumentSummary> {
+pub(super) fn document_summary(root: &FilePath, path: &FilePath) -> Option<DocumentSummary> {
     let size_bytes = path.metadata().ok()?.len();
     Some(DocumentSummary {
         id: path.file_name()?.to_str()?.to_string(),
@@ -292,7 +292,10 @@ fn document_summary(root: &FilePath, path: &FilePath) -> Option<DocumentSummary>
     })
 }
 
-async fn collect_documents(root: &FilePath, max_depth: usize) -> Result<Vec<PathBuf>, ApiError> {
+pub(super) async fn collect_documents(
+    root: &FilePath,
+    max_depth: usize,
+) -> Result<Vec<PathBuf>, ApiError> {
     let mut pending = vec![(root.to_path_buf(), 0usize)];
     let mut documents = Vec::new();
     let skipped_directories = BTreeSet::from([".git", ".next", "node_modules", "target"]);
@@ -463,7 +466,35 @@ async fn checked_existing_path(root: &FilePath, relative: &FilePath) -> Result<P
     Ok(candidate)
 }
 
-async fn checked_existing_directory(
+pub(super) async fn checked_existing_path_without_symlinks(
+    root: &FilePath,
+    relative: &FilePath,
+) -> Result<PathBuf, ApiError> {
+    if relative.as_os_str().is_empty()
+        || relative.is_absolute()
+        || relative
+            .components()
+            .any(|component| !matches!(component, Component::Normal(_)))
+    {
+        return Err(not_found("invalid relative path"));
+    }
+    let mut current = root.to_path_buf();
+    for component in relative.components() {
+        let Component::Normal(component) = component else {
+            return Err(not_found("invalid relative path"));
+        };
+        current.push(component);
+        let metadata = tokio::fs::symlink_metadata(&current)
+            .await
+            .map_err(|error| not_found(format!("document not found: {error}")))?;
+        if metadata.file_type().is_symlink() {
+            return Err(not_found("document symlinks are not readable"));
+        }
+    }
+    checked_existing_path(root, relative).await
+}
+
+pub(super) async fn checked_existing_directory(
     root: &FilePath,
     relative: &FilePath,
 ) -> Result<PathBuf, ApiError> {

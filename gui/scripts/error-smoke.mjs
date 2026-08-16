@@ -45,7 +45,13 @@ setTimeout(() => {
 
   const tokenInput = page.locator("[data-testid='trial-token']");
   const checkContract = page.locator("[data-testid='check-contract']");
-  const error = page.locator(".trial-error[role='alert']");
+  const error = page.locator(".trial-compose > .trial-error[role='alert']");
+
+  await page
+    .locator("[data-testid='trial-goal']")
+    .fill("Create a CLI --pattern filter command");
+  await page.locator("[data-testid='trial-executor-model']").fill("fixture-executor");
+  await page.locator("[data-testid='trial-planner-model']").fill("fixture-planner");
 
   await tokenInput.fill(`${trialToken}-wrong`);
   await checkContract.click();
@@ -76,7 +82,16 @@ setTimeout(() => {
   );
   await page.unroute("**/api/session-proposals");
 
+  const proposalResponsePromise = page.waitForResponse((response) =>
+    response.url().endsWith("/api/session-proposals"),
+  );
   await checkContract.click();
+  const proposalResponse = await proposalResponsePromise;
+  if (!proposalResponse.ok()) {
+    throw new Error(
+      `fixture proposal failed with ${proposalResponse.status()}: ${await proposalResponse.text()}`,
+    );
+  }
   await page.locator("[data-testid='gate-one-card']").waitFor();
   const confirmationHash = await page.locator(".hash-line").innerText();
   const spec = await page.evaluate(() => {
