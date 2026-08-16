@@ -120,10 +120,14 @@ authentication is enabled.
 3. Select **Confirm and delegate to CLI**. The server starts the existing
    non-interactive boundary command. Progress is reconstructed by reading that
    session's JSONL events; there is no GUI state database.
-4. At Gate 3 or Gate 4, inspect the generated acceptance sheet. You may end
-   without another run, or persist an additional D-3d instruction. A D-3d
-   instruction is credential-scrubbed, exact-byte hashed, displayed, and must
-   be confirmed before the existing continuation path is delegated.
+4. During Gate 2, use **Recent events** or **Browse artifacts** to inspect the
+   bounded, read-only session evidence without leaving the GUI. At Gate 3 or
+   Gate 4 the artifact inventory opens automatically; select `summary.md`,
+   recent `events.jsonl`, or an acceptance-related text file to investigate a
+   failure. You may then end without another run, or persist an additional D-3d
+   instruction. A D-3d instruction is credential-scrubbed, exact-byte hashed,
+   displayed, and must be confirmed before the existing continuation path is
+   delegated.
 
 There is no cancel, interrupt, phase-edit, or gate-override control while a
 session is running. Use the existing CLI/runtime operating procedures for
@@ -161,12 +165,28 @@ direct-client `Authorization` form). POST requests also require a same-host Orig
 | `POST api/session-proposals` | Render a deterministic Gate 1 identity and measured price tag |
 | `POST api/sessions` | Require the exact Gate 1 hash, then delegate to the configured CLI binary |
 | `GET api/sessions/{id}` | Read events and artifacts to project phase, gate, and terminal verdict |
+| `GET api/sessions/{id}/artifacts` | List up to 256 text artifacts below the Trial run root |
+| `GET api/sessions/{id}/artifacts?path=…` | Read one canonical, non-symlink text artifact up to 1 MiB |
+| `GET api/sessions/{id}/events?tail=N` | Read the last `1..=2000` event lines, with a 1 MiB response limit |
 | `POST api/sessions/{id}/directives` | Apply the existing credential scrub and persist a hashed D-3d proposal |
 | `POST api/sessions/{id}/directives/{hash}` | Require that exact proposal, then delegate the existing continuation plan |
 
 The two POST dispatch routes cannot accept an unconfirmed identity. The sole
 process surface executes `commandagent` directly without a shell; provider and
 runner calls are forbidden in the GUI server by the protection audit.
+
+The event-tail reader scans backward, so it remains useful after the complete
+stream exceeds the 4 MiB status-polling limit. Artifact listing uses the same
+text-extension allowlist, depth-four walk, skipped directories, ordering, and
+entry cap as the repository run viewer. All Trial file routes require a
+canonical session UUID and the runtime token; no session-listing capability is
+implied.
+
+Delegated stdout and stderr are intentionally not saved by this GUI path. The
+CLI-owned `events.jsonl` and `summary.md` are the structured diagnostic records,
+and the GUI server only reads them. If an unstructured log is later required,
+it must be introduced as a CLI-owned output contract rather than a GUI-server
+write.
 
 ## Two-basePath browser smoke
 
@@ -186,7 +206,8 @@ Then run a real local-model lap for both `/` and
 `/proxy/commandagent/`. The runner copies the small Python CLI corpus fixture
 to an isolated temporary workspace. For each base path it records the
 dashboard/API/SVG probes, Gate 1 before and after confirmation, Gate 2,
-Gate 3/4, the session event stream and its SHA-256, and an API log:
+Gate 3/4, in-page events and summary viewing, the session event stream and its
+SHA-256, and an API log:
 
 ```bash
 cd gui

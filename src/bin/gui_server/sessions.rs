@@ -125,7 +125,7 @@ pub struct ConfirmedContinuation {
 }
 
 #[derive(Debug)]
-pub struct SessionError {
+pub(super) struct SessionError {
     status: StatusCode,
     message: String,
 }
@@ -773,7 +773,7 @@ fn string<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
     value.get(key).and_then(Value::as_str)
 }
 
-fn require_session_id(id: &str) -> Result<(), SessionError> {
+pub(super) fn require_session_id(id: &str) -> Result<(), SessionError> {
     let parsed = Uuid::parse_str(id).map_err(|_| not_found("invalid session id"))?;
     if parsed.to_string() != id {
         return Err(not_found("invalid session id"));
@@ -781,7 +781,7 @@ fn require_session_id(id: &str) -> Result<(), SessionError> {
     Ok(())
 }
 
-fn require_trial(
+pub(super) fn require_trial(
     state: &AppState,
     headers: &HeaderMap,
     require_origin: bool,

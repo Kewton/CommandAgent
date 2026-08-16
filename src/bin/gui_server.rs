@@ -8,6 +8,8 @@ use clap::Parser;
 
 #[path = "gui_server/api.rs"]
 mod api;
+#[path = "gui_server/session_files.rs"]
+mod session_files;
 #[path = "gui_server/sessions.rs"]
 mod sessions;
 #[path = "gui_server/static_files.rs"]
@@ -115,6 +117,11 @@ fn dashboard_router() -> Router<AppState> {
         .route("/api/session-proposals", post(sessions::proposal))
         .route("/api/sessions", post(sessions::create))
         .route("/api/sessions/{id}", get(sessions::status))
+        .route(
+            "/api/sessions/{id}/artifacts",
+            get(session_files::artifacts),
+        )
+        .route("/api/sessions/{id}/events", get(session_files::events))
         .route(
             "/api/sessions/{id}/directives",
             post(sessions::propose_directive),

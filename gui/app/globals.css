@@ -1333,8 +1333,98 @@ button {
   font-size: 0.63rem;
 }
 
+.execution-receipt {
+  display: grid;
+  min-width: 0;
+  gap: 0.25rem;
+}
+
 .execution-panel footer code {
   max-width: 75%;
+}
+
+.session-file-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 0.5rem;
+}
+
+.session-file-actions button,
+.session-file-list button {
+  border: 1px solid var(--line-bright);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--muted-strong);
+  font-size: 0.65rem;
+  font-weight: 600;
+}
+
+.session-file-actions button {
+  min-height: 2rem;
+  padding: 0 0.65rem;
+}
+
+.session-file-actions button:hover,
+.session-file-list button:hover,
+.session-file-list button.active {
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+
+.session-files-panel {
+  margin-bottom: 1rem;
+}
+
+.session-files-panel > .trial-error {
+  margin: 1rem 1.25rem 0;
+}
+
+.session-files-workbench {
+  display: grid;
+  grid-template-columns: minmax(13rem, 0.28fr) minmax(0, 1fr);
+  min-height: 18rem;
+}
+
+.session-file-list {
+  display: grid;
+  align-content: start;
+  gap: 0.45rem;
+  max-height: 34rem;
+  overflow: auto;
+  padding: 0.85rem;
+  border-right: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.session-file-list button {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.65rem;
+  text-align: left;
+}
+
+.session-file-list button span,
+.session-file-list button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-file-list button small {
+  color: var(--muted);
+  font: 0.58rem/1.3 var(--mono);
+}
+
+.session-file-document {
+  min-width: 0;
+}
+
+.session-file-document .document-viewer {
+  min-height: 100%;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .verdict-card pre {
@@ -1685,6 +1775,24 @@ button {
 
   .execution-panel footer code {
     max-width: 100%;
+  }
+
+  .session-file-actions {
+    width: 100%;
+  }
+
+  .session-file-actions button {
+    flex: 1;
+  }
+
+  .session-files-workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .session-file-list {
+    max-height: 15rem;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
   }
 }
 
