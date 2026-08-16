@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};
@@ -60,6 +61,42 @@ fn gui_server_disables_trial_without_an_execution_root() {
         server.request_without_access("POST", "/api/session-proposals", Some(&session_spec()));
     assert_eq!(response.status, 503, "{}", response.body);
     assert!(response.body.contains("trial execution is disabled"));
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn gui_server_caches_hashed_next_assets_but_not_html() {
+    let temp = tempfile::tempdir().unwrap();
+    let static_root = temp.path().join("out");
+    let chunk = static_root.join("_next/static/chunks/app-deadbeef.js");
+    let nested = static_root.join("other/_next/static/not-content-addressed.js");
+    std::fs::create_dir_all(chunk.parent().unwrap()).unwrap();
+    std::fs::create_dir_all(nested.parent().unwrap()).unwrap();
+    std::fs::write(
+        static_root.join("index.html"),
+        "<!doctype html><title>GUI</title>",
+    )
+    .unwrap();
+    std::fs::write(&chunk, "console.log('immutable');").unwrap();
+    std::fs::write(&nested, "console.log('not immutable');").unwrap();
+    let mut server = Server::start_dashboard_only_with_static_root(&static_root);
+
+    let index = server.request_without_access("GET", "/", None);
+    assert_eq!(index.status, 200, "{}", index.body);
+    assert_eq!(index.header("cache-control"), Some("no-store"));
+
+    let asset = server.request_without_access("GET", "/_next/static/chunks/app-deadbeef.js", None);
+    assert_eq!(asset.status, 200, "{}", asset.body);
+    assert_eq!(
+        asset.header("cache-control"),
+        Some("public, max-age=31536000, immutable")
+    );
+
+    let nested =
+        server.request_without_access("GET", "/other/_next/static/not-content-addressed.js", None);
+    assert_eq!(nested.status, 200, "{}", nested.body);
+    assert_eq!(nested.header("cache-control"), Some("no-store"));
     server.stop();
 }
 
@@ -378,7 +415,31 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
 
     let status = server.request("GET", &format!("/api/sessions/{id}"), None);
     assert_eq!(status.status, 200, "{}", status.body);
+    assert_eq!(status.header("cache-control"), Some("private, no-cache"));
+    let etag = status.header("etag").unwrap().to_string();
+    assert!(etag.starts_with("W/\""), "{etag}");
     let status_json: serde_json::Value = serde_json::from_str(&status.body).unwrap();
+    let status_keys = status_json
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        status_keys,
+        std::collections::BTreeSet::from([
+            "acceptance_sheet",
+            "assurance",
+            "event_count",
+            "events_path",
+            "gate",
+            "id",
+            "phases",
+            "section5",
+            "status",
+            "verdict",
+        ])
+    );
     assert_eq!(status_json["gate"], "gate_3");
     assert_eq!(status_json["verdict"], "full");
     assert_eq!(status_json["phases"][0]["status"], "completed");
@@ -388,6 +449,10 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
             .unwrap()
             .contains("# D-3c acceptance sheet")
     );
+    let unchanged = server.request_if_none_match(&format!("/api/sessions/{id}"), &etag);
+    assert_eq!(unchanged.status, 304, "{}", unchanged.body);
+    assert!(unchanged.body.is_empty(), "304 response had a body");
+    assert_eq!(unchanged.header("etag"), Some(etag.as_str()));
     let completed = server.request_without_access("GET", "/api/runtime-status", None);
     assert_eq!(completed.status, 200, "{}", completed.body);
     let completed: serde_json::Value = serde_json::from_str(&completed.body).unwrap();
@@ -476,14 +541,21 @@ struct Server {
 #[cfg(unix)]
 impl Server {
     fn start(workspace: &std::path::Path, cli: &std::path::Path) -> Self {
-        Self::start_with_workspace(Some(workspace), cli, true)
+        let static_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/out");
+        Self::start_with_workspace(Some(workspace), cli, true, &static_root)
     }
 
     fn start_dashboard_only() -> Self {
+        let static_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/out");
+        Self::start_dashboard_only_with_static_root(&static_root)
+    }
+
+    fn start_dashboard_only_with_static_root(static_root: &std::path::Path) -> Self {
         Self::start_with_workspace(
             None,
             std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
             false,
+            static_root,
         )
     }
 
@@ -491,6 +563,7 @@ impl Server {
         workspace: Option<&std::path::Path>,
         cli: &std::path::Path,
         authenticated: bool,
+        static_root: &std::path::Path,
     ) -> Self {
         let mut command = Command::new(env!("CARGO_BIN_EXE_gui_server"));
         command
@@ -498,7 +571,7 @@ impl Server {
             .arg("--repository-root")
             .arg(env!("CARGO_MANIFEST_DIR"))
             .arg("--static-dir")
-            .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/out"))
+            .arg(static_root)
             .arg("--commandagent-bin")
             .arg(cli)
             .stdout(Stdio::piped())
@@ -527,7 +600,26 @@ impl Server {
 
     fn request(&self, method: &str, path: &str, body: Option<&serde_json::Value>) -> HttpResponse {
         let origin = format!("http://127.0.0.1:{}", self.port);
-        self.request_with_access(method, path, body, Some(TEST_TRIAL_TOKEN), Some(&origin))
+        self.request_with_access_and_headers(
+            method,
+            path,
+            body,
+            Some(TEST_TRIAL_TOKEN),
+            Some(&origin),
+            &[],
+        )
+    }
+
+    fn request_if_none_match(&self, path: &str, etag: &str) -> HttpResponse {
+        let origin = format!("http://127.0.0.1:{}", self.port);
+        self.request_with_access_and_headers(
+            "GET",
+            path,
+            None,
+            Some(TEST_TRIAL_TOKEN),
+            Some(&origin),
+            &[("If-None-Match", etag)],
+        )
     }
 
     fn request_without_access(
@@ -547,6 +639,18 @@ impl Server {
         token: Option<&str>,
         origin: Option<&str>,
     ) -> HttpResponse {
+        self.request_with_access_and_headers(method, path, body, token, origin, &[])
+    }
+
+    fn request_with_access_and_headers(
+        &self,
+        method: &str,
+        path: &str,
+        body: Option<&serde_json::Value>,
+        token: Option<&str>,
+        origin: Option<&str>,
+        extra_headers: &[(&str, &str)],
+    ) -> HttpResponse {
         let body = body.map(ToString::to_string).unwrap_or_default();
         let authorization = token
             .map(|token| format!("Authorization: Bearer {token}\r\n"))
@@ -554,10 +658,14 @@ impl Server {
         let origin = origin
             .map(|origin| format!("Origin: {origin}\r\n"))
             .unwrap_or_default();
+        let extra_headers = extra_headers
+            .iter()
+            .map(|(name, value)| format!("{name}: {value}\r\n"))
+            .collect::<String>();
         let mut stream = TcpStream::connect(("127.0.0.1", self.port)).unwrap();
         write!(
             stream,
-            "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n{authorization}{origin}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\n{authorization}{origin}{extra_headers}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
             self.port,
             body.len()
         )
@@ -571,8 +679,15 @@ impl Server {
             .unwrap()
             .parse::<u16>()
             .unwrap();
+        let headers = head
+            .lines()
+            .skip(1)
+            .filter_map(|line| line.split_once(':'))
+            .map(|(name, value)| (name.to_ascii_lowercase(), value.trim().to_string()))
+            .collect();
         HttpResponse {
             status,
+            headers,
             body: body.to_string(),
         }
     }
@@ -593,7 +708,17 @@ impl Drop for Server {
 #[cfg(unix)]
 struct HttpResponse {
     status: u16,
+    headers: BTreeMap<String, String>,
     body: String,
+}
+
+#[cfg(unix)]
+impl HttpResponse {
+    fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .get(&name.to_ascii_lowercase())
+            .map(String::as_str)
+    }
 }
 
 fn session_spec() -> serde_json::Value {

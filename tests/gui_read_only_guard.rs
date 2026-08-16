@@ -439,6 +439,77 @@ fn trial_phase_badges_distinguish_pending_running_completed_failed_and_interrupt
 }
 
 #[test]
+fn trial_status_polling_revalidates_and_backs_off_without_changing_the_schema() {
+    let page = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
+    for required in [
+        "headers[\"if-none-match\"] = etag",
+        "response.status === 304",
+        "unchangedPollDelay(unchangedResponses)",
+        "CHANGED_POLL_INTERVAL_MS",
+    ] {
+        assert!(
+            page.contains(required),
+            "trial status polling is missing {required:?}"
+        );
+    }
+    assert!(!page.contains("setTimeout(() => void poll(), 750)"));
+
+    let policy = std::fs::read_to_string("gui/lib/trial-monitor.ts").unwrap();
+    for required in [
+        "CHANGED_POLL_INTERVAL_MS = 1_000",
+        "MAX_UNCHANGED_POLL_INTERVAL_MS = 10_000",
+        "Math.min(CHANGED_POLL_INTERVAL_MS * 2 ** exponent, MAX_UNCHANGED_POLL_INTERVAL_MS)",
+    ] {
+        assert!(
+            policy.contains(required),
+            "adaptive polling policy is missing {required:?}"
+        );
+    }
+    assert!(policy.contains("retryDelay(attempt: number)"));
+    assert!(!std::path::Path::new("gui/lib/trial-polling.ts").exists());
+
+    let types = std::fs::read_to_string("gui/lib/types.ts").unwrap();
+    let schema = types
+        .split("export type PolledSession = {")
+        .nth(1)
+        .and_then(|tail| tail.split("};").next())
+        .unwrap();
+    for field in [
+        "id:",
+        "gate:",
+        "status:",
+        "verdict:",
+        "assurance:",
+        "phases:",
+        "event_count:",
+        "acceptance_sheet:",
+        "section5:",
+        "events_path:",
+    ] {
+        assert!(schema.contains(field), "PolledSession lost {field}");
+    }
+    assert_eq!(schema.lines().filter(|line| line.contains(':')).count(), 10);
+
+    let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
+    for required in [
+        "probeTenMinutePolling",
+        "--polling-only",
+        "durationMs = 600_000",
+        "fixed_750ms_calls",
+        "observed_call_count",
+        "observed_calls: observedCalls",
+        "observedCalls.length >= 50",
+        "observedCalls.length <= 65",
+        "reductionPercent >= 90",
+    ] {
+        assert!(
+            smoke.contains(required),
+            "polling smoke evidence is missing {required:?}"
+        );
+    }
+}
+
+#[test]
 fn trial_workspace_and_authentication_guards_are_not_optional() {
     let entry = std::fs::read_to_string("src/bin/gui_server.rs").unwrap();
     assert!(!entry.contains("unwrap_or_else(|| arguments.repository_root.clone())"));

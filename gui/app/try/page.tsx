@@ -5,13 +5,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Shell } from "../../components/shell";
 import { apiPath } from "../../lib/base-path";
 import {
-  POLL_INTERVAL_MS,
+  CHANGED_POLL_INTERVAL_MS,
   TERMINAL_FAILURE_LIMIT,
   type MonitorFailure,
   type MonitorStatus,
   responseFailure,
   retryDelay,
   thrownFailure,
+  unchangedPollDelay,
 } from "../../lib/trial-monitor";
 import type {
   CreatedSession,
@@ -110,13 +111,15 @@ export default function TrialRunPage() {
     }
     let cancelled = false;
     let attempt = 0;
+    let etag: string | null = null;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let unchangedResponses = 0;
     const poll = async () => {
       try {
-        const value = await fetchSession(created.id, trialToken);
+        const result = await fetchSessionPoll(created.id, trialToken, etag);
         if (cancelled) return;
         attempt = 0;
-        setSession(value);
+        etag = result.etag;
         setMonitor({
           attempt: 0,
           guidance: null,
@@ -125,15 +128,24 @@ export default function TrialRunPage() {
           status: "connected",
           summary: null,
         });
+        if (result.value === null) {
+          unchangedResponses += 1;
+          timer = setTimeout(() => void poll(), unchangedPollDelay(unchangedResponses));
+          return;
+        }
+        unchangedResponses = 0;
+        const value = result.value;
+        setSession(value);
         if (value.gate === "gate_3" || value.gate === "gate_4") {
           setStage("terminal");
           return;
         }
         setStage("gate_2");
-        timer = setTimeout(() => void poll(), POLL_INTERVAL_MS);
+        timer = setTimeout(() => void poll(), CHANGED_POLL_INTERVAL_MS);
       } catch (reason) {
         if (cancelled) return;
         attempt += 1;
+        unchangedResponses = 0;
         const failure = monitorFailure(reason);
         const stop = failure.terminal && attempt >= TERMINAL_FAILURE_LIMIT;
         const delay = retryDelay(attempt);
@@ -726,20 +738,43 @@ function stageLabel(stage: ScreenStage, session: PolledSession | null): string {
 }
 
 async function fetchSession(id: string, token: string): Promise<PolledSession> {
+  const result = await fetchSessionPoll(id, token, null);
+  if (result.value !== null) return result.value;
+  throw {
+    guidance:
+      "監視が初回取得で304応答を受信しました。プロキシのキャッシュ設定を確認してから再接続してください。",
+    summary: "初回のセッション状態がありません",
+    terminal: true,
+  } satisfies MonitorFailure;
+}
+
+async function fetchSessionPoll(
+  id: string,
+  token: string,
+  etag: string | null,
+): Promise<{ etag: string | null; value: PolledSession | null }> {
   let response: Response;
   try {
+    const headers = authorizationHeaders(token);
+    if (etag !== null) headers["if-none-match"] = etag;
     response = await fetch(apiPath(`sessions/${encodeURIComponent(id)}`), {
-      headers: authorizationHeaders(token),
+      headers,
       redirect: "manual",
     });
   } catch (reason) {
     throw thrownFailure(reason);
   }
+  if (response.status === 304) {
+    return { etag: response.headers.get("etag") ?? etag, value: null };
+  }
   if (response.type === "opaqueredirect" || !response.ok) {
     throw await responseFailure(response);
   }
   try {
-    return (await response.json()) as PolledSession;
+    return {
+      etag: response.headers.get("etag"),
+      value: (await response.json()) as PolledSession,
+    };
   } catch (reason) {
     throw {
       guidance:

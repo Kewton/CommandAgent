@@ -1,4 +1,6 @@
 export const POLL_INTERVAL_MS = 750;
+export const CHANGED_POLL_INTERVAL_MS = 1_000;
+export const MAX_UNCHANGED_POLL_INTERVAL_MS = 10_000;
 export const TERMINAL_FAILURE_LIMIT = 4;
 
 const MAX_BACKOFF_MS = 12_000;
@@ -14,6 +16,11 @@ export type MonitorFailure = {
 export function retryDelay(attempt: number): number {
   const exponent = Math.max(0, Math.min(attempt - 1, 10));
   return Math.min(POLL_INTERVAL_MS * 2 ** exponent, MAX_BACKOFF_MS);
+}
+
+export function unchangedPollDelay(unchangedResponses: number): number {
+  const exponent = Math.max(0, Math.min(unchangedResponses, 10));
+  return Math.min(CHANGED_POLL_INTERVAL_MS * 2 ** exponent, MAX_UNCHANGED_POLL_INTERVAL_MS);
 }
 
 export async function responseFailure(response: Response): Promise<MonitorFailure> {
