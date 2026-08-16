@@ -18,6 +18,9 @@
 - `cargo clippy --all-targets -- -D warnings`: `passed`
 - `cargo test`: `passed`
 - `cargo test --test generality_guardrails nextjs_boundary_erosion_tripwire_keeps_dispatch_sites_audited -- --exact --nocapture` (CI follow-up): `passed`
+- `ruff check workspace/management/scripts/test_first_loop_doc.py` (CI follow-up): `passed`
+- `python3 workspace/management/scripts/test_first_loop_doc.py` (CI follow-up): `passed`
+- `python3.12 -m unittest discover -s workspace/management/scripts -p 'test_*.py'` (CI-equivalent Python suite): `passed`
 - `git diff --check`: `passed`
 
 ## Results
@@ -39,3 +42,8 @@
   six reader-facing `nextjs` literals in `presentation.rs` without adding that
   leaf module to the exact-count boundary audit. The audit now pins the module
   at six literals; no production behavior or guardrail condition was weakened.
+- The next CI attempt exposed an independent documentation drift assertion that
+  still required the removed English Gate 1 heading and proposal sentence. It
+  now pins the approved Japanese heading, required-check section, exact-change
+  confirmation ID guidance, and proposal-not-result meaning. The Python 3.12
+  suite passed all 137 tests after the update.
