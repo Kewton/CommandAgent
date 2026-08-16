@@ -1207,6 +1207,58 @@ button {
   line-height: 1.5;
 }
 
+.lease-status-card {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 0.8rem;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+}
+
+.lease-status-card > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.lease-status-card span,
+.lease-status-card strong {
+  font-size: 0.68rem;
+}
+
+.lease-status-card span,
+.lease-status-card p {
+  color: var(--muted);
+}
+
+.lease-status-card.recovery_required {
+  border-color: rgba(217, 119, 6, 0.45);
+  background: #fffbeb;
+}
+
+.lease-status-card.recovery_required strong {
+  color: var(--warning);
+}
+
+.lease-status-card code {
+  overflow-wrap: anywhere;
+  color: var(--muted-strong);
+  font: 0.65rem/1.5 var(--mono);
+}
+
+.lease-status-card p {
+  margin: 0;
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
+
+.lease-status-card button {
+  justify-self: start;
+}
+
 .price-rate {
   display: flex;
   align-items: end;
@@ -1526,6 +1578,10 @@ button {
   }
 
   .workspace-boundary {
+    background: rgba(251, 191, 36, 0.08);
+  }
+
+  .lease-status-card.recovery_required {
     background: rgba(251, 191, 36, 0.08);
   }
 }

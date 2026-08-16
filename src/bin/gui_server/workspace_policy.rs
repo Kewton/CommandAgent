@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, bail};
+use serde::Serialize;
 use serde_json::Value;
 
 #[derive(Debug, Clone)]
@@ -15,6 +16,14 @@ struct ConfiguredWorkspace {
     requested: PathBuf,
     canonical: PathBuf,
     repository: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum LeaseSnapshot {
+    Idle,
+    Running { session_id: String },
+    RecoveryRequired { session_id: String },
 }
 
 #[derive(Debug)]
@@ -87,6 +96,22 @@ impl TrialWorkspace {
                 "trial workspace requires recovery for non-terminal session {active}"
             )),
         }
+    }
+
+    pub fn lease_snapshot(&self) -> Result<LeaseSnapshot, String> {
+        let lease = self
+            .lease
+            .lock()
+            .map_err(|_| "trial workspace lease is poisoned".to_string())?;
+        Ok(match &*lease {
+            LeaseState::Idle => LeaseSnapshot::Idle,
+            LeaseState::Running(session_id) => LeaseSnapshot::Running {
+                session_id: session_id.clone(),
+            },
+            LeaseState::RecoveryRequired(session_id) => LeaseSnapshot::RecoveryRequired {
+                session_id: session_id.clone(),
+            },
+        })
     }
 
     pub fn cancel_start(&self, session_id: &str) {

@@ -19,6 +19,7 @@ import type {
   PolledSession,
   SessionProposal,
   SessionSpec,
+  TrialWorkspaceLease,
 } from "../../lib/types";
 
 const initialSpec: SessionSpec = {
@@ -66,6 +67,7 @@ export default function TrialRunPage() {
   const [error, setError] = useState<string | null>(null);
   const [directiveText, setDirectiveText] = useState("");
   const [directive, setDirective] = useState<DirectiveProposal | null>(null);
+  const [workspaceLease, setWorkspaceLease] = useState<TrialWorkspaceLease | null>(null);
   const launchIdentityLocked =
     stage === "gate_2" || stage === "terminal" || stage === "closed";
   const [monitor, setMonitor] = useState<MonitorState>(initialMonitor);
@@ -187,6 +189,7 @@ export default function TrialRunPage() {
     setBusy(true);
     setError(null);
     try {
+      setWorkspaceLease(await fetchWorkspaceLease(trialToken));
       const response = await fetch(apiPath("session-proposals"), {
         method: "POST",
         headers: authorizationHeaders(trialToken, true),
@@ -196,6 +199,22 @@ export default function TrialRunPage() {
       setProposal((await response.json()) as SessionProposal);
       setConfirmed(false);
       setStage("gate_1");
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function inspectWorkspaceLease() {
+    if (trialToken.trim() === "") {
+      setError("Enter the runtime Trial access token before inspecting the workspace lease.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      setWorkspaceLease(await fetchWorkspaceLease(trialToken));
     } catch (reason) {
       setError(message(reason));
     } finally {
@@ -219,6 +238,8 @@ export default function TrialRunPage() {
       if (!response.ok) {
         const detail = await apiError(response);
         if (response.status === 409) {
+          const currentLease = await fetchWorkspaceLease(trialToken).catch(() => null);
+          if (currentLease !== null) setWorkspaceLease(currentLease);
           const active = sessionIdFromConflict(detail);
           if (active !== null) {
             setReconnectSessionId(active);
@@ -232,6 +253,7 @@ export default function TrialRunPage() {
       }
       const value = (await response.json()) as CreatedSession;
       setCreated(value);
+      setWorkspaceLease(null);
       setReconnectSessionId(value.id);
       replaceSessionQuery(value.id);
       setSession(null);
@@ -312,6 +334,7 @@ export default function TrialRunPage() {
       if (!response.ok) throw new Error(await apiError(response));
       setDirective(null);
       setDirectiveText("");
+      setWorkspaceLease(null);
       setStage("gate_2");
     } catch (reason) {
       setError(message(reason));
@@ -354,6 +377,7 @@ export default function TrialRunPage() {
             id="trial-token"
             onChange={(event) => {
               setTrialToken(event.target.value);
+              setWorkspaceLease(null);
               if (created === null) {
                 setProposal(null);
                 setConfirmed(false);
@@ -364,6 +388,28 @@ export default function TrialRunPage() {
             type="password"
             value={trialToken}
           />
+          <div
+            className={`lease-status-card ${workspaceLease?.status ?? "unknown"}`}
+            data-testid="workspace-lease-status"
+          >
+            <div>
+              <span>Workspace lease snapshot</span>
+              <strong>{workspaceLeaseLabel(workspaceLease)}</strong>
+            </div>
+            {workspaceLease !== null && workspaceLease.status !== "idle" && (
+              <code data-testid="workspace-lease-session">{workspaceLease.session_id}</code>
+            )}
+            <p>Read-only inspection. This cannot clear the lease or dispatch a CLI process.</p>
+            <button
+              className="secondary-action"
+              data-testid="inspect-workspace-lease"
+              disabled={busy}
+              onClick={() => void inspectWorkspaceLease()}
+              type="button"
+            >
+              Inspect workspace lease
+            </button>
+          </div>
           <div className="reconnect-card" data-testid="reconnect-card">
             <label htmlFor="reconnect-session">Existing session ID</label>
             <div>
@@ -681,6 +727,21 @@ async function apiError(response: Response): Promise<string> {
 
 function message(reason: unknown): string {
   return reason instanceof Error ? reason.message : "The trial request failed.";
+}
+
+function workspaceLeaseLabel(lease: TrialWorkspaceLease | null): string {
+  if (lease === null) return "Not inspected";
+  if (lease.status === "recovery_required") return "Recovery required";
+  if (lease.status === "running") return "Running";
+  return "Idle";
+}
+
+async function fetchWorkspaceLease(token: string): Promise<TrialWorkspaceLease> {
+  const response = await fetch(apiPath("trial-workspace"), {
+    headers: authorizationHeaders(token),
+  });
+  if (!response.ok) throw new Error(await apiError(response));
+  return (await response.json()) as TrialWorkspaceLease;
 }
 
 function authorizationHeaders(token: string, json = false): Record<string, string> {
