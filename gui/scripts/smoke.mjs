@@ -197,8 +197,20 @@ async function runCase(smokeCase) {
     const modelInputs = page.locator(".trial-fields input");
     await modelInputs.nth(0).fill(model);
     await modelInputs.nth(1).fill(model);
+    const requestLayout = await probeTrialLayout(
+      page,
+      "compose",
+      "[data-testid='check-contract']",
+      [],
+    );
     await page.locator("[data-testid='check-contract']").click();
     await page.locator("[data-testid='gate-one-card']").waitFor();
+    const gateOneLayout = await probeTrialLayout(
+      page,
+      "gate_1",
+      "[data-testid='launch-session']",
+      ["gate-one-card"],
+    );
     const launch = page.locator("[data-testid='launch-session']");
     const launchDisabledBeforeConfirmation = await launch.isDisabled();
     const gateOneText = await page.locator("[data-testid='gate-one-card']").innerText();
@@ -235,12 +247,24 @@ async function runCase(smokeCase) {
     await page.locator("[data-testid='gate-one-confirm']").check();
     await launch.click();
     await page.locator("[data-testid='session-progress']").waitFor();
+    const gateTwoLayout = await probeTrialLayout(
+      page,
+      "gate_2",
+      "[data-testid='session-progress'] .panel-heading",
+      ["session-progress"],
+    );
     const sessionId = await page.locator("[data-testid='session-progress'] h2").innerText();
     await page.screenshot({
       fullPage: true,
       path: join(outputDirectory, `${smokeCase.id}-gate-2.png`),
     });
     await page.locator("[data-testid='terminal-gate']").waitFor({ timeout: trialTimeoutMs });
+    const terminalLayout = await probeTrialLayout(
+      page,
+      "terminal",
+      ".next-action-card .secondary-action",
+      ["terminal-gate"],
+    );
     const finalApi = await page.evaluate(
       async ({ apiUrl, trialToken }) => {
         const result = await fetch(apiUrl, {
@@ -280,6 +304,7 @@ async function runCase(smokeCase) {
     const unexpectedConsoleErrors = consoleErrors.filter(
       (entry) => !expectedNegativeConsoleErrors.includes(entry),
     );
+    const layoutChecks = [requestLayout, gateOneLayout, gateTwoLayout, terminalLayout];
 
     const ok =
       response?.status() === 200 &&
@@ -299,6 +324,7 @@ async function runCase(smokeCase) {
       deniedWithoutConfirmation.status === 428 &&
       finalApi.status === 200 &&
       ["gate_3", "gate_4"].includes(finalApi.body.gate) &&
+      layoutChecks.every((check) => check.ok) &&
       expectedNegativeConsoleErrors.length === 1 &&
       unexpectedConsoleErrors.length === 0;
     return {
@@ -313,6 +339,10 @@ async function runCase(smokeCase) {
         launch_disabled_before_confirmation: launchDisabledBeforeConfirmation,
         api_without_confirmation_status: deniedWithoutConfirmation.status,
         visible_text: gateOneText,
+      },
+      layout: {
+        viewport: { width: 390, height: 844 },
+        states: layoutChecks,
       },
       session: {
         id: sessionId,
@@ -341,6 +371,55 @@ async function probePage(page, origin, basePath, relativePath, expectedHeading) 
   const response = await page.goto(url, { waitUntil: "networkidle" });
   const heading = await page.locator("h1").innerText();
   return { status: response?.status() ?? 0, heading, headingMatches: heading === expectedHeading };
+}
+
+async function probeTrialLayout(page, expectedStage, primarySelector, expectedVisibleStateIds) {
+  const previousViewport = page.viewportSize();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator("[data-testid='trial-active-stage']").waitFor();
+  await page.waitForTimeout(450);
+
+  const stage = await page.locator("[data-testid='trial-active-stage']").getAttribute("data-stage");
+  const stepLabels = await page.locator("[data-testid='trial-stage-nav'] small").allInnerTexts();
+  const primary = page.locator(primarySelector).first();
+  await primary.waitFor();
+  const primaryBox = await primary.boundingBox();
+  const bottomNavigationBox = await page.locator(".sidebar").boundingBox();
+  const primaryInInitialViewport =
+    primaryBox !== null &&
+    primaryBox.y >= 0 &&
+    primaryBox.y + primaryBox.height <= 844 &&
+    (bottomNavigationBox === null || primaryBox.y + primaryBox.height <= bottomNavigationBox.y);
+  const visibleStateIds = await page
+    .locator(
+      "[data-testid='gate-one-card'], [data-testid='session-progress'], [data-testid='terminal-gate']",
+    )
+    .evaluateAll((elements) =>
+      elements
+        .filter((element) => {
+          const style = window.getComputedStyle(element);
+          return style.display !== "none" && style.visibility !== "hidden" && element.getClientRects().length > 0;
+        })
+        .map((element) => element.getAttribute("data-testid")),
+    );
+
+  if (previousViewport !== null) await page.setViewportSize(previousViewport);
+  const expectedLabels = ["依頼", "確認", "実行", "結果"];
+  const oneStateVisible =
+    visibleStateIds.length === expectedVisibleStateIds.length &&
+    expectedVisibleStateIds.every((id) => visibleStateIds.includes(id));
+  return {
+    stage,
+    step_labels: stepLabels,
+    visible_state_ids: visibleStateIds,
+    primary_in_initial_viewport: primaryInInitialViewport,
+    one_state_visible: oneStateVisible,
+    ok:
+      stage === expectedStage &&
+      stepLabels.join("\u0000") === expectedLabels.join("\u0000") &&
+      primaryInInitialViewport &&
+      oneStateVisible,
+  };
 }
 
 async function startServer(basePath, executionRoot) {

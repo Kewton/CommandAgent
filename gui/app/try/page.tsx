@@ -38,6 +38,7 @@ export default function TrialRunPage() {
   const [error, setError] = useState<string | null>(null);
   const [directiveText, setDirectiveText] = useState("");
   const [directive, setDirective] = useState<DirectiveProposal | null>(null);
+  const launchIdentityLocked = stage === "gate_2" || stage === "terminal" || stage === "closed";
 
   useEffect(() => {
     if (created === null || stage === "closed") return;
@@ -204,204 +205,313 @@ export default function TrialRunPage() {
       description="The GUI confirms and launches. The existing CLI executes; filesystem events and acceptance artifacts remain authoritative."
     >
       <section className="trial-layout">
-        <div className="trial-compose panel">
-          <header className="panel-heading">
-            <div>
-              <span className="panel-index">GATE 1 / REQUEST</span>
-              <h2>Frozen launch identity</h2>
-            </div>
-            <span className="gate-chip">{stageLabel(stage, session)}</span>
-          </header>
-          <label htmlFor="trial-goal">Goal</label>
-          <textarea
-            data-testid="trial-goal"
-            id="trial-goal"
-            onChange={(event) => update("goal", event.target.value)}
-            rows={5}
-            value={spec.goal}
-          />
-          <label htmlFor="trial-token">Trial access token</label>
-          <input
-            autoComplete="off"
-            autoCapitalize="none"
-            data-testid="trial-token"
-            id="trial-token"
-            onChange={(event) => {
-              setTrialToken(event.target.value);
-              setProposal(null);
-              setConfirmed(false);
-              setStage("compose");
-            }}
-            spellCheck={false}
-            type="password"
-            value={trialToken}
-          />
-          <div className="trial-fields">
-            <label>
-              Profile
-              <select value={spec.profile} onChange={(event) => update("profile", event.target.value)}>
-                <option value="python-cli">python-cli</option>
-                <option value="data">data</option>
-                <option value="ingest">ingest</option>
-                <option value="nextjs">nextjs</option>
-              </select>
-            </label>
-            <label>
-              Provider
-              <select value={spec.provider} onChange={(event) => update("provider", event.target.value)}>
-                <option value="ollama">ollama</option>
-                <option value="lm-studio">LM Studio</option>
-                <option value="openai">openai</option>
-                <option value="gemini">gemini</option>
-              </select>
-            </label>
-            <label>
-              Executor model
-              <input value={spec.model} onChange={(event) => update("model", event.target.value)} />
-            </label>
-            <label>
-              Planner model
-              <input
-                value={spec.planner_model}
-                onChange={(event) => update("planner_model", event.target.value)}
-              />
-            </label>
-          </div>
-          <button
-            className="secondary-action"
-            data-testid="check-contract"
-            disabled={busy || stage === "gate_2"}
-            onClick={() => void checkContract()}
-            type="button"
-          >
-            Check contract and price
-          </button>
-          {error !== null && <p className="trial-error" role="alert">{error}</p>}
-        </div>
-
-        <aside className="trial-rail">
-          <div className={`rail-step ${stage !== "compose" ? "reached" : ""}`}>
-            <span>1</span><div><strong>Gate 1</strong><small>Human confirmation</small></div>
-          </div>
-          <div className={`rail-step ${stage === "gate_2" || stage === "terminal" ? "reached" : ""}`}>
-            <span>2</span><div><strong>Execute</strong><small>Existing CLI only</small></div>
-          </div>
-          <div className={`rail-step ${stage === "terminal" ? "reached" : ""}`}>
-            <span>3</span><div><strong>Gate 3 / 4</strong><small>Artifact verdict</small></div>
-          </div>
-        </aside>
-      </section>
-
-      {proposal !== null && (stage === "gate_1" || stage === "gate_2") && (
-        <section className="gate-one-grid" data-testid="gate-one-card" ref={gateOneRef}>
-          <article className="panel contract-card">
-            <span className="panel-index">CONTRACT</span>
-            <h2>{proposal.identity.profile} × {proposal.identity.intent} × {proposal.identity.task_family}</h2>
-            <code>{proposal.identity.contract_ref}</code>
-            <ul>
-              {proposal.identity.contract_checks.map((check) => <li key={check}>{check}</li>)}
-            </ul>
-            <p>{proposal.identity.full_meaning}</p>
-            <div className="workspace-boundary" data-testid="trial-workspace">
-              <strong>Filesystem write boundary</strong>
-              <code>{proposal.identity.workspace}</code>
-              <p>The delegated CLI may create, modify, or delete content inside this directory.</p>
-            </div>
-          </article>
-          <article className="panel price-card">
-            <span className="panel-index">MEASURED PRICE TAG</span>
-            <div className="price-rate">
-              <strong>{proposal.identity.band_rate}</strong>
-              <span>{proposal.identity.band_full}/{proposal.identity.band_denominator} full</span>
-            </div>
-            <dl>
-              <div><dt>Mean duration</dt><dd>{priceDuration} · n={proposal.price.duration_n}</dd></div>
-              <div><dt>Mean cost</dt><dd>{priceCost} · n={proposal.price.cost_n}</dd></div>
-              <div><dt>Measurement</dt><dd>{proposal.identity.band_measurement}</dd></div>
-            </dl>
-            <label className="confirm-check">
-              <input
-                checked={confirmed}
-                data-testid="gate-one-confirm"
-                onChange={(event) => setConfirmed(event.target.checked)}
-                type="checkbox"
-              />
-              I confirm this exact contract, model pin, measured value tag, and displayed filesystem write boundary.
-            </label>
-            <code className="hash-line">{proposal.card_hash}</code>
-            <button
-              className="primary-action"
-              data-testid="launch-session"
-              disabled={!confirmed || busy || stage === "gate_2"}
-              onClick={() => void launchConfirmed()}
-              type="button"
-            >
-              Confirm and delegate to CLI
-            </button>
-          </article>
-        </section>
-      )}
-
-      {(stage === "gate_2" || stage === "terminal") && created !== null && (
-        <section className="panel execution-panel" data-testid="session-progress" ref={executionRef}>
-          <header className="panel-heading">
-            <div><span className="panel-index">GATE 2 / FILE-BACKED PROGRESS</span><h2>{created.id}</h2></div>
-            <span className="live-label"><i /> {session?.status ?? "starting"}</span>
-          </header>
-          <div className="phase-list">
-            {session?.phases.length === 0 && <p>Waiting for the first CLI event…</p>}
-            {session?.phases.map((phase) => (
-              <div className={`phase-row ${phase.status}`} key={`${phase.index}-${phase.id}`}>
-                <span>{String(phase.index).padStart(2, "0")}</span>
-                <div><strong>{phase.id}</strong><small>{phase.stage}</small></div>
-                <em>{phase.status}</em>
+        <aside
+          aria-label="Trial の進行状況"
+          className="trial-rail panel"
+          data-testid="trial-stage-nav"
+        >
+          {[
+            ["Gate 1", "依頼"],
+            ["Gate 1", "確認"],
+            ["Gate 2", "実行"],
+            ["Gate 3 / 4", "結果"],
+          ].map(([label, detail], index) => {
+            const position = stagePosition(stage);
+            return (
+              <div
+                aria-current={index === position ? "step" : undefined}
+                className={`rail-step ${index <= position ? "reached" : ""} ${index === position ? "current" : ""}`}
+                key={detail}
+              >
+                <span>{index + 1}</span>
+                <div>
+                  <strong>{label}</strong>
+                  <small>{detail}</small>
+                </div>
               </div>
-            ))}
-          </div>
-          <footer><code>{session?.events_path ?? created.events_path}</code><span>{session?.event_count ?? 0} events</span></footer>
-        </section>
-      )}
+            );
+          })}
+        </aside>
 
-      {stage === "terminal" && session !== null && (
-        <section className="terminal-grid" data-testid="terminal-gate" ref={terminalRef}>
-          <article className="panel verdict-card">
-            <span className="panel-index">{session.gate.toUpperCase()} / TERMINAL</span>
-            <h2>{session.verdict ?? session.status}</h2>
-            <p>Assurance: <strong>{session.assurance ?? "not recorded"}</strong></p>
-            <pre>{session.acceptance_sheet ?? "Terminal evidence is incomplete; no sheet was promoted."}</pre>
-          </article>
-          <aside className="panel next-action-card">
-            <span className="panel-index">NEXT ACTION / D-3d</span>
-            <h2>Boundary instruction</h2>
-            <p>Saved text is scrubbed and hashed. It cannot alter the frozen contract floor.</p>
-            <textarea
-              data-testid="directive-input"
-              onChange={(event) => { setDirectiveText(event.target.value); setDirective(null); }}
-              placeholder="Add a post-terminal instruction…"
-              rows={4}
-              value={directiveText}
-            />
-            <button className="secondary-action" disabled={busy || directive !== null || directiveText.trim() === ""} onClick={() => void persistDirective()} type="button">
-              Scrub and persist instruction
-            </button>
-            {directive !== null && (
-              <div className="directive-receipt" data-testid="directive-receipt">
-                <strong>{directive.scrubbed_directive}</strong>
-                <code>{directive.directive_hash}</code>
-                <small>{directive.issued_gate} · round {directive.directive_round}</small>
-                <button className="primary-action" disabled={busy} onClick={() => void confirmDirective()} type="button">
-                  Confirm D-3d continuation
+        <div
+          className={`trial-stage trial-stage-${stage}`}
+          data-stage={stage}
+          data-testid="trial-active-stage"
+        >
+          {error !== null && (
+            <p className="trial-error trial-stage-error" role="alert">
+              {error}
+            </p>
+          )}
+
+          {stage === "compose" && (
+            <section className="trial-compose panel">
+              <header className="panel-heading">
+                <div>
+                  <span className="panel-index">GATE 1 / REQUEST</span>
+                  <h2>Frozen launch identity</h2>
+                </div>
+                <span className="gate-chip">{stageLabel(stage, session)}</span>
+              </header>
+              <label htmlFor="trial-goal">Goal</label>
+              <textarea
+                data-testid="trial-goal"
+                id="trial-goal"
+                onChange={(event) => update("goal", event.target.value)}
+                rows={5}
+                value={spec.goal}
+              />
+              <label htmlFor="trial-token">Trial access token</label>
+              <input
+                autoComplete="off"
+                autoCapitalize="none"
+                data-testid="trial-token"
+                id="trial-token"
+                onChange={(event) => {
+                  setTrialToken(event.target.value);
+                  setProposal(null);
+                  setConfirmed(false);
+                  setStage("compose");
+                }}
+                spellCheck={false}
+                type="password"
+                value={trialToken}
+              />
+              <div className="trial-fields">
+                <label>
+                  Profile
+                  <select
+                    value={spec.profile}
+                    onChange={(event) => update("profile", event.target.value)}
+                  >
+                    <option value="python-cli">python-cli</option>
+                    <option value="data">data</option>
+                    <option value="ingest">ingest</option>
+                    <option value="nextjs">nextjs</option>
+                  </select>
+                </label>
+                <label>
+                  Provider
+                  <select
+                    value={spec.provider}
+                    onChange={(event) => update("provider", event.target.value)}
+                  >
+                    <option value="ollama">ollama</option>
+                    <option value="lm-studio">LM Studio</option>
+                    <option value="openai">openai</option>
+                    <option value="gemini">gemini</option>
+                  </select>
+                </label>
+                <label>
+                  Executor model
+                  <input value={spec.model} onChange={(event) => update("model", event.target.value)} />
+                </label>
+                <label>
+                  Planner model
+                  <input
+                    value={spec.planner_model}
+                    onChange={(event) => update("planner_model", event.target.value)}
+                  />
+                </label>
+              </div>
+              <div className="trial-action-bar trial-request-actions">
+                <button
+                  className="secondary-action"
+                  data-testid="check-contract"
+                  disabled={busy || launchIdentityLocked}
+                  onClick={() => void checkContract()}
+                  type="button"
+                >
+                  Check contract and price
                 </button>
               </div>
-            )}
-            <button className="close-action" onClick={() => setStage("closed")} type="button">End without another run</button>
-          </aside>
-        </section>
-      )}
+            </section>
+          )}
 
-      {stage === "closed" && <section className="panel closed-card"><span>SESSION CLOSED</span><h2>No further action was dispatched.</h2></section>}
+          {stage === "gate_1" && proposal !== null && (
+            <section className="gate-one-grid" data-testid="gate-one-card" ref={gateOneRef}>
+              <article className="panel contract-card">
+                <span className="panel-index">CONTRACT</span>
+                <h2>
+                  {proposal.identity.profile} × {proposal.identity.intent} ×{" "}
+                  {proposal.identity.task_family}
+                </h2>
+                <code>{proposal.identity.contract_ref}</code>
+                <ul>
+                  {proposal.identity.contract_checks.map((check) => (
+                    <li key={check}>{check}</li>
+                  ))}
+                </ul>
+                <p>{proposal.identity.full_meaning}</p>
+                <div className="workspace-boundary" data-testid="trial-workspace">
+                  <strong>Filesystem write boundary</strong>
+                  <code>{proposal.identity.workspace}</code>
+                  <p>The delegated CLI may create, modify, or delete content inside this directory.</p>
+                </div>
+              </article>
+              <article className="panel price-card">
+                <span className="panel-index">MEASURED PRICE TAG</span>
+                <div className="price-rate">
+                  <strong>{proposal.identity.band_rate}</strong>
+                  <span>
+                    {proposal.identity.band_full}/{proposal.identity.band_denominator} full
+                  </span>
+                </div>
+                <dl>
+                  <div>
+                    <dt>Mean duration</dt>
+                    <dd>
+                      {priceDuration} · n={proposal.price.duration_n}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Mean cost</dt>
+                    <dd>
+                      {priceCost} · n={proposal.price.cost_n}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>Measurement</dt>
+                    <dd>{proposal.identity.band_measurement}</dd>
+                  </div>
+                </dl>
+                <code className="hash-line">{proposal.card_hash}</code>
+              </article>
+              <article className="panel gate-one-actions trial-action-bar">
+                <label className="confirm-check">
+                  <input
+                    checked={confirmed}
+                    data-testid="gate-one-confirm"
+                    onChange={(event) => setConfirmed(event.target.checked)}
+                    type="checkbox"
+                  />
+                  I confirm this exact contract, model pin, measured value tag, and displayed
+                  filesystem write boundary.
+                </label>
+                <button
+                  className="primary-action"
+                  data-testid="launch-session"
+                  disabled={!confirmed || busy || launchIdentityLocked}
+                  onClick={() => void launchConfirmed()}
+                  type="button"
+                >
+                  Confirm and delegate to CLI
+                </button>
+              </article>
+            </section>
+          )}
+
+          {stage === "gate_2" && created !== null && (
+            <section
+              className="panel execution-panel"
+              data-testid="session-progress"
+              ref={executionRef}
+            >
+              <header className="panel-heading">
+                <div>
+                  <span className="panel-index">GATE 2 / FILE-BACKED PROGRESS</span>
+                  <h2>{created.id}</h2>
+                </div>
+                <span className="live-label">
+                  <i /> {session?.status ?? "starting"}
+                </span>
+              </header>
+              <div className="phase-list">
+                {session?.phases.length === 0 && <p>Waiting for the first CLI event…</p>}
+                {session?.phases.map((phase) => (
+                  <div className={`phase-row ${phase.status}`} key={`${phase.index}-${phase.id}`}>
+                    <span>{String(phase.index).padStart(2, "0")}</span>
+                    <div>
+                      <strong>{phase.id}</strong>
+                      <small>{phase.stage}</small>
+                    </div>
+                    <em>{phase.status}</em>
+                  </div>
+                ))}
+              </div>
+              <footer>
+                <code>{session?.events_path ?? created.events_path}</code>
+                <span>{session?.event_count ?? 0} events</span>
+              </footer>
+            </section>
+          )}
+
+          {stage === "terminal" && session !== null && (
+            <section className="terminal-grid" data-testid="terminal-gate" ref={terminalRef}>
+              <aside className="panel next-action-card">
+                <span className="panel-index">NEXT ACTION / D-3d</span>
+                <h2>Boundary instruction</h2>
+                <p>Saved text is scrubbed and hashed. It cannot alter the frozen contract floor.</p>
+                <textarea
+                  data-testid="directive-input"
+                  onChange={(event) => {
+                    setDirectiveText(event.target.value);
+                    setDirective(null);
+                  }}
+                  placeholder="Add a post-terminal instruction…"
+                  rows={4}
+                  value={directiveText}
+                />
+                <button
+                  className="secondary-action"
+                  disabled={busy || directive !== null || directiveText.trim() === ""}
+                  onClick={() => void persistDirective()}
+                  type="button"
+                >
+                  Scrub and persist instruction
+                </button>
+                {directive !== null && (
+                  <div className="directive-receipt" data-testid="directive-receipt">
+                    <strong>{directive.scrubbed_directive}</strong>
+                    <code>{directive.directive_hash}</code>
+                    <small>
+                      {directive.issued_gate} · round {directive.directive_round}
+                    </small>
+                    <button
+                      className="primary-action"
+                      disabled={busy}
+                      onClick={() => void confirmDirective()}
+                      type="button"
+                    >
+                      Confirm D-3d continuation
+                    </button>
+                  </div>
+                )}
+                <button className="close-action" onClick={() => setStage("closed")} type="button">
+                  End without another run
+                </button>
+              </aside>
+              <article className="panel verdict-card">
+                <span className="panel-index">{session.gate.toUpperCase()} / TERMINAL</span>
+                <h2>{session.verdict ?? session.status}</h2>
+                <p>
+                  Assurance: <strong>{session.assurance ?? "not recorded"}</strong>
+                </p>
+                <pre>
+                  {session.acceptance_sheet ??
+                    "Terminal evidence is incomplete; no sheet was promoted."}
+                </pre>
+              </article>
+            </section>
+          )}
+
+          {stage === "closed" && (
+            <section className="panel closed-card">
+              <span>SESSION CLOSED</span>
+              <h2>No further action was dispatched.</h2>
+            </section>
+          )}
+        </div>
+      </section>
     </Shell>
   );
+}
+
+function stagePosition(stage: ScreenStage): number {
+  if (stage === "compose") return 0;
+  if (stage === "gate_1") return 1;
+  if (stage === "gate_2") return 2;
+  return 3;
 }
 
 function stageLabel(stage: ScreenStage, session: PolledSession | null): string {

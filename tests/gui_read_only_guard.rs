@@ -149,7 +149,8 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "window.matchMedia(\"(max-width: 720px)\")",
         "target.scrollIntoView({ behavior: \"smooth\", block: \"start\" })",
         "Enter the runtime Trial access token before checking the contract.",
-        "disabled={!confirmed || busy || stage === \"gate_2\"}",
+        "const launchIdentityLocked =",
+        "disabled={!confirmed || busy || launchIdentityLocked}",
         "Confirm and delegate to CLI",
         "Confirm D-3d continuation",
         "End without another run",
@@ -173,6 +174,80 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         assert!(
             !source.contains(forbidden),
             "trial UI exposes forbidden intervention control {forbidden:?}"
+        );
+    }
+}
+
+#[test]
+fn trial_ui_renders_one_japanese_labeled_state_with_mobile_primary_actions() {
+    let source = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
+    for required in [
+        "aria-label=\"Trial の進行状況\"",
+        "[\"Gate 1\", \"依頼\"]",
+        "[\"Gate 1\", \"確認\"]",
+        "[\"Gate 2\", \"実行\"]",
+        "[\"Gate 3 / 4\", \"結果\"]",
+        "data-testid=\"trial-active-stage\"",
+        "data-stage={stage}",
+        "stage === \"compose\"",
+        "stage === \"gate_1\" && proposal !== null",
+        "stage === \"gate_2\" && created !== null",
+        "stage === \"terminal\" && session !== null",
+        "className=\"trial-action-bar trial-request-actions\"",
+        "className=\"panel gate-one-actions trial-action-bar\"",
+    ] {
+        assert!(
+            source.contains(required),
+            "trial state layout is missing {required:?}"
+        );
+    }
+    for forbidden in [
+        "[\"Gate 1\", \"Request\"]",
+        "[\"Gate 1\", \"Confirm\"]",
+        "[\"Gate 2\", \"Execute\"]",
+        "[\"Gate 3 / 4\", \"Result\"]",
+        "aria-label=\"Trial progress\"",
+        "proposal !== null && (stage === \"gate_1\" || stage === \"gate_2\")",
+        "(stage === \"gate_2\" || stage === \"terminal\") && created !== null",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "trial state layout retains forbidden accumulated/English UI {forbidden:?}"
+        );
+    }
+
+    let next_action = source.find("className=\"panel next-action-card\"").unwrap();
+    let verdict = source.find("className=\"panel verdict-card\"").unwrap();
+    assert!(
+        next_action < verdict,
+        "mobile Terminal must encounter D-3d actions before the long verdict"
+    );
+
+    let css = std::fs::read_to_string("gui/app/globals.css").unwrap();
+    for required in [
+        ".trial-stage-compose,\n  .trial-stage-gate_1",
+        ".trial-request-actions,\n  .gate-one-actions",
+        "position: fixed;",
+        "bottom: calc(4.65rem + env(safe-area-inset-bottom));",
+        "grid-template-areas:\n      \"action\"\n      \"verdict\";",
+    ] {
+        assert!(
+            css.contains(required),
+            "mobile state CSS is missing {required:?}"
+        );
+    }
+
+    let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
+    for required in [
+        "probeTrialLayout(",
+        "{ width: 390, height: 844 }",
+        "const expectedLabels = [\"依頼\", \"確認\", \"実行\", \"結果\"]",
+        "primary_in_initial_viewport",
+        "one_state_visible",
+    ] {
+        assert!(
+            smoke.contains(required),
+            "layout smoke is missing {required:?}"
         );
     }
 }

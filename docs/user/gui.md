@@ -104,6 +104,12 @@ the GUI permits only one delegated process in that workspace at a time.
 Open **Trial run** and enter a goal, admitted profile, provider, and exact
 planner/executor model pins.
 
+The page shows a compact **依頼 → 確認 → 実行 → 結果** step indicator and only
+the current workflow state. Completed forms and progress cards do not remain
+stacked above the next action. At 390 px, the request and confirmation action
+bars remain visible above the bottom navigation without scrolling; at Terminal,
+the D-3d controls precede the longer result evidence.
+
 The **LM Studio** provider selection maps to the existing CLI spelling
 `--provider lm-studio`; it is not an alias or a GUI-side provider
 implementation. Enter the exact model identifier exposed by LM Studio. The

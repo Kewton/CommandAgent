@@ -948,9 +948,19 @@ button {
 .trial-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(13rem, 0.28fr);
+  grid-template-areas: "stage rail";
   gap: 1rem;
   align-items: start;
   margin-bottom: 1rem;
+}
+
+.trial-stage {
+  min-width: 0;
+  grid-area: stage;
+}
+
+.trial-stage-error {
+  margin: 0 0 1rem;
 }
 
 .trial-compose {
@@ -970,8 +980,7 @@ button {
 .trial-compose > label,
 .trial-compose > textarea,
 .trial-compose > .trial-fields,
-.trial-compose > button,
-.trial-compose > .trial-error {
+.trial-compose > .trial-action-bar {
   margin-right: 1.25rem;
   margin-left: 1.25rem;
 }
@@ -1005,6 +1014,15 @@ button {
   margin-bottom: 1rem;
 }
 
+.trial-action-bar {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.trial-request-actions .secondary-action {
+  width: 100%;
+}
+
 .gate-chip {
   border-color: var(--accent-line);
   background: var(--accent-soft);
@@ -1023,7 +1041,10 @@ button {
 
 .trial-rail {
   display: grid;
+  position: sticky;
+  top: 1rem;
   overflow: hidden;
+  grid-area: rail;
 }
 
 .rail-step {
@@ -1079,12 +1100,52 @@ button {
   color: var(--accent);
 }
 
-.gate-one-grid,
+.rail-step.current {
+  box-shadow: inset 0.2rem 0 0 var(--accent);
+}
+
+.gate-one-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(18rem, 0.8fr);
+  grid-template-areas:
+    "contract price"
+    "contract actions";
+  gap: 1rem;
+  align-items: start;
+  margin-bottom: 1rem;
+}
+
 .terminal-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-areas: "verdict action";
   gap: 1rem;
   margin-bottom: 1rem;
+}
+
+.contract-card {
+  grid-area: contract;
+}
+
+.price-card {
+  grid-area: price;
+}
+
+.gate-one-actions {
+  padding: 0.25rem 1.25rem 1.25rem;
+  grid-area: actions;
+}
+
+.gate-one-actions .primary-action {
+  margin-top: 0;
+}
+
+.verdict-card {
+  grid-area: verdict;
+}
+
+.next-action-card {
+  grid-area: action;
 }
 
 .contract-card,
@@ -1470,8 +1531,15 @@ button {
     grid-template-columns: 1fr;
   }
 
+  .trial-layout {
+    grid-template-areas:
+      "rail"
+      "stage";
+  }
+
   .trial-rail {
-    grid-template-columns: repeat(3, 1fr);
+    position: static;
+    grid-template-columns: repeat(4, 1fr);
   }
 
   .rail-step {
@@ -1591,9 +1659,21 @@ button {
   .measure-map,
   .gate-one-grid,
   .terminal-grid,
-  .trial-fields,
-  .trial-rail {
+  .trial-fields {
     grid-template-columns: 1fr;
+  }
+
+  .gate-one-grid {
+    grid-template-areas:
+      "contract"
+      "price"
+      "actions";
+  }
+
+  .terminal-grid {
+    grid-template-areas:
+      "action"
+      "verdict";
   }
 
   .metric-strip {
@@ -1618,12 +1698,36 @@ button {
   }
 
   .rail-step {
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
+    grid-template-columns: 1fr;
+    gap: 0.3rem;
+    min-height: 3.75rem;
+    justify-items: center;
+    padding: 0.45rem 0.2rem;
+    border-right: 1px solid var(--line);
+    border-bottom: 0;
+    text-align: center;
   }
 
   .rail-step:last-child {
-    border-bottom: 0;
+    border-right: 0;
+  }
+
+  .rail-step > span {
+    width: 1.35rem;
+    height: 1.35rem;
+  }
+
+  .rail-step strong {
+    font-size: 0.58rem;
+  }
+
+  .rail-step small {
+    margin-top: 0.1rem;
+    font-size: 0.55rem;
+  }
+
+  .rail-step.current {
+    box-shadow: inset 0 -0.2rem 0 var(--accent);
   }
 
   .run-table-head {
@@ -1668,14 +1772,44 @@ button {
   .trial-compose > label,
   .trial-compose > textarea,
   .trial-compose > .trial-fields,
-  .trial-compose > button,
-  .trial-compose > .trial-error {
+  .trial-compose > .trial-action-bar {
     margin-right: 1rem;
     margin-left: 1rem;
   }
 
   .trial-compose > textarea {
     width: calc(100% - 2rem);
+  }
+
+  .trial-stage-compose,
+  .trial-stage-gate_1 {
+    padding-bottom: 8.5rem;
+  }
+
+  .trial-request-actions,
+  .gate-one-actions {
+    position: fixed;
+    z-index: 25;
+    right: 1rem;
+    bottom: calc(4.65rem + env(safe-area-inset-bottom));
+    left: 1rem;
+    margin: 0;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid var(--line-bright);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--surface) 96%, transparent);
+    box-shadow: var(--shadow-lg);
+    backdrop-filter: blur(16px);
+  }
+
+  .gate-one-actions .confirm-check {
+    margin: 0;
+    font-size: 0.65rem;
+    line-height: 1.35;
+  }
+
+  .gate-one-actions .primary-action {
+    margin-top: 0;
   }
 
   .execution-panel footer {
