@@ -4,7 +4,13 @@ import { useId, useState } from "react";
 
 import type { DocumentRecord } from "../lib/types";
 
-export function DocumentViewer({ document, empty }: { document: DocumentRecord | null; empty: string }) {
+type DocumentViewerProps = {
+  document: DocumentRecord | null;
+  empty: string;
+  sourceHref?: string | null;
+};
+
+export function DocumentViewer({ document, empty, sourceHref = null }: DocumentViewerProps) {
   const [wrapLines, setWrapLines] = useState(true);
   const contentId = useId();
 
@@ -15,11 +21,22 @@ export function DocumentViewer({ document, empty }: { document: DocumentRecord |
     <article className="document-viewer">
       <header>
         <div>
-          <span>READ-ONLY DOCUMENT</span>
+          <span>読み取り専用文書</span>
           <h2>{document.id}</h2>
         </div>
         <div className="document-viewer-actions">
           <code>{document.path}</code>
+          {sourceHref !== null && (
+            <a
+              className="document-source-link"
+              data-testid="document-source-link"
+              href={sourceHref}
+              rel="noreferrer"
+              target="_blank"
+            >
+              元の GET を開く ↗
+            </a>
+          )}
           <button
             aria-controls={contentId}
             aria-pressed={wrapLines}
@@ -28,7 +45,7 @@ export function DocumentViewer({ document, empty }: { document: DocumentRecord |
             onClick={() => setWrapLines((current) => !current)}
             type="button"
           >
-            Wrap lines: {wrapLines ? "on" : "off"}
+            折り返し: {wrapLines ? "有効" : "無効"}
           </button>
         </div>
       </header>

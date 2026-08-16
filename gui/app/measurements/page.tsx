@@ -6,6 +6,7 @@ import { DocumentViewer } from "../../components/document-viewer";
 import { Shell } from "../../components/shell";
 import { EmptyState, ErrorState, LoadingState } from "../../components/states";
 import { apiPath } from "../../lib/base-path";
+import { describeError, responseError } from "../../lib/errors";
 import type { DocumentRecord, DocumentSummary } from "../../lib/types";
 import { useResource } from "../../lib/use-resource";
 
@@ -22,11 +23,11 @@ export default function MeasurementsPage() {
     try {
       const query = new URLSearchParams({ path });
       const response = await fetch(apiPath("reports/view", query), { signal });
-      if (!response.ok) throw new Error(await response.text());
+      if (!response.ok) throw await responseError(response);
       setSelected((await response.json()) as DocumentRecord);
     } catch (reason) {
       if (reason instanceof DOMException && reason.name === "AbortError") return;
-      setError(reason instanceof Error ? reason.message : "Unable to read report");
+      setError(describeError(reason));
     } finally {
       setLoading(false);
     }
@@ -43,24 +44,23 @@ export default function MeasurementsPage() {
   return (
     <Shell
       active="measurements"
-      eyebrow="04 / MEASUREMENT ARCHIVE"
-      title="Claims need coordinates."
-      description="Browse score/time geometry and the reports that explain it. Values are displayed from existing evidence only."
+      title="計測"
+      description="スコアと所要時間の分布、根拠となる既存レポートを確認します。"
     >
       <section className="measure-map panel">
         <div>
-          <span className="panel-index">REFERENCE MAP</span>
-          <h2>Attainment × configuration time</h2>
+          <span className="panel-index">参照マップ</span>
+          <h2>到達度 × 構成時間</h2>
           <p>
-            Every mark is backed by a repository measurement row. On a narrow screen, scroll the map
-            horizontally or open the full-size SVG to zoom and inspect source details.
+            各点はリポジトリの計測行に対応します。画面が狭い場合は横にスクロールするか、原寸 SVG
+            を開いて拡大し、出典を確認できます。
           </p>
           <a className="map-source-link" href={scoreTimeMapPath} rel="noreferrer" target="_blank">
-            Open full-size SVG ↗
+            原寸 SVG を開く ↗
           </a>
         </div>
         <div
-          aria-label="Scrollable score and time map"
+          aria-label="横スクロールできるスコアと時間の計測マップ"
           className="map-frame compact"
           data-testid="measurement-map-frame"
           role="region"
@@ -70,7 +70,7 @@ export default function MeasurementsPage() {
           <img
             data-testid="measurement-score-time-map"
             src={scoreTimeMapPath}
-            alt="Score and time measurement map"
+            alt="スコアと時間の計測マップ"
           />
         </div>
       </section>
@@ -78,12 +78,12 @@ export default function MeasurementsPage() {
       <section className="measurement-workbench">
         <aside className="report-index panel">
           <header>
-            <span>REPORT INDEX</span>
+            <span>レポート一覧</span>
             <strong>{reports.data?.length ?? "—"}</strong>
           </header>
-          {reports.loading && <LoadingState label="Indexing measurement reports" />}
+          {reports.loading && <LoadingState label="計測レポートを索引化しています" />}
           {reports.error !== null && <ErrorState message={reports.error} />}
-          {reports.data?.length === 0 && <EmptyState message="No reports were found." />}
+          {reports.data?.length === 0 && <EmptyState message="レポートが見つかりません。" />}
           <div className="report-list">
             {reports.data?.map((report) => (
               <button
@@ -99,10 +99,18 @@ export default function MeasurementsPage() {
           </div>
         </aside>
         <div className="report-document">
-          {loading && <LoadingState label="Reading measurement report" />}
+          {loading && <LoadingState label="計測レポートを読み込んでいます" />}
           {error !== null && <ErrorState message={error} />}
           {!loading && error === null && (
-            <DocumentViewer document={selected} empty="Select a report from the archive." />
+            <DocumentViewer
+              document={selected}
+              empty="一覧からレポートを選択してください。"
+              sourceHref={
+                selected === null
+                  ? null
+                  : apiPath("reports/view", new URLSearchParams({ path: selected.path }))
+              }
+            />
           )}
         </div>
       </section>

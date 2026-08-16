@@ -38,22 +38,33 @@ data/snapshots/ 配下のHTMLイベント一覧から自治体イベント情報
 
 ### Gate 1: 依頼を確定する
 
-Gate 1は実行結果ではなく提案カードです。少なくともRoute、Contract、Checks、
-Value tag、Full meaning、モデルpin、Pack／Pack pinを読みます。shakedownでは
-次の形でした（workspaceとhashは実行ごとに変わります）。
+Gate 1は実行結果ではなく提案カードです。依頼内容、各必須チェックの説明、
+類似実行の合格件数、ファイル変更範囲、モデル、検証パック、確認 ID を
+読みます。shakedownでは次の形でした（workspaceと確認 ID は実行ごとに
+変わります）。
 
 ```text
-# Gate 1 — Request confirmation
-- Route: ingest × create × list
-- Contract: docs/ingest-profile-contract.md
-- Checks: N1, N2, N3, N4, N5
-- Value tag: 66.7% (4/6, formal elevated Window B)
-- Full meaning: N1-N5 pass, including source-bound record values and complete candidate accounting; testimony/source binding is active as N2.
-- Pack: no pack
-- Pack pin: no pack
+# Gate 1 — 実行前の確認
 
-This card is a proposal, not an earned result.
-Confirm with `/confirm sha256:<card-hash>` before dispatch.
+## 実行する内容
+- 作業内容: 新しい機能を作成 (create): データ取り込みパイプライン (ingest) / 一覧 (list)
+- 契約の参照先: docs/ingest-profile-contract.md
+
+## 必須チェック
+- N1 — パイプライン実行: 有界な取り込みコマンドが正常に完了する
+- N2 — 入力元の正確さ: すべての出力値が選択した入力レコードに結び付く
+- N3 — 候補の勘定: すべての検出候補が採用または明示的な除外になる
+- N4 — 形式の正確さ: 出力フィールドと型が必須スキーマと一致する
+- N5 — 再現性: 取り込みを再実行しても同じ結果になる
+
+## 類似実行の結果
+- 全必須チェックに合格した実行: 6件中4件 (66.7%)
+
+## 確認
+- 確認 ID (内容が1つでも変わると ID も変わります): sha256:<card-hash>
+
+これは提案であり、実行結果ではありません。
+実行前にこの ID と完全一致する内容を確認してください。CLI では /confirm sha256:<card-hash> を使用します。
 ```
 
 内容が依頼と一致するときだけ、画面に出たhashをそのまま入力します。
