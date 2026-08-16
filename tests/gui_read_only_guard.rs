@@ -149,10 +149,14 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "window.matchMedia(\"(max-width: 720px)\")",
         "target.scrollIntoView({ behavior: \"smooth\", block: \"start\" })",
         "Enter the runtime Trial access token before checking the contract.",
+        "stage === \"gate_2\" || stage === \"terminal\" || stage === \"closed\"",
+        "disabled={busy || launchIdentityLocked}",
         "disabled={!confirmed || busy || stage === \"gate_2\"}",
         "Confirm and delegate to CLI",
         "Confirm D-3d continuation",
         "End without another run",
+        "data-testid=\"start-new-run\"",
+        "Start a new run",
     ] {
         assert!(
             source.contains(required),
@@ -163,6 +167,26 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         !source.contains("disabled={trialToken === \"\""),
         "Trial token guidance must not be hidden behind a disabled button"
     );
+    assert_eq!(
+        source.matches("disabled={launchIdentityLocked}").count(),
+        6,
+        "every launch identity control must share the run-stage lock"
+    );
+    for reset in [
+        "setProposal(null)",
+        "setConfirmed(false)",
+        "setCreated(null)",
+        "setSession(null)",
+        "setDirectiveText(\"\")",
+        "setDirective(null)",
+        "setError(null)",
+        "setStage(\"compose\")",
+    ] {
+        assert!(
+            source.contains(reset),
+            "new-run transition is missing reset {reset:?}"
+        );
+    }
     for forbidden in [
         "Cancel session",
         "Interrupt session",

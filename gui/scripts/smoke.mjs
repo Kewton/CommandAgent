@@ -192,6 +192,9 @@ async function runCase(smokeCase) {
 
     const trialUrl = new URL(`${prefix}try/`, server.origin).href;
     const trialResponse = await page.goto(trialUrl, { waitUntil: "networkidle" });
+    const launchIdentityControls = page.locator(
+      "[data-testid='trial-goal'], [data-testid='trial-token'], .trial-fields input, .trial-fields select",
+    );
     await page.locator("[data-testid='trial-goal']").fill("Create a CLI --pattern filter command");
     await page.locator("[data-testid='trial-token']").fill(trialCredential);
     const modelInputs = page.locator(".trial-fields input");
@@ -238,6 +241,14 @@ async function runCase(smokeCase) {
     await launch.click();
     await page.locator("[data-testid='session-progress']").waitFor();
     const sessionId = await page.locator("[data-testid='session-progress'] h2").innerText();
+    const gateTwoIdentityLocked = await allDisabled(launchIdentityControls, 6);
+    const tokenFocusAtGateTwo = await page.locator("[data-testid='trial-token']").evaluate((input) => {
+      input.focus();
+      return {
+        focused: document.activeElement === input,
+        stage: document.querySelector(".gate-chip")?.textContent ?? "",
+      };
+    });
     const degradedMonitor = page.locator("[data-testid='monitor-state'][data-monitor-status='degraded']");
     await degradedMonitor.waitFor();
     const degradedMonitorText = await degradedMonitor.innerText();
@@ -249,6 +260,7 @@ async function runCase(smokeCase) {
       path: join(outputDirectory, `${smokeCase.id}-gate-2.png`),
     });
     await page.locator("[data-testid='terminal-gate']").waitFor({ timeout: trialTimeoutMs });
+    const terminalIdentityLocked = await allDisabled(launchIdentityControls, 6);
     const finalApi = await page.evaluate(
       async ({ apiUrl, trialToken }) => {
         const result = await fetch(apiUrl, {
@@ -311,6 +323,35 @@ async function runCase(smokeCase) {
     const eventsPath = join(executionRoot, ".anvil", "runs", sessionId, "events.jsonl");
     const eventBytes = await readFile(eventsPath);
     await writeFile(join(outputDirectory, `${smokeCase.id}-events.jsonl`), eventBytes);
+    const lifecycleUrl = new URL(trialUrl);
+    lifecycleUrl.searchParams.set("session", sessionId);
+    await page.goto(lifecycleUrl.href, { waitUntil: "networkidle" });
+    await page.locator("[data-testid='reconnect-session']").fill(sessionId);
+    await page.locator("[data-testid='trial-token']").fill(trialCredential);
+    await page.locator("[data-testid='reconnect-session-button']").click();
+    await page.locator("[data-testid='terminal-gate']").waitFor();
+    await page.waitForTimeout(1_000);
+    await page.locator("[data-testid='close-session']").click();
+    await page.locator("[data-testid='closed-session']").waitFor();
+    const closedIdentityLocked = await allDisabled(launchIdentityControls, 6);
+    await page.locator("[data-testid='start-new-run']").click();
+    const newRunStage = await page.locator(".gate-chip").innerText();
+    const newRunIdentityEditable = await allEnabled(launchIdentityControls, 6);
+    const previousRunCleared =
+      (await page.locator("[data-testid='session-progress']").count()) === 0 &&
+      (await page.locator("[data-testid='terminal-gate']").count()) === 0 &&
+      (await page.locator("[data-testid='gate-one-card']").count()) === 0;
+    await page.locator("[data-testid='check-contract']").click();
+    await page.locator("[data-testid='gate-one-card']").waitFor();
+    await page.locator("[data-testid='gate-one-confirm']").check();
+    await page.locator("[data-testid='launch-session']").click();
+    await page.locator("[data-testid='session-progress']").waitFor();
+    const nextSessionId = await page.locator("[data-testid='session-progress'] h2").innerText();
+    await page.locator("[data-testid='terminal-gate']").waitFor({ timeout: trialTimeoutMs });
+    const nextSessionReachedTerminal = ["GATE_3", "GATE_4"].includes(
+      await page.locator(".gate-chip").innerText(),
+    );
+    await page.waitForTimeout(1_000);
     const apiLog = {
       schema_version: "commandagent.gui-api-smoke/v1",
       base_path: smokeCase.buildBasePath,
@@ -357,6 +398,16 @@ async function runCase(smokeCase) {
       runDetail.headingMatches &&
       trialResponse?.status() === 200 &&
       launchDisabledBeforeConfirmation &&
+      gateTwoIdentityLocked &&
+      !tokenFocusAtGateTwo.focused &&
+      tokenFocusAtGateTwo.stage === "GATE 2" &&
+      terminalIdentityLocked &&
+      closedIdentityLocked &&
+      newRunStage === "DRAFT" &&
+      newRunIdentityEditable &&
+      previousRunCleared &&
+      nextSessionId !== sessionId &&
+      nextSessionReachedTerminal &&
       deniedWithoutConfirmation.status === 428 &&
       finalApi.status === 200 &&
       ["gate_3", "gate_4"].includes(finalApi.body.gate) &&
@@ -392,6 +443,17 @@ async function runCase(smokeCase) {
         launch_disabled_before_confirmation: launchDisabledBeforeConfirmation,
         api_without_confirmation_status: deniedWithoutConfirmation.status,
         visible_text: gateOneText,
+      },
+      lifecycle: {
+        gate_2_identity_locked: gateTwoIdentityLocked,
+        gate_2_token_focus: tokenFocusAtGateTwo,
+        terminal_identity_locked: terminalIdentityLocked,
+        closed_identity_locked: closedIdentityLocked,
+        new_run_stage: newRunStage,
+        new_run_identity_editable: newRunIdentityEditable,
+        previous_run_cleared: previousRunCleared,
+        next_session_id: nextSessionId,
+        next_session_reached_terminal: nextSessionReachedTerminal,
       },
       session: {
         id: sessionId,
@@ -432,6 +494,22 @@ async function runCase(smokeCase) {
     await browser.close();
     server.stop();
   }
+}
+
+async function allDisabled(locator, expectedCount) {
+  return locator.evaluateAll(
+    (controls, count) =>
+      controls.length === count && controls.every((control) => control.disabled === true),
+    expectedCount,
+  );
+}
+
+async function allEnabled(locator, expectedCount) {
+  return locator.evaluateAll(
+    (controls, count) =>
+      controls.length === count && controls.every((control) => control.disabled === false),
+    expectedCount,
+  );
 }
 
 async function probeMobile(browser, origin, basePath) {

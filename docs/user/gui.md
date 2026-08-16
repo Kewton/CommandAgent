@@ -119,15 +119,20 @@ authentication is enabled.
    card hash.
 3. Select **Confirm and delegate to CLI**. The server starts the existing
    non-interactive boundary command. Progress is reconstructed by reading that
-   session's JSONL events; there is no GUI state database. Gate 2 reports the
-   execution state separately from monitoring health (`connected`, `degraded`,
-   or `lost`) and shows the last successful update time. A transient monitoring
-   failure retries with capped exponential backoff while the delegated CLI keeps
-   running.
+   session's JSONL events; there is no GUI state database. The launch identity
+   fields remain read-only throughout Gate 2 and the terminal result so the
+   confirmed contract cannot be invalidated by an in-flight edit. Gate 2
+   reports the execution state separately from monitoring health (`connected`,
+   `degraded`, or `lost`) and shows the last successful update time. A transient
+   monitoring failure retries with capped exponential backoff while the
+   delegated CLI keeps running.
 4. At Gate 3 or Gate 4, inspect the generated acceptance sheet. You may end
    without another run, or persist an additional D-3d instruction. A D-3d
    instruction is credential-scrubbed, exact-byte hashed, displayed, and must
    be confirmed before the existing continuation path is delegated.
+5. After **End without another run**, select **Start a new run** to return to
+   an editable draft. The in-memory Trial token and launch fields are retained,
+   while the previous proposal, session progress, and directive are cleared.
 
 There is no cancel, interrupt, phase-edit, or gate-override control while a
 session is running. Use the existing CLI/runtime operating procedures for
@@ -214,7 +219,8 @@ to an isolated temporary workspace. For each base path it records the
 dashboard/API/SVG probes, desktop and mobile layout probes, Gate 1 before and
 after confirmation, a rejected first poll followed by Gate 3/4 recovery,
 proxy-access re-authentication guidance, token re-entry and GET-only reconnect,
-the session event stream and its SHA-256, and an API log:
+the read-only launch identity, CLOSED-to-compose recovery and a second terminal
+run, the first session event stream and its SHA-256, and an API log:
 
 ```bash
 cd gui

@@ -1007,6 +1007,13 @@ button {
   padding: 0 0.7rem;
 }
 
+.trial-compose textarea:disabled,
+.trial-compose input:disabled,
+.trial-compose select:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .trial-fields {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1475,6 +1482,10 @@ button {
 
 .closed-card {
   padding: 1.5rem;
+}
+
+.closed-card .primary-action {
+  max-width: 18rem;
 }
 
 .closed-card > span {

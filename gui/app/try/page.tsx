@@ -66,6 +66,8 @@ export default function TrialRunPage() {
   const [error, setError] = useState<string | null>(null);
   const [directiveText, setDirectiveText] = useState("");
   const [directive, setDirective] = useState<DirectiveProposal | null>(null);
+  const launchIdentityLocked =
+    stage === "gate_2" || stage === "terminal" || stage === "closed";
   const [monitor, setMonitor] = useState<MonitorState>(initialMonitor);
 
   useEffect(() => {
@@ -163,6 +165,17 @@ export default function TrialRunPage() {
     setSpec((current) => ({ ...current, [field]: value }));
     setProposal(null);
     setConfirmed(false);
+    setStage("compose");
+  }
+
+  function startNewRun() {
+    setProposal(null);
+    setConfirmed(false);
+    setCreated(null);
+    setSession(null);
+    setDirectiveText("");
+    setDirective(null);
+    setError(null);
     setStage("compose");
   }
 
@@ -326,6 +339,7 @@ export default function TrialRunPage() {
           <label htmlFor="trial-goal">Goal</label>
           <textarea
             data-testid="trial-goal"
+            disabled={launchIdentityLocked}
             id="trial-goal"
             onChange={(event) => update("goal", event.target.value)}
             rows={5}
@@ -336,6 +350,7 @@ export default function TrialRunPage() {
             autoComplete="off"
             autoCapitalize="none"
             data-testid="trial-token"
+            disabled={launchIdentityLocked}
             id="trial-token"
             onChange={(event) => {
               setTrialToken(event.target.value);
@@ -376,7 +391,11 @@ export default function TrialRunPage() {
           <div className="trial-fields">
             <label>
               Profile
-              <select value={spec.profile} onChange={(event) => update("profile", event.target.value)}>
+              <select
+                disabled={launchIdentityLocked}
+                value={spec.profile}
+                onChange={(event) => update("profile", event.target.value)}
+              >
                 <option value="python-cli">python-cli</option>
                 <option value="data">data</option>
                 <option value="ingest">ingest</option>
@@ -385,7 +404,11 @@ export default function TrialRunPage() {
             </label>
             <label>
               Provider
-              <select value={spec.provider} onChange={(event) => update("provider", event.target.value)}>
+              <select
+                disabled={launchIdentityLocked}
+                value={spec.provider}
+                onChange={(event) => update("provider", event.target.value)}
+              >
                 <option value="ollama">ollama</option>
                 <option value="lm-studio">LM Studio</option>
                 <option value="openai">openai</option>
@@ -394,11 +417,16 @@ export default function TrialRunPage() {
             </label>
             <label>
               Executor model
-              <input value={spec.model} onChange={(event) => update("model", event.target.value)} />
+              <input
+                disabled={launchIdentityLocked}
+                value={spec.model}
+                onChange={(event) => update("model", event.target.value)}
+              />
             </label>
             <label>
               Planner model
               <input
+                disabled={launchIdentityLocked}
                 value={spec.planner_model}
                 onChange={(event) => update("planner_model", event.target.value)}
               />
@@ -407,7 +435,7 @@ export default function TrialRunPage() {
           <button
             className="secondary-action"
             data-testid="check-contract"
-            disabled={busy || stage === "gate_2"}
+            disabled={busy || launchIdentityLocked}
             onClick={() => void checkContract()}
             type="button"
           >
@@ -552,12 +580,25 @@ export default function TrialRunPage() {
                 </button>
               </div>
             )}
-            <button className="close-action" onClick={() => setStage("closed")} type="button">End without another run</button>
+            <button className="close-action" data-testid="close-session" onClick={() => setStage("closed")} type="button">End without another run</button>
           </aside>
         </section>
       )}
 
-      {stage === "closed" && <section className="panel closed-card"><span>SESSION CLOSED</span><h2>No further action was dispatched.</h2></section>}
+      {stage === "closed" && (
+        <section className="panel closed-card" data-testid="closed-session">
+          <span>SESSION CLOSED</span>
+          <h2>No further action was dispatched.</h2>
+          <button
+            className="primary-action"
+            data-testid="start-new-run"
+            onClick={startNewRun}
+            type="button"
+          >
+            Start a new run
+          </button>
+        </section>
+      )}
     </Shell>
   );
 }
