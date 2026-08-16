@@ -978,6 +978,7 @@ button {
 
 .trial-compose > label,
 .trial-compose > textarea,
+.trial-compose > input,
 .trial-compose > .reconnect-card,
 .trial-compose > .trial-fields,
 .trial-compose > button,
@@ -990,7 +991,8 @@ button {
   margin-top: 1.25rem;
 }
 
-.trial-compose > textarea {
+.trial-compose > textarea,
+.trial-compose > input {
   width: calc(100% - 2.5rem);
 }
 
@@ -1771,6 +1773,7 @@ button {
 
   .trial-compose > label,
   .trial-compose > textarea,
+  .trial-compose > input,
   .trial-compose > .reconnect-card,
   .trial-compose > .trial-fields,
   .trial-compose > button,
@@ -1779,8 +1782,15 @@ button {
     margin-left: 1rem;
   }
 
-  .trial-compose > textarea {
+  .trial-compose > textarea,
+  .trial-compose > input {
     width: calc(100% - 2rem);
+  }
+
+  .gate-one-grid,
+  .execution-panel,
+  .terminal-grid {
+    scroll-margin-top: 4.5rem;
   }
 
   .reconnect-card > div {

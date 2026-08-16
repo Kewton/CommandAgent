@@ -119,8 +119,8 @@ export default function DashboardPage() {
         {runs.error !== null && <ErrorState message={runs.error} />}
         {runs.data?.length === 0 && <EmptyState message="No run directories were found." />}
         {recentRuns.length > 0 && (
-          <div className="run-table" role="table">
-            <div className="run-table-head" role="row">
+          <div className="run-table">
+            <div className="run-table-head" aria-hidden="true">
               <span>Run identity</span>
               <span>Observed state</span>
               <span>Modified</span>
@@ -131,12 +131,11 @@ export default function DashboardPage() {
                 className="run-row"
                 href={withBasePath(routePath("run", run.id))}
                 key={run.id}
-                role="row"
               >
                 <strong>{run.id}</strong>
                 <span className={`status-badge ${statusTone(run.status)}`}>{run.status}</span>
                 <time>{dateLabel(run.modified_epoch_seconds)}</time>
-                <span className="row-arrow">↗</span>
+                <span aria-hidden="true" className="row-arrow">↗</span>
               </a>
             ))}
           </div>

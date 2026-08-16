@@ -202,6 +202,31 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
 }
 
 #[test]
+fn gui_style_and_run_ledger_accessibility_contracts_are_pinned() {
+    let styles = std::fs::read_to_string("gui/app/globals.css").unwrap();
+    assert_eq!(
+        styles.matches(".trial-compose > input,").count(),
+        2,
+        "desktop and mobile Trial insets must include the token input"
+    );
+    assert!(styles.contains(
+        ".trial-compose > textarea,\n.trial-compose > input {\n  width: calc(100% - 2.5rem);"
+    ));
+    assert!(styles.contains(
+        ".trial-compose > textarea,\n  .trial-compose > input {\n    width: calc(100% - 2rem);"
+    ));
+    assert!(styles.contains(
+        ".gate-one-grid,\n  .execution-panel,\n  .terminal-grid {\n    scroll-margin-top: 4.5rem;"
+    ));
+
+    let dashboard = std::fs::read_to_string("gui/app/page.tsx").unwrap();
+    assert!(dashboard.contains("<div className=\"run-table\">"));
+    assert!(dashboard.contains("<div className=\"run-table-head\" aria-hidden=\"true\">"));
+    assert!(!dashboard.contains("role=\"table\""));
+    assert!(!dashboard.contains("role=\"row\""));
+}
+
+#[test]
 fn trial_monitor_retries_and_reconnects_without_persisting_access() {
     let page = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
     for required in [
