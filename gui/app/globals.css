@@ -150,8 +150,17 @@ button {
   height: 0.45rem;
   flex: 0 0 auto;
   border-radius: 50%;
+}
+
+.pulse-dot,
+.live-label.connected i {
   background: var(--success);
   box-shadow: 0 0 0 0.2rem rgba(22, 163, 74, 0.1);
+}
+
+.live-label i {
+  background: var(--muted);
+  box-shadow: none;
 }
 
 .sidebar {
@@ -969,6 +978,7 @@ button {
 
 .trial-compose > label,
 .trial-compose > textarea,
+.trial-compose > .reconnect-card,
 .trial-compose > .trial-fields,
 .trial-compose > button,
 .trial-compose > .trial-error {
@@ -1010,6 +1020,38 @@ button {
   gap: 0.85rem;
   margin-top: 0.85rem;
   margin-bottom: 1rem;
+}
+
+.reconnect-card {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+  padding: 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
+}
+
+.reconnect-card > label {
+  color: var(--muted-strong);
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.reconnect-card > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.6rem;
+}
+
+.reconnect-card button {
+  white-space: nowrap;
+}
+
+.reconnect-card > small {
+  color: var(--muted);
+  font-size: 0.62rem;
+  line-height: 1.4;
 }
 
 .gate-chip {
@@ -1275,6 +1317,57 @@ button {
 
 .execution-panel {
   margin-bottom: 1rem;
+}
+
+.monitor-state {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.85rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-soft);
+  color: var(--muted-strong);
+}
+
+.monitor-state > div {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.monitor-state strong {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+}
+
+.monitor-state span,
+.monitor-state small,
+.monitor-state p {
+  font-size: 0.63rem;
+  line-height: 1.45;
+}
+
+.monitor-state span,
+.monitor-state small {
+  color: var(--muted);
+}
+
+.monitor-state p {
+  margin: 0;
+}
+
+.monitor-state.connected strong {
+  color: var(--success);
+}
+
+.monitor-state.degraded strong,
+.monitor-state.degraded p {
+  color: #b45309;
+}
+
+.monitor-state.lost strong,
+.monitor-state.lost p {
+  color: var(--danger);
 }
 
 .phase-list {
@@ -1678,6 +1771,7 @@ button {
 
   .trial-compose > label,
   .trial-compose > textarea,
+  .trial-compose > .reconnect-card,
   .trial-compose > .trial-fields,
   .trial-compose > button,
   .trial-compose > .trial-error {
@@ -1687,6 +1781,15 @@ button {
 
   .trial-compose > textarea {
     width: calc(100% - 2rem);
+  }
+
+  .reconnect-card > div {
+    grid-template-columns: 1fr;
+  }
+
+  .monitor-state > div {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .execution-panel footer {

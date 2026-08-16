@@ -193,7 +193,7 @@ async function runCase(smokeCase) {
     const trialUrl = new URL(`${prefix}try/`, server.origin).href;
     const trialResponse = await page.goto(trialUrl, { waitUntil: "networkidle" });
     const launchIdentityControls = page.locator(
-      ".trial-compose textarea, .trial-compose input, .trial-compose select",
+      "[data-testid='trial-goal'], [data-testid='trial-token'], .trial-fields input, .trial-fields select",
     );
     await page.locator("[data-testid='trial-goal']").fill("Create a CLI --pattern filter command");
     await page.locator("[data-testid='trial-token']").fill(trialCredential);
@@ -235,6 +235,8 @@ async function runCase(smokeCase) {
       path: join(outputDirectory, `${smokeCase.id}-gate-1.png`),
     });
 
+    const injectedFailureMode = smokeCase.id === "proxy-commandagent" ? "access" : "network";
+    await installPollFailure(page, injectedFailureMode);
     await page.locator("[data-testid='gate-one-confirm']").check();
     await launch.click();
     await page.locator("[data-testid='session-progress']").waitFor();
@@ -247,6 +249,12 @@ async function runCase(smokeCase) {
         stage: document.querySelector(".gate-chip")?.textContent ?? "",
       };
     });
+    const degradedMonitor = page.locator("[data-testid='monitor-state'][data-monitor-status='degraded']");
+    await degradedMonitor.waitFor();
+    const degradedMonitorText = await degradedMonitor.innerText();
+    const injectedFailureCount = await page.evaluate(
+      () => window.__commandagentTrialPollInjection?.count ?? 0,
+    );
     await page.screenshot({
       fullPage: true,
       path: join(outputDirectory, `${smokeCase.id}-gate-2.png`),
@@ -266,14 +274,62 @@ async function runCase(smokeCase) {
       },
     );
     const terminalText = await page.locator("[data-testid='terminal-gate']").innerText();
+    const connectedMonitorText = await page.locator("[data-testid='monitor-state']").innerText();
     await page.screenshot({
       fullPage: true,
       path: join(outputDirectory, `${smokeCase.id}-gate-terminal.png`),
     });
 
+    const reconnectCallStart = apiCalls.length;
+    await page.reload({ waitUntil: "networkidle" });
+    const reloadSessionQuery = new URL(page.url()).searchParams.get("session");
+    const reloadedTokenEmpty = (await page.locator("[data-testid='trial-token']").inputValue()) === "";
+    await page.locator("[data-testid='trial-token']").fill(`${trialCredential}-wrong`);
+    await page.locator("[data-testid='reconnect-session-button']").click();
+    const authorizationGuidance = await page.locator(".trial-error[role='alert']").innerText();
+    await page.locator("[data-testid='trial-token']").fill(trialCredential);
+    await page.locator("[data-testid='reconnect-session-button']").click();
+    await page.locator("[data-testid='terminal-gate']").waitFor();
+    const reconnectCalls = apiCalls.slice(reconnectCallStart);
+    const reconnectMethods = reconnectCalls.map((call) => call.method);
+    const reconnectOnlyGets =
+      reconnectMethods.length >= 2 && reconnectMethods.every((method) => method === "GET");
+    const browserStorage = await page.evaluate(() => ({
+      localStorageValues: Object.values(localStorage),
+      url: window.location.href,
+    }));
+    const tokenStayedInMemory =
+      !browserStorage.url.includes(trialCredential) &&
+      browserStorage.localStorageValues.every((value) => !value.includes(trialCredential));
+
+    await page.goto(trialUrl, { waitUntil: "networkidle" });
+    await installSessionConflict(page, sessionId);
+    await page.locator("[data-testid='trial-token']").fill(trialCredential);
+    await modelInputs.nth(0).fill(model);
+    await modelInputs.nth(1).fill(model);
+    await page.locator("[data-testid='check-contract']").click();
+    await page.locator("[data-testid='gate-one-card']").waitFor();
+    await page.locator("[data-testid='gate-one-confirm']").check();
+    await page.locator("[data-testid='launch-session']").click();
+    const conflictGuidance = await page.locator(".trial-error[role='alert']").innerText();
+    const conflictReconnectId = await page.locator("[data-testid='reconnect-session']").inputValue();
+    const conflictSessionQuery = new URL(page.url()).searchParams.get("session");
+    const conflictDispatchCount = await page.evaluate(
+      () => window.__commandagentTrialConflictInjection?.count ?? 0,
+    );
+
+    const mobile = await probeMobile(browser, server.origin, smokeCase.serverBasePath);
+
     const eventsPath = join(executionRoot, ".anvil", "runs", sessionId, "events.jsonl");
     const eventBytes = await readFile(eventsPath);
     await writeFile(join(outputDirectory, `${smokeCase.id}-events.jsonl`), eventBytes);
+    const lifecycleUrl = new URL(trialUrl);
+    lifecycleUrl.searchParams.set("session", sessionId);
+    await page.goto(lifecycleUrl.href, { waitUntil: "networkidle" });
+    await page.locator("[data-testid='reconnect-session']").fill(sessionId);
+    await page.locator("[data-testid='trial-token']").fill(trialCredential);
+    await page.locator("[data-testid='reconnect-session-button']").click();
+    await page.locator("[data-testid='terminal-gate']").waitFor();
     await page.waitForTimeout(1_000);
     await page.locator("[data-testid='close-session']").click();
     await page.locator("[data-testid='closed-session']").waitFor();
@@ -301,6 +357,17 @@ async function runCase(smokeCase) {
       base_path: smokeCase.buildBasePath,
       denied_without_confirmation: deniedWithoutConfirmation,
       observed_calls: apiCalls,
+      poll_recovery: {
+        failure_mode: injectedFailureMode,
+        injected_failure_count: injectedFailureCount,
+        degraded_text: degradedMonitorText,
+        connected_text: connectedMonitorText,
+      },
+      reconnect: {
+        authorization_guidance: authorizationGuidance,
+        calls: reconnectCalls,
+        only_gets: reconnectOnlyGets,
+      },
       terminal_poll: finalApi,
     };
     await writeFile(
@@ -309,7 +376,8 @@ async function runCase(smokeCase) {
     );
     const expectedNegativeConsoleErrors = consoleErrors.filter(
       (entry) =>
-        entry === "Failed to load resource: the server responded with a status of 428 (Precondition Required)",
+        entry === "Failed to load resource: the server responded with a status of 428 (Precondition Required)" ||
+        entry === "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
     );
     const unexpectedConsoleErrors = consoleErrors.filter(
       (entry) => !expectedNegativeConsoleErrors.includes(entry),
@@ -343,7 +411,24 @@ async function runCase(smokeCase) {
       deniedWithoutConfirmation.status === 428 &&
       finalApi.status === 200 &&
       ["gate_3", "gate_4"].includes(finalApi.body.gate) &&
-      expectedNegativeConsoleErrors.length === 1 &&
+      injectedFailureCount === 1 &&
+      degradedMonitorText.includes(
+        injectedFailureMode === "access" ? "upstream access" : "proxy or network",
+      ) &&
+      connectedMonitorText.toLowerCase().includes("monitoring: connected") &&
+      connectedMonitorText.includes("Last successful update:") &&
+      reloadSessionQuery === sessionId &&
+      reloadedTokenEmpty &&
+      authorizationGuidance.includes("runtime Trial access token") &&
+      reconnectOnlyGets &&
+      tokenStayedInMemory &&
+      conflictGuidance.includes(`Reconnect to session ${sessionId}`) &&
+      conflictReconnectId === sessionId &&
+      conflictSessionQuery === sessionId &&
+      conflictDispatchCount === 1 &&
+      mobile.ok &&
+      expectedNegativeConsoleErrors.some((entry) => entry.includes("status of 428")) &&
+      expectedNegativeConsoleErrors.some((entry) => entry.includes("status of 401")) &&
       unexpectedConsoleErrors.length === 0;
     return {
       id: smokeCase.id,
@@ -353,6 +438,7 @@ async function runCase(smokeCase) {
       svg: map,
       links_use_base_path: linksUseBasePath,
       pages: { assets, measurements, run_detail: runDetail, trial: { status: trialResponse?.status() ?? 0 } },
+      mobile,
       gate_1: {
         launch_disabled_before_confirmation: launchDisabledBeforeConfirmation,
         api_without_confirmation_status: deniedWithoutConfirmation.status,
@@ -379,6 +465,26 @@ async function runCase(smokeCase) {
         events_sha256: `sha256:${createHash("sha256").update(eventBytes).digest("hex")}`,
         terminal_visible_text: terminalText,
       },
+      monitoring: {
+        failure_mode: injectedFailureMode,
+        injected_failure_count: injectedFailureCount,
+        degraded_visible_text: degradedMonitorText,
+        connected_visible_text: connectedMonitorText,
+      },
+      reconnect: {
+        reload_session_query: reloadSessionQuery,
+        token_empty_after_reload: reloadedTokenEmpty,
+        authorization_guidance: authorizationGuidance,
+        calls: reconnectCalls,
+        only_gets: reconnectOnlyGets,
+        token_stayed_in_memory: tokenStayedInMemory,
+      },
+      conflict_reconnect: {
+        guidance: conflictGuidance,
+        reconnect_id: conflictReconnectId,
+        session_query: conflictSessionQuery,
+        intercepted_dispatches: conflictDispatchCount,
+      },
       elapsed_seconds: (Date.now() - startedAt) / 1000,
       expected_negative_console_errors: expectedNegativeConsoleErrors,
       unexpected_console_errors: unexpectedConsoleErrors,
@@ -404,6 +510,97 @@ async function allEnabled(locator, expectedCount) {
       controls.length === count && controls.every((control) => control.disabled === false),
     expectedCount,
   );
+}
+
+async function probeMobile(browser, origin, basePath) {
+  const page = await browser.newPage({
+    isMobile: true,
+    viewport: { width: 390, height: 844 },
+  });
+  try {
+    const prefix = displayBasePath(basePath);
+    const dashboard = await page.goto(new URL(prefix, origin).href, { waitUntil: "networkidle" });
+    const dashboardHeading = await page.locator("h1").innerText();
+    const dashboardFits = await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    );
+    const trial = await page.goto(new URL(`${prefix}try/`, origin).href, {
+      waitUntil: "networkidle",
+    });
+    const trialHeading = await page.locator("h1").innerText();
+    await page.locator("[data-testid='reconnect-card']").waitFor();
+    const trialFits = await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    );
+    return {
+      dashboard: { fits_viewport: dashboardFits, heading: dashboardHeading, status: dashboard?.status() ?? 0 },
+      trial: { fits_viewport: trialFits, heading: trialHeading, status: trial?.status() ?? 0 },
+      ok:
+        dashboard?.status() === 200 &&
+        dashboardHeading === "Evidence, at a glance." &&
+        dashboardFits &&
+        trial?.status() === 200 &&
+        trialHeading === "Launch once. Trust the gates." &&
+        trialFits,
+    };
+  } finally {
+    await page.close();
+  }
+}
+
+async function installPollFailure(page, mode) {
+  await page.evaluate((failureMode) => {
+    const nativeFetch = window.fetch.bind(window);
+    window.__commandagentTrialPollInjection = { count: 0, mode: failureMode };
+    window.fetch = async (input, init) => {
+      const request = input instanceof Request ? input : null;
+      const method = (init?.method ?? request?.method ?? "GET").toUpperCase();
+      const rawUrl = typeof input === "string" ? input : request?.url ?? String(input);
+      const path = new URL(rawUrl, window.location.href).pathname;
+      const injection = window.__commandagentTrialPollInjection;
+      if (
+        injection !== undefined &&
+        injection.count === 0 &&
+        method === "GET" &&
+        /\/api\/sessions\/[0-9a-f-]{36}$/.test(path)
+      ) {
+        injection.count += 1;
+        if (failureMode === "network") {
+          throw new TypeError("Synthetic browser fetch rejection");
+        }
+        const response = new Response(null, { status: 200 });
+        return new Proxy(response, {
+          get(target, property) {
+            if (property === "type") return "opaqueredirect";
+            const value = Reflect.get(target, property, target);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+      }
+      return nativeFetch(input, init);
+    };
+  }, mode);
+}
+
+async function installSessionConflict(page, sessionId) {
+  await page.evaluate((activeSessionId) => {
+    const nativeFetch = window.fetch.bind(window);
+    window.__commandagentTrialConflictInjection = { count: 0 };
+    window.fetch = async (input, init) => {
+      const request = input instanceof Request ? input : null;
+      const method = (init?.method ?? request?.method ?? "GET").toUpperCase();
+      const rawUrl = typeof input === "string" ? input : request?.url ?? String(input);
+      const path = new URL(rawUrl, window.location.href).pathname;
+      if (method === "POST" && /\/api\/sessions$/.test(path)) {
+        window.__commandagentTrialConflictInjection.count += 1;
+        return new Response(
+          JSON.stringify({ error: `trial workspace is already running session ${activeSessionId}` }),
+          { headers: { "content-type": "application/json" }, status: 409 },
+        );
+      }
+      return nativeFetch(input, init);
+    };
+  }, sessionId);
 }
 
 async function probePage(page, origin, basePath, relativePath, expectedHeading) {
