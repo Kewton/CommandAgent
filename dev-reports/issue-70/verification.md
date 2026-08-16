@@ -5,37 +5,35 @@
 ## Checks
 
 - `git diff --check`: `passed`
-- `cargo test --features gui --test gui_server --test gui_read_only_guard`: `passed`
+- `cargo test --features gui --test gui_server --test gui_read_only_guard`:
+  `passed` (server 13/13, guard 14/14)
 - `cd gui && npm run typecheck`: `passed`
 - `cd gui && npm run lint`: `passed`
 - `cd gui && node --check scripts/smoke.mjs`: `passed`
-- `cd gui && GUI_BASE_PATH=/ npm run build`: `passed`
-- `cd gui && npm run smoke -- --output /tmp/commandagent-issue-70-smoke.2faBHM --commandagent-bin ../target/release/commandagent --model qwen3:8b`: `passed`
+- root and proxy Next.js production builds in full smoke: `passed`
+- full two-base-path browser smoke at
+  `/private/tmp/commandagent-issue-70-post69-full`: `passed`
 - `cargo fmt --all -- --check`: `passed`
 - `cargo clippy --all-targets -- -D warnings`: `passed`
 - `cargo clippy --features gui --all-targets -- -D warnings`: `passed`
-- `cargo test`: `passed`
-- `cargo build --release --bin commandagent`: `passed`
-- `target/release/commandagent --version`: `passed`
+- `cargo test -q`: `passed`
 
 ## Browser observations
 
 The managed Playwright 1.61.1 smoke returned overall `ok: true` for both `/`
-and `/proxy/commandagent/`. The root case displayed 57,340 bytes from the last
-200 event lines and 7,317 bytes from `summary.md`; the proxy case displayed
-46,533 and 7,408 bytes respectively. Both used the in-page read-only viewer,
-retained correct base-path routing, and reported no unexpected console errors.
+and `/proxy/commandagent/`. The root case displayed 112,105 bytes from recent
+`events.jsonl` and 8,379 bytes from `summary.md`; the proxy case displayed
+54,543 and 7,254 bytes respectively. Both viewers used relative in-page paths,
+contained event content, retained base-path routing, and reported no unexpected
+browser console errors.
 
-Both delegated model runs ended at an honestly projected failed/static Gate 4.
-Their failure causes were visible in the displayed summaries, which exercises
-the issue's intended diagnostic path without rewriting the verdict.
+Both delegated runs reached an honestly projected failed/static Gate 4. The
+existing failure recovery, GET-only reconnect, second-run lifecycle, adaptive
+304 polling, and elapsed/phase/title feedback also remained green. The smoke's
+isolated runtime was removed after success.
 
-## Setup and evidence handling
+## Sandbox note
 
-This worktree initially had no `node_modules`.
-`cd gui && npm ci --include=dev --offline` restored the lockfile-pinned
-dependency graph without changing the
-lockfile. The smoke used the installed `qwen3:8b` model and managed Playwright
-package. Its isolated Trial runtime was removed after success; screenshots and
-raw API/event evidence remain under the temporary output path and were not
-committed. No historical repository evidence was modified.
+TypeScript checking in this sibling worktree was run with scoped elevated write
+permission because `tsconfig.tsbuildinfo` is outside the default workspace
+write root. No user server or CommandMate process was stopped or restarted.

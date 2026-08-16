@@ -4,8 +4,11 @@ import type { ReactNode } from "react";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "CommandAgent Observatory",
-  description: "Read-only operational evidence dashboard",
+  title: {
+    default: "概要 | CommandAgent",
+    template: "%s | CommandAgent",
+  },
+  description: "CommandAgent の運用証跡ダッシュボード",
 };
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
