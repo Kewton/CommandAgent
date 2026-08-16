@@ -4,6 +4,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
+use anyhow::Context;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode, header};
@@ -203,10 +204,20 @@ pub async fn create(
         Ok("delegated".to_string())
     });
     if let Err(error) = dispatch {
-        state
-            .trial_workspace
-            .complete_from_events(&id, &events_path);
-        return Err(internal(error));
+        return match paths.rollback_unstarted() {
+            Ok(()) => {
+                state.trial_workspace.cancel_start(&id);
+                Err(internal(format!("{error:#}")))
+            }
+            Err(rollback_error) => {
+                state
+                    .trial_workspace
+                    .complete_from_events(&id, &events_path);
+                Err(internal(format!(
+                    "{error:#}; failed to roll back unstarted session {id}: {rollback_error:#}"
+                )))
+            }
+        };
     }
     Ok((
         StatusCode::ACCEPTED,
@@ -217,6 +228,18 @@ pub async fn create(
             events_path: relative_path(&workspace, &events_path),
         }),
     ))
+}
+
+pub async fn workspace_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<super::workspace_policy::LeaseSnapshot>, SessionError> {
+    require_trial(&state, &headers, false)?;
+    state
+        .trial_workspace
+        .lease_snapshot()
+        .map(Json)
+        .map_err(internal)
 }
 
 pub async fn status(
@@ -477,7 +500,7 @@ fn spawn_cli(
         anyhow::bail!("Gate 1 workspace changed before CLI delegation");
     }
     let mut command = Command::new(&state.commandagent_bin);
-    Ok(command
+    command
         .current_dir(&workspace)
         .env("COMMANDAGENT_EVAL_EVENTS", paths.events_path())
         .args(["--yes", "--quiet", "--footer", "off", "--stream", "off"])
@@ -501,7 +524,13 @@ fn spawn_cli(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()?)
+        .spawn()
+        .map_err(|cause| {
+            anyhow::anyhow!(
+                "failed to spawn delegated CLI binary {}: {cause}",
+                state.commandagent_bin.display()
+            )
+        })
 }
 
 fn monitor_cli(lease: TrialWorkspace, session_id: String, events_path: PathBuf, mut child: Child) {
@@ -845,6 +874,19 @@ impl SessionPaths {
 
     fn events_path(&self) -> PathBuf {
         self.run_root.join("events.jsonl")
+    }
+
+    fn rollback_unstarted(&self) -> anyhow::Result<()> {
+        match std::fs::remove_dir_all(&self.run_root) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error).with_context(|| {
+                format!(
+                    "remove unstarted session directory {}",
+                    self.run_root.display()
+                )
+            }),
+        }
     }
 }
 

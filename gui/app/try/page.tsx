@@ -19,10 +19,11 @@ import type {
   PolledSession,
   SessionProposal,
   SessionSpec,
+  TrialWorkspaceLease,
 } from "../../lib/types";
 
 const initialSpec: SessionSpec = {
-  goal: "パターンで絞り込む CLI コマンドを作成する",
+  goal: "--pattern で行を抽出する CLI コマンドを作成する",
   profile: "python-cli",
   provider: "ollama",
   model: "qwen3:8b",
@@ -66,6 +67,9 @@ export default function TrialRunPage() {
   const [error, setError] = useState<string | null>(null);
   const [directiveText, setDirectiveText] = useState("");
   const [directive, setDirective] = useState<DirectiveProposal | null>(null);
+  const [workspaceLease, setWorkspaceLease] = useState<TrialWorkspaceLease | null>(null);
+  const launchIdentityLocked =
+    stage === "gate_2" || stage === "terminal" || stage === "closed";
   const [monitor, setMonitor] = useState<MonitorState>(initialMonitor);
 
   useEffect(() => {
@@ -166,6 +170,17 @@ export default function TrialRunPage() {
     setStage("compose");
   }
 
+  function startNewRun() {
+    setProposal(null);
+    setConfirmed(false);
+    setCreated(null);
+    setSession(null);
+    setDirectiveText("");
+    setDirective(null);
+    setError(null);
+    setStage("compose");
+  }
+
   async function checkContract() {
     if (trialToken.trim() === "") {
       setError("契約を確認する前に、実行時の Trial アクセストークンを入力してください。");
@@ -174,6 +189,7 @@ export default function TrialRunPage() {
     setBusy(true);
     setError(null);
     try {
+      setWorkspaceLease(await fetchWorkspaceLease(trialToken));
       const response = await fetch(apiPath("session-proposals"), {
         method: "POST",
         headers: authorizationHeaders(trialToken, true),
@@ -183,6 +199,22 @@ export default function TrialRunPage() {
       setProposal((await response.json()) as SessionProposal);
       setConfirmed(false);
       setStage("gate_1");
+    } catch (reason) {
+      setError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function inspectWorkspaceLease() {
+    if (trialToken.trim() === "") {
+      setError("ワークスペースのリースを確認する前に、実行時の Trial アクセストークンを入力してください。");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      setWorkspaceLease(await fetchWorkspaceLease(trialToken));
     } catch (reason) {
       setError(message(reason));
     } finally {
@@ -206,6 +238,8 @@ export default function TrialRunPage() {
       if (!response.ok) {
         const detail = await apiError(response);
         if (response.status === 409) {
+          const currentLease = await fetchWorkspaceLease(trialToken).catch(() => null);
+          if (currentLease !== null) setWorkspaceLease(currentLease);
           const active = sessionIdFromConflict(detail);
           if (active !== null) {
             setReconnectSessionId(active);
@@ -219,6 +253,7 @@ export default function TrialRunPage() {
       }
       const value = (await response.json()) as CreatedSession;
       setCreated(value);
+      setWorkspaceLease(null);
       setReconnectSessionId(value.id);
       replaceSessionQuery(value.id);
       setSession(null);
@@ -299,6 +334,7 @@ export default function TrialRunPage() {
       if (!response.ok) throw new Error(await apiError(response));
       setDirective(null);
       setDirectiveText("");
+      setWorkspaceLease(null);
       setStage("gate_2");
     } catch (reason) {
       setError(message(reason));
@@ -325,6 +361,7 @@ export default function TrialRunPage() {
           <label htmlFor="trial-goal">目標</label>
           <textarea
             data-testid="trial-goal"
+            disabled={launchIdentityLocked}
             id="trial-goal"
             onChange={(event) => update("goal", event.target.value)}
             rows={5}
@@ -335,9 +372,11 @@ export default function TrialRunPage() {
             autoComplete="off"
             autoCapitalize="none"
             data-testid="trial-token"
+            disabled={launchIdentityLocked}
             id="trial-token"
             onChange={(event) => {
               setTrialToken(event.target.value);
+              setWorkspaceLease(null);
               if (created === null) {
                 setProposal(null);
                 setConfirmed(false);
@@ -348,6 +387,28 @@ export default function TrialRunPage() {
             type="password"
             value={trialToken}
           />
+          <div
+            className={`lease-status-card ${workspaceLease?.status ?? "unknown"}`}
+            data-testid="workspace-lease-status"
+          >
+            <div>
+              <span>ワークスペースのリース状態</span>
+              <strong>{workspaceLeaseLabel(workspaceLease)}</strong>
+            </div>
+            {workspaceLease !== null && workspaceLease.status !== "idle" && (
+              <code data-testid="workspace-lease-session">{workspaceLease.session_id}</code>
+            )}
+            <p>読み取り専用の確認です。リースの解除や CLI プロセスの起動は行いません。</p>
+            <button
+              className="secondary-action"
+              data-testid="inspect-workspace-lease"
+              disabled={busy}
+              onClick={() => void inspectWorkspaceLease()}
+              type="button"
+            >
+              ワークスペースのリースを確認
+            </button>
+          </div>
           <div className="reconnect-card" data-testid="reconnect-card">
             <label htmlFor="reconnect-session">既存セッション ID</label>
             <div>
@@ -375,7 +436,11 @@ export default function TrialRunPage() {
           <div className="trial-fields">
             <label>
               プロファイル
-              <select value={spec.profile} onChange={(event) => update("profile", event.target.value)}>
+              <select
+                disabled={launchIdentityLocked}
+                value={spec.profile}
+                onChange={(event) => update("profile", event.target.value)}
+              >
                 <option value="python-cli">python-cli</option>
                 <option value="data">data</option>
                 <option value="ingest">ingest</option>
@@ -384,7 +449,11 @@ export default function TrialRunPage() {
             </label>
             <label>
               プロバイダー
-              <select value={spec.provider} onChange={(event) => update("provider", event.target.value)}>
+              <select
+                disabled={launchIdentityLocked}
+                value={spec.provider}
+                onChange={(event) => update("provider", event.target.value)}
+              >
                 <option value="ollama">ollama</option>
                 <option value="lm-studio">LM Studio</option>
                 <option value="openai">openai</option>
@@ -393,11 +462,16 @@ export default function TrialRunPage() {
             </label>
             <label>
               実行モデル
-              <input value={spec.model} onChange={(event) => update("model", event.target.value)} />
+              <input
+                disabled={launchIdentityLocked}
+                value={spec.model}
+                onChange={(event) => update("model", event.target.value)}
+              />
             </label>
             <label>
               計画モデル
               <input
+                disabled={launchIdentityLocked}
                 value={spec.planner_model}
                 onChange={(event) => update("planner_model", event.target.value)}
               />
@@ -406,7 +480,7 @@ export default function TrialRunPage() {
           <button
             className="secondary-action"
             data-testid="check-contract"
-            disabled={busy || stage === "gate_2"}
+            disabled={busy || launchIdentityLocked}
             onClick={() => void checkContract()}
             type="button"
           >
@@ -551,12 +625,25 @@ export default function TrialRunPage() {
                 </button>
               </div>
             )}
-            <button className="close-action" onClick={() => setStage("closed")} type="button">追加実行せず終了</button>
+            <button className="close-action" data-testid="close-session" onClick={() => setStage("closed")} type="button">追加実行せず終了</button>
           </aside>
         </section>
       )}
 
-      {stage === "closed" && <section className="panel closed-card"><span>セッション終了</span><h2>追加の操作は実行されていません。</h2></section>}
+      {stage === "closed" && (
+        <section className="panel closed-card" data-testid="closed-session">
+          <span>セッション終了</span>
+          <h2>追加の操作は実行されていません。</h2>
+          <button
+            className="primary-action"
+            data-testid="start-new-run"
+            onClick={startNewRun}
+            type="button"
+          >
+            新しい実行を開始
+          </button>
+        </section>
+      )}
     </Shell>
   );
 }
@@ -645,6 +732,21 @@ function monitorLabel(status: MonitorStatus): string {
   if (status === "connected") return "接続中";
   if (status === "degraded") return "不安定";
   return "切断";
+}
+
+function workspaceLeaseLabel(lease: TrialWorkspaceLease | null): string {
+  if (lease === null) return "未確認";
+  if (lease.status === "recovery_required") return "復旧が必要";
+  if (lease.status === "running") return "実行中";
+  return "待機中";
+}
+
+async function fetchWorkspaceLease(token: string): Promise<TrialWorkspaceLease> {
+  const response = await fetch(apiPath("trial-workspace"), {
+    headers: authorizationHeaders(token),
+  });
+  if (!response.ok) throw new Error(await apiError(response));
+  return (await response.json()) as TrialWorkspaceLease;
 }
 
 function authorizationHeaders(token: string, json = false): Record<string, string> {

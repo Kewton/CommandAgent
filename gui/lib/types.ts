@@ -88,6 +88,11 @@ export type CreatedSession = {
   events_path: string;
 };
 
+export type TrialWorkspaceLease =
+  | { status: "idle" }
+  | { status: "running"; session_id: string }
+  | { status: "recovery_required"; session_id: string };
+
 export type PhaseStatus = {
   id: string;
   index: number;

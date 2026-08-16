@@ -145,14 +145,19 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "data-testid=\"trial-workspace\"",
         "proposal.identity.workspace",
         "このディレクトリ内の内容を作成・変更・削除できます",
+        "--pattern で行を抽出する CLI コマンドを作成する",
         "<option value=\"lm-studio\">LM Studio</option>",
         "window.matchMedia(\"(max-width: 720px)\")",
         "target.scrollIntoView({ behavior: \"smooth\", block: \"start\" })",
         "契約を確認する前に、実行時の Trial アクセストークンを入力してください。",
+        "stage === \"gate_2\" || stage === \"terminal\" || stage === \"closed\"",
+        "disabled={busy || launchIdentityLocked}",
         "disabled={!confirmed || busy || stage === \"gate_2\"}",
         "確認して CLI に委譲",
         "D-3d 継続を確認",
         "追加実行せず終了",
+        "data-testid=\"start-new-run\"",
+        "新しい実行を開始",
     ] {
         assert!(
             source.contains(required),
@@ -163,6 +168,26 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         !source.contains("disabled={trialToken === \"\""),
         "Trial token guidance must not be hidden behind a disabled button"
     );
+    assert_eq!(
+        source.matches("disabled={launchIdentityLocked}").count(),
+        6,
+        "every launch identity control must share the run-stage lock"
+    );
+    for reset in [
+        "setProposal(null)",
+        "setConfirmed(false)",
+        "setCreated(null)",
+        "setSession(null)",
+        "setDirectiveText(\"\")",
+        "setDirective(null)",
+        "setError(null)",
+        "setStage(\"compose\")",
+    ] {
+        assert!(
+            source.contains(reset),
+            "new-run transition is missing reset {reset:?}"
+        );
+    }
     for forbidden in [
         "Cancel session",
         "Interrupt session",
@@ -349,7 +374,7 @@ fn trial_workspace_and_authentication_guards_are_not_optional() {
     let delegate = std::fs::read_to_string(DELEGATE_MODULE).unwrap();
     assert_eq!(
         delegate.matches("require_trial(&state, &headers").count(),
-        5,
+        6,
         "every Trial API handler must enforce workspace and access guards"
     );
     for required in [
@@ -357,10 +382,63 @@ fn trial_workspace_and_authentication_guards_are_not_optional() {
         "StatusCode::UNAUTHORIZED",
         "StatusCode::FORBIDDEN",
         "complete_from_events",
+        "lease_snapshot",
+        "rollback_unstarted",
+        "failed to spawn delegated CLI binary",
     ] {
         assert!(
             delegate.contains(required),
             "missing Trial guard {required:?}"
+        );
+    }
+
+    assert!(entry.contains(".route(\"/api/trial-workspace\", get(sessions::workspace_status))"));
+}
+
+#[test]
+fn trial_workspace_recovery_is_visible_but_read_only() {
+    let page = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
+    for required in [
+        "fetch(apiPath(\"trial-workspace\")",
+        "data-testid=\"workspace-lease-status\"",
+        "data-testid=\"workspace-lease-session\"",
+        "復旧が必要",
+        "読み取り専用の確認です。リースの解除や CLI プロセスの起動は行いません。",
+        "ワークスペースのリースを確認",
+    ] {
+        assert!(
+            page.contains(required),
+            "Trial lease UI is missing {required:?}"
+        );
+    }
+    for forbidden in [
+        "Clear workspace lease",
+        "Reset workspace lease",
+        "Force idle",
+        "Recover automatically",
+        "ワークスペースのリースを解除",
+        "ワークスペースのリースをリセット",
+        "強制的に待機状態へ変更",
+        "自動復旧",
+    ] {
+        assert!(
+            !page.contains(forbidden),
+            "Trial lease UI exposes a mutating recovery action {forbidden:?}"
+        );
+    }
+
+    let guide = std::fs::read_to_string("docs/user/gui.md").unwrap();
+    for required in [
+        "## Workspace lease inspection and recovery",
+        "GET api/trial-workspace",
+        "`commandagent` remains for the execution root",
+        "archive outside",
+        "do not append a synthetic terminal event",
+        "It must report `Idle`",
+    ] {
+        assert!(
+            guide.contains(required),
+            "GUI recovery guide is missing {required:?}"
         );
     }
 }

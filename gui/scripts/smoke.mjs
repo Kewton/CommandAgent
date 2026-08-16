@@ -211,6 +211,9 @@ async function runCase(smokeCase) {
     const trialUrl = new URL(`${prefix}try/`, server.origin).href;
     const trialResponse = await page.goto(trialUrl, { waitUntil: "networkidle" });
     const trialTitle = await page.title();
+    const launchIdentityControls = page.locator(
+      "[data-testid='trial-goal'], [data-testid='trial-token'], .trial-fields input, .trial-fields select",
+    );
     await page.locator("[data-testid='trial-goal']").fill("Create a CLI --pattern filter command");
     await page.locator("[data-testid='trial-token']").fill(trialCredential);
     const modelInputs = page.locator(".trial-fields input");
@@ -264,6 +267,14 @@ async function runCase(smokeCase) {
     await launch.click();
     await page.locator("[data-testid='session-progress']").waitFor();
     const sessionId = await page.locator("[data-testid='session-progress'] h2").innerText();
+    const gateTwoIdentityLocked = await allDisabled(launchIdentityControls, 6);
+    const tokenFocusAtGateTwo = await page.locator("[data-testid='trial-token']").evaluate((input) => {
+      input.focus();
+      return {
+        focused: document.activeElement === input,
+        stage: document.querySelector(".gate-chip")?.textContent ?? "",
+      };
+    });
     const degradedMonitor = page.locator("[data-testid='monitor-state'][data-monitor-status='degraded']");
     await degradedMonitor.waitFor();
     const degradedMonitorText = await degradedMonitor.innerText();
@@ -284,6 +295,7 @@ async function runCase(smokeCase) {
     });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator("[data-testid='terminal-gate']").waitFor({ timeout: trialTimeoutMs });
+    const terminalIdentityLocked = await allDisabled(launchIdentityControls, 6);
     const terminalScroll = await mobileStageScroll(page, "[data-testid='terminal-gate']");
     await page.screenshot({
       fullPage: true,
@@ -355,6 +367,35 @@ async function runCase(smokeCase) {
     const eventsPath = join(executionRoot, ".anvil", "runs", sessionId, "events.jsonl");
     const eventBytes = await readFile(eventsPath);
     await writeFile(join(outputDirectory, `${smokeCase.id}-events.jsonl`), eventBytes);
+    const lifecycleUrl = new URL(trialUrl);
+    lifecycleUrl.searchParams.set("session", sessionId);
+    await page.goto(lifecycleUrl.href, { waitUntil: "networkidle" });
+    await page.locator("[data-testid='reconnect-session']").fill(sessionId);
+    await page.locator("[data-testid='trial-token']").fill(trialCredential);
+    await page.locator("[data-testid='reconnect-session-button']").click();
+    await page.locator("[data-testid='terminal-gate']").waitFor();
+    await page.waitForTimeout(1_000);
+    await page.locator("[data-testid='close-session']").click();
+    await page.locator("[data-testid='closed-session']").waitFor();
+    const closedIdentityLocked = await allDisabled(launchIdentityControls, 6);
+    await page.locator("[data-testid='start-new-run']").click();
+    const newRunStage = await page.locator(".gate-chip").innerText();
+    const newRunIdentityEditable = await allEnabled(launchIdentityControls, 6);
+    const previousRunCleared =
+      (await page.locator("[data-testid='session-progress']").count()) === 0 &&
+      (await page.locator("[data-testid='terminal-gate']").count()) === 0 &&
+      (await page.locator("[data-testid='gate-one-card']").count()) === 0;
+    await page.locator("[data-testid='check-contract']").click();
+    await page.locator("[data-testid='gate-one-card']").waitFor();
+    await page.locator("[data-testid='gate-one-confirm']").check();
+    await page.locator("[data-testid='launch-session']").click();
+    await page.locator("[data-testid='session-progress']").waitFor();
+    const nextSessionId = await page.locator("[data-testid='session-progress'] h2").innerText();
+    await page.locator("[data-testid='terminal-gate']").waitFor({ timeout: trialTimeoutMs });
+    const nextSessionReachedTerminal = ["GATE_3", "GATE_4"].includes(
+      await page.locator(".gate-chip").innerText(),
+    );
+    await page.waitForTimeout(1_000);
     const apiLog = {
       schema_version: "commandagent.gui-api-smoke/v1",
       base_path: smokeCase.buildBasePath,
@@ -413,6 +454,16 @@ async function runCase(smokeCase) {
       desktopTrialAlignment.aligned &&
       mobileTrialAlignment.aligned &&
       launchDisabledBeforeConfirmation &&
+      gateTwoIdentityLocked &&
+      !tokenFocusAtGateTwo.focused &&
+      tokenFocusAtGateTwo.stage === "GATE 2" &&
+      terminalIdentityLocked &&
+      closedIdentityLocked &&
+      newRunStage === "下書き" &&
+      newRunIdentityEditable &&
+      previousRunCleared &&
+      nextSessionId !== sessionId &&
+      nextSessionReachedTerminal &&
       deniedWithoutConfirmation.status === 428 &&
       executionScroll.clearsStickyHeader &&
       terminalScroll.clearsStickyHeader &&
@@ -466,6 +517,17 @@ async function runCase(smokeCase) {
         },
         visible_text: gateOneText,
       },
+      lifecycle: {
+        gate_2_identity_locked: gateTwoIdentityLocked,
+        gate_2_token_focus: tokenFocusAtGateTwo,
+        terminal_identity_locked: terminalIdentityLocked,
+        closed_identity_locked: closedIdentityLocked,
+        new_run_stage: newRunStage,
+        new_run_identity_editable: newRunIdentityEditable,
+        previous_run_cleared: previousRunCleared,
+        next_session_id: nextSessionId,
+        next_session_reached_terminal: nextSessionReachedTerminal,
+      },
       session: {
         id: sessionId,
         gate: finalApi.body.gate,
@@ -510,10 +572,93 @@ async function runCase(smokeCase) {
       unexpected_console_errors: unexpectedConsoleErrors,
       ok,
     };
+  } catch (reason) {
+    const pageError = await page.locator(".trial-error[role='alert']").textContent().catch(() => null);
+    const stage = await page.locator(".gate-chip").textContent().catch(() => null);
+    await page
+      .screenshot({
+        fullPage: true,
+        path: join(outputDirectory, `${smokeCase.id}-failure.png`),
+      })
+      .catch(() => undefined);
+    throw new Error(
+      `${message(reason)}\nPage diagnostics: ${JSON.stringify({ page_error: pageError, stage, url: page.url() })}`,
+    );
   } finally {
     await browser.close();
     server.stop();
   }
+}
+
+async function trialControlAlignment(page) {
+  const [goal, token] = await Promise.all([
+    page.locator("[data-testid='trial-goal']").boundingBox(),
+    page.locator("[data-testid='trial-token']").boundingBox(),
+  ]);
+  if (goal === null || token === null) throw new Error("Trial controls are not visible");
+  const leftDelta = Math.abs(goal.x - token.x);
+  const rightDelta = Math.abs(goal.x + goal.width - (token.x + token.width));
+  return {
+    aligned: leftDelta <= 1 && rightDelta <= 1,
+    goal: { left: goal.x, right: goal.x + goal.width },
+    left_delta_px: leftDelta,
+    right_delta_px: rightDelta,
+    token: { left: token.x, right: token.x + token.width },
+    viewport_width: page.viewportSize()?.width ?? 0,
+  };
+}
+
+async function mobileStageScroll(page, selector) {
+  await page.waitForFunction((targetSelector) => {
+    const target = document.querySelector(targetSelector);
+    const topbar = document.querySelector(".topbar");
+    const heading = target?.querySelector("h2");
+    if (target === null || topbar === null || heading === null) return false;
+    const headingBounds = heading.getBoundingClientRect();
+    const topbarBottom = topbar.getBoundingClientRect().bottom;
+    const scrollMarginTop = Number.parseFloat(getComputedStyle(target).scrollMarginTop);
+    return (
+      scrollMarginTop > topbar.getBoundingClientRect().height &&
+      headingBounds.top >= topbarBottom - 1 &&
+      headingBounds.bottom <= window.innerHeight
+    );
+  }, selector);
+  return page.locator(selector).evaluate((target) => {
+    const topbar = document.querySelector(".topbar");
+    const heading = target.querySelector("h2");
+    if (topbar === null || heading === null) {
+      throw new Error("Stage heading or sticky top bar is missing");
+    }
+    const targetTop = target.getBoundingClientRect().top;
+    const headingBounds = heading.getBoundingClientRect();
+    const topbarBottom = topbar.getBoundingClientRect().bottom;
+    return {
+      clearance_px: headingBounds.top - topbarBottom,
+      clearsStickyHeader:
+        headingBounds.top >= topbarBottom - 1 && headingBounds.bottom <= window.innerHeight,
+      heading_bottom_px: headingBounds.bottom,
+      heading_top_px: headingBounds.top,
+      scroll_margin_top_px: Number.parseFloat(getComputedStyle(target).scrollMarginTop),
+      target_top_px: targetTop,
+      topbar_bottom_px: topbarBottom,
+    };
+  });
+}
+
+async function allDisabled(locator, expectedCount) {
+  return locator.evaluateAll(
+    (controls, count) =>
+      controls.length === count && controls.every((control) => control.disabled === true),
+    expectedCount,
+  );
+}
+
+async function allEnabled(locator, expectedCount) {
+  return locator.evaluateAll(
+    (controls, count) =>
+      controls.length === count && controls.every((control) => control.disabled === false),
+    expectedCount,
+  );
 }
 
 async function probeMobile(browser, origin, basePath) {
@@ -609,61 +754,6 @@ async function installSessionConflict(page, sessionId) {
       return nativeFetch(input, init);
     };
   }, sessionId);
-}
-
-async function trialControlAlignment(page) {
-  const [goal, token] = await Promise.all([
-    page.locator("[data-testid='trial-goal']").boundingBox(),
-    page.locator("[data-testid='trial-token']").boundingBox(),
-  ]);
-  if (goal === null || token === null) throw new Error("Trial controls are not visible");
-  const leftDelta = Math.abs(goal.x - token.x);
-  const rightDelta = Math.abs(goal.x + goal.width - (token.x + token.width));
-  return {
-    aligned: leftDelta <= 1 && rightDelta <= 1,
-    goal: { left: goal.x, right: goal.x + goal.width },
-    left_delta_px: leftDelta,
-    right_delta_px: rightDelta,
-    token: { left: token.x, right: token.x + token.width },
-    viewport_width: page.viewportSize()?.width ?? 0,
-  };
-}
-
-async function mobileStageScroll(page, selector) {
-  await page.waitForFunction((targetSelector) => {
-    const target = document.querySelector(targetSelector);
-    const topbar = document.querySelector(".topbar");
-    const heading = target?.querySelector("h2");
-    if (target === null || topbar === null || heading === null) return false;
-    const headingBounds = heading.getBoundingClientRect();
-    const topbarBottom = topbar.getBoundingClientRect().bottom;
-    const scrollMarginTop = Number.parseFloat(getComputedStyle(target).scrollMarginTop);
-    return (
-      scrollMarginTop > topbar.getBoundingClientRect().height &&
-      headingBounds.top >= topbarBottom - 1 &&
-      headingBounds.bottom <= window.innerHeight
-    );
-  }, selector);
-  return page.locator(selector).evaluate((target) => {
-    const topbar = document.querySelector(".topbar");
-    const heading = target.querySelector("h2");
-    if (topbar === null || heading === null) {
-      throw new Error("Stage heading or sticky top bar is missing");
-    }
-    const targetTop = target.getBoundingClientRect().top;
-    const headingBounds = heading.getBoundingClientRect();
-    const topbarBottom = topbar.getBoundingClientRect().bottom;
-    return {
-      clearance_px: headingBounds.top - topbarBottom,
-      clearsStickyHeader:
-        headingBounds.top >= topbarBottom - 1 && headingBounds.bottom <= window.innerHeight,
-      heading_bottom_px: headingBounds.bottom,
-      heading_top_px: headingBounds.top,
-      scroll_margin_top_px: Number.parseFloat(getComputedStyle(target).scrollMarginTop),
-      target_top_px: targetTop,
-      topbar_bottom_px: topbarBottom,
-    };
-  });
 }
 
 async function probePage(page, origin, basePath, relativePath, expectedHeading, expectedTitle) {

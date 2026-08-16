@@ -149,6 +149,86 @@ fn gui_server_revalidates_the_workspace_before_dispatch() {
 
 #[cfg(unix)]
 #[test]
+fn spawn_failure_reports_the_binary_and_releases_the_workspace() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let cli = temp.path().join("missing-commandagent");
+    let mut server = Server::start(&workspace, &cli);
+    let spec = session_spec();
+    let proposal = server.request("POST", "/api/session-proposals", Some(&spec));
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    let proposal: serde_json::Value = serde_json::from_str(&proposal.body).unwrap();
+    let mut confirmed = spec;
+    confirmed["confirmation_hash"] = proposal["card_hash"].clone();
+
+    let failed = server.request("POST", "/api/sessions", Some(&confirmed));
+    assert_eq!(failed.status, 500, "{}", failed.body);
+    assert!(
+        failed.body.contains(cli.to_string_lossy().as_ref()),
+        "{}",
+        failed.body
+    );
+    assert!(
+        failed.body.contains("No such file or directory") && failed.body.contains("os error"),
+        "{}",
+        failed.body
+    );
+    let lease = server.request("GET", "/api/trial-workspace", None);
+    assert_eq!(lease.status, 200, "{}", lease.body);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&lease.body).unwrap(),
+        serde_json::json!({ "status": "idle" })
+    );
+    server.stop();
+
+    write_terminal_cli(&cli);
+    let mut restarted = Server::start(&workspace, &cli);
+    let lease = restarted.request("GET", "/api/trial-workspace", None);
+    assert_eq!(lease.status, 200, "{}", lease.body);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&lease.body).unwrap(),
+        serde_json::json!({ "status": "idle" })
+    );
+    let created = restarted.request("POST", "/api/sessions", Some(&confirmed));
+    assert_eq!(created.status, 202, "{}", created.body);
+    restarted.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn recovery_required_lease_is_exposed_by_an_authenticated_get() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let session_id = "0198b9c8-fab8-7000-8000-000000000064";
+    std::fs::create_dir_all(
+        workspace
+            .join(".anvil/runs")
+            .join(session_id)
+            .join("state/boundary-confirmations"),
+    )
+    .unwrap();
+    let mut server = Server::start(
+        &workspace,
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+    );
+
+    let unauthorized = server.request_without_access("GET", "/api/trial-workspace", None);
+    assert_eq!(unauthorized.status, 401, "{}", unauthorized.body);
+    let lease = server.request("GET", "/api/trial-workspace", None);
+    assert_eq!(lease.status, 200, "{}", lease.body);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&lease.body).unwrap(),
+        serde_json::json!({
+            "status": "recovery_required",
+            "session_id": session_id,
+        })
+    );
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
 fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     use std::os::unix::fs::PermissionsExt;
 
@@ -477,4 +557,18 @@ fn session_spec() -> serde_json::Value {
         "planner_provider": "ollama",
         "planner_model": "fixture-planner"
     })
+}
+
+#[cfg(unix)]
+fn write_terminal_cli(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::write(
+        path,
+        "#!/bin/sh\nprintf '%s\\n' '{\"event\":\"tui_command_stop\",\"ok\":false,\"status\":\"failed\",\"assurance_level\":\"none\"}' > \"$COMMANDAGENT_EVAL_EVENTS\"\n",
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(path, permissions).unwrap();
 }
