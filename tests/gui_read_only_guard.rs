@@ -149,7 +149,7 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "window.matchMedia(\"(max-width: 720px)\")",
         "target.scrollIntoView({ behavior: \"smooth\", block: \"start\" })",
         "Enter the runtime Trial access token before checking the contract.",
-        "disabled={!confirmed || busy || stage === \"gate_2\"}",
+        "disabled={!confirmed || busy || stage === \"gate_2\" || launchBlockReason !== null}",
         "Confirm and delegate to CLI",
         "Confirm D-3d continuation",
         "End without another run",
@@ -188,7 +188,15 @@ fn trial_workspace_and_authentication_guards_are_not_optional() {
     assert_eq!(
         delegate.matches("require_trial(&state, &headers").count(),
         5,
-        "every Trial API handler must enforce workspace and access guards"
+        "every session mutation/detail handler must enforce workspace and access guards"
+    );
+    let session_index = std::fs::read_to_string("src/bin/gui_server/session_index.rs").unwrap();
+    assert_eq!(
+        session_index
+            .matches("require_trial(&state, &headers, false)")
+            .count(),
+        1,
+        "the Trial session index must enforce workspace and access guards"
     );
     for required in [
         "StatusCode::SERVICE_UNAVAILABLE",
@@ -199,6 +207,68 @@ fn trial_workspace_and_authentication_guards_are_not_optional() {
         assert!(
             delegate.contains(required),
             "missing Trial guard {required:?}"
+        );
+    }
+}
+
+#[test]
+fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
+    let entry = std::fs::read_to_string("src/bin/gui_server.rs").unwrap();
+    assert!(entry.contains("get(session_index::list).post(sessions::create)"));
+
+    let index = std::fs::read_to_string("src/bin/gui_server/session_index.rs").unwrap();
+    for required in [
+        "const MAX_SESSIONS: usize = 100",
+        "require_trial(&state, &headers, false)",
+        "workspace.join(\".anvil/runs\")",
+        "has_confirmation_record",
+        ".lease_snapshot()",
+        "sessions.truncate(MAX_SESSIONS)",
+        "human_directive_continuation_started",
+    ] {
+        assert!(
+            index.contains(required),
+            "Trial session index is missing {required:?}"
+        );
+    }
+
+    let page = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
+    let panel = std::fs::read_to_string("gui/components/trial-session-index.tsx").unwrap();
+    for required in [
+        "data-testid=\"trial-session-index\"",
+        "data-testid=\"workspace-lease-status\"",
+        "fetchSessionIndex(token)",
+        "fetch(apiPath(\"sessions\"), {",
+        "x-commandagent-trial-authorization",
+        "href={sessionLink(session.id)}",
+        "return `?session=${encodeURIComponent(id)}`",
+        "data-testid=\"session-reconnect-link\"",
+    ] {
+        assert!(
+            panel.contains(required),
+            "Trial session list panel is missing {required:?}"
+        );
+    }
+    for required in [
+        "<TrialSessionIndexPanel",
+        "onLeaseChange={setWorkspaceLease}",
+        "launchBlockReason !== null",
+        "running session ${lease.session_id} holds the workspace lease",
+    ] {
+        assert!(
+            page.contains(required),
+            "Trial session list UI is missing {required:?}"
+        );
+    }
+    for forbidden in [
+        "Delete session",
+        "Remove session",
+        "Clear workspace lease",
+        "Force idle",
+    ] {
+        assert!(
+            !page.contains(forbidden) && !panel.contains(forbidden),
+            "Trial session list exposes forbidden mutation {forbidden:?}"
         );
     }
 }

@@ -125,6 +125,21 @@ authentication is enabled.
    instruction is credential-scrubbed, exact-byte hashed, displayed, and must
    be confirmed before the existing continuation path is delegated.
 
+The **Trial history and workspace lease** panel reads the configured execution
+root rather than `workspace/management/runs`. Entering a complete runtime token
+loads up to 100 of the newest confirmed Trial run directories; **Refresh
+sessions** reads the directory again, so added or archived runs appear without a
+server restart. Each row shows its file-backed status and links to the existing
+`?session=<id>` reconnect flow. Following that link does not issue a POST or
+delegate another process; the runtime token remains memory-only and must be
+entered again after navigation before the session-status GET can succeed.
+
+The same panel displays the workspace lease as `idle`, `running(<session-id>)`,
+or `recovery_required(<session-id>)`. A non-idle snapshot disables confirmed
+launch and explains which session owns or blocks the workspace. This snapshot
+is advisory and read-only: the server independently enforces the lease during
+POST, and the GUI provides no clear, reset, cancel, or force-idle action.
+
 There is no cancel, interrupt, phase-edit, or gate-override control while a
 session is running. Use the existing CLI/runtime operating procedures for
 external process management. GUI confirmation cannot lower, replace, or
@@ -159,6 +174,7 @@ direct-client `Authorization` form). POST requests also require a same-host Orig
 | Route | Operation |
 | --- | --- |
 | `POST api/session-proposals` | Render a deterministic Gate 1 identity and measured price tag |
+| `GET api/sessions` | List up to 100 execution-root Trial sessions and the current read-only lease snapshot |
 | `POST api/sessions` | Require the exact Gate 1 hash, then delegate to the configured CLI binary |
 | `GET api/sessions/{id}` | Read events and artifacts to project phase, gate, and terminal verdict |
 | `POST api/sessions/{id}/directives` | Apply the existing credential scrub and persist a hashed D-3d proposal |

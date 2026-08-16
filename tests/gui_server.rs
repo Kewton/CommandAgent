@@ -144,6 +144,104 @@ fn gui_server_revalidates_the_workspace_before_dispatch() {
 
 #[cfg(unix)]
 #[test]
+fn session_index_requires_authentication_tracks_directories_and_caps_results() {
+    use std::os::unix::fs::symlink;
+
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let mut server = Server::start(
+        &workspace,
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+    );
+
+    let unauthorized = server.request_without_access("GET", "/api/sessions", None);
+    assert_eq!(unauthorized.status, 401, "{}", unauthorized.body);
+    let empty = server.request("GET", "/api/sessions", None);
+    assert_eq!(empty.status, 200, "{}", empty.body);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&empty.body).unwrap(),
+        serde_json::json!({ "sessions": [], "lease": { "status": "idle" } })
+    );
+
+    let runs_root = workspace.join(".anvil/runs");
+    let outside_events = workspace.join("outside-events.jsonl");
+    std::fs::write(
+        &outside_events,
+        "{\"event\":\"tui_command_stop\",\"status\":\"completed\"}\n",
+    )
+    .unwrap();
+    let mut ids = Vec::new();
+    for value in 1..=102u128 {
+        let id = uuid::Uuid::from_u128(value).to_string();
+        let run_root = runs_root.join(&id);
+        let confirmations = run_root.join("state/boundary-confirmations");
+        std::fs::create_dir_all(&confirmations).unwrap();
+        std::fs::write(confirmations.join("fixture.json"), "{}\n").unwrap();
+        match value {
+            97 => symlink(&outside_events, run_root.join("events.jsonl")).unwrap(),
+            98 => std::fs::write(
+                run_root.join("events.jsonl"),
+                "{\"event\":\"tui_command_stop\",\"status\":\"failed\",\"ok\":false}\n{\"event\":\"run_stop\",\"status\":\"completed\",\"ok\":true}\n",
+            )
+            .unwrap(),
+            99 => std::fs::write(run_root.join("events.jsonl"), "not-json\n").unwrap(),
+            100 => std::fs::write(
+                run_root.join("events.jsonl"),
+                "{\"event\":\"tui_command_stop\",\"status\":\"completed\",\"ok\":true}\n",
+            )
+            .unwrap(),
+            101 => std::fs::write(
+                run_root.join("events.jsonl"),
+                "{\"event\":\"ultra_phase_started\"}\n",
+            )
+            .unwrap(),
+            _ => {}
+        }
+        ids.push(id);
+    }
+    let unrelated = runs_root.join("not-a-session/state/boundary-confirmations");
+    std::fs::create_dir_all(&unrelated).unwrap();
+    std::fs::write(unrelated.join("fixture.json"), "{}\n").unwrap();
+
+    let populated = server.request("GET", "/api/sessions", None);
+    assert_eq!(populated.status, 200, "{}", populated.body);
+    let populated: serde_json::Value = serde_json::from_str(&populated.body).unwrap();
+    let sessions = populated["sessions"].as_array().unwrap();
+    assert_eq!(sessions.len(), 100);
+    assert_eq!(populated["lease"], serde_json::json!({ "status": "idle" }));
+    for (id, status) in [
+        (&ids[96], "unreadable"),
+        (&ids[97], "failed"),
+        (&ids[98], "unreadable"),
+        (&ids[99], "completed"),
+        (&ids[100], "running"),
+        (&ids[101], "starting"),
+    ] {
+        let summary = sessions
+            .iter()
+            .find(|session| session["id"] == id.as_str())
+            .unwrap_or_else(|| panic!("missing session {id}: {sessions:?}"));
+        assert_eq!(summary["status"], status);
+        assert!(summary["modified_epoch_seconds"].as_u64().unwrap() > 0);
+    }
+
+    std::fs::remove_dir_all(runs_root.join(&ids[101])).unwrap();
+    let after_removal = server.request("GET", "/api/sessions", None);
+    assert_eq!(after_removal.status, 200, "{}", after_removal.body);
+    let after_removal: serde_json::Value = serde_json::from_str(&after_removal.body).unwrap();
+    assert!(
+        after_removal["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|session| session["id"] != ids[101])
+    );
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
 fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     use std::os::unix::fs::PermissionsExt;
 
@@ -224,6 +322,19 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
 
     let competing = server.request("POST", "/api/sessions", Some(&confirmed));
     assert_eq!(competing.status, 409, "{}", competing.body);
+
+    let index = server.request("GET", "/api/sessions", None);
+    assert_eq!(index.status, 200, "{}", index.body);
+    let index: serde_json::Value = serde_json::from_str(&index.body).unwrap();
+    assert_eq!(index["lease"]["status"], "running");
+    assert_eq!(index["lease"]["session_id"], id);
+    assert!(
+        index["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|session| session["id"] == id)
+    );
 
     let deadline = Instant::now() + Duration::from_secs(5);
     while !delegated_events.is_file() && Instant::now() < deadline {

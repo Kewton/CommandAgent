@@ -1021,6 +1021,132 @@ button {
   line-height: 1.5;
 }
 
+.session-index {
+  margin-bottom: 1rem;
+  overflow: hidden;
+}
+
+.session-index .panel-heading h2 {
+  margin: 0.35rem 0 0;
+  font-size: 1rem;
+}
+
+.session-index > .trial-error,
+.session-index-empty {
+  margin: 1rem 1.25rem;
+}
+
+.session-index-empty {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.lease-summary {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.35rem 0.75rem;
+  align-items: baseline;
+  padding: 0.85rem 1.25rem;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.lease-summary span,
+.lease-summary small {
+  color: var(--muted);
+  font-size: 0.63rem;
+}
+
+.lease-summary strong {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font: 0.7rem/1.4 var(--mono);
+}
+
+.lease-summary small {
+  grid-column: 1 / -1;
+}
+
+.session-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.session-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.8rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.session-list li:last-child {
+  border-bottom: 0;
+}
+
+.session-list li > div {
+  min-width: 0;
+}
+
+.session-list code,
+.session-list time {
+  display: block;
+}
+
+.session-list code {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font: 0.66rem/1.45 var(--mono);
+}
+
+.session-list time {
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.58rem;
+}
+
+.session-status {
+  padding: 0.25rem 0.45rem;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--muted-strong);
+  font: 0.58rem/1 var(--mono);
+  text-transform: uppercase;
+}
+
+.session-status.running {
+  background: var(--accent-soft);
+  color: var(--accent-hover);
+}
+
+.session-status.completed {
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.session-status.failed,
+.session-status.unreadable {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.session-list a {
+  color: var(--accent);
+  font-size: 0.68rem;
+  font-weight: 650;
+  text-underline-offset: 0.2rem;
+}
+
+.launch-block-reason {
+  margin: 0.65rem 0 0;
+  color: var(--danger);
+  font-size: 0.68rem;
+  line-height: 1.5;
+}
+
 .trial-rail {
   display: grid;
   overflow: hidden;
@@ -1685,6 +1811,14 @@ button {
 
   .execution-panel footer code {
     max-width: 100%;
+  }
+
+  .session-list li {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .session-list a {
+    grid-column: 1 / -1;
   }
 }
 

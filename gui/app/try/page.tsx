@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Shell } from "../../components/shell";
+import { TrialSessionIndexPanel } from "../../components/trial-session-index";
 import { apiPath } from "../../lib/base-path";
 import type {
   CreatedSession,
@@ -10,6 +11,7 @@ import type {
   PolledSession,
   SessionProposal,
   SessionSpec,
+  TrialWorkspaceLease,
 } from "../../lib/types";
 
 const initialSpec: SessionSpec = {
@@ -38,6 +40,7 @@ export default function TrialRunPage() {
   const [error, setError] = useState<string | null>(null);
   const [directiveText, setDirectiveText] = useState("");
   const [directive, setDirective] = useState<DirectiveProposal | null>(null);
+  const [workspaceLease, setWorkspaceLease] = useState<TrialWorkspaceLease | null>(null);
 
   useEffect(() => {
     if (created === null || stage === "closed") return;
@@ -142,7 +145,9 @@ export default function TrialRunPage() {
         body: JSON.stringify({ ...spec, confirmation_hash: proposal.card_hash }),
       });
       if (!response.ok) throw new Error(await apiError(response));
-      setCreated((await response.json()) as CreatedSession);
+      const value = (await response.json()) as CreatedSession;
+      setCreated(value);
+      setWorkspaceLease({ status: "running", session_id: value.id });
       setSession(null);
       setStage("gate_2");
     } catch (reason) {
@@ -196,6 +201,8 @@ export default function TrialRunPage() {
     }
   }
 
+  const launchBlockReason = leaseLaunchBlockReason(workspaceLease);
+
   return (
     <Shell
       active="try"
@@ -228,6 +235,7 @@ export default function TrialRunPage() {
             id="trial-token"
             onChange={(event) => {
               setTrialToken(event.target.value);
+              setWorkspaceLease(null);
               setProposal(null);
               setConfirmed(false);
               setStage("compose");
@@ -292,6 +300,12 @@ export default function TrialRunPage() {
         </aside>
       </section>
 
+      <TrialSessionIndexPanel
+        lease={workspaceLease}
+        onLeaseChange={setWorkspaceLease}
+        token={trialToken}
+      />
+
       {proposal !== null && (stage === "gate_1" || stage === "gate_2") && (
         <section className="gate-one-grid" data-testid="gate-one-card" ref={gateOneRef}>
           <article className="panel contract-card">
@@ -332,12 +346,17 @@ export default function TrialRunPage() {
             <button
               className="primary-action"
               data-testid="launch-session"
-              disabled={!confirmed || busy || stage === "gate_2"}
+              disabled={!confirmed || busy || stage === "gate_2" || launchBlockReason !== null}
               onClick={() => void launchConfirmed()}
               type="button"
             >
               Confirm and delegate to CLI
             </button>
+            {launchBlockReason !== null && (
+              <p className="launch-block-reason" data-testid="launch-block-reason">
+                {launchBlockReason}
+              </p>
+            )}
           </article>
         </section>
       )}
@@ -424,6 +443,14 @@ async function apiError(response: Response): Promise<string> {
 
 function message(reason: unknown): string {
   return reason instanceof Error ? reason.message : "The trial request failed.";
+}
+
+function leaseLaunchBlockReason(lease: TrialWorkspaceLease | null): string | null {
+  if (lease === null || lease.status === "idle") return null;
+  if (lease.status === "running") {
+    return `Launch unavailable: running session ${lease.session_id} holds the workspace lease.`;
+  }
+  return `Launch unavailable: session ${lease.session_id} requires workspace recovery.`;
 }
 
 function authorizationHeaders(token: string, json = false): Record<string, string> {
