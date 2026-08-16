@@ -41,7 +41,10 @@ cargo run --features gui --bin gui_server -- \
 
 The runtime-only token is not compiled into the static export. Enter it in the **Trial
 access token** field; the page keeps it only in memory and sends it as a Bearer
-token to Trial APIs. If `--execution-root` is omitted, the dashboard remains
+token in `X-CommandAgent-Trial-Authorization` to Trial APIs. This dedicated
+header survives same-origin proxies that intentionally remove the generic
+`Authorization` header. The server still accepts `Authorization: Bearer` for
+direct-client compatibility. If `--execution-root` is omitted, the dashboard remains
 available but all Trial APIs fail closed with HTTP 503. If `--execution-root`
 is present without `GUI_TRIAL_TOKEN`, the server refuses to start.
 
@@ -101,6 +104,13 @@ the GUI permits only one delegated process in that workspace at a time.
 Open **Trial run** and enter a goal, admitted profile, provider, and exact
 planner/executor model pins.
 
+The **LM Studio** provider selection maps to the existing CLI spelling
+`--provider lm-studio`; it is not an alias or a GUI-side provider
+implementation. Enter the exact model identifier exposed by LM Studio. The
+delegated CLI uses its default `--lm-studio-host http://localhost:1234` and
+inherits `LM_STUDIO_API_TOKEN` from the GUI server environment when LM Studio
+authentication is enabled.
+
 1. Enter the runtime Trial token, then select **Check contract and price**.
    Gate 1 shows the frozen contract checks, full rate and sample count, any
    recorded mean duration/cost, and the canonical filesystem write boundary.
@@ -141,8 +151,9 @@ followed during listing, and individual text views are capped at 1 MiB.
 
 Trial run adds these bounded routes:
 
-Every route in this table requires `Authorization: Bearer <GUI_TRIAL_TOKEN>`.
-POST requests also require a same-host Origin or an origin admitted by
+Every route in this table requires
+`X-CommandAgent-Trial-Authorization: Bearer <GUI_TRIAL_TOKEN>` (or the legacy
+direct-client `Authorization` form). POST requests also require a same-host Origin or an origin admitted by
 `GUI_TRIAL_ALLOWED_ORIGINS`.
 
 | Route | Operation |

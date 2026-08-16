@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Shell } from "../../components/shell";
 import { apiPath } from "../../lib/base-path";
@@ -24,6 +24,9 @@ const initialSpec: SessionSpec = {
 type ScreenStage = "compose" | "gate_1" | "gate_2" | "terminal" | "closed";
 
 export default function TrialRunPage() {
+  const gateOneRef = useRef<HTMLElement>(null);
+  const executionRef = useRef<HTMLElement>(null);
+  const terminalRef = useRef<HTMLElement>(null);
   const [trialToken, setTrialToken] = useState("");
   const [spec, setSpec] = useState<SessionSpec>(initialSpec);
   const [proposal, setProposal] = useState<SessionProposal | null>(null);
@@ -66,6 +69,23 @@ export default function TrialRunPage() {
     };
   }, [created, stage, trialToken]);
 
+  useEffect(() => {
+    if (!window.matchMedia("(max-width: 720px)").matches) return;
+    const target =
+      stage === "gate_1"
+        ? gateOneRef.current
+        : stage === "gate_2"
+          ? executionRef.current
+          : stage === "terminal"
+            ? terminalRef.current
+            : null;
+    if (target === null) return;
+    const frame = window.requestAnimationFrame(() => {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [stage]);
+
   const priceDuration = useMemo(() => {
     const seconds = proposal?.price.average_duration_seconds;
     return seconds === null || seconds === undefined
@@ -85,6 +105,10 @@ export default function TrialRunPage() {
   }
 
   async function checkContract() {
+    if (trialToken.trim() === "") {
+      setError("Enter the runtime Trial access token before checking the contract.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -199,6 +223,7 @@ export default function TrialRunPage() {
           <label htmlFor="trial-token">Trial access token</label>
           <input
             autoComplete="off"
+            autoCapitalize="none"
             data-testid="trial-token"
             id="trial-token"
             onChange={(event) => {
@@ -207,6 +232,7 @@ export default function TrialRunPage() {
               setConfirmed(false);
               setStage("compose");
             }}
+            spellCheck={false}
             type="password"
             value={trialToken}
           />
@@ -224,6 +250,7 @@ export default function TrialRunPage() {
               Provider
               <select value={spec.provider} onChange={(event) => update("provider", event.target.value)}>
                 <option value="ollama">ollama</option>
+                <option value="lm-studio">LM Studio</option>
                 <option value="openai">openai</option>
                 <option value="gemini">gemini</option>
               </select>
@@ -243,7 +270,7 @@ export default function TrialRunPage() {
           <button
             className="secondary-action"
             data-testid="check-contract"
-            disabled={trialToken === "" || busy || stage === "gate_2"}
+            disabled={busy || stage === "gate_2"}
             onClick={() => void checkContract()}
             type="button"
           >
@@ -266,7 +293,7 @@ export default function TrialRunPage() {
       </section>
 
       {proposal !== null && (stage === "gate_1" || stage === "gate_2") && (
-        <section className="gate-one-grid" data-testid="gate-one-card">
+        <section className="gate-one-grid" data-testid="gate-one-card" ref={gateOneRef}>
           <article className="panel contract-card">
             <span className="panel-index">CONTRACT</span>
             <h2>{proposal.identity.profile} × {proposal.identity.intent} × {proposal.identity.task_family}</h2>
@@ -316,7 +343,7 @@ export default function TrialRunPage() {
       )}
 
       {(stage === "gate_2" || stage === "terminal") && created !== null && (
-        <section className="panel execution-panel" data-testid="session-progress">
+        <section className="panel execution-panel" data-testid="session-progress" ref={executionRef}>
           <header className="panel-heading">
             <div><span className="panel-index">GATE 2 / FILE-BACKED PROGRESS</span><h2>{created.id}</h2></div>
             <span className="live-label"><i /> {session?.status ?? "starting"}</span>
@@ -336,7 +363,7 @@ export default function TrialRunPage() {
       )}
 
       {stage === "terminal" && session !== null && (
-        <section className="terminal-grid" data-testid="terminal-gate">
+        <section className="terminal-grid" data-testid="terminal-gate" ref={terminalRef}>
           <article className="panel verdict-card">
             <span className="panel-index">{session.gate.toUpperCase()} / TERMINAL</span>
             <h2>{session.verdict ?? session.status}</h2>
@@ -401,7 +428,7 @@ function message(reason: unknown): string {
 
 function authorizationHeaders(token: string, json = false): Record<string, string> {
   return {
-    authorization: `Bearer ${token}`,
+    "x-commandagent-trial-authorization": `Bearer ${token.trim()}`,
     ...(json ? { "content-type": "application/json" } : {}),
   };
 }

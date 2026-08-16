@@ -140,11 +140,15 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
     let source = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
     for required in [
         "if (!confirmed || proposal === null)",
-        "authorization: `Bearer ${token}`",
+        "\"x-commandagent-trial-authorization\": `Bearer ${token.trim()}`",
         "confirmation_hash: proposal.card_hash",
         "data-testid=\"trial-workspace\"",
         "proposal.identity.workspace",
         "may create, modify, or delete content inside this directory",
+        "<option value=\"lm-studio\">LM Studio</option>",
+        "window.matchMedia(\"(max-width: 720px)\")",
+        "target.scrollIntoView({ behavior: \"smooth\", block: \"start\" })",
+        "Enter the runtime Trial access token before checking the contract.",
         "disabled={!confirmed || busy || stage === \"gate_2\"}",
         "Confirm and delegate to CLI",
         "Confirm D-3d continuation",
@@ -155,6 +159,10 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
             "trial UI is missing {required:?}"
         );
     }
+    assert!(
+        !source.contains("disabled={trialToken === \"\""),
+        "Trial token guidance must not be hidden behind a disabled button"
+    );
     for forbidden in [
         "Cancel session",
         "Interrupt session",

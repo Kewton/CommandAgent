@@ -5,6 +5,7 @@ use axum::http::{HeaderMap, Uri, header};
 
 const TOKEN_ENV: &str = "GUI_TRIAL_TOKEN";
 const ORIGINS_ENV: &str = "GUI_TRIAL_ALLOWED_ORIGINS";
+const PROXY_SAFE_AUTHORIZATION_HEADER: &str = "x-commandagent-trial-authorization";
 
 #[derive(Debug, Clone)]
 pub struct TrialAccess {
@@ -47,7 +48,8 @@ impl TrialAccess {
     pub fn authorize(&self, headers: &HeaderMap, require_origin: bool) -> Result<(), AccessError> {
         let expected = self.token.as_deref().ok_or(AccessError::Disabled)?;
         let supplied = headers
-            .get(header::AUTHORIZATION)
+            .get(PROXY_SAFE_AUTHORIZATION_HEADER)
+            .or_else(|| headers.get(header::AUTHORIZATION))
             .and_then(|value| value.to_str().ok())
             .and_then(|value| value.strip_prefix("Bearer "))
             .ok_or(AccessError::Unauthorized)?;
@@ -152,6 +154,35 @@ mod tests {
         assert!(matches!(
             access.authorize(&headers, true),
             Err(AccessError::ForbiddenOrigin)
+        ));
+    }
+
+    #[test]
+    fn proxy_safe_bearer_header_survives_authorization_stripping() {
+        let access = TrialAccess {
+            token: Some(Arc::from("commandagent-gui-test-token-000000000001")),
+            allowed_origins: Arc::from(["https://admin.example.com".to_string()]),
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            PROXY_SAFE_AUTHORIZATION_HEADER,
+            "Bearer commandagent-gui-test-token-000000000001"
+                .parse()
+                .unwrap(),
+        );
+        headers.insert(header::ORIGIN, "https://admin.example.com".parse().unwrap());
+        headers.insert(header::HOST, "127.0.0.1:4173".parse().unwrap());
+
+        assert!(access.authorize(&headers, true).is_ok());
+        headers.insert(
+            PROXY_SAFE_AUTHORIZATION_HEADER,
+            "Bearer commandagent-gui-test-token-wrong-value"
+                .parse()
+                .unwrap(),
+        );
+        assert!(matches!(
+            access.authorize(&headers, true),
+            Err(AccessError::Unauthorized)
         ));
     }
 }
