@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, bail};
+use serde::Serialize;
 use serde_json::Value;
 
 #[derive(Debug, Clone)]
@@ -17,11 +18,31 @@ struct ConfiguredWorkspace {
     repository: PathBuf,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum LeaseSnapshot {
+    Idle,
+    Running { session_id: String },
+    RecoveryRequired { session_id: String },
+}
+
 #[derive(Debug)]
 enum LeaseState {
     Idle,
     Running(String),
     RecoveryRequired(String),
+}
+
+#[derive(Debug, Serialize)]
+pub struct RuntimeStatus {
+    pub trial_available: bool,
+    pub session: Option<RuntimeSession>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RuntimeSession {
+    pub id: String,
+    pub state: &'static str,
 }
 
 impl TrialWorkspace {
@@ -45,6 +66,25 @@ impl TrialWorkspace {
 
     pub fn is_enabled(&self) -> bool {
         self.configured.is_some()
+    }
+
+    pub fn runtime_status(&self) -> RuntimeStatus {
+        let trial_available = self.require_current().is_ok();
+        let session = self.lease.lock().ok().and_then(|lease| match &*lease {
+            LeaseState::Idle => None,
+            LeaseState::Running(id) => Some(RuntimeSession {
+                id: id.clone(),
+                state: "running",
+            }),
+            LeaseState::RecoveryRequired(id) => Some(RuntimeSession {
+                id: id.clone(),
+                state: "recovery_required",
+            }),
+        });
+        RuntimeStatus {
+            trial_available,
+            session,
+        }
     }
 
     pub fn require_current(&self) -> Result<PathBuf, String> {
@@ -87,6 +127,22 @@ impl TrialWorkspace {
                 "trial workspace requires recovery for non-terminal session {active}"
             )),
         }
+    }
+
+    pub fn lease_snapshot(&self) -> Result<LeaseSnapshot, String> {
+        let lease = self
+            .lease
+            .lock()
+            .map_err(|_| "trial workspace lease is poisoned".to_string())?;
+        Ok(match &*lease {
+            LeaseState::Idle => LeaseSnapshot::Idle,
+            LeaseState::Running(session_id) => LeaseSnapshot::Running {
+                session_id: session_id.clone(),
+            },
+            LeaseState::RecoveryRequired(session_id) => LeaseSnapshot::RecoveryRequired {
+                session_id: session_id.clone(),
+            },
+        })
     }
 
     pub fn cancel_start(&self, session_id: &str) {

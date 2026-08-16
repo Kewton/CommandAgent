@@ -16,8 +16,8 @@ function bandFact(document: DocumentRecord): string {
   const denominator = document.content.match(/Included denominator[^:]*:\s*`?([^`\n]+)`?/i)?.[1];
   const window = document.content.match(/Window start:\s*`?([^`\n]+)`?/i)?.[1];
   return denominator === undefined
-    ? window ?? "Formal measurement record"
-    : `${denominator.trim()} admitted records`;
+    ? window ?? "正式な計測記録"
+    : `対象記録 ${denominator.trim()} 件`;
 }
 
 function shortBandName(document: DocumentRecord): string {
@@ -25,7 +25,7 @@ function shortBandName(document: DocumentRecord): string {
 }
 
 function dateLabel(epochSeconds: number): string {
-  if (epochSeconds === 0) return "time unavailable";
+  if (epochSeconds === 0) return "時刻未記録";
   return new Intl.DateTimeFormat("ja-JP", {
     dateStyle: "medium",
     timeStyle: "short",
@@ -40,13 +40,12 @@ export default function DashboardPage() {
   return (
     <Shell
       active="dashboard"
-      eyebrow="01 / SYSTEM OVERVIEW"
-      title="Evidence, at a glance."
-      description="Repository truth projected into one quiet surface. Trial runs cross the existing confirmed CLI boundary; observation remains file-backed."
+      title="概要"
+      description="リポジトリに記録された実行・計測・運用アセットをまとめて確認します。"
     >
-      <section className="metric-strip" aria-label="Repository summary">
+      <section className="metric-strip" aria-label="リポジトリ概要">
         <div>
-          <span>Runs shown / total</span>
+          <span>表示件数 / 総数</span>
           <strong data-testid="run-count">
             {runs.data === null ? "—" : `${recentRuns.length} / ${runs.data.total}`}
           </strong>
@@ -57,17 +56,17 @@ export default function DashboardPage() {
         <article className="panel map-panel">
           <header className="panel-heading">
             <div>
-              <span className="panel-index">A / SCORE × TIME</span>
-              <h2>Capability map</h2>
+              <span className="panel-index">A / スコア × 時間</span>
+              <h2>能力マップ</h2>
             </div>
-            <a href={withBasePath(routePath("measurements"))}>Inspect measures ↗</a>
+            <a href={withBasePath(routePath("measurements"))}>計測を確認 ↗</a>
           </header>
           <div className="map-frame">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               data-testid="score-time-map"
               src={apiPath("maps/score-time.svg")}
-              alt="CommandAgent score and execution-time capability map"
+              alt="CommandAgent のスコアと実行時間の能力マップ"
             />
           </div>
         </article>
@@ -75,11 +74,11 @@ export default function DashboardPage() {
         <article className="panel bands-panel">
           <header className="panel-heading">
             <div>
-              <span className="panel-index">B / FORMAL BANDS</span>
-              <h2>Measured boundaries</h2>
+              <span className="panel-index">B / 正式なバンド</span>
+              <h2>計測済みの境界</h2>
             </div>
           </header>
-          {bands.loading && <LoadingState label="Reading band summaries" />}
+          {bands.loading && <LoadingState label="バンド概要を読み込んでいます" />}
           {bands.error !== null && <ErrorState message={bands.error} />}
           {bands.data?.slice(0, 6).map((band, index) => (
             <div className="band-row" key={band.path}>
@@ -93,23 +92,32 @@ export default function DashboardPage() {
         </article>
       </section>
 
+      <section className="panel asset-entry">
+        <div>
+          <span className="panel-index">運用アセット</span>
+          <h2>パック・契約・計測スイート</h2>
+          <p>日常ナビゲーションから外した固定アセットを、必要なときだけ参照できます。</p>
+        </div>
+        <a data-testid="assets-link" href={withBasePath(routePath("assets"))}>アセットを開く ↗</a>
+      </section>
+
       <section className="panel runs-panel">
         <header className="panel-heading">
           <div>
-            <span className="panel-index">C / RUN LEDGER</span>
-            <h2>Most recently touched records</h2>
+            <span className="panel-index">C / 実行台帳</span>
+            <h2>最近更新された記録</h2>
           </div>
-          <span className="live-label"><i /> filesystem projection</span>
+          <span className="live-label"><i /> ファイル投影</span>
         </header>
-        {runs.loading && <LoadingState label="Indexing run records" />}
+        {runs.loading && <LoadingState label="実行記録を索引化しています" />}
         {runs.error !== null && <ErrorState message={runs.error} />}
-        {runs.data?.runs.length === 0 && <EmptyState message="No run directories were found." />}
+        {runs.data?.runs.length === 0 && <EmptyState message="実行ディレクトリが見つかりません。" />}
         {recentRuns.length > 0 && (
-          <div className="run-table" role="table">
-            <div className="run-table-head" role="row">
-              <span>Run identity</span>
-              <span>Observed state</span>
-              <span>Modified</span>
+          <div className="run-table">
+            <div className="run-table-head" aria-hidden="true">
+              <span>実行ID</span>
+              <span>観測状態</span>
+              <span>更新日時</span>
               <span aria-hidden="true" />
             </div>
             {recentRuns.map((run) => (
@@ -117,12 +125,11 @@ export default function DashboardPage() {
                 className="run-row"
                 href={withBasePath(routePath("run", run.id))}
                 key={run.id}
-                role="row"
               >
                 <strong>{run.id}</strong>
-                <span className={`status-badge ${statusTone(run.state)}`}>{run.status}</span>
+                <span className={`status-badge ${statusTone(run.state)}`}>{run.status_text}</span>
                 <time>{dateLabel(run.modified_epoch_seconds)}</time>
-                <span className="row-arrow">↗</span>
+                <span aria-hidden="true" className="row-arrow">↗</span>
               </a>
             ))}
           </div>

@@ -1,24 +1,28 @@
+"use client";
+
 import type { ReactNode } from "react";
 
 import { routePath, withBasePath, type GuiRoute } from "../lib/base-path";
+import { useRuntimeStatus } from "../lib/use-runtime-status";
 
 const navigation: { route: GuiRoute; label: string; index: string }[] = [
-  { route: "dashboard", label: "Overview", index: "01" },
-  { route: "try", label: "Trial run", index: "02" },
-  { route: "run", label: "Run detail", index: "03" },
-  { route: "assets", label: "Assets", index: "04" },
-  { route: "measurements", label: "Measures", index: "05" },
+  { route: "dashboard", label: "概要", index: "01" },
+  { route: "try", label: "トライアル", index: "02" },
+  { route: "run", label: "実行詳細", index: "03" },
+  { route: "measurements", label: "計測", index: "04" },
 ];
 
 type ShellProps = {
   active: GuiRoute;
-  eyebrow: string;
   title: string;
   description: string;
   children: ReactNode;
 };
 
-export function Shell({ active, eyebrow, title, description, children }: ShellProps) {
+export function Shell({ active, title, description, children }: ShellProps) {
+  const runtime = useRuntimeStatus();
+  const sessionState = runtime.data?.session?.state ?? "idle";
+
   return (
     <div className="app-shell">
       <header className="topbar">
@@ -28,15 +32,37 @@ export function Shell({ active, eyebrow, title, description, children }: ShellPr
           </span>
           <span>
             <strong>CommandAgent</strong>
-            <small>Operational Observatory</small>
+            <small>運用オブザーバトリ</small>
           </span>
         </a>
-        <div className="readonly-pill">
-          <span className="pulse-dot" /> CLI delegated
+        <div
+          className="runtime-summary"
+          data-session-state={sessionState}
+          data-testid="runtime-status"
+          data-trial-available={runtime.data?.trial_available ?? "unknown"}
+        >
+          <span className={`runtime-badge ${runtime.data?.trial_available ? "available" : ""}`}>
+            <i />
+            {runtime.data === null
+              ? "Trial 確認中"
+              : runtime.data.trial_available
+                ? "Trial 利用可"
+                : "Trial 利用不可"}
+          </span>
+          <span className={`runtime-badge session-${sessionState}`}>
+            <i />
+            {runtime.failed
+              ? "状態取得失敗"
+              : runtime.data?.session?.state === "running"
+                ? `実行中 ${shortSessionId(runtime.data.session.id)}`
+                : runtime.data?.session?.state === "recovery_required"
+                  ? `要復旧 ${shortSessionId(runtime.data.session.id)}`
+                  : "実行中なし"}
+          </span>
         </div>
       </header>
 
-      <aside className="sidebar" aria-label="Dashboard navigation">
+      <aside className="sidebar" aria-label="ダッシュボードのナビゲーション">
         <nav>
           {navigation.map((item) => (
             <a
@@ -49,23 +75,19 @@ export function Shell({ active, eyebrow, title, description, children }: ShellPr
             </a>
           ))}
         </nav>
-        <p className="sidebar-note">
-          Existing gates
-          <br />
-          remain authoritative.
-        </p>
       </aside>
 
       <main className="main-column">
         <section className="page-intro">
-          <p className="eyebrow">{eyebrow}</p>
-          <div>
-            <h1>{title}</h1>
-            <p>{description}</p>
-          </div>
+          <h1>{title}</h1>
+          <p>{description}</p>
         </section>
         {children}
       </main>
     </div>
   );
+}
+
+function shortSessionId(id: string): string {
+  return id.length > 8 ? id.slice(0, 8) : id;
 }

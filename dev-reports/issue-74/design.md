@@ -8,25 +8,22 @@ deriving presentation from arbitrary status substrings.
 
 ## Predecessor state
 
-- Issue #71 (`c312eb75`), Issue #77 (`e99547fa`), and Issue #80 (`b84034b6`)
-  passed their recorded verification but are not ancestors of this worktree.
-- #71 adds the separate Trial session index, #77 corrects the Overview run
-  ledger's link/table semantics, and #80 adds conditional Trial polling and
-  static-asset caching. None changes the `/api/runs` payload or status
-  extraction behavior.
-- This change will not merge those independent commits. Its edits remain
-  localized to the runs API, the two runs consumers, focused GUI tests, and
-  the existing smoke probe so the predecessor changes can be integrated
-  without behavioral coupling.
+- The branch is integrated with the current `develop`, including Issues #71,
+  #73, #77, and #80. Their Trial session index, terminal-card presentation,
+  run-ledger semantics, polling, and asset-cache behavior remain intact.
+- None of those predecessor changes owned the `/api/runs` total or normalized
+  status contract. This change remains localized to the runs API, its two
+  consumers, focused GUI tests, and the existing smoke probe.
 
 ## API and status contract
 
 1. Wrap the bounded run summaries in a `RunIndex` response containing `runs`
    and `total`. Count directories before applying the existing 100-entry
    response limit, so `total` is not another projection of that limit.
-2. Retain `RunSummary.id`, `modified_epoch_seconds`, `report_path`, and
-   `status`. Add `state`, serialized as one of `pass`, `fail`, `pending`, or
-   `unknown`.
+2. Retain `RunSummary.id`, `modified_epoch_seconds`, `report_path`, and the
+   existing `status` compatibility field. Add `status_text` for normalized
+   human-readable evidence and `state`, serialized as one of `pass`, `fail`,
+   `pending`, or `unknown`.
 3. Have `extract_status` return both normalized text and the enum state.
    Remove Markdown emphasis/code marker characters (`*` and backticks) from
    extracted text. Classify known success, failure, and pending vocabulary by
@@ -42,9 +39,9 @@ deriving presentation from arbitrary status substrings.
 - Remove the `Recent positive`, `Formal bands`, and static `Execution surface`
   cards identified by the Issue as decorative. Keep the formal-band content
   panel itself unchanged.
-- Select badge color from the exact `state` field. Continue displaying the
-  normalized `status` text so useful evidence such as `FULL 3/3 (date)` is
-  preserved.
+- Select badge color from the exact `state` field. Display `status_text` so
+  useful evidence such as `FULL 3/3 (date)` is preserved; keep `status` as an
+  additive-compatibility alias with the same normalized value.
 
 ## Tests and verification
 
