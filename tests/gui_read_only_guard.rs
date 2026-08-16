@@ -210,7 +210,7 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
         "契約を確認する前に、実行時の Trial アクセストークンを入力してください。",
         "stage === \"gate_2\" || stage === \"terminal\" || stage === \"closed\"",
         "disabled={busy || launchIdentityLocked}",
-        "disabled={!confirmed || busy || stage === \"gate_2\" || launchBlockReason !== null}",
+        "disabled={!confirmed || busy || launchBlockReason !== null}",
         "確認して CLI を実行",
         "確認して追加の依頼を実行",
         "data-testid=\"terminal-result-heading\"",
@@ -737,6 +737,67 @@ fn trial_feedback_uses_elapsed_time_phase_total_and_terminal_title() {
         assert!(
             smoke.contains(required),
             "Trial feedback smoke is missing {required:?}"
+        );
+    }
+}
+
+#[test]
+fn trial_ui_renders_one_japanese_labeled_state_with_mobile_primary_actions() {
+    let source = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
+    for required in [
+        "aria-label=\"Trial の進行状況\"",
+        "[\"依頼\", \"Gate 1\"]",
+        "[\"確認\", \"Gate 1\"]",
+        "[\"実行\", \"Gate 2\"]",
+        "[\"結果\", \"Gate 3 / 4\"]",
+        "data-testid=\"trial-active-stage\"",
+        "data-stage={stage}",
+        "stage === \"compose\"",
+        "proposal !== null && stage === \"gate_1\"",
+        "stage === \"gate_2\" && created !== null",
+        "stage === \"terminal\" && session !== null",
+        "className=\"trial-action-bar trial-request-actions\"",
+        "className=\"gate-one-actions trial-action-bar\"",
+    ] {
+        assert!(
+            source.contains(required),
+            "trial state layout is missing {required:?}"
+        );
+    }
+    for forbidden in [
+        "proposal !== null && (stage === \"gate_1\" || stage === \"gate_2\")",
+        "(stage === \"gate_2\" || stage === \"terminal\") && created !== null",
+    ] {
+        assert!(
+            !source.contains(forbidden),
+            "trial state layout retains accumulated UI {forbidden:?}"
+        );
+    }
+
+    let css = std::fs::read_to_string("gui/app/globals.css").unwrap();
+    for required in [
+        ".trial-stage-compose,\n  .trial-stage-gate_1",
+        ".trial-request-actions,\n  .gate-one-actions",
+        "bottom: calc(4.65rem + env(safe-area-inset-bottom));",
+        "grid-template-areas:\n      \"action\"\n      \"verdict\";",
+    ] {
+        assert!(
+            css.contains(required),
+            "mobile state CSS is missing {required:?}"
+        );
+    }
+
+    let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
+    for required in [
+        "probeTrialLayout(",
+        "{ width: 390, height: 844 }",
+        "const expectedLabels = [\"依頼\", \"確認\", \"実行\", \"結果\"]",
+        "primary_in_initial_viewport",
+        "one_state_visible",
+    ] {
+        assert!(
+            smoke.contains(required),
+            "layout smoke is missing {required:?}"
         );
     }
 }

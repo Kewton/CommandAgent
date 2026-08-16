@@ -389,8 +389,24 @@ async function runCase(smokeCase) {
     await page.locator("[data-testid='trial-token']").fill(trialCredential);
     await page.locator("[data-testid='trial-executor-model']").fill(model);
     await page.locator("[data-testid='trial-planner-model']").fill(model);
+    const desktopTrialAlignment = await trialControlAlignment(page);
+    const requestLayout = await probeTrialLayout(
+      page,
+      "compose",
+      "[data-testid='check-contract']",
+      [],
+    );
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileTrialAlignment = await trialControlAlignment(page);
+    await page.setViewportSize({ width: 1440, height: 1050 });
     await page.locator("[data-testid='check-contract']").click();
     await page.locator("[data-testid='gate-one-card']").waitFor();
+    const gateOneLayout = await probeTrialLayout(
+      page,
+      "gate_1",
+      "[data-testid='launch-session']",
+      ["gate-one-card"],
+    );
     const cardMarkdown = page.locator("[data-testid='gate-one-card-markdown']");
     await cardMarkdown.waitFor();
     const launch = page.locator("[data-testid='launch-session']");
@@ -408,7 +424,6 @@ async function runCase(smokeCase) {
     ].every((expected) => cardMarkdownText.includes(expected)) &&
       gateOneText.includes("時間と費用の目安") &&
       !gateOneText.includes("MEASURED PRICE TAG");
-    const desktopTrialAlignment = await trialControlAlignment(page);
     const deniedWithoutConfirmation = await page.evaluate(
       async ({ apiUrl, modelName, trialToken }) => {
         const result = await fetch(apiUrl, {
@@ -439,7 +454,6 @@ async function runCase(smokeCase) {
       path: join(outputDirectory, `${smokeCase.id}-gate-1.png`),
     });
     await page.setViewportSize({ width: 390, height: 844 });
-    const mobileTrialAlignment = await trialControlAlignment(page);
     await page.screenshot({
       fullPage: true,
       path: join(outputDirectory, `${smokeCase.id}-gate-1-mobile.png`),
@@ -450,21 +464,29 @@ async function runCase(smokeCase) {
     await page.locator("[data-testid='gate-one-confirm']").check();
     await launch.click();
     await page.locator("[data-testid='session-progress']").waitFor();
+    const gateTwoLayout = await probeTrialLayout(
+      page,
+      "gate_2",
+      "[data-testid='session-progress'] .panel-heading",
+      ["session-progress"],
+    );
     const sessionId = await page.locator("[data-testid='session-progress'] h2").innerText();
-    const gateTwoIdentityLocked = await allDisabled(launchIdentityControls, 6);
-    const tokenFocusAtGateTwo = await page.locator("[data-testid='trial-token']").evaluate((input) => {
-      input.focus();
-      return {
-        focused: document.activeElement === input,
-        stage: document.querySelector(".gate-chip")?.textContent ?? "",
-      };
-    });
+    const gateTwoIdentityLocked = (await launchIdentityControls.count()) === 0;
+    const tokenFocusAtGateTwo = {
+      focused: false,
+      stage: await page.locator("[data-testid='trial-stage-nav'] [aria-current='step'] strong").innerText(),
+    };
     const degradedMonitor = page.locator("[data-testid='monitor-state'][data-monitor-status='degraded']");
     await degradedMonitor.waitFor();
     const degradedMonitorText = await degradedMonitor.innerText();
     const injectedFailureCount = await page.evaluate(
       () => window.__commandagentTrialPollInjection?.count ?? 0,
     );
+    const connectedMonitor = page.locator(
+      "[data-testid='monitor-state'][data-monitor-status='connected']",
+    );
+    await connectedMonitor.waitFor();
+    const connectedMonitorText = await connectedMonitor.innerText();
     await page.locator("[data-testid='runtime-status'][data-session-state='running']").waitFor({ timeout: 10_000 });
     const runningRuntimeText = await page.locator("[data-testid='runtime-status']").innerText();
     const executionScroll = await mobileStageScroll(page, "[data-testid='session-progress']");
@@ -479,7 +501,13 @@ async function runCase(smokeCase) {
     });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.locator("[data-testid='terminal-gate']").waitFor({ timeout: trialTimeoutMs });
-    const terminalIdentityLocked = await allDisabled(launchIdentityControls, 6);
+    const terminalLayout = await probeTrialLayout(
+      page,
+      "terminal",
+      ".next-action-card .secondary-action",
+      ["terminal-gate"],
+    );
+    const terminalIdentityLocked = (await launchIdentityControls.count()) === 0;
     const terminalScroll = await mobileStageScroll(page, "[data-testid='terminal-gate']");
     await page.screenshot({
       fullPage: true,
@@ -534,7 +562,6 @@ async function runCase(smokeCase) {
       path: viewer.querySelector("header code")?.textContent ?? "",
       content: viewer.querySelector("pre")?.textContent ?? "",
     }));
-    const connectedMonitorText = await page.locator("[data-testid='monitor-state']").innerText();
     await page.locator("[data-testid='runtime-status'][data-session-state='idle']").waitFor({ timeout: 10_000 });
     const completedRuntimeText = await page.locator("[data-testid='runtime-status']").innerText();
     const sessionIndexCallStart = apiCalls.length;
@@ -612,7 +639,12 @@ async function runCase(smokeCase) {
     await page.locator("[data-testid='gate-one-confirm']").check();
     await page.locator("[data-testid='launch-session']").click();
     const conflictGuidance = await page.locator(".trial-error[role='alert']").innerText();
-    const conflictReconnectId = await page.locator("[data-testid='reconnect-session']").inputValue();
+    const conflictReconnectHref = await page
+      .locator("[data-testid='reconnect-session-link']")
+      .getAttribute("href");
+    const conflictReconnectId = conflictReconnectHref === null
+      ? null
+      : new URL(conflictReconnectHref, page.url()).searchParams.get("session");
     const conflictSessionQuery = new URL(page.url()).searchParams.get("session");
     const conflictDispatchCount = await page.evaluate(
       () => window.__commandagentTrialConflictInjection?.count ?? 0,
@@ -633,7 +665,7 @@ async function runCase(smokeCase) {
     await page.waitForTimeout(1_000);
     await page.locator("[data-testid='close-session']").click();
     await page.locator("[data-testid='closed-session']").waitFor();
-    const closedIdentityLocked = await allDisabled(launchIdentityControls, 6);
+    const closedIdentityLocked = (await launchIdentityControls.count()) === 0;
     await page.locator("[data-testid='start-new-run']").click();
     const newRunStage = await page.locator(".gate-chip").innerText();
     const newRunIdentityEditable = await allEnabled(launchIdentityControls, 6);
@@ -651,8 +683,11 @@ async function runCase(smokeCase) {
     await page.locator("[data-testid='session-progress']").waitFor();
     const nextSessionId = await page.locator("[data-testid='session-progress'] h2").innerText();
     await page.locator("[data-testid='terminal-gate']").waitFor({ timeout: trialTimeoutMs });
-    const nextSessionReachedTerminal = ["GATE_3", "GATE_4"].includes(
-      await page.locator(".gate-chip").innerText(),
+    const nextSessionTerminalLabel = await page
+      .locator("[data-testid='terminal-gate'] .verdict-card .panel-index")
+      .innerText();
+    const nextSessionReachedTerminal = ["GATE 3", "GATE 4"].some(
+      (gate) => nextSessionTerminalLabel.toUpperCase().includes(gate),
     );
     await page.waitForTimeout(1_000);
     const apiLog = {
@@ -694,6 +729,7 @@ async function runCase(smokeCase) {
     const unexpectedConsoleErrors = consoleErrors.filter(
       (entry) => !expectedNegativeConsoleErrors.includes(entry),
     );
+    const layoutChecks = [requestLayout, gateOneLayout, gateTwoLayout, terminalLayout];
 
     const ok =
       dashboardOk &&
@@ -720,7 +756,7 @@ async function runCase(smokeCase) {
       gateOneCopyIsPlain &&
       gateTwoIdentityLocked &&
       !tokenFocusAtGateTwo.focused &&
-      tokenFocusAtGateTwo.stage === "GATE 2" &&
+      tokenFocusAtGateTwo.stage === "実行" &&
       terminalIdentityLocked &&
       closedIdentityLocked &&
       newRunStage === "下書き" &&
@@ -776,6 +812,7 @@ async function runCase(smokeCase) {
       conflictSessionQuery === sessionId &&
       conflictDispatchCount === 1 &&
       mobile.ok &&
+      layoutChecks.every((check) => check.ok) &&
       expectedNegativeConsoleErrors.some((entry) => entry.includes("status of 428")) &&
       expectedNegativeConsoleErrors.some((entry) => entry.includes("status of 401")) &&
       unexpectedConsoleErrors.length === 0;
@@ -793,6 +830,10 @@ async function runCase(smokeCase) {
       ten_minute_polling: pollingBudget,
       trial_feedback: trialFeedback,
       session_index_lease: sessionIndexLease,
+      layout: {
+        viewport: { width: 390, height: 844 },
+        states: layoutChecks,
+      },
       gate_1: {
         card_markdown_visible_text: cardMarkdownText,
         copy_is_plain_japanese: gateOneCopyIsPlain,
@@ -1490,14 +1531,6 @@ async function mobileStageScroll(page, selector) {
   });
 }
 
-async function allDisabled(locator, expectedCount) {
-  return locator.evaluateAll(
-    (controls, count) =>
-      controls.length === count && controls.every((control) => control.disabled === true),
-    expectedCount,
-  );
-}
-
 async function allEnabled(locator, expectedCount) {
   return locator.evaluateAll(
     (controls, count) =>
@@ -1641,6 +1674,55 @@ async function installSessionConflict(page, sessionId) {
       return nativeFetch(input, init);
     };
   }, sessionId);
+}
+
+async function probeTrialLayout(page, expectedStage, primarySelector, expectedVisibleStateIds) {
+  const previousViewport = page.viewportSize();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator("[data-testid='trial-active-stage']").waitFor();
+  await page.waitForTimeout(450);
+
+  const stage = await page.locator("[data-testid='trial-active-stage']").getAttribute("data-stage");
+  const stepLabels = await page.locator("[data-testid='trial-stage-nav'] strong").allInnerTexts();
+  const primary = page.locator(primarySelector).first();
+  await primary.waitFor();
+  const primaryBox = await primary.boundingBox();
+  const bottomNavigationBox = await page.locator(".sidebar").boundingBox();
+  const primaryInInitialViewport =
+    primaryBox !== null &&
+    primaryBox.y >= 0 &&
+    primaryBox.y + primaryBox.height <= 844 &&
+    (bottomNavigationBox === null || primaryBox.y + primaryBox.height <= bottomNavigationBox.y);
+  const visibleStateIds = await page
+    .locator(
+      "[data-testid='gate-one-card'], [data-testid='session-progress'], [data-testid='terminal-gate']",
+    )
+    .evaluateAll((elements) =>
+      elements
+        .filter((element) => {
+          const style = window.getComputedStyle(element);
+          return style.display !== "none" && style.visibility !== "hidden" && element.getClientRects().length > 0;
+        })
+        .map((element) => element.getAttribute("data-testid")),
+    );
+
+  if (previousViewport !== null) await page.setViewportSize(previousViewport);
+  const expectedLabels = ["依頼", "確認", "実行", "結果"];
+  const oneStateVisible =
+    visibleStateIds.length === expectedVisibleStateIds.length &&
+    expectedVisibleStateIds.every((id) => visibleStateIds.includes(id));
+  return {
+    stage,
+    step_labels: stepLabels,
+    visible_state_ids: visibleStateIds,
+    primary_in_initial_viewport: primaryInInitialViewport,
+    one_state_visible: oneStateVisible,
+    ok:
+      stage === expectedStage &&
+      stepLabels.join("\u0000") === expectedLabels.join("\u0000") &&
+      primaryInInitialViewport &&
+      oneStateVisible,
+  };
 }
 
 async function probePage(page, origin, basePath, relativePath, expectedHeading, expectedTitle) {

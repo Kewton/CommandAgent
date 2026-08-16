@@ -509,7 +509,57 @@ export default function TrialRunPage() {
       description="契約と書き込み先を確認してから、既存の CLI 実行を開始・監視します。"
     >
       <section className="trial-layout">
-        <div className="trial-compose panel">
+        <aside
+          aria-label="Trial の進行状況"
+          className="trial-rail trial-stage-nav panel"
+          data-testid="trial-stage-nav"
+        >
+          {[
+            ["依頼", "Gate 1"],
+            ["確認", "Gate 1"],
+            ["実行", "Gate 2"],
+            ["結果", "Gate 3 / 4"],
+          ].map(([label, detail], index) => {
+            const position = stagePosition(stage);
+            return (
+              <div
+                aria-current={index === position ? "step" : undefined}
+                className={`rail-step ${index <= position ? "reached" : ""} ${index === position ? "current" : ""}`}
+                key={label}
+              >
+                <span>{index + 1}</span>
+                <div><strong>{label}</strong><small>{detail}</small></div>
+              </div>
+            );
+          })}
+        </aside>
+
+        <div
+          className={`trial-stage trial-stage-${stage}`}
+          data-stage={stage}
+          data-testid="trial-active-stage"
+        >
+          {stage !== "compose" && error !== null && (
+            <div className="trial-error trial-stage-error" role="alert">
+              <p>{error}</p>
+              {errorReconnectSessionId !== null && (
+                <a
+                  data-testid="reconnect-session-link"
+                  href={`?session=${encodeURIComponent(errorReconnectSessionId)}`}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    void reconnectExisting(errorReconnectSessionId);
+                  }}
+                >
+                  セッション {errorReconnectSessionId} に再接続
+                </a>
+              )}
+            </div>
+          )}
+
+          {stage === "compose" && (
+            <>
+              <div className="trial-compose panel">
           <header className="panel-heading">
             <div>
               <span className="panel-index">GATE 1 / 実行前確認</span>
@@ -667,15 +717,17 @@ export default function TrialRunPage() {
               />
             </label>
           </div>
-          <button
-            className="secondary-action"
-            data-testid="check-contract"
-            disabled={busy || launchIdentityLocked}
-            onClick={() => void checkContract()}
-            type="button"
-          >
-            契約と見積りを確認
-          </button>
+          <div className="trial-action-bar trial-request-actions">
+            <button
+              className="secondary-action"
+              data-testid="check-contract"
+              disabled={busy || launchIdentityLocked}
+              onClick={() => void checkContract()}
+              type="button"
+            >
+              契約と見積りを確認
+            </button>
+          </div>
           {optionsError !== null && <p className="trial-error" role="alert">{optionsError}</p>}
           {error !== null && (
             <div className="trial-error" role="alert">
@@ -694,27 +746,11 @@ export default function TrialRunPage() {
               )}
             </div>
           )}
-        </div>
+              </div>
+            </>
+          )}
 
-        <aside className="trial-rail">
-          <div className={`rail-step ${stage !== "compose" ? "reached" : ""}`}>
-            <span>1</span><div><strong>Gate 1</strong><small>人による確認</small></div>
-          </div>
-          <div className={`rail-step ${stage === "gate_2" || stage === "terminal" ? "reached" : ""}`}>
-            <span>2</span><div><strong>実行</strong><small>既存 CLI のみ</small></div>
-          </div>
-          <div className={`rail-step ${stage === "terminal" ? "reached" : ""}`}>
-            <span>3</span><div><strong>Gate 3 / 4</strong><small>成果物の判定</small></div>
-          </div>
-        </aside>
-      </section>
-
-      <TrialSessionIndexPanel
-        accessToken={trialToken}
-        onLeaseChange={setWorkspaceLease}
-      />
-
-      {proposal !== null && (stage === "gate_1" || stage === "gate_2") && (
+      {proposal !== null && stage === "gate_1" && (
         <section className="gate-one-grid" data-testid="gate-one-card" ref={gateOneRef}>
           <article className="panel contract-card">
             <GateCardMarkdown markdown={proposal.card_markdown} />
@@ -731,39 +767,41 @@ export default function TrialRunPage() {
               <code>{proposal.identity.workspace}</code>
               <p>実行する CLI は、このディレクトリ内の内容だけを作成・変更・削除できます。</p>
             </div>
-            <label className="confirm-check">
-              <input
-                checked={confirmed}
-                data-testid="gate-one-confirm"
-                onChange={(event) => setConfirmed(event.target.checked)}
-                type="checkbox"
-              />
-              必須チェック、使用モデル、過去の実行結果、表示されたファイル変更範囲を確認しました。
-            </label>
             <div className="confirmation-id">
               <strong>確認 ID</strong>
               <code className="hash-line">{proposal.card_hash}</code>
               <p>確認内容が1つでも変わると、この ID も変わります。</p>
             </div>
-            <button
-              className="primary-action"
-              data-testid="launch-session"
-              disabled={!confirmed || busy || stage === "gate_2" || launchBlockReason !== null}
-              onClick={() => void launchConfirmed()}
-              type="button"
-            >
-              確認して CLI を実行
-            </button>
-            {launchBlockReason !== null && (
-              <p className="launch-block-reason" data-testid="launch-block-reason">
-                {launchBlockReason}
-              </p>
-            )}
+            <div className="gate-one-actions trial-action-bar">
+              <label className="confirm-check">
+                <input
+                  checked={confirmed}
+                  data-testid="gate-one-confirm"
+                  onChange={(event) => setConfirmed(event.target.checked)}
+                  type="checkbox"
+                />
+                必須チェック、使用モデル、過去の実行結果、表示されたファイル変更範囲を確認しました。
+              </label>
+              <button
+                className="primary-action"
+                data-testid="launch-session"
+                disabled={!confirmed || busy || launchBlockReason !== null}
+                onClick={() => void launchConfirmed()}
+                type="button"
+              >
+                確認して CLI を実行
+              </button>
+              {launchBlockReason !== null && (
+                <p className="launch-block-reason" data-testid="launch-block-reason">
+                  {launchBlockReason}
+                </p>
+              )}
+            </div>
           </article>
         </section>
       )}
 
-      {(stage === "gate_2" || stage === "terminal") && created !== null && (
+      {stage === "gate_2" && created !== null && (
         <section className="panel execution-panel" data-testid="session-progress" ref={executionRef}>
           <header className="panel-heading">
             <div><span className="panel-index">GATE 2 / ファイルに基づく進行状況</span><h2>{created.id}</h2></div>
@@ -944,6 +982,12 @@ export default function TrialRunPage() {
           </button>
         </section>
       )}
+          <TrialSessionIndexPanel
+            accessToken={trialToken}
+            onLeaseChange={setWorkspaceLease}
+          />
+        </div>
+      </section>
     </Shell>
   );
 
@@ -1006,6 +1050,13 @@ function statusSummary(status: string): string {
     case "running": return "実行中です。";
     default: return "詳しい状態は下の受入シートで確認してください。";
   }
+}
+
+function stagePosition(stage: ScreenStage): number {
+  if (stage === "compose") return 0;
+  if (stage === "gate_1") return 1;
+  if (stage === "gate_2") return 2;
+  return 3;
 }
 
 function stageLabel(stage: ScreenStage, session: PolledSession | null): string {

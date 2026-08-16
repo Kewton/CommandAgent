@@ -1060,9 +1060,19 @@ button {
 .trial-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(13rem, 0.28fr);
+  grid-template-areas: "stage rail";
   gap: 1rem;
   align-items: start;
   margin-bottom: 1rem;
+}
+
+.trial-stage {
+  min-width: 0;
+  grid-area: stage;
+}
+
+.trial-stage-error {
+  margin: 0 0 1rem;
 }
 
 .trial-compose {
@@ -1084,10 +1094,19 @@ button {
 .trial-compose > input,
 .trial-compose > .reconnect-card,
 .trial-compose > .trial-fields,
-.trial-compose > button,
+.trial-compose > .trial-action-bar,
 .trial-compose > .trial-error {
   margin-right: 1.25rem;
   margin-left: 1.25rem;
+}
+
+.trial-action-bar {
+  display: grid;
+  gap: 0.65rem;
+}
+
+.trial-request-actions .secondary-action {
+  width: 100%;
 }
 
 .trial-compose > label {
@@ -1308,7 +1327,10 @@ button {
 
 .trial-rail {
   display: grid;
+  position: sticky;
+  top: 1rem;
   overflow: hidden;
+  grid-area: rail;
 }
 
 .rail-step {
@@ -1364,12 +1386,36 @@ button {
   color: var(--accent);
 }
 
+.rail-step.current {
+  box-shadow: inset 0.2rem 0 0 var(--accent);
+}
+
 .gate-one-grid,
 .terminal-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 1rem;
   margin-bottom: 1rem;
+}
+
+.terminal-grid {
+  grid-template-areas: "verdict action";
+}
+
+.verdict-card {
+  grid-area: verdict;
+}
+
+.next-action-card {
+  grid-area: action;
+}
+
+.gate-one-actions {
+  margin-top: 1rem;
+}
+
+.gate-one-actions .primary-action {
+  margin-top: 0;
 }
 
 .contract-card,
@@ -2085,8 +2131,15 @@ button {
     grid-template-columns: 1fr;
   }
 
+  .trial-layout {
+    grid-template-areas:
+      "rail"
+      "stage";
+  }
+
   .trial-rail {
-    grid-template-columns: repeat(3, 1fr);
+    position: static;
+    grid-template-columns: repeat(4, 1fr);
   }
 
   .rail-step {
@@ -2217,9 +2270,14 @@ button {
   .measure-map,
   .gate-one-grid,
   .terminal-grid,
-  .trial-fields,
-  .trial-rail {
+  .trial-fields {
     grid-template-columns: 1fr;
+  }
+
+  .terminal-grid {
+    grid-template-areas:
+      "action"
+      "verdict";
   }
 
   .metric-strip > div {
@@ -2231,12 +2289,36 @@ button {
   }
 
   .rail-step {
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
+    grid-template-columns: 1fr;
+    gap: 0.3rem;
+    min-height: 3.75rem;
+    justify-items: center;
+    padding: 0.45rem 0.2rem;
+    border-right: 1px solid var(--line);
+    border-bottom: 0;
+    text-align: center;
   }
 
   .rail-step:last-child {
-    border-bottom: 0;
+    border-right: 0;
+  }
+
+  .rail-step > span {
+    width: 1.35rem;
+    height: 1.35rem;
+  }
+
+  .rail-step strong {
+    font-size: 0.58rem;
+  }
+
+  .rail-step small {
+    margin-top: 0.1rem;
+    font-size: 0.55rem;
+  }
+
+  .rail-step.current {
+    box-shadow: inset 0 -0.2rem 0 var(--accent);
   }
 
   .run-table-head {
@@ -2297,7 +2379,7 @@ button {
   .trial-compose > input,
   .trial-compose > .reconnect-card,
   .trial-compose > .trial-fields,
-  .trial-compose > button,
+  .trial-compose > .trial-action-bar,
   .trial-compose > .trial-error {
     margin-right: 1rem;
     margin-left: 1rem;
@@ -2306,6 +2388,37 @@ button {
   .trial-compose > textarea,
   .trial-compose > input {
     width: calc(100% - 2rem);
+  }
+
+  .trial-stage-compose,
+  .trial-stage-gate_1 {
+    padding-bottom: 8.5rem;
+  }
+
+  .trial-request-actions,
+  .gate-one-actions {
+    position: fixed;
+    z-index: 25;
+    right: 1rem;
+    bottom: calc(4.65rem + env(safe-area-inset-bottom));
+    left: 1rem;
+    margin: 0;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid var(--line-bright);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--surface) 96%, transparent);
+    box-shadow: var(--shadow-lg);
+    backdrop-filter: blur(16px);
+  }
+
+  .gate-one-actions .confirm-check {
+    margin: 0;
+    font-size: 0.65rem;
+    line-height: 1.35;
+  }
+
+  .gate-one-actions .primary-action {
+    margin-top: 0;
   }
 
   .gate-one-grid,

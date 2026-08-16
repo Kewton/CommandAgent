@@ -113,6 +113,12 @@ scope description. Provider choices include model-ID guidance. Changing the
 provider does not rewrite either model pin, so the form shows a warning to
 review the executor model before Gate 1.
 
+The page shows a compact **依頼 → 確認 → 実行 → 結果** step indicator and only
+the current workflow state. Completed forms and progress cards do not remain
+stacked above the next action. At 390 px, the request and confirmation action
+bars remain visible above the bottom navigation without scrolling; at Terminal,
+the D-3d controls precede the longer result evidence.
+
 The **LM Studio** provider selection maps to the existing CLI spelling
 `--provider lm-studio`; it is not an alias or a GUI-side provider
 implementation. Enter the exact model identifier exposed by LM Studio. The
