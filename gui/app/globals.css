@@ -1270,6 +1270,41 @@ button {
   margin-bottom: 1rem;
 }
 
+.execution-feedback {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-soft);
+}
+
+.execution-feedback > div {
+  min-width: 0;
+  padding: 0.85rem 1.25rem;
+  border-right: 1px solid var(--line);
+}
+
+.execution-feedback > div:last-child {
+  border-right: 0;
+}
+
+.execution-feedback span,
+.execution-feedback strong {
+  display: block;
+}
+
+.execution-feedback span {
+  margin-bottom: 0.25rem;
+  color: var(--muted);
+  font-size: 0.6rem;
+  text-transform: uppercase;
+}
+
+.execution-feedback strong {
+  overflow-wrap: anywhere;
+  color: var(--muted-strong);
+  font: 650 0.72rem/1.35 var(--mono);
+}
+
 .phase-list {
   display: grid;
 }
@@ -1681,6 +1716,19 @@ button {
   .execution-panel footer {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .execution-feedback {
+    grid-template-columns: 1fr;
+  }
+
+  .execution-feedback > div {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .execution-feedback > div:last-child {
+    border-bottom: 0;
   }
 
   .execution-panel footer code {

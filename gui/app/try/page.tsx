@@ -33,6 +33,8 @@ export default function TrialRunPage() {
   const [confirmed, setConfirmed] = useState(false);
   const [created, setCreated] = useState<CreatedSession | null>(null);
   const [session, setSession] = useState<PolledSession | null>(null);
+  const [gateTwoStartedAt, setGateTwoStartedAt] = useState<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [stage, setStage] = useState<ScreenStage>("compose");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +72,25 @@ export default function TrialRunPage() {
   }, [created, stage, trialToken]);
 
   useEffect(() => {
+    if (gateTwoStartedAt === null || stage !== "gate_2") return;
+    const tick = () => {
+      setElapsedSeconds(Math.floor((Date.now() - gateTwoStartedAt) / 1_000));
+    };
+    tick();
+    const timer = window.setInterval(tick, 1_000);
+    return () => window.clearInterval(timer);
+  }, [gateTwoStartedAt, stage]);
+
+  useEffect(() => {
+    if (stage !== "terminal" || session === null) return;
+    const previousTitle = document.title;
+    document.title = `${session.gate.toUpperCase()} complete · ${session.verdict ?? session.status}`;
+    return () => {
+      document.title = previousTitle;
+    };
+  }, [session, stage]);
+
+  useEffect(() => {
     if (!window.matchMedia("(max-width: 720px)").matches) return;
     const target =
       stage === "gate_1"
@@ -96,6 +117,10 @@ export default function TrialRunPage() {
     const cost = proposal?.price.average_cost_usd;
     return cost === null || cost === undefined ? "not recorded" : `$${cost.toFixed(4)} mean`;
   }, [proposal]);
+  const currentPhase = useMemo(() => {
+    const phases = session?.phases ?? [];
+    return phases.find((phase) => phase.status === "running") ?? phases[phases.length - 1] ?? null;
+  }, [session]);
 
   function update<K extends keyof SessionSpec>(field: K, value: SessionSpec[K]) {
     setSpec((current) => ({ ...current, [field]: value }));
@@ -144,6 +169,8 @@ export default function TrialRunPage() {
       if (!response.ok) throw new Error(await apiError(response));
       setCreated((await response.json()) as CreatedSession);
       setSession(null);
+      setGateTwoStartedAt(Date.now());
+      setElapsedSeconds(0);
       setStage("gate_2");
     } catch (reason) {
       setError(message(reason));
@@ -348,6 +375,24 @@ export default function TrialRunPage() {
             <div><span className="panel-index">GATE 2 / FILE-BACKED PROGRESS</span><h2>{created.id}</h2></div>
             <span className="live-label"><i /> {session?.status ?? "starting"}</span>
           </header>
+          <div className="execution-feedback" data-testid="execution-feedback">
+            <div data-elapsed-seconds={elapsedSeconds} data-testid="elapsed-time">
+              <span>Elapsed</span>
+              <strong>{formatElapsed(elapsedSeconds)}</strong>
+            </div>
+            <div data-testid="mean-duration-comparison">
+              <span>Measured mean</span>
+              <strong>{priceDuration}</strong>
+            </div>
+            <div data-testid="phase-progress">
+              <span>Current progress</span>
+              <strong>
+                {currentPhase === null
+                  ? "Phase — / —"
+                  : `Phase ${currentPhase.index} / ${currentPhase.total}`}
+              </strong>
+            </div>
+          </div>
           <div className="phase-list">
             {session?.phases.length === 0 && <p>Waiting for the first CLI event…</p>}
             {session?.phases.map((phase) => (
@@ -410,6 +455,13 @@ function stageLabel(stage: ScreenStage, session: PolledSession | null): string {
   if (stage === "gate_1") return "AWAITING CONFIRMATION";
   if (stage === "closed") return "CLOSED";
   return "DRAFT";
+}
+
+function formatElapsed(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
 }
 
 async function apiError(response: Response): Promise<string> {

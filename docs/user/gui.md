@@ -119,11 +119,17 @@ authentication is enabled.
    card hash.
 3. Select **Confirm and delegate to CLI**. The server starts the existing
    non-interactive boundary command. Progress is reconstructed by reading that
-   session's JSONL events; there is no GUI state database.
+   session's JSONL events; there is no GUI state database. Gate 2 advances a
+   browser-observed elapsed clock once per second, keeps the measured mean
+   duration beside it for comparison, and displays `Phase x / N` from the
+   file-backed phase projection. The elapsed clock begins when this browser
+   receives the accepted session and is not a server timestamp.
 4. At Gate 3 or Gate 4, inspect the generated acceptance sheet. You may end
    without another run, or persist an additional D-3d instruction. A D-3d
    instruction is credential-scrubbed, exact-byte hashed, displayed, and must
-   be confirmed before the existing continuation path is delegated.
+   be confirmed before the existing continuation path is delegated. Reaching
+   Gate 3/4 also changes the browser tab title so completion is visible when
+   the Trial tab is in the background.
 
 There is no cancel, interrupt, phase-edit, or gate-override control while a
 session is running. Use the existing CLI/runtime operating procedures for
@@ -186,7 +192,8 @@ Then run a real local-model lap for both `/` and
 `/proxy/commandagent/`. The runner copies the small Python CLI corpus fixture
 to an isolated temporary workspace. For each base path it records the
 dashboard/API/SVG probes, Gate 1 before and after confirmation, Gate 2,
-Gate 3/4, the session event stream and its SHA-256, and an API log:
+Gate 3/4, a mocked elapsed/phase/title feedback probe, the session event stream
+and its SHA-256, and an API log:
 
 ```bash
 cd gui

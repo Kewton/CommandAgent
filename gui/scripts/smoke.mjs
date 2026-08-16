@@ -11,6 +11,7 @@ const guiRoot = resolve(scriptDirectory, "..");
 const repositoryRoot = resolve(guiRoot, "..");
 const arguments_ = process.argv.slice(2);
 const outputDirectory = valueArgument(arguments_, "--output");
+const feedbackOnly = arguments_.includes("--feedback-only");
 const commandagentBin = resolve(
   valueArgument(arguments_, "--commandagent-bin") ?? join(repositoryRoot, "target/release/commandagent"),
 );
@@ -27,7 +28,7 @@ const managedPlaywrightPath =
 
 if (outputDirectory === null) {
   console.error(
-    "usage: npm run smoke -- --output <evidence-directory> [--commandagent-bin <path>] [--model <name>]",
+    "usage: npm run smoke -- --output <evidence-directory> [--feedback-only] [--commandagent-bin <path>] [--model <name>]",
   );
   process.exit(2);
 }
@@ -57,7 +58,7 @@ const results = [];
 try {
   for (const smokeCase of cases) {
     try {
-      results.push(await runCase(smokeCase));
+      results.push(await (feedbackOnly ? runFeedbackCase(smokeCase) : runCase(smokeCase)));
     } catch (reason) {
       results.push({
         id: smokeCase.id,
@@ -83,6 +84,7 @@ const report = {
     version: packageMetadata.version,
   },
   delegate: {
+    mode: feedbackOnly ? "feedback_only" : "full_trial",
     commandagent_bin: commandagentBin,
     provider: "ollama",
     model,
@@ -98,6 +100,29 @@ const report = {
 await writeFile(join(outputDirectory, "browser-smoke.json"), `${JSON.stringify(report, null, 2)}\n`);
 console.log(JSON.stringify(report, null, 2));
 if (!report.ok) process.exitCode = 1;
+
+async function runFeedbackCase(smokeCase) {
+  const executionRoot = join(scratchRoot, smokeCase.id);
+  await mkdir(executionRoot, { recursive: true });
+  await runChecked("npm", ["run", "build"], guiRoot, {
+    ...process.env,
+    GUI_BASE_PATH: smokeCase.buildBasePath,
+  });
+  const server = await startServer(smokeCase.serverBasePath, executionRoot);
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const feedback = await probeTrialFeedback(browser, server.origin, smokeCase.serverBasePath);
+    return {
+      id: smokeCase.id,
+      base_path: smokeCase.buildBasePath,
+      trial_feedback: feedback,
+      ok: feedback.ok,
+    };
+  } finally {
+    await browser.close();
+    server.stop();
+  }
+}
 
 async function runCase(smokeCase) {
   const startedAt = Date.now();
@@ -189,6 +214,11 @@ async function runCase(smokeCase) {
       "One run. Every receipt.",
     );
     await page.locator(".document-viewer").waitFor();
+    const trialFeedback = await probeTrialFeedback(
+      browser,
+      server.origin,
+      smokeCase.serverBasePath,
+    );
 
     const trialUrl = new URL(`${prefix}try/`, server.origin).href;
     const trialResponse = await page.goto(trialUrl, { waitUntil: "networkidle" });
@@ -294,6 +324,7 @@ async function runCase(smokeCase) {
       measurements.headingMatches &&
       runDetail.status === 200 &&
       runDetail.headingMatches &&
+      trialFeedback.ok &&
       trialResponse?.status() === 200 &&
       launchDisabledBeforeConfirmation &&
       deniedWithoutConfirmation.status === 428 &&
@@ -309,6 +340,7 @@ async function runCase(smokeCase) {
       svg: map,
       links_use_base_path: linksUseBasePath,
       pages: { assets, measurements, run_detail: runDetail, trial: { status: trialResponse?.status() ?? 0 } },
+      trial_feedback: trialFeedback,
       gate_1: {
         launch_disabled_before_confirmation: launchDisabledBeforeConfirmation,
         api_without_confirmation_status: deniedWithoutConfirmation.status,
@@ -333,6 +365,167 @@ async function runCase(smokeCase) {
     await browser.close();
     server.stop();
   }
+}
+
+async function probeTrialFeedback(browser, origin, basePath) {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const sessionId = "0198b9c8-fab8-7000-8000-000000000069";
+  let terminal = false;
+  try {
+    await page.route("**/api/**", async (route) => {
+      const request = route.request();
+      const pathname = new URL(request.url()).pathname;
+      if (pathname.endsWith("/api/session-proposals") && request.method() === "POST") {
+        await route.fulfill({
+          contentType: "application/json",
+          status: 200,
+          body: JSON.stringify(syntheticFeedbackProposal()),
+        });
+        return;
+      }
+      if (pathname.endsWith("/api/sessions") && request.method() === "POST") {
+        await route.fulfill({
+          contentType: "application/json",
+          status: 202,
+          body: JSON.stringify({
+            id: sessionId,
+            gate: "gate_2",
+            status: "starting",
+            events_path: `.anvil/runs/${sessionId}/events.jsonl`,
+          }),
+        });
+        return;
+      }
+      if (pathname.endsWith(`/api/sessions/${sessionId}`) && request.method() === "GET") {
+        await route.fulfill({
+          contentType: "application/json",
+          status: 200,
+          body: JSON.stringify(syntheticPolledSession(sessionId, terminal)),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    const prefix = displayBasePath(basePath);
+    await page.goto(new URL(`${prefix}try/`, origin).href, { waitUntil: "networkidle" });
+    await page.locator("[data-testid='trial-goal']").fill("Synthetic Gate 2 feedback probe");
+    await page.locator("[data-testid='trial-token']").fill("synthetic-feedback-token");
+    const modelInputs = page.locator(".trial-fields input");
+    await modelInputs.nth(0).fill("synthetic-model");
+    await modelInputs.nth(1).fill("synthetic-model");
+    await page.locator("[data-testid='check-contract']").click();
+    await page.locator("[data-testid='gate-one-card']").waitFor();
+    await page.locator("[data-testid='gate-one-confirm']").check();
+    await page.locator("[data-testid='launch-session']").click();
+    await page.locator("[data-testid='session-progress']").waitFor();
+    await page.locator("[data-testid='phase-progress']").getByText("Phase 2 / 5").waitFor();
+
+    const elapsed = page.locator("[data-testid='elapsed-time']");
+    const elapsedBefore = Number(await elapsed.getAttribute("data-elapsed-seconds"));
+    const elapsedTextBefore = await elapsed.innerText();
+    const runningTitle = await page.title();
+    await page.waitForTimeout(2_200);
+    const elapsedAfter = Number(await elapsed.getAttribute("data-elapsed-seconds"));
+    const elapsedTextAfter = await elapsed.innerText();
+    const phaseText = await page.locator("[data-testid='phase-progress'] strong").innerText();
+    const meanText = await page
+      .locator("[data-testid='mean-duration-comparison'] strong")
+      .innerText();
+
+    terminal = true;
+    await page.locator("[data-testid='terminal-gate']").waitFor();
+    await page.waitForFunction((title) => document.title !== title, runningTitle);
+    const terminalTitle = await page.title();
+    const elapsedChanged =
+      elapsedAfter >= elapsedBefore + 2 && elapsedTextAfter !== elapsedTextBefore;
+    const titleChanged =
+      terminalTitle !== runningTitle && terminalTitle.includes("GATE_4 complete");
+    return {
+      elapsed_before_seconds: elapsedBefore,
+      elapsed_after_seconds: elapsedAfter,
+      elapsed_before_text: elapsedTextBefore,
+      elapsed_after_text: elapsedTextAfter,
+      elapsed_changed: elapsedChanged,
+      phase_text: phaseText,
+      phase_uses_total: phaseText === "Phase 2 / 5",
+      measured_mean_text: meanText,
+      measured_mean_visible: meanText === "10.2 min mean",
+      running_title: runningTitle,
+      terminal_title: terminalTitle,
+      title_changed: titleChanged,
+      ok:
+        elapsedChanged &&
+        phaseText === "Phase 2 / 5" &&
+        meanText === "10.2 min mean" &&
+        titleChanged,
+    };
+  } finally {
+    await page.close();
+  }
+}
+
+function syntheticFeedbackProposal() {
+  return {
+    confirmation_required: true,
+    card_hash: `sha256:${"6".repeat(64)}`,
+    card_markdown: "# Synthetic Gate 2 feedback probe",
+    identity: {
+      request: "Synthetic Gate 2 feedback probe",
+      workspace: "/synthetic/feedback-probe",
+      profile: "python-cli",
+      intent: "create",
+      task_family: "cli",
+      route_bases: ["smoke=synthetic"],
+      contract_ref: "synthetic/feedback",
+      contract_checks: ["elapsed and phase feedback"],
+      band_full: 1,
+      band_denominator: 1,
+      band_rate: "1/1",
+      band_arm: "smoke",
+      band_measurement: "mocked PolledSession",
+      band_source: "gui/scripts/smoke.mjs",
+      full_meaning: "The feedback probe does not delegate a CLI process.",
+      pins: {
+        planner_provider: "ollama",
+        planner_model: "synthetic-model",
+        executor_provider: "ollama",
+        executor_model: "synthetic-model",
+        preset: "profile",
+      },
+    },
+    price: {
+      duration_n: 5,
+      average_duration_seconds: 612,
+      cost_n: 0,
+      average_cost_usd: null,
+      source: "synthetic",
+    },
+  };
+}
+
+function syntheticPolledSession(sessionId, terminal) {
+  return {
+    id: sessionId,
+    gate: terminal ? "gate_4" : "gate_2",
+    status: terminal ? "completed" : "running",
+    verdict: terminal ? "pass" : null,
+    assurance: terminal ? "full" : null,
+    phases: [
+      { id: "prepare", index: 1, total: 5, stage: "complete", status: "completed" },
+      {
+        id: "implement",
+        index: 2,
+        total: 5,
+        stage: terminal ? "complete" : "execute",
+        status: terminal ? "completed" : "running",
+      },
+    ],
+    event_count: terminal ? 8 : 3,
+    acceptance_sheet: terminal ? "# Synthetic acceptance\n\nPASS" : null,
+    section5: terminal ? "PASS" : null,
+    events_path: `.anvil/runs/${sessionId}/events.jsonl`,
+  };
 }
 
 async function probePage(page, origin, basePath, relativePath, expectedHeading) {
