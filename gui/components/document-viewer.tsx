@@ -8,7 +8,7 @@ export function DocumentViewer({ document, empty }: { document: DocumentRecord |
     <article className="document-viewer">
       <header>
         <div>
-          <span>READ-ONLY DOCUMENT</span>
+          <span>読み取り専用文書</span>
           <h2>{document.id}</h2>
         </div>
         <code>{document.path}</code>

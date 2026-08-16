@@ -132,13 +132,26 @@ async function runCase(smokeCase) {
     const response = await page.goto(dashboardUrl, { waitUntil: "networkidle" });
     await page.locator("[data-testid='score-time-map']").waitFor();
     const heading = await page.locator("h1").innerText();
+    const dashboardTitle = await page.title();
+    await page.locator("[data-testid='runtime-status'][data-trial-available='true'][data-session-state='idle']").waitFor();
+    const idleRuntimeText = await page.locator("[data-testid='runtime-status']").innerText();
     const map = await page.locator("[data-testid='score-time-map']").evaluate((image) => ({
       complete: image.complete,
       naturalWidth: image.naturalWidth,
       source: image.getAttribute("src"),
     }));
     const apiChecks = await page.evaluate(async () => {
-      const endpoints = ["runs", "bands", "maps", "packs", "contracts", "suites", "reports"];
+      const endpoints = [
+        "runs",
+        "bands",
+        "maps",
+        "packs",
+        "contracts",
+        "suites",
+        "reports",
+        "runtime-status",
+        "trial-options",
+      ];
       const apiPrefix = document.querySelector("[data-testid='score-time-map']")
         ?.getAttribute("src")
         ?.replace(/maps\/score-time\.svg$/, "");
@@ -154,6 +167,8 @@ async function runCase(smokeCase) {
     );
     const expectedPrefix = smokeCase.serverBasePath === "/" ? "/" : `${smokeCase.serverBasePath}/`;
     const linksUseBasePath = internalLinks.every((link) => link.startsWith(expectedPrefix));
+    const primaryNavigation = await page.locator(".sidebar .nav-link").allInnerTexts();
+    const assetsLink = await page.locator("[data-testid='assets-link']").getAttribute("href");
     const firstRunId = await page.evaluate(async () => {
       const mapSource =
         document.querySelector("[data-testid='score-time-map']")?.getAttribute("src") ?? "";
@@ -162,6 +177,16 @@ async function runCase(smokeCase) {
       const runs = await result.json();
       return runs[0]?.id ?? "";
     });
+    const runLedgerAccessibility = await page.locator(".run-table").evaluate((ledger) => ({
+      columnHeadingsHidden:
+        ledger.querySelector(".run-table-head")?.getAttribute("aria-hidden") === "true",
+      invalidTableRoleCount:
+        (ledger.matches('[role="table"], [role="row"]') ? 1 : 0) +
+        ledger.querySelectorAll('[role="table"], [role="row"]').length,
+      nativeLinkRows: [...ledger.querySelectorAll(".run-row")].every(
+        (row) => row.tagName === "A" && !row.hasAttribute("role"),
+      ),
+    }));
 
     await page.screenshot({
       fullPage: true,
@@ -172,36 +197,57 @@ async function runCase(smokeCase) {
       server.origin,
       smokeCase.serverBasePath,
       "assets/",
-      "Pinned means visible.",
+      "アセット",
+      "アセット | CommandAgent",
     );
     const measurements = await probePage(
       page,
       server.origin,
       smokeCase.serverBasePath,
       "measurements/",
-      "Claims need coordinates.",
+      "計測",
+      "計測 | CommandAgent",
     );
     const runDetail = await probePage(
       page,
       server.origin,
       smokeCase.serverBasePath,
       `runs/?id=${encodeURIComponent(firstRunId)}`,
-      "One run. Every receipt.",
+      "実行詳細",
+      "実行詳細 | CommandAgent",
     );
     await page.locator(".document-viewer").waitFor();
 
     const trialUrl = new URL(`${prefix}try/`, server.origin).href;
     const trialResponse = await page.goto(trialUrl, { waitUntil: "networkidle" });
+    await page
+      .locator("[data-testid='trial-profile'] option[value='python-cli']")
+      .waitFor({ state: "attached" });
+    const trialTitle = await page.title();
+    const launchIdentityControls = page.locator(
+      "[data-testid='trial-goal'], [data-testid='trial-token'], .trial-fields input, .trial-fields select",
+    );
+    const initialTrialFieldsEmpty =
+      (await page.locator("[data-testid='trial-goal']").inputValue()) === "" &&
+      (await page.locator("[data-testid='trial-executor-model']").inputValue()) === "" &&
+      (await page.locator("[data-testid='trial-planner-model']").inputValue()) === "";
+    await page.locator("[data-testid='check-contract']").click();
+    const emptyGoalGuidance = await page.locator(".trial-error[role='alert']").innerText();
+    await page.locator("[data-testid='trial-provider']").selectOption("lm-studio");
+    const providerModelGuidance = await page
+      .locator("[data-testid='trial-provider-model-hint']")
+      .innerText();
+    await page.locator("[data-testid='trial-provider']").selectOption("ollama");
     await page.locator("[data-testid='trial-goal']").fill("Create a CLI --pattern filter command");
     await page.locator("[data-testid='trial-token']").fill(trialCredential);
-    const modelInputs = page.locator(".trial-fields input");
-    await modelInputs.nth(0).fill(model);
-    await modelInputs.nth(1).fill(model);
+    await page.locator("[data-testid='trial-executor-model']").fill(model);
+    await page.locator("[data-testid='trial-planner-model']").fill(model);
     await page.locator("[data-testid='check-contract']").click();
     await page.locator("[data-testid='gate-one-card']").waitFor();
     const launch = page.locator("[data-testid='launch-session']");
     const launchDisabledBeforeConfirmation = await launch.isDisabled();
     const gateOneText = await page.locator("[data-testid='gate-one-card']").innerText();
+    const desktopTrialAlignment = await trialControlAlignment(page);
     const deniedWithoutConfirmation = await page.evaluate(
       async ({ apiUrl, modelName, trialToken }) => {
         const result = await fetch(apiUrl, {
@@ -231,16 +277,53 @@ async function runCase(smokeCase) {
       fullPage: true,
       path: join(outputDirectory, `${smokeCase.id}-gate-1.png`),
     });
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileTrialAlignment = await trialControlAlignment(page);
+    await page.screenshot({
+      fullPage: true,
+      path: join(outputDirectory, `${smokeCase.id}-gate-1-mobile.png`),
+    });
 
+    const injectedFailureMode = smokeCase.id === "proxy-commandagent" ? "access" : "network";
+    await installPollFailure(page, injectedFailureMode);
     await page.locator("[data-testid='gate-one-confirm']").check();
     await launch.click();
     await page.locator("[data-testid='session-progress']").waitFor();
     const sessionId = await page.locator("[data-testid='session-progress'] h2").innerText();
+    const gateTwoIdentityLocked = await allDisabled(launchIdentityControls, 6);
+    const tokenFocusAtGateTwo = await page.locator("[data-testid='trial-token']").evaluate((input) => {
+      input.focus();
+      return {
+        focused: document.activeElement === input,
+        stage: document.querySelector(".gate-chip")?.textContent ?? "",
+      };
+    });
+    const degradedMonitor = page.locator("[data-testid='monitor-state'][data-monitor-status='degraded']");
+    await degradedMonitor.waitFor();
+    const degradedMonitorText = await degradedMonitor.innerText();
+    const injectedFailureCount = await page.evaluate(
+      () => window.__commandagentTrialPollInjection?.count ?? 0,
+    );
+    await page.locator("[data-testid='runtime-status'][data-session-state='running']").waitFor({ timeout: 10_000 });
+    const runningRuntimeText = await page.locator("[data-testid='runtime-status']").innerText();
+    const executionScroll = await mobileStageScroll(page, "[data-testid='session-progress']");
+    await page.screenshot({
+      fullPage: true,
+      path: join(outputDirectory, `${smokeCase.id}-gate-2-mobile.png`),
+    });
+    await page.setViewportSize({ width: 1440, height: 1050 });
     await page.screenshot({
       fullPage: true,
       path: join(outputDirectory, `${smokeCase.id}-gate-2.png`),
     });
+    await page.setViewportSize({ width: 390, height: 844 });
     await page.locator("[data-testid='terminal-gate']").waitFor({ timeout: trialTimeoutMs });
+    const terminalIdentityLocked = await allDisabled(launchIdentityControls, 6);
+    const terminalScroll = await mobileStageScroll(page, "[data-testid='terminal-gate']");
+    await page.screenshot({
+      fullPage: true,
+      path: join(outputDirectory, `${smokeCase.id}-gate-terminal-mobile.png`),
+    });
     const finalApi = await page.evaluate(
       async ({ apiUrl, trialToken }) => {
         const result = await fetch(apiUrl, {
@@ -254,19 +337,107 @@ async function runCase(smokeCase) {
       },
     );
     const terminalText = await page.locator("[data-testid='terminal-gate']").innerText();
+    const connectedMonitorText = await page.locator("[data-testid='monitor-state']").innerText();
+    await page.locator("[data-testid='runtime-status'][data-session-state='idle']").waitFor({ timeout: 10_000 });
+    const completedRuntimeText = await page.locator("[data-testid='runtime-status']").innerText();
+    await page.setViewportSize({ width: 1440, height: 1050 });
     await page.screenshot({
       fullPage: true,
       path: join(outputDirectory, `${smokeCase.id}-gate-terminal.png`),
     });
 
+    const reconnectCallStart = apiCalls.length;
+    await page.reload({ waitUntil: "networkidle" });
+    const reloadSessionQuery = new URL(page.url()).searchParams.get("session");
+    const reloadedTokenEmpty = (await page.locator("[data-testid='trial-token']").inputValue()) === "";
+    await page.locator("[data-testid='trial-token']").fill(`${trialCredential}-wrong`);
+    await page.locator("[data-testid='reconnect-session-button']").click();
+    const authorizationGuidance = await page.locator(".trial-error[role='alert']").innerText();
+    await page.locator("[data-testid='trial-token']").fill(trialCredential);
+    await page.locator("[data-testid='reconnect-session-button']").click();
+    await page.locator("[data-testid='terminal-gate']").waitFor();
+    const reconnectCalls = apiCalls.slice(reconnectCallStart);
+    const reconnectMethods = reconnectCalls.map((call) => call.method);
+    const reconnectOnlyGets =
+      reconnectMethods.length >= 2 && reconnectMethods.every((method) => method === "GET");
+    const browserStorage = await page.evaluate(() => ({
+      localStorageValues: Object.values(localStorage),
+      url: window.location.href,
+    }));
+    const tokenStayedInMemory =
+      !browserStorage.url.includes(trialCredential) &&
+      browserStorage.localStorageValues.every((value) => !value.includes(trialCredential));
+
+    await page.goto(trialUrl, { waitUntil: "networkidle" });
+    await installSessionConflict(page, sessionId);
+    await page.locator("[data-testid='trial-goal']").fill("Create a CLI --pattern filter command");
+    await page.locator("[data-testid='trial-token']").fill(trialCredential);
+    await page.locator("[data-testid='trial-executor-model']").fill(model);
+    await page.locator("[data-testid='trial-planner-model']").fill(model);
+    await page.locator("[data-testid='check-contract']").click();
+    await page.locator("[data-testid='gate-one-card']").waitFor();
+    await page.locator("[data-testid='gate-one-confirm']").check();
+    await page.locator("[data-testid='launch-session']").click();
+    const conflictGuidance = await page.locator(".trial-error[role='alert']").innerText();
+    const conflictReconnectId = await page.locator("[data-testid='reconnect-session']").inputValue();
+    const conflictSessionQuery = new URL(page.url()).searchParams.get("session");
+    const conflictDispatchCount = await page.evaluate(
+      () => window.__commandagentTrialConflictInjection?.count ?? 0,
+    );
+
+    const mobile = await probeMobile(browser, server.origin, smokeCase.serverBasePath);
+
     const eventsPath = join(executionRoot, ".anvil", "runs", sessionId, "events.jsonl");
     const eventBytes = await readFile(eventsPath);
     await writeFile(join(outputDirectory, `${smokeCase.id}-events.jsonl`), eventBytes);
+    const lifecycleUrl = new URL(trialUrl);
+    lifecycleUrl.searchParams.set("session", sessionId);
+    await page.goto(lifecycleUrl.href, { waitUntil: "networkidle" });
+    await page.locator("[data-testid='reconnect-session']").fill(sessionId);
+    await page.locator("[data-testid='trial-token']").fill(trialCredential);
+    await page.locator("[data-testid='reconnect-session-button']").click();
+    await page.locator("[data-testid='terminal-gate']").waitFor();
+    await page.waitForTimeout(1_000);
+    await page.locator("[data-testid='close-session']").click();
+    await page.locator("[data-testid='closed-session']").waitFor();
+    const closedIdentityLocked = await allDisabled(launchIdentityControls, 6);
+    await page.locator("[data-testid='start-new-run']").click();
+    const newRunStage = await page.locator(".gate-chip").innerText();
+    const newRunIdentityEditable = await allEnabled(launchIdentityControls, 6);
+    const previousRunCleared =
+      (await page.locator("[data-testid='session-progress']").count()) === 0 &&
+      (await page.locator("[data-testid='terminal-gate']").count()) === 0 &&
+      (await page.locator("[data-testid='gate-one-card']").count()) === 0;
+    await page.locator("[data-testid='trial-goal']").fill("Create a CLI --pattern filter command");
+    await page.locator("[data-testid='trial-executor-model']").fill(model);
+    await page.locator("[data-testid='trial-planner-model']").fill(model);
+    await page.locator("[data-testid='check-contract']").click();
+    await page.locator("[data-testid='gate-one-card']").waitFor();
+    await page.locator("[data-testid='gate-one-confirm']").check();
+    await page.locator("[data-testid='launch-session']").click();
+    await page.locator("[data-testid='session-progress']").waitFor();
+    const nextSessionId = await page.locator("[data-testid='session-progress'] h2").innerText();
+    await page.locator("[data-testid='terminal-gate']").waitFor({ timeout: trialTimeoutMs });
+    const nextSessionReachedTerminal = ["GATE_3", "GATE_4"].includes(
+      await page.locator(".gate-chip").innerText(),
+    );
+    await page.waitForTimeout(1_000);
     const apiLog = {
       schema_version: "commandagent.gui-api-smoke/v1",
       base_path: smokeCase.buildBasePath,
       denied_without_confirmation: deniedWithoutConfirmation,
       observed_calls: apiCalls,
+      poll_recovery: {
+        failure_mode: injectedFailureMode,
+        injected_failure_count: injectedFailureCount,
+        degraded_text: degradedMonitorText,
+        connected_text: connectedMonitorText,
+      },
+      reconnect: {
+        authorization_guidance: authorizationGuidance,
+        calls: reconnectCalls,
+        only_gets: reconnectOnlyGets,
+      },
       terminal_poll: finalApi,
     };
     await writeFile(
@@ -275,7 +446,8 @@ async function runCase(smokeCase) {
     );
     const expectedNegativeConsoleErrors = consoleErrors.filter(
       (entry) =>
-        entry === "Failed to load resource: the server responded with a status of 428 (Precondition Required)",
+        entry === "Failed to load resource: the server responded with a status of 428 (Precondition Required)" ||
+        entry === "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
     );
     const unexpectedConsoleErrors = consoleErrors.filter(
       (entry) => !expectedNegativeConsoleErrors.includes(entry),
@@ -283,36 +455,111 @@ async function runCase(smokeCase) {
 
     const ok =
       response?.status() === 200 &&
-      heading === "Evidence, at a glance." &&
+      heading === "概要" &&
+      dashboardTitle === "概要 | CommandAgent" &&
       map.complete &&
       map.naturalWidth > 0 &&
       apiChecks.every((check) => check.status === 200) &&
       linksUseBasePath &&
+      JSON.stringify(primaryNavigation) === JSON.stringify(["01\n概要", "02\nトライアル", "03\n実行詳細", "04\n計測"]) &&
+      assetsLink === `${expectedPrefix}assets/` &&
+      runLedgerAccessibility.columnHeadingsHidden &&
+      runLedgerAccessibility.invalidTableRoleCount === 0 &&
+      runLedgerAccessibility.nativeLinkRows &&
       assets.status === 200 &&
       assets.headingMatches &&
+      assets.titleMatches &&
       measurements.status === 200 &&
       measurements.headingMatches &&
+      measurements.titleMatches &&
       runDetail.status === 200 &&
       runDetail.headingMatches &&
+      runDetail.titleMatches &&
       trialResponse?.status() === 200 &&
+      trialTitle === "トライアル | CommandAgent" &&
+      initialTrialFieldsEmpty &&
+      emptyGoalGuidance.includes("目標を入力してください") &&
+      providerModelGuidance.includes("実行モデルは自動更新されません") &&
+      providerModelGuidance.includes("LM Studio") &&
+      desktopTrialAlignment.aligned &&
+      mobileTrialAlignment.aligned &&
       launchDisabledBeforeConfirmation &&
+      gateTwoIdentityLocked &&
+      !tokenFocusAtGateTwo.focused &&
+      tokenFocusAtGateTwo.stage === "GATE 2" &&
+      terminalIdentityLocked &&
+      closedIdentityLocked &&
+      newRunStage === "下書き" &&
+      newRunIdentityEditable &&
+      previousRunCleared &&
+      nextSessionId !== sessionId &&
+      nextSessionReachedTerminal &&
       deniedWithoutConfirmation.status === 428 &&
+      executionScroll.clearsStickyHeader &&
+      terminalScroll.clearsStickyHeader &&
       finalApi.status === 200 &&
       ["gate_3", "gate_4"].includes(finalApi.body.gate) &&
-      expectedNegativeConsoleErrors.length === 1 &&
+      injectedFailureCount === 1 &&
+      degradedMonitorText.includes(
+        injectedFailureMode === "access" ? "上流アクセス" : "プロキシまたはネットワーク",
+      ) &&
+      connectedMonitorText.includes("監視: 接続中") &&
+      connectedMonitorText.includes("最終更新成功:") &&
+      idleRuntimeText.includes("Trial 利用可") &&
+      idleRuntimeText.includes("実行中なし") &&
+      runningRuntimeText.includes(`実行中 ${sessionId.slice(0, 8)}`) &&
+      completedRuntimeText.includes("実行中なし") &&
+      reloadSessionQuery === sessionId &&
+      reloadedTokenEmpty &&
+      authorizationGuidance.includes("Trial アクセストークン") &&
+      reconnectOnlyGets &&
+      tokenStayedInMemory &&
+      conflictGuidance.includes(`セッション ${sessionId} へ再接続`) &&
+      conflictReconnectId === sessionId &&
+      conflictSessionQuery === sessionId &&
+      conflictDispatchCount === 1 &&
+      mobile.ok &&
+      expectedNegativeConsoleErrors.some((entry) => entry.includes("status of 428")) &&
+      expectedNegativeConsoleErrors.some((entry) => entry.includes("status of 401")) &&
       unexpectedConsoleErrors.length === 0;
     return {
       id: smokeCase.id,
       base_path: smokeCase.buildBasePath,
-      dashboard: { status: response?.status() ?? 0, heading },
+      dashboard: {
+        assets_link: assetsLink,
+        heading,
+        primary_navigation: primaryNavigation,
+        status: response?.status() ?? 0,
+        title: dashboardTitle,
+      },
       api_checks: apiChecks,
       svg: map,
       links_use_base_path: linksUseBasePath,
-      pages: { assets, measurements, run_detail: runDetail, trial: { status: trialResponse?.status() ?? 0 } },
+      run_ledger_accessibility: runLedgerAccessibility,
+      pages: { assets, measurements, run_detail: runDetail, trial: { status: trialResponse?.status() ?? 0, title: trialTitle } },
+      mobile,
       gate_1: {
+        empty_goal_guidance: emptyGoalGuidance,
+        initial_fields_empty: initialTrialFieldsEmpty,
         launch_disabled_before_confirmation: launchDisabledBeforeConfirmation,
+        provider_model_guidance: providerModelGuidance,
         api_without_confirmation_status: deniedWithoutConfirmation.status,
+        control_alignment: {
+          desktop_1440: desktopTrialAlignment,
+          mobile_390: mobileTrialAlignment,
+        },
         visible_text: gateOneText,
+      },
+      lifecycle: {
+        gate_2_identity_locked: gateTwoIdentityLocked,
+        gate_2_token_focus: tokenFocusAtGateTwo,
+        terminal_identity_locked: terminalIdentityLocked,
+        closed_identity_locked: closedIdentityLocked,
+        new_run_stage: newRunStage,
+        new_run_identity_editable: newRunIdentityEditable,
+        previous_run_cleared: previousRunCleared,
+        next_session_id: nextSessionId,
+        next_session_reached_terminal: nextSessionReachedTerminal,
       },
       session: {
         id: sessionId,
@@ -322,25 +569,239 @@ async function runCase(smokeCase) {
         assurance: finalApi.body.assurance,
         event_count: finalApi.body.event_count,
         events_sha256: `sha256:${createHash("sha256").update(eventBytes).digest("hex")}`,
+        mobile_stage_scroll: {
+          execution: executionScroll,
+          terminal: terminalScroll,
+        },
         terminal_visible_text: terminalText,
+      },
+      monitoring: {
+        failure_mode: injectedFailureMode,
+        injected_failure_count: injectedFailureCount,
+        degraded_visible_text: degradedMonitorText,
+        connected_visible_text: connectedMonitorText,
+      },
+      runtime_status: {
+        completed_visible_text: completedRuntimeText,
+        idle_visible_text: idleRuntimeText,
+        running_visible_text: runningRuntimeText,
+      },
+      reconnect: {
+        reload_session_query: reloadSessionQuery,
+        token_empty_after_reload: reloadedTokenEmpty,
+        authorization_guidance: authorizationGuidance,
+        calls: reconnectCalls,
+        only_gets: reconnectOnlyGets,
+        token_stayed_in_memory: tokenStayedInMemory,
+      },
+      conflict_reconnect: {
+        guidance: conflictGuidance,
+        reconnect_id: conflictReconnectId,
+        session_query: conflictSessionQuery,
+        intercepted_dispatches: conflictDispatchCount,
       },
       elapsed_seconds: (Date.now() - startedAt) / 1000,
       expected_negative_console_errors: expectedNegativeConsoleErrors,
       unexpected_console_errors: unexpectedConsoleErrors,
       ok,
     };
+  } catch (reason) {
+    const pageError = await page.locator(".trial-error[role='alert']").textContent().catch(() => null);
+    const stage = await page.locator(".gate-chip").textContent().catch(() => null);
+    await page
+      .screenshot({
+        fullPage: true,
+        path: join(outputDirectory, `${smokeCase.id}-failure.png`),
+      })
+      .catch(() => undefined);
+    throw new Error(
+      `${message(reason)}\nPage diagnostics: ${JSON.stringify({ page_error: pageError, stage, url: page.url() })}`,
+    );
   } finally {
     await browser.close();
     server.stop();
   }
 }
 
-async function probePage(page, origin, basePath, relativePath, expectedHeading) {
+async function trialControlAlignment(page) {
+  const [goal, token] = await Promise.all([
+    page.locator("[data-testid='trial-goal']").boundingBox(),
+    page.locator("[data-testid='trial-token']").boundingBox(),
+  ]);
+  if (goal === null || token === null) throw new Error("Trial controls are not visible");
+  const leftDelta = Math.abs(goal.x - token.x);
+  const rightDelta = Math.abs(goal.x + goal.width - (token.x + token.width));
+  return {
+    aligned: leftDelta <= 1 && rightDelta <= 1,
+    goal: { left: goal.x, right: goal.x + goal.width },
+    left_delta_px: leftDelta,
+    right_delta_px: rightDelta,
+    token: { left: token.x, right: token.x + token.width },
+    viewport_width: page.viewportSize()?.width ?? 0,
+  };
+}
+
+async function mobileStageScroll(page, selector) {
+  await page.waitForFunction((targetSelector) => {
+    const target = document.querySelector(targetSelector);
+    const topbar = document.querySelector(".topbar");
+    const heading = target?.querySelector("h2");
+    if (target === null || topbar === null || heading === null) return false;
+    const headingBounds = heading.getBoundingClientRect();
+    const topbarBottom = topbar.getBoundingClientRect().bottom;
+    const scrollMarginTop = Number.parseFloat(getComputedStyle(target).scrollMarginTop);
+    return (
+      scrollMarginTop > topbar.getBoundingClientRect().height &&
+      headingBounds.top >= topbarBottom - 1 &&
+      headingBounds.bottom <= window.innerHeight
+    );
+  }, selector);
+  return page.locator(selector).evaluate((target) => {
+    const topbar = document.querySelector(".topbar");
+    const heading = target.querySelector("h2");
+    if (topbar === null || heading === null) {
+      throw new Error("Stage heading or sticky top bar is missing");
+    }
+    const targetTop = target.getBoundingClientRect().top;
+    const headingBounds = heading.getBoundingClientRect();
+    const topbarBottom = topbar.getBoundingClientRect().bottom;
+    return {
+      clearance_px: headingBounds.top - topbarBottom,
+      clearsStickyHeader:
+        headingBounds.top >= topbarBottom - 1 && headingBounds.bottom <= window.innerHeight,
+      heading_bottom_px: headingBounds.bottom,
+      heading_top_px: headingBounds.top,
+      scroll_margin_top_px: Number.parseFloat(getComputedStyle(target).scrollMarginTop),
+      target_top_px: targetTop,
+      topbar_bottom_px: topbarBottom,
+    };
+  });
+}
+
+async function allDisabled(locator, expectedCount) {
+  return locator.evaluateAll(
+    (controls, count) =>
+      controls.length === count && controls.every((control) => control.disabled === true),
+    expectedCount,
+  );
+}
+
+async function allEnabled(locator, expectedCount) {
+  return locator.evaluateAll(
+    (controls, count) =>
+      controls.length === count && controls.every((control) => control.disabled === false),
+    expectedCount,
+  );
+}
+
+async function probeMobile(browser, origin, basePath) {
+  const page = await browser.newPage({
+    isMobile: true,
+    viewport: { width: 390, height: 844 },
+  });
+  try {
+    const prefix = displayBasePath(basePath);
+    const dashboard = await page.goto(new URL(prefix, origin).href, { waitUntil: "networkidle" });
+    const dashboardHeading = await page.locator("h1").innerText();
+    const dashboardIntroOneLine = await page.locator(".page-intro > p").isHidden();
+    const dashboardFits = await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    );
+    const trial = await page.goto(new URL(`${prefix}try/`, origin).href, {
+      waitUntil: "networkidle",
+    });
+    const trialHeading = await page.locator("h1").innerText();
+    const trialIntroOneLine = await page.locator(".page-intro > p").isHidden();
+    await page.locator("[data-testid='reconnect-card']").waitFor();
+    const trialFits = await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    );
+    return {
+      dashboard: { fits_viewport: dashboardFits, heading: dashboardHeading, intro_one_line: dashboardIntroOneLine, status: dashboard?.status() ?? 0 },
+      trial: { fits_viewport: trialFits, heading: trialHeading, intro_one_line: trialIntroOneLine, status: trial?.status() ?? 0 },
+      ok:
+        dashboard?.status() === 200 &&
+        dashboardHeading === "概要" &&
+        dashboardIntroOneLine &&
+        dashboardFits &&
+        trial?.status() === 200 &&
+        trialHeading === "トライアル" &&
+        trialIntroOneLine &&
+        trialFits,
+    };
+  } finally {
+    await page.close();
+  }
+}
+
+async function installPollFailure(page, mode) {
+  await page.evaluate((failureMode) => {
+    const nativeFetch = window.fetch.bind(window);
+    window.__commandagentTrialPollInjection = { count: 0, mode: failureMode };
+    window.fetch = async (input, init) => {
+      const request = input instanceof Request ? input : null;
+      const method = (init?.method ?? request?.method ?? "GET").toUpperCase();
+      const rawUrl = typeof input === "string" ? input : request?.url ?? String(input);
+      const path = new URL(rawUrl, window.location.href).pathname;
+      const injection = window.__commandagentTrialPollInjection;
+      if (
+        injection !== undefined &&
+        injection.count === 0 &&
+        method === "GET" &&
+        /\/api\/sessions\/[0-9a-f-]{36}$/.test(path)
+      ) {
+        injection.count += 1;
+        if (failureMode === "network") {
+          throw new TypeError("Synthetic browser fetch rejection");
+        }
+        const response = new Response(null, { status: 200 });
+        return new Proxy(response, {
+          get(target, property) {
+            if (property === "type") return "opaqueredirect";
+            const value = Reflect.get(target, property, target);
+            return typeof value === "function" ? value.bind(target) : value;
+          },
+        });
+      }
+      return nativeFetch(input, init);
+    };
+  }, mode);
+}
+
+async function installSessionConflict(page, sessionId) {
+  await page.evaluate((activeSessionId) => {
+    const nativeFetch = window.fetch.bind(window);
+    window.__commandagentTrialConflictInjection = { count: 0 };
+    window.fetch = async (input, init) => {
+      const request = input instanceof Request ? input : null;
+      const method = (init?.method ?? request?.method ?? "GET").toUpperCase();
+      const rawUrl = typeof input === "string" ? input : request?.url ?? String(input);
+      const path = new URL(rawUrl, window.location.href).pathname;
+      if (method === "POST" && /\/api\/sessions$/.test(path)) {
+        window.__commandagentTrialConflictInjection.count += 1;
+        return new Response(
+          JSON.stringify({ error: `trial workspace is already running session ${activeSessionId}` }),
+          { headers: { "content-type": "application/json" }, status: 409 },
+        );
+      }
+      return nativeFetch(input, init);
+    };
+  }, sessionId);
+}
+
+async function probePage(page, origin, basePath, relativePath, expectedHeading, expectedTitle) {
   const prefix = displayBasePath(basePath);
   const url = new URL(`${prefix}${relativePath}`, origin).href;
   const response = await page.goto(url, { waitUntil: "networkidle" });
   const heading = await page.locator("h1").innerText();
-  return { status: response?.status() ?? 0, heading, headingMatches: heading === expectedHeading };
+  const title = await page.title();
+  return {
+    status: response?.status() ?? 0,
+    heading,
+    headingMatches: heading === expectedHeading,
+    title,
+    titleMatches: title === expectedTitle,
+  };
 }
 
 async function startServer(basePath, executionRoot) {

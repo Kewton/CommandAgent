@@ -3,6 +3,8 @@ use std::net::TcpStream;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+use commandagent::tui::boundary_shell::route::admitted_profiles;
+
 const TEST_TRIAL_TOKEN: &str = "commandagent-gui-test-token-000000000001";
 
 #[test]
@@ -49,10 +51,61 @@ fn gui_server_disables_trial_without_an_execution_root() {
     let mut server = Server::start_dashboard_only();
     let dashboard = server.request_without_access("GET", "/", None);
     assert_eq!(dashboard.status, 200, "{}", dashboard.body);
+    let runtime = server.request_without_access("GET", "/api/runtime-status", None);
+    assert_eq!(runtime.status, 200, "{}", runtime.body);
+    let runtime: serde_json::Value = serde_json::from_str(&runtime.body).unwrap();
+    assert_eq!(runtime["trial_available"], false);
+    assert!(runtime["session"].is_null());
     let response =
         server.request_without_access("POST", "/api/session-proposals", Some(&session_spec()));
     assert_eq!(response.status, 503, "{}", response.body);
     assert!(response.body.contains("trial execution is disabled"));
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn trial_options_match_admitted_profiles_without_trial_access() {
+    let mut server = Server::start_dashboard_only();
+    let response = server.request_without_access("GET", "/api/trial-options", None);
+    assert_eq!(response.status, 200, "{}", response.body);
+    let body: serde_json::Value = serde_json::from_str(&response.body).unwrap();
+    let actual_profiles = body["profiles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|option| option["id"].as_str().unwrap().to_string())
+        .collect::<Vec<_>>();
+    let expected_profiles = admitted_profiles()
+        .into_iter()
+        .map(|profile| profile.to_string())
+        .collect::<Vec<_>>();
+    assert_eq!(actual_profiles, expected_profiles);
+    assert!(body["profiles"].as_array().unwrap().iter().all(|option| {
+        option["label"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty())
+            && option["description"]
+                .as_str()
+                .is_some_and(|value| !value.is_empty())
+    }));
+
+    let providers = body["providers"].as_array().unwrap();
+    assert_eq!(
+        providers
+            .iter()
+            .map(|option| option["id"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        ["ollama", "lm-studio", "openai", "gemini"]
+    );
+    assert!(providers.iter().all(|option| {
+        option["label"]
+            .as_str()
+            .is_some_and(|value| !value.is_empty())
+            && option["model_hint"]
+                .as_str()
+                .is_some_and(|value| !value.is_empty())
+    }));
     server.stop();
 }
 
@@ -144,6 +197,86 @@ fn gui_server_revalidates_the_workspace_before_dispatch() {
 
 #[cfg(unix)]
 #[test]
+fn spawn_failure_reports_the_binary_and_releases_the_workspace() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace).unwrap();
+    let cli = temp.path().join("missing-commandagent");
+    let mut server = Server::start(&workspace, &cli);
+    let spec = session_spec();
+    let proposal = server.request("POST", "/api/session-proposals", Some(&spec));
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+    let proposal: serde_json::Value = serde_json::from_str(&proposal.body).unwrap();
+    let mut confirmed = spec;
+    confirmed["confirmation_hash"] = proposal["card_hash"].clone();
+
+    let failed = server.request("POST", "/api/sessions", Some(&confirmed));
+    assert_eq!(failed.status, 500, "{}", failed.body);
+    assert!(
+        failed.body.contains(cli.to_string_lossy().as_ref()),
+        "{}",
+        failed.body
+    );
+    assert!(
+        failed.body.contains("No such file or directory") && failed.body.contains("os error"),
+        "{}",
+        failed.body
+    );
+    let lease = server.request("GET", "/api/trial-workspace", None);
+    assert_eq!(lease.status, 200, "{}", lease.body);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&lease.body).unwrap(),
+        serde_json::json!({ "status": "idle" })
+    );
+    server.stop();
+
+    write_terminal_cli(&cli);
+    let mut restarted = Server::start(&workspace, &cli);
+    let lease = restarted.request("GET", "/api/trial-workspace", None);
+    assert_eq!(lease.status, 200, "{}", lease.body);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&lease.body).unwrap(),
+        serde_json::json!({ "status": "idle" })
+    );
+    let created = restarted.request("POST", "/api/sessions", Some(&confirmed));
+    assert_eq!(created.status, 202, "{}", created.body);
+    restarted.stop();
+}
+
+#[cfg(unix)]
+#[test]
+fn recovery_required_lease_is_exposed_by_an_authenticated_get() {
+    let temp = tempfile::tempdir().unwrap();
+    let workspace = temp.path().join("workspace");
+    let session_id = "0198b9c8-fab8-7000-8000-000000000064";
+    std::fs::create_dir_all(
+        workspace
+            .join(".anvil/runs")
+            .join(session_id)
+            .join("state/boundary-confirmations"),
+    )
+    .unwrap();
+    let mut server = Server::start(
+        &workspace,
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+    );
+
+    let unauthorized = server.request_without_access("GET", "/api/trial-workspace", None);
+    assert_eq!(unauthorized.status, 401, "{}", unauthorized.body);
+    let lease = server.request("GET", "/api/trial-workspace", None);
+    assert_eq!(lease.status, 200, "{}", lease.body);
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&lease.body).unwrap(),
+        serde_json::json!({
+            "status": "recovery_required",
+            "session_id": session_id,
+        })
+    );
+    server.stop();
+}
+
+#[cfg(unix)]
+#[test]
 fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     use std::os::unix::fs::PermissionsExt;
 
@@ -174,6 +307,11 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     );
     let direct_bytes = std::fs::read(&direct_events).unwrap();
     let mut server = Server::start(&workspace, &cli);
+    let idle = server.request_without_access("GET", "/api/runtime-status", None);
+    assert_eq!(idle.status, 200, "{}", idle.body);
+    let idle: serde_json::Value = serde_json::from_str(&idle.body).unwrap();
+    assert_eq!(idle["trial_available"], true);
+    assert!(idle["session"].is_null());
     let spec = serde_json::json!({
         "goal": "Create a CLI --pattern filter command",
         "profile": "python-cli",
@@ -222,6 +360,13 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     let id = created_json["id"].as_str().unwrap();
     let delegated_events = workspace.join(".anvil/runs").join(id).join("events.jsonl");
 
+    let running = server.request_without_access("GET", "/api/runtime-status", None);
+    assert_eq!(running.status, 200, "{}", running.body);
+    let running: serde_json::Value = serde_json::from_str(&running.body).unwrap();
+    assert_eq!(running["trial_available"], true);
+    assert_eq!(running["session"]["id"], id);
+    assert_eq!(running["session"]["state"], "running");
+
     let competing = server.request("POST", "/api/sessions", Some(&confirmed));
     assert_eq!(competing.status, 409, "{}", competing.body);
 
@@ -243,6 +388,11 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
             .unwrap()
             .contains("# D-3c acceptance sheet")
     );
+    let completed = server.request_without_access("GET", "/api/runtime-status", None);
+    assert_eq!(completed.status, 200, "{}", completed.body);
+    let completed: serde_json::Value = serde_json::from_str(&completed.body).unwrap();
+    assert_eq!(completed["trial_available"], true);
+    assert!(completed["session"].is_null());
 
     let credential = serde_json::json!({
         "directive": format!("use token={}", "a".repeat(24))
@@ -455,4 +605,18 @@ fn session_spec() -> serde_json::Value {
         "planner_provider": "ollama",
         "planner_model": "fixture-planner"
     })
+}
+
+#[cfg(unix)]
+fn write_terminal_cli(path: &std::path::Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::write(
+        path,
+        "#!/bin/sh\nprintf '%s\\n' '{\"event\":\"tui_command_stop\",\"ok\":false,\"status\":\"failed\",\"assurance_level\":\"none\"}' > \"$COMMANDAGENT_EVAL_EVENTS\"\n",
+    )
+    .unwrap();
+    let mut permissions = std::fs::metadata(path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(path, permissions).unwrap();
 }

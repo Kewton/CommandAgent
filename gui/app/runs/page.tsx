@@ -41,7 +41,7 @@ export default function RunDetailPage() {
       .then((value) => setDetail(value))
       .catch((reason: unknown) => {
         if (reason instanceof DOMException && reason.name === "AbortError") return;
-        setError(reason instanceof Error ? reason.message : "Unable to read run");
+        setError(reason instanceof Error ? reason.message : "実行記録を読み込めませんでした");
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
@@ -71,7 +71,7 @@ export default function RunDetailPage() {
       if (!response.ok) throw new Error(await response.text());
       setSelected((await response.json()) as DocumentRecord);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Unable to read evidence");
+      setError(reason instanceof Error ? reason.message : "証跡を読み込めませんでした");
     } finally {
       setLoading(false);
     }
@@ -80,27 +80,26 @@ export default function RunDetailPage() {
   return (
     <Shell
       active="run"
-      eyebrow="02 / ACCEPTANCE LEDGER"
-      title="One run. Every receipt."
-      description="Select a run to inspect its acceptance sheet and bounded evidence inventory exactly as recorded."
+      title="実行詳細"
+      description="実行を選び、記録された受入シートと証跡ファイルをそのまま確認します。"
     >
       <section className="run-workbench">
         <aside className="run-picker panel">
-          <label htmlFor="run-select">RUN IDENTITY</label>
+          <label htmlFor="run-select">実行ID</label>
           <select id="run-select" value={runId} onChange={(event) => chooseRun(event.target.value)}>
-            <option value="">Choose a run…</option>
+            <option value="">実行を選択…</option>
             {runs.data?.map((run) => (
               <option key={run.id} value={run.id}>
                 {run.id}
               </option>
             ))}
           </select>
-          {runs.loading && <LoadingState label="Reading run index" />}
+          {runs.loading && <LoadingState label="実行一覧を読み込んでいます" />}
           {runs.error !== null && <ErrorState message={runs.error} />}
           {detail !== null && (
             <>
               <div className="picker-heading">
-                <span>EVIDENCE FILES</span>
+                <span>証跡ファイル</span>
                 <strong>{detail.evidence.length}</strong>
               </div>
               <div className="evidence-list">
@@ -109,8 +108,8 @@ export default function RunDetailPage() {
                   onClick={() => setSelected(null)}
                   type="button"
                 >
-                  <span>Acceptance sheet</span>
-                  <small>{detail.acceptance_path ?? "projection"}</small>
+                  <span>受入シート</span>
+                  <small>{detail.acceptance_path ?? "投影"}</small>
                 </button>
                 {detail.evidence.map((item) => (
                   <button
@@ -128,13 +127,13 @@ export default function RunDetailPage() {
           )}
         </aside>
         <div className="run-document">
-          {loading && <LoadingState label="Reading immutable evidence" />}
+          {loading && <LoadingState label="変更不可の証跡を読み込んでいます" />}
           {error !== null && <ErrorState message={error} />}
           {!loading && error === null && runId === "" && (
-            <EmptyState message="Choose a run from the ledger to begin inspection." />
+            <EmptyState message="台帳から実行を選択してください。" />
           )}
           {!loading && error === null && runId !== "" && (
-            <DocumentViewer document={selected ?? acceptance} empty="No acceptance record was found." />
+            <DocumentViewer document={selected ?? acceptance} empty="受入記録が見つかりません。" />
           )}
         </div>
       </section>

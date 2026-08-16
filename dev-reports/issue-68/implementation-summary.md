@@ -2,25 +2,30 @@
 
 ## Implemented
 
-- Changed the Gate 2 phase projection to require an unsigned `phase_index`
-  instead of synthesizing index zero for phase-adjacent events.
-- Limited projection updates to the existing phase lifecycle vocabulary, so
-  unknown events cannot create or revive a running row.
+- Stopped synthesizing index zero. Recognized unindexed context/recovery events
+  now attach to the latest existing row with the same `phase_id`; without an
+  existing row they are ignored.
+- Split phase events into status-changing lifecycle events, stage-only
+  auxiliary events, and ignored unknown events.
 - Made explicit phase outcomes monotonic: failed stays failed, completed is not
   downgraded by later progress, and a later explicit failure may still replace
   completed to preserve the stricter outcome.
+- Converted pending/running rows to explicit `interrupted` status at
+  `tui_command_stop` or `run_stop`, and prevented later progress from reviving
+  them.
 - Split the phase badges into neutral pending, accent running, success
-  completed/passed, and danger failed treatments.
+  completed/passed, danger failed, and warning interrupted treatments.
 
 ## Tests
 
-- Added unit tests for unindexed lifecycle events, post-completion progress,
-  post-failure progress and unknown events, and the recorded GUI smoke trace.
+- Added unit tests for unindexed attachment without ghost rows, terminal
+  interruption, post-completion progress, post-failure auxiliary/unknown
+  events, and the recorded GUI smoke trace.
 - The smoke test reads the immutable
   `workspace/management/runs/g1-gui-smoke/root-events.jsonl` evidence directly
   and asserts one `setup-project` row at index 1 with failed status.
-- Added a read-only GUI source guard that pins distinct running, completed, and
-  failed badge declarations; pending retains the neutral base declaration.
+- Added a read-only GUI source guard that pins distinct pending, running,
+  completed, failed, and interrupted badge declarations.
 
 ## Compatibility
 

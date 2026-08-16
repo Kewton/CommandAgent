@@ -4,6 +4,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
+use anyhow::Context;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode, header};
@@ -26,7 +27,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::trial_access::AccessError;
-use super::{AppState, workspace_policy::TrialWorkspace};
+use super::{AppState, trial_options, workspace_policy::TrialWorkspace};
 
 const MAX_GOAL_BYTES: usize = 16 * 1024;
 const MAX_FIELD_BYTES: usize = 256;
@@ -203,10 +204,20 @@ pub async fn create(
         Ok("delegated".to_string())
     });
     if let Err(error) = dispatch {
-        state
-            .trial_workspace
-            .complete_from_events(&id, &events_path);
-        return Err(internal(error));
+        return match paths.rollback_unstarted() {
+            Ok(()) => {
+                state.trial_workspace.cancel_start(&id);
+                Err(internal(format!("{error:#}")))
+            }
+            Err(rollback_error) => {
+                state
+                    .trial_workspace
+                    .complete_from_events(&id, &events_path);
+                Err(internal(format!(
+                    "{error:#}; failed to roll back unstarted session {id}: {rollback_error:#}"
+                )))
+            }
+        };
     }
     Ok((
         StatusCode::ACCEPTED,
@@ -217,6 +228,18 @@ pub async fn create(
             events_path: relative_path(&workspace, &events_path),
         }),
     ))
+}
+
+pub async fn workspace_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<super::workspace_policy::LeaseSnapshot>, SessionError> {
+    require_trial(&state, &headers, false)?;
+    state
+        .trial_workspace
+        .lease_snapshot()
+        .map(Json)
+        .map_err(internal)
 }
 
 pub async fn status(
@@ -477,7 +500,7 @@ fn spawn_cli(
         anyhow::bail!("Gate 1 workspace changed before CLI delegation");
     }
     let mut command = Command::new(&state.commandagent_bin);
-    Ok(command
+    command
         .current_dir(&workspace)
         .env("COMMANDAGENT_EVAL_EVENTS", paths.events_path())
         .args(["--yes", "--quiet", "--footer", "off", "--stream", "off"])
@@ -501,7 +524,13 @@ fn spawn_cli(
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
-        .spawn()?)
+        .spawn()
+        .map_err(|cause| {
+            anyhow::anyhow!(
+                "failed to spawn delegated CLI binary {}: {cause}",
+                state.commandagent_bin.display()
+            )
+        })
 }
 
 fn monitor_cli(lease: TrialWorkspace, session_id: String, events_path: PathBuf, mut child: Child) {
@@ -576,10 +605,7 @@ fn validate_spec(spec: &SessionSpec) -> Result<(), SessionError> {
         }
     }
     for provider in [&spec.provider, &spec.planner_provider] {
-        if !matches!(
-            provider.as_str(),
-            "ollama" | "lm-studio" | "openai" | "gemini"
-        ) {
+        if !trial_options::is_admitted_provider(provider) {
             return Err(unprocessable(format!(
                 "provider `{provider}` is not admitted"
             )));
@@ -590,51 +616,98 @@ fn validate_spec(spec: &SessionSpec) -> Result<(), SessionError> {
 
 fn phase_statuses(events: &[Value]) -> Vec<PhaseStatus> {
     let mut phases = BTreeMap::<(u64, String), PhaseStatus>::new();
+    let mut terminal_seen = false;
     for event in events {
+        let event_name = string(event, "event").unwrap_or("unknown");
+        if matches!(event_name, "tui_command_stop" | "run_stop") {
+            terminal_seen = true;
+            for phase in phases.values_mut() {
+                if matches!(phase.status.as_str(), "pending" | "running") {
+                    phase.status = "interrupted".to_string();
+                }
+            }
+            continue;
+        }
+
         let Some(id) = string(event, "phase_id") else {
             continue;
         };
-        let Some(index) = event.get("phase_index").and_then(Value::as_u64) else {
+        let Some(effect) = phase_event_effect(event_name) else {
             continue;
         };
+        if terminal_seen && matches!(effect, PhaseEventEffect::Status(status) if status != "failed")
+        {
+            continue;
+        }
+        let index = event.get("phase_index").and_then(Value::as_u64);
+        let key = match index {
+            Some(index) => (index, id.to_string()),
+            None => {
+                let Some(key) = phases
+                    .keys()
+                    .rev()
+                    .find(|(_, phase_id)| phase_id == id)
+                    .cloned()
+                else {
+                    continue;
+                };
+                key
+            }
+        };
+        if matches!(effect, PhaseEventEffect::StageOnly) && !phases.contains_key(&key) {
+            continue;
+        }
         let total = event
             .get("total_phases")
             .and_then(Value::as_u64)
             .unwrap_or(0);
-        let event_name = string(event, "event").unwrap_or("unknown");
-        let Some(status) = phase_event_status(event_name) else {
-            continue;
-        };
-        let phase = phases
-            .entry((index, id.to_string()))
-            .or_insert_with(|| PhaseStatus {
-                id: id.to_string(),
-                index,
-                total,
-                stage: "queued".to_string(),
-                status: "pending".to_string(),
-            });
-        if phase.status == "failed" || (phase.status == "completed" && status != "failed") {
-            continue;
+        let phase_index = key.0;
+        let phase = phases.entry(key).or_insert_with(|| PhaseStatus {
+            id: id.to_string(),
+            index: phase_index,
+            total,
+            stage: "queued".to_string(),
+            status: "pending".to_string(),
+        });
+        match effect {
+            PhaseEventEffect::StageOnly => {
+                phase.stage = string(event, "stage").unwrap_or(event_name).to_string();
+            }
+            PhaseEventEffect::Status(status) => {
+                let current_status = phase.status.as_str();
+                if current_status == "failed"
+                    || (current_status == "completed" && status != "failed")
+                    || (current_status == "interrupted" && status != "failed")
+                {
+                    continue;
+                }
+                phase.stage = string(event, "stage").unwrap_or(event_name).to_string();
+                phase.status = status.to_string();
+            }
         }
-        phase.stage = string(event, "stage").unwrap_or(event_name).to_string();
-        phase.status = status.to_string();
     }
     phases.into_values().collect()
 }
 
-fn phase_event_status(event_name: &str) -> Option<&'static str> {
+#[derive(Clone, Copy)]
+enum PhaseEventEffect {
+    Status(&'static str),
+    StageOnly,
+}
+
+fn phase_event_effect(event_name: &str) -> Option<PhaseEventEffect> {
     match event_name {
-        "ultra_phase_complete" => Some("completed"),
-        "ultra_phase_failed" => Some("failed"),
+        "ultra_phase_complete" => Some(PhaseEventEffect::Status("completed")),
+        "ultra_phase_failed" => Some(PhaseEventEffect::Status("failed")),
         "ultra_phase_start"
-        | "ultra_phase_context_attached"
         | "ultra_phase_scaffold_complete"
         | "ultra_phase_plan_validated"
-        | "ultra_phase_context_updated"
         | "ultra_phase_execute_complete"
         | "phase_verification_result"
-        | "ultra_phase_profile_check" => Some("running"),
+        | "ultra_phase_profile_check" => Some(PhaseEventEffect::Status("running")),
+        "ultra_phase_context_attached"
+        | "ultra_phase_context_updated"
+        | "recovery_prompt_saved" => Some(PhaseEventEffect::StageOnly),
         _ => None,
     }
 }
@@ -862,6 +935,19 @@ impl SessionPaths {
     fn events_path(&self) -> PathBuf {
         self.run_root.join("events.jsonl")
     }
+
+    fn rollback_unstarted(&self) -> anyhow::Result<()> {
+        match std::fs::remove_dir_all(&self.run_root) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(error).with_context(|| {
+                format!(
+                    "remove unstarted session directory {}",
+                    self.run_root.display()
+                )
+            }),
+        }
+    }
 }
 
 fn unprocessable(message: impl ToString) -> SessionError {
@@ -918,7 +1004,7 @@ mod tests {
     }
 
     #[test]
-    fn phase_statuses_ignore_events_without_phase_indexes() {
+    fn phase_statuses_attach_unindexed_events_without_creating_ghost_rows() {
         let events = vec![
             serde_json::json!({
                 "event": "ultra_phase_start",
@@ -941,6 +1027,7 @@ mod tests {
 
         assert_eq!(phases.len(), 1);
         assert_eq!(phases[0].index, 1);
+        assert_eq!(phases[0].stage, "recovery_prompt_saved");
         assert_eq!(phases[0].status, "running");
     }
 
@@ -972,7 +1059,7 @@ mod tests {
 
         assert_eq!(phases.len(), 1);
         assert!(phases.iter().all(|phase| phase.status != "running"));
-        assert_eq!(phases[0].stage, "complete");
+        assert_eq!(phases[0].stage, "ultra_phase_context_updated");
         assert_eq!(phases[0].status, "completed");
     }
 
@@ -993,10 +1080,8 @@ mod tests {
                 "stage": "execute"
             }),
             serde_json::json!({
-                "event": "ultra_phase_context_updated",
-                "phase_id": "setup",
-                "phase_index": 1,
-                "total_phases": 1
+                "event": "recovery_prompt_saved",
+                "phase_id": "setup"
             }),
             serde_json::json!({
                 "event": "future_phase_annotation",
@@ -1009,8 +1094,48 @@ mod tests {
         let phases = phase_statuses(&events);
 
         assert_eq!(phases.len(), 1);
-        assert_eq!(phases[0].stage, "execute");
+        assert_eq!(phases[0].stage, "recovery_prompt_saved");
         assert_eq!(phases[0].status, "failed");
+    }
+
+    #[test]
+    fn phase_statuses_interrupt_running_phases_at_terminal() {
+        let events = vec![
+            serde_json::json!({
+                "event": "ultra_phase_start",
+                "phase_id": "setup",
+                "phase_index": 1,
+                "total_phases": 2
+            }),
+            serde_json::json!({
+                "event": "ultra_phase_start",
+                "phase_id": "build",
+                "phase_index": 2,
+                "total_phases": 2
+            }),
+            serde_json::json!({
+                "event": "ultra_phase_complete",
+                "phase_id": "build",
+                "phase_index": 2,
+                "total_phases": 2,
+                "stage": "complete"
+            }),
+            serde_json::json!({"event": "tui_command_stop", "status": "failed"}),
+            serde_json::json!({"event": "run_stop", "status": "failed"}),
+            serde_json::json!({
+                "event": "ultra_phase_context_updated",
+                "phase_id": "setup",
+                "phase_index": 1,
+                "total_phases": 2
+            }),
+        ];
+
+        let phases = phase_statuses(&events);
+
+        assert_eq!(phases.len(), 2);
+        assert_eq!(phases[0].status, "interrupted");
+        assert_eq!(phases[1].status, "completed");
+        assert!(phases.iter().all(|phase| phase.status != "running"));
     }
 
     #[test]
@@ -1026,7 +1151,7 @@ mod tests {
         assert_eq!(phases[0].id, "setup-project");
         assert_eq!(phases[0].index, 1);
         assert_eq!(phases[0].total, 5);
-        assert_eq!(phases[0].stage, "execute");
+        assert_eq!(phases[0].stage, "recovery_prompt_saved");
         assert_eq!(phases[0].status, "failed");
     }
 }

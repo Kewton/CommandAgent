@@ -8,12 +8,16 @@ use clap::Parser;
 
 #[path = "gui_server/api.rs"]
 mod api;
+#[path = "gui_server/runtime_status.rs"]
+mod runtime_status;
 #[path = "gui_server/sessions.rs"]
 mod sessions;
 #[path = "gui_server/static_files.rs"]
 mod static_files;
 #[path = "gui_server/trial_access.rs"]
 mod trial_access;
+#[path = "gui_server/trial_options.rs"]
+mod trial_options;
 #[path = "gui_server/workspace_policy.rs"]
 mod workspace_policy;
 
@@ -112,7 +116,10 @@ fn dashboard_router() -> Router<AppState> {
         .route("/api/suites", get(api::suites))
         .route("/api/reports", get(api::reports))
         .route("/api/reports/view", get(api::report_content))
+        .route("/api/trial-options", get(trial_options::get))
+        .route("/api/runtime-status", get(runtime_status::get))
         .route("/api/session-proposals", post(sessions::proposal))
+        .route("/api/trial-workspace", get(sessions::workspace_status))
         .route("/api/sessions", post(sessions::create))
         .route("/api/sessions/{id}", get(sessions::status))
         .route(
