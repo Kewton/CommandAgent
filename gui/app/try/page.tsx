@@ -4,6 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Shell } from "../../components/shell";
 import { apiPath } from "../../lib/base-path";
+import {
+  POLL_INTERVAL_MS,
+  TERMINAL_FAILURE_LIMIT,
+  type MonitorFailure,
+  type MonitorStatus,
+  responseFailure,
+  retryDelay,
+  thrownFailure,
+} from "../../lib/trial-monitor";
 import type {
   CreatedSession,
   DirectiveProposal,
@@ -23,11 +32,30 @@ const initialSpec: SessionSpec = {
 
 type ScreenStage = "compose" | "gate_1" | "gate_2" | "terminal" | "closed";
 
+type MonitorState = {
+  attempt: number;
+  guidance: string | null;
+  lastSuccessAt: string | null;
+  retryInMs: number | null;
+  status: MonitorStatus;
+  summary: string | null;
+};
+
+const initialMonitor: MonitorState = {
+  attempt: 0,
+  guidance: null,
+  lastSuccessAt: null,
+  retryInMs: null,
+  status: "degraded",
+  summary: null,
+};
+
 export default function TrialRunPage() {
   const gateOneRef = useRef<HTMLElement>(null);
   const executionRef = useRef<HTMLElement>(null);
   const terminalRef = useRef<HTMLElement>(null);
   const [trialToken, setTrialToken] = useState("");
+  const [reconnectSessionId, setReconnectSessionId] = useState("");
   const [spec, setSpec] = useState<SessionSpec>(initialSpec);
   const [proposal, setProposal] = useState<SessionProposal | null>(null);
   const [confirmed, setConfirmed] = useState(false);
@@ -38,28 +66,62 @@ export default function TrialRunPage() {
   const [error, setError] = useState<string | null>(null);
   const [directiveText, setDirectiveText] = useState("");
   const [directive, setDirective] = useState<DirectiveProposal | null>(null);
+  const [monitor, setMonitor] = useState<MonitorState>(initialMonitor);
 
   useEffect(() => {
-    if (created === null || stage === "closed") return;
+    const id = new URLSearchParams(window.location.search).get("session");
+    if (id !== null) setReconnectSessionId(id);
+  }, []);
+
+  useEffect(() => {
+    if (
+      created === null ||
+      trialToken.trim() === "" ||
+      stage === "closed" ||
+      stage === "terminal"
+    ) {
+      return;
+    }
     let cancelled = false;
+    let attempt = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const poll = async () => {
       try {
-        const response = await fetch(apiPath(`sessions/${encodeURIComponent(created.id)}`), {
-          headers: authorizationHeaders(trialToken),
-        });
-        if (!response.ok) throw new Error(await apiError(response));
-        const value = (await response.json()) as PolledSession;
+        const value = await fetchSession(created.id, trialToken);
         if (cancelled) return;
+        attempt = 0;
         setSession(value);
+        setMonitor({
+          attempt: 0,
+          guidance: null,
+          lastSuccessAt: new Date().toISOString(),
+          retryInMs: null,
+          status: "connected",
+          summary: null,
+        });
         if (value.gate === "gate_3" || value.gate === "gate_4") {
           setStage("terminal");
           return;
         }
         setStage("gate_2");
-        timer = setTimeout(() => void poll(), 750);
+        timer = setTimeout(() => void poll(), POLL_INTERVAL_MS);
       } catch (reason) {
-        if (!cancelled) setError(message(reason));
+        if (cancelled) return;
+        attempt += 1;
+        const failure = monitorFailure(reason);
+        const stop = failure.terminal && attempt >= TERMINAL_FAILURE_LIMIT;
+        const delay = retryDelay(attempt);
+        setMonitor((current) => ({
+          attempt,
+          guidance: stop
+            ? `Monitoring stopped after ${attempt} attempts. ${failure.guidance}`
+            : failure.guidance,
+          lastSuccessAt: current.lastSuccessAt,
+          retryInMs: stop ? null : delay,
+          status: stop || attempt >= TERMINAL_FAILURE_LIMIT ? "lost" : "degraded",
+          summary: failure.summary,
+        }));
+        if (!stop) timer = setTimeout(() => void poll(), delay);
       }
     };
     void poll();
@@ -141,12 +203,61 @@ export default function TrialRunPage() {
         headers: authorizationHeaders(trialToken, true),
         body: JSON.stringify({ ...spec, confirmation_hash: proposal.card_hash }),
       });
-      if (!response.ok) throw new Error(await apiError(response));
-      setCreated((await response.json()) as CreatedSession);
+      if (!response.ok) {
+        const detail = await apiError(response);
+        if (response.status === 409) {
+          const active = sessionIdFromConflict(detail);
+          if (active !== null) {
+            setReconnectSessionId(active);
+            replaceSessionQuery(active);
+            throw new Error(
+              `${detail}. Reconnect to session ${active} below; reconnect monitoring performs GET only.`,
+            );
+          }
+        }
+        throw new Error(detail);
+      }
+      const value = (await response.json()) as CreatedSession;
+      setCreated(value);
+      setReconnectSessionId(value.id);
+      replaceSessionQuery(value.id);
       setSession(null);
+      setMonitor(initialMonitor);
       setStage("gate_2");
     } catch (reason) {
       setError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reconnectExisting() {
+    const id = reconnectSessionId.trim();
+    if (id === "" || trialToken.trim() === "") {
+      setError("Enter an existing session ID and the runtime Trial access token to reconnect.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const value = await fetchSession(id, trialToken);
+      const lastSuccessAt = new Date().toISOString();
+      setSession(value);
+      setCreated({ id: value.id, gate: "gate_2", status: "starting", events_path: value.events_path });
+      setReconnectSessionId(value.id);
+      replaceSessionQuery(value.id);
+      setMonitor({
+        attempt: 0,
+        guidance: null,
+        lastSuccessAt,
+        retryInMs: null,
+        status: "connected",
+        summary: null,
+      });
+      setStage(value.gate === "gate_3" || value.gate === "gate_4" ? "terminal" : "gate_2");
+    } catch (reason) {
+      const failure = monitorFailure(reason);
+      setError(failure.guidance);
     } finally {
       setBusy(false);
     }
@@ -228,14 +339,40 @@ export default function TrialRunPage() {
             id="trial-token"
             onChange={(event) => {
               setTrialToken(event.target.value);
-              setProposal(null);
-              setConfirmed(false);
-              setStage("compose");
+              if (created === null) {
+                setProposal(null);
+                setConfirmed(false);
+                setStage("compose");
+              }
             }}
             spellCheck={false}
             type="password"
             value={trialToken}
           />
+          <div className="reconnect-card" data-testid="reconnect-card">
+            <label htmlFor="reconnect-session">Existing session ID</label>
+            <div>
+              <input
+                autoCapitalize="none"
+                autoComplete="off"
+                data-testid="reconnect-session"
+                id="reconnect-session"
+                onChange={(event) => setReconnectSessionId(event.target.value)}
+                spellCheck={false}
+                value={reconnectSessionId}
+              />
+              <button
+                className="secondary-action"
+                data-testid="reconnect-session-button"
+                disabled={busy || reconnectSessionId.trim() === "" || trialToken.trim() === ""}
+                onClick={() => void reconnectExisting()}
+                type="button"
+              >
+                Reconnect monitoring
+              </button>
+            </div>
+            <small>GET only. This cannot dispatch another CLI process.</small>
+          </div>
           <div className="trial-fields">
             <label>
               Profile
@@ -346,8 +483,29 @@ export default function TrialRunPage() {
         <section className="panel execution-panel" data-testid="session-progress" ref={executionRef}>
           <header className="panel-heading">
             <div><span className="panel-index">GATE 2 / FILE-BACKED PROGRESS</span><h2>{created.id}</h2></div>
-            <span className="live-label"><i /> {session?.status ?? "starting"}</span>
+            <span className={`live-label ${monitor.status === "connected" ? "connected" : ""}`}>
+              <i /> execution: {session?.status ?? "starting"}
+            </span>
           </header>
+          <div
+            className={`monitor-state ${monitor.status}`}
+            data-monitor-status={monitor.status}
+            data-testid="monitor-state"
+          >
+            <div>
+              <strong>Monitoring: {monitor.status}</strong>
+              <span>
+                Last successful update: {formatLastSuccess(monitor.lastSuccessAt)}
+              </span>
+            </div>
+            <small>
+              {monitor.summary ?? "Waiting for the next file-backed status update."}
+              {monitor.retryInMs === null
+                ? ""
+                : ` Retry ${monitor.attempt} in ${(monitor.retryInMs / 1000).toFixed(2)}s.`}
+            </small>
+            {monitor.guidance !== null && <p>{monitor.guidance}</p>}
+          </div>
           <div className="phase-list">
             {session?.phases.length === 0 && <p>Waiting for the first CLI event…</p>}
             {session?.phases.map((phase) => (
@@ -410,6 +568,64 @@ function stageLabel(stage: ScreenStage, session: PolledSession | null): string {
   if (stage === "gate_1") return "AWAITING CONFIRMATION";
   if (stage === "closed") return "CLOSED";
   return "DRAFT";
+}
+
+async function fetchSession(id: string, token: string): Promise<PolledSession> {
+  let response: Response;
+  try {
+    response = await fetch(apiPath(`sessions/${encodeURIComponent(id)}`), {
+      headers: authorizationHeaders(token),
+      redirect: "manual",
+    });
+  } catch (reason) {
+    throw thrownFailure(reason);
+  }
+  if (response.type === "opaqueredirect" || !response.ok) {
+    throw await responseFailure(response);
+  }
+  try {
+    return (await response.json()) as PolledSession;
+  } catch (reason) {
+    throw {
+      guidance:
+        "Monitoring received an invalid status response. Inspect the proxy response and existing session artifacts before reconnecting.",
+      summary: message(reason),
+      terminal: true,
+    } satisfies MonitorFailure;
+  }
+}
+
+function monitorFailure(reason: unknown): MonitorFailure {
+  if (isMonitorFailure(reason)) return reason;
+  return thrownFailure(reason);
+}
+
+function isMonitorFailure(reason: unknown): reason is MonitorFailure {
+  if (typeof reason !== "object" || reason === null) return false;
+  const candidate = reason as Partial<MonitorFailure>;
+  return (
+    typeof candidate.guidance === "string" &&
+    typeof candidate.summary === "string" &&
+    typeof candidate.terminal === "boolean"
+  );
+}
+
+function sessionIdFromConflict(detail: string): string | null {
+  return detail.match(/(?:already running session|non-terminal session) ([0-9a-f-]{36})/i)?.[1] ?? null;
+}
+
+function replaceSessionQuery(id: string) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("session", id);
+  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+function formatLastSuccess(value: string | null): string {
+  if (value === null) return "not yet connected";
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "medium",
+  }).format(new Date(value));
 }
 
 async function apiError(response: Response): Promise<string> {
