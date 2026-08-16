@@ -11,6 +11,7 @@ const guiRoot = resolve(scriptDirectory, "..");
 const repositoryRoot = resolve(guiRoot, "..");
 const arguments_ = process.argv.slice(2);
 const outputDirectory = valueArgument(arguments_, "--output");
+const feedbackOnly = arguments_.includes("--feedback-only");
 const pollingOnly = arguments_.includes("--polling-only");
 const commandagentBin = resolve(
   valueArgument(arguments_, "--commandagent-bin") ?? join(repositoryRoot, "target/release/commandagent"),
@@ -28,7 +29,7 @@ const managedPlaywrightPath =
 
 if (outputDirectory === null) {
   console.error(
-    "usage: npm run smoke -- --output <evidence-directory> [--polling-only] [--commandagent-bin <path>] [--model <name>]",
+    "usage: npm run smoke -- --output <evidence-directory> [--feedback-only | --polling-only] [--commandagent-bin <path>] [--model <name>]",
   );
   process.exit(2);
 }
@@ -58,7 +59,13 @@ const results = [];
 try {
   for (const smokeCase of cases) {
     try {
-      results.push(await (pollingOnly ? runPollingCase(smokeCase) : runCase(smokeCase)));
+      results.push(
+        await (feedbackOnly
+          ? runFeedbackCase(smokeCase)
+          : pollingOnly
+            ? runPollingCase(smokeCase)
+            : runCase(smokeCase)),
+      );
     } catch (reason) {
       results.push({
         id: smokeCase.id,
@@ -84,7 +91,7 @@ const report = {
     version: packageMetadata.version,
   },
   delegate: {
-    mode: pollingOnly ? "polling_only" : "full_trial",
+    mode: feedbackOnly ? "feedback_only" : pollingOnly ? "polling_only" : "full_trial",
     commandagent_bin: commandagentBin,
     provider: "ollama",
     model,
@@ -100,6 +107,29 @@ const report = {
 await writeFile(join(outputDirectory, "browser-smoke.json"), `${JSON.stringify(report, null, 2)}\n`);
 console.log(JSON.stringify(report, null, 2));
 if (!report.ok) process.exitCode = 1;
+
+async function runFeedbackCase(smokeCase) {
+  const executionRoot = join(scratchRoot, smokeCase.id);
+  await mkdir(executionRoot, { recursive: true });
+  await runChecked("npm", ["run", "build"], guiRoot, {
+    ...process.env,
+    GUI_BASE_PATH: smokeCase.buildBasePath,
+  });
+  const server = await startServer(smokeCase.serverBasePath, executionRoot);
+  const browser = await chromium.launch({ headless: true });
+  try {
+    const feedback = await probeTrialFeedback(browser, server.origin, smokeCase.serverBasePath);
+    return {
+      id: smokeCase.id,
+      base_path: smokeCase.buildBasePath,
+      trial_feedback: feedback,
+      ok: feedback.ok,
+    };
+  } finally {
+    await browser.close();
+    server.stop();
+  }
+}
 
 async function runPollingCase(smokeCase) {
   const executionRoot = join(scratchRoot, smokeCase.id);
@@ -248,6 +278,7 @@ async function runCase(smokeCase) {
     );
     await page.locator(".document-viewer").waitFor();
     const pollingBudget = await probeTenMinutePolling(browser, server.origin, smokeCase.serverBasePath);
+    const trialFeedback = await probeTrialFeedback(browser, server.origin, smokeCase.serverBasePath);
 
     const trialUrl = new URL(`${prefix}try/`, server.origin).href;
     const trialResponse = await page.goto(trialUrl, { waitUntil: "networkidle" });
@@ -528,6 +559,7 @@ async function runCase(smokeCase) {
       nextSessionReachedTerminal &&
       deniedWithoutConfirmation.status === 428 &&
       pollingBudget.ok &&
+      trialFeedback.ok &&
       executionScroll.clearsStickyHeader &&
       terminalScroll.clearsStickyHeader &&
       finalApi.status === 200 &&
@@ -572,6 +604,7 @@ async function runCase(smokeCase) {
       pages: { assets, measurements, run_detail: runDetail, trial: { status: trialResponse?.status() ?? 0, title: trialTitle } },
       mobile,
       ten_minute_polling: pollingBudget,
+      trial_feedback: trialFeedback,
       gate_1: {
         empty_goal_guidance: emptyGoalGuidance,
         initial_fields_empty: initialTrialFieldsEmpty,
@@ -654,6 +687,129 @@ async function runCase(smokeCase) {
   } finally {
     await browser.close();
     server.stop();
+  }
+}
+
+async function probeTrialFeedback(browser, origin, basePath) {
+  const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  const sessionId = "0198b9c8-fab8-7000-8000-000000000069";
+  let phaseTotal = 0;
+  let terminal = false;
+  try {
+    await page.clock.install({ time: new Date("2026-08-16T00:00:00Z") });
+    await page.route("**/api/**", async (route) => {
+      const request = route.request();
+      const pathname = new URL(request.url()).pathname;
+      if (pathname.endsWith("/api/trial-workspace")) {
+        await route.fulfill({
+          contentType: "application/json",
+          status: 200,
+          body: JSON.stringify({ status: "idle" }),
+        });
+        return;
+      }
+      if (pathname.endsWith("/api/session-proposals") && request.method() === "POST") {
+        await route.fulfill({
+          contentType: "application/json",
+          status: 200,
+          body: JSON.stringify(syntheticFeedbackProposal()),
+        });
+        return;
+      }
+      if (pathname.endsWith("/api/sessions") && request.method() === "POST") {
+        await route.fulfill({
+          contentType: "application/json",
+          status: 202,
+          body: JSON.stringify({
+            id: sessionId,
+            gate: "gate_2",
+            status: "starting",
+            events_path: `.anvil/runs/${sessionId}/events.jsonl`,
+          }),
+        });
+        return;
+      }
+      if (pathname.endsWith(`/api/sessions/${sessionId}`) && request.method() === "GET") {
+        await route.fulfill({
+          contentType: "application/json",
+          status: 200,
+          body: JSON.stringify(syntheticFeedbackSession(sessionId, phaseTotal, terminal)),
+        });
+        return;
+      }
+      await route.continue();
+    });
+
+    const prefix = displayBasePath(basePath);
+    await page.goto(new URL(`${prefix}try/`, origin).href, { waitUntil: "networkidle" });
+    await page.locator("[data-testid='trial-goal']").fill("Synthetic Gate 2 feedback probe");
+    await page.locator("[data-testid='trial-token']").fill("synthetic-feedback-token");
+    await page.locator("[data-testid='trial-executor-model']").fill("synthetic-model");
+    await page.locator("[data-testid='trial-planner-model']").fill("synthetic-model");
+    await page.locator("[data-testid='check-contract']").click();
+    await page.locator("[data-testid='gate-one-card']").waitFor();
+    await page.locator("[data-testid='gate-one-confirm']").check();
+    await page.locator("[data-testid='launch-session']").click();
+    await page.locator("[data-testid='session-progress']").waitFor();
+    const zeroTotalHidden =
+      (await page.locator("[data-testid='phase-progress']").count()) === 0;
+
+    phaseTotal = 5;
+    await page.clock.runFor(1_100);
+    await page.locator("[data-testid='phase-progress']").getByText("フェーズ 2 / 5").waitFor();
+    const elapsed = page.locator("[data-testid='elapsed-time']");
+    const elapsedBefore = Number(await elapsed.getAttribute("data-elapsed-seconds"));
+    const elapsedTextBefore = await elapsed.locator("strong").innerText();
+    const runningTitle = await page.title();
+    await page.clock.runFor(2_200);
+    const elapsedAfter = Number(await elapsed.getAttribute("data-elapsed-seconds"));
+    const elapsedTextAfter = await elapsed.locator("strong").innerText();
+    const phaseText = await page.locator("[data-testid='phase-progress'] strong").innerText();
+    const meanText = await page
+      .locator("[data-testid='mean-duration-comparison'] strong")
+      .innerText();
+    const meanLabel = await page
+      .locator("[data-testid='mean-duration-comparison'] span")
+      .innerText();
+    const feedbackAfterMonitor =
+      await page.locator("[data-testid='monitor-state'] + [data-testid='execution-feedback']").count();
+
+    terminal = true;
+    await page.clock.runFor(1_100);
+    await page.locator("[data-testid='terminal-gate']").waitFor();
+    await page.waitForFunction((title) => document.title !== title, runningTitle);
+    const terminalTitle = await page.title();
+    const elapsedChanged =
+      elapsedAfter >= elapsedBefore + 2 && elapsedTextAfter !== elapsedTextBefore;
+    const titleChanged =
+      terminalTitle !== runningTitle && terminalTitle === "✔ pass — CommandAgent";
+    return {
+      elapsed_before_seconds: elapsedBefore,
+      elapsed_after_seconds: elapsedAfter,
+      elapsed_before_text: elapsedTextBefore,
+      elapsed_after_text: elapsedTextAfter,
+      elapsed_changed: elapsedChanged,
+      zero_total_hidden: zeroTotalHidden,
+      phase_text: phaseText,
+      phase_uses_total: phaseText === "フェーズ 2 / 5",
+      measured_mean_text: meanText,
+      measured_mean_visible: meanText === "平均 10.2 分",
+      mean_is_not_eta: meanLabel.includes("予測ではありません"),
+      monitor_and_progress_separate: feedbackAfterMonitor === 1,
+      running_title: runningTitle,
+      terminal_title: terminalTitle,
+      title_changed: titleChanged,
+      ok:
+        elapsedChanged &&
+        zeroTotalHidden &&
+        phaseText === "フェーズ 2 / 5" &&
+        meanText === "平均 10.2 分" &&
+        meanLabel.includes("予測ではありません") &&
+        feedbackAfterMonitor === 1 &&
+        titleChanged,
+    };
+  } finally {
+    await page.close();
   }
 }
 
@@ -767,6 +923,52 @@ async function probeTenMinutePolling(browser, origin, basePath) {
   } finally {
     await page.close();
   }
+}
+
+function syntheticFeedbackProposal() {
+  const proposal = syntheticProposal();
+  return {
+    ...proposal,
+    card_hash: `sha256:${"6".repeat(64)}`,
+    identity: {
+      ...proposal.identity,
+      request: "Synthetic Gate 2 feedback probe",
+      workspace: "/synthetic/feedback-probe",
+      contract_ref: "synthetic/feedback",
+      contract_checks: ["elapsed and phase feedback"],
+      band_measurement: "mocked PolledSession",
+      full_meaning: "The feedback probe does not delegate a CLI process.",
+    },
+    price: {
+      ...proposal.price,
+      duration_n: 5,
+      average_duration_seconds: 612,
+    },
+  };
+}
+
+function syntheticFeedbackSession(sessionId, phaseTotal, terminal) {
+  return {
+    id: sessionId,
+    gate: terminal ? "gate_4" : "gate_2",
+    status: terminal ? "completed" : "running",
+    verdict: terminal ? "pass" : null,
+    assurance: terminal ? "full" : null,
+    phases: [
+      { id: "prepare", index: 1, total: phaseTotal, stage: "complete", status: "completed" },
+      {
+        id: "implement",
+        index: 2,
+        total: phaseTotal,
+        stage: terminal ? "complete" : "execute",
+        status: terminal ? "completed" : "running",
+      },
+    ],
+    event_count: terminal ? 8 : 3,
+    acceptance_sheet: terminal ? "# Synthetic acceptance\\n\\nPASS" : null,
+    section5: terminal ? "PASS" : null,
+    events_path: `.anvil/runs/${sessionId}/events.jsonl`,
+  };
 }
 
 async function trialControlAlignment(page) {

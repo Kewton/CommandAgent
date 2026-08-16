@@ -134,11 +134,17 @@ authentication is enabled.
    reports the execution state separately from monitoring health (`connected`,
    `degraded`, or `lost`) and shows the last successful update time. A transient
    monitoring failure retries with capped exponential backoff while the
-   delegated CLI keeps running.
+   delegated CLI keeps running. Independently, Gate 2 advances a
+   browser-observed elapsed clock once per second from receipt of the accepted
+   session, keeps the measured mean beside it as a comparison rather than an
+   ETA guarantee, and shows `Phase x / N` only when the file-backed phase
+   projection reports a nonzero total.
 4. At Gate 3 or Gate 4, inspect the generated acceptance sheet. You may end
    without another run, or persist an additional D-3d instruction. A D-3d
    instruction is credential-scrubbed, exact-byte hashed, displayed, and must
-   be confirmed before the existing continuation path is delegated.
+   be confirmed before the existing continuation path is delegated. Reaching
+   Gate 3/4 also changes the browser tab title to `✔ <outcome> — CommandAgent`
+   so completion is visible while the Trial tab is in the background.
 5. After **End without another run**, select **Start a new run** to return to
    an editable draft. The in-memory Trial token and launch fields are retained,
    while the previous proposal, session progress, and directive are cleared.
@@ -275,9 +281,10 @@ dashboard/API/SVG probes, desktop and mobile layout probes, Gate 1 before and
 after confirmation, a rejected first poll followed by Gate 3/4 recovery,
 proxy-access re-authentication guidance, token re-entry and GET-only reconnect,
 the read-only launch identity, CLOSED-to-compose recovery and a second terminal
-run, the first session event stream and its SHA-256, and an API log. The browser
-script explicitly fills Goal plus executor and planner model fields for each
-new run, so it does not depend on Trial form defaults:
+run, a mocked elapsed/phase/title feedback probe, the first session event
+stream and its SHA-256, and an API log. The browser script explicitly fills
+Goal plus executor and planner model fields for each new run, so it does not
+depend on Trial form defaults:
 
 ```bash
 cd gui
@@ -286,6 +293,10 @@ npm run smoke -- \
   --commandagent-bin ../target/release/commandagent \
   --model qwen3:8b
 ```
+
+Use `--feedback-only` to run only the deterministic browser feedback probe
+for both base paths. It uses mocked Trial responses and does not dispatch a CLI
+process.
 
 If the managed package is elsewhere, set `COMMANDAGENT_PLAYWRIGHT_PATH` to its
 Playwright package directory. Use `--trial-timeout-ms` only to raise or lower

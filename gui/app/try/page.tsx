@@ -64,6 +64,8 @@ export default function TrialRunPage() {
   const [confirmed, setConfirmed] = useState(false);
   const [created, setCreated] = useState<CreatedSession | null>(null);
   const [session, setSession] = useState<PolledSession | null>(null);
+  const [gateTwoStartedAt, setGateTwoStartedAt] = useState<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [stage, setStage] = useState<ScreenStage>("compose");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -170,6 +172,25 @@ export default function TrialRunPage() {
   }, [created, stage, trialToken]);
 
   useEffect(() => {
+    if (gateTwoStartedAt === null || stage !== "gate_2") return;
+    const tick = () => {
+      setElapsedSeconds(Math.floor((Date.now() - gateTwoStartedAt) / 1_000));
+    };
+    tick();
+    const timer = window.setInterval(tick, 1_000);
+    return () => window.clearInterval(timer);
+  }, [gateTwoStartedAt, stage]);
+
+  useEffect(() => {
+    if (stage !== "terminal" || session === null) return;
+    const previousTitle = document.title;
+    document.title = `✔ ${session.verdict ?? session.status} — CommandAgent`;
+    return () => {
+      document.title = previousTitle;
+    };
+  }, [session, stage]);
+
+  useEffect(() => {
     if (!window.matchMedia("(max-width: 720px)").matches) return;
     const target =
       stage === "gate_1"
@@ -196,6 +217,10 @@ export default function TrialRunPage() {
     const cost = proposal?.price.average_cost_usd;
     return cost === null || cost === undefined ? "未記録" : `平均 $${cost.toFixed(4)}`;
   }, [proposal]);
+  const currentPhase = useMemo(() => {
+    const phases = session?.phases ?? [];
+    return phases.find((phase) => phase.status === "running") ?? phases[phases.length - 1] ?? null;
+  }, [session]);
   const selectedProfile = trialOptions?.profiles.find((option) => option.id === spec.profile);
   const selectedProvider = trialOptions?.providers.find((option) => option.id === spec.provider);
 
@@ -212,6 +237,8 @@ export default function TrialRunPage() {
     setConfirmed(false);
     setCreated(null);
     setSession(null);
+    setGateTwoStartedAt(null);
+    setElapsedSeconds(0);
     setDirectiveText("");
     setDirective(null);
     setError(null);
@@ -307,6 +334,8 @@ export default function TrialRunPage() {
       replaceSessionQuery(value.id);
       setSession(null);
       setMonitor(initialMonitor);
+      setGateTwoStartedAt(Date.now());
+      setElapsedSeconds(0);
       setStage("gate_2");
     } catch (reason) {
       setError(message(reason));
@@ -338,6 +367,8 @@ export default function TrialRunPage() {
         status: "connected",
         summary: null,
       });
+      setGateTwoStartedAt(Date.now());
+      setElapsedSeconds(0);
       setStage(value.gate === "gate_3" || value.gate === "gate_4" ? "terminal" : "gate_2");
     } catch (reason) {
       const failure = monitorFailure(reason);
@@ -660,6 +691,22 @@ export default function TrialRunPage() {
             </small>
             {monitor.guidance !== null && <p>{monitor.guidance}</p>}
           </div>
+          <div className="execution-feedback" data-testid="execution-feedback">
+            <div data-elapsed-seconds={elapsedSeconds} data-testid="elapsed-time">
+              <span>経過時間</span>
+              <strong>{formatElapsed(elapsedSeconds)}</strong>
+            </div>
+            <div data-testid="mean-duration-comparison">
+              <span>平均所要時間（予測ではありません）</span>
+              <strong>{priceDuration}</strong>
+            </div>
+            {currentPhase !== null && currentPhase.total > 0 && (
+              <div data-testid="phase-progress">
+                <span>実行進捗</span>
+                <strong>フェーズ {currentPhase.index} / {currentPhase.total}</strong>
+              </div>
+            )}
+          </div>
           <div className="phase-list">
             {session?.phases.length === 0 && <p>最初の CLI イベントを待っています…</p>}
             {session?.phases.map((phase) => (
@@ -735,6 +782,13 @@ function stageLabel(stage: ScreenStage, session: PolledSession | null): string {
   if (stage === "gate_1") return "確認待ち";
   if (stage === "closed") return "終了";
   return "下書き";
+}
+
+function formatElapsed(totalSeconds: number): string {
+  const hours = Math.floor(totalSeconds / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
 }
 
 async function fetchSession(id: string, token: string): Promise<PolledSession> {

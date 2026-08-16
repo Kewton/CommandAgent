@@ -510,6 +510,43 @@ fn trial_status_polling_revalidates_and_backs_off_without_changing_the_schema() 
 }
 
 #[test]
+fn trial_feedback_uses_elapsed_time_phase_total_and_terminal_title() {
+    let source = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
+    for required in [
+        "data-testid=\"elapsed-time\"",
+        "window.setInterval(tick, 1_000)",
+        "data-testid=\"mean-duration-comparison\"",
+        "data-testid=\"phase-progress\"",
+        "currentPhase.total > 0",
+        "フェーズ {currentPhase.index} / {currentPhase.total}",
+        "平均所要時間（予測ではありません）",
+        "document.title = `✔ ${session.verdict ?? session.status} — CommandAgent`",
+    ] {
+        assert!(
+            source.contains(required),
+            "trial feedback is missing {required:?}"
+        );
+    }
+
+    let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
+    for required in [
+        "--feedback-only",
+        "probeTrialFeedback",
+        "フェーズ 2 / 5",
+        "平均 10.2 分",
+        "elapsed_changed",
+        "zero_total_hidden",
+        "monitor_and_progress_separate",
+        "title_changed",
+    ] {
+        assert!(
+            smoke.contains(required),
+            "Trial feedback smoke is missing {required:?}"
+        );
+    }
+}
+
+#[test]
 fn trial_workspace_and_authentication_guards_are_not_optional() {
     let entry = std::fs::read_to_string("src/bin/gui_server.rs").unwrap();
     assert!(!entry.contains("unwrap_or_else(|| arguments.repository_root.clone())"));
