@@ -47,9 +47,15 @@ evidence, and `.anvil/` state are unchanged. `card_markdown` is presentation
 content and now carries the approved Japanese wording; opaque IDs and paths are
 preserved. No corpus fixture or state migration was required.
 
-The required sibling predecessor commits #64, #67, #68, #69, #70, #71, #76,
-and #80 were inspected before editing. Their independent lease, options,
-phase, feedback, artifact, session-index, localization/runtime-status, and
-polling changes were not merged or duplicated. The Issue #76 Japanese/no-i18n
-decision was applied directly to every reader-facing string added or replaced
-here.
+The branch was integrated with the current `develop` baseline. Conflict
+resolution preserves the merged lease, options, phase, feedback, artifact,
+session-index, localization/runtime-status, polling, and Issue #72 coded-error
+behavior. The Issue #76 Japanese/no-i18n decision is applied directly to every
+reader-facing string added or replaced here.
+
+The integrated browser smoke initially exposed three stale harness
+expectations: a raw `pass` tab title, an uncoded synthetic 409 response, and the
+old `へ再接続` button copy. The fixture now uses the semantically consistent
+Gate 3 success projection, the shared `trial_workspace_running` `{code,error}`
+contract, and the rendered `に再接続` copy. No production gate, verification,
+or error contract was relaxed.

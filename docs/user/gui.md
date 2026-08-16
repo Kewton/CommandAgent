@@ -102,7 +102,16 @@ the GUI permits only one delegated process in that workspace at a time.
 ## Trial run: Gate 1 through Gate 3/4
 
 Open **Trial run** and enter a goal, admitted profile, provider, and exact
-planner/executor model pins.
+planner/executor model pins. Goal and both model fields start empty so a demo
+request or model cannot be delegated accidentally. **Check contract and
+price** validates those empty fields in the browser before making a proposal
+request.
+
+The browser obtains profile and provider choices from `GET api/trial-options`.
+Profiles are the server's current `admitted_profiles()` set and include a short
+scope description. Provider choices include model-ID guidance. Changing the
+provider does not rewrite either model pin, so the form shows a warning to
+review the executor model before Gate 1.
 
 The **LM Studio** provider selection maps to the existing CLI spelling
 `--provider lm-studio`; it is not an alias or a GUI-side provider
@@ -122,18 +131,117 @@ authentication is enabled.
    card hash.
 3. Select **確認して CLI を実行**. The server starts the existing
    non-interactive boundary command. Progress is reconstructed by reading that
-   session's JSONL events; there is no GUI state database.
-4. At Gate 3 or Gate 4, the Terminal heading says whether every required check
-   passed; an assurance identifier such as `static` is translated into a
-   separate evidence-coverage explanation. You may end without another run,
-   or select **追加の依頼を確認用に準備**. The existing D-3d instruction is
-   credential-scrubbed, exact-byte hashed, displayed, and must be confirmed
-   before the existing continuation path is delegated.
+   session's JSONL events; there is no GUI state database. The launch identity
+   fields remain read-only throughout Gate 2 and the terminal result so the
+   confirmed contract cannot be invalidated by an in-flight edit. Gate 2
+   reports the execution state separately from monitoring health (`connected`,
+   `degraded`, or `lost`) and shows the last successful update time. A transient
+   monitoring failure retries with capped exponential backoff while the
+   delegated CLI keeps running. Independently, Gate 2 advances a
+   browser-observed elapsed clock once per second from receipt of the accepted
+   session, keeps the measured mean beside it as a comparison rather than an
+   ETA guarantee, and shows `Phase x / N` only when the file-backed phase
+   projection reports a nonzero total.
+4. During Gate 2, use **Recent events** or **Browse artifacts** to inspect
+   bounded, read-only session evidence without leaving the GUI. At Gate 3 or
+   Gate 4 the inventory opens automatically. The result, assurance level, and
+   execution status are shown under separate labels; if no final verdict was
+   recorded, the result says so instead of presenting an assurance identifier
+   such as `static` as the verdict. Select `summary.md`, recent
+   `events.jsonl`, or an acceptance-related text file to investigate a
+   failure. You may then end without another run, or persist an additional
+   instruction with **追加の依頼を確認用に準備**. The instruction is
+   credential-scrubbed, exact-byte hashed, displayed, and must be confirmed;
+   it cannot lower the fixed contract checks. Reaching Gate 3/4 also changes
+   the browser tab title to the plain-language result so completion is visible
+   while the Trial tab is in the background.
+5. After **End without another run**, select **Start a new run** to return to
+   an editable draft. The in-memory Trial token and launch fields are retained,
+   while the previous proposal, session progress, and directive are cleared.
+
+The **Trial sessions** panel reads the configured execution root rather than
+`workspace/management/runs`. Entering a complete runtime token loads up to 100
+confirmed Trial run directories, with the active lease session first and the
+remaining rows ordered by latest update. **Refresh sessions** reads the
+directory again, so added or removed runs appear without a server restart. Each
+row shows its UUID-v7-derived start time (or file-creation fallback), latest
+update, file-backed gate/status, and a link to the existing
+`?session=<id>` reconnect flow. Following that link does not issue a POST or
+delegate another process; the runtime token remains memory-only and must be
+entered again after navigation before the session-status GET can succeed.
+
+The existing workspace lease card displays `idle`, `running(<session-id>)`, or
+`recovery_required(<session-id>)`, and is refreshed from the same index
+response. A non-idle snapshot disables confirmed launch and explains which
+session owns or blocks the workspace. This snapshot is advisory and read-only:
+the server independently enforces the lease during POST, and the GUI provides
+no clear, reset, cancel, or force-idle action.
 
 There is no cancel, interrupt, phase-edit, or gate-override control while a
 session is running. Use the existing CLI/runtime operating procedures for
 external process management. GUI confirmation cannot lower, replace, or
 satisfy the contract checks.
+
+## Workspace lease inspection and recovery
+
+The Trial page's **Inspect workspace lease** action performs only authenticated
+`GET api/trial-workspace`. It reports `Idle`, `Running`, or
+`Recovery required`; the latter two states include the exact session ID. The
+card cannot clear the lease, dispatch a process, or modify session artifacts.
+Checking the Gate 1 contract also refreshes this read-only projection, and a
+launch conflict refreshes it before displaying the HTTP 409 error.
+
+If the configured CLI binary cannot be spawned, HTTP 500 names the configured
+binary path and the operating-system cause. Because no child exists, the server
+rolls back that new session and releases the lease. Correct
+`--commandagent-bin` (or install/fix the binary at that path) and retry; the
+same execution root does not require manual recovery.
+
+`Recovery required` means a confirmed child may have existed but the event
+stream has no current `tui_command_stop` or `run_stop`. Treat that state as a
+possible live process. Recover it conservatively:
+
+1. Record the session ID shown by the lease card, then stop `gui_server` so no
+   new Trial can be admitted during recovery.
+2. Use the operating system's process inspection to verify that no delegated
+   `commandagent` remains for the execution root and the session's
+   `.anvil/runs/<session-id>/state` directory. If one is still running, do not
+   clear or archive the lease; follow the existing CLI/runtime procedure to let
+   it finish or stop it, then inspect its events again.
+3. When no child remains, preserve the whole
+   `.anvil/runs/<session-id>` directory in an operator-chosen archive outside
+   the execution root. Move the directory as one unit; do not delete individual
+   confirmation files and do not append a synthetic terminal event.
+4. Restart `gui_server` with the same execution root, re-enter the runtime
+   token, and select **Inspect workspace lease**. It must report `Idle` before
+   another Trial is launched. If another unfinished run is reported, repeat
+   the same process check for that exact session instead of bypassing the
+   single-process lease.
+
+The archive remains the evidence for the incomplete session. Restoring it
+under `.anvil/runs` will intentionally make startup require recovery again.
+
+The page places the launched session ID, but never the token, in
+`?session=<id>`. After a reload or navigation, re-enter the runtime Trial token
+and select **Reconnect monitoring**. Reconnect calls only
+`GET api/sessions/{id}` and cannot delegate another CLI process. A 409 response
+that identifies an already running or recovery-required session fills this same
+reconnect path.
+
+Monitoring guidance distinguishes authentication and browser boundaries:
+
+- HTTP 401/403 asks you to re-enter the runtime token and verify the allowed
+  origin.
+- An upstream manual redirect asks you to reload and re-authenticate with the
+  access proxy.
+- A thrown browser fetch asks you to check the proxy/network connection and
+  reload or re-authenticate if required.
+
+HTTP 413 and invalid event JSONL are retried only to the terminal-error limit,
+then monitoring stops with an artifact inspection reason. Other failures keep
+retrying at the capped interval. The token remains only in page memory: it is
+not stored in `localStorage`, included in URLs, or compiled into the static
+export.
 
 ## API
 
@@ -150,28 +258,98 @@ The evidence routes are same-origin GET requests below the selected base path:
 | `api/contracts` | Contract documents |
 | `api/suites` | Measurement suite definitions |
 | `api/reports` and `api/reports/view?path=…` | Measurement report archive |
+| `api/runtime-status` | Trial availability and the current workspace lease state |
 
 Paths are canonicalized below their allowed inventory root, symlinks are not
 followed during listing, and individual text views are capped at 1 MiB.
 
 Trial run adds these bounded routes:
 
-Every route in this table requires
+`GET api/trial-options` is an unauthenticated, read-only projection of compiled
+profile/provider metadata so the form can be populated before a Trial token is
+entered. It neither inspects the execution workspace nor contacts a provider.
+
+Every other route in this table requires
 `X-CommandAgent-Trial-Authorization: Bearer <GUI_TRIAL_TOKEN>` (or the legacy
 direct-client `Authorization` form). POST requests also require a same-host Origin or an origin admitted by
 `GUI_TRIAL_ALLOWED_ORIGINS`.
 
 | Route | Operation |
 | --- | --- |
+| `GET api/trial-options` | Return admitted profiles, providers, and model-ID guidance without executing anything |
 | `POST api/session-proposals` | Render a deterministic Gate 1 identity and measured price tag |
+| `GET api/sessions` | List up to 100 execution-root Trial sessions and the current read-only lease snapshot |
+| `GET api/trial-workspace` | Read the current workspace lease and active/recovery session ID |
 | `POST api/sessions` | Require the exact Gate 1 hash, then delegate to the configured CLI binary |
 | `GET api/sessions/{id}` | Read events and artifacts to project phase, gate, and terminal verdict |
+| `GET api/sessions/{id}/artifacts` | List up to 256 text artifacts below the Trial run root |
+| `GET api/sessions/{id}/artifacts?path=…` | Read one canonical, non-symlink text artifact up to 1 MiB |
+| `GET api/sessions/{id}/events?tail=N` | Read the last `1..=2000` event lines, with a 1 MiB response limit |
 | `POST api/sessions/{id}/directives` | Apply the existing credential scrub and persist a hashed D-3d proposal |
 | `POST api/sessions/{id}/directives/{hash}` | Require that exact proposal, then delegate the existing continuation plan |
 
 The two POST dispatch routes cannot accept an unconfirmed identity. The sole
 process surface executes `commandagent` directly without a shell; provider and
 runner calls are forbidden in the GUI server by the protection audit.
+
+### Error responses and recovery
+
+API failures use JSON with an additive stable code while retaining the existing
+HTTP status and `error` text:
+
+```json
+{
+  "code": "trial_token_invalid",
+  "error": "a valid GUI trial bearer token is required"
+}
+```
+
+The GUI translates the code into a next action and keeps the server detail
+visible for diagnosis:
+
+| Status / code | Recovery |
+| --- | --- |
+| `401 trial_token_invalid` | Reload the page, re-authenticate at the upstream access layer, and enter the runtime Trial token again. |
+| `403 trial_origin_not_allowed` | Add the exact browser Origin to `GUI_TRIAL_ALLOWED_ORIGINS`, then restart the GUI server. |
+| `409 trial_workspace_running` | Use the displayed session ID and reconnect link to resume GET-only monitoring. |
+| `409 trial_workspace_recovery_required` | Inspect that session's events and complete the existing CLI/runtime recovery procedure before reconnecting. Do not delete `.anvil/` state to bypass the lease. |
+| `409 trial_workspace_conflict` | Verify that the execution root is still available at its startup path and remains disjoint from the repository. |
+| `412 trial_confirmation_stale` | Request the current Gate 1 card and confirm it again. |
+| `428 trial_confirmation_required` | Check the contract and price, then explicitly confirm the displayed Gate 1 card. |
+| `503 trial_execution_disabled` | Restart the GUI server with a valid `--execution-root` and `GUI_TRIAL_TOKEN`. |
+| `500 trial_internal_error` | Verify that `--commandagent-bin` points to an existing executable, inspect the server log, and reconnect to an already-created session instead of dispatching another process. |
+
+Read-only pages use the same descriptor for missing or unreadable repository
+records. Reload the inventory first; if the error remains, verify
+`--repository-root`, the selected path, and file permissions. A proxy or
+network rejection is reported as a connection/reload action instead of the
+browser's implementation-specific exception text.
+
+To verify these recovery paths without a provider call, run the focused smoke:
+
+```bash
+cd gui
+npm run smoke:errors
+```
+
+It builds the static GUI, starts a loopback server with an isolated temporary
+workspace and bounded fake CLI, then uses Playwright to check a wrong token, a
+foreign Origin header, and a live workspace 409 with its reconnect link. It
+removes the temporary workspace after the probe.
+
+The event-tail reader scans backward, so it remains useful after the complete
+stream exceeds the 4 MiB status-polling limit. Artifact listing uses the same
+text-extension allowlist, depth-four walk, skipped directories, ordering, and
+entry cap as the repository run viewer. All Trial file routes require a
+canonical session UUID and the runtime token. The bounded index exposes only
+session identity and lifecycle projection; artifact content remains behind the
+per-session routes.
+
+Delegated stdout and stderr are intentionally not saved by this GUI path. The
+CLI-owned `events.jsonl` and `summary.md` are the structured diagnostic
+records, and the GUI server only reads them. If an unstructured log is later
+required, it must be introduced as a CLI-owned output contract rather than a
+GUI-server write.
 
 ## Two-basePath browser smoke
 
@@ -190,8 +368,14 @@ cargo build --release --bin commandagent
 Then run a real local-model lap for both `/` and
 `/proxy/commandagent/`. The runner copies the small Python CLI corpus fixture
 to an isolated temporary workspace. For each base path it records the
-dashboard/API/SVG probes, Gate 1 before and after confirmation, Gate 2,
-Gate 3/4, the session event stream and its SHA-256, and an API log:
+dashboard/API/SVG probes, desktop and mobile layout probes, Gate 1 before and
+after confirmation, a rejected first poll followed by Gate 3/4 recovery,
+proxy-access re-authentication guidance, token re-entry and GET-only reconnect,
+the read-only launch identity, CLOSED-to-compose recovery and a second terminal
+run, a mocked elapsed/phase/title feedback probe, the first session event
+stream and its SHA-256, in-page recent-events and summary viewing, and an API
+log. The browser script explicitly fills Goal plus executor and planner model
+fields for each new run, so it does not depend on Trial form defaults:
 
 ```bash
 cd gui
@@ -200,6 +384,10 @@ npm run smoke -- \
   --commandagent-bin ../target/release/commandagent \
   --model qwen3:8b
 ```
+
+Use `--feedback-only` to run only the deterministic browser feedback probe
+for both base paths. It uses mocked Trial responses and does not dispatch a CLI
+process.
 
 If the managed package is elsewhere, set `COMMANDAGENT_PLAYWRIGHT_PATH` to its
 Playwright package directory. Use `--trial-timeout-ms` only to raise or lower

@@ -42,6 +42,19 @@ export type SessionSpec = {
   planner_model: string;
 };
 
+export type TrialOptions = {
+  profiles: Array<{
+    id: string;
+    label: string;
+    description: string;
+  }>;
+  providers: Array<{
+    id: string;
+    label: string;
+    model_hint: string;
+  }>;
+};
+
 export type ConfirmationIdentity = {
   request: string;
   workspace: string;
@@ -88,6 +101,24 @@ export type CreatedSession = {
   events_path: string;
 };
 
+export type TrialWorkspaceLease =
+  | { status: "idle" }
+  | { status: "running"; session_id: string }
+  | { status: "recovery_required"; session_id: string };
+
+export type TrialSessionSummary = {
+  id: string;
+  started_epoch_seconds: number;
+  modified_epoch_seconds: number;
+  gate: "gate_2" | "gate_3" | "gate_4" | null;
+  status: string;
+};
+
+export type TrialSessionIndex = {
+  sessions: TrialSessionSummary[];
+  lease: TrialWorkspaceLease;
+};
+
 export type PhaseStatus = {
   id: string;
   index: number;
@@ -115,4 +146,12 @@ export type DirectiveProposal = {
   issued_gate: "gate_3" | "gate_4";
   scrubbed_directive: string;
   confirmation_required: boolean;
+};
+
+export type RuntimeStatus = {
+  trial_available: boolean;
+  session: {
+    id: string;
+    state: "running" | "recovery_required";
+  } | null;
 };

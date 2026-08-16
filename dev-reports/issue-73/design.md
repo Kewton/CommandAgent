@@ -21,19 +21,18 @@
 
 ## Compatibility
 
-Required predecessor commits #64 `7fcb0dbe`, #67 `f51c20b5`, #68 `73f57e8d`,
-#69 `3ddda7ac`, #70 `52dd26ef`, #71 `c312eb75`, #76 `23c6f2ab`, and #80
-`b84034b6` were inspected as committed sibling changes, not ancestors. This
-patch does not merge or duplicate their lease, option, phase, feedback,
-artifact, session-index, localization/runtime-status, or polling behavior. The
-new markdown renderer is a leaf component, and smoke/page edits stay narrow so
-those independently verified changes can be integrated normally.
+The Issue branch was integrated with the current `develop` baseline after
+Issues #63, #64, #66-#72, #76, #77, and #80 were merged. Conflict resolution
+keeps their lease, option, phase, feedback, artifact, session-index,
+localization/runtime-status, polling, and shared coded-error behavior while
+adding only the Issue #73 presentation and smoke assertions. The markdown
+renderer remains a leaf component.
 
-Issue #76 fixes GUI-owned language to Japanese without i18n. Although this
-worktree still has the pre-#76 English page, every reader-facing string added or
-replaced by this Issue is Japanese now; translation is not deferred to merge
-time. Opaque profile/provider values, hashes, filesystem paths, contract/API
-references, and internal event/status identifiers remain unchanged.
+Issue #76 fixes GUI-owned language to Japanese without i18n. Every
+reader-facing string added or replaced by this Issue follows that integrated
+decision. Opaque profile/provider values, hashes, filesystem paths,
+contract/API references, and internal event/status identifiers remain
+unchanged.
 
 ## Tests and verification
 
