@@ -10,6 +10,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const guiRoot = resolve(scriptDirectory, "..");
 const repositoryRoot = resolve(guiRoot, "..");
 const arguments_ = process.argv.slice(2);
+const overviewOnly = arguments_.includes("--overview-only");
 const outputDirectory = valueArgument(arguments_, "--output");
 const commandagentBin = resolve(
   valueArgument(arguments_, "--commandagent-bin") ?? join(repositoryRoot, "target/release/commandagent"),
@@ -27,7 +28,7 @@ const managedPlaywrightPath =
 
 if (outputDirectory === null) {
   console.error(
-    "usage: npm run smoke -- --output <evidence-directory> [--commandagent-bin <path>] [--model <name>]",
+    "usage: npm run smoke -- --output <evidence-directory> [--overview-only] [--commandagent-bin <path>] [--model <name>]",
   );
   process.exit(2);
 }
@@ -83,6 +84,7 @@ const report = {
     version: packageMetadata.version,
   },
   delegate: {
+    mode: overviewOnly ? "overview_only" : "full_trial",
     commandagent_bin: commandagentBin,
     provider: "ollama",
     model,
@@ -154,19 +156,55 @@ async function runCase(smokeCase) {
     );
     const expectedPrefix = smokeCase.serverBasePath === "/" ? "/" : `${smokeCase.serverBasePath}/`;
     const linksUseBasePath = internalLinks.every((link) => link.startsWith(expectedPrefix));
-    const firstRunId = await page.evaluate(async () => {
+    const runIndex = await page.evaluate(async () => {
       const mapSource =
         document.querySelector("[data-testid='score-time-map']")?.getAttribute("src") ?? "";
       const apiRoot = mapSource.replace(/maps\/score-time\.svg$/, "");
       const result = await fetch(`${apiRoot}runs`);
-      const runs = await result.json();
-      return runs[0]?.id ?? "";
+      return result.json();
     });
+    const firstRunId = runIndex.runs[0]?.id ?? "";
+    const runCountText = await page.locator("[data-testid='run-count']").innerText();
+    const expectedRunCountText = `${Math.min(runIndex.runs.length, 8)} / ${runIndex.total}`;
+    const statusBadgeTexts = await page.locator(".status-badge").allInnerTexts();
+    const statusBadgesArePlainText = statusBadgeTexts.every(
+      (text) => !text.includes("**") && !text.includes("`"),
+    );
+    const dashboard = {
+      status: response?.status() ?? 0,
+      heading,
+      run_count: runCountText,
+      expected_run_count: expectedRunCountText,
+      status_badges: statusBadgeTexts,
+      status_badges_are_plain_text: statusBadgesArePlainText,
+    };
+    const dashboardOk =
+      response?.status() === 200 &&
+      heading === "Evidence, at a glance." &&
+      map.complete &&
+      map.naturalWidth > 0 &&
+      apiChecks.every((check) => check.status === 200) &&
+      linksUseBasePath &&
+      runCountText === expectedRunCountText &&
+      statusBadgesArePlainText;
 
     await page.screenshot({
       fullPage: true,
       path: join(outputDirectory, `${smokeCase.id}-dashboard.png`),
     });
+    if (overviewOnly) {
+      return {
+        id: smokeCase.id,
+        base_path: smokeCase.buildBasePath,
+        dashboard,
+        api_checks: apiChecks,
+        svg: map,
+        links_use_base_path: linksUseBasePath,
+        elapsed_seconds: (Date.now() - startedAt) / 1000,
+        unexpected_console_errors: consoleErrors,
+        ok: dashboardOk && consoleErrors.length === 0,
+      };
+    }
     const assets = await probePage(
       page,
       server.origin,
@@ -282,12 +320,7 @@ async function runCase(smokeCase) {
     );
 
     const ok =
-      response?.status() === 200 &&
-      heading === "Evidence, at a glance." &&
-      map.complete &&
-      map.naturalWidth > 0 &&
-      apiChecks.every((check) => check.status === 200) &&
-      linksUseBasePath &&
+      dashboardOk &&
       assets.status === 200 &&
       assets.headingMatches &&
       measurements.status === 200 &&
@@ -304,7 +337,7 @@ async function runCase(smokeCase) {
     return {
       id: smokeCase.id,
       base_path: smokeCase.buildBasePath,
-      dashboard: { status: response?.status() ?? 0, heading },
+      dashboard,
       api_checks: apiChecks,
       svg: map,
       links_use_base_path: linksUseBasePath,

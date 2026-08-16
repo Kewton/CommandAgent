@@ -6,7 +6,7 @@ import { DocumentViewer } from "../../components/document-viewer";
 import { Shell } from "../../components/shell";
 import { EmptyState, ErrorState, LoadingState } from "../../components/states";
 import { apiPath, routePath, withBasePath } from "../../lib/base-path";
-import type { DocumentRecord, RunDetail, RunSummary } from "../../lib/types";
+import type { DocumentRecord, RunDetail, RunIndex } from "../../lib/types";
 import { useResource } from "../../lib/use-resource";
 
 function byteLabel(bytes: number): string {
@@ -15,7 +15,7 @@ function byteLabel(bytes: number): string {
 }
 
 export default function RunDetailPage() {
-  const runs = useResource<RunSummary[]>("runs");
+  const runs = useResource<RunIndex>("runs");
   const [runId, setRunId] = useState("");
   const [detail, setDetail] = useState<RunDetail | null>(null);
   const [selected, setSelected] = useState<DocumentRecord | null>(null);
@@ -89,7 +89,7 @@ export default function RunDetailPage() {
           <label htmlFor="run-select">RUN IDENTITY</label>
           <select id="run-select" value={runId} onChange={(event) => chooseRun(event.target.value)}>
             <option value="">Choose a run…</option>
-            {runs.data?.map((run) => (
+            {runs.data?.runs.map((run) => (
               <option key={run.id} value={run.id}>
                 {run.id}
               </option>

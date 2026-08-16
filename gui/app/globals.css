@@ -289,7 +289,7 @@ button {
 
 .metric-strip {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: 1fr;
   overflow: hidden;
   margin-bottom: 1rem;
 }
@@ -1596,21 +1596,8 @@ button {
     grid-template-columns: 1fr;
   }
 
-  .metric-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
   .metric-strip > div {
-    border-right: 0;
-    border-bottom: 1px solid var(--line);
-  }
-
-  .metric-strip > div:nth-child(odd) {
-    border-right: 1px solid var(--line);
-  }
-
-  .metric-strip > div:nth-last-child(-n + 2) {
-    border-bottom: 0;
+    border: 0;
   }
 
   .metric-strip strong {

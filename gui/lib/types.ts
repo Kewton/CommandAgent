@@ -1,8 +1,16 @@
+export type RunState = "pass" | "fail" | "pending" | "unknown";
+
 export type RunSummary = {
   id: string;
   modified_epoch_seconds: number;
   report_path: string | null;
   status: string;
+  state: RunState;
+};
+
+export type RunIndex = {
+  runs: RunSummary[];
+  total: number;
 };
 
 export type DocumentRecord = {

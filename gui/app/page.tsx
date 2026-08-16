@@ -3,15 +3,12 @@
 import { Shell } from "../components/shell";
 import { EmptyState, ErrorState, LoadingState } from "../components/states";
 import { apiPath, routePath, withBasePath } from "../lib/base-path";
-import type { DocumentRecord, RunSummary } from "../lib/types";
+import type { DocumentRecord, RunIndex, RunState } from "../lib/types";
 import { useResource } from "../lib/use-resource";
 
-function statusTone(status: string): string {
-  const normalized = status.toLowerCase();
-  if (normalized.includes("pass") || normalized.includes("full") || normalized.includes("green")) {
-    return "positive";
-  }
-  if (normalized.includes("fail") || normalized.includes("block")) return "negative";
+function statusTone(state: RunState): string {
+  if (state === "pass") return "positive";
+  if (state === "fail") return "negative";
   return "neutral";
 }
 
@@ -36,10 +33,9 @@ function dateLabel(epochSeconds: number): string {
 }
 
 export default function DashboardPage() {
-  const runs = useResource<RunSummary[]>("runs");
+  const runs = useResource<RunIndex>("runs");
   const bands = useResource<DocumentRecord[]>("bands");
-  const recentRuns = runs.data?.slice(0, 8) ?? [];
-  const completed = recentRuns.filter((run) => statusTone(run.status) === "positive").length;
+  const recentRuns = runs.data?.runs.slice(0, 8) ?? [];
 
   return (
     <Shell
@@ -50,20 +46,10 @@ export default function DashboardPage() {
     >
       <section className="metric-strip" aria-label="Repository summary">
         <div>
-          <span>Visible runs</span>
-          <strong>{runs.data?.length ?? "—"}</strong>
-        </div>
-        <div>
-          <span>Recent positive</span>
-          <strong>{runs.data === null ? "—" : `${completed}/${recentRuns.length}`}</strong>
-        </div>
-        <div>
-          <span>Formal bands</span>
-          <strong>{bands.data?.length ?? "—"}</strong>
-        </div>
-        <div>
-          <span>Execution surface</span>
-          <strong className="accent-text">CLI ONLY</strong>
+          <span>Runs shown / total</span>
+          <strong data-testid="run-count">
+            {runs.data === null ? "—" : `${recentRuns.length} / ${runs.data.total}`}
+          </strong>
         </div>
       </section>
 
@@ -117,7 +103,7 @@ export default function DashboardPage() {
         </header>
         {runs.loading && <LoadingState label="Indexing run records" />}
         {runs.error !== null && <ErrorState message={runs.error} />}
-        {runs.data?.length === 0 && <EmptyState message="No run directories were found." />}
+        {runs.data?.runs.length === 0 && <EmptyState message="No run directories were found." />}
         {recentRuns.length > 0 && (
           <div className="run-table" role="table">
             <div className="run-table-head" role="row">
@@ -134,7 +120,7 @@ export default function DashboardPage() {
                 role="row"
               >
                 <strong>{run.id}</strong>
-                <span className={`status-badge ${statusTone(run.status)}`}>{run.status}</span>
+                <span className={`status-badge ${statusTone(run.state)}`}>{run.status}</span>
                 <time>{dateLabel(run.modified_epoch_seconds)}</time>
                 <span className="row-arrow">↗</span>
               </a>
