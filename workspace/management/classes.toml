@@ -393,6 +393,15 @@ ledger_ref = "CM-2h"
 note = "解消済み(DATA-1): 3件ともschema専用metadata keysをapp.spec rootへ写した。schema由来root一覧とverifier通過済み字義例へ是正し、schema pinは不変。"
 
 [[class]]
+id = "community_computed_expression_missing"
+category = "terminal"
+attribution = "machine"
+match_reason = "community_profile_violation:community_computed_expression_missing"
+first_seen = "cm2b-golden-005-instrument-window"
+ledger_ref = "CM-2h"
+note = "解消済み(DATA-1追補): computed entryの正形{name,expression,type}を未配布でfunction/source形を誘発。validator定数由来の完全形と非空のverifier通過字義例を追加。"
+
+[[class]]
 id = "planner_quality_exhausted"
 category = "terminal"
 attribution = "machine"
