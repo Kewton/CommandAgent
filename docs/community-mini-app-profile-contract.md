@@ -32,6 +32,16 @@ by SHA-256. The contract verifies the supplied schema pin in the same manner as
 the pack institution: a pin mismatch is a contract failure, not an invitation
 to accept the supplied schema.
 
+### Measurement fixture supply
+
+During local golden measurement, `workspace/management/bench/community/appspec-schema/`
+acts as the platform-owned v0 fixture. The suite copies both schema bytes and
+their pin into the canonical workspace `schema/` path before generation, after
+the empty-workspace integrity check. Missing schema remains
+`community_schema_missing`; a digest mismatch fails closed. When the real
+platform schema arrives, replace the fixture and pin together, update its
+manifest, and rerun the pin and adversarial checks before measuring again.
+
 ### L3/L4 promotion
 
 Promotion is permitted only under `src/app-zone/`. Every promotion must emit a
