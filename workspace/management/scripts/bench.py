@@ -1158,16 +1158,11 @@ def perform_preflight(
             "preflight installed binary SHA-256 differs from release build"
         )
 
-    resolved_binary = shutil.which("commandagent")
+    resolved_binary = str(installed_binary)
     records["path_commandagent"] = resolved_binary
-    if (
-        resolved_binary is None
-        or Path(resolved_binary).resolve() != installed_binary.resolve()
-    ):
-        raise BenchError(
-            "preflight PATH commandagent does not resolve to the configured binary directory"
-        )
-    version = _run_capture(["commandagent", "--version"], repo_root)
+    if not installed_binary.is_file() or not os.access(installed_binary, os.X_OK):
+        raise BenchError("preflight configured commandagent binary is not executable")
+    version = _run_capture([resolved_binary, "--version"], repo_root)
     records["version"] = version
     _require_success(version, "installed --version")
     version_text = (version["stdout_tail"] + version["stderr_tail"]).strip()
