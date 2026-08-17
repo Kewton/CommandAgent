@@ -47,6 +47,7 @@ pub mod ultra_plan;
 pub mod ultra_preset;
 pub mod verify;
 pub mod profiles {
+    pub mod community_mini_app;
     pub mod data;
     pub mod ingest;
     pub mod nextjs;

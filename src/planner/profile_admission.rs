@@ -13,6 +13,7 @@ pub(crate) fn status(profile: &str) -> ManifestStatus {
         "data" => data::manifest::get().metadata.status,
         "ingest" => ingest::manifest::get().metadata.status,
         "python-cli" | "cli" => python_cli::manifest::get().metadata.status,
+        "community-mini-app" => ManifestStatus::Admitted,
         _ => crate::planner::profiles::nextjs::manifest_status(&canonical)
             .unwrap_or(ManifestStatus::Draft),
     }

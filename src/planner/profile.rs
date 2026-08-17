@@ -142,6 +142,7 @@ pub enum ProfileId {
     Vite,
     React,
     Web,
+    CommunityMiniApp,
     Other(String),
 }
 
@@ -163,6 +164,7 @@ impl ProfileId {
             "vite" => Self::Vite,
             "react" => Self::React,
             "web" => Self::Web,
+            crate::planner::profiles::community_mini_app::PROFILE_ID => Self::CommunityMiniApp,
             other => Self::Other(other.to_string()),
         }
     }
@@ -183,6 +185,7 @@ impl ProfileId {
             Self::Vite => "vite",
             Self::React => "react",
             Self::Web => "web",
+            Self::CommunityMiniApp => crate::planner::profiles::community_mini_app::PROFILE_ID,
             Self::Other(value) => value,
         }
     }
@@ -520,12 +523,16 @@ static PYTHON_CLI_PROFILE: crate::planner::profiles::python_cli::PythonCliProfil
 static INGEST_PROFILE: crate::planner::profiles::ingest::IngestProfile =
     crate::planner::profiles::ingest::IngestProfile;
 static GENERIC_PROFILE: GenericProfile = GenericProfile;
-static DOMAIN_PROFILES: [&'static dyn DomainProfile; 5] = [
+static COMMUNITY_MINI_APP_PROFILE:
+    crate::planner::profiles::community_mini_app::CommunityMiniAppProfile =
+    crate::planner::profiles::community_mini_app::CommunityMiniAppProfile;
+static DOMAIN_PROFILES: [&'static dyn DomainProfile; 6] = [
     &NEXTJS_PROFILE,
     &PYTHON_CLI_PROFILE,
     &DATA_PROFILE,
     &INGEST_PROFILE,
     &GENERIC_PROFILE,
+    &COMMUNITY_MINI_APP_PROFILE,
 ];
 
 impl ProfileRuntime for crate::planner::profiles::nextjs::NextjsProfile {
@@ -1042,8 +1049,9 @@ impl ProfileRuntime for GenericProfile {
 pub struct ProfileRuntimeRegistry;
 
 impl ProfileRuntimeRegistry {
-    const REGISTERED: [ProfileId; 5] = [
+    const REGISTERED: [ProfileId; 6] = [
         ProfileId::Nextjs,
+        ProfileId::CommunityMiniApp,
         ProfileId::PythonCli,
         ProfileId::Data,
         ProfileId::Ingest,
@@ -1055,6 +1063,7 @@ impl ProfileRuntimeRegistry {
     pub fn resolve(profile: &ProfileId) -> &'static dyn ProfileRuntime {
         match profile {
             ProfileId::Nextjs => &NEXTJS_PROFILE,
+            ProfileId::CommunityMiniApp => &COMMUNITY_MINI_APP_PROFILE,
             ProfileId::PythonCli => &PYTHON_CLI_PROFILE,
             ProfileId::Data | ProfileId::DataAnalysis | ProfileId::DataPipeline => &DATA_PROFILE,
             ProfileId::Ingest => &INGEST_PROFILE,

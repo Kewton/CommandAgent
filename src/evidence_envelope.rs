@@ -24,6 +24,8 @@ pub(crate) enum EvidenceFamily {
     Workflow,
     #[serde(rename = "score")]
     Score,
+    #[serde(rename = "promotion_decision")]
+    PromotionDecision,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -190,6 +192,7 @@ fn kind_for_path(family: EvidenceFamily, relative: &str) -> &'static str {
         }
         (EvidenceFamily::Circle, "workflow-circle.json") => "workflow_circle",
         (EvidenceFamily::Score, "score-checkpoint.json") => "score_checkpoint",
+        (EvidenceFamily::PromotionDecision, "promotion-decision.json") => "promotion_decision",
         _ if family == EvidenceFamily::F && name.ends_with("-adjudication.json") => "adjudication",
         _ if family == EvidenceFamily::F && name.contains("-before-attempt-") => "before_attempt",
         _ if family == EvidenceFamily::F && name.ends_with("-before.json") => "before",
@@ -207,6 +210,7 @@ fn kind_for_path(family: EvidenceFamily, relative: &str) -> &'static str {
         (EvidenceFamily::Circle, _) => "circle_evidence",
         (EvidenceFamily::Workflow, _) => "workflow_evidence",
         (EvidenceFamily::Score, _) => "score_evidence",
+        (EvidenceFamily::PromotionDecision, _) => "promotion_decision",
     }
 }
 
@@ -405,6 +409,7 @@ mod tests {
             EvidenceFamily::Circle,
             EvidenceFamily::Workflow,
             EvidenceFamily::Score,
+            EvidenceFamily::PromotionDecision,
         ];
         assert_eq!(
             families.map(|family| serde_json::to_value(family).unwrap()),
@@ -419,6 +424,7 @@ mod tests {
                 json!("circle"),
                 json!("workflow"),
                 json!("score"),
+                json!("promotion_decision"),
             ]
         );
     }
@@ -445,6 +451,7 @@ mod tests {
             EvidenceFamily::Circle,
             EvidenceFamily::Workflow,
             EvidenceFamily::Score,
+            EvidenceFamily::PromotionDecision,
         ]
         .into_iter()
         .map(|family| {
