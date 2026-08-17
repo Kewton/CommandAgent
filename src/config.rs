@@ -732,6 +732,11 @@ pub(crate) fn normalize_lm_studio_host(value: &str) -> anyhow::Result<String> {
     if !matches!(parsed.scheme(), "http" | "https") {
         bail!("--lm-studio-host must use http or https");
     }
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        bail!(
+            "--lm-studio-host must not contain credentials; use LM_STUDIO_API_TOKEN for server authentication"
+        );
+    }
     if parsed.query().is_some() || parsed.fragment().is_some() {
         bail!("--lm-studio-host must not contain a query or fragment");
     }
@@ -2080,6 +2085,14 @@ tool_protocol = "native"
 
         let query = normalize_lm_studio_host("http://localhost:1234?token=secret").unwrap_err();
         assert!(query.to_string().contains("query or fragment"));
+
+        let credentials =
+            normalize_lm_studio_host("http://operator:lm-studio-secret@localhost:1234")
+                .unwrap_err()
+                .to_string();
+        assert!(credentials.contains("LM_STUDIO_API_TOKEN"));
+        assert!(!credentials.contains("operator"));
+        assert!(!credentials.contains("lm-studio-secret"));
     }
 
     #[test]
