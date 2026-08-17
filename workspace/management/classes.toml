@@ -131,7 +131,7 @@ note = "profile=cliのfinal acceptanceがE-3b C1〜C4 runtimeを起動しなか�
 
 [[class]]
 id = "bench_install_sandbox_denied"
-category = "environment"
+category = "terminal"
 attribution = "env"
 match_reason = "preflight release install failed:.*Operation not permitted"
 first_seen = "cm2f-golden-004r"
