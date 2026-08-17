@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::OnceLock;
@@ -10,6 +10,8 @@ use crate::bounded_process;
 use crate::planner::profile::{DomainProfile, ProfileId, ProfileQualityExpectations};
 use crate::planner::profile_behavior::ProfileRuntime;
 use crate::planner::verify::VerificationReport;
+
+mod computed;
 
 pub const PROFILE_ID: &str = "community-mini-app";
 pub const PROMOTION_DECISION_EVIDENCE_FAMILY: &str = "promotion_decision";
@@ -32,6 +34,7 @@ actions:
 validations: []
 computed:
   - name: countPlusOne
+    entity: counter
     expression: count + 1
     type: number
 permissions:
@@ -148,14 +151,14 @@ const ROOT_FIELDS: &[&str] = &[
 ];
 const ENTITY_FIELD_TYPES: &[&str] = &["number", "string", "boolean", "list"];
 const ENTITY_ENTRY_FIELDS: &[&str] = &["name", "fields"];
-const COMPUTED_ENTRY_FIELDS: &[&str] = &["name", "expression", "type"];
-const ALLOWED_COMPUTED_FUNCTIONS: &[&str] = &["min", "max", "len"];
 const PINNED_SCHEMA_FIXTURE: &str = include_str!(
     "../../../workspace/management/bench/community/synthetic-community/schema/app-spec.schema.yaml"
 );
+const PINNED_CHAINED_SPEC_FIXTURE: &str = include_str!(
+    "../../../workspace/management/bench/community/appspec-schema/positive/computed-chain/app.spec.yaml"
+);
 const FORBIDDEN_API_MARKERS: &[&str] =
     &["process.env", "eval(", "child_process", "fetch(", "import("];
-const MAX_COMPUTED_NODES: usize = 64;
 
 fn schema_vocabulary_guidance() -> String {
     let schema: Value = serde_yaml::from_str(PINNED_SCHEMA_FIXTURE)
@@ -177,17 +180,26 @@ fn schema_vocabulary_guidance() -> String {
         .join(", ")
 }
 
+fn chained_computed_guidance() -> String {
+    let spec: Value = serde_yaml::from_str(PINNED_CHAINED_SPEC_FIXTURE)
+        .expect("sealed chained-computed example must parse");
+    serde_yaml::to_string(&spec["computed"])
+        .expect("sealed chained-computed example must serialize")
+        .replace('\n', "; ")
+}
+
 pub fn guidance() -> &'static str {
     static GUIDANCE: OnceLock<String> = OnceLock::new();
     GUIDANCE
         .get_or_init(|| {
             format!(
-                "Community Mini App generation rules (DATA-1):\n- L2 is the default; first generate only app.spec.yaml.\n- Complete pinned-schema root vocabulary: {}. These seven keys are the whole app root. Schema-only metadata keys `schema_version` and `fields` must never appear there.\n- Entity keys: `{}`. Field types: {}. View/action names are goal-defined; v0 has no kind enum.\n- Computed keys: `{}`. `expression` is one bounded string; `type` is a field type. Pure functions: {}. Never use `function`/`source` or invent types, kinds, or functions.\n- L2 plan: write app.spec.yaml; verify exactly with `commandagent --offline --profile community-mini-app --prompt \"Validate app.spec.yaml against the pinned Community AppSpec schema and exit non-zero on violation.\"`. It is product-internal, workspace-local, and needs no dependency setup; file existence alone is insufficient.\n- Verifier-checked minimal YAML: `{}`.\n- L3/L4 only under src/app-zone/; add an app-zone step and verify, and record promotion_decision with the lower-level result and reason.\n- The platform owns the pinned schema; do not replace, weaken, or infer it. Core paths are immutable. Forbidden: process.env, eval, child_process, raw fetch, dynamic import, undeclared packages, build-time egress.\n",
+                "Community Mini App rules (DATA-1):\n- L2 is the default; generate only app.spec.yaml first.\n- Roots: {}. This is the whole app root. Schema-only metadata keys `schema_version`/`fields` never appear there.\n- Entity keys: `{}`; field types: {}.\n- Computed keys: `{}`. Declare owning `entity`; use only that entity's fields/computed values. Functions: {}. Topological evaluation; self/mutual cycles are forbidden. Never use `function`/`source` or invent vocabulary.\n- Sealed chain (shareAmount -> netBalance -> settlementAmount): `{}`.\n- L2 verify: `commandagent --offline --profile community-mini-app --prompt \"Validate app.spec.yaml against the pinned Community AppSpec schema and exit non-zero on violation.\"`. It needs no setup; existence-only checks are insufficient.\n- Verifier-checked minimal YAML: `{}`.\n- L3/L4 only under src/app-zone/; add app-zone+verify and record promotion_decision with lower result/reason.\n- Platform owns the pin. Core immutable. Forbidden: process.env, eval, child_process, raw fetch, dynamic import, undeclared packages, build-time egress.\n",
                 schema_vocabulary_guidance(),
                 ENTITY_ENTRY_FIELDS.join(", "),
                 ENTITY_FIELD_TYPES.join(", "),
-                COMPUTED_ENTRY_FIELDS.join(", "),
-                ALLOWED_COMPUTED_FUNCTIONS.join(", "),
+                computed::ENTRY_FIELDS.join(", "),
+                computed::ALLOWED_FUNCTIONS.join(", "),
+                chained_computed_guidance(),
                 MINIMAL_SPEC_EXAMPLE.replace('\n', "; ")
             )
         })
@@ -233,7 +245,7 @@ fn verify_schema_pin(root: &Path) -> Result<(), String> {
         &std::fs::read_to_string(schema).map_err(|_| "community_schema_unreadable".to_string())?,
     )
     .map_err(|_| "community_schema_invalid".to_string())?;
-    if value.get("schema_version").and_then(Value::as_str) != Some("community.app-spec/v1") {
+    if value.get("schema_version").and_then(Value::as_str) != Some("community.app-spec/v0.1") {
         return Err("community_schema_version_invalid".to_string());
     }
     Ok(())
@@ -249,32 +261,6 @@ fn value_kind(value: &Value) -> &'static str {
         Value::Mapping(_) => "mapping",
         Value::Tagged(_) => "unknown",
     }
-}
-
-fn validate_computed(expression: &str, fields: &BTreeSet<String>) -> Result<(), String> {
-    let tokens = expression
-        .split(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
-        .filter(|token| !token.is_empty())
-        .collect::<Vec<_>>();
-    if tokens.len() > MAX_COMPUTED_NODES {
-        return Err("community_computed_ast_limit".to_string());
-    }
-    for token in tokens {
-        if token == "eval" || token == "fetch" || token == "process" || token == "import" {
-            return Err(format!("community_computed_forbidden:{token}"));
-        }
-        if token
-            .chars()
-            .next()
-            .is_some_and(|character| character.is_ascii_alphabetic())
-            && !fields.contains(token)
-            && !matches!(token, "true" | "false")
-            && !ALLOWED_COMPUTED_FUNCTIONS.contains(&token)
-        {
-            return Err(format!("community_computed_unregistered:{token}"));
-        }
-    }
-    Ok(())
 }
 
 fn verify_spec(root: &Path) -> Result<(), String> {
@@ -305,7 +291,7 @@ fn verify_spec(root: &Path) -> Result<(), String> {
             return Err(format!("community_spec_type:{field}"));
         }
     }
-    let mut fields = BTreeSet::new();
+    let mut entities_by_name = BTreeMap::<String, BTreeSet<String>>::new();
     if let Some(entities) = mapping[&Value::String("entities".to_string())].as_sequence() {
         for entity in entities {
             let entity_map = entity
@@ -321,6 +307,7 @@ fn verify_spec(root: &Path) -> Result<(), String> {
                 .get(Value::String("name".to_string()))
                 .and_then(Value::as_str)
                 .ok_or_else(|| "community_entity_name_missing".to_string())?;
+            let mut fields = BTreeSet::new();
             if let Some(entity_fields) = entity_map
                 .get(Value::String("fields".to_string()))
                 .and_then(Value::as_mapping)
@@ -338,39 +325,13 @@ fn verify_spec(root: &Path) -> Result<(), String> {
                     fields.insert(field.to_string());
                 }
             }
-            fields.insert(name.to_string());
+            if entities_by_name.insert(name.to_string(), fields).is_some() {
+                return Err(format!("community_entity_duplicate:{name}"));
+            }
         }
     }
     if let Some(computed) = mapping[&Value::String("computed".to_string())].as_sequence() {
-        for item in computed {
-            let item = item
-                .as_mapping()
-                .ok_or_else(|| "community_computed_invalid".to_string())?;
-            let item_fields = item
-                .keys()
-                .filter_map(Value::as_str)
-                .collect::<BTreeSet<_>>();
-            if item_fields
-                != COMPUTED_ENTRY_FIELDS
-                    .iter()
-                    .copied()
-                    .collect::<BTreeSet<_>>()
-            {
-                return Err("community_computed_vocabulary_mismatch".to_string());
-            }
-            let expression = item
-                .get(Value::String("expression".to_string()))
-                .and_then(Value::as_str)
-                .ok_or_else(|| "community_computed_expression_missing".to_string())?;
-            validate_computed(expression, &fields)?;
-            if item
-                .get(Value::String("type".to_string()))
-                .and_then(Value::as_str)
-                .is_none()
-            {
-                return Err("community_computed_type_missing".to_string());
-            }
-        }
+        computed::validate_graph(computed, &entities_by_name, ENTITY_FIELD_TYPES)?;
     }
     Ok(())
 }
@@ -616,15 +577,18 @@ mod tests {
         assert!(text.contains("Schema-only metadata keys"));
         assert!(text.contains("entities:list"));
         assert!(text.contains("computed:list"));
-        for function in ALLOWED_COMPUTED_FUNCTIONS {
+        for function in computed::ALLOWED_FUNCTIONS {
             assert!(text.contains(function));
         }
-        assert!(text.contains("name, expression, type"));
+        assert!(text.contains("name, entity, expression, type"));
         assert!(text.contains("function`/`source"));
+        assert!(text.contains("shareAmount -> netBalance -> settlementAmount"));
+        assert!(text.contains("self/mutual cycles are forbidden"));
         assert!(text.contains("commandagent --offline --profile community-mini-app"));
         assert!(
             text.chars().count() <= 2_000,
-            "profile guidance must leave room below the 2,500-character step limit"
+            "profile guidance must leave room below the 2,500-character step limit: {}",
+            text.chars().count()
         );
     }
 
@@ -652,6 +616,19 @@ mod tests {
                 schema["fields"][*key].as_str().unwrap()
             )));
         }
+        assert_eq!(
+            schema["computed_contract"]["entry_fields"],
+            serde_yaml::to_value(computed::ENTRY_FIELDS).unwrap()
+        );
+        assert_eq!(
+            schema["computed_contract"]["reference_scope"],
+            "same_entity"
+        );
+        assert_eq!(
+            schema["computed_contract"]["evaluation_order"],
+            "topological"
+        );
+        assert_eq!(schema["computed_contract"]["cycles"], "violation");
 
         let root = tempfile::tempdir().unwrap();
         std::fs::create_dir(root.path().join("schema")).unwrap();
@@ -667,6 +644,65 @@ mod tests {
         .unwrap();
         std::fs::write(root.path().join("app.spec.yaml"), MINIMAL_SPEC_EXAMPLE).unwrap();
         assert_eq!(verify_spec(root.path()), Ok(()));
+    }
+
+    #[test]
+    fn chained_example_and_cycle_fixtures_follow_the_v01_schema() {
+        fn verify_fixture(spec: &str) -> Result<(), String> {
+            let root = tempfile::tempdir().unwrap();
+            std::fs::create_dir(root.path().join("schema")).unwrap();
+            std::fs::write(
+                root.path().join("schema/app-spec.schema.yaml"),
+                PINNED_SCHEMA_FIXTURE,
+            )
+            .unwrap();
+            std::fs::write(
+                root.path().join("schema/app-spec.schema.sha256"),
+                format!("{:x}\n", Sha256::digest(PINNED_SCHEMA_FIXTURE.as_bytes())),
+            )
+            .unwrap();
+            std::fs::write(root.path().join("app.spec.yaml"), spec).unwrap();
+            verify_spec(root.path())
+        }
+
+        assert_eq!(verify_fixture(PINNED_CHAINED_SPEC_FIXTURE), Ok(()));
+        assert!(guidance().contains(&chained_computed_guidance()));
+
+        let self_cycle = include_str!(
+            "../../../workspace/management/bench/community/appspec-schema/negative/computed-self-cycle/app.spec.yaml"
+        );
+        assert_eq!(
+            verify_fixture(self_cycle),
+            Err("community_computed_cycle:expense.selfAmount".to_string())
+        );
+        let mutual_cycle = include_str!(
+            "../../../workspace/management/bench/community/appspec-schema/negative/computed-mutual-cycle/app.spec.yaml"
+        );
+        assert_eq!(
+            verify_fixture(mutual_cycle),
+            Err("community_computed_cycle:expense.leftAmount,expense.rightAmount".to_string())
+        );
+    }
+
+    #[test]
+    fn removed_v0_schema_is_rejected_after_the_replacement_ceremony() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("schema")).unwrap();
+        let old = PINNED_SCHEMA_FIXTURE.replace(
+            "schema_version: community.app-spec/v0.1",
+            "schema_version: community.app-spec/v1",
+        );
+        std::fs::write(root.path().join("schema/app-spec.schema.yaml"), &old).unwrap();
+        std::fs::write(
+            root.path().join("schema/app-spec.schema.sha256"),
+            format!("{:x}\n", Sha256::digest(old.as_bytes())),
+        )
+        .unwrap();
+        std::fs::write(root.path().join("app.spec.yaml"), MINIMAL_SPEC_EXAMPLE).unwrap();
+        assert_eq!(
+            verify_spec(root.path()),
+            Err("community_schema_version_invalid".to_string())
+        );
     }
 
     #[test]

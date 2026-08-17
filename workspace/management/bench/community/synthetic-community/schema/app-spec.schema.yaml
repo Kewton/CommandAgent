@@ -1,4 +1,4 @@
-schema_version: community.app-spec/v1
+schema_version: community.app-spec/v0.1
 fields:
   entities: list
   views: list
@@ -7,3 +7,9 @@ fields:
   computed: list
   permissions: list
   minIdentity: mapping
+computed_contract:
+  entry_fields: [name, entity, expression, type]
+  reference_scope: same_entity
+  evaluation_order: topological
+  cycles: violation
+  queued: [global_reference]

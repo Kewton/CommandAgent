@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
 import tempfile
@@ -10,6 +11,7 @@ import community_profile
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURE = ROOT / "workspace/management/bench/community/synthetic-community"
+SCHEMA_FIXTURE = ROOT / "workspace/management/bench/community/appspec-schema"
 
 
 class CommunityProfileSpecTests(unittest.TestCase):
@@ -29,6 +31,27 @@ class CommunityProfileSpecTests(unittest.TestCase):
             with self.assertRaises(community_profile.ValidationError):
                 community_profile.validate_schema_pin(FIXTURE / "schema/app-spec.schema.yaml", pin)
 
+    def test_removed_v0_schema_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            schema = Path(directory) / "schema.yaml"
+            pin = Path(directory) / "schema.sha256"
+            old = (FIXTURE / "schema/app-spec.schema.yaml").read_text(
+                encoding="utf-8"
+            ).replace(
+                "schema_version: community.app-spec/v0.1",
+                "schema_version: community.app-spec/v1",
+            )
+            schema.write_text(old, encoding="utf-8")
+            pin.write_text(
+                hashlib.sha256(old.encode()).hexdigest(),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(
+                community_profile.ValidationError,
+                "unsupported platform schema version",
+            ):
+                community_profile.validate_schema_pin(schema, pin)
+
     def test_unknown_field_is_fail_closed(self):
         with tempfile.TemporaryDirectory() as directory:
             spec = Path(directory) / "app.spec.yaml"
@@ -44,6 +67,37 @@ class CommunityProfileSpecTests(unittest.TestCase):
             community_profile.ExpressionParser("eval(1)", {"count": "number"}).parse()
         with self.assertRaises(community_profile.ValidationError):
             community_profile.ExpressionParser("count + 'bad'", {"count": "number"}).parse()
+
+    def test_same_entity_computed_chain_is_topologically_ordered(self):
+        result = community_profile.validate_spec(
+            SCHEMA_FIXTURE / "positive/computed-chain/app.spec.yaml",
+            SCHEMA_FIXTURE / "app-spec.schema.yaml",
+            SCHEMA_FIXTURE / "app-spec.schema.sha256",
+        )
+        self.assertEqual(
+            result["computed_evaluation_order"],
+            [
+                "expense.shareAmount",
+                "expense.netBalance",
+                "expense.settlementAmount",
+            ],
+        )
+
+    def test_self_referencing_computed_is_a_violation(self):
+        with self.assertRaisesRegex(community_profile.ValidationError, "computed cycle"):
+            community_profile.validate_spec(
+                SCHEMA_FIXTURE / "negative/computed-self-cycle/app.spec.yaml",
+                SCHEMA_FIXTURE / "app-spec.schema.yaml",
+                SCHEMA_FIXTURE / "app-spec.schema.sha256",
+            )
+
+    def test_mutually_referencing_computed_is_a_violation(self):
+        with self.assertRaisesRegex(community_profile.ValidationError, "computed cycle"):
+            community_profile.validate_spec(
+                SCHEMA_FIXTURE / "negative/computed-mutual-cycle/app.spec.yaml",
+                SCHEMA_FIXTURE / "app-spec.schema.yaml",
+                SCHEMA_FIXTURE / "app-spec.schema.sha256",
+            )
 
     def test_zone_rejects_core_diff_and_forbidden_api(self):
         with tempfile.TemporaryDirectory() as directory:

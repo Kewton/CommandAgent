@@ -15,6 +15,7 @@ validations:
     expression: count >= 0
 computed:
   - name: countPlusOne
+    entity: counter
     expression: count + 1
     type: number
 permissions:

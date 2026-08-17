@@ -1,0 +1,15 @@
+entities:
+  - name: expense
+    fields:
+      amount: number
+views: []
+actions: []
+validations: []
+computed:
+  - name: selfAmount
+    entity: expense
+    expression: amount + selfAmount
+    type: number
+permissions: []
+minIdentity:
+  mode: anonymous

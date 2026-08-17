@@ -1,6 +1,6 @@
 # Community Mini App Profile Contract
 
-**Status: fixed (CM-1b / E-2a adjudicated 2026-08-17)**
+**Status: fixed (CM-2i schema v0.1 adjudicated 2026-08-18)**
 
 This is the fixed CM-1b contract. The validator consumes this contract and the
 sealed adversarial inputs; it must not mutate either to make an example pass.
@@ -35,12 +35,14 @@ to accept the supplied schema.
 ### Measurement fixture supply
 
 During local golden measurement, `workspace/management/bench/community/appspec-schema/`
-acts as the platform-owned v0 fixture. The suite copies both schema bytes and
+acts as the platform-owned v0.1 fixture. The suite copies both schema bytes and
 their pin into the canonical workspace `schema/` path before generation, after
 the empty-workspace integrity check. Missing schema remains
 `community_schema_missing`; a digest mismatch fails closed. When the real
-platform schema arrives, replace the fixture and pin together, update its
-manifest, and rerun the pin and adversarial checks before measuring again.
+platform schema arrives, use the sealed replacement ceremony: add the new
+schema beside the old schema, verify both pins and both validator paths, remove
+the old schema, then update the canonical pin and manifest in the same commit.
+Rerun pin, negative, parity, and adversarial checks before measuring again.
 
 ### L3/L4 promotion
 
@@ -64,6 +66,12 @@ undeclared behavior was detected. Both are fail-closed outcomes.
   I/O, recursion, or an unregistered function.
 - The computed-expression check is bounded and must not evaluate an expression
   while validating it.
+- Schema v0.1 gives every computed entry an owning `entity`. A computed
+  expression may reference fields and computed values owned by that same
+  entity. Global/cross-entity references are QUEUED and fail closed.
+- Computed dependencies must form a DAG. Self-reference and mutual cycles are
+  `violation`; the normative evaluation order is the deterministic
+  topological order, independent of YAML declaration order.
 
 ### Z — zone and dependency constraints
 
@@ -152,6 +160,10 @@ attempt and preserve its `fail`/`violation` event.
    nodes, no I/O, recursion, assignment, member calls, or unregistered
    functions. Static types are `number`, `string`, `boolean`, `list`, and
    `null`; operators and function arguments must type-check before a pass.
+   Schema v0.1 computed entries are exactly `name`, `entity`, `expression`, and
+   `type`. References are scoped to `entity`; computed-to-computed references
+   are evaluated in topological order. Cycles fail closed. Cross-entity/global
+   references remain QUEUED for a later schema adjudication.
 7. **Allowlist.** The initial dependency/API allowlist is the empty set.
    Dependencies therefore fail closed until an adjudication adds an exact
    package/version/hash entry. The lockfile must contain every declared
@@ -188,3 +200,21 @@ attempt and preserve its `fail`/`violation` event.
 
 These ten rulings are binding for CM-1b. A later change requires a new
 adjudication record and fixture re-sealing.
+
+## 12. CM-2i schema v0.1 amendment record
+
+CM-2i applies that later-change ceremony. Platform fixture v0
+`community.app-spec/v1` had SHA-256
+`73a0ceba54802185f5210ed2bffce207c765fe02771cb4f216fe4f6f7d695527`.
+The v0.1 fixture is `community.app-spec/v0.1` with computed ownership,
+same-entity scope, topological evaluation, explicit cycle violation, and
+QUEUED global references. Its SHA-256 is
+`80e4cb41eeb0f60eb04640e2ac8beac7d1414e7f5a9aa9fa563fd08d17ac7e0b`.
+
+The ceremony order is recorded under
+`workspace/management/runs/cm2i-schema-v01-ceremony/`: v0.1 was added, v0 and
+v0.1 were both pin-checked and exercised, then v0 support was removed. The
+final product accepts only v0.1. The positive chained fixture and sealed
+self/mutual-cycle negatives are part of the v0.1 manifest. This amendment is
+the sole CM-2i authorization to change the schema fixture, pin, and its sealed
+manifest; golden suites and adversarial fixtures remain byte-identical.

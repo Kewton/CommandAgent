@@ -23,7 +23,7 @@ from typing import Any
 
 import yaml
 
-SCHEMA_VERSION = "community.app-spec/v1"
+SCHEMA_VERSION = "community.app-spec/v0.1"
 ROOT_FIELDS = {
     "entities",
     "views",
@@ -239,7 +239,70 @@ def validate_schema_pin(schema_path: Path, pin_path: Path) -> str:
         "minIdentity": "mapping",
     }:
         raise ValidationError("schema field vocabulary drift")
+    if schema.get("computed_contract") != {
+        "entry_fields": ["name", "entity", "expression", "type"],
+        "reference_scope": "same_entity",
+        "evaluation_order": "topological",
+        "cycles": "violation",
+        "queued": ["global_reference"],
+    }:
+        raise ValidationError("schema computed contract drift")
     return observed
+
+
+def expression_references(expression: str) -> set[str]:
+    tokens = tokenize(expression)
+    references: set[str] = set()
+    for index, token in enumerate(tokens[:-1]):
+        if token.kind != "name" or token.value in {"true", "false"}:
+            continue
+        if index + 1 < len(tokens) and tokens[index + 1].value == "(":
+            continue
+        references.add(token.value)
+    return references
+
+
+def computed_topological_order(
+    definitions: dict[tuple[str, str], dict[str, Any]],
+) -> list[str]:
+    dependencies: dict[tuple[str, str], set[tuple[str, str]]] = {
+        key: set() for key in definitions
+    }
+    owners_by_name: dict[str, set[str]] = {}
+    for entity, name in definitions:
+        owners_by_name.setdefault(name, set()).add(entity)
+    for (entity, name), item in definitions.items():
+        for reference in expression_references(str(item["expression"])):
+            dependency = (entity, reference)
+            if dependency in definitions:
+                dependencies[(entity, name)].add(dependency)
+            elif reference in owners_by_name:
+                raise ValidationError(
+                    f"cross-entity computed reference {reference!r}"
+                )
+    indegree = {key: len(required) for key, required in dependencies.items()}
+    dependents: dict[tuple[str, str], set[tuple[str, str]]] = {}
+    for node, required in dependencies.items():
+        for dependency in required:
+            dependents.setdefault(dependency, set()).add(node)
+    ready = sorted(key for key, count in indegree.items() if count == 0)
+    order: list[tuple[str, str]] = []
+    while ready:
+        node = ready.pop(0)
+        order.append(node)
+        for dependent in sorted(dependents.get(node, set())):
+            indegree[dependent] -= 1
+            if indegree[dependent] == 0:
+                ready.append(dependent)
+                ready.sort()
+    if len(order) != len(definitions):
+        cycle = ",".join(
+            f"{entity}.{name}"
+            for (entity, name), count in sorted(indegree.items())
+            if count > 0
+        )
+        raise ValidationError(f"computed cycle: {cycle}")
+    return [f"{entity}.{name}" for entity, name in order]
 
 
 def validate_spec(spec_path: Path, schema_path: Path, pin_path: Path) -> dict[str, Any]:
@@ -255,24 +318,87 @@ def validate_spec(spec_path: Path, schema_path: Path, pin_path: Path) -> dict[st
     for field, expected in expected_types.items():
         if _kind(spec[field]) != expected:
             raise ValidationError(f"{field} must be {expected}")
-    fields: dict[str, str] = {}
+    entities: dict[str, dict[str, str]] = {}
     for entity in spec["entities"]:
         if not isinstance(entity, dict) or set(entity) - {"name", "fields"} or not isinstance(entity.get("name"), str):
             raise ValidationError("entity vocabulary mismatch")
+        entity_name = str(entity["name"])
+        if entity_name in entities:
+            raise ValidationError(f"duplicate entity {entity_name!r}")
+        fields: dict[str, str] = {}
         for field_name, field_type in (entity.get("fields") or {}).items():
             if field_type not in {"number", "string", "boolean", "list"}:
                 raise ValidationError(f"unsupported entity field type {field_type!r}")
             fields[field_name] = field_type
+        entities[entity_name] = fields
+    definitions: dict[tuple[str, str], dict[str, Any]] = {}
+    owners_by_computed_name: dict[str, set[str]] = {}
     for item in spec["computed"]:
-        if not isinstance(item, dict) or set(item) != {"name", "expression", "type"}:
+        if not isinstance(item, dict) or set(item) != {
+            "name",
+            "entity",
+            "expression",
+            "type",
+        }:
             raise ValidationError("computed entry vocabulary mismatch")
+        entity_name = item.get("entity")
+        computed_name = item.get("name")
+        if not isinstance(entity_name, str) or entity_name not in entities:
+            raise ValidationError(f"computed entity is unknown: {entity_name!r}")
+        if not isinstance(computed_name, str) or not computed_name:
+            raise ValidationError("computed name is missing")
         if item["type"] not in {"number", "string", "boolean", "list"}:
             raise ValidationError("computed type is outside the closed set")
-        actual_type = ExpressionParser(str(item["expression"]), fields).parse()
+        if computed_name in entities[entity_name]:
+            raise ValidationError("computed name conflicts with an entity field")
+        key = (entity_name, computed_name)
+        if key in definitions:
+            raise ValidationError(f"duplicate computed field {entity_name}.{computed_name}")
+        definitions[key] = item
+        owners_by_computed_name.setdefault(computed_name, set()).add(entity_name)
+    field_owners: dict[str, set[str]] = {}
+    for entity_name, entity_fields in entities.items():
+        for field_name in entity_fields:
+            field_owners.setdefault(field_name, set()).add(entity_name)
+    for (entity_name, computed_name), item in definitions.items():
+        available = dict(entities[entity_name])
+        available.update(
+            {
+                name: str(definition["type"])
+                for (owner, name), definition in definitions.items()
+                if owner == entity_name
+            }
+        )
+        for reference in expression_references(str(item["expression"])):
+            if reference in available:
+                continue
+            cross_computed = any(
+                owner != entity_name
+                for owner in owners_by_computed_name.get(reference, set())
+            )
+            cross_field = any(
+                owner != entity_name for owner in field_owners.get(reference, set())
+            )
+            if cross_computed or cross_field:
+                raise ValidationError(
+                    f"cross-entity computed reference {reference!r}"
+                )
+            raise ValidationError(f"unregistered computed field {reference!r}")
+        actual_type = ExpressionParser(str(item["expression"]), available).parse()
         if actual_type != item["type"]:
-            raise ValidationError(f"computed {item['name']!r} type mismatch: {actual_type} != {item['type']}")
-        fields[str(item["name"])] = actual_type
-    return {"family": "S", "verdict": "pass", "schema_pin_sha256": schema_pin, "spec_sha256": sha256_file(spec_path), "computed_fields": sorted(fields)}
+            raise ValidationError(
+                f"computed {computed_name!r} type mismatch: "
+                f"{actual_type} != {item['type']}"
+            )
+    computed_order = computed_topological_order(definitions)
+    return {
+        "family": "S",
+        "verdict": "pass",
+        "schema_pin_sha256": schema_pin,
+        "spec_sha256": sha256_file(spec_path),
+        "computed_fields": computed_order,
+        "computed_evaluation_order": computed_order,
+    }
 
 
 FORBIDDEN_PATTERNS = {

@@ -408,7 +408,7 @@ attribution = "machine"
 match_reason = "community_profile_violation:community_computed_unregistered:.*"
 first_seen = "cm2b-golden-005-warikan-001"
 ledger_ref = "CM-2h"
-note = "未解消(DATA-1新規床): guidanceは登録関数とentity field型を配布したが、computed expressionのoperandがentity fieldに限られ、先行computed名を参照できない制約を配布していない。設計外のため計測を停止し裁定待ち。"
+note = "解消済み(CM-2i schema設計gap(b)へ訂正): v0はcomputed所有scopeを表現できなかった。v0.1でentityを明示し、同一entity内DAG参照とtopological評価を許可。自己/相互循環はviolation、global参照はQUEUED。"
 
 [[class]]
 id = "community_core_manifest_missing"
