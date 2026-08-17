@@ -22,6 +22,7 @@ fn gui_server_help_exposes_only_serving_inputs() {
         "--static-dir",
         "--repository-root",
         "--execution-root",
+        "--trial-token-auth",
         "--commandagent-bin",
     ] {
         assert!(help.contains(option), "missing {option}: {help}");
@@ -56,6 +57,7 @@ fn gui_server_disables_trial_without_an_execution_root() {
     assert_eq!(runtime.status, 200, "{}", runtime.body);
     let runtime: serde_json::Value = serde_json::from_str(&runtime.body).unwrap();
     assert_eq!(runtime["trial_available"], false);
+    assert_eq!(runtime["trial_token_auth_enabled"], false);
     assert!(runtime["session"].is_null());
     let response =
         server.request_without_access("POST", "/api/session-proposals", Some(&session_spec()));
@@ -219,7 +221,7 @@ fn run_index_reports_total_before_limit_and_normalized_status_state() {
 }
 
 #[test]
-fn gui_server_requires_a_runtime_token_for_trial_execution() {
+fn gui_server_requires_a_runtime_token_when_trial_token_auth_is_on() {
     let workspace = tempfile::tempdir().unwrap();
     let output = Command::new(env!("CARGO_BIN_EXE_gui_server"))
         .args(["--port", "0", "--base-path", "/"])
@@ -227,15 +229,56 @@ fn gui_server_requires_a_runtime_token_for_trial_execution() {
         .arg(env!("CARGO_MANIFEST_DIR"))
         .arg("--execution-root")
         .arg(workspace.path())
+        .args(["--trial-token-auth", "on"])
         .env_remove("GUI_TRIAL_TOKEN")
         .output()
         .unwrap();
     assert!(!output.status.success());
     assert!(
-        String::from_utf8_lossy(&output.stderr).contains("GUI_TRIAL_TOKEN is required"),
+        String::from_utf8_lossy(&output.stderr)
+            .contains("GUI_TRIAL_TOKEN is required when --trial-token-auth is on"),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn gui_server_defaults_trial_token_auth_to_off() {
+    let workspace = tempfile::tempdir().unwrap();
+    let mut server = Server::start_without_trial_token(
+        workspace.path(),
+        std::path::Path::new(env!("CARGO_BIN_EXE_commandagent")),
+    );
+
+    let runtime = server.request_without_access("GET", "/api/runtime-status", None);
+    assert_eq!(runtime.status, 200, "{}", runtime.body);
+    let runtime: serde_json::Value = serde_json::from_str(&runtime.body).unwrap();
+    assert_eq!(runtime["trial_available"], true);
+    assert_eq!(runtime["trial_token_auth_enabled"], false);
+
+    let index = server.request_without_access("GET", "/api/sessions", None);
+    assert_eq!(index.status, 200, "{}", index.body);
+
+    let origin = format!("http://127.0.0.1:{}", server.port);
+    let proposal = server.request_with_access(
+        "POST",
+        "/api/session-proposals",
+        Some(&session_spec()),
+        None,
+        Some(&origin),
+    );
+    assert_eq!(proposal.status, 200, "{}", proposal.body);
+
+    let cross_site_unsafe =
+        server.request_without_access("POST", "/api/session-proposals", Some(&session_spec()));
+    assert_eq!(cross_site_unsafe.status, 403, "{}", cross_site_unsafe.body);
+    assert_error(
+        &cross_site_unsafe,
+        "trial_origin_not_allowed",
+        "trial request origin is not allowed",
+    );
+    server.stop();
 }
 
 #[cfg(unix)]
@@ -536,6 +579,7 @@ fn confirmed_session_delegates_with_cli_event_bytes_unchanged() {
     assert_eq!(idle.status, 200, "{}", idle.body);
     let idle: serde_json::Value = serde_json::from_str(&idle.body).unwrap();
     assert_eq!(idle["trial_available"], true);
+    assert_eq!(idle["trial_token_auth_enabled"], true);
     assert!(idle["session"].is_null());
     let spec = serde_json::json!({
         "goal": "Create a CLI --pattern filter command",
@@ -967,6 +1011,11 @@ impl Server {
         Self::start_with_workspace(Some(workspace), cli, true, &static_root)
     }
 
+    fn start_without_trial_token(workspace: &std::path::Path, cli: &std::path::Path) -> Self {
+        let static_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/out");
+        Self::start_with_workspace(Some(workspace), cli, false, &static_root)
+    }
+
     fn start_dashboard_only() -> Self {
         let static_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("gui/out");
         Self::start_dashboard_only_with_static_root(&static_root)
@@ -1029,7 +1078,9 @@ impl Server {
             command.arg("--execution-root").arg(workspace);
         }
         if authenticated {
-            command.env("GUI_TRIAL_TOKEN", TEST_TRIAL_TOKEN);
+            command
+                .args(["--trial-token-auth", "on"])
+                .env("GUI_TRIAL_TOKEN", TEST_TRIAL_TOKEN);
         } else {
             command.env_remove("GUI_TRIAL_TOKEN");
         }

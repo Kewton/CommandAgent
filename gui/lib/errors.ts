@@ -95,7 +95,7 @@ export function describeError(reason: unknown): string {
     case "trial_execution_disabled":
     case "trial_authentication_disabled":
       return withDetail(
-        "Trial 実行が無効です。GUI サーバーを --execution-root と GUI_TRIAL_TOKEN 付きで再起動してください。",
+        "Trial 実行が無効です。GUI サーバーを --execution-root 付きで再起動してください。トークン認証を on にする場合は GUI_TRIAL_TOKEN も設定してください。",
         detail,
       );
     case "trial_internal_error":

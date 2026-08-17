@@ -36,6 +36,7 @@ enum LeaseState {
 #[derive(Debug, Serialize)]
 pub struct RuntimeStatus {
     pub trial_available: bool,
+    pub trial_token_auth_enabled: bool,
     pub session: Option<RuntimeSession>,
 }
 
@@ -68,7 +69,7 @@ impl TrialWorkspace {
         self.configured.is_some()
     }
 
-    pub fn runtime_status(&self) -> RuntimeStatus {
+    pub fn runtime_status(&self, trial_token_auth_enabled: bool) -> RuntimeStatus {
         let trial_available = self.require_current().is_ok();
         let session = self.lease.lock().ok().and_then(|lease| match &*lease {
             LeaseState::Idle => None,
@@ -83,6 +84,7 @@ impl TrialWorkspace {
         });
         RuntimeStatus {
             trial_available,
+            trial_token_auth_enabled,
             session,
         }
     }

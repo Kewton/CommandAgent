@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DocumentViewer } from "../../components/document-viewer";
 import { GateCardMarkdown } from "../../components/gate-card-markdown";
-import { Shell } from "../../components/shell";
+import { Shell, useShellRuntimeStatus } from "../../components/shell";
 import { TrialSessionIndexPanel } from "../../components/trial-session-index";
 import { apiPath } from "../../lib/base-path";
 import {
@@ -70,6 +70,19 @@ const initialMonitor: MonitorState = {
 };
 
 export default function TrialRunPage() {
+  return (
+    <Shell
+      active="try"
+      title="トライアル"
+      description="設定された execution root で GUI Trial を開始・監視し、.anvil/runs の履歴を確認します。"
+    >
+      <TrialRunContent />
+    </Shell>
+  );
+}
+
+function TrialRunContent() {
+  const runtime = useShellRuntimeStatus();
   const gateOneRef = useRef<HTMLElement>(null);
   const executionRef = useRef<HTMLElement>(null);
   const terminalRef = useRef<HTMLElement>(null);
@@ -101,10 +114,19 @@ export default function TrialRunPage() {
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [evidenceLoading, setEvidenceLoading] = useState(false);
   const [evidenceError, setEvidenceError] = useState<string | null>(null);
+  const trialTokenAuthEnabled = runtime?.data?.trial_token_auth_enabled !== false;
+  const trialAccessReady = !trialTokenAuthEnabled || trialToken.trim() !== "";
 
   useEffect(() => {
     setTrialToken(restoreTrialToken());
   }, []);
+
+  useEffect(() => {
+    if (runtime?.data?.trial_token_auth_enabled === false) {
+      setTrialToken("");
+      persistTrialToken("");
+    }
+  }, [runtime?.data?.trial_token_auth_enabled]);
 
   const updateTrialToken = useCallback((value: string) => {
     setTrialToken(value);
@@ -166,7 +188,7 @@ export default function TrialRunPage() {
   useEffect(() => {
     if (
       created === null ||
-      trialToken.trim() === "" ||
+      !trialAccessReady ||
       stage === "closed" ||
       stage === "terminal"
     ) {
@@ -232,7 +254,7 @@ export default function TrialRunPage() {
       cancelled = true;
       if (timer !== undefined) clearTimeout(timer);
     };
-  }, [created, rejectTrialToken, stage, trialToken]);
+  }, [created, rejectTrialToken, stage, trialAccessReady, trialToken]);
 
   useEffect(() => {
     if (gateTwoStartedAt === null || stage !== "gate_2") return;
@@ -331,7 +353,7 @@ export default function TrialRunPage() {
       setError("契約を確認する前に、計画モデルの正確な ID を入力してください。");
       return;
     }
-    if (trialToken.trim() === "") {
+    if (!trialAccessReady) {
       setError("契約を確認する前に、実行時の Trial アクセストークンを入力してください。");
       return;
     }
@@ -357,7 +379,7 @@ export default function TrialRunPage() {
   }
 
   async function inspectWorkspaceLease() {
-    if (trialToken.trim() === "") {
+    if (!trialAccessReady) {
       setError("ワークスペースのリースを確認する前に、実行時の Trial アクセストークンを入力してください。");
       return;
     }
@@ -418,8 +440,12 @@ export default function TrialRunPage() {
 
   async function reconnectExisting(requestedId?: string) {
     const id = (requestedId ?? reconnectSessionId).trim();
-    if (id === "" || trialToken.trim() === "") {
-      setError("再接続するセッション ID と実行時の Trial アクセストークンを入力してください。");
+    if (id === "" || !trialAccessReady) {
+      setError(
+        id === ""
+          ? "再接続するセッション ID を入力してください。"
+          : "実行時の Trial アクセストークンを入力してください。",
+      );
       return;
     }
     setBusy(true);
@@ -544,11 +570,6 @@ export default function TrialRunPage() {
   }, [created, session]);
 
   return (
-    <Shell
-      active="try"
-      title="トライアル"
-      description="設定された execution root で GUI Trial を開始・監視し、.anvil/runs の履歴を確認します。"
-    >
       <section className="trial-layout">
         <aside
           aria-label="Trial の進行状況"
@@ -617,26 +638,34 @@ export default function TrialRunPage() {
             rows={5}
             value={spec.goal}
           />
-          <label htmlFor="trial-token">Trial アクセストークン</label>
-          <input
-            autoComplete="off"
-            autoCapitalize="none"
-            data-testid="trial-token"
-            disabled={launchIdentityLocked}
-            id="trial-token"
-            onChange={(event) => {
-              updateTrialToken(event.target.value);
-              setWorkspaceLease(null);
-              if (created === null) {
-                setProposal(null);
-                setConfirmed(false);
-                setStage("compose");
-              }
-            }}
-            spellCheck={false}
-            type="password"
-            value={trialToken}
-          />
+          {trialTokenAuthEnabled ? (
+            <>
+              <label htmlFor="trial-token">Trial アクセストークン</label>
+              <input
+                autoComplete="off"
+                autoCapitalize="none"
+                data-testid="trial-token"
+                disabled={launchIdentityLocked}
+                id="trial-token"
+                onChange={(event) => {
+                  updateTrialToken(event.target.value);
+                  setWorkspaceLease(null);
+                  if (created === null) {
+                    setProposal(null);
+                    setConfirmed(false);
+                    setStage("compose");
+                  }
+                }}
+                spellCheck={false}
+                type="password"
+                value={trialToken}
+              />
+            </>
+          ) : (
+            <p className="source-note" data-testid="trial-token-auth-disabled">
+              Trial トークン認証はサーバー設定で無効です。
+            </p>
+          )}
           <div
             className={`lease-status-card ${workspaceLease?.status ?? "unknown"}`}
             data-testid="workspace-lease-status"
@@ -674,7 +703,7 @@ export default function TrialRunPage() {
               <button
                 className="secondary-action"
                 data-testid="reconnect-session-button"
-                disabled={busy || reconnectSessionId.trim() === "" || trialToken.trim() === ""}
+                disabled={busy || reconnectSessionId.trim() === "" || !trialAccessReady}
                 onClick={() => void reconnectExisting()}
                 type="button"
               >
@@ -1039,7 +1068,6 @@ export default function TrialRunPage() {
           />
         </div>
       </section>
-    </Shell>
   );
 
   function recordError(reason: unknown) {
@@ -1238,7 +1266,9 @@ function leaseLaunchBlockReason(lease: TrialWorkspaceLease | null): string | nul
 
 function authorizationHeaders(token: string, json = false): Record<string, string> {
   return {
-    "x-commandagent-trial-authorization": `Bearer ${token.trim()}`,
+    ...(token.trim() === ""
+      ? {}
+      : { "x-commandagent-trial-authorization": `Bearer ${token.trim()}` }),
     ...(json ? { "content-type": "application/json" } : {}),
   };
 }

@@ -30,25 +30,31 @@ root:
 cd gui
 GUI_BASE_PATH=/ npm run build
 cd ..
-export GUI_TRIAL_TOKEN="$(openssl rand -hex 32)"
 cargo run --features gui --bin gui_server -- \
   --port 4173 \
   --base-path / \
   --static-dir gui/out \
   --repository-root . \
   --execution-root /path/to/trial-workspace \
+  --trial-token-auth off \
   --commandagent-bin target/release/commandagent
 ```
 
-The runtime-only token is not compiled into the static export. Enter it in the
-**Trial access token** field; the page keeps it in tab-scoped `sessionStorage`
-and sends it as a Bearer token in `X-CommandAgent-Trial-Authorization` to Trial
-APIs. This dedicated header survives same-origin proxies that intentionally
-remove the generic `Authorization` header. The server still accepts
-`Authorization: Bearer` for direct-client compatibility. If `--execution-root`
-is omitted, the dashboard remains available but all Trial APIs fail closed with
-HTTP 503. If `--execution-root` is present without `GUI_TRIAL_TOKEN`, the server
-refuses to start.
+`--trial-token-auth` accepts `on` or `off` and defaults to `off`. In the default
+mode the page hides the **Trial access token** field and Trial APIs do not
+require a bearer token. POST requests still require a same-host Origin (or an
+origin admitted by `GUI_TRIAL_ALLOWED_ORIGINS`). Use this mode only for a
+trusted local loopback session.
+
+To require the runtime-only token, set `--trial-token-auth on` and export a
+32–4096 character non-whitespace `GUI_TRIAL_TOKEN` before startup. The page
+then keeps the entered value in tab-scoped `sessionStorage` and sends it in
+`X-CommandAgent-Trial-Authorization`. The server also accepts the legacy
+direct-client `Authorization: Bearer` form. When token authentication is on,
+startup fails if `GUI_TRIAL_TOKEN` is missing or invalid.
+
+If `--execution-root` is omitted, the dashboard remains available but all
+Trial APIs fail closed with HTTP 503 regardless of the authentication mode.
 
 Open `http://127.0.0.1:4173/`.
 
@@ -74,6 +80,7 @@ cargo run --features gui --bin gui_server -- \
   --static-dir gui/out \
   --repository-root . \
   --execution-root /path/to/trial-workspace \
+  --trial-token-auth on \
   --commandagent-bin target/release/commandagent
 ```
 
@@ -244,17 +251,17 @@ possible live process. Recover it conservatively:
 The archive remains the evidence for the incomplete session. Restoring it
 under `.anvil/runs` will intentionally make startup require recovery again.
 
-The page places the launched session ID, but never the token, in
-`?session=<id>`. After a same-tab reload or navigation, the runtime Trial token
-is restored and can be used with **Reconnect monitoring**. Reconnect calls only
-`GET api/sessions/{id}` and cannot delegate another CLI process. A 409 response
-that identifies an already running or recovery-required session fills this same
-reconnect path.
+The page places the launched session ID, but never a token, in
+`?session=<id>`. With token authentication on, a same-tab reload or navigation
+restores the runtime Trial token for **Reconnect monitoring**. Reconnect calls
+only `GET api/sessions/{id}` and cannot delegate another CLI process. A 409
+response that identifies an already running or recovery-required session fills
+this same reconnect path.
 
 Monitoring guidance distinguishes authentication and browser boundaries:
 
-- HTTP 401/403 asks you to re-enter the runtime token and verify the allowed
-  origin.
+- With token authentication on, HTTP 401 asks you to re-enter the runtime token.
+- HTTP 403 asks you to verify the allowed origin in either mode.
 - An upstream manual redirect asks you to reload and re-authenticate with the
   access proxy.
 - A thrown browser fetch asks you to check the proxy/network connection and
@@ -267,7 +274,7 @@ retrying at the capped interval. A response with the definitive
 tab's storage; a generic proxy 401/403 does not. The token is never stored in
 `localStorage`, included in URLs, or compiled into the static export.
 
-### Trial token lifetime and rotation
+### Trial token lifetime and rotation when authentication is on
 
 The token survives reloads and navigation only through `sessionStorage` for the
 current tab. An independently opened tab is not synchronized by CommandAgent
@@ -306,7 +313,7 @@ The evidence routes are same-origin GET requests below the selected base path:
 | `api/contracts` | Contract documents |
 | `api/suites` | Measurement suite definitions |
 | `api/reports` and `api/reports/view?path=…` | Measurement report archive |
-| `api/runtime-status` | Trial availability and the current workspace lease state |
+| `api/runtime-status` | Trial availability, token-authentication mode, and the current workspace lease state |
 
 Paths are canonicalized below their allowed inventory root, symlinks are not
 followed during listing, and individual text views are capped at 1 MiB.
@@ -317,10 +324,12 @@ Trial run adds these bounded routes:
 profile/provider metadata so the form can be populated before a Trial token is
 entered. It neither inspects the execution workspace nor contacts a provider.
 
-Every other route in this table requires
-`X-CommandAgent-Trial-Authorization: Bearer <GUI_TRIAL_TOKEN>` (or the legacy
-direct-client `Authorization` form). POST requests also require a same-host Origin or an origin admitted by
-`GUI_TRIAL_ALLOWED_ORIGINS`.
+When `--trial-token-auth on` is selected, every other route in this table
+requires `X-CommandAgent-Trial-Authorization: Bearer <GUI_TRIAL_TOKEN>` (or the
+legacy direct-client `Authorization` form). With the default
+`--trial-token-auth off`, those routes accept requests without a token. POST
+requests require a same-host Origin or an origin admitted by
+`GUI_TRIAL_ALLOWED_ORIGINS` in both modes.
 
 | Route | Operation |
 | --- | --- |
@@ -364,7 +373,7 @@ visible for diagnosis:
 | `409 trial_workspace_conflict` | Verify that the execution root is still available at its startup path and remains disjoint from the repository. |
 | `412 trial_confirmation_stale` | Request the current Gate 1 card and confirm it again. |
 | `428 trial_confirmation_required` | Check the contract and price, then explicitly confirm the displayed Gate 1 card. |
-| `503 trial_execution_disabled` | Restart the GUI server with a valid `--execution-root` and `GUI_TRIAL_TOKEN`. |
+| `503 trial_execution_disabled` | Restart the GUI server with a valid `--execution-root`; also set `GUI_TRIAL_TOKEN` when `--trial-token-auth on` is selected. |
 | `500 trial_internal_error` | Verify that `--commandagent-bin` points to an existing executable, inspect the server log, and reconnect to an already-created session instead of dispatching another process. |
 
 Read-only pages use the same descriptor for missing or unreadable repository

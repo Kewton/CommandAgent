@@ -233,6 +233,8 @@ async function startServer(basePath, executionRoot) {
       repositoryRoot,
       "--execution-root",
       executionRoot,
+      "--trial-token-auth",
+      "on",
       "--commandagent-bin",
       fakeCli,
     ],

@@ -943,11 +943,6 @@ pub(super) fn require_trial(
         .trial_access
         .authorize(headers, require_origin)
         .map_err(|error| match error {
-            AccessError::Disabled => GuiError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "trial_authentication_disabled",
-                "trial execution authentication is disabled",
-            ),
             AccessError::Unauthorized => GuiError::new(
                 StatusCode::UNAUTHORIZED,
                 "trial_token_invalid",

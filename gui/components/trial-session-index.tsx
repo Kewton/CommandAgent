@@ -40,7 +40,8 @@ export function TrialSessionIndexPanel({
   const runtime = useShellRuntimeStatus();
   const previousRuntimeLease = useRef<string | null>(null);
   const trimmedToken = accessToken.trim();
-  const authenticated = trimmedToken.length >= COMPLETE_TOKEN_LENGTH;
+  const tokenAuthEnabled = runtime?.data?.trial_token_auth_enabled !== false;
+  const authenticated = !tokenAuthEnabled || trimmedToken.length >= COMPLETE_TOKEN_LENGTH;
 
   const revalidate = useCallback(
     async (token: string, manual = false) => {
@@ -196,9 +197,9 @@ export function TrialSessionIndexPanel({
 async function fetchSessionIndex(token: string): Promise<TrialSessionIndex> {
   const response = await fetch(apiPath("sessions"), {
     cache: "no-store",
-    headers: {
-      "x-commandagent-trial-authorization": `Bearer ${token.trim()}`,
-    },
+    headers: token.trim() === ""
+      ? {}
+      : { "x-commandagent-trial-authorization": `Bearer ${token.trim()}` },
   });
   if (!response.ok) throw await responseError(response);
   return (await response.json()) as TrialSessionIndex;

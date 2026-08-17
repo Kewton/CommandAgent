@@ -10,22 +10,34 @@ const PROXY_SAFE_AUTHORIZATION_HEADER: &str = "x-commandagent-trial-authorizatio
 #[derive(Debug, Clone)]
 pub struct TrialAccess {
     token: Option<Arc<str>>,
+    authentication_enabled: bool,
     allowed_origins: Arc<[String]>,
 }
 
 impl TrialAccess {
-    pub fn from_environment(execution_enabled: bool) -> anyhow::Result<Self> {
+    pub fn from_environment(
+        execution_enabled: bool,
+        authentication_enabled: bool,
+    ) -> anyhow::Result<Self> {
         if !execution_enabled {
             return Ok(Self {
                 token: None,
+                authentication_enabled,
                 allowed_origins: Arc::from([]),
             });
         }
-        let token = std::env::var(TOKEN_ENV)
-            .with_context(|| format!("{TOKEN_ENV} is required when --execution-root is set"))?;
-        if token.len() < 32 || token.len() > 4096 || token.chars().any(char::is_whitespace) {
-            bail!("{TOKEN_ENV} must contain 32..=4096 non-whitespace characters");
-        }
+        let token = authentication_enabled
+            .then(|| {
+                let token = std::env::var(TOKEN_ENV).with_context(|| {
+                    format!("{TOKEN_ENV} is required when --trial-token-auth is on")
+                })?;
+                if token.len() < 32 || token.len() > 4096 || token.chars().any(char::is_whitespace)
+                {
+                    bail!("{TOKEN_ENV} must contain 32..=4096 non-whitespace characters");
+                }
+                Ok::<Arc<str>, anyhow::Error>(Arc::from(token))
+            })
+            .transpose()?;
         let allowed_origins = std::env::var(ORIGINS_ENV)
             .ok()
             .into_iter()
@@ -40,21 +52,27 @@ impl TrialAccess {
             .map(|value| normalize_origin(&value))
             .collect::<anyhow::Result<Vec<_>>>()?;
         Ok(Self {
-            token: Some(Arc::from(token)),
+            token,
+            authentication_enabled,
             allowed_origins: Arc::from(allowed_origins),
         })
     }
 
+    pub fn authentication_enabled(&self) -> bool {
+        self.authentication_enabled
+    }
+
     pub fn authorize(&self, headers: &HeaderMap, require_origin: bool) -> Result<(), AccessError> {
-        let expected = self.token.as_deref().ok_or(AccessError::Disabled)?;
-        let supplied = headers
-            .get(PROXY_SAFE_AUTHORIZATION_HEADER)
-            .or_else(|| headers.get(header::AUTHORIZATION))
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.strip_prefix("Bearer "))
-            .ok_or(AccessError::Unauthorized)?;
-        if !constant_time_equal(expected.as_bytes(), supplied.as_bytes()) {
-            return Err(AccessError::Unauthorized);
+        if let Some(expected) = self.token.as_deref() {
+            let supplied = headers
+                .get(PROXY_SAFE_AUTHORIZATION_HEADER)
+                .or_else(|| headers.get(header::AUTHORIZATION))
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.strip_prefix("Bearer "))
+                .ok_or(AccessError::Unauthorized)?;
+            if !constant_time_equal(expected.as_bytes(), supplied.as_bytes()) {
+                return Err(AccessError::Unauthorized);
+            }
         }
         if require_origin && !self.origin_allowed(headers) {
             return Err(AccessError::ForbiddenOrigin);
@@ -96,7 +114,6 @@ impl TrialAccess {
 
 #[derive(Debug, Clone, Copy)]
 pub enum AccessError {
-    Disabled,
     Unauthorized,
     ForbiddenOrigin,
 }
@@ -137,6 +154,7 @@ mod tests {
     fn explicit_proxy_origin_requires_the_runtime_token() {
         let access = TrialAccess {
             token: Some(Arc::from("commandagent-gui-test-token-000000000001")),
+            authentication_enabled: true,
             allowed_origins: Arc::from(["https://admin.example.com".to_string()]),
         };
         let mut headers = HeaderMap::new();
@@ -161,6 +179,7 @@ mod tests {
     fn proxy_safe_bearer_header_survives_authorization_stripping() {
         let access = TrialAccess {
             token: Some(Arc::from("commandagent-gui-test-token-000000000001")),
+            authentication_enabled: true,
             allowed_origins: Arc::from(["https://admin.example.com".to_string()]),
         };
         let mut headers = HeaderMap::new();
@@ -183,6 +202,25 @@ mod tests {
         assert!(matches!(
             access.authorize(&headers, true),
             Err(AccessError::Unauthorized)
+        ));
+    }
+
+    #[test]
+    fn disabled_token_auth_still_requires_an_allowed_post_origin() {
+        let access = TrialAccess {
+            token: None,
+            authentication_enabled: false,
+            allowed_origins: Arc::from([]),
+        };
+        let mut headers = HeaderMap::new();
+        headers.insert(header::ORIGIN, "http://127.0.0.1:4173".parse().unwrap());
+        headers.insert(header::HOST, "127.0.0.1:4173".parse().unwrap());
+
+        assert!(access.authorize(&headers, true).is_ok());
+        headers.insert(header::ORIGIN, "https://attacker.invalid".parse().unwrap());
+        assert!(matches!(
+            access.authorize(&headers, true),
+            Err(AccessError::ForbiddenOrigin)
         ));
     }
 }

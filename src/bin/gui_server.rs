@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use anyhow::{Context, bail};
 use axum::Router;
 use axum::routing::{get, post};
-use clap::Parser;
+use clap::{Parser, ValueEnum};
 
 #[path = "gui_server/api.rs"]
 mod api;
@@ -50,8 +50,22 @@ struct Arguments {
     repository_root: PathBuf,
     #[arg(long)]
     execution_root: Option<PathBuf>,
+    #[arg(long, value_enum, default_value = "off")]
+    trial_token_auth: TrialTokenAuthArg,
     #[arg(long, default_value = "target/debug/commandagent")]
     commandagent_bin: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum TrialTokenAuthArg {
+    On,
+    Off,
+}
+
+impl TrialTokenAuthArg {
+    fn is_enabled(self) -> bool {
+        matches!(self, Self::On)
+    }
 }
 
 #[tokio::main]
@@ -68,7 +82,10 @@ async fn main() -> anyhow::Result<()> {
         &repository_root,
         arguments.execution_root.as_deref(),
     )?;
-    let trial_access = trial_access::TrialAccess::from_environment(trial_workspace.is_enabled())?;
+    let trial_access = trial_access::TrialAccess::from_environment(
+        trial_workspace.is_enabled(),
+        arguments.trial_token_auth.is_enabled(),
+    )?;
     let commandagent_bin = if arguments.commandagent_bin.is_absolute() {
         arguments.commandagent_bin
     } else {

@@ -105,7 +105,11 @@ async function probeLifecycle(browser, origin, basePath) {
       const method = request.method();
       if (pathname.endsWith("/api/runtime-status") && method === "GET") {
         runtimeCalls += 1;
-        await json(route, 200, { trial_available: true, session: runtimeSession });
+        await json(route, 200, {
+          trial_available: true,
+          trial_token_auth_enabled: true,
+          session: runtimeSession,
+        });
         return;
       }
       if (pathname.endsWith("/api/trial-options") && method === "GET") {
@@ -311,7 +315,11 @@ async function probeSourceMatrix(browser, origin, basePath) {
         const request = route.request();
         const pathname = new URL(request.url()).pathname;
         if (pathname.endsWith("/api/runtime-status")) {
-          await json(route, 200, { trial_available: true, session: null });
+          await json(route, 200, {
+            trial_available: true,
+            trial_token_auth_enabled: true,
+            session: null,
+          });
         } else if (pathname.endsWith("/api/trial-options")) {
           await json(route, 200, syntheticOptions());
         } else if (pathname.endsWith("/api/runs")) {
@@ -471,6 +479,8 @@ async function startServer(basePath, executionRoot) {
       repositoryRoot,
       "--execution-root",
       executionRoot,
+      "--trial-token-auth",
+      "on",
       "--commandagent-bin",
       process.execPath,
     ],

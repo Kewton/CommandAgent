@@ -686,7 +686,7 @@ fn gui_language_navigation_titles_and_runtime_status_are_pinned() {
     let server = std::fs::read_to_string("src/bin/gui_server.rs").unwrap();
     assert!(server.contains("/api/runtime-status"));
     let runtime = std::fs::read_to_string("src/bin/gui_server/runtime_status.rs").unwrap();
-    assert!(runtime.contains("state.trial_workspace.runtime_status()"));
+    assert!(runtime.contains("runtime_status(state.trial_access.authentication_enabled())"));
 }
 
 #[test]
@@ -1100,6 +1100,9 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
     );
     for required in [
         "<TrialSessionIndexPanel",
+        "trialTokenAuthEnabled",
+        "trialAccessReady",
+        "data-testid=\"trial-token-auth-disabled\"",
         "observedSession={observedSession}",
         "onLeaseChange={setWorkspaceLease}",
         "revalidationKey={sessionIndexRevision}",
@@ -1113,6 +1116,7 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
             "Trial session list UI is missing {required:?}"
         );
     }
+    assert!(panel.contains("!tokenAuthEnabled || trimmedToken.length"));
     for forbidden in [
         "Delete session",
         "Remove session",

@@ -184,6 +184,8 @@ async function startServer(workspace, commandagentBin) {
       repositoryRoot,
       "--execution-root",
       workspace,
+      "--trial-token-auth",
+      "on",
       "--commandagent-bin",
       commandagentBin,
     ],
