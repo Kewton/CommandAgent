@@ -1,0 +1,107 @@
+schemaVersion: "L2"
+name: "travel-warikan"
+description: "友だちとの旅行費用を記録し、精算額を計算する小さなアプリ"
+entities:
+  User:
+    fields:
+      id: { type: "string", required: true }
+      email: { type: "string", required: true }
+      name: { type: "string", required: true }
+      groupId: { type: "string", required: true }
+    identity: { email: "email", name: "name" }
+  Expense:
+    fields:
+      id: { type: "string", required: true }
+      groupId: { type: "string", required: true }
+      paidBy: { type: "string", required: true, ref: "User.id" }
+      description: { type: "string", required: true }
+      amount: { type: "number", required: true, minimum: 0.01 }
+      participants: { type: "array<string>", required: true, ref: "User.id" }
+      occurredOn: { type: "string", required: true }
+    relationships:
+      paidBy: { entity: "User", field: "id" }
+      participants: { entity: "User", field: "id", many: true }
+  Settlement:
+    fields:
+      id: { type: "string", required: true }
+      groupId: { type: "string", required: true }
+      fromUser: { type: "string", required: true, ref: "User.id" }
+      toUser: { type: "string", required: true, ref: "User.id" }
+      amount: { type: "number", required: true, minimum: 0.01 }
+      currency: { type: "string", required: true }
+    relationships:
+      fromUser: { entity: "User", field: "id" }
+      toUser: { entity: "User", field: "id" }
+views:
+  ExpenseEntryView:
+    entity: "Expense"
+    fields: ["description", "amount", "paidBy", "participants", "occurredOn"]
+    actions: ["AddExpense"]
+  SettlementResultsView:
+    entity: "Settlement"
+    fields: ["fromUser", "toUser", "amount", "currency"]
+    actions: ["CalculateSettlement"]
+actions:
+  AddExpense:
+    input:
+      groupId: { type: "string" }
+      paidBy: { type: "string" }
+      description: { type: "string" }
+      amount: { type: "number" }
+      participants: { type: "array<string>" }
+      occurredOn: { type: "string" }
+    creates: "Expense"
+    validations: ["positiveExpenseAmount", "validExpenseParticipants"]
+  CalculateSettlement:
+    input:
+      groupId: { type: "string" }
+      currency: { type: "string" }
+    reads: ["User", "Expense"]
+    returns: { type: "array<Settlement>" }
+    computed: "optimalPairwiseTransfers"
+validations:
+  positiveExpenseAmount:
+    target: "Expense.amount"
+    rule: { function: "greaterThan", args: [0] }
+    error: "金額は正の数で入力してください"
+  positiveSettlementAmount:
+    target: "Settlement.amount"
+    rule: { function: "greaterThan", args: [0] }
+    error: "精算額は正の数である必要があります"
+  validExpenseParticipants:
+    target: "Expense.participants"
+    rule: { function: "allReferencesExist", entity: "User", field: "id" }
+    error: "参加者は同じグループの有効なユーザーを指定してください"
+  validExpensePayer:
+    target: "Expense.paidBy"
+    rule: { function: "referenceExists", entity: "User", field: "id" }
+    error: "支払者は有効なユーザーを指定してください"
+computed:
+  netBalances:
+    type: "map<string, number>"
+    inputs: ["User", "Expense"]
+    expression:
+      function: "calculateNetBalances"
+      args: ["User", "Expense"]
+    bounds: { maxUsers: 100, maxExpenses: 1000 }
+  optimalPairwiseTransfers:
+    type: "array<Settlement>"
+    inputs: ["netBalances"]
+    expression:
+      function: "calculateOptimalPairwiseTransfers"
+      args: ["netBalances"]
+    bounds: { maxTransfers: 100, maxIterations: 100 }
+permissions:
+  User:
+    read: "group.member"
+    write: "group.member"
+  Expense:
+    read: "group.member"
+    write: "group.member"
+  Settlement:
+    read: "group.member"
+    write: "group.member"
+minIdentity:
+  fields:
+    email: { type: "string", required: true }
+    name: { type: "string", required: true }

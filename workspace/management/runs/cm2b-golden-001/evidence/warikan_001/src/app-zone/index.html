@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>旅行の割り勘</title>
+  <style>
+    :root { color-scheme: light; font-family: system-ui, sans-serif; }
+    body { margin: 0; background: #f5f7fb; color: #172033; }
+    main { max-width: 720px; margin: 0 auto; padding: 2rem 1rem; }
+    h1 { margin-bottom: .35rem; }
+    .intro { color: #536078; margin-top: 0; }
+    form, .expenses { background: #fff; border: 1px solid #dce2ed; border-radius: 12px; padding: 1rem; margin-top: 1.25rem; box-shadow: 0 2px 8px #1720330d; }
+    label { display: block; font-weight: 600; margin: .75rem 0 .3rem; }
+    input { box-sizing: border-box; width: 100%; border: 1px solid #bbc5d6; border-radius: 7px; padding: .65rem; font: inherit; }
+    button { margin-top: 1rem; border: 0; border-radius: 7px; padding: .7rem 1rem; background: #315bd6; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
+    button:hover { background: #244ab9; }
+    #expense-list { list-style: none; padding: 0; margin: .5rem 0 0; }
+    .expense { display: flex; justify-content: space-between; gap: 1rem; border-top: 1px solid #e7ebf2; padding: .8rem 0; }
+    .expense:first-child { border-top: 0; }
+    .expense-description { font-weight: 600; }
+    .expense-meta { color: #536078; font-size: .9rem; }
+    .empty { color: #536078; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>旅行の割り勘</h1>
+    <p class="intro">誰が何を払ったかを記録しましょう。</p>
+
+    <form id="expense-form">
+      <label for="payer-name">支払った人</label>
+      <input id="payer-name" name="payerName" type="text" required autocomplete="name" placeholder="例：太郎">
+
+      <label for="expense-amount">金額</label>
+      <input id="expense-amount" name="amount" type="number" min="0.01" step="0.01" required placeholder="例：3000">
+
+      <label for="expense-description">内容</label>
+      <input id="expense-description" name="description" type="text" required placeholder="例：夕食">
+
+      <button type="submit">支出を追加</button>
+    </form>
+
+    <section class="expenses" aria-labelledby="expenses-heading">
+      <h2 id="expenses-heading">入力した支出</h2>
+      <p id="empty-message" class="empty">まだ支出がありません。</p>
+      <ul id="expense-list" aria-live="polite"></ul>
+    </section>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+goal: "Original ultra goal: 友だちとの旅行のお金をあとで揉めないように割り勘できる小さなアプリを作って。誰が何を払ったかはざっくり入力できて、最後に誰が誰へいくら渡せばいいか見たい。\nProfile: community-mini-app\nStyle: default\nIntent: create\nPhase id: integration-and-verification\nPhase task: Integrate the expense input, core logic, and settlement view into a cohesive app flow. Ensure data flows correctly from entry to calculation and display. Run static checks and verify the app builds without errors, matches app.spec.yaml, and produces correct settlement outputs for edge cases. Prepare the project for final runtime acceptance and browser readiness verification.\n\nWorkspace snapshot:\n- .bench-product-stderr\n- .bench-product-stdout\n- app.spec.yaml\n- smoke-check.js\n- src\n- uat-console.log\n\nPrior ultra context:\n- Completed phases:\n  - spec-generation-l2 (2/2)\n  - expense-input-implementation (5/5)\n  - settlement-logic-and-view (5/5)\n- Created or changed paths:\n  - app.spec.yaml\n  - smoke-check.js\n  - src/app-zone/index.html\n  - src/app-zone/app.js\n  - src/app-zone/promotion_decision.json\n\nUnmet final requirements from earlier phases:\n- none\n\nRequested features not yet detected:\n- are\n- avoid\n- balances\n- based\n- bind\n- bounded\n- … and 76 more\n\nProfile generation rules:\nCommunity Mini App generation rules (DATA-1):\n- L2 is the default and must be attempted first; generate exactly app.spec.yaml with entities/views/actions/validations/computed/permissions/minIdentity.\n- Promote to L3/L4 only under src/app-zone/ and record a machine-readable promotion_decision with the lower-level result and reason.\n- The platform-owned schema is a pinned input; never replace, weaken, or infer it.\n- Core paths are immutable. Do not use process.env, eval, child_process, raw fetch, dynamic import, undeclared packages, or build-time egress.\n- Keep computed expressions bounded, statically typed, and inside the registered pure-function set.\n\nProfile runtime contract:\n- Keep the Community Mini App at the lowest level that satisfies the goal.\n- Emit app.spec.yaml for L1/L2; use src/app-zone/ only with promotion_decision evidence.\nPre-provisioned scaffold note:\n- Required scaffold files are authored before phase 1 when absent; verify or extend the scaffold rather than re-planning file creation.\nDeterministic verification preference:\n- test -f app.spec.yaml\n\n\nRequired final artifacts:\n- app.spec.yaml"
+steps:
+  - id: "inspect-workspace"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read src/app-zone/app.js, src/app-zone/index.html, smoke-check.js, and app.spec.yaml to assess current integration state and identify gaps in data flow and edge case handling."
+    expected_paths:
+    verify:
+  - id: "implement-integration"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Update src/app-zone/app.js to contain the integrated expense input parser, settlement calculator, and view renderer. Ensure edge cases are handled and pure functions are exported. Update src/app-zone/index.html to contain the DOM structure and script tags to wire up the app."
+    expected_paths:
+      - "src/app-zone/app.js"
+      - "src/app-zone/index.html"
+    verify:
+  - id: "create-spec-verifier"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Create verify-spec.js containing a Node.js script that reads app.spec.yaml, parses it, and asserts it contains required schema sections (entities, views, actions, validations, computed) and matches the implemented app structure. The script will exit with code 1 on failure and 0 on success.\n\nProfile contract:\nCommunity Mini App generation rules (DATA-1):\n- L2 is the default and must be attempted first; generate exactly app.spec.yaml with entities/views/actions/validations/computed/permissions/minIdentity.\n- Promote to L3/L4 only under src/app-zone/ and record a machine-readable promotion_decision with the lower-level result and reason.\n- The platform-owned schema is a pinned input; never replace, weaken, or infer it.\n- Core paths are immutable. Do not use process.env, eval, child_process, raw fetch, dynamic import, undeclared packages, or build-time egress.\n- Keep computed expressions bounded, statically typed, and inside the registered pure-function set.\n"
+    expected_paths:
+      - "verify-spec.js"
+    verify:
+  - id: "verify-logic"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Run smoke-check.js to validate expense input, core logic, and settlement outputs for edge cases."
+    expected_paths:
+    verify:
+      - "node smoke-check.js"
+  - id: "verify-spec-alignment"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Run verify-spec.js to assert app.spec.yaml contains required schema sections and matches the implemented app structure."
+    expected_paths:
+    verify:
+      - "node verify-spec.js"

@@ -1,0 +1,36 @@
+goal: "Original ultra goal: 友だちとの旅行のお金をあとで揉めないように割り勘できる小さなアプリを作って。誰が何を払ったかはざっくり入力できて、最後に誰が誰へいくら渡せばいいか見たい。\nProfile: community-mini-app\nStyle: default\nIntent: create\nPhase id: expense-input-implementation\nPhase task: Implement the expense entry interface and core data handling based on app.spec.yaml. Create a simple form for recording who paid, the amount, and a brief description. Bind inputs to the defined entities and validations. Verify that new expenses are stored correctly, input validation works, and the data structure matches the L2 spec without using prohibited runtime patterns like eval or dynamic imports.\n\nWorkspace snapshot:\n- .bench-product-stderr\n- .bench-product-stdout\n- app.spec.yaml\n- smoke-check.js\n- uat-console.log\n\nPrior ultra context:\n- Completed phases:\n  - spec-generation-l2 (2/2)\n- Created or changed paths:\n  - app.spec.yaml\n  - smoke-check.js\n\nUnmet final requirements from earlier phases:\n- none\n\nRequested features not yet detected:\n- amount\n- are\n- avoid\n- balances\n- based\n- bind\n- … and 86 more\n\nProfile generation rules:\nCommunity Mini App generation rules (DATA-1):\n- L2 is the default and must be attempted first; generate exactly app.spec.yaml with entities/views/actions/validations/computed/permissions/minIdentity.\n- Promote to L3/L4 only under src/app-zone/ and record a machine-readable promotion_decision with the lower-level result and reason.\n- The platform-owned schema is a pinned input; never replace, weaken, or infer it.\n- Core paths are immutable. Do not use process.env, eval, child_process, raw fetch, dynamic import, undeclared packages, or build-time egress.\n- Keep computed expressions bounded, statically typed, and inside the registered pure-function set.\n\nProfile runtime contract:\n- Keep the Community Mini App at the lowest level that satisfies the goal.\n- Emit app.spec.yaml for L1/L2; use src/app-zone/ only with promotion_decision evidence.\nPre-provisioned scaffold note:\n- Required scaffold files are authored before phase 1 when absent; verify or extend the scaffold rather than re-planning file creation.\nDeterministic verification preference:\n- test -f app.spec.yaml\n\n\nRequired final artifacts:\n- app.spec.yaml"
+steps:
+  - id: "inspect-spec"
+    kind: "inspect"
+    expected_result: "pass"
+    instruction: "Read app.spec.yaml to extract Expense entity schema, validation rules, and required data structures for the expense entry interface."
+    expected_paths:
+    verify:
+  - id: "implement-ui"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Create src/app-zone/index.html with a form containing inputs for payer name, expense amount, and description. Link to app.js and include basic layout for displaying entered expenses."
+    expected_paths:
+      - "src/app-zone/index.html"
+    verify:
+  - id: "implement-logic"
+    kind: "implement"
+    expected_result: "pass"
+    instruction: "Create src/app-zone/app.js with core data handling logic. Bind form inputs to Expense entities, implement validation for amount and description per L2 spec, and store expenses in a local state array. Ensure no use of eval, dynamic imports, process.env, or child_process."
+    expected_paths:
+      - "src/app-zone/app.js"
+    verify:
+  - id: "record-promotion"
+    kind: "setup"
+    expected_result: "pass"
+    instruction: "Create src/app-zone/promotion_decision.json documenting the L2 to L3 promotion, including the lower-level spec reference and justification for implementing the expense entry interface.\n\nProfile contract:\nCommunity Mini App generation rules (DATA-1):\n- L2 is the default and must be attempted first; generate exactly app.spec.yaml with entities/views/actions/validations/computed/permissions/minIdentity.\n- Promote to L3/L4 only under src/app-zone/ and record a machine-readable promotion_decision with the lower-level result and reason.\n- The platform-owned schema is a pinned input; never replace, weaken, or infer it.\n- Core paths are immutable. Do not use process.env, eval, child_process, raw fetch, dynamic import, undeclared packages, or build-time egress.\n- Keep computed expressions bounded, statically typed, and inside the registered pure-function set.\n"
+    expected_paths:
+      - "src/app-zone/promotion_decision.json"
+    verify:
+  - id: "verify-implementation"
+    kind: "verify"
+    expected_result: "pass"
+    instruction: "Verify that implementation files exist, app.js contains validation logic, and prohibited patterns are absent."
+    expected_paths:
+    verify:
+      - "node -p \"require('fs').readFileSync('src/app-zone/app.js').includes('validate')\""
