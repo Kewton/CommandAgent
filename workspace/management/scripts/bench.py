@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -1272,11 +1272,16 @@ def procure_run(
                 destination.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source / "app-spec.schema.yaml", destination / "app-spec.schema.yaml")
                 shutil.copy2(source / "app-spec.schema.sha256", destination / "app-spec.schema.sha256")
-                result.workspace_integrity = {
-                    **(result.workspace_integrity or {}),
-                    "community_schema_injected": True,
-                    "community_schema_pin": (destination / "app-spec.schema.sha256").read_text().strip(),
-                }
+                result = replace(
+                    result,
+                    workspace_integrity={
+                        **(result.workspace_integrity or {}),
+                        "community_schema_injected": True,
+                        "community_schema_pin": (
+                            destination / "app-spec.schema.sha256"
+                        ).read_text().strip(),
+                    },
+                )
             except OSError as error:
                 return ProcurementResult(False, f"community_schema_supply_failed: {error}", {}, None, result.workspace_integrity)
         return result
