@@ -24,6 +24,7 @@ from id_vocabulary import INTERRUPTED_ENVIRONMENT
 
 HARNESS_VERSION = "0.1"
 BON_PREDECLARATION_SCHEMA_VERSION = "commandagent.bon-validation-predeclaration/v2"
+DEFAULT_OLLAMA_HOST = "http://localhost:11434"
 PACK_HASH_DOMAIN = b"commandagent-pack-v0\0"
 PACK_FILES = ("assist.yaml", "eval.yaml")
 PACK_SCHEMA_VERSIONS = {
@@ -905,7 +906,21 @@ def load_bon_predeclaration(
     )
 
 
-def build_command(suite: SuiteDefinition, run: RunSpec) -> list[str]:
+def resolve_ollama_host(cli_value: str | None) -> str:
+    value = cli_value or os.environ.get("OLLAMA_HOST") or DEFAULT_OLLAMA_HOST
+    value = value.strip()
+    if not value:
+        value = DEFAULT_OLLAMA_HOST
+    if "://" not in value:
+        value = f"http://{value}"
+    return value.rstrip("/")
+
+
+def build_command(
+    suite: SuiteDefinition,
+    run: RunSpec,
+    ollama_host: str | None = None,
+) -> list[str]:
     command = [
         "commandagent",
         "--yes",
@@ -928,6 +943,11 @@ def build_command(suite: SuiteDefinition, run: RunSpec) -> list[str]:
         command.extend(["--api", suite.api.replace("_", "-")])
     if suite.tool_protocol is not None:
         command.extend(["--tool-protocol", suite.tool_protocol])
+    if ollama_host is not None and "ollama" in {
+        suite.provider,
+        suite.planner_provider,
+    }:
+        command.extend(["--ollama-host", ollama_host])
     command.extend(
         [
             "--ultra-plan-run",
@@ -1035,6 +1055,154 @@ def _check_git_clean(
     return allowed
 
 
+def _provider_check(report: dict[str, Any], check_id: str) -> dict[str, Any]:
+    checks = report.get("checks")
+    if not isinstance(checks, list):
+        raise BenchError("provider_unreachable_preflight: doctor checks are missing")
+    for check in checks:
+        if isinstance(check, dict) and check.get("id") == check_id:
+            return check
+    raise BenchError(
+        "provider_unreachable_preflight: "
+        f"doctor check={check_id} is missing"
+    )
+
+
+def _require_provider_check(
+    report: dict[str, Any],
+    check_id: str,
+    provider: str,
+    host: str,
+    check_kind: str,
+) -> dict[str, Any]:
+    check = _provider_check(report, check_id)
+    if check.get("status") != "pass":
+        message = str(check.get("message") or "provider check did not pass")
+        raise BenchError(
+            "provider_unreachable_preflight: "
+            f"provider={provider} host={host} check={check_kind} message={message}"
+        )
+    return check
+
+
+def provider_reachability_preflight(
+    suite: SuiteDefinition,
+    installed_binary: Path,
+    repo_root: Path,
+    ollama_host: str,
+) -> dict[str, Any]:
+    providers = {suite.provider, suite.planner_provider}
+    if not providers.intersection({"ollama", "openai"}):
+        return {"providers": [], "checks": []}
+
+    first_executor = suite.runs[0].executor
+    command = [
+        str(installed_binary),
+        "--doctor",
+        "--json",
+        "--provider",
+        suite.provider,
+        "--model",
+        first_executor,
+        "--planner-provider",
+        suite.planner_provider,
+        "--planner-model",
+        suite.planner_model,
+        # F-0's non-billable OpenAI /v1/models check is the campaign gate even
+        # when the measured generation API is Responses.
+        "--api",
+        "chat-completions",
+        "--ollama-host",
+        ollama_host,
+        "--cwd",
+        str(repo_root),
+    ]
+    result = _run_capture(command, repo_root)
+    try:
+        report = json.loads(result["stdout_tail"])
+    except (json.JSONDecodeError, TypeError) as error:
+        raise BenchError(
+            "provider_unreachable_preflight: doctor JSON could not be parsed"
+        ) from error
+    if not isinstance(report, dict):
+        raise BenchError(
+            "provider_unreachable_preflight: doctor JSON root is not an object"
+        )
+
+    accepted_checks: list[dict[str, Any]] = []
+    provider_records: list[dict[str, Any]] = []
+    if "ollama" in providers:
+        accepted_checks.append(
+            _require_provider_check(
+                report,
+                "provider.ollama.reachable",
+                "ollama",
+                ollama_host,
+                "models",
+            )
+        )
+        configured_models = sorted(
+            {
+                model
+                for provider, model in (
+                    (suite.provider, first_executor),
+                    (suite.planner_provider, suite.planner_model),
+                )
+                if provider == "ollama"
+            }
+        )
+        provider_records.append(
+            {
+                "provider": "ollama",
+                "host": ollama_host,
+                "check": "models",
+                "configured_models": configured_models,
+            }
+        )
+        print(
+            "preflight: provider ollama "
+            f"host={ollama_host} check=models models={configured_models}"
+        )
+    if "openai" in providers:
+        accepted_checks.append(
+            _require_provider_check(
+                report,
+                "provider.openai.api_key",
+                "openai",
+                "process_environment",
+                "key_presence",
+            )
+        )
+        accepted_checks.append(
+            _require_provider_check(
+                report,
+                "provider.openai.reachable",
+                "openai",
+                "https://api.openai.com",
+                "/v1/models",
+            )
+        )
+        provider_records.append(
+            {
+                "provider": "openai",
+                "host": "https://api.openai.com",
+                "check": "/v1/models",
+                "key_present": True,
+            }
+        )
+        print(
+            "preflight: provider openai "
+            "host=https://api.openai.com check=/v1/models key=present"
+        )
+    return {
+        "command_argv": command,
+        "command": format_command(command),
+        "exit_code": result["exit_code"],
+        "providers": provider_records,
+        "checks": accepted_checks,
+    }
+
+
 def perform_preflight(
     repo_root: Path,
     min_head: str | None,
@@ -1042,6 +1210,8 @@ def perform_preflight(
     allowed_output_dir: Path | None = None,
     bon_predeclaration: BonSeriesPredeclaration | None = None,
     binary_dir: Path | None = None,
+    suite: SuiteDefinition | None = None,
+    ollama_host: str = DEFAULT_OLLAMA_HOST,
 ) -> tuple[dict[str, Any], list[dict[str, str]]]:
     records: dict[str, Any] = {"started_epoch": int(time.time())}
     deviations: list[dict[str, str]] = []
@@ -1170,6 +1340,14 @@ def perform_preflight(
     if "+dirty" in version_text:
         raise BenchError(f"preflight dirty release version rejected: {version_text}")
     print(f"preflight: installed {version_text}")
+
+    if suite is not None:
+        records["provider_reachability"] = provider_reachability_preflight(
+            suite,
+            installed_binary,
+            repo_root,
+            ollama_host,
+        )
 
     node_env = _run_capture(["printenv", "NODE_ENV"], repo_root)
     records["node_env"] = {
@@ -1665,7 +1843,11 @@ def _suite_metadata(
     return metadata
 
 
-def _new_run_metadata(suite: SuiteDefinition, run: RunSpec) -> dict[str, Any]:
+def _new_run_metadata(
+    suite: SuiteDefinition,
+    run: RunSpec,
+    ollama_host: str | None = None,
+) -> dict[str, Any]:
     source = suite.source_for_run(run)
     record = {"name": run.name}
     if run.set_id is not None:
@@ -1675,8 +1857,8 @@ def _new_run_metadata(suite: SuiteDefinition, run: RunSpec) -> dict[str, Any]:
             "goal": run.goal_id,
             "executor": run.executor,
             "status": "pending",
-            "command_argv": build_command(suite, run),
-            "command": format_command(build_command(suite, run)),
+            "command_argv": build_command(suite, run, ollama_host),
+            "command": format_command(build_command(suite, run, ollama_host)),
             "input_sha256_expected": source.input_sha256 if source else {},
         }
     )
@@ -1690,9 +1872,10 @@ def new_metadata(
     repo_root: Path,
     preflight: dict[str, Any],
     deviations: list[dict[str, str]],
+    ollama_host: str | None = None,
 ) -> dict[str, Any]:
     suite_metadata = _suite_metadata(suite, repo_root)
-    runs = [_new_run_metadata(suite, run) for run in suite.runs]
+    runs = [_new_run_metadata(suite, run, ollama_host) for run in suite.runs]
     if "pack" in suite_metadata:
         for record in runs:
             record["pack"] = dict(suite_metadata["pack"])
@@ -1844,6 +2027,7 @@ def process_runs(
     dry_run: bool,
     resume: bool,
     binary_dir: Path | None = None,
+    ollama_host: str | None = None,
 ) -> None:
     metadata_path = campaign_dir / "uat-meta.json"
     binary_dir = (binary_dir or campaign_dir / "bin").expanduser().resolve()
@@ -1855,7 +2039,7 @@ def process_runs(
         normalize_interrupted_runs(suite, campaign_dir, metadata, metadata_path)
     for run in suite.runs:
         record = _metadata_run(metadata, run.name)
-        command = build_command(suite, run)
+        command = build_command(suite, run, ollama_host)
         if resume and record.get("status") in TERMINAL_RUN_STATUSES:
             print(f"resume: skip {run.name} ({record['status']})")
             continue
@@ -2207,6 +2391,10 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--skip-suite-tests", action="store_true")
     run_parser.add_argument("--bon-predeclaration", type=Path)
     run_parser.add_argument(
+        "--ollama-host",
+        help="configured Ollama host (default: OLLAMA_HOST or product default)",
+    )
+    run_parser.add_argument(
         "--binary-dir",
         type=Path,
         help="directory for the release binary (default: campaign workspace bin/)",
@@ -2249,6 +2437,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         workspace_root = args.workspace_root.expanduser().resolve()
         _validate_workspace_root(workspace_root, repo_root)
         min_head = args.min_head or suite.min_head
+        configured_ollama_host = args.ollama_host or os.environ.get("OLLAMA_HOST")
+        resolved_ollama_host = resolve_ollama_host(configured_ollama_host)
         if args.resume:
             campaign_dir = find_resume_campaign(workspace_root, suite)
             binary_dir = (args.binary_dir or campaign_dir / "bin").expanduser().resolve()
@@ -2259,6 +2449,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 campaign_dir,
                 bon_predeclaration,
                 binary_dir,
+                suite,
+                resolved_ollama_host,
             )
             metadata = load_resume_metadata(campaign_dir, suite)
             metadata["preflight"] = preflight
@@ -2274,6 +2466,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 campaign_dir,
                 bon_predeclaration,
                 binary_dir,
+                suite,
+                resolved_ollama_host,
             )
             metadata = new_metadata(
                 suite,
@@ -2282,6 +2476,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 repo_root,
                 preflight,
                 deviations,
+                resolved_ollama_host if configured_ollama_host else None,
             )
             write_metadata(campaign_dir / "uat-meta.json", metadata)
         print(f"campaign: {campaign_dir}")
@@ -2293,6 +2488,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             dry_run=args.dry_run,
             resume=args.resume,
             binary_dir=binary_dir,
+            ollama_host=resolved_ollama_host if configured_ollama_host else None,
         )
         report_path = generate_report(campaign_dir, metadata)
         print(f"metadata: {campaign_dir / 'uat-meta.json'}")

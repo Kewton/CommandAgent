@@ -590,6 +590,20 @@ class SuiteAndCommandTests(unittest.TestCase):
         self.assertFalse(bench.WRAPPER_TOKENS.intersection(command))
         self.assertNotIn("--plan-preset", command)
 
+    def test_ollama_host_override_is_opt_in_and_default_bytes_are_unchanged(self) -> None:
+        suite = bench.load_suite(SUITES_DIR / "community-golden-warikan.toml")
+        run = suite.runs[0]
+        unchanged = bench.build_command(suite, run)
+        configured = bench.build_command(
+            suite, run, "http://planner.internal:11434"
+        )
+
+        self.assertNotIn("--ollama-host", unchanged)
+        self.assertEqual(
+            configured[configured.index("--ollama-host") :][:2],
+            ["--ollama-host", "http://planner.internal:11434"],
+        )
+
     def test_wrapper_token_is_rejected_lexically(self) -> None:
         with self.assertRaisesRegex(bench.BenchError, "start directly"):
             bench.verify_unwrapped_command(["timeout", "commandagent"])
@@ -598,6 +612,136 @@ class SuiteAndCommandTests(unittest.TestCase):
 
 
 class PreflightPinTests(unittest.TestCase):
+    def _provider_gate_capture(
+        self,
+        root: Path,
+        report: dict[str, object],
+    ) -> object:
+        built = root / "target/release/commandagent"
+        built.parent.mkdir(parents=True)
+        built.write_bytes(b"deterministic fixture binary")
+
+        def capture(argv: list[str], _cwd: Path) -> dict[str, object]:
+            stdout = ""
+            exit_code = 0
+            if argv[:2] == ["git", "rev-parse"]:
+                stdout = "a" * 40 + "\n"
+            elif argv[:2] == ["git", "log"]:
+                stdout = "aaaaaaaa fixture\n"
+            elif argv[0] == "install":
+                destination = Path(argv[-1])
+                destination.write_bytes(Path(argv[-2]).read_bytes())
+                destination.chmod(0o755)
+            elif "--doctor" in argv:
+                stdout = json.dumps(report)
+                exit_code = 1
+            elif argv[-1] == "--version":
+                stdout = "commandagent 0.1.0+aaaaaaaa\n"
+            return {
+                "command_argv": argv,
+                "command": bench.format_command(argv),
+                "start_epoch": 1,
+                "end_epoch": 1,
+                "exit_code": exit_code,
+                "stdout_tail": stdout,
+                "stderr_tail": "",
+            }
+
+        return capture
+
+    @staticmethod
+    def _doctor_check(check_id: str, status: str, message: str) -> dict[str, object]:
+        return {
+            "id": check_id,
+            "status": status,
+            "message": message,
+            "details": {},
+        }
+
+    def test_ollama_unreachable_stops_warikan_before_run_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            campaign = root / "campaign"
+            campaign.mkdir()
+            suite = bench.load_suite(SUITES_DIR / "community-golden-warikan.toml")
+            report = {
+                "checks": [
+                    self._doctor_check(
+                        "provider.ollama.reachable", "fail", "connection refused"
+                    ),
+                    self._doctor_check("provider.openai.api_key", "pass", "present"),
+                    self._doctor_check(
+                        "provider.openai.reachable", "pass", "/v1/models reachable"
+                    ),
+                ]
+            }
+
+            with (
+                mock.patch.object(
+                    bench,
+                    "_run_capture",
+                    side_effect=self._provider_gate_capture(root, report),
+                ),
+                self.assertRaisesRegex(
+                    bench.BenchError,
+                    "provider=ollama host=http://127.0.0.1:11434 check=models",
+                ),
+            ):
+                bench.perform_preflight(
+                    root,
+                    min_head=None,
+                    skip_suite_tests=True,
+                    allowed_output_dir=campaign,
+                    binary_dir=campaign / "bin",
+                    suite=suite,
+                    ollama_host="http://127.0.0.1:11434",
+                )
+
+            self.assertFalse((campaign / "workspaces").exists())
+
+    def test_openai_key_missing_stops_warikan_before_run_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            campaign = root / "campaign"
+            campaign.mkdir()
+            suite = bench.load_suite(SUITES_DIR / "community-golden-warikan.toml")
+            report = {
+                "checks": [
+                    self._doctor_check(
+                        "provider.ollama.reachable", "pass", "/api/tags reachable"
+                    ),
+                    self._doctor_check(
+                        "provider.openai.api_key", "fail", "OPENAI_API_KEY is missing"
+                    ),
+                    self._doctor_check(
+                        "provider.openai.reachable", "warn", "not attempted"
+                    ),
+                ]
+            }
+
+            with (
+                mock.patch.object(
+                    bench,
+                    "_run_capture",
+                    side_effect=self._provider_gate_capture(root, report),
+                ),
+                self.assertRaisesRegex(
+                    bench.BenchError,
+                    "provider=openai host=process_environment check=key_presence",
+                ),
+            ):
+                bench.perform_preflight(
+                    root,
+                    min_head=None,
+                    skip_suite_tests=True,
+                    allowed_output_dir=campaign,
+                    binary_dir=campaign / "bin",
+                    suite=suite,
+                    ollama_host="http://127.0.0.1:11434",
+                )
+
+            self.assertFalse((campaign / "workspaces").exists())
+
     def test_binary_pin_mismatch_fails_before_install_or_product(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

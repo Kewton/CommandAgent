@@ -139,6 +139,15 @@ ledger_ref = "CM-2f"
 note = "既定配置をcampaign workspace/binへ変更して解消。利用者が明示したbinary-dirのみworkspace外を許可"
 
 [[class]]
+id = "provider_unreachable_preflight"
+category = "terminal"
+attribution = "env"
+match_reason = "provider_unreachable_preflight: provider=.* host=.* check=.*"
+first_seen = "cm2b-golden-005"
+ledger_ref = "CM-2h"
+note = "suite宣言のOllama/OpenAI構成を0run目で検査し、不達時はrun workspaceを作らず停止する"
+
+[[class]]
 id = "cli_case_binding:first_usage_placeholder_masks_concrete_examples"
 category = "terminal"
 attribution = "machine"
