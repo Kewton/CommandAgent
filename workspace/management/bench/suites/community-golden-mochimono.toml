@@ -4,6 +4,7 @@ profile = "community-mini-app"
 intent = "create"
 plan_preset = "profile"
 workspace_mode = "empty"
+context_budget = 65536
 planner_model = "local-default"
 planner_provider = "ollama"
 provider = "openai"
