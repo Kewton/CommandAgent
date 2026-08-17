@@ -672,7 +672,7 @@ fn gui_language_navigation_titles_and_runtime_status_are_pinned() {
     let titles = [
         ("gui/app/layout.tsx", "default: \"概要 | CommandAgent\""),
         ("gui/app/try/layout.tsx", "title: \"トライアル\""),
-        ("gui/app/runs/layout.tsx", "title: \"実行詳細\""),
+        ("gui/app/runs/layout.tsx", "title: \"検証・運用レポート\""),
         ("gui/app/assets/layout.tsx", "title: \"アセット\""),
         ("gui/app/measurements/layout.tsx", "title: \"計測\""),
     ];
@@ -1063,10 +1063,12 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
     let page = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
     let panel = std::fs::read_to_string("gui/components/trial-session-index.tsx").unwrap();
     let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
+    let lifecycle_smoke = std::fs::read_to_string("gui/scripts/session-index-smoke.mjs").unwrap();
     for required in [
         "data-testid=\"trial-session-index\"",
-        "fetchSessionIndex(accessToken)",
+        "fetchSessionIndex(token)",
         "fetch(apiPath(\"sessions\"), {",
+        "cache: \"no-store\"",
         "x-commandagent-trial-authorization",
         "session.started_epoch_seconds",
         "session.modified_epoch_seconds",
@@ -1074,15 +1076,35 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         "href={sessionLink(session.id)}",
         "return `?session=${encodeURIComponent(id)}`",
         "data-testid=\"session-reconnect-link\"",
+        "data-testid=\"trial-session-auth-required\"",
+        "data-testid=\"trial-session-freshness\"",
+        "最後に取得できた一覧を表示しています。",
+        "window.addEventListener(\"focus\", refresh)",
+        "document.addEventListener(\"visibilitychange\", refreshWhenVisible)",
+        "previous === \"running\"",
+        "runtimeLease === \"idle\" || runtimeLease === \"recovery_required\"",
+        "mergeObservedSession",
     ] {
         assert!(
             panel.contains(required),
             "Trial session list panel is missing {required:?}"
         );
     }
+    assert!(
+        !panel.contains("setInterval"),
+        "Trial session index must not add an independent polling interval"
+    );
+    assert!(
+        !panel.contains("useRuntimeStatus("),
+        "Trial session index must share the Shell runtime projection"
+    );
     for required in [
         "<TrialSessionIndexPanel",
+        "observedSession={observedSession}",
         "onLeaseChange={setWorkspaceLease}",
+        "revalidationKey={sessionIndexRevision}",
+        "setSessionIndexRevision((current) => current + 1)",
+        "data-testid=\"terminal-session-history-link\"",
         "launchBlockReason !== null",
         "実行中のセッション ${lease.session_id} がワークスペースを使用しているため",
     ] {
@@ -1113,6 +1135,43 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
             "Trial session index smoke is missing {required:?}"
         );
     }
+    for required in [
+        "buildBasePath: \"/\"",
+        "buildBasePath: \"/proxy/commandagent/\"",
+        "no_periodic_index_polling",
+        "optimistic launch row state",
+        "terminal transition refresh",
+        "refresh failure removed the last successful row",
+        "focus refresh",
+        "visible-tab refresh",
+        "reconnect_get_only",
+        "repository-only",
+        "trial-only",
+        "both",
+        "trial-unauthenticated",
+    ] {
+        assert!(
+            lifecycle_smoke.contains(required),
+            "Trial lifecycle smoke is missing {required:?}"
+        );
+    }
+
+    let shell = std::fs::read_to_string("gui/components/shell.tsx").unwrap();
+    assert!(shell.contains("RuntimeStatusContext.Provider value={runtime}"));
+    assert!(shell.contains("label: \"検証・運用レポート\""));
+    let runs = std::fs::read_to_string("gui/app/runs/page.tsx").unwrap();
+    let dashboard = std::fs::read_to_string("gui/app/page.tsx").unwrap();
+    for required in [
+        "REPOSITORY / workspace/management/runs",
+        "GUI Trial の execution root ではなく",
+    ] {
+        assert!(
+            runs.contains(required),
+            "repository report source UI is missing {required:?}"
+        );
+    }
+    assert!(dashboard.contains("参照元: workspace/management/runs"));
+    assert!(panel.contains("EXECUTION ROOT / .anvil/runs"));
 }
 
 fn collect_rust_files(root: &Path, output: &mut Vec<PathBuf>) {

@@ -92,6 +92,7 @@ export default function TrialRunPage() {
   const [directiveText, setDirectiveText] = useState("");
   const [directive, setDirective] = useState<DirectiveProposal | null>(null);
   const [workspaceLease, setWorkspaceLease] = useState<TrialWorkspaceLease | null>(null);
+  const [sessionIndexRevision, setSessionIndexRevision] = useState(0);
   const launchIdentityLocked =
     stage === "gate_2" || stage === "terminal" || stage === "closed";
   const [monitor, setMonitor] = useState<MonitorState>(initialMonitor);
@@ -199,6 +200,7 @@ export default function TrialRunPage() {
         const value = result.value;
         setSession(value);
         if (value.gate === "gate_3" || value.gate === "gate_4") {
+          setSessionIndexRevision((current) => current + 1);
           setStage("terminal");
           return;
         }
@@ -405,6 +407,7 @@ export default function TrialRunPage() {
       setEvidenceDocument(null);
       setEvidenceOpen(false);
       setEvidenceError(null);
+      setSessionIndexRevision((current) => current + 1);
       setStage("gate_2");
     } catch (reason) {
       recordError(reason);
@@ -439,6 +442,7 @@ export default function TrialRunPage() {
       });
       setGateTwoStartedAt(Date.now());
       setElapsedSeconds(0);
+      setSessionIndexRevision((current) => current + 1);
       setStage(value.gate === "gate_3" || value.gate === "gate_4" ? "terminal" : "gate_2");
     } catch (reason) {
       const failure = monitorFailure(reason);
@@ -488,6 +492,8 @@ export default function TrialRunPage() {
       setDirective(null);
       setDirectiveText("");
       setWorkspaceLease(null);
+      setSession(null);
+      setSessionIndexRevision((current) => current + 1);
       setStage("gate_2");
     } catch (reason) {
       recordError(reason);
@@ -529,12 +535,19 @@ export default function TrialRunPage() {
   }
 
   const launchBlockReason = leaseLaunchBlockReason(workspaceLease);
+  const observedSession = useMemo(() => {
+    if (created === null) return null;
+    if (session !== null && session.id === created.id) {
+      return { gate: session.gate, id: session.id, status: session.status };
+    }
+    return { gate: created.gate, id: created.id, status: created.status };
+  }, [created, session]);
 
   return (
     <Shell
       active="try"
       title="トライアル"
-      description="契約と書き込み先を確認してから、既存の CLI 実行を開始・監視します。"
+      description="設定された execution root で GUI Trial を開始・監視し、.anvil/runs の履歴を確認します。"
     >
       <section className="trial-layout">
         <aside
@@ -965,6 +978,13 @@ export default function TrialRunPage() {
               <div><dt>保証水準</dt><dd data-testid="terminal-assurance-summary">{assuranceSummary(session.assurance)}</dd></div>
               <div><dt>状態</dt><dd data-testid="terminal-status-summary">{statusSummary(session.status)}</dd></div>
             </dl>
+            <a
+              className="terminal-history-link"
+              data-testid="terminal-session-history-link"
+              href={`#trial-session-${session.id}`}
+            >
+              このセッションを GUI Trial 実行履歴で確認
+            </a>
             <pre>{session.acceptance_sheet ?? "実行結果の証跡が不足しているため、受入シートは生成されていません。"}</pre>
           </article>
           <aside className="panel next-action-card">
@@ -1012,8 +1032,10 @@ export default function TrialRunPage() {
       )}
           <TrialSessionIndexPanel
             accessToken={trialToken}
+            observedSession={observedSession}
             onAccessTokenRejected={rejectTrialToken}
             onLeaseChange={setWorkspaceLease}
+            revalidationKey={sessionIndexRevision}
           />
         </div>
       </section>

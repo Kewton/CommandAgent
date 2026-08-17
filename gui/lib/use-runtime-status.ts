@@ -6,7 +6,7 @@ import { apiPath } from "./base-path";
 import { responseError } from "./errors";
 import type { RuntimeStatus } from "./types";
 
-type RuntimeState = {
+export type RuntimeState = {
   data: RuntimeStatus | null;
   failed: boolean;
 };
