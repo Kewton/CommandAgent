@@ -152,13 +152,6 @@
 
 ## 入力証跡
 
-## Community Mini App (CM-2b)
-
-| point | profile | model | family | n | full | p50 seconds | cost_usd |
-|---|---|---|---|---:|---:|---:|---:|
-| community/warikan/luna | community-mini-app | gpt-5.6-luna | warikan | 1 | 0 | 979 | null |
-
-The point is a stopped measurement: `community_schema_missing`. `cost_usd` is null in the正本 events/summary and is intentionally not inferred.
 
 - `workspace/management/runs/f-bon-v-001/evidence/bon0-001r2-selection.json` — `sha256:007ff4f8ddbae852df0b82dd1fe57e19800b7e002032f6430a9d58e0097195f3`
 - `workspace/management/runs/f-bon-v-001/evidence/bon0-002r-selection.json` — `sha256:36906fa06336de79cbb724ca3918b2721b8e8157cc60b5be57f4bea756064d92`
