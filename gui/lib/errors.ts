@@ -151,6 +151,11 @@ export function describeError(reason: unknown): string {
   }
 }
 
+export function isDefinitiveTrialTokenRejection(reason: unknown): boolean {
+  if (typeof reason !== "object" || reason === null) return false;
+  return (reason as { code?: unknown }).code === "trial_token_invalid";
+}
+
 export function reconnectSessionId(reason: unknown): string | null {
   if (
     !(reason instanceof GuiRequestError) ||

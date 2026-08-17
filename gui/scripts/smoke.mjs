@@ -609,10 +609,17 @@ async function runCase(smokeCase) {
     const sessionLinkCalls = apiCalls.slice(reconnectCallStart);
     const sessionLinkIssuedNoPost = sessionLinkCalls.every((call) => call.method !== "POST");
     const reloadSessionQuery = new URL(page.url()).searchParams.get("session");
-    const reloadedTokenEmpty = (await page.locator("[data-testid='trial-token']").inputValue()) === "";
+    const reloadRestoredToken =
+      (await page.locator("[data-testid='trial-token']").inputValue()) === trialCredential;
     await page.locator("[data-testid='trial-token']").fill(`${trialCredential}-wrong`);
     await page.locator("[data-testid='reconnect-session-button']").click();
     const authorizationGuidance = await page.locator(".trial-error[role='alert']").innerText();
+    await page.waitForFunction(
+      () => document.querySelector("[data-testid='trial-token']")?.value === "",
+    );
+    const rejectedTokenRemoved = await page.evaluate(
+      () => !Object.values(sessionStorage).some((value) => value.includes("-wrong")),
+    );
     await page.locator("[data-testid='trial-token']").fill(trialCredential);
     await page.locator("[data-testid='reconnect-session-button']").click();
     await page.locator("[data-testid='terminal-gate']").waitFor();
@@ -622,11 +629,16 @@ async function runCase(smokeCase) {
       reconnectMethods.length >= 2 && reconnectMethods.every((method) => method === "GET");
     const browserStorage = await page.evaluate(() => ({
       localStorageValues: Object.values(localStorage),
+      sessionStorageEntries: Object.entries(sessionStorage),
       url: window.location.href,
     }));
-    const tokenStayedInMemory =
+    const expectedStorageKey = trialTokenStorageKey(smokeCase.serverBasePath);
+    const tokenStayedTabScoped =
       !browserStorage.url.includes(trialCredential) &&
-      browserStorage.localStorageValues.every((value) => !value.includes(trialCredential));
+      browserStorage.localStorageValues.every((value) => !value.includes(trialCredential)) &&
+      browserStorage.sessionStorageEntries.some(
+        ([key, value]) => key === expectedStorageKey && value === trialCredential,
+      );
 
     await page.goto(trialUrl, { waitUntil: "networkidle" });
     await installSessionConflict(page, sessionId);
@@ -803,10 +815,11 @@ async function runCase(smokeCase) {
       sessionIndexOnlyGets &&
       sessionLinkIssuedNoPost &&
       reloadSessionQuery === sessionId &&
-      reloadedTokenEmpty &&
+      reloadRestoredToken &&
+      rejectedTokenRemoved &&
       authorizationGuidance.includes("Trial アクセストークン") &&
       reconnectOnlyGets &&
-      tokenStayedInMemory &&
+      tokenStayedTabScoped &&
       conflictGuidance.includes(`セッション ${sessionId} に再接続`) &&
       conflictReconnectId === sessionId &&
       conflictSessionQuery === sessionId &&
@@ -910,11 +923,13 @@ async function runCase(smokeCase) {
       },
       reconnect: {
         reload_session_query: reloadSessionQuery,
-        token_empty_after_reload: reloadedTokenEmpty,
+        token_restored_after_reload: reloadRestoredToken,
+        rejected_token_removed: rejectedTokenRemoved,
         authorization_guidance: authorizationGuidance,
         calls: reconnectCalls,
         only_gets: reconnectOnlyGets,
-        token_stayed_in_memory: tokenStayedInMemory,
+        storage_key: expectedStorageKey,
+        token_stayed_tab_scoped: tokenStayedTabScoped,
       },
       conflict_reconnect: {
         guidance: conflictGuidance,
@@ -1807,6 +1822,10 @@ async function runChecked(command, arguments_, cwd, env) {
 
 function displayBasePath(basePath) {
   return basePath === "/" ? "/" : `${basePath}/`;
+}
+
+function trialTokenStorageKey(basePath) {
+  return `commandagent.gui.trial-token:${basePath}`;
 }
 
 function valueArgument(arguments_, name) {

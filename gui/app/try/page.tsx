@@ -9,9 +9,15 @@ import { TrialSessionIndexPanel } from "../../components/trial-session-index";
 import { apiPath } from "../../lib/base-path";
 import {
   describeError,
+  isDefinitiveTrialTokenRejection,
   reconnectSessionId as reconnectIdFromError,
   responseError,
 } from "../../lib/errors";
+import {
+  persistTrialToken,
+  removeRejectedTrialToken,
+  restoreTrialToken,
+} from "../../lib/trial-token-storage";
 import {
   CHANGED_POLL_INTERVAL_MS,
   TERMINAL_FAILURE_LIMIT,
@@ -95,6 +101,24 @@ export default function TrialRunPage() {
   const [evidenceLoading, setEvidenceLoading] = useState(false);
   const [evidenceError, setEvidenceError] = useState<string | null>(null);
 
+  useEffect(() => {
+    setTrialToken(restoreTrialToken());
+  }, []);
+
+  const updateTrialToken = useCallback((value: string) => {
+    setTrialToken(value);
+    persistTrialToken(value);
+  }, []);
+
+  const rejectTrialToken = useCallback((reason: unknown, rejectedValue: string) => {
+    if (!isDefinitiveTrialTokenRejection(reason)) return false;
+    removeRejectedTrialToken(rejectedValue);
+    setTrialToken((current) =>
+      current.trim() === rejectedValue.trim() ? "" : current,
+    );
+    return true;
+  }, []);
+
   const loadArtifacts = useCallback(async () => {
     if (created === null) return;
     setEvidenceOpen(true);
@@ -108,11 +132,12 @@ export default function TrialRunPage() {
       if (!response.ok) throw await responseError(response);
       setArtifacts((await response.json()) as DocumentSummary[]);
     } catch (reason) {
+      rejectTrialToken(reason, trialToken);
       setEvidenceError(describeError(reason));
     } finally {
       setEvidenceLoading(false);
     }
-  }, [created, trialToken]);
+  }, [created, rejectTrialToken, trialToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -184,7 +209,8 @@ export default function TrialRunPage() {
         attempt += 1;
         unchangedResponses = 0;
         const failure = monitorFailure(reason);
-        const stop = failure.terminal && attempt >= TERMINAL_FAILURE_LIMIT;
+        const rejected = rejectTrialToken(reason, trialToken);
+        const stop = rejected || (failure.terminal && attempt >= TERMINAL_FAILURE_LIMIT);
         const delay = retryDelay(attempt);
         setMonitor((current) => ({
           attempt,
@@ -204,7 +230,7 @@ export default function TrialRunPage() {
       cancelled = true;
       if (timer !== undefined) clearTimeout(timer);
     };
-  }, [created, stage, trialToken]);
+  }, [created, rejectTrialToken, stage, trialToken]);
 
   useEffect(() => {
     if (gateTwoStartedAt === null || stage !== "gate_2") return;
@@ -416,6 +442,7 @@ export default function TrialRunPage() {
       setStage(value.gate === "gate_3" || value.gate === "gate_4" ? "terminal" : "gate_2");
     } catch (reason) {
       const failure = monitorFailure(reason);
+      rejectTrialToken(reason, trialToken);
       setError(failure.guidance);
     } finally {
       setBusy(false);
@@ -494,6 +521,7 @@ export default function TrialRunPage() {
       if (!response.ok) throw await responseError(response);
       setEvidenceDocument((await response.json()) as DocumentRecord);
     } catch (reason) {
+      rejectTrialToken(reason, trialToken);
       setEvidenceError(describeError(reason));
     } finally {
       setEvidenceLoading(false);
@@ -584,7 +612,7 @@ export default function TrialRunPage() {
             disabled={launchIdentityLocked}
             id="trial-token"
             onChange={(event) => {
-              setTrialToken(event.target.value);
+              updateTrialToken(event.target.value);
               setWorkspaceLease(null);
               if (created === null) {
                 setProposal(null);
@@ -984,6 +1012,7 @@ export default function TrialRunPage() {
       )}
           <TrialSessionIndexPanel
             accessToken={trialToken}
+            onAccessTokenRejected={rejectTrialToken}
             onLeaseChange={setWorkspaceLease}
           />
         </div>
@@ -992,6 +1021,7 @@ export default function TrialRunPage() {
   );
 
   function recordError(reason: unknown) {
+    rejectTrialToken(reason, trialToken);
     setError(describeError(reason));
     const active = reconnectIdFromError(reason);
     setErrorReconnectSessionId(active);

@@ -8,6 +8,7 @@ const MAX_BACKOFF_MS = 12_000;
 export type MonitorStatus = "connected" | "degraded" | "lost";
 
 export type MonitorFailure = {
+  code?: string;
   guidance: string;
   summary: string;
   terminal: boolean;
@@ -36,21 +37,23 @@ export async function responseFailure(response: Response): Promise<MonitorFailur
   const detail = await responseDetail(response);
   if (response.status === 401 || response.status === 403) {
     return {
+      ...(detail.code === null ? {} : { code: detail.code }),
       guidance: `監視の認証に失敗しました (${response.status})。実行時の Trial アクセストークンを再入力し、このオリジンが許可されているか確認してください。`,
-      summary: detail,
+      summary: detail.summary,
       terminal: false,
     };
   }
 
-  const invalidJsonl = /invalid[^.\n]*jsonl|jsonl[^.\n]*invalid/i.test(detail);
+  const invalidJsonl = /invalid[^.\n]*jsonl|jsonl[^.\n]*invalid/i.test(detail.summary);
   return {
+    ...(detail.code === null ? {} : { code: detail.code }),
     guidance:
       response.status === 413
         ? "セッションのイベントストリームがポーリング上限を超えました。CLI の成果物を直接確認してください。"
         : invalidJsonl
           ? "セッションのイベント JSONL が不正です。再接続する前に既存の成果物を確認し、修復してください。"
           : `監視リクエストに失敗しました (${response.status || "状態不明"})。上限付きバックオフで再試行します。`,
-    summary: detail,
+    summary: detail.summary,
     terminal: response.status === 413 || invalidJsonl,
   };
 }
@@ -65,12 +68,17 @@ export function thrownFailure(reason: unknown): MonitorFailure {
   };
 }
 
-async function responseDetail(response: Response): Promise<string> {
+async function responseDetail(
+  response: Response,
+): Promise<{ code: string | null; summary: string }> {
   const text = await response.text();
   try {
-    const parsed = JSON.parse(text) as { error?: string };
-    return `${response.status}: ${parsed.error ?? text}`;
+    const parsed = JSON.parse(text) as { code?: unknown; error?: string };
+    return {
+      code: typeof parsed.code === "string" ? parsed.code : null,
+      summary: `${response.status}: ${parsed.error ?? text}`,
+    };
   } catch {
-    return `${response.status}: ${text}`;
+    return { code: null, summary: `${response.status}: ${text}` };
   }
 }
