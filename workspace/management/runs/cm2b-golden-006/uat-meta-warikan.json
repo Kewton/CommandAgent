@@ -1,0 +1,78 @@
+{
+  "schema_version": "cm2b-golden-006-curated/v1",
+  "campaign_id": "community-golden-warikan-20260817-232438",
+  "measurement_execution_revision": "9f4ba706923294588a8447cca12793ea8f0052c1",
+  "binary_sha256": {
+    "declared": "cb35a866e1a95ba6ecd5c8ee769122c439e56a00cc8cdd8363cd04d2ba9309cf",
+    "built": "cb35a866e1a95ba6ecd5c8ee769122c439e56a00cc8cdd8363cd04d2ba9309cf",
+    "installed": "cb35a866e1a95ba6ecd5c8ee769122c439e56a00cc8cdd8363cd04d2ba9309cf",
+    "matches": true
+  },
+  "provider_reachability": [
+    {"provider": "ollama", "host": "http://127.0.0.1:11434", "check": "models", "model": "qwen3.6:27b-coding-nvfp4", "status": "pass"},
+    {"provider": "openai", "host": "https://api.openai.com", "check": "/v1/models", "key_present": true, "key_value": "<redacted>", "status": "pass"}
+  ],
+  "suite": {
+    "source_manifest_sha256": "4ea74f2fe2687989467a9019c4f72a160d38e77097ea441e6de4a066748dad86",
+    "source_warikan_sha256": "215abae70c63d72be8bec4ad683b92d68b68349cd7edbeea5f741ee636cd9e0c",
+    "measurement_warikan_sha256": "3db35704bb8cccdd0781507dfd39880ccc8d76407a0b924b13e77d033b3f8fac",
+    "measurement_only_change": "bon_series",
+    "planned_runs": 12
+  },
+  "runs": [
+    {
+      "name": "warikan_001",
+      "status": "completed",
+      "product_exit": 1,
+      "duration_seconds": 247,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "stop_class": "community_build_inputs_missing",
+      "provider_total_tokens": 26018,
+      "cached_input_tokens": 20333,
+      "cost_usd": 0.00231666,
+      "spec_sha256": "8b032acfa9f3815f5228ad997359ab5d51c8ddb712d09072b78208d3069ff62a",
+      "community_schema_injected": true,
+      "community_core_manifest_injected": true,
+      "community_profile_verification_events": 4,
+      "scrub": "pass"
+    },
+    {
+      "name": "warikan_002",
+      "status": "completed",
+      "product_exit": 1,
+      "duration_seconds": 202,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "stop_class": "community_build_inputs_missing",
+      "provider_total_tokens": 12089,
+      "cached_input_tokens": 7497,
+      "cost_usd": 0.00168934,
+      "spec_sha256": "a301db223ab98c676fb96760405ff29f94f96779be12871e6cf470d18575fc54",
+      "community_schema_injected": true,
+      "community_core_manifest_injected": true,
+      "community_profile_verification_events": 5,
+      "scrub": "pass"
+    },
+    {
+      "name": "warikan_003",
+      "status": "interrupted(environment)",
+      "run_consumed": false,
+      "duration_seconds": 23,
+      "product_exit": null,
+      "verdict": "interrupted",
+      "stop_class": "interrupted by user",
+      "provider_total_tokens": 0,
+      "cost_usd": 0.0,
+      "scrub": "pass"
+    }
+  ],
+  "completed_runs": 2,
+  "environment_interrupted_non_consumed": 1,
+  "not_started": 33,
+  "completed_duration_seconds": 449,
+  "campaign_wall_seconds": 472,
+  "cost_usd_total": 0.004006,
+  "raw_uat_meta_sha256": "64731a41464f6bcad3ed39624f3580cc5881755df36bfe066e2e758cfe96d112",
+  "raw_uat_meta_scrub": "pass"
+}
