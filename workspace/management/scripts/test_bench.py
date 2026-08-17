@@ -90,6 +90,7 @@ def write_source_less_suite(
     with_sources: bool = False,
     with_run_set: bool = False,
     bon_series: str | None = None,
+    profile: str = "cli",
 ) -> Path:
     mode_line = (
         f'workspace_mode = "{workspace_mode}"' if workspace_mode is not None else ""
@@ -112,7 +113,7 @@ def write_source_less_suite(
             f"""
             [suite]
             id = "source-less-suite"
-            profile = "cli"
+            profile = "{profile}"
             intent = "create"
             plan_preset = "default"
             context_budget = 65536
@@ -837,6 +838,57 @@ class ProcurementTests(unittest.TestCase):
             self.assertIn("empty workspace integrity check failed", result.reason or "")
             self.assertEqual(result.workspace_integrity["entry_count"], 1)
             self.assertFalse(result.workspace_integrity["empty"])
+
+    def test_community_procurement_supplies_schema_and_core_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            schema_source = (
+                root / "workspace/management/bench/community/appspec-schema"
+            )
+            schema_source.mkdir(parents=True)
+            schema_source.joinpath("app-spec.schema.yaml").write_text(
+                "schema_version: community.app-spec/v0.1\n",
+                encoding="utf-8",
+            )
+            schema_source.joinpath("app-spec.schema.sha256").write_text(
+                "a" * 64,
+                encoding="utf-8",
+            )
+            template = (
+                root / "workspace/management/bench/community/synthetic-community"
+            )
+            template.joinpath("core").mkdir(parents=True)
+            template.joinpath("core/README.md").write_text(
+                "immutable core\n", encoding="utf-8"
+            )
+            core_digest = bench.sha256_file(template / "core/README.md")
+            template.joinpath("core.sha256sums").write_text(
+                f"{core_digest}  core/README.md\n", encoding="utf-8"
+            )
+            suite = bench.load_suite(
+                write_source_less_suite(root, profile="community-mini-app")
+            )
+            run_dir = root / "work" / "run"
+
+            result = bench.procure_run(suite, suite.runs[0], root, run_dir)
+
+            self.assertTrue(result.ok, result.reason)
+            self.assertTrue(run_dir.joinpath("schema/app-spec.schema.yaml").is_file())
+            self.assertEqual(
+                run_dir.joinpath("core/README.md").read_text(encoding="utf-8"),
+                "immutable core\n",
+            )
+            self.assertEqual(
+                run_dir.joinpath("core.sha256sums").read_text(encoding="utf-8"),
+                f"{core_digest}  core/README.md\n",
+            )
+            self.assertTrue(
+                result.workspace_integrity["community_core_manifest_injected"]
+            )
+            self.assertEqual(
+                result.workspace_integrity["community_core_files"],
+                ["core/README.md"],
+            )
 
     def test_sha_mismatch_blocks_run(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

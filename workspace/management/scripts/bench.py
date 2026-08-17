@@ -1435,30 +1435,72 @@ def _procure_empty_run(run_dir: Path) -> ProcurementResult:
         )
 
 
+def _supply_community_measurement_inputs(
+    result: ProcurementResult, repo_root: Path, run_dir: Path
+) -> ProcurementResult:
+    schema_source = repo_root / "workspace/management/bench/community/appspec-schema"
+    schema_destination = run_dir / "schema"
+    template_source = (
+        repo_root / "workspace/management/bench/community/synthetic-community"
+    )
+    try:
+        schema_destination.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(
+            schema_source / "app-spec.schema.yaml",
+            schema_destination / "app-spec.schema.yaml",
+        )
+        shutil.copy2(
+            schema_source / "app-spec.schema.sha256",
+            schema_destination / "app-spec.schema.sha256",
+        )
+    except OSError as error:
+        return ProcurementResult(
+            False,
+            f"community_schema_supply_failed: {error}",
+            {},
+            None,
+            result.workspace_integrity,
+        )
+    try:
+        shutil.copytree(template_source / "core", run_dir / "core")
+        shutil.copy2(template_source / "core.sha256sums", run_dir / "core.sha256sums")
+    except OSError as error:
+        return ProcurementResult(
+            False,
+            f"community_core_supply_failed: {error}",
+            {},
+            None,
+            result.workspace_integrity,
+        )
+    core_files = sorted(
+        str(path.relative_to(run_dir))
+        for path in (run_dir / "core").rglob("*")
+        if path.is_file()
+    )
+    return replace(
+        result,
+        workspace_integrity={
+            **(result.workspace_integrity or {}),
+            "community_schema_injected": True,
+            "community_schema_pin": (
+                schema_destination / "app-spec.schema.sha256"
+            ).read_text().strip(),
+            "community_core_manifest_injected": True,
+            "community_core_manifest_sha256": sha256_file(
+                run_dir / "core.sha256sums"
+            ),
+            "community_core_files": core_files,
+        },
+    )
+
+
 def procure_run(
     suite: SuiteDefinition, run: RunSpec, repo_root: Path, run_dir: Path
 ) -> ProcurementResult:
     if suite.workspace_mode == "empty":
         result = _procure_empty_run(run_dir)
         if result.ok and suite.profile == "community-mini-app":
-            source = repo_root / "workspace/management/bench/community/appspec-schema"
-            destination = run_dir / "schema"
-            try:
-                destination.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(source / "app-spec.schema.yaml", destination / "app-spec.schema.yaml")
-                shutil.copy2(source / "app-spec.schema.sha256", destination / "app-spec.schema.sha256")
-                result = replace(
-                    result,
-                    workspace_integrity={
-                        **(result.workspace_integrity or {}),
-                        "community_schema_injected": True,
-                        "community_schema_pin": (
-                            destination / "app-spec.schema.sha256"
-                        ).read_text().strip(),
-                    },
-                )
-            except OSError as error:
-                return ProcurementResult(False, f"community_schema_supply_failed: {error}", {}, None, result.workspace_integrity)
+            result = _supply_community_measurement_inputs(result, repo_root, run_dir)
         return result
     source = suite.source_for(run.set_id)
     observed: dict[str, str | None] = {}

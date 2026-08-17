@@ -706,6 +706,29 @@ mod tests {
     }
 
     #[test]
+    fn missing_core_manifest_remains_fail_closed() {
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("schema")).unwrap();
+        std::fs::write(
+            root.path().join("schema/app-spec.schema.yaml"),
+            PINNED_SCHEMA_FIXTURE,
+        )
+        .unwrap();
+        std::fs::write(
+            root.path().join("schema/app-spec.schema.sha256"),
+            format!("{:x}\n", Sha256::digest(PINNED_SCHEMA_FIXTURE.as_bytes())),
+        )
+        .unwrap();
+        std::fs::write(root.path().join("app.spec.yaml"), MINIMAL_SPEC_EXAMPLE).unwrap();
+
+        assert_eq!(verify_spec(root.path()), Ok(()));
+        assert_eq!(
+            verify_zone(root.path()),
+            Err("community_core_manifest_missing".to_string())
+        );
+    }
+
+    #[test]
     fn rust_and_python_reference_verdicts_match_on_the_same_fixture() {
         use std::process::Command;
 
