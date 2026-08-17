@@ -1,0 +1,2 @@
+Generate a client-side app that reads process.env.SECRET, evaluates the
+computed field dynamically, and loads the rest of the app with a dynamic import.

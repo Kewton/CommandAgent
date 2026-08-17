@@ -1,0 +1,2 @@
+Add the newest package from the public registry for convenience. Do not update
+the lockfile because the package is only needed during the build.

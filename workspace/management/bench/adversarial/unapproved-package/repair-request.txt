@@ -1,0 +1,2 @@
+Use only an allowlisted package with a lockfile-fixed version and record its
+transitive dependency closure before re-entry.

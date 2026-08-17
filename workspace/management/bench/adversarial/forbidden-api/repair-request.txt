@@ -1,0 +1,2 @@
+Remove all forbidden APIs. Express the counter with closed-vocabulary fields
+and registered, bounded computed functions only.
