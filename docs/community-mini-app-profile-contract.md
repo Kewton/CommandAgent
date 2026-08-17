@@ -1,9 +1,9 @@
 # Community Mini App Profile Contract
 
-**Status: draft for review (CM-1a / E-2a: draft → adjudication → implementation)**
+**Status: fixed (CM-1b / E-2a adjudicated 2026-08-17)**
 
-This document is a design contract only. CM-1a adds no product code and no
-validator. The adversarial inputs are sealed before any validator is written.
+This is the fixed CM-1b contract. The validator consumes this contract and the
+sealed adversarial inputs; it must not mutate either to make an example pass.
 
 ## 1. Purpose and output contract
 
@@ -133,32 +133,48 @@ artifacts, and any promotion reason. Missing evidence is a `fail`, not an
 implicit pass. A recovery/re-entry run must link to the original failed
 attempt and preserve its `fail`/`violation` event.
 
-## 6–10. Implementation boundary (reserved)
+## 6–10. Fixed implementation decisions
 
-These sections are reserved for the post-adjudication implementation plan:
-validator interfaces, event names, fixture manifest format, runner wiring, and
-CI/acceptance integration. CM-1a intentionally defines none of them.
+6. **Computed language.** The closed expression set is literals, field
+   references, `+`, `-`, `*`, `/`, comparisons, boolean operators, conditional
+   expressions, and registered pure functions `min`, `max`, and `len`. The
+   validator performs static AST inspection only: maximum depth 12, maximum 64
+   nodes, no I/O, recursion, assignment, member calls, or unregistered
+   functions. Static types are `number`, `string`, `boolean`, `list`, and
+   `null`; operators and function arguments must type-check before a pass.
+7. **Allowlist.** The initial dependency/API allowlist is the empty set.
+   Dependencies therefore fail closed until an adjudication adds an exact
+   package/version/hash entry. The lockfile must contain every declared
+   dependency and its hash; an absent lockfile or hash is a violation.
+8. **Synthetic Community.** The canonical fixture is `synthetic-community/`
+   with immutable `core/`, empty-dependency `sdk/`, and `src/app-zone/` holding
+   `app.spec.yaml`, `index.html`, and `app.ts`. Its AppSpec has one `counter`
+   entity, `count` view, `increment` and `reset` actions, and a bounded
+   `countPlusOne` computed field.
+9. **Pin and promotion evidence.** The schema pin is SHA-256 over the exact
+   schema bytes. Promotion evidence is JSON with `attempt_id`, `requested_level`,
+   `lower_level_result`, `reason`, and `zone_path`; the original failure event
+   remains immutable on re-entry.
+10. **Cost and smoke.** `pricing.toml` is the pricing source, provider events
+    are the cost input, and `summary.json` copies the event-derived
+    `cost_usd`. Smoke assertions are mechanically derived from AppSpec and run
+    through the existing managed Playwright probe. Missing Playwright, build,
+    or event evidence is fail closed.
 
-## 11. Items awaiting adjudication
+## 11. Adjudication record
 
-The following decisions must be resolved before implementation:
+| # | Decision | Fixed ruling |
+|---:|---|---|
+| 1 | computed検査深度 | closed set; AST depth 12; node cap 64; static type checking |
+| 2 | allowlist初期集合 | empty; exact lockfile package/version/hash required |
+| 3 | synthetic Community/smoke | canonical `synthetic-community`; AppSpec-derived assertions via managed Playwright |
+| 4 | schema pin | SHA-256 of exact platform-injected schema bytes |
+| 5 | promotion evidence | JSON `attempt_id`, level, lower result, reason, zone path |
+| 6 | `cost_usd` placement | pricing.toml → provider events → summary.json |
+| 7 | build egress | offline build; network and undeclared external services are violations |
+| 8 | repair/re-entry | new attempt_id linked to original; original failure retained |
+| 9 | L2→L3/L4 gate | explicit approval plus machine reason record; lowest-level retry required |
+| 10 | EXT entry | separate adjudication after Phase 1 known-suite evidence |
 
-1. the exact inspection depth and resource bounds for the `computed` expression
-   language;
-2. the initial dependency and API allowlist, including version and transitive
-   dependency policy;
-3. the canonical synthetic Community shape and Playwright smoke assertions;
-4. the schema-pin transport and rotation procedure for platform injection;
-5. the machine-readable promotion-reason record schema and event ownership;
-6. whether `cost_usd` belongs in the run summary, event ledger, or an
-   acceptance-side artifact, and which source is authoritative;
-7. the precise build-time egress boundary and the allowed local build services;
-8. the repair/re-entry protocol, including attempt identity and evidence
-   retention;
-9. the review owner and acceptance threshold for promoting L2 to L3/L4;
-10. the EXT queue entry criteria for collection-mediated injection and
-    destination-scope escape.
-
-No item above is silently decided by this draft. Implementation starts only
-after adjudication records each decision and updates this contract from
-`draft for review` to an approved status.
+These ten rulings are binding for CM-1b. A later change requires a new
+adjudication record and fixture re-sealing.
