@@ -111,9 +111,13 @@ export default function RunDetailPage() {
   return (
     <Shell
       active="run"
-      title="実行詳細"
-      description="実行を選び、記録された受入シートと証跡ファイルをそのまま確認します。"
+      title="検証・運用レポート"
+      description="repository に保存された検証・運用記録の受入シートと証跡を確認します。"
     >
+      <section className="panel source-banner" data-testid="repository-run-source">
+        <span className="panel-index">REPOSITORY / workspace/management/runs</span>
+        <p>GUI Trial の execution root ではなく、repository 側の永続レポートを参照しています。</p>
+      </section>
       <section className="run-workbench">
         <aside className="run-picker panel">
           <div className="run-filter">
@@ -137,6 +141,12 @@ export default function RunDetailPage() {
           </select>
           {runs.loading && <LoadingState label="実行一覧を読み込んでいます" />}
           {runs.error !== null && <ErrorState message={runs.error} />}
+          {runs.data?.runs.length === 0 && (
+            <EmptyState
+              label="repository 記録なし"
+              message="workspace/management/runs に検証・運用レポートがありません。"
+            />
+          )}
           {runs.data !== null && runs.data.runs.length > 0 && filteredRuns.length === 0 && (
             <EmptyState label="該当なし" message="条件に一致する実行がありません。" />
           )}

@@ -41,7 +41,7 @@ export default function DashboardPage() {
     <Shell
       active="dashboard"
       title="概要"
-      description="リポジトリに記録された実行・計測・運用アセットをまとめて確認します。"
+      description="repository に記録された検証・運用レポート、計測、固定アセットを確認します。"
     >
       <section className="metric-strip" aria-label="リポジトリ概要">
         <div>
@@ -104,8 +104,11 @@ export default function DashboardPage() {
       <section className="panel runs-panel">
         <header className="panel-heading">
           <div>
-            <span className="panel-index">C / 実行台帳</span>
-            <h2>最近更新された記録</h2>
+            <span className="panel-index">C / 検証・運用レポート</span>
+            <h2>repository の最近の記録</h2>
+            <p className="source-note" data-testid="repository-run-source">
+              参照元: workspace/management/runs
+            </p>
           </div>
           <span className="live-label"><i /> ファイル投影</span>
         </header>

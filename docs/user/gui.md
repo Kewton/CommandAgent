@@ -1,7 +1,8 @@
 # Management GUI
 
 The CommandAgent GUI projects repository evidence into four read-only views
-and adds one confirmed trial-run view. The dashboard, run detail, admitted
+and adds one confirmed trial-run view. The dashboard, verification/operations
+reports, admitted
 assets, and measurement reports remain file projections. Trial run can launch
 an existing non-interactive `commandagent` CLI process after Gate 1; the GUI
 does not call providers or runners in process. The server binds only to
@@ -166,13 +167,28 @@ authentication is enabled.
    an editable draft. The tab-scoped Trial token and launch fields are retained,
    while the previous proposal, session progress, and directive are cleared.
 
-The **Trial sessions** panel reads the configured execution root rather than
-`workspace/management/runs`. Entering a complete runtime token loads up to 100
-confirmed Trial run directories, with the active lease session first and the
-remaining rows ordered by latest update. **Refresh sessions** reads the
-directory again, so added or removed runs appear without a server restart. Each
-row shows its UUID-v7-derived start time (or file-creation fallback), latest
-update, file-backed gate/status, and a link to the existing
+The navigation item **検証・運用レポート** reads the repository-side
+`workspace/management/runs`. It is for persisted verification and operations
+evidence; it does not list GUI Trial sessions. The **GUI Trial 実行履歴** panel
+instead reads `.anvil/runs` below the configured execution root. Both pages
+show their source path explicitly.
+
+Entering or restoring a complete runtime token loads up to 100 confirmed Trial
+run directories, with the active lease session first and the remaining rows
+ordered by latest update. The list is revalidated after a launch is accepted,
+on a Gate 3/4 transition, after reconnect succeeds, when the shared runtime
+lease leaves `running`, on window focus or tab visibility, and by **セッションを
+更新**. It does not run an independent short-interval list poll. A launch row
+appears immediately with the returned ID and `starting` state while the file
+projection catches up. Terminal results link directly to their matching
+history row.
+
+The panel shows the last successful refresh separately from a current refresh
+error. A failed refresh therefore leaves the last successful rows visible. A
+missing or incomplete token is shown as authentication pending, never as an
+authenticated empty session list. Each row shows its UUID-v7-derived start time
+(or file-creation fallback), latest update, file-backed gate/status, and a link
+to the existing
 `?session=<id>` reconnect flow. Following that link does not issue a POST or
 delegate another process; the runtime token is restored from the same tab's
 session storage before the session-status GET runs.

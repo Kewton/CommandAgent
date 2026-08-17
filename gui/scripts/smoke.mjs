@@ -278,7 +278,7 @@ async function runCase(smokeCase) {
       apiChecks.every((check) => check.status === 200) &&
       linksUseBasePath &&
       JSON.stringify(primaryNavigation) ===
-        JSON.stringify(["01\n概要", "02\nトライアル", "03\n実行詳細", "04\n計測"]) &&
+        JSON.stringify(["01\n概要", "02\nトライアル", "03\n検証・運用レポート", "04\n計測"]) &&
       assetsLink === `${expectedPrefix}assets/` &&
       runCountText === expectedRunCountText &&
       statusBadgesArePlainText;
@@ -992,8 +992,8 @@ async function probeReadOnlyUi(page, origin, basePath, runSummaries, caseId) {
     origin,
     basePath,
     "runs/",
-    "実行詳細",
-    "実行詳細 | CommandAgent",
+    "検証・運用レポート",
+    "検証・運用レポート | CommandAgent",
   );
   await page.waitForFunction(
     () => document.querySelectorAll("#run-select option:not([value=''])").length > 0,

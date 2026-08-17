@@ -126,17 +126,14 @@ async function runCase(smokeCase) {
 
     const rejectionResponse = page.waitForResponse((response) => {
       const url = new URL(response.url());
-      return url.pathname === `${prefix}api/trial-workspace` && response.status() === 401;
+      return url.pathname === sessionsPath && response.status() === 401;
     });
     await tokenInput.fill(rejectedTrialToken);
-    await page.locator("[data-testid='inspect-workspace-lease']").click();
     await rejectionResponse;
-    const error = page.locator(".trial-compose > .trial-error[role='alert']");
-    await error.waitFor();
-    const errorText = await error.innerText();
     await page.waitForFunction(
       () => document.querySelector("[data-testid='trial-token']")?.value === "",
     );
+    const errorText = (await page.locator(".trial-error[role='alert']").allInnerTexts()).join("\n");
     const rejectedValueRemoved = await storageValue(page, storageKey, null);
 
     const mainLocalStorage = await page.evaluate(() => Object.values(localStorage));

@@ -1229,6 +1229,7 @@ button {
 .session-index {
   margin-bottom: 1rem;
   overflow: hidden;
+  scroll-margin-top: 1rem;
 }
 
 .session-index .panel-heading h2 {
@@ -1237,8 +1238,40 @@ button {
 }
 
 .session-index > .trial-error,
+.session-index-freshness,
 .session-index-empty {
   margin: 1rem 1.25rem;
+}
+
+.source-note,
+.session-index-freshness {
+  color: var(--muted);
+  font-size: 0.62rem;
+  line-height: 1.45;
+}
+
+.source-note {
+  margin: 0.35rem 0 0;
+}
+
+.source-banner {
+  margin-bottom: 1rem;
+  padding: 0.9rem 1rem;
+}
+
+.source-banner p {
+  margin: 0.35rem 0 0;
+  color: var(--muted-strong);
+  font-size: 0.72rem;
+}
+
+.session-index-error strong,
+.session-index-error small {
+  display: block;
+}
+
+.session-index-error small {
+  margin-top: 0.35rem;
 }
 
 .session-index-empty {
@@ -1259,6 +1292,7 @@ button {
   align-items: center;
   padding: 0.8rem 1.25rem;
   border-bottom: 1px solid var(--line);
+  scroll-margin-top: 1rem;
 }
 
 .session-list li:last-child {
@@ -1314,6 +1348,15 @@ button {
 .session-list a {
   color: var(--accent);
   font-size: 0.68rem;
+  font-weight: 650;
+  text-underline-offset: 0.2rem;
+}
+
+.terminal-history-link {
+  display: inline-block;
+  margin: 0.8rem 0;
+  color: var(--accent);
+  font-size: 0.7rem;
   font-weight: 650;
   text-underline-offset: 0.2rem;
 }

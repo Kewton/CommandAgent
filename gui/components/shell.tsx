@@ -1,14 +1,20 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 
 import { routePath, withBasePath, type GuiRoute } from "../lib/base-path";
-import { useRuntimeStatus } from "../lib/use-runtime-status";
+import { useRuntimeStatus, type RuntimeState } from "../lib/use-runtime-status";
+
+const RuntimeStatusContext = createContext<RuntimeState | null>(null);
+
+export function useShellRuntimeStatus(): RuntimeState | null {
+  return useContext(RuntimeStatusContext);
+}
 
 const navigation: { route: GuiRoute; label: string; index: string }[] = [
   { route: "dashboard", label: "概要", index: "01" },
   { route: "try", label: "トライアル", index: "02" },
-  { route: "run", label: "実行詳細", index: "03" },
+  { route: "run", label: "検証・運用レポート", index: "03" },
   { route: "measurements", label: "計測", index: "04" },
 ];
 
@@ -24,7 +30,8 @@ export function Shell({ active, title, description, children }: ShellProps) {
   const sessionState = runtime.data?.session?.state ?? "idle";
 
   return (
-    <div className="app-shell">
+    <RuntimeStatusContext.Provider value={runtime}>
+      <div className="app-shell">
       <header className="topbar">
         <a className="brand" href={withBasePath(routePath("dashboard"))}>
           <span className="brand-mark" aria-hidden="true">
@@ -84,7 +91,8 @@ export function Shell({ active, title, description, children }: ShellProps) {
         </section>
         {children}
       </main>
-    </div>
+      </div>
+    </RuntimeStatusContext.Provider>
   );
 }
 
