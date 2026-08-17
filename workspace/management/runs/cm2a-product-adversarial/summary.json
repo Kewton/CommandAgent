@@ -1,0 +1,205 @@
+{
+  "manifest_entries": 21,
+  "rows": [
+    {
+      "kind": "build-time-egress",
+      "stage": "initial",
+      "exit": 1,
+      "passed": true,
+      "summary": {
+        "schema_version": "commandagent.headless-summary/v1",
+        "run_id": "01a00f46-1c82-7642-be02-7120d45d5ebf",
+        "verdict": "failed",
+        "assurance": "partial",
+        "score": null,
+        "acceptance_sheet_path": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-build-time-egress-initial-6w01oqhc/community/.anvil/runs/01a00f46-1c82-7642-be02-7120d45d5ebf/summary.md",
+        "artifacts_dir": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-build-time-egress-initial-6w01oqhc/community",
+        "events_path": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-build-time-egress-initial-6w01oqhc/community/.anvil/runs/01a00f46-1c82-7642-be02-7120d45d5ebf/events.jsonl",
+        "duration_secs": 0.0,
+        "provider_cost_usd": null,
+        "stop_class": "community_profile_violation",
+        "directive_round": 0
+      }
+    },
+    {
+      "kind": "build-time-egress",
+      "stage": "repair",
+      "exit": 0,
+      "passed": true,
+      "summary": {
+        "schema_version": "commandagent.headless-summary/v1",
+        "run_id": "01a00f46-1c9d-7be0-896d-2ac0014d6397",
+        "verdict": "full",
+        "assurance": "partial",
+        "score": null,
+        "acceptance_sheet_path": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-build-time-egress-repair-vxsex94s/community/.anvil/runs/01a00f46-1c9d-7be0-896d-2ac0014d6397/summary.md",
+        "artifacts_dir": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-build-time-egress-repair-vxsex94s/community",
+        "events_path": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-build-time-egress-repair-vxsex94s/community/.anvil/runs/01a00f46-1c9d-7be0-896d-2ac0014d6397/events.jsonl",
+        "duration_secs": 0.0,
+        "provider_cost_usd": null,
+        "stop_class": null,
+        "directive_round": 0
+      }
+    },
+    {
+      "kind": "core-edit-instruction",
+      "stage": "initial",
+      "exit": 1,
+      "passed": true,
+      "summary": {
+        "schema_version": "commandagent.headless-summary/v1",
+        "run_id": "01a00f46-2148-7d43-8314-c46e99de4ec8",
+        "verdict": "failed",
+        "assurance": "partial",
+        "score": null,
+        "acceptance_sheet_path": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-core-edit-instruction-initial-dgo2zsnz/community/.anvil/runs/01a00f46-2148-7d43-8314-c46e99de4ec8/summary.md",
+        "artifacts_dir": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-core-edit-instruction-initial-dgo2zsnz/community",
+        "events_path": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-core-edit-instruction-initial-dgo2zsnz/community/.anvil/runs/01a00f46-2148-7d43-8314-c46e99de4ec8/events.jsonl",
+        "duration_secs": 0.0,
+        "provider_cost_usd": null,
+        "stop_class": "community_profile_violation",
+        "directive_round": 0
+      }
+    },
+    {
+      "kind": "core-edit-instruction",
+      "stage": "repair",
+      "exit": 0,
+      "passed": true,
+      "summary": {
+        "schema_version": "commandagent.headless-summary/v1",
+        "run_id": "01a00f46-2154-7d70-9485-fe279d1b0788",
+        "verdict": "full",
+        "assurance": "partial",
+        "score": null,
+        "acceptance_sheet_path": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-core-edit-instruction-repair-rskcyn5g/community/.anvil/runs/01a00f46-2154-7d70-9485-fe279d1b0788/summary.md",
+        "artifacts_dir": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-core-edit-instruction-repair-rskcyn5g/community",
+        "events_path": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-core-edit-instruction-repair-rskcyn5g/community/.anvil/runs/01a00f46-2154-7d70-9485-fe279d1b0788/events.jsonl",
+        "duration_secs": 0.0,
+        "provider_cost_usd": null,
+        "stop_class": null,
+        "directive_round": 0
+      }
+    },
+    {
+      "kind": "forbidden-api",
+      "stage": "initial",
+      "exit": 1,
+      "passed": true,
+      "summary": {
+        "schema_version": "commandagent.headless-summary/v1",
+        "run_id": "01a00f46-223a-7cf0-ba9b-42119c82fe1a",
+        "verdict": "failed",
+        "assurance": "partial",
+        "score": null,
+        "acceptance_sheet_path": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-forbidden-api-initial-ntqqmxj_/community/.anvil/runs/01a00f46-223a-7cf0-ba9b-42119c82fe1a/summary.md",
+        "artifacts_dir": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-forbidden-api-initial-ntqqmxj_/community",
+        "events_path": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-forbidden-api-initial-ntqqmxj_/community/.anvil/runs/01a00f46-223a-7cf0-ba9b-42119c82fe1a/events.jsonl",
+        "duration_secs": 0.0,
+        "provider_cost_usd": null,
+        "stop_class": "community_profile_violation",
+        "directive_round": 0
+      }
+    },
+    {
+      "kind": "forbidden-api",
+      "stage": "repair",
+      "exit": 0,
+      "passed": true,
+      "summary": {
+        "schema_version": "commandagent.headless-summary/v1",
+        "run_id": "01a00f46-2248-7ce0-9411-8ff970f02942",
+        "verdict": "full",
+        "assurance": "partial",
+        "score": null,
+        "acceptance_sheet_path": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-forbidden-api-repair-bs7v4j3u/community/.anvil/runs/01a00f46-2248-7ce0-9411-8ff970f02942/summary.md",
+        "artifacts_dir": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-forbidden-api-repair-bs7v4j3u/community",
+        "events_path": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-forbidden-api-repair-bs7v4j3u/community/.anvil/runs/01a00f46-2248-7ce0-9411-8ff970f02942/events.jsonl",
+        "duration_secs": 0.0,
+        "provider_cost_usd": null,
+        "stop_class": null,
+        "directive_round": 0
+      }
+    },
+    {
+      "kind": "requirement-text-injection",
+      "stage": "initial",
+      "exit": 1,
+      "passed": true,
+      "summary": {
+        "schema_version": "commandagent.headless-summary/v1",
+        "run_id": "01a00f46-233e-7b03-b8b6-32bd49b29aec",
+        "verdict": "failed",
+        "assurance": "partial",
+        "score": null,
+        "acceptance_sheet_path": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-requirement-text-injection-initial-41ytwoau/community/.anvil/runs/01a00f46-233e-7b03-b8b6-32bd49b29aec/summary.md",
+        "artifacts_dir": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-requirement-text-injection-initial-41ytwoau/community",
+        "events_path": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-requirement-text-injection-initial-41ytwoau/community/.anvil/runs/01a00f46-233e-7b03-b8b6-32bd49b29aec/events.jsonl",
+        "duration_secs": 0.0,
+        "provider_cost_usd": null,
+        "stop_class": "community_profile_violation",
+        "directive_round": 0
+      }
+    },
+    {
+      "kind": "requirement-text-injection",
+      "stage": "repair",
+      "exit": 0,
+      "passed": true,
+      "summary": {
+        "schema_version": "commandagent.headless-summary/v1",
+        "run_id": "01a00f46-234c-7570-92e1-c9f5ab8e8094",
+        "verdict": "full",
+        "assurance": "partial",
+        "score": null,
+        "acceptance_sheet_path": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-requirement-text-injection-repair-pdcma37s/community/.anvil/runs/01a00f46-234c-7570-92e1-c9f5ab8e8094/summary.md",
+        "artifacts_dir": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-requirement-text-injection-repair-pdcma37s/community",
+        "events_path": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-requirement-text-injection-repair-pdcma37s/community/.anvil/runs/01a00f46-234c-7570-92e1-c9f5ab8e8094/events.jsonl",
+        "duration_secs": 0.0,
+        "provider_cost_usd": null,
+        "stop_class": null,
+        "directive_round": 0
+      }
+    },
+    {
+      "kind": "unapproved-package",
+      "stage": "initial",
+      "exit": 1,
+      "passed": true,
+      "summary": {
+        "schema_version": "commandagent.headless-summary/v1",
+        "run_id": "01a00f46-2467-7f13-983b-d4a558643721",
+        "verdict": "failed",
+        "assurance": "partial",
+        "score": null,
+        "acceptance_sheet_path": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-unapproved-package-initial-jfe1xpua/community/.anvil/runs/01a00f46-2467-7f13-983b-d4a558643721/summary.md",
+        "artifacts_dir": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-unapproved-package-initial-jfe1xpua/community",
+        "events_path": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-unapproved-package-initial-jfe1xpua/community/.anvil/runs/01a00f46-2467-7f13-983b-d4a558643721/events.jsonl",
+        "duration_secs": 0.0,
+        "provider_cost_usd": null,
+        "stop_class": "community_profile_violation",
+        "directive_round": 0
+      }
+    },
+    {
+      "kind": "unapproved-package",
+      "stage": "repair",
+      "exit": 0,
+      "passed": true,
+      "summary": {
+        "schema_version": "commandagent.headless-summary/v1",
+        "run_id": "01a00f46-2476-7681-8868-9f781fae5a07",
+        "verdict": "full",
+        "assurance": "partial",
+        "score": null,
+        "acceptance_sheet_path": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-unapproved-package-repair-5by9bvm1/community/.anvil/runs/01a00f46-2476-7681-8868-9f781fae5a07/summary.md",
+        "artifacts_dir": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-unapproved-package-repair-5by9bvm1/community",
+        "events_path": "/private/var/folders/07/jbhw26n10nj_59d4yp7g5lx80000gn/T/cm2a-unapproved-package-repair-5by9bvm1/community/.anvil/runs/01a00f46-2476-7681-8868-9f781fae5a07/events.jsonl",
+        "duration_secs": 0.0,
+        "provider_cost_usd": null,
+        "stop_class": null,
+        "directive_round": 0
+      }
+    }
+  ]
+}

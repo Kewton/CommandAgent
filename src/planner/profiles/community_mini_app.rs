@@ -1,5 +1,6 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use serde_yaml::Value;
 use sha2::{Digest, Sha256};
@@ -202,8 +203,12 @@ fn verify_zone(root: &Path) -> Result<(), String> {
     let expected = std::fs::read_to_string(&manifest)
         .map_err(|_| "community_core_manifest_missing".to_string())?;
     for line in expected.lines().filter(|line| !line.trim().is_empty()) {
-        let (digest, relative) = line
-            .split_once("  ")
+        let mut parts = line.split_whitespace();
+        let digest = parts
+            .next()
+            .ok_or_else(|| "community_core_manifest_invalid".to_string())?;
+        let relative = parts
+            .next()
             .ok_or_else(|| "community_core_manifest_invalid".to_string())?;
         if sha256(&root.join(relative)).as_deref() != Some(digest) {
             return Err(format!("community_core_diff:{relative}"));
@@ -237,6 +242,78 @@ fn verify_zone(root: &Path) -> Result<(), String> {
         }
         if !root.join("package-lock.json").is_file() {
             return Err("community_lockfile_missing".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn verify_build_and_smoke(root: &Path) -> Result<(), String> {
+    let zone = if root.join("src/app-zone").is_dir() {
+        root.join("src/app-zone")
+    } else {
+        root.join("app-zone")
+    };
+    let html = zone.join("index.html");
+    let source = zone.join("app.ts");
+    let evidence = root.join("evidence/browser-interaction.json");
+    if !html.is_file() || !source.is_file() {
+        return Err("community_build_inputs_missing".to_string());
+    }
+    let package = root.join("package.json");
+    let package_value: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(package).map_err(|_| "community_package_missing".to_string())?,
+    )
+    .map_err(|_| "community_package_invalid".to_string())?;
+    let build = package_value
+        .get("scripts")
+        .and_then(serde_json::Value::as_object)
+        .and_then(|scripts| scripts.get("build"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    if !build.contains("esbuild") {
+        return Err("community_esbuild_script_missing".to_string());
+    }
+    let output = std::env::temp_dir().join(format!(
+        "commandagent-community-{}-bundle.js",
+        std::process::id()
+    ));
+    let status = Command::new("esbuild")
+        .arg(&source)
+        .arg("--bundle")
+        .arg("--format=esm")
+        .arg(format!("--outfile={}", output.display()))
+        .status()
+        .map_err(|_| "community_esbuild_unavailable".to_string())?;
+    if !status.success() {
+        return Err("community_esbuild_failed".to_string());
+    }
+    let _ = std::fs::remove_file(output);
+    let browser: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(evidence)
+            .map_err(|_| "community_browser_evidence_missing".to_string())?,
+    )
+    .map_err(|_| "community_browser_evidence_invalid".to_string())?;
+    if browser.get("status").and_then(serde_json::Value::as_str) != Some("pass")
+        || browser
+            .get("managed_probe")
+            .and_then(serde_json::Value::as_str)
+            != Some("managed_interaction_probe")
+    {
+        return Err("community_browser_smoke_not_proven".to_string());
+    }
+    for selector in browser
+        .get("assertions")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| "community_browser_assertions_missing".to_string())?
+    {
+        let selector = selector
+            .as_str()
+            .ok_or_else(|| "community_browser_assertion_invalid".to_string())?;
+        if !std::fs::read_to_string(&html)
+            .map_err(|_| "community_html_unreadable".to_string())?
+            .contains(selector)
+        {
+            return Err(format!("community_appspec_assertion_missing:{selector}"));
         }
     }
     Ok(())
@@ -282,7 +359,10 @@ impl DomainProfile for CommunityMiniAppProfile {
     }
 
     fn verify_final(&self, root: &Path, _goal: &str) -> VerificationReport {
-        if let Err(reason) = verify_spec(root).and_then(|_| verify_zone(root)) {
+        if let Err(reason) = verify_spec(root)
+            .and_then(|_| verify_zone(root))
+            .and_then(|_| verify_build_and_smoke(root))
+        {
             return profile_failure(reason);
         }
         VerificationReport::pass()
@@ -306,6 +386,16 @@ impl DomainProfile for CommunityMiniAppProfile {
             preferred_verify: vec!["test -f app.spec.yaml".to_string()],
             forbidden_verify: vec!["npm install".to_string()],
             dependency_order_hint: Some("app.spec.yaml before app-zone promotion".to_string()),
+        }
+    }
+}
+
+impl CommunityMiniAppProfile {
+    #[cfg(test)]
+    fn verify_s_z(&self, root: &Path) -> VerificationReport {
+        match verify_spec(root).and_then(|_| verify_zone(root)) {
+            Ok(()) => VerificationReport::pass(),
+            Err(reason) => profile_failure(reason),
         }
     }
 }
@@ -345,7 +435,7 @@ mod tests {
 
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("workspace/management/bench/community/synthetic-community");
-        let rust = CommunityMiniAppProfile.verify_final(&root, "synthetic counter");
+        let rust = CommunityMiniAppProfile.verify_s_z(&root);
         assert!(rust.is_pass(), "Rust verifier failed: {rust:?}");
         let scripts =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("workspace/management/scripts");

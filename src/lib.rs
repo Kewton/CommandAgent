@@ -106,6 +106,38 @@ fn run_config(config: Config) -> anyhow::Result<()> {
         preflight::run_for_action(&config)?;
         match config.action.clone() {
             Action::Repl => repl::run_repl(config.clone()),
+            Action::Prompt(prompt)
+                if config.profile == planner::profiles::community_mini_app::PROFILE_ID
+                    && config.offline =>
+            {
+                let report = planner::profile::verify_profile_final(
+                    &config.workspace_root,
+                    planner::profiles::community_mini_app::PROFILE_ID,
+                    &prompt,
+                );
+                let ok = report.is_pass();
+                let violation = if ok {
+                    String::new()
+                } else {
+                    report.primary_reason()
+                };
+                eval_events::emit(
+                    config.eval_events_path.as_deref(),
+                    json!({
+                        "event": "community_profile_verification",
+                        "profile": planner::profiles::community_mini_app::PROFILE_ID,
+                        "verdict": if ok { "full" } else { "failed" },
+                        "assurance": if ok { "full" } else { "failed" },
+                        "violation": violation,
+                        "ok": ok,
+                    }),
+                );
+                if ok {
+                    Ok(())
+                } else {
+                    anyhow::bail!("community_profile_violation:{}", report.primary_reason())
+                }
+            }
             Action::Prompt(prompt) => {
                 let mut client = providers::client_from_config(&config, false)?;
                 let ui = DirectActionUi::new(&config);
@@ -715,11 +747,19 @@ fn emit_run_stop(config: &Config, result: &anyhow::Result<()>) {
     );
     let (ok, stop_reason, failure_kind) = match result {
         Ok(()) => (true, "completed".to_string(), ""),
-        Err(err) => (
-            false,
-            eval_events::render_stop_reason_text(&err.to_string()),
-            "process_failure",
-        ),
+        Err(err) => {
+            let text = err.to_string();
+            let failure_kind = if text.starts_with("community_profile_violation:") {
+                "community_profile_violation"
+            } else {
+                "process_failure"
+            };
+            (
+                false,
+                eval_events::render_stop_reason_text(&text),
+                failure_kind,
+            )
+        }
     };
     let mut completion_snapshot =
         eval_events::latest_completion_snapshot(config.eval_events_path.as_deref());

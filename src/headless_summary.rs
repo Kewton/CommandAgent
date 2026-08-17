@@ -55,9 +55,12 @@ fn project(source: &Source) -> HeadlessSummary {
         .and_then(|event| event.get("ok"))
         .and_then(Value::as_bool)
         == Some(false);
-    let assurance = terminal.and_then(|event| text(event, "assurance_level"));
+    let assurance = terminal
+        .and_then(|event| text(event, "assurance_level"))
+        .or_else(|| latest_event_text(&events, "community_profile_verification", "assurance"));
     let verdict = latest_event_text(&events, "ultra_final_acceptance", "verdict")
         .or_else(|| latest_event_text(&events, "workflow_adjudicated", "verdict"))
+        .or_else(|| latest_event_text(&events, "community_profile_verification", "verdict"))
         .or_else(|| assurance.clone());
     let duration_secs = terminal
         .and_then(|event| number(event, "time_profile_total_ms"))
@@ -84,7 +87,12 @@ fn project(source: &Source) -> HeadlessSummary {
         duration_secs,
         provider_cost_usd: latest_number(&events, &["provider_cost_usd", "cost_usd"]),
         stop_class: failed
-            .then(|| terminal.and_then(|event| text(event, "failure_kind")))
+            .then(|| {
+                latest_event_text(&events, "community_profile_verification", "violation")
+                    .filter(|value| !value.is_empty())
+                    .map(|_| "community_profile_violation".to_string())
+                    .or_else(|| terminal.and_then(|event| text(event, "failure_kind")))
+            })
             .flatten(),
         directive_round: latest_integer(&events, "directive_round").unwrap_or(0),
     }

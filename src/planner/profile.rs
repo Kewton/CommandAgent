@@ -531,8 +531,8 @@ static DOMAIN_PROFILES: [&'static dyn DomainProfile; 6] = [
     &PYTHON_CLI_PROFILE,
     &DATA_PROFILE,
     &INGEST_PROFILE,
-    &GENERIC_PROFILE,
     &COMMUNITY_MINI_APP_PROFILE,
+    &GENERIC_PROFILE,
 ];
 
 impl ProfileRuntime for crate::planner::profiles::nextjs::NextjsProfile {
