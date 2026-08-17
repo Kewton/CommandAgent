@@ -28,3 +28,39 @@ executor = "gpt-5.6-luna"
 name = "mochimono_003"
 goal = "mixed"
 executor = "gpt-5.6-luna"
+[[runs]]
+name = "mochimono_004"
+goal = "main"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "mochimono_005"
+goal = "late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "mochimono_006"
+goal = "mixed"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "mochimono_007"
+goal = "main"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "mochimono_008"
+goal = "late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "mochimono_009"
+goal = "mixed"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "mochimono_010"
+goal = "main"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "mochimono_011"
+goal = "late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "mochimono_012"
+goal = "mixed"
+executor = "gpt-5.6-luna"

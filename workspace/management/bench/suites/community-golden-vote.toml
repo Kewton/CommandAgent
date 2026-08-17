@@ -28,3 +28,39 @@ executor = "gpt-5.6-luna"
 name = "vote_003"
 goal = "mixed"
 executor = "gpt-5.6-luna"
+[[runs]]
+name = "vote_004"
+goal = "main"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "vote_005"
+goal = "late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "vote_006"
+goal = "mixed"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "vote_007"
+goal = "main"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "vote_008"
+goal = "late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "vote_009"
+goal = "mixed"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "vote_010"
+goal = "main"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "vote_011"
+goal = "late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "vote_012"
+goal = "mixed"
+executor = "gpt-5.6-luna"

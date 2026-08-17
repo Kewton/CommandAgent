@@ -28,3 +28,39 @@ executor = "gpt-5.6-luna"
 name = "warikan_003"
 goal = "mixed"
 executor = "gpt-5.6-luna"
+[[runs]]
+name = "warikan_004"
+goal = "main"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "warikan_005"
+goal = "late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "warikan_006"
+goal = "mixed"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "warikan_007"
+goal = "main"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "warikan_008"
+goal = "late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "warikan_009"
+goal = "mixed"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "warikan_010"
+goal = "main"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "warikan_011"
+goal = "late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "warikan_012"
+goal = "mixed"
+executor = "gpt-5.6-luna"
