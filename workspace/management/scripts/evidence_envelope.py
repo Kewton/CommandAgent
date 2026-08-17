@@ -34,6 +34,7 @@ CONSUMER_ADAPTERS = {
         "circle": "metadata_only",
         "workflow": "metadata_only",
         "score": "metadata_only",
+        "promotion_decision": "metadata_only",
     },
     "sheet": {
         "E": "summary_and_legacy_detail",
@@ -46,6 +47,7 @@ CONSUMER_ADAPTERS = {
         "circle": "summary_and_legacy_detail",
         "workflow": "summary_and_legacy_detail",
         "score": "summary_and_legacy_detail",
+        "promotion_decision": "summary_and_legacy_detail",
     },
     "classify": {
         "E": "exclude_envelope_from_terminal_text",
@@ -58,6 +60,7 @@ CONSUMER_ADAPTERS = {
         "circle": "exclude_envelope_from_terminal_text",
         "workflow": "exclude_envelope_from_terminal_text",
         "score": "exclude_envelope_from_terminal_text",
+        "promotion_decision": "exclude_envelope_from_terminal_text",
     },
 }
 

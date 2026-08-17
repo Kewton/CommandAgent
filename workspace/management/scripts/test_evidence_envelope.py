@@ -31,8 +31,8 @@ class EvidenceEnvelopeGuardTests(unittest.TestCase):
         self.assertEqual(guard_errors(), [])
         self.assertEqual(
             len(registered_families()) * 3,
-            30,
-            "score evidence expands the transverse family guard to 30/30",
+            33,
+            "promotion decisions expand the transverse family guard to 33/33",
         )
         for family in registered_families():
             for consumer in ("collector", "sheet", "classify"):
