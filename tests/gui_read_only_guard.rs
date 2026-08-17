@@ -353,7 +353,7 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
 }
 
 #[test]
-fn trial_monitor_retries_and_reconnects_without_persisting_access() {
+fn trial_monitor_retries_and_reconnects_with_tab_scoped_access() {
     let page = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
     for required in [
         "redirect: \"manual\"",
@@ -372,7 +372,7 @@ fn trial_monitor_retries_and_reconnects_without_persisting_access() {
             "trial monitoring UI is missing {required:?}"
         );
     }
-    for forbidden in ["localStorage", "sessionStorage", "trialToken=", "token="] {
+    for forbidden in ["localStorage", "trialToken=", "token="] {
         assert!(
             !page.contains(forbidden),
             "trial UI persists or exposes access through {forbidden:?}"
@@ -385,6 +385,7 @@ fn trial_monitor_retries_and_reconnects_without_persisting_access() {
         "export const TERMINAL_FAILURE_LIMIT = 4",
         "Math.min(POLL_INTERVAL_MS * 2 ** exponent, MAX_BACKOFF_MS)",
         "response.status === 401 || response.status === 403",
+        "code: typeof parsed.code === \"string\" ? parsed.code : null",
         "response.status === 413 || invalidJsonl",
         "プロキシまたはネットワーク接続",
     ] {
@@ -399,12 +400,84 @@ fn trial_monitor_retries_and_reconnects_without_persisting_access() {
         "Synthetic browser fetch rejection",
         "return \"opaqueredirect\"",
         "reconnectMethods.every((method) => method === \"GET\")",
-        "tokenStayedInMemory",
+        "reloadRestoredToken",
+        "rejectedTokenRemoved",
+        "tokenStayedTabScoped",
         "probeMobile(browser",
     ] {
         assert!(
             smoke.contains(required),
             "browser smoke is missing {required:?}"
+        );
+    }
+}
+
+#[test]
+fn trial_token_storage_is_base_path_scoped_and_non_durable() {
+    let storage = std::fs::read_to_string("gui/lib/trial-token-storage.ts").unwrap();
+    for required in [
+        "commandagent.gui.trial-token",
+        "guiBasePath() || \"/\"",
+        "window.sessionStorage.getItem",
+        "window.sessionStorage.setItem",
+        "window.sessionStorage.removeItem",
+        "storedValue?.trim() === rejectedValue.trim()",
+    ] {
+        assert!(
+            storage.contains(required),
+            "Trial token storage is missing {required:?}"
+        );
+    }
+    for forbidden in [
+        "localStorage",
+        "BroadcastChannel",
+        "addEventListener(\"storage\"",
+        "window.open",
+    ] {
+        assert!(
+            !storage.contains(forbidden),
+            "Trial token storage adds forbidden persistence or synchronization {forbidden:?}"
+        );
+    }
+
+    let page = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
+    for required in [
+        "setTrialToken(restoreTrialToken())",
+        "persistTrialToken(value)",
+        "removeRejectedTrialToken(rejectedValue)",
+        "isDefinitiveTrialTokenRejection(reason)",
+        "onAccessTokenRejected={rejectTrialToken}",
+        "type=\"password\"",
+        "autoComplete=\"off\"",
+        "\"x-commandagent-trial-authorization\": `Bearer ${token.trim()}`",
+    ] {
+        assert!(
+            page.contains(required),
+            "Trial page is missing storage/authentication boundary {required:?}"
+        );
+    }
+
+    let errors = std::fs::read_to_string("gui/lib/errors.ts").unwrap();
+    assert!(errors.contains("reason as { code?: unknown }).code === \"trial_token_invalid\""));
+
+    let smoke = std::fs::read_to_string("gui/scripts/storage-smoke.mjs").unwrap();
+    for required in [
+        "buildBasePath: \"/\"",
+        "buildBasePath: \"/proxy/commandagent/\"",
+        "reload_restored_token",
+        "independent_tab_empty",
+        "edited_value_persisted",
+        "cleared_value_removed",
+        "rejected_value_removed",
+        "local_storage_excludes_tokens",
+        "urls_exclude_tokens",
+        "static_export_excludes_tokens",
+        "console_and_errors_exclude_tokens",
+        "server_diagnostics_exclude_tokens",
+    ] {
+        assert!(
+            smoke.contains(required),
+            "focused Trial storage smoke is missing {required:?}"
         );
     }
 }

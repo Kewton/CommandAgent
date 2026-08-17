@@ -39,14 +39,15 @@ cargo run --features gui --bin gui_server -- \
   --commandagent-bin target/release/commandagent
 ```
 
-The runtime-only token is not compiled into the static export. Enter it in the **Trial
-access token** field; the page keeps it only in memory and sends it as a Bearer
-token in `X-CommandAgent-Trial-Authorization` to Trial APIs. This dedicated
-header survives same-origin proxies that intentionally remove the generic
-`Authorization` header. The server still accepts `Authorization: Bearer` for
-direct-client compatibility. If `--execution-root` is omitted, the dashboard remains
-available but all Trial APIs fail closed with HTTP 503. If `--execution-root`
-is present without `GUI_TRIAL_TOKEN`, the server refuses to start.
+The runtime-only token is not compiled into the static export. Enter it in the
+**Trial access token** field; the page keeps it in tab-scoped `sessionStorage`
+and sends it as a Bearer token in `X-CommandAgent-Trial-Authorization` to Trial
+APIs. This dedicated header survives same-origin proxies that intentionally
+remove the generic `Authorization` header. The server still accepts
+`Authorization: Bearer` for direct-client compatibility. If `--execution-root`
+is omitted, the dashboard remains available but all Trial APIs fail closed with
+HTTP 503. If `--execution-root` is present without `GUI_TRIAL_TOKEN`, the server
+refuses to start.
 
 Open `http://127.0.0.1:4173/`.
 
@@ -162,7 +163,7 @@ authentication is enabled.
    the browser tab title to the plain-language result so completion is visible
    while the Trial tab is in the background.
 5. After **End without another run**, select **Start a new run** to return to
-   an editable draft. The in-memory Trial token and launch fields are retained,
+   an editable draft. The tab-scoped Trial token and launch fields are retained,
    while the previous proposal, session progress, and directive are cleared.
 
 The **Trial sessions** panel reads the configured execution root rather than
@@ -173,8 +174,8 @@ directory again, so added or removed runs appear without a server restart. Each
 row shows its UUID-v7-derived start time (or file-creation fallback), latest
 update, file-backed gate/status, and a link to the existing
 `?session=<id>` reconnect flow. Following that link does not issue a POST or
-delegate another process; the runtime token remains memory-only and must be
-entered again after navigation before the session-status GET can succeed.
+delegate another process; the runtime token is restored from the same tab's
+session storage before the session-status GET runs.
 
 The existing workspace lease card displays `idle`, `running(<session-id>)`, or
 `recovery_required(<session-id>)`, and is refreshed from the same index
@@ -228,8 +229,8 @@ The archive remains the evidence for the incomplete session. Restoring it
 under `.anvil/runs` will intentionally make startup require recovery again.
 
 The page places the launched session ID, but never the token, in
-`?session=<id>`. After a reload or navigation, re-enter the runtime Trial token
-and select **Reconnect monitoring**. Reconnect calls only
+`?session=<id>`. After a same-tab reload or navigation, the runtime Trial token
+is restored and can be used with **Reconnect monitoring**. Reconnect calls only
 `GET api/sessions/{id}` and cannot delegate another CLI process. A 409 response
 that identifies an already running or recovery-required session fills this same
 reconnect path.
@@ -245,9 +246,34 @@ Monitoring guidance distinguishes authentication and browser boundaries:
 
 HTTP 413 and invalid event JSONL are retried only to the terminal-error limit,
 then monitoring stops with an artifact inspection reason. Other failures keep
-retrying at the capped interval. The token remains only in page memory: it is
-not stored in `localStorage`, included in URLs, or compiled into the static
-export.
+retrying at the capped interval. A response with the definitive
+`trial_token_invalid` code removes the rejected value from the field and this
+tab's storage; a generic proxy 401/403 does not. The token is never stored in
+`localStorage`, included in URLs, or compiled into the static export.
+
+### Trial token lifetime and rotation
+
+The token survives reloads and navigation only through `sessionStorage` for the
+current tab. An independently opened tab is not synchronized by CommandAgent
+and requires manual entry. Clearing or editing the password field immediately
+updates that tab's stored value. Root-path and `/proxy/commandagent/`
+deployments use different storage keys, so they do not reuse one another's
+token on the same origin.
+
+Closing the tab is the ordinary lifetime boundary, but browsers may clone
+session storage when a tab is duplicated and may restore it after a crash or
+session restore. Do not treat browser exit as guaranteed deletion. A
+same-origin XSS can read the stored value or issue authenticated Trial requests,
+and an unlocked lost device with the tab available can exercise the same
+authority.
+
+After device loss or suspected disclosure, revoke the upstream Access session,
+stop `gui_server`, generate a fresh token containing 32–4096 non-whitespace
+characters (for example, 32 random bytes encoded as hex), set the new
+`GUI_TRIAL_TOKEN`, and restart the server. Close affected tabs or clear their
+Trial token fields; the old stored value will also be removed when the restarted
+server definitively rejects it. Redistribute the replacement token only through
+the operator's approved secret-transfer channel.
 
 ## API
 
