@@ -151,6 +151,7 @@
 - `ingest`: N1-N5 pass, including source-bound record values and complete candidate accounting; testimony/source binding is active as N2.
 
 ## 入力証跡
+
 - `workspace/management/runs/f-bon-v-001/evidence/bon0-001r2-selection.json` — `sha256:007ff4f8ddbae852df0b82dd1fe57e19800b7e002032f6430a9d58e0097195f3`
 - `workspace/management/runs/f-bon-v-001/evidence/bon0-002r-selection.json` — `sha256:36906fa06336de79cbb724ca3918b2721b8e8157cc60b5be57f4bea756064d92`
 - `workspace/management/runs/f-bon-v-001/evidence/bon0-003r-selection.json` — `sha256:54aac00003bc7bb8cd1c0eb4482a6ee2d150d34063cdbfc1be5972180f274c8b`
