@@ -13,6 +13,22 @@ use crate::planner::verify::VerificationReport;
 pub const PROFILE_ID: &str = "community-mini-app";
 pub const PROMOTION_DECISION_EVIDENCE_FAMILY: &str = "promotion_decision";
 
+pub fn declared_verify_missing(
+    profile: &str,
+    preferred_verify: &[String],
+    verify_commands: &[&str],
+    all_paths: &[&str],
+) -> bool {
+    profile == PROFILE_ID
+        && !preferred_verify.is_empty()
+        && all_paths.contains(&"app.spec.yaml")
+        && !verify_commands.iter().any(|command| {
+            preferred_verify
+                .iter()
+                .any(|preferred| command.contains(preferred))
+        })
+}
+
 pub struct CommunityMiniAppProfile;
 
 const ROOT_FIELDS: &[&str] = &[

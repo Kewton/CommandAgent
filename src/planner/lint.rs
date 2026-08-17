@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use crate::planner::profiles::community_mini_app::declared_verify_missing;
 use crate::planner::step_plan::{ExpectedResult, StepKind, StepPlan};
 use crate::planner::ultra_plan::UltraPlan;
 use crate::planner::{profile::resolve_profile_runtime, side_effect_paths::diagnose_expected_path};
@@ -430,8 +431,6 @@ pub fn step_plan_quality_report(
         .collect();
     let lower_goal = plan.goal.to_ascii_lowercase();
     let looks_next_profile = resolve_profile_runtime(&context.profile).enforce_nextjs_plan_shape();
-    let has_declared_profile_verify =
-        context.profile == "community-mini-app" && !context.preferred_verify.is_empty();
     let has_strong_verify = verify_commands
         .iter()
         .any(|command| is_strong_verify_command(command));
@@ -480,10 +479,12 @@ pub fn step_plan_quality_report(
         );
     }
 
-    if has_declared_profile_verify
-        && !has_preferred_verify(&verify_commands, &context.preferred_verify)
-        && all_paths.contains(&"app.spec.yaml")
-    {
+    if declared_verify_missing(
+        &context.profile,
+        &context.preferred_verify,
+        &verify_commands,
+        &all_paths,
+    ) {
         report.push(
             PlanQualitySeverity::RetryableQuality,
             "profile_verify_missing",
