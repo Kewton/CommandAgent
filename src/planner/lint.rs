@@ -1,9 +1,8 @@
 use std::path::Path;
 
-use crate::planner::profiles::community_mini_app::report_declared_verify;
 use crate::planner::step_plan::{ExpectedResult, StepKind, StepPlan};
-use crate::planner::ultra_plan::UltraPlan;
 use crate::planner::{profile::resolve_profile_runtime, side_effect_paths::diagnose_expected_path};
+use crate::planner::{profiles::community_mini_app::report_declared_verify, ultra_plan::UltraPlan};
 use crate::tools::path_guard::validate_workspace_relative;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1054,6 +1053,7 @@ fn is_strong_verify_command(command: &str) -> bool {
         || lower == "pytest"
         || lower.starts_with("pytest ")
         || lower.starts_with("node ")
+        || crate::planner::profiles::community_mini_app::is_strong_verify_command(command)
         || lower.starts_with("python -m py_compile")
         || lower.starts_with("python3 -m py_compile")
         || lower.starts_with("python -m compileall")

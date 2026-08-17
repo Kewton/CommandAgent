@@ -12,6 +12,39 @@ use crate::planner::verify::VerificationReport;
 
 pub const PROFILE_ID: &str = "community-mini-app";
 pub const PROMOTION_DECISION_EVIDENCE_FAMILY: &str = "promotion_decision";
+pub fn is_strong_verify_command(command: &str) -> bool {
+    command
+        .trim()
+        .to_ascii_lowercase()
+        .starts_with("commandagent --offline --profile community-mini-app")
+}
+pub const MINIMAL_SPEC_EXAMPLE: &str = r#"schema_version: community.app-spec/v1
+fields:
+  entities: list
+  views: list
+  actions: list
+  validations: list
+  computed: list
+  permissions: list
+  minIdentity: mapping
+entities:
+  - name: counter
+    fields:
+      count: number
+views:
+  - name: count
+    entity: counter
+actions:
+  - name: increment
+    entity: counter
+validations: []
+computed: []
+permissions:
+  - name: read
+    subject: minIdentity
+minIdentity:
+  mode: anonymous
+"#;
 
 pub fn declared_verify_missing(
     profile: &str,
@@ -84,7 +117,7 @@ mod planner_quality_tests {
         let context = PlanQualityContext {
             profile: PROFILE_ID.into(),
             required_artifacts: vec!["app.spec.yaml".into()],
-            preferred_verify: vec!["node smoke-check.js".into()],
+            preferred_verify: vec!["commandagent --offline --profile community-mini-app".into()],
             ..Default::default()
         };
         let report = step_plan_quality_report(&weak, &context);
@@ -97,7 +130,7 @@ mod planner_quality_tests {
         );
         let strong = StepPlan {
             steps: vec![PlanStep {
-                verify: vec!["node smoke-check.js".into()],
+                verify: vec!["commandagent --offline --profile community-mini-app".into()],
                 ..weak.steps[0].clone()
             }],
             ..weak
@@ -123,7 +156,7 @@ const FORBIDDEN_API_MARKERS: &[&str] =
 const MAX_COMPUTED_NODES: usize = 64;
 
 pub fn guidance() -> &'static str {
-    "Community Mini App generation rules (DATA-1):\n- L2 is the default and must be attempted first; generate exactly app.spec.yaml with entities/views/actions/validations/computed/permissions/minIdentity.\n- The canonical L2 plan shape is: write app.spec.yaml, then verify it with the literal command `node smoke-check.js` (the checker must validate the pinned platform schema and every required AppSpec section). Do not use a file-existence-only check.\n- Promote to L3/L4 only under src/app-zone/ and record a machine-readable promotion_decision with the lower-level result and reason; the promoted plan adds an app-zone implementation step and a verify step.\n- The platform-owned schema is a pinned input; never replace, weaken, or infer it.\n- Core paths are immutable. Do not use process.env, eval, child_process, raw fetch, dynamic import, undeclared packages, or build-time egress.\n- Keep computed expressions bounded, statically typed, and inside the registered pure-function set.\n"
+    "Community Mini App generation rules (DATA-1):\n- L2 is the default and must be attempted first; generate exactly app.spec.yaml with entities/views/actions/validations/computed/permissions/minIdentity.\n- The canonical L2 plan shape is: write app.spec.yaml, then verify it with the product-internal, workspace-self-contained command `commandagent --offline --profile community-mini-app --prompt \"Validate app.spec.yaml against the pinned Community AppSpec schema and exit non-zero on violation.\"`. This command performs the pinned schema and AppSpec verification without dependency setup; do not use a file-existence-only check.\n- Minimal complete YAML字義例 (machine-checked against the pinned fixture schema; fields is a mapping): `schema_version: community.app-spec/v1; fields: {entities: list, views: list, actions: list, validations: list, computed: list, permissions: list, minIdentity: mapping}; entities: [{name: counter, fields: {count: number}}]; views: [{name: count, entity: counter}]; actions: [{name: increment, entity: counter}]; validations: []; computed: []; permissions: [{name: read, subject: minIdentity}]; minIdentity: {mode: anonymous}`.\n- Promote to L3/L4 only under src/app-zone/ and record a machine-readable promotion_decision with the lower-level result and reason; the promoted plan adds an app-zone implementation step and a verify step.\n- The platform-owned schema is a pinned input; never replace, weaken, or infer it.\n- Core paths are immutable. Do not use process.env, eval, child_process, raw fetch, dynamic import, undeclared packages, or build-time egress.\n- Keep computed expressions bounded, statically typed, and inside the registered pure-function set.\n"
 }
 
 fn sha256(path: &Path) -> Option<String> {
@@ -480,7 +513,9 @@ impl DomainProfile for CommunityMiniAppProfile {
     fn quality_expectations(&self, _root: &Path, _goal: &str) -> ProfileQualityExpectations {
         ProfileQualityExpectations {
             required_artifacts: vec!["app.spec.yaml".to_string()],
-            preferred_verify: vec!["node smoke-check.js".to_string()],
+            preferred_verify: vec![
+                "commandagent --offline --profile community-mini-app".to_string(),
+            ],
             forbidden_verify: vec!["npm install".to_string()],
             dependency_order_hint: Some("app.spec.yaml before app-zone promotion".to_string()),
         }
@@ -524,6 +559,26 @@ mod tests {
         assert!(text.contains("src/app-zone/"));
         assert!(text.contains(PROMOTION_DECISION_EVIDENCE_FAMILY));
         assert!(text.contains("process.env"));
+        assert!(text.contains("fields is a mapping"));
+        assert!(text.contains("commandagent --offline --profile community-mini-app"));
+    }
+
+    #[test]
+    fn minimal_spec_example_matches_pinned_schema_fixture() {
+        let example: Value = serde_yaml::from_str(MINIMAL_SPEC_EXAMPLE).unwrap();
+        let schema: Value =
+            serde_yaml::from_str(
+                &std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+                    "workspace/management/bench/community/synthetic-community/schema/app-spec.schema.yaml",
+                ))
+                .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(example["schema_version"], schema["schema_version"]);
+        assert_eq!(example["fields"], schema["fields"]);
+        for key in ROOT_FIELDS {
+            assert!(example.get(*key).is_some(), "example missing {key}");
+        }
     }
 
     #[test]
