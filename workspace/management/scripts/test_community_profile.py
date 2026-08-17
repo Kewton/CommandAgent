@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -44,6 +46,26 @@ class CommunityProfileSpecTests(unittest.TestCase):
             community_profile.ExpressionParser("eval(1)", {"count": "number"}).parse()
         with self.assertRaises(community_profile.ValidationError):
             community_profile.ExpressionParser("count + 'bad'", {"count": "number"}).parse()
+
+    def test_zone_rejects_core_diff_and_forbidden_api(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "community"
+            shutil.copytree(FIXTURE, root)
+            with self.assertRaises(community_profile.ValidationError):
+                community_profile.validate_zone(root, root / "core.sha256sums", ["core/router.ts"])
+            (root / "src/app-zone/attack.ts").write_text("const x = process.env.SECRET;\n", encoding="utf-8")
+            with self.assertRaises(community_profile.ValidationError):
+                community_profile.validate_zone(root, root / "core.sha256sums", [])
+
+    def test_zone_rejects_initial_allowlist_dependency(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "community"
+            shutil.copytree(FIXTURE, root)
+            package = json.loads((root / "package.json").read_text(encoding="utf-8"))
+            package["dependencies"] = {"unreviewed": "1.0.0"}
+            (root / "package.json").write_text(json.dumps(package), encoding="utf-8")
+            with self.assertRaises(community_profile.ValidationError):
+                community_profile.validate_zone(root, root / "core.sha256sums", [])
 
 
 if __name__ == "__main__":

@@ -13,7 +13,12 @@ import argparse
 import hashlib
 import json
 import re
+import shutil
+import subprocess
 import sys
+import tempfile
+import threading
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -273,17 +278,165 @@ def validate_spec(spec_path: Path, schema_path: Path, pin_path: Path) -> dict[st
     return {"family": "S", "verdict": "pass", "schema_pin_sha256": schema_pin, "spec_sha256": sha256_file(spec_path), "computed_fields": sorted(fields)}
 
 
+FORBIDDEN_PATTERNS = {
+    "process.env": re.compile(r"\bprocess\s*\.\s*env\b"),
+    "eval": re.compile(r"\beval\s*\("),
+    "child_process": re.compile(r"\b(?:require\s*\(\s*['\"]child_process|from\s+['\"]child_process)"),
+    "raw_fetch": re.compile(r"\bfetch\s*\("),
+    "dynamic_import": re.compile(r"\bimport\s*\("),
+}
+
+
+def _iter_source_files(root: Path) -> list[Path]:
+    suffixes = {".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}
+    return sorted(path for path in root.rglob("*") if path.is_file() and path.suffix in suffixes and "node_modules" not in path.parts)
+
+
+def validate_core_snapshot(root: Path, manifest_path: Path) -> None:
+    rows = [line.split(None, 1) for line in manifest_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if not rows:
+        raise ValidationError("core snapshot manifest is empty")
+    expected = {relative: digest for digest, relative in rows}
+    observed: dict[str, str] = {}
+    for path in sorted((root / "core").rglob("*")):
+        if path.is_file():
+            observed[str(path.relative_to(root))] = sha256_file(path)
+    if observed != expected:
+        raise ValidationError(f"core snapshot changed: expected={sorted(expected)}, observed={sorted(observed)}")
+
+
+def validate_lockfile(root: Path) -> None:
+    package_path = root / "package.json"
+    lock_path = root / "package-lock.json"
+    if not package_path.is_file() or not lock_path.is_file():
+        raise ValidationError("package.json and package-lock.json are required")
+    package = json.loads(package_path.read_text(encoding="utf-8"))
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    dependencies = dict(package.get("dependencies", {}))
+    if dependencies:
+        raise ValidationError("dependency is not in the empty initial allowlist")
+    packages = lock.get("packages")
+    if not isinstance(packages, dict) or "" not in packages:
+        raise ValidationError("lockfile root package is missing")
+    for name, entry in packages.items():
+        if name == "":
+            continue
+        if not isinstance(entry, dict) or not entry.get("integrity"):
+            raise ValidationError(f"lockfile hash is missing for {name}")
+
+
+def validate_zone(root: Path, core_manifest: Path, changed_paths: list[str]) -> dict[str, Any]:
+    validate_core_snapshot(root, core_manifest)
+    core_changes = [path for path in changed_paths if path == "core" or path.startswith("core/")]
+    if core_changes:
+        raise ValidationError(f"core diff is non-empty: {core_changes}")
+    findings: list[str] = []
+    for source in _iter_source_files(root):
+        text = source.read_text(encoding="utf-8")
+        for name, pattern in FORBIDDEN_PATTERNS.items():
+            if pattern.search(text):
+                findings.append(f"{name}:{source.relative_to(root)}")
+    if findings:
+        raise ValidationError("forbidden API detected: " + ", ".join(sorted(findings)))
+    validate_lockfile(root)
+    return {"family": "Z", "verdict": "pass", "core_snapshot_sha256": sha256_file(core_manifest), "changed_paths": changed_paths, "dependency_allowlist": []}
+
+
+def _find_esbuild(explicit: str | None) -> str | None:
+    if explicit:
+        return explicit if Path(explicit).is_file() else None
+    return shutil.which("esbuild")
+
+
+def _serve(directory: Path) -> tuple[ThreadingHTTPServer, threading.Thread, int]:
+    class Handler(SimpleHTTPRequestHandler):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, directory=str(directory), **kwargs)
+
+        def log_message(self, format: str, *args: Any) -> None:
+            return
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    return server, thread, server.server_port
+
+
+def derive_smoke_assertions(spec: dict[str, Any]) -> dict[str, Any]:
+    views = [str(item["name"]) for item in spec["views"] if isinstance(item, dict) and "name" in item]
+    actions = [str(item["name"]) for item in spec["actions"] if isinstance(item, dict) and "name" in item]
+    if not views or not actions:
+        raise ValidationError("AppSpec does not provide smoke-derivable views/actions")
+    return {"view_selectors": [f'[data-testid="{name}"]' for name in views], "action_selectors": [f'[data-action="{name}"]' for name in actions]}
+
+
+def validate_build_and_smoke(root: Path, spec_path: Path, esbuild: str | None) -> dict[str, Any]:
+    binary = _find_esbuild(esbuild)
+    if binary is None:
+        raise ValidationError("esbuild is unavailable")
+    spec = load_yaml(spec_path)
+    assertions = derive_smoke_assertions(spec)
+    app_source = root / "src/app-zone/app.ts"
+    html_source = root / "src/app-zone/index.html"
+    if not app_source.is_file() or not html_source.is_file():
+        raise ValidationError("synthetic Community build inputs are incomplete")
+    with tempfile.TemporaryDirectory(prefix="cm1b-build-") as output:
+        outdir = Path(output)
+        bundle = outdir / "app.js"
+        subprocess.run([binary, str(app_source), "--bundle", "--format=esm", "--platform=browser", f"--outfile={bundle}"], check=True, capture_output=True, text=True)
+        (outdir / "index.html").write_text(html_source.read_text(encoding="utf-8").replace("./app.ts", "./app.js"), encoding="utf-8")
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError as exc:
+            raise ValidationError("Playwright is unavailable") from exc
+        server, thread, port = _serve(outdir)
+        try:
+            with sync_playwright() as playwright:
+                browser = playwright.chromium.launch(headless=True)
+                page = browser.new_page()
+                page.goto(f"http://127.0.0.1:{port}/index.html", wait_until="networkidle")
+                for selector in assertions["view_selectors"]:
+                    page.locator(selector).wait_for()
+                for selector in assertions["action_selectors"]:
+                    page.locator(selector).wait_for()
+                if "[data-action=\"increment\"]" in assertions["action_selectors"]:
+                    page.locator('[data-action="increment"]').click()
+                    if page.locator(assertions["view_selectors"][0]).inner_text() != "1":
+                        raise ValidationError("AppSpec-derived increment smoke assertion failed")
+                if "[data-action=\"reset\"]" in assertions["action_selectors"]:
+                    page.locator('[data-action="reset"]').click()
+                    if page.locator(assertions["view_selectors"][0]).inner_text() != "0":
+                        raise ValidationError("AppSpec-derived reset smoke assertion failed")
+                browser.close()
+        finally:
+            server.shutdown()
+            thread.join(timeout=2)
+    return {"family": "B", "verdict": "pass", "esbuild": binary, "smoke": "playwright", "assertions": assertions}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--spec", type=Path, required=True)
     parser.add_argument("--schema", type=Path, required=True)
     parser.add_argument("--schema-pin", type=Path, required=True)
+    parser.add_argument("--root", type=Path)
+    parser.add_argument("--core-manifest", type=Path)
+    parser.add_argument("--changed-path", action="append", default=[])
+    parser.add_argument("--esbuild")
+    parser.add_argument("--build-smoke", action="store_true")
     args = parser.parse_args(argv)
     try:
-        print(json.dumps(validate_spec(args.spec, args.schema, args.schema_pin), sort_keys=True))
+        result: dict[str, Any] = validate_spec(args.spec, args.schema, args.schema_pin)
+        if args.root is not None:
+            if args.core_manifest is None:
+                raise ValidationError("--core-manifest is required with --root")
+            result["zone"] = validate_zone(args.root, args.core_manifest, args.changed_path)
+            if args.build_smoke:
+                result["build"] = validate_build_and_smoke(args.root, args.spec, args.esbuild)
+        print(json.dumps(result, sort_keys=True))
         return 0
     except (OSError, ValidationError, TypeError, ValueError) as exc:
-        print(json.dumps({"family": "S", "verdict": "violation", "error": str(exc)}, sort_keys=True))
+        print(json.dumps({"family": "S/Z/B", "verdict": "violation", "error": str(exc)}, sort_keys=True))
         return 1
 
 
