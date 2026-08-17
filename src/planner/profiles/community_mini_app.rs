@@ -29,7 +29,7 @@ const FORBIDDEN_API_MARKERS: &[&str] =
 const MAX_COMPUTED_NODES: usize = 64;
 
 pub fn guidance() -> &'static str {
-    "Community Mini App generation rules (DATA-1):\n- L2 is the default and must be attempted first; generate exactly app.spec.yaml with entities/views/actions/validations/computed/permissions/minIdentity.\n- Promote to L3/L4 only under src/app-zone/ and record a machine-readable promotion_decision with the lower-level result and reason.\n- The platform-owned schema is a pinned input; never replace, weaken, or infer it.\n- Core paths are immutable. Do not use process.env, eval, child_process, raw fetch, dynamic import, undeclared packages, or build-time egress.\n- Keep computed expressions bounded, statically typed, and inside the registered pure-function set.\n"
+    "Community Mini App generation rules (DATA-1):\n- L2 is the default and must be attempted first; generate exactly app.spec.yaml with entities/views/actions/validations/computed/permissions/minIdentity.\n- The canonical L2 plan shape is: write app.spec.yaml, then verify it with the literal command `node smoke-check.js` (the checker must validate the pinned platform schema and every required AppSpec section). Do not use a file-existence-only check.\n- Promote to L3/L4 only under src/app-zone/ and record a machine-readable promotion_decision with the lower-level result and reason; the promoted plan adds an app-zone implementation step and a verify step.\n- The platform-owned schema is a pinned input; never replace, weaken, or infer it.\n- Core paths are immutable. Do not use process.env, eval, child_process, raw fetch, dynamic import, undeclared packages, or build-time egress.\n- Keep computed expressions bounded, statically typed, and inside the registered pure-function set.\n"
 }
 
 fn sha256(path: &Path) -> Option<String> {
@@ -386,7 +386,7 @@ impl DomainProfile for CommunityMiniAppProfile {
     fn quality_expectations(&self, _root: &Path, _goal: &str) -> ProfileQualityExpectations {
         ProfileQualityExpectations {
             required_artifacts: vec!["app.spec.yaml".to_string()],
-            preferred_verify: vec!["test -f app.spec.yaml".to_string()],
+            preferred_verify: vec!["node smoke-check.js".to_string()],
             forbidden_verify: vec!["npm install".to_string()],
             dependency_order_hint: Some("app.spec.yaml before app-zone promotion".to_string()),
         }

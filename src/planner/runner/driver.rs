@@ -579,6 +579,11 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
                             attempt,
                             &quality_report,
                         );
+                        if crate::planner::profile::canonical_profile_name(&config.profile)
+                            == "community-mini-app"
+                        {
+                            anyhow::bail!("planner_quality_exhausted");
+                        }
                     }
                     emit_step_plan_presentation(phase_label, &plan, Some(&sanitizer_report));
                     return Ok(plan);
@@ -2149,6 +2154,7 @@ pub(super) fn emit_planner_quality_retry_exhausted(
             "planner_model": model,
             "repair_attempt": attempt,
             "planner_quality_issue_count": report.issues.len(),
+            "stop_class": "planner_quality_exhausted",
         }),
     );
 }

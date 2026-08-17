@@ -366,6 +366,15 @@ ledger_ref = "CM-2c"
 note = "Design-floor repayment: CM-2c supplies the pinned v0 measurement fixture; missing and pin-mismatch fixtures remain fail-closed."
 
 [[class]]
+id = "planner_quality_exhausted"
+category = "terminal"
+attribution = "machine"
+match_stop_class = "planner_quality_exhausted"
+first_seen = "cm2d-golden-003"
+ledger_ref = "CM-2d"
+note = "Declared profile quality requirements remained retryable after the bounded planner repair budget; the run stops honestly instead of returning a weak plan."
+
+[[class]]
 id = "openai_param_rejected:reasoning_effort_with_function_tools"
 category = "terminal"
 attribution = "machine"

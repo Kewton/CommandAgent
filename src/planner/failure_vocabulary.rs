@@ -250,6 +250,11 @@ mod tests {
             source: include_str!("../minimal_loop/loop_run.rs"),
             source_marker: "artifact_follow_through_exhausted: missing expected paths:",
         },
+        RustStopClassProducer {
+            matchable_id: "planner_quality_exhausted",
+            source: include_str!("runner/driver.rs"),
+            source_marker: "planner_quality_exhausted",
+        },
     ];
 
     #[test]

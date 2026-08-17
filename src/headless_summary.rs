@@ -88,9 +88,12 @@ fn project(source: &Source) -> HeadlessSummary {
         provider_cost_usd: latest_number(&events, &["provider_cost_usd", "cost_usd"]),
         stop_class: failed
             .then(|| {
-                latest_event_text(&events, "community_profile_verification", "violation")
-                    .filter(|value| !value.is_empty())
-                    .map(|_| "community_profile_violation".to_string())
+                latest_event_text(&events, "planner_quality_retry_exhausted", "stop_class")
+                    .or_else(|| {
+                        latest_event_text(&events, "community_profile_verification", "violation")
+                            .filter(|value| !value.is_empty())
+                            .map(|_| "community_profile_violation".to_string())
+                    })
                     .or_else(|| terminal.and_then(|event| text(event, "failure_kind")))
             })
             .flatten(),

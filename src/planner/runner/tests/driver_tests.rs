@@ -1242,6 +1242,27 @@ fn retryable_quality_issue_gets_corrective_retry() {
 }
 
 #[test]
+fn community_quality_retry_exhaustion_is_terminal_and_classified() {
+    let dir = tempfile::tempdir().unwrap();
+    let events = dir.path().join("events.jsonl");
+    let mut cfg = config(dir.path().to_path_buf());
+    cfg.profile = "community-mini-app".to_string();
+    cfg.eval_events_path = Some(events.clone());
+    let weak = r#"{"goal":"Create a Community Mini App","steps":[{"id":"spec","kind":"implement","expected_result":"pass","instruction":"Write app.spec.yaml","expected_paths":["app.spec.yaml"],"verify":["test -f app.spec.yaml"]}]}"#;
+    let mut planner = FakeClient::new(vec![
+        AssistantReply::text(weak),
+        AssistantReply::text(weak),
+        AssistantReply::text(weak),
+    ]);
+    let error = generate_step_plan(&mut planner, "Create a Community Mini App", &cfg)
+        .expect_err("community quality exhaustion must stop");
+    assert!(error.to_string().contains("planner_quality_exhausted"));
+    let event_text = std::fs::read_to_string(events).unwrap();
+    assert!(event_text.contains("planner_quality_retry_exhausted"));
+    assert!(event_text.contains("planner_quality_exhausted"));
+}
+
+#[test]
 fn quality_retry_degradation_keeps_last_valid_plan() {
     let dir = tempfile::tempdir().unwrap();
     let events = dir.path().join("events.jsonl");

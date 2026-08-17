@@ -430,6 +430,8 @@ pub fn step_plan_quality_report(
         .collect();
     let lower_goal = plan.goal.to_ascii_lowercase();
     let looks_next_profile = resolve_profile_runtime(&context.profile).enforce_nextjs_plan_shape();
+    let has_declared_profile_verify =
+        context.profile == "community-mini-app" && !context.preferred_verify.is_empty();
     let has_strong_verify = verify_commands
         .iter()
         .any(|command| is_strong_verify_command(command));
@@ -473,6 +475,19 @@ pub fn step_plan_quality_report(
             PlanQualitySeverity::RetryableQuality,
             "profile_verify_missing",
             "profile expects deterministic build/test verification but plan has no preferred verify command",
+            None,
+            Some(context.preferred_verify.join(", ")),
+        );
+    }
+
+    if has_declared_profile_verify
+        && !has_preferred_verify(&verify_commands, &context.preferred_verify)
+        && all_paths.contains(&"app.spec.yaml")
+    {
+        report.push(
+            PlanQualitySeverity::RetryableQuality,
+            "profile_verify_missing",
+            "community profile requires the declared schema verification command after app.spec.yaml",
             None,
             Some(context.preferred_verify.join(", ")),
         );
@@ -1795,6 +1810,56 @@ mod tests {
                 .issues
                 .iter()
                 .any(|issue| issue.category == "profile_verify_missing")
+        );
+    }
+
+    #[test]
+    fn community_declared_schema_verify_is_required_and_strong() {
+        let weak = StepPlan {
+            goal: "Create a Community Mini App".to_string(),
+            steps: vec![PlanStep {
+                id: "spec".to_string(),
+                kind: "implement".to_string(),
+                expected_result: "pass".to_string(),
+                instruction: "Write app.spec.yaml".to_string(),
+                expected_paths: vec!["app.spec.yaml".to_string()],
+                verify: vec!["test -f app.spec.yaml".to_string()],
+            }],
+        };
+        let context = PlanQualityContext {
+            profile: "community-mini-app".to_string(),
+            required_artifacts: vec!["app.spec.yaml".to_string()],
+            preferred_verify: vec!["node smoke-check.js".to_string()],
+            ..PlanQualityContext::default()
+        };
+        let report = step_plan_quality_report(&weak, &context);
+        assert!(report.has_retryable_quality());
+        assert!(
+            report
+                .issues
+                .iter()
+                .any(|issue| issue.category == "profile_verify_missing")
+        );
+
+        let strong = StepPlan {
+            steps: vec![PlanStep {
+                verify: vec!["node smoke-check.js".to_string()],
+                ..weak.steps[0].clone()
+            }],
+            ..weak
+        };
+        let report = step_plan_quality_report(&strong, &context);
+        assert!(
+            !report
+                .issues
+                .iter()
+                .any(|issue| issue.category == "profile_verify_missing")
+        );
+        assert!(
+            !report
+                .issues
+                .iter()
+                .any(|issue| issue.category == "weak_code_verify")
         );
     }
 
