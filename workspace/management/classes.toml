@@ -357,6 +357,15 @@ ledger_ref = "P-1b"
 note = "形状既定=modelは仮置き。解剖で覆り得る（process_failure事件の前例参照）。T1の初正式観測はuat-test0731-nextjs-t1-001で採取する"
 
 [[class]]
+id = "community_schema_missing"
+category = "terminal"
+attribution = "machine"
+match_reason = "Community Mini App workspace lacks the pinned platform-owned AppSpec schema"
+first_seen = "cm2b-golden-001"
+ledger_ref = "CM-2c"
+note = "Design-floor repayment: CM-2c supplies the pinned v0 measurement fixture; missing and pin-mismatch fixtures remain fail-closed."
+
+[[class]]
 id = "openai_param_rejected:reasoning_effort_with_function_tools"
 category = "terminal"
 attribution = "machine"

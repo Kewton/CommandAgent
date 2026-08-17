@@ -1264,7 +1264,22 @@ def procure_run(
     suite: SuiteDefinition, run: RunSpec, repo_root: Path, run_dir: Path
 ) -> ProcurementResult:
     if suite.workspace_mode == "empty":
-        return _procure_empty_run(run_dir)
+        result = _procure_empty_run(run_dir)
+        if result.ok and suite.profile == "community-mini-app":
+            source = repo_root / "workspace/management/bench/community/appspec-schema"
+            destination = run_dir / "schema"
+            try:
+                destination.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source / "app-spec.schema.yaml", destination / "app-spec.schema.yaml")
+                shutil.copy2(source / "app-spec.schema.sha256", destination / "app-spec.schema.sha256")
+                result.workspace_integrity = {
+                    **(result.workspace_integrity or {}),
+                    "community_schema_injected": True,
+                    "community_schema_pin": (destination / "app-spec.schema.sha256").read_text().strip(),
+                }
+            except OSError as error:
+                return ProcurementResult(False, f"community_schema_supply_failed: {error}", {}, None, result.workspace_integrity)
+        return result
     source = suite.source_for(run.set_id)
     observed: dict[str, str | None] = {}
     try:
