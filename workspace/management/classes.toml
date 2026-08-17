@@ -130,6 +130,15 @@ ledger_ref = "CLI-3"
 note = "profile=cliのfinal acceptanceがE-3b C1〜C4 runtimeを起動しなかった。CLI-3でproduction経路へ配線済み"
 
 [[class]]
+id = "bench_install_sandbox_denied"
+category = "environment"
+attribution = "env"
+match_reason = "preflight release install failed:.*Operation not permitted"
+first_seen = "cm2f-golden-004r"
+ledger_ref = "CM-2f"
+note = "既定配置をcampaign workspace/binへ変更して解消。利用者が明示したbinary-dirのみworkspace外を許可"
+
+[[class]]
 id = "cli_case_binding:first_usage_placeholder_masks_concrete_examples"
 category = "terminal"
 attribution = "machine"

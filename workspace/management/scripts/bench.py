@@ -1041,6 +1041,7 @@ def perform_preflight(
     skip_suite_tests: bool,
     allowed_output_dir: Path | None = None,
     bon_predeclaration: BonSeriesPredeclaration | None = None,
+    binary_dir: Path | None = None,
 ) -> tuple[dict[str, Any], list[dict[str, str]]]:
     records: dict[str, Any] = {"started_epoch": int(time.time())}
     deviations: list[dict[str, str]] = []
@@ -1139,7 +1140,8 @@ def perform_preflight(
                 f"expected {bon_predeclaration.binary_sha256}, "
                 f"observed {built_binary_sha256}"
             )
-    install_dir = Path.home() / ".local" / "bin"
+    install_dir = (binary_dir or ((allowed_output_dir or repo_root) / "bin")).expanduser().resolve()
+    records["binary_install_dir"] = str(install_dir)
     try:
         install_dir.mkdir(parents=True, exist_ok=True)
     except OSError as error:
@@ -1163,7 +1165,7 @@ def perform_preflight(
         or Path(resolved_binary).resolve() != installed_binary.resolve()
     ):
         raise BenchError(
-            "preflight PATH commandagent does not resolve to ~/.local/bin/commandagent"
+            "preflight PATH commandagent does not resolve to the configured binary directory"
         )
     version = _run_capture(["commandagent", "--version"], repo_root)
     records["version"] = version
@@ -1846,9 +1848,14 @@ def process_runs(
     *,
     dry_run: bool,
     resume: bool,
+    binary_dir: Path | None = None,
 ) -> None:
     metadata_path = campaign_dir / "uat-meta.json"
+    binary_dir = (binary_dir or campaign_dir / "bin").expanduser().resolve()
     product_environment = _pack_product_environment(suite, repo_root)
+    if product_environment is None:
+        product_environment = {}
+    product_environment["PATH"] = f"{binary_dir}:{os.environ.get('PATH', '')}"
     if resume:
         normalize_interrupted_runs(suite, campaign_dir, metadata, metadata_path)
     for run in suite.runs:
@@ -2204,6 +2211,11 @@ def build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument("--min-head")
     run_parser.add_argument("--skip-suite-tests", action="store_true")
     run_parser.add_argument("--bon-predeclaration", type=Path)
+    run_parser.add_argument(
+        "--binary-dir",
+        type=Path,
+        help="directory for the release binary (default: campaign workspace bin/)",
+    )
     scrub_parser = subparsers.add_parser("scrub", help="scan a report or artifact tree")
     scrub_parser.add_argument("--path", required=True, type=Path)
     return parser
@@ -2244,12 +2256,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         min_head = args.min_head or suite.min_head
         if args.resume:
             campaign_dir = find_resume_campaign(workspace_root, suite)
+            binary_dir = (args.binary_dir or campaign_dir / "bin").expanduser().resolve()
             preflight, deviations = perform_preflight(
                 repo_root,
                 min_head,
                 args.skip_suite_tests,
                 campaign_dir,
                 bon_predeclaration,
+                binary_dir,
             )
             metadata = load_resume_metadata(campaign_dir, suite)
             metadata["preflight"] = preflight
@@ -2257,12 +2271,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             metadata.setdefault("resume_epochs", []).append(int(time.time()))
         else:
             campaign_dir = create_campaign(workspace_root, suite.suite_id, args.dry_run)
+            binary_dir = (args.binary_dir or campaign_dir / "bin").expanduser().resolve()
             preflight, deviations = perform_preflight(
                 repo_root,
                 min_head,
                 args.skip_suite_tests,
                 campaign_dir,
                 bon_predeclaration,
+                binary_dir,
             )
             metadata = new_metadata(
                 suite,
@@ -2281,6 +2297,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             metadata,
             dry_run=args.dry_run,
             resume=args.resume,
+            binary_dir=binary_dir,
         )
         report_path = generate_report(campaign_dir, metadata)
         print(f"metadata: {campaign_dir / 'uat-meta.json'}")
