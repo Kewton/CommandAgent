@@ -1,0 +1,30 @@
+[suite]
+id = "community-golden-mochimono"
+profile = "community-mini-app"
+intent = "create"
+plan_preset = "profile"
+workspace_mode = "empty"
+planner_model = "local-default"
+planner_provider = "ollama"
+executor = "gpt-5.6-luna"
+provider = "openai"
+api = "responses"
+tool_protocol = "native"
+
+[goals]
+main = "キャンプに持っていくものをみんなで相談できるリストを作りたいです。誰が持ってくるか決められて、足りないものがなんとなく分かれば十分です。"
+late = "子どもの合宿の持ち物、去年のままだと多分足りないので、家にある物と買う物を家族で更新できるようにして。"
+mixed = "友人との旅行の荷物を共有したい。担当を決めても忘れるので、持ったかどうかも気軽にチェックできる画面がいいです。"
+
+[[runs]]
+name = "mochimono_001"
+goal = "main"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "mochimono_002"
+goal = "late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "mochimono_003"
+goal = "mixed"
+executor = "gpt-5.6-luna"

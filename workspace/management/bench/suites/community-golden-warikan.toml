@@ -1,0 +1,30 @@
+[suite]
+id = "community-golden-warikan"
+profile = "community-mini-app"
+intent = "create"
+plan_preset = "profile"
+workspace_mode = "empty"
+planner_model = "local-default"
+planner_provider = "ollama"
+executor = "gpt-5.6-luna"
+provider = "openai"
+api = "responses"
+tool_protocol = "native"
+
+[goals]
+main = "友だちとの旅行のお金をあとで揉めないように割り勘できる小さなアプリを作って。誰が何を払ったかはざっくり入力できて、最後に誰が誰へいくら渡せばいいか見たい。"
+late = "家族で立て替えが多くなったので、レシートを全部きれいに入れなくても、参加者と支払った金額からなるべく簡単に精算できる画面がほしい。"
+mixed = "飲み会の割り勘をスマホでやりたいです。途中で人数が増えたり、払ってない人がいたりしても後から直せる感じでお願いします。"
+
+[[runs]]
+name = "warikan_001"
+goal = "main"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "warikan_002"
+goal = "late"
+executor = "gpt-5.6-luna"
+[[runs]]
+name = "warikan_003"
+goal = "mixed"
+executor = "gpt-5.6-luna"

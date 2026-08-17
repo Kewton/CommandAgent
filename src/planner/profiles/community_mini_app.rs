@@ -5,6 +5,7 @@ use std::process::Command;
 use serde_yaml::Value;
 use sha2::{Digest, Sha256};
 
+use crate::bounded_process;
 use crate::planner::profile::{DomainProfile, ProfileId, ProfileQualityExpectations};
 use crate::planner::profile_behavior::ProfileRuntime;
 use crate::planner::verify::VerificationReport;
@@ -277,14 +278,16 @@ fn verify_build_and_smoke(root: &Path) -> Result<(), String> {
         "commandagent-community-{}-bundle.js",
         std::process::id()
     ));
-    let status = Command::new("esbuild")
+    let mut command = Command::new("esbuild");
+    command
         .arg(&source)
         .arg("--bundle")
         .arg("--format=esm")
-        .arg(format!("--outfile={}", output.display()))
-        .status()
-        .map_err(|_| "community_esbuild_unavailable".to_string())?;
-    if !status.success() {
+        .arg(format!("--outfile={}", output.display()));
+    let result =
+        bounded_process::run_with_timeout(&mut command, std::time::Duration::from_secs(30))
+            .map_err(|_| "community_esbuild_unavailable".to_string())?;
+    if !result.success() {
         return Err("community_esbuild_failed".to_string());
     }
     let _ = std::fs::remove_file(output);
