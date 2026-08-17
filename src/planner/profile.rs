@@ -1631,6 +1631,10 @@ pub fn canonical_profile_name(profile: &str) -> String {
     }
 }
 
+pub fn community_quality_retry_is_terminal(profile: &str) -> bool {
+    canonical_profile_name(profile) == crate::planner::profiles::community_mini_app::PROFILE_ID
+}
+
 pub fn is_nextjs_profile(profile: &str) -> bool {
     NEXTJS_PROFILE.matches(profile)
 }

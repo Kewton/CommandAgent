@@ -579,9 +579,9 @@ pub(super) fn generate_step_plan_with_ui_for_phase(
                             attempt,
                             &quality_report,
                         );
-                        if crate::planner::profile::canonical_profile_name(&config.profile)
-                            == "community-mini-app"
-                        {
+                        if crate::planner::profile::community_quality_retry_is_terminal(
+                            &config.profile,
+                        ) {
                             anyhow::bail!("planner_quality_exhausted");
                         }
                     }
