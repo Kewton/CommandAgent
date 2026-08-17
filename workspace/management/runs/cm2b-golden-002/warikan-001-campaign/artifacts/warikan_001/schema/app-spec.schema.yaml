@@ -1,0 +1,9 @@
+schema_version: community.app-spec/v1
+fields:
+  entities: list
+  views: list
+  actions: list
+  validations: list
+  computed: list
+  permissions: list
+  minIdentity: mapping

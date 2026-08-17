@@ -1,0 +1,9 @@
+{
+  "provider": "openai",
+  "model": "gpt-5.6-luna",
+  "provider_total_tokens": 35437,
+  "cached_input_tokens": 21025,
+  "cost_usd": 0.0080969,
+  "status": "environment-interrupted",
+  "source": "warikan-001-campaign/artifacts/warikan_001/.anvil/runs/01a00fbb-8fad-7b52-a271-322b6ae447d2/events.jsonl"
+}

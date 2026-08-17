@@ -1,0 +1,183 @@
+entities:
+  - name: Trip
+    description: A shared trip whose expenses are split among its participants.
+    fields:
+      id:
+        type: string
+        required: true
+      name:
+        type: string
+        required: true
+      memberIds:
+        type: list<string>
+        required: true
+      createdBy:
+        type: identity
+        required: true
+      createdAt:
+        type: datetime
+        required: true
+  - name: Person
+    description: A person participating in a trip.
+    fields:
+      id:
+        type: string
+        required: true
+      tripId:
+        type: string
+        required: true
+      displayName:
+        type: string
+        required: true
+      identityId:
+        type: string
+        required: false
+  - name: Expense
+    description: An expense paid by one participant for the selected participants.
+    fields:
+      id:
+        type: string
+        required: true
+      tripId:
+        type: string
+        required: true
+      description:
+        type: string
+        required: true
+      amount:
+        type: number
+        required: true
+      currency:
+        type: string
+        required: true
+      paidByPersonId:
+        type: string
+        required: true
+      participantPersonIds:
+        type: list<string>
+        required: true
+      occurredOn:
+        type: date
+        required: true
+      createdBy:
+        type: identity
+        required: true
+      createdAt:
+        type: datetime
+        required: true
+
+views:
+  - name: expense-input
+    title: Add expense
+    type: form
+    entity: Expense
+    fields:
+      - description
+      - amount
+      - currency
+      - paidByPersonId
+      - participantPersonIds
+      - occurredOn
+    action: add-expense
+  - name: settlement-overview
+    title: Settlement overview
+    type: list
+    entity: Person
+    source: net-balances
+    columns:
+      - displayName
+      - netBalance
+    description: Shows each person's balance and the transfers needed to settle the trip.
+    computed:
+      - netBalance
+      - settlementTransfers
+
+actions:
+  - name: add-expense
+    title: Add expense
+    type: create
+    entity: Expense
+    input:
+      - description
+      - amount
+      - currency
+      - paidByPersonId
+      - participantPersonIds
+      - occurredOn
+    defaults:
+      createdBy: currentIdentity
+      createdAt: now
+
+validations:
+  - name: expense-amount-positive
+    entity: Expense
+    field: amount
+    rule:
+      operator: greaterThan
+      value: 0
+    message: Amount must be greater than zero.
+  - name: expense-participants-not-empty
+    entity: Expense
+    field: participantPersonIds
+    rule:
+      operator: minItems
+      value: 1
+    message: Select at least one participant.
+  - name: expense-payer-is-participant
+    entity: Expense
+    rule:
+      expression: contains(participantPersonIds, paidByPersonId)
+    message: The payer must be included among the participants.
+
+computed:
+  - name: expense-share
+    type: number
+    on: Expense
+    expression: divide(amount, count(participantPersonIds))
+    functions: [divide, count]
+  - name: net-balance
+    type: number
+    on: Person
+    expression: subtract(sum(expenses.amount where expenses.tripId == tripId and expenses.paidByPersonId == id), sum(expenses.share where expenses.tripId == tripId and contains(expenses.participantPersonIds, id)))
+    functions: [sum, subtract, contains]
+    description: Positive means this person should receive money; negative means they should pay.
+  - name: settlement-transfers
+    type: list<SettlementTransfer>
+    on: Trip
+    expression: settle(net-balances)
+    functions: [settle]
+    fields:
+      fromPersonId:
+        type: string
+      toPersonId:
+        type: string
+      amount:
+        type: number
+
+permissions:
+  - name: trip-members-read
+    resource: [Trip, Person, Expense]
+    operation: read
+    effect: allow
+    when: isTripMember(currentIdentity, resource.tripId)
+  - name: trip-members-add-expense
+    resource: Expense
+    operation: create
+    effect: allow
+    when: isTripMember(currentIdentity, input.tripId)
+  - name: trip-owner-manage-trip
+    resource: Trip
+    operation: manage
+    effect: allow
+    when: resource.createdBy == currentIdentity
+
+minIdentity:
+  required: true
+  fields:
+    id:
+      type: string
+      required: true
+    displayName:
+      type: string
+      required: true
+  source: platform
