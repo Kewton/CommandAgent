@@ -1559,3 +1559,4 @@ acceptance sheet再生成より前に304を返す。clientは変化時1秒へ戻
 `_next/static/**`だけを1年immutableとし、`index.html`を含む他pathは`no-store`を
 維持する。10分virtual-clock smokeは旧750 ms固定の801 callに対し65 call以下を
 受理境界とする。
+CM-0——Builder Plane成立性のGo判定材料。新プロダクト検証Phase 0対応・headless機械可読出力の装備。

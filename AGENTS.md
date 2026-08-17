@@ -37,6 +37,27 @@ crate and the `commandagent` binary both live at the repository root. Read
   requests, or publish releases unless the user has authorized that external
   action.
 
+## OpenAI API credentials
+
+- For an authorized OpenAI live probe, load `OPENAI_API_KEY` from the
+  repository-root `.env` into the same shell that launches `commandagent`:
+
+  ```bash
+  set -a
+  source ./.env
+  set +a
+  commandagent <authorized arguments>
+  ```
+
+  `commandagent` reads the process environment and does not load `.env`
+  implicitly. Confirm availability with `commandagent --doctor --json`; never
+  print the key, pass it as a command-line argument, or copy it into evidence.
+- Keep `.env` ignored, unstaged, and owner-readable only (`chmod 600 .env`).
+  Never commit it or include it in logs, run reports, or scrub output.
+- Create or rotate a key in the OpenAI Platform API key dashboard, then expose
+  it as `OPENAI_API_KEY` as described in the official OpenAI developer
+  quickstart: <https://developers.openai.com/api/docs/quickstart>.
+
 ## Verification
 
 Run the narrowest relevant check first, then broaden in proportion to risk.
