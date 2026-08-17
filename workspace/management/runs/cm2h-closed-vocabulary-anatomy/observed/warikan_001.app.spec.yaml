@@ -1,0 +1,19 @@
+schema_version: community.app-spec/v1
+fields:
+  entities:
+    - name: counter
+      fields:
+        count: number
+  views:
+    - name: count
+      entity: counter
+  actions:
+    - name: increment
+      entity: counter
+  validations: []
+  computed: []
+  permissions:
+    - name: read
+      subject: minIdentity
+  minIdentity:
+    mode: anonymous

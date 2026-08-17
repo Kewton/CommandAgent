@@ -384,6 +384,15 @@ ledger_ref = "CM-2c"
 note = "Design-floor repayment: CM-2c supplies the pinned v0 measurement fixture; missing and pin-mismatch fixtures remain fail-closed."
 
 [[class]]
+id = "community_spec_closed_vocabulary"
+category = "terminal"
+attribution = "machine"
+match_reason = "community_profile_violation:community_spec_closed_vocabulary"
+first_seen = "cm2f-resume-001"
+ledger_ref = "CM-2h"
+note = "解消済み(DATA-1): 3件ともschema専用metadata keysをapp.spec rootへ写した。schema由来root一覧とverifier通過済み字義例へ是正し、schema pinは不変。"
+
+[[class]]
 id = "planner_quality_exhausted"
 category = "terminal"
 attribution = "machine"

@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::OnceLock;
 
 use serde_yaml::Value;
 use sha2::{Digest, Sha256};
@@ -18,16 +19,7 @@ pub fn is_strong_verify_command(command: &str) -> bool {
         .to_ascii_lowercase()
         .starts_with("commandagent --offline --profile community-mini-app")
 }
-pub const MINIMAL_SPEC_EXAMPLE: &str = r#"schema_version: community.app-spec/v1
-fields:
-  entities: list
-  views: list
-  actions: list
-  validations: list
-  computed: list
-  permissions: list
-  minIdentity: mapping
-entities:
+pub const MINIMAL_SPEC_EXAMPLE: &str = r#"entities:
   - name: counter
     fields:
       count: number
@@ -151,12 +143,48 @@ const ROOT_FIELDS: &[&str] = &[
     "permissions",
     "minIdentity",
 ];
+const ENTITY_FIELD_TYPES: &[&str] = &["number", "string", "boolean", "list"];
+const ALLOWED_COMPUTED_FUNCTIONS: &[&str] = &["min", "max", "len"];
+const PINNED_SCHEMA_FIXTURE: &str = include_str!(
+    "../../../workspace/management/bench/community/synthetic-community/schema/app-spec.schema.yaml"
+);
 const FORBIDDEN_API_MARKERS: &[&str] =
     &["process.env", "eval(", "child_process", "fetch(", "import("];
 const MAX_COMPUTED_NODES: usize = 64;
 
+fn schema_vocabulary_guidance() -> String {
+    let schema: Value = serde_yaml::from_str(PINNED_SCHEMA_FIXTURE)
+        .expect("pinned Community AppSpec schema fixture must parse");
+    let fields = schema
+        .get("fields")
+        .and_then(Value::as_mapping)
+        .expect("pinned Community AppSpec schema fixture must declare fields");
+    ROOT_FIELDS
+        .iter()
+        .map(|field| {
+            let kind = fields
+                .get(Value::String((*field).to_string()))
+                .and_then(Value::as_str)
+                .expect("every Community AppSpec root field must declare its kind");
+            format!("{field}:{kind}")
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 pub fn guidance() -> &'static str {
-    "Community Mini App generation rules (DATA-1):\n- L2 is the default and must be attempted first; generate exactly app.spec.yaml with entities/views/actions/validations/computed/permissions/minIdentity.\n- The canonical L2 plan shape is: write app.spec.yaml, then verify it with the product-internal, workspace-self-contained command `commandagent --offline --profile community-mini-app --prompt \"Validate app.spec.yaml against the pinned Community AppSpec schema and exit non-zero on violation.\"`. This command performs the pinned schema and AppSpec verification without dependency setup; do not use a file-existence-only check.\n- Minimal complete YAML字義例 (machine-checked against the pinned fixture schema; fields is a mapping): `schema_version: community.app-spec/v1; fields: {entities: list, views: list, actions: list, validations: list, computed: list, permissions: list, minIdentity: mapping}; entities: [{name: counter, fields: {count: number}}]; views: [{name: count, entity: counter}]; actions: [{name: increment, entity: counter}]; validations: []; computed: []; permissions: [{name: read, subject: minIdentity}]; minIdentity: {mode: anonymous}`.\n- Promote to L3/L4 only under src/app-zone/ and record a machine-readable promotion_decision with the lower-level result and reason; the promoted plan adds an app-zone implementation step and a verify step.\n- The platform-owned schema is a pinned input; never replace, weaken, or infer it.\n- Core paths are immutable. Do not use process.env, eval, child_process, raw fetch, dynamic import, undeclared packages, or build-time egress.\n- Keep computed expressions bounded, statically typed, and inside the registered pure-function set.\n"
+    static GUIDANCE: OnceLock<String> = OnceLock::new();
+    GUIDANCE
+        .get_or_init(|| {
+            format!(
+                "Community Mini App generation rules (DATA-1):\n- L2 is the default and must be attempted first; generate exactly app.spec.yaml with entities/views/actions/validations/computed/permissions/minIdentity.\n- Closed root vocabulary generated from the pinned schema fixture: {}. These seven keys are the entire app.spec.yaml root. Schema-only metadata keys `schema_version` and `fields` belong to the injected schema and must never be written at the app.spec.yaml root.\n- Entity field types are the verifier-registered closed set: {}. View and action names are goal-defined identifiers in v0; v0 declares no separate kind enum. Computed registered pure functions are: {}. Do not invent another type, kind enum, or function.\n- The canonical L2 plan shape is: write app.spec.yaml, then verify it with the product-internal, workspace-self-contained command `commandagent --offline --profile community-mini-app --prompt \"Validate app.spec.yaml against the pinned Community AppSpec schema and exit non-zero on violation.\"`. This command performs the pinned schema and AppSpec verification without dependency setup; do not use a file-existence-only check.\n- Minimal complete YAML字義例 (the exact bytes are machine-checked by the product verifier): `{}`.\n- Promote to L3/L4 only under src/app-zone/ and record a machine-readable promotion_decision with the lower-level result and reason; the promoted plan adds an app-zone implementation step and a verify step.\n- The platform-owned schema is a pinned input; never replace, weaken, or infer it.\n- Core paths are immutable. Do not use process.env, eval, child_process, raw fetch, dynamic import, undeclared packages, or build-time egress.\n- Keep computed expressions bounded, statically typed, and inside the registered pure-function set.\n",
+                schema_vocabulary_guidance(),
+                ENTITY_FIELD_TYPES.join(", "),
+                ALLOWED_COMPUTED_FUNCTIONS.join(", "),
+                MINIMAL_SPEC_EXAMPLE.replace('\n', "; ")
+            )
+        })
+        .as_str()
 }
 
 fn sha256(path: &Path) -> Option<String> {
@@ -233,7 +261,8 @@ fn validate_computed(expression: &str, fields: &BTreeSet<String>) -> Result<(), 
             .next()
             .is_some_and(|character| character.is_ascii_alphabetic())
             && !fields.contains(token)
-            && !matches!(token, "true" | "false" | "min" | "max" | "len")
+            && !matches!(token, "true" | "false")
+            && !ALLOWED_COMPUTED_FUNCTIONS.contains(&token)
         {
             return Err(format!("community_computed_unregistered:{token}"));
         }
@@ -287,10 +316,10 @@ fn verify_spec(root: &Path) -> Result<(), String> {
                     let field = field
                         .as_str()
                         .ok_or_else(|| "community_field_name_invalid".to_string())?;
-                    if !matches!(
-                        field_type.as_str(),
-                        Some("number" | "string" | "boolean" | "list")
-                    ) {
+                    if !field_type
+                        .as_str()
+                        .is_some_and(|kind| ENTITY_FIELD_TYPES.contains(&kind))
+                    {
                         return Err(format!("community_field_type:{field}"));
                     }
                     fields.insert(field.to_string());
@@ -559,7 +588,12 @@ mod tests {
         assert!(text.contains("src/app-zone/"));
         assert!(text.contains(PROMOTION_DECISION_EVIDENCE_FAMILY));
         assert!(text.contains("process.env"));
-        assert!(text.contains("fields is a mapping"));
+        assert!(text.contains("Schema-only metadata keys"));
+        assert!(text.contains("entities:list"));
+        assert!(text.contains("computed:list"));
+        for function in ALLOWED_COMPUTED_FUNCTIONS {
+            assert!(text.contains(function));
+        }
         assert!(text.contains("commandagent --offline --profile community-mini-app"));
     }
 
@@ -574,11 +608,34 @@ mod tests {
                 .unwrap(),
             )
             .unwrap();
-        assert_eq!(example["schema_version"], schema["schema_version"]);
-        assert_eq!(example["fields"], schema["fields"]);
+        assert!(example.get("schema_version").is_none());
+        assert!(example.get("fields").is_none());
+        assert_eq!(
+            example.as_mapping().unwrap().len(),
+            schema["fields"].as_mapping().unwrap().len()
+        );
         for key in ROOT_FIELDS {
             assert!(example.get(*key).is_some(), "example missing {key}");
+            assert!(guidance().contains(&format!(
+                "{key}:{}",
+                schema["fields"][*key].as_str().unwrap()
+            )));
         }
+
+        let root = tempfile::tempdir().unwrap();
+        std::fs::create_dir(root.path().join("schema")).unwrap();
+        std::fs::write(
+            root.path().join("schema/app-spec.schema.yaml"),
+            PINNED_SCHEMA_FIXTURE,
+        )
+        .unwrap();
+        std::fs::write(
+            root.path().join("schema/app-spec.schema.sha256"),
+            format!("{:x}\n", Sha256::digest(PINNED_SCHEMA_FIXTURE.as_bytes())),
+        )
+        .unwrap();
+        std::fs::write(root.path().join("app.spec.yaml"), MINIMAL_SPEC_EXAMPLE).unwrap();
+        assert_eq!(verify_spec(root.path()), Ok(()));
     }
 
     #[test]
