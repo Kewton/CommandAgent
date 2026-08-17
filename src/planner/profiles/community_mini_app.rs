@@ -40,9 +40,16 @@ fn profile_failure(reason: impl Into<String>) -> VerificationReport {
 }
 
 fn schema_paths(root: &Path) -> (PathBuf, PathBuf) {
+    let hidden = root.join(".community/schema/app-spec.schema.yaml");
+    if hidden.is_file() {
+        return (
+            hidden,
+            root.join(".community/schema/app-spec.schema.sha256"),
+        );
+    }
     (
-        root.join(".community/schema/app-spec.schema.yaml"),
-        root.join(".community/schema/app-spec.schema.sha256"),
+        root.join("schema/app-spec.schema.yaml"),
+        root.join("schema/app-spec.schema.sha256"),
     )
 }
 
@@ -186,7 +193,12 @@ fn verify_spec(root: &Path) -> Result<(), String> {
 }
 
 fn verify_zone(root: &Path) -> Result<(), String> {
-    let manifest = root.join(".community/core.sha256sums");
+    let hidden = root.join(".community/core.sha256sums");
+    let manifest = if hidden.is_file() {
+        hidden
+    } else {
+        root.join("core.sha256sums")
+    };
     let expected = std::fs::read_to_string(&manifest)
         .map_err(|_| "community_core_manifest_missing".to_string())?;
     for line in expected.lines().filter(|line| !line.trim().is_empty()) {
@@ -325,5 +337,42 @@ mod tests {
         assert!(text.contains("src/app-zone/"));
         assert!(text.contains(PROMOTION_DECISION_EVIDENCE_FAMILY));
         assert!(text.contains("process.env"));
+    }
+
+    #[test]
+    fn rust_and_python_reference_verdicts_match_on_the_same_fixture() {
+        use std::process::Command;
+
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("workspace/management/bench/community/synthetic-community");
+        let rust = CommunityMiniAppProfile.verify_final(&root, "synthetic counter");
+        assert!(rust.is_pass(), "Rust verifier failed: {rust:?}");
+        let scripts =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("workspace/management/scripts");
+        let output = Command::new("python3")
+            .env("PYTHONPATH", &scripts)
+            .args([
+                scripts.join("community_profile.py").to_str().unwrap(),
+                "--spec",
+                root.join("app.spec.yaml").to_str().unwrap(),
+                "--schema",
+                root.join("schema/app-spec.schema.yaml").to_str().unwrap(),
+                "--schema-pin",
+                root.join("schema/app-spec.schema.sha256").to_str().unwrap(),
+                "--root",
+                root.to_str().unwrap(),
+                "--core-manifest",
+                root.join("core.sha256sums").to_str().unwrap(),
+            ])
+            .output()
+            .expect("Python reference implementation must be runnable");
+        assert!(
+            output.status.success(),
+            "Python reference failed: {:?}",
+            output
+        );
+        let document: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(document["verdict"], "pass");
+        assert_eq!(document["zone"]["verdict"], "pass");
     }
 }
