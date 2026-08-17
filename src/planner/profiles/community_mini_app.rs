@@ -182,7 +182,7 @@ pub fn guidance() -> &'static str {
     GUIDANCE
         .get_or_init(|| {
             format!(
-                "Community Mini App generation rules (DATA-1):\n- L2 is the default and must be attempted first; generate exactly app.spec.yaml with entities/views/actions/validations/computed/permissions/minIdentity.\n- Closed root vocabulary generated from the pinned schema fixture: {}. These seven keys are the entire app.spec.yaml root. Schema-only metadata keys `schema_version` and `fields` belong to the injected schema and must never be written at the app.spec.yaml root.\n- Entity entries use only `{}` and entity field types use the verifier-registered closed set: {}. View and action names are goal-defined identifiers in v0; v0 declares no separate kind enum.\n- Every computed entry uses exactly `{}`. `expression` is one bounded expression string and `type` is one entity field type. Registered pure functions are: {}. Never replace `expression` with `function`/`source`, and do not invent another type, kind enum, or function.\n- The canonical L2 plan shape is: write app.spec.yaml, then verify it with the product-internal, workspace-self-contained command `commandagent --offline --profile community-mini-app --prompt \"Validate app.spec.yaml against the pinned Community AppSpec schema and exit non-zero on violation.\"`. This command performs the pinned schema and AppSpec verification without dependency setup; do not use a file-existence-only check.\n- Minimal complete YAML字義例 (the exact bytes are machine-checked by the product verifier): `{}`.\n- Promote to L3/L4 only under src/app-zone/ and record a machine-readable promotion_decision with the lower-level result and reason; the promoted plan adds an app-zone implementation step and a verify step.\n- The platform-owned schema is a pinned input; never replace, weaken, or infer it.\n- Core paths are immutable. Do not use process.env, eval, child_process, raw fetch, dynamic import, undeclared packages, or build-time egress.\n- Keep computed expressions bounded, statically typed, and inside the registered pure-function set.\n",
+                "Community Mini App generation rules (DATA-1):\n- L2 is the default; first generate only app.spec.yaml.\n- Complete pinned-schema root vocabulary: {}. These seven keys are the whole app root. Schema-only metadata keys `schema_version` and `fields` must never appear there.\n- Entity keys: `{}`. Field types: {}. View/action names are goal-defined; v0 has no kind enum.\n- Computed keys: `{}`. `expression` is one bounded string; `type` is a field type. Pure functions: {}. Never use `function`/`source` or invent types, kinds, or functions.\n- L2 plan: write app.spec.yaml; verify exactly with `commandagent --offline --profile community-mini-app --prompt \"Validate app.spec.yaml against the pinned Community AppSpec schema and exit non-zero on violation.\"`. It is product-internal, workspace-local, and needs no dependency setup; file existence alone is insufficient.\n- Verifier-checked minimal YAML: `{}`.\n- L3/L4 only under src/app-zone/; add an app-zone step and verify, and record promotion_decision with the lower-level result and reason.\n- The platform owns the pinned schema; do not replace, weaken, or infer it. Core paths are immutable. Forbidden: process.env, eval, child_process, raw fetch, dynamic import, undeclared packages, build-time egress.\n",
                 schema_vocabulary_guidance(),
                 ENTITY_ENTRY_FIELDS.join(", "),
                 ENTITY_FIELD_TYPES.join(", "),
@@ -622,6 +622,10 @@ mod tests {
         assert!(text.contains("name, expression, type"));
         assert!(text.contains("function`/`source"));
         assert!(text.contains("commandagent --offline --profile community-mini-app"));
+        assert!(
+            text.chars().count() <= 2_000,
+            "profile guidance must leave room below the 2,500-character step limit"
+        );
     }
 
     #[test]
