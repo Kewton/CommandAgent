@@ -1,0 +1,37 @@
+entities:
+  - name: Participant
+    fields:
+      name: string
+  - name: Expense
+    fields:
+      description: string
+      amount: number
+      payer: string
+      participants: list
+views:
+  - name: inputParticipants
+    entity: Participant
+  - name: inputPaidAmounts
+    entity: Expense
+actions:
+  - name: recordPayment
+    entity: Expense
+  - name: calculateSettlement
+    entity: Expense
+validations:
+  - name: positiveAmount
+  - name: requiredDescription
+computed:
+  - name: total
+    expression: amount
+    type: number
+  - name: balance
+    expression: amount / len(participants)
+    type: number
+permissions:
+  - name: read
+    subject: minIdentity
+  - name: write
+    subject: minIdentity
+minIdentity:
+  mode: anonymous
