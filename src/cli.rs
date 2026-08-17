@@ -176,6 +176,12 @@ pub struct Cli {
     pub offline: bool,
     #[arg(long, action = ArgAction::SetTrue, help = "Keep presentation narration quiet")]
     pub quiet: bool,
+    #[arg(
+        long,
+        action = ArgAction::SetTrue,
+        help = "Print one machine-readable run summary JSON object as the final stdout line"
+    )]
+    pub summary_json: bool,
     #[arg(long, default_value = "http://localhost:11434")]
     pub ollama_host: String,
     #[arg(long, default_value = "http://localhost:1234")]
@@ -328,6 +334,13 @@ mod tests {
         assert!(help.contains("--doctor"));
         assert!(help.contains("--json"));
         assert!(help.contains("machine-readable JSON"));
+    }
+
+    #[test]
+    fn help_includes_headless_summary_json() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--summary-json"));
+        assert!(help.contains("final stdout line"));
     }
 
     #[test]

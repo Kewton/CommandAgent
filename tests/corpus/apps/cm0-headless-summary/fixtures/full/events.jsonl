@@ -1,0 +1,5 @@
+{"event":"run_start","workspace_root":"/tmp/cm0/full","provider":"openai","model":"gpt-5.6-luna","schema_version":"1"}
+{"event":"score_checkpoint","vector":{"score":92.5},"schema_version":"1"}
+{"event":"ultra_final_acceptance","verdict":"full","assurance_level":"full","schema_version":"1"}
+{"event":"tui_command_stop","ok":true,"status":"completed","assurance_level":"full","failure_kind":"","time_profile_total_ms":12500,"provider_cost_usd":0.0123,"schema_version":"1"}
+{"event":"run_stop","ok":true,"status":"completed","assurance_level":"full","schema_version":"1"}

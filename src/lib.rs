@@ -21,6 +21,7 @@ pub mod env_compat;
 pub mod eval_events;
 mod evidence_envelope;
 pub mod fetch_probe;
+mod headless_summary;
 pub mod minimal_loop;
 pub mod mode;
 pub mod model_probe;
@@ -63,8 +64,14 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
     if cli.doctor {
         return doctor::run_cli(cli);
     }
+    let summary_json = cli.summary_json;
     let config = Config::from_cli(cli)?;
-    run_resolved_config(config)
+    let summary_source = summary_json.then(|| headless_summary::Source::from_config(&config));
+    let result = run_resolved_config(config);
+    if let Some(source) = summary_source {
+        println!("{}", headless_summary::render(&source));
+    }
+    result
 }
 
 fn run_resolved_config(config: Config) -> anyhow::Result<()> {

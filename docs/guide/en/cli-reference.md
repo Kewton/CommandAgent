@@ -17,7 +17,7 @@ for the TUI. The action selectors are `--prompt`, `--plan-steps`, `--plan-run`,
 selector.
 
 Clap also generates `-h`/`--help` and `-V`/`--version`. They are not part of the
-44 application flags below. The hidden `--completion-contract-json <PATH>` is an
+45 application flags below. The hidden `--completion-contract-json <PATH>` is an
 internal integration surface and is intentionally not a public user flag.
 
 ## Flag reference
@@ -58,6 +58,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--resume` | `<RESUME>` | none | Load the named saved minimal-loop session for a direct `--prompt` run. | [Session options](#conflicts-and-combinations) |
 | `--offline` | none | off | Block network-dependent dependency setup and checks; it does not turn a cloud model into an offline provider. | [Providers](providers.md) |
 | `--quiet` | none | off (`narration = "normal"`) | Suppress presentation narration. | [Top-level keys](configuration.md#top-level-keys) |
+| `--summary-json` | none | off | Append one machine-readable terminal run summary as the final stdout line. Omitting it preserves existing stdout bytes. | [Headless execution](../../user/headless.md) |
 | `--ollama-host` | `<OLLAMA_HOST>` URL | `http://localhost:11434` | Set the Ollama server base URL used by CommandAgent. | [Ollama host](providers.md#ollama-host-and-models) |
 | `--lm-studio-host` | `<LM_STUDIO_HOST>` URL | `http://localhost:1234` | Set the LM Studio base URL; an optional trailing `/v1` is normalized. | [LM Studio server](providers.md#lm-studio-server-and-models) |
 | `--num-predict` | `<NUM_PREDICT>` integer | `8192` | Set the maximum provider output-token request. | [Resolved defaults](#important-resolved-defaults) |

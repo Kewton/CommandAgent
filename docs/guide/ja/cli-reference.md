@@ -16,7 +16,7 @@
 複数のアクション選択フラグを組み合わせると拒否されます。
 
 Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリケーション固有の
-44 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
+45 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
 公開ユーザーフラグではありません。
 
 ## フラグ一覧
@@ -55,6 +55,7 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--resume` | `<RESUME>` | なし | 直接 `--prompt` 実行で、指定した保存済み minimal-loop セッションを読み込みます。 | [セッションオプション](#排他関係と組み合わせ) |
 | `--offline` | なし | オフ | ネットワーク依存の依存関係セットアップと検査を禁止します。クラウドモデルをオフラインプロバイダに変えるものではありません。 | [プロバイダ](providers.md) |
 | `--quiet` | なし | オフ（`narration = "normal"`） | プレゼンテーションのナレーションを抑制します。 | [トップレベルキー](configuration.md#トップレベルキー) |
+| `--summary-json` | なし | オフ | stdout 最終行へ機械可読な終端runサマリを1件追加します。省略時は既存stdout bytesを維持します。 | [Headless execution](../../user/headless.md) |
 | `--ollama-host` | `<OLLAMA_HOST>` URL | `http://localhost:11434` | CommandAgent が使う Ollama サーバーのベース URL を設定します。 | [Ollama のホスト](providers.md#ollama-のホストとモデル) |
 | `--lm-studio-host` | `<LM_STUDIO_HOST>` URL | `http://localhost:1234` | LM StudioのベースURLを設定します。末尾の任意の`/v1`は正規化します。 | [LM Studioのサーバー](providers.md#lm-studio-のサーバーとモデル) |
 | `--num-predict` | `<NUM_PREDICT>` 整数 | `8192` | プロバイダへ要求する最大出力トークン数を設定します。 | [重要な解決後の既定値](#重要な解決後の既定値) |
