@@ -2,6 +2,10 @@ const BASE_PATH = normalizeBasePath(process.env.NEXT_PUBLIC_GUI_BASE_PATH);
 
 export type GuiRoute = "dashboard" | "try" | "run" | "assets" | "measurements";
 
+export function guiBasePath(): string {
+  return BASE_PATH;
+}
+
 function normalizeBasePath(value: string | undefined): string {
   if (value === undefined || value === "" || value === "/") {
     return "";

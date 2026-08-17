@@ -11,11 +11,13 @@ import type {
 
 type TrialSessionIndexProps = {
   accessToken: string;
+  onAccessTokenRejected: (reason: unknown, rejectedValue: string) => void;
   onLeaseChange: (lease: TrialWorkspaceLease | null) => void;
 };
 
 export function TrialSessionIndexPanel({
   accessToken,
+  onAccessTokenRejected,
   onLeaseChange,
 }: TrialSessionIndexProps) {
   const [sessionIndex, setSessionIndex] = useState<TrialSessionIndex | null>(null);
@@ -40,14 +42,17 @@ export function TrialSessionIndexPanel({
           setError(null);
         })
         .catch((reason: unknown) => {
-          if (!cancelled) setError(describeError(reason));
+          if (!cancelled) {
+            onAccessTokenRejected(reason, trimmed);
+            setError(describeError(reason));
+          }
         });
     }, 250);
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [accessToken, onLeaseChange]);
+  }, [accessToken, onAccessTokenRejected, onLeaseChange]);
 
   async function refresh() {
     if (accessToken.trim() === "") {
@@ -61,6 +66,7 @@ export function TrialSessionIndexPanel({
       setSessionIndex(value);
       onLeaseChange(value.lease);
     } catch (reason) {
+      onAccessTokenRejected(reason, accessToken);
       setError(describeError(reason));
     } finally {
       setBusy(false);

@@ -52,6 +52,15 @@ setTimeout(() => {
     .fill("Create a CLI --pattern filter command");
   await page.locator("[data-testid='trial-executor-model']").fill("fixture-executor");
   await page.locator("[data-testid='trial-planner-model']").fill("fixture-planner");
+  const provider = await page.locator("[data-testid='trial-provider']").inputValue();
+  const spec = {
+    goal: await page.locator("[data-testid='trial-goal']").inputValue(),
+    profile: await page.locator("[data-testid='trial-profile']").inputValue(),
+    provider,
+    model: await page.locator("[data-testid='trial-executor-model']").inputValue(),
+    planner_provider: provider,
+    planner_model: await page.locator("[data-testid='trial-planner-model']").inputValue(),
+  };
 
   await tokenInput.fill(`${trialToken}-wrong`);
   await checkContract.click();
@@ -94,18 +103,6 @@ setTimeout(() => {
   }
   await page.locator("[data-testid='gate-one-card']").waitFor();
   const confirmationHash = await page.locator(".hash-line").innerText();
-  const spec = await page.evaluate(() => {
-    const inputs = Array.from(document.querySelectorAll(".trial-fields input"));
-    const selects = Array.from(document.querySelectorAll(".trial-fields select"));
-    return {
-      goal: document.querySelector("[data-testid='trial-goal']")?.value,
-      profile: selects[0]?.value,
-      provider: selects[1]?.value,
-      model: inputs[0]?.value,
-      planner_provider: selects[1]?.value,
-      planner_model: inputs[1]?.value,
-    };
-  });
   const created = await page.evaluate(
     async ({ apiUrl, body, token }) => {
       const response = await fetch(apiUrl, {
@@ -116,7 +113,14 @@ setTimeout(() => {
         },
         body: JSON.stringify(body),
       });
-      return { body: await response.json(), status: response.status };
+      const text = await response.text();
+      let responseBody;
+      try {
+        responseBody = JSON.parse(text);
+      } catch {
+        responseBody = { error: text };
+      }
+      return { body: responseBody, status: response.status };
     },
     {
       apiUrl: new URL("/api/sessions", server.origin).href,
@@ -130,8 +134,9 @@ setTimeout(() => {
 
   await page.locator("[data-testid='gate-one-confirm']").check();
   await page.locator("[data-testid='launch-session']").click();
-  await error.waitFor();
-  const conflictGuidance = await error.innerText();
+  const stageError = page.locator(".trial-stage-error[role='alert']");
+  await stageError.waitFor();
+  const conflictGuidance = await stageError.innerText();
   requireIncludes(conflictGuidance, created.body.id, "running-session ID guidance");
   requireIncludes(conflictGuidance, "再接続", "running-session reconnect guidance");
   const reconnect = page.locator("[data-testid='reconnect-session-link']");
