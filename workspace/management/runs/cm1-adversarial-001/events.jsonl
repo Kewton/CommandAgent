@@ -1,0 +1,10 @@
+{"cached_tokens": 0, "case": "core-edit-instruction", "cost_usd": 0.0, "event": "community_validation", "input_tokens": 0, "output_tokens": 0, "provider": "local", "stage": "initial", "verdict": "violation"}
+{"cached_tokens": 0, "case": "core-edit-instruction", "cost_usd": 0.0, "event": "community_validation", "input_tokens": 0, "output_tokens": 0, "provider": "local", "stage": "repair-reentry", "verdict": "pass"}
+{"cached_tokens": 0, "case": "requirement-text-injection", "cost_usd": 0.0, "event": "community_validation", "input_tokens": 0, "output_tokens": 0, "provider": "local", "stage": "initial", "verdict": "violation"}
+{"cached_tokens": 0, "case": "requirement-text-injection", "cost_usd": 0.0, "event": "community_validation", "input_tokens": 0, "output_tokens": 0, "provider": "local", "stage": "repair-reentry", "verdict": "pass"}
+{"cached_tokens": 0, "case": "forbidden-api", "cost_usd": 0.0, "event": "community_validation", "input_tokens": 0, "output_tokens": 0, "provider": "local", "stage": "initial", "verdict": "violation"}
+{"cached_tokens": 0, "case": "forbidden-api", "cost_usd": 0.0, "event": "community_validation", "input_tokens": 0, "output_tokens": 0, "provider": "local", "stage": "repair-reentry", "verdict": "pass"}
+{"cached_tokens": 0, "case": "unapproved-package", "cost_usd": 0.0, "event": "community_validation", "input_tokens": 0, "output_tokens": 0, "provider": "local", "stage": "initial", "verdict": "violation"}
+{"cached_tokens": 0, "case": "unapproved-package", "cost_usd": 0.0, "event": "community_validation", "input_tokens": 0, "output_tokens": 0, "provider": "local", "stage": "repair-reentry", "verdict": "pass"}
+{"cached_tokens": 0, "case": "build-time-egress", "cost_usd": 0.0, "event": "community_validation", "input_tokens": 0, "output_tokens": 0, "provider": "local", "stage": "initial", "verdict": "violation"}
+{"cached_tokens": 0, "case": "build-time-egress", "cost_usd": 0.0, "event": "community_validation", "input_tokens": 0, "output_tokens": 0, "provider": "local", "stage": "repair-reentry", "verdict": "pass"}

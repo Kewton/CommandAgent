@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """CM-1b Community Mini App validator.
 
 The S validator is deliberately independent of the adversarial fixture text.
@@ -15,16 +14,14 @@ import json
 import re
 import shutil
 import subprocess
-import sys
 import tempfile
 import threading
-from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from dataclasses import dataclass
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
 import yaml
-
 
 SCHEMA_VERSION = "community.app-spec/v1"
 ROOT_FIELDS = {

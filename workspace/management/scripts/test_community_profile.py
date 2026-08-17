@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import shutil
 import tempfile
@@ -8,7 +7,6 @@ import unittest
 from pathlib import Path
 
 import community_profile
-
 
 ROOT = Path(__file__).resolve().parents[3]
 FIXTURE = ROOT / "workspace/management/bench/community/synthetic-community"
