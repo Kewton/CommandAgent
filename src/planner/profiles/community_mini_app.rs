@@ -29,6 +29,84 @@ pub fn declared_verify_missing(
         })
 }
 
+pub fn enforce_declared_verify(
+    report: &mut crate::planner::lint::PlanQualityReport,
+    profile: &str,
+    preferred_verify: &[String],
+    verify_commands: &[&str],
+    all_paths: &[&str],
+) {
+    if declared_verify_missing(profile, preferred_verify, verify_commands, all_paths) {
+        report.push(
+            crate::planner::lint::PlanQualitySeverity::RetryableQuality,
+            "profile_verify_missing",
+            "community profile requires the declared schema verification command after app.spec.yaml",
+            None,
+            Some(preferred_verify.join(", ")),
+        );
+    }
+}
+
+pub fn report_declared_verify(
+    report: &mut crate::planner::lint::PlanQualityReport,
+    context: &crate::planner::lint::PlanQualityContext,
+    verify_commands: &[&str],
+    all_paths: &[&str],
+) {
+    enforce_declared_verify(
+        report,
+        &context.profile,
+        &context.preferred_verify,
+        verify_commands,
+        all_paths,
+    );
+}
+
+#[cfg(test)]
+mod planner_quality_tests {
+    use super::*;
+    use crate::planner::lint::{PlanQualityContext, step_plan_quality_report};
+    use crate::planner::step_plan::{PlanStep, StepPlan};
+
+    #[test]
+    fn declared_schema_verify_is_required_and_strong() {
+        let weak = StepPlan {
+            goal: "Create a Community Mini App".into(),
+            steps: vec![PlanStep {
+                id: "spec".into(),
+                kind: "implement".into(),
+                expected_result: "pass".into(),
+                instruction: "Write app.spec.yaml".into(),
+                expected_paths: vec!["app.spec.yaml".into()],
+                verify: vec!["test -f app.spec.yaml".into()],
+            }],
+        };
+        let context = PlanQualityContext {
+            profile: PROFILE_ID.into(),
+            required_artifacts: vec!["app.spec.yaml".into()],
+            preferred_verify: vec!["node smoke-check.js".into()],
+            ..Default::default()
+        };
+        let report = step_plan_quality_report(&weak, &context);
+        assert!(
+            report.has_retryable_quality()
+                && report
+                    .issues
+                    .iter()
+                    .any(|i| i.category == "profile_verify_missing")
+        );
+        let strong = StepPlan {
+            steps: vec![PlanStep {
+                verify: vec!["node smoke-check.js".into()],
+                ..weak.steps[0].clone()
+            }],
+            ..weak
+        };
+        let report = step_plan_quality_report(&strong, &context);
+        assert!(!report.issues.iter().any(|i| i.category == "profile_verify_missing" || i.category == "weak_code_verify"));
+    }
+}
+
 pub struct CommunityMiniAppProfile;
 
 const ROOT_FIELDS: &[&str] = &[

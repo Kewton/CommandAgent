@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::planner::profiles::community_mini_app::declared_verify_missing;
+use crate::planner::profiles::community_mini_app::report_declared_verify;
 use crate::planner::step_plan::{ExpectedResult, StepKind, StepPlan};
 use crate::planner::ultra_plan::UltraPlan;
 use crate::planner::{profile::resolve_profile_runtime, side_effect_paths::diagnose_expected_path};
@@ -434,7 +434,6 @@ pub fn step_plan_quality_report(
     let has_strong_verify = verify_commands
         .iter()
         .any(|command| is_strong_verify_command(command));
-    let has_later_or_any_strong_verify = has_strong_verify;
 
     if let Some(last) = plan.steps.last()
         && last.step_kind() == StepKind::Report
@@ -479,20 +478,7 @@ pub fn step_plan_quality_report(
         );
     }
 
-    if declared_verify_missing(
-        &context.profile,
-        &context.preferred_verify,
-        &verify_commands,
-        &all_paths,
-    ) {
-        report.push(
-            PlanQualitySeverity::RetryableQuality,
-            "profile_verify_missing",
-            "community profile requires the declared schema verification command after app.spec.yaml",
-            None,
-            Some(context.preferred_verify.join(", ")),
-        );
-    }
+    report_declared_verify(&mut report, context, &verify_commands, &all_paths);
 
     if looks_next_profile && let Some(evidence) = nextjs_profile_shape_drift_evidence(plan) {
         report.push(
@@ -555,9 +541,7 @@ pub fn step_plan_quality_report(
         if step.expected_paths.is_empty() {
             continue;
         }
-        if step.verify.is_empty()
-            && !has_later_or_any_strong_verify
-            && looks_code_task(&lower_goal, &all_paths)
+        if step.verify.is_empty() && !has_strong_verify && looks_code_task(&lower_goal, &all_paths)
         {
             report.push(
                 PlanQualitySeverity::Advisory,
@@ -1811,56 +1795,6 @@ mod tests {
                 .issues
                 .iter()
                 .any(|issue| issue.category == "profile_verify_missing")
-        );
-    }
-
-    #[test]
-    fn community_declared_schema_verify_is_required_and_strong() {
-        let weak = StepPlan {
-            goal: "Create a Community Mini App".to_string(),
-            steps: vec![PlanStep {
-                id: "spec".to_string(),
-                kind: "implement".to_string(),
-                expected_result: "pass".to_string(),
-                instruction: "Write app.spec.yaml".to_string(),
-                expected_paths: vec!["app.spec.yaml".to_string()],
-                verify: vec!["test -f app.spec.yaml".to_string()],
-            }],
-        };
-        let context = PlanQualityContext {
-            profile: "community-mini-app".to_string(),
-            required_artifacts: vec!["app.spec.yaml".to_string()],
-            preferred_verify: vec!["node smoke-check.js".to_string()],
-            ..PlanQualityContext::default()
-        };
-        let report = step_plan_quality_report(&weak, &context);
-        assert!(report.has_retryable_quality());
-        assert!(
-            report
-                .issues
-                .iter()
-                .any(|issue| issue.category == "profile_verify_missing")
-        );
-
-        let strong = StepPlan {
-            steps: vec![PlanStep {
-                verify: vec!["node smoke-check.js".to_string()],
-                ..weak.steps[0].clone()
-            }],
-            ..weak
-        };
-        let report = step_plan_quality_report(&strong, &context);
-        assert!(
-            !report
-                .issues
-                .iter()
-                .any(|issue| issue.category == "profile_verify_missing")
-        );
-        assert!(
-            !report
-                .issues
-                .iter()
-                .any(|issue| issue.category == "weak_code_verify")
         );
     }
 
