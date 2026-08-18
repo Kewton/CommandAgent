@@ -1561,3 +1561,14 @@ acceptance sheet再生成より前に304を返す。clientは変化時1秒へ戻
 受理境界とする。
 CM-0——Builder Plane成立性のGo判定材料。新プロダクト検証Phase 0対応・headless機械可読出力の装備。
 CM-1b——Community Mini App profile契約をfixed化し、S/Z/B検証器と既知敵対的スイートを封緘して10/10検知を実測する。CM-1 Phase 1対応。
+
+CM-4清算（2026-08-18）: Phase 0 headless、Phase 1既知敵対10/10、Phase 2
+golden 34/36 full（Wilson 81.9–98.5%、p50 174.5秒、max $0.00252714）、
+Phase 3モデル階級分離、Phase 4明示think・4並行隔離・R2納品再検証を一続きの
+Builder Plane実証として清算した。qwen3.8 E mediumは8/12 full・p50 59秒、
+F highも8/12・p50 148.5秒で、採用はowner裁定待ちのためqwen3.6/think未指定の
+封緘運用既定を変えない。golden/schema/adversarial外側SHAは
+`4ea74f2f…dad86` / `6242f354…72c1` / `792c9696…2b0b`で不変。意思決定窓の
+provider費用は$0.49151232、数値正本がある除外窓込み既知下限は$0.54277734。
+null窓とlocal電力は推計しない。QUEUEDはL2 verify起動形の一意化とglobal集約
+（schema v0.2候補）の2件。

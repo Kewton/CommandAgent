@@ -22,5 +22,5 @@ contains = []
 expect = "not_checked"
 
 [fixture_contains]
-"fixtures/promotion-record-l2.json" = ["not_applicable_l2", "evidence_claim"]
-"fixtures/reverification-l2.json" = ["S+Z", "not_applicable_l2", "verdict_equal"]
+fixtures/promotion-record-l2.json = ["not_applicable_l2", "evidence_claim"]
+fixtures/reverification-l2.json = ["S+Z", "not_applicable_l2", "verdict_equal"]

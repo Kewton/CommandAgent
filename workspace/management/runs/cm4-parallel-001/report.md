@@ -10,6 +10,9 @@
 - **所要**: individual p50/p95=507.80/633.91秒、parallel makespan=650.62秒。
   historical single p50 170秒に対しindividual p50 2.987倍、makespan 3.827倍。
   観測4本を逐次実行した場合との実効speedupは3.160倍。
+- **費用**: events usageと`pricing.toml`からの機械算出は4本合計
+  `$0.00901714`。headless summaryのnullを推測で置換せず、別正本`cost.json`に
+  turn/token内訳を保持した。
 - **品質**: 4/4はfailed。3件=`community_schema_version_invalid`、
   1件=`community_core_manifest_path_malformed`。隔離違反ではなくmodel成果物failure。
 - **未実施・逸脱・新規床**: distinct goalは3種で4本目はmain再標本（封緘suite先頭4runを
@@ -70,6 +73,10 @@ requested/returned modelが`gpt-5.6-luna`で一致した。model driftは0。
 同一GPU上のplanner 4並行により個別所要は増えたが、4本の観測所要合計に対する
 makespan短縮は3.160倍だった。single p50は旧計器引用なので、絶対的な性能回帰とは
 断定しない。
+
+OpenAI executor費用はrun順に`$0.00175344 / $0.00352618 / $0.00281906 /
+$0.00091846`、合計`$0.00901714`。これは保存eventsのusageと封緘pricingから
+機械算出した。ローカルplannerの電力費は計測していない。
 
 ## 5. 品質failure
 
