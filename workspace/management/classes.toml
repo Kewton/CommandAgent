@@ -449,11 +449,11 @@ note = "app-zone/L3成果物が存在するが、閉集合reason_classと先行L
 [[class]]
 id = "community_package_missing"
 category = "terminal"
-attribution = "model"
+attribution = "machine"
 match_reason = "community_profile_violation:community_package_missing"
 first_seen = "cm3-matrix-001-arm-d"
-ledger_ref = "CM-3"
-note = "Luna planner/Luna executor armの正当昇格L3で、app-zoneのB検証に必要なpackage manifestを生成せずfail closed。比較観測の失敗署名であり、検証は緩和しない。"
+ledger_ref = "CM-3b"
+note = "解消済み(伝達床): Luna plannerのL3計画3件がapp-zoneのみを列挙し、B検証に必須のpackage.json/package-lock.jsonを計画しなかった。community限定のUltraPlan/StepPlan lintが、先行app.spec.yamlと両build materialをL3計画の必須要件として有界リトライへ戻す。verifierと一般/L2経路は不変。"
 
 [[class]]
 id = "community_spec_artifact_missing"

@@ -124,6 +124,13 @@ pub fn ultra_phase_count_error(
     }
 }
 
+pub fn report_ultra_plan_quality(
+    report: &mut crate::planner::lint::PlanLintReport,
+    plan: &crate::planner::ultra_plan::UltraPlan,
+) {
+    promotion::report_ultra_plan_quality(report, plan);
+}
+
 #[cfg(test)]
 mod planner_quality_tests {
     use super::*;
@@ -259,6 +266,86 @@ mod planner_quality_tests {
                 .iter()
                 .any(|issue| issue.category == "community_promotion_step_missing")
         );
+    }
+
+    #[test]
+    fn app_zone_step_requires_build_materials_but_l2_plan_bytes_are_unchanged() {
+        let promotion = PlanStep {
+            id: "record-promotion".into(),
+            kind: "implement".into(),
+            expected_result: "pass".into(),
+            instruction: "Record promotion_decision after passing L2".into(),
+            expected_paths: vec![promotion::EVIDENCE_PATH.into()],
+            verify: Vec::new(),
+        };
+        let zone = PlanStep {
+            id: "implement-zone".into(),
+            kind: "implement".into(),
+            expected_result: "pass".into(),
+            instruction: "Create the promoted Community app-zone and run B verification".into(),
+            expected_paths: vec![
+                "src/app-zone/index.html".into(),
+                "src/app-zone/app.ts".into(),
+            ],
+            verify: vec![
+                "commandagent --offline --profile community-mini-app --prompt \"Run B verification\""
+                    .into(),
+            ],
+        };
+        let context = PlanQualityContext {
+            profile: PROFILE_ID.into(),
+            required_artifacts: vec!["app.spec.yaml".into()],
+            preferred_verify: vec!["commandagent --offline --profile community-mini-app".into()],
+            ..Default::default()
+        };
+        let missing = StepPlan {
+            goal: "Create a promoted Community Mini App".into(),
+            steps: vec![promotion.clone(), zone.clone()],
+        };
+        let report = step_plan_quality_report(&missing, &context);
+        assert!(report.has_retryable_quality());
+        assert!(
+            report
+                .issues
+                .iter()
+                .any(|issue| issue.category == "community_build_material_step_missing")
+        );
+
+        let mut complete_zone = zone;
+        complete_zone
+            .expected_paths
+            .extend(["package.json".into(), "package-lock.json".into()]);
+        let complete = StepPlan {
+            steps: vec![promotion, complete_zone],
+            ..missing
+        };
+        let report = step_plan_quality_report(&complete, &context);
+        assert!(
+            !report
+                .issues
+                .iter()
+                .any(|issue| issue.category == "community_build_material_step_missing")
+        );
+
+        let qwen_l2 = StepPlan {
+            goal: "Create a Community Mini App at L2".into(),
+            steps: vec![PlanStep {
+                id: "create-spec".into(),
+                kind: "implement".into(),
+                expected_result: "pass".into(),
+                instruction: "Write app.spec.yaml at the canonical L2 level".into(),
+                expected_paths: vec!["app.spec.yaml".into()],
+                verify: vec![
+                    "commandagent --offline --profile community-mini-app --prompt \"Validate app.spec.yaml\""
+                        .into(),
+                ],
+            }],
+        };
+        let before = serde_json::to_vec(&qwen_l2).unwrap();
+        let report = step_plan_quality_report(&qwen_l2, &context);
+        let after = serde_json::to_vec(&qwen_l2).unwrap();
+        assert_eq!(before, after, "qwen27 L2 plan bytes must remain unchanged");
+        assert!(!report.has_retryable_quality());
     }
 }
 
@@ -768,6 +855,51 @@ mod tests {
             lint_ultra_plan_report(&general).primary_message(),
             "UltraPlan must have 2-8 phases"
         );
+    }
+
+    #[test]
+    fn promoted_ultra_plan_requires_prior_spec_and_build_materials() {
+        use crate::planner::lint::lint_ultra_plan_report;
+        use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
+
+        let missing = UltraPlan {
+            goal: "Create a promoted Community Mini App".into(),
+            profile: PROFILE_ID.into(),
+            style: "default".into(),
+            intent: "create".into(),
+            phases: vec![UltraPhase {
+                id: "zone".into(),
+                prompt: "Create src/app-zone/index.html and src/app-zone/app.ts".into(),
+            }],
+        };
+        let report = lint_ultra_plan_report(&missing);
+        assert!(report.has_category("community_spec_phase_missing"));
+        assert!(report.has_category("community_build_material_phase_missing"));
+
+        let complete = UltraPlan {
+            phases: vec![
+                UltraPhase {
+                    id: "spec".into(),
+                    prompt: "Create and verify app.spec.yaml".into(),
+                },
+                UltraPhase {
+                    id: "zone".into(),
+                    prompt: "After promotion, create src/app-zone/index.html, src/app-zone/app.ts, package.json, and package-lock.json; run B verification".into(),
+                },
+            ],
+            ..missing
+        };
+        let report = lint_ultra_plan_report(&complete);
+        assert!(!report.has_category("community_spec_phase_missing"));
+        assert!(!report.has_category("community_build_material_phase_missing"));
+
+        let nextjs = UltraPlan {
+            profile: "nextjs".into(),
+            ..complete
+        };
+        let report = lint_ultra_plan_report(&nextjs);
+        assert!(!report.has_category("community_spec_phase_missing"));
+        assert!(!report.has_category("community_build_material_phase_missing"));
     }
 
     #[test]

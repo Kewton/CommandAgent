@@ -907,6 +907,7 @@ pub fn lint_ultra_plan_report(plan: &UltraPlan) -> PlanLintReport {
     if let Some(message) = community::ultra_phase_count_error(plan) {
         report.push("scaffold", message);
     }
+    community::report_ultra_plan_quality(&mut report, plan);
     let mut ids = std::collections::BTreeSet::new();
     for phase in &plan.phases {
         if phase.id.trim().is_empty() || phase.prompt.trim().is_empty() {

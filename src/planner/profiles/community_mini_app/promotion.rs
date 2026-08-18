@@ -4,6 +4,7 @@ use serde_json::Value;
 
 use crate::planner::lint::{PlanQualityContext, PlanQualityReport, PlanQualitySeverity};
 use crate::planner::step_plan::{PlanStep, StepPlan};
+use crate::planner::ultra_plan::UltraPlan;
 
 pub(super) const EVIDENCE_PATH: &str = "evidence/promotion-decision.json";
 pub(super) const REASON_CLASSES: &[&str] = &[
@@ -11,6 +12,8 @@ pub(super) const REASON_CLASSES: &[&str] = &[
     "registered_function_missing",
     "ui_requirement",
 ];
+const PACKAGE_PATH: &str = "package.json";
+const LOCKFILE_PATH: &str = "package-lock.json";
 
 fn has_app_zone(root: &Path) -> bool {
     root.join("src/app-zone").exists() || root.join("app-zone").exists()
@@ -81,6 +84,46 @@ fn step_declares_zone_output(step: &PlanStep) -> bool {
     })
 }
 
+fn step_declares_path(step: &PlanStep, expected: &str) -> bool {
+    step.expected_paths
+        .iter()
+        .any(|path| path.replace('\\', "/") == expected)
+}
+
+fn phase_declares_zone_output(prompt: &str) -> bool {
+    let prompt = prompt.to_ascii_lowercase();
+    prompt.contains("src/app-zone") || prompt.contains("app-zone/")
+}
+
+pub(crate) fn report_ultra_plan_quality(
+    report: &mut crate::planner::lint::PlanLintReport,
+    plan: &UltraPlan,
+) {
+    if plan.profile != super::PROFILE_ID {
+        return;
+    }
+    let mut spec_phase_seen = false;
+    for phase in &plan.phases {
+        if phase_declares_zone_output(&phase.prompt) {
+            if !spec_phase_seen {
+                report.push(
+                    "community_spec_phase_missing",
+                    "community app-zone/L3 work requires a preceding app.spec.yaml creation and verification phase",
+                );
+            }
+            if !phase.prompt.contains(PACKAGE_PATH) || !phase.prompt.contains(LOCKFILE_PATH) {
+                report.push(
+                    "community_build_material_phase_missing",
+                    "community app-zone/L3 phase must declare package.json and package-lock.json as B-verification build materials",
+                );
+            }
+        }
+        if phase.prompt.contains("app.spec.yaml") {
+            spec_phase_seen = true;
+        }
+    }
+}
+
 fn is_promotion_step(step: &PlanStep) -> bool {
     step.expected_paths.iter().any(|path| {
         matches!(
@@ -104,7 +147,11 @@ pub(crate) fn report_plan_quality(
         return;
     }
     let mut promotion_seen = false;
+    let mut package_seen = false;
+    let mut lockfile_seen = false;
     for step in &plan.steps {
+        package_seen |= step_declares_path(step, PACKAGE_PATH);
+        lockfile_seen |= step_declares_path(step, LOCKFILE_PATH);
         if step_declares_zone_output(step) && !promotion_seen {
             report.push(
                 PlanQualitySeverity::RetryableQuality,
@@ -113,7 +160,23 @@ pub(crate) fn report_plan_quality(
                 Some(step.id.clone()),
                 Some(step.expected_paths.join(", ")),
             );
-            return;
+        }
+        if step_declares_zone_output(step) && (!package_seen || !lockfile_seen) {
+            let missing = [
+                (!package_seen).then_some(PACKAGE_PATH),
+                (!lockfile_seen).then_some(LOCKFILE_PATH),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(", ");
+            report.push(
+                PlanQualitySeverity::RetryableQuality,
+                "community_build_material_step_missing",
+                "community app-zone/L3 work requires declared package.json and package-lock.json build materials before B verification",
+                Some(step.id.clone()),
+                Some(missing),
+            );
         }
         if is_promotion_step(step) {
             promotion_seen = true;
