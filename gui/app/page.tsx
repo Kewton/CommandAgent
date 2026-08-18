@@ -3,6 +3,7 @@
 import { Shell } from "../components/shell";
 import { EmptyState, ErrorState, LoadingState } from "../components/states";
 import { apiPath, routePath, withBasePath } from "../lib/base-path";
+import { dateLabel } from "../lib/format";
 import type { DocumentRecord, RunIndex, RunState } from "../lib/types";
 import { useResource } from "../lib/use-resource";
 
@@ -22,14 +23,6 @@ function bandFact(document: DocumentRecord): string {
 
 function shortBandName(document: DocumentRecord): string {
   return document.content.match(/^#\s+(.+)$/m)?.[1] ?? document.id;
-}
-
-function dateLabel(epochSeconds: number): string {
-  if (epochSeconds === 0) return "時刻未記録";
-  return new Intl.DateTimeFormat("ja-JP", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(epochSeconds * 1000));
 }
 
 export default function DashboardPage() {
@@ -131,7 +124,7 @@ export default function DashboardPage() {
               >
                 <strong>{run.id}</strong>
                 <span className={`status-badge ${statusTone(run.state)}`}>{run.status_text}</span>
-                <time>{dateLabel(run.modified_epoch_seconds)}</time>
+                <time>{dateLabel(run.modified_epoch_seconds, "時刻未記録")}</time>
                 <span aria-hidden="true" className="row-arrow">↗</span>
               </a>
             ))}

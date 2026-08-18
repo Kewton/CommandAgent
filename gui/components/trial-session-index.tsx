@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { apiPath } from "../lib/base-path";
-import { describeError, responseError } from "../lib/errors";
+import { describeError } from "../lib/errors";
+import { sessionTimeLabel } from "../lib/format";
+import { fetchSessionIndex } from "../lib/trial-api";
 import type {
   TrialSessionIndex,
   TrialSessionSummary,
@@ -177,8 +178,8 @@ export function TrialSessionIndexPanel({
             <li id={sessionAnchor(session.id)} key={session.id}>
               <div>
                 <code>{session.id}</code>
-                <time>開始: {sessionTime(session.started_epoch_seconds)}</time>
-                <time>最終更新: {sessionTime(session.modified_epoch_seconds)}</time>
+                <time>開始: {sessionTimeLabel(session.started_epoch_seconds)}</time>
+                <time>最終更新: {sessionTimeLabel(session.modified_epoch_seconds)}</time>
               </div>
               <span className={`session-status ${session.status}`}>
                 {session.gate ?? "unknown"} / {session.status}
@@ -192,17 +193,6 @@ export function TrialSessionIndexPanel({
       )}
     </section>
   );
-}
-
-async function fetchSessionIndex(token: string): Promise<TrialSessionIndex> {
-  const response = await fetch(apiPath("sessions"), {
-    cache: "no-store",
-    headers: token.trim() === ""
-      ? {}
-      : { "x-commandagent-trial-authorization": `Bearer ${token.trim()}` },
-  });
-  if (!response.ok) throw await responseError(response);
-  return (await response.json()) as TrialSessionIndex;
 }
 
 function mergeObservedSession(
@@ -237,9 +227,4 @@ function sessionAnchor(id: string): string {
 
 function sessionLink(id: string): string {
   return `?session=${encodeURIComponent(id)}`;
-}
-
-function sessionTime(epochSeconds: number): string {
-  if (epochSeconds <= 0) return "反映待ち";
-  return new Date(epochSeconds * 1_000).toISOString();
 }

@@ -8,7 +8,8 @@ const MAX_BACKOFF_MS = 12_000;
 export type MonitorStatus = "connected" | "degraded" | "lost";
 
 export type MonitorFailure = {
-  code?: string;
+  status: number;
+  code: string | null;
   guidance: string;
   summary: string;
   terminal: boolean;
@@ -27,6 +28,8 @@ export function unchangedPollDelay(unchangedResponses: number): number {
 export async function responseFailure(response: Response): Promise<MonitorFailure> {
   if (response.type === "opaqueredirect") {
     return {
+      status: response.status,
+      code: null,
       guidance:
         "監視が上流アクセスのサインインへ転送されました。ページを再読み込みしてプロキシで再認証し、実行時トークンを再入力してください。",
       summary: "上流アクセスの再認証が必要です",
@@ -37,7 +40,8 @@ export async function responseFailure(response: Response): Promise<MonitorFailur
   const detail = await responseDetail(response);
   if (response.status === 401 || response.status === 403) {
     return {
-      ...(detail.code === null ? {} : { code: detail.code }),
+      status: response.status,
+      code: detail.code,
       guidance: `監視の認証に失敗しました (${response.status})。実行時の Trial アクセストークンを再入力し、このオリジンが許可されているか確認してください。`,
       summary: detail.summary,
       terminal: false,
@@ -46,7 +50,8 @@ export async function responseFailure(response: Response): Promise<MonitorFailur
 
   const invalidJsonl = /invalid[^.\n]*jsonl|jsonl[^.\n]*invalid/i.test(detail.summary);
   return {
-    ...(detail.code === null ? {} : { code: detail.code }),
+    status: response.status,
+    code: detail.code,
     guidance:
       response.status === 413
         ? "セッションのイベントストリームがポーリング上限を超えました。CLI の成果物を直接確認してください。"
@@ -61,11 +66,30 @@ export async function responseFailure(response: Response): Promise<MonitorFailur
 export function thrownFailure(reason: unknown): MonitorFailure {
   const detail = reason instanceof Error ? reason.message : "ブラウザがリクエストを拒否しました。";
   return {
+    status: 0,
+    code: null,
     guidance:
       "監視がサーバーへ接続できません。プロキシまたはネットワーク接続を確認し、必要なら再読み込みまたは再認証して、実行時トークンを再入力してください。",
     summary: detail,
     terminal: false,
   };
+}
+
+export function monitorFailure(reason: unknown): MonitorFailure {
+  if (isMonitorFailure(reason)) return reason;
+  return thrownFailure(reason);
+}
+
+export function isMonitorFailure(reason: unknown): reason is MonitorFailure {
+  if (typeof reason !== "object" || reason === null) return false;
+  const candidate = reason as Partial<MonitorFailure>;
+  return (
+    typeof candidate.status === "number" &&
+    (typeof candidate.code === "string" || candidate.code === null) &&
+    typeof candidate.guidance === "string" &&
+    typeof candidate.summary === "string" &&
+    typeof candidate.terminal === "boolean"
+  );
 }
 
 async function responseDetail(

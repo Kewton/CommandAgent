@@ -175,6 +175,7 @@ fn gui_fetch_failures_use_one_actionable_error_descriptor() {
         "trial_request_invalid",
         "resource_too_large",
         "上流プロキシまたはアクセス認証",
+        "isTrialTokenRejected",
         "reconnectSessionId",
     ] {
         assert!(
@@ -185,10 +186,8 @@ fn gui_fetch_failures_use_one_actionable_error_descriptor() {
 
     for path in [
         "gui/lib/use-resource.ts",
-        "gui/app/try/page.tsx",
         "gui/app/runs/page.tsx",
         "gui/app/measurements/page.tsx",
-        "gui/components/trial-session-index.tsx",
     ] {
         let source = std::fs::read_to_string(path).unwrap();
         for required in ["describeError", "responseError"] {
@@ -197,6 +196,16 @@ fn gui_fetch_failures_use_one_actionable_error_descriptor() {
                 "{path} bypasses the common failure path: missing {required}"
             );
         }
+    }
+    for (path, required) in [
+        ("gui/hooks/use-trial-run.ts", "describeError"),
+        ("gui/components/trial-session-index.tsx", "describeError"),
+        ("gui/lib/trial-api.ts", "responseError"),
+    ] {
+        assert!(
+            std::fs::read_to_string(path).unwrap().contains(required),
+            "{path} bypasses the common failure path: missing {required}"
+        );
     }
 
     let raw_network_message = ["Failed", "to", "fetch"].join(" ");
@@ -211,12 +220,78 @@ fn gui_fetch_failures_use_one_actionable_error_descriptor() {
 }
 
 #[test]
+fn trial_route_is_wiring_only_and_shared_helpers_have_single_owners() {
+    let page = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
+    assert!(
+        page.lines().count() <= 20,
+        "Trial route entrypoint grew beyond wiring"
+    );
+    for required in ["<Shell", "<TrialRun />"] {
+        assert!(
+            page.contains(required),
+            "Trial route wiring is missing {required:?}"
+        );
+    }
+    for forbidden in ["useState", "useEffect", "fetch(", "data-testid"] {
+        assert!(
+            !page.contains(forbidden),
+            "Trial route entrypoint owns non-wiring behavior {forbidden:?}"
+        );
+    }
+
+    let component = std::fs::read_to_string("gui/components/trial-run.tsx").unwrap();
+    assert!(component.contains("useTrialRun(terminalHeading)"));
+    assert!(component.contains("data-testid=\"trial-active-stage\""));
+
+    let hook = std::fs::read_to_string("gui/hooks/use-trial-run.ts").unwrap();
+    for required in [
+        "export function useTrialRun",
+        "useState",
+        "useEffect",
+        "isTrialTokenRejected(reason)",
+    ] {
+        assert!(
+            hook.contains(required),
+            "Trial workflow hook is missing {required:?}"
+        );
+    }
+
+    let api = std::fs::read_to_string("gui/lib/trial-api.ts").unwrap();
+    assert!(api.contains("export function trialAuthorizationHeaders"));
+    assert_eq!(
+        api.matches("x-commandagent-trial-authorization").count(),
+        1,
+        "Trial authorization header must have one owner"
+    );
+
+    let monitor = std::fs::read_to_string("gui/lib/trial-monitor.ts").unwrap();
+    for required in [
+        "status: number",
+        "code: string | null",
+        "status: response.status",
+        "code: detail.code",
+    ] {
+        assert!(
+            monitor.contains(required),
+            "MonitorFailure is missing {required:?}"
+        );
+    }
+
+    let gui = gui_source_files(Path::new("gui"))
+        .iter()
+        .map(|path| std::fs::read_to_string(path).unwrap())
+        .collect::<String>();
+    assert_eq!(gui.matches("function byteLabel(").count(), 1);
+    assert_eq!(gui.matches("function dateLabel(").count(), 1);
+}
+
+#[test]
 fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
-    let source = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
+    let source = trial_ui_sources();
     for required in [
         "if (!confirmed || proposal === null)",
         "\"x-commandagent-trial-authorization\": `Bearer ${token.trim()}`",
-        "confirmation_hash: proposal.card_hash",
+        "launchSession(trialToken, spec, proposal.card_hash)",
         "<GateCardMarkdown markdown={proposal.card_markdown} />",
         "data-testid=\"trial-workspace\"",
         "proposal.identity.workspace",
@@ -379,7 +454,7 @@ fn trial_ui_keeps_gate_one_confirmation_and_has_no_intervention_surface() {
 
 #[test]
 fn trial_monitor_retries_and_reconnects_with_tab_scoped_access() {
-    let page = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
+    let page = trial_ui_sources();
     for required in [
         "redirect: \"manual\"",
         "response.type === \"opaqueredirect\"",
@@ -465,12 +540,12 @@ fn trial_token_storage_is_base_path_scoped_and_non_durable() {
         );
     }
 
-    let page = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
+    let page = trial_ui_sources();
     for required in [
         "setTrialToken(restoreTrialToken())",
         "persistTrialToken(value)",
         "removeRejectedTrialToken(rejectedValue)",
-        "isDefinitiveTrialTokenRejection(reason)",
+        "isTrialTokenRejected(reason)",
         "onAccessTokenRejected={rejectTrialToken}",
         "type=\"password\"",
         "autoComplete=\"off\"",
@@ -733,7 +808,7 @@ fn trial_phase_badges_distinguish_pending_running_completed_failed_and_interrupt
 
 #[test]
 fn trial_status_polling_revalidates_and_backs_off_without_changing_the_schema() {
-    let page = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
+    let page = trial_ui_sources();
     for required in [
         "headers[\"if-none-match\"] = etag",
         "response.status === 304",
@@ -804,7 +879,7 @@ fn trial_status_polling_revalidates_and_backs_off_without_changing_the_schema() 
 
 #[test]
 fn trial_feedback_uses_elapsed_time_phase_total_and_terminal_title() {
-    let source = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
+    let source = trial_ui_sources();
     for required in [
         "data-testid=\"elapsed-time\"",
         "window.setInterval(tick, 1_000)",
@@ -841,7 +916,7 @@ fn trial_feedback_uses_elapsed_time_phase_total_and_terminal_title() {
 
 #[test]
 fn trial_ui_renders_one_japanese_labeled_state_with_mobile_primary_actions() {
-    let source = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
+    let source = trial_ui_sources();
     for required in [
         "aria-label=\"Trial の進行状況\"",
         "[\"依頼\", \"Gate 1\"]",
@@ -947,9 +1022,9 @@ fn trial_workspace_and_authentication_guards_are_not_optional() {
 
 #[test]
 fn trial_workspace_recovery_is_visible_but_read_only() {
-    let page = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
+    let page = trial_ui_sources();
     for required in [
-        "fetch(apiPath(\"trial-workspace\")",
+        "apiPath(\"trial-workspace\")",
         "data-testid=\"workspace-lease-status\"",
         "data-testid=\"workspace-lease-session\"",
         "復旧が必要",
@@ -1044,13 +1119,13 @@ fn trial_session_files_are_get_only_authenticated_views() {
         );
     }
 
-    let page = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
+    let page = trial_ui_sources();
     for required in [
         "data-testid=\"trial-events-footer\"",
         "data-testid=\"trial-events-open\"",
         "data-testid={artifact.path === \"summary.md\" ? \"trial-summary-open\" : undefined}",
         "data-testid=\"trial-file-viewer\"",
-        "headers: authorizationHeaders(trialToken)",
+        "headers: trialAuthorizationHeaders(token)",
         "直近 200 行",
     ] {
         assert!(
@@ -1091,14 +1166,20 @@ fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
         );
     }
 
-    let page = std::fs::read_to_string("gui/app/try/page.tsx").unwrap();
-    let panel = std::fs::read_to_string("gui/components/trial-session-index.tsx").unwrap();
+    let page = trial_ui_sources();
+    let panel = [
+        "gui/components/trial-session-index.tsx",
+        "gui/lib/trial-api.ts",
+    ]
+    .iter()
+    .map(|path| std::fs::read_to_string(path).unwrap())
+    .collect::<String>();
     let smoke = std::fs::read_to_string("gui/scripts/smoke.mjs").unwrap();
     let lifecycle_smoke = std::fs::read_to_string("gui/scripts/session-index-smoke.mjs").unwrap();
     for required in [
         "data-testid=\"trial-session-index\"",
         "fetchSessionIndex(token)",
-        "fetch(apiPath(\"sessions\"), {",
+        "fetchJson<TrialSessionIndex>(apiPath(\"sessions\"), {",
         "cache: \"no-store\"",
         "x-commandagent-trial-authorization",
         "session.started_epoch_seconds",
@@ -1218,6 +1299,18 @@ fn collect_rust_files(root: &Path, output: &mut Vec<PathBuf>) {
             output.push(path);
         }
     }
+}
+
+fn trial_ui_sources() -> String {
+    [
+        "gui/app/try/page.tsx",
+        "gui/components/trial-run.tsx",
+        "gui/hooks/use-trial-run.ts",
+        "gui/lib/trial-api.ts",
+    ]
+    .iter()
+    .map(|path| std::fs::read_to_string(path).unwrap())
+    .collect()
 }
 
 fn gui_source_files(root: &Path) -> Vec<PathBuf> {
