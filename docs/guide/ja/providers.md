@@ -114,6 +114,28 @@ Ollama には実行中の HTTP サーバーとローカルで利用可能なモ�
 ローカル API アクセスには API キーが不要です。CommandAgent は `num_predict` を渡し、モデルを
 10 分間ロードしたままにし、設定した host に API route を追加します。
 
+### Ollama thinking
+
+`--think` を指定すると、解決後の provider が Ollama であるすべての役割について、Ollama
+リクエストのトップレベル `think` フィールドを送信します。単独指定は boolean `true` を送り、
+明示値には曖昧さのない等号形式を使います。
+
+```bash
+commandagent --provider ollama --model qwen3 --think
+commandagent --provider ollama --model gpt-oss:20b --think=high
+commandagent --provider ollama --model qwen3 --think=false
+```
+
+受け付ける値は `true`、`false`、`low`、`medium`、`high` です。GPT-OSS などでは boolean
+ではなくレベル指定が必要です。CommandAgent はモデルの対応可否を推測せず、値の受理または
+拒否は Ollama に委ねます。executor と planner のどちらも Ollama でない場合、`--think` は
+エラーになります。
+
+Ollama が `message.thinking` に分離して返す思考本文は、TUI、assistant content、会話履歴、
+イベントのいずれにも含めません。最終的な `message.content` と tool call だけを既存の応答経路で
+処理します。モデル固有の動作は Ollama 公式の
+[thinking ドキュメント](https://docs.ollama.com/capabilities/thinking)を参照してください。
+
 ### ローカルセットアップ
 
 ```bash

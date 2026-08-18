@@ -60,6 +60,7 @@ internal integration surface and is intentionally not a public user flag.
 | `--quiet` | none | off (`narration = "normal"`) | Suppress presentation narration. | [Top-level keys](configuration.md#top-level-keys) |
 | `--summary-json` | none | off | Append one machine-readable terminal run summary as the final stdout line. Omitting it preserves existing stdout bytes. | [Headless execution](../../user/headless.md) |
 | `--ollama-host` | `<OLLAMA_HOST>` URL | `http://localhost:11434` | Set the Ollama server base URL used by CommandAgent. | [Ollama host](providers.md#ollama-host-and-models) |
+| `--think` | `[=<true\|false\|low\|medium\|high>]` | omitted | Enable Ollama thinking for every Ollama provider role. A bare flag means `true`; explicit values require `=`, for example `--think=high`. | [Ollama thinking](providers.md#ollama-thinking) |
 | `--lm-studio-host` | `<LM_STUDIO_HOST>` URL | `http://localhost:1234` | Set the LM Studio base URL; an optional trailing `/v1` is normalized. | [LM Studio server](providers.md#lm-studio-server-and-models) |
 | `--num-predict` | `<NUM_PREDICT>` integer | `8192` | Set the maximum provider output-token request. | [Resolved defaults](#important-resolved-defaults) |
 | `--max-iterations` | `<MAX_ITERATIONS>` integer | `12` | Set the minimal-loop iteration budget. | [Resolved defaults](#important-resolved-defaults) |
@@ -99,6 +100,8 @@ See [Configuration](configuration.md) for the exact per-field layers.
   trailing goal.
 - A different `--planner-provider` requires an explicit or preset
   `planner_model`; otherwise startup fails.
+- `--think` requires at least one resolved provider role to use Ollama. When
+  both roles use another provider, startup fails instead of ignoring the flag.
 - For direct minimal-loop prompts, `--fresh-session` takes precedence over
   `--resume`. These session switches are not used by slash-command plan resume.
 

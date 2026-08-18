@@ -36,6 +36,17 @@ pub enum StreamArg {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum OllamaThinkArg {
+    #[value(name = "true")]
+    True,
+    #[value(name = "false")]
+    False,
+    Low,
+    Medium,
+    High,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum PromptLayoutArg {
     Stable,
     Legacy,
@@ -184,6 +195,16 @@ pub struct Cli {
     pub summary_json: bool,
     #[arg(long, default_value = "http://localhost:11434")]
     pub ollama_host: String,
+    #[arg(
+        long,
+        value_enum,
+        value_name = "true|false|low|medium|high",
+        num_args = 0..=1,
+        default_missing_value = "true",
+        require_equals = true,
+        help = "Enable Ollama thinking for every Ollama provider role; bare --think means true"
+    )]
+    pub think: Option<OllamaThinkArg>,
     #[arg(long, default_value = "http://localhost:1234")]
     pub lm_studio_host: String,
     #[arg(long, default_value_t = 8_192)]
@@ -264,6 +285,45 @@ mod tests {
         let help = Cli::command().render_long_help().to_string();
         assert!(help.contains("--stream"));
         assert!(help.contains("on|off"));
+    }
+
+    #[test]
+    fn think_parses_bare_and_explicit_values() {
+        let bare = Cli::try_parse_from(["commandagent", "--think"]).unwrap();
+        assert_eq!(bare.think, Some(OllamaThinkArg::True));
+
+        for (input, expected) in [
+            ("true", OllamaThinkArg::True),
+            ("false", OllamaThinkArg::False),
+            ("low", OllamaThinkArg::Low),
+            ("medium", OllamaThinkArg::Medium),
+            ("high", OllamaThinkArg::High),
+        ] {
+            let argument = format!("--think={input}");
+            let cli = Cli::try_parse_from(["commandagent", argument.as_str()]).unwrap();
+            assert_eq!(cli.think, Some(expected));
+        }
+    }
+
+    #[test]
+    fn think_requires_equals_for_an_explicit_value() {
+        let cli = Cli::try_parse_from(["commandagent", "--think", "high"]).unwrap();
+
+        assert_eq!(cli.think, Some(OllamaThinkArg::True));
+        assert_eq!(cli.goal, vec!["high"]);
+    }
+
+    #[test]
+    fn invalid_think_value_is_rejected_before_execution() {
+        let error = Cli::try_parse_from(["commandagent", "--think=maximum"]).unwrap_err();
+        assert!(error.to_string().contains("invalid value 'maximum'"));
+    }
+
+    #[test]
+    fn help_includes_think_values() {
+        let help = Cli::command().render_long_help().to_string();
+        assert!(help.contains("--think[=<true|false|low|medium|high>]"));
+        assert!(help.contains("bare --think means true"));
     }
 
     #[test]

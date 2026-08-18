@@ -160,6 +160,7 @@ mod tests {
             planner_model: "planner:latest".to_string(),
             planner_provider: Provider::Ollama,
             ollama_host: host,
+            ollama_think: None,
             lm_studio_host: "http://localhost:1234".to_string(),
             num_predict: 1,
             max_iterations: 1,

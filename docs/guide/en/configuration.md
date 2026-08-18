@@ -27,7 +27,7 @@ Resolution is field-by-field, and not every setting supports all four layers.
 | `tool_protocol` | CLI > preset > provider capability default |
 | `planner_model`, `planner_provider` | CLI > preset > executor role inheritance; a different provider requires a planner model |
 | `profile` | CLI > preset > goal/workspace inference > `generic` |
-| `ollama_host`, `lm_studio_host`, `num_predict`, `max_iterations`, `chat_retries`, `style`, `state_dir`, and other CLI-only fields | CLI value or CLI-declared/built-in default; config files do not accept them |
+| `ollama_host`, `think`, `lm_studio_host`, `num_predict`, `max_iterations`, `chat_retries`, `style`, `state_dir`, and other CLI-only fields | CLI value or CLI-declared/built-in default; config files do not accept them |
 
 The timeout default is `600` seconds if either role uses Ollama or LM Studio
 and `180` seconds when both roles are remote. `context_budget` defaults to `65536`.

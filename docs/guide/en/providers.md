@@ -125,6 +125,30 @@ access at the default address does not require an API key. CommandAgent passes
 `num_predict`, keeps a model loaded for 10 minutes, and appends API routes to the
 configured host.
 
+### Ollama thinking
+
+Use `--think` to send Ollama's top-level `think` request field for every role
+whose resolved provider is Ollama. A bare flag sends boolean `true`; explicit
+values use the unambiguous equals form:
+
+```bash
+commandagent --provider ollama --model qwen3 --think
+commandagent --provider ollama --model gpt-oss:20b --think=high
+commandagent --provider ollama --model qwen3 --think=false
+```
+
+Accepted values are `true`, `false`, `low`, `medium`, and `high`. Models such as
+GPT-OSS require a level rather than a boolean. CommandAgent does not infer model
+support: Ollama remains responsible for accepting or rejecting the value. When
+neither the executor nor planner uses Ollama, `--think` is an error.
+
+Ollama returns thinking-capable output separately in `message.thinking`.
+CommandAgent intentionally excludes that text from the TUI, assistant content,
+conversation history, and events; only the final `message.content` and tool
+calls continue through the existing response path. See Ollama's official
+[thinking documentation](https://docs.ollama.com/capabilities/thinking) for
+model-specific behavior.
+
 ### Local setup
 
 ```bash

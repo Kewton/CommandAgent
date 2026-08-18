@@ -5,8 +5,8 @@ use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::cli::{
-    Cli, FooterArg, IntentArg, OpenAiApiArg, PlanPresetArg, PromptLayoutArg, ProviderArg,
-    StreamArg, ToolProtocolArg,
+    Cli, FooterArg, IntentArg, OllamaThinkArg, OpenAiApiArg, PlanPresetArg, PromptLayoutArg,
+    ProviderArg, StreamArg, ToolProtocolArg,
 };
 pub use crate::planner::adjudication::contract::IntentId;
 use crate::planner::intent::detect_intent;
@@ -70,6 +70,27 @@ impl Provider {
 
     pub const fn is_local(self) -> bool {
         matches!(self, Self::Ollama | Self::LmStudio)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OllamaThink {
+    True,
+    False,
+    Low,
+    Medium,
+    High,
+}
+
+impl From<OllamaThinkArg> for OllamaThink {
+    fn from(value: OllamaThinkArg) -> Self {
+        match value {
+            OllamaThinkArg::True => Self::True,
+            OllamaThinkArg::False => Self::False,
+            OllamaThinkArg::Low => Self::Low,
+            OllamaThinkArg::Medium => Self::Medium,
+            OllamaThinkArg::High => Self::High,
+        }
     }
 }
 
@@ -322,6 +343,7 @@ pub struct Config {
     pub planner_model: String,
     pub planner_provider: Provider,
     pub ollama_host: String,
+    pub ollama_think: Option<OllamaThink>,
     pub lm_studio_host: String,
     pub num_predict: usize,
     pub max_iterations: usize,
@@ -554,6 +576,13 @@ impl Config {
         let Some(planner_model) = planner_model else {
             bail!("--planner-model is required when --planner-provider differs from --provider");
         };
+        let ollama_think = cli.think.map(OllamaThink::from);
+        if ollama_think.is_some()
+            && provider.value != Provider::Ollama
+            && planner_provider.value != Provider::Ollama
+        {
+            bail!("--think requires provider or planner_provider to be ollama");
+        }
         validate_openai_model(provider.value, &model.value, "executor")?;
         validate_openai_model(planner_provider.value, &planner_model.value, "planner")?;
         let context_budget = cli
@@ -692,6 +721,7 @@ impl Config {
             planner_model: planner_model.value,
             planner_provider: planner_provider.value,
             ollama_host: cli.ollama_host,
+            ollama_think,
             lm_studio_host: normalize_lm_studio_host(&cli.lm_studio_host)?,
             num_predict: cli.num_predict,
             max_iterations: cli.max_iterations,
@@ -1721,6 +1751,52 @@ mod tests {
         let cli = Cli::parse_from(["commandagent", "--provider", "ollama", "--model", "m"]);
         let config = Config::from_cli(cli).unwrap();
         assert_eq!(config.planner_model, "m");
+    }
+
+    #[test]
+    fn think_applies_when_either_resolved_role_uses_ollama() {
+        let executor = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--provider",
+            "ollama",
+            "--think=high",
+        ]))
+        .unwrap();
+        assert_eq!(executor.ollama_think, Some(OllamaThink::High));
+
+        let planner = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--provider",
+            "openai",
+            "--model",
+            "gpt-5.6-sol",
+            "--planner-provider",
+            "ollama",
+            "--planner-model",
+            "qwen3",
+            "--think=false",
+        ]))
+        .unwrap();
+        assert_eq!(planner.ollama_think, Some(OllamaThink::False));
+    }
+
+    #[test]
+    fn think_rejects_configuration_without_an_ollama_role() {
+        let error = Config::from_cli(Cli::parse_from([
+            "commandagent",
+            "--provider",
+            "gemini",
+            "--planner-provider",
+            "gemini",
+            "--think",
+        ]))
+        .unwrap_err()
+        .to_string();
+
+        assert_eq!(
+            error,
+            "--think requires provider or planner_provider to be ollama"
+        );
     }
 
     #[test]

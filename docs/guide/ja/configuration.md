@@ -27,7 +27,7 @@ CLI フラグ > 選択した preset のフィールド > トップレベル設�
 | `tool_protocol` | CLI > preset > プロバイダ能力の既定値 |
 | `planner_model`、`planner_provider` | CLI > preset > 実行役割から継承。異なるプロバイダには planner model が必要 |
 | `profile` | CLI > preset > ゴール／ワークスペース推論 > `generic` |
-| `ollama_host`、`lm_studio_host`、`num_predict`、`max_iterations`、`chat_retries`、`style`、`state_dir`、その他の CLI 専用フィールド | CLI 値または CLI 宣言／組み込み既定値。設定ファイルでは受け付けない |
+| `ollama_host`、`think`、`lm_studio_host`、`num_predict`、`max_iterations`、`chat_retries`、`style`、`state_dir`、その他の CLI 専用フィールド | CLI 値または CLI 宣言／組み込み既定値。設定ファイルでは受け付けない |
 
 timeout の既定値は、いずれかの役割が Ollama または LM Studio なら `600` 秒、両方がリモートなら `180` 秒です。
 `context_budget` の既定値は `65536` です。`plan_preset` は通常 `none` ですが、明示した `data` と

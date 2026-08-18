@@ -108,12 +108,15 @@ pub fn client_from_config(config: &Config, planner: bool) -> anyhow::Result<Box<
         config.provider
     };
     match provider {
-        Provider::Ollama => Ok(Box::new(ollama::OllamaClient::new(
-            config.ollama_host.clone(),
-            config.chat_timeout_secs,
-            config.num_predict,
-            config.chat_retries,
-        )?)),
+        Provider::Ollama => Ok(Box::new(
+            ollama::OllamaClient::new(
+                config.ollama_host.clone(),
+                config.chat_timeout_secs,
+                config.num_predict,
+                config.chat_retries,
+            )?
+            .with_think(config.ollama_think),
+        )),
         Provider::LmStudio => Ok(Box::new(lm_studio::LmStudioClient::from_env(config)?)),
         Provider::Openai => Ok(Box::new(openai::OpenAiClient::from_env(config)?)),
         Provider::Gemini => Ok(Box::new(gemini::GeminiClient::from_env(config)?)),

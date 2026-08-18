@@ -2,7 +2,7 @@ use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::config::Provider;
+use crate::config::{OllamaThink, Provider};
 use crate::state::{ConversationMessage, ToolCall};
 use crate::tools::args_recovery::recover_tool_arguments;
 use crate::tools::registry::ToolSpec;
@@ -16,6 +16,7 @@ pub struct OllamaClient {
     base_url: String,
     http: Client,
     request_options: Value,
+    think: Option<OllamaThink>,
     keep_alive: &'static str,
     retries: usize,
     last_response_timing: Option<ResponseTiming>,
@@ -38,10 +39,16 @@ impl OllamaClient {
             request_options: json!({
                 "num_predict": max_predict,
             }),
+            think: None,
             keep_alive: "10m",
             retries,
             last_response_timing: None,
         })
+    }
+
+    pub(crate) fn with_think(mut self, think: Option<OllamaThink>) -> Self {
+        self.think = think;
+        self
     }
 
     pub fn list_models(&self) -> anyhow::Result<Vec<String>> {
@@ -226,6 +233,15 @@ impl OllamaClient {
         });
         if native_tools_enabled && !tools.is_empty() {
             body["tools"] = json!(tools);
+        }
+        if let Some(think) = self.think {
+            body["think"] = match think {
+                OllamaThink::True => json!(true),
+                OllamaThink::False => json!(false),
+                OllamaThink::Low => json!("low"),
+                OllamaThink::Medium => json!("medium"),
+                OllamaThink::High => json!("high"),
+            };
         }
         body
     }
@@ -473,10 +489,37 @@ mod tests {
             Some(42)
         );
         assert!(first.get("tools").is_none());
+        assert!(first.get("think").is_none());
         assert_eq!(
             client.chat_request_body_with_stream("m", &messages, &tools, false, true)["stream"],
             true
         );
+    }
+
+    #[test]
+    fn request_body_maps_think_to_the_top_level_with_the_correct_json_type() {
+        let messages = vec![ConversationMessage::user("hello")];
+        let tools: Vec<ToolSpec> = Vec::new();
+
+        for (think, expected) in [
+            (OllamaThink::True, json!(true)),
+            (OllamaThink::False, json!(false)),
+            (OllamaThink::Low, json!("low")),
+            (OllamaThink::Medium, json!("medium")),
+            (OllamaThink::High, json!("high")),
+        ] {
+            let client = OllamaClient::new("http://localhost".to_string(), 1, 42, 0)
+                .unwrap()
+                .with_think(Some(think));
+            let body = client.chat_request_body("m", &messages, &tools, false);
+
+            assert_eq!(body.get("think"), Some(&expected));
+            assert!(
+                body.get("options")
+                    .and_then(Value::as_object)
+                    .is_some_and(|options| !options.contains_key("think"))
+            );
+        }
     }
 
     #[test]
@@ -501,6 +544,18 @@ mod tests {
         assert_eq!(timing.eval_duration, Some(2_000_000_000));
         assert_eq!(timing.load_duration, Some(1_000_000_000));
         assert_eq!(timing.total_duration, Some(7_000_000_000));
+    }
+
+    #[test]
+    fn parse_chat_response_discards_separate_thinking() {
+        let reply = parse_chat_response(
+            r#"{"message":{"thinking":"private reasoning","content":"final answer"}}"#,
+            &[],
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(reply.content, "final answer");
     }
 
     #[test]
@@ -534,6 +589,34 @@ mod tests {
         assert_eq!(reply.prompt_tokens, Some(4));
         assert_eq!(reply.completion_tokens, Some(2));
         assert_eq!(timing.unwrap().total_duration, Some(9));
+    }
+
+    #[test]
+    fn streamed_thinking_is_not_rendered_or_saved() {
+        let input = concat!(
+            r#"{"message":{"thinking":"private "},"done":false}"#,
+            "\n",
+            r#"{"message":{"thinking":"reasoning"},"done":false}"#,
+            "\n",
+            r#"{"message":{"content":"final answer"},"done":false}"#,
+            "\n",
+            r#"{"done":true}"#,
+            "\n"
+        );
+        let mut chunks = Vec::new();
+        let (reply, _) = parse_chat_stream(
+            std::io::Cursor::new(input.as_bytes()),
+            &[],
+            false,
+            &mut |chunk| {
+                chunks.push(chunk.to_string());
+                Ok(())
+            },
+        )
+        .unwrap();
+
+        assert_eq!(chunks, vec!["final answer"]);
+        assert_eq!(reply.content, "final answer");
     }
 
     #[test]

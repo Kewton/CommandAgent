@@ -39,6 +39,7 @@ mod tests {
             planner_model: "m".to_string(),
             planner_provider: crate::config::Provider::Ollama,
             ollama_host: "http://localhost:11434".to_string(),
+            ollama_think: None,
             lm_studio_host: "http://localhost:1234".to_string(),
             num_predict: 100,
             max_iterations: 4,

@@ -57,6 +57,7 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | `--quiet` | なし | オフ（`narration = "normal"`） | プレゼンテーションのナレーションを抑制します。 | [トップレベルキー](configuration.md#トップレベルキー) |
 | `--summary-json` | なし | オフ | stdout 最終行へ機械可読な終端runサマリを1件追加します。省略時は既存stdout bytesを維持します。 | [Headless execution](../../user/headless.md) |
 | `--ollama-host` | `<OLLAMA_HOST>` URL | `http://localhost:11434` | CommandAgent が使う Ollama サーバーのベース URL を設定します。 | [Ollama のホスト](providers.md#ollama-のホストとモデル) |
+| `--think` | `[=<true\|false\|low\|medium\|high>]` | 省略 | Ollama を使うすべての役割で thinking を有効化します。単独指定は `true`、明示値には `--think=high` のように `=` が必要です。 | [Ollama thinking](providers.md#ollama-thinking) |
 | `--lm-studio-host` | `<LM_STUDIO_HOST>` URL | `http://localhost:1234` | LM StudioのベースURLを設定します。末尾の任意の`/v1`は正規化します。 | [LM Studioのサーバー](providers.md#lm-studio-のサーバーとモデル) |
 | `--num-predict` | `<NUM_PREDICT>` 整数 | `8192` | プロバイダへ要求する最大出力トークン数を設定します。 | [重要な解決後の既定値](#重要な解決後の既定値) |
 | `--max-iterations` | `<MAX_ITERATIONS>` 整数 | `12` | minimal loop の反復予算を設定します。 | [重要な解決後の既定値](#重要な解決後の既定値) |
@@ -93,6 +94,8 @@ context budget、timeout、profile、footer、stream などは `Config::from_cli
 - `--plan-steps`、`--plan-run`、`--ultra-plan`、`--ultra-plan-run` には末尾のゴールが必要です。
 - `--planner-provider` が実行プロバイダと異なる場合、明示または preset の
   `planner_model` が必要です。なければ起動に失敗します。
+- `--think` には、解決後の provider 役割の少なくとも一方で Ollama が必要です。
+  両方が別プロバイダの場合、フラグを無視せず起動に失敗します。
 - 直接 minimal-loop prompt では `--fresh-session` が `--resume` より優先されます。
   これらのセッションスイッチはスラッシュコマンドによる plan 再開には使われません。
 

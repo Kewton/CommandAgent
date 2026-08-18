@@ -501,9 +501,7 @@ mod anchor_tests {
         ReadOnlyStagnationStage, WriteRequiredSelectionReason,
     };
     use super::*;
-    use crate::config::{
-        Action, Config, ConfigFieldSources, NarrationMode, PlanPreset, PromptLayout, Provider,
-    };
+    use crate::config::*;
     use crate::minimal_loop::loop_run::{
         RunSessionOptions, RunSessionStepKind, run_session_with_outcome_with_options,
     };
@@ -577,6 +575,7 @@ mod anchor_tests {
             planner_model: "m".to_string(),
             planner_provider: Provider::Ollama,
             ollama_host: "http://localhost:11434".to_string(),
+            ollama_think: None,
             lm_studio_host: "http://localhost:1234".to_string(),
             num_predict: 100,
             max_iterations: 6,
