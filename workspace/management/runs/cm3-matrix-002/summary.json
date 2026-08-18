@@ -1,0 +1,1436 @@
+{
+  "schema_version": "commandagent.cm3b-matrix-summary/v1",
+  "series_id": "cm3-matrix-002",
+  "denominator": 24,
+  "budget_ceiling_usd": 3.0,
+  "execution_revision": "6352bbdbc46577d905d4c4a88c40b3fb00587615",
+  "binary_sha256": "d11b216d09d7b483becad1317c200b45477708d357838fe21fb2ad48299eeded",
+  "live_cost_usd": 0.07468386,
+  "arms": {
+    "B-prime": {
+      "n": 12,
+      "full": 11,
+      "full_rate": 0.9166666666666666,
+      "full_wilson_95": [
+        0.6461200888588832,
+        0.9851349055950829
+      ],
+      "one_shot_full": 10,
+      "one_shot_full_rate": 0.8333333333333334,
+      "one_shot_full_wilson_95": [
+        0.5519691377470268,
+        0.953034857816146
+      ],
+      "duration_secs": {
+        "min": 118.0,
+        "q1": 150.0,
+        "p50": 157.5,
+        "q3": 173.0,
+        "p95": 210.69999999999996,
+        "max": 236.0
+      },
+      "cost_usd": {
+        "min": 0.0,
+        "q1": 0.0,
+        "p50": 0.0,
+        "q3": 0.0,
+        "p95": 0.0,
+        "max": 0.0,
+        "total": 0.0
+      },
+      "stop_classes": {
+        "community_schema_pin_path_invented": 1
+      },
+      "outcome_signatures": {
+        "community_schema_pin_path_invented": 1,
+        "full": 11
+      },
+      "levels": {
+        "L2": 12
+      },
+      "artifact_scrub_all": true,
+      "model_identity": {
+        "returned_id_observations": 33,
+        "drift_count": 0,
+        "drift": []
+      },
+      "tasks": {
+        "warikan": {
+          "n": 4,
+          "full": 3,
+          "duration_secs": {
+            "min": 135.0,
+            "q1": 146.25,
+            "p50": 153.5,
+            "q3": 160.75,
+            "p95": 169.75,
+            "max": 172.0
+          }
+        },
+        "mochimono": {
+          "n": 4,
+          "full": 4,
+          "duration_secs": {
+            "min": 153.0,
+            "q1": 162.75,
+            "p50": 171.0,
+            "q3": 179.5,
+            "p95": 187.9,
+            "max": 190.0
+          }
+        },
+        "vote": {
+          "n": 4,
+          "full": 4,
+          "duration_secs": {
+            "min": 118.0,
+            "q1": 142.0,
+            "p50": 154.0,
+            "q3": 177.5,
+            "p95": 224.29999999999995,
+            "max": 236.0
+          }
+        }
+      }
+    },
+    "D-prime": {
+      "n": 12,
+      "full": 7,
+      "full_rate": 0.5833333333333334,
+      "full_wilson_95": [
+        0.3195113125495498,
+        0.8067396863412434
+      ],
+      "one_shot_full": 7,
+      "one_shot_full_rate": 0.5833333333333334,
+      "one_shot_full_wilson_95": [
+        0.3195113125495498,
+        0.8067396863412434
+      ],
+      "duration_secs": {
+        "min": 22.0,
+        "q1": 27.0,
+        "p50": 31.0,
+        "q3": 36.5,
+        "p95": 101.34999999999992,
+        "max": 158.0
+      },
+      "cost_usd": {
+        "min": 0.0030988,
+        "q1": 0.004173685,
+        "p50": 0.00453013,
+        "q3": 0.00468337,
+        "p95": 0.01528275299999999,
+        "max": 0.02377208,
+        "total": 0.07468386
+      },
+      "stop_classes": {
+        "community_esbuild_script_missing": 1,
+        "community_package_artifact_missing": 1,
+        "community_spec_artifact_missing": 1,
+        "community_verify_instruction_not_executable": 2
+      },
+      "outcome_signatures": {
+        "community_esbuild_script_missing": 1,
+        "community_package_artifact_missing": 1,
+        "community_spec_artifact_missing": 1,
+        "community_verify_instruction_not_executable": 2,
+        "full": 7
+      },
+      "levels": {
+        "L2": 11,
+        "L3": 1
+      },
+      "artifact_scrub_all": true,
+      "model_identity": {
+        "returned_id_observations": 84,
+        "drift_count": 0,
+        "drift": []
+      },
+      "tasks": {
+        "warikan": {
+          "n": 4,
+          "full": 1,
+          "duration_secs": {
+            "min": 22.0,
+            "q1": 32.5,
+            "p50": 37.0,
+            "q3": 68.0,
+            "p95": 139.99999999999994,
+            "max": 158.0
+          }
+        },
+        "mochimono": {
+          "n": 4,
+          "full": 3,
+          "duration_secs": {
+            "min": 27.0,
+            "q1": 30.75,
+            "p50": 32.0,
+            "q3": 37.75,
+            "p95": 51.54999999999999,
+            "max": 55.0
+          }
+        },
+        "vote": {
+          "n": 4,
+          "full": 3,
+          "duration_secs": {
+            "min": 25.0,
+            "q1": 26.5,
+            "p50": 27.5,
+            "q3": 28.5,
+            "p95": 29.7,
+            "max": 30.0
+          }
+        }
+      }
+    }
+  },
+  "comparisons": {
+    "B_to_B_prime": {
+      "full_rate_difference": 0.16666666666666663,
+      "full_rate_difference_newcombe_95": [
+        -0.14819082005263257,
+        0.4571562566245709
+      ],
+      "one_shot_full_rate_difference": 0.25,
+      "one_shot_full_rate_difference_newcombe_95": [
+        -0.10927177612807865,
+        0.539707634718087
+      ],
+      "duration_p50_difference_secs": -23.0,
+      "duration_p95_difference_secs": -27.099999999999994,
+      "cost_total_difference_usd": 0.0
+    },
+    "D_to_D_prime": {
+      "full_rate_difference": 0.0,
+      "full_rate_difference_newcombe_95": [
+        -0.3457057378967466,
+        0.3457057378967466
+      ],
+      "one_shot_full_rate_difference": 0.0,
+      "one_shot_full_rate_difference_newcombe_95": [
+        -0.3457057378967466,
+        0.3457057378967466
+      ],
+      "duration_p50_difference_secs": -1.5,
+      "duration_p95_difference_secs": -35.10000000000004,
+      "cost_total_difference_usd": -0.026823219999999995
+    }
+  },
+  "d_prime_30_second_high_full": {
+    "rule": "repair-included full >= 90% AND duration p50 <= 30 seconds",
+    "high_full_pass": false,
+    "p50_pass": false,
+    "established": false
+  },
+  "runs": [
+    {
+      "arm": "B-prime",
+      "id": "b_prime_warikan_001",
+      "task": "warikan",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 172,
+      "cost_usd": 0.0,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 4,
+      "model_returns": [
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        },
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        }
+      ]
+    },
+    {
+      "arm": "B-prime",
+      "id": "b_prime_warikan_002",
+      "task": "warikan",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "full": false,
+      "repair_cycles": 0,
+      "duration_secs": 157,
+      "cost_usd": 0.0,
+      "stop_class": "community_schema_pin_path_invented",
+      "outcome_signature": "community_schema_pin_path_invented",
+      "scrub_ok": true,
+      "provider_turns": 5,
+      "model_returns": [
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        },
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        },
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        }
+      ]
+    },
+    {
+      "arm": "B-prime",
+      "id": "b_prime_warikan_003",
+      "task": "warikan",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 135,
+      "cost_usd": 0.0,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 4,
+      "model_returns": [
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        },
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        }
+      ]
+    },
+    {
+      "arm": "B-prime",
+      "id": "b_prime_warikan_004",
+      "task": "warikan",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 150,
+      "cost_usd": 0.0,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 6,
+      "model_returns": [
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        },
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        },
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        },
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        }
+      ]
+    },
+    {
+      "arm": "B-prime",
+      "id": "b_prime_mochimono_001",
+      "task": "mochimono",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 4,
+      "duration_secs": 166,
+      "cost_usd": 0.0,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 8,
+      "model_returns": [
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        },
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        },
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        },
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        },
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        },
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        }
+      ]
+    },
+    {
+      "arm": "B-prime",
+      "id": "b_prime_mochimono_002",
+      "task": "mochimono",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 190,
+      "cost_usd": 0.0,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 4,
+      "model_returns": [
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        },
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        }
+      ]
+    },
+    {
+      "arm": "B-prime",
+      "id": "b_prime_mochimono_003",
+      "task": "mochimono",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 176,
+      "cost_usd": 0.0,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 6,
+      "model_returns": [
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        },
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        },
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        },
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        }
+      ]
+    },
+    {
+      "arm": "B-prime",
+      "id": "b_prime_mochimono_004",
+      "task": "mochimono",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 153,
+      "cost_usd": 0.0,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 4,
+      "model_returns": [
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        },
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        }
+      ]
+    },
+    {
+      "arm": "B-prime",
+      "id": "b_prime_vote_001",
+      "task": "vote",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 118,
+      "cost_usd": 0.0,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 4,
+      "model_returns": [
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        },
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        }
+      ]
+    },
+    {
+      "arm": "B-prime",
+      "id": "b_prime_vote_002",
+      "task": "vote",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 150,
+      "cost_usd": 0.0,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 4,
+      "model_returns": [
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        },
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        }
+      ]
+    },
+    {
+      "arm": "B-prime",
+      "id": "b_prime_vote_003",
+      "task": "vote",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 236,
+      "cost_usd": 0.0,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 4,
+      "model_returns": [
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        },
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        }
+      ]
+    },
+    {
+      "arm": "B-prime",
+      "id": "b_prime_vote_004",
+      "task": "vote",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 158,
+      "cost_usd": 0.0,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 4,
+      "model_returns": [
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        },
+        {
+          "provider": "lm-studio",
+          "requested": "qwen3.5-9b-mlx",
+          "returned": "qwen3.5-9b-mlx",
+          "system_fingerprint": "qwen3.5-9b-mlx"
+        }
+      ]
+    },
+    {
+      "arm": "D-prime",
+      "id": "d_prime_warikan_001",
+      "task": "warikan",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "full": false,
+      "repair_cycles": 0,
+      "duration_secs": 36,
+      "cost_usd": 0.00428074,
+      "stop_class": "community_verify_instruction_not_executable",
+      "outcome_signature": "community_verify_instruction_not_executable",
+      "scrub_ok": true,
+      "provider_turns": 5,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ]
+    },
+    {
+      "arm": "D-prime",
+      "id": "d_prime_warikan_002",
+      "task": "warikan",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 38,
+      "cost_usd": 0.00506164,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 6,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ]
+    },
+    {
+      "arm": "D-prime",
+      "id": "d_prime_warikan_003",
+      "task": "warikan",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L3",
+      "status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": false,
+      "repair_cycles": 0,
+      "duration_secs": 158,
+      "cost_usd": 0.02377208,
+      "stop_class": "community_esbuild_script_missing",
+      "outcome_signature": "community_esbuild_script_missing",
+      "scrub_ok": true,
+      "provider_turns": 19,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ]
+    },
+    {
+      "arm": "D-prime",
+      "id": "d_prime_warikan_004",
+      "task": "warikan",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "full": false,
+      "repair_cycles": 0,
+      "duration_secs": 22,
+      "cost_usd": 0.0030988,
+      "stop_class": "community_spec_artifact_missing",
+      "outcome_signature": "community_spec_artifact_missing",
+      "scrub_ok": true,
+      "provider_turns": 3,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ]
+    },
+    {
+      "arm": "D-prime",
+      "id": "d_prime_mochimono_001",
+      "task": "mochimono",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 27,
+      "cost_usd": 0.00380054,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 6,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ]
+    },
+    {
+      "arm": "D-prime",
+      "id": "d_prime_mochimono_002",
+      "task": "mochimono",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 32,
+      "cost_usd": 0.00455526,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 7,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ]
+    },
+    {
+      "arm": "D-prime",
+      "id": "d_prime_mochimono_003",
+      "task": "mochimono",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "full": false,
+      "repair_cycles": 0,
+      "duration_secs": 55,
+      "cost_usd": 0.00833694,
+      "stop_class": "community_package_artifact_missing",
+      "outcome_signature": "community_package_artifact_missing",
+      "scrub_ok": true,
+      "provider_turns": 9,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ]
+    },
+    {
+      "arm": "D-prime",
+      "id": "d_prime_mochimono_004",
+      "task": "mochimono",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 32,
+      "cost_usd": 0.00455728,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 6,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ]
+    },
+    {
+      "arm": "D-prime",
+      "id": "d_prime_vote_001",
+      "task": "vote",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 27,
+      "cost_usd": 0.0043078,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 6,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ]
+    },
+    {
+      "arm": "D-prime",
+      "id": "d_prime_vote_002",
+      "task": "vote",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 28,
+      "cost_usd": 0.00450862,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 6,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ]
+    },
+    {
+      "arm": "D-prime",
+      "id": "d_prime_vote_003",
+      "task": "vote",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 0,
+      "verdict": "complete",
+      "assurance": "partial (completion_contract_not_bound)",
+      "full": true,
+      "repair_cycles": 0,
+      "duration_secs": 30,
+      "cost_usd": 0.00455164,
+      "stop_class": null,
+      "outcome_signature": "full",
+      "scrub_ok": true,
+      "provider_turns": 6,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ]
+    },
+    {
+      "arm": "D-prime",
+      "id": "d_prime_vote_004",
+      "task": "vote",
+      "source": "cm3-matrix-002 live campaign",
+      "level": "L2",
+      "status": "completed",
+      "product_exit": 1,
+      "verdict": "failed",
+      "assurance": "partial (acceptance_not_full_success)",
+      "full": false,
+      "repair_cycles": 0,
+      "duration_secs": 25,
+      "cost_usd": 0.00385252,
+      "stop_class": "community_verify_instruction_not_executable",
+      "outcome_signature": "community_verify_instruction_not_executable",
+      "scrub_ok": true,
+      "provider_turns": 5,
+      "model_returns": [
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        },
+        {
+          "provider": "openai",
+          "requested": "gpt-5.6-luna",
+          "returned": "gpt-5.6-luna",
+          "system_fingerprint": null
+        }
+      ]
+    }
+  ]
+}

@@ -128,6 +128,9 @@ pub fn report_ultra_plan_quality(
     report: &mut crate::planner::lint::PlanLintReport,
     plan: &crate::planner::ultra_plan::UltraPlan,
 ) {
+    if let Some(message) = ultra_phase_count_error(plan) {
+        report.push("scaffold", message);
+    }
     promotion::report_ultra_plan_quality(report, plan);
 }
 

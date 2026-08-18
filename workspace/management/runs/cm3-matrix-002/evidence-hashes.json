@@ -1,0 +1,18 @@
+{
+  "schema_version": "commandagent.cm3b-evidence-hashes/v1",
+  "instrument": {
+    "execution_revision": "6352bbdbc46577d905d4c4a88c40b3fb00587615",
+    "binary_sha256": "d11b216d09d7b483becad1317c200b45477708d357838fe21fb2ad48299eeded"
+  },
+  "campaigns": {
+    "B-prime_uat_meta_sha256": "535d12458f58152e0fa84c1db659ce436bdde1f680398641b51773e30b050c38",
+    "D-prime_uat_meta_sha256": "2a4e0482dd4dc53bbd7c952ae1f4e253548d7952d1a89cf549ebc1a09fd34252"
+  },
+  "curated_summary_sha256": "73344c62a501f25d63ca353fa9e6355e7aae850423dc9cf26ea1ef3cf38f034a",
+  "raw_examples": {
+    "D-prime_mochimono_003_ultra_plan_sha256": "024f6da9cab1a8cfdc034c3c4b317800628aa12edd4e06fc8f1f15c574ec9fd8",
+    "D-prime_mochimono_003_step_plan_sha256": "d7f2aec152c74f9165cdee91b24642fd9235711516555bbea62f41e5b948bf41",
+    "B-prime_warikan_002_events_sha256": "895d298e859537e283826f17cc5a57841a50e786cfdde71b274be96d186c89c1"
+  },
+  "raw_campaign_policy": "Raw campaign trees remain outside the repository; only scrubbed curation, exact hashes, and quoted evidence are sealed here."
+}

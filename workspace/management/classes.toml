@@ -465,6 +465,42 @@ ledger_ref = "CM-3"
 note = "Luna planner/Luna executor armで必須L2成果物app.spec.yamlをexecutorが生成しないままphaseが終端。比較観測の失敗署名として登録し、artifact gateは不変。"
 
 [[class]]
+id = "community_schema_pin_path_invented"
+category = "terminal"
+attribution = "model"
+match_reason = "path does not exist: schema/app-spec.schema.sha256sums"
+first_seen = "cm3-matrix-002-arm-b-prime"
+ledger_ref = "CM-3b"
+note = "ローカルexecutorが供給済みschema/app-spec.schema.sha256ではなく未宣言のsha256sums pathを発明してreadし停止。B側の完全語彙注入は届いており、較正対象外のmodel署名として保持する。"
+
+[[class]]
+id = "community_verify_instruction_not_executable"
+category = "terminal"
+attribution = "model"
+match_reason = "dependency_setup_authority_required: not applicable|dependency_setup_authority_required: app.spec.yaml の内容"
+first_seen = "cm3-matrix-002-arm-d-prime"
+ledger_ref = "CM-3b"
+note = "Luna plannerがimplement stepのverifyへ`not applicable`または自然言語指示をcommandとして記載し、閉じたsetup authority境界でfail closed。Dのpackage伝達床とは別のmodel計画署名であり、本較正では補修しない。"
+
+[[class]]
+id = "community_esbuild_script_missing"
+category = "terminal"
+attribution = "model"
+match_reason = "community_profile_violation:community_esbuild_script_missing"
+first_seen = "cm3-matrix-002-arm-d-prime"
+ledger_ref = "CM-3b"
+note = "L3計画はpackage.json/package-lock.jsonを明記して新ゲートを通過したが、executorが生成したpackage manifestにB系必須のesbuild scriptがなくfail closed。計画伝達床返済後に残るmodel実装署名。"
+
+[[class]]
+id = "community_package_artifact_missing"
+category = "terminal"
+attribution = "model"
+match_reason = "path does not exist: package.json"
+first_seen = "cm3-matrix-002-arm-d-prime"
+ledger_ref = "CM-3b"
+note = "L3 UltraPlanとStepPlanはpackage.json/package-lock.jsonの生成を明記して新ゲートを通過したが、executorが作成前にpackage.jsonをreadして停止。旧community_package_missingの伝達床とは分離したmodel実行署名。"
+
+[[class]]
 id = "community_l3_verify_command_timeout"
 category = "terminal"
 attribution = "machine"

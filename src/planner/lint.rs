@@ -904,9 +904,6 @@ pub fn lint_ultra_plan(plan: &UltraPlan) -> anyhow::Result<()> {
 
 pub fn lint_ultra_plan_report(plan: &UltraPlan) -> PlanLintReport {
     let mut report = PlanLintReport::pass();
-    if let Some(message) = community::ultra_phase_count_error(plan) {
-        report.push("scaffold", message);
-    }
     community::report_ultra_plan_quality(&mut report, plan);
     let mut ids = std::collections::BTreeSet::new();
     for phase in &plan.phases {
