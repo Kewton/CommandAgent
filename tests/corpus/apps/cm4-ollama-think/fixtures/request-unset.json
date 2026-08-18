@@ -1,0 +1,1 @@
+{"keep_alive":"10m","messages":[{"content":"hello","role":"user"}],"model":"qwen3.6:27b-coding-nvfp4","options":{"num_predict":42},"stream":false}

@@ -20,6 +20,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 import tomllib
+
 from id_vocabulary import INTERRUPTED_ENVIRONMENT
 
 HARNESS_VERSION = "0.1"
@@ -102,6 +103,7 @@ class SuiteDefinition:
     provider: str
     api: str | None
     tool_protocol: str | None
+    think: str | None
     min_head: str | None
     bon_series: str | None
     pack_id: str | None
@@ -338,6 +340,7 @@ def load_suite(path: Path) -> SuiteDefinition:
             "provider",
             "api",
             "tool_protocol",
+            "think",
             "min_head",
             "bon_series",
             "pack_id",
@@ -373,6 +376,14 @@ def load_suite(path: Path) -> SuiteDefinition:
         or tool_protocol not in {"native", "text"}
     ):
         raise BenchError("suite.tool_protocol must be native or text when present")
+    think = suite_table.get("think")
+    if think is not None and (
+        not isinstance(think, str)
+        or think not in {"true", "false", "low", "medium", "high"}
+    ):
+        raise BenchError(
+            "suite.think must be true, false, low, medium, or high when present"
+        )
     api = suite_table.get("api")
     if api is not None and (
         not isinstance(api, str)
@@ -572,6 +583,10 @@ def load_suite(path: Path) -> SuiteDefinition:
             )
         )
 
+    provider = _required_str(suite_table, "provider", "suite")
+    planner_provider = _required_str(suite_table, "planner_provider", "suite")
+    if think is not None and "ollama" not in {provider, planner_provider}:
+        raise BenchError("suite.think requires an Ollama provider role")
     return SuiteDefinition(
         path=path.resolve(),
         suite_id=suite_id,
@@ -580,10 +595,11 @@ def load_suite(path: Path) -> SuiteDefinition:
         plan_preset=plan_preset,
         context_budget=context_budget,
         planner_model=_required_str(suite_table, "planner_model", "suite"),
-        planner_provider=_required_str(suite_table, "planner_provider", "suite"),
-        provider=_required_str(suite_table, "provider", "suite"),
+        planner_provider=planner_provider,
+        provider=provider,
         api=api,
         tool_protocol=tool_protocol,
+        think=think,
         min_head=min_head_value,
         bon_series=bon_series,
         pack_id=pack_id,
@@ -944,6 +960,8 @@ def build_command(
         command.extend(["--api", suite.api.replace("_", "-")])
     if suite.tool_protocol is not None:
         command.extend(["--tool-protocol", suite.tool_protocol])
+    if suite.think is not None:
+        command.append(f"--think={suite.think}")
     if ollama_host is not None and "ollama" in {
         suite.provider,
         suite.planner_provider,
@@ -1118,6 +1136,8 @@ def provider_reachability_preflight(
         "--cwd",
         str(repo_root),
     ]
+    if suite.think is not None:
+        command.append(f"--think={suite.think}")
     if "lm-studio" in providers:
         command.extend(["--lm-studio-host", DEFAULT_LM_STUDIO_HOST])
     result = _run_capture(command, repo_root)
@@ -1924,6 +1944,8 @@ def _suite_metadata(
         metadata["api"] = suite.api
     if suite.tool_protocol is not None:
         metadata["tool_protocol"] = suite.tool_protocol
+    if suite.think is not None:
+        metadata["think"] = suite.think
     if suite.bon_series is not None:
         metadata["bon_series"] = suite.bon_series
     if suite.workspace_mode != "sourced":

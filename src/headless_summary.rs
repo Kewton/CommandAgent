@@ -10,12 +10,21 @@ const SCHEMA_VERSION: &str = "commandagent.headless-summary/v1";
 #[derive(Debug, Clone)]
 pub(crate) struct Source {
     events_path: Option<PathBuf>,
+    model_metadata: Option<ModelMetadata>,
 }
 
 impl Source {
     pub(crate) fn from_config(config: &Config) -> Self {
         Self {
             events_path: config.eval_events_path.clone(),
+            model_metadata: Some(ModelMetadata {
+                executor_provider: config.provider.as_str().to_string(),
+                executor_model: config.model.clone(),
+                planner_provider: config.planner_provider.as_str().to_string(),
+                planner_model: config.planner_model.clone(),
+                ollama_think: config.ollama_think.map(crate::config::OllamaThink::as_str),
+                ollama_think_request_field_present: config.ollama_think.is_some(),
+            }),
         }
     }
 
@@ -23,8 +32,19 @@ impl Source {
     fn from_events_path(path: impl Into<PathBuf>) -> Self {
         Self {
             events_path: Some(path.into()),
+            model_metadata: None,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct ModelMetadata {
+    executor_provider: String,
+    executor_model: String,
+    planner_provider: String,
+    planner_model: String,
+    ollama_think: Option<&'static str>,
+    ollama_think_request_field_present: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -41,6 +61,8 @@ struct HeadlessSummary {
     provider_cost_usd: Option<f64>,
     stop_class: Option<String>,
     directive_round: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model_metadata: Option<ModelMetadata>,
 }
 
 pub(crate) fn render(source: &Source) -> String {
@@ -98,6 +120,7 @@ fn project(source: &Source) -> HeadlessSummary {
             })
             .flatten(),
         directive_round: latest_integer(&events, "directive_round").unwrap_or(0),
+        model_metadata: source.model_metadata.clone(),
     }
 }
 
@@ -222,5 +245,28 @@ mod tests {
         assert!(value["score"].is_null());
         assert!(value["provider_cost_usd"].is_null());
         assert!(value["stop_class"].is_null());
+    }
+
+    #[test]
+    fn explicit_ollama_think_is_recorded_in_model_metadata() {
+        let source = Source {
+            events_path: Some(fixture("full")),
+            model_metadata: Some(ModelMetadata {
+                executor_provider: "openai".to_string(),
+                executor_model: "gpt-5.6-luna".to_string(),
+                planner_provider: "ollama".to_string(),
+                planner_model: "qwen3.8:27b-mlx".to_string(),
+                ollama_think: Some("medium"),
+                ollama_think_request_field_present: true,
+            }),
+        };
+        let value: Value = serde_json::from_str(&render(&source)).unwrap();
+
+        assert_eq!(value["model_metadata"]["ollama_think"], "medium");
+        assert_eq!(
+            value["model_metadata"]["ollama_think_request_field_present"],
+            true
+        );
+        assert_eq!(value["model_metadata"]["planner_model"], "qwen3.8:27b-mlx");
     }
 }

@@ -82,6 +82,18 @@ pub enum OllamaThink {
     High,
 }
 
+impl OllamaThink {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::True => "true",
+            Self::False => "false",
+            Self::Low => "low",
+            Self::Medium => "medium",
+            Self::High => "high",
+        }
+    }
+}
+
 impl From<OllamaThinkArg> for OllamaThink {
     fn from(value: OllamaThinkArg) -> Self {
         match value {

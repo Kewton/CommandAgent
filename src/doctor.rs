@@ -9,7 +9,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 
 use crate::cli::Cli;
-use crate::config::{Config, OpenAiApi, Provider};
+use crate::config::{Config, OllamaThink, OpenAiApi, Provider};
 use crate::minimal_loop::interaction_probe::{
     INTERACTION_PROBE_SETUP_REMEDIATION, ProbeAvailability,
 };
@@ -260,6 +260,46 @@ fn add_resolved_configuration_checks(checks: &mut Vec<DoctorCheck>, config: &Con
         &config.profile,
         &config.field_sources.profile,
     );
+    checks.push(ollama_think_check(
+        config.provider,
+        config.planner_provider,
+        config.ollama_think,
+    ));
+}
+
+fn ollama_think_check(
+    provider: Provider,
+    planner_provider: Provider,
+    configured: Option<OllamaThink>,
+) -> DoctorCheck {
+    let think = configured.map(OllamaThink::as_str);
+    let roles = [
+        (provider == Provider::Ollama).then_some("executor"),
+        (planner_provider == Provider::Ollama).then_some("planner"),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>();
+    DoctorCheck::new(
+        "config.ollama_think",
+        "configuration",
+        "Ollama think",
+        CheckStatus::Pass,
+        match think {
+            Some(value) => format!(
+                "{value} (explicit; request field present for {})",
+                roles.join(", ")
+            ),
+            None => "omitted (request field absent)".to_string(),
+        },
+        None,
+        json!({
+            "declared": think.is_some(),
+            "effective_value": think,
+            "request_field_present": think.is_some(),
+            "ollama_roles": roles,
+        }),
+    )
 }
 
 fn add_setting_check(
@@ -1302,6 +1342,24 @@ mod tests {
         );
         assert_eq!(pinned.details["snapshot_pinned"], true);
         assert!(pinned.remediation.is_none());
+    }
+
+    #[test]
+    fn ollama_think_metadata_distinguishes_omitted_and_explicit_values() {
+        let omitted = ollama_think_check(Provider::Ollama, Provider::Openai, None);
+        let explicit = ollama_think_check(
+            Provider::Openai,
+            Provider::Ollama,
+            Some(OllamaThink::Medium),
+        );
+
+        assert_eq!(omitted.details["declared"], false);
+        assert!(omitted.details["effective_value"].is_null());
+        assert_eq!(omitted.details["request_field_present"], false);
+        assert_eq!(omitted.details["ollama_roles"], json!(["executor"]));
+        assert_eq!(explicit.details["effective_value"], "medium");
+        assert_eq!(explicit.details["request_field_present"], true);
+        assert_eq!(explicit.details["ollama_roles"], json!(["planner"]));
     }
 
     #[test]

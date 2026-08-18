@@ -475,8 +475,9 @@ mod tests {
         let client = OllamaClient::new("http://localhost".to_string(), 1, 42, 0).unwrap();
         let messages = vec![ConversationMessage::user("hello")];
         let tools: Vec<ToolSpec> = Vec::new();
-        let first = client.chat_request_body("m", &messages, &tools, false);
-        let second = client.chat_request_body("m", &messages, &tools, false);
+        let model = "qwen3.6:27b-coding-nvfp4";
+        let first = client.chat_request_body(model, &messages, &tools, false);
+        let second = client.chat_request_body(model, &messages, &tools, false);
 
         assert_eq!(first, second);
         assert_eq!(first.get("keep_alive").and_then(Value::as_str), Some("10m"));
@@ -491,7 +492,12 @@ mod tests {
         assert!(first.get("tools").is_none());
         assert!(first.get("think").is_none());
         assert_eq!(
-            client.chat_request_body_with_stream("m", &messages, &tools, false, true)["stream"],
+            serde_json::to_string(&first).unwrap(),
+            include_str!("../../tests/corpus/apps/cm4-ollama-think/fixtures/request-unset.json")
+                .trim_end()
+        );
+        assert_eq!(
+            client.chat_request_body_with_stream(model, &messages, &tools, false, true)["stream"],
             true
         );
     }
@@ -520,6 +526,25 @@ mod tests {
                     .is_some_and(|options| !options.contains_key("think"))
             );
         }
+    }
+
+    #[test]
+    fn request_body_medium_matches_explicit_fixture() {
+        let client = OllamaClient::new("http://localhost".to_string(), 1, 42, 0)
+            .unwrap()
+            .with_think(Some(OllamaThink::Medium));
+        let body = client.chat_request_body(
+            "qwen3.8:27b-mlx",
+            &[ConversationMessage::user("hello")],
+            &[],
+            false,
+        );
+
+        assert_eq!(
+            serde_json::to_string(&body).unwrap(),
+            include_str!("../../tests/corpus/apps/cm4-ollama-think/fixtures/request-medium.json")
+                .trim_end()
+        );
     }
 
     #[test]

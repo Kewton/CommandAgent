@@ -316,6 +316,42 @@ class SuiteAndCommandTests(unittest.TestCase):
             ):
                 bench.load_suite(suite_path)
 
+    def test_think_is_explicit_only_and_sealed_in_suite_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            suite_path = write_source_less_suite(Path(directory))
+            suite = bench.load_suite(suite_path)
+            unchanged = bench.build_command(suite, suite.runs[0])
+            metadata = bench.new_metadata(
+                suite, "think-campaign", "dry-run", Path(directory), {}, []
+            )
+            self.assertIsNone(suite.think)
+            self.assertNotIn("think", metadata["suite"])
+            self.assertFalse(any(token.startswith("--think") for token in unchanged))
+
+            contents = suite_path.read_text(encoding="utf-8").replace(
+                'provider = "ollama"',
+                'provider = "ollama"\nthink = "medium"',
+                1,
+            )
+            suite_path.write_text(contents, encoding="utf-8")
+            configured = bench.load_suite(suite_path)
+            configured_metadata = bench.new_metadata(
+                configured, "think-campaign", "dry-run", Path(directory), {}, []
+            )
+            self.assertEqual(configured.think, "medium")
+            self.assertEqual(configured_metadata["suite"]["think"], "medium")
+            self.assertIn(
+                "--think=medium",
+                bench.build_command(configured, configured.runs[0]),
+            )
+
+            suite_path.write_text(
+                contents.replace('think = "medium"', 'think = "maximum"'),
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(bench.BenchError, "suite.think must be"):
+                bench.load_suite(suite_path)
+
     def test_openai_api_is_optional_and_strict(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             suite_path = write_source_less_suite(Path(directory))
