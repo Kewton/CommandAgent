@@ -7,6 +7,8 @@ use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::planner::pack::catalog::PackSource;
+
 use super::band_catalog::BandValue;
 use super::route::RouteCandidate;
 
@@ -31,6 +33,8 @@ pub enum PackSelection {
         version: String,
         hash: String,
         point: String,
+        #[serde(default)]
+        source: PackSource,
     },
 }
 
@@ -99,9 +103,85 @@ impl ConfirmationIdentity {
     }
 
     pub fn card_hash(&self) -> anyhow::Result<String> {
+        // Preserve schema-v1 admitted-pin hashes. The source is still explicit
+        // in new records and is fixed indirectly by exact catalog admission;
+        // repository and local sources remain part of their new card hashes.
+        if let Some(hash) = self.legacy_card_hash()? {
+            return Ok(hash);
+        }
         let bytes = serde_json::to_vec(self)?;
         Ok(sha256(&bytes))
     }
+
+    fn legacy_card_hash(&self) -> anyhow::Result<Option<String>> {
+        let PackSelection::Pinned {
+            id,
+            version,
+            hash,
+            point,
+            source: PackSource::Admitted,
+        } = &self.pack
+        else {
+            return Ok(None);
+        };
+        let legacy = LegacyConfirmationIdentity {
+            request: &self.request,
+            workspace: &self.workspace,
+            profile: &self.profile,
+            intent: &self.intent,
+            task_family: &self.task_family,
+            route_bases: &self.route_bases,
+            contract_ref: &self.contract_ref,
+            contract_checks: &self.contract_checks,
+            band_full: self.band_full,
+            band_denominator: self.band_denominator,
+            band_rate: &self.band_rate,
+            band_arm: &self.band_arm,
+            band_measurement: &self.band_measurement,
+            band_source: &self.band_source,
+            full_meaning: &self.full_meaning,
+            pins: &self.pins,
+            pack: LegacyPackSelection::Pinned {
+                id,
+                version,
+                hash,
+                point,
+            },
+        };
+        Ok(Some(sha256(&serde_json::to_vec(&legacy)?)))
+    }
+}
+
+#[derive(Serialize)]
+#[serde(tag = "selection", rename_all = "snake_case")]
+enum LegacyPackSelection<'a> {
+    Pinned {
+        id: &'a str,
+        version: &'a str,
+        hash: &'a str,
+        point: &'a str,
+    },
+}
+
+#[derive(Serialize)]
+struct LegacyConfirmationIdentity<'a> {
+    request: &'a str,
+    workspace: &'a str,
+    profile: &'a str,
+    intent: &'a str,
+    task_family: &'a str,
+    route_bases: &'a [String],
+    contract_ref: &'a str,
+    contract_checks: &'a [String],
+    band_full: u16,
+    band_denominator: u16,
+    band_rate: &'a str,
+    band_arm: &'a str,
+    band_measurement: &'a str,
+    band_source: &'a str,
+    full_meaning: &'a str,
+    pins: &'a ExecutionPins,
+    pack: LegacyPackSelection<'a>,
 }
 
 fn contract_checks(route: &RouteCandidate) -> Vec<String> {
@@ -286,5 +366,110 @@ mod tests {
           "unexpected": true
         }"#;
         assert!(serde_json::from_slice::<ConfirmationRecord>(fixture).is_err());
+    }
+
+    #[test]
+    fn legacy_pinned_record_without_source_loads_as_admitted() {
+        let dir = tempfile::tempdir().unwrap();
+        let identity = ConfirmationIdentity {
+            request: "create a CLI".to_string(),
+            workspace: dir.path().display().to_string(),
+            profile: "python-cli".to_string(),
+            intent: "create".to_string(),
+            task_family: "stats".to_string(),
+            route_bases: vec!["fixture=stats".to_string()],
+            contract_ref: "docs/cli-profile-contract.md".to_string(),
+            contract_checks: vec!["C1".to_string()],
+            band_full: 0,
+            band_denominator: 3,
+            band_rate: "0%".to_string(),
+            band_arm: "fixture".to_string(),
+            band_measurement: "2026-08-19".to_string(),
+            band_source: "fixture.md".to_string(),
+            full_meaning: "all checks pass".to_string(),
+            pins: ExecutionPins {
+                planner_provider: "ollama".to_string(),
+                planner_model: "planner".to_string(),
+                executor_provider: "ollama".to_string(),
+                executor_model: "executor".to_string(),
+                preset: "profile".to_string(),
+            },
+            pack: PackSelection::Pinned {
+                id: "cli-assist".to_string(),
+                version: "1.1.0".to_string(),
+                hash: crate::planner::pack::catalog::ADMITTED_PACKS[1]
+                    .hash
+                    .to_string(),
+                point: "cli-validation".to_string(),
+                source: PackSource::Admitted,
+            },
+        };
+        assert!(crate::planner::pack::catalog::is_admitted(
+            PackSource::Admitted,
+            &identity.profile,
+            &identity.intent,
+            "cli-assist",
+            "1.1.0",
+            crate::planner::pack::catalog::ADMITTED_PACKS[1].hash,
+            "cli-validation",
+        ));
+        let legacy_hash = identity.legacy_card_hash().unwrap().unwrap();
+        assert_eq!(identity.card_hash().unwrap(), legacy_hash);
+        let legacy_identity = match &identity.pack {
+            PackSelection::Pinned {
+                id,
+                version,
+                hash,
+                point,
+                ..
+            } => LegacyConfirmationIdentity {
+                request: &identity.request,
+                workspace: &identity.workspace,
+                profile: &identity.profile,
+                intent: &identity.intent,
+                task_family: &identity.task_family,
+                route_bases: &identity.route_bases,
+                contract_ref: &identity.contract_ref,
+                contract_checks: &identity.contract_checks,
+                band_full: identity.band_full,
+                band_denominator: identity.band_denominator,
+                band_rate: &identity.band_rate,
+                band_arm: &identity.band_arm,
+                band_measurement: &identity.band_measurement,
+                band_source: &identity.band_source,
+                full_meaning: &identity.full_meaning,
+                pins: &identity.pins,
+                pack: LegacyPackSelection::Pinned {
+                    id,
+                    version,
+                    hash,
+                    point,
+                },
+            },
+            PackSelection::None => unreachable!(),
+        };
+        #[derive(Serialize)]
+        struct LegacyRecord<'a> {
+            schema_version: u8,
+            card_hash: &'a str,
+            confirmed_at_epoch: u64,
+            identity: LegacyConfirmationIdentity<'a>,
+        }
+        let record = LegacyRecord {
+            schema_version: CONFIRMATION_SCHEMA_VERSION,
+            card_hash: &legacy_hash,
+            confirmed_at_epoch: 1,
+            identity: legacy_identity,
+        };
+        let records = dir.path().join("records");
+        std::fs::create_dir_all(&records).unwrap();
+        let record_bytes = serde_json::to_vec_pretty(&record).unwrap();
+        assert!(!String::from_utf8_lossy(&record_bytes).contains("\"source\":"));
+        std::fs::write(records.join("legacy.json"), record_bytes).unwrap();
+
+        let loaded = load_latest_confirmation(&records).unwrap().unwrap();
+        assert_eq!(loaded.identity(), &identity);
+        assert_eq!(loaded.card_hash(), legacy_hash);
+        loaded.validate().unwrap();
     }
 }

@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
+use commandagent::planner::pack::catalog::PackLocator;
 use commandagent::planner::profile::ProfileId;
 use commandagent::tui::boundary_shell::BoundaryShell;
 use commandagent::tui::boundary_shell::ambiguity::{
@@ -149,7 +150,8 @@ pub(super) fn gate_one(
         )
         .map_err(unprocessable)?
         .clone();
-    let card = render_gate_one(&identity, &state.repository_root).map_err(internal)?;
+    let card =
+        render_gate_one(&identity, &PackLocator::new(&state.repository_root)).map_err(internal)?;
     Ok((shell, identity, card))
 }
 
