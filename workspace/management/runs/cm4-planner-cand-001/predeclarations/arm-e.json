@@ -1,0 +1,36 @@
+{
+  "schema_version": "commandagent.bon-validation-predeclaration/v2",
+  "recorded_at": "2026-08-18T18:52:59+09:00",
+  "series_id": "cm4-planner-cand-001-arm-e",
+  "execution_revision": "f2072b570b5eddde06215e8025cce859335c7916",
+  "suite_sha256": "55850fb6d77b1772d8228227c0d6519eb1d61675afb1a181ae642348112629fb",
+  "binary_sha256": "b9f9818602d34c1b383a1910bcaf0c8737d596bcf0d792f5b3e0399d330c13fa",
+  "baseline_rate": {
+    "full_count": 10,
+    "trial_count": 12,
+    "estimate": 0.8333333333333334,
+    "sources": ["CM-3 matrix-001 arm A quoting golden-008; qwen3.6 planner baseline; instrument-generation confounding is explicit"],
+    "confidence_interval": {
+      "method": "wilson_score",
+      "confidence": 0.95,
+      "lower": 0.5519691377470266,
+      "upper": 0.9530348578161463
+    }
+  },
+  "predictive_distribution": {
+    "model": "beta_binomial",
+    "prior": {"name": "jeffreys", "alpha": 0.5, "beta": 0.5},
+    "trials": 12,
+    "posterior": {"alpha": 10.5, "beta": 2.5},
+    "probability_at_least_one_full": 0.9999865889549255,
+    "expected_full_count": 9.692307692307692,
+    "full_count_band": {"method": "shortest_contiguous", "mass": 0.95, "lower": 6, "upper": 12}
+  },
+  "hypothesis": {
+    "point_prediction": "none",
+    "decision_threshold": "none; adoption is owner adjudication after E/F/A comparison",
+    "sampling": "provider-managed",
+    "think": "medium"
+  }
+}
+

@@ -510,6 +510,15 @@ ledger_ref = "CM-2j"
 note = "golden-007の不正昇格経路にはCM-2k解消印: promotion手順なしzoneは計画品質/Zゲートで先に拒否する。正当なpromotion後にも同じverify形が生成される可能性は未観測のため、L3契約床としてQUEUED保持し今は塞がない。"
 
 [[class]]
+id = "community_planner_empty_response"
+category = "terminal"
+attribution = "model"
+match_reason = "planner_empty_response: planner returned empty content"
+first_seen = "cm4-planner-cand-001-arm-f-warikan-004"
+ledger_ref = "CM-4"
+note = "qwen3.8:27b-mlx/think=highがStepPlan corrective retryの全attemptで空contentを返した比較観測。到達性・binary/model pinは正常で、製品側のhonest-failureを維持したままmodel署名として登録する。"
+
+[[class]]
 id = "community_l2_verify_invocation_incomplete"
 category = "terminal"
 attribution = "machine"
