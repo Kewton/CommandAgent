@@ -67,6 +67,15 @@ ledger_ref = "bench v0"
 note = "環境中断でrun非消費となった"
 
 [[class]]
+id = "ci_infra_shallow_fetch_race"
+category = "terminal"
+attribution = "environment"
+match_reason = "fatal: shallow file has changed since we read it"
+first_seen = "github-actions-ci-32098404720-attempt-1"
+ledger_ref = "CM-2l"
+note = "解消済み(CM-2l): Detect GUI changesだけが3 attempt連続でmain/develop merge-base探索中のshallow deepenに失敗し、主CommandAgent Test and Guardrailsはsuccessだった。changes jobのcheckoutをfetch-depth 0へ固定し、paths-filter内部の並行的な追加fetchを不要にした。"
+
+[[class]]
 id = "ollama_http_500"
 category = "terminal"
 attribution = "environment"
