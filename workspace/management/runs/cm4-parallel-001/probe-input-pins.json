@@ -1,0 +1,14 @@
+{
+  "execution_revision": "26b4705a64502fa61e2a1dfba961983bdb11279f",
+  "binary_sha256": "03159d12811aa3385d877b1d81ad7f2fdd9942e1b9af1c24314b4ece63ccdbfa",
+  "suite": {
+    "path": "workspace/management/bench/suites/community-golden-warikan.toml",
+    "sha256": "215abae70c63d72be8bec4ad683b92d68b68349cd7edbeea5f741ee636cd9e0c"
+  },
+  "golden_manifest_outer_sha256": "4ea74f2fe2687989467a9019c4f72a160d38e77097ea441e6de4a066748dad86",
+  "planner_model": "qwen3.6:27b-coding-nvfp4",
+  "think": null,
+  "executor_model": "gpt-5.6-luna",
+  "executor_api": "responses",
+  "tool_protocol": "native"
+}

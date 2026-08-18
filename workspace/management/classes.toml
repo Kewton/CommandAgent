@@ -519,6 +519,24 @@ ledger_ref = "CM-4"
 note = "qwen3.8:27b-mlx/think=highがStepPlan corrective retryの全attemptで空contentを返した比較観測。到達性・binary/model pinは正常で、製品側のhonest-failureを維持したままmodel署名として登録する。"
 
 [[class]]
+id = "community_schema_version_invalid"
+category = "terminal"
+attribution = "model"
+match_reason = "community_profile_violation:community_schema_version_invalid"
+first_seen = "cm4-parallel-001-warikan-001"
+ledger_ref = "CM-4"
+note = "qwen3.6 plannerの4並行隔離probeで3/4に観測したschemaVersion逸脱。workspace/state/events/run_idの交差参照は0で、同一binary・封緘入力・model metadataも一致したため、隔離衝突ではなくmodel成果物署名として保持する。"
+
+[[class]]
+id = "community_core_manifest_path_malformed"
+category = "terminal"
+attribution = "model"
+match_reason = "path does not exist: core.sha256sums.*invalid quote path"
+first_seen = "cm4-parallel-001-warikan-004"
+ledger_ref = "CM-4"
+note = "qwen3.6 plannerがcore.sha256sums read pathへ自然言語断片を混入したtool argument署名。隔離probeのforeign path参照は0で、製品側のpath fail-closedを維持する。"
+
+[[class]]
 id = "community_l2_verify_invocation_incomplete"
 category = "terminal"
 attribution = "machine"
