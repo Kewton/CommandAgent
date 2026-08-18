@@ -1,0 +1,10 @@
+{
+  "schema_version": "commandagent.cm4x-instrument-exclusion/v1",
+  "classification": "preflight_environmental_rebuild_drift",
+  "run_consumed": 0,
+  "provider_cost_usd": 0,
+  "expected_binary_sha256": "b9f9818602d34c1b383a1910bcaf0c8737d596bcf0d792f5b3e0399d330c13fa",
+  "observed_rebuild_sha256": "1bdb04aff8567219faad483d651051d268f8fc3259054ee70d525d9925e4f3ff",
+  "raw_stop": "preflight BoN series binary SHA-256 pin mismatch: expected b9f9818602d34c1b383a1910bcaf0c8737d596bcf0d792f5b3e0399d330c13fa, observed 1bdb04aff8567219faad483d651051d268f8fc3259054ee70d525d9925e4f3ff",
+  "resolution": "Reuse and reverify the exact historical sealed binary from cm4-planner-cand-001; do not admit a same-revision rebuild into the n=36 denominator."
+}
