@@ -1572,3 +1572,13 @@ F highも8/12・p50 148.5秒で、採用はowner裁定待ちのためqwen3.6/thi
 provider費用は$0.49151232、数値正本がある除外窓込み既知下限は$0.54277734。
 null窓とlocal電力は推計しない。QUEUEDはL2 verify起動形の一意化とglobal集約
 （schema v0.2候補）の2件。
+
+CM-4x清算v2（2026-08-18）: 初回4並行のschema版違反3件は供給schemaではなく、
+campaign外側と計画内nested verifyが異なるbinary世代を使ったmachine/stale帰属と
+三点対照で確定した。子process PATHとbinary SHAを一致させ、同一封緘suiteの再実行で
+final acceptance 4/4、cross-contamination 0、effective speedup 3.297倍を実証。
+core manifest path 1件は正しい供給に対するmodel署名として保持する。qwen3.8 medium
+Eは同一計器24本を追加して24/36 full（Wilson 50.33–79.79%）、p50 61.5秒、
+A差−16.67pp（Newcombe −36.92〜+14.38pp）。採用はowner裁定待ちで既定を変えない。
+封緘3層は不変。CM意思決定窓は$0.54765442、pricing解決可能な既知下限は
+$0.59891944。未返済QUEUEDはL2 verify起動形とglobal集約/schema v0.2の2件。
