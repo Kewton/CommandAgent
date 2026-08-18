@@ -484,6 +484,82 @@ fn live_openai_luna_chokepoint_smoke() {
 
 #[test]
 #[ignore]
+fn live_openai_terra_responses_chokepoint_smoke() {
+    if commandagent::env_compat::var("COMMANDAGENT_LIVE_PROVIDER_TESTS")
+        .ok()
+        .as_deref()
+        != Some("1")
+    {
+        return;
+    }
+    assert!(
+        commandagent::env_compat::var("OPENAI_API_KEY")
+            .ok()
+            .is_some_and(|value| !value.trim().is_empty()),
+        "OPENAI_API_KEY must be set in the process environment"
+    );
+    let model = commandagent::env_compat::var("COMMANDAGENT_OPENAI_TERRA_SMOKE_MODEL")
+        .unwrap_or_else(|_| "gpt-5.6-terra".to_string());
+    let snapshot_suffix = model.strip_prefix("gpt-5.6-terra-");
+    assert!(
+        model == "gpt-5.6-terra"
+            || snapshot_suffix.is_some_and(|date| {
+                let bytes = date.as_bytes();
+                bytes.len() == 10
+                    && bytes[4] == b'-'
+                    && bytes[7] == b'-'
+                    && bytes
+                        .iter()
+                        .enumerate()
+                        .all(|(index, byte)| matches!(index, 4 | 7) || byte.is_ascii_digit())
+            }),
+        "F-0 Terra smoke requires an exact model or dated snapshot ID, got {model}"
+    );
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let mut config = smoke_config(tmp.path(), PathBuf::from("."), Provider::Openai);
+    config.model = model.clone();
+    config.openai_api = OpenAiApi::Responses;
+    config.tool_protocol = Some(ToolProtocol::Native);
+    config.num_predict = 256;
+    config.eval_events_path =
+        commandagent::env_compat::var_os("COMMANDAGENT_OPENAI_TERRA_SMOKE_EVENTS")
+            .map(PathBuf::from)
+            .or_else(|| Some(tmp.path().join("events.jsonl")));
+    let mut client = OpenAiClient::from_env(&config).expect("OpenAI Terra client");
+
+    let outcome = provider_call::chat(
+        &mut client,
+        &config,
+        ProviderCallScope::Executor,
+        &model,
+        &[ConversationMessage::user(
+            "Call the Read tool exactly once for README.md. Do not answer without a tool call.",
+        )],
+        ToolRegistry::default().specs(),
+        true,
+    );
+
+    let reply = outcome.result.expect("OpenAI Terra Responses smoke");
+    assert!(!reply.tool_calls.is_empty(), "Terra returned no tool call");
+    let events_path = config.eval_events_path.as_ref().expect("events path");
+    let turn = std::fs::read_to_string(events_path)
+        .expect("events")
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find(|event| event["event"] == "provider_turn_duration")
+        .expect("provider turn metadata event");
+    assert_eq!(turn["provider"], "openai");
+    assert_eq!(turn["native_tools_enabled"], true);
+    assert!(turn.get("provider_response_id").is_some(), "{turn}");
+    assert!(turn.get("provider_model_id").is_some(), "{turn}");
+    println!(
+        "F0_TERRA_SMOKE_METADATA={}",
+        serde_json::to_string(&turn).expect("metadata JSON")
+    );
+}
+
+#[test]
+#[ignore]
 fn live_openai_responses_native_tool_chokepoint_smoke() {
     if commandagent::env_compat::var("COMMANDAGENT_LIVE_PROVIDER_TESTS")
         .ok()
@@ -689,6 +765,10 @@ fn live_lm_studio_chat_completions_no_tool_http_smoke() {
     let mut config = smoke_config(tmp.path(), PathBuf::from("."), Provider::LmStudio);
     config.lm_studio_host = host;
     config.openai_api = OpenAiApi::ChatCompletions;
+    config.eval_events_path =
+        commandagent::env_compat::var_os("COMMANDAGENT_LM_STUDIO_SMOKE_EVENTS")
+            .map(PathBuf::from)
+            .or_else(|| Some(tmp.path().join("events.jsonl")));
     let mut client = LmStudioClient::from_env(&config).expect("LM Studio client");
     let visible_models = client.list_models().expect("LM Studio /v1/models smoke");
     let model = commandagent::env_compat::var("COMMANDAGENT_LM_STUDIO_SMOKE_MODEL")
@@ -697,14 +777,32 @@ fn live_lm_studio_chat_completions_no_tool_http_smoke() {
         .or_else(|| visible_models.first().cloned())
         .expect("LM Studio must expose at least one model");
 
-    client
-        .chat(
-            &model,
-            &[ConversationMessage::user("Reply with exactly OK.")],
-            &[],
-            false,
-        )
+    let outcome = provider_call::chat(
+        &mut client,
+        &config,
+        ProviderCallScope::Executor,
+        &model,
+        &[ConversationMessage::user("Reply with exactly OK.")],
+        &[],
+        false,
+    );
+    let reply = outcome
+        .result
         .expect("LM Studio /v1/chat/completions no-tool smoke");
+    assert!(!reply.content.trim().is_empty(), "empty LM Studio response");
+    let turn = std::fs::read_to_string(config.eval_events_path.as_ref().expect("events path"))
+        .expect("events")
+        .lines()
+        .filter_map(|line| serde_json::from_str::<Value>(line).ok())
+        .find(|event| event["event"] == "provider_turn_duration")
+        .expect("provider turn metadata event");
+    assert_eq!(turn["provider"], "lm-studio");
+    assert_eq!(turn["model"], model);
+    assert!(turn.get("provider_model_id").is_some(), "{turn}");
+    println!(
+        "F0B_LM_STUDIO_SMOKE_METADATA={}",
+        serde_json::to_string(&turn).expect("metadata JSON")
+    );
 }
 
 fn find_workspace_with_key(name: &str) -> Option<PathBuf> {

@@ -1308,6 +1308,61 @@ mod tests {
     }
 
     #[test]
+    fn lm_studio_requested_and_returned_model_ids_reach_turn_event() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let events_path = tmp.path().join("events.jsonl");
+        let mut config = test_config(tmp.path(), events_path.clone(), 2);
+        config.provider = Provider::LmStudio;
+        config.model = "qwen3.5-9b-mlx".to_string();
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        let address = listener.local_addr().expect("address");
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut request = [0_u8; 8192];
+            let _ = stream.read(&mut request).expect("request");
+            let body = r#"{"id":"chatcmpl-local","model":"qwen3.5-9b-mlx@4bit","created":1787000000,"system_fingerprint":"lm-runtime-1","choices":[{"message":{"content":"hello"}}],"usage":{"prompt_tokens":3,"completion_tokens":1}}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .expect("response");
+        });
+        let mut client = crate::providers::lm_studio::LmStudioClient::new(
+            format!("http://{address}"),
+            None,
+            2,
+            128,
+            0,
+            crate::config::OpenAiApi::ChatCompletions,
+            Some(events_path.clone()),
+        )
+        .expect("LM Studio client");
+
+        let outcome = chat(
+            &mut client,
+            &config,
+            ProviderCallScope::Executor,
+            &config.model,
+            &[ConversationMessage::user("hello")],
+            &[],
+            false,
+        );
+        server.join().expect("server");
+        assert_eq!(outcome.result.unwrap().content, "hello");
+        let events = std::fs::read_to_string(events_path).expect("events");
+        let turn = events
+            .lines()
+            .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+            .find(|event| event["event"] == "provider_turn_duration")
+            .expect("provider turn event");
+        assert_eq!(turn["model"], "qwen3.5-9b-mlx");
+        assert_eq!(turn["provider_model_id"], "qwen3.5-9b-mlx@4bit");
+        assert_eq!(turn["system_fingerprint"], "lm-runtime-1");
+    }
+
+    #[test]
     fn cloned_provider_call_times_out_without_waiting_for_worker() {
         let tmp = tempfile::tempdir().expect("tempdir");
         let events_path = tmp.path().join("events.jsonl");

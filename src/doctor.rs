@@ -439,6 +439,18 @@ fn add_provider_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {
     }
 
     if config.provider == Provider::Openai || config.planner_provider == Provider::Openai {
+        for (role, provider, model) in [
+            ("executor", config.provider, config.model.as_str()),
+            (
+                "planner",
+                config.planner_provider,
+                config.planner_model.as_str(),
+            ),
+        ] {
+            if provider == Provider::Openai {
+                checks.push(openai_model_identity_check(role, model));
+            }
+        }
         let openai_key = std::env::var("OPENAI_API_KEY")
             .ok()
             .filter(|value| !value.trim().is_empty());
@@ -463,6 +475,50 @@ fn add_provider_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {
             |name| std::env::var(name).ok(),
         ));
     }
+}
+
+fn openai_model_identity_check(role: &str, model: &str) -> DoctorCheck {
+    let Some(identity) = crate::openai_model::identity(model) else {
+        return DoctorCheck::new(
+            format!("provider.openai.{role}_model_identity"),
+            "provider",
+            format!("OpenAI {role} model identity"),
+            CheckStatus::Pass,
+            format!("{model} is outside the registered GPT-5.6 family policy"),
+            None,
+            json!({
+                "role": role,
+                "requested_model": model,
+                "registered_family": false,
+                "snapshot_pinned": null,
+            }),
+        );
+    };
+    DoctorCheck::new(
+        format!("provider.openai.{role}_model_identity"),
+        "provider",
+        format!("OpenAI {role} model identity"),
+        CheckStatus::Pass,
+        if identity.snapshot_pinned {
+            format!("{model} is a date-qualified {} snapshot", identity.family_id)
+        } else {
+            format!("{model} is an exact model ID; no snapshot pin is declared")
+        },
+        (!identity.snapshot_pinned).then(|| {
+            format!(
+                "prefer a provider-published {} date snapshot when one is available for repeatable measurement",
+                identity.family_id
+            )
+        }),
+        json!({
+            "role": role,
+            "requested_model": model,
+            "registered_family": true,
+            "family_id": identity.family_id,
+            "strict_id": true,
+            "snapshot_pinned": identity.snapshot_pinned,
+        }),
+    )
 }
 
 fn openai_reachability_check(api_key: Option<&str>) -> DoctorCheck {
@@ -1227,6 +1283,25 @@ mod tests {
         assert!(serialized.contains("/v1/responses"));
         assert!(serialized.contains("<redacted>"));
         assert!(!serialized.contains(secret));
+    }
+
+    #[test]
+    fn terra_doctor_identity_is_strict_and_recommends_snapshot_pin() {
+        let exact = openai_model_identity_check("executor", "gpt-5.6-terra");
+        let pinned = openai_model_identity_check("planner", "gpt-5.6-terra-2026-08-18");
+
+        assert_eq!(exact.status, CheckStatus::Pass);
+        assert_eq!(exact.details["strict_id"], true);
+        assert_eq!(exact.details["snapshot_pinned"], false);
+        assert!(
+            exact
+                .remediation
+                .as_deref()
+                .unwrap()
+                .contains("provider-published")
+        );
+        assert_eq!(pinned.details["snapshot_pinned"], true);
+        assert!(pinned.remediation.is_none());
     }
 
     #[test]

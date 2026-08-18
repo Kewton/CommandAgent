@@ -74,12 +74,14 @@ is exposed, revoke it at the provider and replace it.
 
 ## OpenAI model identity
 
-Use the exact executor ID `gpt-5.6-luna`. The ambiguous alias `gpt-5.6` is
-rejected because it may resolve to the separate Sol model. Prefer an available
-snapshot-qualified Luna ID (for example, an ID with a provider-published date
-suffix) when repeatable comparisons matter. CommandAgent records the returned
-model ID and `system_fingerprint` in the provider turn event so endpoint drift
-can be audited without exposing credentials.
+Use an exact GPT-5.6 tier ID: `gpt-5.6-luna`, `gpt-5.6-terra`, or
+`gpt-5.6-sol`. The ambiguous alias `gpt-5.6` is rejected because it routes to
+Sol rather than preserving the requested tier. Terra also rejects invented
+suffixes such as `-latest`; only the exact ID or a provider-published
+`gpt-5.6-terra-YYYY-MM-DD` snapshot shape is accepted. Prefer a published
+snapshot-qualified ID when repeatable comparisons matter. CommandAgent records
+the requested and returned model IDs plus `system_fingerprint` in the provider
+turn event so endpoint drift can be audited without exposing credentials.
 
 OpenAI Chat Completions reasoning effort is opt-in. Set
 `COMMANDAGENT_OPENAI_REASONING_EFFORT` in the process environment only when an

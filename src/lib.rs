@@ -25,6 +25,7 @@ mod headless_summary;
 pub mod minimal_loop;
 pub mod mode;
 pub mod model_probe;
+mod openai_model;
 pub mod planner;
 pub mod preflight;
 pub mod provider_call;

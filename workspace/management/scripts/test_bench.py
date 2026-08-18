@@ -9,6 +9,7 @@ import shlex
 import tempfile
 import textwrap
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest import mock
 
@@ -729,6 +730,58 @@ class PreflightPinTests(unittest.TestCase):
                 self.assertRaisesRegex(
                     bench.BenchError,
                     "provider=openai host=process_environment check=key_presence",
+                ),
+            ):
+                bench.perform_preflight(
+                    root,
+                    min_head=None,
+                    skip_suite_tests=True,
+                    allowed_output_dir=campaign,
+                    binary_dir=campaign / "bin",
+                    suite=suite,
+                    ollama_host="http://127.0.0.1:11434",
+                )
+
+            self.assertFalse((campaign / "workspaces").exists())
+
+    def test_lm_studio_model_missing_stops_before_run_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            campaign = root / "campaign"
+            campaign.mkdir()
+            base = bench.load_suite(SUITES_DIR / "community-golden-warikan.toml")
+            suite = replace(
+                base,
+                provider="lm-studio",
+                runs=(replace(base.runs[0], executor="qwen3.5-9b-mlx"),),
+            )
+            report = {
+                "checks": [
+                    self._doctor_check(
+                        "provider.ollama.reachable", "pass", "/api/tags reachable"
+                    ),
+                    self._doctor_check(
+                        "provider.lm_studio.reachable",
+                        "pass",
+                        "/v1/models reachable",
+                    ),
+                    self._doctor_check(
+                        "provider.lm_studio.executor_model",
+                        "fail",
+                        "qwen3.5-9b-mlx is absent from /v1/models",
+                    ),
+                ]
+            }
+
+            with (
+                mock.patch.object(
+                    bench,
+                    "_run_capture",
+                    side_effect=self._provider_gate_capture(root, report),
+                ),
+                self.assertRaisesRegex(
+                    bench.BenchError,
+                    "provider=lm-studio .* check=executor_model",
                 ),
             ):
                 bench.perform_preflight(

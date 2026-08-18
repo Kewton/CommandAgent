@@ -554,7 +554,8 @@ impl Config {
         let Some(planner_model) = planner_model else {
             bail!("--planner-model is required when --planner-provider differs from --provider");
         };
-        validate_openai_executor_model(provider.value, &model.value)?;
+        validate_openai_model(provider.value, &model.value, "executor")?;
+        validate_openai_model(planner_provider.value, &planner_model.value, "planner")?;
         let context_budget = cli
             .context_budget
             .map(|value| sourced(value, "flag"))
@@ -712,11 +713,9 @@ impl Config {
     }
 }
 
-fn validate_openai_executor_model(provider: Provider, model: &str) -> anyhow::Result<()> {
-    if provider == Provider::Openai && model == "gpt-5.6" {
-        bail!(
-            "OpenAI executor model alias `gpt-5.6` is ambiguous. Specify the exact Luna or Sol model ID (`gpt-5.6-luna` or an available snapshot-qualified Luna/Sol ID)."
-        );
+fn validate_openai_model(provider: Provider, model: &str, role: &str) -> anyhow::Result<()> {
+    if provider == Provider::Openai {
+        crate::openai_model::validate_strict_id(model, role)?;
     }
     Ok(())
 }
@@ -1731,16 +1730,55 @@ mod tests {
         let error = Config::from_cli(cli).unwrap_err().to_string();
 
         assert!(error.contains("gpt-5.6-luna"), "{error}");
-        assert!(error.contains("Luna or Sol"), "{error}");
+        assert!(error.contains("Luna, Terra, or Sol"), "{error}");
     }
 
     #[test]
-    fn openai_executor_accepts_exact_luna_and_snapshot_ids() {
-        for model in ["gpt-5.6-luna", "gpt-5.6-luna-2026-07-31"] {
+    fn openai_executor_accepts_exact_family_and_snapshot_ids() {
+        for model in [
+            "gpt-5.6-luna",
+            "gpt-5.6-luna-2026-07-31",
+            "gpt-5.6-terra",
+            "gpt-5.6-terra-2026-08-18",
+            "gpt-5.6-sol",
+        ] {
             let cli = Cli::parse_from(["commandagent", "--provider", "openai", "--model", model]);
 
             assert_eq!(Config::from_cli(cli).unwrap().model, model);
         }
+    }
+
+    #[test]
+    fn openai_planner_rejects_ambiguous_alias_and_accepts_terra() {
+        let rejected = Cli::parse_from([
+            "commandagent",
+            "--provider",
+            "ollama",
+            "--model",
+            "executor",
+            "--planner-provider",
+            "openai",
+            "--planner-model",
+            "gpt-5.6",
+        ]);
+        let error = Config::from_cli(rejected).unwrap_err().to_string();
+        assert!(error.contains("planner model alias"), "{error}");
+
+        let accepted = Cli::parse_from([
+            "commandagent",
+            "--provider",
+            "ollama",
+            "--model",
+            "executor",
+            "--planner-provider",
+            "openai",
+            "--planner-model",
+            "gpt-5.6-terra",
+        ]);
+        assert_eq!(
+            Config::from_cli(accepted).unwrap().planner_model,
+            "gpt-5.6-terra"
+        );
     }
 
     #[test]

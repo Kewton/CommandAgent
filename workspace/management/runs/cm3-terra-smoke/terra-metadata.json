@@ -1,0 +1,21 @@
+{
+  "schema_version": "commandagent.cm3-provider-smoke/v1",
+  "provider": "openai",
+  "api": "responses",
+  "tool_protocol": "native",
+  "requested_model": "gpt-5.6-terra",
+  "provider_model_id": "gpt-5.6-terra",
+  "provider_response_id": "resp_000d13cf7a2d51b4016a83e820384c819982109f2283ecc32e",
+  "system_fingerprint": null,
+  "provider_service_tier": "default",
+  "input_tokens": 216,
+  "cached_input_tokens": 0,
+  "output_tokens": 46,
+  "reasoning_tokens": 15,
+  "total_tokens": 262,
+  "duration_ms": 3087,
+  "native_tools_enabled": true,
+  "ok": true,
+  "cost_usd": 0.00123,
+  "scrub": "pass"
+}

@@ -20,11 +20,13 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 import tomllib
+
 from id_vocabulary import INTERRUPTED_ENVIRONMENT
 
 HARNESS_VERSION = "0.1"
 BON_PREDECLARATION_SCHEMA_VERSION = "commandagent.bon-validation-predeclaration/v2"
 DEFAULT_OLLAMA_HOST = "http://localhost:11434"
+DEFAULT_LM_STUDIO_HOST = "http://localhost:1234"
 PACK_HASH_DOMAIN = b"commandagent-pack-v0\0"
 PACK_FILES = ("assist.yaml", "eval.yaml")
 PACK_SCHEMA_VERSIONS = {
@@ -1092,7 +1094,7 @@ def provider_reachability_preflight(
     ollama_host: str,
 ) -> dict[str, Any]:
     providers = {suite.provider, suite.planner_provider}
-    if not providers.intersection({"ollama", "openai"}):
+    if not providers.intersection({"ollama", "lm-studio", "openai"}):
         return {"providers": [], "checks": []}
 
     first_executor = suite.runs[0].executor
@@ -1117,6 +1119,8 @@ def provider_reachability_preflight(
         "--cwd",
         str(repo_root),
     ]
+    if "lm-studio" in providers:
+        command.extend(["--lm-studio-host", DEFAULT_LM_STUDIO_HOST])
     result = _run_capture(command, repo_root)
     try:
         report = json.loads(result["stdout_tail"])
@@ -1193,6 +1197,52 @@ def provider_reachability_preflight(
         print(
             "preflight: provider openai "
             "host=https://api.openai.com check=/v1/models key=present"
+        )
+    if "lm-studio" in providers:
+        accepted_checks.append(
+            _require_provider_check(
+                report,
+                "provider.lm_studio.reachable",
+                "lm-studio",
+                DEFAULT_LM_STUDIO_HOST,
+                "/v1/models",
+            )
+        )
+        configured_models = sorted(
+            {
+                model
+                for provider, model in (
+                    (suite.provider, first_executor),
+                    (suite.planner_provider, suite.planner_model),
+                )
+                if provider == "lm-studio"
+            }
+        )
+        for role, provider, _model in (
+            ("executor", suite.provider, first_executor),
+            ("planner", suite.planner_provider, suite.planner_model),
+        ):
+            if provider == "lm-studio":
+                accepted_checks.append(
+                    _require_provider_check(
+                        report,
+                        f"provider.lm_studio.{role}_model",
+                        "lm-studio",
+                        DEFAULT_LM_STUDIO_HOST,
+                        f"{role}_model",
+                    )
+                )
+        provider_records.append(
+            {
+                "provider": "lm-studio",
+                "host": DEFAULT_LM_STUDIO_HOST,
+                "check": "/v1/models",
+                "configured_models": configured_models,
+            }
+        )
+        print(
+            "preflight: provider lm-studio "
+            f"host={DEFAULT_LM_STUDIO_HOST} check=/v1/models models={configured_models}"
         )
     return {
         "command_argv": command,

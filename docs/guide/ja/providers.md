@@ -70,11 +70,12 @@ chmod 600 .env
 
 ## OpenAI モデルID
 
-実行モデルには厳密ID `gpt-5.6-luna` を使います。別の Sol モデルへ解決され得る曖昧な
-alias `gpt-5.6` は拒否されます。反復可能な比較が必要な場合は、提供されているなら
-provider 公開の日付suffix付きLuna snapshot IDを優先してください。CommandAgent は返却された
-model IDと`system_fingerprint`をprovider turn eventへ記録し、資格情報を露出せずendpoint driftを
-監査可能にします。
+GPT-5.6では厳密な階級ID `gpt-5.6-luna`、`gpt-5.6-terra`、`gpt-5.6-sol`を
+使います。曖昧なalias `gpt-5.6`は要求階級を保存せずSolへrouteされるため拒否します。
+Terraでは`-latest`のような発明suffixも拒否し、厳密IDまたはprovider公開の
+`gpt-5.6-terra-YYYY-MM-DD` snapshot形だけを受理します。反復可能な比較では、公開されているなら
+snapshot-qualified IDを優先してください。CommandAgentは要求model ID、返却model ID、
+`system_fingerprint`をprovider turn eventへ記録し、資格情報を露出せずendpoint driftを監査可能にします。
 
 OpenAI Chat Completions の reasoning effort は明示指定時だけ有効です。必要な場合だけ
 `COMMANDAGENT_OPENAI_REASONING_EFFORT` をプロセス環境に設定してください。未設定または空文字なら
