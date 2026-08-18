@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::planner::step_plan::{ExpectedResult, StepKind, StepPlan};
 use crate::planner::{profile::resolve_profile_runtime, side_effect_paths::diagnose_expected_path};
-use crate::planner::{profiles::community_mini_app::report_declared_verify, ultra_plan::UltraPlan};
+use crate::planner::{profiles::community_mini_app as community, ultra_plan::UltraPlan};
 use crate::tools::path_guard::validate_workspace_relative;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -477,7 +477,7 @@ pub fn step_plan_quality_report(
         );
     }
 
-    report_declared_verify(&mut report, context, &verify_commands, &all_paths);
+    community::report_quality(&mut report, context, &verify_commands, &all_paths, plan);
 
     if looks_next_profile && let Some(evidence) = nextjs_profile_shape_drift_evidence(plan) {
         report.push(
@@ -904,8 +904,8 @@ pub fn lint_ultra_plan(plan: &UltraPlan) -> anyhow::Result<()> {
 
 pub fn lint_ultra_plan_report(plan: &UltraPlan) -> PlanLintReport {
     let mut report = PlanLintReport::pass();
-    if !(2..=8).contains(&plan.phases.len()) {
-        report.push("scaffold", "UltraPlan must have 2-8 phases");
+    if let Some(message) = community::ultra_phase_count_error(plan) {
+        report.push("scaffold", message);
     }
     let mut ids = std::collections::BTreeSet::new();
     for phase in &plan.phases {

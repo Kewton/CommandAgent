@@ -426,7 +426,16 @@ attribution = "machine"
 match_reason = "community_profile_violation:community_build_inputs_missing"
 first_seen = "cm2b-golden-006-warikan-001"
 ledger_ref = "CM-2i"
-note = "解消済み(CM-2j、L3/L4文脈限定): L2 spec-onlyはS/Z/材料検査で完結しB系は非適用。src/app-zone/またはapp-zone/が存在するL3/L4では従来どおりB系必須で、不完全zoneはこのクラスでfail closedする。"
+note = "解消印(CM-2k、golden-007の不正昇格経路): promotionなしzoneは先にcommunity_promotion_missingで拒否される。正当なpromotion付きL3/L4では従来どおりB系必須で、不完全zoneはこのクラスでfail closedするためクラス自体はQUEUED保持。"
+
+[[class]]
+id = "community_promotion_missing"
+category = "terminal"
+attribution = "machine"
+match_reason = "community_profile_violation:community_promotion_missing"
+first_seen = "cm2k-promotion-negative-fixture"
+ledger_ref = "CM-2k"
+note = "app-zone/L3成果物が存在するが、閉集合reason_classと先行L2 pass参照を持つ有効なevidence/promotion-decision.jsonがないZ系violation。planner側もzone stepより前のpromotion stepを要求する。"
 
 [[class]]
 id = "community_l3_verify_command_timeout"
@@ -435,7 +444,7 @@ attribution = "machine"
 match_reason = "verify_command_timeout:commandagent --offline --profile community-mini-app"
 first_seen = "cm2b-golden-007-warikan-002"
 ledger_ref = "CM-2j"
-note = "未解消(計測で初出): plannerがL3へ昇格後、非対話actionもpromptも持たないcommandagent起動形をverifyとして生成し120秒timeout。生成zoneも契約のapp.tsではなくapp.jsだった。CM-2jの検証適用性改訂範囲外のplanner/L3生成契約床として裁定待ち。"
+note = "golden-007の不正昇格経路にはCM-2k解消印: promotion手順なしzoneは計画品質/Zゲートで先に拒否する。正当なpromotion後にも同じverify形が生成される可能性は未観測のため、L3契約床としてQUEUED保持し今は塞がない。"
 
 [[class]]
 id = "planner_quality_exhausted"

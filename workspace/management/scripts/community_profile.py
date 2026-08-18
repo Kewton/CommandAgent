@@ -40,6 +40,11 @@ TOKEN_RE = re.compile(
     r"(?P<name>[A-Za-z_][A-Za-z0-9_]*)|(?P<op>==|!=|<=|>=|&&|\|\||[()+\-*/%,?:<>!]))"
 )
 ALLOWED_FUNCTIONS = {"min", "max", "len"}
+PROMOTION_REASON_CLASSES = {
+    "spec_expression_impossible",
+    "registered_function_missing",
+    "ui_requirement",
+}
 
 
 class ValidationError(ValueError):
@@ -448,6 +453,40 @@ def validate_lockfile(root: Path) -> None:
             raise ValidationError(f"lockfile hash is missing for {name}")
 
 
+def validate_promotion_decision(root: Path) -> None:
+    zone_path = "src/app-zone" if (root / "src/app-zone").exists() else "app-zone"
+    if not (root / zone_path).exists():
+        return
+    try:
+        document = json.loads(
+            (root / "evidence/promotion-decision.json").read_text(encoding="utf-8")
+        )
+        lower = document["lower_level_result"]
+        artifact_ref = lower["artifact_ref"]
+        valid = (
+            isinstance(document, dict)
+            and document.get("evidence_family") == "promotion_decision"
+            and isinstance(document.get("attempt_id"), str)
+            and bool(document["attempt_id"])
+            and document.get("requested_level") in {"L3", "L4"}
+            and document.get("decision") == "promote"
+            and document.get("reason_class") in PROMOTION_REASON_CLASSES
+            and document.get("zone_path") == zone_path
+            and isinstance(lower, dict)
+            and lower.get("status") == "pass"
+            and isinstance(artifact_ref, str)
+            and bool(artifact_ref)
+            and not Path(artifact_ref).is_absolute()
+            and ".." not in Path(artifact_ref).parts
+            and not artifact_ref.startswith(("src/app-zone/", "app-zone/"))
+            and (root / artifact_ref).is_file()
+        )
+    except (KeyError, OSError, TypeError, ValueError):
+        valid = False
+    if not valid:
+        raise ValidationError("community_promotion_missing")
+
+
 def validate_zone(root: Path, core_manifest: Path, changed_paths: list[str]) -> dict[str, Any]:
     validate_core_snapshot(root, core_manifest)
     core_changes = [path for path in changed_paths if path == "core" or path.startswith("core/")]
@@ -462,6 +501,7 @@ def validate_zone(root: Path, core_manifest: Path, changed_paths: list[str]) -> 
     if findings:
         raise ValidationError("forbidden API detected: " + ", ".join(sorted(findings)))
     validate_lockfile(root)
+    validate_promotion_decision(root)
     return {"family": "Z", "verdict": "pass", "core_snapshot_sha256": sha256_file(core_manifest), "changed_paths": changed_paths, "dependency_allowlist": []}
 
 

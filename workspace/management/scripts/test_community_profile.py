@@ -15,6 +15,28 @@ SCHEMA_FIXTURE = ROOT / "workspace/management/bench/community/appspec-schema"
 
 
 class CommunityProfileSpecTests(unittest.TestCase):
+    @staticmethod
+    def write_valid_promotion(root: Path) -> None:
+        evidence = root / "evidence"
+        evidence.mkdir(exist_ok=True)
+        (evidence / "promotion-decision.json").write_text(
+            json.dumps(
+                {
+                    "evidence_family": "promotion_decision",
+                    "attempt_id": "attempt-1",
+                    "requested_level": "L3",
+                    "decision": "promote",
+                    "reason_class": "ui_requirement",
+                    "lower_level_result": {
+                        "status": "pass",
+                        "artifact_ref": "app.spec.yaml",
+                    },
+                    "zone_path": "src/app-zone",
+                }
+            ),
+            encoding="utf-8",
+        )
+
     def test_synthetic_spec_passes_pinned_schema(self):
         result = community_profile.validate_spec(
             FIXTURE / "app.spec.yaml",
@@ -103,6 +125,7 @@ class CommunityProfileSpecTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "community"
             shutil.copytree(FIXTURE, root)
+            self.write_valid_promotion(root)
             with self.assertRaises(community_profile.ValidationError):
                 community_profile.validate_zone(root, root / "core.sha256sums", ["core/router.ts"])
             (root / "src/app-zone/attack.ts").write_text("const x = process.env.SECRET;\n", encoding="utf-8")
@@ -113,11 +136,32 @@ class CommunityProfileSpecTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "community"
             shutil.copytree(FIXTURE, root)
+            self.write_valid_promotion(root)
             package = json.loads((root / "package.json").read_text(encoding="utf-8"))
             package["dependencies"] = {"unreviewed": "1.0.0"}
             (root / "package.json").write_text(json.dumps(package), encoding="utf-8")
             with self.assertRaises(community_profile.ValidationError):
                 community_profile.validate_zone(root, root / "core.sha256sums", [])
+
+    def test_zone_requires_promotion_decision(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "community"
+            shutil.copytree(FIXTURE, root)
+            with self.assertRaisesRegex(
+                community_profile.ValidationError,
+                "community_promotion_missing",
+            ):
+                community_profile.validate_zone(root, root / "core.sha256sums", [])
+
+    def test_valid_promotion_decision_passes_zone(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "community"
+            shutil.copytree(FIXTURE, root)
+            self.write_valid_promotion(root)
+            result = community_profile.validate_zone(
+                root, root / "core.sha256sums", []
+            )
+            self.assertEqual(result["verdict"], "pass")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # Community Mini App Profile Contract
 
-**Status: fixed (CM-2j verification applicability adjudicated 2026-08-18)**
+**Status: fixed (CM-2k promotion gate adjudicated 2026-08-18)**
 
 This is the fixed CM-1b contract. The validator consumes this contract and the
 sealed adversarial inputs; it must not mutate either to make an example pass.
@@ -46,11 +46,33 @@ Rerun pin, negative, parity, and adversarial checks before measuring again.
 
 ### L3/L4 promotion
 
-Promotion is permitted only under `src/app-zone/`. Every promotion must emit a
-machine-readable reason record containing the requested level, the failed or
-insufficient lower-level capability, the approving decision, and the resulting
-zone path. Core paths remain out of scope for generated changes. A request must
-return to L1/L2 when the lower level becomes sufficient.
+L2 is the canonical single-phase plan: produce and validate `app.spec.yaml`,
+then stop when S, applicable Z, and material inspection pass. Promotion is
+permitted only under `src/app-zone/` after that passing L2 result. Before any
+zone-producing step, a separate step must write
+`evidence/promotion-decision.json`; a plan that puts the zone step first is a
+retryable planner-quality violation. Plan-time applicability is derived from
+the step's declared `expected_paths`, not from sniffing prose that may describe
+a negative boundary; the post-execution Z gate independently inspects the
+actual workspace.
+
+The promotion record is a closed JSON contract with `evidence_family` equal to
+`promotion_decision`, a non-empty `attempt_id`, `requested_level` of `L3` or
+`L4`, `decision` equal to `promote`, `zone_path`, and this lower result shape:
+`{"status":"pass","artifact_ref":"app.spec.yaml"}`. `reason_class` is
+exactly one of:
+
+| Wire value | Ruling meaning |
+|---|---|
+| `spec_expression_impossible` | spec式で不可能 |
+| `registered_function_missing` | 登録関数不在 |
+| `ui_requirement` | UI要件 |
+
+An `app-zone` without this valid record is the Z violation
+`community_promotion_missing`. Invalid, missing, traversing, zone-local, or
+nonexistent lower-result references fail closed under the same class. Core
+paths remain out of scope. A request must return to L1/L2 when the lower level
+becomes sufficient.
 
 ## 2. Validation vocabulary and families
 
@@ -188,8 +210,9 @@ attempt and preserve its `fail`/`violation` event.
    entity, `count` view, `increment` and `reset` actions, and a bounded
    `countPlusOne` computed field.
 9. **Pin and promotion evidence.** The schema pin is SHA-256 over the exact
-   schema bytes. Promotion evidence is JSON with `attempt_id`, `requested_level`,
-   `lower_level_result`, `reason`, and `zone_path`; the original failure event
+   schema bytes. Promotion evidence uses the closed contract above: family,
+   attempt, level, `promote`, closed `reason_class`, passing L2 result reference,
+   and zone path. It must precede zone creation; the original failure event
    remains immutable on re-entry.
 10. **Cost and smoke.** `pricing.toml` is the pricing source, provider events
     are the cost input, and `summary.json` copies the event-derived
@@ -247,3 +270,18 @@ sealed synthetic Community used by the adversarial suite remains classified
 as L3, and an incomplete L3 zone remains a fail-closed
 `community_build_inputs_missing`. No schema, golden-suite, or adversarial
 fixture seal is changed by this amendment.
+
+## 14. CM-2k promotion-gate amendment record
+
+CM-2k completes ruling 9 by turning the prior promotion guidance into two
+fail-closed gates. The Community-only plan-quality gate rejects an app-zone/L3
+step unless a promotion-record step precedes it. The Z verifier rejects any
+existing app-zone unless the canonical evidence record has a closed reason
+class and references the passing L2 artifact.
+
+The canonical L2 plan is now explicitly one phase: write `app.spec.yaml`, run
+the built-in schema/profile verifier, and stop at L2 when it passes. A valid
+promotion continues to the unchanged L3/L4 S+Z+B path, so the gate does not
+block justified L3 delivery. L3 verify-command hardening remains **QUEUED** for
+a valid-promotion observation and is not changed in this amendment. No schema,
+golden-suite, adversarial, or synthetic fixture bytes are changed.

@@ -2406,6 +2406,11 @@ pub(super) fn ultra_plan_generation_system_prompt(
     let profile_rules = runtime.generation_rules(intent).unwrap_or(
         "- Profile generic: keep phases concrete, local, deterministic, and safe. Separate setup, implementation, and verification responsibilities.\n",
     );
+    let phase_count_rule = if profile == crate::planner::profiles::community_mini_app::PROFILE_ID {
+        "- Return one L2 phase by default; add phases only when a valid promotion procedure requires L3/L4, never more than 8.\n"
+    } else {
+        "- Return 2 to 6 phases for most tasks, never more than 8.\n"
+    };
     let styling_choice_rule = runtime.styling_choice_rule();
     format!(
         "You are CommandAgent's ultra planner. You do not execute tools or emit tool calls. Produce a top-level phase plan whose phases will each be executed by /plan-run.\n\
@@ -2418,7 +2423,7 @@ phases:\n\
   - id: \"kebab-id\"\n\
     prompt: \"focused natural-language /plan-run goal\"\n\
 Rules:\n\
-- Return 2 to 6 phases for most tasks, never more than 8.\n\
+{phase_count_rule}\
 - Each phase prompt must be a focused natural-language task that can be handled by one /plan-run.\n\
 - Phase prompts should name the concrete outcome and the verification expectation when practical.\n\
 - If the user goal contains a Required final artifacts list, preserve those exact repository-relative paths across phases. Do not rename or relocate them.\n\
@@ -2446,9 +2451,15 @@ Task:\n{goal}"
 
 pub(super) fn build_ultra_plan_schema_retry_prompt(
     goal: &str,
+    profile: &str,
     error: &str,
     attempt: usize,
 ) -> String {
+    let phase_count_rule = if profile == crate::planner::profiles::community_mini_app::PROFILE_ID {
+        "- Include top-level goal and 1-8 phases; use one L2 phase by default."
+    } else {
+        "- Include top-level goal and 2-8 phases."
+    };
     format!(
         "Your previous UltraPlan output failed schema parsing on attempt {attempt}/{ULTRA_PLAN_GENERATION_ATTEMPTS}: {error}.\n\
 Return corrected YAML only, no markdown fences, no prose, and no tool calls.\n\
@@ -2461,7 +2472,7 @@ phases:\n\
   - id: \"kebab-id\"\n\
     prompt: \"focused natural-language /plan-run goal\"\n\
 Rules:\n\
-- Include top-level goal and 2-8 phases.\n\
+{phase_count_rule}\n\
 - Each phase must have id and prompt.\n\
 - Phase prompts must be natural-language tasks, not shell commands.\n\n\
 Goal: {goal}"
@@ -2470,9 +2481,15 @@ Goal: {goal}"
 
 pub(super) fn build_ultra_plan_lint_retry_prompt(
     goal: &str,
+    profile: &str,
     report: &PlanLintReport,
     attempt: usize,
 ) -> String {
+    let phase_count_rule = if profile == crate::planner::profiles::community_mini_app::PROFILE_ID {
+        "- Keep 1-8 phases; use one L2 phase by default."
+    } else {
+        "- Keep 2-8 phases."
+    };
     let errors = report
         .errors
         .iter()
@@ -2484,7 +2501,7 @@ pub(super) fn build_ultra_plan_lint_retry_prompt(
 Fix these issues without weakening safety rules:\n{errors}\n\n\
 Return corrected YAML only, no markdown fences, no prose, and no tool calls.\n\
 Hard constraints:\n\
-- Keep 2-8 phases.\n\
+{phase_count_rule}\n\
 - Use unique kebab-case phase ids.\n\
 - Phase prompts must be natural-language /plan-run goals, not shell commands or REPL commands.\n\
 - Keep concrete outcomes and verification expectations in phase prompts.\n\

@@ -12,6 +12,7 @@ use crate::planner::profile_behavior::ProfileRuntime;
 use crate::planner::verify::VerificationReport;
 
 mod computed;
+mod promotion;
 
 pub const PROFILE_ID: &str = "community-mini-app";
 pub const PROMOTION_DECISION_EVIDENCE_FAMILY: &str = "promotion_decision";
@@ -93,6 +94,36 @@ pub fn report_declared_verify(
     );
 }
 
+pub fn report_promotion_order(
+    report: &mut crate::planner::lint::PlanQualityReport,
+    context: &crate::planner::lint::PlanQualityContext,
+    plan: &crate::planner::step_plan::StepPlan,
+) {
+    promotion::report_plan_quality(report, context, plan);
+}
+
+pub fn report_quality(
+    report: &mut crate::planner::lint::PlanQualityReport,
+    context: &crate::planner::lint::PlanQualityContext,
+    verify_commands: &[&str],
+    all_paths: &[&str],
+    plan: &crate::planner::step_plan::StepPlan,
+) {
+    report_declared_verify(report, context, verify_commands, all_paths);
+    report_promotion_order(report, context, plan);
+}
+
+pub fn ultra_phase_count_error(
+    plan: &crate::planner::ultra_plan::UltraPlan,
+) -> Option<&'static str> {
+    if plan.profile == PROFILE_ID {
+        (!(1..=8).contains(&plan.phases.len()))
+            .then_some("Community UltraPlan must have 1-8 phases")
+    } else {
+        (!(2..=8).contains(&plan.phases.len())).then_some("UltraPlan must have 2-8 phases")
+    }
+}
+
 #[cfg(test)]
 mod planner_quality_tests {
     use super::*;
@@ -135,6 +166,99 @@ mod planner_quality_tests {
         };
         let report = step_plan_quality_report(&strong, &context);
         assert!(!report.issues.iter().any(|i| i.category == "profile_verify_missing" || i.category == "weak_code_verify"));
+    }
+
+    #[test]
+    fn app_zone_step_requires_a_preceding_promotion_step_for_community_only() {
+        let zone = PlanStep {
+            id: "implement-zone".into(),
+            kind: "implement".into(),
+            expected_result: "pass".into(),
+            instruction: "Create src/app-zone/index.html and src/app-zone/app.ts".into(),
+            expected_paths: vec![
+                "src/app-zone/index.html".into(),
+                "src/app-zone/app.ts".into(),
+            ],
+            verify: vec![
+                "commandagent --offline --profile community-mini-app --prompt \"Validate app-zone\""
+                    .into(),
+            ],
+        };
+        let promotion = PlanStep {
+            id: "record-promotion".into(),
+            kind: "implement".into(),
+            expected_result: "pass".into(),
+            instruction: "Record promotion_decision after the passing L2 result".into(),
+            expected_paths: vec![promotion::EVIDENCE_PATH.into()],
+            verify: Vec::new(),
+        };
+        let context = PlanQualityContext {
+            profile: PROFILE_ID.into(),
+            required_artifacts: vec!["app.spec.yaml".into()],
+            preferred_verify: vec!["commandagent --offline --profile community-mini-app".into()],
+            ..Default::default()
+        };
+
+        let missing = StepPlan {
+            goal: "Create a Community Mini App".into(),
+            steps: vec![zone.clone(), promotion.clone()],
+        };
+        let report = step_plan_quality_report(&missing, &context);
+        assert!(report.has_retryable_quality());
+        assert!(
+            report
+                .issues
+                .iter()
+                .any(|issue| issue.category == "community_promotion_step_missing")
+        );
+
+        let ordered = StepPlan {
+            steps: vec![promotion, zone],
+            ..missing.clone()
+        };
+        let report = step_plan_quality_report(&ordered, &context);
+        assert!(
+            !report
+                .issues
+                .iter()
+                .any(|issue| issue.category == "community_promotion_step_missing")
+        );
+
+        let l2_with_negative_boundary = StepPlan {
+            goal: "Create an L2 Community Mini App".into(),
+            steps: vec![PlanStep {
+                id: "create-app-spec".into(),
+                kind: "implement".into(),
+                expected_result: "pass".into(),
+                instruction:
+                    "Create app.spec.yaml only. Do not create src/app-zone or L3 artifacts."
+                        .into(),
+                expected_paths: vec!["app.spec.yaml".into()],
+                verify: vec![
+                    "commandagent --offline --profile community-mini-app --prompt \"Validate app.spec.yaml\""
+                        .into(),
+                ],
+            }],
+        };
+        let report = step_plan_quality_report(&l2_with_negative_boundary, &context);
+        assert!(
+            !report
+                .issues
+                .iter()
+                .any(|issue| issue.category == "community_promotion_step_missing")
+        );
+
+        let nextjs = PlanQualityContext {
+            profile: "nextjs".into(),
+            ..context
+        };
+        let report = step_plan_quality_report(&missing, &nextjs);
+        assert!(
+            !report
+                .issues
+                .iter()
+                .any(|issue| issue.category == "community_promotion_step_missing")
+        );
     }
 }
 
@@ -193,14 +317,15 @@ pub fn guidance() -> &'static str {
     GUIDANCE
         .get_or_init(|| {
             format!(
-                "Community Mini App rules (DATA-1):\n- L2 is the default; generate only app.spec.yaml first.\n- Roots: {}. This is the whole app root. Schema-only metadata keys `schema_version`/`fields` never appear there.\n- Entity keys: `{}`; field types: {}.\n- Computed keys: `{}`. Declare owning `entity`; use only that entity's fields/computed values. Functions: {}. Topological evaluation; self/mutual cycles are forbidden. Never use `function`/`source` or invent vocabulary.\n- Sealed chain (shareAmount -> netBalance -> settlementAmount): `{}`.\n- L2 verify: `commandagent --offline --profile community-mini-app --prompt \"Validate app.spec.yaml against the pinned Community AppSpec schema and exit non-zero on violation.\"`. It needs no setup; existence-only checks are insufficient.\n- Verifier-checked minimal YAML: `{}`.\n- L3/L4 only under src/app-zone/; add app-zone+verify and record promotion_decision with lower result/reason.\n- Platform owns the pin. Core immutable. Forbidden: process.env, eval, child_process, raw fetch, dynamic import, undeclared packages, build-time egress.\n",
+                "DATA-1:\n- L2 is the default canonical single-phase plan: write app.spec.yaml; run `commandagent --offline --profile community-mini-app --prompt \"Validate app.spec.yaml against the pinned schema; fail on violation.\"`; stop on pass.\n- Roots: {}. Schema-only metadata keys `schema_version`/`fields` invalid. Entity keys: `{}`; types: {}.\n- Computed keys: `{}`; local references; functions: {}; order shareAmount -> netBalance -> settlementAmount; self/mutual cycles are forbidden. Never invent `function`/`source`. Example: `{}`.\n- Minimal YAML: `{}`.\n- L3/L4 after L2 pass: write `evidence/promotion-decision.json` as `{{\"evidence_family\":\"promotion_decision\",\"attempt_id\":\"attempt-1\",\"requested_level\":\"L3\",\"decision\":\"promote\",\"reason_class\":\"ui_requirement\",\"lower_level_result\":{{\"status\":\"pass\",\"artifact_ref\":\"app.spec.yaml\"}},\"zone_path\":\"src/app-zone\"}}`; only the following step may write src/app-zone/index.html and app.ts and run B verify. reason_class: {}.\n- Pin input; core immutable. No process.env, eval, child_process, raw fetch, dynamic import, undeclared packages, build-time egress.\n",
                 schema_vocabulary_guidance(),
                 ENTITY_ENTRY_FIELDS.join(", "),
                 ENTITY_FIELD_TYPES.join(", "),
                 computed::ENTRY_FIELDS.join(", "),
                 computed::ALLOWED_FUNCTIONS.join(", "),
                 chained_computed_guidance(),
-                MINIMAL_SPEC_EXAMPLE.replace('\n', "; ")
+                MINIMAL_SPEC_EXAMPLE.replace('\n', "; "),
+                promotion::REASON_CLASSES.join(", ")
             )
         })
         .as_str()
@@ -387,6 +512,7 @@ fn verify_zone(root: &Path) -> Result<(), String> {
             return Err("community_lockfile_missing".to_string());
         }
     }
+    promotion::verify(root)?;
     Ok(())
 }
 
@@ -604,10 +730,43 @@ mod tests {
         assert!(text.contains("shareAmount -> netBalance -> settlementAmount"));
         assert!(text.contains("self/mutual cycles are forbidden"));
         assert!(text.contains("commandagent --offline --profile community-mini-app"));
+        assert!(text.contains("canonical single-phase plan"));
+        assert!(text.contains(promotion::EVIDENCE_PATH));
+        assert!(text.contains("only the following step may write src/app-zone"));
+        for reason in promotion::REASON_CLASSES {
+            assert!(text.contains(reason));
+        }
         assert!(
             text.chars().count() <= 2_000,
             "profile guidance must leave room below the 2,500-character step limit: {}",
             text.chars().count()
+        );
+    }
+
+    #[test]
+    fn ultra_plan_accepts_canonical_single_l2_phase_only_for_community() {
+        use crate::planner::lint::lint_ultra_plan_report;
+        use crate::planner::ultra_plan::{UltraPhase, UltraPlan};
+
+        let community = UltraPlan {
+            goal: "Create a Community Mini App".to_string(),
+            profile: PROFILE_ID.to_string(),
+            style: "default".to_string(),
+            intent: "create".to_string(),
+            phases: vec![UltraPhase {
+                id: "produce-l2-spec".to_string(),
+                prompt: "Create and verify only app.spec.yaml as an L2 artifact.".to_string(),
+            }],
+        };
+        assert!(lint_ultra_plan_report(&community).is_pass());
+
+        let general = UltraPlan {
+            profile: "nextjs".to_string(),
+            ..community
+        };
+        assert_eq!(
+            lint_ultra_plan_report(&general).primary_message(),
+            "UltraPlan must have 2-8 phases"
         );
     }
 
@@ -770,6 +929,49 @@ mod tests {
         .unwrap();
     }
 
+    fn copy_l3_fixture(root: &Path) {
+        let sealed_l3_base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("workspace/management/bench/community/synthetic-community");
+        for relative in [
+            "app.spec.yaml",
+            "core.sha256sums",
+            "core/README.md",
+            "package.json",
+            "package-lock.json",
+            "schema/app-spec.schema.yaml",
+            "schema/app-spec.schema.sha256",
+            "src/app-zone/index.html",
+            "src/app-zone/app.ts",
+            "evidence/browser-interaction.json",
+        ] {
+            let destination = root.join(relative);
+            std::fs::create_dir_all(destination.parent().unwrap()).unwrap();
+            std::fs::copy(sealed_l3_base.join(relative), destination).unwrap();
+        }
+    }
+
+    fn write_valid_promotion(root: &Path) {
+        let path = root.join(promotion::EVIDENCE_PATH);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            path,
+            serde_json::to_vec_pretty(&serde_json::json!({
+                "evidence_family": "promotion_decision",
+                "attempt_id": "fixture-attempt-1",
+                "requested_level": "L3",
+                "decision": "promote",
+                "reason_class": "ui_requirement",
+                "lower_level_result": {
+                    "status": "pass",
+                    "artifact_ref": "app.spec.yaml"
+                },
+                "zone_path": "src/app-zone"
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+    }
+
     #[test]
     fn l2_spec_only_does_not_run_build_and_smoke() {
         let root = tempfile::tempdir().unwrap();
@@ -784,6 +986,63 @@ mod tests {
     }
 
     #[test]
+    fn l2_single_phase_pass_projects_full_without_runtime_smoke_claim() {
+        use crate::eval_events::CompletionSnapshot;
+        use crate::planner::lint::{PlanQualityContext, step_plan_quality_report};
+        use crate::planner::step_plan::{PlanStep, StepPlan};
+
+        let root = tempfile::tempdir().unwrap();
+        write_l2_fixture(root.path());
+        let plan = StepPlan {
+            goal: "Create a Community Mini App at L2".into(),
+            steps: vec![PlanStep {
+                id: "create-and-verify-spec".into(),
+                kind: "implement".into(),
+                expected_result: "pass".into(),
+                instruction: "Write and validate app.spec.yaml as the complete L2 artifact".into(),
+                expected_paths: vec!["app.spec.yaml".into()],
+                verify: vec!["commandagent --offline --profile community-mini-app --prompt \"Validate app.spec.yaml against the pinned Community AppSpec schema and exit non-zero on violation.\"".into()],
+            }],
+        };
+        let context = PlanQualityContext {
+            profile: PROFILE_ID.into(),
+            required_artifacts: vec!["app.spec.yaml".into()],
+            preferred_verify: vec!["commandagent --offline --profile community-mini-app".into()],
+            ..Default::default()
+        };
+        assert!(!step_plan_quality_report(&plan, &context).has_retryable_quality());
+        assert!(
+            CommunityMiniAppProfile
+                .verify_final(root.path(), "")
+                .is_pass()
+        );
+
+        let mut snapshot = CompletionSnapshot::empty();
+        snapshot.final_acceptance_status =
+            crate::planner::adjudication::final_acceptance_status_from_release_gate(
+                "not_applicable",
+            )
+            .to_string();
+        CommunityMiniAppProfile.apply_completion_snapshot(
+            &ProfileId::CommunityMiniApp,
+            root.path(),
+            &mut snapshot,
+        );
+        assert_eq!(snapshot.final_acceptance_status, "full_success");
+        assert_eq!(snapshot.assurance_level, "full");
+        assert_eq!(snapshot.runtime_acceptance_status, "not_checked");
+    }
+
+    #[test]
+    fn app_zone_without_promotion_is_a_zone_violation() {
+        let root = tempfile::tempdir().unwrap();
+        copy_l3_fixture(root.path());
+
+        let report = CommunityMiniAppProfile.verify_final(root.path(), "");
+        assert_eq!(report.profile_failures, vec!["community_promotion_missing"]);
+    }
+
+    #[test]
     fn l3_app_zone_keeps_build_and_smoke_mandatory() {
         let sealed_l3_base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("workspace/management/bench/community/synthetic-community");
@@ -794,22 +1053,8 @@ mod tests {
         );
 
         let root = tempfile::tempdir().unwrap();
-        for relative in [
-            "app.spec.yaml",
-            "core.sha256sums",
-            "core/README.md",
-            "package.json",
-            "package-lock.json",
-            "schema/app-spec.schema.yaml",
-            "schema/app-spec.schema.sha256",
-            "src/app-zone/index.html",
-            "src/app-zone/app.ts",
-            "evidence/browser-interaction.json",
-        ] {
-            let destination = root.path().join(relative);
-            std::fs::create_dir_all(destination.parent().unwrap()).unwrap();
-            std::fs::copy(sealed_l3_base.join(relative), destination).unwrap();
-        }
+        copy_l3_fixture(root.path());
+        write_valid_promotion(root.path());
         std::fs::remove_file(root.path().join("src/app-zone/app.ts")).unwrap();
 
         let report = CommunityMiniAppProfile.verify_final(root.path(), "");
@@ -823,9 +1068,10 @@ mod tests {
     fn rust_and_python_reference_verdicts_match_on_the_same_fixture() {
         use std::process::Command;
 
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("workspace/management/bench/community/synthetic-community");
-        let rust = CommunityMiniAppProfile.verify_s_z(&root);
+        let root = tempfile::tempdir().unwrap();
+        copy_l3_fixture(root.path());
+        write_valid_promotion(root.path());
+        let rust = CommunityMiniAppProfile.verify_s_z(root.path());
         assert!(rust.is_pass(), "Rust verifier failed: {rust:?}");
         let scripts =
             PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("workspace/management/scripts");
@@ -834,15 +1080,21 @@ mod tests {
             .args([
                 scripts.join("community_profile.py").to_str().unwrap(),
                 "--spec",
-                root.join("app.spec.yaml").to_str().unwrap(),
+                root.path().join("app.spec.yaml").to_str().unwrap(),
                 "--schema",
-                root.join("schema/app-spec.schema.yaml").to_str().unwrap(),
+                root.path()
+                    .join("schema/app-spec.schema.yaml")
+                    .to_str()
+                    .unwrap(),
                 "--schema-pin",
-                root.join("schema/app-spec.schema.sha256").to_str().unwrap(),
+                root.path()
+                    .join("schema/app-spec.schema.sha256")
+                    .to_str()
+                    .unwrap(),
                 "--root",
-                root.to_str().unwrap(),
+                root.path().to_str().unwrap(),
                 "--core-manifest",
-                root.join("core.sha256sums").to_str().unwrap(),
+                root.path().join("core.sha256sums").to_str().unwrap(),
             ])
             .output()
             .expect("Python reference implementation must be runnable");

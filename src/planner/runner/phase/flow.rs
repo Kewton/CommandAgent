@@ -203,7 +203,12 @@ pub fn generate_ultra_plan_with_ui(
                             &message,
                         );
                         messages.push(crate::state::ConversationMessage::user(
-                            build_ultra_plan_lint_retry_prompt(goal, &report, attempt),
+                            build_ultra_plan_lint_retry_prompt(
+                                goal,
+                                &config.profile,
+                                &report,
+                                attempt,
+                            ),
                         ));
                         continue;
                     }
@@ -232,7 +237,12 @@ pub fn generate_ultra_plan_with_ui(
                         &message,
                     );
                     messages.push(crate::state::ConversationMessage::user(
-                        build_ultra_plan_schema_retry_prompt(goal, &message, attempt),
+                        build_ultra_plan_schema_retry_prompt(
+                            goal,
+                            &config.profile,
+                            &message,
+                            attempt,
+                        ),
                     ));
                     continue;
                 }
