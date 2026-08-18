@@ -1,0 +1,4 @@
+7ebbf49cca4416ac0b9de5dcbc23898794333bca1cedce2a9296653a66164884  workspace/management/bench/suites/community-cm3-arm-a-baseline.toml
+ea46560c383a692ddd68fd08d9b88585142407899b70add818effb1f332464f6  workspace/management/bench/suites/community-cm3-arm-b-local.toml
+c8a2b7330f74c32fe3a01f30c12f6c89fd27747cb2137b2107c73c220cbea3b3  workspace/management/bench/suites/community-cm3-arm-c-terra.toml
+17642784ede080fecdf513a2b6b6d6d84186f79ad13095e2776a2fd66f8477c6  workspace/management/bench/suites/community-cm3-arm-d-planner-luna.toml
