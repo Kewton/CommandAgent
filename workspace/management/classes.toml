@@ -408,7 +408,7 @@ attribution = "machine"
 match_reason = "community_profile_violation:community_computed_unregistered:.*"
 first_seen = "cm2b-golden-005-warikan-001"
 ledger_ref = "CM-2h"
-note = "解消済み(CM-2i schema設計gap(b)へ訂正): v0はcomputed所有scopeを表現できなかった。v0.1でentityを明示し、同一entity内DAG参照とtopological評価を許可。自己/相互循環はviolation、global参照はQUEUED。"
+note = "局所連鎖分は解消済み(CM-2i schema設計gap(b)へ訂正): v0.1でentityを明示し、同一entity内DAG参照とtopological評価を許可。CM-2k golden-008 mochimono_003でcollection/global参照packingItemを再観測した。このglobal集約は契約どおりQUEUEDで、自己/相互循環拒否と局所DAG対応は維持する。"
 
 [[class]]
 id = "community_core_manifest_missing"
@@ -445,6 +445,15 @@ match_reason = "verify_command_timeout:commandagent --offline --profile communit
 first_seen = "cm2b-golden-007-warikan-002"
 ledger_ref = "CM-2j"
 note = "golden-007の不正昇格経路にはCM-2k解消印: promotion手順なしzoneは計画品質/Zゲートで先に拒否する。正当なpromotion後にも同じverify形が生成される可能性は未観測のため、L3契約床としてQUEUED保持し今は塞がない。"
+
+[[class]]
+id = "community_l2_verify_invocation_incomplete"
+category = "terminal"
+attribution = "machine"
+match_reason = "commandagent --offline --profile community-mini-app.*stdin is not a TTY; pass --prompt or an action flag"
+first_seen = "cm2b-golden-008-mochimono-002"
+ledger_ref = "CM-2k"
+note = "QUEUED: Community DATA-1 guidance contains the complete --prompt form, but the shared deterministic-verification preference still supplied the shorter interactive form. The planner selected that conflicting machine-provided form and bounded repair made no change. Outside the CM-2k promotion-gate repayment scope."
 
 [[class]]
 id = "planner_quality_exhausted"
