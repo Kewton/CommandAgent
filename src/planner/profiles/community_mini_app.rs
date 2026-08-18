@@ -464,6 +464,28 @@ fn verify_build_and_smoke(root: &Path) -> Result<(), String> {
     Ok(())
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ArtifactLevel {
+    L2SpecOnly,
+    L3OrL4AppZone,
+}
+
+fn artifact_level(root: &Path) -> ArtifactLevel {
+    if root.join("src/app-zone").exists() || root.join("app-zone").exists() {
+        ArtifactLevel::L3OrL4AppZone
+    } else {
+        ArtifactLevel::L2SpecOnly
+    }
+}
+
+fn verify_applicable_families(root: &Path) -> Result<(), String> {
+    verify_spec(root).and_then(|_| verify_zone(root))?;
+    if artifact_level(root) == ArtifactLevel::L3OrL4AppZone {
+        verify_build_and_smoke(root)?;
+    }
+    Ok(())
+}
+
 fn walk_sources(root: &Path) -> Vec<PathBuf> {
     let mut paths = Vec::new();
     let mut pending = vec![root.to_path_buf()];
@@ -504,10 +526,7 @@ impl DomainProfile for CommunityMiniAppProfile {
     }
 
     fn verify_final(&self, root: &Path, _goal: &str) -> VerificationReport {
-        if let Err(reason) = verify_spec(root)
-            .and_then(|_| verify_zone(root))
-            .and_then(|_| verify_build_and_smoke(root))
-        {
+        if let Err(reason) = verify_applicable_families(root) {
             return profile_failure(reason);
         }
         VerificationReport::pass()
@@ -518,7 +537,7 @@ impl DomainProfile for CommunityMiniAppProfile {
     }
 
     fn runtime_contract(&self, _intent: &str, _goal: &str) -> String {
-        "- Keep the Community Mini App at the lowest level that satisfies the goal.\n- Emit app.spec.yaml for L1/L2; use src/app-zone/ only with promotion_decision evidence.".to_string()
+        "- Keep the Community Mini App at the lowest level that satisfies the goal.\n- Emit app.spec.yaml for L1/L2; use src/app-zone/ only with promotion_decision evidence.\n- L2 Full means S/Z/material verified; runtime smoke is covered by platform integration. L3/L4 requires S/Z/B.".to_string()
     }
 
     fn generation_rules(&self, _intent: &str) -> Option<&'static str> {
@@ -725,6 +744,78 @@ mod tests {
         assert_eq!(
             verify_zone(root.path()),
             Err("community_core_manifest_missing".to_string())
+        );
+    }
+
+    fn write_l2_fixture(root: &Path) {
+        std::fs::create_dir_all(root.join("schema")).unwrap();
+        std::fs::create_dir_all(root.join("core")).unwrap();
+        std::fs::write(
+            root.join("schema/app-spec.schema.yaml"),
+            PINNED_SCHEMA_FIXTURE,
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("schema/app-spec.schema.sha256"),
+            format!("{:x}\n", Sha256::digest(PINNED_SCHEMA_FIXTURE.as_bytes())),
+        )
+        .unwrap();
+        std::fs::write(root.join("app.spec.yaml"), MINIMAL_SPEC_EXAMPLE).unwrap();
+        std::fs::write(root.join("core/README.md"), "immutable core\n").unwrap();
+        let core_digest = sha256(&root.join("core/README.md")).unwrap();
+        std::fs::write(
+            root.join("core.sha256sums"),
+            format!("{core_digest}  core/README.md\n"),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn l2_spec_only_does_not_run_build_and_smoke() {
+        let root = tempfile::tempdir().unwrap();
+        write_l2_fixture(root.path());
+
+        assert_eq!(artifact_level(root.path()), ArtifactLevel::L2SpecOnly);
+        assert!(
+            CommunityMiniAppProfile
+                .verify_final(root.path(), "")
+                .is_pass()
+        );
+    }
+
+    #[test]
+    fn l3_app_zone_keeps_build_and_smoke_mandatory() {
+        let sealed_l3_base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("workspace/management/bench/community/synthetic-community");
+        assert_eq!(
+            artifact_level(&sealed_l3_base),
+            ArtifactLevel::L3OrL4AppZone,
+            "the adversarial suite base must remain an L3 fixture"
+        );
+
+        let root = tempfile::tempdir().unwrap();
+        for relative in [
+            "app.spec.yaml",
+            "core.sha256sums",
+            "core/README.md",
+            "package.json",
+            "package-lock.json",
+            "schema/app-spec.schema.yaml",
+            "schema/app-spec.schema.sha256",
+            "src/app-zone/index.html",
+            "src/app-zone/app.ts",
+            "evidence/browser-interaction.json",
+        ] {
+            let destination = root.path().join(relative);
+            std::fs::create_dir_all(destination.parent().unwrap()).unwrap();
+            std::fs::copy(sealed_l3_base.join(relative), destination).unwrap();
+        }
+        std::fs::remove_file(root.path().join("src/app-zone/app.ts")).unwrap();
+
+        let report = CommunityMiniAppProfile.verify_final(root.path(), "");
+        assert_eq!(
+            report.profile_failures,
+            vec!["community_build_inputs_missing"]
         );
     }
 

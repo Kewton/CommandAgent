@@ -1,6 +1,6 @@
 # Community Mini App Profile Contract
 
-**Status: fixed (CM-2i schema v0.1 adjudicated 2026-08-18)**
+**Status: fixed (CM-2j verification applicability adjudicated 2026-08-18)**
 
 This is the fixed CM-1b contract. The validator consumes this contract and the
 sealed adversarial inputs; it must not mutate either to make an example pass.
@@ -90,6 +90,20 @@ undeclared behavior was detected. Both are fail-closed outcomes.
 - `fail`: bundling, launch, or smoke assertion fails.
 - `violation`: build or smoke requires an undeclared capability, external
   egress, or a path outside the selected zone.
+
+### Validation applicability by artifact level
+
+| Artifact level | S | Z | Material inspection | B | Full meaning |
+|---|---|---|---|---|---|
+| L2 (`app.spec.yaml` only) | required | required for the immutable core, dependency boundary, and statically applicable forbidden material | required: pinned schema, exact spec shape, core snapshot, and declared dependency material | not applicable | spec verified (schema, constraints, and material); runtime smoke is covered by platform integration |
+| L3/L4 (`src/app-zone/` or `app-zone/` exists) | required | required in full | required | required in full | spec, constraints, material, bundle, and managed runtime smoke verified |
+
+The L2 Full label must retain the exact limitation above. It must not be
+rendered as runtime-smoke-proven. An `app-zone` path, including an incomplete
+or malformed one, selects L3/L4 applicability and cannot suppress B by omitting
+its build inputs. A synthetic Instant Renderer fixture for direct L2 runtime
+behavior is **QUEUED** for platform integration; it is not silently claimed by
+the product verifier.
 
 ## 3. Adversarial suite design
 
@@ -218,3 +232,18 @@ final product accepts only v0.1. The positive chained fixture and sealed
 self/mutual-cycle negatives are part of the v0.1 manifest. This amendment is
 the sole CM-2i authorization to change the schema fixture, pin, and its sealed
 manifest; golden suites and adversarial fixtures remain byte-identical.
+
+## 13. CM-2j verification-applicability amendment record
+
+CM-2j corrects validation applicability without changing schema bytes. The
+pre-amendment product applied B to every Community artifact, so a valid L2
+spec-only workspace failed with `community_build_inputs_missing`. The fixed
+matrix applies S, the statically applicable Z checks, and material inspection
+to L2, while B is not applicable until an `app-zone` exists.
+
+This is not a relaxation of L3/L4 verification. Presence of `src/app-zone/` or
+`app-zone/` selects L3/L4 and requires the existing S+Z+B path in full. The
+sealed synthetic Community used by the adversarial suite remains classified
+as L3, and an incomplete L3 zone remains a fail-closed
+`community_build_inputs_missing`. No schema, golden-suite, or adversarial
+fixture seal is changed by this amendment.

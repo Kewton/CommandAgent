@@ -426,7 +426,7 @@ attribution = "machine"
 match_reason = "community_profile_violation:community_build_inputs_missing"
 first_seen = "cm2b-golden-006-warikan-001"
 ledger_ref = "CM-2i"
-note = "未解消(計測setup新規床): schemaとcore manifest供給後、計画内の自己完結schema verifyが製品verification全体を起動し、L2 spec段階でもB系のapp-zone/index.html、app.tsを必須として決定的に停止。warikan 2件連続で同一原文を観測し、設計外床として裁定待ち。"
+note = "解消済み(CM-2j、L3/L4文脈限定): L2 spec-onlyはS/Z/材料検査で完結しB系は非適用。src/app-zone/またはapp-zone/が存在するL3/L4では従来どおりB系必須で、不完全zoneはこのクラスでfail closedする。"
 
 [[class]]
 id = "planner_quality_exhausted"
