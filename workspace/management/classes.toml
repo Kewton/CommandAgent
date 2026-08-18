@@ -521,11 +521,11 @@ note = "qwen3.8:27b-mlx/think=highがStepPlan corrective retryの全attemptで�
 [[class]]
 id = "community_schema_version_invalid"
 category = "terminal"
-attribution = "model"
+attribution = "machine"
 match_reason = "community_profile_violation:community_schema_version_invalid"
 first_seen = "cm4-parallel-001-warikan-001"
-ledger_ref = "CM-4"
-note = "qwen3.6 plannerの4並行隔離probeで3/4に観測したschemaVersion逸脱。workspace/state/events/run_idの交差参照は0で、同一binary・封緘入力・model metadataも一致したため、隔離衝突ではなくmodel成果物署名として保持する。"
+ledger_ref = "CM-4x"
+note = "CM-4xで誤帰属を訂正し解消済み(stale machine): 3 workspaceの供給schemaは同一v0.1/SHAで、生成AppSpec rootにschema_versionがないのも契約どおり。外側campaign binaryは26b4705a/SHA 03159d…だが、計画内の裸のcommandagentはPATH上の178e09c2/SHA 878616…(v1期待)へ解決していた。parallel probeが子process PATHをピン済みcampaign binaryへ固定し、負例guardと同一binary/suiteの4並行再実行でfinal_acceptance full_success 4/4・交差汚染0を確認。"
 
 [[class]]
 id = "community_core_manifest_path_malformed"
@@ -534,7 +534,7 @@ attribution = "model"
 match_reason = "path does not exist: core.sha256sums.*invalid quote path"
 first_seen = "cm4-parallel-001-warikan-004"
 ledger_ref = "CM-4"
-note = "qwen3.6 plannerがcore.sha256sums read pathへ自然言語断片を混入したtool argument署名。隔離probeのforeign path参照は0で、製品側のpath fail-closedを維持する。"
+note = "qwen3.6 plannerが供給済みcore.sha256sumsのRead pathへ自然言語断片を混入したtool argument署名。CM-4xの三点対照でも供給manifest/path/SHAは正常でmodel帰属を維持する。同一binary/suiteの再実行は4/4 full_successだったが、単発再現なしを普遍的解消とは扱わず製品側のpath fail-closedを維持する。"
 
 [[class]]
 id = "community_l2_verify_invocation_incomplete"

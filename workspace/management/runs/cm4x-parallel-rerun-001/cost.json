@@ -1,0 +1,15 @@
+{
+  "schema_version": "commandagent.cm4-parallel-cost/v1",
+  "pricing_source": "workspace/management/bench/community/pricing.toml",
+  "model": "gpt-5.6-luna",
+  "turns": 10,
+  "provider_total_tokens": 25887,
+  "cached_input_tokens": 11961,
+  "cost_usd": 0.00507942,
+  "runs": [
+    {"id":"warikan_001","turns":2,"provider_total_tokens":4993,"cached_input_tokens":1880,"cost_usd":0.00105520},
+    {"id":"warikan_002","turns":2,"provider_total_tokens":5255,"cached_input_tokens":1852,"cost_usd":0.00127864},
+    {"id":"warikan_003","turns":4,"provider_total_tokens":10353,"cached_input_tokens":6339,"cost_usd":0.00149958},
+    {"id":"warikan_004","turns":2,"provider_total_tokens":5286,"cached_input_tokens":1890,"cost_usd":0.00124600}
+  ]
+}

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -56,6 +57,31 @@ class Cm4ParallelProbeTests(unittest.TestCase):
                     "cross_contamination_zero"
                 ]
             )
+
+    def test_nested_verifier_resolves_to_campaign_binary_before_stale_path(self) -> None:
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            campaign = root / "campaign" / "commandagent"
+            stale = root / "stale" / "commandagent"
+            campaign.parent.mkdir()
+            stale.parent.mkdir()
+            campaign.write_bytes(b"campaign")
+            stale.write_bytes(b"stale")
+            campaign.chmod(0o755)
+            stale.chmod(0o755)
+
+            environment, record = cm4_parallel_probe.pinned_product_environment(
+                campaign, {"PATH": str(stale.parent)}
+            )
+
+            self.assertEqual(
+                Path(environment["PATH"].split(os.pathsep)[0]).resolve(),
+                campaign.parent.resolve(),
+            )
+            self.assertEqual(
+                record["resolved_nested_commandagent"], str(campaign.resolve())
+            )
+            self.assertTrue(record["matches_campaign_binary"])
 
 
 if __name__ == "__main__":

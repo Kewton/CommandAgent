@@ -1,0 +1,66 @@
+{
+  "schema_version": "commandagent.cm4x-parallel-attribution/v1",
+  "source_campaign": "cm4-parallel-001",
+  "source_summary_sha256": "a0f60b1b74c3d0d125e760cfcf8ebf0e764e7e9c9424c763812355c0b7551a69",
+  "campaign_binary": {
+    "version": "commandagent 0.1.0 26b4705a 2026-08-18T19:57:09+09:00",
+    "sha256": "03159d12811aa3385d877b1d81ad7f2fdd9942e1b9af1c24314b4ece63ccdbfa",
+    "expected_schema_version": "community.app-spec/v0.1"
+  },
+  "stale_nested_binary": {
+    "path": "/Users/<user>/.local/bin/commandagent",
+    "version": "commandagent 0.1.0 178e09c2 2026-08-17T22:23:46+09:00",
+    "sha256": "87861649b3ffc5e850db52ecbb293d6c16f23d919e93754beb6ade943775784e",
+    "expected_schema_version": "community.app-spec/v1",
+    "v01_observation": "community_schema_version_invalid",
+    "v1_observation_after_schema_gate": "community_build_inputs_missing"
+  },
+  "supplied_inputs": {
+    "schema_version": "community.app-spec/v0.1",
+    "schema_sha256": "80e4cb41eeb0f60eb04640e2ac8beac7d1414e7f5a9aa9fa563fd08d17ac7e0b",
+    "schema_pin_file_sha256": "515ab53e598e473e89447616c3f14550a3d999896ac4f32f3f65d645959955b0",
+    "core_manifest_sha256": "f23e87be97f9442cc20132eceed57c0149ffe2451f739b63ead83fc656c1e0af",
+    "core_readme_sha256": "b1ecd4495d9f057b5c3542f4b120a8b8176f0e63f7a900f3c51492735020f16c"
+  },
+  "cases": [
+    {
+      "run": "warikan_001",
+      "classification": "machine:stale_nested_verifier_binary",
+      "generated_spec_sha256": "ae9ac0d609b617b09951ac0fd3b2de47682d6f9a98ff479119a1cb025be12330",
+      "generated_spec_schema_version": "absent_as_contract_requires",
+      "campaign_binary_reverification": "full"
+    },
+    {
+      "run": "warikan_002",
+      "classification": "machine:stale_nested_verifier_binary_with_secondary_model_repair_error",
+      "generated_spec_sha256_after_repair": "b5cfa7f52ef8a2f75266b94a8ea628c2889e4af1ad0a9b05377a7ffc0ec791a0",
+      "generated_spec_schema_version_initial": "absent_as_contract_requires",
+      "generated_spec_schema_version_after_repair": "community.app-spec/v0.1",
+      "repair_evidence": "Edit old_string length 10 to new_string length 50",
+      "campaign_binary_end_state_reverification": "community_spec_closed_vocabulary"
+    },
+    {
+      "run": "warikan_003",
+      "classification": "machine:stale_nested_verifier_binary",
+      "generated_spec_sha256": "2d8f04d8244db283a85f0a88f57f1090e8d87dde4f4f0911fd78c0cbc5b14c76",
+      "generated_spec_schema_version": "absent_as_contract_requires",
+      "campaign_binary_reverification": "full"
+    },
+    {
+      "run": "warikan_004",
+      "classification": "model:malformed_read_path",
+      "supplied_core_manifest_path": "core.sha256sums",
+      "requested_read_path_prefix": "core.sha256sums\"}}]}",
+      "generated_spec": "absent_because_read_failed_before_write"
+    }
+  ],
+  "rerun": {
+    "campaign": "cm4x-parallel-rerun-001",
+    "summary_sha256": "52edcd412aa6299ac36d748dd9c4c5c048d91fc059a79e361e079457170d7350",
+    "nested_binary_matches_campaign_binary": true,
+    "final_acceptance_full_success": 4,
+    "denominator": 4,
+    "cross_contamination_zero": true,
+    "scrub_pass": 4
+  }
+}

@@ -7,6 +7,7 @@ import concurrent.futures
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import time
 from pathlib import Path
@@ -46,6 +47,31 @@ def final_json_line(stdout: str) -> dict[str, Any]:
         ):
             return value
     raise ValueError("headless summary JSON was not the final machine-readable line")
+
+
+def pinned_product_environment(
+    binary: Path, base_environment: dict[str, str] | None = None
+) -> tuple[dict[str, str], dict[str, Any]]:
+    """Bind nested `commandagent` verifier calls to the campaign binary."""
+    binary = binary.resolve()
+    if binary.name != "commandagent":
+        raise ValueError("parallel preflight: binary must be named commandagent")
+    environment = dict(os.environ if base_environment is None else base_environment)
+    inherited_path = environment.get("PATH", "")
+    environment["PATH"] = os.pathsep.join(
+        part for part in (str(binary.parent), inherited_path) if part
+    )
+    resolved = shutil.which("commandagent", path=environment["PATH"])
+    if resolved is None or Path(resolved).resolve() != binary:
+        raise ValueError(
+            "parallel preflight: nested commandagent does not resolve to campaign binary"
+        )
+    return environment, {
+        "configured_binary": str(binary),
+        "resolved_nested_commandagent": str(Path(resolved).resolve()),
+        "sha256": sha256_file(binary),
+        "matches_campaign_binary": True,
+    }
 
 
 def verify_isolation(records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -92,6 +118,7 @@ def run_one(
     run: bench.RunSpec,
     workspace_root: Path,
     ollama_host: str,
+    product_environment: dict[str, str],
 ) -> dict[str, Any]:
     workspace = workspace_root / "workspaces" / run.name
     state_dir = workspace_root / "states" / run.name
@@ -114,7 +141,7 @@ def run_one(
         "--summary-json",
         "--no-footer",
     ]
-    environment = os.environ.copy()
+    environment = product_environment.copy()
     events_path = state_dir / "events.jsonl"
     environment["COMMANDAGENT_EVAL_EVENTS"] = str(events_path)
     started = time.time()
@@ -180,6 +207,10 @@ def main() -> None:
         raise SystemExit("parallel preflight: qwen3.6 control must omit think")
     if len(suite.runs) < 4:
         raise SystemExit("parallel preflight: suite requires at least four runs")
+    try:
+        product_environment, nested_binary = pinned_product_environment(binary)
+    except ValueError as error:
+        raise SystemExit(str(error)) from error
     workspace_root = args.workspace_root.resolve()
     workspace_root.mkdir(parents=True, exist_ok=False)
     provider_gate = bench.provider_reachability_preflight(
@@ -190,7 +221,13 @@ def main() -> None:
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         futures = [
             executor.submit(
-                run_one, binary, suite, run, workspace_root, args.ollama_host
+                run_one,
+                binary,
+                suite,
+                run,
+                workspace_root,
+                args.ollama_host,
+                product_environment,
             )
             for run in selected
         ]
@@ -210,6 +247,7 @@ def main() -> None:
         "executor_model": selected[0].executor,
         "executor_provider": suite.provider,
         "provider_gate": provider_gate,
+        "nested_binary": nested_binary,
         "parallelism": 4,
         "parallel_started_epoch": started,
         "parallel_ended_epoch": ended,
