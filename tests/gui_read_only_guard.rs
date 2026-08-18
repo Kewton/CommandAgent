@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
-const DELEGATE_MODULE: &str = "src/bin/gui_server/sessions.rs";
+const DELEGATE_MODULE: &str = "src/bin/gui_server/delegate.rs";
+const DIRECTIVES_MODULE: &str = "src/bin/gui_server/directives.rs";
 const SESSION_FILES_MODULE: &str = "src/bin/gui_server/session_files.rs";
 
 #[test]
@@ -56,15 +57,13 @@ fn gui_server_can_execute_only_through_the_confirmed_cli_delegate() {
     for required in [
         "shell.confirm(confirmation_hash)",
         ".trial_workspace\n        .acquire(&id)\n        .map_err(workspace_conflict)",
-        ".trial_workspace\n        .require_current()\n        .map_err(workspace_conflict)",
+        ".trial_workspace\n        .require_current()",
         "Gate 1 workspace changed before CLI delegation",
         ".dispatch(|confirmed|",
         "Command::new(&state.commandagent_bin)",
+        "command.env_clear()",
+        "DELEGATE_PARENT_ENV_ALLOWLIST",
         ".arg(\"--ultra-plan-run\")",
-        ".restore_directive_proposal(&hash)",
-        "shell.confirm_directive(&hash)",
-        ".prepare_confirmed_continuation(",
-        "shell.dispatch_directive(&continuation, ||",
         ".arg(\"--run-ultra-plan\")",
         "COMMANDAGENT_EVAL_EVENTS",
     ] {
@@ -77,6 +76,24 @@ fn gui_server_can_execute_only_through_the_confirmed_cli_delegate() {
         assert!(
             !delegate.contains(shell_bypass),
             "delegate contains an unbounded process surface {shell_bypass:?}"
+        );
+    }
+    assert!(
+        !delegate.contains("\"COMMANDAGENT_PACK_"),
+        "delegate allowlist admits ambient pack selectors"
+    );
+
+    let directives = std::fs::read_to_string(DIRECTIVES_MODULE).unwrap();
+    for required in [
+        ".restore_directive_proposal(&hash)",
+        "shell.confirm_directive(&hash)",
+        ".prepare_confirmed_continuation(",
+        "shell.dispatch_directive(&continuation, ||",
+        "run_cli_continuation(&state, &paths, &identity, &continuation)",
+    ] {
+        assert!(
+            directives.contains(required),
+            "directive confirmation guard is missing {required:?}"
         );
     }
 }
@@ -98,6 +115,14 @@ fn delegation_guard_negative_examples_are_rejected() {
         ),
         (DELEGATE_MODULE, "Command::new(\"sh\").arg(\"-c\")"),
         (DELEGATE_MODULE, "Command::new(\"node\").spawn()"),
+        (
+            DELEGATE_MODULE,
+            "Command::new(&state.commandagent_bin).spawn()",
+        ),
+        (
+            DELEGATE_MODULE,
+            "command.env(\"COMMANDAGENT_PACK_DIRECTORY\", value)",
+        ),
     ];
     for (path, source) in bad_examples {
         assert!(
@@ -883,8 +908,14 @@ fn trial_workspace_and_authentication_guards_are_not_optional() {
     assert!(entry.contains("TrialAccess::from_environment"));
 
     let delegate = std::fs::read_to_string(DELEGATE_MODULE).unwrap();
+    let directives = std::fs::read_to_string(DIRECTIVES_MODULE).unwrap();
+    let gate_one = std::fs::read_to_string("src/bin/gui_server/gate_one.rs").unwrap();
+    let sessions = std::fs::read_to_string("src/bin/gui_server/sessions.rs").unwrap();
+    let trial_handlers = format!("{delegate}{directives}{gate_one}{sessions}");
     assert_eq!(
-        delegate.matches("require_trial(&state, &headers").count(),
+        trial_handlers
+            .matches("require_trial(&state, &headers")
+            .count(),
         6,
         "every Trial API handler must enforce workspace and access guards"
     );
@@ -906,7 +937,7 @@ fn trial_workspace_and_authentication_guards_are_not_optional() {
         "failed to spawn delegated CLI binary",
     ] {
         assert!(
-            delegate.contains(required),
+            trial_handlers.contains(required),
             "missing Trial guard {required:?}"
         );
     }
@@ -1029,14 +1060,14 @@ fn trial_session_files_are_get_only_authenticated_views() {
     }
 
     let delegate = std::fs::read_to_string(DELEGATE_MODULE).unwrap();
-    assert_eq!(delegate.matches(".stdout(Stdio::null())").count(), 2);
-    assert_eq!(delegate.matches(".stderr(Stdio::null())").count(), 2);
+    assert_eq!(delegate.matches(".stdout(Stdio::null())").count(), 1);
+    assert_eq!(delegate.matches(".stderr(Stdio::null())").count(), 1);
 }
 
 #[test]
 fn trial_session_index_is_bounded_read_only_and_reconnects_by_link() {
     let entry = std::fs::read_to_string("src/bin/gui_server.rs").unwrap();
-    assert!(entry.contains("get(session_index::list).post(sessions::create)"));
+    assert!(entry.contains("get(session_index::list).post(delegate::create)"));
 
     let index = std::fs::read_to_string("src/bin/gui_server/session_index.rs").unwrap();
     for required in [
@@ -1225,8 +1256,14 @@ fn violates_delegation_guard(path: &Path, source: &str) -> bool {
     .iter()
     .any(|token| source.contains(token))
         || source.contains("Command::new(\"")
+        || source.contains(".env(\"COMMANDAGENT_PACK_")
         || (path != Path::new(DELEGATE_MODULE)
             && ["std::process", "Command::new", ".spawn("]
                 .iter()
                 .any(|token| source.contains(token)))
+        || (path == Path::new(DELEGATE_MODULE)
+            && ["Command::new", ".spawn(", ".status()"]
+                .iter()
+                .any(|token| source.contains(token))
+            && !source.contains(".env_clear()"))
 }

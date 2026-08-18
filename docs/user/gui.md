@@ -347,7 +347,10 @@ requests require a same-host Origin or an origin admitted by
 
 The two POST dispatch routes cannot accept an unconfirmed identity. The sole
 process surface executes `commandagent` directly without a shell; provider and
-runner calls are forbidden in the GUI server by the protection audit.
+runner calls are forbidden in the GUI server by the protection audit. Before
+delegation, the server clears the child environment and restores only basic
+process/locale variables plus documented provider credentials; GUI access
+secrets and ambient `COMMANDAGENT_PACK_*` selectors are never inherited.
 
 ### Error responses and recovery
 

@@ -8,14 +8,22 @@ use clap::{Parser, ValueEnum};
 
 #[path = "gui_server/api.rs"]
 mod api;
+#[path = "gui_server/delegate.rs"]
+mod delegate;
+#[path = "gui_server/directives.rs"]
+mod directives;
 #[path = "gui_server/error_response.rs"]
 mod error_response;
+#[path = "gui_server/gate_one.rs"]
+mod gate_one;
 #[path = "gui_server/runtime_status.rs"]
 mod runtime_status;
 #[path = "gui_server/session_files.rs"]
 mod session_files;
 #[path = "gui_server/session_index.rs"]
 mod session_index;
+#[path = "gui_server/session_paths.rs"]
+mod session_paths;
 #[path = "gui_server/sessions.rs"]
 mod sessions;
 #[path = "gui_server/static_files.rs"]
@@ -141,11 +149,11 @@ fn dashboard_router() -> Router<AppState> {
         .route("/api/reports/view", get(api::report_content))
         .route("/api/trial-options", get(trial_options::get))
         .route("/api/runtime-status", get(runtime_status::get))
-        .route("/api/session-proposals", post(sessions::proposal))
+        .route("/api/session-proposals", post(gate_one::proposal))
         .route("/api/trial-workspace", get(sessions::workspace_status))
         .route(
             "/api/sessions",
-            get(session_index::list).post(sessions::create),
+            get(session_index::list).post(delegate::create),
         )
         .route("/api/sessions/{id}", get(sessions::status))
         .route(
@@ -153,13 +161,10 @@ fn dashboard_router() -> Router<AppState> {
             get(session_files::artifacts),
         )
         .route("/api/sessions/{id}/events", get(session_files::events))
-        .route(
-            "/api/sessions/{id}/directives",
-            post(sessions::propose_directive),
-        )
+        .route("/api/sessions/{id}/directives", post(directives::propose))
         .route(
             "/api/sessions/{id}/directives/{hash}",
-            post(sessions::confirm_directive),
+            post(directives::confirm),
         )
         .fallback(static_files::serve)
 }
