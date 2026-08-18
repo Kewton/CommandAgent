@@ -268,8 +268,19 @@ Gate 1 lists only packs that satisfy all of the following:
 - schema/conformance green;
 - compatible with the selected profile, intent, source, and injection point;
 - contract-floor merge green;
-- admitted by the in-repository registry;
+- exact-byte pinned and not retired;
+- supply eligibility is explicit: an `admitted` pack exactly matches the
+  in-repository admitted registry, a `repository` pack is labelled unapproved,
+  or a `local` pack resolves from the configured extension-root and is labelled
+  unapproved and band-unmeasured;
 - identified by exact bytes, not merely ID/version.
+
+`PackSource` is the single typed supply vocabulary:
+`admitted | repository | local`. Repository and local packs are selectable only
+by an explicit pin; they do not inherit admission from a matching ID/version.
+Local GUI enumeration/selection requires the Trial token, and mutation also
+requires the existing Origin check. An unpinned directory or merely present
+YAML file is never a Gate 1 candidate.
 
 `No pack` is an explicit choice and preserves the existing product path.
 Builtin compatibility packs that preserve historical bytes are implementation
@@ -281,13 +292,22 @@ The shell displays:
 cli-assist@1.1.0
 sha256:3d11e126...
 point: cli-validation
+source: 承認済み
 band: measured / unmeasured
 ```
 
-It never lists a merely present YAML file as selectable. A pack added after a
-card was rendered invalidates that card only if the user chooses it; the
-previous exact hash remains reproducible. Signed external supply remains Phase
-G scope and is not a D-3c path.
+The required supply displays are `承認済み`, `リポジトリ（未承認）`, and
+`ローカル（未承認・帯域未計測）`. A local card also displays
+`pack 固有保証なし（既存 profile/intent の earned assurance のみ）`. If the
+extension root shadows the same repository `id@version`, the card adds
+`ローカル優先: 同名のリポジトリ pack より拡張ルートを優先`.
+
+A pack added after a card was rendered invalidates that card only if the user
+chooses it; the previous exact hash remains reproducible. Every source or hash
+change creates a new Gate 1 identity and confirmation. Unsigned operator-local
+supply is now a D-3c selection path, but signed/remote supply, publisher trust,
+and revocation remain Phase G scope. Local supply is neither Phase G signature
+work nor an admission path.
 
 Next.js T1 is currently a Rust/contract acceptance floor, not an eval pack.
 The shell must describe that fact rather than invent a `nextjs-eval` selection.

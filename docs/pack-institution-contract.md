@@ -1,12 +1,14 @@
 # Assist/eval pack institution contract
 
-Status: fixed (2026-07-30)
+Status: fixed v0.1 (2026-08-19)
 
-Date: 2026-07-30
+Date: 2026-08-19
 
-This document defines the fixed v0 contract for external `assist.yaml` and
-`eval.yaml` files. Implementations and later schema revisions are subordinate
-to this contract.
+This document defines the fixed institutional v0.1 contract for external
+`assist.yaml`, `eval.yaml`, and `materials/*.md` files. The YAML document schema
+identifiers remain `/v0`; v0.1 additively revises pack membership, supply, and
+hashing without changing existing YAML shapes. Implementations and later schema
+revisions are subordinate to this contract.
 
 The inventory in
 `workspace/management/runs/p0-pack-audit.md` is normative input to this contract.
@@ -36,16 +38,21 @@ semantics.
 - Probe, extractor, comparator, nearest-miss, normalizer, schema-validator,
   rerun, adjudication, and assurance implementations remain Rust.
 
-The v0 pack directory is:
+The v0.1 pack composition directory is:
 
 ```text
 packs/<pack-id>/<version>/
-├── assist.yaml       # optional
-└── eval.yaml         # optional
+├── assist.yaml            # optional
+├── eval.yaml              # optional
+└── materials/             # optional
+    └── <name>.md          # zero or more direct UTF-8 text members
 ```
 
-At least one file is REQUIRED. A file not listed above is outside the pack
-hash and MUST NOT affect execution.
+At least one of `assist.yaml` or `eval.yaml` is REQUIRED. `materials/*.md` is a
+bounded input to registered renderers and cannot constitute a pack by itself.
+The files above are the only composition members. `pack.sha256` and `RETIRED`
+are permitted management artifacts outside the hash and MUST NOT affect
+execution; any other member is rejected.
 
 ## 2. Identity, hashing, and strict decoding
 
@@ -76,8 +83,8 @@ identity fields.
 
 ### 2.2 Content hash
 
-The runtime computes one composition hash; it is not written inside either
-YAML file:
+The runtime computes one composition hash; it is not written inside a YAML or
+material file:
 
 ```text
 SHA-256(
@@ -85,14 +92,22 @@ SHA-256(
   u64be(len("assist.yaml")) || "assist.yaml" ||
   u64be(len(assist bytes))  || assist bytes ||
   u64be(len("eval.yaml"))   || "eval.yaml" ||
-  u64be(len(eval bytes))    || eval bytes
+  u64be(len(eval bytes))    || eval bytes ||
+  for each path in bytewise_sort(direct material paths):
+    u64be(len(path bytes))     || path bytes ||
+    u64be(len(material bytes)) || material bytes
 )
 ```
 
 For an absent file, its byte length is zero and it contributes no file bytes.
-File names are still included in the fixed order shown above. The external
+The `assist.yaml` and `eval.yaml` names are still included in that fixed order.
+Material paths have the exact form `materials/<name>.md` and are ordered by
+their normalized relative-path UTF-8 bytes, ascending. A pack with no material
+members therefore retains its pre-v0.1 hash: the domain separator remains
+`commandagent-pack-v0\0` and no empty materials marker is appended. The external
 form is `sha256:` followed by 64 lowercase hexadecimal characters. The hash
-therefore pins exact reviewed bytes, not a YAML reserialization.
+pins exact bytes without truncation, newline conversion, Unicode normalization,
+or YAML/Markdown reserialization.
 
 ### 2.3 Decoder rules
 
@@ -109,6 +124,19 @@ Both schemas use a closed world:
   `..`, empty segments, NUL, and backslashes are rejected;
 - there is no `include`, script, expression, template, regular-expression, or
   network source in v0.
+
+Material membership is also closed:
+
+- every material is one UTF-8 text file at the direct path
+  `materials/<name>.md`, where `<name>.md` matches
+  `^[A-Za-z0-9._-]+\.md$`;
+- a material is at most 65,536 bytes and the sum of material content bytes is
+  at most 262,144 bytes;
+- nested paths, directories in `materials/`, absolute paths, `..`, NUL,
+  backslashes, and symbolic links at the pack directory, `materials/`
+  directory, or member are rejected;
+- `pack.sha256`, `RETIRED`, and `journal.jsonl` are not material inputs and are
+  never made visible to a renderer.
 
 These rules apply before the contract-floor comparison.
 
@@ -210,7 +238,7 @@ resolved plan is rejected. No alias or “nearest” point is inferred.
 | `required` | boolean | optional, default `true`; `false` is allowed only for a source explicitly marked optional by Rust |
 | `params` | source-discriminated mapping | optional; unknown keys rejected |
 
-The v0 source enum and complete parameter schemas are:
+The v0.1 source enum and complete parameter schemas are:
 
 | Source | Parameters | Current maximum/default |
 |---|---|---|
@@ -223,11 +251,21 @@ The v0 source enum and complete parameter schemas are:
 | `cli_probe` | `case`, `fields`, `max_bytes_per_stream` | `case`: `normal` or `invalid`; fields: ordered unique subset of `argv`, `exit_code`, `stdout`, `stderr`; cap at most/default `24000` |
 | `data_inspection_schema` | `fields` | ordered unique subset of `input_path`, `column_names`, `input_row_count`, `type_summaries`, `distinct_values`, `sample_rows`; the source artifact retains its fixed 2 MiB Rust limit |
 | `browser_interaction` | `fields` | ordered unique subset of `dispatched_inputs`, `observed_state`, `hook_status`, `surface`, `outcome`; existing producer field bounds remain fixed and are not pack-editable |
+| `pack_material_document` | `file`, `max_bytes` | `file` is a REQUIRED basename matching `^[A-Za-z0-9._-]+\.md$` and resolves only as `materials/<file>`; `max_bytes` is a positive integer at most `65536`, default `16384` |
 
 An omitted `fields` uses the producer's registered ordered default. A numeric
 parameter can only reduce an existing bound; zero and a value above the Rust
 maximum are rejected. The source renderer MUST preserve the producer's
 sorting, redaction, truncation, and evidence references.
+
+`pack_material_document` reserves the exact Rust/source ID used by E-17
+(Issue 116). Its renderer treats the complete hashed material as untrusted
+observation data: it MUST apply credential scrub, a fixed non-instruction
+preamble, source/path-labelled delimiters, and an explicit truncation marker.
+`max_bytes` narrows only the rendered projection; the full material remains in
+the composition hash. This contract reservation does not create an
+implementation: conformance MUST reject the source until the matching Rust
+registry entry and renderer are present.
 
 `cli_probe` is timing-valid only at `cli-validation`, after C1 has produced
 the referenced observation in that phase. It cannot be injected at
@@ -244,6 +282,7 @@ inspection gate. The remaining source/point compatibility is:
 | `R_failure_output` | `isolate-cause`, `repair` |
 | `verified_diagnosis` | `implement-fix`, `repair` |
 | `browser_interaction` | `build-verification` after its producing observation only |
+| `pack_material_document` | Next.js create `project-setup`, `core-implementation`, `contract-wiring`, `build-verification` after the E-17 Rust registration only |
 
 Conformance proves that the source is available before prompt rendering. It
 rejects a timing cycle rather than rendering an empty placeholder.
@@ -565,6 +604,7 @@ pack:
   id: municipal-ingest
   version: 1.0.0
   hash: sha256:<64-lowercase-hex>
+  source: admitted # admitted | repository | local
   assist_present: true
   eval_present: true
   assist_schema_version: commandagent.pack.assist/v0
@@ -586,14 +626,21 @@ are never rewritten.
 
 ## 7. Trust boundary and review
 
-A pack is a trusted supply artifact because assist text enters a model prompt
-and eval configuration participates in release/assurance gates.
+A pack crosses a code-equivalent trust boundary because assist text enters a
+model prompt and eval configuration participates in release/assurance gates.
+Conformance establishes structural safety and floor preservation; it does not
+by itself establish review, admission, signature provenance, or measured
+effectiveness.
 
-- Pack changes require code-equivalent review, scrub, conformance, and CI.
-- The reviewed exact bytes and hash are committed together.
+- Admitted pack changes require code-equivalent review, scrub, conformance,
+  CI, and an exact admitted-registry tuple. The reviewed exact bytes and hash
+  are committed together.
+- Repository and local packs are explicitly unapproved. A pin makes their
+  bytes reproducible but does not grant admission or a measured band.
 - Measured sources remain untrusted data. Rust renderers delimit, escape,
   truncate, redact, and label them as observations; YAML cannot mark source
-  bytes as instructions.
+  bytes as instructions. `materials/*.md` is treated the same way regardless
+  of supply source.
 - Pack files cannot read environment variables, credentials, arbitrary files,
   network resources, or another pack.
 - A pack cannot choose a repair target, ownership boundary, verdict, or
@@ -602,9 +649,86 @@ and eval configuration participates in release/assurance gates.
 This trust boundary is why packs are not general prompt templates or
 validation programs.
 
+### 7.1 Supply identity: `PackSource`
+
+The Rust/API type name is exactly `PackSource`, with the following closed enum
+and snake-case serialized values:
+
+```rust
+pub enum PackSource {
+    Admitted,
+    Repository,
+    Local,
+}
+```
+
+| Value | Definition | Selection and execution | Mutating operations | Required Japanese display |
+|---|---|---|---|---|
+| `admitted` | Exact `id`, version, hash, and point match an entry in the reviewed admitted registry | selectable when compatible; runs retain their measured-band identity only when that exact composition was measured | not through the extension-root supply API; change by reviewed repository commit | `承認済み` |
+| `repository` | Pinned repository `packs/` member that is not an exact admitted tuple | explicit selection only after baseline conformance and profile/intent compatibility | verify or bundle freely; stage/pin changes go through source control and review; extension-root retire does not apply | `リポジトリ（未承認）` |
+| `local` | Pinned unsigned pack under operator-supplied `--extension-root` | explicit selection only after baseline conformance and profile/intent compatibility; GUI supply/selection requires Trial authentication and mutating requests also require Origin | authenticated stage, verify, pin, bundle, and retire in the extension root; overwrite and delete are prohibited | `ローカル（未承認・帯域未計測）` |
+
+Every list, Gate 1 card, acceptance sheet, GUI row, and machine summary MUST
+carry `id@version`, full `sha256:` hash, and `PackSource`. Gate 1, acceptance,
+and GUI use the Japanese display above. `--summary-json` uses the locale-neutral
+snake-case enum; `local` normatively means both unapproved and band-unmeasured,
+so no contradictory approval flag is introduced. The guarantee text for a
+local pack is `pack 固有保証なし（既存 profile/intent の earned assurance のみ）`.
+
+The resolution order is extension-root, then repository `packs/`. When a local
+pack shadows the same repository `id@version`, the resolved source remains
+`local` and Gate 1/GUI MUST add
+`ローカル優先: 同名のリポジトリ pack より拡張ルートを優先`. Displaying a pack
+does not select it, and a displayed extension not captured by the confirmation
+identity MUST NOT affect execution.
+
+### 7.2 Extension-root layout and lifecycle
+
+The three roots are mutually disjoint: `--repository-root` is the repository
+read boundary, `--execution-root` owns live `.anvil/` state, and
+`--extension-root` owns extension supply. The extension root and its managed
+children MUST be non-symlink directories writable only by their owner; a
+group- or other-writable root is rejected.
+
+```text
+<extension-root>/
+├── packs/<id>/<version>/
+│   ├── assist.yaml
+│   ├── eval.yaml
+│   ├── materials/*.md
+│   ├── pack.sha256
+│   └── RETIRED
+└── journal.jsonl
+```
+
+`stage` creates only an unpinned new `id@version` via temporary-directory plus
+atomic rename. `verify` applies the same baseline conformance used at runtime.
+`pin` re-reads and re-hashes the members, then creates `pack.sha256`; it MUST
+NOT overwrite an existing pin. `retire` creates `RETIRED` without deleting or
+rewriting pack bytes, the pin, or history. A retired pack remains listable and
+bundle-readable for audit, but `locate_pinned` and new selection reject it.
+
+### 7.3 Extension journal schema
+
+`<extension-root>/journal.jsonl` is append-only UTF-8 JSON Lines. The API type
+name is `JournalEntry`, appended only through
+`planner::pack::supply::journal::append(root, &JournalEntry)`. Each operation
+appends one closed object with all fields required:
+
+```json
+{"ts":"<RFC3339>","actor":"gui|cli","action":"stage|verify|pin|retire","pack":{"id":"<pack-id>","version":"<semver-core>","hash":"sha256:<64-lowercase-hex>"},"result":"ok|error","detail":"<bounded scrubbed text>"}
+```
+
+`ts` includes an RFC 3339 timezone. `actor`, `action`, and `result` use exactly
+the alternatives above. `detail` is at most 4,096 UTF-8 bytes after credential
+scrub and MUST NOT contain secret source text. The journal is outside every
+pack hash. Existing lines MUST NOT be edited, truncated, reordered, or changed
+from `error` to `ok`; retirement does not erase history.
+
 ## 8. Pack conformance
 
-Before admission, every pack MUST pass:
+The baseline conformance required before a repository or local pin is
+selectable comprises conditions 1 through 6:
 
 1. strict schema and duplicate/unknown-key rejection;
 2. identity agreement and reproducible exact-byte hash;
@@ -613,18 +737,24 @@ Before admission, every pack MUST pass:
 4. profile/intent/phase and source-before-point compatibility;
 5. contract-floor comparison;
 6. path confinement, bound checks, and scrub;
-7. a real measured fixture for every `inject`/`vocabulary` source and every
+7. **admission only:** a real measured fixture for every
+   `inject`/`vocabulary` source and every
    added check;
-8. golden rendering for byte-compatible externalization, or an explicitly
+8. **admission only:** golden rendering for byte-compatible externalization,
+   or an explicitly
    additive fixture for new behavior;
-9. evidence that floor checks still execute from the production acceptance
+9. **registry/release gate:** evidence that floor checks still execute from the production acceptance
    path;
-10. negative fixtures for unknown ID, unknown key, timing cycle, floor check
+10. **registry/release gate:** negative fixtures for unknown ID, unknown key, timing cycle, floor check
     removal, parameter weakening, schema weakening, and hash mismatch.
 
-The conformance report pins the same pack hash used by measurement. Synthetic
-fixtures may test rejection paths, but an admitted pack also requires its
-declared real measured fixture.
+Conditions 7 and 8 are REQUIRED for promotion to `admitted`; their absence is
+expected for an experimental local pin and MUST be displayed as unapproved and
+band-unmeasured, not silently treated as success. Conditions 9 and 10 protect
+the Rust registry/release that interprets packs and are not waived by local
+supply. The conformance report pins the same pack hash used by selection and
+measurement. Synthetic fixtures may test rejection paths, but an admitted pack
+also requires its declared real measured fixture.
 
 ## 9. Permanently out of scope
 
@@ -680,9 +810,14 @@ The 2026-07-30 review resolved all four questions:
    packs. Any revision requires the same sequence as a new contract:
    inventory, draft, review adjudication, fixed seal, conformance, and
    migration fixture.
-4. **Supply location:** reviewed packs live in the repository under `packs/`.
-   Signed external supply is deferred to Phase G and remains **QUEUED**; it is
-   not an alternative v0 load path.
+4. **Supply location (revised by v0.1 on 2026-08-19):** reviewed packs continue
+   to live in the repository under `packs/`. Operator-supplied unsigned packs
+   MAY live under `--extension-root/packs/` as pinned `local` packs, but remain
+   unapproved, band-unmeasured, and explicitly selected. Resolution is local
+   before repository. Signed or remote supply, publisher identity, trust roots,
+   and revocation remain Phase G **QUEUED** work; local operator supply is not a
+   signature substitute or admission path.
 
-This resolution seals v0. Schema evolution is explicit and versioned; a
-loader must not infer a later schema from unknown keys.
+This resolution seals institutional contract v0.1 while retaining the `/v0`
+YAML schemas. Schema evolution is explicit and versioned; a loader must not
+infer a later schema from unknown keys.
