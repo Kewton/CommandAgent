@@ -1,0 +1,18 @@
+{
+  "applicability": "S+Z",
+  "artifact_level": "L2",
+  "expected_verdict": "full",
+  "families": {
+    "B": "not_applicable_l2",
+    "S": "pass",
+    "Z": "pass"
+  },
+  "instrument_sha256_verified": true,
+  "manifest_verified": true,
+  "product_exit_code": 0,
+  "product_verdict": "full",
+  "reference_exit_code": 0,
+  "reference_verdict": "full",
+  "schema_version": "commandagent.community-reverification/v1",
+  "verdict_equal": true
+}

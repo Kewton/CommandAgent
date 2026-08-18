@@ -1,0 +1,68 @@
+{
+  "artifact_level": "L2",
+  "expected_verdict": "full",
+  "files": [
+    {
+      "path": "acceptance-sheet.md",
+      "sha256": "a29f61b1149f5a9188b31942fa189bfd6e3296300ea285f4530ceeeacec59fb0",
+      "size_bytes": 728
+    },
+    {
+      "path": "artifacts/app.spec.yaml",
+      "sha256": "9aa14d18077c291afdd0d718eeabbef424a28e0060e54eccbfe37557b57e9937",
+      "size_bytes": 706
+    },
+    {
+      "path": "artifacts/core/README.md",
+      "sha256": "b1ecd4495d9f057b5c3542f4b120a8b8176f0e63f7a900f3c51492735020f16c",
+      "size_bytes": 127
+    },
+    {
+      "path": "artifacts/core.sha256sums",
+      "sha256": "f23e87be97f9442cc20132eceed57c0149ffe2451f739b63ead83fc656c1e0af",
+      "size_bytes": 81
+    },
+    {
+      "path": "artifacts/schema/app-spec.schema.sha256",
+      "sha256": "515ab53e598e473e89447616c3f14550a3d999896ac4f32f3f65d645959955b0",
+      "size_bytes": 65
+    },
+    {
+      "path": "artifacts/schema/app-spec.schema.yaml",
+      "sha256": "80e4cb41eeb0f60eb04640e2ac8beac7d1414e7f5a9aa9fa563fd08d17ac7e0b",
+      "size_bytes": 355
+    },
+    {
+      "path": "promotion-record.json",
+      "sha256": "f3bc5ce994a1b0a6476d61cc51028cb2ec447042a9c15eedda08c27ed0bf6be5",
+      "size_bytes": 219
+    },
+    {
+      "path": "reverification.json",
+      "sha256": "febecece2ab74bc06ac70df5cc4f079b485ffa15c880a4e116ffe27168c37af2",
+      "size_bytes": 439
+    },
+    {
+      "path": "source-generation.json",
+      "sha256": "28bd96d6d62eb510a04b6673087f5f7af4805945ec857244b4b1875dfadd7b16",
+      "size_bytes": 1513
+    },
+    {
+      "path": "summary.json",
+      "sha256": "a4e534f39ef2b3c39442c087be87751cbe38e7fa7705cd31ea92658142a1a56c",
+      "size_bytes": 653
+    },
+    {
+      "path": "verification-events.jsonl",
+      "sha256": "6e7215c3cbff6a47e3cdaafd49d1918e76af4e10de263a291cad741e37fc87a1",
+      "size_bytes": 4717
+    }
+  ],
+  "instrument": {
+    "binary_sha256": "b9f9818602d34c1b383a1910bcaf0c8737d596bcf0d792f5b3e0399d330c13fa",
+    "verification_profile": "community-mini-app"
+  },
+  "schema_version": "commandagent.community-delivery-bundle/v1",
+  "source_run": "e_warikan_001",
+  "storage_unit": "R2_delivery_unit"
+}

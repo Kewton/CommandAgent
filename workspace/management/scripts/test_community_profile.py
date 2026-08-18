@@ -143,6 +143,31 @@ class CommunityProfileSpecTests(unittest.TestCase):
             with self.assertRaises(community_profile.ValidationError):
                 community_profile.validate_zone(root, root / "core.sha256sums", [])
 
+    def test_l2_without_declared_package_material_passes_zone(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "community"
+            shutil.copytree(FIXTURE, root)
+            (root / "src/app-zone").rename(root / "app-zone.fixture")
+            (root / "package.json").unlink()
+            (root / "package-lock.json").unlink()
+            result = community_profile.validate_zone(
+                root, root / "core.sha256sums", ["app.spec.yaml"]
+            )
+            self.assertEqual(result["verdict"], "pass")
+
+    def test_declared_package_material_still_requires_lockfile(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "community"
+            shutil.copytree(FIXTURE, root)
+            (root / "package-lock.json").unlink()
+            with self.assertRaisesRegex(
+                community_profile.ValidationError,
+                "package-lock.json is required",
+            ):
+                community_profile.validate_zone(
+                    root, root / "core.sha256sums", ["app.spec.yaml"]
+                )
+
     def test_zone_requires_promotion_decision(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "community"

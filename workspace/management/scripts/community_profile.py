@@ -436,8 +436,10 @@ def validate_core_snapshot(root: Path, manifest_path: Path) -> None:
 def validate_lockfile(root: Path) -> None:
     package_path = root / "package.json"
     lock_path = root / "package-lock.json"
-    if not package_path.is_file() or not lock_path.is_file():
-        raise ValidationError("package.json and package-lock.json are required")
+    if not package_path.is_file():
+        return
+    if not lock_path.is_file():
+        raise ValidationError("package-lock.json is required for declared package material")
     package = json.loads(package_path.read_text(encoding="utf-8"))
     lock = json.loads(lock_path.read_text(encoding="utf-8"))
     dependencies = dict(package.get("dependencies", {}))
