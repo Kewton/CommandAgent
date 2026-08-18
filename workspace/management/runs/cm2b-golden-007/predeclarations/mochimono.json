@@ -1,0 +1,11 @@
+{
+  "schema_version": "commandagent.bon-validation-predeclaration/v2",
+  "recorded_at": "2026-08-18T09:19:07+09:00",
+  "series_id": "f-bon-v-community-golden-mochimono-007",
+  "execution_revision": "96c78ce9e1f4dcffb8109ac4ed03c7d2c52c917e",
+  "suite_sha256": "1c190b1932209c1c319abc9ed96226c3f1740ebd93db85d67bb189076f93a7f6",
+  "binary_sha256": "bbdeb6b66fefaf8a36c809ad5946e11066b974ef22af3d8104e836d82a7371b0",
+  "baseline_rate": {"full_count": 6, "trial_count": 6, "estimate": 1.0, "sources": ["indirect ingest×Luna n=6"], "confidence_interval": {"method": "wilson_score", "confidence": 0.95, "lower": 0.6096657120978346, "upper": 1.0}},
+  "predictive_distribution": {"model": "beta_binomial", "prior": {"name": "jeffreys", "alpha": 0.5, "beta": 0.5}, "trials": 12, "posterior": {"alpha": 6.5, "beta": 0.5}, "probability_at_least_one_full": 0.9999913175900778, "expected_full_count": 11.142857142857142, "full_count_band": {"method": "shortest_contiguous", "mass": 0.95, "lower": 8, "upper": 12}},
+  "hypothesis": {"point_prediction": "none; indirect baseline is contextual only", "sampling": "provider-managed"}
+}

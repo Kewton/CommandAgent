@@ -429,6 +429,15 @@ ledger_ref = "CM-2i"
 note = "解消済み(CM-2j、L3/L4文脈限定): L2 spec-onlyはS/Z/材料検査で完結しB系は非適用。src/app-zone/またはapp-zone/が存在するL3/L4では従来どおりB系必須で、不完全zoneはこのクラスでfail closedする。"
 
 [[class]]
+id = "community_l3_verify_command_timeout"
+category = "terminal"
+attribution = "machine"
+match_reason = "verify_command_timeout:commandagent --offline --profile community-mini-app"
+first_seen = "cm2b-golden-007-warikan-002"
+ledger_ref = "CM-2j"
+note = "未解消(計測で初出): plannerがL3へ昇格後、非対話actionもpromptも持たないcommandagent起動形をverifyとして生成し120秒timeout。生成zoneも契約のapp.tsではなくapp.jsだった。CM-2jの検証適用性改訂範囲外のplanner/L3生成契約床として裁定待ち。"
+
+[[class]]
 id = "planner_quality_exhausted"
 category = "terminal"
 attribution = "machine"
