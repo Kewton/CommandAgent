@@ -28,6 +28,7 @@ pub(crate) mod phase_plan_synthesis;
 pub mod profile;
 pub(crate) mod profile_admission;
 pub(crate) mod profile_behavior;
+pub mod profile_descriptor;
 pub mod profile_manifest;
 pub(crate) mod profile_preset;
 pub mod repair;

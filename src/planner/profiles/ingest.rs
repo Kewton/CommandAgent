@@ -20,7 +20,7 @@ pub struct IngestProfile;
 
 impl DomainProfile for IngestProfile {
     fn id(&self) -> &'static str {
-        "ingest"
+        crate::planner::profile_descriptor::INGEST_PROFILE_ID
     }
 
     fn expected_scaffold_paths(&self, _root: &Path, _goal: &str) -> Vec<String> {

@@ -1,4 +1,7 @@
 use crate::planner::adjudication::contract::IntentId;
+use crate::planner::profile_descriptor::{
+    DATA_PROFILE_ID, INGEST_PROFILE_ID, NEXTJS_PROFILE_ID, PYTHON_CLI_PROFILE_ID,
+};
 
 use super::family_catalog::TaskFamilyId;
 
@@ -25,7 +28,7 @@ const INVESTIGATION_MEANING: &str = "I1 executes a failing reproducer and I2 bin
 
 pub const BAND_VALUES: &[BandValue] = &[
     band(
-        "nextjs",
+        NEXTJS_PROFILE_ID,
         IntentId::Create,
         TaskFamilyId::Quiz,
         23,
@@ -37,7 +40,7 @@ pub const BAND_VALUES: &[BandValue] = &[
         NEXTJS_MEANING,
     ),
     band(
-        "nextjs",
+        NEXTJS_PROFILE_ID,
         IntentId::Create,
         TaskFamilyId::Breakout,
         5,
@@ -49,7 +52,7 @@ pub const BAND_VALUES: &[BandValue] = &[
         NEXTJS_MEANING,
     ),
     band(
-        "nextjs",
+        NEXTJS_PROFILE_ID,
         IntentId::Create,
         TaskFamilyId::Space,
         3,
@@ -61,7 +64,7 @@ pub const BAND_VALUES: &[BandValue] = &[
         NEXTJS_MEANING,
     ),
     band(
-        "data",
+        DATA_PROFILE_ID,
         IntentId::Create,
         TaskFamilyId::Aggregation,
         2,
@@ -73,7 +76,7 @@ pub const BAND_VALUES: &[BandValue] = &[
         DATA_MEANING,
     ),
     band(
-        "data",
+        DATA_PROFILE_ID,
         IntentId::Create,
         TaskFamilyId::Timeseries,
         0,
@@ -85,7 +88,7 @@ pub const BAND_VALUES: &[BandValue] = &[
         DATA_MEANING,
     ),
     band(
-        "python-cli",
+        PYTHON_CLI_PROFILE_ID,
         IntentId::Create,
         TaskFamilyId::Stats,
         0,
@@ -97,7 +100,7 @@ pub const BAND_VALUES: &[BandValue] = &[
         CLI_MEANING,
     ),
     band(
-        "python-cli",
+        PYTHON_CLI_PROFILE_ID,
         IntentId::Create,
         TaskFamilyId::Filter,
         0,
@@ -109,7 +112,7 @@ pub const BAND_VALUES: &[BandValue] = &[
         CLI_MEANING,
     ),
     band(
-        "ingest",
+        INGEST_PROFILE_ID,
         IntentId::Create,
         TaskFamilyId::List,
         4,
@@ -121,7 +124,7 @@ pub const BAND_VALUES: &[BandValue] = &[
         INGEST_MEANING,
     ),
     band(
-        "ingest",
+        INGEST_PROFILE_ID,
         IntentId::Create,
         TaskFamilyId::Table,
         4,
@@ -133,7 +136,7 @@ pub const BAND_VALUES: &[BandValue] = &[
         INGEST_MEANING,
     ),
     band(
-        "nextjs",
+        NEXTJS_PROFILE_ID,
         IntentId::Fix,
         TaskFamilyId::CompileErrorFix,
         0,
@@ -145,7 +148,7 @@ pub const BAND_VALUES: &[BandValue] = &[
         FIX_MEANING,
     ),
     band(
-        "nextjs",
+        NEXTJS_PROFILE_ID,
         IntentId::Fix,
         TaskFamilyId::ContractHookFix,
         0,
@@ -157,7 +160,7 @@ pub const BAND_VALUES: &[BandValue] = &[
         FIX_MEANING,
     ),
     band(
-        "data",
+        DATA_PROFILE_ID,
         IntentId::Investigate,
         TaskFamilyId::Pipe,
         0,
@@ -169,7 +172,7 @@ pub const BAND_VALUES: &[BandValue] = &[
         INVESTIGATION_MEANING,
     ),
     band(
-        "data",
+        DATA_PROFILE_ID,
         IntentId::Investigate,
         TaskFamilyId::Schema,
         0,

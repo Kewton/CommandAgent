@@ -36,7 +36,8 @@ the trait.
 
 1. Add a profile module under `src/planner/profiles/`.
 2. Implement `DomainProfile` with defaults for anything not applicable.
-3. Register it in `src/planner/profile.rs`.
+3. Add one entry to `PROFILE_DESCRIPTORS` in
+   `src/planner/profile_descriptor.rs`.
 4. Keep dependency setup authority-gated and offline-aware.
 5. Return compile errors as `CompileError` so existing repair targeting,
    rollback, and recovery handoff paths work unchanged.

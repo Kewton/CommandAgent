@@ -150,42 +150,46 @@ impl ProfileId {
     pub fn parse(profile: &str) -> Self {
         let canonical = canonical_profile_name(profile);
         match canonical.as_str() {
-            crate::planner::profiles::nextjs::PROFILE_ID => Self::Nextjs,
-            "python-cli" => Self::PythonCli,
-            "data" => Self::Data,
+            crate::planner::profile_descriptor::NEXTJS_PROFILE_ID => Self::Nextjs,
+            crate::planner::profile_descriptor::PYTHON_CLI_PROFILE_ID => Self::PythonCli,
+            crate::planner::profile_descriptor::DATA_PROFILE_ID => Self::Data,
             "data-analysis" => Self::DataAnalysis,
             "data-pipeline" => Self::DataPipeline,
-            "ingest" => Self::Ingest,
+            crate::planner::profile_descriptor::INGEST_PROFILE_ID => Self::Ingest,
             "cli" => Self::Cli,
-            "generic" => Self::Generic,
+            crate::planner::profile_descriptor::GENERIC_PROFILE_ID => Self::Generic,
             "rust" => Self::Rust,
             "docs" => Self::Docs,
             "documentation" => Self::Documentation,
             "vite" => Self::Vite,
             "react" => Self::React,
             "web" => Self::Web,
-            crate::planner::profiles::community_mini_app::PROFILE_ID => Self::CommunityMiniApp,
+            crate::planner::profile_descriptor::COMMUNITY_MINI_APP_PROFILE_ID => {
+                Self::CommunityMiniApp
+            }
             other => Self::Other(other.to_string()),
         }
     }
 
     pub fn as_str(&self) -> &str {
         match self {
-            Self::Nextjs => crate::planner::profiles::nextjs::PROFILE_ID,
-            Self::PythonCli => "python-cli",
-            Self::Data => "data",
+            Self::Nextjs => crate::planner::profile_descriptor::NEXTJS_PROFILE_ID,
+            Self::PythonCli => crate::planner::profile_descriptor::PYTHON_CLI_PROFILE_ID,
+            Self::Data => crate::planner::profile_descriptor::DATA_PROFILE_ID,
             Self::DataAnalysis => "data-analysis",
             Self::DataPipeline => "data-pipeline",
-            Self::Ingest => "ingest",
+            Self::Ingest => crate::planner::profile_descriptor::INGEST_PROFILE_ID,
             Self::Cli => "cli",
-            Self::Generic => "generic",
+            Self::Generic => crate::planner::profile_descriptor::GENERIC_PROFILE_ID,
             Self::Rust => "rust",
             Self::Docs => "docs",
             Self::Documentation => "documentation",
             Self::Vite => "vite",
             Self::React => "react",
             Self::Web => "web",
-            Self::CommunityMiniApp => crate::planner::profiles::community_mini_app::PROFILE_ID,
+            Self::CommunityMiniApp => {
+                crate::planner::profile_descriptor::COMMUNITY_MINI_APP_PROFILE_ID
+            }
             Self::Other(value) => value,
         }
     }
@@ -514,26 +518,6 @@ pub struct DataProfile;
 pub struct GenericProfile;
 
 pub const GENERIC_INTERACTIVE_CONTRACT_CAPABILITY: &str = "generic_interactive_contract";
-
-static NEXTJS_PROFILE: crate::planner::profiles::nextjs::NextjsProfile =
-    crate::planner::profiles::nextjs::NextjsProfile;
-static DATA_PROFILE: DataProfile = DataProfile;
-static PYTHON_CLI_PROFILE: crate::planner::profiles::python_cli::PythonCliProfile =
-    crate::planner::profiles::python_cli::PythonCliProfile;
-static INGEST_PROFILE: crate::planner::profiles::ingest::IngestProfile =
-    crate::planner::profiles::ingest::IngestProfile;
-static GENERIC_PROFILE: GenericProfile = GenericProfile;
-static COMMUNITY_MINI_APP_PROFILE:
-    crate::planner::profiles::community_mini_app::CommunityMiniAppProfile =
-    crate::planner::profiles::community_mini_app::CommunityMiniAppProfile;
-static DOMAIN_PROFILES: [&'static dyn DomainProfile; 6] = [
-    &NEXTJS_PROFILE,
-    &PYTHON_CLI_PROFILE,
-    &DATA_PROFILE,
-    &INGEST_PROFILE,
-    &COMMUNITY_MINI_APP_PROFILE,
-    &GENERIC_PROFILE,
-];
 
 impl ProfileRuntime for crate::planner::profiles::nextjs::NextjsProfile {
     fn profile_id(&self) -> ProfileId {
@@ -1049,40 +1033,18 @@ impl ProfileRuntime for GenericProfile {
 pub struct ProfileRuntimeRegistry;
 
 impl ProfileRuntimeRegistry {
-    const REGISTERED: [ProfileId; 6] = [
-        ProfileId::Nextjs,
-        ProfileId::CommunityMiniApp,
-        ProfileId::PythonCli,
-        ProfileId::Data,
-        ProfileId::Ingest,
-        ProfileId::Generic,
-    ];
-
     /// The single typed runtime resolution point. Parsing/legacy aliases are
     /// handled by `ProfileId::parse`; behavioral selection occurs only here.
     pub fn resolve(profile: &ProfileId) -> &'static dyn ProfileRuntime {
-        match profile {
-            ProfileId::Nextjs => &NEXTJS_PROFILE,
-            ProfileId::CommunityMiniApp => &COMMUNITY_MINI_APP_PROFILE,
-            ProfileId::PythonCli => &PYTHON_CLI_PROFILE,
-            ProfileId::Data | ProfileId::DataAnalysis | ProfileId::DataPipeline => &DATA_PROFILE,
-            ProfileId::Ingest => &INGEST_PROFILE,
-            ProfileId::Cli
-            | ProfileId::Generic
-            | ProfileId::Rust
-            | ProfileId::Docs
-            | ProfileId::Documentation
-            | ProfileId::Vite
-            | ProfileId::React
-            | ProfileId::Web
-            | ProfileId::Other(_) => &GENERIC_PROFILE,
-        }
+        crate::planner::profile_descriptor::descriptor_for_domain(profile.as_str()).runtime
     }
 
     /// Read-only enumeration for D-3c. Runtime identity stays owned by this
     /// registry instead of being copied into the boundary shell.
     pub fn registered() -> impl Iterator<Item = ProfileId> {
-        Self::REGISTERED.into_iter()
+        crate::planner::profile_descriptor::PROFILE_DESCRIPTORS
+            .iter()
+            .map(|profile| profile.id.clone())
     }
 }
 
@@ -1125,26 +1087,26 @@ pub fn infer_profile(goal: Option<&str>, workspace_root: &Path) -> Option<Profil
     if let Some(goal) = goal {
         if signals::contains_nextjs_goal_token(goal) {
             return Some(ProfileInference {
-                profile: NEXTJS_PROFILE.id(),
+                profile: crate::planner::profile_descriptor::NEXTJS_PROFILE_ID,
                 source: ProfileInferenceSource::Goal,
             });
         }
         if signals::contains_python_cli_goal_token(goal) {
             return Some(ProfileInference {
-                profile: PYTHON_CLI_PROFILE.id(),
+                profile: crate::planner::profile_descriptor::PYTHON_CLI_PROFILE_ID,
                 source: ProfileInferenceSource::Goal,
             });
         }
     }
     if package_json_has_dependency(workspace_root, "next") {
         return Some(ProfileInference {
-            profile: NEXTJS_PROFILE.id(),
+            profile: crate::planner::profile_descriptor::NEXTJS_PROFILE_ID,
             source: ProfileInferenceSource::Workspace,
         });
     }
     if workspace_root.join("pyproject.toml").is_file() {
         return Some(ProfileInference {
-            profile: PYTHON_CLI_PROFILE.id(),
+            profile: crate::planner::profile_descriptor::PYTHON_CLI_PROFILE_ID,
             source: ProfileInferenceSource::Workspace,
         });
     }
@@ -1166,7 +1128,7 @@ fn package_json_has_dependency(root: &Path, name: &str) -> bool {
 
 impl DomainProfile for DataProfile {
     fn id(&self) -> &'static str {
-        "data"
+        crate::planner::profile_descriptor::DATA_PROFILE_ID
     }
 
     fn matches(&self, profile: &str) -> bool {
@@ -1386,7 +1348,7 @@ impl DomainProfile for DataProfile {
 
 impl DomainProfile for GenericProfile {
     fn id(&self) -> &'static str {
-        "generic"
+        crate::planner::profile_descriptor::GENERIC_PROFILE_ID
     }
 
     fn matches(&self, _profile: &str) -> bool {
@@ -1571,11 +1533,7 @@ fn generic_app_intent_excluded_by_internal_or_artifact_context(lower: &str) -> b
 }
 
 pub fn domain_profile(profile: &str) -> &'static dyn DomainProfile {
-    DOMAIN_PROFILES
-        .iter()
-        .copied()
-        .find(|candidate| candidate.matches(profile))
-        .unwrap_or(&GENERIC_PROFILE)
+    crate::planner::profile_descriptor::descriptor_for_domain(profile).domain
 }
 
 /// Canonical profile identifiers accepted by the planner.
@@ -1583,7 +1541,17 @@ pub fn domain_profile(profile: &str) -> &'static dyn DomainProfile {
 /// Keep editor-facing profile discovery tied to the same implementations used
 /// by runtime dispatch instead of maintaining a second list in the TUI.
 pub fn profile_names() -> Vec<&'static str> {
-    DOMAIN_PROFILES.iter().map(|profile| profile.id()).collect()
+    let profiles = crate::planner::profile_descriptor::PROFILE_DESCRIPTORS;
+    profiles
+        .iter()
+        .filter(|profile| profile.pack_profile.is_some())
+        .chain(
+            profiles
+                .iter()
+                .filter(|profile| profile.pack_profile.is_none()),
+        )
+        .map(|profile| profile.canonical)
+        .collect()
 }
 
 pub fn build_oracle_for_command(
@@ -1597,8 +1565,12 @@ pub fn build_oracle_for_command(
         }
     }
     for profile in [
-        &NEXTJS_PROFILE as &'static dyn DomainProfile,
-        &GENERIC_PROFILE as &'static dyn DomainProfile,
+        crate::planner::profile_descriptor::descriptor(&ProfileId::Nextjs)
+            .expect("nextjs descriptor")
+            .domain,
+        crate::planner::profile_descriptor::descriptor(&ProfileId::Generic)
+            .expect("generic descriptor")
+            .domain,
     ] {
         if let Some(oracle) = profile.build_oracle(command) {
             return Some((profile, oracle));
@@ -1615,7 +1587,11 @@ pub fn profile_for_build_requirement(
     }
     build_oracle_for_command(None, &requirement.command)
         .map(|(profile, _)| profile)
-        .unwrap_or(&GENERIC_PROFILE)
+        .unwrap_or_else(|| {
+            crate::planner::profile_descriptor::descriptor(&ProfileId::Generic)
+                .expect("generic descriptor")
+                .domain
+        })
 }
 
 pub fn canonical_profile_name(profile: &str) -> String {
@@ -1626,17 +1602,23 @@ pub fn canonical_profile_name(profile: &str) -> String {
         return canonical.to_string();
     }
     match normalized.as_str() {
-        "python" | "python-cli" | "py-cli" | "py" => "python-cli".to_string(),
+        "python" | "py-cli" | "py" => {
+            crate::planner::profile_descriptor::PYTHON_CLI_PROFILE_ID.to_string()
+        }
         other => other.to_string(),
     }
 }
 
 pub fn community_quality_retry_is_terminal(profile: &str) -> bool {
-    canonical_profile_name(profile) == crate::planner::profiles::community_mini_app::PROFILE_ID
+    canonical_profile_name(profile)
+        == crate::planner::profile_descriptor::COMMUNITY_MINI_APP_PROFILE_ID
 }
 
 pub fn is_nextjs_profile(profile: &str) -> bool {
-    NEXTJS_PROFILE.matches(profile)
+    crate::planner::profile_descriptor::descriptor(&ProfileId::Nextjs)
+        .expect("nextjs descriptor")
+        .domain
+        .matches(profile)
 }
 
 pub fn verify_profile(root: &Path, profile: &str, goal: &str) -> VerificationReport {
@@ -1914,7 +1896,7 @@ mod tests {
         for raw in [
             "nextjs",
             "next-js",
-            "python-cli",
+            crate::planner::profile_descriptor::PYTHON_CLI_PROFILE_ID,
             "data",
             "data-analysis",
             "data-pipeline",
@@ -1935,10 +1917,28 @@ mod tests {
     }
 
     #[test]
+    fn profile_discovery_preserves_formal_then_unbanded_order() {
+        assert_eq!(
+            profile_names(),
+            vec![
+                crate::planner::profile_descriptor::NEXTJS_PROFILE_ID,
+                crate::planner::profile_descriptor::PYTHON_CLI_PROFILE_ID,
+                crate::planner::profile_descriptor::DATA_PROFILE_ID,
+                crate::planner::profile_descriptor::INGEST_PROFILE_ID,
+                crate::planner::profile_descriptor::COMMUNITY_MINI_APP_PROFILE_ID,
+                crate::planner::profile_descriptor::GENERIC_PROFILE_ID,
+            ]
+        );
+    }
+
+    #[test]
     fn typed_profile_id_display_preserves_canonical_bytes() {
         for (raw, expected) in [
             (" next-js ", "nextjs"),
-            ("PY", "python-cli"),
+            (
+                "PY",
+                crate::planner::profile_descriptor::PYTHON_CLI_PROFILE_ID,
+            ),
             ("data-analysis", "data-analysis"),
             ("cli", "cli"),
             ("documentation", "documentation"),
@@ -1952,7 +1952,10 @@ mod tests {
 
     #[test]
     fn fix_before_hook_never_preprovisions_create_scaffolds() {
-        for profile in ["nextjs", "python-cli"] {
+        for profile in [
+            "nextjs",
+            crate::planner::profile_descriptor::PYTHON_CLI_PROFILE_ID,
+        ] {
             let dir = tempfile::tempdir().unwrap();
             profile_before_fix_phase(dir.path(), profile).unwrap();
             assert!(!dir.path().join("package.json").exists(), "{profile}");

@@ -1,22 +1,13 @@
-use crate::planner::profile::canonical_profile_name;
 use crate::planner::profile_manifest::ManifestStatus;
-use crate::planner::profiles::{data, ingest, python_cli};
 
 #[cfg(test)]
 pub(crate) use crate::planner::adjudication::PROFILE_NOT_ADMITTED_REASON;
 use crate::planner::adjudication::cap_assurance_for_status as apply_admission_cap;
 
 pub(crate) fn status(profile: &str) -> ManifestStatus {
-    let canonical = canonical_profile_name(profile);
-    match canonical.as_str() {
-        "generic" => ManifestStatus::Admitted,
-        "data" => data::manifest::get().metadata.status,
-        "ingest" => ingest::manifest::get().metadata.status,
-        "python-cli" | "cli" => python_cli::manifest::get().metadata.status,
-        "community-mini-app" => ManifestStatus::Admitted,
-        _ => crate::planner::profiles::nextjs::manifest_status(&canonical)
-            .unwrap_or(ManifestStatus::Draft),
-    }
+    crate::planner::profile_descriptor::descriptor_for_name(profile)
+        .map(|descriptor| (descriptor.admission)())
+        .unwrap_or(ManifestStatus::Draft)
 }
 
 pub(crate) fn cap_assurance(profile: &str, level: &mut String, reason: &mut String) {
