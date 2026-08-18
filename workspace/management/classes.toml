@@ -447,6 +447,24 @@ ledger_ref = "CM-2k"
 note = "app-zone/L3成果物が存在するが、閉集合reason_classと先行L2 pass参照を持つ有効なevidence/promotion-decision.jsonがないZ系violation。planner側もzone stepより前のpromotion stepを要求する。"
 
 [[class]]
+id = "community_package_missing"
+category = "terminal"
+attribution = "model"
+match_reason = "community_profile_violation:community_package_missing"
+first_seen = "cm3-matrix-001-arm-d"
+ledger_ref = "CM-3"
+note = "Luna planner/Luna executor armの正当昇格L3で、app-zoneのB検証に必要なpackage manifestを生成せずfail closed。比較観測の失敗署名であり、検証は緩和しない。"
+
+[[class]]
+id = "community_spec_artifact_missing"
+category = "terminal"
+attribution = "model"
+match_reason = "path does not exist: app.spec.yaml"
+first_seen = "cm3-matrix-001-arm-d"
+ledger_ref = "CM-3"
+note = "Luna planner/Luna executor armで必須L2成果物app.spec.yamlをexecutorが生成しないままphaseが終端。比較観測の失敗署名として登録し、artifact gateは不変。"
+
+[[class]]
 id = "community_l3_verify_command_timeout"
 category = "terminal"
 attribution = "machine"
