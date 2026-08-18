@@ -157,12 +157,17 @@ pub fn diagnose_cli(cli: &Cli) -> anyhow::Result<DoctorReport> {
         .clone()
         .unwrap_or_else(crate::config::default_state_dir);
     let resolution_error = resolved.as_ref().err().map(|error| format!("{error:#}"));
+    let pack = resolved
+        .as_ref()
+        .ok()
+        .map(|config| crate::cli_pack::resolve_for_doctor(cli, config));
     Ok(collect_report(
         &root,
         resolved.as_ref().ok(),
         resolution_error.as_deref(),
         cli.preset.as_deref(),
         &fallback_state_dir,
+        pack,
     ))
 }
 
@@ -174,6 +179,7 @@ pub fn diagnose(config: &Config) -> DoctorReport {
         None,
         preset.as_deref(),
         &config.state_dir,
+        Some(Ok(None)),
     )
 }
 
@@ -183,6 +189,7 @@ fn collect_report(
     resolution_error: Option<&str>,
     preset_name: Option<&str>,
     fallback_state_dir: &Path,
+    pack: Option<Result<Option<crate::cli_pack::ResolvedPack>, String>>,
 ) -> DoctorReport {
     let mut checks = Vec::new();
     match resolved {
@@ -198,6 +205,7 @@ fn collect_report(
         )),
     }
     add_config_file_checks(&mut checks, root, preset_name, resolution_error.is_some());
+    checks.push(pack_selection_check(pack));
     if let Some(config) = resolved {
         add_provider_checks(&mut checks, config);
     }
@@ -222,6 +230,54 @@ fn collect_report(
     ));
     checks.push(dotenv_check(root));
     DoctorReport::from_checks(checks)
+}
+
+fn pack_selection_check(
+    selection: Option<Result<Option<crate::cli_pack::ResolvedPack>, String>>,
+) -> DoctorCheck {
+    match selection {
+        Some(Ok(Some(pack))) => DoctorCheck::new(
+            "pack.selection",
+            "pack",
+            "Pack selection",
+            CheckStatus::Pass,
+            format!(
+                "resolved {}@{} ({})",
+                pack.id,
+                pack.version,
+                pack.source.as_str()
+            ),
+            None,
+            json!({ "selection": pack }),
+        ),
+        Some(Ok(None)) => DoctorCheck::new(
+            "pack.selection",
+            "pack",
+            "Pack selection",
+            CheckStatus::Pass,
+            "no pack selected",
+            None,
+            json!({ "selection": null }),
+        ),
+        Some(Err(error)) => DoctorCheck::new(
+            "pack.selection",
+            "pack",
+            "Pack selection",
+            CheckStatus::Fail,
+            &error,
+            Some("correct the pack selector, pin, hash, profile, or extension root".to_string()),
+            json!({ "error": error }),
+        ),
+        None => DoctorCheck::new(
+            "pack.selection",
+            "pack",
+            "Pack selection",
+            CheckStatus::Fail,
+            "pack selection unavailable because configuration did not resolve",
+            Some("fix configuration resolution, then rerun --doctor".to_string()),
+            json!({ "selection": null }),
+        ),
+    }
 }
 
 fn add_resolved_configuration_checks(checks: &mut Vec<DoctorCheck>, config: &Config) {

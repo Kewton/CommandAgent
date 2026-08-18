@@ -16,7 +16,7 @@
 複数のアクション選択フラグを組み合わせると拒否されます。
 
 Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリケーション固有の
-45 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
+48 フラグには含めません。非表示の `--completion-contract-json <PATH>` は内部連携用であり、
 公開ユーザーフラグではありません。
 
 ## フラグ一覧
@@ -25,6 +25,9 @@ Clap が生成する `-h`/`--help` と `-V`/`--version` は、以下のアプリ
 | --- | --- | --- | --- | --- |
 | `--yes` | なし | オフ | 変更ツールと再開確認を自動承認します。使用中ポートの所有プロセスを自動終了することはありません。信頼できるワークスペースでのみ使ってください。 | [使用中ポート](troubleshooting.md#preflight-port-n-is-busy) |
 | `--preset` | `<PRESET>` | なし | 設定ファイルから組み立てた名前付き `[preset.<name>]` を選びます。 | [Preset](configuration.md#preset) |
+| `--pack` | `<ID@VERSION>` | preset の `pack`、その後なし | exact version の pack を有効化します。preset と矛盾する pack は run 前に拒否します。 | [Pack 選択](configuration.md#pack-選択) |
+| `--pack-hash` | `<SHA256>` | 検証済み `pack.sha256` | 選択 pack の exact-byte hash を固定します。`--pack` が必要です。 | [Pack 選択](configuration.md#pack-選択) |
+| `--extension-root` | `<DIR>` | トップレベル `extension_root`、その後なし | 選択 identity を repository の `packs/` より先に extension root から探索します。 | [Pack 選択](configuration.md#pack-選択) |
 | `--context-budget` | `<CONTEXT_BUDGET>` 整数 | `65536` | 会話を圧縮する概算コンテキスト予算を設定します。 | [重要な解決後の既定値](#重要な解決後の既定値) |
 | `--model` | `<MODEL>` | `qwen3.6:27b-coding-nvfp4` | 実行モデル ID を設定します。 | [プロバイダ](providers.md) |
 | `--provider` | `<PROVIDER>`: `ollama`、`lm-studio`、`openai`、`gemini` | `ollama` | 実行プロバイダを選びます。 | [プロバイダ](providers.md) |

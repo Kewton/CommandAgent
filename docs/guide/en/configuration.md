@@ -27,6 +27,8 @@ Resolution is field-by-field, and not every setting supports all four layers.
 | `tool_protocol` | CLI > preset > provider capability default |
 | `planner_model`, `planner_provider` | CLI > preset > executor role inheritance; a different provider requires a planner model |
 | `profile` | CLI > preset > goal/workspace inference > `generic` |
+| `pack` | CLI `--pack` > selected preset; contradictory explicit values fail |
+| `extension_root` | CLI `--extension-root` > top-level key > repository-only search |
 | `ollama_host`, `think`, `lm_studio_host`, `num_predict`, `max_iterations`, `chat_retries`, `style`, `state_dir`, and other CLI-only fields | CLI value or CLI-declared/built-in default; config files do not accept them |
 
 The timeout default is `600` seconds if either role uses Ollama or LM Studio
@@ -55,12 +57,13 @@ or guide paths based only on the newer `.commandagent/` config namespace.
 
 ## Presets
 
-Select a preset with `--preset <name>`. A preset section accepts all 14 current
+Select a preset with `--preset <name>`. A preset section accepts all 15 current
 keys below. String/enumeration values must be double-quoted; numeric values are
 unquoted integers.
 
 | Preset key | Accepted value | Effective fallback when absent everywhere |
 | --- | --- | --- |
+| `pack` | exact `"id@MAJOR.MINOR.PATCH"` selector | no pack |
 | `model` | model ID string | `qwen3.6:27b-coding-nvfp4` |
 | `provider` | `"ollama"`, `"lm-studio"`, `"openai"`, or `"gemini"` | `"ollama"` |
 | `api` | `"chat_completions"` or `"responses"` | `"chat_completions"` |
@@ -106,20 +109,21 @@ Preset merging stops early once these 11 fields are present: `model`,
 `chat_timeout_secs`, `plan_preset`, `profile`, `narration`, `footer`, and
 `stream`.
 
-`prompt_layout`, `api`, and `tool_protocol` are accepted but are **not** part of that completeness test. If a
+`prompt_layout`, `api`, `tool_protocol`, and `pack` are accepted but are **not** part of that completeness test. If a
 higher-priority preset already has the 11 completeness fields but omits
 `prompt_layout`, CommandAgent stops searching and does not inherit that preset's
 `prompt_layout` from a lower-priority file. Put `prompt_layout` in the same
 higher-priority preset, or omit enough completeness fields for the intended
-lower layer to be visited. Do not assume the 14 accepted keys are the same as
+lower layer to be visited. Do not assume the 15 accepted keys are the same as
 the 11-key early-stop condition.
 
 ## Top-level keys
 
-Only five keys are valid at the top level of a `config.toml` file:
+Only six keys are valid at the top level of a `config.toml` file:
 
 | Key | Accepted value | Matching CLI override |
 | --- | --- | --- |
+| `extension_root` | directory path string | `--extension-root` |
 | `narration` | `"normal"` or `"quiet"` | `--quiet` forces `quiet` |
 | `footer` | `"on"` or `"off"` | `--footer`, `--no-footer` |
 | `stream` | `"on"` or `"off"` | `--stream` |
@@ -127,6 +131,7 @@ Only five keys are valid at the top level of a `config.toml` file:
 | `plan_preset` | `"none"` or `"profile"` | `--plan-preset` |
 
 ```toml
+extension_root = "extensions"
 narration = "quiet"
 footer = "off"
 stream = "on"
@@ -139,6 +144,25 @@ Unknown top-level keys make that file fail parsing. Named-preset loading
 surfaces the parse error; top-level field lookup skips a file that did not parse
 and continues to lower-priority files. Sections other than `[preset.<name>]`
 are ignored by the current small parser rather than treated as configuration.
+
+## Pack selection
+
+Pack selectors always include an exact version, for example
+`nextjs-acme@1.0.0`. CommandAgent searches
+`<extension_root>/<id>/<version>` (and the compatible
+`<extension_root>/packs/<id>/<version>` layout) before
+`<workspace>/packs/<id>/<version>`. Every selected directory must contain a
+`pack.sha256` equal to the loaded assist/eval exact-byte hash. A missing pin,
+stale pin, `--pack-hash` mismatch, or profile/intent mismatch exits with code 2
+before run-start evidence is emitted.
+
+```toml
+extension_root = "extensions"
+
+[preset.nextjs_acme_cagentpack]
+pack = "nextjs-acme@1.0.0"
+profile = "nextjs"
+```
 
 ## Legacy extensionless config
 

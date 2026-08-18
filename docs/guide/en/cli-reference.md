@@ -17,7 +17,7 @@ for the TUI. The action selectors are `--prompt`, `--plan-steps`, `--plan-run`,
 selector.
 
 Clap also generates `-h`/`--help` and `-V`/`--version`. They are not part of the
-45 application flags below. The hidden `--completion-contract-json <PATH>` is an
+48 application flags below. The hidden `--completion-contract-json <PATH>` is an
 internal integration surface and is intentionally not a public user flag.
 
 ## Flag reference
@@ -26,6 +26,9 @@ internal integration surface and is intentionally not a public user flag.
 | --- | --- | --- | --- | --- |
 | `--yes` | none | off | Auto-approve mutating tools and resume confirmation. It never auto-kills a busy-port owner. Use only in a trusted workspace. | [Busy ports](troubleshooting.md#preflight-port-n-is-busy) |
 | `--preset` | `<PRESET>` | none | Select a named `[preset.<name>]` assembled from configuration files. | [Presets](configuration.md#presets) |
+| `--pack` | `<ID@VERSION>` | preset `pack`, then none | Activate an exact-version pack. A conflicting preset pack is rejected before the run. | [Pack selection](configuration.md#pack-selection) |
+| `--pack-hash` | `<SHA256>` | verified `pack.sha256` | Require the selected pack's exact-byte hash. Requires `--pack`. | [Pack selection](configuration.md#pack-selection) |
+| `--extension-root` | `<DIR>` | top-level `extension_root`, then none | Search an extension root before repository `packs/` for the selected identity. | [Pack selection](configuration.md#pack-selection) |
 | `--context-budget` | `<CONTEXT_BUDGET>` integer | `65536` | Set the approximate conversation compaction budget. | [Resolved defaults](#important-resolved-defaults) |
 | `--model` | `<MODEL>` | `qwen3.6:27b-coding-nvfp4` | Set the executor model ID. | [Providers](providers.md) |
 | `--provider` | `<PROVIDER>`: `ollama`, `lm-studio`, `openai`, or `gemini` | `ollama` | Select the executor provider. | [Providers](providers.md) |

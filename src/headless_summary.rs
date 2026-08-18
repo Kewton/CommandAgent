@@ -11,10 +11,14 @@ const SCHEMA_VERSION: &str = "commandagent.headless-summary/v1";
 pub(crate) struct Source {
     events_path: Option<PathBuf>,
     model_metadata: Option<ModelMetadata>,
+    pack: Option<crate::cli_pack::ResolvedPack>,
 }
 
 impl Source {
-    pub(crate) fn from_config(config: &Config) -> Self {
+    pub(crate) fn from_config(
+        config: &Config,
+        pack: Option<&crate::cli_pack::ResolvedPack>,
+    ) -> Self {
         Self {
             events_path: config.eval_events_path.clone(),
             model_metadata: Some(ModelMetadata {
@@ -25,6 +29,7 @@ impl Source {
                 ollama_think: config.ollama_think.map(crate::config::OllamaThink::as_str),
                 ollama_think_request_field_present: config.ollama_think.is_some(),
             }),
+            pack: pack.cloned(),
         }
     }
 
@@ -33,6 +38,7 @@ impl Source {
         Self {
             events_path: Some(path.into()),
             model_metadata: None,
+            pack: None,
         }
     }
 }
@@ -63,6 +69,8 @@ struct HeadlessSummary {
     directive_round: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     model_metadata: Option<ModelMetadata>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pack: Option<crate::cli_pack::ResolvedPack>,
 }
 
 pub(crate) fn render(source: &Source) -> String {
@@ -121,6 +129,7 @@ fn project(source: &Source) -> HeadlessSummary {
             .flatten(),
         directive_round: latest_integer(&events, "directive_round").unwrap_or(0),
         model_metadata: source.model_metadata.clone(),
+        pack: source.pack.clone(),
     }
 }
 
@@ -259,6 +268,7 @@ mod tests {
                 ollama_think: Some("medium"),
                 ollama_think_request_field_present: true,
             }),
+            pack: None,
         };
         let value: Value = serde_json::from_str(&render(&source)).unwrap();
 

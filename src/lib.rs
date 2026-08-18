@@ -13,6 +13,7 @@ pub mod bounded_process;
 pub mod build_info;
 pub mod cli;
 mod cli_artifacts;
+mod cli_pack;
 mod cli_panic_boundary;
 mod completion_metadata;
 pub mod config;
@@ -65,14 +66,29 @@ pub fn run(cli: Cli) -> anyhow::Result<()> {
     if cli.doctor {
         return doctor::run_cli(cli);
     }
+    let pack_cli = cli.clone();
     let summary_json = cli.summary_json;
     let config = Config::from_cli(cli)?;
-    let summary_source = summary_json.then(|| headless_summary::Source::from_config(&config));
+    let pack = cli_pack::resolve(&pack_cli, &config)?;
+    let _pack_environment = cli_pack::RuntimeEnvironmentGuard::install(pack.as_ref())?;
+    let summary_source =
+        summary_json.then(|| headless_summary::Source::from_config(&config, pack.as_ref()));
     let result = run_resolved_config(config);
     if let Some(source) = summary_source {
         println!("{}", headless_summary::render(&source));
     }
     result
+}
+
+pub fn cli_error_exit_code(error: &anyhow::Error) -> i32 {
+    if error
+        .chain()
+        .any(|cause| cause.is::<cli_pack::PackCliError>())
+    {
+        2
+    } else {
+        1
+    }
 }
 
 fn run_resolved_config(config: Config) -> anyhow::Result<()> {
