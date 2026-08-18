@@ -2292,9 +2292,19 @@ pub(super) fn verify_plan_final_contract(
     let runtime_ok = runtime_acceptance
         .as_ref()
         .is_none_or(|report| report.passed);
+    let pack_checks = crate::planner::pack::runtime::run_final_acceptance_checks_from_environment(
+        &config.workspace_root,
+        &config.profile,
+        config.resolved_intent(&plan.goal),
+        config.eval_events_path.as_deref(),
+    )?;
+    let pack_checks_ok = pack_checks.as_ref().is_none_or(|summary| summary.passed);
     let release_gate_failed = release_gate.status == "failed";
-    let ok =
-        missing_final_artifacts.is_empty() && external_ok && runtime_ok && !release_gate_failed;
+    let ok = missing_final_artifacts.is_empty()
+        && external_ok
+        && runtime_ok
+        && pack_checks_ok
+        && !release_gate_failed;
     let final_acceptance_status = release_gate_final_acceptance_status(&release_gate);
     let runtime_acceptance_status =
         runtime_acceptance_status(runtime_ok, runtime_acceptance.as_ref());
@@ -2340,6 +2350,11 @@ pub(super) fn verify_plan_final_contract(
         !external_contract_ok_after_runtime_arbitration(Some(*report), runtime_acceptance.as_ref())
     }) {
         report.primary_reason()
+    } else if let Some(reason) = pack_checks
+        .as_ref()
+        .and_then(|summary| summary.primary_reason.clone())
+    {
+        reason
     } else if release_gate_failed {
         format!("release gate failed: {}", release_gate.reasons.join("; "))
     } else {

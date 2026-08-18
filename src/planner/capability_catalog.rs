@@ -10,8 +10,10 @@ mod cli;
 mod data;
 pub mod ingest;
 mod nextjs;
+mod pack;
 pub use cli::{CliCapability, CliCheckKind};
 pub use data::{DataInternalCheck, ProbeCapability};
+pub use pack::PackInternalCheck;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CapabilityKind {
     ShellCheck,
@@ -35,6 +37,8 @@ pub enum ParamType {
     U16,
     Path,
     PathList,
+    GlobList,
+    StringList,
     Enum(&'static [&'static str]),
 }
 
@@ -45,6 +49,8 @@ impl ParamType {
             Self::U16 => "u16".to_string(),
             Self::Path => "path".to_string(),
             Self::PathList => "[path]".to_string(),
+            Self::GlobList => "[glob]".to_string(),
+            Self::StringList => "[string]".to_string(),
             Self::Enum(values) => format!("enum[{}]", values.join(",")),
         }
     }
@@ -79,6 +85,7 @@ pub enum InternalCapability {
     NextjsTestimonyBinding,
     Data(DataInternalCheck),
     Ingest(ingest::IngestInternalCheck),
+    Pack(PackInternalCheck),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -220,7 +227,7 @@ static BASE_REGISTRY: [CapabilitySpec; 5] = [
 ];
 
 pub fn registry() -> &'static [CapabilitySpec] {
-    ingest::registry(&BASE_REGISTRY)
+    pack::combined_registry(ingest::registry(&BASE_REGISTRY))
 }
 
 pub fn resolve(id: &str, params: &Table) -> Result<ResolvedCapability, CatalogError> {
@@ -268,6 +275,7 @@ pub fn resolve(id: &str, params: &Table) -> Result<ResolvedCapability, CatalogEr
         )),
         _ if nextjs::is_id(spec.id) => nextjs::resolve(spec, params),
         _ if cli::is_id(spec.id) => cli::resolve(spec, params),
+        _ if pack::is_id(spec.id) => pack::resolve(spec, params),
         _ => ingest::resolve_or_data(spec, params),
     }
 }

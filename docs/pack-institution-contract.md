@@ -258,14 +258,14 @@ parameter can only reduce an existing bound; zero and a value above the Rust
 maximum are rejected. The source renderer MUST preserve the producer's
 sorting, redaction, truncation, and evidence references.
 
-`pack_material_document` reserves the exact Rust/source ID used by E-17
+`pack_material_document` is the exact Rust/source ID implemented by E-17
 (Issue 116). Its renderer treats the complete hashed material as untrusted
 observation data: it MUST apply credential scrub, a fixed non-instruction
 preamble, source/path-labelled delimiters, and an explicit truncation marker.
 `max_bytes` narrows only the rendered projection; the full material remains in
-the composition hash. This contract reservation does not create an
-implementation: conformance MUST reject the source until the matching Rust
-registry entry and renderer are present.
+the composition hash. Conformance rejects a missing member or credential-like
+material before selection, and the renderer never resolves outside the loaded
+pack composition.
 
 `cli_probe` is timing-valid only at `cli-validation`, after C1 has produced
 the referenced observation in that phase. It cannot be injected at
@@ -282,7 +282,7 @@ inspection gate. The remaining source/point compatibility is:
 | `R_failure_output` | `isolate-cause`, `repair` |
 | `verified_diagnosis` | `implement-fix`, `repair` |
 | `browser_interaction` | `build-verification` after its producing observation only |
-| `pack_material_document` | Next.js create `project-setup`, `core-implementation`, `contract-wiring`, `build-verification` after the E-17 Rust registration only |
+| `pack_material_document` | Next.js create `project-setup`, `core-implementation`, `contract-wiring`, `build-verification` |
 
 Conformance proves that the source is available before prompt rendering. It
 rejects a timing cycle rather than rendering an empty placeholder.
@@ -296,7 +296,7 @@ rejects a timing cycle rather than rendering an empty placeholder.
 | `format` | enum | `text` or `json` |
 | `value` | string | REQUIRED, 1..16384 UTF-8 bytes; JSON must parse when `format=json` |
 
-`gate` is exactly one of the 19 registered evaluation IDs:
+`gate` is exactly one of the 22 registered evaluation IDs:
 
 ```text
 pipeline_probe
@@ -318,6 +318,9 @@ ingest_source_binding
 ingest_candidate_accounting
 ingest_format_schema
 ingest_rerun_consistency
+path_layout_conforms
+design_tokens_only
+lint_config_present
 ```
 
 A literal is guidance, never evidence. The runtime MUST prefix it with the
@@ -413,7 +416,7 @@ At least one of `checks` or `schemas` MUST be non-empty.
 
 | Key | Type | Rule |
 |---|---|---|
-| `id` | enum | one of the 19 gate IDs in section 3.4 |
+| `id` | enum | one of the 22 gate IDs in section 3.4 |
 | `at` | `At` mapping | REQUIRED and compatible with the registered check |
 | `extraction` | sequence of extractor IDs | optional; exact registered order when the check has extractors |
 | `normalizers` | sequence of normalizer IDs | optional; unique, order significant |
@@ -451,6 +454,7 @@ For `phase`, `id` is REQUIRED and is one of the point IDs in section 3.2. For
 | `reproducer_fails`, `diagnosis_bound` | `{kind: stage, id: diagnosis}` |
 | all four CLI checks | `{kind: final_acceptance}` |
 | ingest `pipeline_probe` and N2-N5 | `{kind: final_acceptance}` |
+| `path_layout_conforms`, `design_tokens_only`, `lint_config_present` for Next.js create | `{kind: final_acceptance}` |
 
 The shared `pipeline_probe` is disambiguated by `pack.profile`; it cannot be
 used for an unsupported profile.
@@ -465,7 +469,22 @@ Check parameter schemas are:
   `cli/main.py`, `usage_paths` can only preserve or extend the registered
   ordered list with confined documentation paths, and timeout is a positive
   integer no greater than 5;
+- `path_layout_conforms`: `required` is 1..64 unique workspace-relative glob
+  strings and `forbidden` is an optional 0..64 unique glob list; absolute,
+  parent-containing, NUL, backslash, and invalid glob forms are rejected;
+- `design_tokens_only`: `css_globs` is a required 1..64 glob list,
+  `tokens_file` is one confined workspace-relative path, and `allow` is an
+  optional 0..64 unique literal list; it rejects raw hex, `rgb(`/`rgba(`, and
+  `hsl(`/`hsla(` color literals outside the token file unless the exact
+  matched literal is allowed;
+- `lint_config_present`: `path` is one confined workspace-relative file and
+  `must_contain` is an optional 0..64 unique literal list;
 - every other check takes `{}` in v0.
+
+The three generic convention checks are additive-only for the initial Next.js
+create binding. They execute as bounded Rust filesystem checks, launch no
+shell command, emit `pack_check_result`, and cannot replace or weaken a
+profile-floor check.
 
 Changing an entry point, increasing a bound, or moving a check is a floor
 violation rather than parameterization.
@@ -781,7 +800,7 @@ code review, focused tests, conformance, and CI.
 |---|---|---|---|
 | cli-assist actual output | `source=cli_probe`, `point=cli-validation`, after C1 observation | none; current C1 evidence is not prompt material | typed bounded renderer, within-phase timing hook, source/point compatibility registration, real C1 fixture, additive rendering golden; using it at `cli-implementation` is rejected |
 | data-assist actual structure | `source=data_inspection_schema`, `point=data-cleaning` or a later data phase | none; current literal guidance remains the contract floor | typed renderer of canonical inspection evidence, ordering proof after `data-inspection`, measured fixture and scrub |
-| nextjs-eval testimony gate | no valid v0 binding yet | none | implement and register the Rust testimony check/capability and its real fixture first; only its final registered ID can then enter this contract's closed gate/check vocabulary |
+| nextjs-acme convention fixture | `source=pack_material_document` at `project-setup`/`contract-wiring`; `path_layout_conforms`, `design_tokens_only`, and `lint_config_present` at `final_acceptance` | none; the existing Next.js build/browser/hook/testimony floor remains Rust/manifest-owned | implemented by E-17 as the unadmitted repository fixture `nextjs-acme@1.0.0`; admission and a measured band remain separate work |
 
 The existing ingest structure and frozen-ID injectors are the byte-compatible
 reference migrations for loader implementation:

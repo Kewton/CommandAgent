@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, bail};
 use serde::{Deserialize, Serialize};
 use serde_yaml::Value as YamlValue;
+use toml::value::Table;
 
 use super::{
     AssistSource, Injection, InjectionPoint, LoadedPack, PackIntent, PackProfile, conform,
@@ -121,6 +122,103 @@ pub(crate) fn emit_score_checkpoint_from_environment(
     super::score::emit_checkpoint(&pack, root, events_path)
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RuntimePackCheckSummary {
+    pub(crate) passed: bool,
+    pub(crate) check_count: usize,
+    pub(crate) primary_reason: Option<String>,
+}
+
+pub(crate) fn run_final_acceptance_checks_from_environment(
+    root: &Path,
+    profile: &str,
+    intent: &str,
+    events_path: Option<&Path>,
+) -> anyhow::Result<Option<RuntimePackCheckSummary>> {
+    let selection = RuntimeSelection::from_environment()?;
+    run_final_acceptance_checks(root, profile, intent, events_path, selection.as_ref())
+}
+
+fn run_final_acceptance_checks(
+    root: &Path,
+    profile: &str,
+    intent: &str,
+    events_path: Option<&Path>,
+    selection: Option<&RuntimeSelection>,
+) -> anyhow::Result<Option<RuntimePackCheckSummary>> {
+    let Some(selection) = selection else {
+        return Ok(None);
+    };
+    let pack = load_selected(selection, profile, intent)?;
+    let Some(eval) = &pack.eval else {
+        return Ok(Some(RuntimePackCheckSummary {
+            passed: true,
+            check_count: 0,
+            primary_reason: None,
+        }));
+    };
+    let mut check_count = 0;
+    let mut primary_reason = None;
+    for binding in &eval.checks {
+        let mut params = Table::new();
+        for (name, value) in &binding.params {
+            params.insert(
+                name.clone(),
+                super::schema::yaml_to_toml(value).map_err(anyhow::Error::msg)?,
+            );
+        }
+        let capability = crate::planner::capability_catalog::resolve(binding.id.as_str(), &params)
+            .map_err(anyhow::Error::msg)?;
+        let crate::planner::capability_catalog::ResolvedCapability::Internal(
+            crate::planner::capability_catalog::InternalCapability::Pack(check),
+        ) = capability
+        else {
+            continue;
+        };
+        check_count += 1;
+        let result = match super::checks::execute(root, &check) {
+            Ok(result) => result,
+            Err(error) => super::checks::PackCheckResult {
+                id: super::checks::id(&check),
+                passed: false,
+                reasons: vec![format!("check execution failed: {error:#}")],
+            },
+        };
+        if !result.passed && primary_reason.is_none() {
+            primary_reason = Some(format!(
+                "pack check `{}` failed: {}",
+                result.id,
+                result
+                    .reasons
+                    .first()
+                    .map(String::as_str)
+                    .unwrap_or("unspecified failure")
+            ));
+        }
+        crate::eval_events::emit(
+            events_path,
+            serde_json::json!({
+                "event": "pack_check_result",
+                "pack_id": pack.id(),
+                "pack_version": &pack.identity.version,
+                "pack_hash": &pack.hash,
+                "check_id": result.id,
+                "at": "final_acceptance",
+                "status": if result.passed { "passed" } else { "failed" },
+                "reasons": result.reasons
+                    .iter()
+                    .map(|reason| crate::eval_events::body_snippet(reason))
+                    .collect::<Vec<_>>(),
+            }),
+        );
+    }
+    Ok(Some(RuntimePackCheckSummary {
+        passed: primary_reason.is_none(),
+        check_count,
+        primary_reason,
+    }))
+}
+
 fn append_phase_material(
     prompt: String,
     root: &Path,
@@ -145,6 +243,9 @@ fn append_phase_material(
         match injection.source {
             AssistSource::DataInspectionSchema => {
                 rendered.push(data::render_inspection(root, &pack, injection)?);
+            }
+            AssistSource::PackMaterialDocument => {
+                rendered.push(super::material_document::render(&pack, injection)?);
             }
             // C1 is produced by final acceptance, so this source is
             // deliberately deferred to the within-phase repair hook below.
@@ -552,5 +653,91 @@ mod tests {
             bounded_utf8("abc日本語", 5),
             "abc\n...[truncated at 5 bytes]"
         );
+    }
+
+    #[test]
+    fn nextjs_material_renders_golden_and_three_checks_emit_events() {
+        let root = tempfile::tempdir().unwrap();
+        let selection = pack_selection("nextjs-acme");
+        let rendered = append_phase_material(
+            "phase prompt".to_string(),
+            root.path(),
+            "nextjs",
+            "create",
+            "project-setup",
+            Some(&selection),
+        )
+        .unwrap();
+        assert_eq!(
+            rendered,
+            include_str!("../../../tests/golden/pack_nextjs_acme_project_setup.txt")
+        );
+
+        for (relative, content) in [
+            (
+                "src/app/page.tsx",
+                "export default function Page() { return null }",
+            ),
+            (
+                "src/app/layout.tsx",
+                "export default function Layout() { return null }",
+            ),
+            ("src/components/card.tsx", "export const Card = () => null"),
+            ("src/app/tokens.css", ":root { --ink: #112233; }"),
+            ("src/app/globals.css", "body { color: var(--ink); }"),
+            (
+                "eslint.config.mjs",
+                "export default ['next/core-web-vitals'];",
+            ),
+        ] {
+            write(root.path(), relative, content);
+        }
+        let events = root.path().join("events.jsonl");
+        let summary = run_final_acceptance_checks(
+            root.path(),
+            "nextjs",
+            "create",
+            Some(&events),
+            Some(&selection),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(summary.passed);
+        assert_eq!(summary.check_count, 3);
+        let emitted = std::fs::read_to_string(events).unwrap();
+        assert_eq!(emitted.matches(r#""event":"pack_check_result""#).count(), 3);
+        for id in [
+            "path_layout_conforms",
+            "design_tokens_only",
+            "lint_config_present",
+        ] {
+            assert!(emitted.contains(id), "{emitted}");
+        }
+    }
+
+    #[test]
+    fn selected_pack_check_failures_remain_acceptance_failures() {
+        let root = tempfile::tempdir().unwrap();
+        let selection = pack_selection("nextjs-acme");
+        let events = root.path().join("events.jsonl");
+        let summary = run_final_acceptance_checks(
+            root.path(),
+            "nextjs",
+            "create",
+            Some(&events),
+            Some(&selection),
+        )
+        .unwrap()
+        .unwrap();
+        assert!(!summary.passed);
+        assert_eq!(summary.check_count, 3);
+        assert!(
+            summary
+                .primary_reason
+                .as_deref()
+                .is_some_and(|reason| reason.contains("path_layout_conforms"))
+        );
+        let emitted = std::fs::read_to_string(events).unwrap();
+        assert_eq!(emitted.matches(r#""status":"failed""#).count(), 3);
     }
 }

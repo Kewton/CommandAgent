@@ -1,0 +1,45 @@
+schema_version: commandagent.pack.eval/v0
+pack:
+  id: nextjs-acme
+  version: 1.0.0
+  profile: nextjs
+  intent: create
+checks:
+  - id: path_layout_conforms
+    at:
+      kind: final_acceptance
+    params:
+      required:
+        - src/app/page.tsx
+        - src/app/layout.tsx
+        - src/components/**
+      forbidden:
+        - pages/**
+  - id: design_tokens_only
+    at:
+      kind: final_acceptance
+    params:
+      css_globs:
+        - src/**/*.css
+      tokens_file: src/app/tokens.css
+      allow:
+        - transparent
+  - id: lint_config_present
+    at:
+      kind: final_acceptance
+    params:
+      path: eslint.config.mjs
+      must_contain:
+        - next/core-web-vitals
+schemas:
+  - artifact: package.json
+    format: json
+    root: object
+    fields:
+      - name: scripts
+        type: object
+        required: true
+      - name: dependencies
+        type: object
+        required: true
+    additional_fields: true
