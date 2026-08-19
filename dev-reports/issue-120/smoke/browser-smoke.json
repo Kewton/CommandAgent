@@ -1,0 +1,227 @@
+{
+  "schema_version": "commandagent.gui-smoke/v2",
+  "generated_at": "2026-08-19T04:47:56.339Z",
+  "playwright": {
+    "source": "managed_interaction_probe",
+    "version": "1.61.1"
+  },
+  "delegate": {
+    "mode": "overview_only",
+    "commandagent_bin": "/Users/maenokota/share/work/github_kewton/CommandAgent-issue-120-gui/target/release/commandagent",
+    "provider": "ollama",
+    "model": "qwen3:8b",
+    "fixture": "/Users/maenokota/share/work/github_kewton/CommandAgent-issue-120-gui/tests/corpus/apps/test0725_cli_elev_003/fixtures",
+    "scratch_runtime": "removed_after_success"
+  },
+  "cases": [
+    {
+      "id": "root",
+      "base_path": "/",
+      "dashboard": {
+        "assets_link": "/assets/",
+        "primary_navigation": [
+          "01\n概要",
+          "02\nトライアル",
+          "03\n検証・運用レポート",
+          "04\n計測"
+        ],
+        "status": 200,
+        "heading": "概要",
+        "title": "概要 | CommandAgent",
+        "run_count": "8 / 195",
+        "expected_run_count": "8 / 195",
+        "status_badges": [
+          "FAILED / OPEN FOR RELEASE.",
+          "RECORDED",
+          "RECORDED",
+          "RECORDED",
+          "RECORDED",
+          "RECORDED",
+          "RECORDED",
+          "RECORDED"
+        ],
+        "status_badges_are_plain_text": true,
+        "getting_started": {
+          "prerequisite_statuses": [
+            "ready",
+            "action_required",
+            "action_required"
+          ],
+          "sample_preset": {
+            "goal": "Create a CLI --pattern filter command",
+            "profile": "python-cli",
+            "pack": "cli-assist@1.0.0",
+            "primer": "Gate 1 は CLI 実行前の確認です\n\n目標、正確なモデル ID、変更範囲、検証条件をカードで確認します。 サンプルも自動実行されず、確認チェックを入れるまで CLI は起動しません。"
+          },
+          "dismissal_persists_in_tab": true
+        }
+      },
+      "api_checks": [
+        {
+          "endpoint": "runs",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "bands",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "maps",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "packs",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "contracts",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "suites",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "reports",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "runtime-status",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "trial-options",
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ],
+      "svg": {
+        "complete": true,
+        "naturalWidth": 1400,
+        "source": "/api/maps/score-time.svg"
+      },
+      "links_use_base_path": true,
+      "run_ledger_accessibility": {
+        "columnHeadingsHidden": true,
+        "invalidTableRoleCount": 0,
+        "nativeLinkRows": true
+      },
+      "elapsed_seconds": 6.192,
+      "unexpected_console_errors": [],
+      "ok": true
+    },
+    {
+      "id": "proxy-commandagent",
+      "base_path": "/proxy/commandagent/",
+      "dashboard": {
+        "assets_link": "/proxy/commandagent/assets/",
+        "primary_navigation": [
+          "01\n概要",
+          "02\nトライアル",
+          "03\n検証・運用レポート",
+          "04\n計測"
+        ],
+        "status": 200,
+        "heading": "概要",
+        "title": "概要 | CommandAgent",
+        "run_count": "8 / 195",
+        "expected_run_count": "8 / 195",
+        "status_badges": [
+          "FAILED / OPEN FOR RELEASE.",
+          "RECORDED",
+          "RECORDED",
+          "RECORDED",
+          "RECORDED",
+          "RECORDED",
+          "RECORDED",
+          "RECORDED"
+        ],
+        "status_badges_are_plain_text": true,
+        "getting_started": {
+          "prerequisite_statuses": [
+            "ready",
+            "action_required",
+            "action_required"
+          ],
+          "sample_preset": {
+            "goal": "Create a CLI --pattern filter command",
+            "profile": "python-cli",
+            "pack": "cli-assist@1.0.0",
+            "primer": "Gate 1 は CLI 実行前の確認です\n\n目標、正確なモデル ID、変更範囲、検証条件をカードで確認します。 サンプルも自動実行されず、確認チェックを入れるまで CLI は起動しません。"
+          },
+          "dismissal_persists_in_tab": true
+        }
+      },
+      "api_checks": [
+        {
+          "endpoint": "runs",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "bands",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "maps",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "packs",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "contracts",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "suites",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "reports",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "runtime-status",
+          "status": 200,
+          "contentType": "application/json"
+        },
+        {
+          "endpoint": "trial-options",
+          "status": 200,
+          "contentType": "application/json"
+        }
+      ],
+      "svg": {
+        "complete": true,
+        "naturalWidth": 1400,
+        "source": "/proxy/commandagent/api/maps/score-time.svg"
+      },
+      "links_use_base_path": true,
+      "run_ledger_accessibility": {
+        "columnHeadingsHidden": true,
+        "invalidTableRoleCount": 0,
+        "nativeLinkRows": true
+      },
+      "elapsed_seconds": 6.086,
+      "unexpected_console_errors": [],
+      "ok": true
+    }
+  ],
+  "ok": true
+}

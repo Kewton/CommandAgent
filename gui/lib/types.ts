@@ -204,8 +204,18 @@ export type DirectiveProposal = {
 export type RuntimeStatus = {
   trial_available: boolean;
   trial_token_auth_enabled: boolean;
+  prerequisites: {
+    execution_root: RuntimePrerequisite;
+    commandagent_binary: RuntimePrerequisite;
+    trial_authentication: RuntimePrerequisite;
+  };
   session: {
     id: string;
     state: "running" | "recovery_required";
   } | null;
+};
+
+export type RuntimePrerequisite = {
+  status: "ready" | "unconfigured" | "action_required";
+  detail: string;
 };

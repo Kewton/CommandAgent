@@ -133,6 +133,13 @@ export function TrialRun() {
             </div>
             <span className="gate-chip">{stageLabel(stage, session)}</span>
           </header>
+          <div className="gate-one-primer" data-testid="gate-one-primer">
+            <strong>Gate 1 は CLI 実行前の確認です</strong>
+            <p>
+              目標、正確なモデル ID、変更範囲、検証条件をカードで確認します。
+              サンプルも自動実行されず、確認チェックを入れるまで CLI は起動しません。
+            </p>
+          </div>
           <label htmlFor="trial-goal">目標</label>
           <textarea
             data-testid="trial-goal"
