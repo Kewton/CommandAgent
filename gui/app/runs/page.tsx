@@ -7,21 +7,9 @@ import { Shell } from "../../components/shell";
 import { EmptyState, ErrorState, LoadingState } from "../../components/states";
 import { apiPath, routePath, withBasePath } from "../../lib/base-path";
 import { describeError, responseError } from "../../lib/errors";
+import { byteLabel, dateLabel } from "../../lib/format";
 import type { DocumentRecord, RunDetail, RunIndex } from "../../lib/types";
 import { useResource } from "../../lib/use-resource";
-
-function byteLabel(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  return `${(bytes / 1024).toFixed(1)} KiB`;
-}
-
-function dateLabel(epochSeconds: number): string {
-  if (epochSeconds === 0) return "時刻不明";
-  return new Intl.DateTimeFormat("ja-JP", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(epochSeconds * 1000));
-}
 
 export default function RunDetailPage() {
   const runs = useResource<RunIndex>("runs");
@@ -71,7 +59,7 @@ export default function RunDetailPage() {
     const query = filter.trim().toLocaleLowerCase("ja-JP");
     if (query === "") return available;
     return available.filter((run) =>
-      [run.id, dateLabel(run.modified_epoch_seconds), run.status_text, run.state]
+      [run.id, dateLabel(run.modified_epoch_seconds, "時刻不明"), run.status_text, run.state]
         .join(" ")
         .toLocaleLowerCase("ja-JP")
         .includes(query),
@@ -135,7 +123,7 @@ export default function RunDetailPage() {
             <option value="">実行を選択…</option>
             {filteredRuns.map((run) => (
               <option key={run.id} value={run.id}>
-                {dateLabel(run.modified_epoch_seconds)} — {run.status_text} — {run.id}
+                {dateLabel(run.modified_epoch_seconds, "時刻不明")} — {run.status_text} — {run.id}
               </option>
             ))}
           </select>

@@ -151,7 +151,7 @@ export function describeError(reason: unknown): string {
   }
 }
 
-export function isDefinitiveTrialTokenRejection(reason: unknown): boolean {
+export function isTrialTokenRejected(reason: unknown): boolean {
   if (typeof reason !== "object" || reason === null) return false;
   return (reason as { code?: unknown }).code === "trial_token_invalid";
 }
