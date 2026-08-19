@@ -1582,3 +1582,33 @@ Eは同一計器24本を追加して24/36 full（Wilson 50.33–79.79%）、p50 
 A差−16.67pp（Newcombe −36.92〜+14.38pp）。採用はowner裁定待ちで既定を変えない。
 封緘3層は不変。CM意思決定窓は$0.54765442、pricing解決可能な既知下限は
 $0.59891944。未返済QUEUEDはL2 verify起動形とglobal集約/schema v0.2の2件。
+
+## E-01 — 未署名ローカル pack 供給契約 v0.1（2026-08-19）
+
+P-0bのinventory→draft→review→seal手順を踏襲し、pack制度をrepository
+`packs/`だけから、明示`--extension-root`配下の未署名operator-local供給まで
+加法改訂した。Rust/APIの供給型は`PackSource`、保存値は
+`admitted | repository | local`に固定した。localはTrial token＋Origin境界から
+stage/verify/pin/retireできるが、未承認・帯域未計測・pack固有保証なしであり、
+extension-root→repositoryの解決順とshadow警告を必須表示とした。retireは削除で
+なく`RETIRED` markerによる新規選択不可で、bytes・pin・履歴を残す。
+
+契約v0.1は`materials/*.md`を正式hash memberへ追加した。直下UTF-8 Markdown
+だけ、1件65,536 bytes、合計262,144 bytes、symlink不可とし、relative path bytes
+昇順で既存のpath/content長接頭辞列へ連結する。domain separatorは
+`commandagent-pack-v0\0`を維持するため、materials無しの既存pack hashは不変。
+E-17が実装する予約source名は`pack_material_document`、paramsは`file`と
+`max_bytes`（既定16,384、上限65,536）に固定し、規約Markdownを命令でなく
+credential-scrub済みuntrusted observationとして区切って描画する。
+
+extension journalは`JournalEntry`と
+`planner::pack::supply::journal::append`をAPI名とし、RFC3339 `ts`、
+`gui|cli` actor、`stage|verify|pin|retire` action、exact pack identity、
+`ok|error` result、scrub済み`detail`のappend-only JSONLへ固定した。local pinの
+conformanceはstrict/identity/closed vocabulary/compatibility/floor/path・bound・
+scrubを必須とし、実測fixtureとgoldenはadmitted昇格条件のまま維持する。
+
+D-3c §4はpinned local/repositoryの明示選択と日本語の未承認表示を取り込み、
+単に存在するYAMLを列挙しない原則を維持した。Phase Gへ残すのは署名、publisher
+identity、trust root、revocation、remote transportであり、今回のoperator-local
+供給を署名代替またはadmissionと扱わない。

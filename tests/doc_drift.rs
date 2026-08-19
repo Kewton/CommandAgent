@@ -340,3 +340,86 @@ fn demo_docs_distinguish_scripted_assets_from_provider_backed_recording() {
         );
     }
 }
+
+#[test]
+fn pack_supply_contract_v0_1_is_fixed_across_institution_docs() {
+    let contract_path = "docs/pack-institution-contract.md";
+    let contract = read_repo_file(contract_path);
+    for marker in [
+        "Status: fixed v0.1 (2026-08-19)",
+        "materials/<name>.md",
+        "bytewise_sort(direct material paths)",
+        "commandagent-pack-v0\\0",
+        "65,536 bytes",
+        "262,144 bytes",
+        "pack_material_document",
+        "default `16384`",
+        "type name is exactly `PackSource`",
+        "Admitted",
+        "Repository",
+        "Local",
+        "`admitted`",
+        "`repository`",
+        "`local`",
+        "`JournalEntry`",
+        "stage|verify|pin|retire",
+        "gui|cli",
+        "ok|error",
+        "Signed or remote supply",
+    ] {
+        assert!(
+            contract.contains(marker),
+            "{contract_path} is missing fixed v0.1 marker {marker:?}"
+        );
+    }
+
+    for display in [
+        "承認済み",
+        "リポジトリ（未承認）",
+        "ローカル（未承認・帯域未計測）",
+    ] {
+        assert!(
+            contract.contains(display),
+            "{contract_path} is missing supply display {display:?}"
+        );
+    }
+
+    let shell_path = "docs/d3c-shell-design.md";
+    let shell = read_repo_file(shell_path);
+    let selection = markdown_section(&shell, "## 4. Pack-selection surface", shell_path);
+    for marker in [
+        "`PackSource`",
+        "`admitted | repository | local`",
+        "exact-byte pinned and not retired",
+        "merely present\nYAML file is never a Gate 1 candidate",
+        "ローカル（未承認・帯域未計測）",
+        "signed/remote supply",
+    ] {
+        assert!(
+            selection.contains(marker),
+            "{shell_path} section 4 is missing fixed supply marker {marker:?}"
+        );
+    }
+
+    let integration = read_repo_file("docs/dev/integration-notes.md");
+    assert!(
+        integration.contains("PACK SUPPLY CONTRACT v0.1 FIXED; IMPLEMENTATION QUEUED")
+            && integration
+                .contains("Signed/remote supply, publisher trust, and revocation remain Phase G"),
+        "Phase E exit index must carry the v0.1/Phase G disposition"
+    );
+
+    let ledger = read_repo_file("docs/dev/mechanism-ledger.md");
+    for marker in [
+        "E-01 — 未署名ローカル pack 供給契約 v0.1",
+        "`PackSource`",
+        "`pack_material_document`",
+        "`JournalEntry`",
+        "Phase Gへ残すのは署名",
+    ] {
+        assert!(
+            ledger.contains(marker),
+            "mechanism ledger is missing Issue 104 decision marker {marker:?}"
+        );
+    }
+}
